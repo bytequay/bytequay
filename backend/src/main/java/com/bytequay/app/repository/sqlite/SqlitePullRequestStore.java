@@ -1,0 +1,239 @@
+/*
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+package com.bytequay.app.repository.sqlite;
+
+import com.bytequay.app.domain.AttentionReason;
+import com.bytequay.app.domain.PrViewState;
+import com.bytequay.app.domain.PullRequest;
+import com.bytequay.app.domain.PullRequestDetail;
+import com.bytequay.app.repository.PrViewStateStore;
+import com.bytequay.app.repository.PullRequestStore;
+import com.google.common.collect.ImmutableList;
+import com.google.common.collect.Sets;
+import org.springframework.stereotype.Repository;
+import org.springframework.transaction.annotation.Transactional;
+
+import java.time.Instant;
+import java.time.temporal.ChronoUnit;
+import java.util.List;
+import java.util.Map;
+import java.util.Optional;
+import java.util.Set;
+
+import static com.google.common.collect.ImmutableList.toImmutableList;
+import static com.google.common.collect.ImmutableMap.toImmutableMap;
+import static com.google.common.collect.ImmutableSet.toImmutableSet;
+import static java.util.Objects.requireNonNull;
+
+@Repository
+public class SqlitePullRequestStore
+        implements PullRequestStore
+{
+    // How long a recently-handled PR stays in the list after it falls out of
+    // the GitHub search results. GitHub removes a PR from the
+    // `review-requested:@me` search the moment you submit a review, so
+    // without this retention window, a PR disappears from our Handled view
+    // seconds after you approve it.
+    private static final int HANDLED_RETENTION_DAYS = 30;
+
+    private final PullRequestJpaRepository jpaRepository;
+    private final PrViewStateStore viewStateStore;
+
+    public SqlitePullRequestStore(PullRequestJpaRepository jpaRepository, PrViewStateStore viewStateStore)
+    {
+        this.jpaRepository = requireNonNull(jpaRepository, "jpaRepository is null");
+        this.viewStateStore = requireNonNull(viewStateStore, "viewStateStore is null");
+    }
+
+    @Override
+    public List<PullRequest> findAll()
+    {
+        Map<Long, PrViewState> stateByPrId = viewStateStore.findAll();
+        return jpaRepository.findAll().stream()
+                .map(e -> toDomain(e, stateByPrId.get(e.getId())))
+                .collect(toImmutableList());
+    }
+
+    @Override
+    @Transactional
+    public void replaceAll(List<PullRequest> pullRequests)
+    {
+        Instant now = Instant.now();
+        Set<Long> protectedIds = handledPrIdsWithinRetention(now);
+
+        if (pullRequests.isEmpty()) {
+            if (protectedIds.isEmpty()) {
+                jpaRepository.deleteAll();
+            }
+            else {
+                jpaRepository.deleteAllByIdNotIn(protectedIds);
+            }
+            return;
+        }
+
+        Set<Long> freshIds = pullRequests.stream()
+                .map(PullRequest::id)
+                .collect(toImmutableSet());
+
+        List<PullRequestEntity> entities = pullRequests.stream()
+                .map(pr -> toEntity(pr, now))
+                .collect(toImmutableList());
+
+        jpaRepository.saveAll(entities);
+
+        Set<Long> keep = Sets.newHashSet(freshIds);
+        keep.addAll(protectedIds);
+        jpaRepository.deleteAllByIdNotIn(keep);
+    }
+
+    /**
+     * PRs the user has handled (reviewed, approved, merged, dismissed…) in the
+     * last {@value HANDLED_RETENTION_DAYS} days. These are preserved in the
+     * pr table even after they drop out of the GitHub search results, so the
+     * Handled view keeps showing them until the retention window elapses.
+     */
+    private Set<Long> handledPrIdsWithinRetention(Instant now)
+    {
+        Instant cutoff = now.minus(HANDLED_RETENTION_DAYS, ChronoUnit.DAYS);
+        return viewStateStore.findAll().values().stream()
+                .filter(s -> s.reviewedAt() != null && s.reviewedAt().isAfter(cutoff))
+                .map(PrViewState::prId)
+                .collect(toImmutableSet());
+    }
+
+    @Override
+    public Optional<Instant> lastSyncedAt()
+    {
+        return jpaRepository.findMaxSyncedAt();
+    }
+
+    @Override
+    public Map<Long, Instant> findUpdatedAtMap()
+    {
+        return jpaRepository.findAll().stream()
+                .collect(toImmutableMap(PullRequestEntity::getId, PullRequestEntity::getUpdatedAt));
+    }
+
+    @Override
+    public Optional<Long> findIdByRepoAndNumber(String repo, int number)
+    {
+        return jpaRepository.findIdByRepoAndNumber(repo, number);
+    }
+
+    @Override
+    public Optional<PullRequest> findById(long prId)
+    {
+        Map<Long, PrViewState> stateByPrId = viewStateStore.findAll();
+        return jpaRepository.findById(prId)
+                .map(entity -> toDomain(entity, stateByPrId.get(entity.getId())));
+    }
+
+    @Override
+    @Transactional
+    public void updateEnrichment(
+            long prId,
+            PullRequestDetail.CiStatus ciStatus,
+            int additions,
+            int deletions,
+            int commentCount,
+            AttentionReason attentionReason,
+            Boolean mergeable,
+            String mergeableState,
+            Instant headPushedAt,
+            Map<String, String> reviewerVerdicts)
+    {
+        jpaRepository.findById(prId).ifPresent(entity -> {
+            entity.setCiStatus(ciStatus);
+            entity.setAdditions(additions);
+            entity.setDeletions(deletions);
+            entity.setCommentCount(commentCount);
+            entity.setAttentionReason(attentionReason);
+            entity.setMergeable(mergeable);
+            entity.setMergeableState(mergeableState);
+            entity.setHeadPushedAt(headPushedAt);
+            entity.setReviewerVerdicts(reviewerVerdicts);
+            jpaRepository.save(entity);
+        });
+    }
+
+    private static PullRequestEntity toEntity(PullRequest pr, Instant syncedAt)
+    {
+        PullRequestEntity entity = new PullRequestEntity();
+        entity.setId(pr.id());
+        entity.setRepo(pr.repo());
+        entity.setNumber(pr.number());
+        entity.setTitle(pr.title());
+        entity.setAuthor(pr.author());
+        entity.setHtmlUrl(pr.htmlUrl());
+        entity.setCreatedAt(pr.createdAt());
+        entity.setUpdatedAt(pr.updatedAt());
+        entity.setOrigin(pr.origin().name());
+        entity.setLabels(pr.labels());
+        entity.setLabelColors(pr.labelColors());
+        entity.setDraft(pr.draft());
+        entity.setSyncedAt(syncedAt);
+        // Detail-derived enrichment is set by the sync job after the per-PR
+        // detail fetch, not from the search response — leave the defaults
+        // here unless the caller already populated them.
+        entity.setCiStatus(pr.ciStatus());
+        entity.setCommentCount(pr.commentCount());
+        entity.setAdditions(pr.additions());
+        entity.setDeletions(pr.deletions());
+        entity.setAttentionReason(pr.attentionReason());
+        // V26 list-level fields. state/closedAt/mergedAt come straight from
+        // the GitHub list response; the rest are filled by updateEnrichment
+        // after the next detail sync.
+        entity.setState(pr.state());
+        entity.setClosedAt(pr.closedAt());
+        entity.setMergedAt(pr.mergedAt());
+        entity.setMergeable(pr.mergeable());
+        entity.setMergeableState(pr.mergeableState());
+        entity.setHeadPushedAt(pr.headPushedAt());
+        entity.setReviewerVerdicts(pr.reviewerVerdicts());
+        return entity;
+    }
+
+    private static PullRequest toDomain(PullRequestEntity entity, PrViewState state)
+    {
+        return new PullRequest(
+                entity.getId(),
+                entity.getRepo(),
+                entity.getNumber(),
+                entity.getTitle(),
+                entity.getAuthor(),
+                entity.getHtmlUrl(),
+                entity.getCreatedAt(),
+                entity.getUpdatedAt(),
+                PullRequest.Origin.valueOf(entity.getOrigin()),
+                entity.getLabels(),
+                entity.getLabelColors(),
+                entity.isDraft(),
+                Optional.ofNullable(state).map(PrViewState::viewedAt).orElse(null),
+                Optional.ofNullable(state).map(PrViewState::reviewedAt).orElse(null),
+                Optional.ofNullable(state).map(PrViewState::handledAction).orElse(null),
+                ImmutableList.of(),
+                entity.getCiStatus(),
+                entity.getAdditions(),
+                entity.getDeletions(),
+                entity.getCommentCount(),
+                entity.getAttentionReason(),
+                entity.getState(),
+                entity.getClosedAt(),
+                entity.getMergedAt(),
+                entity.getMergeable(),
+                entity.getMergeableState(),
+                entity.getHeadPushedAt(),
+                entity.getReviewerVerdicts());
+    }
+}

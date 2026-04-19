@@ -1,0 +1,255 @@
+/* ── Teams ──────────────────────────────────────────────────────────── */
+
+.team-list {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.team-row {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  gap: 14px;
+  align-items: center;
+  padding: 13px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--bg-elevated);
+  cursor: pointer;
+  text-align: left;
+  font: inherit;
+  color: var(--text-1);
+  transition: border-color 120ms ease, box-shadow 120ms ease, transform 120ms ease;
+}
+.team-row:hover {
+  border-color: var(--accent-a40);
+  box-shadow: 0 1px 3px rgba(16, 22, 26, 0.08);
+  transform: translateY(-1px);
+}
+
+.team-avatar {
+  width: 36px;
+  height: 36px;
+  border-radius: 9px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: white;
+  font-size: 14px;
+  font-weight: 700;
+  flex-shrink: 0;
+}
+.team-avatar--purple { background: linear-gradient(135deg, #a78bfa, #6366f1); }
+.team-avatar--green  { background: linear-gradient(135deg, #4ade80, #16a34a); }
+.team-avatar--orange { background: linear-gradient(135deg, #fb923c, #ea580c); }
+
+.team-row__name {
+  font-weight: 600;
+  font-size: 14px;
+  color: var(--text-1);
+}
+.team-row__meta {
+  font-size: 12px;
+  color: var(--text-3);
+  margin-top: 2px;
+}
+.team-row__actions {
+  display: flex;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+/* Color swatches in the editor — square, slightly oversized for click area. */
+.team-color-swatch {
+  appearance: none;
+  border: 2px solid transparent;
+  border-radius: 8px;
+  width: 32px;
+  height: 32px;
+  cursor: pointer;
+  padding: 0;
+}
+.team-color-swatch--purple { background: linear-gradient(135deg, #a78bfa, #6366f1); }
+.team-color-swatch--green  { background: linear-gradient(135deg, #4ade80, #16a34a); }
+.team-color-swatch--orange { background: linear-gradient(135deg, #fb923c, #ea580c); }
+.team-color-swatch--active {
+  border-color: var(--text-1);
+  box-shadow: 0 0 0 2px var(--bg-elevated), 0 0 0 4px var(--accent);
+}
+
+/* Team detail page: header + kanban. Sibling to PullRequestList — claims
+   v2-page-style full height. */
+.team-detail {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  background: var(--bg-base);
+}
+
+.team-detail__head {
+  flex: 0 0 auto;
+  padding: 14px 22px 12px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-elevated);
+}
+
+.team-detail__breadcrumb {
+  margin-bottom: 8px;
+}
+
+.team-detail__crumb {
+  appearance: none;
+  background: transparent;
+  border: none;
+  color: var(--text-3);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+  padding: 2px 4px;
+  border-radius: 4px;
+}
+.team-detail__crumb:hover {
+  color: var(--text-1);
+  background: var(--bg-card);
+}
+
+.team-detail__row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.team-detail__title {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
+
+.team-detail__title .team-avatar {
+  width: 38px;
+  height: 38px;
+  font-size: 14px;
+}
+
+.team-detail__name {
+  margin: 0;
+  font-size: 17px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  color: var(--text-1);
+}
+
+.team-detail__sub {
+  font-size: 12px;
+  color: var(--text-3);
+  margin-top: 2px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.team-detail__actions {
+  display: flex;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+/* ── Generic modal shell (used by TeamEditorModal and similar) ─────── */
+
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(16, 22, 26, 0.45);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 1000;
+  padding: 24px;
+}
+
+.modal-shell {
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  width: 100%;
+  max-width: 560px;
+  max-height: 88vh;
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.25);
+}
+
+.modal-shell__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 18px;
+  border-bottom: 1px solid var(--border);
+}
+
+.modal-shell__title {
+  margin: 0;
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--text-1);
+}
+
+.modal-shell__close {
+  appearance: none;
+  background: transparent;
+  border: none;
+  font-size: 22px;
+  line-height: 1;
+  color: var(--text-3);
+  cursor: pointer;
+  padding: 0 6px;
+  border-radius: 4px;
+}
+.modal-shell__close:hover {
+  color: var(--text-1);
+  background: var(--bg-card);
+}
+
+.modal-shell__body {
+  padding: 18px;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.modal-shell__foot {
+  padding: 12px 18px;
+  border-top: 1px solid var(--border);
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+/* Single row in the Watched repos page: avatar, name, remove button. */
+.watched-row {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  gap: 12px;
+  align-items: center;
+  padding: 11px 0;
+  border-top: 1px solid var(--border);
+}
+
+.watched-row:first-child {
+  border-top: none;
+  padding-top: 0;
+}
+
+.watched-row__name {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-1);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+

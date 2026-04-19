@@ -1,0 +1,1373 @@
+/* ── Kanban board (no-selection mode) ─────────────────────────────────────── */
+
+.kanban-page {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  min-height: 0;
+  background: var(--bg-base);
+  color: var(--text-1);
+  font-family: var(--font-body);
+}
+
+.pr-list-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 16px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-elevated);
+  flex: 0 0 auto;
+}
+
+.pr-list-header__title {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  min-width: 0;
+}
+
+.pr-list-header__brand {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-1);
+  letter-spacing: -0.01em;
+  white-space: nowrap;
+}
+
+.pr-list-header__subtitle {
+  font-size: 11px;
+  color: var(--text-3);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.pr-list-header__filter {
+  flex: 1 1 auto;
+  max-width: 360px;
+  min-width: 120px;
+  padding: 5px 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg-base);
+  color: var(--text-1);
+  font: inherit;
+  font-size: 12px;
+  margin-left: auto;
+}
+
+.pr-list-header__filter:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px var(--accent-a7);
+}
+
+.pr-list-header__btn {
+  flex: 0 0 auto;
+  padding: 5px 10px;
+  border: 1px solid var(--border);
+  background: var(--bg-base);
+  border-radius: 6px;
+  cursor: pointer;
+  font: inherit;
+  font-size: 12px;
+  color: var(--text-2);
+}
+
+.pr-list-header__btn:hover {
+  background: var(--accent-a7);
+  color: var(--text-1);
+}
+
+/* Top-level Inbox / Handled tab switch. Handled is a separate view per
+   docs/mockups/v2/pr-state-definitions.md — merged + manually-dismissed
+   PRs leave the Inbox and live here. */
+.pr-list-header__tabs {
+  display: inline-flex;
+  gap: 2px;
+  align-items: center;
+  padding: 2px;
+  border-radius: 6px;
+  background: var(--bg-base);
+  border: 1px solid var(--border);
+}
+
+.pr-list-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border: none;
+  background: transparent;
+  color: var(--text-2);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 500;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.pr-list-tab:hover {
+  color: var(--text-1);
+  background: var(--accent-a7);
+}
+
+.pr-list-tab--active {
+  background: var(--accent);
+  color: #fff;
+  font-weight: 600;
+}
+
+.pr-list-tab--active:hover {
+  background: var(--accent);
+  color: #fff;
+}
+
+.pr-list-tab__count {
+  font-size: 10.5px;
+  font-variant-numeric: tabular-nums;
+  padding: 0 6px;
+  border-radius: 10px;
+  background: rgba(0, 0, 0, 0.08);
+  color: inherit;
+}
+
+.pr-list-tab--active .pr-list-tab__count {
+  background: rgba(255, 255, 255, 0.22);
+}
+
+.handled-page {
+  flex: 1 1 0;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 16px 20px;
+  background: var(--bg-base);
+}
+
+.pr-list-back-review {
+  margin-left: 6px;
+  padding: 4px 10px;
+  font-size: 12px;
+  color: var(--text-2);
+  background: transparent;
+  border: 1px solid var(--border-subtle, rgba(120, 140, 200, 0.28));
+  border-radius: 999px;
+  cursor: pointer;
+  white-space: nowrap;
+  transition: background 0.12s ease, color 0.12s ease, border-color 0.12s ease;
+}
+
+.pr-list-back-review:hover {
+  color: var(--text-1);
+  background: var(--bg-alt, rgba(120, 140, 200, 0.10));
+  border-color: var(--border, rgba(120, 140, 200, 0.40));
+}
+
+/* In the narrow sidebar (selected mode), stack rows vertically so the
+   title + filter + Refresh don't wrap-break into an unreadable grid. */
+.v2-sidebar .pr-list-header {
+  flex-direction: column;
+  align-items: stretch;
+  gap: 8px;
+  padding: 10px 12px;
+}
+.v2-sidebar .pr-list-header__title {
+  align-items: baseline;
+  flex-wrap: wrap;
+}
+.v2-sidebar .pr-list-header__filter {
+  max-width: none;
+  margin-left: 0;
+}
+
+/* Per-repo chip row beneath the team name, replacing the old "N PRs"
+   subtitle. Wraps onto multiple lines when the repo set is wide so a
+   long list doesn't clip the sidebar. */
+.team-repo-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px 6px;
+  margin-top: 2px;
+}
+.team-repo-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 1px 7px 1px 8px;
+  border-radius: 999px;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  font-size: 11px;
+  color: var(--text-2);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, monospace;
+  cursor: pointer;
+  transition: background 0.1s, border-color 0.1s, color 0.1s;
+}
+.team-repo-chip:hover {
+  background: var(--bg-elevated);
+  border-color: var(--text-3);
+  color: var(--text-1);
+}
+.team-repo-chip--active,
+.team-repo-chip--active:hover {
+  background: var(--accent-a7);
+  border-color: var(--accent-a40);
+  color: var(--accent);
+}
+.team-repo-chip__name {
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+.team-repo-chip__count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 16px;
+  height: 14px;
+  padding: 0 4px;
+  border-radius: 7px;
+  background: var(--bg-elevated);
+  color: var(--text-1);
+  font-size: 10px;
+  font-weight: 700;
+  font-family: inherit;
+}
+.team-repo-chip--active .team-repo-chip__count {
+  background: rgba(255, 255, 255, 0.6);
+}
+
+.kanban-empty {
+  padding: 48px 20px;
+  color: var(--text-3);
+  text-align: center;
+  font-size: 14px;
+}
+
+.kanban-board {
+  flex: 1 1 0;
+  min-height: 0;
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+  padding: 12px;
+  align-items: start;
+  overflow-y: auto;
+  background: var(--bg-base);
+}
+
+/* Mockup-style columns: header is a standalone rounded card with the
+   coloured top-border; body is just a stack of cards floating below it.
+   Matches docs/mockups/v2/kanban/bytequay-pr-kanban-redesign.html. */
+.kanban-col {
+  display: flex;
+  flex-direction: column;
+  background: transparent;
+  border: 0;
+  min-width: 0;
+}
+
+.kanban-col__header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-top: 3px solid var(--text-3);
+  border-radius: 9px;
+  margin-bottom: 8px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-2);
+  flex: 0 0 auto;
+}
+
+.kanban-col__dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.kanban-col__title {
+  margin: 0;
+  font-size: 11.5px;
+  font-weight: 600;
+  color: var(--text-1);
+}
+
+.kanban-col__count {
+  margin-left: auto;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-2);
+  background: var(--accent-a7);
+  padding: 1px 8px;
+  border-radius: 10px;
+  font-size: 11px;
+}
+
+.kanban-col__body {
+  flex: 0 0 auto;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 7px;
+}
+
+.kanban-col__empty {
+  padding: 14px 8px;
+  text-align: center;
+  color: var(--text-4);
+  font-size: 12px;
+}
+
+/* Category accent colors — applied to the top-border of the column and the
+   status dot so the four lanes are easy to distinguish at a glance. */
+/* Collapsed-column variant — 38px vertical strip with rotated label.
+   Clicking anywhere on the strip expands the column. */
+.kanban-col--collapsed {
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  border-top-width: 1px !important;
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: flex-start;
+  padding: 14px 0;
+  font: inherit;
+  transition: background 120ms ease;
+}
+.kanban-col--collapsed:hover {
+  background: var(--bg-card);
+}
+.kanban-col__count-vertical {
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--text-3);
+  margin-bottom: 8px;
+}
+.kanban-col__name-vertical {
+  writing-mode: vertical-rl;
+  transform: rotate(180deg);
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  font-weight: 700;
+  color: var(--text-3);
+  margin-top: 12px;
+}
+.kanban-col--collapsed .kanban-col__dot {
+  margin-top: auto;
+}
+
+/* Chevron in the column header to collapse the column. Sized as a real
+   button (not a faint glyph) so it reads as an affordance — every column
+   should look foldable at a glance. */
+.kanban-col__collapse-btn {
+  appearance: none;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  color: var(--text-2);
+  cursor: pointer;
+  padding: 0;
+  width: 22px;
+  height: 22px;
+  font-size: 11px;
+  line-height: 1;
+  border-radius: 5px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+.kanban-col__collapse-btn:hover {
+  color: var(--accent);
+  background: var(--accent-a7);
+  border-color: var(--accent-a40);
+}
+
+/* "+ N more" expander shown at the bottom of a long column. */
+.kanban-col__more {
+  appearance: none;
+  background: transparent;
+  border: 1px dashed var(--border-mid);
+  color: var(--text-3);
+  font: inherit;
+  font-size: 12px;
+  padding: 6px 10px;
+  border-radius: 6px;
+  cursor: pointer;
+  margin-top: 4px;
+  transition: background 120ms ease, color 120ms ease, border-color 120ms ease;
+}
+.kanban-col__more:hover {
+  background: var(--bg-card);
+  color: var(--text-1);
+  border-color: var(--border);
+}
+
+.kanban-col__more-rest {
+  color: var(--text-4);
+  font-size: 11px;
+  margin-left: 4px;
+}
+
+/* Column accents — the new layout puts the coloured top border on
+   .kanban-col__header (the standalone rounded box), so per-column tints
+   target the header, not the bare .kanban-col. Each column also gets a
+   tinted card-area background so the columns visually separate even
+   when sparsely populated. */
+.kanban-col--needs-attention .kanban-col__header { border-top-color: #cf222e; }
+.kanban-col--needs-attention .kanban-col__dot { background: #cf222e; }
+
+.kanban-col--in-progress .kanban-col__header { border-top-color: #d4a017; }
+.kanban-col--in-progress .kanban-col__dot { background: #d4a017; }
+
+.kanban-col--awaiting-author .kanban-col__header { border-top-color: #1f6feb; }
+.kanban-col--awaiting-author .kanban-col__dot { background: #1f6feb; }
+
+.kanban-col--cleared .kanban-col__header { border-top-color: #2ea043; }
+.kanban-col--cleared .kanban-col__dot { background: #2ea043; }
+
+/* ── Phase 3 kanban refactor ──────────────────────────────────────────────
+   New column kinds (5/4-column model from docs/design/kanban-refactor.md).
+   Reuse the kanban-col__* base styles from the old 4-column layout — only
+   the per-column accent colour + the new wrapper widgets are new. */
+
+.kanban-v2 {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-height: 0;
+  flex: 1;
+}
+
+/* Morning briefing — single horizontal strip above the lane tabs that
+   summarises hot PRs across BOTH lanes regardless of which is open.
+   Insets from the kanban-page edge to match the lane tabs / repo chips. */
+.kanban-v2__briefing {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  margin: 0 14px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font-size: 12px;
+  color: var(--text-1);
+}
+.kanban-v2__briefing-icon {
+  color: #d4a017;
+  font-size: 14px;
+}
+.kanban-v2__briefing-text {
+  flex: 1;
+  min-width: 0;
+}
+.kanban-v2__briefing-actions {
+  display: flex;
+  gap: 6px;
+  flex-shrink: 0;
+}
+.kanban-v2__briefing-chip {
+  font: inherit;
+  font-size: 11px;
+  font-weight: 500;
+  padding: 3px 8px;
+  border-radius: 4px;
+  border: 1px solid var(--border);
+  background: var(--bg-card);
+  color: var(--text-1);
+  cursor: pointer;
+  transition: background 0.1s, border-color 0.1s;
+}
+.kanban-v2__briefing-chip:hover {
+  background: var(--accent-a7);
+  border-color: var(--accent);
+}
+.kanban-v2__briefing-chip--warn {
+  border-color: #d4a017;
+  color: #b45309;
+}
+.kanban-v2__briefing-chip--warn:hover {
+  background: rgba(212, 160, 23, 0.1);
+}
+.kanban-v2__briefing-chip--go {
+  border-color: #2ea043;
+  color: #1a7f37;
+}
+.kanban-v2__briefing-chip--go:hover {
+  background: rgba(46, 160, 67, 0.1);
+}
+
+/* Tab toolbar: lane tabs on the left, "Active / Recently closed"
+   segment on the right. Padded slightly off the page edge so it doesn't
+   sit flush against the kanban-page boundary (mockup matches the same
+   inset). */
+.kanban-v2__tab-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 0 14px;
+}
+
+/* Single "PRs" header used in team mode (no tabs needed because there's
+   only one lane). Sits where the lane-tab pill would otherwise be. */
+.kanban-v2__lane-header {
+  margin: 0;
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--text-2);
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* Lane tabs (My PRs / To review / Teams). Pill-segmented look so the
+   active lane reads as a single highlight on a strip. */
+.kanban-v2__lane-tabs {
+  display: flex;
+  gap: 4px;
+  padding: 2px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: 7px;
+}
+.kanban-v2__tab {
+  font: inherit;
+  font-size: 12px;
+  font-weight: 500;
+  padding: 5px 12px;
+  border-radius: 5px;
+  border: 0;
+  background: transparent;
+  color: var(--text-2);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  transition: background 0.1s, color 0.1s;
+}
+.kanban-v2__tab:hover { color: var(--text-1); }
+.kanban-v2__tab--active {
+  background: var(--bg-card);
+  color: var(--text-1);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.06);
+}
+.kanban-v2__tab-icon {
+  font-size: 13px;
+  line-height: 1;
+}
+.kanban-v2__tab-count {
+  font-size: 10.5px;
+  font-variant-numeric: tabular-nums;
+  background: var(--accent-a7);
+  color: var(--text-2);
+  padding: 0 5px;
+  border-radius: 8px;
+  min-width: 18px;
+  text-align: center;
+}
+.kanban-v2__tab-flag {
+  font-size: 10px;
+  font-weight: 600;
+  color: #cf222e;
+  margin-left: 2px;
+}
+
+/* Right-side segmented control inside the tab toolbar. */
+.kanban-v2__seg {
+  display: flex;
+  gap: 2px;
+  padding: 2px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: 7px;
+}
+.kanban-v2__seg-btn {
+  font: inherit;
+  font-size: 12px;
+  font-weight: 500;
+  padding: 4px 10px;
+  border-radius: 5px;
+  border: 0;
+  background: transparent;
+  color: var(--text-2);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  transition: background 0.1s, color 0.1s;
+}
+.kanban-v2__seg-btn:hover { color: var(--text-1); }
+.kanban-v2__seg-btn--active {
+  background: var(--bg-card);
+  color: var(--text-1);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.06);
+}
+.kanban-v2__seg-count {
+  font-size: 10.5px;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-3);
+}
+
+/* Filter chips — repo selector under the lane tabs. Indented to match
+   the lane-tab and briefing-strip insets. */
+.kanban-v2__filters {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+  font-size: 11px;
+  padding: 0 14px;
+}
+.kanban-v2__filters-label {
+  color: var(--text-3);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  font-size: 10px;
+  margin-right: 2px;
+}
+.kanban-v2__chip {
+  font: inherit;
+  font-size: 11px;
+  padding: 3px 9px;
+  border: 1px solid var(--border);
+  background: var(--bg-card);
+  color: var(--text-2);
+  border-radius: 999px;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  transition: background 0.1s, border-color 0.1s, color 0.1s;
+}
+.kanban-v2__chip:hover {
+  background: var(--accent-a7);
+  color: var(--text-1);
+}
+.kanban-v2__chip--active {
+  background: var(--accent-a7);
+  border-color: var(--accent);
+  color: var(--text-1);
+  font-weight: 500;
+}
+.kanban-v2__chip-count {
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-3);
+}
+.kanban-v2__chip--active .kanban-v2__chip-count {
+  color: var(--accent);
+}
+
+/* "Your move" / "urgent" hint pill rendered next to a column title. */
+.kanban-col__hint {
+  font-size: 9.5px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  padding: 1px 5px;
+  border-radius: 3px;
+  margin-left: 4px;
+}
+.kanban-col__hint--go {
+  background: rgba(46, 160, 67, 0.12);
+  color: #1a7f37;
+}
+.kanban-col__hint--caution {
+  background: rgba(207, 34, 46, 0.12);
+  color: #cf222e;
+}
+.kanban-col--move-go {
+  border-top-color: #2ea043;
+}
+.kanban-col--move-go .kanban-col__dot { background: #2ea043; }
+.kanban-col--move-caution {
+  border-top-color: #cf222e;
+}
+.kanban-col--move-caution .kanban-col__dot { background: #cf222e; }
+
+/* Per-column accent for the new V2 column kinds — same model as the
+   legacy 4-column rules above: paint the coloured top-border on the
+   standalone header card. Palette mirrors
+   docs/mockups/v2/kanban/bytequay-pr-kanban-redesign.html: drafting=
+   purple, waiting=amber, changes=red, ready=green, attention=red,
+   in_progress=indigo, awaiting=teal, recently/cleared=muted gray. */
+.kanban-col--drafting .kanban-col__header { border-top-color: #8b5cf6; }
+.kanban-col--drafting .kanban-col__dot { background: #8b5cf6; }
+
+.kanban-col--waiting-on-review .kanban-col__header { border-top-color: #f59e0b; }
+.kanban-col--waiting-on-review .kanban-col__dot { background: #f59e0b; }
+
+.kanban-col--needs-changes .kanban-col__header { border-top-color: #cf222e; }
+.kanban-col--needs-changes .kanban-col__dot { background: #cf222e; }
+
+.kanban-col--ready-to-merge .kanban-col__header { border-top-color: #2ea043; }
+.kanban-col--ready-to-merge .kanban-col__dot { background: #2ea043; }
+
+.kanban-col--recently-merged .kanban-col__header { border-top-color: var(--text-3); }
+.kanban-col--recently-merged .kanban-col__dot { background: var(--text-3); }
+.kanban-col--recently-merged { opacity: 0.85; }
+
+.kanban-col--cleared-today .kanban-col__header { border-top-color: var(--text-3); }
+.kanban-col--cleared-today .kanban-col__dot { background: var(--text-3); }
+.kanban-col--cleared-today { opacity: 0.85; }
+
+/* Handled column — soft slate accent so dismissed cards visually
+   recede behind the active columns. */
+.kanban-col--handled .kanban-col__header { border-top-color: #64748b; }
+.kanban-col--handled .kanban-col__dot { background: #64748b; }
+.kanban-col--handled { opacity: 0.88; }
+.kanban-col--handled .kanban-col__body {
+  background: rgba(100, 116, 139, 0.06);
+  border-radius: 8px;
+  padding: 4px;
+}
+
+/* The v2 lane columns also get a tinted body background so each column
+   reads as a coloured zone in the kanban (matches the soft column tints
+   in display-view.png). */
+.kanban-col--drafting .kanban-col__body { background: rgba(139, 92, 246, 0.05); border-radius: 8px; padding: 4px; }
+.kanban-col--waiting-on-review .kanban-col__body { background: rgba(245, 158, 11, 0.06); border-radius: 8px; padding: 4px; }
+.kanban-col--needs-changes .kanban-col__body { background: rgba(207, 34, 46, 0.05); border-radius: 8px; padding: 4px; }
+.kanban-col--ready-to-merge .kanban-col__body { background: rgba(46, 160, 67, 0.05); border-radius: 8px; padding: 4px; }
+.kanban-col--needs-attention .kanban-col__body { background: rgba(207, 34, 46, 0.05); border-radius: 8px; padding: 4px; }
+.kanban-col--in-progress .kanban-col__body { background: rgba(212, 160, 23, 0.05); border-radius: 8px; padding: 4px; }
+.kanban-col--awaiting-author .kanban-col__body { background: rgba(31, 111, 235, 0.05); border-radius: 8px; padding: 4px; }
+
+/* ── Rich PR card for the v2 kanban (KanbanPrCard.tsx) ──────────────────────
+   Matches docs/mockups/v2/kanban/bytequay-pr-kanban-redesign.html `.card`. */
+.kpr-card {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  width: 100%;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 9px;
+  padding: 10px 12px;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  transition: border-color 120ms ease, box-shadow 120ms ease, transform 120ms ease;
+}
+.kpr-card:hover {
+  border-color: var(--text-3);
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+  transform: translateY(-1px);
+}
+.kpr-card--selected {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 1px var(--accent);
+}
+.kpr-card--urgent {
+  border-color: #cf222e;
+  box-shadow: 0 0 0 3px rgba(207, 34, 46, 0.12);
+}
+
+.kpr-card__banner {
+  padding: 4px 8px;
+  border-radius: 5px;
+  font-size: 11px;
+  font-weight: 500;
+  display: flex;
+  align-items: center;
+  gap: 5px;
+}
+.kpr-card__banner--danger { background: rgba(207, 34, 46, 0.10); color: #cf222e; }
+.kpr-card__banner--warn   { background: rgba(212, 160, 23, 0.14); color: #b45309; }
+.kpr-card__banner--info   { background: rgba(31, 111, 235, 0.10); color: #1f6feb; }
+.kpr-card__banner--success { background: rgba(46, 160, 67, 0.10); color: #1a7f37; }
+
+.kpr-card__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  font-size: 11px;
+  color: var(--text-3);
+}
+.kpr-card__repo {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11px;
+}
+.kpr-card__repo-name { color: var(--text-1); font-weight: 600; }
+.kpr-card__num { color: var(--text-3); }
+.kpr-card__repo-avatar {
+  border-radius: 4px;
+  flex-shrink: 0;
+}
+
+/* Author chip in team-mode meta line. Avatar + login as a tight cluster
+   so the eye reads "PR by alice" before the timestamp. */
+.kpr-card__author {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--text-1);
+  font-weight: 500;
+}
+.kpr-card__author-avatar {
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+.kpr-card__author-login {
+  font-size: 11px;
+}
+
+.kpr-card__pill {
+  font-size: 10px;
+  padding: 1px 6px;
+  border-radius: 3px;
+  background: var(--bg-elevated);
+  color: var(--text-3);
+  text-transform: uppercase;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  flex-shrink: 0;
+}
+/* Quick "✓" handle button + status pill share the right edge of the
+   head row. Group them so they don't drift apart when the pill width
+   varies. */
+.kpr-card__head-right {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+.kpr-card__handle {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  border: 1px solid var(--border);
+  background: var(--bg-card);
+  color: var(--text-3);
+  font: inherit;
+  font-size: 11px;
+  line-height: 1;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  /* Cards normally read as a single click target — desaturated until
+     hover so the dismiss control doesn't compete with the title for
+     attention. */
+  opacity: 0.55;
+  transition: opacity 0.1s, color 0.1s, border-color 0.1s, background 0.1s;
+}
+.kpr-card:hover .kpr-card__handle {
+  opacity: 1;
+}
+.kpr-card__handle:hover {
+  color: #1a7f37;
+  border-color: #2ea043;
+  background: rgba(46, 160, 67, 0.10);
+}
+/* Reopen button (only on the Handled column) — blue tint to read as
+   "bring back" rather than "dismiss". */
+.kpr-card__handle--reopen:hover {
+  color: #1f6feb;
+  border-color: #1f6feb;
+  background: rgba(31, 111, 235, 0.10);
+}
+
+.kpr-card__pill--draft { background: #f3e8ff; color: #7c3aed; }
+.kpr-card__pill--opened { background: rgba(46, 160, 67, 0.12); color: #1a7f37; }
+.kpr-card__pill--changes { background: rgba(207, 34, 46, 0.12); color: #cf222e; }
+.kpr-card__pill--approved { background: rgba(46, 160, 67, 0.12); color: #1a7f37; }
+.kpr-card__pill--merged { background: rgba(130, 80, 223, 0.12); color: #6b21a8; }
+.kpr-card__pill--closed { background: var(--bg-elevated); color: var(--text-3); }
+
+.kpr-card__title {
+  font-size: 13px;
+  font-weight: 600;
+  line-height: 1.35;
+  color: var(--text-1);
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.kpr-card__meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 11px;
+  color: var(--text-3);
+  flex-wrap: wrap;
+}
+.kpr-card__meta-sep { color: var(--text-4); }
+
+.kpr-card__reviewers {
+  display: inline-flex;
+  align-items: center;
+}
+.kpr-card__reviewer {
+  position: relative;
+  display: inline-flex;
+  margin-left: -5px;
+}
+.kpr-card__reviewer:first-child { margin-left: 0; }
+.kpr-card__reviewer .kpr-card__reviewer-avatar {
+  border: 2px solid var(--bg-card);
+  border-radius: 50%;
+}
+.kpr-card__reviewer::after {
+  content: '';
+  position: absolute;
+  bottom: -1px;
+  right: -2px;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  border: 1.5px solid var(--bg-card);
+  background: var(--text-3);
+}
+.kpr-card__reviewer--approved::after { background: #1a7f37; }
+.kpr-card__reviewer--changes::after  { background: #cf222e; }
+.kpr-card__reviewer--commented::after { background: #d4a017; }
+.kpr-card__reviewer--requested::after { background: #1f6feb; }
+.kpr-card__reviewer--dismissed::after { background: var(--text-3); }
+.kpr-card__reviewer-overflow {
+  margin-left: 2px;
+  font-size: 10px;
+  color: var(--text-3);
+  background: var(--bg-elevated);
+  border-radius: 999px;
+  padding: 0 6px;
+  height: 18px;
+  line-height: 18px;
+}
+.kpr-card__reviewer-count {
+  color: var(--text-3);
+}
+.kpr-card__reviewer-count--empty {
+  color: var(--text-4);
+  font-style: italic;
+}
+
+.kpr-card__foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+}
+.kpr-card__tags {
+  display: flex;
+  gap: 4px;
+  flex-wrap: wrap;
+  flex: 1;
+  min-width: 0;
+}
+.kpr-card__tag {
+  font-size: 10px;
+  padding: 1px 6px;
+  border-radius: 4px;
+  background: var(--bg-elevated);
+  color: var(--text-2);
+  font-weight: 500;
+  border: 1px solid transparent;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 120px;
+}
+.kpr-card__tag--more { color: var(--text-3); }
+
+.kpr-card__signals {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 11px;
+  color: var(--text-3);
+  flex-shrink: 0;
+}
+.kpr-card__signal {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+}
+.kpr-card__ci-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--text-4);
+  display: inline-block;
+}
+.kpr-card__ci-dot--passing { background: #1a7f37; }
+.kpr-card__ci-dot--failing { background: #cf222e; }
+.kpr-card__ci-dot--pending { background: #d4a017; }
+.kpr-card__signal--diff {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 10.5px;
+}
+.kpr-card__diff-add { color: #1a7f37; }
+.kpr-card__diff-del { color: #cf222e; margin-left: 4px; }
+
+/* ── Categorised sidebar (selected-mode) ──────────────────────────────────── */
+
+.categorized-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+  padding: 0 6px 12px;
+  overflow-y: auto;
+  flex: 1 1 0;
+  min-height: 0;
+}
+
+.cat-group {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+
+.cat-group__header {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 10px;
+  background: transparent;
+  border: none;
+  border-bottom: 1px solid var(--border);
+  cursor: pointer;
+  font: inherit;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-2);
+  text-align: left;
+  width: 100%;
+}
+
+.cat-group__header:hover {
+  background: var(--accent-a7);
+}
+
+.cat-group__chevron {
+  font-size: 10px;
+  color: var(--text-3);
+  transition: transform 0.12s ease;
+  width: 10px;
+}
+
+.cat-group__chevron--collapsed {
+  transform: rotate(-90deg);
+}
+
+.cat-group__dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.cat-group__title {
+  color: var(--text-1);
+}
+
+.cat-group__count {
+  margin-left: auto;
+  font-variant-numeric: tabular-nums;
+  font-size: 10px;
+  color: var(--text-2);
+  background: var(--accent-a7);
+  padding: 1px 8px;
+  border-radius: 10px;
+  text-transform: none;
+  letter-spacing: 0;
+}
+
+.cat-group__body {
+  padding: 4px 0 8px;
+}
+
+.cat-group__empty {
+  padding: 10px 12px;
+  color: var(--text-4);
+  font-size: 12px;
+  font-style: italic;
+}
+
+.cat-group--needs-attention .cat-group__dot { background: #cf222e; }
+.cat-group--in-progress .cat-group__dot { background: #d4a017; }
+.cat-group--awaiting-author .cat-group__dot { background: #1f6feb; }
+.cat-group--cleared .cat-group__dot { background: #2ea043; }
+
+/* Team-kanban column dots — match the lane accents on the team kanban so
+   the sidebar reads as the same data, just stacked. */
+.cat-group--drafting .cat-group__dot { background: #8b949e; }
+.cat-group--waiting-on-review .cat-group__dot { background: #1f6feb; }
+.cat-group--needs-changes .cat-group__dot { background: #cf222e; }
+.cat-group--ready-to-merge .cat-group__dot { background: #2ea043; }
+.cat-group--recently-merged .cat-group__dot { background: #6b21a8; }
+.cat-group--handled .cat-group__dot { background: #57606a; }
+
+/* "+ N more" pager inside a category group's body. Matches the kanban's
+   load-more pill style so users get the same affordance in both views. */
+.cat-group__more {
+  appearance: none;
+  display: block;
+  width: calc(100% - 16px);
+  margin: 6px 8px 2px;
+  padding: 6px 10px;
+  background: transparent;
+  border: 1px dashed var(--border-mid);
+  border-radius: 6px;
+  color: var(--text-3);
+  font-size: 12px;
+  cursor: pointer;
+  transition: background 120ms ease, color 120ms ease, border-color 120ms ease;
+}
+.cat-group__more:hover {
+  background: var(--accent-a7);
+  color: var(--accent);
+  border-color: var(--accent-a40);
+}
+
+/* Preview action buttons — pinned at the bottom of the fixed-height preview. */
+
+.preview__actions {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid var(--border-mid);
+  flex: 0 0 auto;
+}
+
+.preview__action-open {
+  display: inline-flex;
+  align-items: center;
+  padding: 11px 20px;
+  border-radius: 999px;
+  font: inherit;
+  font-size: 0.9rem;
+}
+
+/* Shared button styles */
+
+.button {
+  border: 0;
+  border-radius: 999px;
+  padding: 11px 16px;
+  font: inherit;
+  font-size: 0.9rem;
+}
+
+.button--primary {
+  background: var(--accent);
+  color: #f8f4ed;
+}
+
+[data-theme="atom-one-dark"] .button--primary {
+  color: #ffffff;
+}
+
+.button--primary:hover {
+  background: var(--accent-dark);
+}
+
+.button--secondary {
+  background: var(--bg-btn-secondary);
+  color: var(--text-2);
+  border: 1px solid var(--border-mid);
+}
+
+.button--danger {
+  background: transparent;
+  color: #b00020;
+  border: 1px solid rgba(176, 0, 32, 0.24);
+}
+
+.button--danger:hover {
+  background: rgba(176, 0, 32, 0.06);
+}
+
+.button--approve {
+  background: rgba(46, 160, 67, 0.12);
+  color: #1a7f37;
+  border: 1px solid rgba(46, 160, 67, 0.3);
+}
+
+.button--approve:hover {
+  background: rgba(46, 160, 67, 0.2);
+}
+
+/* Primary "Review" action on the PR detail page — pulls the eye in as the
+   first thing to click. Solid blue so it reads as the primary, in contrast
+   to the muted gray Open-on-Remote on the right. */
+.button--review {
+  background: #2563eb;
+  color: #ffffff;
+  border: 1px solid #2563eb;
+  font-weight: 600;
+}
+.button--review:hover {
+  background: #1d4ed8;
+  border-color: #1d4ed8;
+}
+/* Larger Review button variant — used in the PR detail toolbar where it's
+   the primary action and should pull the eye in. */
+.button--review--lg {
+  font-size: 14px;
+  font-weight: 700;
+  padding: 10px 22px;
+  letter-spacing: 0.01em;
+}
+
+/* "Open on Remote" — secondary action that hops to the embedded github.com
+   window. Muted gray to step back behind the primary Review button. */
+.button--remote {
+  background: var(--bg-card);
+  color: var(--text-2);
+  border: 1px solid var(--border);
+}
+.button--remote:hover {
+  background: var(--bg-elevated);
+  color: var(--text-1);
+}
+
+/* Spacer that pushes the rightmost button to the far edge of the toolbar. */
+.preview__actions-spacer { flex: 1 1 auto; min-width: 0; }
+
+[data-theme="atom-one-dark"] .button--approve {
+  background: rgba(46, 160, 67, 0.15);
+  color: #3fb950;
+  border-color: rgba(46, 160, 67, 0.4);
+}
+
+.button--merge {
+  background: rgba(130, 80, 223, 0.1);
+  color: #6e40c9;
+  border: 1px solid rgba(130, 80, 223, 0.3);
+}
+
+.button--merge:hover {
+  background: rgba(130, 80, 223, 0.18);
+}
+
+.button--merge-confirm {
+  background: #8250df;
+  color: #fff;
+  border: 1px solid #8250df;
+}
+
+.button--merge-confirm:hover {
+  background: #6e40c9;
+}
+
+[data-theme="atom-one-dark"] .button--merge {
+  background: rgba(188, 140, 255, 0.12);
+  color: #bc8cff;
+  border-color: rgba(188, 140, 255, 0.3);
+}
+
+.action-badge {
+  display: inline-flex;
+  align-items: center;
+  font-size: 0.85rem;
+  padding: 0 4px;
+}
+
+.action-badge--success {
+  color: #1a7f37;
+}
+
+[data-theme="atom-one-dark"] .action-badge--success {
+  color: #3fb950;
+}
+
+.action-badge--error {
+  color: #b00020;
+  font-size: 0.8rem;
+}
+
+.button:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+.settings-actions {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  align-items: center;
+}
+
+/* Settings screen */
+
+.panel {
+  border: 1px solid var(--border);
+  border-radius: 24px;
+  padding: 24px;
+  background: var(--bg-panel);
+  box-shadow: 0 18px 50px rgba(84, 71, 38, 0.08);
+}
+
+[data-theme="atom-one-dark"] .panel {
+  box-shadow: 0 18px 50px rgba(0, 0, 0, 0.3);
+}
+
+.eyebrow {
+  margin: 0;
+  color: var(--text-warm);
+  font-size: 0.8rem;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+h3 {
+  margin: 8px 0 0;
+  color: var(--text-1);
+}
+
+.section-copy {
+  margin: 12px 0 0;
+  line-height: 1.6;
+  color: var(--text-2);
+}
+
+.token-input {
+  width: 100%;
+  margin-top: 8px;
+  margin-bottom: 12px;
+  border: 1px solid var(--border-input);
+  border-radius: 16px;
+  padding: 14px 16px;
+  background: var(--bg-input);
+  color: var(--text-1);
+  resize: vertical;
+  font: inherit;
+}
+
+.error-text {
+  color: #b00020;
+  line-height: 1.5;
+  margin-bottom: 8px;
+}
+
+.settings-divider {
+  border: none;
+  border-top: 1px solid var(--border-light);
+  margin: 24px 0;
+}
+

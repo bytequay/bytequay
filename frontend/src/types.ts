@@ -1,0 +1,785 @@
+export type HandledAction =
+  | 'APPROVED'
+  | 'MERGED'
+  | 'COMMENTED'
+  | 'CHANGES_REQUESTED'
+  | 'DISMISSED'
+  | 'MANUAL';
+
+/**
+ * Why a PR is promoted to "Needs attention". Computed by the backend from
+ * the latest detail fetch and stored on the pr row, so cards can render
+ * the colored top banner without an additional round-trip.
+ *
+ * v1 rules — see docs/design/settings-redesign.md §6.5:
+ *   CI_FAILING — aggregate CI status is FAILING
+ *   MENTIONED  — TODO; needs comment-body parsing on the backend timeline
+ *   BLOCKING   — any label contains "block" (covers blocking, priority/blocker, etc.)
+ *   STALE      — updatedAt is 7+ days old
+ */
+export type AttentionReason =
+  | 'CI_FAILING'
+  | 'MERGE_CONFLICT'
+  | 'MENTIONED'
+  | 'NEW_COMMENT'
+  | 'BLOCKING'
+  | 'STALE'
+  | 'MINE';
+
+export type PullRequestDto = {
+  id: number;
+  repo: string;
+  number: number;
+  title: string;
+  author: string | null;
+  htmlUrl: string;
+  /** When the PR was opened (GitHub created_at). Null on legacy rows that
+   *  pre-date V19 — UI falls back to updatedAt for display. */
+  createdAt: string | null;
+  updatedAt: string;
+  origin: 'AUTHORED' | 'REVIEW_REQUESTED';
+  labels: string[];
+  /** Optional sidecar map of label name → hex color, populated from
+   *  GitHub's label.color field. Missing for legacy rows. */
+  labelColors: Record<string, string> | null;
+  draft: boolean;
+  viewedAt: string | null;
+  reviewedAt: string | null;
+  handledAction: HandledAction | null;
+  requestedReviewers: string[];
+  // Detail-derived fields, populated by the sync job from the per-PR detail
+  // fetch. Nullable when not yet enriched (e.g. brand-new PR seen by the
+  // sync job before its detail call lands).
+  ciStatus: CiStatus | null;
+  additions: number;
+  deletions: number;
+  commentCount: number;
+  attentionReason: AttentionReason | null;
+  // Phase 1 kanban-refactor fields (V26 backend migration). All optional so
+  // existing rows can flow through before the next sync touches them. See
+  // docs/design/kanban-refactor.md.
+  /** GitHub PR state. "merged" is synthesized from closed + mergedAt. */
+  state: 'open' | 'closed' | 'merged' | string | null;
+  closedAt: string | null;
+  mergedAt: string | null;
+  /** GitHub's mergeable boolean. Null while GitHub is computing it. */
+  mergeable: boolean | null;
+  /** GitHub's mergeable_state — "clean", "dirty", "blocked", "behind"… */
+  mergeableState: string | null;
+  /** Latest commit timestamp on the PR head — drives "last push Xd ago". */
+  headPushedAt: string | null;
+  /** Per-reviewer verdict map (login → APPROVED / CHANGES_REQUESTED /
+   *  COMMENTED / DISMISSED). Empty until the PR's detail has been synced
+   *  at least once after V26. */
+  reviewerVerdicts: Record<string, string> | null;
+};
+
+export type CiStatus = 'PASSING' | 'FAILING' | 'PENDING' | 'NONE';
+
+export type ChangedFileDto = {
+  filename: string;
+  additions: number;
+  deletions: number;
+  status: string;
+};
+
+export type DiffFileDto = {
+  filename: string;
+  status: string;
+  additions: number;
+  deletions: number;
+  patch: string | null;
+};
+
+export type PullRequestCommitDto = {
+  sha: string;
+  authorLogin: string | null;
+  authorName: string | null;
+  authoredAt: string | null;
+  message: string | null;
+};
+
+export type ActivityItemDto = {
+  actor: string;
+  eventType: string;
+  timestamp: string | null;
+  /** Comment text for "commented" / "reviewed" events (markdown). null for
+   *  structural events like "review_requested" / "merged". */
+  body: string | null;
+  /** Review verdict for "reviewed" events: APPROVED / CHANGES_REQUESTED /
+   *  COMMENTED / DISMISSED. null otherwise. */
+  state: string | null;
+  /** SHA pair for head_ref_force_pushed events; null otherwise. Powers the
+   *  "force-pushed · before → after" line in the conversation panel. */
+  beforeSha: string | null;
+  afterSha: string | null;
+  /** Login of the user being invited to review on review_requested events.
+   *  The actor is the inviter — this is the invitee. Null on every other
+   *  event type. */
+  requestedReviewer: string | null;
+  /** GitHub review id for `reviewed` events — exact link to the per-line
+   *  review comments submitted with this review. Null on every other
+   *  event type. */
+  reviewId: number | null;
+  /** Author's relationship to the repo — same value set as
+   *  {@link ReviewMessageDto.authorAssociation}. Null for structural
+   *  events that don't carry a comment author. */
+  authorAssociation: string | null;
+  /** Stable GitHub event id. For {@code commented} events this is the
+   *  issue-comment id (used as the reactions-endpoint target). Null on
+   *  legacy / id-less timeline rows. */
+  githubId: number | null;
+  /** Reactions tally for `commented` events. Always present (zero-
+   *  filled for non-comment timeline events). */
+  reactions: ReactionsDto | null;
+};
+
+export type CheckRunDto = {
+  name: string | null;
+  status: string | null;
+  conclusion: string | null;
+  htmlUrl: string | null;
+};
+
+export type ReactionsDto = {
+  plusOne: number;
+  minusOne: number;
+  laugh: number;
+  hooray: number;
+  confused: number;
+  heart: number;
+  rocket: number;
+  eyes: number;
+};
+
+export type ReviewMessageDto = {
+  githubId: number;
+  author: string | null;
+  body: string | null;
+  createdAt: string | null;
+  reactions: ReactionsDto | null;
+  /** GitHub review id this message was submitted with. Lets the UI fold
+   *  per-line comments under their parent reviewed event. */
+  reviewId: number | null;
+  /** Author's relationship to the repo — OWNER / COLLABORATOR / MEMBER /
+   *  CONTRIBUTOR / FIRST_TIME_CONTRIBUTOR / FIRST_TIMER / MANNEQUIN /
+   *  NONE. Powers the role pill rendered next to the author name. */
+  authorAssociation: string | null;
+};
+
+export type ReviewThreadDto = {
+  rootGithubId: number;
+  filePath: string | null;
+  line: number | null;
+  side: string | null;
+  diffHunk: string | null;
+  messages: ReviewMessageDto[];
+  /** True iff GitHub marks this thread resolved. REST doesn't expose
+   *  this — null/false until a GraphQL pass populates it. The UI
+   *  defaults resolved threads to folded. */
+  resolved: boolean | null;
+  /** True iff the thread anchors to a line that no longer exists in
+   *  the current diff (typically after a force-push). Drives the
+   *  "Outdated" badge on the thread header. */
+  outdated: boolean;
+  /** First line of the multi-line range (V27 / GitHub start_line).
+   *  Null for single-line threads (the common case). When set, the
+   *  thread renders "Comment on lines L455 to R467" in its header. */
+  startLine: number | null;
+  /** Side of {@link #startLine}; usually matches {@link #side}. */
+  startSide: string | null;
+};
+
+export type LinkedIssueDto = {
+  number: number;
+  title: string;
+  state: string;
+  htmlUrl: string;
+};
+
+export type PullRequestDetailDto = {
+  repo: string;
+  number: number;
+  body: string | null;
+  labels: string[];
+  draft: boolean;
+  mergeable: boolean | null;
+  mergeableState: string | null;
+  additions: number;
+  deletions: number;
+  changedFiles: number;
+  approvalCount: number;
+  changesRequestedCount: number;
+  pendingReviewerCount: number;
+  ciStatus: CiStatus;
+  files: ChangedFileDto[];
+  recentActivity: ActivityItemDto[];
+  checkRuns: CheckRunDto[];
+  reviewThreads: ReviewThreadDto[];
+  linkedIssues: LinkedIssueDto[];
+};
+
+export type SyncSettingsDto = {
+  intervalSeconds: number;
+};
+
+export type WatchedRepoDto = {
+  id: number;
+  owner: string;
+  repo: string;
+  displayOrder: number;
+};
+
+export type TeamColor = 'purple' | 'green' | 'orange';
+
+export type TeamSummaryDto = {
+  id: number;
+  name: string;
+  avatar: string;
+  color: TeamColor;
+  memberCount: number;
+  inboxCount: number;
+};
+
+export type TeamDto = {
+  id: number;
+  name: string;
+  avatar: string;
+  color: TeamColor;
+  members: string[];
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type CreateTeamRequest = {
+  name: string;
+  avatar: string;
+  color: TeamColor;
+  members: string[];
+};
+
+export type UpdateTeamRequest = {
+  name: string;
+  avatar: string;
+  color: TeamColor;
+};
+
+export type UserOrgDto = {
+  login: string;
+  avatarUrl: string;
+  htmlUrl: string;
+  description: string | null;
+};
+
+export type UserProfileDto = {
+  login: string;
+  name: string | null;
+  avatarUrl: string;
+  htmlUrl: string;
+  publicRepos: number;
+  followers: number;
+  following: number;
+  bio: string | null;
+  location: string | null;
+  /** Free-form GitHub "Company" field — null when unset. */
+  company: string | null;
+  /** Public email — null when the user has hidden it. */
+  email: string | null;
+  /** True iff the user has set up a GitHub Sponsors listing (GraphQL-sourced). */
+  hasSponsors: boolean;
+};
+
+export type IssueDto = {
+  id: number;
+  number: number;
+  title: string;
+  author: string | null;
+  htmlUrl: string;
+  updatedAt: string;
+  labels: string[];
+};
+
+export type UserRepoDto = {
+  owner: string;
+  name: string;
+  fullName: string;
+  description: string | null;
+  language: string | null;
+  stars: number;
+};
+
+/** One row of a GitHub user-search response. Powers the team-editor
+ *  member autocomplete so logins are picked from real users instead of
+ *  hand-typed (and risk a typo). */
+export type GitHubUserMatchDto = {
+  login: string;
+  avatarUrl: string | null;
+  name: string | null;
+};
+
+/** One reviewer GitHub recommends for a PR — derived from blame on the
+ *  touched files and the actor's review history. Surfaced as one-click
+ *  chips above the typeahead in the Add-reviewer UI. Source: GraphQL
+ *  pullRequest.suggestedReviewers (REST has no equivalent). */
+export type SuggestedReviewerDto = {
+  login: string;
+  avatarUrl: string | null;
+  name: string | null;
+  isAuthor: boolean;
+  isCommenter: boolean;
+};
+
+/** Mirror of backend MyPrColumn enum slugs. The team kanban now
+ *  categorizes server-side and paginates per column, so these slugs
+ *  cross the wire as both query params and response keys. */
+export type MyPrColumnSlug =
+  | 'drafting'
+  | 'waiting_on_review'
+  | 'needs_changes'
+  | 'ready_to_merge'
+  | 'recently_merged'
+  | 'handled';
+
+/** First-paint payload for the team kanban: first N PRs per column +
+ *  total count per column so each column header / "+ N more" hint can
+ *  render without a second round-trip. */
+export type TeamColumnsResponse = {
+  columns: Record<MyPrColumnSlug, PullRequestDto[]>;
+  totals: Record<MyPrColumnSlug, number>;
+  /** PR counts keyed by full {@code owner/repo}. Drives the per-repo
+   *  chip row in the team-detail header. */
+  repoTotals: Record<string, number>;
+};
+
+/** One page (offset + limit) of one column. */
+export type ColumnPageDto = {
+  column: MyPrColumnSlug;
+  total: number;
+  offset: number;
+  items: PullRequestDto[];
+};
+
+export type RecentEventDto = {
+  type: string;
+  repo: string;
+  createdAt: string;
+  commitCount: number;
+  action: string | null;
+  prTitle: string | null;
+  prNumber: number;
+  refType: string | null;
+  actorLogin: string | null;
+};
+
+export type StatPeriods = {
+  today: number;
+  /** [todayStart-1d, todayStart) — powers day-over-day delta on the home page. */
+  yesterday: number;
+  thisWeek: number;
+  thisMonth: number;
+  /** [weekStart-7d, weekStart) — powers week-over-week trend deltas. */
+  previousWeek: number;
+};
+
+export type UserStatsDto = {
+  commits: StatPeriods;
+  pushes: StatPeriods;
+  prsCreated: StatPeriods;
+  prsReviewed: StatPeriods;
+  comments: StatPeriods;
+  prsViewed: StatPeriods;
+  prsMarkedReviewed: StatPeriods;
+  updatedAt: string;
+};
+
+// Coarse category for a stored credential. The pair (type, name) uniquely
+// identifies a row in the backend `credentials` table. Conventions:
+//   ACCOUNT — singleton; name is always "github"
+//   REPO    — name is the repo full slug "owner/repo"
+//   AI      — name is the provider id ("anthropic", "openai", "local", ...)
+export type CredentialType = 'ACCOUNT' | 'REPO' | 'AI';
+
+export type CredentialDto = {
+  id: number;
+  type: CredentialType;
+  name: string;
+  /** Sub-name within (type, name). Defaults to "default api" — lets the
+   *  user keep multiple keys for the same provider, e.g. two DeepSeek
+   *  keys, "personal" and "work". */
+  instanceName: string;
+  label: string | null;
+  preview: string;
+  notes: string | null;
+  createdAt: string;
+  updatedAt: string;
+  lastUsedAt: string | null;
+};
+
+export type UpsertCredentialRequest = {
+  type: CredentialType;
+  name: string;
+  /** Defaults to "default api" on the backend if omitted. */
+  instanceName?: string | null;
+  value: string;
+  label?: string | null;
+  notes?: string | null;
+};
+
+// Display metadata for the canned credential templates the editor offers.
+// These live frontend-side because the backend doesn't dictate UI labels
+// — adding a new well-known credential just requires extending this list.
+export type CredentialTemplate = {
+  type: CredentialType;
+  name: string;
+  displayName: string;
+  usageDescription: string;
+};
+
+export const CREDENTIAL_TEMPLATES: CredentialTemplate[] = [
+  {
+    type: 'ACCOUNT',
+    name: 'github',
+    displayName: 'GitHub PAT',
+    usageDescription: 'Authenticates calls for user profile, repo, org, and other GitHub reads. Singleton — only one allowed.',
+  },
+  {
+    type: 'AI',
+    name: 'anthropic',
+    displayName: 'Anthropic API key',
+    usageDescription: 'Authenticates calls to the Claude API for AI-drafted PR reviews.',
+  },
+  {
+    type: 'AI',
+    name: 'openai',
+    displayName: 'OpenAI API key',
+    usageDescription: 'Authenticates calls to the OpenAI API for AI-drafted PR reviews.',
+  },
+  {
+    type: 'AI',
+    name: 'deepseek',
+    displayName: 'DeepSeek API key',
+    usageDescription: 'Authenticates calls to the DeepSeek chat completions API. Default model is deepseek-chat; deepseek-reasoner is also available.',
+  },
+  {
+    type: 'AI',
+    name: 'local',
+    displayName: 'Local LLM endpoint',
+    usageDescription: 'Base URL for an OpenAI-compatible local model server (e.g. Ollama, LM Studio).',
+  },
+];
+
+export type AiProviderInfo = {
+  providerId: string;
+  displayName: string;
+  configured: boolean;
+  active: boolean;
+};
+
+export type AiReviewCommentDto = {
+  id: number;
+  filePath: string;
+  lineNumber: number;
+  body: string;
+  /** User-edited replacement for {@link body}. When non-null, this is what
+   *  publish sends to GitHub; the original {@link body} stays as the
+   *  "before" reference. */
+  editedBody: string | null;
+  severity: 'info' | 'suggestion' | 'warning' | 'blocker' | string;
+  /** Soft-deleted: dimmed in the UI and excluded from the publish payload.
+   *  Restorable via the Restore button on the inline card. */
+  dismissed: boolean;
+  /** Origin of the comment — AI-generated finding vs. user-staged inline. */
+  source: 'AI' | 'HUMAN';
+  /** Diff side: LEFT (deleted) or RIGHT (added). AI comments are RIGHT. */
+  side: 'LEFT' | 'RIGHT';
+  /** First line of a multi-line range, or null for single-line. */
+  startLine: number | null;
+  /** Diff side of {@link startLine}, or null for single-line. */
+  startSide: 'LEFT' | 'RIGHT' | null;
+};
+
+export type AiReviewDraftDto = {
+  id: number;
+  prId: number;
+  summary: string | null;
+  providerId: string;
+  model: string;
+  headSha: string | null;
+  status: string;
+  createdAt: string;
+  updatedAt: string;
+  comments: AiReviewCommentDto[];
+};
+
+export type AiSettingsDto = {
+  provider: string;
+  model: string;
+};
+
+/** Home-page daily card. Exactly one per day, picked deterministically
+ *  by the backend from a curated pool. {@link author} / {@link role} are
+ *  populated for {@code quote} cards and null for the other types. */
+export type DailyCardDto = {
+  type: 'quote' | 'review_tip' | 'open_source_tip' | 'tiny_challenge' | 'joke' | string;
+  text: string;
+  author: string | null;
+  role: string | null;
+  date: string;
+};
+
+/** A per-repo "skill" — additional system-prompt context the AI reviewer
+ *  applies when running against a matching repo. {@link llmProvider} may
+ *  be null (skill applies to every provider) or a provider id to lock
+ *  the run to a specific reviewer. */
+export type ReviewSkillDto = {
+  id: number;
+  skillName: string;
+  repo: string;
+  llmProvider: string | null;
+  description: string | null;
+  context: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type Bridge = {
+  savePat: (pat: string) => Promise<boolean>;
+  hasPat: () => Promise<boolean>;
+  clearPat: () => Promise<boolean>;
+  fetchHello: () => Promise<string>;
+  fetchPrs: () => Promise<PullRequestDto[]>;
+  fetchPullRequestDetail: (repo: string, number: number) => Promise<PullRequestDetailDto>;
+  fetchPrDiffFiles: (repo: string, number: number) => Promise<DiffFileDto[]>;
+  fetchPrCommits: (repo: string, number: number) => Promise<PullRequestCommitDto[]>;
+  /** Diff scoped to a single commit (DiffFileDto[] same as fetchPrDiffFiles). */
+  fetchPrCommitDiff: (repo: string, number: number, sha: string) => Promise<DiffFileDto[]>;
+  /** Returns a file's full content at a ref, as a list of lines. Powers the
+   *  "expand collapsed code" buttons in the diff viewer. */
+  fetchFileBlob: (repo: string, path: string, sha: string) => Promise<{ lines: string[] }>;
+  getSyncSettings: () => Promise<SyncSettingsDto>;
+  setSyncSettings: (settings: SyncSettingsDto) => Promise<SyncSettingsDto>;
+  triggerSync: () => Promise<void>;
+  markPrViewed: (prId: number) => Promise<void>;
+  markPrHandled: (prId: number, action: HandledAction) => Promise<void>;
+  reopenPr: (prId: number) => Promise<void>;
+  approvePr: (prId: number, repo: string, number: number) => Promise<void>;
+  mergePr: (prId: number, repo: string, number: number) => Promise<{ merged: boolean; message: string }>;
+  commentPr: (prId: number, repo: string, number: number, body: string, close: boolean) => Promise<void>;
+  /** Adds a single user to the PR's requested reviewers. */
+  addRequestedReviewer: (repo: string, number: number, reviewer: string) => Promise<void>;
+  /** Removes a single user from the PR's requested reviewers. */
+  removeRequestedReviewer: (repo: string, number: number, reviewer: string) => Promise<void>;
+  /** GitHub's suggested reviewers for one PR (GraphQL-only). Drives
+   *  the one-click chips above the Add-reviewer typeahead. Returns []
+   *  on failure — non-essential affordance, never throws. */
+  getSuggestedReviewers: (repo: string, number: number) => Promise<SuggestedReviewerDto[]>;
+  /** Replies inline to an existing per-line review thread on the PR. */
+  replyToReviewThread: (repo: string, number: number, rootCommentId: number, body: string) => Promise<void>;
+  /** Posts a brand-new per-line review comment on a specific diff line.
+   *  {@code commitId} should be the PR head SHA. {@code side} is "LEFT"
+   *  for the old file, "RIGHT" for the new file. */
+  createInlineReviewComment: (
+    repo: string,
+    number: number,
+    body: string,
+    path: string,
+    line: number,
+    side: 'LEFT' | 'RIGHT',
+    commitId: string,
+    /** Optional first line of a multi-line range. null/omitted for the
+     *  single-line case. When set, GitHub creates the comment spanning
+     *  startLine through line on the matching side. */
+    startLine?: number | null,
+    startSide?: 'LEFT' | 'RIGHT' | null,
+  ) => Promise<void>;
+  updatePrBody: (repo: string, number: number, body: string) => Promise<void>;
+  // Phase 2
+  getWatchedRepos: () => Promise<WatchedRepoDto[]>;
+  addWatchedRepo: (owner: string, repo: string) => Promise<WatchedRepoDto>;
+  removeWatchedRepo: (owner: string, repo: string) => Promise<void>;
+  getUserProfile: () => Promise<UserProfileDto>;
+  getRepoPulls: (owner: string, repo: string) => Promise<PullRequestDto[]>;
+  /** Single-PR fetch — used by the deep-link fallback when a PR isn't in
+   *  the (capped) repo list response. */
+  getRepoPull: (owner: string, repo: string, number: number) => Promise<PullRequestDto>;
+  getRepoIssues: (owner: string, repo: string) => Promise<IssueDto[]>;
+  getUserRepos: () => Promise<UserRepoDto[]>;
+  getUserOrgs: () => Promise<UserOrgDto[]>;
+  searchRepos: (query: string) => Promise<UserRepoDto[]>;
+  searchUsers: (query: string) => Promise<GitHubUserMatchDto[]>;
+  getRecentActivity: (login: string) => Promise<RecentEventDto[]>;
+  getFollowingActivity: (login: string) => Promise<RecentEventDto[]>;
+  /** Today's home-page daily card. Stable for the whole day. */
+  getDailyCard: () => Promise<DailyCardDto>;
+  updateProfile: (name: string, bio: string, location: string) => Promise<UserProfileDto>;
+  openExternal: (url: string) => Promise<void>;
+  getUserStats: (login: string, force?: boolean) => Promise<UserStatsDto>;
+  // Teams
+  listTeams: () => Promise<TeamSummaryDto[]>;
+  getTeam: (id: number) => Promise<TeamDto>;
+  createTeam: (req: CreateTeamRequest) => Promise<TeamDto>;
+  updateTeam: (id: number, req: UpdateTeamRequest) => Promise<TeamDto>;
+  replaceTeamMembers: (id: number, members: string[]) => Promise<TeamDto>;
+  deleteTeam: (id: number) => Promise<void>;
+  getTeamPulls: (id: number) => Promise<PullRequestDto[]>;
+  /** Initial-paint endpoint for the team kanban: first N per column. */
+  getTeamPullsByColumn: (id: number, perColumn: number, force: boolean) => Promise<TeamColumnsResponse>;
+  /** Pagination endpoint: next page of one column. */
+  getTeamColumnPage: (id: number, column: MyPrColumnSlug, offset: number, limit: number) => Promise<ColumnPageDto>;
+  // Credentials vault
+  listCredentials: (type?: CredentialType) => Promise<CredentialDto[]>;
+  upsertCredential: (req: UpsertCredentialRequest) => Promise<CredentialDto>;
+  deleteCredential: (type: CredentialType, name: string, instanceName?: string) => Promise<void>;
+  // AI review
+  listAiProviders: () => Promise<AiProviderInfo[]>;
+  getAiSettings: () => Promise<AiSettingsDto>;
+  setAiSettings: (provider: string, model: string | null) => Promise<AiSettingsDto>;
+  /** List every configured per-repo review skill, alphabetised. */
+  listReviewSkills: () => Promise<ReviewSkillDto[]>;
+  createReviewSkill: (input: {
+    skillName: string;
+    repo: string;
+    llmProvider: string | null;
+    description: string | null;
+    context: string | null;
+  }) => Promise<ReviewSkillDto>;
+  updateReviewSkill: (id: number, input: {
+    skillName: string;
+    repo: string;
+    llmProvider: string | null;
+    description: string | null;
+    context: string | null;
+  }) => Promise<ReviewSkillDto>;
+  deleteReviewSkill: (id: number) => Promise<void>;
+  runAiReview: (prId: number, repo: string, number: number) => Promise<AiReviewDraftDto>;
+  /** Sends the user's draft comment text to the active LLM and returns
+   *  a polished rewrite. Used by the "Better words" button — UI replaces
+   *  the textarea contents with the response. */
+  polishCommentText: (text: string) => Promise<string>;
+  getLatestAiReview: (prId: number) => Promise<AiReviewDraftDto | null>;
+  deleteAiReview: (draftId: number) => Promise<void>;
+  /** Async start — backend runs the review on its executor and returns
+   *  immediately. Poll {@link getAiReviewStatus} until state is DONE/FAILED,
+   *  then fetch the persisted draft via {@link getLatestAiReview}. */
+  startAiReview: (prId: number, repo: string, number: number) => Promise<{ state: string }>;
+  getAiReviewStatus: (repo: string, number: number) => Promise<{ state: 'IDLE' | 'RUNNING' | 'DONE' | 'FAILED'; error: string | null }>;
+  /** Publishes a stored draft to GitHub as a single review. {@code event}
+   *  is one of "COMMENT", "APPROVE", or "REQUEST_CHANGES" — controls the
+   *  GitHub review action. */
+  publishAiReview: (
+    draftId: number,
+    event: 'COMMENT' | 'APPROVE' | 'REQUEST_CHANGES',
+    body?: string | null,
+  ) => Promise<AiReviewDraftDto>;
+  /** Submit a verdict-only or mixed review for a PR — backend
+   *  finds-or-creates the draft so the user can Approve / Comment
+   *  without first staging an inline comment. */
+  publishReviewForPr: (payload: {
+    prId: number;
+    repo: string;
+    number: number;
+    headSha: string | null;
+    event: 'COMMENT' | 'APPROVE' | 'REQUEST_CHANGES';
+    body: string | null;
+  }) => Promise<AiReviewDraftDto>;
+  /** Edits a single AI comment's body. Pass null/empty to clear the edit
+   *  and revert to the AI's original. Returns the parent draft refreshed. */
+  updateAiReviewComment: (draftId: number, commentId: number, editedBody: string | null) => Promise<AiReviewDraftDto>;
+  /** Drops a single AI comment from a draft. Returns the parent draft refreshed. */
+  deleteAiReviewComment: (draftId: number, commentId: number) => Promise<AiReviewDraftDto>;
+  /** Toggles the dismissed flag on a comment. Dismissed comments are kept
+   *  on the row but excluded from the publish payload. */
+  setAiReviewCommentDismissed: (draftId: number, commentId: number, dismissed: boolean) => Promise<AiReviewDraftDto>;
+  /** Adds an emoji reaction to a per-line review comment. {@code content}
+   *  is one of the GitHub reaction strings (+1 / -1 / laugh / confused /
+   *  heart / hooray / rocket / eyes). Idempotent on the GitHub side. */
+  addReviewCommentReaction: (
+    repo: string,
+    commentId: number,
+    content: '+1' | '-1' | 'laugh' | 'confused' | 'heart' | 'hooray' | 'rocket' | 'eyes',
+  ) => Promise<void>;
+  /** Adds an emoji reaction to a top-level issue / PR comment (the
+   *  "commented" timeline events). Same content allowlist as the
+   *  review-comment variant. */
+  addIssueCommentReaction: (
+    repo: string,
+    commentId: number,
+    content: '+1' | '-1' | 'laugh' | 'confused' | 'heart' | 'hooray' | 'rocket' | 'eyes',
+  ) => Promise<void>;
+  /** Toggles a review thread's resolved state via GitHub's GraphQL
+   *  mutations. Identified by the REST root comment id; the backend
+   *  translates to the GraphQL node id internally. */
+  setReviewThreadResolved: (
+    repo: string,
+    prId: number,
+    rootCommentId: number,
+    resolved: boolean,
+  ) => Promise<void>;
+  /** Stage a human-authored inline comment into the active review draft. */
+  stageReviewComment: (payload: {
+    prId: number;
+    repo: string;
+    number: number;
+    headSha: string | null;
+    filePath: string;
+    line: number;
+    side: 'LEFT' | 'RIGHT';
+    startLine?: number | null;
+    startSide?: 'LEFT' | 'RIGHT' | null;
+    body: string;
+  }) => Promise<AiReviewDraftDto>;
+  writeClipboard: (text: string) => Promise<void>;
+  // Embedded GitHub review, implemented as a WebContentsView overlaid on the
+  // main window's content area. Bounds are in CSS pixels (getBoundingClientRect).
+  mountReview: (repo: string, number: number, bounds: { x: number; y: number; width: number; height: number }) => Promise<void>;
+  setReviewBounds: (bounds: { x: number; y: number; width: number; height: number }) => Promise<void>;
+  unmountReview: () => Promise<void>;
+  // Clear the review partition's cookies and reload /login — escape hatch
+  // when github.com is stuck on a passkey-only re-verification page.
+  resetReviewSignIn: (repo: string, number: number) => Promise<void>;
+  // Fires when the review WebContentsView tried to navigate to a third-party
+  // SSO provider (Google, Microsoft, Apple) that refuses embedded browsers.
+  // Returns an unsubscribe function.
+  onReviewAuthBlocked: (callback: (payload: { provider: string }) => void) => () => void;
+  // Fires when the review view lands on a GitHub sign-in page. Used to show
+  // a proactive tip banner so the user doesn't pick passkey (which will hang
+  // forever — Electron can't drive the macOS platform authenticator).
+  onReviewSignInPage: (callback: () => void) => () => void;
+  /** Walks the embed's own history one step back/forward — Chrome-style
+   *  ←/→ for the review screen so links inside a comment can be
+   *  followed and unfollowed without exiting the embed. */
+  reviewGoBack: () => Promise<void>;
+  reviewGoForward: () => Promise<void>;
+  /** Subscribes to the embed's nav-state pings so the toolbar buttons
+   *  enable/disable in step with the actual back/forward stack. */
+  onReviewNavState: (callback: (s: { canGoBack: boolean; canGoForward: boolean }) => void) => () => void;
+  // ─── Generic in-app browser ──────────────────────────────────────
+  /** Mount a WebContentsView at the given screen-coords bounds and
+   *  load {@code url}. Replaces any existing in-app-browser view. */
+  mountInAppBrowser: (url: string, bounds: { x: number; y: number; width: number; height: number }) => Promise<void>;
+  setInAppBrowserBounds: (bounds: { x: number; y: number; width: number; height: number }) => Promise<void>;
+  unmountInAppBrowser: () => Promise<void>;
+  inAppGoBack: () => Promise<void>;
+  inAppGoForward: () => Promise<void>;
+  inAppReload: () => Promise<void>;
+  inAppLoadUrl: (url: string) => Promise<void>;
+  /** Pop the URL out into its own native Electron window — independent
+   *  of the main app window, OS-supplied chrome. Lets the user keep
+   *  multiple pages open side-by-side without a tab strip. */
+  inAppPopOut: (url: string) => Promise<void>;
+  /** Fires when main wants the renderer to open a URL in the in-app
+   *  browser overlay — triggered by setWindowOpenHandler / will-navigate
+   *  on the main window. */
+  onInAppOpenRequest: (callback: (payload: { url: string }) => void) => () => void;
+  /** Push of the in-app browser's current nav state (URL + title +
+   *  back/forward + loading) for the toolbar to render against. */
+  onInAppNavState: (callback: (s: InAppNavState) => void) => () => void;
+};
+
+export type InAppNavState = {
+  url: string;
+  title: string;
+  canGoBack: boolean;
+  canGoForward: boolean;
+  loading: boolean;
+};

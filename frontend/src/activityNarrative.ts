@@ -1,0 +1,87 @@
+import type { RecentEventDto } from './types';
+
+/** A piece of activity-narrative text. {@link url} marks the segment as a
+ *  clickable link (the renderer wires it up via {@code openUrl}); plain
+ *  segments render as static text. Used to make repo / PR / issue
+ *  mentions in the home-page activity feeds tappable. */
+export type NarrativeSegment = { text: string; url?: string };
+
+export function repoUrl(repo: string): string { return `https://github.com/${repo}`; }
+export function prUrl(repo: string, number: number): string { return `https://github.com/${repo}/pull/${number}`; }
+export function issueUrl(repo: string, number: number): string { return `https://github.com/${repo}/issues/${number}`; }
+export function commitsUrl(repo: string): string { return `https://github.com/${repo}/commits`; }
+
+/** Turns a recent event into a sequence of text + link segments. Only
+ *  the actionable anchors are linked — PR numbers, issue numbers, and
+ *  commits-page references — so the repo name renders as plain text.
+ *  Watch / Fork / Create / unknown events have no anchor of their own
+ *  and become entirely plain text. */
+export function followingNarrativeSegments(e: RecentEventDto): NarrativeSegment[] {
+  // Repo segment is plain text — the user explicitly does not want the
+  // repo to be a click target in this surface.
+  const repoSeg: NarrativeSegment = { text: e.repo };
+  const hasNumber = typeof e.prNumber === 'number' && e.prNumber > 0;
+  const prSeg = (): NarrativeSegment | null => hasNumber
+    ? { text: `#${e.prNumber}`, url: prUrl(e.repo, e.prNumber) }
+    : null;
+  const issueSeg = (): NarrativeSegment | null => hasNumber
+    ? { text: `#${e.prNumber}`, url: issueUrl(e.repo, e.prNumber) }
+    : null;
+
+  switch (e.type) {
+    case 'PullRequestEvent': {
+      const verb = e.action === 'opened' ? 'opened' : e.action === 'closed' ? 'closed' : 'updated';
+      const pr = prSeg();
+      return pr
+        ? [{ text: `${verb} pull request ` }, pr, { text: ' in ' }, repoSeg]
+        : [{ text: `${verb} a pull request in ` }, repoSeg];
+    }
+    case 'PullRequestReviewEvent': {
+      const pr = prSeg();
+      return pr
+        ? [{ text: 'reviewed PR ' }, pr, { text: ' in ' }, repoSeg]
+        : [{ text: 'reviewed a PR in ' }, repoSeg];
+    }
+    case 'PullRequestReviewCommentEvent': {
+      const pr = prSeg();
+      return pr
+        ? [{ text: 'commented on PR ' }, pr, { text: ' in ' }, repoSeg]
+        : [{ text: 'commented on a PR in ' }, repoSeg];
+    }
+    case 'PushEvent': {
+      const n = e.commitCount || 1;
+      // The commits phrase is the click target — links to the repo's
+      // commits page since the event payload doesn't carry per-commit
+      // SHAs. The repo name afterwards is plain text.
+      return [
+        { text: 'pushed ' },
+        { text: `${n} commit${n !== 1 ? 's' : ''}`, url: commitsUrl(e.repo) },
+        { text: ' to ' },
+        repoSeg,
+      ];
+    }
+    case 'IssueCommentEvent': {
+      const iss = issueSeg();
+      return iss
+        ? [{ text: 'commented on issue ' }, iss, { text: ' in ' }, repoSeg]
+        : [{ text: 'commented in ' }, repoSeg];
+    }
+    case 'IssuesEvent': {
+      const verb = e.action === 'opened' ? 'opened' : 'closed';
+      const iss = issueSeg();
+      return iss
+        ? [{ text: `${verb} issue ` }, iss, { text: ' in ' }, repoSeg]
+        : [{ text: `${verb} an issue in ` }, repoSeg];
+    }
+    case 'CreateEvent':
+      return e.refType === 'repository'
+        ? [{ text: 'created repository ' }, repoSeg]
+        : [{ text: 'created a branch in ' }, repoSeg];
+    case 'WatchEvent':
+      return [{ text: 'starred ' }, repoSeg];
+    case 'ForkEvent':
+      return [{ text: 'forked ' }, repoSeg];
+    default:
+      return [{ text: 'activity in ' }, repoSeg];
+  }
+}

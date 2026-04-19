@@ -1,0 +1,1911 @@
+/* ── v2 Inbox/Handled Layout ──────────────────────────────── */
+
+.v2-page {
+  display: flex;
+  height: 100%;
+  background: var(--bg-base);
+  color: var(--text-1);
+  font-family: var(--font-body);
+}
+
+.v2-sidebar {
+  width: 380px;
+  flex: 0 0 auto;
+  border-right: 1px solid var(--border);
+  background: var(--bg-elevated);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  position: relative;
+}
+
+/* Pinned to the top-right corner of the expanded sidebar — hand-shaped
+   chevron that flips the panel to the slim-rail mode. Mirrors the diff
+   viewer's files-collapse and AI-sidebar collapse buttons so all three
+   "panel collapse" affordances read the same. */
+.v2-sidebar__collapse-btn {
+  appearance: none;
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  width: 22px;
+  height: 22px;
+  border-radius: 5px;
+  border: 1px solid var(--border);
+  background: var(--bg-card);
+  color: var(--text-2);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  z-index: 5;
+}
+.v2-sidebar__collapse-btn:hover {
+  color: var(--accent);
+  background: var(--accent-a7);
+  border-color: var(--accent-a40);
+}
+
+/* Slim-rail variant of the sidebar: a 36px column with a single ▶ button
+   plus a vertical label so the user can tell which panel is collapsed. */
+.v2-sidebar--collapsed {
+  align-items: center;
+  padding: 10px 0;
+}
+.v2-sidebar__rail-toggle {
+  appearance: none;
+  width: 22px;
+  height: 22px;
+  border-radius: 5px;
+  border: 1px solid var(--border);
+  background: var(--bg-card);
+  color: var(--text-2);
+  cursor: pointer;
+  font-size: 11px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.v2-sidebar__rail-toggle:hover {
+  color: var(--accent);
+  background: var(--accent-a7);
+  border-color: var(--accent-a40);
+}
+.v2-sidebar__rail-label {
+  margin-top: 8px;
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  color: var(--text-3);
+  writing-mode: vertical-rl;
+  transform: rotate(180deg);
+  font-weight: 600;
+  white-space: nowrap;
+}
+
+/* Shared resize handle (sidebar-preview, files-diff, etc). 5px hit target
+   centered on a 1px visible line so it's easy to grab but doesn't add
+   obvious chrome. Hover darkens the line a bit for discoverability. */
+.resize-handle {
+  flex: 0 0 auto;
+  width: 5px;
+  cursor: col-resize;
+  background: transparent;
+  position: relative;
+  user-select: none;
+}
+
+.resize-handle::before {
+  content: '';
+  position: absolute;
+  left: 2px;
+  top: 0;
+  bottom: 0;
+  width: 1px;
+  background: var(--border);
+  transition: background 0.12s, width 0.12s;
+}
+
+.resize-handle:hover::before,
+.resize-handle:active::before {
+  background: var(--accent);
+  width: 2px;
+  left: 1.5px;
+}
+
+.v2-sidebar__tabs {
+  display: flex;
+  border-bottom: 1px solid var(--border);
+  padding: 12px 16px 0;
+  gap: 20px;
+  background: var(--bg-elevated);
+}
+
+.v2-tab {
+  appearance: none;
+  background: transparent;
+  border: none;
+  padding: 8px 0 12px;
+  font: inherit;
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text-3);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  border-bottom: 2px solid transparent;
+  margin-bottom: -1px;
+}
+
+.v2-tab--active {
+  color: var(--accent);
+  border-bottom-color: var(--accent);
+}
+
+.v2-tab__count {
+  font-size: 12px;
+  font-weight: 600;
+  padding: 2px 7px;
+  border-radius: 10px;
+  background: var(--border);
+  color: var(--text-3);
+}
+
+.v2-tab--active .v2-tab__count {
+  background: var(--accent-a10);
+  color: var(--accent);
+}
+
+.v2-subtabs {
+  display: flex;
+  gap: 6px;
+  padding: 10px 16px;
+  border-bottom: 1px solid var(--border);
+}
+
+.v2-subtab {
+  appearance: none;
+  border: 1px solid transparent;
+  background: transparent;
+  padding: 5px 12px;
+  border-radius: 6px;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-2);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.v2-subtab:hover {
+  background: var(--accent-a4);
+}
+
+.v2-subtab--active {
+  background: var(--bg-elevated);
+  border-color: var(--border);
+  color: var(--text-1);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.04);
+}
+
+.v2-subtab__count {
+  font-size: 11px;
+  font-weight: 600;
+  padding: 1px 6px;
+  border-radius: 8px;
+  background: var(--accent-a10);
+  color: var(--accent);
+}
+
+.v2-list {
+  flex: 1;
+  overflow-y: auto;
+  padding: 12px 12px 40px;
+}
+
+.v2-empty {
+  padding: 28px 16px;
+  text-align: center;
+  color: var(--text-3);
+  font-size: 13px;
+}
+
+.v2-group {
+  margin-bottom: 14px;
+}
+
+/* Group headers are prominent coloured bars — left accent stripe, tinted
+   background, uppercase title, count pill. Makes MY PRS / FOR MY REVIEW /
+   OTHER each visually distinct so the eye lands on them immediately. */
+.v2-group__header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  background: var(--accent-a7);
+  border: 1px solid var(--border);
+  border-left-width: 3px;
+  border-radius: 6px;
+  width: 100%;
+  text-align: left;
+  font-family: inherit;
+  margin-bottom: 6px;
+}
+
+.v2-group__header--clickable {
+  cursor: pointer;
+}
+
+.v2-group__header--clickable:hover {
+  background: var(--accent-a15, var(--accent-a7));
+  filter: brightness(0.98);
+}
+
+.v2-group__chevron {
+  display: inline-block;
+  font-size: 10px;
+  transition: transform 120ms ease;
+  width: 10px;
+  color: var(--text-3);
+}
+
+.v2-group__chevron--collapsed {
+  transform: rotate(-90deg);
+}
+
+/* Colour variants: strong left stripe + matching tint + matching title. */
+.v2-group__header--blue {
+  color: var(--accent);
+  border-left-color: var(--accent);
+  background: var(--accent-a7);
+}
+.v2-group__header--blue .v2-group__chevron { color: var(--accent); }
+
+.v2-group__header--orange {
+  color: #c0651a;
+  border-left-color: #c0651a;
+  background: rgba(192, 101, 26, 0.08);
+}
+.v2-group__header--orange .v2-group__chevron { color: #c0651a; }
+
+.v2-group__header--grey {
+  color: var(--text-2);
+  border-left-color: var(--text-3);
+  background: rgba(128, 128, 128, 0.08);
+}
+
+.v2-group__header--plain {
+  color: var(--text-2);
+  border-left-color: var(--border);
+  background: var(--bg-elevated);
+  font-size: 11.5px;
+}
+
+.v2-group__title { flex: 1; }
+
+.v2-group__count {
+  font-size: 10.5px;
+  font-weight: 700;
+  padding: 2px 9px;
+  border-radius: 10px;
+  background: rgba(0, 0, 0, 0.06);
+  color: inherit;
+  letter-spacing: 0;
+  font-variant-numeric: tabular-nums;
+}
+
+.v2-card {
+  position: relative;
+  /* Stacked layout: banner (when promoted) spans the top edge-to-edge,
+     then a flex row with dot + body sits below. The previous flex-row
+     layout squeezed the banner into a content-width chip in the top-left
+     and clipped against the card's rounded corner. */
+  display: flex;
+  flex-direction: column;
+  padding: 0;
+  margin-bottom: 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg-card, var(--bg-elevated));
+  box-shadow: 0 1px 2px rgba(16, 22, 26, 0.06);
+  cursor: pointer;
+  overflow: hidden;
+  transition: border-color 120ms ease, box-shadow 120ms ease, transform 120ms ease;
+}
+.v2-card__row-wrap {
+  display: flex;
+  gap: 10px;
+  align-items: flex-start;
+  padding: 10px 12px;
+}
+
+.v2-card:hover {
+  border-color: var(--accent-a40);
+  box-shadow: 0 2px 6px rgba(16, 22, 26, 0.10);
+  transform: translateY(-1px);
+}
+
+.v2-card--selected {
+  border-color: var(--accent);
+  background: var(--accent-a4);
+}
+
+/* Awaiting-author cards (dotKind === 'reviewed') are quieter than active
+   columns. Full opacity returns on hover so they're still easy to scan. */
+.v2-card--dim {
+  opacity: 0.78;
+  transition: opacity 120ms ease;
+}
+.v2-card--dim:hover {
+  opacity: 1;
+}
+
+/* Top banner that crowns a card when it's been promoted to "Needs attention".
+   Tone is one of red / orange / blue (see attentionBanner in PrBucketViews). */
+.v2-card__banner {
+  /* Spans the top of the card edge-to-edge. The card's overflow:hidden
+     clips this against the rounded corners so we don't need to set
+     matching radii here. */
+  padding: 5px 12px;
+  font-size: 11px;
+  font-weight: 500;
+  border-bottom: 1px solid rgba(0, 0, 0, 0.04);
+}
+.v2-card__banner--red {
+  background: rgba(207, 34, 46, 0.10);
+  color: #b1121f;
+}
+.v2-card__banner--orange {
+  background: rgba(212, 160, 23, 0.13);
+  color: #8a6510;
+}
+.v2-card__banner--blue {
+  background: rgba(31, 111, 235, 0.10);
+  color: #1f6feb;
+}
+.v2-card__banner--gray {
+  background: var(--bg-card);
+  color: var(--text-3);
+}
+
+/* Foot row: tags on the left, CI + comment-count signals on the right. */
+.v2-card__foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 4px;
+}
+
+.v2-card__tags {
+  display: flex;
+  gap: 4px;
+  flex-wrap: wrap;
+}
+
+.v2-card__signals {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  font-size: 11px;
+  color: var(--text-3);
+}
+
+.v2-card__signal {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+}
+
+.v2-card__ci-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--text-4);
+}
+.v2-card__ci-dot--passing { background: #22c55e; }
+.v2-card__ci-dot--failing { background: #ef4444; }
+.v2-card__ci-dot--pending { background: #d4a017; }
+
+/* Tag colors keyed by label name (bug, feat, perf, docs, default). The match
+   is substring-based — see tagClass() in PrBucketViews. */
+.v2-pill--tag-default {
+  background: var(--bg-card);
+  color: var(--text-2);
+  border: 1px solid var(--border);
+  font-weight: 500;
+  text-transform: none;
+  font-size: 10.5px;
+  letter-spacing: 0;
+}
+.v2-pill--tag-bug {
+  background: rgba(207, 34, 46, 0.10);
+  color: #b1121f;
+  border: 1px solid rgba(207, 34, 46, 0.20);
+  font-weight: 500;
+  text-transform: none;
+  font-size: 10.5px;
+  letter-spacing: 0;
+}
+.v2-pill--tag-feat {
+  background: rgba(31, 111, 235, 0.10);
+  color: #1f6feb;
+  border: 1px solid rgba(31, 111, 235, 0.20);
+  font-weight: 500;
+  text-transform: none;
+  font-size: 10.5px;
+  letter-spacing: 0;
+}
+.v2-pill--tag-perf {
+  background: rgba(125, 60, 200, 0.10);
+  color: #6d28d9;
+  border: 1px solid rgba(125, 60, 200, 0.20);
+  font-weight: 500;
+  text-transform: none;
+  font-size: 10.5px;
+  letter-spacing: 0;
+}
+.v2-pill--tag-docs {
+  background: rgba(34, 197, 94, 0.10);
+  color: #15803d;
+  border: 1px solid rgba(34, 197, 94, 0.20);
+  font-weight: 500;
+  text-transform: none;
+  font-size: 10.5px;
+  letter-spacing: 0;
+}
+
+/* Compact diff display in the meta row: "+184 −27". */
+.v2-card__diff {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11px;
+}
+.v2-card__diff-add { color: #22c55e; }
+.v2-card__diff-del { color: #ef4444; }
+
+.v2-card__dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  margin-top: 6px;
+  flex-shrink: 0;
+}
+
+/* Marker-dot vocabulary (see docs/mockups/v2/review-flow.png):
+   - blue   "glow"   : New, untouched. Highest-attention visual.
+   - orange "glow"   : Resurfaced (new activity since last look).
+   - seen hollow ring: Viewed, no activity yet.
+   - reviewed solid  : You reviewed (commented / changes-requested),
+                       waiting on the author. Quieter than new/resurfaced. */
+.v2-card__dot--blue {
+  background: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-a15, var(--accent-a7));
+}
+.v2-card__dot--orange {
+  background: #e67e22;
+  box-shadow: 0 0 0 3px rgba(230, 126, 34, 0.22);
+}
+.v2-card__dot--seen {
+  background: transparent;
+  box-shadow: inset 0 0 0 1.5px #d4a017;
+}
+.v2-card__dot--reviewed {
+  /* GitHub review-state blue — distinct from the accent-blue "new" glow. */
+  background: #1f6feb;
+}
+
+.v2-card--seen .v2-card__title {
+  color: var(--text-2);
+}
+
+.v2-pill--seen {
+  background: rgba(212, 160, 23, 0.12);
+  border: 1px solid rgba(212, 160, 23, 0.40);
+  color: #8a6510;
+  font-weight: 500;
+  letter-spacing: 0.02em;
+}
+
+.v2-card__body {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.v2-card__row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.v2-card__number {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-3);
+  letter-spacing: 0.3px;
+}
+
+/* Small repo badge (avatar + name) shown as the first item in a card's top
+   row — so the user can tell at a glance which repo a PR belongs to in the
+   kanban or sidebar list, where multiple repos share the same column. */
+.repo-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  color: var(--text-2);
+  font-weight: 500;
+  max-width: 160px;
+  overflow: hidden;
+}
+
+.repo-chip__name {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.v2-card__ts {
+  font-size: 11px;
+  color: var(--text-3);
+}
+
+.v2-card__title {
+  font-size: 14px;
+  font-weight: 500;
+  line-height: 1.35;
+  color: var(--text-1);
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+}
+
+.v2-card__meta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--text-2);
+}
+
+.v2-pill {
+  display: inline-flex;
+  align-items: center;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.4px;
+  padding: 1px 6px;
+  border-radius: 4px;
+  background: var(--border);
+  color: var(--text-3);
+}
+
+.v2-pill--draft {
+  background: rgba(120, 120, 120, 0.15);
+  color: var(--text-3);
+}
+
+.v2-pill--label {
+  background: var(--accent-a10);
+  color: var(--accent);
+  letter-spacing: 0.1px;
+  font-weight: 500;
+  text-transform: none;
+  font-size: 10px;
+  padding: 1px 7px;
+}
+
+.v2-card__labels {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 2px;
+}
+
+.v2-card--issue {
+  cursor: pointer;
+}
+
+.v2-card--issue:hover {
+  border-color: var(--accent);
+}
+
+.v2-pill--resurfaced {
+  background: rgba(230, 126, 34, 0.15);
+  color: #c0651a;
+  letter-spacing: 0.2px;
+  font-weight: 600;
+  text-transform: none;
+  font-size: 11px;
+  padding: 2px 7px;
+}
+
+/* "Awaiting author" — you reviewed, waiting on the PR author to respond.
+   Muted blue so it's distinct from the "new" glow without shouting. */
+.v2-pill--reviewed {
+  background: rgba(31, 111, 235, 0.13);
+  color: #1f6feb;
+  letter-spacing: 0.2px;
+  font-weight: 600;
+  text-transform: none;
+  font-size: 11px;
+  padding: 2px 7px;
+}
+
+.v2-hover-action {
+  position: absolute;
+  top: 10px;
+  right: 10px;
+  appearance: none;
+  border: 1px solid var(--border);
+  background: var(--bg-elevated);
+  color: var(--text-2);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 500;
+  padding: 3px 10px;
+  border-radius: 6px;
+  cursor: pointer;
+  opacity: 0;
+  transform: translateY(-2px);
+  transition: opacity 120ms ease, transform 120ms ease, border-color 120ms ease, color 120ms ease;
+  pointer-events: none;
+}
+
+.v2-card:hover .v2-hover-action {
+  opacity: 1;
+  transform: translateY(0);
+  pointer-events: auto;
+}
+
+.v2-hover-action:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+/* Handled card status badges ─────────────────────────────── */
+
+.handled-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 2px 7px;
+  border-radius: 4px;
+}
+
+.handled-badge__icon { font-size: 10px; }
+
+.handled-badge--approved {
+  background: rgba(34, 139, 82, 0.15);
+  color: #1f7a48;
+}
+.handled-badge--merged {
+  background: rgba(137, 87, 229, 0.15);
+  color: #6f47c7;
+}
+.handled-badge--commented {
+  background: rgba(88, 133, 214, 0.18);
+  color: #3e6bb1;
+}
+.handled-badge--changes {
+  background: rgba(214, 79, 67, 0.15);
+  color: #b13a2d;
+}
+.handled-badge--dismissed {
+  background: var(--border);
+  color: var(--text-3);
+}
+
+/* Right help panel ───────────────────────────────────────── */
+
+.v2-main {
+  flex: 1;
+  min-width: 0;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 28px 40px;
+  background: var(--bg-base);
+  position: relative;
+}
+
+/* Back-to-kanban control. Sits at the top of the v2-main column. The
+   :has(.preview) rule below makes v2-main itself a flex column so this nav
+   row keeps its slot above the preview/screen content. */
+.v2-main__nav {
+  flex: 0 0 auto;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--border-mid);
+  background: var(--bg-elevated);
+}
+
+.v2-main__screen {
+  flex: 1 1 0;
+  min-height: 0;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+.v2-back-btn {
+  appearance: none;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  color: var(--text-2);
+  font: inherit;
+  font-size: 12px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  cursor: pointer;
+  white-space: nowrap;
+  box-shadow: 0 1px 2px rgba(16, 22, 26, 0.08);
+  transition: background 120ms ease, color 120ms ease, border-color 120ms ease;
+}
+
+.v2-back-btn:hover {
+  background: var(--accent-a7);
+  color: var(--accent);
+  border-color: var(--accent-a40);
+}
+
+/* Selected-mode .v2-main hosts a screen (PullRequestPreview, ReviewScreen,
+   DiffViewerScreen) that needs the full pane to itself. The --screen
+   modifier flips it into a flex column with no padding so:
+   - the back-button nav (v2-main__nav) keeps its slot at the top, and
+   - the screen child (v2-main__screen) gets a real height to fill.
+   We previously relied on :has(.preview) / :has(.prc-page) for this, but
+   that was fragile (specificity/order quirks across browser quirks left
+   the rule unapplied in some cases, collapsing the layout to blank). An
+   explicit class set by the React host is unambiguous. */
+.v2-main--screen {
+  padding: 0;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+
+/* Embedded review ─────────────────────────────────────────── */
+/* When the user clicks "Open & review" we replace the preview pane with
+   this screen. The WebContentsView (a native overlay managed by the main
+   process) gets mounted over `.review-slot`; everything else is HTML.
+   Absolute positioning so we ignore v2-main's padding and fill edge-to-edge. */
+.review-screen {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-base);
+}
+
+.review-toolbar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 16px;
+  background: var(--bg-elevated);
+  border-bottom: 1px solid var(--border);
+  flex: 0 0 auto;
+}
+
+.review-toolbar__title {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  overflow: hidden;
+}
+
+.review-toolbar__repo {
+  font-size: 13px;
+  color: var(--text-2);
+  white-space: nowrap;
+}
+
+.review-toolbar__num {
+  font-size: 13px;
+  color: var(--text-3);
+}
+
+.review-toolbar__pr-title {
+  font-size: 13px;
+  color: var(--text-1);
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.review-slot {
+  flex: 1;
+  min-height: 0;
+  /* The WebContentsView is painted on top by the main process; this div
+     only exists to measure bounds. Give it a subtle background so the
+     area is visible for a frame before the view loads. */
+  background: #ffffff;
+}
+
+/* Compact one-liner so it doesn't obscure github.com's sign-in form. The
+   user can click "Why?" to expand the details inline if they want. */
+.review-auth-banner {
+  flex: 0 0 auto;
+  background: #fff7e6;
+  border-bottom: 1px solid #f0c674;
+  color: #7a4f0b;
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.review-auth-banner__summary {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 5px 12px;
+  min-height: 24px;
+}
+
+.review-auth-banner__icon {
+  flex: 0 0 auto;
+}
+
+.review-auth-banner__text {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.review-auth-banner__link {
+  flex: 0 0 auto;
+  border: none;
+  background: transparent;
+  color: inherit;
+  font: inherit;
+  text-decoration: underline;
+  cursor: pointer;
+  padding: 0 2px;
+}
+
+.review-auth-banner__action {
+  flex: 0 0 auto;
+  border: 1px solid #d49a2a;
+  background: #fff;
+  color: #7a4f0b;
+  font: inherit;
+  font-weight: 500;
+  border-radius: 4px;
+  padding: 2px 8px;
+  cursor: pointer;
+}
+
+.review-auth-banner__action:hover {
+  background: #fdf0d3;
+}
+
+.review-auth-banner__close {
+  flex: 0 0 auto;
+  width: 20px;
+  height: 20px;
+  border: none;
+  background: transparent;
+  color: inherit;
+  font-size: 11px;
+  line-height: 1;
+  border-radius: 4px;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.review-auth-banner__close:hover {
+  background: rgba(122, 79, 11, 0.12);
+}
+
+.review-auth-banner__details {
+  padding: 0 12px 8px 32px;
+  border-top: 1px dashed rgba(122, 79, 11, 0.25);
+  padding-top: 6px;
+  margin-top: 2px;
+}
+
+/* Native diff viewer (Phase 2c slice A — read-only) ───────── */
+.diff-viewer {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-base);
+  min-height: 0;
+}
+
+.diff-viewer__toolbar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 10px 16px;
+  background: var(--bg-elevated);
+  border-bottom: 1px solid var(--border);
+  flex: 0 0 auto;
+}
+
+.diff-viewer__title {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  overflow: hidden;
+}
+
+.diff-viewer__repo { font-size: 13px; color: var(--text-2); white-space: nowrap; }
+.diff-viewer__num { font-size: 13px; color: var(--text-3); }
+.diff-viewer__pr-title {
+  font-size: 13px;
+  color: var(--text-1);
+  font-weight: 500;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.diff-viewer__commits {
+  background: var(--bg-elevated);
+  border-bottom: 1px solid var(--border);
+  flex: 0 0 auto;
+  max-height: 180px;
+  overflow-y: auto;
+}
+
+
+.diff-viewer__commits-head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 6px 16px;
+  border-bottom: 1px solid var(--border);
+  font-size: 12px;
+  color: var(--text-2);
+  position: sticky;
+  top: 0;
+  background: var(--bg-elevated);
+  z-index: 1;
+}
+
+.diff-viewer__commits-label {
+  font-weight: 600;
+  color: var(--text-2);
+}
+
+.diff-viewer__commits-status {
+  color: var(--accent);
+  font-size: 11px;
+}
+
+.diff-viewer__commits-hint {
+  color: var(--text-3);
+  font-size: 11px;
+  margin-left: auto;
+}
+
+.diff-viewer__commit-list {
+  display: flex;
+  flex-direction: column;
+  padding: 4px 8px 8px;
+  gap: 2px;
+}
+
+.diff-viewer__commit {
+  appearance: none;
+  display: grid;
+  grid-template-columns: 56px 1fr auto;
+  align-items: baseline;
+  gap: 8px;
+  padding: 5px 8px;
+  border: 1px solid transparent;
+  border-radius: 5px;
+  background: transparent;
+  color: var(--text-1);
+  font: inherit;
+  font-size: 12px;
+  cursor: pointer;
+  text-align: left;
+  width: 100%;
+  transition: background 100ms ease, border-color 100ms ease;
+}
+
+.diff-viewer__commit:hover {
+  background: var(--bg-card);
+  border-color: var(--border);
+}
+
+.diff-viewer__commit--active {
+  background: var(--accent-a7);
+  border-color: var(--accent);
+}
+
+.diff-viewer__sha {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, monospace;
+  font-size: 11px;
+  color: var(--accent);
+  background: var(--accent-a15, var(--accent-a7));
+  padding: 1px 6px;
+  border-radius: 3px;
+  text-align: center;
+  justify-self: start;
+}
+
+.diff-viewer__commit-subject {
+  color: var(--text-1);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+
+.diff-viewer__commit-time {
+  color: var(--text-3);
+  white-space: nowrap;
+  font-size: 11px;
+}
+
+.diff-viewer__body {
+  flex: 1;
+  min-height: 0;
+  display: grid;
+  /* filesWidth + resize-handle (5px) + diff-pane. Overridden inline by the
+     component so the split is user-adjustable + persisted in localStorage. */
+  grid-template-columns: 280px 5px minmax(0, 1fr);
+  overflow: hidden;
+}
+
+.diff-viewer__files {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+  background: var(--bg-sunken, rgba(0, 0, 0, 0.04));
+  border-right: 2px solid var(--border);
+  box-shadow: inset -1px 0 0 var(--border);
+}
+
+.diff-viewer__files-header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 14px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--text-3);
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-elevated);
+  flex: 0 0 auto;
+}
+
+/* Segmented control: [Tree | Flat]. Sits on the right end of the header. */
+.diff-viewer__mode-toggle {
+  margin-left: auto;
+  display: inline-flex;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  overflow: hidden;
+  background: var(--bg-base);
+}
+
+.diff-viewer__mode-btn {
+  border: none;
+  background: transparent;
+  color: var(--text-2);
+  padding: 3px 10px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  cursor: pointer;
+  text-transform: none;
+}
+
+.diff-viewer__mode-btn:hover { background: var(--accent-a7); }
+
+.diff-viewer__mode-btn--active {
+  background: var(--accent);
+  color: #fff;
+}
+
+.diff-viewer__mode-btn--active:hover { background: var(--accent); }
+
+.diff-viewer__files-count {
+  font-variant-numeric: tabular-nums;
+  font-weight: 600;
+  color: var(--text-2);
+  background: var(--accent-a7);
+  padding: 1px 7px;
+  border-radius: 10px;
+  font-size: 10px;
+}
+
+/* Collapse button on the right end of the files header — mirrors the AI
+   sidebar's collapse affordance so both panels read as foldable. */
+.diff-viewer__files-collapse-btn {
+  appearance: none;
+  width: 22px;
+  height: 22px;
+  border-radius: 5px;
+  border: 1px solid var(--border);
+  background: var(--bg-card);
+  color: var(--text-2);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  text-transform: none;
+  letter-spacing: 0;
+  flex-shrink: 0;
+}
+.diff-viewer__files-collapse-btn:hover {
+  color: var(--accent);
+  background: var(--accent-a7);
+  border-color: var(--accent-a40);
+}
+
+/* Collapsed-rail variant of the files panel: a slim 36px column with
+   just an expand button and a vertical "Files" label. */
+.diff-viewer__files--collapsed {
+  align-items: center;
+  padding: 10px 0;
+  background: var(--bg-elevated);
+  border-right: 1px solid var(--border);
+}
+.diff-viewer__files-rail-toggle {
+  appearance: none;
+  width: 22px;
+  height: 22px;
+  border-radius: 5px;
+  border: 1px solid var(--border);
+  background: var(--bg-card);
+  color: var(--text-2);
+  cursor: pointer;
+  font-size: 11px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.diff-viewer__files-rail-toggle:hover {
+  color: var(--accent);
+  background: var(--accent-a7);
+  border-color: var(--accent-a40);
+}
+.diff-viewer__files-rail-label {
+  margin-top: 8px;
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  color: var(--text-3);
+  writing-mode: vertical-rl;
+  transform: rotate(180deg);
+  font-weight: 600;
+}
+.diff-viewer__files-rail-count { font-variant-numeric: tabular-nums; }
+
+.diff-viewer__files-list {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 4px 0;
+}
+
+/* Flat mode: each row shows the full relative path + a hairline divider
+   beneath so the boundaries are as clear as GitHub Desktop's list view. */
+.diff-viewer__files-list--flat .diff-file-row--flat {
+  padding-top: 8px;
+  padding-bottom: 8px;
+  border-bottom: 1px solid var(--border);
+  align-items: flex-start;
+}
+
+.diff-viewer__files-list--flat .diff-file-row--flat:last-child {
+  border-bottom: none;
+}
+
+/* Full-path name: wrap so the user sees everything without truncation —
+   flat mode is specifically about "give me all the context". */
+.diff-file-row__name--path {
+  white-space: normal;
+  overflow: visible;
+  text-overflow: initial;
+  word-break: break-all;
+  line-height: 1.4;
+}
+
+.diff-viewer__loading,
+.diff-viewer__error,
+.diff-viewer__empty {
+  padding: 12px 16px;
+  color: var(--text-3);
+  font-size: 13px;
+}
+
+.diff-file-row {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  gap: 4px;
+  padding: 1px 8px 1px 0;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  font: inherit;
+  color: var(--text-1);
+  text-align: left;
+  transition: background 0.08s;
+  min-height: 20px;
+  line-height: 1.2;
+  position: relative;
+}
+
+.diff-file-row:hover { background: var(--accent-a7); }
+.diff-file-row--selected {
+  background: var(--accent, #8a6d3b);
+  color: #fff;
+}
+.diff-file-row--selected .diff-file-row__add {
+  color: rgba(180, 255, 200, 0.95);
+}
+.diff-file-row--selected .diff-file-row__del {
+  color: rgba(255, 190, 180, 0.95);
+}
+.diff-file-row--selected .diff-file-row__badge {
+  background: rgba(255, 255, 255, 0.18);
+  color: #fff;
+}
+
+/* Tree-indent chevron. Rotates via transform rather than swapping glyphs so
+   the motion reads as "this row expands/collapses" instead of a flicker. */
+.tree-chevron {
+  flex: 0 0 auto;
+  width: 10px;
+  height: 10px;
+  color: var(--text-3);
+  transition: transform 0.12s ease;
+  transform: rotate(0deg);
+}
+.tree-chevron--open { transform: rotate(90deg); }
+.tree-chevron--placeholder { visibility: hidden; }
+
+.diff-file-row--dir {
+  color: var(--text-1);
+  font-weight: 500;
+}
+.diff-file-row--dir:hover .tree-chevron,
+.diff-file-row--dir .tree-chevron { color: var(--text-2); }
+
+.tree-folder {
+  flex: 0 0 auto;
+  color: var(--accent);
+  opacity: 0.85;
+}
+.diff-file-row--selected .tree-folder,
+.diff-file-row--selected .tree-chevron {
+  color: #fff;
+  opacity: 1;
+}
+
+/* Soft tinted status indicator — a colored letter on a matching light wash
+   rather than a saturated solid block. Closer to GitHub Desktop's style. */
+.diff-file-row__badge {
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+  height: 14px;
+  border-radius: 3px;
+  font-size: 9px;
+  font-weight: 700;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, monospace;
+  letter-spacing: 0;
+}
+
+.diff-file-row__badge--added    { background: rgba(46, 160, 67, 0.18);  color: #2ea043; }
+.diff-file-row__badge--modified { background: rgba(191, 135, 0, 0.20);  color: #996600; }
+.diff-file-row__badge--removed  { background: rgba(207, 34, 46, 0.18);  color: #cf222e; }
+.diff-file-row__badge--renamed  { background: rgba(31, 111, 235, 0.16); color: #1f6feb; }
+.diff-file-row__badge--copied   { background: rgba(130, 80, 223, 0.16); color: #8250df; }
+
+.diff-file-row__name {
+  flex: 1;
+  min-width: 0;
+  font-size: 12px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, monospace;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.diff-tree-dir-name {
+  flex: 1;
+  min-width: 0;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, monospace;
+  font-size: 12px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  /* Truncate from the HEAD so the leaf-most directory stays visible. Matches
+     GitHub Desktop: `src/main/java/com/foo` → `…java/com/foo`. The browser's
+     BiDi algorithm treats the Latin glyphs + slashes as an LTR run even
+     inside the RTL context, so character order is preserved. */
+  direction: rtl;
+  text-align: left;
+}
+
+/* Same trick for the pane header filename — long monorepo paths otherwise
+   hide the actual file name at the end. */
+.diff-viewer__pane-filename {
+  direction: rtl;
+  text-align: left;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  display: inline-block;
+  min-width: 0;
+  max-width: 100%;
+}
+
+/* File stats pill — tabular-numeric so the + / − numbers line up vertically
+   across rows, and a subtle gap between them for readability. */
+.diff-file-row__stats {
+  flex: 0 0 auto;
+  display: inline-flex;
+  gap: 6px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, monospace;
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-3);
+}
+
+.diff-file-row__add { color: #3e8060; }
+.diff-file-row__del { color: #aa4e3e; }
+
+.diff-viewer__pane {
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-base);
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.diff-viewer__pane-header {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  padding: 8px 16px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-elevated);
+  flex: 0 0 auto;
+}
+
+/* The one scroll container for the diff. Only y-scrolls — long lines wrap
+   like github.com's PR diff so you never need a horizontal scrollbar. */
+.diff-viewer__pane-scroll {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  overflow-x: hidden;
+}
+
+/* Continuous-files variant: every changed file is rendered into the same
+   scroll container, with sticky per-file headers. The user scrolls through
+   the whole diff like GitHub's "Files changed" tab. */
+.diff-viewer__pane-scroll--continuous {
+  scroll-behavior: smooth;
+}
+.diff-file-section {
+  display: flex;
+  flex-direction: column;
+  border-bottom: 1px solid var(--border);
+}
+.diff-file-section:last-child { border-bottom: 0; }
+.diff-file-section__header {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  padding: 8px 16px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-elevated);
+}
+.diff-file-section__stats {
+  margin-left: auto;
+  display: flex;
+  gap: 6px;
+  font-size: 11px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, monospace;
+}
+
+.diff-viewer__pane-filename {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, monospace;
+  font-size: 12px;
+  color: var(--text-1);
+}
+
+.diff-viewer__pane-status {
+  font-size: 11px;
+  color: var(--text-3);
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  padding: 1px 6px;
+  border-radius: 3px;
+  font-weight: 600;
+}
+
+/* Status-specific tints — yellow for modified, green for added, red for
+   removed. Background wash is the saturated color at low opacity so the
+   chip stays readable on either light or dark backgrounds. */
+.diff-viewer__pane-status--modified {
+  color: #996600;
+  background: rgba(191, 135, 0, 0.18);
+}
+.diff-viewer__pane-status--added {
+  color: #2ea043;
+  background: rgba(46, 160, 67, 0.18);
+}
+.diff-viewer__pane-status--removed {
+  color: #cf222e;
+  background: rgba(207, 34, 46, 0.18);
+}
+
+/* ── Mockup-V2 toolbar buttons ────────────────────────────────────────── */
+.button--ai {
+  background: linear-gradient(135deg, rgba(139, 92, 246, 0.10), rgba(99, 102, 241, 0.10));
+  border: 1px solid rgba(139, 92, 246, 0.35);
+  color: #6d28d9;
+  font-weight: 600;
+}
+.button--ai:hover {
+  background: linear-gradient(135deg, rgba(139, 92, 246, 0.18), rgba(99, 102, 241, 0.18));
+}
+.diff-viewer__submit-wrap { position: relative; display: inline-flex; }
+.button--submit {
+  background: var(--text-1);
+  color: var(--bg-base);
+  border: 1px solid var(--text-1);
+  font-weight: 600;
+}
+.button--submit:disabled { opacity: 0.5; cursor: not-allowed; }
+.button--submit__count {
+  display: inline-block;
+  background: #06b6d4;
+  color: white;
+  padding: 0 6px;
+  margin-left: 6px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 700;
+  vertical-align: 1px;
+}
+
+.submit-popover {
+  position: absolute;
+  top: calc(100% + 6px);
+  right: 0;
+  min-width: 280px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(0,0,0,0.10);
+  padding: 8px;
+  z-index: 30;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.submit-popover__title {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-3);
+  font-weight: 700;
+  padding: 4px 8px;
+}
+.submit-popover__opt {
+  appearance: none;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  padding: 8px 10px;
+  font: inherit;
+  color: var(--text-1);
+  cursor: pointer;
+  text-align: left;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.submit-popover__opt:hover { background: var(--bg-card); border-color: var(--border); }
+.submit-popover__opt:disabled { opacity: 0.6; cursor: progress; }
+.submit-popover__opt b { font-size: 13px; font-weight: 600; }
+.submit-popover__opt span { font-size: 11px; color: var(--text-3); }
+.submit-popover__error {
+  padding: 6px 8px;
+  background: rgba(239, 68, 68, 0.1);
+  color: #b91c1c;
+  border-radius: 6px;
+  font-size: 11px;
+}
+.submit-popover__status {
+  padding: 6px 8px;
+  font-size: 11px;
+  color: var(--text-3);
+}
+
+/* ── Finish-your-review panel ─────────────────────────────────────────── */
+/* Anchored to the Submit-review pill in the toolbar; replaces the smaller
+   .submit-popover. Mirrors github.com's "Finish your review" panel — see
+   docs/mockups/v2/codereview/submit-button.png. */
+.finish-review-panel {
+  position: absolute;
+  top: calc(100% + 8px);
+  right: 0;
+  width: 480px;
+  max-height: 78vh;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  box-shadow: 0 12px 32px rgba(0, 0, 0, 0.18);
+  z-index: 40;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.finish-review-panel__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-card);
+}
+.finish-review-panel__title {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-1);
+}
+.finish-review-panel__close {
+  appearance: none;
+  background: transparent;
+  border: 0;
+  color: var(--text-3);
+  font-size: 14px;
+  cursor: pointer;
+  padding: 2px 6px;
+  border-radius: 4px;
+}
+.finish-review-panel__close:hover { background: var(--bg-base); color: var(--text-1); }
+.finish-review-panel__body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 12px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.finish-review-panel__textarea { min-height: 90px; }
+
+/* Sits directly below the body composer — small negative top-margin
+   pulls it up so it visually attaches to the textarea rather than
+   floating mid-panel. */
+.finish-review-panel__polish {
+  display: flex;
+  justify-content: flex-end;
+  margin-top: -4px;
+}
+
+/* Verdict radio rows. Selected row gets the accent border so the choice
+   is obvious without relying on the radio dot alone. */
+.finish-review-panel__verdicts {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.finish-review-verdict {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 8px 10px;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  cursor: pointer;
+}
+.finish-review-verdict:hover { background: var(--bg-card); }
+.finish-review-verdict--active { border-color: var(--accent-a40); background: var(--accent-a7); }
+.finish-review-verdict input[type='radio'] { margin-top: 3px; cursor: pointer; }
+.finish-review-verdict__text { display: flex; flex-direction: column; gap: 2px; }
+.finish-review-verdict__text b { font-size: 13px; font-weight: 600; color: var(--text-1); }
+.finish-review-verdict__desc { font-size: 12px; color: var(--text-3); }
+
+/* Pending-comments accordion. Toggle is a borderless button; the list
+   below is a scrollable column of cards keyed to file:line. */
+.finish-review-pending__toggle {
+  appearance: none;
+  background: transparent;
+  border: 0;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 4px;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-1);
+  cursor: pointer;
+}
+.finish-review-pending__chevron {
+  display: inline-block;
+  font-size: 10px;
+  color: var(--text-3);
+  transform: rotate(-90deg);
+  transition: transform 120ms ease;
+}
+.finish-review-pending__chevron--open { transform: rotate(0deg); }
+.finish-review-pending__count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 20px;
+  height: 18px;
+  padding: 0 6px;
+  border-radius: 9px;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  color: var(--text-2);
+  font-size: 11px;
+  font-weight: 600;
+}
+.finish-review-pending__list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  max-height: 260px;
+  overflow-y: auto;
+  padding: 2px;
+}
+.finish-review-pending__empty {
+  padding: 12px;
+  text-align: center;
+  color: var(--text-3);
+  font-size: 12px;
+  font-style: italic;
+}
+.finish-review-pending__item {
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 8px 10px;
+  background: var(--bg-card);
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.finish-review-pending__item-head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  font-size: 11px;
+}
+.finish-review-pending__item-loc {
+  font-weight: 600;
+  color: var(--text-2);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, monospace;
+}
+.finish-review-pending__item-path {
+  flex: 1;
+  min-width: 0;
+  color: var(--text-3);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, monospace;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.finish-review-pending__item-source--ai { color: #6d28d9; }
+.finish-review-pending__item-source--human { color: #b45309; }
+.finish-review-pending__item-body {
+  font-size: 12px;
+  color: var(--text-1);
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.finish-review-panel__error {
+  padding: 8px 10px;
+  background: rgba(239, 68, 68, 0.1);
+  color: #b91c1c;
+  border-radius: 6px;
+  font-size: 12px;
+}
+
+.finish-review-panel__foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  padding: 10px 14px;
+  border-top: 1px solid var(--border);
+  background: var(--bg-card);
+}
+.finish-review-panel__foot-right {
+  display: flex;
+  gap: 8px;
+}
+.finish-review-panel__discard-confirm {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  width: 100%;
+}
+.finish-review-panel__discard-warn {
+  flex: 1;
+  font-size: 12px;
+  color: #991b1b;
+}
+
+/* Borderless red link for the "Discard review" footer action — visually
+   distinct from the destructive-confirm button so the user has to opt
+   in before any deletion runs. */
+.button--danger-link {
+  appearance: none;
+  background: transparent;
+  border: 0;
+  color: #cf222e;
+  cursor: pointer;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 500;
+  padding: 4px 8px;
+  border-radius: 4px;
+}
+.button--danger-link:hover { background: rgba(207, 34, 46, 0.08); }
+.button--danger-link:disabled { opacity: 0.5; cursor: not-allowed; }
+
+/* ── Sub-header (Showing dropdown) ────────────────────────────────────── */
+.diff-viewer__sub {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 9px 16px;
+  background: var(--bg-elevated);
+  border-bottom: 1px solid var(--border);
+  font-size: 12px;
+  flex: 0 0 auto;
+}
+.diff-viewer__sub-left { display: flex; align-items: center; gap: 8px; min-width: 0; }
+.diff-viewer__sub-label { color: var(--text-3); }
+.diff-viewer__sub-right { color: var(--text-3); font-size: 11px; }
+.diff-viewer__sub-stat { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, monospace; }
+.diff-viewer__sub-status { color: var(--text-3); font-size: 11px; margin-left: 4px; }
+
+.commits-pill {
+  appearance: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  cursor: pointer;
+  font: inherit;
+  font-size: 12px;
+  color: var(--text-1);
+}
+.commits-pill:hover { border-color: var(--accent-a40); }
+.commits-pill__icon { opacity: 0.6; }
+.commits-pill__caret { opacity: 0.6; font-size: 10px; }
+
+.commits-popover {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 16px;
+  width: 480px;
+  max-height: 320px;
+  overflow-y: auto;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(0,0,0,0.10);
+  padding: 6px;
+  z-index: 25;
+}
+.commits-popover__row {
+  appearance: none;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  padding: 6px 8px;
+  font: inherit;
+  font-size: 12px;
+  color: var(--text-1);
+  cursor: pointer;
+  text-align: left;
+  width: 100%;
+  display: grid;
+  grid-template-columns: 60px 1fr auto;
+  gap: 10px;
+  align-items: baseline;
+}
+/* Checkable rows get an extra leading column for the checkbox so the SHA
+   stays aligned with the "All" row above it. */
+.commits-popover__row--checkable {
+  grid-template-columns: 16px 60px 1fr auto;
+}
+.commits-popover__row:hover { background: var(--bg-card); border-color: var(--border); }
+.commits-popover__row--active { background: var(--accent-a7); border-color: var(--accent-a40); color: var(--accent); }
+.commits-popover__sha { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, monospace; font-size: 11px; color: var(--text-3); }
+.commits-popover__row--active .commits-popover__sha { color: var(--accent); }
+.commits-popover__subject { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.commits-popover__time { font-size: 10.5px; color: var(--text-3); }
+.commits-popover__check {
+  appearance: auto;
+  margin: 0;
+  cursor: pointer;
+  align-self: center;
+}
+
+/* ── Sidebar "running" pulse strip ────────────────────────────────────── */
+.ai-sidebar__running {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  background: rgba(139, 92, 246, 0.08);
+  border: 1px solid rgba(139, 92, 246, 0.22);
+  border-radius: 7px;
+  font-size: 12px;
+  color: #6d28d9;
+}
+.ai-sidebar__pulse {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #8b5cf6;
+  animation: ai-pulse 1.4s infinite;
+}
+@keyframes ai-pulse {
+  0%   { box-shadow: 0 0 0 0 rgba(139, 92, 246, 0.6); }
+  70%  { box-shadow: 0 0 0 7px rgba(139, 92, 246, 0); }
+  100% { box-shadow: 0 0 0 0 rgba(139, 92, 246, 0); }
+}
+.ai-summary__rerun {
+  appearance: none;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 5px;
+  padding: 2px 6px;
+  font: inherit;
+  font-size: 11px;
+  color: var(--text-3);
+  cursor: pointer;
+}
+.ai-summary__rerun:hover { color: #6d28d9; border-color: rgba(139, 92, 246, 0.3); }
+

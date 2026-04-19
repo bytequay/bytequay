@@ -1,0 +1,293 @@
+/* ── Settings tabs + Credentials UI ─────────────────────── */
+
+.settings-tabs {
+  display: flex;
+  gap: 4px;
+  border-bottom: 1px solid var(--border);
+  margin: -8px -4px 20px;
+  padding: 0 4px;
+}
+
+.settings-tab {
+  appearance: none;
+  border: none;
+  background: transparent;
+  padding: 10px 14px;
+  font: inherit;
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--text-3);
+  cursor: pointer;
+  border-bottom: 2px solid transparent;
+  margin-bottom: -1px;
+}
+
+.settings-tab:hover { color: var(--text-2); }
+
+.settings-tab--active {
+  color: var(--accent);
+  border-bottom-color: var(--accent);
+}
+
+.settings-title {
+  margin: 4px 0 12px;
+  font-size: 20px;
+  font-weight: 600;
+}
+
+.credentials-tab__header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 12px;
+}
+
+.credentials-tab__title {
+  margin: 0 0 4px;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.credentials-tab__subtitle {
+  margin: 0;
+  font-size: 12px;
+  color: var(--text-3);
+  line-height: 1.5;
+  max-width: 480px;
+}
+
+.credentials-tab__state,
+.credentials-tab__error {
+  font-size: 13px;
+  color: var(--text-3);
+  padding: 12px 0;
+}
+
+.credentials-tab__error { color: #aa4e3e; }
+
+.credentials-tab__empty {
+  border: 1px dashed var(--border);
+  border-radius: 8px;
+  padding: 20px;
+  text-align: center;
+  color: var(--text-3);
+  font-size: 13px;
+  line-height: 1.6;
+}
+
+.credentials-tab__empty p { margin: 0 0 4px; }
+.credentials-tab__empty p:last-child { margin: 0; }
+
+.credentials-tab__section { margin-top: 28px; }
+
+.credentials-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.credentials-row {
+  display: flex;
+  gap: 16px;
+  border: 1px solid var(--border);
+  background: var(--bg-elevated);
+  border-radius: 8px;
+  padding: 14px 16px;
+}
+
+.credentials-row__main { flex: 1; min-width: 0; }
+
+.credentials-row__heading {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 6px;
+}
+
+.credentials-row__kind {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.4px;
+  padding: 2px 7px;
+  border-radius: 4px;
+  background: var(--accent-a10);
+  color: var(--accent);
+  text-transform: uppercase;
+}
+
+.credentials-row__kind--github_pat { background: rgba(35, 35, 38, 0.12); color: #3a3a3c; }
+.credentials-row__kind--anthropic_api_key { background: rgba(210, 120, 77, 0.15); color: #a65230; }
+.credentials-row__kind--openai_api_key { background: rgba(16, 163, 127, 0.15); color: #0f8670; }
+.credentials-row__kind--local_llm_endpoint { background: rgba(97, 175, 239, 0.18); color: #3e6bb1; }
+
+.credentials-row__label {
+  font-size: 12px;
+  color: var(--text-2);
+  font-weight: 500;
+}
+
+/* Sub-name shown next to the provider tag — distinguishes multiple keys
+   for the same provider (e.g. two DeepSeek keys named "personal" and
+   "work"). Always present; defaults to "default api". */
+.credentials-row__instance {
+  font-size: 11px;
+  color: var(--text-3);
+  font-family: var(--font-mono, ui-monospace, SFMono-Regular, monospace);
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  padding: 1px 6px;
+  border-radius: 5px;
+}
+
+.credentials-row__preview {
+  font-family: var(--font-mono, ui-monospace, SFMono-Regular, monospace);
+  font-size: 13px;
+  color: var(--text-1);
+  margin-bottom: 4px;
+}
+
+.credentials-row__preview code {
+  background: rgba(0, 0, 0, 0.04);
+  padding: 2px 6px;
+  border-radius: 4px;
+}
+
+.credentials-row__usage,
+.credentials-row__notes {
+  font-size: 12px;
+  color: var(--text-3);
+  line-height: 1.5;
+  margin-bottom: 2px;
+}
+
+.credentials-row__notes { font-style: italic; }
+
+.credentials-row__timestamps {
+  font-size: 11px;
+  color: var(--text-3);
+  margin-top: 4px;
+}
+
+.credentials-row__actions {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  align-self: flex-start;
+}
+
+.button--small {
+  padding: 4px 10px;
+  font-size: 12px;
+}
+
+/* Credential editor form */
+
+.credentials-editor {
+  border: 1px solid var(--border);
+  background: var(--bg-elevated);
+  border-radius: 8px;
+  padding: 18px 20px;
+  margin-bottom: 20px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.credentials-editor__title { margin: 0; font-size: 15px; font-weight: 600; }
+
+.credentials-editor__field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.credentials-editor__label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-2);
+}
+
+.credentials-editor__input,
+.credentials-editor__select,
+.credentials-editor__textarea {
+  border: 1px solid var(--border-input);
+  background: var(--bg-input);
+  color: var(--text-1);
+  padding: 8px 10px;
+  border-radius: 6px;
+  font: inherit;
+  font-size: 13px;
+}
+
+.credentials-editor__textarea { resize: vertical; min-height: 50px; }
+
+.credentials-editor__hint {
+  margin: 0;
+  font-size: 11px;
+  color: var(--text-3);
+}
+
+.credentials-editor__error {
+  margin: 0;
+  font-size: 12px;
+  color: #aa4e3e;
+}
+
+.credentials-editor__actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+/* LLM provider chooser */
+
+.credentials-provider-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  gap: 8px;
+  margin-bottom: 14px;
+}
+
+.credentials-provider {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  background: var(--bg-elevated);
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 13px;
+}
+
+.credentials-provider--active {
+  border-color: var(--accent);
+  background: var(--accent-a4);
+}
+
+.credentials-provider--disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.credentials-provider__name { flex: 1; font-weight: 500; }
+
+.credentials-provider__status {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-3);
+}
+
+.credentials-provider--active .credentials-provider__status { color: var(--accent); }
+
+/* AI run button — sparkle emoji sits tight against the label. */
+.button--ai {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+

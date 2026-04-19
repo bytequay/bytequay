@@ -1,0 +1,251 @@
+import { contextBridge, ipcRenderer } from 'electron';
+import type {
+  AiProviderInfo,
+  AiReviewDraftDto,
+  AiSettingsDto,
+  Bridge,
+  ColumnPageDto,
+  InAppNavState,
+  CreateTeamRequest,
+  CredentialDto,
+  CredentialType,
+  DailyCardDto,
+  GitHubUserMatchDto,
+  MyPrColumnSlug,
+  TeamColumnsResponse,
+  HandledAction,
+  IssueDto,
+  PullRequestDetailDto,
+  PullRequestDto,
+  RecentEventDto,
+  ReviewSkillDto,
+  SuggestedReviewerDto,
+  SyncSettingsDto,
+  TeamDto,
+  TeamSummaryDto,
+  UpdateTeamRequest,
+  UpsertCredentialRequest,
+  UserProfileDto,
+  UserOrgDto,
+  UserRepoDto,
+  UserStatsDto,
+  WatchedRepoDto,
+} from './types';
+
+const bridge: Bridge = {
+  savePat: (pat: string) => ipcRenderer.invoke('pat:save', pat),
+  hasPat: () => ipcRenderer.invoke('pat:has'),
+  clearPat: () => ipcRenderer.invoke('pat:clear'),
+  fetchHello: () => ipcRenderer.invoke('backend:hello'),
+  fetchPrs: (): Promise<PullRequestDto[]> => ipcRenderer.invoke('backend:listPrs'),
+  fetchPullRequestDetail: (repo: string, number: number): Promise<PullRequestDetailDto> =>
+    ipcRenderer.invoke('backend:pullRequestDetail', repo, number),
+  fetchPrDiffFiles: (repo: string, number: number) =>
+    ipcRenderer.invoke('backend:prDiffFiles', repo, number),
+  fetchPrCommits: (repo: string, number: number) =>
+    ipcRenderer.invoke('backend:prCommits', repo, number),
+  fetchPrCommitDiff: (repo: string, number: number, sha: string) =>
+    ipcRenderer.invoke('backend:prCommitDiff', repo, number, sha),
+  fetchFileBlob: (repo: string, path: string, sha: string) =>
+    ipcRenderer.invoke('backend:fileBlob', repo, path, sha),
+  getSyncSettings: (): Promise<SyncSettingsDto> => ipcRenderer.invoke('settings:getSyncSettings'),
+  setSyncSettings: (settings: SyncSettingsDto): Promise<SyncSettingsDto> =>
+    ipcRenderer.invoke('settings:setSyncSettings', settings),
+  triggerSync: (): Promise<void> => ipcRenderer.invoke('settings:triggerSync'),
+  markPrViewed: (prId: number): Promise<void> => ipcRenderer.invoke('backend:markPrViewed', prId),
+  markPrHandled: (prId: number, action: HandledAction): Promise<void> =>
+    ipcRenderer.invoke('backend:markPrHandled', prId, action),
+  reopenPr: (prId: number): Promise<void> => ipcRenderer.invoke('backend:reopenPr', prId),
+  approvePr: (prId: number, repo: string, number: number): Promise<void> =>
+    ipcRenderer.invoke('backend:approvePr', prId, repo, number),
+  mergePr: (prId: number, repo: string, number: number): Promise<{ merged: boolean; message: string }> =>
+    ipcRenderer.invoke('backend:mergePr', prId, repo, number),
+  commentPr: (prId: number, repo: string, number: number, body: string, close: boolean): Promise<void> =>
+    ipcRenderer.invoke('backend:commentPr', prId, repo, number, body, close),
+  replyToReviewThread: (repo: string, number: number, rootCommentId: number, body: string): Promise<void> =>
+    ipcRenderer.invoke('backend:replyToReviewThread', repo, number, rootCommentId, body),
+  addRequestedReviewer: (repo: string, number: number, reviewer: string): Promise<void> =>
+    ipcRenderer.invoke('backend:addRequestedReviewer', repo, number, reviewer),
+  removeRequestedReviewer: (repo: string, number: number, reviewer: string): Promise<void> =>
+    ipcRenderer.invoke('backend:removeRequestedReviewer', repo, number, reviewer),
+  getSuggestedReviewers: (repo: string, number: number): Promise<SuggestedReviewerDto[]> =>
+    ipcRenderer.invoke('backend:getSuggestedReviewers', repo, number),
+  createInlineReviewComment: (
+    repo: string,
+    number: number,
+    body: string,
+    path: string,
+    line: number,
+    side: 'LEFT' | 'RIGHT',
+    commitId: string,
+    startLine?: number | null,
+    startSide?: 'LEFT' | 'RIGHT' | null,
+  ): Promise<void> =>
+    ipcRenderer.invoke('backend:createInlineReviewComment', repo, number, body, path, line, side, commitId, startLine ?? null, startSide ?? null),
+  updatePrBody: (repo: string, number: number, body: string): Promise<void> =>
+    ipcRenderer.invoke('backend:updatePrBody', repo, number, body),
+  getWatchedRepos: (): Promise<WatchedRepoDto[]> => ipcRenderer.invoke('repos:list'),
+  addWatchedRepo: (owner: string, repo: string): Promise<WatchedRepoDto> =>
+    ipcRenderer.invoke('repos:add', owner, repo),
+  removeWatchedRepo: (owner: string, repo: string): Promise<void> =>
+    ipcRenderer.invoke('repos:remove', owner, repo),
+  getUserProfile: (): Promise<UserProfileDto> => ipcRenderer.invoke('repos:profile'),
+  getRepoPulls: (owner: string, repo: string): Promise<PullRequestDto[]> =>
+    ipcRenderer.invoke('repos:pulls', owner, repo),
+  getRepoPull: (owner: string, repo: string, number: number): Promise<PullRequestDto> =>
+    ipcRenderer.invoke('repos:pull', owner, repo, number),
+  getRepoIssues: (owner: string, repo: string): Promise<IssueDto[]> =>
+    ipcRenderer.invoke('repos:issues', owner, repo),
+  getUserRepos: (): Promise<UserRepoDto[]> => ipcRenderer.invoke('repos:userRepos'),
+  getUserOrgs: (): Promise<UserOrgDto[]> => ipcRenderer.invoke('repos:userOrgs'),
+  searchRepos: (query: string): Promise<UserRepoDto[]> => ipcRenderer.invoke('repos:searchRepos', query),
+  searchUsers: (query: string): Promise<GitHubUserMatchDto[]> => ipcRenderer.invoke('repos:searchUsers', query),
+  getRecentActivity: (login: string): Promise<RecentEventDto[]> =>
+    ipcRenderer.invoke('repos:recentActivity', login),
+  getFollowingActivity: (login: string): Promise<RecentEventDto[]> =>
+    ipcRenderer.invoke('repos:followingActivity', login),
+  getDailyCard: (): Promise<DailyCardDto> => ipcRenderer.invoke('home:dailyCard'),
+  updateProfile: (name: string, bio: string, location: string): Promise<UserProfileDto> =>
+    ipcRenderer.invoke('repos:updateProfile', name, bio, location),
+  openExternal: (url: string): Promise<void> => ipcRenderer.invoke('shell:openExternal', url),
+  getUserStats: (login: string, force?: boolean): Promise<UserStatsDto> =>
+    ipcRenderer.invoke('repos:getStats', login, force ?? false),
+  listTeams: (): Promise<TeamSummaryDto[]> => ipcRenderer.invoke('teams:list'),
+  getTeam: (id: number): Promise<TeamDto> => ipcRenderer.invoke('teams:get', id),
+  createTeam: (req: CreateTeamRequest): Promise<TeamDto> => ipcRenderer.invoke('teams:create', req),
+  updateTeam: (id: number, req: UpdateTeamRequest): Promise<TeamDto> => ipcRenderer.invoke('teams:update', id, req),
+  replaceTeamMembers: (id: number, members: string[]): Promise<TeamDto> =>
+    ipcRenderer.invoke('teams:replaceMembers', id, members),
+  deleteTeam: (id: number): Promise<void> => ipcRenderer.invoke('teams:delete', id),
+  getTeamPulls: (id: number): Promise<PullRequestDto[]> => ipcRenderer.invoke('teams:pulls', id),
+  getTeamPullsByColumn: (id: number, perColumn: number, force: boolean): Promise<TeamColumnsResponse> =>
+    ipcRenderer.invoke('teams:pullsByColumn', id, perColumn, force),
+  getTeamColumnPage: (id: number, column: MyPrColumnSlug, offset: number, limit: number): Promise<ColumnPageDto> =>
+    ipcRenderer.invoke('teams:pullsColumnPage', id, column, offset, limit),
+  listCredentials: (type?: CredentialType): Promise<CredentialDto[]> =>
+    ipcRenderer.invoke('credentials:list', type ?? null),
+  upsertCredential: (req: UpsertCredentialRequest): Promise<CredentialDto> =>
+    ipcRenderer.invoke('credentials:upsert', req),
+  deleteCredential: (type: CredentialType, name: string, instanceName?: string): Promise<void> =>
+    ipcRenderer.invoke('credentials:delete', type, name, instanceName),
+  listAiProviders: (): Promise<AiProviderInfo[]> => ipcRenderer.invoke('ai:providers'),
+  getAiSettings: (): Promise<AiSettingsDto> => ipcRenderer.invoke('ai:getSettings'),
+  setAiSettings: (provider: string, model: string | null): Promise<AiSettingsDto> =>
+    ipcRenderer.invoke('ai:setSettings', provider, model),
+  listReviewSkills: (): Promise<ReviewSkillDto[]> => ipcRenderer.invoke('skills:list'),
+  createReviewSkill: (input): Promise<ReviewSkillDto> => ipcRenderer.invoke('skills:create', input),
+  updateReviewSkill: (id: number, input): Promise<ReviewSkillDto> =>
+    ipcRenderer.invoke('skills:update', id, input),
+  deleteReviewSkill: (id: number): Promise<void> => ipcRenderer.invoke('skills:delete', id),
+  runAiReview: (prId: number, repo: string, number: number): Promise<AiReviewDraftDto> =>
+    ipcRenderer.invoke('ai:run', prId, repo, number),
+  polishCommentText: (text: string): Promise<string> =>
+    ipcRenderer.invoke('ai:polishComment', text),
+  getLatestAiReview: (prId: number): Promise<AiReviewDraftDto | null> =>
+    ipcRenderer.invoke('ai:latest', prId),
+  deleteAiReview: (draftId: number): Promise<void> =>
+    ipcRenderer.invoke('ai:delete', draftId),
+  startAiReview: (prId: number, repo: string, number: number): Promise<{ state: string }> =>
+    ipcRenderer.invoke('ai:start', prId, repo, number),
+  getAiReviewStatus: (repo: string, number: number) =>
+    ipcRenderer.invoke('ai:status', repo, number),
+  publishAiReview: (
+    draftId: number,
+    event: 'COMMENT' | 'APPROVE' | 'REQUEST_CHANGES',
+    body?: string | null,
+  ): Promise<AiReviewDraftDto> => ipcRenderer.invoke('ai:publish', draftId, event, body ?? null),
+  /** Verdict-first publish — finds-or-creates the active draft for the
+   *  PR, then submits. Used by the Submit panel so the user can ship a
+   *  body-only Approve / Comment without first staging a comment. */
+  publishReviewForPr: (payload: {
+    prId: number;
+    repo: string;
+    number: number;
+    headSha: string | null;
+    event: 'COMMENT' | 'APPROVE' | 'REQUEST_CHANGES';
+    body: string | null;
+  }): Promise<AiReviewDraftDto> => ipcRenderer.invoke('ai:publishForPr', payload),
+  updateAiReviewComment: (draftId: number, commentId: number, editedBody: string | null): Promise<AiReviewDraftDto> =>
+    ipcRenderer.invoke('ai:editComment', draftId, commentId, editedBody),
+  deleteAiReviewComment: (draftId: number, commentId: number): Promise<AiReviewDraftDto> =>
+    ipcRenderer.invoke('ai:deleteComment', draftId, commentId),
+  setAiReviewCommentDismissed: (draftId: number, commentId: number, dismissed: boolean): Promise<AiReviewDraftDto> =>
+    ipcRenderer.invoke('ai:dismissComment', draftId, commentId, dismissed),
+  addReviewCommentReaction: (
+    repo: string,
+    commentId: number,
+    content: '+1' | '-1' | 'laugh' | 'confused' | 'heart' | 'hooray' | 'rocket' | 'eyes',
+  ): Promise<void> => ipcRenderer.invoke('pr:addReviewReaction', repo, commentId, content),
+  addIssueCommentReaction: (
+    repo: string,
+    commentId: number,
+    content: '+1' | '-1' | 'laugh' | 'confused' | 'heart' | 'hooray' | 'rocket' | 'eyes',
+  ): Promise<void> => ipcRenderer.invoke('pr:addIssueReaction', repo, commentId, content),
+  setReviewThreadResolved: (
+    repo: string,
+    prId: number,
+    rootCommentId: number,
+    resolved: boolean,
+  ): Promise<void> => ipcRenderer.invoke('pr:setThreadResolved', repo, prId, rootCommentId, resolved),
+  /** Stage a human-authored inline comment into the active review draft.
+   *  Returns the refreshed draft so the tray + inline rail can repaint. */
+  stageReviewComment: (payload: {
+    prId: number;
+    repo: string;
+    number: number;
+    headSha: string | null;
+    filePath: string;
+    line: number;
+    side: 'LEFT' | 'RIGHT';
+    startLine?: number | null;
+    startSide?: 'LEFT' | 'RIGHT' | null;
+    body: string;
+  }): Promise<AiReviewDraftDto> => ipcRenderer.invoke('ai:stageComment', payload),
+  writeClipboard: (text: string): Promise<void> => ipcRenderer.invoke('shell:writeClipboard', text),
+  mountReview: (repo: string, number: number, bounds): Promise<void> =>
+    ipcRenderer.invoke('review:mount', repo, number, bounds),
+  setReviewBounds: (bounds): Promise<void> => ipcRenderer.invoke('review:setBounds', bounds),
+  unmountReview: (): Promise<void> => ipcRenderer.invoke('review:unmount'),
+  resetReviewSignIn: (repo: string, number: number): Promise<void> =>
+    ipcRenderer.invoke('review:resetSignIn', repo, number),
+  onReviewAuthBlocked: (callback: (payload: { provider: string }) => void) => {
+    const listener = (_event: unknown, payload: { provider: string }) => callback(payload);
+    ipcRenderer.on('review:auth-blocked', listener);
+    return () => ipcRenderer.removeListener('review:auth-blocked', listener);
+  },
+  onReviewSignInPage: (callback: () => void) => {
+    const listener = () => callback();
+    ipcRenderer.on('review:sign-in-page', listener);
+    return () => ipcRenderer.removeListener('review:sign-in-page', listener);
+  },
+  reviewGoBack: (): Promise<void> => ipcRenderer.invoke('review:goBack'),
+  reviewGoForward: (): Promise<void> => ipcRenderer.invoke('review:goForward'),
+  onReviewNavState: (callback: (s: { canGoBack: boolean; canGoForward: boolean }) => void) => {
+    const listener = (_event: unknown, s: { canGoBack: boolean; canGoForward: boolean }) => callback(s);
+    ipcRenderer.on('review:nav-state', listener);
+    return () => ipcRenderer.removeListener('review:nav-state', listener);
+  },
+  // ─── Generic in-app browser ────────────────────────────────────────
+  mountInAppBrowser: (url: string, bounds): Promise<void> =>
+    ipcRenderer.invoke('inapp:mount', url, bounds),
+  setInAppBrowserBounds: (bounds): Promise<void> =>
+    ipcRenderer.invoke('inapp:setBounds', bounds),
+  unmountInAppBrowser: (): Promise<void> => ipcRenderer.invoke('inapp:unmount'),
+  inAppGoBack: (): Promise<void> => ipcRenderer.invoke('inapp:goBack'),
+  inAppGoForward: (): Promise<void> => ipcRenderer.invoke('inapp:goForward'),
+  inAppReload: (): Promise<void> => ipcRenderer.invoke('inapp:reload'),
+  inAppLoadUrl: (url: string): Promise<void> => ipcRenderer.invoke('inapp:loadUrl', url),
+  inAppPopOut: (url: string): Promise<void> => ipcRenderer.invoke('inapp:popOut', url),
+  onInAppOpenRequest: (callback: (payload: { url: string }) => void) => {
+    const listener = (_event: unknown, payload: { url: string }) => callback(payload);
+    ipcRenderer.on('inapp:open-request', listener);
+    return () => ipcRenderer.removeListener('inapp:open-request', listener);
+  },
+  onInAppNavState: (callback: (s: InAppNavState) => void) => {
+    const listener = (_event: unknown, s: InAppNavState) => callback(s);
+    ipcRenderer.on('inapp:nav-state', listener);
+    return () => ipcRenderer.removeListener('inapp:nav-state', listener);
+  },
+};
+
+contextBridge.exposeInMainWorld('bridge', bridge);

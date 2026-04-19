@@ -1,0 +1,23 @@
+/*
+ * Master stylesheet — pure @import glue. Every feature owns its own file
+ * under ./css/, so adding a kanban rule means editing kanban.css instead
+ * of paging through 11k lines. Vite resolves these at build time so the
+ * runtime cost is one bundled CSS file (no extra HTTP requests).
+ *
+ * Order matters: base.css ships theme variables and resets that the
+ * feature stylesheets reference, so it goes first. The rest are
+ * order-independent — selector specificity (not file order) decides
+ * conflicts within feature surfaces.
+ */
+@import './css/base.css';
+@import './css/dashboard.css';
+@import './css/kanban.css';
+@import './css/settings.css';
+@import './css/ai.css';
+@import './css/home.css';
+@import './css/modals.css';
+@import './css/repo-detail.css';
+@import './css/inbox.css';
+@import './css/teams.css';
+@import './css/pr-detail.css';
+@import './css/inapp-browser.css';

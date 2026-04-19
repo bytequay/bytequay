@@ -1,0 +1,398 @@
+* {
+  box-sizing: border-box;
+}
+
+/* ── Theme variables ─────────────────────────────────────── */
+
+:root,
+[data-theme="warm"] {
+  --bg-base: #f5f0e8;
+  --bg-elevated: #faf7f2;
+  --bg-card: rgba(255, 255, 255, 0.72);
+  --bg-input: rgba(255, 255, 255, 0.8);
+  --bg-panel: rgba(255, 251, 244, 0.86);
+  --bg-btn-secondary: rgba(255, 251, 244, 0.8);
+
+  --text-1: #18221d;
+  --text-2: #3a332a;
+  --text-3: #7a705d;
+  --text-4: #9a8060;
+  --text-warm: #8a6940;
+  --text-code: #7b6848;
+
+  --accent: #1f6a57;
+  --accent-dark: #175c4c;
+  --accent-a7: rgba(31, 106, 87, 0.07);
+  --accent-a4: rgba(31, 106, 87, 0.04);
+  --accent-a10: rgba(31, 106, 87, 0.1);
+  --accent-a40: rgba(31, 106, 87, 0.4);
+
+  --border: rgba(91, 81, 57, 0.14);
+  --border-mid: rgba(91, 81, 57, 0.12);
+  --border-light: rgba(91, 81, 57, 0.1);
+  --border-hairline: rgba(91, 81, 57, 0.08);
+  --border-input: rgba(75, 92, 78, 0.2);
+
+  /* CTA palette — saturated green for the warm/light theme. Dark themes
+     override this block to mute the brightness. */
+  --cta-from: #22c55e;
+  --cta-to: #15803d;
+  --cta-border: #16a34a;
+  --cta-shadow: rgba(22, 163, 74, 0.25);
+  --cta-shadow-hover: rgba(22, 163, 74, 0.4);
+
+  --font-body: "Iowan Old Style", "Palatino Linotype", "Book Antiqua", Palatino,
+    Georgia, serif;
+
+  color-scheme: light;
+}
+
+[data-theme="github-light"] {
+  --bg-base: #ffffff;
+  --bg-elevated: #f6f8fa;
+  --bg-card: #ffffff;
+  --bg-input: #ffffff;
+  --bg-panel: #ffffff;
+  --bg-btn-secondary: #f6f8fa;
+
+  --text-1: #1f2328;
+  --text-2: #1f2328;
+  --text-3: #656d76;
+  --text-4: #9198a1;
+  --text-warm: #57606a;
+  --text-code: #656d76;
+
+  --accent: #0969da;
+  --accent-dark: #0550ae;
+  --accent-a7: rgba(9, 105, 218, 0.07);
+  --accent-a4: rgba(9, 105, 218, 0.04);
+  --accent-a10: rgba(9, 105, 218, 0.1);
+  --accent-a40: rgba(9, 105, 218, 0.4);
+
+  --border: #d0d7de;
+  --border-mid: #d8dee4;
+  --border-light: #eaeef2;
+  --border-hairline: #eaeef2;
+  --border-input: #d0d7de;
+
+  /* CTA palette — GitHub-flavored green that matches the rest of the
+     light-theme palette without competing with the blue accent. */
+  --cta-from: #2da44e;
+  --cta-to: #1a7f37;
+  --cta-border: #1f883d;
+  --cta-shadow: rgba(31, 136, 61, 0.20);
+  --cta-shadow-hover: rgba(31, 136, 61, 0.35);
+
+  --font-body: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial,
+    sans-serif;
+
+  color-scheme: light;
+}
+
+[data-theme="atom-one-dark"] {
+  --bg-base: #282c34;
+  --bg-elevated: #21252b;
+  --bg-card: #2c313a;
+  --bg-input: #1d2026;
+  --bg-panel: #2c313a;
+  --bg-btn-secondary: #2c313a;
+
+  --text-1: #e6efff;
+  --text-2: #abb2bf;
+  --text-3: #7f848e;
+  --text-4: #5c6370;
+  --text-warm: #7f848e;
+  --text-code: #7f848e;
+
+  --accent: #61afef;
+  --accent-dark: #528baf;
+  --accent-a7: rgba(97, 175, 239, 0.1);
+  --accent-a4: rgba(97, 175, 239, 0.05);
+  --accent-a10: rgba(97, 175, 239, 0.15);
+  --accent-a40: rgba(97, 175, 239, 0.5);
+
+  --border: #3e4451;
+  --border-mid: #3e4451;
+  --border-light: #2c313a;
+  --border-hairline: #2c313a;
+  --border-input: #3e4451;
+
+  /* CTA palette — pine green that doesn't blast against the dark editor
+     background. Lower saturation than the light-theme greens. */
+  --cta-from: #4a8a6a;
+  --cta-to: #2f6248;
+  --cta-border: #3e7a59;
+  --cta-shadow: rgba(40, 100, 75, 0.45);
+  --cta-shadow-hover: rgba(40, 100, 75, 0.60);
+
+  --font-body: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial,
+    sans-serif;
+
+  color-scheme: dark;
+}
+
+/* ── Avatars ─────────────────────────────────────────────── */
+
+.avatar {
+  border-radius: 50%;
+  object-fit: cover;
+  flex-shrink: 0;
+  vertical-align: middle;
+  display: inline-block;
+}
+
+/* Colored-circle initial, used when the GitHub avatar 404s (bots, commit
+   authors without linked accounts). Keeps the same footprint as a real
+   avatar so surrounding grid/flex layouts don't collapse. */
+.avatar--fallback {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  font-weight: 600;
+  line-height: 1;
+  color: var(--accent);
+  background: var(--accent-a7);
+  user-select: none;
+  text-transform: uppercase;
+}
+
+.avatar--repo {
+  border-radius: 4px;
+}
+
+.avatar--repo-small {
+  border-radius: 3px;
+  margin-right: 2px;
+  position: relative;
+  top: 1px;
+}
+
+/* ── Base ────────────────────────────────────────────────── */
+
+:root {
+  color: var(--text-1);
+  font-family: var(--font-body);
+  /* Single knob for monospace code size in diff hunks and inline comment
+     code spans/blocks. Tune here to rebalance against comment-body text
+     across the PR detail surfaces. */
+  --pr-code-font-size: 12.5px;
+}
+
+html {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+  color: inherit;
+  background: var(--bg-base);
+}
+
+a {
+  color: var(--accent);
+  text-decoration: none;
+}
+
+a:hover {
+  text-decoration: underline;
+}
+
+button {
+  cursor: pointer;
+}
+
+code,
+pre {
+  font-family: "SFMono-Regular", "SF Mono", "Cascadia Code", "Roboto Mono",
+    Consolas, monospace;
+}
+
+#root {
+  height: 100%;
+}
+
+/* ── Global app shell ────────────────────────────────────── */
+
+.app-shell {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  overflow: hidden;
+}
+
+.route-error {
+  padding: 40px 32px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  align-items: flex-start;
+  background: var(--bg-base);
+  color: var(--text-1);
+}
+.route-error h2 { margin: 0; font-size: 16px; }
+.route-error__stack {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 12px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 10px 12px;
+  white-space: pre-wrap;
+  color: #b91c1c;
+  max-width: 720px;
+}
+.route-error__btn {
+  font: inherit;
+  font-size: 13px;
+  padding: 6px 14px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: var(--bg-card);
+  color: var(--text-1);
+  cursor: pointer;
+}
+
+.app-content {
+  flex: 1;
+  overflow: hidden;
+  min-height: 0;
+}
+
+.global-topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0 16px;
+  height: 44px;
+  flex-shrink: 0;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-elevated);
+}
+
+.global-topbar__left {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  min-width: 0;
+}
+
+.global-topbar__brand {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--accent);
+  letter-spacing: -0.01em;
+  flex-shrink: 0;
+}
+
+.global-topbar__brand--btn {
+  background: none;
+  border: none;
+  cursor: pointer;
+  padding: 2px 6px 2px 4px;
+  border-radius: 4px;
+  font-family: inherit;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.global-topbar__brand--btn:hover {
+  background: var(--accent-a7);
+}
+
+.global-topbar__breadcrumb {
+  background: none;
+  border: none;
+  font-size: 12px;
+  color: var(--text-3);
+  cursor: pointer;
+  padding: 2px 6px;
+  border-radius: 4px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 260px;
+}
+
+.global-topbar__breadcrumb:hover {
+  background: var(--accent-a7);
+  color: var(--accent);
+}
+
+.global-topbar__nav {
+  display: flex;
+  gap: 2px;
+}
+
+.global-nav-btn {
+  background: none;
+  border: none;
+  padding: 4px 12px;
+  font-size: 13px;
+  color: var(--text-2);
+  cursor: pointer;
+  border-radius: 6px;
+  font-weight: 500;
+}
+
+.global-nav-btn:hover {
+  background: var(--accent-a7);
+  color: var(--accent);
+}
+
+.global-nav-btn--active {
+  background: var(--accent-a10);
+  color: var(--accent);
+}
+
+.settings-page {
+  height: 100%;
+  overflow-y: auto;
+  padding: 24px;
+  max-width: 560px;
+  margin: 0 auto;
+}
+
+/* ── Loading / setup ─────────────────────────────────────── */
+
+.app-loading {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100vh;
+  color: var(--text-3);
+  font-size: 0.95rem;
+}
+
+.setup-shell {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  min-height: 100vh;
+  padding: 40px 20px;
+  background: var(--bg-base);
+}
+
+[data-theme="warm"] .setup-shell {
+  background: radial-gradient(
+      circle at top right,
+      rgba(247, 208, 122, 0.28),
+      transparent 24rem
+    ),
+    linear-gradient(180deg, #f4efe5 0%, #efe7d8 100%);
+}
+
+.setup-shell__inner {
+  width: 100%;
+  max-width: 520px;
+}
+
+.setup-shell__title {
+  margin: 0 0 24px;
+  font-size: 2rem;
+  color: var(--text-1);
+}
+

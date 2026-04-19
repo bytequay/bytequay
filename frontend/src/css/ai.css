@@ -1,0 +1,2415 @@
+/* ── AI review panel ────────────────────────────────────── */
+
+.ai-review {
+  border-top: 1px solid var(--border);
+  margin-top: 20px;
+  padding-top: 18px;
+}
+
+.ai-review__header {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  margin-bottom: 10px;
+}
+
+.ai-review__title {
+  margin: 0;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-1);
+}
+
+.ai-review__meta {
+  font-size: 11px;
+  color: var(--text-3);
+}
+
+.ai-review__empty {
+  border: 1px dashed var(--border);
+  border-radius: 8px;
+  padding: 18px;
+  text-align: center;
+  color: var(--text-3);
+  font-size: 13px;
+  line-height: 1.5;
+}
+
+.ai-review__empty p { margin: 0 0 10px; }
+
+.ai-review__error {
+  border: 1px solid #aa4e3e;
+  background: rgba(170, 78, 62, 0.08);
+  color: #8a3a2d;
+  border-radius: 6px;
+  padding: 10px 12px;
+  font-size: 13px;
+  line-height: 1.5;
+  margin-bottom: 12px;
+}
+
+.ai-review__note {
+  font-size: 13px;
+  color: var(--text-3);
+  font-style: italic;
+  margin: 4px 0 12px;
+}
+
+.ai-review__actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 12px;
+}
+
+/* Progress bar */
+
+.ai-progress {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 12px;
+}
+
+.ai-progress__bar {
+  position: relative;
+  height: 4px;
+  background: var(--accent-a10);
+  border-radius: 4px;
+  overflow: hidden;
+}
+
+.ai-progress__stripe {
+  position: absolute;
+  top: 0; bottom: 0;
+  width: 40%;
+  background: linear-gradient(90deg, transparent, var(--accent), transparent);
+  animation: ai-slide 1.4s ease-in-out infinite;
+}
+
+@keyframes ai-slide {
+  0% { transform: translateX(-100%); }
+  100% { transform: translateX(250%); }
+}
+
+.ai-progress__label {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--text-2);
+}
+
+.ai-progress__pulse {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--accent);
+  animation: ai-pulse 1.1s ease-in-out infinite;
+}
+
+@keyframes ai-pulse {
+  0%, 100% { opacity: 0.4; transform: scale(0.9); }
+  50% { opacity: 1; transform: scale(1.1); }
+}
+
+/* Summary card (click-to-copy) */
+
+.ai-summary {
+  appearance: none;
+  display: block;
+  width: 100%;
+  text-align: left;
+  border: 1px solid var(--border);
+  background: var(--bg-elevated);
+  border-radius: 8px;
+  padding: 12px 14px;
+  cursor: pointer;
+  margin-bottom: 12px;
+  transition: border-color 120ms ease, background 120ms ease;
+  font: inherit;
+}
+
+.ai-summary:hover { border-color: var(--accent); }
+
+.ai-summary--copied {
+  border-color: #3e8060;
+  background: rgba(62, 128, 96, 0.08);
+}
+
+.ai-summary__label {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.5px;
+  text-transform: uppercase;
+  color: var(--text-3);
+  margin-bottom: 6px;
+}
+
+.ai-summary__body {
+  font-size: 13px;
+  line-height: 1.55;
+  color: var(--text-1);
+  white-space: pre-wrap;
+}
+
+/* Fold/expand toggle for the AI summary card. The summary can run several
+   paragraphs and crowd out the findings list; hiding it leaves the chevron
+   header so the user can pop it back open. */
+.ai-summary__fold {
+  appearance: none;
+  background: transparent;
+  border: 0;
+  padding: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  cursor: pointer;
+  font: inherit;
+  color: inherit;
+}
+.ai-summary__chevron {
+  font-size: 10px;
+  color: var(--text-3);
+}
+.ai-summary--folded {
+  padding: 6px 10px;
+  margin-bottom: 8px;
+}
+.ai-summary--folded .ai-summary__head { margin-bottom: 0; }
+
+/* Line-anchored comment cards */
+
+.ai-comments {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.ai-comment {
+  appearance: none;
+  display: block;
+  width: 100%;
+  text-align: left;
+  border: 1px solid var(--border);
+  border-left-width: 4px;
+  background: var(--bg-elevated);
+  border-radius: 8px;
+  padding: 10px 14px;
+  cursor: pointer;
+  font: inherit;
+  transition: border-color 120ms ease, background 120ms ease;
+}
+
+.ai-comment:hover { border-color: var(--accent); }
+.ai-comment--copied { border-color: #3e8060; background: rgba(62, 128, 96, 0.08); }
+
+.severity--blocker { border-left-color: #aa4e3e; }
+.severity--warning { border-left-color: #c78628; }
+.severity--suggestion { border-left-color: var(--accent); }
+.severity--info { border-left-color: #8a8a8d; }
+
+.ai-comment__header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 4px;
+}
+
+.ai-comment__severity {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.4px;
+  padding: 1px 7px;
+  border-radius: 4px;
+  background: rgba(0, 0, 0, 0.06);
+  color: var(--text-3);
+}
+
+.severity--blocker .ai-comment__severity { background: rgba(170, 78, 62, 0.18); color: #8a3a2d; }
+.severity--warning .ai-comment__severity { background: rgba(199, 134, 40, 0.18); color: #8f5f10; }
+.severity--suggestion .ai-comment__severity { background: var(--accent-a10); color: var(--accent); }
+
+.ai-comment__anchor { flex: 1; font-size: 12px; color: var(--text-3); }
+.ai-comment__anchor code { font-size: 11px; }
+
+.ai-comment__copy-hint {
+  font-size: 11px;
+  color: var(--text-3);
+}
+
+.ai-comment--copied .ai-comment__copy-hint { color: #3e8060; font-weight: 600; }
+
+.ai-comment__body {
+  font-size: 13px;
+  line-height: 1.55;
+  color: var(--text-1);
+  white-space: pre-wrap;
+}
+
+.settings-field {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 12px;
+}
+
+.settings-label {
+  font-size: 0.9rem;
+  color: var(--text-2);
+  white-space: nowrap;
+}
+
+.settings-input-number {
+  width: 80px;
+  padding: 6px 10px;
+  border: 1px solid var(--border-input);
+  border-radius: 8px;
+  background: var(--bg-input);
+  color: var(--text-1);
+  font: inherit;
+  font-size: 0.9rem;
+  text-align: right;
+}
+
+.settings-input-number:focus {
+  outline: 2px solid var(--accent-a40);
+  outline-offset: 1px;
+}
+
+/* Free-form text input + textarea for the Settings panel (used by the
+   Review skills editor). Mirrors .settings-input-number's chrome but
+   stretches to the column width and stays left-aligned. */
+.settings-input,
+.settings-textarea {
+  width: 100%;
+  max-width: 560px;
+  padding: 7px 10px;
+  border: 1px solid var(--border-input);
+  border-radius: 8px;
+  background: var(--bg-input);
+  color: var(--text-1);
+  font: inherit;
+  font-size: 13px;
+  box-sizing: border-box;
+}
+.settings-textarea {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, monospace;
+  font-size: 12px;
+  line-height: 1.45;
+  resize: vertical;
+}
+.settings-input:focus,
+.settings-textarea:focus {
+  outline: 2px solid var(--accent-a40);
+  outline-offset: 1px;
+}
+
+/* Header row pinned to the top of the Review skills tab so the primary
+   "+ New skill" action is always above the fold, regardless of how many
+   rows the table has. */
+.skills-header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  max-width: 720px;
+  margin-bottom: 8px;
+}
+.skills-header h3 { margin-top: 0; }
+.skills-header > div { flex: 1; min-width: 0; }
+
+/* ── Review skills table ───────────────────────────────────────────────
+   Borderless rows with a thin divider between them. Action column right-
+   aligned. Description column truncates so long blurbs don't push the
+   actions off-screen. */
+.skills-table {
+  width: 100%;
+  max-width: 720px;
+  border-collapse: collapse;
+  margin-top: 12px;
+}
+.skills-table th,
+.skills-table td {
+  padding: 8px 10px;
+  border-bottom: 1px solid var(--border);
+  text-align: left;
+  vertical-align: top;
+  font-size: 13px;
+}
+.skills-table th {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-3);
+  font-weight: 600;
+}
+.skills-table__empty {
+  text-align: center;
+  color: var(--text-3);
+  font-style: italic;
+  padding: 16px !important;
+}
+.skills-table__desc {
+  color: var(--text-2);
+  max-width: 240px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.skills-table__actions {
+  text-align: right;
+  white-space: nowrap;
+}
+.skills-table__actions .button {
+  margin-left: 6px;
+}
+
+/* Skill editor card — sits below the table when adding or editing. */
+.skill-editor {
+  margin-top: 16px;
+  padding: 14px 16px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-card);
+  max-width: 720px;
+}
+.skill-editor h4 {
+  margin: 0 0 10px;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+/* Left-aligned text input + textarea for modal forms (team editor, etc.).
+   The .settings-input-number rule above right-aligns text because it was
+   designed for numeric fields — using it for free-form text causes the
+   cursor and content to look anchored to the right edge. */
+.modal-text-input,
+.modal-textarea {
+  width: 100%;
+  padding: 7px 10px;
+  border: 1px solid var(--border-input);
+  border-radius: 8px;
+  background: var(--bg-input);
+  color: var(--text-1);
+  font: inherit;
+  font-size: 13px;
+  text-align: left;
+}
+
+.modal-textarea {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, monospace;
+  resize: vertical;
+}
+
+.modal-text-input:focus,
+.modal-textarea:focus {
+  outline: 2px solid var(--accent-a40);
+  outline-offset: 1px;
+}
+
+/* Tag-style input — used by the team editor for member rosters. The whole
+   container looks like one input field but contains multiple chips plus a
+   trailing inline text field. Clicking anywhere focuses the inline field. */
+.tag-input {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 5px;
+  align-items: center;
+  width: 100%;
+  min-height: 38px;
+  padding: 5px 6px;
+  border: 1px solid var(--border-input);
+  border-radius: 8px;
+  background: var(--bg-input);
+  cursor: text;
+}
+
+.tag-input:focus-within {
+  outline: 2px solid var(--accent-a40);
+  outline-offset: 1px;
+}
+
+.tag-input__chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 4px 2px 8px;
+  background: var(--accent-a10);
+  color: var(--accent);
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 500;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, monospace;
+}
+
+.tag-input__chip-text {
+  white-space: nowrap;
+}
+
+.tag-input__chip-remove {
+  appearance: none;
+  background: transparent;
+  border: none;
+  color: var(--accent);
+  font-size: 14px;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0 4px;
+  border-radius: 50%;
+  opacity: 0.7;
+  transition: background 100ms ease, opacity 100ms ease;
+}
+
+.tag-input__chip-remove:hover {
+  background: var(--accent-a40);
+  opacity: 1;
+  color: #fff;
+}
+
+.tag-input__field {
+  appearance: none;
+  border: none;
+  background: transparent;
+  outline: none;
+  flex: 1;
+  min-width: 80px;
+  padding: 4px 4px;
+  font: inherit;
+  font-size: 13px;
+  color: var(--text-1);
+}
+
+/* Autocomplete dropdown attached under the chip-input. The wrap is the
+   positioned ancestor so the absolute list anchors against the input
+   regardless of where TagInput is mounted. */
+.tag-input-wrap {
+  position: relative;
+}
+.tag-input__suggestions {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  right: 0;
+  z-index: 50;
+  margin: 0;
+  padding: 4px;
+  list-style: none;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.12);
+  max-height: 280px;
+  overflow-y: auto;
+}
+.tag-input__suggestion {
+  padding: 6px 8px;
+  border-radius: 4px;
+  cursor: pointer;
+  font-size: 13px;
+  color: var(--text-1);
+}
+.tag-input__suggestion--active,
+.tag-input__suggestion:hover {
+  background: var(--accent-a7);
+}
+
+/* Per-suggestion content for user matches — avatar + login + optional
+   name. Used by TeamEditorModal's searchGitHubUsers renderer. */
+.user-suggestion {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.user-suggestion__avatar {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.user-suggestion__avatar--fallback {
+  background: var(--bg-elevated);
+  color: var(--text-2);
+  font-size: 11px;
+  font-weight: 600;
+}
+.user-suggestion__login {
+  font-weight: 500;
+  color: var(--text-1);
+}
+.user-suggestion__name {
+  color: var(--text-3);
+  font-size: 12px;
+  margin-left: 2px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Theme picker */
+
+.theme-picker {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+  margin-top: 12px;
+}
+
+.theme-swatch {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 6px 12px;
+  border-radius: 8px;
+  border: 1px solid var(--border-input);
+  background: var(--bg-input);
+  color: var(--text-2);
+  font: inherit;
+  font-size: 0.85rem;
+  cursor: pointer;
+  transition: border-color 0.12s;
+}
+
+.theme-swatch:hover {
+  border-color: var(--accent);
+}
+
+.theme-swatch--active {
+  border-color: var(--accent);
+  background: var(--accent-a7);
+  color: var(--text-1);
+  font-weight: 600;
+}
+
+.theme-swatch__dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+@media (max-width: 780px) {
+  .stat-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .list-pane {
+    width: 260px;
+  }
+}
+
+/* ── AI review sidebar (right column of the diff viewer) ─────────────────
+   Matches docs/mockups/v2/codereview/bytequay-pr-diff-final.html — purple
+   accent (--ai), summary card on top, scrollable findings list below.
+   Collapsed mode hides everything except a slim toggle rail. */
+.ai-sidebar {
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-elevated);
+  border-left: 1px solid var(--border);
+  min-width: 0;
+  /* min-height: 0 + overflow:hidden lets the inner __body scroll within
+     the grid cell instead of growing past it (mouse wheel was scrolling
+     the parent rather than the findings list). */
+  min-height: 0;
+  height: 100%;
+  overflow: hidden;
+}
+.ai-sidebar--collapsed {
+  align-items: center;
+  padding: 10px 0;
+  background: var(--bg-elevated);
+}
+.ai-sidebar__rail-toggle {
+  appearance: none;
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text-2);
+  font-size: 12px;
+  width: 26px;
+  height: 26px;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.ai-sidebar__rail-toggle:hover {
+  border-color: var(--accent-a40);
+  color: var(--accent);
+}
+.ai-sidebar__rail-label {
+  margin-top: 8px;
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  color: var(--text-3);
+  writing-mode: vertical-rl;
+  transform: rotate(180deg);
+}
+
+.ai-sidebar__head {
+  padding: 12px 14px 10px;
+  border-bottom: 1px solid var(--border);
+  flex: 0 0 auto;
+}
+.ai-sidebar__title-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 10px;
+}
+.ai-sidebar__title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-1);
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+.ai-sidebar__count {
+  font-size: 11px;
+  background: var(--bg-card);
+  color: var(--text-2);
+  padding: 1px 7px;
+  border-radius: 999px;
+  font-weight: 600;
+}
+.ai-sidebar__icon-btn {
+  appearance: none;
+  width: 24px;
+  height: 24px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: var(--bg-card);
+  cursor: pointer;
+  font-size: 11px;
+  color: var(--text-2);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.ai-sidebar__icon-btn:hover { color: var(--accent); border-color: var(--accent-a40); }
+
+.ai-sidebar__run {
+  appearance: none;
+  width: 100%;
+  padding: 8px 12px;
+  font-size: 12px;
+  font-weight: 600;
+  border-radius: 7px;
+  border: 1px solid #ddd6fe;
+  background: linear-gradient(135deg, #f5f3ff, #ede9fe);
+  color: #6d28d9;
+  cursor: pointer;
+}
+.ai-sidebar__run:disabled {
+  opacity: 0.7;
+  cursor: progress;
+}
+.ai-sidebar__run:hover:not(:disabled) {
+  background: linear-gradient(135deg, #ede9fe, #ddd6fe);
+}
+
+.ai-summary {
+  margin-top: 10px;
+  background: rgba(139, 92, 246, 0.08);
+  border: 1px solid rgba(139, 92, 246, 0.22);
+  border-radius: 8px;
+  padding: 10px 12px;
+  font-size: 12px;
+}
+.ai-summary__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 6px;
+}
+.ai-summary__title {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-weight: 600;
+  color: #6d28d9;
+}
+.ai-summary__dot {
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #a78bfa, #6366f1);
+  color: white;
+  font-size: 9px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.ai-summary__body {
+  color: var(--text-1);
+  line-height: 1.55;
+}
+.ai-summary__meta {
+  font-size: 10.5px;
+  color: var(--text-3);
+  margin-top: 6px;
+}
+
+.ai-sidebar__error {
+  margin-top: 10px;
+  padding: 8px 10px;
+  background: rgba(239, 68, 68, 0.1);
+  border: 1px solid rgba(239, 68, 68, 0.3);
+  color: #b91c1c;
+  border-radius: 6px;
+  font-size: 12px;
+}
+
+.ai-sidebar__body {
+  flex: 1;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.ai-sidebar__placeholder {
+  font-size: 12px;
+  color: var(--text-3);
+  padding: 16px 8px;
+  line-height: 1.55;
+}
+
+.ai-finding {
+  appearance: none;
+  text-align: left;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 10px 12px;
+  font: inherit;
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.ai-finding:hover {
+  border-color: var(--border-strong, var(--accent-a40));
+  background: var(--bg-elevated);
+}
+.ai-finding__head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.ai-finding__sev {
+  width: 16px;
+  height: 16px;
+  border-radius: 4px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 10px;
+  font-weight: 700;
+  color: white;
+  flex-shrink: 0;
+}
+.ai-finding__sev--high { background: #ef4444; }
+.ai-finding__sev--med  { background: #eab308; color: #78350f; }
+.ai-finding__sev--low  { background: #3b82f6; }
+.ai-finding__sev--tip  { background: #8b5cf6; }
+.ai-finding__source {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  font-weight: 700;
+  padding: 2px 6px;
+  border-radius: 3px;
+  background: rgba(139, 92, 246, 0.1);
+  color: #6d28d9;
+}
+.ai-finding__loc,
+.ai-finding__loc-btn {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, monospace;
+  font-size: 10.5px;
+  color: var(--text-3);
+}
+.ai-finding__loc-btn {
+  appearance: none;
+  background: transparent;
+  border: none;
+  padding: 0;
+  text-align: left;
+  cursor: pointer;
+  text-overflow: ellipsis;
+  overflow: hidden;
+  white-space: nowrap;
+}
+.ai-finding__loc-btn:hover { color: var(--accent); text-decoration: underline; }
+.ai-finding__body {
+  font-size: 12px;
+  color: var(--text-1);
+  line-height: 1.5;
+}
+/* Body doubles as a "jump to line in diff" button — reset the native
+   button look so the comment text reads as text, but keep cursor:
+   pointer + a hover hint so the affordance is discoverable. */
+.ai-finding__body--clickable {
+  appearance: none;
+  background: transparent;
+  border: 0;
+  padding: 0;
+  margin: 0;
+  width: 100%;
+  text-align: left;
+  font: inherit;
+  font-size: 12px;
+  color: var(--text-1);
+  line-height: 1.5;
+  cursor: pointer;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+.ai-finding__body--clickable:hover {
+  color: var(--accent);
+}
+
+/* Sidebar finding card affordances mirror the inline-finding ones so the
+   user has the same fold + dismiss/restore tools on both surfaces. */
+.ai-finding__fold-btn,
+.ai-finding__action-btn {
+  appearance: none;
+  width: 20px;
+  height: 20px;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--text-3);
+  cursor: pointer;
+  font-size: 10px;
+  border-radius: 4px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.ai-finding__fold-btn:hover { color: var(--text-1); background: var(--bg-card); }
+.ai-finding__action-btn {
+  margin-left: auto;
+  border-color: var(--border);
+  background: var(--bg-card);
+}
+.ai-finding__action-btn:hover {
+  color: #6d28d9;
+  background: rgba(139, 92, 246, 0.08);
+  border-color: rgba(139, 92, 246, 0.3);
+}
+.ai-finding__action-btn:disabled { opacity: 0.6; cursor: progress; }
+.ai-finding__dismissed-badge {
+  font-size: 9.5px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  font-weight: 700;
+  padding: 1px 5px;
+  border-radius: 3px;
+  background: rgba(239, 68, 68, 0.10);
+  color: #b91c1c;
+}
+.ai-finding--dismissed { opacity: 0.5; }
+.ai-finding--dismissed:hover { opacity: 0.75; }
+
+/* Folded sidebar card — single 26px row, severity dot + truncated
+   filename:line. The strip is a "jump to line" button; the chevron
+   on the right is a separate "expand" button so click-to-jump and
+   click-to-expand have distinct targets. */
+.ai-finding--folded {
+  padding: 0;
+  background: transparent;
+  border-color: transparent;
+  display: flex;
+  align-items: stretch;
+  gap: 4px;
+}
+.ai-finding-folded-btn {
+  appearance: none;
+  background: var(--bg-card);
+  border: 1px dashed var(--border);
+  border-radius: 6px;
+  cursor: pointer;
+  flex: 1;
+  min-width: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 3px 10px;
+  font: inherit;
+  height: 26px;
+}
+.ai-finding-folded-btn:hover {
+  border-color: rgba(139, 92, 246, 0.4);
+  background: rgba(139, 92, 246, 0.05);
+}
+.ai-finding-folded-btn .ai-finding__sev {
+  width: 12px;
+  height: 12px;
+  font-size: 9px;
+}
+.ai-finding-folded__loc {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, monospace;
+  font-size: 10.5px;
+  color: var(--text-2);
+  flex: 1;
+  text-align: left;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.ai-finding-folded__expand {
+  appearance: none;
+  background: var(--bg-card);
+  border: 1px dashed var(--border);
+  border-radius: 6px;
+  width: 26px;
+  height: 26px;
+  cursor: pointer;
+  color: var(--text-3);
+  font-size: 11px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex: 0 0 auto;
+}
+.ai-finding-folded__expand:hover {
+  color: var(--text-1);
+  border-color: rgba(139, 92, 246, 0.4);
+  background: rgba(139, 92, 246, 0.05);
+}
+
+.diff-file-empty {
+  padding: 20px 16px;
+  color: var(--text-3);
+  font-size: 13px;
+  font-style: italic;
+}
+
+.diff-file {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, monospace;
+  font-size: 12px;
+  line-height: 1.5;
+  width: 100%;
+  min-width: 0;
+}
+
+.diff-hunk {
+  border-bottom: 1px solid var(--border);
+}
+
+/* Outdated-comments bar shown above the file's hunks. Collapsed by
+   default to a single one-line summary; expanding reveals the
+   stale-anchored threads. Subtle amber accent so it reads as
+   "informational, not a hunk to review". */
+/* Orphan AI findings — comments whose (side, line) doesn't match any
+   rendered diff row. Sits above the hunks, accent-tinted so it reads
+   as "out-of-band feedback you should still see". Each child card
+   uses the regular .inline-finding chrome inherited from the diff. */
+.diff-orphan-findings {
+  border-bottom: 1px solid var(--border);
+  background: var(--accent-a7);
+  padding: 6px 12px 10px;
+}
+.diff-orphan-findings__label {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--accent);
+  font-weight: 600;
+  margin-bottom: 6px;
+}
+
+.diff-outdated {
+  border-bottom: 1px solid var(--border);
+  background: rgba(217, 119, 6, 0.05);
+}
+.diff-outdated__toggle {
+  appearance: none;
+  background: transparent;
+  border: 0;
+  width: 100%;
+  text-align: left;
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 6px 16px;
+  cursor: pointer;
+  font: inherit;
+  color: var(--text-2);
+}
+.diff-outdated__toggle:hover { background: rgba(217, 119, 6, 0.10); }
+.diff-outdated__chevron {
+  display: inline-block;
+  width: 12px;
+  font-size: 12px;
+  color: var(--text-3);
+}
+.diff-outdated__label {
+  font-size: 12px;
+  font-weight: 600;
+  color: #b45309;
+}
+.diff-outdated__hint {
+  font-size: 11px;
+  color: var(--text-3);
+}
+.diff-outdated__list {
+  padding: 4px 16px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.diff-hunk:last-child { border-bottom: none; }
+
+.diff-row {
+  display: grid;
+  /* Two narrow line-number columns + the content takes the rest. 36px +
+     4px-each padding = 28px usable per gutter, comfortable for 4-digit
+     numbers at 11px monospace; 5-digit (very rare) hugs the column edge
+     but stays readable since the text is right-aligned. */
+  grid-template-columns: 36px 36px minmax(0, 1fr);
+  /* When the content column wraps, keep line-number gutters pinned to the top
+     of the row instead of vertically centering over multiple visual lines. */
+  align-items: start;
+}
+
+.diff-row__gutter {
+  position: relative;
+  padding: 2px 4px 0;
+  color: var(--text-3);
+  text-align: right;
+  font-size: 11px;
+  user-select: none;
+  background: var(--bg-elevated);
+  border-right: 1px solid var(--border);
+  white-space: nowrap;
+  /* Gutter is always one visual line; let the content cell set the row height. */
+  align-self: stretch;
+}
+
+.diff-row__content {
+  padding: 2px 12px;
+  /* Preserve indentation (`pre`) but allow wrapping (`wrap`), and break in
+     the middle of long unbreakable tokens (URLs, minified text). This is the
+     no-horizontal-scroll behavior the user asked for. */
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+.diff-row__sigil {
+  display: inline-block;
+  width: 12px;
+  color: var(--text-3);
+}
+
+.diff-row--context { background: transparent; }
+
+/* GitHub Desktop / github.com light palette — warm soft green and pink that
+   read as "added"/"removed" without shouting. The gutter column picks up a
+   slightly stronger tint so line numbers on changed lines stand out. */
+.diff-row--add {
+  background: #e6ffec;
+}
+.diff-row--add .diff-row__gutter { background: #ccffd8; }
+.diff-row--add .diff-row__sigil { color: #1a7f37; }
+
+.diff-row--del {
+  background: #ffebe9;
+}
+.diff-row--del .diff-row__gutter { background: #ffd7d5; }
+.diff-row--del .diff-row__sigil { color: #cf222e; }
+
+[data-theme="atom-one-dark"] .diff-row--add,
+[data-theme="warm"] .diff-row--add {
+  background: rgba(63, 185, 80, 0.12);
+}
+[data-theme="atom-one-dark"] .diff-row--add .diff-row__gutter,
+[data-theme="warm"] .diff-row--add .diff-row__gutter {
+  background: rgba(63, 185, 80, 0.20);
+}
+[data-theme="atom-one-dark"] .diff-row--add .diff-row__sigil,
+[data-theme="warm"] .diff-row--add .diff-row__sigil {
+  color: #3fb950;
+}
+
+[data-theme="atom-one-dark"] .diff-row--del,
+[data-theme="warm"] .diff-row--del {
+  background: rgba(248, 81, 73, 0.12);
+}
+[data-theme="atom-one-dark"] .diff-row--del .diff-row__gutter,
+[data-theme="warm"] .diff-row--del .diff-row__gutter {
+  background: rgba(248, 81, 73, 0.22);
+}
+[data-theme="atom-one-dark"] .diff-row--del .diff-row__sigil,
+[data-theme="warm"] .diff-row--del .diff-row__sigil {
+  color: #f85149;
+}
+
+.diff-row--hunk-header {
+  background: var(--bg-elevated);
+  color: var(--text-3);
+  border-top: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+}
+
+.diff-row--hunk-header .diff-row__content {
+  font-size: 11px;
+}
+
+/* "Expand collapsed code" controls. Replaces the two gutter spans on
+   hunk-header rows; spans the same 72px width via grid-column: 1/3
+   so the @@ ... @@ text lines up with normal content. */
+.diff-row__expand-cell {
+  grid-column: 1 / 3;
+  display: flex;
+  align-items: stretch;
+  justify-content: stretch;
+  background: var(--bg-elevated);
+  border-right: 1px solid var(--border);
+  padding: 0;
+  user-select: none;
+}
+.diff-expand-btn {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: transparent;
+  border: none;
+  color: var(--text-2);
+  font-size: 12px;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0;
+  min-height: 14px;
+}
+.diff-expand-btn:hover:not(:disabled) {
+  background: var(--accent-tint, rgba(56, 139, 253, 0.15));
+  color: var(--accent, #388bfd);
+}
+.diff-expand-btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+.diff-expand-btn--single {
+  /* Top / bottom of file — one big button filling both gutter columns. */
+  width: 100%;
+  min-height: 18px;
+}
+.diff-expand-split {
+  /* Middle-of-file split. Two stacked half-height buttons sharing the
+     gutter cell, with a hairline divider between them. */
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+}
+.diff-expand-split .diff-expand-btn {
+  min-height: 12px;
+}
+.diff-expand-split .diff-expand-btn--up {
+  border-bottom: 1px solid var(--border);
+}
+.diff-expand-btn__icon {
+  display: inline-block;
+  font-weight: 600;
+}
+
+/* Expanded context rows look like ordinary context rows — no
+   highlight, just plain text with line numbers. The class hook is
+   reserved for future styling (e.g. a subtle "you expanded this"
+   tint) without changing markup. */
+.diff-row--expanded {
+  background: transparent;
+}
+
+.diff-expand-error {
+  margin: 6px 12px;
+  padding: 8px 10px;
+  border-radius: 6px;
+  background: var(--danger-tint, #ffebe9);
+  color: var(--danger, #cf222e);
+  font-size: 12px;
+}
+
+/* ── Inline AI finding ─────────────────────────────────────────────────
+   Renders a card directly below the diff line it anchors to, matching
+   docs/mockups/v2/codereview/bytequay-pr-diff-final.html. The diff line
+   itself gets a left accent stripe so you can spot a finding while
+   skimming without reading the card. */
+.diff-row--has-finding {
+  box-shadow: inset 3px 0 0 #8b5cf6;
+}
+
+/* Multi-line composer range highlight: every row inside the selected
+   start..end range carries this class so the gutters get a soft amber
+   tint that matches the eventual "Comment on lines L455 to R467"
+   header. Mirrors github.com's range selection look. */
+.diff-row--in-range .diff-row__gutter {
+  background: rgba(245, 158, 11, 0.18) !important;
+}
+.diff-row--in-range .diff-row__content {
+  background: rgba(245, 158, 11, 0.06);
+}
+
+/* Composer header — labels which line(s) the comment will attach to.
+   The hint span tells the user about shift-click range extension. */
+.diff-inline-composer__header {
+  font-size: 11.5px;
+  color: var(--text-2);
+  font-weight: 500;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.diff-inline-composer__hint {
+  color: var(--text-3);
+  font-weight: 400;
+  font-size: 11px;
+}
+
+/* "Jump to line" target highlight — pulses for ~1.6s then fades.
+   Triggered by the AI sidebar clicking a finding's location button. */
+@keyframes diff-row-flash {
+  0%   { background-color: rgba(245, 158, 11, 0.42); }
+  60%  { background-color: rgba(245, 158, 11, 0.22); }
+  100% { background-color: transparent; }
+}
+.diff-row--flash {
+  animation: diff-row-flash 1600ms ease-out;
+}
+
+/* Hover affordance for clickable diff rows: show a faint "+" in the
+   right-side gutter so the user knows they can add an inline comment. */
+.diff-row--commentable { cursor: pointer; }
+/* Floats over the right edge of the gutter on hover. Absolute positioning
+   keeps it out of the gutter's layout flow so 3-digit line numbers (>=100)
+   don't wrap and inflate the row height. */
+.diff-row__add-comment {
+  position: absolute;
+  top: 50%;
+  right: -7px;
+  transform: translateY(-50%);
+  width: 14px;
+  height: 14px;
+  border-radius: 4px;
+  background: var(--accent);
+  color: #fff;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 14px;
+  text-align: center;
+  opacity: 0;
+  transition: opacity 0.1s ease;
+  z-index: 1;
+  pointer-events: none;
+}
+.diff-row--commentable:hover .diff-row__add-comment { opacity: 1; }
+.diff-row--commentable:hover { background: var(--accent-a7, rgba(99, 102, 241, 0.06)); }
+
+/* Inline review composer that pops below a clicked diff row. The
+   left-indent matches the diff row's two-gutter total (36 + 36 = 72px)
+   so the textarea aligns with the code column above it. */
+.diff-inline-composer {
+  padding: 10px 14px 12px 72px;
+  background: var(--bg-elevated);
+  border-top: 1px solid var(--border);
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.diff-inline-composer__input {
+  width: 100%;
+  resize: vertical;
+  min-height: 64px;
+  padding: 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font-family: -apple-system, BlinkMacSystemFont, "Inter", system-ui, sans-serif;
+  font-size: 13px;
+  background: var(--bg-base);
+  color: var(--text-1);
+  box-sizing: border-box;
+}
+.diff-inline-composer__actions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+/* MarkdownComposer — Write/Preview tabs above any comment textarea.
+   Used by the diff-inline composer, the inline-thread reply composer,
+   and the review-thread reply composer in the timeline so the affordance
+   is identical to the PR-detail PrCommentBox tabs. */
+.md-composer {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.md-composer__tabs {
+  display: inline-flex;
+  gap: 2px;
+  align-self: flex-start;
+}
+.md-composer__tab {
+  font: inherit;
+  font-size: 11.5px;
+  padding: 3px 10px;
+  border-radius: 5px 5px 0 0;
+  border: 1px solid transparent;
+  background: transparent;
+  color: var(--text-3);
+  cursor: pointer;
+  border-bottom: 0;
+}
+.md-composer__tab:hover { color: var(--text-1); }
+.md-composer__tab--active {
+  background: var(--bg-card);
+  border-color: var(--border);
+  color: var(--text-1);
+  font-weight: 500;
+  /* Pull the tab down by 1px so its bottom edge merges with the
+     textarea/preview's top border. */
+  margin-bottom: -1px;
+}
+.md-composer__textarea {
+  width: 100%;
+  resize: vertical;
+  min-height: 64px;
+  padding: 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font: inherit;
+  font-size: 13px;
+  background: var(--bg-card);
+  color: var(--text-1);
+}
+.md-composer__textarea:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+.md-composer__preview {
+  min-height: 64px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg-card);
+  font-size: 13px;
+  line-height: 1.55;
+  color: var(--text-1);
+  overflow-wrap: break-word;
+}
+.md-composer__preview p { margin: 0 0 6px 0; }
+.md-composer__preview p:last-child { margin-bottom: 0; }
+.md-composer__preview code {
+  background: var(--bg-elevated);
+  padding: 1px 5px;
+  border-radius: 3px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: var(--pr-code-font-size, 13.5px);
+}
+.md-composer__preview pre {
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 10px 12px;
+  overflow-x: auto;
+}
+.md-composer__preview pre code { background: transparent; padding: 0; }
+.md-composer__preview a { color: var(--accent); }
+.md-composer__preview blockquote {
+  border-left: 3px solid var(--border);
+  margin: 4px 0;
+  padding: 2px 10px;
+  color: var(--text-3);
+}
+.md-composer__preview ul,
+.md-composer__preview ol { margin: 4px 0 4px 18px; }
+
+/* "Better words" polish + undo buttons — used in every comment composer
+   via the shared PolishButtons component. Secondary visual weight so
+   they don't compete with the primary "Submit" button. Inline so they
+   sit on the same row. */
+.polish-btn {
+  font: inherit;
+  font-size: 12px;
+  font-weight: 500;
+  padding: 5px 12px;
+  border-radius: 5px;
+  border: 1px solid var(--border);
+  background: var(--bg-card);
+  color: var(--text-1);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  transition: background 0.1s, border-color 0.1s, color 0.1s;
+}
+.polish-btn:hover:not(:disabled) {
+  background: rgba(139, 92, 246, 0.08);
+  border-color: rgba(139, 92, 246, 0.45);
+  color: #6d28d9;
+}
+.polish-btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+.polish-undo-btn {
+  font: inherit;
+  font-size: 11.5px;
+  padding: 4px 10px;
+  border-radius: 5px;
+  border: 1px dashed var(--border);
+  background: transparent;
+  color: var(--text-3);
+  cursor: pointer;
+}
+.polish-undo-btn:hover {
+  color: var(--text-1);
+  border-color: var(--text-3);
+}
+.polish-error {
+  font-size: 11.5px;
+  color: #b91c1c;
+  margin-left: 4px;
+}
+.diff-inline-composer__error {
+  font-size: 12px;
+  color: #b91c1c;
+}
+.diff-inline-composer__posted {
+  padding: 4px 14px 4px 72px;
+  font-size: 11px;
+  color: #1a7f37;
+  background: rgba(46, 160, 67, 0.06);
+}
+
+/* Per-line review thread, rendered under its anchor row in the diff
+   viewer. Card-style container with a tinted header bar — matches
+   docs/mockups/v2/codereview/comment-layout.png. */
+.diff-thread {
+  margin: 0 14px 8px 72px;          /* keep the indent below the gutters */
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+  font-family: -apple-system, BlinkMacSystemFont, "Inter", system-ui, sans-serif;
+}
+/* Resolved threads tint subtly green-grey so they read as "settled"; the
+   header pill carries the explicit label. */
+.diff-thread--resolved { opacity: 0.94; }
+.diff-thread--outdated { opacity: 0.92; }
+
+.diff-thread__header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px 6px 8px;
+  background: rgba(31, 111, 235, 0.06);
+  border-bottom: 1px solid var(--border);
+  font-size: 12px;
+  color: var(--text-2);
+}
+.diff-thread--resolved .diff-thread__header {
+  background: rgba(46, 160, 67, 0.07);
+}
+.diff-thread__fold {
+  appearance: none;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+  padding: 0 4px;
+  font: inherit;
+  font-size: 11px;
+  color: var(--text-3);
+}
+.diff-thread__fold:hover { color: var(--text-1); }
+.diff-thread__loc {
+  font-weight: 500;
+  color: var(--text-1);
+}
+.diff-thread__head-summary {
+  color: var(--text-3);
+  font-size: 11.5px;
+}
+.diff-thread__head-pills {
+  margin-left: auto;
+  display: inline-flex;
+  gap: 4px;
+}
+.diff-thread__pill {
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  padding: 2px 7px;
+  border-radius: 999px;
+}
+.diff-thread__pill--resolved {
+  background: rgba(46, 160, 67, 0.14);
+  color: #1a7f37;
+}
+.diff-thread__pill--outdated {
+  background: rgba(212, 160, 23, 0.16);
+  color: #b45309;
+}
+
+/* Resolve / Unresolve toggle in the thread header. Looks like a pill
+   so it lines up with the existing Resolved / Outdated pills, but
+   with the standard accent borders + hover so it reads as actionable. */
+.diff-thread__resolve-btn {
+  appearance: none;
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  font: inherit;
+  font-size: 10px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  padding: 2px 8px;
+  cursor: pointer;
+  color: var(--text-2);
+}
+.diff-thread__resolve-btn:hover:not(:disabled) {
+  color: var(--accent);
+  border-color: var(--accent-a40);
+  background: var(--accent-a7);
+}
+.diff-thread__resolve-btn:disabled { opacity: 0.6; cursor: progress; }
+.diff-thread__resolve-btn--unresolve {
+  /* When the thread is currently resolved, the button reads "Unresolve"
+     — give it a subtle warning tint so the user knows clicking will
+     re-open the conversation. */
+  color: #b45309;
+  border-color: rgba(212, 160, 23, 0.4);
+}
+
+/* Each message: avatar on the left, body to the right. The mockup uses
+   a 28px avatar for visual weight comparable to the GitHub thread view. */
+.diff-thread__msg {
+  display: flex;
+  gap: 10px;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--border-hairline, var(--border));
+}
+.diff-thread__msg:last-of-type {
+  border-bottom: 0;
+}
+.diff-thread__msg-avatar {
+  flex-shrink: 0;
+  margin-top: 2px;
+  border-radius: 50%;
+}
+.diff-thread__msg-body {
+  flex: 1;
+  min-width: 0;
+}
+.diff-thread__msg-head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin-bottom: 4px;
+  font-size: 12px;
+}
+.diff-thread__msg-author {
+  font-weight: 600;
+  color: var(--text-1);
+}
+.diff-thread__msg-role {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  padding: 1px 6px;
+  border-radius: 3px;
+  background: var(--bg-elevated);
+  color: var(--text-2);
+}
+.diff-thread__msg-time {
+  color: var(--text-3);
+  font-size: 11.5px;
+}
+.diff-thread__msg-text {
+  font-size: 13px;
+  line-height: 1.55;
+  color: var(--text-1);
+  overflow-wrap: break-word;
+}
+.diff-thread__msg-text p { margin: 0 0 6px 0; }
+.diff-thread__msg-text p:last-child { margin-bottom: 0; }
+.diff-thread__msg-text code {
+  background: var(--bg-elevated);
+  padding: 1px 5px;
+  border-radius: 3px;
+  font-size: var(--pr-code-font-size, 13.5px);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+.diff-thread__msg-text pre {
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 10px 12px;
+  overflow-x: auto;
+  font-size: var(--pr-code-font-size, 13.5px);
+}
+.diff-thread__msg-text pre code { background: transparent; padding: 0; }
+.diff-thread__msg-text a { color: var(--accent); }
+
+.diff-thread__reactions {
+  display: flex;
+  gap: 4px;
+  margin-top: 6px;
+  flex-wrap: wrap;
+}
+.diff-thread__reaction {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  padding: 1px 7px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--bg-elevated);
+  font-size: 11.5px;
+}
+.diff-thread__reaction-count {
+  color: var(--text-3);
+  font-variant-numeric: tabular-nums;
+}
+
+/* Reply: collapsed stub looks like a pseudo-input until clicked, then
+   expands into the full composer. */
+.diff-thread__reply-stub {
+  display: block;
+  width: 100%;
+  text-align: left;
+  padding: 8px 14px;
+  background: var(--bg-elevated);
+  border: 0;
+  border-top: 1px solid var(--border);
+  color: var(--text-3);
+  font: inherit;
+  font-size: 12.5px;
+  cursor: pointer;
+}
+.diff-thread__reply-stub:hover {
+  color: var(--text-1);
+  background: var(--bg-card);
+}
+
+.diff-thread__reply {
+  padding: 10px 14px;
+  border-top: 1px solid var(--border);
+  background: var(--bg-elevated);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.diff-thread__reply-input {
+  width: 100%;
+  resize: vertical;
+  min-height: 64px;
+  padding: 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font: inherit;
+  font-size: 13px;
+  font-family: -apple-system, BlinkMacSystemFont, "Inter", system-ui, sans-serif;
+  background: var(--bg-card);
+  color: var(--text-1);
+}
+.diff-thread__reply-input:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+.diff-thread__reply-actions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  flex-wrap: wrap;
+}
+.diff-thread__reply-error {
+  font-size: 12px;
+  color: #b91c1c;
+}
+.diff-row--inline-finding {
+  display: block;
+  padding: 0;
+  background: rgba(139, 92, 246, 0.06);
+  border-top: 1px solid rgba(139, 92, 246, 0.18);
+  border-bottom: 1px solid rgba(139, 92, 246, 0.18);
+}
+.inline-finding {
+  display: flex;
+  gap: 10px;
+  padding: 10px 14px 10px 72px;
+  font-family: -apple-system, BlinkMacSystemFont, "Inter", system-ui, sans-serif;
+  font-size: 12px;
+  line-height: 1.55;
+}
+.inline-finding__sev {
+  width: 18px;
+  height: 18px;
+  border-radius: 5px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  font-weight: 700;
+  color: white;
+  flex-shrink: 0;
+  margin-top: 1px;
+}
+.inline-finding__sev--high { background: #ef4444; }
+.inline-finding__sev--med  { background: #eab308; color: #78350f; }
+.inline-finding__sev--low  { background: #3b82f6; }
+.inline-finding__sev--tip  { background: #8b5cf6; }
+/* Human-staged comments use a neutral slate dot so AI's color-coding
+   (info/warn/blocker) stays meaningful and human comments don't compete
+   for severity attention. */
+.inline-finding__sev--human { background: #475569; color: #fff; }
+.diff-row--inline-finding--human .inline-finding {
+  /* A faint amber wash on the rail row so reviewers can spot their own
+     pending comments at a glance without the AI's severity gradient. */
+  background: rgba(245, 158, 11, 0.06);
+  border-left: 2px solid rgba(245, 158, 11, 0.6);
+}
+.inline-finding__body { flex: 1; min-width: 0; }
+.inline-finding__head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 4px;
+  flex-wrap: wrap;
+}
+.inline-finding__source {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  font-weight: 700;
+  padding: 2px 6px;
+  border-radius: 3px;
+  background: rgba(139, 92, 246, 0.12);
+  color: #6d28d9;
+}
+.inline-finding__loc {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, monospace;
+  font-size: 10.5px;
+  color: var(--text-3);
+}
+.inline-finding__text { color: var(--text-1); }
+
+/* Edit affordances on the inline AI finding card. */
+.inline-finding__edited {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  font-weight: 700;
+  padding: 1px 6px;
+  border-radius: 3px;
+  background: rgba(6, 182, 212, 0.12);
+  color: #0e7490;
+}
+.inline-finding__edit-btn {
+  appearance: none;
+  margin-left: auto;
+  width: 22px;
+  height: 22px;
+  border-radius: 5px;
+  border: 1px solid var(--border);
+  background: var(--bg-card);
+  color: var(--text-2);
+  cursor: pointer;
+  font-size: 11px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.inline-finding__edit-btn:hover {
+  color: #6d28d9;
+  background: rgba(139, 92, 246, 0.08);
+  border-color: rgba(139, 92, 246, 0.3);
+}
+.inline-finding__edit-btn--danger {
+  margin-left: 0;
+}
+.inline-finding__edit-btn--danger:hover {
+  color: #b91c1c;
+  background: rgba(239, 68, 68, 0.08);
+  border-color: rgba(239, 68, 68, 0.3);
+}
+
+/* Fold/unfold chevron, sits on the left of the header so it reads as
+   "this card collapses into a one-line strip" not "this is an action". */
+.inline-finding__fold-btn {
+  appearance: none;
+  border: none;
+  background: transparent;
+  color: var(--text-3);
+  cursor: pointer;
+  padding: 0 4px;
+  font-size: 11px;
+  border-radius: 4px;
+}
+.inline-finding__fold-btn:hover { color: var(--text-1); background: var(--bg-card); }
+
+/* Folded state: a 22px-tall strip at the start of the diff row's gutter
+   showing only the severity dot. Click anywhere on the strip to expand.
+   Sized so it doesn't push diff content around. */
+.diff-row--inline-finding--folded {
+  background: transparent;
+  border-top: none;
+  border-bottom: 1px dashed rgba(139, 92, 246, 0.25);
+}
+.inline-finding-folded {
+  appearance: none;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 1px 14px 1px 72px;
+  font: inherit;
+  height: 22px;
+  width: 100%;
+  text-align: left;
+}
+.inline-finding-folded:hover { background: rgba(139, 92, 246, 0.06); }
+.inline-finding-folded .inline-finding__sev {
+  width: 14px;
+  height: 14px;
+  font-size: 9px;
+}
+.inline-finding-folded__hint {
+  color: var(--text-3);
+  font-size: 10px;
+}
+
+/* Dismissed state: dim the whole card so it reads as "kept around but
+   not active". Restore button brings it back. */
+.diff-row--inline-finding--dismissed { opacity: 0.45; }
+.diff-row--inline-finding--dismissed:hover { opacity: 0.7; }
+.inline-finding__dismissed-badge {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  font-weight: 700;
+  padding: 1px 6px;
+  border-radius: 3px;
+  background: rgba(239, 68, 68, 0.10);
+  color: #b91c1c;
+}
+.inline-finding__textarea {
+  width: 100%;
+  margin-top: 6px;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  padding: 7px 9px;
+  font: inherit;
+  font-size: 12px;
+  background: var(--bg-card);
+  color: var(--text-1);
+  resize: vertical;
+  min-height: 60px;
+}
+.inline-finding__textarea:focus {
+  outline: none;
+  border-color: rgba(139, 92, 246, 0.5);
+  box-shadow: 0 0 0 3px rgba(139, 92, 246, 0.15);
+}
+.inline-finding__original {
+  margin-top: 6px;
+  background: var(--bg-card);
+  padding: 6px 9px;
+  border-radius: 5px;
+  border-left: 2px solid #8b5cf6;
+  font-size: 11px;
+  color: var(--text-3);
+  line-height: 1.5;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.inline-finding__original-label {
+  font-weight: 600;
+  color: #6d28d9;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.inline-finding__original-text { color: var(--text-2); }
+.inline-finding__error {
+  margin-top: 6px;
+  padding: 6px 8px;
+  background: rgba(239, 68, 68, 0.1);
+  color: #b91c1c;
+  border-radius: 5px;
+  font-size: 11px;
+}
+.inline-finding__actions {
+  margin-top: 8px;
+  display: flex;
+  gap: 6px;
+  align-items: center;
+}
+.inline-finding__action {
+  appearance: none;
+  padding: 4px 10px;
+  font-size: 11px;
+  border: 1px solid var(--border);
+  background: var(--bg-card);
+  border-radius: 5px;
+  cursor: pointer;
+  color: var(--text-1);
+  font-family: inherit;
+}
+.inline-finding__action:hover { background: var(--bg-elevated); }
+.inline-finding__action:disabled { opacity: 0.6; cursor: progress; }
+.inline-finding__action--primary {
+  background: var(--text-1);
+  color: var(--bg-base);
+  border-color: var(--text-1);
+  font-weight: 600;
+}
+.inline-finding__action--primary:hover {
+  background: var(--text-1);
+  opacity: 0.9;
+}
+.inline-finding__action--ghost {
+  background: transparent;
+  color: var(--text-3);
+  border-color: transparent;
+  margin-left: auto;
+}
+.inline-finding__action--ghost:hover {
+  color: #6d28d9;
+  background: rgba(139, 92, 246, 0.06);
+}
+
+.v2-help {
+  max-width: 720px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+.v2-help__title {
+  margin: 0;
+  font-size: 26px;
+  font-weight: 700;
+  color: var(--text-1);
+}
+
+.v2-help__subtitle {
+  margin: 0 0 8px;
+  font-size: 14px;
+  color: var(--text-2);
+  line-height: 1.5;
+}
+
+/* Deep-link loading variant: shown for the 1–2s while the single-PR
+   fetch resolves so the user sees explicit "we're loading" feedback
+   instead of the generic Inbox help copy. */
+.v2-help--loading {
+  align-items: flex-start;
+  padding-top: 32px;
+}
+.v2-help__pr-num {
+  color: var(--text-3);
+  font-weight: 500;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, monospace;
+}
+.v2-help__spinner {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  border: 2px solid var(--border);
+  border-top-color: var(--accent);
+  animation: v2-help-spin 0.7s linear infinite;
+}
+@keyframes v2-help-spin {
+  to { transform: rotate(360deg); }
+}
+
+.v2-help__card {
+  border: 1px solid var(--border);
+  background: var(--bg-elevated);
+  border-radius: 8px;
+  padding: 16px 20px;
+}
+
+.v2-help__card-title {
+  margin: 0 0 10px;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-1);
+}
+
+.v2-help__card p {
+  margin: 0 0 8px;
+  font-size: 13px;
+  line-height: 1.55;
+  color: var(--text-2);
+}
+
+.v2-help__card p:last-child { margin-bottom: 0; }
+
+.v2-help__note {
+  font-size: 12px;
+  color: var(--text-3);
+  font-style: italic;
+}
+
+.v2-help__legend {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  font-size: 13px;
+  color: var(--text-2);
+}
+
+.v2-help__legend li {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.legend-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.legend-dot--blue { background: var(--accent); }
+.legend-dot--orange { background: #e67e22; }
+.legend-dot--seen { background: transparent; box-shadow: inset 0 0 0 1.5px var(--text-4, #9e9e9e); }
+.legend-dot--none { background: transparent; border: 1px solid var(--text-3); }
+
+.inline-pill {
+  display: inline-flex;
+  align-items: center;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 1px 7px;
+  border-radius: 4px;
+  background: var(--border);
+  color: var(--text-2);
+}
+
+.inline-pill--resurfaced {
+  background: rgba(230, 126, 34, 0.15);
+  color: #c0651a;
+}
+
+/* ===================================================================
+   Settings shell (Phase A — see docs/design/settings-redesign.md)
+   Three-group sidebar (Personal / Review / System) on the left, page
+   content on the right. Replaces the flat .settings-tab* layout.
+   New classes use the singular `.setting-*` namespace; legacy classes
+   (`.settings-tab`, `.settings-divider`, `.settings-field`) are kept
+   for now and removed when the old SettingsScreen.tsx goes away.
+   =================================================================== */
+
+.settings-shell {
+  display: flex;
+  flex-direction: column;
+  /* Parent .app-content is `display: block` so a flex grow does nothing —
+     claim the full height directly so the sidebar + content panes have
+     somewhere to expand into. */
+  height: 100%;
+  min-height: 0;
+  background: var(--bg-base);
+}
+
+.settings-shell__layout {
+  display: grid;
+  grid-template-columns: 220px 1fr;
+  flex: 1 1 0;
+  min-height: 0;
+  /* Without an explicit row track the grid would size to content; force the
+     single row to fill the flex parent so the inner panes can scroll
+     instead of stretching the page. */
+  grid-template-rows: 1fr;
+}
+
+.settings-shell-sidebar {
+  border-right: 1px solid var(--border);
+  padding: 18px 10px;
+  background: var(--bg-elevated);
+  overflow-y: auto;
+}
+
+.settings-shell-sidebar__group {
+  font-size: 10.5px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-4);
+  padding: 8px 12px 6px;
+  font-weight: 700;
+  margin-top: 14px;
+}
+
+.settings-shell-sidebar__group:first-child {
+  margin-top: 0;
+}
+
+.settings-shell-sidebar__link {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 12px;
+  border-radius: 7px;
+  color: var(--text-2);
+  background: none;
+  border: none;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  text-align: left;
+  width: 100%;
+  margin-bottom: 1px;
+}
+
+.settings-shell-sidebar__link:hover {
+  background: var(--bg-card);
+  color: var(--text-1);
+}
+
+.settings-shell-sidebar__link--active {
+  background: var(--accent-a7);
+  color: var(--accent);
+}
+
+.settings-shell-sidebar__icon {
+  width: 16px;
+  display: inline-flex;
+  justify-content: center;
+  font-size: 13px;
+  opacity: 0.85;
+  flex-shrink: 0;
+}
+
+.settings-shell__content {
+  padding: 30px 32px;
+  overflow-y: auto;
+  min-width: 0;
+}
+
+.settings-shell-page__head {
+  margin-bottom: 22px;
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+.settings-shell-page__title {
+  font-size: 21px;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  margin-bottom: 3px;
+  color: var(--text-1);
+}
+
+.settings-shell-page__subtitle {
+  color: var(--text-3);
+  font-size: 13px;
+}
+
+.setting-card {
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 20px 22px;
+  margin-bottom: 14px;
+}
+
+.setting-card__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 3px;
+}
+
+.setting-card__title {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-1);
+  margin: 0;
+}
+
+.setting-card__hint {
+  font-size: 12px;
+  color: var(--text-3);
+  margin-bottom: 14px;
+}
+
+.setting-row {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 16px;
+  align-items: center;
+  padding: 11px 0;
+  border-top: 1px solid var(--border);
+}
+
+.setting-row:first-of-type {
+  border-top: none;
+  padding-top: 0;
+}
+
+.setting-row__text {
+  min-width: 0;
+}
+
+.setting-row__title {
+  font-weight: 500;
+  font-size: 13px;
+  color: var(--text-1);
+}
+
+.setting-row__desc {
+  font-size: 12px;
+  color: var(--text-3);
+  margin-top: 2px;
+}
+
+.setting-row__control {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-shrink: 0;
+}
+
+/* Sliding-pill toggle. Reused by the future Skills tab. */
+.toggle {
+  position: relative;
+  width: 36px;
+  height: 20px;
+  padding: 0;
+  border: none;
+  background: var(--border-mid);
+  border-radius: 999px;
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: background 120ms ease;
+}
+
+.toggle:disabled {
+  cursor: not-allowed;
+  opacity: 0.5;
+}
+
+.toggle--on {
+  background: var(--accent);
+}
+
+.toggle::after {
+  content: '';
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 16px;
+  height: 16px;
+  background: #fff;
+  border-radius: 50%;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.2);
+  transition: left 120ms ease;
+}
+
+.toggle--on::after {
+  left: 18px;
+}
+
+/* Tabs *inside* a settings page (used by AI review for Credentials /
+   Skills / Usage). Distinct from the legacy `.settings-tab*` block. */
+.settings-page-tabs {
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  gap: 24px;
+  margin-bottom: 22px;
+}
+
+.settings-page-tab {
+  padding: 11px 0;
+  font-size: 13px;
+  background: none;
+  border: none;
+  border-bottom: 2px solid transparent;
+  cursor: pointer;
+  font: inherit;
+  color: var(--text-3);
+  font-weight: 500;
+}
+
+.settings-page-tab:hover {
+  color: var(--text-1);
+}
+
+.settings-page-tab--active {
+  color: var(--text-1);
+  border-bottom-color: var(--accent);
+}
+
+/* "Coming soon" stub used by Notifications / Teams (until Phase C) /
+   Integrations / Help. */
+.settings-stub {
+  border: 1px dashed var(--border-mid);
+  border-radius: 12px;
+  padding: 48px 24px;
+  text-align: center;
+  color: var(--text-3);
+  font-size: 13px;
+  background: var(--bg-elevated);
+}
+
+.settings-stub__title {
+  font-size: 16px;
+  color: var(--text-2);
+  font-weight: 600;
+  margin-bottom: 6px;
+}
+
+/* Top-level Notifications screen — sibling of HomePage / PullRequestList,
+   reachable via the topbar's Notifications button. Not a settings page. */
+.notifications-screen {
+  height: 100%;
+  overflow-y: auto;
+  padding: 30px 32px;
+  background: var(--bg-base);
+  max-width: 960px;
+  margin: 0 auto;
+}
+
+.notifications-screen__head {
+  margin-bottom: 22px;
+}
+
+.notifications-screen__title {
+  font-size: 21px;
+  font-weight: 600;
+  letter-spacing: -0.02em;
+  color: var(--text-1);
+  margin: 0 0 3px;
+}
+
+.notifications-screen__subtitle {
+  color: var(--text-3);
+  font-size: 13px;
+  margin: 0;
+}
+

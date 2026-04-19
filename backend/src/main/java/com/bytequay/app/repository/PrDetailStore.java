@@ -1,0 +1,68 @@
+/*
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+package com.bytequay.app.repository;
+
+import com.bytequay.app.domain.StoredPrDetail;
+
+import java.time.Instant;
+import java.util.Optional;
+import java.util.Set;
+
+/**
+ * Local database store for cached PR detail data (reviews, files, timeline, check-runs).
+ * Written by the sync job; read by the PR detail API so it can return instantly without
+ * hitting GitHub on every request.
+ */
+public interface PrDetailStore
+{
+    /**
+     * Returns the cached detail for the given PR, or empty if it has never been synced.
+     */
+    Optional<StoredPrDetail> find(long prId);
+
+    /**
+     * Returns the timestamp of the last successful detail sync for this
+     * PR, or empty if never synced. Used as the watermark passed back
+     * to GitHub's `since=` query param on incremental fetches.
+     */
+    default Optional<Instant> findSyncedAt(String repo, int number)
+    {
+        return Optional.empty();
+    }
+
+    /**
+     * Replaces all cached detail for the given PR with fresh data.
+     * Safe to call concurrently for different PR ids.
+     */
+    void save(long prId, StoredPrDetail detail);
+
+    /**
+     * Append-only counterpart of {@link #save} for incremental syncs.
+     * Existing rows are preserved; only timeline events / review-thread
+     * messages whose {@code github_id} isn't already present get
+     * inserted. Reviews / files / check-runs / linked-issues fall back
+     * to a wholesale replace because GitHub doesn't expose a sane
+     * incremental endpoint for them.
+     */
+    default void saveIncremental(long prId, StoredPrDetail detail)
+    {
+        save(prId, detail);
+    }
+
+    /**
+     * Removes cached detail for all given PR ids.
+     * Called when those PRs are no longer present in the sync result.
+     */
+    void deleteByPrIds(Set<Long> prIds);
+}

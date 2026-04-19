@@ -1,0 +1,1675 @@
+/* ── PR conversation page (Phase 2 — bytequay-pr-conversation.html) ────
+   Two-column layout: chronological timeline on the left, 320px meta
+   sidebar on the right. The header pins title + actions at the top. */
+/* Classic-mode PR detail root. Originally position:absolute + inset:0
+   so it filled its parent, but that parented its containing block on
+   .v2-main and made the layer cover the back-button nav row above it
+   (and, when v2-main wasn't a flex column, collapsed the parent to
+   zero so the page rendered blank). Plain flex sizing fills the parent
+   without escaping its layout slot. */
+.prc-page {
+  display: flex;
+  flex-direction: column;
+  background: var(--bg-base);
+  overflow: hidden;
+  /* Fill regardless of how the parent sizes its children:
+       • flex parent (v2-main__screen) → flex:1 1 0 takes available space
+       • plain block parent with definite height (team-detail-pr-wrap) →
+         100% inherits that height
+     min-height/width:0 keeps long content from forcing the parent wider. */
+  flex: 1 1 0;
+  min-height: 0;
+  min-width: 0;
+  width: 100%;
+  height: 100%;
+}
+.prc-header {
+  flex: 0 0 auto;
+  padding: 16px 22px 14px;
+  background: var(--bg-elevated);
+  border-bottom: 1px solid var(--border);
+  display: grid;
+  grid-template-columns: 1fr auto;
+  grid-template-areas:
+    "back back"
+    "title actions"
+    "meta meta";
+  gap: 6px 12px;
+}
+.prc-back {
+  display: none; /* the topbar already has Back; keep for future use */
+}
+.prc-title {
+  grid-area: title;
+  font-size: 18px;
+  font-weight: 600;
+  letter-spacing: -0.01em;
+  line-height: 1.3;
+  color: var(--text-1);
+  min-width: 0;
+}
+.prc-meta-line {
+  grid-area: meta;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--text-3);
+  flex-wrap: wrap;
+}
+.prc-meta-link { color: var(--text-2); text-decoration: none; }
+.prc-meta-link:hover { color: var(--accent); text-decoration: underline; }
+.prc-meta-sep { opacity: 0.5; }
+.prc-meta-time { color: var(--text-3); }
+.prc-status-pill {
+  font-size: 10.5px;
+  padding: 1px 8px;
+  border-radius: 999px;
+  font-weight: 700;
+  background: rgba(46, 160, 67, 0.12);
+  color: #1a7f37;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.prc-status-pill--draft {
+  background: var(--bg-card);
+  color: var(--text-3);
+}
+/* Merged — github.com's purple. */
+.prc-status-pill--merged {
+  background: rgba(130, 80, 223, 0.14);
+  color: #6b21a8;
+}
+/* Closed without merge — red, signalling "abandoned". */
+.prc-status-pill--closed {
+  background: rgba(207, 34, 46, 0.12);
+  color: #cf222e;
+}
+.prc-actions {
+  grid-area: actions;
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.prc-loading,
+.prc-refreshing,
+.prc-error {
+  padding: 12px 22px;
+  font-size: 12px;
+  color: var(--text-3);
+}
+.prc-error { color: #b91c1c; }
+
+.prc-body {
+  flex: 1;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 320px;
+  min-height: 0;
+}
+
+/* ── Conversation timeline (left column) ───────────────────────────── */
+/* Dialog-style layout: comment-card avatars sit OUTSIDE the bubble on
+   the far left ("speaker"); structural-event rows sit indented to the
+   right of a vertical rail with a small marker on the rail and a small
+   avatar to the marker's right. Visual columns:
+
+       0 ──── 16 ─── 56 ── 68 ── 82 ──── content
+       │       │        │   │     │
+       │       avatar   gap rail  marker(22px ⌀, centered on rail)
+       │       (40px)        (1px)
+       └─ timeline.padding-left
+
+   See docs/mockups/v2/detail/comments-layout.png. */
+.prc-timeline {
+  overflow-y: auto;
+  padding: 16px 22px 22px 0;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-height: 0;
+}
+/* Inner wrapper sized to exactly the timeline entries — the rail lives
+   here (not on .prc-timeline) so it cannot extend past the last entry
+   into empty space below, and cannot detach from the events when the
+   scroll viewport changes height. */
+.prc-timeline__entries {
+  display: flex;
+  flex-direction: column;
+  gap: 30px;
+  position: relative;
+}
+/* Structural event rows (commits, label changes, etc.) are densest when
+   they cluster — pull two adjacent event rows / groups 5px closer than
+   the 30px comment-card rhythm so a run of small events feels like a
+   single block instead of inflating to comment-card spacing. */
+.prc-timeline__entries > .prc-event-row + .prc-event-row,
+.prc-timeline__entries > .prc-event-row + .prc-event-group,
+.prc-timeline__entries > .prc-event-group + .prc-event-row,
+.prc-timeline__entries > .prc-event-group + .prc-event-group {
+  margin-top: -5px;
+}
+/* Vertical rail through the marker column. Sits well to the right of
+   the comment-avatar gutter (x=16..56) so structural events read as
+   visually demoted from the comment thread. Comment-card bodies (which
+   have a solid background) draw on top of the rail in their region, so
+   the rail only shows in the gaps between cards and around event rows.
+   top:0/bottom:0 makes the rail exactly the height of the entries. */
+.prc-timeline__entries::before {
+  content: '';
+  position: absolute;
+  /* Rail x-position. Markers center on this value (left: rail - 11),
+     event-row padding-left = rail + 20, and the review-card body
+     starts at avatar_right + gap, designed to land just past the
+     marker. Shift this single value to move the whole rail. */
+  left: 80px;
+  top: 0;
+  bottom: 0;
+  width: 2px;
+  background: var(--border);
+  z-index: 0;
+}
+/* Each timeline entry sits in front of the rail. */
+.prc-timeline__entries > .prc-comment-card,
+.prc-timeline__entries > .prc-event-row,
+.prc-timeline__entries > .prc-approved-row,
+.prc-timeline__entries > .prc-review-thread,
+.prc-timeline__entries > .prc-event-group {
+  position: relative;
+  z-index: 1;
+}
+.prc-date-divider {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 8px 0 0;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  font-weight: 600;
+  color: var(--text-3);
+}
+.prc-date-divider::before,
+.prc-date-divider::after {
+  content: '';
+  flex: 1;
+  height: 1px;
+  background: var(--border);
+}
+
+/* Comment & review cards. The avatar is OUTSIDE the bubble — flex row of
+   [avatar] + [bordered body with leftward tail]. Reads like the avatar is
+   "saying" the comment. Structural events (force-push, review_requested,
+   merged, etc.) stay flat via .prc-event-row. */
+.prc-comment-card {
+  display: flex;
+  align-items: flex-start;
+  gap: 16px;
+  padding-left: 16px;
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+}
+.prc-comment-avatar {
+  flex-shrink: 0;
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  background: var(--bg-base);
+}
+.prc-comment-card-body {
+  flex: 1;
+  min-width: 0;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-card);
+  padding: 10px 14px;
+  position: relative;
+}
+/* Speech-bubble tail pointing left toward the avatar. The ::after is the
+   border edge (drawn 1px wider/offset further left); the ::before is the
+   fill, drawn on top so the seam reads as a single triangle. */
+.prc-comment-card-body::before {
+  content: '';
+  position: absolute;
+  left: -7px;
+  top: 14px;
+  width: 0;
+  height: 0;
+  border-style: solid;
+  border-width: 7px 7px 7px 0;
+  border-color: transparent var(--bg-card) transparent transparent;
+  z-index: 1;
+}
+.prc-comment-card-body::after {
+  content: '';
+  position: absolute;
+  left: -8px;
+  top: 13px;
+  width: 0;
+  height: 0;
+  border-style: solid;
+  border-width: 8px 8px 8px 0;
+  border-color: transparent var(--border) transparent transparent;
+  z-index: 0;
+}
+.prc-comment-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 6px;
+  flex-wrap: wrap;
+}
+.prc-comment-verb { color: var(--text-3); font-size: 12px; }
+.prc-comment-author {
+  color: var(--text-1);
+  font-weight: 600;
+  font-size: 14px;
+  text-decoration: none;
+}
+.prc-comment-author:hover { text-decoration: underline; }
+.prc-comment-role {
+  font-size: 9.5px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  padding: 1px 5px;
+  border-radius: 3px;
+  background: rgba(46, 160, 67, 0.12);
+  color: #1a7f37;
+}
+/* Author-association pill (Member / Contributor / Owner / …). Visually
+   neutral so it doesn't compete with the green AUTHOR badge — pill
+   shape with a hairline border on the page background. Mirrors the
+   github.com treatment. */
+.prc-comment-role--association {
+  background: transparent;
+  border: 1px solid var(--border);
+  color: var(--text-2);
+  font-weight: 600;
+  text-transform: none;
+  letter-spacing: 0;
+  padding: 1px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+}
+/* Date sits right after the author/verb pair instead of being pushed
+   to the far right edge of the header — closer to the user name reads
+   more like a chat-style timestamp ("alice · 21m ago") and stops a
+   wide card from creating an awkward void between the verb and the
+   trailing meta. */
+.prc-comment-time {
+  font-size: 14px;
+  color: var(--text-3);
+}
+.prc-comment-body {
+  font-size: 14px;
+  color: var(--text-1);
+  line-height: 1.55;
+  overflow-wrap: break-word;
+  word-break: break-word;
+}
+
+/* When a `reviewed` event has no top-level body but did include line
+   comments, surface them as nested ReviewThreadCards inside the review's
+   comment card. The note above tells the user this review only carries
+   inline annotations. */
+.prc-comment-empty-note {
+  font-size: 11.5px;
+  color: var(--text-3);
+  margin: 6px 0 4px;
+  font-style: italic;
+}
+.prc-comment-threads {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 6px;
+}
+.prc-comment-body p { margin: 0 0 6px; }
+.prc-comment-body p:last-child { margin-bottom: 0; }
+/* Code in PR comments + the diff-hunk preview share one size so reading
+   a comment that quotes code feels continuous with reading the diff
+   itself. Tied to --pr-code-font-size below. */
+.prc-comment-body code {
+  background: var(--bg-elevated);
+  padding: 1px 5px;
+  border-radius: 3px;
+  font-size: var(--pr-code-font-size, 14px);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+.prc-comment-body pre {
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 10px 12px;
+  margin: 6px 0;
+  font-size: var(--pr-code-font-size, 14px);
+  line-height: 1.5;
+  overflow-x: auto;
+}
+.prc-comment-body pre code { background: transparent; padding: 0; }
+.prc-comment-body a { color: var(--accent); }
+.prc-comment-body blockquote {
+  border-left: 3px solid var(--border);
+  margin: 4px 0;
+  padding: 2px 10px;
+  color: var(--text-3);
+}
+.prc-comment-body ul,
+.prc-comment-body ol { margin: 4px 0 4px 18px; }
+
+/* Review verdict pill on a comment card (APPROVED / CHANGES_REQUESTED). */
+.prc-verdict-pill {
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  padding: 1px 6px;
+  border-radius: 3px;
+  background: var(--bg-elevated);
+  color: var(--text-2);
+}
+.prc-verdict-pill--approved { background: rgba(46, 160, 67, 0.12); color: #1a7f37; }
+.prc-verdict-pill--changes_requested { background: rgba(239, 68, 68, 0.10); color: #b91c1c; }
+.prc-verdict-pill--commented { background: rgba(99, 102, 241, 0.12); color: #4338ca; }
+.prc-verdict-pill--dismissed { background: var(--bg-elevated); color: var(--text-3); }
+
+/* Compact one-line event row for structural events. Flat (no border/bg)
+   so the row reads as a single line in the conversation feed, matching
+   GitHub's plain "X did Y" rows. The marker (small circle with a glyph)
+   sits ON the rail; the avatar sits to the marker's right; the rest of
+   the row is text + timestamp. */
+.prc-event-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  /* Text starts ~20px past the rail (rail at 80px → text at 100px). */
+  padding: 2px 0 2px 100px;
+  font-size: 12px;
+  color: var(--text-2);
+  background: transparent;
+  border: 0;
+  border-radius: 0;
+  position: relative;
+}
+
+/* Approved / changes-requested compact row — see
+   docs/mockups/v2/codereview/approved.png. Used when a review event has
+   no body and no inline threads, so it reads as one tidy line in the
+   timeline. Avatar at far-left, colored verdict circle on the rail,
+   actor + verb + relative-time after. Reviews WITH content keep the
+   expandable card via ReviewActivityRow. */
+.prc-approved-row {
+  position: relative;
+  /* 16 (pad) + 32 (avatar) + ~20 gap to rail + 24 (marker) + 12 (gap) = 104. */
+  padding: 6px 0 6px 104px;
+  min-height: 32px;
+  display: flex;
+  align-items: center;
+  font-size: 14px;
+  color: var(--text-2);
+}
+.prc-approved-row__avatar {
+  position: absolute;
+  left: 16px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+}
+.prc-approved-row__check {
+  position: absolute;
+  /* Center on the rail (x=80, marker 24px wide → 68-92). The rail still
+     draws above and below; the colored circle reads as the verdict
+     marker for this event. */
+  left: 68px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: #fff;
+  font-size: 14px;
+  font-weight: 700;
+  line-height: 1;
+  z-index: 1;
+}
+.prc-approved-row__check--approved { background: #2ea043; }
+.prc-approved-row__check--changes-requested { background: #cf222e; }
+.prc-approved-row__check--commented { background: var(--text-3); }
+.prc-approved-row__text {
+  flex: 1;
+  min-width: 0;
+}
+.prc-approved-row__author {
+  color: var(--text-1);
+  font-weight: 600;
+  text-decoration: none;
+}
+.prc-approved-row__author:hover {
+  text-decoration: underline;
+}
+.prc-approved-row__time {
+  color: var(--text-3);
+  text-decoration: underline;
+  text-decoration-color: var(--text-4);
+  text-underline-offset: 2px;
+}
+.prc-event-row b { color: var(--text-1); font-weight: 600; }
+.prc-event-row code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11px;
+  background: var(--bg-card);
+  padding: 1px 4px;
+  border-radius: 3px;
+}
+.prc-event-marker {
+  position: absolute;
+  /* Center on the rail (rail at left:80px). Marker is 22px wide, so
+     left-edge at 69px puts the center at 80px. */
+  left: 69px;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  border: 1px solid var(--border);
+  background: var(--bg-base);
+  color: var(--text-3);
+  font-size: 11px;
+  line-height: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  z-index: 1;
+}
+.prc-event-row .prc-event-avatar {
+  flex-shrink: 0;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+}
+/* Legacy class kept around in case any older renderer still references
+   it; harmless if unused. */
+.prc-event-icon {
+  width: 18px;
+  height: 18px;
+  border-radius: 4px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  font-size: 10px;
+  color: var(--text-3);
+  flex-shrink: 0;
+}
+.prc-event-icon--commit { background: rgba(99, 102, 241, 0.10); color: #4338ca; border-color: rgba(99, 102, 241, 0.24); }
+.prc-event-time { font-size: 11px; color: var(--text-3); }
+
+/* Reviewed timeline entry — uses the comment-card outer shape (40px
+   avatar at the same x-position as comment-card avatars, body to the
+   right) so reviewed events line up with adjacent comments instead of
+   shrinking down to a different gutter. The body itself is FLAT — no
+   speech-bubble border or tail — and the inline review threads sit
+   directly on the page underneath the header, matching the design in
+   docs/mockups/v2/codereview/display-reviewed.png.
+
+   The eye marker still sits on the timeline rail between the avatar
+   and the body, so the row visually anchors to the rail like every
+   other timeline event. */
+.prc-review-card {
+  position: relative;
+  /* Widen the gap between the avatar and the body so the eye marker
+     on the rail (left:69px) doesn't crash into the start of the
+     header text. Avatar (16px → 56px) + gap (40px) puts the body at
+     96px, just past the marker's right edge (69 + 22 = 91), keeping
+     the spacing from display-reviewed.png. */
+  gap: 40px;
+}
+.prc-review-card__marker {
+  position: absolute;
+  /* Same rail position as .prc-event-marker (left:69px = center on the
+     rail at left:80px). Top is computed so the eye glyph centers on
+     the header's first text line — actor name + verb live at the top
+     of the body, ~20px line-height; centering a 22px marker on that
+     line means top = (20 - 22) / 2 ≈ -1px, rounded to 0 for a clean
+     pixel grid. (Earlier top:8px aligned to the avatar's center
+     instead, which left the marker visibly low next to the name.) */
+  left: 69px;
+  top: 0;
+  width: 22px;
+  height: 22px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--bg-base);
+  color: var(--text-3);
+  font-size: 14px;
+  line-height: 1;
+  z-index: 1;
+}
+/* Strip the comment-card body chrome — no border, no shadow, no tail.
+   The threads inside carry their own borders. */
+.prc-review-card-body {
+  border: 0;
+  background: transparent;
+  padding: 0;
+}
+.prc-review-card-body::before,
+.prc-review-card-body::after {
+  display: none;
+}
+.prc-review-card__toggle {
+  appearance: none;
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--text-2);
+  font-size: 13px;
+  line-height: 1;
+  width: 22px;
+  height: 22px;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  margin-left: auto;
+}
+.prc-review-card__toggle:hover {
+  color: var(--accent);
+  border-color: var(--accent-a40);
+  background: var(--accent-a7);
+}
+/* Expanded body — review body markdown + attached inline threads.
+   Stacks vertically with a bit of breathing room above. */
+.prc-review-card__content {
+  margin-top: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.prc-review-card__content .prc-comment-body {
+  font-size: 13px;
+  color: var(--text-1);
+}
+.prc-review-card__content .prc-comment-threads {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+/* Threaded review comment (per-line code review, with diff_hunk). */
+.prc-review-thread {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-card);
+  overflow: hidden;
+}
+/* In the classic-layout timeline, review threads need to align with the
+   comment-card body's left edge so they don't slide back under the
+   avatar gutter — but ONLY when sitting as a direct timeline entry, not
+   when rendered in the clean-mode side panel or nested inside a comment
+   card body (which already pads them). */
+.prc-timeline__entries > .prc-review-thread {
+  margin-left: 72px;
+}
+.prc-review-thread__head {
+  padding: 6px 10px;
+  background: var(--bg-elevated);
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 14px;
+}
+.prc-review-thread__loc code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 14px;
+  color: var(--text-1);
+}
+.prc-review-thread__side {
+  font-size: 9.5px;
+  letter-spacing: 0.05em;
+  font-weight: 700;
+  padding: 1px 5px;
+  border-radius: 3px;
+  background: var(--accent-a7);
+  color: var(--accent);
+}
+.prc-review-thread__hunk {
+  margin: 0;
+  padding: 0;
+  background: var(--bg-elevated);
+  border-bottom: 1px solid var(--border);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: var(--pr-code-font-size, 14px);
+  line-height: 1.5;
+  color: var(--text-2);
+  /* Horizontal-only scroll viewport. Vertical scroll + max-height were
+     dropped so the hunk grows with its content rather than forcing a
+     nested scroll bar. */
+  overflow-x: auto;
+  overflow-y: visible;
+  white-space: pre;
+  display: block;
+}
+/* Inner wrapper sized to max(100%, longest-line) — the outer <pre> is
+   constrained to its parent's width (so its grid column couldn't
+   actually grow past the viewport, leaving long-line rows with white
+   gaps on the right after horizontal scroll). The inner block has no
+   parent-width cap, so width:max-content + min-width:100% gives us:
+     - Short content → fills 100% of the visible viewport.
+     - Long content  → grows to its full width, triggering the outer
+                       pre's overflow-x and letting every row's
+                       background paint to the rightmost edge.
+   Each .diff-hunk-line then takes width:100% (= inner width) so the
+   row backgrounds cover the longest line uniformly. */
+.prc-review-thread__hunk-inner {
+  display: block;
+  width: max-content;
+  min-width: 100%;
+}
+/* Per-line coloring inside the diff hunk — matches GitHub's PR diff
+   colors. inline-block + min-width:100% is the trick: the row stretches
+   to the width of its actual content (so the +/− background paints all
+   the way through long lines that overflow the hunk's horizontal scroll
+   box), AND falls back to filling the full row when the line is short.
+   With display:block the background would only ever paint to the
+   visible container width — so commenting on a long line of code left
+   the right end of the line uncoloured (see
+   docs/mockups/v2/detail/display-color.png). */
+.diff-hunk-line {
+  /* Each line is a block child of .prc-review-thread__hunk-inner,
+     which is sized to max(100%, longest-line). width:100% +
+     box-sizing:border-box makes the row exactly the inner wrapper's
+     width, so every row's +/− background paints the same right edge
+     regardless of which line is longest or how far the user has
+     scrolled. See docs/mockups/v2/detail/display-color.png and
+     code-bg.png for the regressions this guards against. */
+  display: block;
+  width: 100%;
+  box-sizing: border-box;
+  padding: 0 10px;
+  white-space: pre;
+}
+/* Color only the background. The +/− sigil at the start of the line
+   gets the accent color so the change direction reads at a glance, but
+   the code itself stays the default text color so it's readable against
+   the tinted background — same as github.com's PR diffs. */
+.diff-hunk-line--head {
+  background: rgba(31, 111, 235, 0.10);
+  color: #1f6feb;
+}
+.diff-hunk-line--add {
+  background: #ddffe7;
+  color: var(--text-1);
+}
+.diff-hunk-line--del {
+  background: #ffd7d5;
+  color: var(--text-1);
+}
+.diff-hunk-line--ctx {
+  /* Explicit bg (instead of transparent) so the row paints its own
+     full-column background even when the user scrolls horizontally
+     past the visible viewport. With transparent, the .prc-review-
+     thread__hunk parent's background only painted within the visible
+     scroll area, leaving the right-of-fold of context lines white
+     after a horizontal scroll. */
+  background: var(--bg-elevated);
+  color: var(--text-1);
+}
+[data-theme="atom-one-dark"] .diff-hunk-line--add,
+[data-theme="warm"] .diff-hunk-line--add {
+  background: rgba(46, 160, 67, 0.18);
+  color: var(--text-1);
+}
+[data-theme="atom-one-dark"] .diff-hunk-line--del,
+[data-theme="warm"] .diff-hunk-line--del {
+  background: rgba(248, 81, 73, 0.18);
+  color: var(--text-1);
+}
+
+/* "Suggested change" block in a review-thread message body. The
+   reviewer wrote a markdown ```suggestion``` block; we render it as a
+   mini-diff (red old line / green new line) so the user can read the
+   change at a glance, the same way github.com surfaces it. */
+.prc-suggestion {
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  margin: 6px 0;
+  overflow: hidden;
+}
+.prc-suggestion__head {
+  padding: 6px 10px;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-2);
+  background: var(--bg-elevated);
+  border-bottom: 1px solid var(--border);
+}
+.prc-suggestion__diff {
+  margin: 0;
+  padding: 0;
+  background: var(--bg-card);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 14px;
+  line-height: 1.5;
+  white-space: pre;
+  overflow-x: auto;
+}
+.prc-review-thread__msgs {
+  padding: 10px 10px;
+  display: flex;
+  flex-direction: column;
+  /* Generous gap between consecutive messages so each reviewer's
+     contribution reads as its own block — matches github.com's
+     vertical rhythm in long review threads. */
+  gap: 30px;
+}
+.prc-review-thread__msg {
+  display: flex;
+  gap: 8px;
+  align-items: flex-start;
+}
+.prc-review-thread__avatar { flex-shrink: 0; margin-top: 2px; }
+/* Each per-line review message renders as a small bordered card with a
+   gray header bar carrying the author + date — same shell GitHub uses
+   on its conversation page so reviewers' contributions read as discrete
+   blocks instead of a wall of inline text. */
+.prc-review-thread__msg-body {
+  flex: 1;
+  min-width: 0;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-card);
+  overflow: hidden;
+}
+/* Per-line review messages share the comment body size with top-level
+   comments. Kept as a separate rule (rather than relying on inheritance)
+   so this surface can be tuned independently if the denser surrounding
+   chrome makes the same px read differently. */
+.prc-review-thread__msg-body .prc-comment-body {
+  font-size: 14px;
+  padding: 10px 14px;
+}
+.prc-review-thread__msg-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  padding: 6px 12px;
+  background: var(--bg-elevated);
+  border-bottom: 1px solid var(--border);
+  margin: 0;
+}
+/* When a message has no body (rare — reaction-only edge cases) the head
+   bar should sit alone without the dangling separator. */
+.prc-review-thread__msg-body > .prc-review-thread__msg-head:only-child {
+  border-bottom: none;
+}
+/* Reactions sit below the body inside the same card; give them a touch
+   of breathing room from the body text. */
+.prc-review-thread__msg-body .reaction-chips {
+  padding: 0 14px 10px;
+}
+
+/* Clickable variant: the whole row is a button so users can click anywhere
+   on a review comment to start a reply. Strip the default button look. */
+.prc-review-thread__msg--clickable {
+  background: transparent;
+  border: 0;
+  padding: 4px 6px;
+  margin: 0 -6px;
+  text-align: left;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+  border-radius: 6px;
+  width: calc(100% + 12px);
+}
+.prc-review-thread__msg--clickable:hover {
+  background: var(--bg-hover, rgba(99, 102, 241, 0.06));
+}
+
+/* Inline reply stub + composer at the bottom of a thread. */
+.prc-review-thread__reply-stub {
+  padding: 6px 10px 10px;
+  display: flex;
+  justify-content: flex-end;
+}
+.prc-review-thread__reply-btn {
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 4px 10px;
+  font-size: 12px;
+  color: var(--text-2);
+  cursor: pointer;
+}
+.prc-review-thread__reply-btn:hover {
+  border-color: var(--text-2);
+  color: var(--text-1);
+}
+.prc-review-thread__reply {
+  border-top: 1px dashed var(--border);
+  padding: 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.prc-review-thread__reply-input {
+  width: 100%;
+  resize: vertical;
+  min-height: 96px;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font-family: inherit;
+  font-size: 14px;
+  line-height: 1.5;
+  background: var(--bg-elevated, #fff);
+  color: var(--text-1);
+  box-sizing: border-box;
+}
+.prc-review-thread__reply-actions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+/* Single-line "Reply…" stub shown until the user clicks into it — see
+   docs/mockups/v2/detail/comment-input.png. Sized like a real input so
+   the click target is obvious, but only one row tall so the thread
+   footprint stays small for scanning. */
+.prc-review-thread__reply-stub-input {
+  width: 100%;
+  height: 32px;
+  padding: 6px 10px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font-family: inherit;
+  font-size: 13px;
+  background: var(--bg-elevated, #fff);
+  color: var(--text-1);
+  cursor: text;
+  box-sizing: border-box;
+}
+.prc-review-thread__reply-stub-input:hover {
+  border-color: var(--text-3);
+}
+
+/* Row holding the Resolve / Unresolve conversation button under the
+   reply composer. Left-aligned with a small top margin so it reads as
+   a final action rather than part of the composer chrome. */
+.prc-review-thread__resolve-row {
+  display: flex;
+  margin-top: 2px;
+}
+
+/* Fold chevron at the start of the thread header. The whole header stays
+   clickable via the chevron — keeping the row tight so a folded thread
+   reads as a one-liner ("foo.ts:42 · 3 comments · last by alice"). */
+.prc-review-thread__fold {
+  appearance: none;
+  background: transparent;
+  border: 0;
+  padding: 0 6px 0 0;
+  /* Larger chevron — at 13px it was hard to spot and harder to click;
+     20px gives a comfortable tap target without enlarging the row. */
+  font-size: 20px;
+  color: var(--text-2);
+  cursor: pointer;
+  line-height: 1;
+  width: 24px;
+  height: 24px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.prc-review-thread__fold:hover { color: var(--accent); background: var(--accent-a7); border-radius: 4px; }
+.prc-review-thread__summary {
+  flex: 1;
+  font-size: 11.5px;
+  color: var(--text-3);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.prc-review-thread__resolved-pill {
+  font-size: 9.5px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: rgba(139, 92, 246, 0.12);
+  color: #6d28d9;
+}
+/* Resolve / Unresolve toggle on PR-detail review threads. Pill-style
+   so it lines up with the resolved / outdated indicators alongside. */
+.prc-review-thread__resolve-btn {
+  appearance: none;
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  font: inherit;
+  font-size: 10.5px;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+  padding: 1px 8px;
+  cursor: pointer;
+  color: var(--text-2);
+}
+.prc-review-thread__resolve-btn:hover:not(:disabled) {
+  color: var(--accent);
+  border-color: var(--accent-a40);
+  background: var(--accent-a7);
+}
+.prc-review-thread__resolve-btn:disabled { opacity: 0.6; cursor: progress; }
+.prc-review-thread__resolve-btn--unresolve {
+  color: #b45309;
+  border-color: rgba(212, 160, 23, 0.4);
+}
+.prc-review-thread__outdated-pill {
+  font-size: 9.5px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  padding: 1px 6px;
+  border-radius: 999px;
+  background: rgba(217, 119, 6, 0.14);
+  color: #b45309;
+}
+.prc-review-thread--resolved {
+  /* Slightly muted to mirror github.com's resolved threads. The user can
+     still expand to see the full conversation. */
+  opacity: 0.78;
+}
+.prc-review-thread--resolved:hover { opacity: 1; }
+
+/* Inline Reply link rendered next to the last message's timestamp.
+   Replaces the old reply-stub row so the action sits on the same line as
+   metadata instead of taking its own row below the messages. */
+.prc-review-thread__reply-inline {
+  margin-left: auto;
+  background: transparent;
+  border: 0;
+  padding: 0 6px;
+  font-size: 11px;
+  color: var(--text-3);
+  cursor: pointer;
+  border-radius: 4px;
+}
+.prc-review-thread__reply-inline:hover {
+  background: var(--accent-a7, rgba(99, 102, 241, 0.06));
+  color: var(--accent);
+}
+
+/* Compact emoji-count chips shown below a comment body (👍 3, 🎉 1, …).
+   Mirrors GitHub's reaction row but read-only for now. */
+.reaction-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 6px;
+}
+.reaction-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 1px 7px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--bg-elevated);
+  font-size: 11.5px;
+  line-height: 1.6;
+  color: var(--text-2);
+}
+/* Clickable variant: chip is a button, viewer can tap to add the same
+   reaction. Reset the native button look + add a hover hint so the
+   affordance is obvious. */
+.reaction-chip--clickable {
+  font: inherit;
+  font-size: 11.5px;
+  cursor: pointer;
+  transition: background 0.1s, border-color 0.1s, color 0.1s;
+}
+.reaction-chip--clickable:hover {
+  background: var(--accent-a7);
+  border-color: var(--accent-a40);
+  color: var(--accent);
+}
+.reaction-chip__emoji { font-size: 12px; }
+.reaction-chip__count { font-weight: 600; color: var(--text-1); }
+
+/* "+ reaction" picker. The trigger looks like another chip in the
+   row; clicking it pops a small menu with the 8 GitHub reactions.
+   Styled as a borderless smiley + a tiny "+" so it reads as
+   "add reaction" rather than yet another reaction chip. */
+.reaction-add { position: relative; display: inline-flex; }
+.reaction-add__trigger {
+  appearance: none;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  cursor: pointer;
+  padding: 1px 6px 1px 7px;
+  font: inherit;
+  font-size: 13px;
+  line-height: 1.4;
+  color: var(--text-3);
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+}
+.reaction-add__trigger:hover {
+  color: var(--accent);
+  border-color: var(--accent-a40);
+  background: var(--accent-a7);
+}
+.reaction-add__trigger:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.reaction-add__plus {
+  font-size: 11px;
+  font-weight: 700;
+  color: var(--text-3);
+}
+.reaction-add__trigger:hover .reaction-add__plus { color: var(--accent); }
+.reaction-add__picker {
+  position: absolute;
+  bottom: calc(100% + 6px);
+  left: 0;
+  z-index: 10;
+  display: flex;
+  gap: 2px;
+  padding: 4px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.12);
+}
+.reaction-add__option {
+  appearance: none;
+  background: transparent;
+  border: 0;
+  cursor: pointer;
+  padding: 4px 6px;
+  font-size: 16px;
+  line-height: 1;
+  border-radius: 4px;
+  transition: background 80ms ease;
+}
+.reaction-add__option:hover { background: var(--accent-a7); }
+
+/* Linked issues row in the Classic-mode sidebar. */
+.prc-linked-issue {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  padding: 4px 0;
+  font-size: 12px;
+  color: var(--text-2);
+  text-decoration: none;
+  border-top: 1px solid transparent;
+}
+.prc-linked-issue:hover { color: var(--accent); }
+.prc-linked-issue__state {
+  width: 14px;
+  text-align: center;
+  font-weight: 700;
+}
+.prc-linked-issue__state--open { color: #1a7f37; }
+.prc-linked-issue__state--closed { color: #8250df; }
+.prc-linked-issue__num { font-weight: 600; color: var(--text-3); flex-shrink: 0; }
+.prc-linked-issue__title {
+  flex: 1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* "Quote reply" button on a timeline comment card. Lives at the right edge
+   of the comment header — the icon-only style nudges this into a low-key
+   secondary action so it doesn't compete with the comment body. */
+.prc-comment-quote {
+  margin-left: auto;
+  background: transparent;
+  border: 0;
+  padding: 2px 6px;
+  font-size: 11px;
+  color: var(--text-3);
+  cursor: pointer;
+  border-radius: 4px;
+}
+.prc-comment-quote:hover {
+  background: var(--bg-elevated);
+  color: var(--text-1);
+}
+
+/* Commit-SHA anchor inside a timeline event row. The <code> child keeps
+   the monospace styling we already had; the anchor adds hover affordance
+   without underlining noisy short SHAs by default. */
+.prc-event-sha {
+  text-decoration: none;
+  color: var(--accent);
+  cursor: pointer;
+}
+.prc-event-sha:hover code {
+  background: var(--accent-a7, rgba(99, 102, 241, 0.12));
+  text-decoration: underline;
+}
+.prc-event-sha code {
+  color: var(--accent);
+  border-radius: 3px;
+  padding: 0 2px;
+  transition: background 0.1s ease;
+}
+
+.prc-event-mention {
+  color: var(--accent);
+  text-decoration: none;
+  font-weight: 600;
+}
+.prc-event-mention:hover { text-decoration: underline; }
+
+/* ── Right meta sidebar ────────────────────────────────────────────── */
+.prc-sidebar {
+  border-left: 1px solid var(--border);
+  background: var(--bg-elevated);
+  overflow-y: auto;
+  padding: 16px 16px 22px;
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  min-height: 0;
+}
+.prc-meta-section { display: flex; flex-direction: column; gap: 6px; }
+.prc-meta-label {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  font-weight: 700;
+  color: var(--text-3);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+.prc-meta-link-btn {
+  appearance: none;
+  background: transparent;
+  border: none;
+  color: var(--accent);
+  cursor: pointer;
+  font-size: 11px;
+  font-weight: 500;
+  text-transform: none;
+  letter-spacing: 0;
+}
+.prc-meta-link-btn:hover { text-decoration: underline; }
+.prc-meta-empty { font-size: 12px; color: var(--text-3); }
+
+/* "Your review" CTA block at the top of the meta sidebar. */
+.prc-yrb {
+  background: rgba(99, 102, 241, 0.07);
+  border: 1px solid rgba(99, 102, 241, 0.20);
+  border-radius: 8px;
+  padding: 10px 12px;
+}
+.prc-yrb__title {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  font-weight: 700;
+  color: var(--accent);
+  margin-bottom: 4px;
+}
+.prc-yrb__text { font-size: 12px; color: var(--text-2); margin-bottom: 8px; }
+.prc-yrb__cta {
+  appearance: none;
+  background: var(--accent);
+  color: white;
+  border: none;
+  border-radius: 6px;
+  padding: 6px 12px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.prc-yrb__cta:hover { background: var(--accent-dark, var(--accent)); opacity: 0.92; }
+
+.prc-reviewer-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 0;
+  font-size: 12px;
+  min-width: 0;
+}
+.prc-reviewer-name { flex: 1; color: var(--text-1); overflow: hidden; text-overflow: ellipsis; }
+.prc-reviewer-status {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  font-weight: 700;
+  padding: 1px 6px;
+  border-radius: 3px;
+  background: var(--bg-card);
+  color: var(--text-3);
+}
+.prc-reviewer-status--approved { background: rgba(46, 160, 67, 0.12); color: #1a7f37; }
+.prc-reviewer-status--changes_requested { background: rgba(239, 68, 68, 0.10); color: #b91c1c; }
+.prc-reviewer-status--commented { background: rgba(99, 102, 241, 0.12); color: #4338ca; }
+.prc-reviewer-status--requested { background: var(--bg-card); color: var(--text-3); }
+.prc-reviewer-status--pending { background: var(--bg-card); color: var(--text-3); }
+
+/* Reviewer-editor controls (× chip, "+ Add reviewer", input row). */
+.prc-reviewer-remove {
+  appearance: none;
+  background: transparent;
+  border: 0;
+  color: var(--text-3);
+  font-size: 14px;
+  line-height: 1;
+  padding: 0 4px;
+  cursor: pointer;
+  border-radius: 3px;
+}
+.prc-reviewer-remove:hover { background: rgba(239, 68, 68, 0.10); color: #b91c1c; }
+.prc-reviewer-remove:disabled { opacity: 0.4; cursor: default; }
+
+.prc-reviewer-add {
+  appearance: none;
+  background: transparent;
+  border: 1px dashed var(--border);
+  border-radius: 6px;
+  padding: 4px 8px;
+  margin-top: 4px;
+  font-size: 11.5px;
+  color: var(--text-3);
+  cursor: pointer;
+  text-align: left;
+}
+.prc-reviewer-add:hover { color: var(--accent); border-color: var(--accent); }
+
+.prc-reviewer-add-row {
+  display: flex;
+  gap: 4px;
+  align-items: center;
+  margin-top: 4px;
+}
+/* Wraps the input + the dropdown popover, anchoring the popover under
+   the input. Flex-grows to take whatever space the row offers so the
+   suggestion dropdown is the same width as the input. */
+.prc-reviewer-add-typeahead {
+  position: relative;
+  flex: 1;
+  min-width: 0;
+}
+.prc-reviewer-add-input {
+  width: 100%;
+  min-width: 0;
+  padding: 4px 8px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  font-size: 12px;
+  background: var(--bg-elevated);
+  color: var(--text-1);
+  box-sizing: border-box;
+}
+.prc-reviewer-add-btn { padding: 4px 10px; font-size: 12px; }
+
+/* Suggestion popover under the typeahead input. Floats over the rest
+   of the right-side meta panel; pointer-events stay on each row so
+   onMouseDown can fire before the input's onBlur kills the popover. */
+.prc-reviewer-suggest {
+  position: absolute;
+  top: calc(100% + 2px);
+  left: 0;
+  right: 0;
+  z-index: 20;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  box-shadow: 0 6px 18px rgba(0, 0, 0, 0.08);
+  max-height: 240px;
+  overflow-y: auto;
+  padding: 4px;
+}
+.prc-reviewer-suggest__row {
+  display: block;
+  width: 100%;
+  text-align: left;
+  background: transparent;
+  border: 0;
+  padding: 4px 6px;
+  border-radius: 4px;
+  cursor: pointer;
+  font: inherit;
+}
+.prc-reviewer-suggest__row--active,
+.prc-reviewer-suggest__row:hover {
+  background: var(--accent-a7);
+}
+
+/* GitHub-suggested reviewer chips (GraphQL pullRequest.suggestedReviewers).
+   Sit above the typeahead input so the common case ("the people github
+   recommends") is one click instead of typing. Each chip is a tiny pill
+   with avatar + login. */
+.prc-reviewer-suggested-row {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+  margin-top: 4px;
+  margin-bottom: 4px;
+}
+.prc-reviewer-suggested-row__label {
+  font-size: 11px;
+  color: var(--text-3);
+  margin-right: 2px;
+}
+.prc-reviewer-suggested-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 2px 8px 2px 4px;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  background: var(--bg-card);
+  color: var(--text-1);
+  font: inherit;
+  font-size: 11px;
+  cursor: pointer;
+  transition: background 0.1s, border-color 0.1s;
+}
+.prc-reviewer-suggested-chip:hover:not(:disabled) {
+  background: var(--accent-a7);
+  border-color: var(--accent-a40);
+}
+.prc-reviewer-suggested-chip:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+.prc-reviewer-suggested-chip__avatar {
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.prc-reviewer-suggested-chip__avatar--fallback {
+  background: var(--bg-elevated);
+  color: var(--text-2);
+  font-size: 10px;
+  font-weight: 600;
+}
+.prc-reviewer-suggested-chip__login {
+  font-weight: 500;
+}
+.prc-reviewer-cancel {
+  appearance: none;
+  background: transparent;
+  border: 0;
+  font-size: 11px;
+  color: var(--text-3);
+  cursor: pointer;
+}
+.prc-reviewer-cancel:hover { color: var(--text-1); }
+.prc-reviewer-error { font-size: 11px; color: #b91c1c; margin-top: 4px; }
+
+.prc-status-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  color: var(--text-2);
+}
+.prc-status-row b { color: var(--text-1); font-weight: 600; }
+.prc-status-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+.prc-status-row--button {
+  appearance: none;
+  background: transparent;
+  border: 0;
+  padding: 0;
+  width: 100%;
+  text-align: left;
+  font: inherit;
+  cursor: pointer;
+}
+.prc-status-row--button:disabled { cursor: default; }
+.prc-status-row__chevron {
+  margin-left: auto;
+  font-size: 10px;
+  color: var(--text-3);
+}
+
+/* One row per check run when the CI status row is expanded. The whole row
+   is a link when GitHub gave us an htmlUrl, so the user can click anywhere
+   on the row to open the run details on GitHub. */
+.prc-check-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 6px 4px 16px;
+  margin-left: -6px;
+  margin-right: -6px;
+  font-size: 11.5px;
+  color: var(--text-2);
+  border-radius: 4px;
+  text-decoration: none;
+}
+.prc-check-row--link { cursor: pointer; }
+.prc-check-row--link:hover { background: var(--accent-a7, rgba(99, 102, 241, 0.06)); }
+.prc-check-row__name {
+  flex: 1;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  color: var(--text-1);
+}
+.prc-check-row__conclusion {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  padding: 1px 6px;
+  border-radius: 3px;
+  font-weight: 600;
+  background: var(--bg-card);
+  color: var(--text-3);
+  flex-shrink: 0;
+}
+.prc-check-row__conclusion--ok { background: rgba(46, 160, 67, 0.12); color: #1a7f37; }
+.prc-check-row__conclusion--fail { background: rgba(239, 68, 68, 0.10); color: #b91c1c; }
+.prc-check-row__conclusion--pending { background: rgba(173, 132, 52, 0.12); color: #815c0a; }
+.prc-check-row__arrow {
+  color: var(--text-3);
+  font-size: 10px;
+  flex-shrink: 0;
+}
+.prc-check-row--link:hover .prc-check-row__arrow { color: var(--accent); }
+
+.prc-stat-line {
+  display: flex;
+  justify-content: space-between;
+  font-size: 12px;
+  color: var(--text-2);
+  padding: 2px 0;
+}
+.prc-stat-num { font-variant-numeric: tabular-nums; color: var(--text-1); font-weight: 500; }
+.prc-stat-add { color: #16a34a; }
+.prc-stat-rem { color: #ef4444; }
+
+.prc-file-row {
+  display: flex;
+  justify-content: space-between;
+  font-size: 11.5px;
+  padding: 2px 0;
+  gap: 8px;
+}
+.prc-file-name {
+  color: var(--text-2);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11px;
+}
+.prc-file-row--more { color: var(--text-3); font-style: italic; }
+
+.prc-label-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+.prc-label-pill {
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-weight: 600;
+  background: var(--bg-card);
+  color: var(--text-2);
+  border: 1px solid var(--border);
+}
+
+/* The description-as-comment-card variant. The card body is the
+   speech-bubble — its solid background covers the timeline rail in
+   classic mode, so we don't compute "where the description ends" for
+   the rail's `top:`. We must NOT use overflow:hidden on the bubble
+   because the speech-bubble tail (.prc-comment-card-body::before/after)
+   extends LEFT of the bubble; clipping it would erase the dialog look.
+   The header gets a subtle tinted backdrop per
+   docs/mockups/v2/detail/description.png so the metadata row reads as
+   separate from the markdown body. */
+.prc-comment-card--description .prc-comment-card-body {
+  padding: 0;
+}
+/* The bubble's tail (top:14) lands in the tinted header zone for the
+   description variant, so the fill triangle must match the header bg
+   instead of the default body bg or the seam reads as a color crack. */
+.prc-comment-card--description .prc-comment-card-body::before {
+  border-color: transparent var(--bg-elevated) transparent transparent;
+}
+.prc-comment-head--description {
+  margin: 0;
+  padding: 8px 14px;
+  background: var(--bg-elevated);
+  border-bottom: 1px solid var(--border);
+  /* Match the bubble's outer 8px radius on the top corners only — the
+     bottom edges are square because the markdown body sits below. */
+  border-radius: 8px 8px 0 0;
+}
+.description-card__body {
+  padding: 12px 16px 14px;
+}
+.description-card__body .md-body :first-child { margin-top: 0; }
+.description-card__body .md-body :last-child { margin-bottom: 0; }
+
+/* Inline edit form sits inside the bubble — strip the standalone
+   .description-card chrome (border/radius/elevated bg/overflow) since
+   the bubble itself is now the visual container. */
+.prc-comment-card--description .description-card--editing {
+  margin: 0;
+  border: 0;
+  border-radius: 0;
+  padding: 12px 14px;
+  background: transparent;
+  flex: 0 0 auto;
+  overflow: visible;
+}
+/* Edit button hugs the right side of the description header. */
+.prc-comment-head--description .description-card__edit {
+  margin-left: auto;
+}
+
+/* Clean-mode sizing: when the description card is wrapped in the
+   flex-growing .preview__section--description, the bubble must grow to
+   fill the main column and its body must scroll internally — the parent
+   .preview__main has overflow:hidden and relies on each section to
+   handle its own overflow. In classic mode (no wrapper) these rules
+   don't apply, so the description sits at natural height as a regular
+   timeline entry. */
+.preview__section--description > .prc-comment-card--description {
+  flex: 1 1 0;
+  min-height: 0;
+  align-items: stretch;       /* let the bubble stretch vertically */
+  /* Clean mode has no rail/avatar gutter to leave room for, so kill the
+     16px left padding that's there for the timeline layout. The avatar
+     sits flush against the main column's left edge. */
+  padding-left: 0;
+}
+.preview__section--description > .prc-comment-card--description .prc-comment-avatar {
+  align-self: flex-start;     /* keep avatar pinned at the top */
+}
+.preview__section--description > .prc-comment-card--description .prc-comment-card-body {
+  display: flex;
+  flex-direction: column;
+  min-height: 0;
+}
+.preview__section--description > .prc-comment-card--description .description-card__body {
+  flex: 1 1 0;
+  min-height: 0;
+  overflow-y: auto;            /* THIS is the scroll surface in clean mode */
+}
+
+/* Classic/Clean layout toggle — sits in the actions row of either
+   layout's header. Compact pill-segmented control. */
+.prc-style-toggle {
+  display: inline-flex;
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  background: var(--bg-card);
+  padding: 1px;
+  margin-right: 4px;
+}
+.prc-style-toggle__btn {
+  appearance: none;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+  font: inherit;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 4px 10px;
+  color: var(--text-3);
+  border-radius: 5px;
+}
+.prc-style-toggle__btn:hover { color: var(--text-1); }
+.prc-style-toggle__btn--active {
+  background: var(--bg-elevated);
+  color: var(--accent);
+  box-shadow: inset 0 0 0 1px var(--accent-a40);
+}
+
+/* "Clean" layout's header gets a flex row so the toggle can sit on the
+   right edge of the title without breaking the existing meta line below. */
+.preview__title-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-bottom: 4px;
+}
+.preview__title-row .preview__title {
+  flex: 1;
+  min-width: 0;
+}
+
+
+

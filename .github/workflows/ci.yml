@@ -1,0 +1,60 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  backend:
+    name: Backend — build, license check, tests
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Java 21
+        uses: actions/setup-java@v4
+        with:
+          java-version: '21'
+          distribution: 'temurin'
+          cache: maven
+
+      - name: Build and run tests
+        working-directory: backend
+        # `mvn verify` runs four gates bound to the build lifecycle:
+        # license-maven-plugin (header check), maven-checkstyle-plugin
+        # (Trino-derived rules), Error Prone (in maven-compiler-plugin),
+        # and the JUnit/Spring tests.
+        run: mvn -B verify
+
+  frontend:
+    name: Frontend — type check + tests
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install dependencies
+        working-directory: frontend
+        run: npm ci
+
+      - name: Type check
+        working-directory: frontend
+        run: npx tsc --noEmit
+
+      - name: Unit + component tests
+        working-directory: frontend
+        # The render-smoke spec for PullRequestPreview catches the
+        # "X is not defined" class of bug that slips past tsc when JSX
+        # references a removed identifier — so we run this as a hard
+        # gate alongside the type check.
+        run: npm test

@@ -1,0 +1,329 @@
+/**
+ * @vitest-environment jsdom
+ *
+ * Render-time smoke tests for {@link PullRequestPreview}. The point is
+ * NOT to assert exact markup — it's to catch the class of bug we hit
+ * during the inline-component split: a JSX path that references a
+ * removed-but-still-used identifier (e.g. {@code ReactionChips is not
+ * defined}). The project's TS toolchain has a longstanding type-check
+ * gap that lets these slip past `tsc --noEmit`, so the safety net has
+ * to be runtime.
+ *
+ * Strategy: mock {@link window.bridge.fetchPullRequestDetail} to return
+ * a fixture that exercises every risky branch (top-level comments with
+ * reactions + the smiley-add path, review threads with messages and
+ * resolved/unresolved states, an APPROVED review with no body to hit
+ * the compact approved-row, a CHANGES_REQUESTED review with a body to
+ * hit the expandable card, and a `review_requested` burst to hit the
+ * grouping renderer). Render the component, wait for the effect, and
+ * read the resulting markup. Any reference error inside the rendered
+ * subtree throws and the test fails.
+ */
+import { describe, it, expect, beforeEach, vi } from 'vitest';
+import { act } from 'react';
+import { createRoot, type Root } from 'react-dom/client';
+import PullRequestPreview from './PullRequestPreview';
+import { clearCache } from './detailCache';
+import type {
+  ActivityItemDto,
+  PullRequestDetailDto,
+  PullRequestDto,
+  ReactionsDto,
+  ReviewMessageDto,
+  ReviewThreadDto,
+} from './types';
+
+// React 19 enforces this flag before async act() works.
+(globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
+
+const ZERO_REACTIONS: ReactionsDto = {
+  plusOne: 0, minusOne: 0, laugh: 0, hooray: 0,
+  confused: 0, heart: 0, rocket: 0, eyes: 0,
+};
+
+function makePr(overrides: Partial<PullRequestDto> = {}): PullRequestDto {
+  return {
+    id: 1,
+    repo: 'trinodb/trino',
+    number: 42,
+    title: 'Test PR',
+    author: 'octocat',
+    htmlUrl: 'https://github.com/trinodb/trino/pull/42',
+    createdAt: '2026-04-29T10:00:00Z',
+    updatedAt: '2026-04-29T11:00:00Z',
+    origin: 'AUTHORED',
+    labels: [],
+    labelColors: null,
+    draft: false,
+    viewedAt: null,
+    reviewedAt: null,
+    handledAction: null,
+    requestedReviewers: [],
+    ciStatus: 'PASSING',
+    additions: 10,
+    deletions: 5,
+    commentCount: 0,
+    attentionReason: null,
+    state: 'open',
+    closedAt: null,
+    mergedAt: null,
+    mergeable: true,
+    mergeableState: 'clean',
+    headPushedAt: '2026-04-29T11:00:00Z',
+    reviewerVerdicts: {},
+    ...overrides,
+  };
+}
+
+function makeMessage(overrides: Partial<ReviewMessageDto> = {}): ReviewMessageDto {
+  return {
+    githubId: 1001,
+    author: 'reviewer',
+    body: 'Looks good',
+    createdAt: '2026-04-29T11:30:00Z',
+    reactions: { ...ZERO_REACTIONS, plusOne: 2 },
+    reviewId: null,
+    authorAssociation: 'MEMBER',
+    ...overrides,
+  };
+}
+
+function makeThread(overrides: Partial<ReviewThreadDto> = {}): ReviewThreadDto {
+  return {
+    rootGithubId: 5001,
+    filePath: 'src/foo.ts',
+    line: 42,
+    side: 'RIGHT',
+    diffHunk: '@@ -1,3 +1,3 @@\n-old\n+new',
+    messages: [makeMessage()],
+    resolved: false,
+    outdated: false,
+    startLine: null,
+    startSide: null,
+    ...overrides,
+  };
+}
+
+function makeActivity(overrides: Partial<ActivityItemDto> = {}): ActivityItemDto {
+  return {
+    actor: 'commenter',
+    eventType: 'commented',
+    timestamp: '2026-04-29T11:00:00Z',
+    body: 'Top-level comment',
+    state: null,
+    beforeSha: null,
+    afterSha: null,
+    requestedReviewer: null,
+    reviewId: null,
+    authorAssociation: 'MEMBER',
+    githubId: 9001,
+    reactions: { ...ZERO_REACTIONS, heart: 1 },
+    ...overrides,
+  };
+}
+
+function makeDetail(overrides: Partial<PullRequestDetailDto> = {}): PullRequestDetailDto {
+  return {
+    repo: 'trinodb/trino',
+    number: 42,
+    body: 'PR body markdown',
+    labels: [],
+    draft: false,
+    mergeable: true,
+    mergeableState: 'clean',
+    additions: 10,
+    deletions: 5,
+    changedFiles: 2,
+    approvalCount: 1,
+    changesRequestedCount: 0,
+    pendingReviewerCount: 0,
+    ciStatus: 'PASSING',
+    files: [
+      { filename: 'src/foo.ts', additions: 5, deletions: 2, status: 'modified' },
+      { filename: 'src/bar.ts', additions: 5, deletions: 3, status: 'modified' },
+    ],
+    recentActivity: [
+      makeActivity(),
+      // APPROVED review with no body / threads → exercises the compact
+      // approved row in the timeline, which references the colored
+      // verdict marker and the underlined relative-time link.
+      makeActivity({
+        actor: 'approver',
+        eventType: 'reviewed',
+        state: 'APPROVED',
+        body: null,
+        reviewId: 7001,
+        githubId: null,
+        reactions: ZERO_REACTIONS,
+      }),
+      // CHANGES_REQUESTED with a body → exercises ReviewActivityRow
+      // (the expandable card) including the verdict pill.
+      makeActivity({
+        actor: 'critic',
+        eventType: 'reviewed',
+        state: 'CHANGES_REQUESTED',
+        body: 'Please address these.',
+        reviewId: 7002,
+        githubId: null,
+      }),
+      // Burst of three review_requested events from the same actor
+      // within 60s → exercises the grouping renderer that emits
+      // "x requested @a, @b and @c for review".
+      makeActivity({
+        actor: 'lead',
+        eventType: 'review_requested',
+        timestamp: '2026-04-29T12:00:00Z',
+        body: null,
+        requestedReviewer: 'alice',
+        githubId: null,
+      }),
+      makeActivity({
+        actor: 'lead',
+        eventType: 'review_requested',
+        timestamp: '2026-04-29T12:00:10Z',
+        body: null,
+        requestedReviewer: 'bob',
+        githubId: null,
+      }),
+      makeActivity({
+        actor: 'lead',
+        eventType: 'review_requested',
+        timestamp: '2026-04-29T12:00:20Z',
+        body: null,
+        requestedReviewer: 'carol',
+        githubId: null,
+      }),
+      // committed event so the timeline rail is exercised.
+      makeActivity({
+        actor: 'octocat',
+        eventType: 'committed',
+        body: null,
+        afterSha: 'abc123def456',
+        githubId: null,
+      }),
+    ],
+    checkRuns: [
+      { name: 'build', status: 'completed', conclusion: 'success', htmlUrl: 'https://ci/build' },
+    ],
+    reviewThreads: [
+      // Unresolved thread → reaction chips, reply stub, resolve button.
+      makeThread(),
+      // Resolved thread → starts folded; tests the resolved pill + the
+      // unresolve button label.
+      makeThread({
+        rootGithubId: 5002,
+        filePath: 'src/bar.ts',
+        line: 7,
+        resolved: true,
+        messages: [
+          makeMessage({ githubId: 1002, body: 'fixed.' }),
+          makeMessage({ githubId: 1003, author: 'octocat', body: 'thanks.' }),
+        ],
+      }),
+      // Outdated thread — surfaces the "outdated" pill.
+      makeThread({
+        rootGithubId: 5003,
+        outdated: true,
+        messages: [makeMessage({ githubId: 1004 })],
+      }),
+    ],
+    linkedIssues: [],
+    ...overrides,
+  };
+}
+
+function bridgeStub(detail: PullRequestDetailDto) {
+  return {
+    fetchPullRequestDetail: vi.fn().mockResolvedValue(detail),
+    addRequestedReviewer: vi.fn().mockResolvedValue(undefined),
+    removeRequestedReviewer: vi.fn().mockResolvedValue(undefined),
+    setReviewThreadResolved: vi.fn().mockResolvedValue(undefined),
+    addIssueCommentReaction: vi.fn().mockResolvedValue(undefined),
+    addReviewCommentReaction: vi.fn().mockResolvedValue(undefined),
+    replyToReviewThread: vi.fn().mockResolvedValue(undefined),
+    commentPr: vi.fn().mockResolvedValue(undefined),
+    updatePrBody: vi.fn().mockResolvedValue(undefined),
+  };
+}
+
+let container: HTMLDivElement;
+let root: Root;
+
+beforeEach(() => {
+  clearCache();
+  container = document.createElement('div');
+  document.body.appendChild(container);
+  root = createRoot(container);
+});
+
+async function render(detail: PullRequestDetailDto, pr = makePr()) {
+  (window as unknown as { bridge: ReturnType<typeof bridgeStub> }).bridge = bridgeStub(detail);
+  await act(async () => {
+    root.render(<PullRequestPreview pr={pr} />);
+  });
+  // Drain the fetchPullRequestDetail promise + any chained setStates.
+  await act(async () => { await Promise.resolve(); });
+  await act(async () => { await Promise.resolve(); });
+}
+
+describe('PullRequestPreview render smoke', () => {
+  it('renders without throwing for a detail covering every risky branch', async () => {
+    await render(makeDetail());
+    const html = container.innerHTML;
+    // PR title surfaces in the header — proves the component mounted
+    // and got past the loading state.
+    expect(html).toContain('Test PR');
+    // Approved-row marker text — guards against an extraction breaking
+    // the verdict-circle path.
+    expect(html).toMatch(/approved these changes/i);
+    // Burst grouping rendered "x requested @a, @b and @c for review".
+    expect(html).toContain('@alice');
+    expect(html).toContain('@bob');
+    expect(html).toContain('@carol');
+    // Review thread file path landed.
+    expect(html).toContain('src/foo.ts:42');
+    // Resolved thread shows its pill.
+    expect(html).toContain('resolved');
+    // Outdated thread surfaces the outdated pill.
+    expect(html).toContain('outdated');
+    // Reaction chip on the issue comment renders the heart count.
+    expect(html).toContain('reaction-chip');
+    // The "+ reaction" smiley-add button has its specific class.
+    expect(html).toContain('reaction-add');
+  });
+
+  it('renders an empty PR (no comments / no threads) without throwing', async () => {
+    await render(makeDetail({ recentActivity: [], reviewThreads: [] }));
+    expect(container.innerHTML).toContain('Test PR');
+  });
+
+  it('renders a PR whose only activity is a single committed event', async () => {
+    await render(makeDetail({
+      recentActivity: [makeActivity({
+        actor: 'octocat',
+        eventType: 'committed',
+        body: null,
+        afterSha: 'deadbeef',
+        githubId: null,
+      })],
+      reviewThreads: [],
+    }));
+    const html = container.innerHTML;
+    expect(html).toContain('Test PR');
+    expect(html).toContain('deadbee');
+  });
+
+  it('handles a single review_requested (no burst grouping)', async () => {
+    await render(makeDetail({
+      recentActivity: [makeActivity({
+        actor: 'lead',
+        eventType: 'review_requested',
+        body: null,
+        requestedReviewer: 'alice',
+        githubId: null,
+      })],
+      reviewThreads: [],
+    }));
+    expect(container.innerHTML).toContain('@alice');
+  });
+});

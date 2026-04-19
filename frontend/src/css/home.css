@@ -1,0 +1,1273 @@
+/* ── Home Page ─────────────────────────────────────── */
+
+.home-page {
+  height: 100%;
+  overflow-y: auto;
+  background: var(--bg-base);
+  color: var(--text-1);
+  font-family: var(--font-body);
+  padding: 20px 24px;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 320px;
+  gap: 16px;
+  align-items: start;
+}
+
+.home-main {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  min-width: 0;
+}
+
+.home-side {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  position: sticky;
+  top: 0;
+  max-height: calc(100vh - 40px);
+}
+
+.home-side .home-card {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+}
+
+.home-side .home-following-list {
+  flex: 1;
+  overflow-y: auto;
+  min-height: 0;
+}
+
+@media (max-width: 960px) {
+  .home-page {
+    grid-template-columns: 1fr;
+  }
+  .home-side {
+    position: static;
+    max-height: none;
+  }
+}
+
+/* Shared card base */
+.home-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 16px;
+}
+
+.home-card__header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+
+.home-card__title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-1);
+}
+
+.home-card__meta {
+  font-size: 12px;
+  color: var(--accent);
+  cursor: pointer;
+}
+
+/* ── Top row: profile + year in code ── */
+.home-top-row {
+  display: grid;
+  /* minmax(0, 1fr) so the year card can't overflow its cell when the SVG
+     chart inside is wider than the column — otherwise it escapes and slides
+     under the right sidebar. */
+  grid-template-columns: 280px minmax(0, 1fr);
+  gap: 16px;
+  align-items: stretch;
+}
+
+/* Right column of the top row stacks the year-in-code card and the
+   daily card. The flex layout lets the daily card grow to fill any
+   space the year card doesn't claim, so the two cards together match
+   the profile card's height instead of leaving a tall gap below the
+   contribution graph. */
+.home-top-right {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  min-width: 0;
+  min-height: 0;
+}
+.home-top-right .home-year-card { flex: 0 0 auto; }
+.home-top-right .home-daily-card {
+  flex: 1 1 auto;
+  /* Center the quote vertically within the available space so a tall
+     profile card doesn't leave the text pinned to the top. */
+  justify-content: center;
+}
+
+/* Middle row: the primary "do my review work" entrance */
+.home-middle-row {
+  display: grid;
+  grid-template-columns: 280px 1fr;
+  gap: 16px;
+  align-items: stretch;
+  margin-top: 16px;
+}
+
+.home-cta-card {
+  appearance: none;
+  /* "Go" signal — green. Match docs/mockups/v2/home/review-button.png:
+     solid green (no gradient), darker rounded play-icon block on the
+     left, white arrow on the right, thin divider above the stats. The
+     shade itself stays theme-driven via the --cta-* variables. */
+  border: 1px solid var(--cta-border);
+  background: var(--cta-from);
+  color: #fff;
+  border-radius: 12px;
+  padding: 22px 22px 18px;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+  position: relative;
+  transition: transform 120ms ease, box-shadow 120ms ease;
+  box-shadow: 0 1px 4px var(--cta-shadow);
+}
+
+.home-cta-card:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 2px 10px var(--cta-shadow-hover);
+}
+
+.home-cta-card__icon {
+  width: 40px;
+  height: 40px;
+  border-radius: 10px;
+  /* Darker overlay so the icon block reads as a stamp on top of the
+     solid green, matching the mockup's two-tone treatment. */
+  background: rgba(0, 0, 0, 0.22);
+  color: #fff;
+  font-size: 14px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.home-cta-card__body {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.home-cta-card__title {
+  font-size: 18px;
+  font-weight: 700;
+  color: #fff;
+  letter-spacing: -0.005em;
+}
+
+.home-cta-card__subtitle {
+  font-size: 13px;
+  color: rgba(255, 255, 255, 0.85);
+  line-height: 1.45;
+}
+
+.home-cta-card__counts {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin-top: 4px;
+  padding-top: 12px;
+  /* Hairline divider matches the mockup — separates the value-prop
+     copy above from the live counts below. */
+  border-top: 1px solid rgba(255, 255, 255, 0.22);
+  font-size: 12px;
+  color: rgba(255, 255, 255, 0.85);
+}
+
+.home-cta-card__count {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 6px;
+}
+
+.home-cta-card__count-num {
+  font-size: 18px;
+  font-weight: 700;
+  color: #fff;
+}
+
+.home-cta-card__count-sep {
+  color: rgba(255, 255, 255, 0.45);
+}
+
+.home-cta-card__chevron {
+  position: absolute;
+  top: 22px;
+  right: 22px;
+  font-size: 18px;
+  color: #fff;
+  transition: transform 120ms ease;
+}
+
+.home-cta-card:hover .home-cta-card__chevron {
+  transform: translateX(3px);
+}
+
+.home-repos-card--primary {
+  min-height: 220px;
+}
+
+.home-following-card--wide {
+  grid-column: 1 / -1;
+}
+
+/* Profile card */
+.home-profile-card {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.hp-profile-header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.hp-avatar-btn {
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.hp-avatar-btn:hover .avatar--profile {
+  opacity: 0.85;
+}
+
+.avatar--profile {
+  border-radius: 50%;
+  display: block;
+}
+
+.hp-profile-meta {
+  flex: 1;
+  min-width: 0;
+}
+
+.hp-name-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.hp-name {
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--text-1);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.hp-edit-btn {
+  background: none;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 1px 5px;
+  font-size: 11px;
+  color: var(--text-3);
+  cursor: pointer;
+  line-height: 1.4;
+  flex-shrink: 0;
+}
+
+.hp-edit-btn:hover {
+  background: var(--accent-a7);
+  color: var(--accent);
+  border-color: var(--accent-a40);
+}
+
+.hp-login {
+  font-size: 12px;
+  color: var(--text-3);
+  margin-top: 2px;
+}
+
+.hp-bio {
+  font-size: 12px;
+  color: var(--text-2);
+  border: 1px solid var(--border-input);
+  border-radius: 6px;
+  padding: 6px 10px;
+  line-height: 1.5;
+  background: var(--bg-input);
+}
+
+.hp-location {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 12px;
+  color: var(--text-3);
+}
+
+.hp-stats-row {
+  display: flex;
+  gap: 0;
+  margin-top: 4px;
+  border-top: 1px solid var(--border-hairline);
+  padding-top: 10px;
+}
+
+.hp-stat {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 1px;
+}
+
+.hp-stat + .hp-stat {
+  border-left: 1px solid var(--border-hairline);
+}
+
+.hp-stat-val {
+  font-size: 15px;
+  font-weight: 700;
+  color: var(--text-1);
+}
+
+.hp-stat-label {
+  font-size: 9px;
+  font-weight: 600;
+  color: var(--text-3);
+  letter-spacing: 0.05em;
+}
+
+/* Org / email block under the REPOS·FOLLOWERS·FOLLOWING strip. Only renders
+   when the GitHub profile actually has these fields set. */
+.hp-contact {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px solid var(--border-hairline);
+}
+
+.hp-contact-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--text-2);
+  min-width: 0;
+}
+
+.hp-contact-icon {
+  flex: 0 0 auto;
+  font-size: 11px;
+  opacity: 0.7;
+}
+
+.hp-contact-value {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.hp-contact-email {
+  color: var(--accent);
+  text-decoration: none;
+}
+.hp-contact-email:hover {
+  text-decoration: underline;
+}
+
+/* Orgs row — chips wrap below the icon if there are several. */
+.hp-contact-row--orgs {
+  align-items: flex-start;
+}
+
+.hp-org-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  min-width: 0;
+}
+
+.hp-org-chip {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 1px;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  text-decoration: none;
+  transition: border-color 100ms ease, transform 100ms ease;
+}
+.hp-org-chip:hover {
+  border-color: var(--accent-a40);
+  transform: translateY(-1px);
+  text-decoration: none;
+}
+
+.hp-org-chip__avatar {
+  width: 22px;
+  height: 22px;
+  border-radius: 4px;
+  display: block;
+}
+
+.hp-loading,
+.hp-empty {
+  font-size: 13px;
+  color: var(--text-3);
+  padding: 8px 0;
+}
+
+.hp-empty__link {
+  appearance: none;
+  background: transparent;
+  border: none;
+  color: var(--accent);
+  font: inherit;
+  font-size: 13px;
+  text-decoration: underline;
+  cursor: pointer;
+  padding: 0;
+}
+
+/* ── My open PRs panel (used by the kanban view) ──
+   Shared rows so the same compact "PR + state chips" presentation can
+   appear anywhere we want a quick "what am I shipping?" surface. */
+.mypr-panel {
+  margin: 12px 16px 0;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-elevated);
+  overflow: hidden;
+  flex: 0 0 auto;
+}
+.mypr-panel__header {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  background: var(--bg-card);
+  border-bottom: 1px solid var(--border);
+  cursor: pointer;
+  user-select: none;
+}
+.mypr-panel__header:hover { background: var(--bg-elevated); }
+.mypr-panel__title {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-1);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+.mypr-panel__count {
+  font-size: 11px;
+  background: var(--accent-a7);
+  color: var(--accent);
+  padding: 1px 7px;
+  border-radius: 999px;
+  font-weight: 700;
+}
+.mypr-panel__caret {
+  margin-left: auto;
+  color: var(--text-3);
+  font-size: 11px;
+}
+.mypr-panel__list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 8px 10px;
+  max-height: 280px;
+  overflow-y: auto;
+}
+.mypr-row {
+  appearance: none;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  padding: 8px 12px;
+  cursor: pointer;
+  font: inherit;
+  text-align: left;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 12px;
+  align-items: center;
+  min-width: 0;
+}
+.mypr-row:hover {
+  border-color: var(--accent-a40);
+  background: var(--bg-elevated);
+}
+.mypr-row__title-col { min-width: 0; }
+.mypr-row__title {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  color: var(--text-1);
+  font-weight: 500;
+  min-width: 0;
+}
+.mypr-row__title-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.mypr-row__chip {
+  font-size: 9.5px;
+  letter-spacing: 0.04em;
+  padding: 1px 5px;
+  border-radius: 3px;
+  font-weight: 700;
+  flex-shrink: 0;
+}
+.mypr-row__chip--draft {
+  background: var(--bg-elevated);
+  color: var(--text-3);
+  border: 1px solid var(--border);
+}
+.mypr-row__sub {
+  margin-top: 2px;
+  font-size: 11px;
+  color: var(--text-3);
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  min-width: 0;
+}
+.mypr-row__repo {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, monospace;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.mypr-row__num { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, monospace; }
+.mypr-row__sep { opacity: 0.5; }
+.mypr-row__attn {
+  color: #b45309;
+  font-weight: 600;
+}
+.mypr-row__signals {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-shrink: 0;
+}
+.mypr-row__ci {
+  font-size: 11px;
+  line-height: 1;
+}
+.mypr-row__ci--passing { color: #16a34a; }
+.mypr-row__ci--failing { color: #ef4444; }
+.mypr-row__ci--pending { color: #eab308; }
+.mypr-row__count {
+  font-size: 11px;
+  color: var(--text-2);
+  font-variant-numeric: tabular-nums;
+}
+.mypr-row__count--zero { color: var(--text-3); }
+.mypr-empty {
+  padding: 12px;
+  font-size: 12px;
+  color: var(--text-3);
+}
+
+/* ── Teams home card ── */
+.home-teams-row {
+  margin-top: 16px;
+}
+
+.home-teams-card {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.home-team-list {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 8px;
+}
+
+.home-team-item {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  gap: 10px;
+  align-items: center;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-elevated);
+  cursor: pointer;
+  transition: border-color 120ms ease, transform 120ms ease, box-shadow 120ms ease;
+}
+.home-team-item:hover {
+  border-color: var(--accent-a40);
+  transform: translateY(-1px);
+  box-shadow: 0 1px 3px rgba(16, 22, 26, 0.08);
+}
+.home-team-item .team-avatar {
+  width: 30px;
+  height: 30px;
+  font-size: 12px;
+  border-radius: 7px;
+}
+.home-team-item__info {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+}
+.home-team-item__name {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-1);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.home-team-item__meta {
+  font-size: 11px;
+  color: var(--text-3);
+}
+.home-team-item__inbox {
+  min-width: 28px;
+  height: 22px;
+  padding: 0 8px;
+  border-radius: 11px;
+  background: var(--bg-card);
+  color: var(--text-3);
+  font-size: 12px;
+  font-weight: 600;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+.home-team-item__inbox--active {
+  background: var(--accent-a15, var(--accent-a7));
+  color: var(--accent);
+}
+
+/* Year in code card */
+.home-year-card {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  /* Let the card shrink inside its grid cell; without this it grows to the
+     chart's intrinsic width and overlaps the right sidebar. */
+  min-width: 0;
+}
+
+.home-year-card__header {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+}
+
+.home-year-card__title {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-1);
+}
+
+.home-year-card__subtitle {
+  font-size: 12px;
+  color: var(--text-3);
+  margin-top: 2px;
+}
+
+.home-year-card__badge {
+  font-size: 11px;
+  color: var(--text-2);
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: 20px;
+  padding: 2px 10px;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+/* Let the contribution chart scale with the card — the ghchart SVG has no
+   intrinsic aspect-ratio baggage, so stretching it to the card's width just
+   gives bigger squares instead of horizontal overflow. */
+.home-year-chart-scroll {
+  width: 100%;
+  overflow: hidden;
+}
+
+.home-year-chart {
+  display: block;
+  width: 100%;
+  height: auto;
+  border-radius: 4px;
+  image-rendering: -webkit-optimize-contrast;
+}
+
+/* Daily card on the home page — one curated quote / tip per day, sits
+   in the same column as the contribution graph. See docs/mockups/v2/
+   home/quote.md. Visual treatment: subtle parchment-feel card with a
+   large opening glyph for quote-type cards, smaller right-aligned
+   attribution. */
+.home-daily-card {
+  margin: 0;
+  padding: 12px 18px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--bg-elevated);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  position: relative;
+  overflow: hidden;
+}
+.home-daily-card__eyebrow {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: var(--text-3);
+}
+.home-daily-card__text {
+  margin: 0;
+  font-size: 15px;
+  line-height: 1.5;
+  color: var(--text-1);
+  font-family: Georgia, "Iowan Old Style", "Times New Roman", serif;
+  font-style: italic;
+  position: relative;
+  /* Padding-left clears the absolutely-positioned opening glyph; the
+     closing glyph is inline so the right edge needs no padding. */
+  padding-left: 26px;
+}
+/* Decorative quote glyphs — same visual weight on both sides so the
+   card reads as “…” rather than a one-sided flourish. The opening glyph
+   is absolutely positioned at the top-left so it acts as a drop-cap
+   style flourish; the closing glyph is inline at the end of the text
+   with line-height:0 + a negative vertical-align so its 38px size
+   doesn't expand the running line height. */
+.home-daily-card__mark {
+  font-size: 38px;
+  line-height: 1;
+  color: var(--accent);
+  opacity: 0.55;
+  font-family: Georgia, "Iowan Old Style", "Times New Roman", serif;
+}
+.home-daily-card__mark--open {
+  position: absolute;
+  left: 0;
+  top: -6px;
+}
+.home-daily-card__mark--close {
+  display: inline-block;
+  margin-left: 4px;
+  line-height: 0;
+  vertical-align: -10px;
+}
+.home-daily-card__attribution {
+  align-self: flex-end;
+  font-size: 13px;
+  color: var(--text-2);
+  font-style: normal;
+  max-width: 100%;
+  text-align: right;
+}
+.home-daily-card__role {
+  color: var(--text-3);
+}
+/* Tip / challenge / joke variants keep the layout but drop the serif +
+   italic so they read as advice rather than a quoted line. */
+.home-daily-card--review_tip .home-daily-card__text,
+.home-daily-card--open_source_tip .home-daily-card__text,
+.home-daily-card--tiny_challenge .home-daily-card__text,
+.home-daily-card--joke .home-daily-card__text {
+  font-family: inherit;
+  font-style: normal;
+  padding-left: 0;
+  font-size: 14px;
+}
+.home-daily-card--loading .home-daily-card__skeleton {
+  height: 56px;
+  border-radius: 6px;
+  background: linear-gradient(90deg, var(--bg-card) 0%, var(--bg-elevated) 50%, var(--bg-card) 100%);
+  background-size: 200% 100%;
+  animation: home-daily-card-shimmer 1.4s linear infinite;
+}
+@keyframes home-daily-card-shimmer {
+  to { background-position: -200% 0; }
+}
+
+/* Week-over-week delta strip below the heatmap. Answers "am I trending up
+   or down this week?" — the raw weekly counts already live in the
+   "At a glance" section so re-printing them here would be noise. */
+.home-year-deltas {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 8px;
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--border);
+}
+
+.home-year-delta {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 8px 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-card);
+}
+
+.home-year-delta__label {
+  font-size: 11px;
+  color: var(--text-3);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  font-weight: 600;
+}
+
+.home-year-delta__row {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+}
+
+.home-year-delta__arrow {
+  font-size: 12px;
+}
+
+.home-year-delta__value {
+  font-size: 18px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+}
+
+.home-year-delta__period {
+  font-size: 11px;
+  color: var(--text-3);
+}
+
+.home-year-delta__sub {
+  font-size: 11px;
+  color: var(--text-3);
+}
+
+/* Tone-keyed colours for the delta. Up = green-ish, down = red, flat = neutral.
+   Uses theme-friendly palette tokens — no raw hex per theme override needed. */
+.home-year-delta--up   .home-year-delta__arrow,
+.home-year-delta--up   .home-year-delta__value { color: #16a34a; }
+.home-year-delta--down .home-year-delta__arrow,
+.home-year-delta--down .home-year-delta__value { color: #cf222e; }
+.home-year-delta--flat .home-year-delta__arrow,
+.home-year-delta--flat .home-year-delta__value { color: var(--text-3); }
+
+/* ── This week at a glance ── */
+.home-glance-section {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.home-glance-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.home-glance-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-1);
+}
+
+.home-period-toggle {
+  display: flex;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 20px;
+  padding: 3px;
+  gap: 2px;
+}
+
+.home-period-btn {
+  background: none;
+  border: none;
+  border-radius: 16px;
+  padding: 3px 12px;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-2);
+  cursor: pointer;
+  transition: background 0.15s, color 0.15s;
+  font-family: inherit;
+}
+
+.home-period-btn--active {
+  background: var(--accent);
+  color: #fff;
+}
+
+.home-period-btn:not(.home-period-btn--active):hover {
+  background: var(--accent-a7);
+}
+
+.home-period-btn--refresh {
+  margin-left: 6px;
+  border-left: 1px solid var(--border);
+  padding-left: 10px;
+  font-size: 13px;
+}
+.home-period-btn--refresh:disabled { opacity: 0.6; cursor: default; }
+
+.home-stat-cards {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 12px;
+}
+
+.home-stat-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 16px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.home-stat-card__icon {
+  width: 34px;
+  height: 34px;
+  border-radius: 10px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 16px;
+  font-weight: 700;
+  margin-bottom: 6px;
+}
+
+.home-stat-card__value {
+  font-size: 26px;
+  font-weight: 700;
+  color: var(--text-1);
+  line-height: 1;
+}
+
+.home-stat-card__label {
+  font-size: 12px;
+  color: var(--text-2);
+  font-weight: 500;
+}
+
+.home-stat-card__sub {
+  font-size: 11px;
+  color: var(--text-3);
+  margin-top: 2px;
+}
+
+/* ── Bottom row: repos + following ── */
+.home-bottom-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+  align-items: start;
+}
+
+.home-watch-btn {
+  background: var(--accent);
+  color: #fff;
+  border: none;
+  border-radius: 6px;
+  padding: 5px 12px;
+  font-size: 12px;
+  cursor: pointer;
+  font-weight: 500;
+  font-family: inherit;
+}
+
+.home-watch-btn:hover {
+  background: var(--accent-dark);
+}
+
+/* Column-major grid: fills the first 3 cells top-to-bottom, then wraps
+   into a second column on the right rather than growing the card's
+   height. Cap the column width so long repo names don't push later
+   columns off-screen. */
+.home-repo-list {
+  display: grid;
+  grid-auto-flow: column;
+  grid-template-rows: repeat(3, auto);
+  grid-auto-columns: minmax(0, 1fr);
+  column-gap: 12px;
+  row-gap: 1px;
+}
+
+.home-repo-item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  background: none;
+  border: none;
+  border-radius: 8px;
+  padding: 8px 6px;
+  cursor: pointer;
+  text-align: left;
+  font-family: inherit;
+  transition: background 0.1s;
+}
+
+.home-repo-item:hover {
+  background: var(--accent-a7);
+}
+
+.home-repo-item__unwatch {
+  flex: 0 0 auto;
+  width: 24px;
+  height: 24px;
+  border: none;
+  background: transparent;
+  color: var(--text-3);
+  font-size: 12px;
+  line-height: 1;
+  border-radius: 6px;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  opacity: 0;
+  transition: opacity 0.1s, background 0.1s, color 0.1s;
+}
+
+.home-repo-item:hover .home-repo-item__unwatch,
+.home-repo-item:focus-within .home-repo-item__unwatch {
+  opacity: 1;
+}
+
+.home-repo-item__unwatch:hover {
+  background: var(--danger-bg, rgba(220, 53, 69, 0.15));
+  color: var(--danger, #c0392b);
+}
+
+.home-repo-item__info {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.home-repo-item__name {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-1);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.home-repo-item__owner {
+  font-size: 11px;
+  color: var(--text-3);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.home-repo-status {
+  font-size: 11px;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-shrink: 0;
+  white-space: nowrap;
+}
+
+.home-repo-status--active {
+  color: #16a34a;
+}
+
+.home-repo-status--commits {
+  color: #d97706;
+}
+
+.home-repo-status--none {
+  color: var(--text-4);
+}
+
+.home-repo-status__dot {
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #16a34a;
+  flex-shrink: 0;
+}
+
+.home-repo-status__plus {
+  font-size: 13px;
+  line-height: 1;
+}
+
+/* Following list */
+.home-following-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.home-following-item {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+}
+
+.home-following-item__actor {
+  background: none;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  flex-shrink: 0;
+  border-radius: 50%;
+}
+
+.home-following-item__avatar {
+  border-radius: 50%;
+  display: block;
+}
+
+.home-following-item__body {
+  flex: 1;
+  min-width: 0;
+}
+
+.home-following-item__text {
+  font-size: 12px;
+  line-height: 1.5;
+  color: var(--text-2);
+  word-break: break-word;
+}
+
+.home-following-item__name {
+  background: none;
+  border: none;
+  padding: 0;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-1);
+  cursor: pointer;
+  font-family: inherit;
+}
+
+.home-following-item__name:hover {
+  color: var(--accent);
+  text-decoration: underline;
+}
+
+.home-following-item__verb {
+  color: var(--text-2);
+}
+
+/* Inline links for repo / PR / issue references inside an activity row.
+   Borderless transparent buttons that pick up underlining + accent color
+   on hover, so they read as links without breaking line-flow with real
+   anchor styling. */
+.home-following-item__link {
+  background: none;
+  border: none;
+  padding: 0;
+  margin: 0;
+  font: inherit;
+  font-size: inherit;
+  color: var(--accent);
+  cursor: pointer;
+  font-weight: 500;
+}
+.home-following-item__link:hover {
+  text-decoration: underline;
+}
+
+.home-following-item__time {
+  font-size: 11px;
+  color: var(--text-3);
+  margin-top: 2px;
+}
+
+/* Section title (used by PullRequestPreview) */
+.section-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-2);
+  margin: 0 0 8px 0;
+}
+
+/* Edit profile modal */
+.edit-profile-form {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  padding: 0 16px 16px;
+}
+
+.edit-profile-label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-2);
+  margin-top: 4px;
+}
+
+.edit-profile-input {
+  border: 1px solid var(--border-input);
+  border-radius: 6px;
+  padding: 7px 10px;
+  font-size: 13px;
+  background: var(--bg-input);
+  color: var(--text-1);
+  width: 100%;
+}
+
+.edit-profile-textarea {
+  border: 1px solid var(--border-input);
+  border-radius: 6px;
+  padding: 7px 10px;
+  font-size: 13px;
+  background: var(--bg-input);
+  color: var(--text-1);
+  resize: vertical;
+  width: 100%;
+  font-family: inherit;
+}
+
+.edit-profile-error {
+  font-size: 12px;
+  color: #c0392b;
+  margin: 0;
+}
+
+.edit-profile-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+

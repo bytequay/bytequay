@@ -139,6 +139,12 @@ export type CheckRunDto = {
   status: string | null;
   conclusion: string | null;
   htmlUrl: string | null;
+  /** GitHub's per-check `output.title` — short one-liner like
+   *  "5 tests failed". Null when the runner doesn't publish an output. */
+  outputTitle: string | null;
+  /** GitHub's per-check `output.summary` — markdown blob, often the actual
+   *  error excerpt. Surfaced inside the merge bar's failure cards. */
+  outputSummary: string | null;
 };
 
 export type ReactionsDto = {

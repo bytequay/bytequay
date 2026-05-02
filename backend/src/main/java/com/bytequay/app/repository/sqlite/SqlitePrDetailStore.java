@@ -129,7 +129,13 @@ public class SqlitePrDetailStore
                 .collect(toImmutableList());
 
         List<PrCheckRunState> checkRuns = checkRunRepo.findByPrId(prId).stream()
-                .map(c -> new PrCheckRunState(c.getName(), c.getStatus(), c.getConclusion(), c.getHtmlUrl()))
+                .map(c -> new PrCheckRunState(
+                        c.getName(),
+                        c.getStatus(),
+                        c.getConclusion(),
+                        c.getHtmlUrl(),
+                        c.getOutputTitle(),
+                        c.getOutputSummary()))
                 .collect(toImmutableList());
 
         List<PrReviewThreadMessage> reviewComments = reviewCommentRepo.findByPrIdOrderByCreatedAtAsc(prId).stream()
@@ -336,6 +342,8 @@ public class SqlitePrDetailStore
         e.setStatus(c.status());
         e.setConclusion(c.conclusion());
         e.setHtmlUrl(c.htmlUrl());
+        e.setOutputTitle(c.outputTitle());
+        e.setOutputSummary(c.outputSummary());
         return e;
     }
 

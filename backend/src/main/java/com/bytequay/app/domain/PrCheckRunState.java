@@ -16,12 +16,24 @@ package com.bytequay.app.domain;
 /**
  * The execution state of a single CI check run.
  *
- * @param name       human-readable name of the check (e.g. "build", "test-unit")
- * @param status     lifecycle state — {@code queued}, {@code in_progress}, {@code completed}
- * @param conclusion outcome once completed — {@code success}, {@code failure},
- *                   {@code neutral}, {@code cancelled}, {@code timed_out},
- *                   {@code action_required}, {@code skipped}, or {@code null}
- *                   while still running
- * @param htmlUrl    link to the check's details page on GitHub (may be null)
+ * @param name          human-readable name of the check (e.g. "build", "test-unit")
+ * @param status        lifecycle state — {@code queued}, {@code in_progress}, {@code completed}
+ * @param conclusion    outcome once completed — {@code success}, {@code failure},
+ *                      {@code neutral}, {@code cancelled}, {@code timed_out},
+ *                      {@code action_required}, {@code skipped}, or {@code null}
+ *                      while still running
+ * @param htmlUrl       link to the check's details page on GitHub (may be null)
+ * @param outputTitle   short one-liner from GitHub's {@code output.title} —
+ *                      e.g. "5 tests failed". Null when the runner doesn't
+ *                      publish an output block.
+ * @param outputSummary longer markdown summary from {@code output.summary} —
+ *                      usually the actual error excerpt the runner attached.
+ *                      Null when absent.
  */
-public record PrCheckRunState(String name, String status, String conclusion, String htmlUrl) {}
+public record PrCheckRunState(
+        String name,
+        String status,
+        String conclusion,
+        String htmlUrl,
+        String outputTitle,
+        String outputSummary) {}

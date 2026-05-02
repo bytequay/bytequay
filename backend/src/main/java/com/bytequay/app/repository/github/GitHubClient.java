@@ -193,7 +193,13 @@ public class GitHubClient
                 return ImmutableList.of();
             }
             return r.checkRuns().stream()
-                    .map(c -> new PrCheckRunState(c.name(), c.status(), c.conclusion(), c.htmlUrl()))
+                    .map(c -> new PrCheckRunState(
+                            c.name(),
+                            c.status(),
+                            c.conclusion(),
+                            c.htmlUrl(),
+                            c.output() != null ? c.output().title() : null,
+                            c.output() != null ? c.output().summary() : null))
                     .collect(toImmutableList());
         }
         catch (RestClientResponseException e) {

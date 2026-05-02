@@ -1387,13 +1387,35 @@
 }
 .merge-bar__failure-card {
   display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 8px 12px;
+  flex-direction: column;
   border: 1px solid rgba(207, 34, 46, 0.35);
   background: rgba(207, 34, 46, 0.06);
   border-radius: 6px;
   font-size: 12px;
+  overflow: hidden;
+}
+/* Header row of a failure card. Acts as the click target that toggles
+   the error-body section underneath. Looks the same as the old flat
+   card so reviewers don't lose orientation when there's no body. */
+.merge-bar__failure-head {
+  appearance: none;
+  background: transparent;
+  border: none;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  width: 100%;
+  text-align: left;
+  font-family: inherit;
+  color: inherit;
+  cursor: pointer;
+}
+.merge-bar__failure-head:disabled {
+  cursor: default;
+}
+.merge-bar__failure-head:hover:not(:disabled) {
+  background: rgba(207, 34, 46, 0.10);
 }
 .merge-bar__failure-icon {
   flex-shrink: 0;
@@ -1417,7 +1439,6 @@
 .merge-bar__failure-reason {
   color: #cf222e;
   font-size: 11px;
-  text-transform: capitalize;
 }
 .merge-bar__failure-link {
   flex-shrink: 0;
@@ -1426,6 +1447,51 @@
   font-size: 12px;
 }
 .merge-bar__failure-link:hover {
+  text-decoration: underline;
+}
+.merge-bar__failure-chevron {
+  flex-shrink: 0;
+  color: #cf222e;
+  font-size: 11px;
+  opacity: 0.85;
+}
+
+/* Expandable error-message body. Pre-formatted so stack traces and
+   indented logs keep their layout; soft scroll horizontally rather
+   than wrapping mid-line, matching how a terminal would render. The
+   collapsed view caps long summaries at FAILURE_SUMMARY_COLLAPSED_CHARS
+   characters with a "Show more" toggle so a 5kb log dump doesn't take
+   over the page. */
+.merge-bar__failure-body {
+  border-top: 1px solid rgba(207, 34, 46, 0.35);
+  background: var(--bg-card);
+  padding: 10px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+.merge-bar__failure-pre {
+  margin: 0;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, monospace;
+  font-size: 11px;
+  line-height: 1.45;
+  color: var(--text-1);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  max-height: 320px;
+  overflow: auto;
+}
+.merge-bar__failure-more {
+  align-self: flex-start;
+  appearance: none;
+  border: none;
+  background: transparent;
+  color: var(--accent);
+  font-size: 11px;
+  cursor: pointer;
+  padding: 0;
+}
+.merge-bar__failure-more:hover {
   text-decoration: underline;
 }
 

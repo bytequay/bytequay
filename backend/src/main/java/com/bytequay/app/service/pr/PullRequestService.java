@@ -1045,7 +1045,13 @@ public class PullRequestService
             latestByName.putIfAbsent(key, c);
         }
         return latestByName.values().stream()
-                .map(c -> new PullRequestDetail.CheckRun(c.name(), c.status(), c.conclusion(), c.htmlUrl()))
+                .map(c -> new PullRequestDetail.CheckRun(
+                        c.name(),
+                        c.status(),
+                        c.conclusion(),
+                        c.htmlUrl(),
+                        c.outputTitle(),
+                        c.outputSummary()))
                 .collect(toImmutableList());
     }
 

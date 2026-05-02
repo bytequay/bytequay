@@ -152,7 +152,7 @@ class TestPullRequestService
                 ImmutableList.of(new PrReviewState("alice", "APPROVED")),
                 ImmutableList.of(new PullRequestDetail.ChangedFile("file.txt", 5, 2, "modified")),
                 ImmutableList.of(),
-                ImmutableList.of(new PrCheckRunState(null, "completed", "success", null)),
+                ImmutableList.of(new PrCheckRunState(null, "completed", "success", null, null, null)),
                 ImmutableList.of(),
                 ImmutableList.of());
         when(store.findIdByRepoAndNumber("owner/my-repo", 42)).thenReturn(Optional.of(7L));
@@ -244,45 +244,45 @@ class TestPullRequestService
     void testAggregateCiStatusAllSuccessReturnsPassing()
     {
         assertThat(PullRequestService.aggregateCiStatus(ImmutableList.of(
-                new PrCheckRunState(null, "completed", "success", null),
-                new PrCheckRunState(null, "completed", "success", null)))).isEqualTo(PASSING);
+                new PrCheckRunState(null, "completed", "success", null, null, null),
+                new PrCheckRunState(null, "completed", "success", null, null, null)))).isEqualTo(PASSING);
     }
 
     @Test
     void testAggregateCiStatusAnyFailureReturnsFailing()
     {
         assertThat(PullRequestService.aggregateCiStatus(ImmutableList.of(
-                new PrCheckRunState(null, "completed", "success", null),
-                new PrCheckRunState(null, "completed", "failure", null)))).isEqualTo(FAILING);
+                new PrCheckRunState(null, "completed", "success", null, null, null),
+                new PrCheckRunState(null, "completed", "failure", null, null, null)))).isEqualTo(FAILING);
     }
 
     @Test
     void testAggregateCiStatusCancelledReturnsFailing()
     {
         assertThat(PullRequestService.aggregateCiStatus(ImmutableList.of(
-                new PrCheckRunState(null, "completed", "cancelled", null)))).isEqualTo(FAILING);
+                new PrCheckRunState(null, "completed", "cancelled", null, null, null)))).isEqualTo(FAILING);
     }
 
     @Test
     void testAggregateCiStatusInProgressReturnsPending()
     {
         assertThat(PullRequestService.aggregateCiStatus(ImmutableList.of(
-                new PrCheckRunState(null, "in_progress", null, null)))).isEqualTo(PENDING);
+                new PrCheckRunState(null, "in_progress", null, null, null, null)))).isEqualTo(PENDING);
     }
 
     @Test
     void testAggregateCiStatusQueuedReturnsPending()
     {
         assertThat(PullRequestService.aggregateCiStatus(ImmutableList.of(
-                new PrCheckRunState(null, "queued", null, null)))).isEqualTo(PENDING);
+                new PrCheckRunState(null, "queued", null, null, null, null)))).isEqualTo(PENDING);
     }
 
     @Test
     void testAggregateCiStatusFailureTakesPriorityOverPending()
     {
         assertThat(PullRequestService.aggregateCiStatus(ImmutableList.of(
-                new PrCheckRunState(null, "in_progress", null, null),
-                new PrCheckRunState(null, "completed", "failure", null)))).isEqualTo(FAILING);
+                new PrCheckRunState(null, "in_progress", null, null, null, null),
+                new PrCheckRunState(null, "completed", "failure", null, null, null)))).isEqualTo(FAILING);
     }
 
     // ── toActivityItems ────────────────────────────────────────────────────────

@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { marked } from 'marked';
-import type { ActivityItemDto, PullRequestDetailDto, PullRequestDto, ReviewThreadDto } from './types';
+import type { ActivityItemDto, CheckRunDto, PullRequestDetailDto, PullRequestDto, ReviewThreadDto } from './types';
 import { getCached, putCache } from './detailCache';
 import Avatar from './Avatar';
 import ResizeHandle from './ResizeHandle';
@@ -34,6 +34,80 @@ const SIDE_WIDTH_KEY = 'settings:preview-conversation-width';
 const SIDE_WIDTH_MIN = 180;
 const SIDE_WIDTH_MAX = 520;
 const SIDE_WIDTH_DEFAULT = 260;
+
+/** Threshold past which the failure summary auto-collapses to a teaser
+ *  with a "Show more" button. Long check outputs (think a CI log dump
+ *  with 200 lines of stack trace) shouldn't blow out the merge bar by
+ *  default; reviewers can click through if they want the full text. */
+const FAILURE_SUMMARY_COLLAPSED_CHARS = 600;
+
+function FailingCheckCard({ check }: { check: CheckRunDto }) {
+  const [bodyOpen, setBodyOpen] = useState(false);
+  const name = check.name && check.name.trim().length > 0 ? check.name : '(unnamed check)';
+  const title = check.outputTitle && check.outputTitle.trim().length > 0 ? check.outputTitle.trim() : null;
+  const summary = check.outputSummary && check.outputSummary.trim().length > 0 ? check.outputSummary.trim() : null;
+  const hasErrorBody = title !== null || summary !== null;
+  const longSummary = summary !== null && summary.length > FAILURE_SUMMARY_COLLAPSED_CHARS;
+  const [summaryExpanded, setSummaryExpanded] = useState(false);
+  const visibleSummary = summary === null
+    ? null
+    : !longSummary || summaryExpanded
+      ? summary
+      : summary.slice(0, FAILURE_SUMMARY_COLLAPSED_CHARS) + '…';
+  return (
+    <li className="merge-bar__failure-card">
+      <button
+        type="button"
+        className="merge-bar__failure-head"
+        onClick={() => hasErrorBody && setBodyOpen(v => !v)}
+        disabled={!hasErrorBody}
+        aria-expanded={hasErrorBody ? bodyOpen : undefined}
+      >
+        <span className="merge-bar__failure-icon" aria-hidden="true">✗</span>
+        <div className="merge-bar__failure-text">
+          <span className="merge-bar__failure-name" title={name}>{name}</span>
+          <span className="merge-bar__failure-reason">
+            {title ?? conclusionLabel(check.conclusion)}
+          </span>
+        </div>
+        {check.htmlUrl && (
+          <a
+            className="merge-bar__failure-link"
+            href={check.htmlUrl}
+            target="_blank"
+            rel="noreferrer"
+            title={`Open ${name} on GitHub`}
+            // Don't bubble the click into the toggle — clicking the link
+            // opens GitHub, not the body collapse.
+            onClick={(e) => e.stopPropagation()}
+          >
+            View ↗
+          </a>
+        )}
+        {hasErrorBody && (
+          <span className="merge-bar__failure-chevron" aria-hidden="true">{bodyOpen ? '▾' : '▸'}</span>
+        )}
+      </button>
+      {bodyOpen && hasErrorBody && (
+        <div className="merge-bar__failure-body">
+          {/* Render in a <pre> so stack traces and indented test output
+              keep their formatting. The body is the actual error message
+              GitHub's runner attached, not just the conclusion label. */}
+          <pre className="merge-bar__failure-pre">{visibleSummary ?? title}</pre>
+          {longSummary && (
+            <button
+              type="button"
+              className="merge-bar__failure-more"
+              onClick={() => setSummaryExpanded(v => !v)}
+            >
+              {summaryExpanded ? 'Show less' : `Show more (${summary!.length} chars)`}
+            </button>
+          )}
+        </div>
+      )}
+    </li>
+  );
+}
 
 type MergeBarProps = {
   pr: PullRequestDto;
@@ -157,29 +231,9 @@ function MergeBar({ pr, detail, mergeState, mergeError, onMerge }: MergeBarProps
       </div>
       {failuresOpen && failingChecks.length > 0 && (
         <ul className="merge-bar__failures">
-          {failingChecks.map((c, i) => {
-            const name = c.name && c.name.trim().length > 0 ? c.name : '(unnamed check)';
-            return (
-              <li key={`${name}-${i}`} className="merge-bar__failure-card">
-                <span className="merge-bar__failure-icon" aria-hidden="true">✗</span>
-                <div className="merge-bar__failure-text">
-                  <span className="merge-bar__failure-name" title={name}>{name}</span>
-                  <span className="merge-bar__failure-reason">{conclusionLabel(c.conclusion)}</span>
-                </div>
-                {c.htmlUrl && (
-                  <a
-                    className="merge-bar__failure-link"
-                    href={c.htmlUrl}
-                    target="_blank"
-                    rel="noreferrer"
-                    title={`Open ${name} on GitHub`}
-                  >
-                    View ↗
-                  </a>
-                )}
-              </li>
-            );
-          })}
+          {failingChecks.map((c, i) => (
+            <FailingCheckCard key={`${c.name ?? 'unnamed'}-${i}`} check={c} />
+          ))}
         </ul>
       )}
       {confirmOpen && (

@@ -100,7 +100,21 @@ public record PullRequestDetail(
      * the details page on GitHub. The frontend filters failing entries from
      * this list.
      */
-    public record CheckRun(String name, String status, String conclusion, String htmlUrl) {}
+    /**
+     * Per-check view suitable for the UI. {@code outputTitle} +
+     * {@code outputSummary} carry GitHub's {@code output.title} /
+     * {@code output.summary} blocks — usually the actual error message
+     * for failing checks, surfaced inline so reviewers don't need to
+     * click through to the run page on github.com. Both are nullable
+     * (some runners don't publish an output block at all).
+     */
+    public record CheckRun(
+            String name,
+            String status,
+            String conclusion,
+            String htmlUrl,
+            String outputTitle,
+            String outputSummary) {}
 
     /**
      * One per-line review thread: the root comment plus its replies, all

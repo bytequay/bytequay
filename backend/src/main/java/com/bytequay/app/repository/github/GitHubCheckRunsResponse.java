@@ -28,5 +28,14 @@ public record GitHubCheckRunsResponse(
             String name,
             String status,
             String conclusion,
-            @JsonProperty("html_url") String htmlUrl) {}
+            @JsonProperty("html_url") String htmlUrl,
+            /** GitHub's per-run summary block. {@code title} is a short
+             *  one-liner (e.g. "5 tests failed"); {@code summary} is the
+             *  longer markdown blob the runner uploaded — usually the
+             *  actual error message. Both are absent for some runners,
+             *  hence nullable. */
+            CheckRunOutput output) {}
+
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    public record CheckRunOutput(String title, String summary) {}
 }

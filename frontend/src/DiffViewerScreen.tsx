@@ -1035,6 +1035,22 @@ type ComposerSlot =
     startSide?: 'LEFT' | 'RIGHT';
   };
 
+const ArrowUpIcon = () => (
+  <svg className="diff-expand-btn__svg" viewBox="0 0 12 12" aria-hidden="true">
+    <path d="M6 2 L10 7 L7.5 7 L7.5 10 L4.5 10 L4.5 7 L2 7 Z" />
+  </svg>
+);
+const ArrowDownIcon = () => (
+  <svg className="diff-expand-btn__svg" viewBox="0 0 12 12" aria-hidden="true">
+    <path d="M6 10 L2 5 L4.5 5 L4.5 2 L7.5 2 L7.5 5 L10 5 Z" />
+  </svg>
+);
+const ArrowUpDownIcon = () => (
+  <svg className="diff-expand-btn__svg" viewBox="0 0 12 12" aria-hidden="true">
+    <path d="M6 0.5 L10 4.5 L7.5 4.5 L7.5 7.5 L10 7.5 L6 11.5 L2 7.5 L4.5 7.5 L4.5 4.5 L2 4.5 Z" />
+  </svg>
+);
+
 /** Expand-collapsed-code controls that sit in the gutter of a hunk
  *  header (or its own row for the after-last-hunk gap). The two button
  *  variants mirror docs/mockups/v2/codereview/expand.png:
@@ -1044,9 +1060,10 @@ type ComposerSlot =
  *    just above this hunk header).
  *  - Bottom-of-file gap (no hunk below): single ↕ button — only "down"
  *    makes sense (loading lines after the last hunk's content).
- *  - Middle gap: split control with an "expand up toward this hunk"
- *    arrow on top and an "expand down from previous hunk" arrow on
- *    the bottom. Either click loads the next 20 lines.
+ *  - Middle gap: stacked control with an up chevron, a non-interactive
+ *    "collapsed content" decoration in the middle, and a down chevron at
+ *    the bottom. Either chevron loads the next 20 lines in that
+ *    direction.
  */
 function ExpandControls({
   gap,
@@ -1078,11 +1095,12 @@ function ExpandControls({
         title={`Expand ${EXPAND_INCREMENT} more lines`}
         aria-label={`Expand ${EXPAND_INCREMENT} more lines`}
       >
-        <span className="diff-expand-btn__icon" aria-hidden="true">↕</span>
+        <ArrowUpDownIcon />
       </button>
     );
   }
-  // Middle gap: stacked split. Top half = up, bottom half = down.
+  // Middle gap: stacked split. Up chevron, decorative collapsed-content
+  // marker, down chevron — matches docs/mockups/v2/codereview/expand.png.
   return (
     <div className="diff-expand-split">
       <button
@@ -1093,8 +1111,11 @@ function ExpandControls({
         title={`Expand ${EXPAND_INCREMENT} more lines up`}
         aria-label={`Expand ${EXPAND_INCREMENT} more lines up`}
       >
-        <span className="diff-expand-btn__icon" aria-hidden="true">↑</span>
+        <ArrowUpIcon />
       </button>
+      <span className="diff-expand-split__divider" aria-hidden="true">
+        <span /><span /><span />
+      </span>
       <button
         type="button"
         className="diff-expand-btn diff-expand-btn--down"
@@ -1103,7 +1124,7 @@ function ExpandControls({
         title={`Expand ${EXPAND_INCREMENT} more lines down`}
         aria-label={`Expand ${EXPAND_INCREMENT} more lines down`}
       >
-        <span className="diff-expand-btn__icon" aria-hidden="true">↓</span>
+        <ArrowDownIcon />
       </button>
     </div>
   );

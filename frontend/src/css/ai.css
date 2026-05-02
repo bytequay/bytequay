@@ -1177,7 +1177,10 @@
   display: flex;
   align-items: stretch;
   justify-content: stretch;
-  background: var(--bg-elevated);
+  /* Stronger blue tint reads as a distinct, clickable area against the
+     surrounding hunk-header background. Matches the mockup at
+     docs/mockups/v2/codereview/expand.png. */
+  background: rgba(56, 139, 253, 0.22);
   border-right: 1px solid var(--border);
   padding: 0;
   user-select: none;
@@ -1189,42 +1192,55 @@
   justify-content: center;
   background: transparent;
   border: none;
-  color: var(--text-2);
-  font-size: 12px;
-  line-height: 1;
+  color: var(--accent, #388bfd);
   cursor: pointer;
   padding: 0;
-  min-height: 14px;
+  min-height: 16px;
 }
 .diff-expand-btn:hover:not(:disabled) {
-  background: var(--accent-tint, rgba(56, 139, 253, 0.15));
-  color: var(--accent, #388bfd);
+  background: rgba(56, 139, 253, 0.40);
 }
 .diff-expand-btn:disabled {
   opacity: 0.4;
   cursor: not-allowed;
 }
+.diff-expand-btn__svg {
+  width: 12px;
+  height: 12px;
+  fill: currentColor;
+  display: block;
+}
 .diff-expand-btn--single {
   /* Top / bottom of file — one big button filling both gutter columns. */
   width: 100%;
-  min-height: 18px;
+  min-height: 20px;
 }
 .diff-expand-split {
-  /* Middle-of-file split. Two stacked half-height buttons sharing the
-     gutter cell, with a hairline divider between them. */
+  /* Middle-of-file split. Up chevron, decorative collapsed-content
+     marker, down chevron — three stacked rows sharing the gutter cell. */
   display: flex;
   flex-direction: column;
   width: 100%;
 }
-.diff-expand-split .diff-expand-btn {
-  min-height: 12px;
-}
-.diff-expand-split .diff-expand-btn--up {
+/* Three short horizontal dashes stacked vertically, hinting at
+   collapsed code between the up and down chevrons. Non-interactive
+   and intentionally compact so the split control stays close in
+   height to the single-button variant. */
+.diff-expand-split__divider {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 1px;
+  padding: 1px 0;
+  border-top: 1px solid var(--border);
   border-bottom: 1px solid var(--border);
 }
-.diff-expand-btn__icon {
-  display: inline-block;
-  font-weight: 600;
+.diff-expand-split__divider > span {
+  width: 10px;
+  height: 1px;
+  background: var(--text-3);
+  opacity: 0.6;
 }
 
 /* Expanded context rows look like ordinary context rows — no

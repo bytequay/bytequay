@@ -1084,14 +1084,19 @@
   position: relative;
   padding: 2px 4px 0;
   color: var(--text-3);
-  text-align: right;
+  text-align: center;
   font-size: 11px;
   user-select: none;
   background: var(--bg-elevated);
-  border-right: 1px solid var(--border);
   white-space: nowrap;
   /* Gutter is always one visual line; let the content cell set the row height. */
   align-self: stretch;
+}
+
+/* Only the second (new-line) gutter carries the divider to the content
+   column — the two line-number columns sit flush against each other. */
+.diff-row__gutter + .diff-row__gutter {
+  border-right: 1px solid var(--border);
 }
 
 .diff-row__content {

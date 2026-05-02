@@ -84,6 +84,7 @@ function detail(overrides: Partial<PullRequestDetailDto> = {}): PullRequestDetai
     checkRuns: [],
     reviewThreads: [],
     linkedIssues: [],
+    viewerCanWrite: false,
     ...overrides,
   };
 }

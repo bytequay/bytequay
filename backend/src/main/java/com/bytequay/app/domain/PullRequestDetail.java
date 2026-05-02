@@ -41,7 +41,12 @@ public record PullRequestDetail(
          *  resolves #N) in the PR body. Resolved against the same repo only;
          *  cross-repo references like {@code closes owner/repo#42} are not
          *  matched yet — left as a follow-up for the GraphQL pass. */
-        List<LinkedIssue> linkedIssues)
+        List<LinkedIssue> linkedIssues,
+        /** True iff the authenticated PAT has push (write) access to the
+         *  PR's repository, as reported by {@code GET /repos/{owner}/{repo}}'s
+         *  {@code permissions.push} flag. Gates the merge button on the
+         *  detail page so we don't surface a control GitHub will reject. */
+        boolean viewerCanWrite)
 {
     public enum CiStatus
     {

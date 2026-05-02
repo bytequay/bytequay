@@ -280,6 +280,18 @@ function registerIpc(): void {
     return res.json();
   });
 
+  ipcMain.handle('backend:prCi', async (_event, repo: string, number: number) => {
+    const url = new URL(`${BACKEND_BASE}/prs/ci`);
+    url.searchParams.set('repo', repo);
+    url.searchParams.set('number', String(number));
+    const res = await fetch(url);
+    if (!res.ok) {
+      const body = await res.text().catch(() => '');
+      throw new Error(`backend /prs/ci returned ${res.status}: ${body}`);
+    }
+    return res.json();
+  });
+
   ipcMain.handle('backend:prDiffFiles', async (_event, repo: string, number: number) => {
 const url = new URL(`${BACKEND_BASE}/prs/diffFiles`);
     url.searchParams.set('repo', repo);

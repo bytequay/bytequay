@@ -228,6 +228,7 @@ function makeDetail(overrides: Partial<PullRequestDetailDto> = {}): PullRequestD
       }),
     ],
     linkedIssues: [],
+    viewerCanWrite: false,
     ...overrides,
   };
 }

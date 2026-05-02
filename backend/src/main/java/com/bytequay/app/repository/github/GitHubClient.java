@@ -1396,6 +1396,35 @@ public class GitHubClient
     }
 
     @Override
+    public boolean fetchViewerCanWrite(String pat, RepoRef repo)
+    {
+        // /repos/{owner}/{repo} returns a `permissions` block when called
+        // with an authenticated PAT; `permissions.push` is true for users
+        // with write/maintain/admin access. Swallowing errors keeps the
+        // merge button greyed-out on any failure (404, rate-limit, scope) —
+        // which is the safe default.
+        try {
+            GitHubRepoPermissionsResponse response = gitHubRestClient.get()
+                    .uri(u -> u.path("/repos/{owner}/{repo}").build(repo.owner(), repo.repo()))
+                    .header("Authorization", "Bearer " + pat)
+                    .retrieve()
+                    .body(GitHubRepoPermissionsResponse.class);
+            return response != null
+                    && response.permissions() != null
+                    && Boolean.TRUE.equals(response.permissions().push());
+        }
+        catch (Exception e) {
+            return false;
+        }
+    }
+
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    record GitHubRepoPermissionsResponse(GitHubRepoPermissions permissions) {}
+
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    record GitHubRepoPermissions(Boolean admin, Boolean maintain, Boolean push, Boolean triage, Boolean pull) {}
+
+    @Override
     public List<UserOrg> fetchUserOrgs(String pat)
     {
         try {

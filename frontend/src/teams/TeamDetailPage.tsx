@@ -369,7 +369,6 @@ function TeamDetailPage({ teamId, onBack }: Props) {
         pr={diffViewerPr}
         onBack={exitDiff}
         onApprove={handleApprove}
-        onMerge={handleMerge}
       />
     ) : selectedPr ? (
       // Wrap in a positioned container — PullRequestPreview's Classic mode
@@ -381,6 +380,7 @@ function TeamDetailPage({ teamId, onBack }: Props) {
           onOpenReview={enterReview}
           onInspectDiffs={enterDiff}
           onMarkHandled={handleMarkHandled}
+          onMerge={handleMerge}
         />
       </div>
     ) : null;

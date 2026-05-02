@@ -16,6 +16,7 @@ package com.bytequay.app.web;
 import com.bytequay.app.domain.DiffFile;
 import com.bytequay.app.domain.HandledAction;
 import com.bytequay.app.domain.MergeResult;
+import com.bytequay.app.domain.PrCiSnapshot;
 import com.bytequay.app.domain.PullRequest;
 import com.bytequay.app.domain.PullRequestCommit;
 import com.bytequay.app.domain.PullRequestDetail;
@@ -69,6 +70,22 @@ public class PullRequestController
     {
         String pat = patResolver.resolve(repo);
         return pullRequestService.getPullRequestDetail(pat, repo, number);
+    }
+
+    /**
+     * Returns just the CI status, per-check breakdown, and the viewer's
+     * write permission for the PR. Polled by the detail page while the
+     * window is focused so a CI flip and the merge button's enable/disable
+     * state refresh without re-running the full detail orchestration.
+     * GET /prs/ci?repo=&number=
+     */
+    @GetMapping("/prs/ci")
+    public PrCiSnapshot ciSnapshot(
+            @RequestParam("repo") String repo,
+            @RequestParam("number") int number)
+    {
+        String pat = patResolver.resolve(repo);
+        return pullRequestService.getPullRequestCiSnapshot(pat, repo, number);
     }
 
     /**

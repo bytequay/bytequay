@@ -20,6 +20,7 @@ import com.bytequay.app.domain.HandledAction;
 import com.bytequay.app.domain.MergePullRequestCommand;
 import com.bytequay.app.domain.MergeResult;
 import com.bytequay.app.domain.PrCheckRunState;
+import com.bytequay.app.domain.PrCiSnapshot;
 import com.bytequay.app.domain.PrRawDetail;
 import com.bytequay.app.domain.PrReviewState;
 import com.bytequay.app.domain.PrReviewThreadMessage;
@@ -195,19 +196,46 @@ public class PullRequestService
      */
     public PullRequestDetail getPullRequestDetail(String pat, String repo, int number)
     {
+        PullRequestRef ref = parseRef(repo, number);
+        // viewerCanWrite is per-PAT and not safe to persist alongside the
+        // SQLite-cached detail (a different PAT could come back with a
+        // different answer). Fetch it fresh on every detail call — one
+        // extra GET is cheap relative to the rest of the orchestration.
+        boolean viewerCanWrite = gitHub.fetchViewerCanWrite(pat, RepoRef.of(ref.owner(), ref.repo()));
+
         Optional<Long> prId = store.findIdByRepoAndNumber(repo, number);
         if (prId.isPresent()) {
             Optional<StoredPrDetail> stored = detailStore.find(prId.get());
             if (stored.isPresent()) {
-                return assemblePullRequestDetail(repo, number, stored.get());
+                return assemblePullRequestDetail(repo, number, stored.get(), viewerCanWrite);
             }
         }
 
         // Cache miss — fetch live, store for next time
-        PullRequestRef ref = parseRef(repo, number);
         StoredPrDetail fetched = fetchDetailFromGitHub(pat, ref);
         prId.ifPresent(id -> detailStore.save(id, fetched));
-        return assemblePullRequestDetail(repo, number, fetched);
+        return assemblePullRequestDetail(repo, number, fetched, viewerCanWrite);
+    }
+
+    /**
+     * Lightweight CI snapshot for the focus-driven polling on the PR detail
+     * page. Skips the full timeline + threads orchestration; just refetches
+     * the head SHA's check runs and the per-PAT write permission. The merge
+     * button on the detail page reads both from this response so it can
+     * react to a CI flip without waiting for the next full-detail load.
+     */
+    public PrCiSnapshot getPullRequestCiSnapshot(String pat, String repo, int number)
+    {
+        PullRequestRef ref = parseRef(repo, number);
+        PrRawDetail raw = gitHub.fetchPrDetail(pat, ref);
+        List<PrCheckRunState> runs = raw != null && raw.headSha() != null
+                ? gitHub.fetchPrCheckRuns(pat, ref.owner(), ref.repo(), raw.headSha())
+                : ImmutableList.of();
+        boolean viewerCanWrite = gitHub.fetchViewerCanWrite(pat, RepoRef.of(ref.owner(), ref.repo()));
+        return new PrCiSnapshot(
+                aggregateCiStatus(runs),
+                toCheckRuns(runs),
+                viewerCanWrite);
     }
 
     /**
@@ -900,7 +928,7 @@ public class PullRequestService
         return ImmutableSet.copyOf(out);
     }
 
-    private PullRequestDetail assemblePullRequestDetail(String repo, int number, StoredPrDetail stored)
+    private PullRequestDetail assemblePullRequestDetail(String repo, int number, StoredPrDetail stored, boolean viewerCanWrite)
     {
         PrRawDetail raw = stored.raw();
         return new PullRequestDetail(
@@ -922,7 +950,8 @@ public class PullRequestService
                 toActivityItems(stored.timeline()),
                 toCheckRuns(stored.checkRuns()),
                 groupReviewThreads(stored.reviewComments()),
-                stored.linkedIssues() != null ? stored.linkedIssues() : ImmutableList.of());
+                stored.linkedIssues() != null ? stored.linkedIssues() : ImmutableList.of(),
+                viewerCanWrite);
     }
 
     /**

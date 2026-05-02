@@ -522,6 +522,19 @@ public interface PullRequestRepository
         return false;
     }
 
+    /**
+     * Whether the authenticated PAT has push (write) access to the given
+     * repository, as reported by GitHub's {@code permissions.push} field on
+     * {@code GET /repos/{owner}/{repo}}. Used to gate the merge button on
+     * the PR detail page. Returns {@code false} on any error so a failed
+     * lookup leaves the button greyed-out — safer than enabling something
+     * GitHub will reject.
+     */
+    default boolean fetchViewerCanWrite(String pat, RepoRef repo)
+    {
+        return false;
+    }
+
     // ── Events ────────────────────────────────────────────────────────────────
 
     /**

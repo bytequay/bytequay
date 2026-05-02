@@ -7,9 +7,11 @@ import ResizeHandle from './ResizeHandle';
 import {
   activityVerb,
   authorAssociationLabel,
+  conclusionLabel,
   eventMarker,
   formatRelativeTime,
   isBotActor,
+  isCheckFailing,
   labelChipStyle,
   relativeDayLabel,
   truncatePath,
@@ -33,6 +35,157 @@ const SIDE_WIDTH_MIN = 180;
 const SIDE_WIDTH_MAX = 520;
 const SIDE_WIDTH_DEFAULT = 260;
 
+type MergeBarProps = {
+  pr: PullRequestDto;
+  detail: PullRequestDetailDto;
+  mergeState: 'idle' | 'confirming' | 'running' | 'error';
+  mergeError: string | null;
+  onMerge: () => void;
+  onCancelConfirm: () => void;
+};
+
+/** Approval-count + "Rebase and merge" bar that sits above the comment
+ *  box on the PR detail page. The button is intentionally always
+ *  visible-but-greyed when the PR isn't ready — hover the disabled
+ *  button to read why. Mirrors the merge-bar GitHub puts on its
+ *  Conversation page. */
+function MergeBar({ pr, detail, mergeState, mergeError, onMerge, onCancelConfirm }: MergeBarProps) {
+  // Failing-check list is folded by default — the red "CI failing"
+  // pill in the middle of the bar is the affordance to expand it.
+  const [failuresOpen, setFailuresOpen] = useState(false);
+  const failingChecks = detail.checkRuns.filter(c => isCheckFailing(c.conclusion));
+  const ciPassing = detail.ciStatus === 'PASSING' || detail.ciStatus === 'NONE';
+  const ciPending = detail.ciStatus === 'PENDING';
+  const closed = pr.state === 'closed';
+  const enabled = !closed && ciPassing && detail.viewerCanWrite && mergeState !== 'running';
+  // CI-failing is intentionally NOT in the disabled-reason text anymore —
+  // the red "CI failing" pill in the middle of the bar carries that
+  // signal, and expanding it shows per-check details. Keeping both would
+  // double up on the same information.
+  let disabledReason: string | null = null;
+  if (closed) {
+    disabledReason = 'This PR is closed.';
+  } else if (!detail.viewerCanWrite) {
+    disabledReason = 'You don’t have write access to this repository.';
+  } else if (ciPending && failingChecks.length === 0) {
+    disabledReason = 'CI is still running — wait for it to finish.';
+  }
+  // Latest verdict per reviewer wins (matches GitHub) — same logic as
+  // reviewerVerdicts in the parent. We need just the approvers here so
+  // the avatar strip mirrors what the user expects under "approvals".
+  const approverLogins = (() => {
+    const verdicts = new Map<string, string>();
+    const reviewed = detail.recentActivity.filter(a => a.eventType === 'reviewed' && a.state && a.actor);
+    for (let i = reviewed.length - 1; i >= 0; i--) {
+      verdicts.set(reviewed[i].actor, reviewed[i].state ?? '');
+    }
+    const out: string[] = [];
+    verdicts.forEach((state, login) => { if (state === 'APPROVED') out.push(login); });
+    return out;
+  })();
+  const changesSummary = detail.changesRequestedCount > 0
+    ? `${detail.changesRequestedCount} change${detail.changesRequestedCount === 1 ? '' : 's'} requested`
+    : null;
+  return (
+    <div className={`merge-bar${enabled ? ' merge-bar--ready' : ' merge-bar--blocked'}`}>
+      <div className="merge-bar__row">
+        <button
+          type="button"
+          className="merge-bar__btn"
+          onClick={onMerge}
+          disabled={!enabled}
+          title={enabled
+            ? (mergeState === 'confirming' ? 'Click again to confirm' : 'Rebase and merge this PR on GitHub')
+            : (disabledReason ?? 'Not ready to merge')}
+        >
+          {mergeState === 'running'
+            ? 'Merging…'
+            : mergeState === 'confirming'
+              ? 'Confirm rebase merge'
+              : 'Rebase and merge'}
+        </button>
+        {mergeState === 'confirming' && (
+          <button type="button" className="merge-bar__cancel" onClick={onCancelConfirm}>
+            Cancel
+          </button>
+        )}
+        {failingChecks.length > 0 && (
+          <button
+            type="button"
+            className={`merge-bar__ci-fail${failuresOpen ? ' merge-bar__ci-fail--open' : ''}`}
+            onClick={() => setFailuresOpen(v => !v)}
+            aria-expanded={failuresOpen}
+            title={failuresOpen
+              ? 'Hide failing-check details'
+              : `Show why ${failingChecks.length} check${failingChecks.length === 1 ? '' : 's'} failed`}
+          >
+            <span aria-hidden="true">✗</span>
+            <span>CI failing{failingChecks.length > 1 ? ` (${failingChecks.length})` : ''}</span>
+            <span className="merge-bar__ci-fail-chevron" aria-hidden="true">{failuresOpen ? '▾' : '▸'}</span>
+          </button>
+        )}
+        <div className="merge-bar__summary">
+          <div className="merge-bar__approvals">
+            {approverLogins.length === 0 ? (
+              <span className="merge-bar__approvals-empty">No approvals yet</span>
+            ) : (
+              <span className="merge-bar__approver-strip" title={`Approved by ${approverLogins.join(', ')}`}>
+                {approverLogins.map((login) => (
+                  <a
+                    key={login}
+                    href={`https://github.com/${login}`}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="merge-bar__approver"
+                    title={`${login} approved`}
+                  >
+                    <Avatar login={login} size={20} />
+                  </a>
+                ))}
+                <span className="merge-bar__approvals-label">
+                  approved
+                </span>
+              </span>
+            )}
+            {changesSummary && (
+              <span className="merge-bar__changes">· {changesSummary}</span>
+            )}
+          </div>
+          {disabledReason && <span className="merge-bar__reason">{disabledReason}</span>}
+          {mergeError && <span className="merge-bar__error" title={mergeError}>{mergeError}</span>}
+        </div>
+      </div>
+      {failuresOpen && failingChecks.length > 0 && (
+        <ul className="merge-bar__failures">
+          {failingChecks.map((c, i) => {
+            const name = c.name && c.name.trim().length > 0 ? c.name : '(unnamed check)';
+            return (
+              <li key={`${name}-${i}`} className="merge-bar__failure-card">
+                <span className="merge-bar__failure-icon" aria-hidden="true">✗</span>
+                <div className="merge-bar__failure-text">
+                  <span className="merge-bar__failure-name" title={name}>{name}</span>
+                  <span className="merge-bar__failure-reason">{conclusionLabel(c.conclusion)}</span>
+                </div>
+                {c.htmlUrl && (
+                  <a
+                    className="merge-bar__failure-link"
+                    href={c.htmlUrl}
+                    target="_blank"
+                    rel="noreferrer"
+                    title={`Open ${name} on GitHub`}
+                  >
+                    View ↗
+                  </a>
+                )}
+              </li>
+            );
+          })}
+        </ul>
+      )}
+    </div>
+  );
+}
+
 function loadSideWidth(): number {
   const raw = localStorage.getItem(SIDE_WIDTH_KEY);
   const n = raw ? parseInt(raw, 10) : NaN;
@@ -52,6 +205,11 @@ type Props = {
   // patch its PR list optimistically and call markPrHandled on the bridge —
   // otherwise the list wouldn't refresh and the PR would still show as unhandled.
   onMarkHandled?: (prId: number) => Promise<void>;
+  // Called when the user clicks "Rebase and merge". When omitted the merge
+  // bar above the comment box is hidden — pages that don't want merge from
+  // the preview (e.g. archived PRs) just skip the prop. Return value is
+  // ignored; the preview re-fetches detail itself once the call resolves.
+  onMerge?: (prId: number, repo: string, number: number) => Promise<unknown>;
   // Optional "← Back" affordance shown in the page header. When provided
   // (e.g. from the team detail page) the button returns the user to the
   // referring screen. Inbox usage doesn't pass this — the sidebar list
@@ -62,11 +220,17 @@ type Props = {
   backLabel?: string;
 };
 
+/** Polling interval for the focus-driven CI snapshot refresh. ~12s is a
+ *  reasonable middle ground: short enough to feel reactive when checks
+ *  flip mid-review, long enough that we're not slamming GitHub for a
+ *  user who just left the window open. */
+const CI_POLL_INTERVAL_MS = 12_000;
+
 
 type ActionState = 'idle' | 'confirming' | 'running' | 'done' | 'error';
 
 
-function PullRequestPreview({ pr, onOpenReview, onInspectDiffs, onMarkHandled, onBack, backLabel }: Props) {
+function PullRequestPreview({ pr, onOpenReview, onInspectDiffs, onMarkHandled, onMerge, onBack, backLabel }: Props) {
   const [detail, setDetail] = useState<PullRequestDetailDto | null>(null);
   const [loading, setLoading] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
@@ -77,6 +241,33 @@ function PullRequestPreview({ pr, onOpenReview, onInspectDiffs, onMarkHandled, o
   const [sideWidth, setSideWidth] = useState<number>(loadSideWidth);
   const gridRef = useRef<HTMLDivElement>(null);
   const commentBoxRef = useRef<PrCommentBoxHandle>(null);
+
+  // Merge bar state. `confirming` is the two-click safety net (one click
+  // arms, second click actually merges) so a stray pointer doesn't ship
+  // an unintended PR. `error` carries GitHub's reason if the call fails.
+  const [mergeState, setMergeState] = useState<'idle' | 'confirming' | 'running' | 'error'>('idle');
+  const [mergeError, setMergeError] = useState<string | null>(null);
+  // Manual-refresh / focus-poll spinner state for the CI summary.
+  const [ciRefreshing, setCiRefreshing] = useState(false);
+
+  /** Refetch just the CI slice from /prs/ci. Used by the focus-driven
+   *  poll, by the visibility-change handler, and by the manual refresh
+   *  button rendered in the CI summary. Errors are swallowed — a failed
+   *  poll just leaves the previous snapshot in place. */
+  const refreshCi = async () => {
+    if (ciRefreshing) return;
+    setCiRefreshing(true);
+    try {
+      const snap = await window.bridge.fetchPrCi(pr.repo, pr.number);
+      setDetail(prev => prev ? { ...prev, ciStatus: snap.ciStatus, checkRuns: snap.checkRuns, viewerCanWrite: snap.viewerCanWrite } : prev);
+    }
+    catch {
+      // Best-effort — the existing snapshot stays on screen.
+    }
+    finally {
+      setCiRefreshing(false);
+    }
+  };
 
   const handleSideResize = (clientX: number) => {
     const rect = gridRef.current?.getBoundingClientRect();
@@ -173,6 +364,64 @@ function PullRequestPreview({ pr, onOpenReview, onInspectDiffs, onMarkHandled, o
         setLoading(false);
       });
   }, [pr.id]);
+
+  // Focus-driven CI poll. Active only when the OS window AND the document
+  // are visible — leaves the poll dormant when the user tabs away so we
+  // don't burn rate-limit on a hidden window. Resets whenever the open PR
+  // changes so a switched-to PR fires a refresh on its first visible tick.
+  useEffect(() => {
+    let interval: ReturnType<typeof setInterval> | null = null;
+    const isVisible = () => document.visibilityState === 'visible' && document.hasFocus();
+    const start = () => {
+      if (interval != null) return;
+      // Fire one immediately on focus/visibility regain, then every CI_POLL_INTERVAL_MS.
+      void refreshCi();
+      interval = setInterval(() => { void refreshCi(); }, CI_POLL_INTERVAL_MS);
+    };
+    const stop = () => {
+      if (interval != null) {
+        clearInterval(interval);
+        interval = null;
+      }
+    };
+    const onVisibility = () => { isVisible() ? start() : stop(); };
+    if (isVisible()) start();
+    document.addEventListener('visibilitychange', onVisibility);
+    window.addEventListener('focus', onVisibility);
+    window.addEventListener('blur', onVisibility);
+    return () => {
+      stop();
+      document.removeEventListener('visibilitychange', onVisibility);
+      window.removeEventListener('focus', onVisibility);
+      window.removeEventListener('blur', onVisibility);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [pr.id, pr.repo, pr.number]);
+
+  const handleMerge = async () => {
+    if (!onMerge || mergeState === 'running') return;
+    if (mergeState === 'idle' || mergeState === 'error') {
+      setMergeState('confirming');
+      setMergeError(null);
+      return;
+    }
+    if (mergeState === 'confirming') {
+      setMergeState('running');
+      try {
+        await onMerge(pr.id, pr.repo, pr.number);
+        // Drop the cached detail and refetch so the merged status, timeline
+        // event, and disabled merge button all update in one pass.
+        const fresh = await window.bridge.fetchPullRequestDetail(pr.repo, pr.number);
+        putCache(pr.id, fresh);
+        setDetail(fresh);
+        setMergeState('idle');
+      }
+      catch (e) {
+        setMergeError(e instanceof Error ? e.message : String(e));
+        setMergeState('error');
+      }
+    }
+  };
 
   const handleMarkHandled = async () => {
     setHandledState('running');
@@ -337,11 +586,26 @@ function PullRequestPreview({ pr, onOpenReview, onInspectDiffs, onMarkHandled, o
               </section>
 
               <div className="preview__main-pinned">
+                {onMerge && !pr.mergedAt && (
+                  <MergeBar
+                    pr={pr}
+                    detail={detail}
+                    mergeState={mergeState}
+                    mergeError={mergeError}
+                    onMerge={() => { void handleMerge(); }}
+                    onCancelConfirm={() => { setMergeState('idle'); setMergeError(null); }}
+                  />
+                )}
                 <PrCommentBox
                   pr={pr}
                   onClosed={() => { void onMarkHandled?.(pr.id).catch(() => { /* best-effort */ }); }}
                 />
-                <CiSummary detail={detail} />
+                <CiSummary
+                  ciStatus={detail.ciStatus ?? 'NONE'}
+                  checkRuns={detail.checkRuns}
+                  onRefresh={refreshCi}
+                  refreshing={ciRefreshing}
+                />
               </div>
             </div>
 
@@ -768,6 +1032,16 @@ function PullRequestPreview({ pr, onOpenReview, onInspectDiffs, onMarkHandled, o
               })}
             </div>
 
+            {onMerge && !pr.mergedAt && (
+              <MergeBar
+                pr={pr}
+                detail={detail}
+                mergeState={mergeState}
+                mergeError={mergeError}
+                onMerge={() => { void handleMerge(); }}
+                onCancelConfirm={() => { setMergeState('idle'); setMergeError(null); }}
+              />
+            )}
             <PrCommentBox
               ref={commentBoxRef}
               pr={pr}

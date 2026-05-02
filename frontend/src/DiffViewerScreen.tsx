@@ -64,9 +64,6 @@ type Props = {
    *  when provided. GitHub rejects self-approval server-side, so we don't
    *  pre-filter here — the error is surfaced inline. */
   onApprove?: (prId: number, repo: string, number: number) => Promise<void>;
-  /** Optional merge handler. A "Merge (rebase)" button appears in the toolbar
-   *  when provided. Click once to confirm (two-step to avoid accidents). */
-  onMerge?: (prId: number, repo: string, number: number) => Promise<void>;
   /** When set, the viewer opens on this single commit's diff instead of
    *  the cumulative PR diff — used by the timeline's clickable SHA chips. */
   initialCommitSha?: string | null;
@@ -1834,7 +1831,7 @@ function FileDiff({ file, comments, draftId, draftPublished, onDraftUpdated, prI
   );
 }
 
-function DiffViewerScreen({ pr, onBack, onApprove, onMerge, initialCommitSha }: Props) {
+function DiffViewerScreen({ pr, onBack, onApprove, initialCommitSha }: Props) {
   const [files, setFiles] = useState<DiffFileDto[] | null>(null);
   const [commits, setCommits] = useState<PullRequestCommitDto[] | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -1854,8 +1851,6 @@ function DiffViewerScreen({ pr, onBack, onApprove, onMerge, initialCommitSha }: 
   const [mode, setMode] = useState<FilesMode>(loadMode);
   const [approveState, setApproveState] = useState<'idle' | 'running' | 'error'>('idle');
   const [approveError, setApproveError] = useState<string | null>(null);
-  const [mergeState, setMergeState] = useState<'idle' | 'confirming' | 'running' | 'error'>('idle');
-  const [mergeError, setMergeError] = useState<string | null>(null);
   // Files pane is collapsed by default — most reviewers focus on the
   // diff content first and only pop the file list open to navigate.
   // Once the user explicitly expands it, that choice sticks (we write
@@ -1913,25 +1908,6 @@ function DiffViewerScreen({ pr, onBack, onApprove, onMerge, initialCommitSha }: 
     } catch (e) {
       setApproveError(e instanceof Error ? e.message : String(e));
       setApproveState('error');
-    }
-  };
-
-  const handleMerge = async () => {
-    if (!onMerge) return;
-    if (mergeState === 'idle' || mergeState === 'error') {
-      setMergeState('confirming');
-      setMergeError(null);
-      return;
-    }
-    if (mergeState === 'confirming') {
-      setMergeState('running');
-      try {
-        await onMerge(pr.id, pr.repo, pr.number);
-        onBack();
-      } catch (e) {
-        setMergeError(e instanceof Error ? e.message : String(e));
-        setMergeState('error');
-      }
     }
   };
 
@@ -2209,42 +2185,9 @@ function DiffViewerScreen({ pr, onBack, onApprove, onMerge, initialCommitSha }: 
             );
           })()}
         </div>
-        {onMerge && (
-          <>
-            <button
-              className={`button ${mergeState === 'confirming' ? 'button--merge-confirm' : 'button--merge'}`}
-              type="button"
-              onClick={handleMerge}
-              disabled={mergeState === 'running'}
-              title={mergeState === 'confirming'
-                ? 'Click again to confirm — this runs a rebase merge on GitHub.'
-                : 'Merge this PR on GitHub using rebase (click once to confirm).'}
-            >
-              {mergeState === 'running'
-                ? 'Merging…'
-                : mergeState === 'confirming'
-                  ? 'Confirm rebase merge'
-                  : 'Merge (rebase)'}
-            </button>
-            {mergeState === 'confirming' && (
-              <button
-                className="button button--secondary"
-                type="button"
-                onClick={() => { setMergeState('idle'); setMergeError(null); }}
-              >
-                Cancel
-              </button>
-            )}
-          </>
-        )}
         {approveState === 'error' && approveError && (
           <span className="action-badge action-badge--error" title={approveError}>
             {approveError.length > 60 ? approveError.slice(0, 57) + '…' : approveError}
-          </span>
-        )}
-        {mergeState === 'error' && mergeError && (
-          <span className="action-badge action-badge--error" title={mergeError}>
-            {mergeError.length > 60 ? mergeError.slice(0, 57) + '…' : mergeError}
           </span>
         )}
       </div>

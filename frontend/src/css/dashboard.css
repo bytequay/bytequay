@@ -1085,6 +1085,296 @@
   text-decoration: underline;
 }
 
+/* CiSummary toggle — wraps the dot/label/count and acts as the
+   click-to-expand affordance for the failing-check list. The refresh
+   button sits next to it so the two controls share the row. */
+.ci-summary__toggle {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 13px;
+  background: transparent;
+  border: none;
+  padding: 0;
+  font-family: inherit;
+  color: inherit;
+  text-align: left;
+  cursor: pointer;
+  min-width: 0;
+}
+.ci-summary__toggle:disabled {
+  cursor: default;
+}
+.ci-summary__toggle:not(:disabled):hover .ci-summary__chevron {
+  color: var(--text-1);
+}
+
+/* CiSummary refresh button — sits on the right end of the status row.
+   Spinning state is purely visual feedback while the focus-poll fetch
+   is in flight. */
+.ci-summary__refresh {
+  margin-left: auto;
+  appearance: none;
+  background: transparent;
+  border: none;
+  color: var(--text-3);
+  cursor: pointer;
+  padding: 2px 6px;
+  border-radius: 4px;
+  font-size: 14px;
+  line-height: 1;
+}
+.ci-summary__refresh:hover:not(:disabled) {
+  background: rgba(0, 0, 0, 0.05);
+  color: var(--text-1);
+}
+.ci-summary__refresh:disabled {
+  cursor: default;
+  opacity: 0.5;
+}
+.ci-summary__refresh-icon {
+  display: inline-block;
+}
+.ci-summary__refresh-icon--spin {
+  animation: ci-refresh-spin 0.7s linear infinite;
+}
+@keyframes ci-refresh-spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+/* Merge bar — approval count + "Rebase and merge" button. Sits above the
+   PrCommentBox on the PR detail page. Green when ready, muted when not.
+   The disabled-but-visible button matches GitHub's own merge-bar
+   behaviour: hover the button to see why it's not clickable. */
+.merge-bar {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding: 8px 12px;
+  border-radius: 6px;
+  border: 1px solid var(--border);
+  background: var(--bg-elevated);
+  margin-bottom: 8px;
+}
+/* Inner row: merge button on the left, optional cancel + red CI-failing
+   pill in the middle, approver strip / disabled reason on the right. */
+.merge-bar__row {
+  display: flex;
+  align-items: center;
+  justify-content: flex-start;
+  gap: 80px;
+}
+/* Classic-mode merge card. The prc-timeline column draws a vertical rail
+   at left:80px through the marker column; align the card's left edge
+   flush on the rail so the call-to-action visually anchors to the
+   timeline. Comment-card bodies sit ~8px to the left of this position,
+   so the merge card reads as deliberately a touch narrower. The right
+   edge picks up the prc-timeline's own 22px padding-right naturally.
+   Soft blue tint distinguishes the merge action from neutral comment
+   cards without competing with the green button itself. */
+.prc-timeline > .merge-bar {
+  margin-left: 80px;
+  padding: 10px 14px;
+  border: 1px solid rgba(56, 139, 253, 0.35);
+  background: rgba(56, 139, 253, 0.08);
+  border-radius: 8px;
+}
+/* Inside the timeline the bar is already its own card — suppress the
+   default ready/blocked tints so the blue card shows through. */
+.prc-timeline > .merge-bar.merge-bar--ready,
+.prc-timeline > .merge-bar.merge-bar--blocked {
+  background: rgba(56, 139, 253, 0.08);
+  border-color: rgba(56, 139, 253, 0.35);
+}
+.merge-bar--ready {
+  border-color: rgba(46, 160, 67, 0.45);
+  background: rgba(46, 160, 67, 0.08);
+}
+.merge-bar--blocked {
+  border-color: var(--border);
+  background: var(--bg-elevated);
+}
+.merge-bar__summary {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  flex: 1;
+}
+.merge-bar__approvals {
+  font-size: 13px;
+  color: var(--text-1);
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.merge-bar__approvals-empty {
+  font-weight: 600;
+  color: var(--text-3);
+}
+/* Stack approver avatars in a tight strip — slight overlap reads as "a
+   group" rather than a list. Each avatar links to the user's GitHub
+   profile, mirroring the reviewer chips elsewhere in the UI. */
+.merge-bar__approver-strip {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.merge-bar__approver {
+  display: inline-flex;
+  border-radius: 50%;
+  text-decoration: none;
+  /* Thin halo so adjacent avatars stay visually separable on the blue
+     card without needing negative margins. */
+  box-shadow: 0 0 0 2px rgba(56, 139, 253, 0.08);
+  transition: transform 0.1s;
+}
+.merge-bar__approver:hover {
+  transform: scale(1.08);
+}
+.merge-bar__approvals-label {
+  font-weight: 600;
+  color: #1a7f37;
+  margin-left: 2px;
+}
+.merge-bar__changes {
+  color: #cf222e;
+  font-weight: 500;
+}
+.merge-bar__reason {
+  font-size: 11px;
+  color: var(--text-3);
+}
+.merge-bar__error {
+  font-size: 11px;
+  color: #cf222e;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 320px;
+}
+.merge-bar__btn {
+  appearance: none;
+  border: 1px solid #1a7f37;
+  background: #2da44e;
+  color: #fff;
+  padding: 6px 14px;
+  font-size: 13px;
+  font-weight: 600;
+  border-radius: 6px;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+.merge-bar__btn:hover:not(:disabled) {
+  background: #2c974b;
+}
+.merge-bar__btn:disabled {
+  background: #94d3a2;
+  border-color: rgba(46, 160, 67, 0.45);
+  cursor: not-allowed;
+  opacity: 0.7;
+}
+.merge-bar__cancel {
+  appearance: none;
+  border: 1px solid var(--border);
+  background: var(--bg-card);
+  color: var(--text-2);
+  padding: 6px 12px;
+  font-size: 13px;
+  border-radius: 6px;
+  cursor: pointer;
+}
+.merge-bar__cancel:hover {
+  background: var(--bg-elevated);
+}
+
+/* Red "CI failing" pill — always clickable when failures exist; expands
+   the per-check failure list below the row. Sits between the merge
+   button and the approval/summary block so it reads as a peer status
+   signal, not buried in the right-side text. */
+.merge-bar__ci-fail {
+  appearance: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 10px;
+  border-radius: 6px;
+  border: 1px solid #cf222e;
+  background: #cf222e;
+  color: #fff;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+.merge-bar__ci-fail:hover {
+  background: #b1212c;
+  border-color: #b1212c;
+}
+.merge-bar__ci-fail--open {
+  background: #b1212c;
+}
+.merge-bar__ci-fail-chevron {
+  font-size: 11px;
+  opacity: 0.85;
+}
+
+/* Per-check failure cards revealed when the red pill is expanded. Each
+   card sits below the merge row inside the same merge-bar container. */
+.merge-bar__failures {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.merge-bar__failure-card {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  border: 1px solid rgba(207, 34, 46, 0.35);
+  background: rgba(207, 34, 46, 0.06);
+  border-radius: 6px;
+  font-size: 12px;
+}
+.merge-bar__failure-icon {
+  flex-shrink: 0;
+  color: #cf222e;
+  font-weight: 700;
+}
+.merge-bar__failure-text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.merge-bar__failure-name {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, monospace;
+  color: var(--text-1);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.merge-bar__failure-reason {
+  color: #cf222e;
+  font-size: 11px;
+  text-transform: capitalize;
+}
+.merge-bar__failure-link {
+  flex-shrink: 0;
+  color: var(--accent);
+  text-decoration: none;
+  font-size: 12px;
+}
+.merge-bar__failure-link:hover {
+  text-decoration: underline;
+}
+
 /* Preview sections */
 
 .preview__section {

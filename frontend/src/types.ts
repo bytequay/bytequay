@@ -217,6 +217,20 @@ export type PullRequestDetailDto = {
   checkRuns: CheckRunDto[];
   reviewThreads: ReviewThreadDto[];
   linkedIssues: LinkedIssueDto[];
+  /** True iff the authenticated PAT has push (write) access to the PR's
+   *  repository — used to gate the merge button on the detail page so we
+   *  don't surface a control GitHub will reject. */
+  viewerCanWrite: boolean;
+};
+
+/** Lightweight CI-only slice served by /prs/ci. Polled while the detail
+ *  page is open and the window is focused so a CI flip and the merge
+ *  button's enable/disable refresh without re-running the full detail
+ *  orchestration. */
+export type PrCiSnapshotDto = {
+  ciStatus: CiStatus;
+  checkRuns: CheckRunDto[];
+  viewerCanWrite: boolean;
 };
 
 export type SyncSettingsDto = {
@@ -549,6 +563,8 @@ export type Bridge = {
   fetchHello: () => Promise<string>;
   fetchPrs: () => Promise<PullRequestDto[]>;
   fetchPullRequestDetail: (repo: string, number: number) => Promise<PullRequestDetailDto>;
+  /** Lightweight CI snapshot for the focus-driven detail-page poll. */
+  fetchPrCi: (repo: string, number: number) => Promise<PrCiSnapshotDto>;
   fetchPrDiffFiles: (repo: string, number: number) => Promise<DiffFileDto[]>;
   fetchPrCommits: (repo: string, number: number) => Promise<PullRequestCommitDto[]>;
   /** Diff scoped to a single commit (DiffFileDto[] same as fetchPrDiffFiles). */

@@ -350,7 +350,6 @@ function PullRequestList({ onGoToTeams }: Props) {
         setSidebarCollapsedPersist(false);
       }}
       onApprove={handleApprove}
-      onMerge={handleMerge}
       initialCommitSha={diffViewerCommitSha}
     />
   ) : selected ? (
@@ -368,6 +367,7 @@ function PullRequestList({ onGoToTeams }: Props) {
         setSidebarCollapsedPersist(true);
       }}
       onMarkHandled={handleMarkHandled}
+      onMerge={handleMerge}
     />
   ) : null;
 

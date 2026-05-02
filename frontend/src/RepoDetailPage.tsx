@@ -525,7 +525,6 @@ function RepoDetailPage({ owner, repo, initialPrNumber }: Props) {
             pr={diffViewerPr}
             onBack={() => { setDiffViewerPr(null); setDiffViewerCommitSha(null); }}
             onApprove={handleApprove}
-            onMerge={handleMerge}
             initialCommitSha={diffViewerCommitSha}
           />
         ) : selectedPr ? (
@@ -538,6 +537,7 @@ function RepoDetailPage({ owner, repo, initialPrNumber }: Props) {
               setDiffViewerPr(selectedPr);
             }}
             onMarkHandled={handleMarkHandled}
+            onMerge={handleMerge}
           />
         ) : deepLinkPending && initialPrNumber != null ? (
           <DeepLinkLoading owner={owner} repo={repo} number={initialPrNumber} />

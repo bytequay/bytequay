@@ -1321,6 +1321,25 @@
   opacity: 0.85;
 }
 
+/* Green "CI passed" badge — same pill shape as the failing button, but
+   non-interactive (no list to expand since the user explicitly didn't
+   want successful check names rendered). Sits in the same slot so the
+   bar's layout doesn't shift when CI flips state. */
+.merge-bar__ci-pass {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 10px;
+  border-radius: 6px;
+  border: 1px solid #1a7f37;
+  background: #2da44e;
+  color: #fff;
+  font-size: 13px;
+  font-weight: 600;
+  flex-shrink: 0;
+  cursor: default;
+}
+
 /* Per-check failure cards revealed when the red pill is expanded. Each
    card sits below the merge row inside the same merge-bar container. */
 .merge-bar__failures {

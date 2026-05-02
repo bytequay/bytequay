@@ -109,7 +109,7 @@ function MergeBar({ pr, detail, mergeState, mergeError, onMerge, onCancelConfirm
             Cancel
           </button>
         )}
-        {failingChecks.length > 0 && (
+        {failingChecks.length > 0 ? (
           <button
             type="button"
             className={`merge-bar__ci-fail${failuresOpen ? ' merge-bar__ci-fail--open' : ''}`}
@@ -123,7 +123,15 @@ function MergeBar({ pr, detail, mergeState, mergeError, onMerge, onCancelConfirm
             <span>CI failing{failingChecks.length > 1 ? ` (${failingChecks.length})` : ''}</span>
             <span className="merge-bar__ci-fail-chevron" aria-hidden="true">{failuresOpen ? '▾' : '▸'}</span>
           </button>
-        )}
+        ) : detail.ciStatus === 'PASSING' ? (
+          <span
+            className="merge-bar__ci-pass"
+            title={`All ${detail.checkRuns.length} check${detail.checkRuns.length === 1 ? '' : 's'} passing`}
+          >
+            <span aria-hidden="true">✓</span>
+            <span>CI passed</span>
+          </span>
+        ) : null}
         <div className="merge-bar__summary">
           <div className="merge-bar__approvals">
             {approverLogins.length === 0 ? (

@@ -1286,8 +1286,43 @@
   border-radius: 6px;
   cursor: pointer;
 }
-.merge-bar__cancel:hover {
+.merge-bar__cancel:hover:not(:disabled) {
   background: var(--bg-elevated);
+}
+.merge-bar__cancel:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+
+/* "Confirm merge?" dialog. Reuses .modal-overlay/.modal scaffolding from
+   modals.css; adds a narrower width and a bottom action bar so Yes/No
+   sit side-by-side under the PR title line. */
+.merge-confirm {
+  width: 380px;
+  max-width: 90vw;
+}
+.merge-confirm__body {
+  padding: 4px 18px 12px;
+  font-size: 13px;
+  color: var(--text-1);
+}
+.merge-confirm__body p {
+  margin: 0 0 6px;
+}
+.merge-confirm__sub {
+  color: var(--text-3);
+  font-size: 12px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+}
+.merge-confirm__actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  padding: 10px 18px 16px;
 }
 
 /* Red "CI failing" pill — always clickable when failures exist; expands

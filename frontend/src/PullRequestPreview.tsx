@@ -38,21 +38,22 @@ const SIDE_WIDTH_DEFAULT = 260;
 type MergeBarProps = {
   pr: PullRequestDto;
   detail: PullRequestDetailDto;
-  mergeState: 'idle' | 'confirming' | 'running' | 'error';
+  mergeState: 'idle' | 'running' | 'error';
   mergeError: string | null;
   onMerge: () => void;
-  onCancelConfirm: () => void;
 };
 
 /** Approval-count + "Rebase and merge" bar that sits above the comment
  *  box on the PR detail page. The button is intentionally always
  *  visible-but-greyed when the PR isn't ready — hover the disabled
  *  button to read why. Mirrors the merge-bar GitHub puts on its
- *  Conversation page. */
-function MergeBar({ pr, detail, mergeState, mergeError, onMerge, onCancelConfirm }: MergeBarProps) {
+ *  Conversation page. Clicking the button opens a confirm dialog —
+ *  Yes fires the merge, No closes the dialog with no side effects. */
+function MergeBar({ pr, detail, mergeState, mergeError, onMerge }: MergeBarProps) {
   // Failing-check list is folded by default — the red "CI failing"
   // pill in the middle of the bar is the affordance to expand it.
   const [failuresOpen, setFailuresOpen] = useState(false);
+  const [confirmOpen, setConfirmOpen] = useState(false);
   const failingChecks = detail.checkRuns.filter(c => isCheckFailing(c.conclusion));
   const ciPassing = detail.ciStatus === 'PASSING' || detail.ciStatus === 'NONE';
   const ciPending = detail.ciStatus === 'PENDING';
@@ -92,23 +93,14 @@ function MergeBar({ pr, detail, mergeState, mergeError, onMerge, onCancelConfirm
         <button
           type="button"
           className="merge-bar__btn"
-          onClick={onMerge}
+          onClick={() => setConfirmOpen(true)}
           disabled={!enabled}
           title={enabled
-            ? (mergeState === 'confirming' ? 'Click again to confirm' : 'Rebase and merge this PR on GitHub')
+            ? 'Rebase and merge this PR on GitHub'
             : (disabledReason ?? 'Not ready to merge')}
         >
-          {mergeState === 'running'
-            ? 'Merging…'
-            : mergeState === 'confirming'
-              ? 'Confirm rebase merge'
-              : 'Rebase and merge'}
+          {mergeState === 'running' ? 'Merging…' : 'Rebase and merge'}
         </button>
-        {mergeState === 'confirming' && (
-          <button type="button" className="merge-bar__cancel" onClick={onCancelConfirm}>
-            Cancel
-          </button>
-        )}
         {failingChecks.length > 0 ? (
           <button
             type="button"
@@ -190,6 +182,53 @@ function MergeBar({ pr, detail, mergeState, mergeError, onMerge, onCancelConfirm
           })}
         </ul>
       )}
+      {confirmOpen && (
+        <div
+          className="modal-overlay"
+          role="presentation"
+          onClick={(e) => {
+            // Click on the backdrop (not bubbled from inside the modal) ⇒ cancel.
+            if (e.target === e.currentTarget && mergeState !== 'running') {
+              setConfirmOpen(false);
+            }
+          }}
+        >
+          <div className="modal merge-confirm" role="dialog" aria-modal="true" aria-labelledby="merge-confirm-title">
+            <div className="modal__header">
+              <h3 className="modal__title" id="merge-confirm-title">Confirm merge?</h3>
+            </div>
+            <div className="merge-confirm__body">
+              <p>
+                Rebase and merge <b>{pr.repo}#{pr.number}</b> on GitHub?
+              </p>
+              <p className="merge-confirm__sub">{pr.title}</p>
+            </div>
+            <div className="merge-confirm__actions">
+              <button
+                type="button"
+                className="merge-bar__cancel"
+                onClick={() => setConfirmOpen(false)}
+                disabled={mergeState === 'running'}
+              >
+                No
+              </button>
+              <button
+                type="button"
+                className="merge-bar__btn"
+                onClick={() => {
+                  // Fire the merge then close the dialog. The parent's
+                  // handleMerge surfaces errors via mergeError below.
+                  onMerge();
+                  setConfirmOpen(false);
+                }}
+                disabled={mergeState === 'running'}
+              >
+                {mergeState === 'running' ? 'Merging…' : 'Yes, merge'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -253,7 +292,7 @@ function PullRequestPreview({ pr, onOpenReview, onInspectDiffs, onMarkHandled, o
   // Merge bar state. `confirming` is the two-click safety net (one click
   // arms, second click actually merges) so a stray pointer doesn't ship
   // an unintended PR. `error` carries GitHub's reason if the call fails.
-  const [mergeState, setMergeState] = useState<'idle' | 'confirming' | 'running' | 'error'>('idle');
+  const [mergeState, setMergeState] = useState<'idle' | 'running' | 'error'>('idle');
   const [mergeError, setMergeError] = useState<string | null>(null);
   // Manual-refresh / focus-poll spinner state for the CI summary.
   const [ciRefreshing, setCiRefreshing] = useState(false);
@@ -408,26 +447,20 @@ function PullRequestPreview({ pr, onOpenReview, onInspectDiffs, onMarkHandled, o
 
   const handleMerge = async () => {
     if (!onMerge || mergeState === 'running') return;
-    if (mergeState === 'idle' || mergeState === 'error') {
-      setMergeState('confirming');
-      setMergeError(null);
-      return;
+    setMergeState('running');
+    setMergeError(null);
+    try {
+      await onMerge(pr.id, pr.repo, pr.number);
+      // Drop the cached detail and refetch so the merged status, timeline
+      // event, and disabled merge button all update in one pass.
+      const fresh = await window.bridge.fetchPullRequestDetail(pr.repo, pr.number);
+      putCache(pr.id, fresh);
+      setDetail(fresh);
+      setMergeState('idle');
     }
-    if (mergeState === 'confirming') {
-      setMergeState('running');
-      try {
-        await onMerge(pr.id, pr.repo, pr.number);
-        // Drop the cached detail and refetch so the merged status, timeline
-        // event, and disabled merge button all update in one pass.
-        const fresh = await window.bridge.fetchPullRequestDetail(pr.repo, pr.number);
-        putCache(pr.id, fresh);
-        setDetail(fresh);
-        setMergeState('idle');
-      }
-      catch (e) {
-        setMergeError(e instanceof Error ? e.message : String(e));
-        setMergeState('error');
-      }
+    catch (e) {
+      setMergeError(e instanceof Error ? e.message : String(e));
+      setMergeState('error');
     }
   };
 
@@ -601,7 +634,6 @@ function PullRequestPreview({ pr, onOpenReview, onInspectDiffs, onMarkHandled, o
                     mergeState={mergeState}
                     mergeError={mergeError}
                     onMerge={() => { void handleMerge(); }}
-                    onCancelConfirm={() => { setMergeState('idle'); setMergeError(null); }}
                   />
                 )}
                 <PrCommentBox
@@ -1047,7 +1079,6 @@ function PullRequestPreview({ pr, onOpenReview, onInspectDiffs, onMarkHandled, o
                 mergeState={mergeState}
                 mergeError={mergeError}
                 onMerge={() => { void handleMerge(); }}
-                onCancelConfirm={() => { setMergeState('idle'); setMergeError(null); }}
               />
             )}
             <PrCommentBox

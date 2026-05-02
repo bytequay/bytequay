@@ -30,6 +30,7 @@ import org.springframework.web.client.RestClient;
 import org.springframework.web.client.RestClientResponseException;
 
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 
@@ -240,7 +241,7 @@ public class DeepSeekReviewer
         if (raw == null) {
             return "suggestion";
         }
-        String lower = raw.toLowerCase();
+        String lower = raw.toLowerCase(Locale.ROOT);
         return switch (lower) {
             case "info", "suggestion", "warning", "blocker" -> lower;
             default -> "suggestion";

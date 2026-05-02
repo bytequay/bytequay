@@ -29,6 +29,7 @@ import com.bytequay.app.repository.PrDetailStore;
 import com.bytequay.app.repository.PrViewStateStore;
 import com.bytequay.app.repository.PullRequestRepository;
 import com.bytequay.app.repository.PullRequestStore;
+import com.bytequay.app.service.CredentialService;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 import org.junit.jupiter.api.Test;
@@ -78,9 +79,12 @@ class TestPullRequestService
     @Mock
     private AppSettingsStore settingsStore;
 
+    // Consumed by @InjectMocks via reflection — Error Prone can't see the use.
+    @SuppressWarnings("UnusedVariable")
     @Mock
-    private com.bytequay.app.service.CredentialService credentialService;
+    private CredentialService credentialService;
 
+    @SuppressWarnings("UnusedVariable")
     @Mock
     private Executor executor;
 

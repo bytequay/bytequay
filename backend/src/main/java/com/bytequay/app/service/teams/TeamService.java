@@ -42,6 +42,7 @@ import java.util.ArrayList;
 import java.util.EnumMap;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
@@ -123,7 +124,7 @@ public class TeamService
                 .map(t -> {
                     Set<String> members = t.members();
                     int inbox = (int) inboxPrs.stream()
-                            .filter(p -> p.author() != null && members.contains(p.author().toLowerCase()))
+                            .filter(p -> p.author() != null && members.contains(p.author().toLowerCase(Locale.ROOT)))
                             .count();
                     return new TeamSummary(t.id(), t.name(), t.avatar(), t.color(), members.size(), inbox);
                 })
@@ -302,7 +303,7 @@ public class TeamService
         // LinkedHashMap preserves the order PRs are encountered, which —
         // since the columns iterate in their declared order — gives the
         // user a stable ordering even after pagination.
-        Map<String, Integer> repoTotals = new java.util.LinkedHashMap<>();
+        Map<String, Integer> repoTotals = new LinkedHashMap<>();
         for (Map.Entry<MyPrColumn, List<PullRequest>> e : grouped.entrySet()) {
             List<PullRequest> col = e.getValue();
             firstPage.put(e.getKey(), col.subList(0, Math.min(perColumn, col.size())));

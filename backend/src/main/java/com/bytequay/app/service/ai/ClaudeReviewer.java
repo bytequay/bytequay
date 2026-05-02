@@ -40,6 +40,7 @@ import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.function.Consumer;
@@ -349,7 +350,7 @@ public class ClaudeReviewer
         if (raw == null) {
             return "suggestion";
         }
-        String lower = raw.toLowerCase();
+        String lower = raw.toLowerCase(Locale.ROOT);
         return switch (lower) {
             case "info", "suggestion", "warning", "blocker" -> lower;
             default -> "suggestion";

@@ -16,6 +16,7 @@ package com.bytequay.app.repository;
 import com.bytequay.app.domain.CreatePullRequestCommand;
 import com.bytequay.app.domain.CreateReviewCommand;
 import com.bytequay.app.domain.DiffFile;
+import com.bytequay.app.domain.GitHubUserMatch;
 import com.bytequay.app.domain.ListPullRequestsQuery;
 import com.bytequay.app.domain.MergePullRequestCommand;
 import com.bytequay.app.domain.MergeResult;
@@ -34,11 +35,13 @@ import com.bytequay.app.domain.RepoIssue;
 import com.bytequay.app.domain.RepoRef;
 import com.bytequay.app.domain.RequestReviewersCommand;
 import com.bytequay.app.domain.RequestedReviewers;
+import com.bytequay.app.domain.SuggestedReviewer;
 import com.bytequay.app.domain.UpdatePullRequestCommand;
 import com.bytequay.app.domain.UserOrg;
 import com.bytequay.app.domain.UserProfile;
 import com.bytequay.app.domain.UserRepo;
 
+import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 
@@ -163,7 +166,7 @@ public interface PullRequestRepository
      * single GET-and-empty-response per cycle.
      * Maps to: GET /repos/{owner}/{repo}/issues/{number}/timeline
      */
-    default List<PrTimelineEvent> fetchPrTimeline(String pat, PullRequestRef pr, java.time.Instant since)
+    default List<PrTimelineEvent> fetchPrTimeline(String pat, PullRequestRef pr, Instant since)
     {
         throw new UnsupportedOperationException("fetchPrTimeline not implemented");
     }
@@ -173,7 +176,7 @@ public interface PullRequestRepository
      * to the same root id. Powers the Conversation panel's threaded view.
      * Maps to: GET /repos/{owner}/{repo}/pulls/{number}/comments
      */
-    default List<PrReviewThreadMessage> fetchPrReviewComments(String pat, PullRequestRef pr, java.time.Instant since)
+    default List<PrReviewThreadMessage> fetchPrReviewComments(String pat, PullRequestRef pr, Instant since)
     {
         throw new UnsupportedOperationException("fetchPrReviewComments not implemented");
     }
@@ -187,7 +190,7 @@ public interface PullRequestRepository
      * /comments endpoint always returns the full body.
      * Maps to: GET /repos/{owner}/{repo}/issues/{number}/comments
      */
-    default List<PrTimelineEvent> fetchPrIssueComments(String pat, PullRequestRef pr, java.time.Instant since)
+    default List<PrTimelineEvent> fetchPrIssueComments(String pat, PullRequestRef pr, Instant since)
     {
         throw new UnsupportedOperationException("fetchPrIssueComments not implemented");
     }
@@ -350,9 +353,9 @@ public interface PullRequestRepository
      * GraphQL errors so callers don't have to special-case auth/network
      * failures for what is a non-essential affordance.
      */
-    default List<com.bytequay.app.domain.SuggestedReviewer> fetchSuggestedReviewers(String pat, PullRequestRef pr)
+    default List<SuggestedReviewer> fetchSuggestedReviewers(String pat, PullRequestRef pr)
     {
-        return java.util.List.of();
+        return List.of();
     }
 
     /**
@@ -494,7 +497,7 @@ public interface PullRequestRepository
      * autocomplete so members can be picked instead of hand-typed.
      * Maps to: GET /search/users?q={query}+in:login&type:user
      */
-    default List<com.bytequay.app.domain.GitHubUserMatch> searchUsers(String pat, String query)
+    default List<GitHubUserMatch> searchUsers(String pat, String query)
     {
         throw new UnsupportedOperationException("searchUsers not implemented");
     }

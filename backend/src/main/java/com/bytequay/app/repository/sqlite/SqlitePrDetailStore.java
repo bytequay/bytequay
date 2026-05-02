@@ -27,6 +27,7 @@ import org.springframework.stereotype.Repository;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Optional;
 import java.util.Set;
@@ -68,7 +69,7 @@ public class SqlitePrDetailStore
     }
 
     @Override
-    public Optional<java.time.Instant> findSyncedAt(String repo, int number)
+    public Optional<Instant> findSyncedAt(String repo, int number)
     {
         return pullRequestRepo.findIdByRepoAndNumber(repo, number)
                 .flatMap(detailRepo::findSyncedAtByPrId);
@@ -205,7 +206,7 @@ public class SqlitePrDetailStore
         // entire detail save and the renderer hangs waiting for a
         // response that never comes.
         reviewCommentRepo.deleteByPrId(prId);
-        Set<Long> seenGithubIds = new java.util.HashSet<>();
+        Set<Long> seenGithubIds = new HashSet<>();
         reviewCommentRepo.saveAll(detail.reviewComments().stream()
                 .filter(m -> seenGithubIds.add(m.githubId()))
                 .map(m -> toReviewComment(prId, m))
@@ -264,17 +265,17 @@ public class SqlitePrDetailStore
 
         // 2. Append-only for timeline events. Read existing github_ids,
         //    filter the fresh list to genuinely-new rows, insert.
-        java.util.Set<Long> existingTimelineIds =
-                new java.util.HashSet<>(timelineRepo.findGithubIdsByPrId(prId));
+        Set<Long> existingTimelineIds =
+                new HashSet<>(timelineRepo.findGithubIdsByPrId(prId));
         timelineRepo.saveAll(detail.timeline().stream()
                 .filter(t -> t.githubId() == null || !existingTimelineIds.contains(t.githubId()))
                 .map(t -> toTimeline(prId, t))
                 .collect(toImmutableList()));
 
         // 3. Append-only for review-thread messages.
-        java.util.Set<Long> existingThreadIds =
-                new java.util.HashSet<>(reviewCommentRepo.findGithubIdsByPrId(prId));
-        java.util.Set<Long> seenInBatch = new java.util.HashSet<>();
+        Set<Long> existingThreadIds =
+                new HashSet<>(reviewCommentRepo.findGithubIdsByPrId(prId));
+        Set<Long> seenInBatch = new HashSet<>();
         reviewCommentRepo.saveAll(detail.reviewComments().stream()
                 .filter(m -> seenInBatch.add(m.githubId()))
                 .filter(m -> !existingThreadIds.contains(m.githubId()))

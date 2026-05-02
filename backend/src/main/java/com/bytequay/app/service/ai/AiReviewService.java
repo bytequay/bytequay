@@ -31,6 +31,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.util.List;
+import java.util.Locale;
 import java.util.Optional;
 import java.util.function.Consumer;
 import java.util.function.Function;
@@ -376,7 +377,7 @@ public class AiReviewService
         if (event == null) {
             return "COMMENT";
         }
-        String upper = event.toUpperCase();
+        String upper = event.toUpperCase(Locale.ROOT);
         return switch (upper) {
             case "APPROVE", "REQUEST_CHANGES", "COMMENT" -> upper;
             default -> "COMMENT";

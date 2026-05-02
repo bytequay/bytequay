@@ -19,8 +19,10 @@ import com.bytequay.app.domain.MergeResult;
 import com.bytequay.app.domain.PullRequest;
 import com.bytequay.app.domain.PullRequestCommit;
 import com.bytequay.app.domain.PullRequestDetail;
+import com.bytequay.app.domain.SuggestedReviewer;
 import com.bytequay.app.service.pr.PullRequestService;
 import com.google.common.collect.ImmutableMap;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -216,7 +218,7 @@ public class PullRequestController
      * Removes a requested reviewer from the PR.
      * DELETE /prs/reviewers?repo=&number=&reviewer=
      */
-    @org.springframework.web.bind.annotation.DeleteMapping("/prs/reviewers")
+    @DeleteMapping("/prs/reviewers")
     public Map<String, String> removeReviewer(
             @RequestParam("repo") String repo,
             @RequestParam("number") int number,
@@ -234,7 +236,7 @@ public class PullRequestController
      * GET /prs/reviewers/suggested?repo=&number=
      */
     @GetMapping("/prs/reviewers/suggested")
-    public List<com.bytequay.app.domain.SuggestedReviewer> suggestedReviewers(
+    public List<SuggestedReviewer> suggestedReviewers(
             @RequestParam("repo") String repo,
             @RequestParam("number") int number)
     {
@@ -262,7 +264,7 @@ public class PullRequestController
     public Map<String, String> createInlineReviewComment(
             @RequestParam("repo") String repo,
             @RequestParam("number") int number,
-            @org.springframework.web.bind.annotation.RequestBody InlineCommentRequest req)
+            @RequestBody InlineCommentRequest req)
     {
         String pat = patResolver.resolve(repo);
         pullRequestService.createInlineReviewComment(
@@ -281,8 +283,8 @@ public class PullRequestController
     @PostMapping("/prs/review-comments/{commentId}/reactions")
     public Map<String, String> addReviewCommentReaction(
             @RequestParam("repo") String repo,
-            @org.springframework.web.bind.annotation.PathVariable long commentId,
-            @org.springframework.web.bind.annotation.RequestBody AddReactionRequest req)
+            @PathVariable long commentId,
+            @RequestBody AddReactionRequest req)
     {
         String pat = patResolver.resolve(repo);
         pullRequestService.addReviewCommentReaction(pat, repo, commentId, req.content());
@@ -296,8 +298,8 @@ public class PullRequestController
     @PostMapping("/prs/issue-comments/{commentId}/reactions")
     public Map<String, String> addIssueCommentReaction(
             @RequestParam("repo") String repo,
-            @org.springframework.web.bind.annotation.PathVariable long commentId,
-            @org.springframework.web.bind.annotation.RequestBody AddReactionRequest req)
+            @PathVariable long commentId,
+            @RequestBody AddReactionRequest req)
     {
         String pat = patResolver.resolve(repo);
         pullRequestService.addIssueCommentReaction(pat, repo, commentId, req.content());
@@ -317,8 +319,8 @@ public class PullRequestController
     public Map<String, String> setReviewThreadResolved(
             @RequestParam("repo") String repo,
             @RequestParam("prId") long prId,
-            @org.springframework.web.bind.annotation.PathVariable long rootId,
-            @org.springframework.web.bind.annotation.RequestBody SetThreadResolvedRequest req)
+            @PathVariable long rootId,
+            @RequestBody SetThreadResolvedRequest req)
     {
         String pat = patResolver.resolve(repo);
         pullRequestService.setReviewThreadResolved(pat, prId, rootId, req.resolved());

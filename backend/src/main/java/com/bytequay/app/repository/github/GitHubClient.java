@@ -15,6 +15,7 @@ package com.bytequay.app.repository.github;
 
 import com.bytequay.app.domain.CreateReviewCommand;
 import com.bytequay.app.domain.DiffFile;
+import com.bytequay.app.domain.GitHubUserMatch;
 import com.bytequay.app.domain.ListPullRequestsQuery;
 import com.bytequay.app.domain.MergePullRequestCommand;
 import com.bytequay.app.domain.MergeResult;
@@ -33,16 +34,20 @@ import com.bytequay.app.domain.RecentEvent;
 import com.bytequay.app.domain.RepoIssue;
 import com.bytequay.app.domain.RepoRef;
 import com.bytequay.app.domain.RequestReviewersCommand;
+import com.bytequay.app.domain.SuggestedReviewer;
 import com.bytequay.app.domain.UpdatePullRequestCommand;
 import com.bytequay.app.domain.UserOrg;
 import com.bytequay.app.domain.UserProfile;
 import com.bytequay.app.domain.UserRepo;
 import com.bytequay.app.repository.PullRequestRepository;
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.core.ParameterizedTypeReference;
+import org.springframework.http.HttpMethod;
 import org.springframework.http.HttpStatusCode;
 import org.springframework.http.MediaType;
 import org.springframework.stereotype.Component;
@@ -51,10 +56,16 @@ import org.springframework.web.client.RestClientResponseException;
 import org.springframework.web.server.ResponseStatusException;
 import org.springframework.web.util.UriBuilder;
 
+import java.net.URI;
+import java.nio.charset.StandardCharsets;
 import java.time.Instant;
+import java.util.Base64;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
+import java.util.function.Function;
 
 import static com.bytequay.app.domain.PullRequest.Origin.AUTHORED;
 import static com.bytequay.app.domain.PullRequest.Origin.REVIEW_REQUESTED;
@@ -74,7 +85,7 @@ public class GitHubClient
 
     public GitHubClient(
             RestClient gitHubRestClient,
-            @org.springframework.beans.factory.annotation.Qualifier("gitHubGraphQLRestClient")
+            @Qualifier("gitHubGraphQLRestClient")
                     RestClient gitHubGraphQLRestClient)
     {
         this.gitHubRestClient = requireNonNull(gitHubRestClient, "gitHubRestClient is null");
@@ -281,8 +292,8 @@ public class GitHubClient
             // strip them before decoding so we don't choke MimeDecoder-style
             // strict implementations.
             String cleaned = encoded.replace("\n", "").replace("\r", "");
-            byte[] decoded = java.util.Base64.getDecoder().decode(cleaned);
-            String text = new String(decoded, java.nio.charset.StandardCharsets.UTF_8);
+            byte[] decoded = Base64.getDecoder().decode(cleaned);
+            String text = new String(decoded, StandardCharsets.UTF_8);
             // Use -1 limit so trailing empty strings (when file ends with \n)
             // are preserved — caller wants exact line count.
             String[] lines = text.split("\n", -1);
@@ -374,7 +385,7 @@ public class GitHubClient
     }
 
     @Override
-    public List<PrTimelineEvent> fetchPrTimeline(String pat, PullRequestRef pr, java.time.Instant since)
+    public List<PrTimelineEvent> fetchPrTimeline(String pat, PullRequestRef pr, Instant since)
     {
         // GitHub returns timeline events oldest-first, capped at per_page=100
         // per request. Long-lived PRs blow past 100 events easily (force
@@ -411,18 +422,9 @@ public class GitHubClient
     private <T> List<T> paginate(
             String pat,
             String pathTemplate,
-            java.util.function.Function<UriBuilder, java.net.URI> uriResolver,
-            ParameterizedTypeReference<List<T>> typeRef)
-    {
-        return paginate(pat, pathTemplate, uriResolver, typeRef, null);
-    }
-
-    private <T> List<T> paginate(
-            String pat,
-            String pathTemplate,
-            java.util.function.Function<UriBuilder, java.net.URI> uriResolver,
+            Function<UriBuilder, URI> uriResolver,
             ParameterizedTypeReference<List<T>> typeRef,
-            java.time.Instant since)
+            Instant since)
     {
         // Defensive: guard against the edge case where GitHub returns the
         // same id on adjacent pages (e.g. when a comment is being created
@@ -435,7 +437,7 @@ public class GitHubClient
         // query param — most list endpoints support it and return only
         // rows updated after that ISO-8601 timestamp. Empty result on
         // page 1 means "nothing changed" — incremental-sync's hot path.
-        java.util.Set<T> seen = new java.util.LinkedHashSet<>();
+        Set<T> seen = new LinkedHashSet<>();
         for (int page = 1; page <= MAX_PAGES; page++) {
             final int currentPage = page;
             try {
@@ -475,7 +477,7 @@ public class GitHubClient
     }
 
     @Override
-    public List<PrTimelineEvent> fetchPrIssueComments(String pat, PullRequestRef pr, java.time.Instant since)
+    public List<PrTimelineEvent> fetchPrIssueComments(String pat, PullRequestRef pr, Instant since)
     {
         return paginate(pat, "/repos/{owner}/{repo}/issues/{number}/comments",
                 u -> u.build(pr.owner(), pr.repo(), pr.number()),
@@ -509,7 +511,7 @@ public class GitHubClient
     }
 
     @Override
-    public List<PrReviewThreadMessage> fetchPrReviewComments(String pat, PullRequestRef pr, java.time.Instant since)
+    public List<PrReviewThreadMessage> fetchPrReviewComments(String pat, PullRequestRef pr, Instant since)
     {
         return paginate(pat, "/repos/{owner}/{repo}/pulls/{number}/comments",
                 u -> u.build(pr.owner(), pr.repo(), pr.number()),
@@ -819,7 +821,7 @@ public class GitHubClient
         payload.put("reviewers", Optional.ofNullable(command.reviewers()).orElse(ImmutableList.of()));
         payload.put("team_reviewers", Optional.ofNullable(command.teamReviewers()).orElse(ImmutableList.of()));
         try {
-            gitHubRestClient.method(org.springframework.http.HttpMethod.DELETE)
+            gitHubRestClient.method(HttpMethod.DELETE)
                     .uri("/repos/{owner}/{repo}/pulls/{number}/requested_reviewers",
                             pr.owner(), pr.repo(), pr.number())
                     .header("Authorization", "Bearer " + pat)
@@ -1045,32 +1047,32 @@ public class GitHubClient
     // GraphQL response DTOs. Loose — the query above is small enough
     // that hand-rolled records are simpler than a generic walker.
 
-    @com.fasterxml.jackson.annotation.JsonIgnoreProperties(ignoreUnknown = true)
+    @JsonIgnoreProperties(ignoreUnknown = true)
     record ReviewThreadGqlResponse(GqlData data) {}
 
-    @com.fasterxml.jackson.annotation.JsonIgnoreProperties(ignoreUnknown = true)
+    @JsonIgnoreProperties(ignoreUnknown = true)
     record GqlData(GqlRepo repository) {}
 
-    @com.fasterxml.jackson.annotation.JsonIgnoreProperties(ignoreUnknown = true)
+    @JsonIgnoreProperties(ignoreUnknown = true)
     record GqlRepo(GqlPr pullRequest) {}
 
-    @com.fasterxml.jackson.annotation.JsonIgnoreProperties(ignoreUnknown = true)
+    @JsonIgnoreProperties(ignoreUnknown = true)
     record GqlPr(GqlReviewThreads reviewThreads) {}
 
-    @com.fasterxml.jackson.annotation.JsonIgnoreProperties(ignoreUnknown = true)
+    @JsonIgnoreProperties(ignoreUnknown = true)
     record GqlReviewThreads(List<GqlThread> nodes) {}
 
-    @com.fasterxml.jackson.annotation.JsonIgnoreProperties(ignoreUnknown = true)
+    @JsonIgnoreProperties(ignoreUnknown = true)
     record GqlThread(String id, Boolean isResolved, GqlComments comments) {}
 
-    @com.fasterxml.jackson.annotation.JsonIgnoreProperties(ignoreUnknown = true)
+    @JsonIgnoreProperties(ignoreUnknown = true)
     record GqlComments(List<GqlCommentNode> nodes) {}
 
-    @com.fasterxml.jackson.annotation.JsonIgnoreProperties(ignoreUnknown = true)
+    @JsonIgnoreProperties(ignoreUnknown = true)
     record GqlCommentNode(Long databaseId) {}
 
     @Override
-    public List<com.bytequay.app.domain.SuggestedReviewer> fetchSuggestedReviewers(String pat, PullRequestRef pr)
+    public List<SuggestedReviewer> fetchSuggestedReviewers(String pat, PullRequestRef pr)
     {
         // GitHub caps suggestedReviewers at 5 today; first(10) is generous
         // headroom in case that ever changes. avatarUrl(size:40) keeps the
@@ -1110,7 +1112,7 @@ public class GitHubClient
             }
             return nodes.stream()
                     .filter(n -> n.reviewer() != null && n.reviewer().login() != null)
-                    .map(n -> new com.bytequay.app.domain.SuggestedReviewer(
+                    .map(n -> new SuggestedReviewer(
                             n.reviewer().login(),
                             n.reviewer().avatarUrl(),
                             n.reviewer().name(),
@@ -1125,22 +1127,22 @@ public class GitHubClient
         }
     }
 
-    @com.fasterxml.jackson.annotation.JsonIgnoreProperties(ignoreUnknown = true)
+    @JsonIgnoreProperties(ignoreUnknown = true)
     record SuggestedReviewersGqlResponse(SuggestedData data) {}
 
-    @com.fasterxml.jackson.annotation.JsonIgnoreProperties(ignoreUnknown = true)
+    @JsonIgnoreProperties(ignoreUnknown = true)
     record SuggestedData(SuggestedRepo repository) {}
 
-    @com.fasterxml.jackson.annotation.JsonIgnoreProperties(ignoreUnknown = true)
+    @JsonIgnoreProperties(ignoreUnknown = true)
     record SuggestedRepo(SuggestedPr pullRequest) {}
 
-    @com.fasterxml.jackson.annotation.JsonIgnoreProperties(ignoreUnknown = true)
+    @JsonIgnoreProperties(ignoreUnknown = true)
     record SuggestedPr(List<GqlSuggestedReviewer> suggestedReviewers) {}
 
-    @com.fasterxml.jackson.annotation.JsonIgnoreProperties(ignoreUnknown = true)
+    @JsonIgnoreProperties(ignoreUnknown = true)
     record GqlSuggestedReviewer(Boolean isAuthor, Boolean isCommenter, GqlActor reviewer) {}
 
-    @com.fasterxml.jackson.annotation.JsonIgnoreProperties(ignoreUnknown = true)
+    @JsonIgnoreProperties(ignoreUnknown = true)
     record GqlActor(String login, String name, String avatarUrl) {}
 
     @Override
@@ -1458,7 +1460,7 @@ public class GitHubClient
     }
 
     @Override
-    public List<com.bytequay.app.domain.GitHubUserMatch> searchUsers(String pat, String query)
+    public List<GitHubUserMatch> searchUsers(String pat, String query)
     {
         // `in:login` scopes the match to the login text rather than name /
         // bio / email; `type:user` filters out organisations so the team
@@ -1483,7 +1485,7 @@ public class GitHubClient
                     // them (the qualifier above usually filters but isn't
                     // 100% — defence in depth).
                     .filter(i -> !"Organization".equalsIgnoreCase(i.type()))
-                    .map(i -> new com.bytequay.app.domain.GitHubUserMatch(i.login(), i.avatarUrl(), null))
+                    .map(i -> new GitHubUserMatch(i.login(), i.avatarUrl(), null))
                     .collect(toImmutableList());
         }
         catch (RestClientResponseException e) {

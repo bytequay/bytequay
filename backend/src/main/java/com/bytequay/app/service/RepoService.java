@@ -13,6 +13,7 @@
  */
 package com.bytequay.app.service;
 
+import com.bytequay.app.domain.GitHubUserMatch;
 import com.bytequay.app.domain.ListPullRequestsQuery;
 import com.bytequay.app.domain.PrViewState;
 import com.bytequay.app.domain.PullRequest;
@@ -34,6 +35,7 @@ import java.time.Duration;
 import java.time.Instant;
 import java.time.ZoneOffset;
 import java.time.ZonedDateTime;
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 
@@ -183,12 +185,12 @@ public class RepoService
         return gitHub.searchRepositories(pat, query);
     }
 
-    public List<com.bytequay.app.domain.GitHubUserMatch> searchUsers(String pat, String query)
+    public List<GitHubUserMatch> searchUsers(String pat, String query)
     {
         if (query == null || query.trim().length() < 2) {
             // GitHub returns 422 for short queries; short-circuit with an
             // empty list so the autocomplete doesn't error on "a" / "ab".
-            return java.util.Collections.emptyList();
+            return Collections.emptyList();
         }
         return gitHub.searchUsers(pat, query.trim());
     }

@@ -77,7 +77,7 @@ public class WebConfig
                 .defaultHeader("Content-Type", "application/json")
                 .defaultHeader("anthropic-version", ANTHROPIC_VERSION)
                 .defaultHeader("User-Agent", USER_AGENT)
-                .requestFactory(newTimeoutRequestFactory(CONNECT_TIMEOUT, Duration.ofSeconds(120)))
+                .requestFactory(newTimeoutRequestFactory(CONNECT_TIMEOUT, Duration.ofMinutes(2)))
                 .build();
     }
 
@@ -91,7 +91,7 @@ public class WebConfig
                 .baseUrl(DEEPSEEK_API_BASE_URL)
                 .defaultHeader("Content-Type", "application/json")
                 .defaultHeader("User-Agent", USER_AGENT)
-                .requestFactory(newTimeoutRequestFactory(CONNECT_TIMEOUT, Duration.ofSeconds(120)))
+                .requestFactory(newTimeoutRequestFactory(CONNECT_TIMEOUT, Duration.ofMinutes(2)))
                 .build();
     }
 
@@ -123,7 +123,7 @@ public class WebConfig
                 .baseUrl(OPENAI_API_BASE_URL)
                 .defaultHeader("Content-Type", "application/json")
                 .defaultHeader("User-Agent", USER_AGENT)
-                .requestFactory(newTimeoutRequestFactory(CONNECT_TIMEOUT, Duration.ofSeconds(120)))
+                .requestFactory(newTimeoutRequestFactory(CONNECT_TIMEOUT, Duration.ofMinutes(2)))
                 .build();
     }
 

@@ -21,6 +21,7 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.util.List;
+import java.util.Locale;
 import java.util.Optional;
 import java.util.Set;
 
@@ -125,7 +126,7 @@ public class SqliteTeamStore
         // but case-folded duplicates ("Alice" vs "alice") still need filtering.
         members.stream()
                 .filter(m -> m != null && !m.isBlank())
-                .map(m -> m.trim().toLowerCase())
+                .map(m -> m.trim().toLowerCase(Locale.ROOT))
                 .distinct()
                 .forEach(login -> memberRepo.save(new TeamMemberEntity(teamId, login)));
     }

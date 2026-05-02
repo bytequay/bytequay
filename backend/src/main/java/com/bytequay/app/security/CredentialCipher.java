@@ -24,6 +24,7 @@ import javax.crypto.spec.SecretKeySpec;
 
 import java.io.IOException;
 import java.nio.ByteBuffer;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.nio.file.Paths;
@@ -73,7 +74,7 @@ public class CredentialCipher
             rng.nextBytes(iv);
             Cipher cipher = Cipher.getInstance(ALGORITHM);
             cipher.init(Cipher.ENCRYPT_MODE, masterKey, new GCMParameterSpec(TAG_BITS, iv));
-            byte[] ct = cipher.doFinal(plaintext.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+            byte[] ct = cipher.doFinal(plaintext.getBytes(StandardCharsets.UTF_8));
             ByteBuffer buf = ByteBuffer.allocate(iv.length + ct.length);
             buf.put(iv).put(ct);
             return Base64.getEncoder().encodeToString(buf.array());
@@ -97,7 +98,7 @@ public class CredentialCipher
             Cipher cipher = Cipher.getInstance(ALGORITHM);
             cipher.init(Cipher.DECRYPT_MODE, masterKey, new GCMParameterSpec(TAG_BITS, iv));
             byte[] plain = cipher.doFinal(ct);
-            return new String(plain, java.nio.charset.StandardCharsets.UTF_8);
+            return new String(plain, StandardCharsets.UTF_8);
         }
         catch (Exception e) {
             throw new IllegalStateException("Failed to decrypt credential", e);

@@ -13,6 +13,7 @@
  */
 package com.bytequay.app.web;
 
+import com.bytequay.app.domain.GitHubUserMatch;
 import com.bytequay.app.domain.PullRequest;
 import com.bytequay.app.domain.RecentEvent;
 import com.bytequay.app.domain.RepoIssue;
@@ -181,7 +182,7 @@ public class RepoController
      * GET /api/search/users?q={query}
      */
     @GetMapping("/search/users")
-    public List<com.bytequay.app.domain.GitHubUserMatch> searchUsers(@RequestParam("q") String q)
+    public List<GitHubUserMatch> searchUsers(@RequestParam("q") String q)
     {
         return repoService.searchUsers(patResolver.resolve(), q);
     }

@@ -33,6 +33,7 @@ import com.bytequay.app.domain.Reactions;
 import com.bytequay.app.domain.RepoRef;
 import com.bytequay.app.domain.RequestReviewersCommand;
 import com.bytequay.app.domain.StoredPrDetail;
+import com.bytequay.app.domain.SuggestedReviewer;
 import com.bytequay.app.domain.UpdatePullRequestCommand;
 import com.bytequay.app.repository.AppSettingsStore;
 import com.bytequay.app.repository.PrDetailStore;
@@ -64,10 +65,12 @@ import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.Executor;
+import java.util.function.Supplier;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 import static com.bytequay.app.config.AsyncConfig.APPLICATION_EXECUTOR;
+import static com.bytequay.app.config.AsyncConfig.IO_EXECUTOR;
 import static com.bytequay.app.domain.PullRequest.Origin.AUTHORED;
 import static com.bytequay.app.domain.PullRequest.Origin.REVIEW_REQUESTED;
 import static com.bytequay.app.utils.PullRequestRefUtil.parseRef;
@@ -104,7 +107,7 @@ public class PullRequestService
             AppSettingsStore settingsStore,
             CredentialService credentialService,
             @Qualifier(APPLICATION_EXECUTOR) Executor executor,
-            @Qualifier(com.bytequay.app.config.AsyncConfig.IO_EXECUTOR) Executor ioExecutor)
+            @Qualifier(IO_EXECUTOR) Executor ioExecutor)
     {
         this.gitHub = requireNonNull(gitHub, "gitHub is null");
         this.store = requireNonNull(store, "store is null");
@@ -317,7 +320,7 @@ public class PullRequestService
         // immediately so the user doesn't see a flicker.
     }
 
-    private static final java.util.Set<String> ALLOWED_REACTION_CONTENT = java.util.Set.of(
+    private static final Set<String> ALLOWED_REACTION_CONTENT = Set.of(
             "+1", "-1", "laugh", "confused", "heart", "hooray", "rocket", "eyes");
 
     /**
@@ -336,7 +339,7 @@ public class PullRequestService
         // The reactions endpoint targets a repo + comment id; PR number
         // isn't part of the URL. parseRepoRef avoids parseRef's
         // number-must-be-positive invariant.
-        com.bytequay.app.domain.RepoRef ref = parseRepoRef(repo);
+        RepoRef ref = parseRepoRef(repo);
         gitHub.addReviewCommentReaction(pat, ref.owner(), ref.repo(), commentId, content);
         // The reaction lands on GitHub immediately. The local DB count
         // updates on the next pulls/comments sync; the frontend
@@ -357,7 +360,7 @@ public class PullRequestService
                     HttpStatusCode.valueOf(400),
                     "reaction content must be one of " + ALLOWED_REACTION_CONTENT);
         }
-        com.bytequay.app.domain.RepoRef ref = parseRepoRef(repo);
+        RepoRef ref = parseRepoRef(repo);
         gitHub.addIssueCommentReaction(pat, ref.owner(), ref.repo(), commentId, content);
     }
 
@@ -393,7 +396,7 @@ public class PullRequestService
      * empty list on auth/network failure since this is a non-essential
      * affordance and shouldn't block the rest of the reviewers panel.
      */
-    public List<com.bytequay.app.domain.SuggestedReviewer> getSuggestedReviewers(String pat, String repo, int number)
+    public List<SuggestedReviewer> getSuggestedReviewers(String pat, String repo, int number)
     {
         return gitHub.fetchSuggestedReviewers(pat, parseRef(repo, number));
     }
@@ -626,12 +629,12 @@ public class PullRequestService
 
     private static String normalizeSide(String side)
     {
-        return side == null || side.isBlank() ? RIGHT : side.toUpperCase();
+        return side == null || side.isBlank() ? RIGHT : side.toUpperCase(Locale.ROOT);
     }
 
     private static String normalizeOptionalSide(String side, String defaultSide)
     {
-        return side == null || side.isBlank() ? defaultSide : side.toUpperCase();
+        return side == null || side.isBlank() ? defaultSide : side.toUpperCase(Locale.ROOT);
     }
 
     private void invalidateCachedDetail(String repo, int number)
@@ -778,7 +781,7 @@ public class PullRequestService
      * children don't share a fixed pool — see {@link #fetchDetailFromGitHub}
      * for the deadlock background.
      */
-    private <T> CompletableFuture<T> timed(String name, PullRequestRef ref, java.util.function.Supplier<T> task)
+    private <T> CompletableFuture<T> timed(String name, PullRequestRef ref, Supplier<T> task)
     {
         return CompletableFuture.supplyAsync(() -> {
             long t = System.nanoTime();

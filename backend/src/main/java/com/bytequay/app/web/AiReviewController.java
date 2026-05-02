@@ -22,6 +22,7 @@ import com.google.common.collect.ImmutableMap;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.http.HttpStatus;
 import org.springframework.http.HttpStatusCode;
 import org.springframework.http.MediaType;
 import org.springframework.web.bind.annotation.DeleteMapping;
@@ -130,12 +131,12 @@ public class AiReviewController
         catch (UnsupportedOperationException e) {
             // Provider doesn't implement polish (e.g. local Ollama).
             throw new ResponseStatusException(
-                    org.springframework.http.HttpStatus.NOT_IMPLEMENTED, e.getMessage(), e);
+                    HttpStatus.NOT_IMPLEMENTED, e.getMessage(), e);
         }
         catch (IllegalStateException e) {
             // Missing API key, upstream error, etc. — these are user-actionable.
             throw new ResponseStatusException(
-                    org.springframework.http.HttpStatus.BAD_GATEWAY, e.getMessage(), e);
+                    HttpStatus.BAD_GATEWAY, e.getMessage(), e);
         }
     }
 

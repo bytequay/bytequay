@@ -22,6 +22,7 @@ import com.bytequay.app.domain.StoredPrDetail;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
+import java.util.Locale;
 import java.util.regex.Pattern;
 
 /**
@@ -173,7 +174,7 @@ public final class PrAttention
         if (labels == null) {
             return false;
         }
-        return labels.stream().anyMatch(label -> label != null && label.toLowerCase().contains("block"));
+        return labels.stream().anyMatch(label -> label != null && label.toLowerCase(Locale.ROOT).contains("block"));
     }
 
     /**

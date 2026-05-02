@@ -1081,8 +1081,6 @@
   flex-direction: column;
   min-height: 0;
   background: var(--bg-sunken, rgba(0, 0, 0, 0.04));
-  border-right: 2px solid var(--border);
-  box-shadow: inset -1px 0 0 var(--border);
 }
 
 .diff-viewer__files-header {

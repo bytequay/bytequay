@@ -30,7 +30,7 @@ jobs:
         run: mvn -B verify
 
   frontend:
-    name: Frontend — type check + tests
+    name: Frontend — lint, type check, tests, build
     runs-on: ubuntu-latest
 
     steps:
@@ -47,6 +47,13 @@ jobs:
         working-directory: frontend
         run: npm ci
 
+      - name: Lint
+        working-directory: frontend
+        # ESLint catches things tsc can't see: unused identifiers,
+        # missing hook deps, accidental fallthroughs. Warnings are
+        # tolerated; only errors fail the build.
+        run: npm run lint
+
       - name: Type check
         working-directory: frontend
         run: npx tsc --noEmit
@@ -58,3 +65,12 @@ jobs:
         # references a removed identifier — so we run this as a hard
         # gate alongside the type check.
         run: npm test
+
+      - name: Build (electron-forge package)
+        working-directory: frontend
+        # Runs the full Vite + electron-packager pipeline without
+        # producing distributables. Catches Vite plugin / asset
+        # resolution / preload-bundling regressions that tsc and unit
+        # tests can't see — the kind of bug that only surfaces when the
+        # app is actually packaged for shipping.
+        run: npm run package

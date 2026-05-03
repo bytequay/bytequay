@@ -21,6 +21,7 @@ const THEME_DOT_COLORS: Record<ThemeId, React.CSSProperties> = {
   'warm': { background: '#c5a85a' },
   'github-light': { background: '#0969da' },
   'atom-one-dark': { background: '#61afef' },
+  'purple': { background: '#7c3aed' },
 };
 
 type Tab = 'general' | 'credentials' | 'review-skills';

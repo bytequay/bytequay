@@ -131,6 +131,55 @@
   color-scheme: dark;
 }
 
+/* Purple — a soft lavender light theme that picks up the project's
+   logo accent (#7C3AED, the same violet the assets/logo.svg fill
+   uses). Background tints sit just above pure white so the purple
+   reads as ambient rather than loud; cards stay pure white for
+   contrast. The accent is the logo violet directly so chips, links,
+   and active states feel of-a-piece with the brand mark. */
+[data-theme="purple"] {
+  --bg-base: #faf9fc;
+  --bg-elevated: #f4f1fa;
+  --bg-card: #ffffff;
+  --bg-input: #ffffff;
+  --bg-panel: #ffffff;
+  --bg-btn-secondary: #f4f1fa;
+
+  --text-1: #1f1d2c;
+  --text-2: #3d3a4d;
+  --text-3: #6b6680;
+  --text-4: #9690a8;
+  --text-warm: #5e5970;
+  --text-code: #6b6680;
+
+  --accent: #7c3aed;
+  --accent-dark: #6d28d9;
+  --accent-a7: rgba(124, 58, 237, 0.07);
+  --accent-a4: rgba(124, 58, 237, 0.04);
+  --accent-a10: rgba(124, 58, 237, 0.10);
+  --accent-a40: rgba(124, 58, 237, 0.40);
+
+  --border: #e5e1ee;
+  --border-mid: #ddd8ea;
+  --border-light: #eeeaf5;
+  --border-hairline: #f4f1fa;
+  --border-input: #d8d2e6;
+
+  /* Keep the CTA palette green — the "Rebase and merge" button is the
+     one thing that should always read as a primary positive action,
+     regardless of theme. Borrowed verbatim from github-light. */
+  --cta-from: #2da44e;
+  --cta-to: #1a7f37;
+  --cta-border: #1f883d;
+  --cta-shadow: rgba(31, 136, 61, 0.20);
+  --cta-shadow-hover: rgba(31, 136, 61, 0.35);
+
+  --font-body: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial,
+    sans-serif;
+
+  color-scheme: light;
+}
+
 /* ── Avatars ─────────────────────────────────────────────── */
 
 .avatar {

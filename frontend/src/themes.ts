@@ -11,12 +11,13 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-export type ThemeId = 'github-light' | 'atom-one-dark' | 'warm';
+export type ThemeId = 'github-light' | 'atom-one-dark' | 'warm' | 'purple';
 
 export const THEMES: { id: ThemeId; label: string }[] = [
   { id: 'github-light', label: 'GitHub Light' },
   { id: 'atom-one-dark', label: 'Atom One Dark' },
   { id: 'warm', label: 'Warm' },
+  { id: 'purple', label: 'Purple' },
 ];
 
 const STORAGE_KEY = 'bytequay-theme';

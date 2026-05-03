@@ -1,14 +1,17 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" width="1024" height="1024">
   <!--
-    ByteQuay logo — full-bleed rounded square so the icon fills its
-    canvas the way modern app icons (Google, ChatGPT, IntelliJ IDEA,
-    etc.) do, with no white padding showing in the macOS dock or
-    Finder. The original ~15% inset is gone; the inner mark + wave are
-    re-centered via a single transform so the design intent is
-    unchanged.
+    ByteQuay logo. Apple's macOS Human Interface Guidelines call for
+    roughly 10% transparent padding around the colored mark so the
+    icon "breathes" inside its dock cell — same pattern ChatGPT,
+    Slack, Notion, and other modern macOS apps use. We previously
+    went full-bleed (rect at 0..100); the icon then visibly overran
+    the cell edges next to ChatGPT in docs/mockups/issue/icon-2.png.
+    Now: rounded square inset to (10..90), iOS-style 22.5% corner
+    radius (≈18 of an 80-unit side), inner mark transformed to
+    occupy that same inset region.
   -->
-  <rect x="0" y="0" width="100" height="100" rx="22" fill="#7C3AED"/>
-  <g transform="translate(-21.4286 -21.4286) scale(1.4286)">
+  <rect x="10" y="10" width="80" height="80" rx="18" fill="#7C3AED"/>
+  <g transform="translate(-7.1429 -7.1429) scale(1.1429)">
     <line x1="32" y1="28" x2="42" y2="52" stroke="#FFFFFF" stroke-width="3.5" stroke-linecap="round"/>
     <line x1="45" y1="28" x2="55" y2="52" stroke="#FFFFFF" stroke-width="3.5" stroke-linecap="round" opacity="0.7"/>
     <line x1="58" y1="28" x2="68" y2="52" stroke="#FFFFFF" stroke-width="3.5" stroke-linecap="round"/>

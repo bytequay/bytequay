@@ -30,6 +30,44 @@ import { join } from 'node:path';
 // up from this config (frontend/forge.config.ts).
 const BACKEND_JAR = join(__dirname, '..', 'backend', 'target', 'bytequay-backend.jar');
 
+/** Preflight check: confirm the `mvn` on PATH is using a JDK >= the
+ *  given major. We run this before the build hook spawns Maven so a
+ *  too-old JDK fails with a useful, single-line message instead of a
+ *  90-line UnsupportedClassVersionError stack from inside Checkstyle.
+ *
+ *  The check parses `mvn --version` (which prints the JDK Maven is
+ *  actually using, even when JAVA_HOME differs from `java` on PATH).
+ *  If the parse itself fails — older Mavens with non-standard output —
+ *  we silently allow the build to proceed; the only thing lost is the
+ *  friendlier error message. */
+function requireJavaAtLeast(minMajor: number): void {
+  let out: string;
+  try {
+    out = execSync('mvn --version', { encoding: 'utf8', stdio: ['ignore', 'pipe', 'pipe'] });
+  }
+  catch {
+    throw new Error(
+      `[forge] could not run 'mvn --version' — Maven needs to be installed and on PATH `
+      + `for the generateAssets hook to build the Spring Boot JAR. `
+      + `Install via 'brew install maven' (macOS), 'apt install maven' (Linux), `
+      + `or use the same actions/setup-java step CI uses.`,
+    );
+  }
+  const match = /Java version:\s*(\d+)\b/.exec(out);
+  if (!match) {
+    return;
+  }
+  const major = Number(match[1]);
+  if (Number.isFinite(major) && major < minMajor) {
+    throw new Error(
+      `[forge] Maven is using JDK ${major} but ByteQuay's backend (Checkstyle ${'>=13.x'}, `
+      + `Error Prone, Spring Boot 3.5) requires JDK ${minMajor}+. `
+      + `Set JAVA_HOME to a JDK ${minMajor}+ install (e.g. via 'brew install temurin@21' on macOS or '/usr/libexec/java_home -v 21'), `
+      + `then re-run. CI runs JDK 21 via actions/setup-java.`,
+    );
+  }
+}
+
 const config: ForgeConfig = {
   packagerConfig: {
     asar: true,
@@ -58,6 +96,7 @@ const config: ForgeConfig = {
       if (existsSync(BACKEND_JAR)) {
         return;
       }
+      requireJavaAtLeast(21);
       // eslint-disable-next-line no-console
       console.log('[forge] backend JAR missing — running mvn package…');
       execSync('mvn -B -q -DskipTests package', {

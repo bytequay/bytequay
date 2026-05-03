@@ -1078,20 +1078,28 @@ public class PullRequestService
         return ImmutableList.copyOf(threads);
     }
 
-    static List<PullRequestDetail.CheckRun> toCheckRuns(List<PrCheckRunState> checkRuns)
+    /**
+     * Keeps one row per check name — the first occurrence wins, which
+     * matches GitHub's "most recent attempt" ordering for re-runs and
+     * matrix retries. Both {@link #aggregateCiStatus} and
+     * {@link #toCheckRuns} need to see this view, otherwise an earlier
+     * failed attempt can mark a since-fixed check as FAILING in the
+     * aggregate while the displayed list shows it as passing.
+     */
+    static List<PrCheckRunState> dedupeCheckRunsByName(List<PrCheckRunState> checkRuns)
     {
-        // Deduplicate by name: GitHub's check-runs endpoint returns one row
-        // per attempt, so re-runs and matrix retries can produce dozens of
-        // entries with the same name. Keep the first (most recent) per name
-        // and group anonymous (null/blank-name) ones under a synthetic key
-        // so they survive the dedupe but still collapse identical rows.
         Map<String, PrCheckRunState> latestByName = Maps.newLinkedHashMap();
         for (int i = 0; i < checkRuns.size(); i++) {
             PrCheckRunState c = checkRuns.get(i);
             String key = c.name() == null || c.name().isBlank() ? "__anonymous__" + i : c.name();
             latestByName.putIfAbsent(key, c);
         }
-        return latestByName.values().stream()
+        return ImmutableList.copyOf(latestByName.values());
+    }
+
+    static List<PullRequestDetail.CheckRun> toCheckRuns(List<PrCheckRunState> checkRuns)
+    {
+        return dedupeCheckRunsByName(checkRuns).stream()
                 .map(c -> new PullRequestDetail.CheckRun(
                         c.githubId(),
                         c.name(),
@@ -1115,15 +1123,22 @@ public class PullRequestService
 
     static PullRequestDetail.CiStatus aggregateCiStatus(List<PrCheckRunState> checkRuns)
     {
-        if (checkRuns.isEmpty()) {
+        // Aggregate over the deduped (latest-per-name) view so a check
+        // that failed in attempt 1 but passed in a re-run doesn't keep
+        // the whole PR in FAILING state. Without this, Trino-sized PRs
+        // with frequent re-runs end up showing "CI failing — 101 of
+        // 101 passing", with the merge button disabled even though
+        // every visible check is green.
+        List<PrCheckRunState> latest = dedupeCheckRunsByName(checkRuns);
+        if (latest.isEmpty()) {
             return PullRequestDetail.CiStatus.NONE;
         }
-        boolean anyFailed = checkRuns.stream()
+        boolean anyFailed = latest.stream()
                 .anyMatch(c -> "failure".equals(c.conclusion()) || "cancelled".equals(c.conclusion()));
         if (anyFailed) {
             return PullRequestDetail.CiStatus.FAILING;
         }
-        boolean anyPending = checkRuns.stream()
+        boolean anyPending = latest.stream()
                 .anyMatch(c -> "in_progress".equals(c.status()) || "queued".equals(c.status()));
         if (anyPending) {
             return PullRequestDetail.CiStatus.PENDING;

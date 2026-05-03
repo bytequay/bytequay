@@ -36,6 +36,7 @@ import {
 } from './pr/optimisticUpdates';
 import { ReactionChips } from './pr/Reactions';
 import { CiChecksRow, CiSummary } from './pr/Ci';
+import LogoLoading from './LogoLoading';
 import { DescriptionCard } from './pr/DescriptionCard';
 import { PrCommentBox, type PrCommentBoxHandle } from './pr/PrCommentBox';
 import { ReviewActivityRow } from './pr/ReviewActivityRow';
@@ -839,7 +840,11 @@ function PullRequestPreview({ pr, onOpenReview, onInspectDiffs, onMarkHandled, o
           )}
         </div>
 
-        {loading && <div className="preview__loading">Loading details…</div>}
+        {loading && (
+          <div className="preview__loading">
+            <LogoLoading size={56} label="Loading details" />
+          </div>
+        )}
         {refreshing && <div className="preview__refreshing">Refreshing…</div>}
         {error && <div className="preview__error">{error}</div>}
 
@@ -1299,7 +1304,11 @@ function PullRequestPreview({ pr, onOpenReview, onInspectDiffs, onMarkHandled, o
         </div>
       </header>
 
-      {loading && <div className="prc-loading">Loading details…</div>}
+      {loading && (
+        <div className="prc-loading">
+          <LogoLoading size={56} label="Loading details" />
+        </div>
+      )}
       {refreshing && <div className="prc-refreshing">Refreshing…</div>}
       {error && <div className="prc-error">{error}</div>}
 

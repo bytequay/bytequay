@@ -1,0 +1,39 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" width="120" height="120">
+  <!-- ByteQuay V4.5 — Loading Spinner (infinite loop) -->
+  <!-- Slashes pulse in sequence; wave subtly shifts -->
+  <style><![CDATA[
+    .frame { fill: #7C3AED; }
+    .slash {
+      stroke: #FFFFFF;
+      stroke-width: 3.5;
+      stroke-linecap: round;
+      animation: bq-pulse 1.5s ease-in-out infinite;
+    }
+    .slash-1 { animation-delay: 0s; }
+    .slash-2 { animation-delay: 0.2s; }
+    .slash-3 { animation-delay: 0.4s; }
+    @keyframes bq-pulse {
+      0%, 100% { opacity: 0.3; }
+      40%      { opacity: 1; }
+    }
+    .wave-fill { fill: #8B5CF6; transform-origin: 50px 75px; animation: bq-wave-fill 3s ease-in-out infinite; }
+    .wave-line { stroke: #A78BFA; stroke-width: 2; fill: none; animation: bq-wave-line 3s ease-in-out infinite; }
+    @keyframes bq-wave-fill {
+      0%, 100% { transform: translateX(0); }
+      50%      { transform: translateX(-2px); }
+    }
+    @keyframes bq-wave-line {
+      0%, 100% { transform: translateX(0); opacity: 1; }
+      50%      { transform: translateX(2px); opacity: 0.7; }
+    }
+    @media (prefers-reduced-motion: reduce) {
+      .slash, .wave-fill, .wave-line { animation: none; opacity: 1; }
+    }
+  ]]></style>
+  <rect class="frame" x="15" y="15" width="70" height="70" rx="12"/>
+  <line class="slash slash-1" x1="32" y1="28" x2="42" y2="52"/>
+  <line class="slash slash-2" x1="45" y1="28" x2="55" y2="52"/>
+  <line class="slash slash-3" x1="58" y1="28" x2="68" y2="52"/>
+  <path class="wave-fill" d="M 15 68 Q 30 62 42 68 T 70 68 L 85 68 L 85 85 C 85 85 85 85 77 85 L 23 85 C 15 85 15 85 15 85 Z"/>
+  <path class="wave-line" d="M 15 68 Q 30 62 42 68 T 70 68 L 85 68"/>
+</svg>

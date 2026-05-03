@@ -445,3 +445,111 @@ pre {
   color: var(--text-1);
 }
 
+/* ── First-run onboarding ───────────────────────────────── */
+
+/* Mirrors docs/mockups/loading/bytequay-loading-animations-demo.html
+   — centred branded card with the animated logo on top, welcome
+   copy + a single PAT field underneath. Replaces the older
+   setup-shell + SettingsScreen(firstRun) combo with a one-thing-to-do
+   surface. */
+.onboarding {
+  min-height: 100vh;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 40px 24px;
+  background: var(--bg-base);
+}
+.onboarding__card {
+  width: 100%;
+  max-width: 440px;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  padding: 36px 32px 28px;
+  text-align: center;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.04);
+}
+.onboarding__title {
+  margin: 18px 0 8px;
+  font-size: 22px;
+  font-weight: 700;
+  color: var(--text-1);
+}
+.onboarding__lede {
+  margin: 0 auto 24px;
+  max-width: 320px;
+  color: var(--text-3);
+  font-size: 14px;
+  line-height: 1.55;
+}
+.onboarding__form {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  text-align: left;
+}
+.onboarding__label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-2);
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+.onboarding__input {
+  width: 100%;
+  padding: 10px 12px;
+  font-size: 14px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, monospace;
+  background: var(--bg-input);
+  border: 1px solid var(--border-input);
+  border-radius: 8px;
+  color: var(--text-1);
+  outline: none;
+}
+.onboarding__input:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-a10);
+}
+.onboarding__hint {
+  margin: 0;
+  font-size: 12px;
+  color: var(--text-3);
+  line-height: 1.45;
+}
+.onboarding__hint code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, monospace;
+  background: var(--bg-elevated);
+  padding: 1px 5px;
+  border-radius: 3px;
+  font-size: 11px;
+}
+.onboarding__error {
+  margin: 4px 0 0;
+  padding: 8px 10px;
+  background: rgba(207, 34, 46, 0.08);
+  border: 1px solid rgba(207, 34, 46, 0.30);
+  border-radius: 6px;
+  color: #cf222e;
+  font-size: 12px;
+}
+.onboarding__cta {
+  margin-top: 8px;
+  appearance: none;
+  border: none;
+  background: var(--accent);
+  color: #fff;
+  padding: 11px 16px;
+  font-size: 14px;
+  font-weight: 600;
+  border-radius: 8px;
+  cursor: pointer;
+}
+.onboarding__cta:hover:not(:disabled) {
+  background: var(--accent-dark, var(--accent));
+}
+.onboarding__cta:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+

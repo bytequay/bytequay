@@ -12,7 +12,6 @@
  * limitations under the License.
  */
 import { Component, useEffect, useState, type ErrorInfo, type ReactNode } from 'react';
-import SettingsScreen from './SettingsScreen';
 import SettingsShell from './settings/SettingsShell';
 import NotificationsScreen from './NotificationsScreen';
 import TeamDetailPage from './teams/TeamDetailPage';
@@ -21,6 +20,8 @@ import PullRequestList from './PullRequestList';
 import HomePage from './HomePage';
 import RepoDetailPage from './RepoDetailPage';
 import InAppBrowser from './InAppBrowser';
+import LogoLoading from './LogoLoading';
+import OnboardingScreen from './OnboardingScreen';
 import { applyTheme, loadTheme } from './themes';
 
 type Status = 'checking' | 'needs-pat' | 'ready';
@@ -185,24 +186,23 @@ function App() {
   }
 
   if (status === 'checking') {
-    return <div className="app-loading">Loading…</div>;
+    return (
+      <div className="app-loading">
+        <LogoLoading size={88} />
+      </div>
+    );
   }
 
-  // First-run: no PAT yet — show the setup screen without the global topbar
+  // First-run: no PAT yet — branded onboarding screen with the
+  // animated logo, welcome copy, and a single PAT field.
   if (status === 'needs-pat') {
     return (
-      <div className="setup-shell">
-        <div className="setup-shell__inner">
-          <h1 className="setup-shell__title">ByteQuay</h1>
-          <SettingsScreen
-            firstRun
-            onSaved={() => {
-              setNav({ view: 'home' });
-              setStatus('ready');
-            }}
-          />
-        </div>
-      </div>
+      <OnboardingScreen
+        onSaved={() => {
+          setNav({ view: 'home' });
+          setStatus('ready');
+        }}
+      />
     );
   }
 

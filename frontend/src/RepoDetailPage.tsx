@@ -18,6 +18,7 @@ import ReviewScreen from './ReviewScreen';
 import DiffViewerScreen from './DiffViewerScreen';
 import ResizeHandle from './ResizeHandle';
 import Avatar from './Avatar';
+import LogoLoading from './LogoLoading';
 import { getCached, setCached } from './dataCache';
 import { decideDeepLinkSelection } from './repoDeepLink';
 
@@ -69,13 +70,13 @@ type Props = {
 function DeepLinkLoading({ owner, repo, number }: { owner: string; repo: string; number: number }) {
   return (
     <div className="v2-help v2-help--loading">
+      <LogoLoading size={64} label={`Loading ${owner}/${repo}#${number}`} />
       <h1 className="v2-help__title">
         Loading {owner}/{repo} <span className="v2-help__pr-num">#{number}</span>
       </h1>
       <p className="v2-help__subtitle">
         Fetching the pull request — this is normal for PRs that aren't already in your watched list.
       </p>
-      <div className="v2-help__spinner" aria-hidden="true" />
     </div>
   );
 }
@@ -450,7 +451,11 @@ function RepoDetailPage({ owner, repo, initialPrNumber }: Props) {
           </div>
         )}
 
-        {loading && <div className="repo-loading">Loading…</div>}
+        {loading && (
+          <div className="repo-loading">
+            <LogoLoading size={56} />
+          </div>
+        )}
         {error && <div className="repo-error">{error}</div>}
 
         {!loading && tab === 'pulls' && bucket === 'inbox' && (

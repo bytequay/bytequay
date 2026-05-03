@@ -764,13 +764,13 @@ function InlineExistingThread({
             · {thread.messages.length} comment{thread.messages.length === 1 ? '' : 's'}
           </span>
         )}
+        {thread.outdated && (
+          <span className="diff-thread__pill diff-thread__pill--outdated" title="The line this thread anchors to no longer exists in the current diff.">Outdated</span>
+        )}
+        {resolvedLocal === true && (
+          <span className="diff-thread__pill diff-thread__pill--resolved">Resolved</span>
+        )}
         <div className="diff-thread__head-pills">
-          {thread.outdated && (
-            <span className="diff-thread__pill diff-thread__pill--outdated" title="The line this thread anchors to no longer exists in the current diff.">Outdated</span>
-          )}
-          {resolvedLocal === true && (
-            <span className="diff-thread__pill diff-thread__pill--resolved">Resolved</span>
-          )}
           {/* Resolve / Unresolve toggle. Hidden when GraphQL hasn't
               populated the resolved flag yet (resolved == null), since
               the mutation needs the GraphQL node id which arrives in

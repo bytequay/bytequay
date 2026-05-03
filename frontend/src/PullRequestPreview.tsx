@@ -1381,7 +1381,7 @@ function PullRequestPreview({ pr, onOpenReview, onInspectDiffs, onMarkHandled, o
                 </div>
                 <button
                   type="button"
-                  className="prc-draft-toggle-btn"
+                  className={`prc-draft-toggle-btn${detail.draft ? ' prc-draft-toggle-btn--ready' : ' prc-draft-toggle-btn--draft'}`}
                   onClick={() => { void handleToggleDraft(); }}
                   disabled={draftToggleState === 'running'}
                   title={detail.draft

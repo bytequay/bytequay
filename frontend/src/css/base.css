@@ -90,14 +90,23 @@
 }
 
 [data-theme="atom-one-dark"] {
+  /* Bumped --bg-card from #2c313a → #30363f so cards visibly separate
+     from the page background instead of blending in. */
   --bg-base: #282c34;
   --bg-elevated: #21252b;
-  --bg-card: #2c313a;
+  --bg-card: #30363f;
   --bg-input: #1d2026;
   --bg-panel: #2c313a;
   --bg-btn-secondary: #2c313a;
 
-  --text-1: #e6efff;
+  /* Dimmed --text-1 from #e6efff (near pure white, glaring on the dark
+     editor surface) to #c8cdd6 — sits one step above Atom One Dark's
+     own foreground (#abb2bf, which is what we use for --text-2), so
+     headings and primary text still read as the brightest token in
+     the hierarchy without burning the eye. PR card titles, comment
+     authors, and merge-bar copy all picked the brighter tone via
+     var(--text-1) so the dim cascades automatically. */
+  --text-1: #c8cdd6;
   --text-2: #abb2bf;
   --text-3: #7f848e;
   --text-4: #5c6370;

@@ -1,9 +1,13 @@
-# ByteQuay
+<p align="center">
+  <img alt="ByteQuay" src="assets/wordmark.svg" width="40%">
+</p>
 
-> A native macOS desktop app for daily developer review work — your PR
-> dashboard, AI review drafts, CI diagnostics, and merge controls in
-> one window, with the embedded GitHub UI a click away for everything
-> else.
+<p align="center">
+  A native macOS desktop app for daily developer review work — your PR
+  dashboard, AI review drafts, CI diagnostics, and merge controls in
+  one window, with the embedded GitHub UI a click away for everything
+  else.
+</p>
 
 [![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
 [![CI](https://github.com/chenjian2664/bytequay/actions/workflows/ci.yml/badge.svg)](https://github.com/chenjian2664/bytequay/actions/workflows/ci.yml)

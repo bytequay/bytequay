@@ -1,0 +1,22 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 480 120" width="480" height="120">
+  <!-- Icon on left -->
+  <g>
+    <rect x="15" y="20" width="70" height="70" rx="12" fill="#7C3AED"/>
+    <line x1="32" y1="33" x2="42" y2="57" stroke="#FFFFFF" stroke-width="3.5" stroke-linecap="round"/>
+    <line x1="45" y1="33" x2="55" y2="57" stroke="#FFFFFF" stroke-width="3.5" stroke-linecap="round" opacity="0.7"/>
+    <line x1="58" y1="33" x2="68" y2="57" stroke="#FFFFFF" stroke-width="3.5" stroke-linecap="round"/>
+    <path d="M 15 73 Q 30 67 42 73 T 70 73 L 85 73 L 85 90 C 85 90 85 90 77 90 L 23 90 C 15 90 15 90 15 90 Z" fill="#8B5CF6"/>
+    <path d="M 15 73 Q 30 67 42 73 T 70 73 L 85 73" stroke="#A78BFA" stroke-width="2" fill="none"/>
+  </g>
+
+  <!-- Text -->
+  <text x="115" y="73"
+        font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif"
+        font-size="48" font-weight="700" letter-spacing="-1"
+        fill="#111827">Byte<tspan font-weight="300" fill="#7C3AED">Quay</tspan></text>
+
+  <text x="115" y="98"
+        font-family="-apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif"
+        font-size="11" font-weight="500" letter-spacing="2"
+        fill="#6B7280">DEVELOPER HARBOR</text>
+</svg>

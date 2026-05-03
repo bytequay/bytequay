@@ -11,14 +11,46 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import { app, BrowserWindow, clipboard, ipcMain, session, shell, WebContentsView } from 'electron';
+import { app, BrowserWindow, clipboard, ipcMain, nativeImage, session, shell, WebContentsView } from 'electron';
 import path from 'node:path';
+import fs from 'node:fs';
 import started from 'electron-squirrel-startup';
 import { BACKEND_BASE, killBackend, spawnBackend, waitForBackendReady } from './backendProcess';
+
+// Override the menu-bar / About-box / dock display name. Without this
+// Electron uses its own name in dev mode (the packaged build picks
+// this up from forge.config.ts -> packagerConfig.name).
+app.setName('ByteQuay');
 
 // Handle creating/removing shortcuts on Windows when installing/uninstalling.
 if (started) {
   app.quit();
+}
+
+/** macOS-only: replace the default Electron dock icon with the project
+ *  logo while running under `dev.sh` / `npm start`. The packaged build
+ *  picks up the icon from forge.config.ts; this hook only matters for
+ *  the dev workflow where Electron Forge spawns Electron directly and
+ *  the .app bundle's icon isn't in play. Best-effort — silently skips
+ *  if the asset isn't found (e.g. when running unpackaged from a
+ *  context that doesn't include /assets). */
+function applyDevDockIcon(): void {
+  if (process.platform !== 'darwin' || !app.dock || app.isPackaged) {
+    return;
+  }
+  // /assets/logo-1024.png is two levels up from this compiled main.js
+  // (frontend/.vite/build/main.js → /assets/) when running via Forge,
+  // and three levels up when running tests / from source. Try both.
+  const candidates = [
+    path.join(__dirname, '..', '..', '..', 'assets', 'logo-1024.png'),
+    path.join(__dirname, '..', '..', 'assets', 'logo-1024.png'),
+  ];
+  const iconPath = candidates.find((p) => fs.existsSync(p));
+  if (!iconPath) return;
+  const image = nativeImage.createFromPath(iconPath);
+  if (!image.isEmpty()) {
+    app.dock.setIcon(image);
+  }
 }
 
 function normalizeDevServerUrl(urlString: string): string {
@@ -1373,6 +1405,7 @@ async function bootstrapSync(): Promise<void> {
 
 app.on('ready', async () => {
   try {
+    applyDevDockIcon();
     registerIpc();
     spawnBackend();
     if (app.isPackaged) {

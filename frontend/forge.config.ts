@@ -23,6 +23,15 @@ import { FuseV1Options, FuseVersion } from '@electron/fuses';
 const config: ForgeConfig = {
   packagerConfig: {
     asar: true,
+    // Product name shown in Finder, the menu bar, About box, and the
+    // dock — without this Electron defaults to its own name.
+    name: 'ByteQuay',
+    // App icon embedded in the .app bundle. Extension is omitted on
+    // purpose — electron-packager appends the right one per platform
+    // (.icns on macOS, .ico on Windows, .png on Linux), so the same
+    // base path works for all targets. The actual asset lives at the
+    // repo root under /assets/.
+    icon: '../assets/logo',
   },
   rebuildConfig: {},
   makers: [

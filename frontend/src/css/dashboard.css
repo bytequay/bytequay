@@ -2131,3 +2131,77 @@
   white-space: nowrap;
 }
 
+/* ── Dark-theme merge-bar tones ───────────────────────────
+   The merge bar's reds and greens are picked from light-theme
+   palettes (#cf222e for failures, #2da44e for the green Rebase &
+   merge button) and look glaring against the #282c34 editor
+   background. Atom One Dark uses softer semantic colors — a salmon
+   red (#e06c75) and a sage green (#98c379) — that read as
+   confident-but-not-shouty. We ship slightly darker variants here
+   so the bg fills aren't blinding while keeping the AOD palette feel. */
+[data-theme="atom-one-dark"] .merge-bar__btn {
+  background: #4a8a6a;
+  border-color: #3e7a59;
+  color: #fff;
+}
+[data-theme="atom-one-dark"] .merge-bar__btn:hover:not(:disabled) {
+  background: #559a78;
+}
+[data-theme="atom-one-dark"] .merge-bar__btn:disabled {
+  background: rgba(74, 138, 106, 0.45);
+  border-color: rgba(62, 122, 89, 0.45);
+  color: rgba(255, 255, 255, 0.7);
+}
+[data-theme="atom-one-dark"] .merge-bar__ci-pass {
+  background: #4a8a6a;
+  border-color: #3e7a59;
+  color: #fff;
+}
+[data-theme="atom-one-dark"] .merge-bar__ci-fail {
+  background: #b65962;
+  border-color: #b65962;
+  color: #fff;
+}
+[data-theme="atom-one-dark"] .merge-bar__ci-fail:hover {
+  background: #a44952;
+  border-color: #a44952;
+}
+[data-theme="atom-one-dark"] .merge-bar__ci-fail--open {
+  background: #a44952;
+}
+[data-theme="atom-one-dark"] .merge-bar__failure-card {
+  background: rgba(224, 108, 117, 0.10);
+  border-color: rgba(224, 108, 117, 0.30);
+}
+[data-theme="atom-one-dark"] .merge-bar__failure-head:hover:not(:disabled) {
+  background: rgba(224, 108, 117, 0.16);
+}
+[data-theme="atom-one-dark"] .merge-bar__failure-icon,
+[data-theme="atom-one-dark"] .merge-bar__failure-reason,
+[data-theme="atom-one-dark"] .merge-bar__failure-chevron {
+  color: #e06c75;
+}
+[data-theme="atom-one-dark"] .merge-bar__failure-body {
+  border-top-color: rgba(224, 108, 117, 0.30);
+}
+[data-theme="atom-one-dark"] .merge-bar__failure-log {
+  border-top-color: rgba(224, 108, 117, 0.20);
+}
+[data-theme="atom-one-dark"] .merge-bar__failure-log-status--error {
+  color: #e06c75;
+}
+[data-theme="atom-one-dark"] .merge-bar__error {
+  color: #e06c75;
+}
+/* The blue card readiness tint also reads cool against AOD's bluish
+   surface — mute it slightly so it doesn't compete with the editor. */
+[data-theme="atom-one-dark"] .prc-timeline > .merge-bar {
+  background: rgba(97, 175, 239, 0.06);
+  border-color: rgba(97, 175, 239, 0.25);
+}
+[data-theme="atom-one-dark"] .prc-timeline > .merge-bar.merge-bar--ready,
+[data-theme="atom-one-dark"] .prc-timeline > .merge-bar.merge-bar--blocked {
+  background: rgba(97, 175, 239, 0.06);
+  border-color: rgba(97, 175, 239, 0.25);
+}
+

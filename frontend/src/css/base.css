@@ -120,11 +120,14 @@
   --accent-a10: rgba(97, 175, 239, 0.15);
   --accent-a40: rgba(97, 175, 239, 0.5);
 
-  --border: #3e4451;
-  --border-mid: #3e4451;
+  /* Borders dimmed from #3e4451 to #3a4150 so they sit a touch quieter
+     against the lifted #30363f card background — the previous value
+     was ~16 RGB units brighter than the card and read as a hot edge. */
+  --border: #3a4150;
+  --border-mid: #3a4150;
   --border-light: #2c313a;
   --border-hairline: #2c313a;
-  --border-input: #3e4451;
+  --border-input: #3a4150;
 
   /* CTA palette — pine green that doesn't blast against the dark editor
      background. Lower saturation than the light-theme greens. */

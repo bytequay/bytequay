@@ -42,6 +42,10 @@ class TeamEntity
     @Column(nullable = false)
     private String color;
 
+    /** Optional — see V35__team_description.sql. */
+    @Column
+    private String description;
+
     @Column(name = "created_at", nullable = false, updatable = false)
     @Convert(converter = InstantToTextConverter.class)
     private Instant createdAt;
@@ -77,6 +81,9 @@ class TeamEntity
 
     String getColor() { return color; }
     void setColor(String color) { this.color = color; }
+
+    String getDescription() { return description; }
+    void setDescription(String description) { this.description = description; }
 
     Instant getCreatedAt() { return createdAt; }
 

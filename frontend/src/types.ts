@@ -266,13 +266,29 @@ export type WatchedRepoDto = {
   displayOrder: number;
 };
 
-export type TeamColor = 'purple' | 'green' | 'orange';
+/** Eight named colors that match the Settings → Teams swatch palette
+ *  (see docs/mockups/teams/bytequay-team-modal-redesign.html). The
+ *  three legacy values (purple / green / orange) stay first so existing
+ *  team rows from before the palette expansion keep rendering. */
+export type TeamColor =
+  | 'purple'
+  | 'green'
+  | 'orange'
+  | 'blue'
+  | 'cyan'
+  | 'amber'
+  | 'red'
+  | 'pink'
+  | 'slate';
 
 export type TeamSummaryDto = {
   id: number;
   name: string;
   avatar: string;
   color: TeamColor;
+  /** One-line description shown under the team name in the sidebar
+   *  card. Null when the user didn't supply one. */
+  description: string | null;
   memberCount: number;
   inboxCount: number;
 };
@@ -282,6 +298,7 @@ export type TeamDto = {
   name: string;
   avatar: string;
   color: TeamColor;
+  description: string | null;
   members: string[];
   createdAt: string;
   updatedAt: string;
@@ -291,6 +308,7 @@ export type CreateTeamRequest = {
   name: string;
   avatar: string;
   color: TeamColor;
+  description: string | null;
   members: string[];
 };
 
@@ -298,6 +316,7 @@ export type UpdateTeamRequest = {
   name: string;
   avatar: string;
   color: TeamColor;
+  description: string | null;
 };
 
 export type UserOrgDto = {

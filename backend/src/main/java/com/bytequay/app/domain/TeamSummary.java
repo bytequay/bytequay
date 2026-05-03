@@ -23,5 +23,9 @@ public record TeamSummary(
         String name,
         String avatar,
         String color,
+        /** Optional one-line description (see {@link Team#description}).
+         *  Null when the user didn't supply one — the sidebar card
+         *  hides the line in that case. */
+        String description,
         int memberCount,
         int inboxCount) {}

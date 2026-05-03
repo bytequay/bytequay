@@ -253,3 +253,263 @@
   white-space: nowrap;
 }
 
+/* ── Team editor modal ──────────────────────────────────────
+   Mirrors docs/mockups/teams/bytequay-team-modal-redesign.html — three
+   visual zones (header / preview band / form body / footer), each with
+   its own background tint, plus an 8-color swatch grid and chip-style
+   member input. The .modal-overlay backdrop already comes from
+   modals.css so this file only ships the team-specific shell. */
+.team-modal {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  width: 100%;
+  max-width: 540px;
+  max-height: calc(100vh - 80px);
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  box-shadow: 0 8px 32px rgba(0, 0, 0, 0.12);
+}
+.team-modal__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 18px 22px 14px;
+  border-bottom: 1px solid var(--border-light);
+}
+.team-modal__title {
+  margin: 0;
+  font-size: 17px;
+  font-weight: 700;
+  color: var(--text-1);
+}
+.team-modal__close {
+  appearance: none;
+  background: transparent;
+  border: none;
+  width: 28px;
+  height: 28px;
+  border-radius: 6px;
+  color: var(--text-3);
+  font-size: 20px;
+  line-height: 1;
+  cursor: pointer;
+}
+.team-modal__close:hover { background: var(--accent-a7); color: var(--text-1); }
+
+/* Preview band — slightly tinted so the eye reads it as separate from
+   the form below. */
+.team-modal__preview {
+  background: var(--accent-a7);
+  border-bottom: 1px solid var(--border-light);
+  padding: 14px 22px;
+}
+.team-modal__preview-label {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-3);
+  margin-bottom: 8px;
+}
+.team-card-preview {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 12px 14px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+.team-card-preview__avatar {
+  width: 40px;
+  height: 40px;
+  border-radius: 8px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: #fff;
+  font-weight: 700;
+  font-size: 14px;
+  flex-shrink: 0;
+  letter-spacing: 0.04em;
+}
+.team-card-preview__info { flex: 1; min-width: 0; }
+.team-card-preview__name {
+  font-weight: 600;
+  font-size: 14px;
+  color: var(--text-1);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.team-card-preview__name--empty {
+  color: var(--text-3);
+  font-style: italic;
+  font-weight: 400;
+}
+.team-card-preview__desc {
+  font-size: 12px;
+  color: var(--text-2);
+  margin-top: 2px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.team-card-preview__meta {
+  font-size: 11px;
+  color: var(--text-3);
+  margin-top: 2px;
+}
+
+/* Form body */
+.team-modal__body {
+  padding: 18px 22px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+  overflow-y: auto;
+}
+.team-modal__field { display: flex; flex-direction: column; gap: 6px; }
+.team-modal__label {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-1);
+}
+.team-modal__required { color: #dc2626; margin-left: 2px; }
+.team-modal__optional { color: var(--text-3); font-weight: 400; margin-left: 6px; }
+.team-modal__micro-label {
+  display: block;
+  font-size: 10px;
+  color: var(--text-3);
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  font-weight: 700;
+  margin-bottom: 6px;
+}
+.team-modal__input {
+  width: 100%;
+  padding: 9px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-input);
+  color: var(--text-1);
+  font-size: 14px;
+  font-family: inherit;
+  outline: none;
+}
+.team-modal__input:focus {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px var(--accent-a10);
+}
+.team-modal__helper {
+  margin: 4px 0 0;
+  font-size: 12px;
+  color: var(--text-3);
+  line-height: 1.45;
+}
+.team-modal__error {
+  padding: 8px 10px;
+  background: rgba(220, 38, 38, 0.08);
+  border: 1px solid rgba(220, 38, 38, 0.30);
+  border-radius: 6px;
+  color: #dc2626;
+  font-size: 12px;
+}
+
+/* Identity row: avatar field + color grid sit side by side. */
+.team-identity-row {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  gap: 24px;
+  align-items: start;
+}
+.team-avatar-input-wrap {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.team-avatar-input {
+  width: 72px;
+  text-align: center;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  font-size: 14px;
+}
+.team-avatar-auto-tag {
+  appearance: none;
+  font-size: 10px;
+  padding: 3px 8px;
+  border-radius: 8px;
+  border: 1px solid transparent;
+  background: var(--accent-a7);
+  color: var(--accent);
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.team-avatar-auto-tag:hover { background: var(--accent-a10); }
+
+.team-color-control { min-width: 0; }
+.team-color-grid {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 0;
+}
+.team-color-pick {
+  width: 28px;
+  height: 28px;
+  border-radius: 7px;
+  border: 0;
+  padding: 0;
+  cursor: pointer;
+  position: relative;
+  transition: transform 0.12s;
+}
+.team-color-pick:hover { transform: scale(1.08); }
+.team-color-pick--active {
+  box-shadow: 0 0 0 2px var(--bg-card), 0 0 0 4px var(--accent);
+}
+.team-color-pick--active::after {
+  content: '✓';
+  position: absolute;
+  inset: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #fff;
+  font-size: 12px;
+  font-weight: 700;
+}
+
+/* Footer */
+.team-modal__foot {
+  border-top: 1px solid var(--border-light);
+  padding: 14px 22px;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  background: var(--bg-elevated);
+}
+.team-modal__kbd-hint {
+  font-size: 11px;
+  color: var(--text-3);
+}
+.team-modal__kbd-hint kbd {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-bottom-width: 2px;
+  padding: 1px 5px;
+  border-radius: 4px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 10px;
+  color: var(--text-1);
+}
+.team-modal__foot-actions {
+  display: flex;
+  gap: 8px;
+}
+

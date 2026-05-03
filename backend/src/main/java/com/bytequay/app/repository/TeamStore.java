@@ -30,11 +30,13 @@ public interface TeamStore
 
     Optional<Team> find(long id);
 
-    /** Creates a new team with the given roster. Throws if {@code name} is already in use. */
-    Team create(String name, String avatar, String color, Set<String> members);
+    /** Creates a new team with the given roster. Throws if {@code name} is
+     *  already in use. {@code description} may be null. */
+    Team create(String name, String avatar, String color, String description, Set<String> members);
 
-    /** Renames / re-colours an existing team without touching its roster. */
-    Team update(long id, String name, String avatar, String color);
+    /** Renames / re-colours / re-describes an existing team without touching
+     *  its roster. {@code description} may be null. */
+    Team update(long id, String name, String avatar, String color, String description);
 
     /** Replaces the entire roster. Logins are normalised to lowercase. */
     Team replaceMembers(long id, Set<String> members);

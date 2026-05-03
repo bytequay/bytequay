@@ -60,7 +60,7 @@ public class SqliteTeamStore
 
     @Override
     @Transactional
-    public Team create(String name, String avatar, String color, Set<String> members)
+    public Team create(String name, String avatar, String color, String description, Set<String> members)
     {
         validateRequired(name, "name");
         validateRequired(avatar, "avatar");
@@ -72,6 +72,7 @@ public class SqliteTeamStore
         team.setName(name);
         team.setAvatar(avatar);
         team.setColor(color);
+        team.setDescription(normaliseDescription(description));
         TeamEntity saved = teamRepo.save(team);
         writeMembers(saved.getId(), members);
         return toDomain(saved);
@@ -79,7 +80,7 @@ public class SqliteTeamStore
 
     @Override
     @Transactional
-    public Team update(long id, String name, String avatar, String color)
+    public Team update(long id, String name, String avatar, String color, String description)
     {
         validateRequired(name, "name");
         validateRequired(avatar, "avatar");
@@ -95,7 +96,20 @@ public class SqliteTeamStore
         team.setName(name);
         team.setAvatar(avatar);
         team.setColor(color);
+        team.setDescription(normaliseDescription(description));
         return toDomain(teamRepo.save(team));
+    }
+
+    /** Trim and treat blank as null so the DB column is genuinely empty
+     *  rather than an empty-string "" sentinel that the UI then has to
+     *  filter out everywhere it reads the field. */
+    private static String normaliseDescription(String raw)
+    {
+        if (raw == null) {
+            return null;
+        }
+        String trimmed = raw.trim();
+        return trimmed.isEmpty() ? null : trimmed;
     }
 
     @Override
@@ -150,6 +164,7 @@ public class SqliteTeamStore
                 entity.getName(),
                 entity.getAvatar(),
                 entity.getColor(),
+                entity.getDescription(),
                 members,
                 entity.getCreatedAt(),
                 entity.getUpdatedAt());

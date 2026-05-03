@@ -50,9 +50,9 @@ public class TeamController
         this.patResolver = requireNonNull(patResolver, "patResolver is null");
     }
 
-    public record CreateTeamRequest(String name, String avatar, String color, List<String> members) {}
+    public record CreateTeamRequest(String name, String avatar, String color, String description, List<String> members) {}
 
-    public record UpdateTeamRequest(String name, String avatar, String color) {}
+    public record UpdateTeamRequest(String name, String avatar, String color, String description) {}
 
     public record ReplaceMembersRequest(List<String> members) {}
 
@@ -67,7 +67,7 @@ public class TeamController
     @PostMapping
     public Team create(@RequestBody CreateTeamRequest req)
     {
-        return teamService.create(req.name(), req.avatar(), req.color(), toMemberSet(req.members()));
+        return teamService.create(req.name(), req.avatar(), req.color(), req.description(), toMemberSet(req.members()));
     }
 
     /** GET /api/teams/{id} — full team incl. roster. */
@@ -81,7 +81,7 @@ public class TeamController
     @PatchMapping("/{id}")
     public Team update(@PathVariable long id, @RequestBody UpdateTeamRequest req)
     {
-        return teamService.update(id, req.name(), req.avatar(), req.color());
+        return teamService.update(id, req.name(), req.avatar(), req.color(), req.description());
     }
 
     /** PUT /api/teams/{id}/members — replace the entire roster. */

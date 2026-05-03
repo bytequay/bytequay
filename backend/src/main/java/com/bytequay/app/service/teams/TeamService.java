@@ -126,7 +126,7 @@ public class TeamService
                     int inbox = (int) inboxPrs.stream()
                             .filter(p -> p.author() != null && members.contains(p.author().toLowerCase(Locale.ROOT)))
                             .count();
-                    return new TeamSummary(t.id(), t.name(), t.avatar(), t.color(), members.size(), inbox);
+                    return new TeamSummary(t.id(), t.name(), t.avatar(), t.color(), t.description(), members.size(), inbox);
                 })
                 .collect(toImmutableList());
     }
@@ -137,14 +137,14 @@ public class TeamService
                 .orElseThrow(() -> new ResponseStatusException(HttpStatusCode.valueOf(404), "team " + id + " not found"));
     }
 
-    public Team create(String name, String avatar, String color, Set<String> members)
+    public Team create(String name, String avatar, String color, String description, Set<String> members)
     {
-        return teamStore.create(name, avatar, color, members);
+        return teamStore.create(name, avatar, color, description, members);
     }
 
-    public Team update(long id, String name, String avatar, String color)
+    public Team update(long id, String name, String avatar, String color, String description)
     {
-        return teamStore.update(id, name, avatar, color);
+        return teamStore.update(id, name, avatar, color, description);
     }
 
     public Team replaceMembers(long id, Set<String> members)

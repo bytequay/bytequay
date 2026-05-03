@@ -578,20 +578,27 @@
 .prc-review-card__marker--approved {
   background: #2da44e;
   color: #fff;
-  font-size: 12px;
+  font-size: 16px;
   font-weight: 700;
   border: 2px solid var(--bg-base);
-  width: 22px;
-  height: 22px;
+  width: 28px;
+  height: 28px;
+  /* Re-centre the marker over its rail position now that it's wider —
+     left:69px is the centre of the 22px badge; widening to 28px shifts
+     the centre by 3px without this nudge. */
+  left: 66px;
+  top: -3px;
 }
 .prc-review-card__marker--changes-requested {
   background: #cf222e;
   color: #fff;
-  font-size: 12px;
+  font-size: 16px;
   font-weight: 700;
   border: 2px solid var(--bg-base);
-  width: 22px;
-  height: 22px;
+  width: 28px;
+  height: 28px;
+  left: 66px;
+  top: -3px;
 }
 .prc-review-card__marker--commented {
   background: var(--bg-elevated);
@@ -1287,6 +1294,38 @@
   cursor: pointer;
 }
 .prc-yrb__cta:hover { background: var(--accent-dark, var(--accent)); opacity: 0.92; }
+
+/* Draft / ready-for-review toggle button in the right meta sidebar.
+   Neutral outline style — same shell as the resolve-conversation
+   button so it doesn't read as a primary CTA. */
+.prc-draft-toggle-btn {
+  appearance: none;
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 6px 12px;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-2);
+  cursor: pointer;
+  margin-top: 8px;
+  width: 100%;
+}
+.prc-draft-toggle-btn:hover:not(:disabled) {
+  color: var(--accent);
+  border-color: var(--accent-a40);
+  background: var(--accent-a7);
+}
+.prc-draft-toggle-btn:disabled {
+  opacity: 0.6;
+  cursor: progress;
+}
+.prc-draft-toggle-error {
+  margin-top: 6px;
+  font-size: 11px;
+  color: #cf222e;
+  word-break: break-word;
+}
 
 .prc-reviewer-row {
   display: flex;

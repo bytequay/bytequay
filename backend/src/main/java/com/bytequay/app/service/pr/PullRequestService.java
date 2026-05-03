@@ -218,6 +218,18 @@ public class PullRequestService
     }
 
     /**
+     * Toggles a PR between draft and ready-for-review. Drops the cached
+     * detail so the next fetch reflects the new state and the timeline
+     * picks up the synthetic "ready for review" / "marked as draft"
+     * event GitHub emits.
+     */
+    public void setPullRequestDraft(String pat, String repo, int number, boolean draft)
+    {
+        gitHub.setPullRequestDraft(pat, parseRef(repo, number), draft);
+        invalidateCachedDetail(repo, number);
+    }
+
+    /**
      * Returns the raw log text for a single Actions check-run, capped at
      * a sensible size so a 50MB job log doesn't crater the renderer.
      * Empty string when GitHub doesn't expose a log for this check

@@ -304,6 +304,22 @@ function registerIpc(): void {
     return res.json();
   });
 
+  ipcMain.handle('backend:setPrDraft', async (_event, repo: string, number: number, draft: boolean) => {
+    const url = new URL(`${BACKEND_BASE}/prs/draft`);
+    url.searchParams.set('repo', repo);
+    url.searchParams.set('number', String(number));
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ draft }),
+    });
+    if (!res.ok) {
+      const body = await res.text().catch(() => '');
+      throw new Error(body || `backend /prs/draft returned ${res.status}`);
+    }
+    return res.json();
+  });
+
   ipcMain.handle('backend:prDiffFiles', async (_event, repo: string, number: number) => {
 const url = new URL(`${BACKEND_BASE}/prs/diffFiles`);
     url.searchParams.set('repo', repo);

@@ -1100,6 +1100,75 @@ public class GitHubClient
     record GqlCommentNode(Long databaseId) {}
 
     @Override
+    public void setPullRequestDraft(String pat, PullRequestRef pr, boolean draft)
+    {
+        // Two-step GraphQL: REST exposes neither toggle, so first fetch
+        // the PR's opaque GraphQL node id, then run the appropriate
+        // mutation. Roundtrip cost is fine for a rare user-triggered
+        // action; we don't pre-cache the node id since it's only used
+        // here.
+        String pullRequestNodeId;
+        try {
+            String idQuery = "query($owner: String!, $name: String!, $number: Int!) {"
+                    + " repository(owner: $owner, name: $name) {"
+                    + "   pullRequest(number: $number) { id }"
+                    + " } }";
+            Map<String, Object> idBody = ImmutableMap.of(
+                    "query", idQuery,
+                    "variables", ImmutableMap.of(
+                            "owner", pr.owner(),
+                            "name", pr.repo(),
+                            "number", pr.number()));
+            PullRequestIdGqlResponse idResponse = graphqlRestClient.post()
+                    .header("Authorization", "Bearer " + pat)
+                    .body(idBody)
+                    .retrieve()
+                    .body(PullRequestIdGqlResponse.class);
+            if (idResponse == null
+                    || idResponse.data() == null
+                    || idResponse.data().repository() == null
+                    || idResponse.data().repository().pullRequest() == null
+                    || idResponse.data().repository().pullRequest().id() == null) {
+                throw new ResponseStatusException(HttpStatusCode.valueOf(404),
+                        "PR " + pr.owner() + "/" + pr.repo() + "#" + pr.number() + " not found");
+            }
+            pullRequestNodeId = idResponse.data().repository().pullRequest().id();
+        }
+        catch (RestClientResponseException e) {
+            throw toReadableException(e);
+        }
+
+        String mutation = draft
+                ? "mutation($id: ID!) { convertPullRequestToDraft(input: { pullRequestId: $id }) { pullRequest { id isDraft } } }"
+                : "mutation($id: ID!) { markPullRequestReadyForReview(input: { pullRequestId: $id }) { pullRequest { id isDraft } } }";
+        Map<String, Object> body = ImmutableMap.of(
+                "query", mutation,
+                "variables", ImmutableMap.of("id", pullRequestNodeId));
+        try {
+            graphqlRestClient.post()
+                    .header("Authorization", "Bearer " + pat)
+                    .body(body)
+                    .retrieve()
+                    .toBodilessEntity();
+        }
+        catch (RestClientResponseException e) {
+            throw toReadableException(e);
+        }
+    }
+
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    record PullRequestIdGqlResponse(PullRequestIdGqlData data) {}
+
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    record PullRequestIdGqlData(PullRequestIdGqlRepo repository) {}
+
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    record PullRequestIdGqlRepo(PullRequestIdGqlPr pullRequest) {}
+
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    record PullRequestIdGqlPr(String id) {}
+
+    @Override
     public List<SuggestedReviewer> fetchSuggestedReviewers(String pat, PullRequestRef pr)
     {
         // GitHub caps suggestedReviewers at 5 today; first(10) is generous

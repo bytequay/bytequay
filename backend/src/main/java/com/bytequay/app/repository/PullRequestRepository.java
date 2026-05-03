@@ -549,6 +549,18 @@ public interface PullRequestRepository
         return Optional.empty();
     }
 
+    /**
+     * Toggles a pull request between draft and ready-for-review. The
+     * REST API doesn't expose this, so the implementation goes through
+     * GraphQL ({@code markPullRequestReadyForReview} /
+     * {@code convertPullRequestToDraft}). Caller passes {@code true}
+     * to mark as draft, {@code false} to publish.
+     */
+    default void setPullRequestDraft(String pat, PullRequestRef pr, boolean draft)
+    {
+        throw new UnsupportedOperationException("setPullRequestDraft not implemented");
+    }
+
     // ── Events ────────────────────────────────────────────────────────────────
 
     /**

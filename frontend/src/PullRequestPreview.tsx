@@ -519,6 +519,34 @@ function PullRequestPreview({ pr, onOpenReview, onInspectDiffs, onMarkHandled, o
   // Manual-refresh / focus-poll spinner state for the CI summary.
   const [ciRefreshing, setCiRefreshing] = useState(false);
 
+  // Draft toggle state — surfaces a "Mark as ready" / "Convert to draft"
+  // button in the right sidebar. Authors and maintainers commonly flip
+  // this without leaving the detail page.
+  const [draftToggleState, setDraftToggleState] = useState<'idle' | 'running' | 'error'>('idle');
+  const [draftToggleError, setDraftToggleError] = useState<string | null>(null);
+  const handleToggleDraft = async () => {
+    if (!detail || draftToggleState === 'running') return;
+    const nextDraft = !detail.draft;
+    setDraftToggleState('running');
+    setDraftToggleError(null);
+    try {
+      await window.bridge.setPrDraft(pr.repo, pr.number, nextDraft);
+      // Optimistically reflect the new draft state immediately, then
+      // re-fetch so the timeline picks up GitHub's synthetic event.
+      setDetail(prev => prev ? { ...prev, draft: nextDraft } : prev);
+      const fresh = await window.bridge.fetchPullRequestDetail(pr.repo, pr.number);
+      putCache(pr.id, fresh);
+      setDetail(fresh);
+      setDraftToggleState('idle');
+    }
+    catch (e) {
+      setDraftToggleError(e instanceof Error ? e.message : String(e));
+      setDraftToggleState('error');
+      // Revert if the backend rejected the call.
+      setDetail(prev => prev ? { ...prev, draft: !nextDraft } : prev);
+    }
+  };
+
   /** Refetch just the CI slice from /prs/ci. Used by the focus-driven
    *  poll, by the visibility-change handler, and by the manual refresh
    *  button rendered in the CI summary. Errors are swallowed — a failed
@@ -1332,6 +1360,45 @@ function PullRequestPreview({ pr, onOpenReview, onInspectDiffs, onMarkHandled, o
                 >
                   Start review →
                 </button>
+              </section>
+            )}
+
+            {/* Draft / ready-for-review toggle. Both directions are useful:
+                authors flip an in-progress PR to ready, and reviewers /
+                maintainers can knock a regressed PR back to draft. The
+                button is greyed-while-running with the error inlined. */}
+            {!pr.mergedAt && pr.state !== 'closed' && (
+              <section className="prc-meta-section">
+                <div className="prc-meta-label">Draft</div>
+                <div className="prc-status-row">
+                  <span
+                    className="prc-status-dot"
+                    style={{ background: detail.draft ? '#6b7280' : '#2da44e' }}
+                  />
+                  <span>
+                    <b>{detail.draft ? 'Draft' : 'Ready for review'}</b>
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  className="prc-draft-toggle-btn"
+                  onClick={() => { void handleToggleDraft(); }}
+                  disabled={draftToggleState === 'running'}
+                  title={detail.draft
+                    ? 'Mark this PR as ready for review on GitHub'
+                    : 'Convert this PR back to a draft on GitHub'}
+                >
+                  {draftToggleState === 'running'
+                    ? '…'
+                    : detail.draft
+                      ? 'Mark as ready'
+                      : 'Convert to draft'}
+                </button>
+                {draftToggleState === 'error' && draftToggleError && (
+                  <div className="prc-draft-toggle-error" title={draftToggleError}>
+                    {draftToggleError.length > 80 ? draftToggleError.slice(0, 77) + '…' : draftToggleError}
+                  </div>
+                )}
               </section>
             )}
 

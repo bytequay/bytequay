@@ -105,6 +105,24 @@ public class PullRequestController
     }
 
     /**
+     * Toggles a PR between draft and ready-for-review. Body
+     * {@code {"draft": true}} converts the PR to a draft; false marks
+     * it as ready for review. POST /prs/draft?repo=&number=
+     */
+    public record SetDraftRequest(boolean draft) {}
+
+    @PostMapping("/prs/draft")
+    public Map<String, Object> setDraft(
+            @RequestParam("repo") String repo,
+            @RequestParam("number") int number,
+            @RequestBody SetDraftRequest req)
+    {
+        String pat = patResolver.resolve(repo);
+        pullRequestService.setPullRequestDraft(pat, repo, number, req.draft());
+        return ImmutableMap.of("result", req.draft() ? "draft" : "ready");
+    }
+
+    /**
      * Records that the user viewed this PR. No PAT required — purely local state.
      * POST /prs/viewed
      */

@@ -578,6 +578,9 @@ export type Bridge = {
    *  doesn't expose a log (external CI / expired / scope). Lazy-loaded
    *  by the merge bar's failure cards on user click. */
   fetchCheckLog: (repo: string, checkRunId: number) => Promise<{ log: string }>;
+  /** Toggle a PR between draft and ready-for-review. true = convert
+   *  to draft, false = mark as ready. Routes through GitHub GraphQL. */
+  setPrDraft: (repo: string, number: number, draft: boolean) => Promise<{ result: string }>;
   fetchPrDiffFiles: (repo: string, number: number) => Promise<DiffFileDto[]>;
   fetchPrCommits: (repo: string, number: number) => Promise<PullRequestCommitDto[]>;
   /** Diff scoped to a single commit (DiffFileDto[] same as fetchPrDiffFiles). */

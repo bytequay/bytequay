@@ -1,0 +1,70 @@
+name: Release
+
+# Triggers only on tag pushes matching v*. The plain CI workflow
+# (ci.yml) handles main + PRs and does NOT run this. workflow_dispatch
+# lets us re-run a flaky build manually from the Actions tab without
+# re-tagging.
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+# softprops/action-gh-release needs contents:write to attach assets
+# to the GitHub Release.
+permissions:
+  contents: write
+
+jobs:
+  macos:
+    name: macOS — build DMG + ZIP
+    runs-on: macos-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          java-version: '21'
+          distribution: 'temurin'
+          cache: maven
+
+      - name: Set up Node 20
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install frontend dependencies
+        working-directory: frontend
+        run: npm ci
+
+      # Forge's generateAssets hook will run `mvn -DskipTests package`
+      # automatically if the JAR is missing, so we don't need a separate
+      # backend build step here.
+      - name: Build Mac installers (DMG + ZIP)
+        working-directory: frontend
+        run: npm run make
+
+      # Surface what was produced before the upload step in case we
+      # need to debug a missing asset.
+      - name: List built artefacts
+        run: find frontend/out/make -type f \( -name '*.dmg' -o -name '*.zip' \) -ls
+
+      - name: Attach installers to GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          # Both formats: DMG for the typical "drag to Applications"
+          # flow, ZIP for users who prefer manual extraction (and what
+          # update-electron-app will eventually consume).
+          files: |
+            frontend/out/make/**/*.dmg
+            frontend/out/make/**/*.zip
+          # Auto-mark as a pre-release for tags like v0.2.0-rc1 / v1.0.0-beta.
+          # Final-release tags (v0.1.0, v1.0.0) are published as stable.
+          prerelease: ${{ contains(github.ref, '-') }}
+          # Don't fail the run when re-uploading on a manual dispatch —
+          # the action overwrites existing assets of the same name.
+          fail_on_unmatched_files: true

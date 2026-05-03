@@ -376,6 +376,17 @@ The short version:
 
 ---
 
+## Cutting a release
+
+The full release flow — versioning, the GitHub Actions workflow that
+builds the DMG, the Gatekeeper / quarantine model that decides what
+end users see on first launch, and the planned signing + auto-update
+follow-ups — lives in [RELEASING.md](RELEASING.md). Tag a `v*` commit
+and push the tag; the workflow at `.github/workflows/release.yml` does
+the rest.
+
+---
+
 ## Reporting issues
 
 Open a GitHub issue describing:

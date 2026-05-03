@@ -130,6 +130,7 @@ public class SqlitePrDetailStore
 
         List<PrCheckRunState> checkRuns = checkRunRepo.findByPrId(prId).stream()
                 .map(c -> new PrCheckRunState(
+                        c.getGithubId(),
                         c.getName(),
                         c.getStatus(),
                         c.getConclusion(),
@@ -338,6 +339,7 @@ public class SqlitePrDetailStore
     {
         PrCheckRunEntity e = new PrCheckRunEntity();
         e.setPrId(prId);
+        e.setGithubId(c.githubId());
         e.setName(c.name());
         e.setStatus(c.status());
         e.setConclusion(c.conclusion());

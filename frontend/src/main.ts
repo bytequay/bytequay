@@ -292,6 +292,18 @@ function registerIpc(): void {
     return res.json();
   });
 
+  ipcMain.handle('backend:prCheckLog', async (_event, repo: string, checkRunId: number) => {
+    const url = new URL(`${BACKEND_BASE}/prs/checkLog`);
+    url.searchParams.set('repo', repo);
+    url.searchParams.set('checkRunId', String(checkRunId));
+    const res = await fetch(url);
+    if (!res.ok) {
+      const body = await res.text().catch(() => '');
+      throw new Error(`backend /prs/checkLog returned ${res.status}: ${body}`);
+    }
+    return res.json();
+  });
+
   ipcMain.handle('backend:prDiffFiles', async (_event, repo: string, number: number) => {
 const url = new URL(`${BACKEND_BASE}/prs/diffFiles`);
     url.searchParams.set('repo', repo);
@@ -1083,6 +1095,20 @@ const url = new URL(`${BACKEND_BASE}/api/search/repos`);
     }
     const json = await res.json();
     return json.text as string;
+  });
+
+  ipcMain.handle('ai:diagnoseCheck', async (_event, checkName: string, log: string) => {
+    const res = await fetch(`${BACKEND_BASE}/ai/diagnoseCheck`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ checkName, log }),
+    });
+    if (!res.ok) {
+      const detail = await res.text().catch(() => '');
+      throw new Error(detail || `diagnoseCheck returned ${res.status}`);
+    }
+    const json = await res.json();
+    return json.suggestion as string;
   });
 
   ipcMain.handle('ai:getSettings', async () => {

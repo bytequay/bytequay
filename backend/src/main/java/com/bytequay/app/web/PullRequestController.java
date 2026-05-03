@@ -89,6 +89,22 @@ public class PullRequestController
     }
 
     /**
+     * Returns the raw log text for a single Actions check-run job so the
+     * merge bar's failure cards can show the actual log inline without
+     * sending the user to github.com. Empty body when GitHub doesn't
+     * expose a log (external CI, expired log, missing PAT scope).
+     * GET /prs/checkLog?repo=&checkRunId=
+     */
+    @GetMapping("/prs/checkLog")
+    public Map<String, String> checkLog(
+            @RequestParam("repo") String repo,
+            @RequestParam("checkRunId") long checkRunId)
+    {
+        String pat = patResolver.resolve(repo);
+        return ImmutableMap.of("log", pullRequestService.getCheckRunLog(pat, repo, checkRunId));
+    }
+
+    /**
      * Records that the user viewed this PR. No PAT required — purely local state.
      * POST /prs/viewed
      */

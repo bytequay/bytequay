@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { marked } from 'marked';
 import type { ActivityItemDto, CheckRunDto, PullRequestDetailDto, PullRequestDto, ReviewThreadDto } from './types';
 import { getCached, putCache } from './detailCache';
@@ -41,12 +41,46 @@ const SIDE_WIDTH_DEFAULT = 260;
  *  default; reviewers can click through if they want the full text. */
 const FAILURE_SUMMARY_COLLAPSED_CHARS = 600;
 
-function FailingCheckCard({ check }: { check: CheckRunDto }) {
+/** Patterns the merge bar highlights inside an Actions log so failing
+ *  lines pop visually — exactly the markers reviewers grep for first
+ *  ([ERROR], [FAILURE], etc.). Case-insensitive. The pattern is split
+ *  across alternations rather than one mega-regex so the visible match
+ *  stays compact (we wrap the matched substring, not whole lines). */
+const LOG_ERROR_PATTERN = /(\[ERROR\]|\[FAILURE\]|\[FATAL\]|\[FAIL(?:ED)?\]|Caused by:|Exception(?: in thread)?[: ]|Error:|FAILED|Stack trace:|Traceback)/gi;
+
+/** Splits a log blob into alternating plain / highlighted pieces so the
+ *  failure markers can be wrapped in a styled span. Returns the original
+ *  text as a single plain piece when no marker is present. */
+function highlightLogText(text: string): ReactNode[] {
+  if (!text) return [text];
+  const out: ReactNode[] = [];
+  let lastIndex = 0;
+  let match: RegExpExecArray | null;
+  // Reset state on the global regex — it's a module-level constant.
+  LOG_ERROR_PATTERN.lastIndex = 0;
+  while ((match = LOG_ERROR_PATTERN.exec(text)) !== null) {
+    if (match.index > lastIndex) {
+      out.push(text.slice(lastIndex, match.index));
+    }
+    out.push(<mark key={`m-${match.index}`} className="merge-bar__failure-pre__hit">{match[0]}</mark>);
+    lastIndex = match.index + match[0].length;
+  }
+  if (lastIndex < text.length) {
+    out.push(text.slice(lastIndex));
+  }
+  return out;
+}
+
+function FailingCheckCard({ check, repo }: { check: CheckRunDto; repo: string }) {
   const [bodyOpen, setBodyOpen] = useState(false);
   const name = check.name && check.name.trim().length > 0 ? check.name : '(unnamed check)';
   const title = check.outputTitle && check.outputTitle.trim().length > 0 ? check.outputTitle.trim() : null;
   const summary = check.outputSummary && check.outputSummary.trim().length > 0 ? check.outputSummary.trim() : null;
-  const hasErrorBody = title !== null || summary !== null;
+  const hasSummary = title !== null || summary !== null;
+  const canFetchLog = check.githubId != null;
+  // Body is openable whenever there's anything to show — either an
+  // inline summary OR a fetchable Actions log.
+  const hasErrorBody = hasSummary || canFetchLog;
   const longSummary = summary !== null && summary.length > FAILURE_SUMMARY_COLLAPSED_CHARS;
   const [summaryExpanded, setSummaryExpanded] = useState(false);
   const visibleSummary = summary === null
@@ -54,6 +88,51 @@ function FailingCheckCard({ check }: { check: CheckRunDto }) {
     : !longSummary || summaryExpanded
       ? summary
       : summary.slice(0, FAILURE_SUMMARY_COLLAPSED_CHARS) + '…';
+
+  // Full-log state. Lazy-fetched when the user clicks "Show full log";
+  // null means "not fetched yet". Empty string after a successful fetch
+  // means "GitHub returned no log" (external CI / expired). Error
+  // string carries any IPC failure message.
+  const [logState, setLogState] = useState<{ status: 'idle' | 'loading' | 'loaded' | 'error'; text: string; error: string | null }>(
+    { status: 'idle', text: '', error: null },
+  );
+  const [logVisible, setLogVisible] = useState(false);
+  const loadLog = async () => {
+    if (check.githubId == null) return;
+    setLogVisible(true);
+    if (logState.status === 'loading' || logState.status === 'loaded') return;
+    setLogState({ status: 'loading', text: '', error: null });
+    try {
+      const r = await window.bridge.fetchCheckLog(repo, check.githubId);
+      setLogState({ status: 'loaded', text: r.log ?? '', error: null });
+    }
+    catch (e) {
+      setLogState({ status: 'error', text: '', error: e instanceof Error ? e.message : String(e) });
+    }
+  };
+
+  // Ask-AI state. The button is enabled when we have either a fetched
+  // log OR an inline outputSummary — anything is better than no context.
+  const [aiState, setAiState] = useState<{ status: 'idle' | 'loading' | 'loaded' | 'error'; text: string; error: string | null }>(
+    { status: 'idle', text: '', error: null },
+  );
+  const askAi = async () => {
+    // Prefer the freshly-fetched full log; fall back to the inline
+    // summary if the user clicked Ask AI before opening the log.
+    const context = logState.status === 'loaded' && logState.text !== ''
+      ? logState.text
+      : (summary ?? title ?? '');
+    if (!context) return;
+    setAiState({ status: 'loading', text: '', error: null });
+    try {
+      const suggestion = await window.bridge.diagnoseCheckFailure(name, context);
+      setAiState({ status: 'loaded', text: suggestion, error: null });
+    }
+    catch (e) {
+      setAiState({ status: 'error', text: '', error: e instanceof Error ? e.message : String(e) });
+    }
+  };
+  const canAsk = logState.status === 'loaded' && logState.text !== '' || hasSummary;
   return (
     <li className="merge-bar__failure-card">
       <button
@@ -90,18 +169,92 @@ function FailingCheckCard({ check }: { check: CheckRunDto }) {
       </button>
       {bodyOpen && hasErrorBody && (
         <div className="merge-bar__failure-body">
-          {/* Render in a <pre> so stack traces and indented test output
-              keep their formatting. The body is the actual error message
-              GitHub's runner attached, not just the conclusion label. */}
-          <pre className="merge-bar__failure-pre">{visibleSummary ?? title}</pre>
-          {longSummary && (
-            <button
-              type="button"
-              className="merge-bar__failure-more"
-              onClick={() => setSummaryExpanded(v => !v)}
-            >
-              {summaryExpanded ? 'Show less' : `Show more (${summary!.length} chars)`}
-            </button>
+          {hasSummary && (
+            <>
+              {/* Render in a <pre> so stack traces and indented test
+                  output keep their formatting. */}
+              <pre className="merge-bar__failure-pre">{visibleSummary ?? title}</pre>
+              {longSummary && (
+                <button
+                  type="button"
+                  className="merge-bar__failure-more"
+                  onClick={() => setSummaryExpanded(v => !v)}
+                >
+                  {summaryExpanded ? 'Show less' : `Show more (${summary!.length} chars)`}
+                </button>
+              )}
+            </>
+          )}
+          {canFetchLog && (
+            <div className="merge-bar__failure-log">
+              <div className="merge-bar__failure-log-bar">
+                <button
+                  type="button"
+                  className="merge-bar__failure-more"
+                  onClick={() => {
+                    if (logVisible) {
+                      setLogVisible(false);
+                    }
+                    else {
+                      void loadLog();
+                    }
+                  }}
+                  disabled={logState.status === 'loading'}
+                >
+                  {logVisible
+                    ? 'Hide full log'
+                    : logState.status === 'loading'
+                      ? 'Loading log…'
+                      : 'Show full log'}
+                </button>
+                <button
+                  type="button"
+                  className="merge-bar__failure-ai-btn"
+                  onClick={() => { void askAi(); }}
+                  disabled={!canAsk || aiState.status === 'loading'}
+                  title={canAsk
+                    ? 'Send the failure log to the active AI provider for a root-cause + fix suggestion'
+                    : 'Open the log first so the AI has context to work with'}
+                >
+                  {aiState.status === 'loading' ? 'Asking AI…' : '✨ Ask AI to fix'}
+                </button>
+              </div>
+              {logVisible && logState.status === 'loading' && (
+                <div className="merge-bar__failure-log-status">Fetching log from GitHub…</div>
+              )}
+              {logVisible && logState.status === 'error' && (
+                <div className="merge-bar__failure-log-status merge-bar__failure-log-status--error">
+                  Couldn’t load log: {logState.error}
+                </div>
+              )}
+              {logVisible && logState.status === 'loaded' && logState.text === '' && (
+                <div className="merge-bar__failure-log-status">
+                  No log available — check probably ran on an external CI, or the log expired.
+                </div>
+              )}
+              {logVisible && logState.status === 'loaded' && logState.text !== '' && (
+                <pre className="merge-bar__failure-pre merge-bar__failure-pre--log">
+                  {highlightLogText(logState.text)}
+                </pre>
+              )}
+              {aiState.status === 'error' && (
+                <div className="merge-bar__failure-log-status merge-bar__failure-log-status--error">
+                  AI request failed: {aiState.error}
+                </div>
+              )}
+              {aiState.status === 'loaded' && aiState.text !== '' && (
+                <div className="merge-bar__failure-ai">
+                  <div className="merge-bar__failure-ai-head">
+                    <span aria-hidden="true">✨</span>
+                    <span>AI suggestion</span>
+                  </div>
+                  <div
+                    className="merge-bar__failure-ai-body"
+                    dangerouslySetInnerHTML={{ __html: marked.parse(aiState.text, { async: false }) as string }}
+                  />
+                </div>
+              )}
+            </div>
           )}
         </div>
       )}
@@ -232,7 +385,7 @@ function MergeBar({ pr, detail, mergeState, mergeError, onMerge }: MergeBarProps
       {failuresOpen && failingChecks.length > 0 && (
         <ul className="merge-bar__failures">
           {failingChecks.map((c, i) => (
-            <FailingCheckCard key={`${c.name ?? 'unnamed'}-${i}`} check={c} />
+            <FailingCheckCard key={`${c.name ?? 'unnamed'}-${i}`} check={c} repo={pr.repo} />
           ))}
         </ul>
       )}

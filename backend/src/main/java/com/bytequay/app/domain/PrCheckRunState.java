@@ -31,6 +31,7 @@ package com.bytequay.app.domain;
  *                      Null when absent.
  */
 public record PrCheckRunState(
+        Long githubId,
         String name,
         String status,
         String conclusion,

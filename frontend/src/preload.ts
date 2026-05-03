@@ -42,6 +42,8 @@ const bridge: Bridge = {
     ipcRenderer.invoke('backend:pullRequestDetail', repo, number),
   fetchPrCi: (repo: string, number: number) =>
     ipcRenderer.invoke('backend:prCi', repo, number),
+  fetchCheckLog: (repo: string, checkRunId: number) =>
+    ipcRenderer.invoke('backend:prCheckLog', repo, checkRunId),
   fetchPrDiffFiles: (repo: string, number: number) =>
     ipcRenderer.invoke('backend:prDiffFiles', repo, number),
   fetchPrCommits: (repo: string, number: number) =>
@@ -143,6 +145,8 @@ const bridge: Bridge = {
     ipcRenderer.invoke('ai:run', prId, repo, number),
   polishCommentText: (text: string): Promise<string> =>
     ipcRenderer.invoke('ai:polishComment', text),
+  diagnoseCheckFailure: (checkName: string, log: string): Promise<string> =>
+    ipcRenderer.invoke('ai:diagnoseCheck', checkName, log),
   getLatestAiReview: (prId: number): Promise<AiReviewDraftDto | null> =>
     ipcRenderer.invoke('ai:latest', prId),
   deleteAiReview: (draftId: number): Promise<void> =>

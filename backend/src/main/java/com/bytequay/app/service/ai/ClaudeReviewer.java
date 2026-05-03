@@ -244,6 +244,60 @@ public class ClaudeReviewer
     }
 
     @Override
+    public String diagnoseCheckRunFailure(String checkName, String logText)
+    {
+        if (logText == null || logText.trim().isEmpty()) {
+            return "";
+        }
+        String apiKey = credentialService.getSecret(CredentialType.AI, ANTHROPIC_NAME)
+                .orElseThrow(() -> new IllegalStateException(
+                        "Anthropic API key not configured. Add it in Settings → AI review."));
+        String model = appSettings.get(AppSettingsStore.Key.LLM_MODEL)
+                .filter(s -> !s.isBlank())
+                .orElse(DEFAULT_MODEL);
+
+        // CI logs can be huge; cap the prompt input at the last 60 KB
+        // (failure context lives at the end). Cheaper + faster + the
+        // model rarely benefits from earlier "everything passed" lines.
+        final int promptCap = 60_000;
+        String trimmedLog = logText.length() > promptCap
+                ? "… (log truncated; showing last " + promptCap + " bytes)\n" + logText.substring(logText.length() - promptCap)
+                : logText;
+
+        String system = """
+                You diagnose CI check failures from build / test logs and propose a concrete \
+                fix. Format your reply as concise markdown with these sections: \
+                **Root cause** (1-3 sentences), **Fix** (numbered steps the developer can \
+                follow, with code snippets where relevant), and **If that doesn't work** \
+                (one short fallback). Be specific — quote the exact failing line / file \
+                from the log. Do not pad. Output only the markdown.""";
+        String user = "CI check **" + (checkName == null ? "(unnamed)" : checkName) + "** failed.\n\n"
+                + "Log:\n```\n" + trimmedLog + "\n```";
+
+        MessagesRequest body = new MessagesRequest(
+                model,
+                /* maxTokens */ 1200,
+                system,
+                ImmutableList.of(new MessagesRequest.Message("user", user)),
+                false);
+
+        try {
+            MessagesResponse response = client.post()
+                    .uri("/v1/messages")
+                    .header("x-api-key", apiKey)
+                    .body(body)
+                    .retrieve()
+                    .body(MessagesResponse.class);
+            return extractText(response).trim();
+        }
+        catch (RestClientResponseException e) {
+            log.warn("Anthropic diagnose call returned {}: {}", e.getStatusCode().value(), e.getResponseBodyAsString());
+            throw new IllegalStateException(
+                    "Claude diagnose failed (" + e.getStatusCode().value() + "). Check your API key and try again.", e);
+        }
+    }
+
+    @Override
     public String polishCommentText(String draft)
     {
         if (draft == null || draft.trim().isEmpty()) {

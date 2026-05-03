@@ -253,12 +253,27 @@
   border-color: transparent var(--border) transparent transparent;
   z-index: 0;
 }
+/* Header bar shared by every comment + review card. Sits flush against
+   the card's top edge as a gray strip carrying author / verb / date /
+   role pill — same shell GitHub uses on its conversation page. The
+   negative margins break out of the card body's 10/14 padding so the
+   bar runs edge-to-edge; the bottom margin gives the body content
+   below room to breathe. The matching ::before border-color override
+   recolours the speech-bubble tail tip so it blends with the gray bar
+   instead of showing the white card fill underneath. */
 .prc-comment-head {
   display: flex;
   align-items: center;
   gap: 6px;
-  margin-bottom: 6px;
   flex-wrap: wrap;
+  margin: -10px -14px 10px;
+  padding: 8px 14px;
+  background: var(--bg-elevated);
+  border-bottom: 1px solid var(--border);
+  border-radius: 8px 8px 0 0;
+}
+.prc-comment-card-body::before {
+  border-color: transparent var(--bg-elevated) transparent transparent;
 }
 .prc-comment-verb { color: var(--text-3); font-size: 12px; }
 .prc-comment-author {
@@ -555,17 +570,12 @@
   line-height: 1;
   z-index: 1;
 }
-/* Strip the comment-card body chrome — no border, no shadow, no tail.
-   The threads inside carry their own borders. */
-.prc-review-card-body {
-  border: 0;
-  background: transparent;
-  padding: 0;
-}
-.prc-review-card-body::before,
-.prc-review-card-body::after {
-  display: none;
-}
+/* Inherit the comment-card chrome — bordered card with the speech-bubble
+   tail pointing at the avatar. Matches docs/mockups/v2/codereview/
+   review-card-boundary.png so reviews and plain issue comments share
+   the same visual shell. The header bar + inline review threads inside
+   are spaced and styled separately so the nested threads don't read
+   as a "double-bordered" block. */
 .prc-review-card__toggle {
   appearance: none;
   background: transparent;
@@ -959,12 +969,12 @@
   appearance: none;
   background: transparent;
   border: 1px solid var(--border);
-  border-radius: 999px;
+  border-radius: 6px;
   font: inherit;
-  font-size: 10.5px;
+  font-size: 13px;
   font-weight: 600;
-  letter-spacing: 0.03em;
-  padding: 1px 8px;
+  letter-spacing: 0.02em;
+  padding: 6px 14px;
   cursor: pointer;
   color: var(--text-2);
 }

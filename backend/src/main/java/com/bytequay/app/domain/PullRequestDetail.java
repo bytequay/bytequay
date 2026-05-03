@@ -109,6 +109,12 @@ public record PullRequestDetail(
      * (some runners don't publish an output block at all).
      */
     public record CheckRun(
+            /** Stable per-attempt id from GitHub. For Actions-backed
+             *  checks it is the same id used by
+             *  {@code GET /actions/jobs/{id}/logs}, which the frontend
+             *  uses to fetch the full log inline without leaving the
+             *  page. Nullable for legacy cached rows pre-V34 migration. */
+            Long githubId,
             String name,
             String status,
             String conclusion,

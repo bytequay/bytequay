@@ -25,6 +25,10 @@ public record GitHubCheckRunsResponse(
 {
     @JsonIgnoreProperties(ignoreUnknown = true)
     public record CheckRun(
+            /** Stable per-attempt id; matches the Actions job id for
+             *  Actions-backed checks, which lets the frontend fetch
+             *  /actions/jobs/{id}/logs for an inline log view. */
+            Long id,
             String name,
             String status,
             String conclusion,

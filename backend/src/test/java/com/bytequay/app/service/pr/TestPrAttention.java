@@ -106,7 +106,7 @@ class TestPrAttention
                 ImmutableList.of(),
                 ImmutableList.of(),
                 ImmutableList.of(comment),
-                ImmutableList.of(new PrCheckRunState("ci", "completed", "failure", null, null, null)),
+                ImmutableList.of(new PrCheckRunState(null, "ci", "completed", "failure", null, null, null)),
                 ImmutableList.of(),
                 ImmutableList.of());
 
@@ -208,7 +208,7 @@ class TestPrAttention
         StoredPrDetail detail = new StoredPrDetail(
                 new PrRawDetail(null, ImmutableList.of(), false, false, "dirty", 0, 0, 0, 0, "abc"),
                 ImmutableList.of(), ImmutableList.of(), ImmutableList.of(),
-                ImmutableList.of(new PrCheckRunState("ci", "completed", "failure", null, null, null)),
+                ImmutableList.of(new PrCheckRunState(null, "ci", "completed", "failure", null, null, null)),
                 ImmutableList.of(), ImmutableList.of());
         AttentionReason reason = PrAttention.promoteReason(prWith(PullRequest.Origin.AUTHORED), detail, ME, NOW, NOW);
         assertThat(reason).isEqualTo(AttentionReason.CI_FAILING);

@@ -135,6 +135,9 @@ export type ActivityItemDto = {
 };
 
 export type CheckRunDto = {
+  /** Stable check-run id from GitHub. Used by /prs/checkLog to fetch
+   *  the raw Actions log inline. Null for legacy cached rows. */
+  githubId: number | null;
   name: string | null;
   status: string | null;
   conclusion: string | null;
@@ -571,6 +574,10 @@ export type Bridge = {
   fetchPullRequestDetail: (repo: string, number: number) => Promise<PullRequestDetailDto>;
   /** Lightweight CI snapshot for the focus-driven detail-page poll. */
   fetchPrCi: (repo: string, number: number) => Promise<PrCiSnapshotDto>;
+  /** Raw Actions log text for one check-run. Empty string when GitHub
+   *  doesn't expose a log (external CI / expired / scope). Lazy-loaded
+   *  by the merge bar's failure cards on user click. */
+  fetchCheckLog: (repo: string, checkRunId: number) => Promise<{ log: string }>;
   fetchPrDiffFiles: (repo: string, number: number) => Promise<DiffFileDto[]>;
   fetchPrCommits: (repo: string, number: number) => Promise<PullRequestCommitDto[]>;
   /** Diff scoped to a single commit (DiffFileDto[] same as fetchPrDiffFiles). */
@@ -678,6 +685,10 @@ export type Bridge = {
    *  a polished rewrite. Used by the "Better words" button — UI replaces
    *  the textarea contents with the response. */
   polishCommentText: (text: string) => Promise<string>;
+  /** Sends a CI failure log to the active LLM and returns a markdown
+   *  root-cause-and-fix reply for the merge bar's "Ask AI to fix"
+   *  button. The body is the trimmed last-N-bytes of the Actions log. */
+  diagnoseCheckFailure: (checkName: string, log: string) => Promise<string>;
   getLatestAiReview: (prId: number) => Promise<AiReviewDraftDto | null>;
   deleteAiReview: (draftId: number) => Promise<void>;
   /** Async start — backend runs the review on its executor and returns

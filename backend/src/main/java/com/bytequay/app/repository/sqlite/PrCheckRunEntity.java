@@ -31,6 +31,9 @@ class PrCheckRunEntity
     @Column(nullable = false)
     private Long prId;
 
+    @Column(name = "github_id")
+    private Long githubId;
+
     private String name;
 
     private String status;
@@ -52,6 +55,9 @@ class PrCheckRunEntity
 
     Long getPrId() { return prId; }
     void setPrId(Long prId) { this.prId = prId; }
+
+    Long getGithubId() { return githubId; }
+    void setGithubId(Long githubId) { this.githubId = githubId; }
 
     String getName() { return name; }
     void setName(String name) { this.name = name; }

@@ -1491,8 +1491,129 @@
   cursor: pointer;
   padding: 0;
 }
-.merge-bar__failure-more:hover {
+.merge-bar__failure-more:hover:not(:disabled) {
   text-decoration: underline;
+}
+.merge-bar__failure-more:disabled {
+  color: var(--text-3);
+  cursor: progress;
+}
+
+/* Inline raw-log viewer. Lazy-loaded on click; the wrapping section
+   carries its own divider so the log reads as a separate sub-block
+   under the inline summary. */
+.merge-bar__failure-log {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  padding-top: 6px;
+  border-top: 1px dashed rgba(207, 34, 46, 0.25);
+}
+.merge-bar__failure-log-bar {
+  display: flex;
+}
+.merge-bar__failure-log-status {
+  font-size: 11px;
+  color: var(--text-3);
+  font-style: italic;
+}
+.merge-bar__failure-log-status--error {
+  color: #cf222e;
+  font-style: normal;
+}
+/* The log itself can be much longer than the summary excerpt; give it
+   a taller scroll viewport and a darker background so it reads like a
+   terminal pane. */
+.merge-bar__failure-pre--log {
+  max-height: 480px;
+  background: var(--bg-base);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 8px 10px;
+}
+/* Inline highlight for [ERROR] / [FAILURE] / Caused by / Exception
+   markers so reviewers can scan straight to the failing line(s). The
+   yellow box reads as a "found-it" hit similar to browser find-in-page
+   and shouldn't compete with the red CI chrome around it. */
+.merge-bar__failure-pre__hit {
+  background: #fef3c7;
+  color: #78350f;
+  font-weight: 600;
+  padding: 0 2px;
+  border-radius: 2px;
+}
+
+/* Ask-AI button — sits to the right of "Show full log" in the log
+   bar. Subtly accented so it reads as a smart action without shouting. */
+.merge-bar__failure-ai-btn {
+  margin-left: auto;
+  appearance: none;
+  border: 1px solid var(--accent-a40, rgba(99, 102, 241, 0.3));
+  background: var(--accent-a7, rgba(99, 102, 241, 0.08));
+  color: var(--accent, #4f46e5);
+  font-size: 11px;
+  font-weight: 600;
+  padding: 3px 10px;
+  border-radius: 4px;
+  cursor: pointer;
+}
+.merge-bar__failure-ai-btn:hover:not(:disabled) {
+  background: var(--accent-a20, rgba(99, 102, 241, 0.15));
+}
+.merge-bar__failure-ai-btn:disabled {
+  opacity: 0.5;
+  cursor: not-allowed;
+}
+.merge-bar__failure-log-bar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+/* AI response card — appears below the log when the user asks for a
+   diagnosis. Distinct accent colour so it doesn't blend into the red
+   failure chrome above. Markdown body inherits the standard md-body
+   styling for code fences / lists. */
+.merge-bar__failure-ai {
+  border: 1px solid var(--accent-a40, rgba(99, 102, 241, 0.3));
+  background: var(--accent-a7, rgba(99, 102, 241, 0.05));
+  border-radius: 6px;
+  overflow: hidden;
+}
+.merge-bar__failure-ai-head {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  background: var(--accent-a20, rgba(99, 102, 241, 0.12));
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--accent, #4f46e5);
+}
+.merge-bar__failure-ai-body {
+  padding: 8px 12px 10px;
+  font-size: 12px;
+  color: var(--text-1);
+}
+.merge-bar__failure-ai-body p { margin: 4px 0; }
+.merge-bar__failure-ai-body pre {
+  background: var(--bg-base);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 6px 8px;
+  font-size: 11px;
+  overflow-x: auto;
+}
+.merge-bar__failure-ai-body code {
+  background: var(--bg-base);
+  padding: 1px 4px;
+  border-radius: 3px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, monospace;
+  font-size: 11px;
+}
+.merge-bar__failure-ai-body pre code {
+  background: transparent;
+  padding: 0;
 }
 
 /* Preview sections */

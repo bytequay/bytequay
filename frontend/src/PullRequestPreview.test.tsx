@@ -203,7 +203,7 @@ function makeDetail(overrides: Partial<PullRequestDetailDto> = {}): PullRequestD
       }),
     ],
     checkRuns: [
-      { name: 'build', status: 'completed', conclusion: 'success', htmlUrl: 'https://ci/build', outputTitle: null, outputSummary: null },
+      { githubId: null, name: 'build', status: 'completed', conclusion: 'success', htmlUrl: 'https://ci/build', outputTitle: null, outputSummary: null },
     ],
     reviewThreads: [
       // Unresolved thread → reaction chips, reply stub, resolve button.

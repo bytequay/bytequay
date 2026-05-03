@@ -84,4 +84,18 @@ public interface LlmReviewer
         throw new UnsupportedOperationException(
                 providerId() + " doesn't support comment polishing yet. Switch to a provider that does in Settings → AI.");
     }
+
+    /**
+     * Reads a CI check-run failure (the check name plus whatever log /
+     * error context the caller has) and returns a short diagnosis +
+     * suggested fix as plain markdown. Used by the merge bar's
+     * "Ask AI to fix" button on a failing check card. Default
+     * implementation throws so callers can detect providers that
+     * haven't implemented this yet.
+     */
+    default String diagnoseCheckRunFailure(String checkName, String log)
+    {
+        throw new UnsupportedOperationException(
+                providerId() + " doesn't support CI failure diagnosis yet. Switch to a provider that does in Settings → AI.");
+    }
 }

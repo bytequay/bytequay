@@ -194,6 +194,7 @@ public class GitHubClient
             }
             return r.checkRuns().stream()
                     .map(c -> new PrCheckRunState(
+                            c.id(),
                             c.name(),
                             c.status(),
                             c.conclusion(),
@@ -1429,6 +1430,38 @@ public class GitHubClient
 
     @JsonIgnoreProperties(ignoreUnknown = true)
     record GitHubRepoPermissions(Boolean admin, Boolean maintain, Boolean push, Boolean triage, Boolean pull) {}
+
+    @Override
+    public Optional<String> fetchCheckRunLog(String pat, RepoRef repo, long checkRunId)
+    {
+        // /repos/{owner}/{repo}/actions/jobs/{job_id}/logs replies with
+        // a 302 → presigned blob URL whose body is the raw text log.
+        // Spring's RestClient follows redirects by default, so a single
+        // GET retrieves the final text. Returns empty on 404 (external
+        // CI / not an Actions job), 410 (Actions purges logs after
+        // ~90 days), 403 (insufficient PAT scope), or any I/O failure —
+        // the merge bar gracefully degrades to a "log unavailable"
+        // message rather than failing the whole detail load.
+        try {
+            String body = gitHubRestClient.get()
+                    .uri(u -> u.path("/repos/{owner}/{repo}/actions/jobs/{id}/logs")
+                            .build(repo.owner(), repo.repo(), checkRunId))
+                    .header("Authorization", "Bearer " + pat)
+                    .header("Accept", "text/plain, */*")
+                    .retrieve()
+                    .body(String.class);
+            if (body == null || body.isEmpty()) {
+                return Optional.empty();
+            }
+            return Optional.of(body);
+        }
+        catch (RestClientResponseException e) {
+            return Optional.empty();
+        }
+        catch (Exception e) {
+            return Optional.empty();
+        }
+    }
 
     @Override
     public List<UserOrg> fetchUserOrgs(String pat)

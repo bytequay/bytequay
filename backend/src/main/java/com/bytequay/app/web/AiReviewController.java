@@ -140,6 +140,32 @@ public class AiReviewController
         }
     }
 
+    public record DiagnoseCheckRequest(String checkName, String log) {}
+    public record DiagnoseCheckResponse(String suggestion) {}
+
+    /**
+     * POST /ai/diagnoseCheck — sends a CI failure log to the active LLM and
+     * returns a short root-cause-and-fix markdown reply. Powers the
+     * "Ask AI to fix" button on the merge bar's failure cards.
+     */
+    @PostMapping("/ai/diagnoseCheck")
+    public DiagnoseCheckResponse diagnoseCheck(@RequestBody DiagnoseCheckRequest request)
+    {
+        if (request == null || request.log() == null || request.log().trim().isEmpty()) {
+            return new DiagnoseCheckResponse("");
+        }
+        try {
+            String suggestion = registry.active().diagnoseCheckRunFailure(request.checkName(), request.log());
+            return new DiagnoseCheckResponse(suggestion);
+        }
+        catch (UnsupportedOperationException e) {
+            throw new ResponseStatusException(HttpStatus.NOT_IMPLEMENTED, e.getMessage(), e);
+        }
+        catch (IllegalStateException e) {
+            throw new ResponseStatusException(HttpStatus.BAD_GATEWAY, e.getMessage(), e);
+        }
+    }
+
     /**
      * POST /ai/review/start?repo=&number= — kicks off the AI review on the
      * application executor and returns immediately. The frontend polls

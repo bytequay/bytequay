@@ -535,6 +535,20 @@ public interface PullRequestRepository
         return false;
     }
 
+    /**
+     * Fetches the raw log text for an Actions check-run job. Maps to
+     * {@code GET /repos/{owner}/{repo}/actions/jobs/{checkRunId}/logs},
+     * which returns a 302 to a presigned blob URL with the plain-text
+     * log. Returns {@link Optional#empty()} when the check isn't an
+     * Actions job (external CIs use the Checks API but don't expose
+     * logs to GitHub) or when the log has expired / isn't accessible
+     * with the supplied PAT.
+     */
+    default Optional<String> fetchCheckRunLog(String pat, RepoRef repo, long checkRunId)
+    {
+        return Optional.empty();
+    }
+
     // ── Events ────────────────────────────────────────────────────────────────
 
     /**

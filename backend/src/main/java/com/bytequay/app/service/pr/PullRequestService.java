@@ -218,6 +218,41 @@ public class PullRequestService
     }
 
     /**
+     * Returns the raw log text for a single Actions check-run, capped at
+     * a sensible size so a 50MB job log doesn't crater the renderer.
+     * Empty string when GitHub doesn't expose a log for this check
+     * (external CI, expired log, missing PAT scope) — the frontend
+     * shows a "log unavailable" hint in that case.
+     */
+    public String getCheckRunLog(String pat, String repo, long checkRunId)
+    {
+        PullRequestRef refOrNull = parseRef(repo, 1); // PR number not needed for the call
+        return gitHub.fetchCheckRunLog(pat, RepoRef.of(refOrNull.owner(), refOrNull.repo()), checkRunId)
+                .map(PullRequestService::trimLogToTail)
+                .orElse("");
+    }
+
+    /** Logs from CI runs are appended chronologically; the *end* of the
+     *  log is almost always the failure context. Cap at 200 KB tail —
+     *  large enough for a deep stack trace, small enough to ship over
+     *  IPC and render in a {@code <pre>} without choking the UI. */
+    private static String trimLogToTail(String full)
+    {
+        final int cap = 200_000;
+        if (full.length() <= cap) {
+            return full;
+        }
+        int start = full.length() - cap;
+        // Don't slice mid-line — start at the next newline so the first
+        // visible line isn't a half-message.
+        int newline = full.indexOf('\n', start);
+        if (newline >= 0 && newline - start < 1024) {
+            start = newline + 1;
+        }
+        return "… (log truncated; showing last " + (full.length() - start) + " bytes)\n" + full.substring(start);
+    }
+
+    /**
      * Lightweight CI snapshot for the focus-driven polling on the PR detail
      * page. Skips the full timeline + threads orchestration; just refetches
      * the head SHA's check runs and the per-PAT write permission. The merge
@@ -1046,6 +1081,7 @@ public class PullRequestService
         }
         return latestByName.values().stream()
                 .map(c -> new PullRequestDetail.CheckRun(
+                        c.githubId(),
                         c.name(),
                         c.status(),
                         c.conclusion(),

@@ -1375,6 +1375,37 @@
   cursor: default;
 }
 
+/* Refresh CI button — sits flush against the CI status pill so users
+   can force a fresh fetch when local data has fallen behind GitHub.
+   Same circular-icon styling as the bottom CiSummary refresh so the
+   two affordances feel like the same control. */
+.merge-bar__ci-refresh {
+  appearance: none;
+  background: transparent;
+  border: none;
+  color: var(--text-3);
+  cursor: pointer;
+  padding: 4px 6px;
+  border-radius: 4px;
+  font-size: 14px;
+  line-height: 1;
+  flex-shrink: 0;
+}
+.merge-bar__ci-refresh:hover:not(:disabled) {
+  background: rgba(0, 0, 0, 0.06);
+  color: var(--text-1);
+}
+.merge-bar__ci-refresh:disabled {
+  cursor: default;
+  opacity: 0.5;
+}
+.merge-bar__ci-refresh-icon {
+  display: inline-block;
+}
+.merge-bar__ci-refresh-icon--spin {
+  animation: ci-refresh-spin 0.7s linear infinite;
+}
+
 /* Per-check failure cards revealed when the red pill is expanded. Each
    card sits below the merge row inside the same merge-bar container. */
 .merge-bar__failures {

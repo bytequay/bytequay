@@ -183,29 +183,50 @@ public class GitHubClient
     @Override
     public List<PrCheckRunState> fetchPrCheckRuns(String pat, String owner, String repo, String sha)
     {
-        try {
-            GitHubCheckRunsResponse r = gitHubRestClient.get()
-                    .uri("/repos/{owner}/{repo}/commits/{sha}/check-runs", owner, repo, sha)
-                    .header("Authorization", "Bearer " + pat)
-                    .retrieve()
-                    .body(GitHubCheckRunsResponse.class);
-            if (r == null || r.checkRuns() == null) {
-                return ImmutableList.of();
-            }
-            return r.checkRuns().stream()
-                    .map(c -> new PrCheckRunState(
+        // GitHub's /commits/{sha}/check-runs defaults to per_page=30 and
+        // does NOT auto-aggregate across pages. Repos with large CI
+        // matrices (Trino, Spark, etc.) routinely run 50+ check-runs
+        // per commit, so a single un-paginated 30-row page silently
+        // dropped failing checks from the merge bar. Walk pages at the
+        // 100-row max until either the running total catches up to the
+        // server-reported total_count or we hit a safety cap. Five
+        // pages = 500 checks, far past anything we'd realistically see.
+        ImmutableList.Builder<PrCheckRunState> out = ImmutableList.builder();
+        int collected = 0;
+        for (int page = 1; page <= 5; page++) {
+            final int currentPage = page;
+            try {
+                GitHubCheckRunsResponse r = gitHubRestClient.get()
+                        .uri(u -> u.path("/repos/{owner}/{repo}/commits/{sha}/check-runs")
+                                .queryParam("per_page", 100)
+                                .queryParam("page", currentPage)
+                                .build(owner, repo, sha))
+                        .header("Authorization", "Bearer " + pat)
+                        .retrieve()
+                        .body(GitHubCheckRunsResponse.class);
+                if (r == null || r.checkRuns() == null || r.checkRuns().isEmpty()) {
+                    break;
+                }
+                for (GitHubCheckRunsResponse.CheckRun c : r.checkRuns()) {
+                    out.add(new PrCheckRunState(
                             c.id(),
                             c.name(),
                             c.status(),
                             c.conclusion(),
                             c.htmlUrl(),
                             c.output() != null ? c.output().title() : null,
-                            c.output() != null ? c.output().summary() : null))
-                    .collect(toImmutableList());
+                            c.output() != null ? c.output().summary() : null));
+                }
+                collected += r.checkRuns().size();
+                if (collected >= r.totalCount() || r.checkRuns().size() < 100) {
+                    break;
+                }
+            }
+            catch (RestClientResponseException e) {
+                break;
+            }
         }
-        catch (RestClientResponseException e) {
-            return ImmutableList.of();
-        }
+        return out.build();
     }
 
     @Override

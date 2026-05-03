@@ -268,6 +268,11 @@ type MergeBarProps = {
   mergeState: 'idle' | 'running' | 'error';
   mergeError: string | null;
   onMerge: () => void;
+  /** Force-refresh the CI snapshot (status + per-check + viewerCanWrite)
+   *  from GitHub. Wired through from the parent's refreshCi so the
+   *  refresh button on the CI pill bypasses the focus poll's cadence. */
+  onRefreshCi: () => void | Promise<void>;
+  ciRefreshing: boolean;
 };
 
 /** Approval-count + "Rebase and merge" bar that sits above the comment
@@ -276,7 +281,7 @@ type MergeBarProps = {
  *  button to read why. Mirrors the merge-bar GitHub puts on its
  *  Conversation page. Clicking the button opens a confirm dialog —
  *  Yes fires the merge, No closes the dialog with no side effects. */
-function MergeBar({ pr, detail, mergeState, mergeError, onMerge }: MergeBarProps) {
+function MergeBar({ pr, detail, mergeState, mergeError, onMerge, onRefreshCi, ciRefreshing }: MergeBarProps) {
   // Failing-check list is folded by default — the red "CI failing"
   // pill in the middle of the bar is the affordance to expand it.
   const [failuresOpen, setFailuresOpen] = useState(false);
@@ -351,6 +356,16 @@ function MergeBar({ pr, detail, mergeState, mergeError, onMerge }: MergeBarProps
             <span>CI passed</span>
           </span>
         ) : null}
+        <button
+          type="button"
+          className="merge-bar__ci-refresh"
+          onClick={() => { void onRefreshCi(); }}
+          disabled={ciRefreshing}
+          title="Force-refresh CI status from GitHub"
+          aria-label="Refresh CI status"
+        >
+          <span className={`merge-bar__ci-refresh-icon${ciRefreshing ? ' merge-bar__ci-refresh-icon--spin' : ''}`} aria-hidden="true">↻</span>
+        </button>
         <div className="merge-bar__summary">
           <div className="merge-bar__approvals">
             {approverLogins.length === 0 ? (
@@ -841,6 +856,8 @@ function PullRequestPreview({ pr, onOpenReview, onInspectDiffs, onMarkHandled, o
                     mergeState={mergeState}
                     mergeError={mergeError}
                     onMerge={() => { void handleMerge(); }}
+                    onRefreshCi={refreshCi}
+                    ciRefreshing={ciRefreshing}
                   />
                 )}
                 <PrCommentBox
@@ -1286,6 +1303,8 @@ function PullRequestPreview({ pr, onOpenReview, onInspectDiffs, onMarkHandled, o
                 mergeState={mergeState}
                 mergeError={mergeError}
                 onMerge={() => { void handleMerge(); }}
+                onRefreshCi={refreshCi}
+                ciRefreshing={ciRefreshing}
               />
             )}
             <PrCommentBox

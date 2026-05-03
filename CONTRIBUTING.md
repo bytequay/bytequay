@@ -356,8 +356,10 @@ The short version:
   period**, no `feat:` / `fix:` / Conventional-Commits prefix.
   - Good: `Paginate /check-runs and add a refresh button next to the CI pill`
   - Bad: `feat(ci): added pagination support.`
-- **Body**: explain *why*, not *what*. The diff already shows what.
-  Wrap at ~72 columns. Reference issues with `Fixes #N` if applicable.
+- **Body**: keep it tight. 1–4 short paragraphs at most, ~72 column
+  wrap. Explain *why* (the diff already shows what), reference issues
+  with `Fixes #N` if applicable. If the change is purely mechanical or
+  the subject line is self-explanatory, no body at all is fine.
 - **One logical change per commit.** "Refactor + add feature" should
   be two commits. Don't be afraid to split.
 - **Squash review fixups** before merge so the history reads cleanly.

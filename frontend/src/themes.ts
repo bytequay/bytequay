@@ -11,13 +11,17 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-export type ThemeId = 'github-light' | 'atom-one-dark' | 'warm' | 'purple';
+export type ThemeId = 'purple' | 'github-light' | 'atom-one-dark' | 'warm';
 
+// Order matches the picker: brand theme first (also the default for
+// fresh installs), then the neutral light option, then dark, then the
+// older warm experiment. IDs are kept stable so anyone who already
+// picked a theme keeps that choice across the rename.
 export const THEMES: { id: ThemeId; label: string }[] = [
-  { id: 'github-light', label: 'GitHub Light' },
-  { id: 'atom-one-dark', label: 'Atom One Dark' },
-  { id: 'warm', label: 'Warm' },
   { id: 'purple', label: 'Purple' },
+  { id: 'github-light', label: 'Light' },
+  { id: 'atom-one-dark', label: 'Dark' },
+  { id: 'warm', label: 'Warm' },
 ];
 
 const STORAGE_KEY = 'bytequay-theme';
@@ -29,5 +33,5 @@ export function applyTheme(id: ThemeId): void {
 
 export function loadTheme(): ThemeId {
   const saved = localStorage.getItem(STORAGE_KEY) as ThemeId | null;
-  return saved && THEMES.some((t) => t.id === saved) ? saved : 'github-light';
+  return saved && THEMES.some((t) => t.id === saved) ? saved : 'purple';
 }

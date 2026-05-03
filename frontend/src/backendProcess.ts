@@ -22,13 +22,18 @@ let child: ChildProcess | null = null;
 
 /**
  * Spawn the packaged Spring Boot JAR as a child process.
- * In dev mode, we skip this — run Spring Boot manually from IntelliJ.
+ * In dev mode, we skip this — run Spring Boot manually from IntelliJ
+ * or via dev.sh.
+ *
+ * The JAR is shipped via Forge's `extraResource` config, which copies
+ * it into the .app's `Contents/Resources/` directory at package time.
+ * `process.resourcesPath` resolves there at runtime.
  */
 export function spawnBackend(): void {
   if (!app.isPackaged) return;
   if (child) return;
 
-  const jar = path.join(process.resourcesPath, 'backend', 'daily-review-backend.jar');
+  const jar = path.join(process.resourcesPath, 'bytequay-backend.jar');
   child = spawn('java', ['-jar', jar], {
     stdio: ['ignore', 'inherit', 'inherit'],
     detached: false,

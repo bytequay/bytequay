@@ -16,9 +16,19 @@ import { MakerSquirrel } from '@electron-forge/maker-squirrel';
 import { MakerZIP } from '@electron-forge/maker-zip';
 import { MakerDeb } from '@electron-forge/maker-deb';
 import { MakerRpm } from '@electron-forge/maker-rpm';
+import { MakerDMG } from '@electron-forge/maker-dmg';
 import { VitePlugin } from '@electron-forge/plugin-vite';
 import { FusesPlugin } from '@electron-forge/plugin-fuses';
 import { FuseV1Options, FuseVersion } from '@electron/fuses';
+import { execSync } from 'node:child_process';
+import { existsSync } from 'node:fs';
+import { join } from 'node:path';
+
+// Path to the Spring Boot uber-jar produced by `mvn package`. Bundled
+// into the packaged app via packagerConfig.extraResource and spawned
+// at runtime by frontend/src/backendProcess.ts. Repo root is one level
+// up from this config (frontend/forge.config.ts).
+const BACKEND_JAR = join(__dirname, '..', 'backend', 'target', 'bytequay-backend.jar');
 
 const config: ForgeConfig = {
   packagerConfig: {
@@ -33,11 +43,37 @@ const config: ForgeConfig = {
     // Electron output dir and ships a Mac iconset, a Windows .ico,
     // and a fallback .png — one source for everything.
     icon: '../build/icon',
+    // Ship the backend JAR alongside the renderer. extraResource
+    // copies the file into Contents/Resources/ on macOS (the same
+    // path process.resourcesPath resolves to at runtime).
+    extraResource: [BACKEND_JAR],
+  },
+  hooks: {
+    // Build the Spring Boot JAR before Forge tries to copy it via
+    // extraResource. Skips Maven's gates here (`-DskipTests`) because
+    // CI already runs the full `mvn verify` — this hook just produces
+    // the artifact for packaging. Idempotent: if the JAR already
+    // exists, do nothing.
+    generateAssets: async () => {
+      if (existsSync(BACKEND_JAR)) {
+        return;
+      }
+      // eslint-disable-next-line no-console
+      console.log('[forge] backend JAR missing — running mvn package…');
+      execSync('mvn -B -q -DskipTests package', {
+        cwd: join(__dirname, '..', 'backend'),
+        stdio: 'inherit',
+      });
+    },
   },
   rebuildConfig: {},
   makers: [
     new MakerSquirrel({}),
     new MakerZIP({}, ['darwin']),
+    // Native macOS installer disk image. ULFO is the modern read-only
+    // compressed format — smaller download than UDZO and faster to
+    // mount on Apple Silicon.
+    new MakerDMG({ format: 'ULFO' }, ['darwin']),
     new MakerRpm({}),
     new MakerDeb({}),
   ],

@@ -784,6 +784,17 @@
   background: rgba(248, 81, 73, 0.18);
   color: var(--text-1);
 }
+/* Dark-theme code surfaces use --text-2 instead of --text-1. A wall of
+   monospace lines sits more comfortably at Atom One Dark's authentic
+   editor foreground (#abb2bf) than at the brighter heading tone
+   (#c8cdd6) — the latter reads as glaring once the diff fills the
+   screen. Targeted at code-display surfaces so headings, comment
+   bodies, and the rest of the chrome keep their brighter hierarchy. */
+[data-theme="atom-one-dark"] .diff-hunk-line--add,
+[data-theme="atom-one-dark"] .diff-hunk-line--del,
+[data-theme="atom-one-dark"] .diff-hunk-line--ctx {
+  color: var(--text-2);
+}
 
 /* "Suggested change" block in a review-thread message body. The
    reviewer wrote a markdown ```suggestion``` block; we render it as a

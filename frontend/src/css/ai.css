@@ -1108,6 +1108,13 @@
   overflow-wrap: anywhere;
   word-break: break-word;
 }
+/* Dark-theme override: drop the diff viewer's content from --text-1
+   (#c8cdd6) to --text-2 (#abb2bf) so a 100-row file diff doesn't read
+   as a wall of glaring text. Same reasoning as the .diff-hunk-line
+   override in pr-detail.css. */
+[data-theme="atom-one-dark"] .diff-row__content {
+  color: var(--text-2);
+}
 
 .diff-row__sigil {
   display: inline-block;

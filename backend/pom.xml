@@ -126,6 +126,10 @@
                     <compilerArgs>
                         <arg>-XDcompilePolicy=simple</arg>
                         <arg>--should-stop=ifError=FLOW</arg>
+                        <!-- Required by Error Prone 2.31+ on JDK 21 to keep
+                             type-annotation symbols around long enough for
+                             its analyzers. Silently accepted on newer JDKs. -->
+                        <arg>-XDaddTypeAnnotationsToSymbol=true</arg>
                         <arg>-Xplugin:ErrorProne @${project.basedir}/.mvn/errorprone.config -XepExcludedPaths:.*/target/generated-(|test-)sources/.*</arg>
                     </compilerArgs>
                     <annotationProcessorPaths>

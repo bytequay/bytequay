@@ -12,14 +12,14 @@
     "publish": "electron-forge publish",
     "lint": "eslint --ext .ts,.tsx .",
     "test": "vitest run",
-    "check:licenses": "license-checker-rseidelsohn --production --onlyAllow 'Apache-2.0;MIT;BSD-2-Clause;BSD-3-Clause;ISC;CC0-1.0;0BSD;CC-BY-4.0;CC-BY-3.0;Python-2.0;Unlicense;BlueOak-1.0.0' --excludePackages 'bytequay@1.0.0'"
+    "check:licenses": "license-checker-rseidelsohn --production --onlyAllow 'Apache-2.0;MIT;BSD-2-Clause;BSD-3-Clause;ISC;CC0-1.0;0BSD;CC-BY-4.0;CC-BY-3.0;Python-2.0;Unlicense;BlueOak-1.0.0' --excludePackagesStartingWith 'bytequay'"
   },
   "keywords": [],
   "author": {
     "name": "chenjian2664",
     "email": "chenjian2664@gmail.com"
   },
-  "license": "MIT",
+  "license": "Apache-2.0",
   "devDependencies": {
     "@electron-forge/cli": "^7.11.1",
     "@electron-forge/maker-deb": "^7.11.1",

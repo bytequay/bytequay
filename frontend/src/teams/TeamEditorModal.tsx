@@ -222,7 +222,7 @@ function TeamEditorModal({ team, onClose, onSaved }: Props) {
               type="text"
               value={name}
               onChange={e => setName(e.target.value)}
-              placeholder="e.g. Trino core"
+              placeholder="e.g. Dev core"
               maxLength={64}
               autoFocus
             />

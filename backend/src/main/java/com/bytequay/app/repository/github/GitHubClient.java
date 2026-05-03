@@ -321,22 +321,7 @@ public class GitHubClient
             // strict implementations.
             String cleaned = encoded.replace("\n", "").replace("\r", "");
             byte[] decoded = Base64.getDecoder().decode(cleaned);
-            String text = new String(decoded, StandardCharsets.UTF_8);
-            // Use -1 limit so trailing empty strings (when file ends with \n)
-            // are preserved — caller wants exact line count.
-            String[] lines = text.split("\n", -1);
-            ImmutableList.Builder<String> out = ImmutableList.builder();
-            // Drop the synthetic trailing empty line that split() produces
-            // when the file ends with \n; otherwise the caller sees a
-            // phantom blank line at the end.
-            int len = lines.length;
-            if (len > 0 && lines[len - 1].isEmpty()) {
-                len -= 1;
-            }
-            for (int i = 0; i < len; i++) {
-                out.add(lines[i]);
-            }
-            return out.build();
+            return extractLinesFromBytes(decoded);
         }
         catch (RestClientResponseException e) {
             // 404 means the file doesn't exist at this ref (e.g. expanding
@@ -347,6 +332,26 @@ public class GitHubClient
             }
             throw toReadableException(e);
         }
+    }
+
+    private static List<String> extractLinesFromBytes(byte[] decoded)
+    {
+        String text = new String(decoded, StandardCharsets.UTF_8);
+        // Use -1 limit so trailing empty strings (when file ends with \n)
+        // are preserved — caller wants exact line count.
+        String[] lines = text.split("\n", -1);
+        ImmutableList.Builder<String> out = ImmutableList.builder();
+        // Drop the synthetic trailing empty line that split() produces
+        // when the file ends with \n; otherwise the caller sees a
+        // phantom blank line at the end.
+        int len = lines.length;
+        if (len > 0 && lines[len - 1].isEmpty()) {
+            len -= 1;
+        }
+        for (int i = 0; i < len; i++) {
+            out.add(lines[i]);
+        }
+        return out.build();
     }
 
     @Override

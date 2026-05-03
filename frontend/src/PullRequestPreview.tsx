@@ -12,7 +12,7 @@
  * limitations under the License.
  */
 import { useEffect, useRef, useState, type ReactNode } from 'react';
-import { marked } from 'marked';
+import { renderMarkdown } from './markdown';
 import type { ActivityItemDto, CheckRunDto, PullRequestDetailDto, PullRequestDto, ReviewThreadDto } from './types';
 import { getCached, putCache } from './detailCache';
 import Avatar from './Avatar';
@@ -264,7 +264,7 @@ function FailingCheckCard({ check, repo }: { check: CheckRunDto; repo: string })
                   </div>
                   <div
                     className="merge-bar__failure-ai-body"
-                    dangerouslySetInnerHTML={{ __html: marked.parse(aiState.text, { async: false }) as string }}
+                    dangerouslySetInnerHTML={{ __html: renderMarkdown(aiState.text) }}
                   />
                 </div>
               )}
@@ -968,7 +968,7 @@ function PullRequestPreview({ pr, onOpenReview, onInspectDiffs, onMarkHandled, o
                                 {hasBody && (
                                   <div
                                     className="activity-item__body"
-                                    dangerouslySetInnerHTML={{ __html: marked.parse(item.body ?? '', { async: false }) as string }}
+                                    dangerouslySetInnerHTML={{ __html: renderMarkdown(item.body) }}
                                   />
                                 )}
                               </div>
@@ -1656,7 +1656,7 @@ function PullRequestPreview({ pr, onOpenReview, onInspectDiffs, onMarkHandled, o
           {hasBody && (
             <div
               className="prc-comment-body"
-              dangerouslySetInnerHTML={{ __html: marked.parse(item.body ?? '', { async: false }) as string }}
+              dangerouslySetInnerHTML={{ __html: renderMarkdown(item.body) }}
             />
           )}
           {hasThreads && (
@@ -1780,7 +1780,7 @@ function PullRequestPreview({ pr, onOpenReview, onInspectDiffs, onMarkHandled, o
           {hasBody && (
             <div
               className="prc-comment-body"
-              dangerouslySetInnerHTML={{ __html: marked.parse(item.body ?? '', { async: false }) as string }}
+              dangerouslySetInnerHTML={{ __html: renderMarkdown(item.body) }}
             />
           )}
           {/* Reactions row + emoji-add button. Only renders when we

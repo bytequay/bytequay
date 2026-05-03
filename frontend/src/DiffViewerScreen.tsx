@@ -12,7 +12,7 @@
  * limitations under the License.
  */
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { marked } from 'marked';
+import { renderMarkdown } from './markdown';
 import type { AiReviewCommentDto, AiReviewDraftDto, DiffFileDto, PullRequestCommitDto, PullRequestDto, ReviewThreadDto } from './types';
 import Avatar from './Avatar';
 import { parseUnifiedDiff } from './diffParse';
@@ -821,7 +821,7 @@ function InlineExistingThread({
                 {msg.body && (
                   <div
                     className="diff-thread__msg-text"
-                    dangerouslySetInnerHTML={{ __html: marked.parse(msg.body, { async: false }) as string }}
+                    dangerouslySetInnerHTML={{ __html: renderMarkdown(msg.body) }}
                   />
                 )}
                 <ThreadReactions reactions={msg.reactions} />

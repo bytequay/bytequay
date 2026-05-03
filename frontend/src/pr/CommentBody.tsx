@@ -11,7 +11,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import { marked } from 'marked';
+import { renderMarkdown } from '../markdown';
 import { lastTouchedLine } from './utils';
 
 /**
@@ -72,7 +72,7 @@ export function CommentBodyWithSuggestions({ body, hunk }: { body: string; hunk:
             <div
               key={i}
               className="prc-comment-body"
-              dangerouslySetInnerHTML={{ __html: marked.parse(p.text, { async: false }) as string }}
+              dangerouslySetInnerHTML={{ __html: renderMarkdown(p.text) }}
             />
           );
         }

@@ -50,23 +50,20 @@ external dependency is your GitHub PAT, configured at runtime via
 ## Quick start
 
 ```bash
-# 1. Clone
 git clone https://github.com/chenjian2664/bytequay.git
 cd bytequay
-
-# 2. Backend deps + build (also runs all gates — first run is slow)
-( cd backend && mvn verify )
-
-# 3. Frontend deps
-( cd frontend && npm ci )
-
-# 4. Run both processes together. The script wires the renderer to the
-#    backend's localhost port and tails both logs in one terminal.
 ./dev.sh
 ```
 
-The first run downloads ~250MB of Maven + npm deps. Subsequent
-`./dev.sh` invocations start in seconds.
+That's it. `dev.sh` auto-runs `npm install` if `frontend/node_modules`
+is missing, and Maven downloads its own dependencies on the first
+`spring-boot:run`. The first invocation downloads ~250MB of Maven +
+npm packages and takes a couple of minutes; subsequent runs start in
+seconds.
+
+Before opening a PR, run the gate commands once to make sure your
+change passes the same checks CI runs — see
+[Building and verifying](#building-and-verifying).
 
 ---
 

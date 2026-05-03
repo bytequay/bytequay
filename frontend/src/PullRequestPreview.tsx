@@ -1536,6 +1536,21 @@ function PullRequestPreview({ pr, onOpenReview, onInspectDiffs, onMarkHandled, o
           </div>
         );
       }
+      // State-specific marker glyph + color variant so a "requested
+      // changes" review reads as a red ✕ badge rather than the same
+      // neutral eye every other review event uses. Mirrors github.com
+      // where each review verdict has its own obvious icon on the
+      // timeline.
+      const reviewMarker = item.state === 'APPROVED'
+        ? '✓'
+        : item.state === 'CHANGES_REQUESTED'
+          ? '✕'
+          : '💬';
+      const reviewMarkerVariant = item.state === 'APPROVED'
+        ? 'approved'
+        : item.state === 'CHANGES_REQUESTED'
+          ? 'changes-requested'
+          : 'commented';
       return (
         <ReviewActivityRow
           key={`a-${key}`}
@@ -1545,7 +1560,8 @@ function PullRequestPreview({ pr, onOpenReview, onInspectDiffs, onMarkHandled, o
           timestamp={item.timestamp}
           isAuthor={pr.author === item.actor}
           authorAssociation={item.authorAssociation}
-          marker={eventMarker(item.eventType)}
+          marker={reviewMarker}
+          markerVariant={reviewMarkerVariant}
           hasContent={hasBody || hasThreads}
         >
           {hasBody && (

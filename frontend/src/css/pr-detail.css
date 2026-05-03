@@ -551,12 +551,11 @@
 .prc-review-card__marker {
   position: absolute;
   /* Same rail position as .prc-event-marker (left:69px = center on the
-     rail at left:80px). Top is computed so the eye glyph centers on
-     the header's first text line — actor name + verb live at the top
-     of the body, ~20px line-height; centering a 22px marker on that
-     line means top = (20 - 22) / 2 ≈ -1px, rounded to 0 for a clean
-     pixel grid. (Earlier top:8px aligned to the avatar's center
-     instead, which left the marker visibly low next to the name.) */
+     rail at left:80px). Top is computed so the badge centers on the
+     header's first text line — actor name + verb live at the top of
+     the body, ~20px line-height; centering a 22px marker on that line
+     means top = (20 - 22) / 2 ≈ -1px, rounded to 0 for a clean pixel
+     grid. */
   left: 69px;
   top: 0;
   width: 22px;
@@ -569,6 +568,38 @@
   font-size: 14px;
   line-height: 1;
   z-index: 1;
+  border-radius: 50%;
+}
+/* Verdict-coloured variants — small filled badge with white glyph.
+   Mirrors github.com's review-event icons: green ✓ for approved, red
+   ✕ for changes-requested, neutral grey 💬 for plain comments. The
+   colored fill makes the verdict obvious at a glance instead of every
+   reviewed event sharing a generic eye marker. */
+.prc-review-card__marker--approved {
+  background: #2da44e;
+  color: #fff;
+  font-size: 12px;
+  font-weight: 700;
+  border: 2px solid var(--bg-base);
+  width: 22px;
+  height: 22px;
+}
+.prc-review-card__marker--changes-requested {
+  background: #cf222e;
+  color: #fff;
+  font-size: 12px;
+  font-weight: 700;
+  border: 2px solid var(--bg-base);
+  width: 22px;
+  height: 22px;
+}
+.prc-review-card__marker--commented {
+  background: var(--bg-elevated);
+  color: var(--text-2);
+  font-size: 11px;
+  border: 2px solid var(--bg-base);
+  width: 22px;
+  height: 22px;
 }
 /* Inherit the comment-card chrome — bordered card with the speech-bubble
    tail pointing at the avatar. Matches docs/mockups/v2/codereview/

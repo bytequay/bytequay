@@ -22,6 +22,7 @@ export function ReviewActivityRow({
   isAuthor,
   authorAssociation,
   marker,
+  markerVariant,
   hasContent,
   children,
 }: {
@@ -32,6 +33,10 @@ export function ReviewActivityRow({
   isAuthor: boolean;
   authorAssociation: string | null;
   marker: string;
+  /** Color variant for the rail marker. Lets the PR-detail timeline
+   *  show a red badge for "requested changes" and green for "approved",
+   *  matching github.com's review event icons. */
+  markerVariant?: 'approved' | 'changes-requested' | 'commented' | null;
   /** False when the review has no body and no inline threads — we hide
    *  the expand button entirely so the user doesn't click a no-op. */
   hasContent: boolean;
@@ -49,7 +54,12 @@ export function ReviewActivityRow({
   return (
     <article className="prc-comment-card prc-review-card">
       <Avatar login={actor} size={40} className="prc-comment-avatar" />
-      <span className="prc-review-card__marker" aria-hidden>{marker}</span>
+      <span
+        className={`prc-review-card__marker${markerVariant ? ` prc-review-card__marker--${markerVariant}` : ''}`}
+        aria-hidden
+      >
+        {marker}
+      </span>
       <div className="prc-comment-card-body prc-review-card-body">
         <header className="prc-comment-head">
           <a

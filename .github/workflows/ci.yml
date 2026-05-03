@@ -6,6 +6,13 @@ on:
   pull_request:
     branches: [main]
 
+# Run JavaScript-based actions on the runner's Node 24 instead of
+# Node 20. GitHub forces this default starting June 2nd, 2026 and
+# removes Node 20 from the runner image on September 16th, 2026; opt
+# in early so we're already on the supported runtime when that lands.
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: 'true'
+
 jobs:
   backend:
     name: Backend — build, license check, tests

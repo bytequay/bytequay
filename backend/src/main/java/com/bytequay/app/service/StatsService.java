@@ -68,17 +68,6 @@ public class StatsService
         this.settingsStore = requireNonNull(settingsStore, "settingsStore is null");
     }
 
-    /** Returns cached stats, refreshing if the cache is stale. Stores login for scheduled refresh. */
-    public UserStats getStats(String login)
-    {
-        return getStats(login, false);
-    }
-
-    /**
-     * As {@link #getStats(String)}, but {@code force=true} bypasses the
-     * cache TTL and pulls fresh events from GitHub immediately. Used by
-     * the home page's "Refresh stats" button.
-     */
     public UserStats getStats(String login, boolean force)
     {
         if (login != null && !login.isBlank()) {

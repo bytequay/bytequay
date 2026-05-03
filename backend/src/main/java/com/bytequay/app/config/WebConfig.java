@@ -16,11 +16,12 @@ package com.bytequay.app.config;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.http.client.ClientHttpRequestFactory;
-import org.springframework.http.client.SimpleClientHttpRequestFactory;
+import org.springframework.http.client.JdkClientHttpRequestFactory;
 import org.springframework.web.client.RestClient;
 import org.springframework.web.servlet.config.annotation.CorsRegistry;
 import org.springframework.web.servlet.config.annotation.WebMvcConfigurer;
 
+import java.net.http.HttpClient;
 import java.time.Duration;
 
 @Configuration
@@ -129,8 +130,14 @@ public class WebConfig
 
     private static ClientHttpRequestFactory newTimeoutRequestFactory(Duration connect, Duration read)
     {
-        SimpleClientHttpRequestFactory factory = new SimpleClientHttpRequestFactory();
-        factory.setConnectTimeout(connect);
+        // JdkClientHttpRequestFactory wraps the JDK 11+ HttpClient. We use it
+        // instead of SimpleClientHttpRequestFactory because the latter is
+        // backed by HttpURLConnection, whose setRequestMethod rejects PATCH —
+        // breaking GitHub PR edits (PATCH /repos/{o}/{r}/pulls/{n}).
+        HttpClient client = HttpClient.newBuilder()
+                .connectTimeout(connect)
+                .build();
+        JdkClientHttpRequestFactory factory = new JdkClientHttpRequestFactory(client);
         factory.setReadTimeout(read);
         return factory;
     }

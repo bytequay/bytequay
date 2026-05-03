@@ -37,17 +37,6 @@ public final class ByteQuayApplication
         // Create the app data directory before Spring Boot initialises the DataSource and Flyway.
         Path home = Path.of(System.getProperty("user.home"), "Library", "Application Support");
         Path dbDir = home.resolve("ByteQuay");
-        // One-time migration from the old "GitTrace" data dir. If the new
-        // dir doesn't exist yet but the old one does, move the whole
-        // tree across so the user's encrypted PAT, SQLite DB, and sync
-        // state survive the brand rename. The check is "new dir absent"
-        // (not "old dir present") so a user who already has both — e.g.
-        // ran an older build after the rename — doesn't get clobbered.
-        Path legacyDir = home.resolve("GitTrace");
-        if (!Files.exists(dbDir) && Files.exists(legacyDir)) {
-            log.info("Migrating app data from {} to {}", legacyDir, dbDir);
-            Files.move(legacyDir, dbDir);
-        }
         Files.createDirectories(dbDir);
         log.debug("Database directory ready: {}", dbDir);
 

@@ -747,6 +747,22 @@ function PullRequestPreview({ pr, onOpenReview, onInspectDiffs, onMarkHandled, o
     }
   };
 
+  const handleClosed = async () => {
+    // The PATCH that closed the PR has already returned, but our local
+    // `detail.state` is still "OPEN" — refetch so the header pill flips
+    // to CLOSED and the timeline picks up the new event. Then mark the
+    // PR handled like before so the inbox row moves to Handled.
+    try {
+      const fresh = await window.bridge.fetchPullRequestDetail(pr.repo, pr.number);
+      putCache(pr.id, fresh);
+      setDetail(fresh);
+    }
+    catch {
+      // best-effort — the PR is closed remotely either way
+    }
+    void onMarkHandled?.(pr.id).catch(() => { /* best-effort */ });
+  };
+
   const handleOpenEmbeddedReview = () => {
     // Opening counts as viewing, even if the user exits without acting.
     void window.bridge.markPrViewed(pr.id).catch(() => { /* best-effort */ });
@@ -908,7 +924,7 @@ function PullRequestPreview({ pr, onOpenReview, onInspectDiffs, onMarkHandled, o
                 )}
                 <PrCommentBox
                   pr={pr}
-                  onClosed={() => { void onMarkHandled?.(pr.id).catch(() => { /* best-effort */ }); }}
+                  onClosed={() => { void handleClosed(); }}
                 />
                 <CiSummary
                   ciStatus={detail.ciStatus ?? 'NONE'}

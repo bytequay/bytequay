@@ -11,7 +11,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import { app, BrowserWindow, clipboard, ipcMain, nativeImage, session, shell, WebContentsView } from 'electron';
+import { app, BrowserWindow, clipboard, ipcMain, Menu, nativeImage, session, shell, WebContentsView } from 'electron';
 import path from 'node:path';
 import fs from 'node:fs';
 import started from 'electron-squirrel-startup';
@@ -21,6 +21,11 @@ import { BACKEND_BASE, killBackend, spawnBackend, waitForBackendReady } from './
 // Electron uses its own name in dev mode (the packaged build picks
 // this up from forge.config.ts -> packagerConfig.name).
 app.setName('ByteQuay');
+
+/** Pre-1.0 version surfaced in the About dialog and packaged metadata.
+ *  Bump alongside frontend/package.json + backend/pom.xml when we cut
+ *  a release. Shown in the About panel as e.g. "ByteQuay 0.1.0". */
+const APP_VERSION = '0.1.0';
 
 // Handle creating/removing shortcuts on Windows when installing/uninstalling.
 if (started) {
@@ -34,23 +39,91 @@ if (started) {
  *  the .app bundle's icon isn't in play. Best-effort — silently skips
  *  if the asset isn't found (e.g. when running unpackaged from a
  *  context that doesn't include /assets). */
-function applyDevDockIcon(): void {
-  if (process.platform !== 'darwin' || !app.dock || app.isPackaged) {
-    return;
-  }
-  // /build/icon.png is two levels up from this compiled main.js
-  // (frontend/.vite/build/main.js → /build/) when running via Forge,
-  // and three levels up when running tests / from source. Try both.
+/** Resolve the on-disk path to the app icon. /build/icon.png is two
+ *  levels up from this compiled main.js (frontend/.vite/build/main.js
+ *  → /build/) when running via Forge, and three levels up when
+ *  running tests / from source. Returns null when neither candidate
+ *  exists, which lets callers gracefully degrade. */
+function resolveIconPath(): string | null {
   const candidates = [
     path.join(__dirname, '..', '..', '..', 'build', 'icon.png'),
     path.join(__dirname, '..', '..', 'build', 'icon.png'),
   ];
-  const iconPath = candidates.find((p) => fs.existsSync(p));
+  return candidates.find((p) => fs.existsSync(p)) ?? null;
+}
+
+function applyDevDockIcon(): void {
+  if (process.platform !== 'darwin' || !app.dock || app.isPackaged) {
+    return;
+  }
+  const iconPath = resolveIconPath();
   if (!iconPath) return;
   const image = nativeImage.createFromPath(iconPath);
   if (!image.isEmpty()) {
     app.dock.setIcon(image);
   }
+}
+
+/** macOS only: replace Electron's default application menu with one
+ *  whose first sub-menu is titled "ByteQuay". macOS picks the menu
+ *  bar's app-name slot from the FIRST submenu's role / label, not
+ *  from app.setName() — so without this the bar still reads
+ *  "Electron" in dev mode even though every "About / Hide / Quit X"
+ *  string is correct. The packaged .app gets its name from the
+ *  bundle so this is mostly a dev-mode quality-of-life fix. */
+function installApplicationMenu(): void {
+  if (process.platform !== 'darwin') {
+    return;
+  }
+  const template: Electron.MenuItemConstructorOptions[] = [
+    {
+      label: 'ByteQuay',
+      submenu: [
+        { role: 'about' },
+        { type: 'separator' },
+        { role: 'services' },
+        { type: 'separator' },
+        { role: 'hide' },
+        { role: 'hideOthers' },
+        { role: 'unhide' },
+        { type: 'separator' },
+        { role: 'quit' },
+      ],
+    },
+    { role: 'editMenu' },
+    { role: 'viewMenu' },
+    { role: 'windowMenu' },
+    {
+      role: 'help',
+      submenu: [
+        {
+          label: 'Open project on GitHub',
+          click: () => { void shell.openExternal('https://github.com/chenjian2664/bytequay'); },
+        },
+      ],
+    },
+  ];
+  Menu.setApplicationMenu(Menu.buildFromTemplate(template));
+}
+
+/** Populates the data the system About-this-app panel renders. The
+ *  panel itself is shown by the { role: 'about' } menu item. iconPath
+ *  must point at a real PNG/ICNS on disk — Electron loads it lazily
+ *  when the user opens the panel. */
+function configureAboutPanel(): void {
+  const opts: Electron.AboutPanelOptionsOptions = {
+    applicationName: 'ByteQuay',
+    applicationVersion: APP_VERSION,
+    version: 'pre-1.0',
+    copyright: '© 2026 Jian Chen — Apache License 2.0',
+    website: 'https://github.com/chenjian2664/bytequay',
+    credits: 'A native macOS desktop app for daily developer review work.',
+  };
+  const iconPath = resolveIconPath();
+  if (iconPath) {
+    opts.iconPath = iconPath;
+  }
+  app.setAboutPanelOptions(opts);
 }
 
 function normalizeDevServerUrl(urlString: string): string {
@@ -1406,6 +1479,8 @@ async function bootstrapSync(): Promise<void> {
 app.on('ready', async () => {
   try {
     applyDevDockIcon();
+    installApplicationMenu();
+    configureAboutPanel();
     registerIpc();
     spawnBackend();
     if (app.isPackaged) {

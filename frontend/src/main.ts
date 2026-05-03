@@ -38,12 +38,12 @@ function applyDevDockIcon(): void {
   if (process.platform !== 'darwin' || !app.dock || app.isPackaged) {
     return;
   }
-  // /assets/logo-1024.png is two levels up from this compiled main.js
-  // (frontend/.vite/build/main.js → /assets/) when running via Forge,
+  // /build/icon.png is two levels up from this compiled main.js
+  // (frontend/.vite/build/main.js → /build/) when running via Forge,
   // and three levels up when running tests / from source. Try both.
   const candidates = [
-    path.join(__dirname, '..', '..', '..', 'assets', 'logo-1024.png'),
-    path.join(__dirname, '..', '..', 'assets', 'logo-1024.png'),
+    path.join(__dirname, '..', '..', '..', 'build', 'icon.png'),
+    path.join(__dirname, '..', '..', 'build', 'icon.png'),
   ];
   const iconPath = candidates.find((p) => fs.existsSync(p));
   if (!iconPath) return;

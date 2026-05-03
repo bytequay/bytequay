@@ -29,9 +29,10 @@ const config: ForgeConfig = {
     // App icon embedded in the .app bundle. Extension is omitted on
     // purpose — electron-packager appends the right one per platform
     // (.icns on macOS, .ico on Windows, .png on Linux), so the same
-    // base path works for all targets. The actual asset lives at the
-    // repo root under /assets/.
-    icon: '../assets/logo',
+    // base path works for all targets. /build/ is the conventional
+    // Electron output dir and ships a Mac iconset, a Windows .ico,
+    // and a fallback .png — one source for everything.
+    icon: '../build/icon',
   },
   rebuildConfig: {},
   makers: [

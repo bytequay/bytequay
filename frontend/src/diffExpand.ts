@@ -1,18 +1,15 @@
 /*
- * Pure helpers for the "expand collapsed code" affordance in the diff
- * viewer. Given a list of parsed hunks plus the set of already-loaded
- * extra context lines, computes:
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
  *
- *   - the bounds of each gap (region of the new file that's hidden
- *     between the file edges and the diff hunks),
- *   - which direction(s) the user can still expand into,
- *   - the fetch range a click should request,
- *   - the old-side line number for any new-side line inside a gap
- *     (so expanded rows can render their oldLine column correctly).
+ *     http://www.apache.org/licenses/LICENSE-2.0
  *
- * Gap indexing: gap `g` is "the gap that comes BEFORE hunks[g]". So
- * gap 0 is the top-of-file gap, gap hunks.length is the after-last-hunk
- * gap. There are hunks.length + 1 gaps in total.
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
 import type { DiffHunk } from './diffParse';
 

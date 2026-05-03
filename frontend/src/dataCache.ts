@@ -1,15 +1,15 @@
 /*
- * Tiny module-scope cache used to make tab switches feel instant.
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
  *
- * Pattern: each page reads from the cache at mount time and shows that
- * value immediately (no spinner), then kicks off a background fetch that
- * updates both the cache and the page state when it lands. The user sees
- * the last-known data right away and the fresh data replaces it silently.
+ *     http://www.apache.org/licenses/LICENSE-2.0
  *
- * Memory-only on purpose — survives tab switches within a session but
- * not a full app restart. If we ever need reload-resilience we can swap
- * this for a persisted store (localStorage / backend) without changing
- * callers.
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
 
 type Entry = { value: unknown; storedAt: number };

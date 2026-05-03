@@ -1,14 +1,15 @@
-/**
- * Render smoke-tests for the activity-row UI. Specifically guards
- * against the {@code "followingNarrative is not defined"} class of bug:
- * a stale reference inside the row's JSX would throw at render time and
- * fail this test, instead of slipping past type-check (which our pinned
- * tsc + @types/node mismatch silently swallows) and into production.
+/*
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
  *
- * Uses {@code react-dom/server.renderToStaticMarkup} so we don't need a
- * DOM environment or @testing-library — just plain HTML strings. Every
- * branch of {@code followingNarrativeSegments} is exercised at least
- * once.
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
 import { describe, it, expect } from 'vitest';
 import { renderToStaticMarkup } from 'react-dom/server';

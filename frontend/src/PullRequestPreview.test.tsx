@@ -1,23 +1,15 @@
-/**
- * @vitest-environment jsdom
+/*
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
  *
- * Render-time smoke tests for {@link PullRequestPreview}. The point is
- * NOT to assert exact markup — it's to catch the class of bug we hit
- * during the inline-component split: a JSX path that references a
- * removed-but-still-used identifier (e.g. {@code ReactionChips is not
- * defined}). The project's TS toolchain has a longstanding type-check
- * gap that lets these slip past `tsc --noEmit`, so the safety net has
- * to be runtime.
+ *     http://www.apache.org/licenses/LICENSE-2.0
  *
- * Strategy: mock {@link window.bridge.fetchPullRequestDetail} to return
- * a fixture that exercises every risky branch (top-level comments with
- * reactions + the smiley-add path, review threads with messages and
- * resolved/unresolved states, an APPROVED review with no body to hit
- * the compact approved-row, a CHANGES_REQUESTED review with a body to
- * hit the expandable card, and a `review_requested` burst to hit the
- * grouping renderer). Render the component, wait for the effect, and
- * read the resulting markup. Any reference error inside the rendered
- * subtree throws and the test fails.
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { act } from 'react';

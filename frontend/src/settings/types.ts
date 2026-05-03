@@ -1,9 +1,16 @@
-// Discriminator for the active page in the new settings shell. Mirrored
-// in App.tsx's Nav union so deep links land on the right section.
-//
-// Note: 'notifications' is *not* a settings page. Its entry point lives in
-// the global topbar (top-level NotificationsScreen) — settings is for
-// configuration, the topbar item is the day-to-day feed.
+/*
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
 export type SettingsSection =
   | 'account'
   | 'appearance'

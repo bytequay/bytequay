@@ -11,7 +11,8 @@
     "make": "electron-forge make",
     "publish": "electron-forge publish",
     "lint": "eslint --ext .ts,.tsx .",
-    "test": "vitest run"
+    "test": "vitest run",
+    "check:licenses": "license-checker-rseidelsohn --production --onlyAllow 'Apache-2.0;MIT;BSD-2-Clause;BSD-3-Clause;ISC;CC0-1.0;0BSD;CC-BY-4.0;CC-BY-3.0;Python-2.0;Unlicense;BlueOak-1.0.0' --excludePackages 'bytequay@1.0.0'"
   },
   "keywords": [],
   "author": {
@@ -41,9 +42,11 @@
     "@vitejs/plugin-react": "^4.7.0",
     "electron": "41.2.1",
     "eslint": "^8.57.1",
+    "eslint-plugin-header": "^3.1.1",
     "eslint-plugin-import": "^2.32.0",
     "eslint-plugin-react-hooks": "^4.6.2",
     "jsdom": "^29.1.1",
+    "license-checker-rseidelsohn": "^4.4.2",
     "typescript": "^5.9.3",
     "vite": "^5.4.21",
     "vitest": "^1.6.1"

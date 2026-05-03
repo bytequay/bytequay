@@ -50,9 +50,17 @@ jobs:
       - name: Lint
         working-directory: frontend
         # ESLint catches things tsc can't see: unused identifiers,
-        # missing hook deps, accidental fallthroughs. Warnings are
-        # tolerated; only errors fail the build.
+        # missing hook deps, accidental fallthroughs, AND missing
+        # Apache 2.0 license headers (eslint-plugin-header).
+        # Warnings are tolerated; only errors fail the build.
         run: npm run lint
+
+      - name: Check production dependency licenses
+        working-directory: frontend
+        # Fails the build if any --production npm dep ships under a
+        # license that isn't in the allowlist. Catches a transitive
+        # GPL / AGPL / proprietary dep slipping in via an upgrade.
+        run: npm run check:licenses
 
       - name: Type check
         working-directory: frontend

@@ -11,25 +11,16 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-type Props = {
-  on: boolean;
-  onChange: (on: boolean) => void;
-  disabled?: boolean;
-  ariaLabel?: string;
-};
+// eslint-disable-next-line import/no-unresolved -- subpath export, resolves at runtime
+import { defineConfig } from 'vitest/config';
 
-function Toggle({ on, onChange, disabled, ariaLabel }: Props) {
-  return (
-    <button
-      type="button"
-      role="switch"
-      aria-checked={on}
-      aria-label={ariaLabel}
-      disabled={disabled}
-      className={`toggle${on ? ' toggle--on' : ''}`}
-      onClick={() => onChange(!on)}
-    />
-  );
-}
-
-export default Toggle;
+export default defineConfig({
+  test: {
+    // jsdom for every spec — lets component / render tests use
+    // `document` and `window` without a per-file
+    // `@vitest-environment jsdom` directive (which is fragile because
+    // the directive must live in the first comment block, where the
+    // license header now sits).
+    environment: 'jsdom',
+  },
+});

@@ -1,13 +1,15 @@
 /*
- * Minimal unified-diff parser.
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
  *
- * We consume the `patch` string GitHub returns per file (already just the
- * hunk body — GitHub strips the `--- a/file` / `+++ b/file` header) and
- * produce a list of hunks with typed rows suitable for rendering.
+ *     http://www.apache.org/licenses/LICENSE-2.0
  *
- * Purposefully tiny — if we want wrapped/word diffs or rename detection
- * we'll bring in `react-diff-view` in Phase 2c slice D. For now this is
- * enough for the read-only viewer.
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
  */
 
 export type DiffRowKind = 'context' | 'add' | 'del' | 'hunk-header';

@@ -1,0 +1,10 @@
+ByteQuay
+Copyright 2026 Jian Chen
+
+This product is licensed under the Apache License, Version 2.0
+(see LICENSE).
+
+This product bundles no third-party Apache-licensed source code that
+requires re-distribution of an upstream NOTICE file. Transitive
+dependencies (Spring Boot, Guava, Electron, React, etc.) carry their
+own NOTICE files inside their respective distributions.

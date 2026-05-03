@@ -140,7 +140,9 @@
 
             <!-- License header check — replaces the bash grep that lived in
                  .github/workflows/ci.yml. Verifies every src/**/*.java starts
-                 with the Apache 2.0 header stored at src/main/license/header.txt. -->
+                 with the Apache 2.0 header stored at /licenses/header.txt
+                 (one repo-wide source of truth shared with the frontend's
+                 eslint-plugin-header rule). -->
             <plugin>
                 <groupId>com.mycila</groupId>
                 <artifactId>license-maven-plugin</artifactId>
@@ -148,7 +150,7 @@
                 <configuration>
                     <licenseSets>
                         <licenseSet>
-                            <header>${project.basedir}/src/main/license/header.txt</header>
+                            <header>${project.basedir}/../licenses/header.txt</header>
                             <includes>
                                 <include>src/main/java/**/*.java</include>
                                 <include>src/test/java/**/*.java</include>

@@ -1506,7 +1506,11 @@
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, monospace;
   font-size: 11px;
   line-height: 1.45;
-  color: var(--text-1);
+  /* Use --text-2 (not --text-1) for monospace blocks. On the dark
+     theme this picks Atom One Dark's authentic editor foreground
+     (#abb2bf) instead of the brighter heading tone — a wall of
+     white code on a dark surface reads as glaring. */
+  color: var(--text-2);
   white-space: pre-wrap;
   overflow-wrap: anywhere;
   max-height: 320px;

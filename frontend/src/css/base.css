@@ -90,9 +90,13 @@
 }
 
 [data-theme="atom-one-dark"] {
-  /* Bumped --bg-card from #2c313a → #30363f so cards visibly separate
-     from the page background instead of blending in. */
-  --bg-base: #282c34;
+  /* Lifted --bg-base from the canonical Atom One Dark #282c34 to
+     #2d3138 — only ~5 RGB units brighter, but enough to soften the
+     contrast against monospace code (diff viewer rows, the failure-
+     log pre, etc.) without losing the dark-editor feel. The card
+     background sits one step above that at #30363f so cards still
+     separate from the page. */
+  --bg-base: #2d3138;
   --bg-elevated: #21252b;
   --bg-card: #30363f;
   --bg-input: #1d2026;

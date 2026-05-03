@@ -39,21 +39,46 @@ if (started) {
  *  the .app bundle's icon isn't in play. Best-effort — silently skips
  *  if the asset isn't found (e.g. when running unpackaged from a
  *  context that doesn't include /assets). */
-/** Resolve the on-disk path to the app icon. /build/icon.png is two
- *  levels up from this compiled main.js (frontend/.vite/build/main.js
- *  → /build/) when running via Forge, and three levels up when
- *  running tests / from source. Returns null when neither candidate
- *  exists, which lets callers gracefully degrade. */
+/** Resolve the on-disk path to the app icon. Tries several layouts
+ *  because __dirname differs between the Vite-built dev path
+ *  (frontend/.vite/build/main.js) and the packaged .app bundle
+ *  (Resources/app.asar/...). Prefers .icns on macOS — the system
+ *  About panel renders it crisper than a PNG — and falls back to
+ *  .png. Logs the chosen path so missing-icon issues are visible
+ *  in the dev console without a debugger. */
 function resolveIconPath(): string | null {
-  const candidates = [
-    path.join(__dirname, '..', '..', '..', 'build', 'icon.png'),
-    path.join(__dirname, '..', '..', 'build', 'icon.png'),
+  const filename = process.platform === 'darwin' ? 'icon.icns' : 'icon.png';
+  const fallback = 'icon.png';
+  const roots = [
+    path.join(__dirname, '..', '..', '..', 'build'),
+    path.join(__dirname, '..', '..', 'build'),
+    path.join(process.cwd(), 'build'),
+    path.join(process.cwd(), '..', 'build'),
+    path.join(app.getAppPath(), 'build'),
+    path.join(app.getAppPath(), '..', 'build'),
   ];
-  return candidates.find((p) => fs.existsSync(p)) ?? null;
+  for (const root of roots) {
+    for (const name of [filename, fallback]) {
+      const candidate = path.join(root, name);
+      if (fs.existsSync(candidate)) {
+        // eslint-disable-next-line no-console
+        console.log('[ByteQuay] resolved app icon:', candidate);
+        return candidate;
+      }
+    }
+  }
+  // eslint-disable-next-line no-console
+  console.warn('[ByteQuay] could not find app icon; About panel and dock will fall back to Electron defaults.');
+  return null;
 }
 
 function applyDevDockIcon(): void {
-  if (process.platform !== 'darwin' || !app.dock || app.isPackaged) {
+  // Run on macOS even when packaged: the .app's CFBundleIconFile is
+  // already correct in production, but calling app.dock.setIcon also
+  // updates [NSApp applicationIconImage], which is what the system
+  // About panel reads on screen. Without that explicit set, the About
+  // panel can render Electron's atom even when iconPath is configured.
+  if (process.platform !== 'darwin' || !app.dock) {
     return;
   }
   const iconPath = resolveIconPath();

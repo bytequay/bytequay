@@ -262,6 +262,30 @@ export function reopenPatch(): Partial<PullRequestDto> {
   return { reviewedAt: null, handledAction: null };
 }
 
+/** Optimistic patch when a merge succeeds — same fields as
+ *  markHandledPatch('MERGED') plus state + mergedAt so the OPEN pill
+ *  flips to MERGED and the merge bar gates off (`!pr.mergedAt`)
+ *  without waiting for the next sync. */
+export function mergedPatch(now: string = new Date().toISOString()): Partial<PullRequestDto> {
+  return {
+    reviewedAt: now,
+    handledAction: 'MERGED',
+    state: 'merged',
+    mergedAt: now,
+  };
+}
+
+/** Rollback for {@link mergedPatch} when the merge call fails — restores
+ *  the snapshot taken before the optimistic patch was applied. */
+export function unmergedPatch(previousState: string | null, previousMergedAt: string | null): Partial<PullRequestDto> {
+  return {
+    reviewedAt: null,
+    handledAction: null,
+    state: previousState,
+    mergedAt: previousMergedAt,
+  };
+}
+
 // ── Phase 3 kanban refactor ────────────────────────────────────────────────
 // Two parallel column models for the new kanban (docs/design/kanban-refactor.md).
 // "My PRs" lane (origin = AUTHORED) has 5 columns; "To review" lane

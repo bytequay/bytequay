@@ -11,19 +11,22 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { marked } from 'marked';
-import type { PullRequestDto } from '../types';
+import type { LinkedIssueDto, PullRequestDto } from '../types';
 import Avatar from '../Avatar';
 import { formatRelativeTime } from './utils';
+import { inlineLinkedIssueTitles } from './inlineLinkedIssueTitles';
 
 export function DescriptionCard({
   pr,
   body,
+  linkedIssues = [],
   onSaved,
 }: {
   pr: PullRequestDto;
   body: string;
+  linkedIssues?: LinkedIssueDto[];
   onSaved: (body: string) => void;
 }) {
   const [editing, setEditing] = useState(false);
@@ -63,9 +66,15 @@ export function DescriptionCard({
   };
 
   const cleaned = body.replace(/<!--[\s\S]*?-->/g, '').trim();
-  const html = cleaned
-    ? (marked(cleaned, { gfm: true, breaks: true }) as string)
-    : '<p class="description-card__empty">No description.</p>';
+  // Memoised so the DOM-walk only runs on body / linkedIssues change,
+  // not on every render (the dialog's editing-state setStates would
+  // otherwise re-walk the HTML on each keystroke).
+  const html = useMemo(() => {
+    const rendered = cleaned
+      ? (marked(cleaned, { gfm: true, breaks: true }) as string)
+      : '<p class="description-card__empty">No description.</p>';
+    return inlineLinkedIssueTitles(rendered, linkedIssues);
+  }, [cleaned, linkedIssues]);
 
   // Render as a dialog-style comment card: PR author avatar on the left,
   // bordered "speech bubble" body on the right. Matches the timeline's

@@ -937,6 +937,7 @@ function PullRequestPreview({ pr, onOpenReview, onInspectDiffs, onMarkHandled, o
                 <DescriptionCard
                   pr={pr}
                   body={detail.body ?? ''}
+                  linkedIssues={detail.linkedIssues ?? []}
                   onSaved={(newBody) => setDetail({ ...detail, body: newBody })}
                 />
               </section>
@@ -1367,6 +1368,7 @@ function PullRequestPreview({ pr, onOpenReview, onInspectDiffs, onMarkHandled, o
               <DescriptionCard
                 pr={pr}
                 body={detail.body ?? ''}
+                linkedIssues={detail.linkedIssues ?? []}
                 onSaved={(newBody) => setDetail({ ...detail, body: newBody })}
               />
 

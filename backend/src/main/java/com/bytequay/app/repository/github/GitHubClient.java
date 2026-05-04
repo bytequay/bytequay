@@ -931,6 +931,42 @@ public class GitHubClient
     }
 
     @Override
+    public void editIssueComment(String pat, String owner, String repo, long commentId, String body)
+    {
+        try {
+            gitHubRestClient.method(HttpMethod.PATCH)
+                    .uri("/repos/{owner}/{repo}/issues/comments/{commentId}",
+                            owner, repo, commentId)
+                    .header("Authorization", "Bearer " + pat)
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .body(ImmutableMap.of("body", body))
+                    .retrieve()
+                    .toBodilessEntity();
+        }
+        catch (RestClientResponseException e) {
+            throw toReadableException(e);
+        }
+    }
+
+    @Override
+    public void editReviewComment(String pat, String owner, String repo, long commentId, String body)
+    {
+        try {
+            gitHubRestClient.method(HttpMethod.PATCH)
+                    .uri("/repos/{owner}/{repo}/pulls/comments/{commentId}",
+                            owner, repo, commentId)
+                    .header("Authorization", "Bearer " + pat)
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .body(ImmutableMap.of("body", body))
+                    .retrieve()
+                    .toBodilessEntity();
+        }
+        catch (RestClientResponseException e) {
+            throw toReadableException(e);
+        }
+    }
+
+    @Override
     public void addIssueCommentReaction(String pat, String owner, String repo, long commentId, String content)
     {
         try {

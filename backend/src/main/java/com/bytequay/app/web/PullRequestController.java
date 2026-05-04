@@ -251,6 +251,38 @@ public class PullRequestController
     }
 
     /**
+     * Edits a top-level issue / PR comment authored by the authenticated
+     * user. POST /prs/issue-comments/{commentId}/body?repo=
+     * Body: {"body": "..."}
+     */
+    @PostMapping("/prs/issue-comments/{commentId}/body")
+    public Map<String, String> editIssueComment(
+            @PathVariable long commentId,
+            @RequestParam("repo") String repo,
+            @RequestBody UpdateBodyRequest req)
+    {
+        String pat = patResolver.resolve(repo);
+        pullRequestService.editIssueComment(pat, repo, commentId, req.body());
+        return ImmutableMap.of("result", "edited");
+    }
+
+    /**
+     * Edits a per-line review comment authored by the authenticated user.
+     * POST /prs/review-comments/{commentId}/body?repo=
+     * Body: {"body": "..."}
+     */
+    @PostMapping("/prs/review-comments/{commentId}/body")
+    public Map<String, String> editReviewComment(
+            @PathVariable long commentId,
+            @RequestParam("repo") String repo,
+            @RequestBody UpdateBodyRequest req)
+    {
+        String pat = patResolver.resolve(repo);
+        pullRequestService.editReviewComment(pat, repo, commentId, req.body());
+        return ImmutableMap.of("result", "edited");
+    }
+
+    /**
      * Adds a requested reviewer to the PR.
      * POST /prs/reviewers?repo=&number=&reviewer=
      */

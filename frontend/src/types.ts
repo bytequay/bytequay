@@ -639,6 +639,11 @@ export type Bridge = {
   getSuggestedReviewers: (repo: string, number: number) => Promise<SuggestedReviewerDto[]>;
   /** Replies inline to an existing per-line review thread on the PR. */
   replyToReviewThread: (repo: string, number: number, rootCommentId: number, body: string) => Promise<void>;
+  /** Edits a top-level issue / PR comment authored by the user.
+   *  Backend rejects with 403 for comments authored by someone else. */
+  editIssueComment: (repo: string, commentId: number, body: string) => Promise<void>;
+  /** Edits a per-line review comment authored by the user. */
+  editReviewComment: (repo: string, commentId: number, body: string) => Promise<void>;
   /** Posts a brand-new per-line review comment on a specific diff line.
    *  {@code commitId} should be the PR head SHA. {@code side} is "LEFT"
    *  for the old file, "RIGHT" for the new file. */

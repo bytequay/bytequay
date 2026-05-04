@@ -362,6 +362,31 @@ public class PullRequestService
     }
 
     /**
+     * Updates the body of a top-level issue / PR comment owned by the
+     * authenticated user. GitHub returns 403 for comments authored by
+     * someone else; the frontend already gates the affordance on the
+     * author check, so a 403 here is purely a defensive backstop.
+     */
+    public void editIssueComment(String pat, String repo, long commentId, String body)
+    {
+        requireNotBlank(body, "comment body must not be blank");
+        RepoRef ref = parseRepoRef(repo);
+        gitHub.editIssueComment(pat, ref.owner(), ref.repo(), commentId, body);
+    }
+
+    /**
+     * Updates the body of a per-line review comment owned by the
+     * authenticated user. Same author-gating story as
+     * {@link #editIssueComment(String, String, long, String)}.
+     */
+    public void editReviewComment(String pat, String repo, long commentId, String body)
+    {
+        requireNotBlank(body, "comment body must not be blank");
+        RepoRef ref = parseRepoRef(repo);
+        gitHub.editReviewComment(pat, ref.owner(), ref.repo(), commentId, body);
+    }
+
+    /**
      * Toggles a review thread's resolved state via GraphQL. The
      * frontend identifies the thread by its REST root comment id; we
      * look up the GraphQL node id from the cached detail (populated by

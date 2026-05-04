@@ -80,6 +80,38 @@ export function optimisticallyBumpReaction(
     : detail;
 }
 
+/** Replace the body of one comment (top-level issue comment OR per-line
+ *  review-thread message) after a successful edit so the rendered text
+ *  updates without a full PR-detail refetch. Looks up the target by
+ *  GitHub id across both subtrees, returns the original reference when
+ *  the id isn't found (no spurious re-renders). */
+export function optimisticallyUpdateCommentBody(
+  detail: PullRequestDetailDto | null,
+  commentGithubId: number,
+  newBody: string,
+): PullRequestDetailDto | null {
+  if (!detail) return detail;
+  let changed = false;
+  const nextActivity = detail.recentActivity.map(item => {
+    if (item.githubId !== commentGithubId) return item;
+    changed = true;
+    return { ...item, body: newBody };
+  });
+  const nextThreads = detail.reviewThreads.map(thread => {
+    let threadChanged = false;
+    const nextMsgs = thread.messages.map(msg => {
+      if (msg.githubId !== commentGithubId) return msg;
+      threadChanged = true;
+      changed = true;
+      return { ...msg, body: newBody };
+    });
+    return threadChanged ? { ...thread, messages: nextMsgs } : thread;
+  });
+  return changed
+    ? { ...detail, recentActivity: nextActivity, reviewThreads: nextThreads }
+    : detail;
+}
+
 /** Optimistic toggle for a review thread's resolved flag — flips the
  *  matching thread's {@code resolved} field and returns a new detail
  *  object. */

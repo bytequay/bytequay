@@ -478,6 +478,69 @@
   white-space: pre-wrap;
 }
 
+/* Editable comment body — visually identical to the description card's
+   edit affordance so the three editable surfaces (PR body, top-level
+   comments, per-line replies) share one feel. The trailing ✎ pill
+   sits inline below the rendered markdown rather than next to the
+   author name, since timeline cards already have a busy header row. */
+.editable-comment-body__edit {
+  appearance: none;
+  background: transparent;
+  border: 1px solid transparent;
+  color: var(--text-3);
+  font: inherit;
+  font-size: 11px;
+  letter-spacing: 0.03em;
+  padding: 1px 8px;
+  margin-top: 4px;
+  border-radius: 4px;
+  cursor: pointer;
+  transition: color 0.1s, background 0.1s, border-color 0.1s;
+}
+.editable-comment-body__edit:hover {
+  color: var(--accent);
+  background: var(--accent-a7);
+  border-color: var(--accent);
+}
+
+.editable-comment-body--editing {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.editable-comment-body__textarea {
+  min-height: 96px;
+  resize: vertical;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--bg-base);
+  color: var(--text-1);
+  font: inherit;
+  font-size: 13px;
+  line-height: 1.5;
+  box-sizing: border-box;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, monospace;
+}
+.editable-comment-body__textarea:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px var(--accent-a7);
+}
+
+.editable-comment-body__actions {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+}
+
+.editable-comment-body__error {
+  color: #cf222e;
+  font-size: 12px;
+  white-space: pre-wrap;
+}
+
 .preview__section--reviewers {
   flex: 0 0 auto;
   margin-bottom: 0;

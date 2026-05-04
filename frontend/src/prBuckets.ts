@@ -369,10 +369,14 @@ export function categorizeMyPr(pr: PullRequestDto, now: number = Date.now()): My
   const hasApproval = verdictValues.includes('APPROVED');
   const hasChangesRequested = verdictValues.includes('CHANGES_REQUESTED');
 
-  // Ready to merge = green path: ≥1 approval, no outstanding change request,
-  // CI passing, GitHub says it's mergeable. mergeable=null means GitHub is
-  // still computing — treat as not-yet-ready until the next sync.
-  if (hasApproval && !hasChangesRequested && pr.ciStatus === 'PASSING' && pr.mergeable === true) {
+  // Ready to merge = green path: ≥1 approval, no outstanding change
+  // request, CI passing, and GitHub doesn't actively say "no" to the
+  // merge. We tolerate `mergeable === null` (GitHub is still computing
+  // for ~30s after a push, and our cached row often catches it in that
+  // window) — only `mergeable === false` blocks the column. Without
+  // this tolerance the column stays empty for PRs that are objectively
+  // ready, just because the cache hasn't refreshed yet.
+  if (hasApproval && !hasChangesRequested && pr.ciStatus === 'PASSING' && pr.mergeable !== false) {
     return 'ready_to_merge';
   }
 

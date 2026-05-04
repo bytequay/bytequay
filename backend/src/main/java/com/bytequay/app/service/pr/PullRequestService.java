@@ -56,6 +56,8 @@ import org.springframework.stereotype.Service;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.time.Instant;
+import java.time.LocalDate;
+import java.time.ZoneOffset;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -149,6 +151,12 @@ public class PullRequestService
     public void syncFromGitHub(String pat)
     {
         Map<Long, Instant> existingUpdatedAt = store.findUpdatedAtMap();
+        // Rows whose V26 enrichment fields are still null get a forced
+        // detail sync below regardless of `updatedAt`. Catches legacy
+        // rows whose `updatedAt` hasn't moved since the kanban
+        // categorization started reading reviewer_verdicts; without
+        // this backfill those rows render as "Opened" forever.
+        Set<Long> missingEnrichment = store.findIdsMissingEnrichment();
 
         // Pull the current user's login once per sync so we can reconcile
         // `handledAction` against reviews submitted outside the app (e.g. via
@@ -171,7 +179,10 @@ public class PullRequestService
         List<CompletableFuture<Void>> detailFutures = fresh.stream()
                 .filter(pr -> {
                     Instant existing = existingUpdatedAt.get(pr.id());
-                    return existing == null || !existing.equals(pr.updatedAt());
+                    if (existing == null || !existing.equals(pr.updatedAt())) {
+                        return true;
+                    }
+                    return missingEnrichment.contains(pr.id());
                 })
                 .map(pr -> CompletableFuture.runAsync(() -> syncDetailQuietly(pat, pr, currentLogin), executor))
                 .collect(toImmutableList());
@@ -637,14 +648,31 @@ public class PullRequestService
                 () -> gitHub.searchPullRequests(pat, "is:pr is:open author:@me"), executor);
         CompletableFuture<List<PullRequest>> reviewFuture = CompletableFuture.supplyAsync(
                 () -> gitHub.searchPullRequests(pat, "is:pr is:open review-requested:@me"), executor);
+        // Recently-closed authored PRs feed the kanban's "Recently merged"
+        // column. Without this the moment a PR is merged on GitHub the
+        // is:open search drops it, store.replaceAll(...) deletes the row,
+        // and the column stays empty. 7-day window matches
+        // categorizeMyPr's recently_merged horizon exactly so we don't
+        // pull rows the kanban would discard anyway.
+        String sinceDate = LocalDate.now(ZoneOffset.UTC).minusDays(7).toString();
+        CompletableFuture<List<PullRequest>> recentlyClosedFuture = CompletableFuture.supplyAsync(
+                () -> gitHub.searchPullRequests(pat,
+                        "is:pr is:closed author:@me closed:>=" + sinceDate),
+                executor);
 
         List<PullRequest> authored = join(authoredFuture);
         List<PullRequest> reviewRequested = join(reviewFuture);
+        List<PullRequest> recentlyClosed = join(recentlyClosedFuture);
 
         LinkedHashMap<String, PullRequest> merged = Maps.newLinkedHashMap();
         if (authored != null) {
             for (PullRequest pr : authored) {
                 merged.put(pr.repo() + "#" + pr.number(), withOrigin(pr, AUTHORED));
+            }
+        }
+        if (recentlyClosed != null) {
+            for (PullRequest pr : recentlyClosed) {
+                merged.putIfAbsent(pr.repo() + "#" + pr.number(), withOrigin(pr, AUTHORED));
             }
         }
         if (reviewRequested != null) {
@@ -1291,9 +1319,29 @@ public class PullRequestService
             if (r.login() == null || r.state() == null) {
                 continue;
             }
-            out.put(r.login(), r.state());
+            String state = r.state();
+            // GitHub's verdict semantics: APPROVED / CHANGES_REQUESTED /
+            // DISMISSED reviews "stick" — a reviewer who requested
+            // changes and then later left a casual COMMENTED follow-up
+            // is still considered to be requesting changes. Only let
+            // sticky states overwrite a previous sticky verdict; let
+            // any state seed an empty slot. Without this filter a
+            // single COMMENTED review wipes out the CHANGES_REQUESTED
+            // signal the kanban relies on for its "Needs changes"
+            // column.
+            if (out.containsKey(r.login()) && !isStickyVerdict(state)) {
+                continue;
+            }
+            out.put(r.login(), state);
         }
         return ImmutableMap.copyOf(out);
+    }
+
+    private static boolean isStickyVerdict(String state)
+    {
+        return "APPROVED".equals(state)
+                || "CHANGES_REQUESTED".equals(state)
+                || "DISMISSED".equals(state);
     }
 
     private static PullRequest withOrigin(PullRequest pr, PullRequest.Origin origin)

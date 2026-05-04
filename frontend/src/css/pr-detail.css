@@ -61,29 +61,39 @@
 .prc-meta-link:hover { color: var(--accent); text-decoration: underline; }
 .prc-meta-sep { opacity: 0.5; }
 .prc-meta-time { color: var(--text-3); }
+/* Status pill in the PR detail header. Default = Open (green); the
+   modifier classes below paint Merged purple, Closed red, Draft grey.
+   Bigger + solid background than the rest of the meta strip so the
+   PR's lifecycle state is the loudest thing next to the number — same
+   visual weight GitHub gives it. */
 .prc-status-pill {
-  font-size: 10.5px;
-  padding: 1px 8px;
+  display: inline-flex;
+  align-items: center;
+  font-size: 12px;
+  padding: 4px 12px;
   border-radius: 999px;
   font-weight: 700;
-  background: rgba(46, 160, 67, 0.12);
-  color: #1a7f37;
+  background: #2da44e;
+  color: #fff;
   text-transform: uppercase;
-  letter-spacing: 0.04em;
+  letter-spacing: 0.06em;
+  line-height: 1;
 }
+/* Draft — muted because it's "not a state, an intent" (GitHub's term).
+   Stays the soft-tint variant so it doesn't compete with Open/Merged. */
 .prc-status-pill--draft {
   background: var(--bg-card);
   color: var(--text-3);
 }
 /* Merged — github.com's purple. */
 .prc-status-pill--merged {
-  background: rgba(130, 80, 223, 0.14);
-  color: #6b21a8;
+  background: #8250df;
+  color: #fff;
 }
 /* Closed without merge — red, signalling "abandoned". */
 .prc-status-pill--closed {
-  background: rgba(207, 34, 46, 0.12);
-  color: #cf222e;
+  background: #cf222e;
+  color: #fff;
 }
 .prc-actions {
   grid-area: actions;

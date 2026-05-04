@@ -444,11 +444,24 @@ describe('categorizeMyPr', () => {
     }), NOW)).toBe('ready_to_merge');
   });
 
-  it('approval but mergeable=null (still computing) does NOT promote to ready_to_merge', () => {
+  it('approval + CI passing + mergeable=null (still computing) DOES promote to ready_to_merge', () => {
+    // GitHub returns mergeable=null for ~30s after every push while it
+    // computes. The strict mergeable===true check left objectively-ready
+    // PRs sitting in waiting_on_review until the next sync. Trust the
+    // CI + approval signal; only mergeable===false (an actual conflict)
+    // should hold the column.
     expect(categorizeMyPr(pr({
       reviewerVerdicts: { alice: 'APPROVED' },
       ciStatus: 'PASSING',
       mergeable: null,
+    }), NOW)).toBe('ready_to_merge');
+  });
+
+  it('approval + CI passing but mergeable=false (real conflict) → waiting_on_review', () => {
+    expect(categorizeMyPr(pr({
+      reviewerVerdicts: { alice: 'APPROVED' },
+      ciStatus: 'PASSING',
+      mergeable: false,
     }), NOW)).toBe('waiting_on_review');
   });
 

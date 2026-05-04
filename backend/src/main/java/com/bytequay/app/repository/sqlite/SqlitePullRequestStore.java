@@ -30,6 +30,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.stream.Collectors;
 
 import static com.google.common.collect.ImmutableList.toImmutableList;
 import static com.google.common.collect.ImmutableMap.toImmutableMap;
@@ -86,8 +87,39 @@ public class SqlitePullRequestStore
                 .map(PullRequest::id)
                 .collect(toImmutableSet());
 
+        // Preserve detail-derived enrichment columns from the previous
+        // sync. The search-API responses fed in here don't include
+        // reviewer_verdicts / mergeable / etc., so toEntity below would
+        // overwrite a populated row with nulls and wipe the kanban
+        // categorization between syncs. The detail-sync pass downstream
+        // only re-runs for PRs whose updatedAt changed (or whose
+        // enrichment is missing) — for unchanged PRs we want their
+        // last-known verdict map to survive this replace.
+        Map<Long, PullRequestEntity> existingById = jpaRepository
+                .findAllById(freshIds)
+                .stream()
+                .collect(Collectors.toMap(PullRequestEntity::getId, e -> e));
+
         List<PullRequestEntity> entities = pullRequests.stream()
-                .map(pr -> toEntity(pr, now))
+                .map(pr -> {
+                    PullRequestEntity entity = toEntity(pr, now);
+                    PullRequestEntity prev = existingById.get(pr.id());
+                    if (prev != null) {
+                        if (entity.getReviewerVerdicts() == null) {
+                            entity.setReviewerVerdicts(prev.getReviewerVerdicts());
+                        }
+                        if (entity.getMergeable() == null) {
+                            entity.setMergeable(prev.getMergeable());
+                        }
+                        if (entity.getMergeableState() == null) {
+                            entity.setMergeableState(prev.getMergeableState());
+                        }
+                        if (entity.getHeadPushedAt() == null) {
+                            entity.setHeadPushedAt(prev.getHeadPushedAt());
+                        }
+                    }
+                    return entity;
+                })
                 .collect(toImmutableList());
 
         jpaRepository.saveAll(entities);
@@ -123,6 +155,24 @@ public class SqlitePullRequestStore
     {
         return jpaRepository.findAll().stream()
                 .collect(toImmutableMap(PullRequestEntity::getId, PullRequestEntity::getUpdatedAt));
+    }
+
+    @Override
+    public Set<Long> findIdsMissingEnrichment()
+    {
+        // Treat both null AND an empty map as "not yet synced". The empty
+        // map is what the previous sync stored when the PR genuinely had
+        // no reviews at the moment — but it's indistinguishable from
+        // "stale empty after a reviewer later requested changes", which
+        // is exactly the trino #29289 case. Re-syncing on every cycle
+        // is cheap relative to the kanban being silently wrong.
+        return jpaRepository.findAll().stream()
+                .filter(e -> {
+                    Map<String, String> verdicts = e.getReviewerVerdicts();
+                    return verdicts == null || verdicts.isEmpty();
+                })
+                .map(PullRequestEntity::getId)
+                .collect(Collectors.toUnmodifiableSet());
     }
 
     @Override

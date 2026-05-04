@@ -31,11 +31,13 @@ import {
   groupHandledByTime,
   isHandled,
   markHandledPatch,
+  mergedPatch,
   patchPr,
   reopenPatch,
   sortHandled,
   splitInboxAndHandled,
   syncCachesAfterPrChange,
+  unmergedPatch,
 } from './prBuckets';
 import { CategorizedList, HandledTimeline } from './PrBucketViews';
 import KanbanBoard from './kanban/KanbanBoard';
@@ -262,13 +264,14 @@ function PullRequestList({ onGoToTeams }: Props) {
   };
 
   const handleMerge = async (prId: number, repo: string, number: number) => {
-    const patch = markHandledPatch('MERGED');
-    updatePrState(prId, repo, patch);
+    const previous = (prs ?? []).find(p => p.id === prId);
+    const previousState = previous?.state ?? null;
+    const previousMergedAt = previous?.mergedAt ?? null;
+    updatePrState(prId, repo, mergedPatch());
     try {
       await window.bridge.mergePr(prId, repo, number);
     } catch (e) {
-      const rollback = reopenPatch();
-      updatePrState(prId, repo, rollback);
+      updatePrState(prId, repo, unmergedPatch(previousState, previousMergedAt));
       throw e;
     }
   };

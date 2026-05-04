@@ -43,10 +43,12 @@ import {
   formatRelative,
   groupHandledByTime,
   markHandledPatch,
+  mergedPatch,
   patchPr,
   syncCachesAfterPrChange,
   reopenPatch,
   sortHandled,
+  unmergedPatch,
 } from './prBuckets';
 import { HandledTimeline, InboxGroup } from './PrBucketViews';
 
@@ -361,13 +363,16 @@ function RepoDetailPage({ owner, repo, initialPrNumber }: Props) {
   };
 
   const handleMerge = async (prId: number, prRepo: string, number: number) => {
-    const patch = markHandledPatch('MERGED');
+    const previous = pulls.find(p => p.id === prId);
+    const previousState = previous?.state ?? null;
+    const previousMergedAt = previous?.mergedAt ?? null;
+    const patch = mergedPatch();
     setPulls(prev => patchPr(prev, prId, patch));
     syncCachesAfterPrChange(prId, patch, prRepo);
     try {
       await window.bridge.mergePr(prId, prRepo, number);
     } catch (e) {
-      const rollback = reopenPatch();
+      const rollback = unmergedPatch(previousState, previousMergedAt);
       setPulls(prev => patchPr(prev, prId, rollback));
       syncCachesAfterPrChange(prId, rollback, prRepo);
       throw e;

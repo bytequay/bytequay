@@ -40,6 +40,14 @@ type Props = {
    *  it to enable/disable the Submit review button without a second
    *  fetch. */
   onDraftChange?: (draft: AiReviewDraftDto | null) => void;
+  /** Authoritative draft from the parent. The sidebar still owns the
+   *  RunState / polling lifecycle, but mirrors this prop into its own
+   *  local draft whenever it changes — that way a dismiss / edit /
+   *  delete fired from the inline diff card (which only updates the
+   *  parent's aiDraft) is reflected here without a refetch. Pass
+   *  {@code undefined} to opt out and let the sidebar own its draft
+   *  state alone. */
+  draftSnapshot?: AiReviewDraftDto | null;
 };
 
 export type AiReviewSidebarHandle = {
@@ -119,8 +127,8 @@ function FindingCard({ c, draftId, draftPublished, onJump, onDraftUpdated }: Fin
           onClick={jump}
           title="Jump to this line in the diff"
         >
-          <span className={`ai-finding__sev ${severityClass(c.severity)}`}>
-            {severityGlyph(c.severity)}
+          <span className={`ai-finding__sev ${c.source === 'HUMAN' ? 'inline-finding__sev--human' : severityClass(c.severity)}`}>
+            {c.source === 'HUMAN' ? '✎' : severityGlyph(c.severity)}
           </span>
           <span className="ai-finding-folded__loc">{c.filePath.split('/').pop()}:{c.lineNumber}</span>
         </button>
@@ -151,10 +159,12 @@ function FindingCard({ c, draftId, draftPublished, onJump, onDraftUpdated }: Fin
         >
           ▾
         </button>
-        <span className={`ai-finding__sev ${severityClass(c.severity)}`}>
-          {severityGlyph(c.severity)}
+        <span className={`ai-finding__sev ${c.source === 'HUMAN' ? 'inline-finding__sev--human' : severityClass(c.severity)}`}>
+          {c.source === 'HUMAN' ? '✎' : severityGlyph(c.severity)}
         </span>
-        <span className="ai-finding__source">✨ AI · {c.severity.toLowerCase()}</span>
+        <span className="ai-finding__source">
+          {c.source === 'HUMAN' ? '⏱ Pending review' : `✨ AI · ${c.severity.toLowerCase()}`}
+        </span>
         {dismissed && (
           <span className="ai-finding__dismissed-badge" title="Dismissed — won't be sent on publish.">⊘ dismissed</span>
         )}
@@ -202,7 +212,7 @@ function FindingCard({ c, draftId, draftPublished, onJump, onDraftUpdated }: Fin
 }
 
 const AiReviewSidebar = forwardRef<AiReviewSidebarHandle, Props>(function AiReviewSidebar(
-  { pr, onJumpToFile, collapsed, onToggleCollapsed, onDraftChange },
+  { pr, onJumpToFile, collapsed, onToggleCollapsed, onDraftChange, draftSnapshot },
   ref,
 ) {
   const [state, setState] = useState<RunState>('idle');
@@ -224,6 +234,19 @@ const AiReviewSidebar = forwardRef<AiReviewSidebarHandle, Props>(function AiRevi
     setDraftRaw(next);
     onDraftChange?.(next);
   };
+
+  // Mirror parent updates back into local state so an inline-card
+  // dismiss / edit / delete (which only mutates the parent's aiDraft)
+  // is reflected here without a second fetch. We compare by reference
+  // — the inline-card flow always swaps in a new object via
+  // setAiDraft(updated), so a parent → child push always fires.
+  // Skipping when the parent passes undefined keeps backward compat
+  // for callers that don't share their state.
+  useEffect(() => {
+    if (draftSnapshot === undefined) return;
+    if (draftSnapshot === draft) return;
+    setDraftRaw(draftSnapshot);
+  }, [draftSnapshot, draft]);
 
   // Resolve the active provider's display name once on mount so the
   // running-state text reads "DeepSeek is thinking…" rather than always

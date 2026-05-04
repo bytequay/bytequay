@@ -2504,6 +2504,7 @@ function DiffViewerScreen({ pr, onBack, onApprove, initialCommitSha }: Props) {
             }
           }}
           onDraftChange={setAiDraft}
+          draftSnapshot={aiDraft}
         />
       </div>
     </div>

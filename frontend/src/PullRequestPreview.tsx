@@ -280,12 +280,35 @@ function FailingCheckCard({ check, repo }: { check: CheckRunDto; repo: string })
   );
 }
 
+/** GitHub's three merge strategies. Backend mirrors the same identifiers
+ *  in PullRequestService#strategyCommand. */
+type MergeStrategy = 'rebase' | 'squash' | 'merge';
+
+const MERGE_STRATEGY_LABEL: Record<MergeStrategy, string> = {
+  rebase: 'Rebase and merge',
+  squash: 'Squash and merge',
+  merge: 'Create a merge commit',
+};
+
+const MERGE_STRATEGY_HINT: Record<MergeStrategy, string> = {
+  rebase: "Replays the PR's commits onto the base branch one by one. Linear history; fails when the branch already has merge commits.",
+  squash: 'Combines every commit in the PR into a single commit on the base branch.',
+  merge: 'Creates a merge commit that joins the PR branch into the base.',
+};
+
+const MERGE_STRATEGY_KEY = 'settings:merge-strategy';
+
+function loadMergeStrategy(): MergeStrategy {
+  const stored = localStorage.getItem(MERGE_STRATEGY_KEY);
+  return stored === 'squash' || stored === 'merge' ? stored : 'rebase';
+}
+
 type MergeBarProps = {
   pr: PullRequestDto;
   detail: PullRequestDetailDto;
   mergeState: 'idle' | 'running' | 'error';
   mergeError: string | null;
-  onMerge: () => void;
+  onMerge: (strategy: MergeStrategy) => void;
   /** Force-refresh the CI snapshot (status + per-check + viewerCanWrite)
    *  from GitHub. Wired through from the parent's refreshCi so the
    *  refresh button on the CI pill bypasses the focus poll's cadence. */
@@ -304,6 +327,16 @@ function MergeBar({ pr, detail, mergeState, mergeError, onMerge, onRefreshCi, ci
   // pill in the middle of the bar is the affordance to expand it.
   const [failuresOpen, setFailuresOpen] = useState(false);
   const [confirmOpen, setConfirmOpen] = useState(false);
+  // Selected merge strategy. Persisted in localStorage so the user's
+  // last choice (e.g. "Squash and merge" for repos with non-linear
+  // feature branches) is the default next time. The split-button
+  // dropdown lets them pick a different one per merge.
+  const [strategy, setStrategyRaw] = useState<MergeStrategy>(loadMergeStrategy);
+  const setStrategy = (next: MergeStrategy) => {
+    setStrategyRaw(next);
+    localStorage.setItem(MERGE_STRATEGY_KEY, next);
+  };
+  const [strategyMenuOpen, setStrategyMenuOpen] = useState(false);
   const failingChecks = detail.checkRuns.filter(c => isCheckFailing(c.conclusion));
   const ciPassing = detail.ciStatus === 'PASSING' || detail.ciStatus === 'NONE';
   const ciPending = detail.ciStatus === 'PENDING';
@@ -340,17 +373,59 @@ function MergeBar({ pr, detail, mergeState, mergeError, onMerge, onRefreshCi, ci
   return (
     <div className={`merge-bar${enabled ? ' merge-bar--ready' : ' merge-bar--blocked'}`}>
       <div className="merge-bar__row">
-        <button
-          type="button"
-          className="merge-bar__btn"
-          onClick={() => setConfirmOpen(true)}
-          disabled={!enabled}
-          title={enabled
-            ? 'Rebase and merge this PR on GitHub'
-            : (disabledReason ?? 'Not ready to merge')}
-        >
-          {mergeState === 'running' ? 'Merging…' : 'Rebase and merge'}
-        </button>
+        <div className="merge-bar__split">
+          <button
+            type="button"
+            className="merge-bar__btn merge-bar__btn--split-main"
+            onClick={() => setConfirmOpen(true)}
+            disabled={!enabled}
+            title={enabled
+              ? `${MERGE_STRATEGY_LABEL[strategy]} this PR on GitHub`
+              : (disabledReason ?? 'Not ready to merge')}
+          >
+            {mergeState === 'running' ? 'Merging…' : MERGE_STRATEGY_LABEL[strategy]}
+          </button>
+          <button
+            type="button"
+            className="merge-bar__btn merge-bar__btn--split-caret"
+            onClick={() => setStrategyMenuOpen(v => !v)}
+            disabled={!enabled}
+            aria-haspopup="menu"
+            aria-expanded={strategyMenuOpen}
+            title="Pick a different merge strategy"
+          >
+            <span aria-hidden="true">▾</span>
+          </button>
+          {strategyMenuOpen && (
+            <>
+              {/* Click-away catcher so clicking elsewhere on the page
+                  closes the menu without each card needing its own
+                  document listener. Sits behind the menu (z-index). */}
+              <button
+                type="button"
+                className="merge-bar__strategy-backdrop"
+                aria-hidden="true"
+                tabIndex={-1}
+                onClick={() => setStrategyMenuOpen(false)}
+              />
+              <div className="merge-bar__strategy-menu" role="menu">
+                {(['rebase', 'squash', 'merge'] as MergeStrategy[]).map(opt => (
+                  <button
+                    key={opt}
+                    type="button"
+                    role="menuitemradio"
+                    aria-checked={strategy === opt}
+                    className={`merge-bar__strategy-option${strategy === opt ? ' merge-bar__strategy-option--active' : ''}`}
+                    onClick={() => { setStrategy(opt); setStrategyMenuOpen(false); }}
+                  >
+                    <span className="merge-bar__strategy-option-label">{MERGE_STRATEGY_LABEL[opt]}</span>
+                    <span className="merge-bar__strategy-option-hint">{MERGE_STRATEGY_HINT[opt]}</span>
+                  </button>
+                ))}
+              </div>
+            </>
+          )}
+        </div>
         {failingChecks.length > 0 ? (
           <button
             type="button"
@@ -439,9 +514,10 @@ function MergeBar({ pr, detail, mergeState, mergeError, onMerge, onRefreshCi, ci
             </div>
             <div className="merge-confirm__body">
               <p>
-                Rebase and merge <b>{pr.repo}#{pr.number}</b> on GitHub?
+                {MERGE_STRATEGY_LABEL[strategy]} <b>{pr.repo}#{pr.number}</b> on GitHub?
               </p>
               <p className="merge-confirm__sub">{pr.title}</p>
+              <p className="merge-confirm__sub">{MERGE_STRATEGY_HINT[strategy]}</p>
             </div>
             <div className="merge-confirm__actions">
               <button
@@ -458,7 +534,7 @@ function MergeBar({ pr, detail, mergeState, mergeError, onMerge, onRefreshCi, ci
                 onClick={() => {
                   // Fire the merge then close the dialog. The parent's
                   // handleMerge surfaces errors via mergeError below.
-                  onMerge();
+                  onMerge(strategy);
                   setConfirmOpen(false);
                 }}
                 disabled={mergeState === 'running'}
@@ -496,7 +572,7 @@ type Props = {
   // bar above the comment box is hidden — pages that don't want merge from
   // the preview (e.g. archived PRs) just skip the prop. Return value is
   // ignored; the preview re-fetches detail itself once the call resolves.
-  onMerge?: (prId: number, repo: string, number: number) => Promise<unknown>;
+  onMerge?: (prId: number, repo: string, number: number, strategy?: MergeStrategy) => Promise<unknown>;
   // Optional "← Back" affordance shown in the page header. When provided
   // (e.g. from the team detail page) the button returns the user to the
   // referring screen. Inbox usage doesn't pass this — the sidebar list
@@ -713,12 +789,12 @@ function PullRequestPreview({ pr, onOpenReview, onInspectDiffs, onMarkHandled, o
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [pr.id, pr.repo, pr.number]);
 
-  const handleMerge = async () => {
+  const handleMerge = async (strategy: MergeStrategy) => {
     if (!onMerge || mergeState === 'running') return;
     setMergeState('running');
     setMergeError(null);
     try {
-      await onMerge(pr.id, pr.repo, pr.number);
+      await onMerge(pr.id, pr.repo, pr.number, strategy);
       // Drop the cached detail and refetch so the merged status, timeline
       // event, and disabled merge button all update in one pass.
       const fresh = await window.bridge.fetchPullRequestDetail(pr.repo, pr.number);
@@ -973,7 +1049,7 @@ function PullRequestPreview({ pr, onOpenReview, onInspectDiffs, onMarkHandled, o
                     detail={detail}
                     mergeState={mergeState}
                     mergeError={mergeError}
-                    onMerge={() => { void handleMerge(); }}
+                    onMerge={(strategy) => { void handleMerge(strategy); }}
                     onRefreshCi={refreshCi}
                     ciRefreshing={ciRefreshing}
                   />
@@ -1424,7 +1500,7 @@ function PullRequestPreview({ pr, onOpenReview, onInspectDiffs, onMarkHandled, o
                 detail={detail}
                 mergeState={mergeState}
                 mergeError={mergeError}
-                onMerge={() => { void handleMerge(); }}
+                onMerge={(strategy) => { void handleMerge(strategy); }}
                 onRefreshCi={refreshCi}
                 ciRefreshing={ciRefreshing}
               />

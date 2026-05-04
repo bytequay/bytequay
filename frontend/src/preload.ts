@@ -77,8 +77,8 @@ const bridge: Bridge = {
   reopenPr: (prId: number): Promise<void> => ipcRenderer.invoke('backend:reopenPr', prId),
   approvePr: (prId: number, repo: string, number: number): Promise<void> =>
     ipcRenderer.invoke('backend:approvePr', prId, repo, number),
-  mergePr: (prId: number, repo: string, number: number): Promise<{ merged: boolean; message: string }> =>
-    ipcRenderer.invoke('backend:mergePr', prId, repo, number),
+  mergePr: (prId: number, repo: string, number: number, strategy?: 'rebase' | 'squash' | 'merge'): Promise<{ merged: boolean; message: string }> =>
+    ipcRenderer.invoke('backend:mergePr', prId, repo, number, strategy),
   commentPr: (prId: number, repo: string, number: number, body: string, close: boolean): Promise<void> =>
     ipcRenderer.invoke('backend:commentPr', prId, repo, number, body, close),
   replyToReviewThread: (repo: string, number: number, rootCommentId: number, body: string): Promise<void> =>

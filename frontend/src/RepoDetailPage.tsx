@@ -368,12 +368,18 @@ function RepoDetailPage({ owner, repo, initialPrNumber }: Props) {
     const previousMergedAt = previous?.mergedAt ?? null;
     const patch = mergedPatch();
     setPulls(prev => patchPr(prev, prId, patch));
+    // selectedPr is the snapshot the preview pane reads as `pr`; it lives
+    // in its own useState and doesn't auto-track `pulls`. If we don't
+    // patch it too, the OPEN pill and the merge bar (gated on
+    // !pr.mergedAt) won't update after a successful merge.
+    setSelectedPr(prev => (prev && prev.id === prId ? { ...prev, ...patch } : prev));
     syncCachesAfterPrChange(prId, patch, prRepo);
     try {
       await window.bridge.mergePr(prId, prRepo, number, strategy);
     } catch (e) {
       const rollback = unmergedPatch(previousState, previousMergedAt);
       setPulls(prev => patchPr(prev, prId, rollback));
+      setSelectedPr(prev => (prev && prev.id === prId ? { ...prev, ...rollback } : prev));
       syncCachesAfterPrChange(prId, rollback, prRepo);
       throw e;
     }

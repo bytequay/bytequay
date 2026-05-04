@@ -21,6 +21,7 @@ import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 
 /**
  * Local database store for pull request list data.
@@ -56,6 +57,16 @@ public interface PullRequestStore
      * Used by the sync job to detect which PRs changed and need a detail refresh.
      */
     Map<Long, Instant> findUpdatedAtMap();
+
+    /**
+     * Returns the ids of PR rows whose V26 enrichment fields haven't been
+     * populated yet — i.e. {@code reviewer_verdicts} is null. The sync job
+     * uses this to backfill legacy rows that pre-date the V26 schema or
+     * that were stored before the kanban features started reading the
+     * field. Without this backfill those rows show up in the kanban as
+     * "Opened" forever and never land in Needs changes / Ready to merge.
+     */
+    Set<Long> findIdsMissingEnrichment();
 
     /**
      * Returns the GitHub PR id for the given (repo, number) pair, or empty if not found.

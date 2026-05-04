@@ -126,6 +126,13 @@ function PullRequestList({ onGoToTeams }: Props) {
     if (prs === null) setLoading(true);
     setError(null);
     try {
+      // Manual refresh = "I want fresh data". Kick the backend's
+      // GitHub sync first, then read the local DB. Without this
+      // the button only re-reads the same cached row that was
+      // already in memory.
+      if (isManualRefresh) {
+        await window.bridge.triggerSync().catch(() => { /* best-effort */ });
+      }
       const data = await window.bridge.fetchPrs();
       setPrs(data);
       setCached(PRS_CACHE_KEY, data);
@@ -495,7 +502,7 @@ function PullRequestList({ onGoToTeams }: Props) {
             </div>
           ) : (
             <KanbanBoard
-              prs={inbox}
+              prs={prs ?? []}
               selectedId={selectedId}
               onSelect={handleSelect}
               onHandle={handleMarkHandled}

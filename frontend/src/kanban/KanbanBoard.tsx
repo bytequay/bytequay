@@ -11,7 +11,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import type { MyPrColumnSlug, PullRequestDto } from '../types';
 import {
   MY_PR_COLUMNS,
@@ -149,15 +149,37 @@ function KanbanBoard(props: Props) {
     return Array.from(counts.entries()).sort((a, b) => b[1] - a[1]);
   }, [props.prs, lane]);
 
+  // If localStorage has a repoFilter that no current PR matches (e.g. the
+  // user previously filtered to a repo that's since been unwatched, or
+  // the chip storage format changed across versions), treat the filter
+  // as unset for this render. Without this guard the columns silently
+  // empty out while "All N" still shows the right total — the worst
+  // possible UX, since no chip is highlighted to point at the cause.
+  const repoFilterMatchesAnything = useMemo(() => {
+    if (!repoFilter) return true;
+    return props.prs.some(pr => pr.repo === repoFilter);
+  }, [props.prs, repoFilter]);
+  const effectiveRepoFilter = repoFilterMatchesAnything ? repoFilter : '';
+
   // Lane PRs after the repo filter. This is what feeds the columns.
   const filteredLanePrs = useMemo(() => {
     return props.prs.filter(pr => {
       const wantOrigin = lane === 'mine' ? 'AUTHORED' : 'REVIEW_REQUESTED';
       if (pr.origin !== wantOrigin) return false;
-      if (repoFilter && pr.repo !== repoFilter) return false;
+      if (effectiveRepoFilter && pr.repo !== effectiveRepoFilter) return false;
       return true;
     });
-  }, [props.prs, lane, repoFilter]);
+  }, [props.prs, lane, effectiveRepoFilter]);
+
+  // Persist the cleanup so the filter doesn't keep failing on every
+  // mount. Only fires when we actually had a stale filter to drop —
+  // otherwise this is a no-op.
+  useEffect(() => {
+    if (repoFilter && !repoFilterMatchesAnything) {
+      try { localStorage.removeItem(REPO_FILTER_KEY); } catch { /* ignore */ }
+      setRepoFilter('');
+    }
+  }, [repoFilter, repoFilterMatchesAnything]);
 
   // Briefing counters cover BOTH lanes regardless of the active tab —
   // the morning briefing's whole job is to point you at whichever lane

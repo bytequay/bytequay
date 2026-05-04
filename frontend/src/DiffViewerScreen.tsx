@@ -13,7 +13,8 @@
  */
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { renderMarkdown } from './markdown';
-import type { AiReviewCommentDto, AiReviewDraftDto, DiffFileDto, PullRequestCommitDto, PullRequestDto, ReviewThreadDto } from './types';
+import type { AiReviewCommentDto, AiReviewDraftDto, DiffFileDto, PullRequestCommitDto, PullRequestDto, ReviewMessageDto, ReviewThreadDto, UserProfileDto } from './types';
+import { getCached } from './dataCache';
 import Avatar from './Avatar';
 import { parseUnifiedDiff } from './diffParse';
 import {
@@ -699,7 +700,11 @@ function InlineExistingThread({
   /** PR primary key — required for the resolve / unresolve path. */
   prId: number;
   prNumber: number;
-  onReplied: () => void;
+  /** Called after a successful action on this thread. The reply path
+   *  passes a synthesised message so the parent can patch local state
+   *  immediately; the resolve / unresolve path passes nothing and
+   *  relies on the background refetch alone. */
+  onReplied: (optimisticReply?: ReviewMessageDto) => void;
 }) {
   const [replying, setReplying] = useState(false);
   const [body, setBody] = useState('');
@@ -725,7 +730,21 @@ function InlineExistingThread({
       await window.bridge.replyToReviewThread(repo, prNumber, thread.rootGithubId, trimmed);
       setBody('');
       setReplying(false);
-      onReplied();
+      // Hand a synthesised optimistic message back so the parent can
+      // append it to local state right away. The full-detail refetch
+      // (also kicked off by onReplied) reconciles the temp id with
+      // GitHub's real one in the background.
+      const profile = getCached<UserProfileDto>('home:profile') ?? null;
+      const optimistic: ReviewMessageDto = {
+        githubId: -Date.now(),
+        author: profile?.login ?? null,
+        body: trimmed,
+        createdAt: new Date().toISOString(),
+        reactions: null,
+        reviewId: null,
+        authorAssociation: null,
+      };
+      onReplied(optimistic);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
@@ -916,7 +935,11 @@ function ContinuousFilesPane({
   prNumber: number;
   headSha: string | null;
   threads: ReviewThreadDto[];
-  onThreadReplied: () => void;
+  /** Callback invoked after a successful reply / resolve / new-comment.
+   *  - `rootGithubId` + `optimisticReply` set ⇒ append the message to
+   *    that thread immediately, then refetch in the background.
+   *  - both unset (new top-level inline comment) ⇒ just refetch. */
+  onThreadReplied: (rootGithubId?: number, optimisticReply?: ReviewMessageDto) => void;
   prAuthor: string | null;
 }) {
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -1026,9 +1049,11 @@ type FileDiffProps = {
   /** Existing per-line review threads on this PR. Rendered inline below
    *  the matching diff row so reviewers see prior conversation in context. */
   threads: ReviewThreadDto[];
-  /** Refresh-callback invoked after a successful reply so the inline
-   *  thread list re-pulls from the backend. */
-  onThreadReplied: () => void;
+  /** Refresh-callback invoked after a successful reply or resolve.
+   *  - `rootGithubId` + `optimisticReply` set ⇒ append the message to
+   *    that thread immediately, then refetch in the background.
+   *  - both unset (resolve / new top-level comment) ⇒ just refetch. */
+  onThreadReplied: (rootGithubId?: number, optimisticReply?: ReviewMessageDto) => void;
   prAuthor: string | null;
 };
 
@@ -1536,7 +1561,7 @@ function FileDiff({ file, comments, draftId, draftPublished, onDraftUpdated, prI
                   repo={repo}
                   prId={prId}
                   prNumber={prNumber}
-                  onReplied={onThreadReplied}
+                  onReplied={(msg) => onThreadReplied(thread.rootGithubId, msg)}
                 />
               ))}
             </div>
@@ -1587,7 +1612,7 @@ function FileDiff({ file, comments, draftId, draftPublished, onDraftUpdated, prI
                       repo={repo}
                       prId={prId}
                       prNumber={prNumber}
-                      onReplied={onThreadReplied}
+                      onReplied={(msg) => onThreadReplied(thread.rootGithubId, msg)}
                     />
                   ))}
                 </div>
@@ -1701,7 +1726,7 @@ function FileDiff({ file, comments, draftId, draftPublished, onDraftUpdated, prI
                     repo={repo}
                     prId={prId}
                     prNumber={prNumber}
-                    onReplied={onThreadReplied}
+                    onReplied={(msg) => onThreadReplied(thread.rootGithubId, msg)}
                   />
                 ))}
                 {composerHere && (
@@ -1817,7 +1842,7 @@ function FileDiff({ file, comments, draftId, draftPublished, onDraftUpdated, prI
                       repo={repo}
                       prId={prId}
                       prNumber={prNumber}
-                      onReplied={onThreadReplied}
+                      onReplied={(msg) => onThreadReplied(thread.rootGithubId, msg)}
                     />
                   ))}
                 </div>
@@ -2430,7 +2455,18 @@ function DiffViewerScreen({ pr, onBack, onApprove, initialCommitSha }: Props) {
               prNumber={pr.number}
               headSha={commits && commits.length > 0 ? commits[commits.length - 1].sha : null}
               threads={reviewThreads}
-              onThreadReplied={() => void refreshReviewThreads()}
+              onThreadReplied={(rootGithubId, optimisticReply) => {
+                // Patch local state right away so the user sees their
+                // reply land before the slow PR-detail refetch resolves.
+                if (rootGithubId != null && optimisticReply) {
+                  setReviewThreads(prev => prev.map(t =>
+                    t.rootGithubId === rootGithubId
+                      ? { ...t, messages: [...t.messages, optimisticReply] }
+                      : t,
+                  ));
+                }
+                void refreshReviewThreads();
+              }}
               prAuthor={pr.author}
             />
           ) : files === null ? null : (

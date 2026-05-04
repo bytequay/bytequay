@@ -700,11 +700,12 @@ const url = new URL(`${BACKEND_BASE}/prs/comment`);
     }
   });
 
-  ipcMain.handle('backend:mergePr', async (_event, prId: number, repo: string, number: number) => {
-const url = new URL(`${BACKEND_BASE}/prs/merge`);
+  ipcMain.handle('backend:mergePr', async (_event, prId: number, repo: string, number: number, strategy?: string) => {
+    const url = new URL(`${BACKEND_BASE}/prs/merge`);
     url.searchParams.set('id', String(prId));
     url.searchParams.set('repo', repo);
     url.searchParams.set('number', String(number));
+    if (strategy) url.searchParams.set('strategy', strategy);
     const res = await fetch(url, { method: 'POST' });
     if (!res.ok) {
       const body = await res.text().catch(() => '');

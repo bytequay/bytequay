@@ -627,7 +627,9 @@ export type Bridge = {
   markPrHandled: (prId: number, action: HandledAction) => Promise<void>;
   reopenPr: (prId: number) => Promise<void>;
   approvePr: (prId: number, repo: string, number: number) => Promise<void>;
-  mergePr: (prId: number, repo: string, number: number) => Promise<{ merged: boolean; message: string }>;
+  /** Merge with the given strategy. Omitting {@code strategy} keeps the
+   *  historical "rebase" default for compatibility. */
+  mergePr: (prId: number, repo: string, number: number, strategy?: 'rebase' | 'squash' | 'merge') => Promise<{ merged: boolean; message: string }>;
   commentPr: (prId: number, repo: string, number: number, body: string, close: boolean) => Promise<void>;
   /** Adds a single user to the PR's requested reviewers. */
   addRequestedReviewer: (repo: string, number: number, reviewer: string) => Promise<void>;

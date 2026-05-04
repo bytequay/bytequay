@@ -508,11 +508,56 @@ class TestPullRequestService
                     return null;
                 });
 
-        pullRequestService.mergePullRequest("pat", "owner/repo", 7, 99L);
+        pullRequestService.mergePullRequest("pat", "owner/repo", 7, 99L, null);
 
         assertThat(matcher.captured).isNotNull();
         assertThat(matcher.captured.mergeMethod()).isEqualTo("rebase");
         verify(viewStateStore).markReviewed(99L, HandledAction.MERGED);
+    }
+
+    @Test
+    void testMergePullRequestPropagatesSquashStrategy()
+    {
+        MergeResultArgMatcher matcher = new MergeResultArgMatcher();
+        when(gitHub.mergePullRequest(eq("pat"), any(PullRequestRef.class), any(MergePullRequestCommand.class)))
+                .thenAnswer(invocation -> {
+                    matcher.capture(invocation.getArgument(2));
+                    return null;
+                });
+
+        pullRequestService.mergePullRequest("pat", "owner/repo", 7, 99L, "squash");
+
+        assertThat(matcher.captured.mergeMethod()).isEqualTo("squash");
+    }
+
+    @Test
+    void testMergePullRequestPropagatesMergeCommitStrategy()
+    {
+        MergeResultArgMatcher matcher = new MergeResultArgMatcher();
+        when(gitHub.mergePullRequest(eq("pat"), any(PullRequestRef.class), any(MergePullRequestCommand.class)))
+                .thenAnswer(invocation -> {
+                    matcher.capture(invocation.getArgument(2));
+                    return null;
+                });
+
+        pullRequestService.mergePullRequest("pat", "owner/repo", 7, 99L, "merge");
+
+        assertThat(matcher.captured.mergeMethod()).isEqualTo("merge");
+    }
+
+    @Test
+    void testMergePullRequestUnknownStrategyFallsBackToRebase()
+    {
+        MergeResultArgMatcher matcher = new MergeResultArgMatcher();
+        when(gitHub.mergePullRequest(eq("pat"), any(PullRequestRef.class), any(MergePullRequestCommand.class)))
+                .thenAnswer(invocation -> {
+                    matcher.capture(invocation.getArgument(2));
+                    return null;
+                });
+
+        pullRequestService.mergePullRequest("pat", "owner/repo", 7, 99L, "garbage");
+
+        assertThat(matcher.captured.mergeMethod()).isEqualTo("rebase");
     }
 
     @Test

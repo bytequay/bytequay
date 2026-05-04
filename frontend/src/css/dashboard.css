@@ -1276,6 +1276,86 @@
   cursor: not-allowed;
   opacity: 0.7;
 }
+
+/* Split button: primary action on the left, caret menu on the right.
+   Both pieces share the merge-bar__btn green; only the corner radii
+   and the divider in the middle distinguish them visually. */
+.merge-bar__split {
+  position: relative;
+  display: inline-flex;
+  flex-shrink: 0;
+}
+.merge-bar__btn--split-main {
+  border-top-right-radius: 0;
+  border-bottom-right-radius: 0;
+  border-right: 1px solid rgba(255, 255, 255, 0.25);
+}
+.merge-bar__btn--split-caret {
+  border-top-left-radius: 0;
+  border-bottom-left-radius: 0;
+  padding: 6px 9px;
+  font-size: 11px;
+}
+
+/* Strategy menu — drops below the caret button. Wide enough that the
+   description text doesn't crowd the radio dot. Click-away handled by
+   a transparent backdrop button positioned underneath. */
+.merge-bar__strategy-backdrop {
+  position: fixed;
+  inset: 0;
+  background: transparent;
+  border: 0;
+  padding: 0;
+  cursor: default;
+  z-index: 50;
+}
+.merge-bar__strategy-menu {
+  position: absolute;
+  top: calc(100% + 4px);
+  right: 0;
+  z-index: 51;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.18);
+  padding: 4px;
+  min-width: 280px;
+}
+.merge-bar__strategy-option {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  padding: 8px 10px;
+  border: 0;
+  background: transparent;
+  width: 100%;
+  text-align: left;
+  border-radius: 6px;
+  cursor: pointer;
+  color: var(--text-1);
+  font: inherit;
+}
+.merge-bar__strategy-option:hover {
+  background: var(--accent-a7);
+}
+.merge-bar__strategy-option--active {
+  background: var(--accent-a10);
+}
+.merge-bar__strategy-option-label {
+  font-weight: 600;
+  font-size: 13px;
+}
+.merge-bar__strategy-option--active .merge-bar__strategy-option-label::before {
+  content: '✓ ';
+  color: var(--accent);
+}
+.merge-bar__strategy-option-hint {
+  font-size: 11px;
+  color: var(--text-3);
+  white-space: normal;
+  line-height: 1.35;
+}
 .merge-bar__cancel {
   appearance: none;
   border: 1px solid var(--border);

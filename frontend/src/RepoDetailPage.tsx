@@ -362,7 +362,7 @@ function RepoDetailPage({ owner, repo, initialPrNumber }: Props) {
     }
   };
 
-  const handleMerge = async (prId: number, prRepo: string, number: number) => {
+  const handleMerge = async (prId: number, prRepo: string, number: number, strategy?: 'rebase' | 'squash' | 'merge') => {
     const previous = pulls.find(p => p.id === prId);
     const previousState = previous?.state ?? null;
     const previousMergedAt = previous?.mergedAt ?? null;
@@ -370,7 +370,7 @@ function RepoDetailPage({ owner, repo, initialPrNumber }: Props) {
     setPulls(prev => patchPr(prev, prId, patch));
     syncCachesAfterPrChange(prId, patch, prRepo);
     try {
-      await window.bridge.mergePr(prId, prRepo, number);
+      await window.bridge.mergePr(prId, prRepo, number, strategy);
     } catch (e) {
       const rollback = unmergedPatch(previousState, previousMergedAt);
       setPulls(prev => patchPr(prev, prId, rollback));

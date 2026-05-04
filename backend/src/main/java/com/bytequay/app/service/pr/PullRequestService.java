@@ -576,15 +576,30 @@ public class PullRequestService
     }
 
     /**
-     * Merges the given pull request on GitHub and records a local reviewed state.
+     * Merges the given pull request on GitHub using the requested strategy
+     * and records a local reviewed state. {@code strategy} is one of
+     * {@code "rebase"}, {@code "squash"}, or {@code "merge"}; null /
+     * unknown values fall back to {@code "rebase"} (the historical
+     * default).
      */
-    public MergeResult mergePullRequest(String pat, String repo, int number, long prId)
+    public MergeResult mergePullRequest(String pat, String repo, int number, long prId, String strategy)
     {
-        // Default to rebase — user preference. Merge-commit/squash can be added
-        // as explicit strategies later if needed.
-        MergeResult result = gitHub.mergePullRequest(pat, parseRef(repo, number), MergePullRequestCommand.rebase());
+        MergePullRequestCommand command = strategyCommand(strategy);
+        MergeResult result = gitHub.mergePullRequest(pat, parseRef(repo, number), command);
         viewStateStore.markReviewed(prId, HandledAction.MERGED);
         return result;
+    }
+
+    private static MergePullRequestCommand strategyCommand(String strategy)
+    {
+        if (strategy == null) {
+            return MergePullRequestCommand.rebase();
+        }
+        return switch (strategy.toLowerCase(Locale.ROOT)) {
+            case "squash" -> MergePullRequestCommand.squash();
+            case "merge" -> MergePullRequestCommand.mergeCommit();
+            default -> MergePullRequestCommand.rebase();
+        };
     }
 
     /**

@@ -313,7 +313,7 @@ function TeamDetailPage({ teamId, onBack }: Props) {
 
   /** Optimistic Merge: same shape as handleApprove but the PR also
    *  moves to the Handled column on the next refresh. */
-  const handleMerge = async (prId: number, repo: string, number: number) => {
+  const handleMerge = async (prId: number, repo: string, number: number, strategy?: 'rebase' | 'squash' | 'merge') => {
     const prev = selectedPr;
     if (selectedPr?.id === prId) {
       setSelectedPr({
@@ -325,7 +325,7 @@ function TeamDetailPage({ teamId, onBack }: Props) {
       });
     }
     try {
-      await window.bridge.mergePr(prId, repo, number);
+      await window.bridge.mergePr(prId, repo, number, strategy);
       await load(true);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));

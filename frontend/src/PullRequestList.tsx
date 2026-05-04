@@ -269,13 +269,13 @@ function PullRequestList({ onGoToTeams }: Props) {
     }
   };
 
-  const handleMerge = async (prId: number, repo: string, number: number) => {
+  const handleMerge = async (prId: number, repo: string, number: number, strategy?: 'rebase' | 'squash' | 'merge') => {
     const previous = (prs ?? []).find(p => p.id === prId);
     const previousState = previous?.state ?? null;
     const previousMergedAt = previous?.mergedAt ?? null;
     updatePrState(prId, repo, mergedPatch());
     try {
-      await window.bridge.mergePr(prId, repo, number);
+      await window.bridge.mergePr(prId, repo, number, strategy);
     } catch (e) {
       updatePrState(prId, repo, unmergedPatch(previousState, previousMergedAt));
       throw e;

@@ -433,10 +433,12 @@ public class PullRequestController
     public MergeResult merge(
             @RequestParam("repo") String repo,
             @RequestParam("number") int number,
-            @RequestParam("id") long prId)
+            @RequestParam("id") long prId,
+            // Optional so older clients (no dropdown) keep getting rebase.
+            @RequestParam(value = "strategy", required = false) String strategy)
     {
         String pat = patResolver.resolve(repo);
-        return pullRequestService.mergePullRequest(pat, repo, number, prId);
+        return pullRequestService.mergePullRequest(pat, repo, number, prId, strategy);
     }
 
     /**

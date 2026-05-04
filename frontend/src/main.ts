@@ -592,6 +592,34 @@ const url = new URL(`${BACKEND_BASE}/prs/comment`);
     }
   });
 
+  ipcMain.handle('backend:editIssueComment', async (_event, repo: string, commentId: number, body: string) => {
+    const url = new URL(`${BACKEND_BASE}/prs/issue-comments/${commentId}/body`);
+    url.searchParams.set('repo', repo);
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ body }),
+    });
+    if (!res.ok) {
+      const text = await res.text().catch(() => '');
+      throw new Error(`Edit comment failed (${res.status}): ${text}`);
+    }
+  });
+
+  ipcMain.handle('backend:editReviewComment', async (_event, repo: string, commentId: number, body: string) => {
+    const url = new URL(`${BACKEND_BASE}/prs/review-comments/${commentId}/body`);
+    url.searchParams.set('repo', repo);
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ body }),
+    });
+    if (!res.ok) {
+      const text = await res.text().catch(() => '');
+      throw new Error(`Edit comment failed (${res.status}): ${text}`);
+    }
+  });
+
   ipcMain.handle('pr:addReviewReaction', async (_event, repo: string, commentId: number, content: string) => {
     const url = new URL(`${BACKEND_BASE}/prs/review-comments/${commentId}/reactions`);
     url.searchParams.set('repo', repo);

@@ -19,6 +19,7 @@ import MarkdownComposer from '../MarkdownComposer';
 import { authorAssociationLabel, formatRelativeTime, type ReactionContent } from './utils';
 import { ReactionChips } from './Reactions';
 import { CommentBodyWithSuggestions, DiffHunk } from './CommentBody';
+import { EditableMarkdownBody } from './EditableMarkdownBody';
 
 /**
  * Renders a single review thread plus an inline reply composer. Clicking the
@@ -30,12 +31,17 @@ import { CommentBodyWithSuggestions, DiffHunk } from './CommentBody';
 export function ReviewThreadCard({
   thread,
   prAuthor,
+  currentUserLogin,
   onReply,
   onReact,
   onSetResolved,
+  onEditMessage,
 }: {
   thread: ReviewThreadDto;
   prAuthor: string | null;
+  /** Login of the authenticated user. Used to gate the per-message
+   *  ✎ Edit affordance — only the message's own author sees it. */
+  currentUserLogin?: string | null;
   onReply: (body: string) => Promise<void>;
   /** Add an emoji reaction to a specific message. Optional — when
    *  omitted, the smiley-add button is hidden (e.g. when the thread
@@ -44,6 +50,9 @@ export function ReviewThreadCard({
   /** Toggle the thread's resolved state. Optional — omitted when the
    *  GraphQL node id isn't available yet (resolved == null). */
   onSetResolved?: (rootGithubId: number, resolved: boolean) => Promise<void>;
+  /** Edit one of this thread's messages (only the message author can
+   *  use this). The parent owns the bridge call + local-state patch. */
+  onEditMessage?: (commentGithubId: number, newBody: string) => Promise<void>;
 }) {
   const [resolving, setResolving] = useState(false);
   const [body, setBody] = useState('');
@@ -135,7 +144,12 @@ export function ReviewThreadCard({
                   {msg.createdAt && <span className="prc-comment-time">{formatRelativeTime(msg.createdAt)}</span>}
                 </div>
                 {msg.body && (
-                  <CommentBodyWithSuggestions body={msg.body} hunk={thread.diffHunk} />
+                  <EditableMarkdownBody
+                    body={msg.body}
+                    canEdit={!!(onEditMessage && currentUserLogin && currentUserLogin === msg.author)}
+                    onSave={(newBody) => onEditMessage!(msg.githubId, newBody)}
+                    renderViewSlot={(b) => <CommentBodyWithSuggestions body={b} hunk={thread.diffHunk} />}
+                  />
                 )}
                 <ReactionChips
                   reactions={msg.reactions}

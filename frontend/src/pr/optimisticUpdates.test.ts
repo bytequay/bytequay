@@ -15,6 +15,7 @@ import { describe, it, expect } from 'vitest';
 import {
   optimisticallyBumpReaction,
   optimisticallyToggleResolved,
+  optimisticallyUpdateCommentBody,
 } from './optimisticUpdates';
 import type {
   ActivityItemDto,
@@ -206,5 +207,42 @@ describe('optimisticallyToggleResolved', () => {
 
   it('returns null when detail is null', () => {
     expect(optimisticallyToggleResolved(null, 9001, true)).toBeNull();
+  });
+});
+
+describe('optimisticallyUpdateCommentBody', () => {
+  it('updates a top-level issue comment by github id', () => {
+    const a = activity({ githubId: 1001, body: 'old' });
+    const d = detail({ recentActivity: [a] });
+    const next = optimisticallyUpdateCommentBody(d, 1001, 'new')!;
+    expect(next.recentActivity[0].body).toBe('new');
+  });
+
+  it('updates a per-line review-thread message by github id', () => {
+    const m = message({ githubId: 5001, body: 'old reply' });
+    const t = thread({ rootGithubId: 9001, messages: [m] });
+    const d = detail({ reviewThreads: [t] });
+    const next = optimisticallyUpdateCommentBody(d, 5001, 'new reply')!;
+    expect(next.reviewThreads[0].messages[0].body).toBe('new reply');
+  });
+
+  it('returns the original reference when the id is not found', () => {
+    const a = activity({ githubId: 1001 });
+    const d = detail({ recentActivity: [a] });
+    expect(optimisticallyUpdateCommentBody(d, 99999, 'x')).toBe(d);
+  });
+
+  it('leaves untouched threads with the same reference', () => {
+    const m1 = message({ githubId: 5001, body: 'one' });
+    const t1 = thread({ rootGithubId: 9001, messages: [m1] });
+    const m2 = message({ githubId: 5002, body: 'two' });
+    const t2 = thread({ rootGithubId: 9002, messages: [m2] });
+    const d = detail({ reviewThreads: [t1, t2] });
+    const next = optimisticallyUpdateCommentBody(d, 5001, 'one!')!;
+    expect(next.reviewThreads[1]).toBe(t2);
+  });
+
+  it('returns null when detail is null', () => {
+    expect(optimisticallyUpdateCommentBody(null, 1, 'x')).toBeNull();
   });
 });

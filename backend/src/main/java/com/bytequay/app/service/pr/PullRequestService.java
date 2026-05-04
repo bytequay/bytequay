@@ -928,7 +928,7 @@ public class PullRequestService
      */
     private List<PullRequestDetail.LinkedIssue> resolveLinkedIssues(String pat, PullRequestRef ref, String body)
     {
-        Set<Integer> numbers = extractClosingReferences(body);
+        Set<Integer> numbers = extractClosingReferences(body, ref.owner(), ref.repo());
         if (numbers.isEmpty()) {
             return ImmutableList.of();
         }
@@ -947,17 +947,25 @@ public class PullRequestService
         return ImmutableList.copyOf(resolved);
     }
 
+    // Either form is allowed after a closing keyword:
+    //   #1234                                    (group 2 = number)
+    //   https://github.com/owner/repo/issues/N   (groups 3/4/5 = owner/repo/number)
+    // The URL form is filtered down to same-repo refs in extractClosingReferences;
+    // cross-repo URLs are skipped — see Phase 2.5 GraphQL follow-up.
     private static final Pattern CLOSING_KEYWORD_PATTERN = Pattern.compile(
-            "(?i)\\b(close[sd]?|fix(?:e[sd])?|resolve[sd]?)\\s+#(\\d+)");
+            "(?i)\\b(close[sd]?|fix(?:e[sd])?|resolve[sd]?)\\s+"
+                    + "(?:#(\\d+)|https?://github\\.com/([^/\\s]+)/([^/\\s]+)/issues/(\\d+))");
 
     /**
      * Pulls the issue numbers from "closes #N" / "fixes #N" / "resolves #N"
-     * style references in a PR body. Returns an empty set when {@code body}
-     * is null/blank. Linkified URLs (#123 inside a code block, etc.) are
-     * not specially handled — over-matching here is benign because the
-     * resolve step silently drops 404s.
+     * style references in a PR body — accepts both the bare {@code #N} form
+     * and the full {@code https://github.com/owner/repo/issues/N} URL form.
+     * The URL form is only kept when the URL points at the PR's own repo
+     * (cross-repo links are skipped to avoid fetching the wrong issue id
+     * from the PR's repo). Returns an empty set when {@code body} is
+     * null/blank.
      */
-    static Set<Integer> extractClosingReferences(String body)
+    static Set<Integer> extractClosingReferences(String body, String prOwner, String prRepo)
     {
         if (body == null || body.isBlank()) {
             return ImmutableSet.of();
@@ -966,7 +974,19 @@ public class PullRequestService
         Matcher m = CLOSING_KEYWORD_PATTERN.matcher(body);
         while (m.find()) {
             try {
-                out.add(Integer.parseInt(m.group(2)));
+                String hashNumber = m.group(2);
+                if (hashNumber != null) {
+                    out.add(Integer.parseInt(hashNumber));
+                    continue;
+                }
+                String urlOwner = m.group(3);
+                String urlRepo = m.group(4);
+                String urlNumber = m.group(5);
+                if (urlNumber != null && urlOwner != null && urlRepo != null
+                        && urlOwner.equalsIgnoreCase(prOwner)
+                        && urlRepo.equalsIgnoreCase(prRepo)) {
+                    out.add(Integer.parseInt(urlNumber));
+                }
             }
             catch (NumberFormatException ignored) {
                 // Pattern guarantees digits, so this is unreachable in practice.

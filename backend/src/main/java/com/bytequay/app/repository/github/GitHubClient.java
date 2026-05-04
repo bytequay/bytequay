@@ -41,6 +41,8 @@ import com.bytequay.app.domain.UserProfile;
 import com.bytequay.app.domain.UserRepo;
 import com.bytequay.app.repository.PullRequestRepository;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Lists;
@@ -1755,12 +1757,50 @@ public class GitHubClient
     private static ResponseStatusException toReadableException(RestClientResponseException e)
     {
         HttpStatusCode status = HttpStatusCode.valueOf(e.getStatusCode().value());
-        String message = switch (e.getStatusCode().value()) {
+        String fallback = switch (e.getStatusCode().value()) {
             case 401 -> "GitHub rejected the PAT. Check that the token is valid and not expired.";
             case 403 -> "GitHub denied the request. The token may be missing scopes or you may be rate limited.";
-            case 422 -> "GitHub could not process the search query.";
+            // 422 is reused across many endpoints (search query syntax, review
+            // validation, "Can not approve your own pull request", etc.), so
+            // fall back to GitHub's own message rather than guessing.
             default -> "GitHub API request failed with status " + e.getStatusCode().value() + ".";
         };
+        String githubMessage = extractGitHubErrorMessage(e.getResponseBodyAsString());
+        String message = githubMessage != null ? githubMessage : fallback;
         throw new ResponseStatusException(status, message, e);
     }
+
+    /**
+     * Pulls the human-readable message out of a GitHub error response. GitHub
+     * returns {@code {"message": "...", "errors": [...], "documentation_url": "..."}};
+     * we surface {@code message} (and the first {@code errors[].message} when
+     * present) so callers see the real reason instead of a generic status.
+     */
+    private static String extractGitHubErrorMessage(String body)
+    {
+        if (body == null || body.isBlank()) {
+            return null;
+        }
+        try {
+            JsonNode root = ERROR_MAPPER.readTree(body);
+            String top = root.path("message").asText(null);
+            if (top == null || top.isBlank()) {
+                return null;
+            }
+            JsonNode errors = root.path("errors");
+            if (errors.isArray() && !errors.isEmpty()) {
+                JsonNode first = errors.get(0);
+                String detail = first.path("message").asText(null);
+                if (detail != null && !detail.isBlank()) {
+                    return top + ": " + detail;
+                }
+            }
+            return top;
+        }
+        catch (Exception ignored) {
+            return null;
+        }
+    }
+
+    private static final ObjectMapper ERROR_MAPPER = new ObjectMapper();
 }

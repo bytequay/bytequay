@@ -39,9 +39,22 @@
   font-weight: 700;
   flex-shrink: 0;
 }
+/* One gradient per palette entry in TeamEditorModal's COLOR_PALETTE.
+   The picker uses inline `style={{ background: hex }}` for the live
+   preview, but saved avatars on TeamsPage / HomePage / TeamDetailPage
+   render via `team-avatar--{color}` classes — anything missing here
+   falls through to the bare .team-avatar background-less rule and
+   shows up as a white square. Keep this list in sync with the palette. */
 .team-avatar--purple { background: linear-gradient(135deg, #a78bfa, #6366f1); }
+.team-avatar--blue   { background: linear-gradient(135deg, #60a5fa, #2563eb); }
+.team-avatar--cyan   { background: linear-gradient(135deg, #22d3ee, #0891b2); }
 .team-avatar--green  { background: linear-gradient(135deg, #4ade80, #16a34a); }
-.team-avatar--orange { background: linear-gradient(135deg, #fb923c, #ea580c); }
+.team-avatar--amber  { background: linear-gradient(135deg, #fb923c, #d97706); }
+.team-avatar--red    { background: linear-gradient(135deg, #f87171, #dc2626); }
+.team-avatar--pink   { background: linear-gradient(135deg, #f472b6, #db2777); }
+.team-avatar--slate  { background: linear-gradient(135deg, #94a3b8, #475569); }
+/* Legacy "orange" value still in the DB before the palette expansion. */
+.team-avatar--orange { background: linear-gradient(135deg, #fb923c, #d97706); }
 
 .team-row__name {
   font-weight: 600;
@@ -57,24 +70,6 @@
   display: flex;
   gap: 8px;
   flex-shrink: 0;
-}
-
-/* Color swatches in the editor — square, slightly oversized for click area. */
-.team-color-swatch {
-  appearance: none;
-  border: 2px solid transparent;
-  border-radius: 8px;
-  width: 32px;
-  height: 32px;
-  cursor: pointer;
-  padding: 0;
-}
-.team-color-swatch--purple { background: linear-gradient(135deg, #a78bfa, #6366f1); }
-.team-color-swatch--green  { background: linear-gradient(135deg, #4ade80, #16a34a); }
-.team-color-swatch--orange { background: linear-gradient(135deg, #fb923c, #ea580c); }
-.team-color-swatch--active {
-  border-color: var(--text-1);
-  box-shadow: 0 0 0 2px var(--bg-elevated), 0 0 0 4px var(--accent);
 }
 
 /* Team detail page: header + kanban. Sibling to PullRequestList — claims

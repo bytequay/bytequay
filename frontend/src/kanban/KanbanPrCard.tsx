@@ -60,7 +60,11 @@ function KanbanPrCard({ pr, column, mode = 'inbox', selected, onSelect, onHandle
   const statusPill = statusPillFor(pr);
   const isUrgent = safeColumn === 'needs_attention' && pr.attentionReason !== null;
   const showAuthor = mode === 'team' && !!pr.author;
-  const showRepoAvatar = mode === 'team' && !!repoOwner;
+  // Repo avatar (owner's GitHub avatar) sits next to the repo-short name
+  // in every mode — replaces the bare "owner/repo" text from the older
+  // PrBucketViews cards. Owner-less repo strings (legacy rows without a
+  // slash) hide the avatar gracefully.
+  const showRepoAvatar = !!repoOwner;
   const openedLabel = pr.createdAt
     ? `opened ${formatRelative(pr.createdAt)}`
     : `updated ${formatRelative(pr.updatedAt)}`;

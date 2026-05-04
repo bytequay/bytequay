@@ -11,7 +11,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import type { PullRequestDetailDto, ReactionsDto } from '../types';
+import type { PullRequestDetailDto, ReactionsDto, ReviewMessageDto } from '../types';
 import { REACTION_FIELD, type ReactionContent } from './utils';
 
 const ZERO_REACTIONS: ReactionsDto = {
@@ -110,6 +110,29 @@ export function optimisticallyUpdateCommentBody(
   return changed
     ? { ...detail, recentActivity: nextActivity, reviewThreads: nextThreads }
     : detail;
+}
+
+/** Optimistic append of a freshly-posted reply to a review thread. The
+ *  GitHub POST returns void in our backend (the response body is
+ *  discarded), so we synthesise a temporary message and slot it onto
+ *  the matching thread immediately — the user sees their reply land
+ *  right after the network call resolves, instead of after the slow
+ *  full-detail refetch that was previously the only thing repainting
+ *  the thread. The background refetch reconciles the temp id (negative
+ *  to guarantee no collision) with the real GitHub id. */
+export function optimisticallyAppendReply(
+  detail: PullRequestDetailDto | null,
+  rootGithubId: number,
+  message: ReviewMessageDto,
+): PullRequestDetailDto | null {
+  if (!detail) return detail;
+  let changed = false;
+  const nextThreads = detail.reviewThreads.map(thread => {
+    if (thread.rootGithubId !== rootGithubId) return thread;
+    changed = true;
+    return { ...thread, messages: [...thread.messages, message] };
+  });
+  return changed ? { ...detail, reviewThreads: nextThreads } : detail;
 }
 
 /** Optimistic toggle for a review thread's resolved flag — flips the

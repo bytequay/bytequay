@@ -13,7 +13,7 @@
  */
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { renderMarkdown } from './markdown';
-import type { ActivityItemDto, CheckRunDto, PullRequestDetailDto, PullRequestDto, ReviewThreadDto, UserProfileDto } from './types';
+import type { ActivityItemDto, CheckRunDto, PullRequestDetailDto, PullRequestDto, ReviewMessageDto, ReviewThreadDto, UserProfileDto } from './types';
 import { getCached, putCache } from './detailCache';
 import { getCached as getCachedValue } from './dataCache';
 import { EditableMarkdownBody } from './pr/EditableMarkdownBody';
@@ -33,6 +33,7 @@ import {
   type ReactionContent,
 } from './pr/utils';
 import {
+  optimisticallyAppendReply,
   optimisticallyBumpReaction,
   optimisticallyToggleResolved,
   optimisticallyUpdateCommentBody,
@@ -794,6 +795,35 @@ function PullRequestPreview({ pr, onOpenReview, onInspectDiffs, onMarkHandled, o
     setDetail(prev => optimisticallyUpdateCommentBody(prev, commentId, body));
   };
 
+  /** Posts a reply to the given review thread, then patches the new
+   *  message into local state right away so the user sees it without
+   *  waiting on the slow full-detail refetch. The refetch still runs
+   *  in the background to pick up GitHub's real comment id and
+   *  reconcile anything else that changed. Throws if the post itself
+   *  fails so the composer can surface the error. */
+  const handleReply = async (rootGithubId: number, body: string) => {
+    await window.bridge.replyToReviewThread(pr.repo, pr.number, rootGithubId, body);
+    const profile = getCachedValue<UserProfileDto>('home:profile') ?? null;
+    const optimistic: ReviewMessageDto = {
+      // Negative id keeps it distinct from anything GitHub would assign
+      // and avoids reaction-bump etc. matching the placeholder.
+      githubId: -Date.now(),
+      author: profile?.login ?? null,
+      body,
+      createdAt: new Date().toISOString(),
+      reactions: null,
+      reviewId: null,
+      authorAssociation: null,
+    };
+    setDetail(prev => optimisticallyAppendReply(prev, rootGithubId, optimistic));
+    // Background reconciliation — don't await, the user already sees
+    // their reply. Errors here are non-fatal: the worst case is the
+    // temp message lingers until the next natural detail refresh.
+    void window.bridge.fetchPullRequestDetail(pr.repo, pr.number)
+      .then(fresh => { putCache(pr.id, fresh); setDetail(fresh); })
+      .catch(() => { /* best-effort */ });
+  };
+
   const repoOwner = pr.repo.includes('/') ? pr.repo.split('/')[0] : pr.repo;
 
   // Two layouts available — "classic" is the new mockup-faithful conversation
@@ -931,6 +961,7 @@ function PullRequestPreview({ pr, onOpenReview, onInspectDiffs, onMarkHandled, o
                 <DescriptionCard
                   pr={pr}
                   body={detail.body ?? ''}
+                  linkedIssues={detail.linkedIssues ?? []}
                   onSaved={(newBody) => setDetail({ ...detail, body: newBody })}
                 />
               </section>
@@ -1028,12 +1059,7 @@ function PullRequestPreview({ pr, onOpenReview, onInspectDiffs, onMarkHandled, o
                             key={thread.rootGithubId}
                             thread={thread}
                             prAuthor={pr.author}
-                            onReply={async (body) => {
-                              await window.bridge.replyToReviewThread(pr.repo, pr.number, thread.rootGithubId, body);
-                              const fresh = await window.bridge.fetchPullRequestDetail(pr.repo, pr.number);
-                              putCache(pr.id, fresh);
-                              setDetail(fresh);
-                            }}
+                            onReply={(body) => handleReply(thread.rootGithubId, body)}
                             onReact={handleReact}
                             onSetResolved={handleSetThreadResolved}
                             currentUserLogin={currentUserLogin}
@@ -1370,6 +1396,7 @@ function PullRequestPreview({ pr, onOpenReview, onInspectDiffs, onMarkHandled, o
               <DescriptionCard
                 pr={pr}
                 body={detail.body ?? ''}
+                linkedIssues={detail.linkedIssues ?? []}
                 onSaved={(newBody) => setDetail({ ...detail, body: newBody })}
               />
 
@@ -1712,12 +1739,7 @@ function PullRequestPreview({ pr, onOpenReview, onInspectDiffs, onMarkHandled, o
                   key={thread.rootGithubId}
                   thread={thread}
                   prAuthor={pr.author}
-                  onReply={async (body) => {
-                    await window.bridge.replyToReviewThread(pr.repo, pr.number, thread.rootGithubId, body);
-                    const fresh = await window.bridge.fetchPullRequestDetail(pr.repo, pr.number);
-                    putCache(pr.id, fresh);
-                    setDetail(fresh);
-                  }}
+                  onReply={(body) => handleReply(thread.rootGithubId, body)}
                   onReact={handleReact}
                   onSetResolved={handleSetThreadResolved}
                   currentUserLogin={currentUserLogin}
@@ -1854,12 +1876,7 @@ function PullRequestPreview({ pr, onOpenReview, onInspectDiffs, onMarkHandled, o
                   key={thread.rootGithubId}
                   thread={thread}
                   prAuthor={pr.author}
-                  onReply={async (body) => {
-                    await window.bridge.replyToReviewThread(pr.repo, pr.number, thread.rootGithubId, body);
-                    const fresh = await window.bridge.fetchPullRequestDetail(pr.repo, pr.number);
-                    putCache(pr.id, fresh);
-                    setDetail(fresh);
-                  }}
+                  onReply={(body) => handleReply(thread.rootGithubId, body)}
                   onReact={handleReact}
                   onSetResolved={handleSetThreadResolved}
                   currentUserLogin={currentUserLogin}
@@ -1948,13 +1965,7 @@ function PullRequestPreview({ pr, onOpenReview, onInspectDiffs, onMarkHandled, o
         key={`t-${key}`}
         thread={thread}
         prAuthor={pr.author}
-        onReply={async (body) => {
-          await window.bridge.replyToReviewThread(pr.repo, pr.number, thread.rootGithubId, body);
-          // Refresh the detail so the new reply shows up in the thread.
-          const fresh = await window.bridge.fetchPullRequestDetail(pr.repo, pr.number);
-          putCache(pr.id, fresh);
-          setDetail(fresh);
-        }}
+        onReply={(body) => handleReply(thread.rootGithubId, body)}
         onReact={handleReact}
         onSetResolved={handleSetThreadResolved}
         currentUserLogin={currentUserLogin}

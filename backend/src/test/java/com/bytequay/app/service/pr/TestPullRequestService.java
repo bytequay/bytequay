@@ -591,7 +591,7 @@ class TestPullRequestService
     {
         String body = "Closes #1 and fixes #2.\nResolved #3 yesterday — also closed #4.\n"
                 + "Fix: #5 plus FIXES #6.";
-        assertThat(PullRequestService.extractClosingReferences(body))
+        assertThat(PullRequestService.extractClosingReferences(body, "trinodb", "trino"))
                 .containsExactlyInAnyOrder(1, 2, 3, 4, 6);
     }
 
@@ -599,15 +599,43 @@ class TestPullRequestService
     void testExtractClosingReferencesIgnoresBareHashRefs()
     {
         String body = "Reverts #1\nDiscussed in #99\nSee also #100";
-        assertThat(PullRequestService.extractClosingReferences(body)).isEmpty();
+        assertThat(PullRequestService.extractClosingReferences(body, "trinodb", "trino")).isEmpty();
     }
 
     @Test
     void testExtractClosingReferencesHandlesNullAndBlank()
     {
-        assertThat(PullRequestService.extractClosingReferences(null)).isEmpty();
-        assertThat(PullRequestService.extractClosingReferences("")).isEmpty();
-        assertThat(PullRequestService.extractClosingReferences("   ")).isEmpty();
+        assertThat(PullRequestService.extractClosingReferences(null, "trinodb", "trino")).isEmpty();
+        assertThat(PullRequestService.extractClosingReferences("", "trinodb", "trino")).isEmpty();
+        assertThat(PullRequestService.extractClosingReferences("   ", "trinodb", "trino")).isEmpty();
+    }
+
+    @Test
+    void testExtractClosingReferencesAcceptsSameRepoUrlForm()
+    {
+        String body = "Fixes https://github.com/trinodb/trino/issues/1234\n"
+                + "Also closes http://github.com/trinodb/trino/issues/5678.";
+        assertThat(PullRequestService.extractClosingReferences(body, "trinodb", "trino"))
+                .containsExactlyInAnyOrder(1234, 5678);
+    }
+
+    @Test
+    void testExtractClosingReferencesSkipsCrossRepoUrlForm()
+    {
+        // Cross-repo: URL points at owner/repo that isn't the PR's. Skip
+        // it — fetching that number against the PR's repo would silently
+        // return the wrong issue or 404.
+        String body = "Fixes https://github.com/other/repo/issues/9";
+        assertThat(PullRequestService.extractClosingReferences(body, "trinodb", "trino")).isEmpty();
+    }
+
+    @Test
+    void testExtractClosingReferencesUrlAndHashFormsCoexist()
+    {
+        String body = "Closes #1, fixes https://github.com/trinodb/trino/issues/2, "
+                + "resolves #3.";
+        assertThat(PullRequestService.extractClosingReferences(body, "trinodb", "trino"))
+                .containsExactlyInAnyOrder(1, 2, 3);
     }
 
     // ── Reaction endpoints ─────────────────────────────────────────────────────

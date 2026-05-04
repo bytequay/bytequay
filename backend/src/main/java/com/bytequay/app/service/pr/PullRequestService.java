@@ -573,6 +573,11 @@ public class PullRequestService
     {
         gitHub.createReview(pat, parseRef(repo, number), CreateReviewCommand.approve(""));
         viewStateStore.markReviewed(prId, HandledAction.APPROVED);
+        // Drop the cached detail so the next /prs/detail call re-pulls the
+        // timeline and the new "reviewed APPROVED" event shows up in the
+        // conversation immediately. Without this the user waits for the
+        // next background sync (~2 min) to see their own approval land.
+        invalidateCachedDetail(repo, number);
     }
 
     /**
@@ -587,6 +592,11 @@ public class PullRequestService
         MergePullRequestCommand command = strategyCommand(strategy);
         MergeResult result = gitHub.mergePullRequest(pat, parseRef(repo, number), command);
         viewStateStore.markReviewed(prId, HandledAction.MERGED);
+        // Drop the cached detail so the next /prs/detail call re-pulls the
+        // timeline and the new "merged" / "closed" events surface
+        // immediately, instead of waiting for the next background sync
+        // (~2 min) to refresh the cached StoredPrDetail.
+        invalidateCachedDetail(repo, number);
         return result;
     }
 

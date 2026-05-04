@@ -32,8 +32,44 @@ opening a browser tab.
 
 **Pre-1.0 / actively developed.** Useful day-to-day for the author and a
 small group of testers; the public OSS release is the project's first
-broad-distribution moment. No installer yet — clone and `./dev.sh` for
-now. macOS only at runtime.
+broad-distribution moment. macOS only at runtime.
+
+---
+
+## Download (just want to use it)
+
+Grab the latest `.dmg` from the
+[Releases page](https://github.com/chenjian2664/bytequay/releases),
+double-click to mount it, and drag **ByteQuay.app** to **Applications**.
+The bundle ships its own backend — no Java / Node / Maven install
+required.
+
+### First launch on macOS — "ByteQuay is damaged" workaround
+
+The first time you open the app, macOS will likely show:
+
+> "ByteQuay" is damaged and can't be opened. You should move it to the Trash.
+
+Nothing is actually damaged. Apps downloaded from a browser get a
+`com.apple.quarantine` flag, and macOS Gatekeeper refuses to launch
+anything carrying that flag unless it's signed *and* notarized by an
+Apple Developer account — which we don't have yet (see below). Clear
+the flag with one command:
+
+```sh
+xattr -dr com.apple.quarantine /Applications/ByteQuay.app
+```
+
+Then double-click the app as normal — the dialog won't return.
+
+> ⚠️ **This is a temporary workaround.** The proper fix is to sign and
+> notarize the build with an Apple Developer ID so macOS trusts it
+> on download — that way users just drag-and-go, no terminal step.
+> An Apple Developer membership ($99/year) is required to issue the
+> Developer ID certificate and submit builds to Apple's notary
+> service; we'll wire that into the release workflow once the
+> account is in place. Until then, the `xattr` line is the
+> recommended path.
 
 ---
 

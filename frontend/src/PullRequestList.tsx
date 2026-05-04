@@ -90,6 +90,12 @@ function PullRequestList({ onGoToTeams }: Props) {
 
   const updatePrState = (prId: number, repo: string | undefined, patch: Partial<PullRequestDto>) => {
     setPrs((prev) => (prev ? patchPr(prev, prId, patch) : prev));
+    // `selected` holds its own snapshot of the PR (taken when the user
+    // clicked the row), so it does NOT auto-update when `prs` changes.
+    // Patch it too — otherwise the right-pane preview keeps reading the
+    // pre-patch values (state='open', mergedAt=null) and the merge bar
+    // stays active even after a successful merge.
+    setSelected(prev => (prev && prev.id === prId ? { ...prev, ...patch } : prev));
     syncCachesAfterPrChange(prId, patch, repo);
   };
 

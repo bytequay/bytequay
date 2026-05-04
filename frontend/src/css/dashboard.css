@@ -1324,6 +1324,29 @@
   gap: 8px;
   padding: 10px 18px 16px;
 }
+/* "Merging…" body: brand spinner above a status line. Centered so the
+   eye lands on the spinner first, then reads the message. */
+.merge-confirm__loading {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+  padding: 12px 0 4px;
+  text-align: center;
+}
+.merge-confirm__loading p {
+  margin: 0;
+  color: var(--text-2);
+}
+.merge-confirm__error {
+  margin-top: 8px !important;
+  padding: 8px 10px;
+  border-radius: 6px;
+  background: rgba(220, 38, 38, 0.08);
+  color: #b91c1c;
+  font-size: 12px;
+  white-space: pre-wrap;
+}
 
 /* Red "CI failing" pill — always clickable when failures exist; expands
    the per-check failure list below the row. Sits between the merge

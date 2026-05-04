@@ -300,6 +300,23 @@ function MergeBar({ pr, detail, mergeState, mergeError, onMerge, onRefreshCi, ci
   // pill in the middle of the bar is the affordance to expand it.
   const [failuresOpen, setFailuresOpen] = useState(false);
   const [confirmOpen, setConfirmOpen] = useState(false);
+  // Auto-dismiss the confirm dialog after a successful merge — when the
+  // parent transitions from running to idle with no error and the PR
+  // now reports mergedAt, the merge landed and there's nothing left to
+  // see. We watch mergeState here (not pr.mergedAt) because we only
+  // want to close when *we* drove the transition, not when an unrelated
+  // sync flipped the field.
+  const wasRunning = useRef(false);
+  useEffect(() => {
+    if (mergeState === 'running') {
+      wasRunning.current = true;
+    } else if (wasRunning.current && mergeState === 'idle') {
+      wasRunning.current = false;
+      setConfirmOpen(false);
+    } else if (mergeState === 'error') {
+      wasRunning.current = false;
+    }
+  }, [mergeState]);
   const failingChecks = detail.checkRuns.filter(c => isCheckFailing(c.conclusion));
   const ciPassing = detail.ciStatus === 'PASSING' || detail.ciStatus === 'NONE';
   const ciPending = detail.ciStatus === 'PENDING';
@@ -431,37 +448,53 @@ function MergeBar({ pr, detail, mergeState, mergeError, onMerge, onRefreshCi, ci
         >
           <div className="modal merge-confirm" role="dialog" aria-modal="true" aria-labelledby="merge-confirm-title">
             <div className="modal__header">
-              <h3 className="modal__title" id="merge-confirm-title">Confirm merge?</h3>
+              <h3 className="modal__title" id="merge-confirm-title">
+                {mergeState === 'running' ? 'Merging…' : mergeState === 'error' ? 'Merge failed' : 'Confirm merge?'}
+              </h3>
             </div>
             <div className="merge-confirm__body">
-              <p>
-                Rebase and merge <b>{pr.repo}#{pr.number}</b> on GitHub?
-              </p>
-              <p className="merge-confirm__sub">{pr.title}</p>
+              {mergeState === 'running' ? (
+                <div className="merge-confirm__loading">
+                  <LogoLoading size={72} label="Merging on GitHub" />
+                  <p>Asking GitHub to rebase and merge <b>{pr.repo}#{pr.number}</b>…</p>
+                </div>
+              ) : (
+                <>
+                  <p>
+                    Rebase and merge <b>{pr.repo}#{pr.number}</b> on GitHub?
+                  </p>
+                  <p className="merge-confirm__sub">{pr.title}</p>
+                  {mergeState === 'error' && mergeError && (
+                    <p className="merge-confirm__error">{mergeError}</p>
+                  )}
+                </>
+              )}
             </div>
-            <div className="merge-confirm__actions">
-              <button
-                type="button"
-                className="merge-bar__cancel"
-                onClick={() => setConfirmOpen(false)}
-                disabled={mergeState === 'running'}
-              >
-                No
-              </button>
-              <button
-                type="button"
-                className="merge-bar__btn"
-                onClick={() => {
-                  // Fire the merge then close the dialog. The parent's
-                  // handleMerge surfaces errors via mergeError below.
-                  onMerge();
-                  setConfirmOpen(false);
-                }}
-                disabled={mergeState === 'running'}
-              >
-                {mergeState === 'running' ? 'Merging…' : 'Yes, merge'}
-              </button>
-            </div>
+            {mergeState !== 'running' && (
+              <div className="merge-confirm__actions">
+                <button
+                  type="button"
+                  className="merge-bar__cancel"
+                  onClick={() => setConfirmOpen(false)}
+                >
+                  {mergeState === 'error' ? 'Close' : 'No'}
+                </button>
+                <button
+                  type="button"
+                  className="merge-bar__btn"
+                  onClick={() => {
+                    // Keep the dialog open — auto-close fires once the
+                    // parent handler resolves and mergeState flips back
+                    // to idle (see the useEffect above). On failure the
+                    // 'error' branch keeps the buttons visible so the
+                    // user can dismiss / retry.
+                    onMerge();
+                  }}
+                >
+                  {mergeState === 'error' ? 'Try again' : 'Yes, merge'}
+                </button>
+              </div>
+            )}
           </div>
         </div>
       )}

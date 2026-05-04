@@ -262,27 +262,19 @@ export function reopenPatch(): Partial<PullRequestDto> {
   return { reviewedAt: null, handledAction: null };
 }
 
-/** Optimistic patch when a merge succeeds — same fields as
- *  markHandledPatch('MERGED') plus state + mergedAt so the OPEN pill
- *  flips to MERGED and the merge bar gates off (`!pr.mergedAt`)
- *  without waiting for the next sync. */
+/** Patch applied AFTER GitHub confirms the merge succeeded — sets the
+ *  same fields as markHandledPatch('MERGED') plus state + mergedAt so
+ *  the OPEN pill flips to MERGED and the merge bar gates off
+ *  (`!pr.mergedAt`) without waiting for the next sync. The merge flow
+ *  intentionally does NOT apply this optimistically: we keep the
+ *  confirm dialog open with a loading indicator until the backend
+ *  acknowledges, then patch + close. */
 export function mergedPatch(now: string = new Date().toISOString()): Partial<PullRequestDto> {
   return {
     reviewedAt: now,
     handledAction: 'MERGED',
     state: 'merged',
     mergedAt: now,
-  };
-}
-
-/** Rollback for {@link mergedPatch} when the merge call fails — restores
- *  the snapshot taken before the optimistic patch was applied. */
-export function unmergedPatch(previousState: string | null, previousMergedAt: string | null): Partial<PullRequestDto> {
-  return {
-    reviewedAt: null,
-    handledAction: null,
-    state: previousState,
-    mergedAt: previousMergedAt,
   };
 }
 

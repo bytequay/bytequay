@@ -48,7 +48,6 @@ import {
   syncCachesAfterPrChange,
   reopenPatch,
   sortHandled,
-  unmergedPatch,
 } from './prBuckets';
 import { HandledTimeline, InboxGroup } from './PrBucketViews';
 
@@ -363,20 +362,13 @@ function RepoDetailPage({ owner, repo, initialPrNumber }: Props) {
   };
 
   const handleMerge = async (prId: number, prRepo: string, number: number) => {
-    const previous = pulls.find(p => p.id === prId);
-    const previousState = previous?.state ?? null;
-    const previousMergedAt = previous?.mergedAt ?? null;
+    // Wait for GitHub to confirm the merge before touching local state —
+    // the merge confirm dialog shows a loading indicator while we wait,
+    // then closes on success. No optimistic patch / rollback dance.
+    await window.bridge.mergePr(prId, prRepo, number);
     const patch = mergedPatch();
     setPulls(prev => patchPr(prev, prId, patch));
     syncCachesAfterPrChange(prId, patch, prRepo);
-    try {
-      await window.bridge.mergePr(prId, prRepo, number);
-    } catch (e) {
-      const rollback = unmergedPatch(previousState, previousMergedAt);
-      setPulls(prev => patchPr(prev, prId, rollback));
-      syncCachesAfterPrChange(prId, rollback, prRepo);
-      throw e;
-    }
   };
 
   const handleReopen = async (prId: number) => {

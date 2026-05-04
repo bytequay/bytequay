@@ -37,7 +37,6 @@ import {
   sortHandled,
   splitInboxAndHandled,
   syncCachesAfterPrChange,
-  unmergedPatch,
 } from './prBuckets';
 import { CategorizedList, HandledTimeline } from './PrBucketViews';
 import KanbanBoard from './kanban/KanbanBoard';
@@ -270,16 +269,11 @@ function PullRequestList({ onGoToTeams }: Props) {
   };
 
   const handleMerge = async (prId: number, repo: string, number: number) => {
-    const previous = (prs ?? []).find(p => p.id === prId);
-    const previousState = previous?.state ?? null;
-    const previousMergedAt = previous?.mergedAt ?? null;
+    // Wait for GitHub to confirm before touching local state — the dialog
+    // shows a loading indicator while we wait, then closes on success.
+    // No optimistic patch / rollback dance.
+    await window.bridge.mergePr(prId, repo, number);
     updatePrState(prId, repo, mergedPatch());
-    try {
-      await window.bridge.mergePr(prId, repo, number);
-    } catch (e) {
-      updatePrState(prId, repo, unmergedPatch(previousState, previousMergedAt));
-      throw e;
-    }
   };
 
   const handleReopen = async (prId: number) => {

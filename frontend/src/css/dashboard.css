@@ -1375,7 +1375,11 @@
 .merge-bar__strategy-menu {
   position: absolute;
   top: calc(100% + 4px);
-  right: 0;
+  /* Anchor to the LEFT of the split button so the menu opens rightward.
+     Earlier we anchored it to the right (right: 0) which made the menu
+     extend leftward and clash with the conversation column on its left.
+     Opening rightward keeps the menu within the merge bar's footprint. */
+  left: 0;
   z-index: 51;
   background: var(--bg-elevated);
   border: 1px solid var(--border);

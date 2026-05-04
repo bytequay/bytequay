@@ -83,6 +83,10 @@ const bridge: Bridge = {
     ipcRenderer.invoke('backend:commentPr', prId, repo, number, body, close),
   replyToReviewThread: (repo: string, number: number, rootCommentId: number, body: string): Promise<void> =>
     ipcRenderer.invoke('backend:replyToReviewThread', repo, number, rootCommentId, body),
+  editIssueComment: (repo: string, commentId: number, body: string): Promise<void> =>
+    ipcRenderer.invoke('backend:editIssueComment', repo, commentId, body),
+  editReviewComment: (repo: string, commentId: number, body: string): Promise<void> =>
+    ipcRenderer.invoke('backend:editReviewComment', repo, commentId, body),
   addRequestedReviewer: (repo: string, number: number, reviewer: string): Promise<void> =>
     ipcRenderer.invoke('backend:addRequestedReviewer', repo, number, reviewer),
   removeRequestedReviewer: (repo: string, number: number, reviewer: string): Promise<void> =>

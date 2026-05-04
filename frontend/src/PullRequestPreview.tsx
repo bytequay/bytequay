@@ -15,6 +15,8 @@ import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { renderMarkdown } from './markdown';
 import type { ActivityItemDto, CheckRunDto, PullRequestDetailDto, PullRequestDto, ReviewMessageDto, ReviewThreadDto, UserProfileDto } from './types';
 import { getCached, putCache } from './detailCache';
+import { getCached as getCachedValue } from './dataCache';
+import { EditableMarkdownBody } from './pr/EditableMarkdownBody';
 import Avatar from './Avatar';
 import ResizeHandle from './ResizeHandle';
 import {
@@ -34,8 +36,8 @@ import {
   optimisticallyAppendReply,
   optimisticallyBumpReaction,
   optimisticallyToggleResolved,
+  optimisticallyUpdateCommentBody,
 } from './pr/optimisticUpdates';
-import { getCached as getCachedValue } from './dataCache';
 import { ReactionChips } from './pr/Reactions';
 import { CiChecksRow, CiSummary } from './pr/Ci';
 import LogoLoading from './LogoLoading';
@@ -771,6 +773,28 @@ function PullRequestPreview({ pr, onOpenReview, onInspectDiffs, onMarkHandled, o
     onOpenReview?.();
   };
 
+  // Cached login of the authenticated user — populated by the home
+  // page's profile fetch. Used to gate the per-comment ✎ Edit
+  // affordance: only the comment author sees it. Null when the home
+  // page hasn't been visited yet (rare in practice — login is the
+  // entry point); in that case Edit just stays hidden.
+  const currentUserLogin = (getCachedValue<UserProfileDto>('home:profile') ?? null)?.login ?? null;
+
+  /** Submit an edit to a top-level issue / PR comment, then patch
+   *  local state so the new body renders immediately without a full
+   *  detail refetch. Throws on failure so EditableMarkdownBody can
+   *  surface the error inline (and stay in edit mode). */
+  const handleEditIssueComment = async (commentId: number, body: string): Promise<void> => {
+    await window.bridge.editIssueComment(pr.repo, commentId, body);
+    setDetail(prev => optimisticallyUpdateCommentBody(prev, commentId, body));
+  };
+
+  /** Same as handleEditIssueComment but for per-line review comments. */
+  const handleEditReviewComment = async (commentId: number, body: string): Promise<void> => {
+    await window.bridge.editReviewComment(pr.repo, commentId, body);
+    setDetail(prev => optimisticallyUpdateCommentBody(prev, commentId, body));
+  };
+
   /** Posts a reply to the given review thread, then patches the new
    *  message into local state right away so the user sees it without
    *  waiting on the slow full-detail refetch. The refetch still runs
@@ -1014,9 +1038,11 @@ function PullRequestPreview({ pr, onOpenReview, onInspectDiffs, onMarkHandled, o
                                   )}
                                 </div>
                                 {hasBody && (
-                                  <div
+                                  <EditableMarkdownBody
+                                    body={item.body!}
+                                    canEdit={!!(currentUserLogin && currentUserLogin === item.actor && item.githubId != null)}
+                                    onSave={(b) => handleEditIssueComment(item.githubId!, b)}
                                     className="activity-item__body"
-                                    dangerouslySetInnerHTML={{ __html: renderMarkdown(item.body) }}
                                   />
                                 )}
                               </div>
@@ -1036,6 +1062,8 @@ function PullRequestPreview({ pr, onOpenReview, onInspectDiffs, onMarkHandled, o
                             onReply={(body) => handleReply(thread.rootGithubId, body)}
                             onReact={handleReact}
                             onSetResolved={handleSetThreadResolved}
+                            currentUserLogin={currentUserLogin}
+                            onEditMessage={handleEditReviewComment}
                           />
                         ))}
                       </div>
@@ -1698,9 +1726,10 @@ function PullRequestPreview({ pr, onOpenReview, onInspectDiffs, onMarkHandled, o
           hasContent={hasBody || hasThreads}
         >
           {hasBody && (
-            <div
-              className="prc-comment-body"
-              dangerouslySetInnerHTML={{ __html: renderMarkdown(item.body) }}
+            <EditableMarkdownBody
+              body={item.body!}
+              canEdit={!!(currentUserLogin && currentUserLogin === item.actor && item.githubId != null)}
+              onSave={(b) => handleEditIssueComment(item.githubId!, b)}
             />
           )}
           {hasThreads && (
@@ -1713,6 +1742,8 @@ function PullRequestPreview({ pr, onOpenReview, onInspectDiffs, onMarkHandled, o
                   onReply={(body) => handleReply(thread.rootGithubId, body)}
                   onReact={handleReact}
                   onSetResolved={handleSetThreadResolved}
+                  currentUserLogin={currentUserLogin}
+                  onEditMessage={handleEditReviewComment}
                 />
               ))}
             </div>
@@ -1817,9 +1848,10 @@ function PullRequestPreview({ pr, onOpenReview, onInspectDiffs, onMarkHandled, o
             )}
           </header>
           {hasBody && (
-            <div
-              className="prc-comment-body"
-              dangerouslySetInnerHTML={{ __html: renderMarkdown(item.body) }}
+            <EditableMarkdownBody
+              body={item.body!}
+              canEdit={!!(currentUserLogin && currentUserLogin === item.actor && item.githubId != null)}
+              onSave={(b) => handleEditIssueComment(item.githubId!, b)}
             />
           )}
           {/* Reactions row + emoji-add button. Only renders when we
@@ -1847,6 +1879,8 @@ function PullRequestPreview({ pr, onOpenReview, onInspectDiffs, onMarkHandled, o
                   onReply={(body) => handleReply(thread.rootGithubId, body)}
                   onReact={handleReact}
                   onSetResolved={handleSetThreadResolved}
+                  currentUserLogin={currentUserLogin}
+                  onEditMessage={handleEditReviewComment}
                 />
               ))}
             </div>
@@ -1934,6 +1968,8 @@ function PullRequestPreview({ pr, onOpenReview, onInspectDiffs, onMarkHandled, o
         onReply={(body) => handleReply(thread.rootGithubId, body)}
         onReact={handleReact}
         onSetResolved={handleSetThreadResolved}
+        currentUserLogin={currentUserLogin}
+        onEditMessage={handleEditReviewComment}
       />
     );
   }

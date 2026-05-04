@@ -290,6 +290,26 @@ public interface PullRequestRepository
     }
 
     /**
+     * Edits the body of a top-level issue / PR comment authored by the
+     * authenticated user. Maps to:
+     * PATCH /repos/{owner}/{repo}/issues/comments/{id}
+     */
+    default void editIssueComment(String pat, String owner, String repo, long commentId, String body)
+    {
+        throw new UnsupportedOperationException("editIssueComment not implemented");
+    }
+
+    /**
+     * Edits the body of a per-line review comment authored by the
+     * authenticated user. Maps to:
+     * PATCH /repos/{owner}/{repo}/pulls/comments/{id}
+     */
+    default void editReviewComment(String pat, String owner, String repo, long commentId, String body)
+    {
+        throw new UnsupportedOperationException("editReviewComment not implemented");
+    }
+
+    /**
      * Adds an emoji reaction to a per-line review comment.
      * Maps to: POST /repos/{owner}/{repo}/pulls/comments/{commentId}/reactions
      *

@@ -370,12 +370,12 @@ public class GitHubClient
                 return ImmutableList.of();
             }
             return detail.files().stream()
-                    .map(f -> new DiffFile(
-                            f.filename(),
-                            f.status(),
-                            f.additions(),
-                            f.deletions(),
-                            f.patch()))
+                    .map(filename -> new DiffFile(
+                            filename.filename(),
+                            filename.status(),
+                            filename.additions(),
+                            filename.deletions(),
+                            filename.patch()))
                     .collect(toImmutableList());
         }
         catch (RestClientResponseException e) {
@@ -398,18 +398,18 @@ public class GitHubClient
                 return ImmutableList.of();
             }
             return commits.stream()
-                    .map(c -> new PullRequestCommit(
-                            c.sha(),
-                            Optional.ofNullable(c.author()).map(GitHubPullRequestCommit.Author::login).orElse(null),
-                            Optional.ofNullable(c.commit())
+                    .map(commit -> new PullRequestCommit(
+                            commit.sha(),
+                            Optional.ofNullable(commit.author()).map(GitHubPullRequestCommit.Author::login).orElse(null),
+                            Optional.ofNullable(commit.commit())
                                     .map(GitHubPullRequestCommit.CommitInfo::author)
                                     .map(GitHubPullRequestCommit.GitSignature::name)
                                     .orElse(null),
-                            Optional.ofNullable(c.commit())
+                            Optional.ofNullable(commit.commit())
                                     .map(GitHubPullRequestCommit.CommitInfo::author)
                                     .map(GitHubPullRequestCommit.GitSignature::date)
                                     .orElse(null),
-                            Optional.ofNullable(c.commit())
+                            Optional.ofNullable(commit.commit())
                                     .map(GitHubPullRequestCommit.CommitInfo::message)
                                     .orElse(null)))
                     .collect(toImmutableList());
@@ -478,13 +478,13 @@ public class GitHubClient
             try {
                 List<T> rows = gitHubRestClient.get()
                         .uri(u -> {
-                            UriBuilder b = u.path(pathTemplate)
+                            UriBuilder uriBuilder = u.path(pathTemplate)
                                     .queryParam("per_page", 100)
                                     .queryParam("page", currentPage);
                             if (since != null) {
-                                b = b.queryParam("since", since.toString());
+                                uriBuilder = uriBuilder.queryParam("since", since.toString());
                             }
-                            return uriResolver.apply(b);
+                            return uriResolver.apply(uriBuilder);
                         })
                         .header("Authorization", "Bearer " + pat)
                         .retrieve()
@@ -549,7 +549,7 @@ public class GitHubClient
     public List<PrReviewThreadMessage> fetchPrReviewComments(String pat, PullRequestRef pr, Instant since)
     {
         return paginate(pat, "/repos/{owner}/{repo}/pulls/{number}/comments",
-                u -> u.build(pr.owner(), pr.repo(), pr.number()),
+                uriBuilder -> uriBuilder.build(pr.owner(), pr.repo(), pr.number()),
                 new ParameterizedTypeReference<List<GitHubReviewComment>>() {},
                 since)
                 .stream()

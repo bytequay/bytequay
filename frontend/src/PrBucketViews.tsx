@@ -12,76 +12,16 @@
  * limitations under the License.
  */
 import { useEffect, useMemo, useState } from 'react';
-import type { CSSProperties } from 'react';
-import type { CiStatus, PullRequestDto } from './types';
-import Avatar from './Avatar';
+import type { PullRequestDto } from './types';
+import KanbanPrCard from './kanban/KanbanPrCard';
+import type { KanbanColumnKind } from './kanban/KanbanColumn';
 
-function labelChipStyle(color: string | null | undefined): CSSProperties | undefined {
-  if (!color || !/^[0-9a-fA-F]{6}$/.test(color)) return undefined;
-  const r = parseInt(color.slice(0, 2), 16);
-  const g = parseInt(color.slice(2, 4), 16);
-  const b = parseInt(color.slice(4, 6), 16);
-  const luma = (0.299 * r + 0.587 * g + 0.114 * b) / 255;
-  const text = luma > 0.6 ? '#1f2937' : '#ffffff';
-  return { background: `#${color}`, color: text, borderColor: 'transparent' };
-}
-
-/**
- * Picks the colored banner that crowns a Kanban card when the PR has been
- * promoted to "Needs attention". Banner tone maps to the v2-card__banner CSS
- * modifier; the label is the short-form copy shown to the user.
- */
-function attentionBanner(pr: PullRequestDto): { tone: 'red' | 'orange' | 'blue' | 'gray'; label: string } | null {
-  switch (pr.attentionReason) {
-    case 'CI_FAILING':     return { tone: 'red',    label: '⚠ CI failing' };
-    case 'MERGE_CONFLICT': return { tone: 'red',    label: '⚠ Merge conflict' };
-    case 'MENTIONED':      return { tone: 'blue',   label: '@ mentioned you' };
-    case 'NEW_COMMENT':    return { tone: 'blue',   label: '✦ New activity' };
-    case 'BLOCKING':       return { tone: 'red',    label: '⛔ Marked blocking' };
-    case 'STALE':          return { tone: 'orange', label: 'Stale — no progress' };
-    case 'MINE':           return { tone: 'gray',   label: 'Your PR' };
-    default:               return null;
-  }
-}
-
-/** Maps a PR label to a color-coded tag style. */
-function tagClass(label: string): string {
-  const l = label.toLowerCase();
-  if (l.includes('bug')) return 'v2-pill--tag-bug';
-  if (l.includes('feat')) return 'v2-pill--tag-feat';
-  if (l.includes('perf')) return 'v2-pill--tag-perf';
-  if (l.includes('docs')) return 'v2-pill--tag-docs';
-  return 'v2-pill--tag-default';
-}
-
-/** Tiny status dot for the foot-row CI signal. */
-function CiDot({ status }: { status: CiStatus }) {
-  return <span className={`v2-card__ci-dot v2-card__ci-dot--${status.toLowerCase()}`} aria-hidden="true" />;
-}
-
-/**
- * Small repo badge used on PR cards: the owner's GitHub avatar (works for
- * both user and org accounts) + short repo name. Helpful now that the kanban
- * mixes PRs from multiple repos in the same column.
- */
-function RepoChip({ repo }: { repo: string }) {
-  if (!repo) return null;
-  const [owner, name] = repo.includes('/') ? repo.split('/') : [repo, repo];
-  return (
-    <span className="repo-chip" title={repo}>
-      <Avatar login={owner} size={14} className="avatar--repo-small" />
-      <span className="repo-chip__name">{name}</span>
-    </span>
-  );
-}
 import {
   CATEGORIES,
   CATEGORY_LABEL,
   type Category,
   categorize,
-  formatRelative,
   groupByCategory,
-  handledBadge,
   isResurfaced,
   type HandledGroups,
 } from './prBuckets';
@@ -94,130 +34,34 @@ type InboxCardProps = {
 };
 
 export function InboxCard({ pr, selected, onSelect, onHandle }: InboxCardProps) {
-  const resurfaced = isResurfaced(pr);
-  const unread = pr.viewedAt === null;
-  const action = pr.handledAction;
-  // Marker-dot vocabulary from review-flow.png:
-  //   - Blue glow  (`--blue`)     — New, untouched
-  //   - Orange glow (`--orange`)  — Resurfaced (activity since last look)
-  //   - Hollow ring (`--seen`)    — Viewed, no activity yet
-  //   - Blue dot   (`--reviewed`) — Reviewed (commented / changes-requested),
-  //                                  waiting for the author
-  // The `dotKind` determines both the dot class and any pill + tooltip.
-  let dotKind: 'new' | 'resurfaced' | 'seen' | 'reviewed' | null = null;
-  if (resurfaced) dotKind = 'resurfaced';
-  else if (action === 'CHANGES_REQUESTED' || action === 'COMMENTED') dotKind = 'reviewed';
-  else if (unread) dotKind = 'new';
-  else if (pr.reviewedAt === null) dotKind = 'seen';
-
-  const dotClass = dotKind
-    ? `v2-card__dot v2-card__dot--${dotKind === 'new' ? 'blue' : dotKind === 'resurfaced' ? 'orange' : dotKind}`
-    : '';
-  const dotTooltip =
-    dotKind === 'new' ? 'New — you haven\'t opened this yet'
-      : dotKind === 'resurfaced' ? 'Updated since your review'
-        : dotKind === 'seen' ? 'Opened but not yet handled'
-          : dotKind === 'reviewed' ? 'You reviewed — waiting on the author'
-            : undefined;
-
-  const banner = attentionBanner(pr);
-  const hasDiff = pr.additions > 0 || pr.deletions > 0;
-  const hasFoot = pr.labels.length > 0 || pr.ciStatus || pr.commentCount > 0;
-  // Awaiting-author cards are dimmed (per design) so they're scannable but
-  // quieter than the active columns. Hover restores full opacity.
-  const dimmed = dotKind === 'reviewed';
-
+  // The inbox / repo-detail / handled-timeline contexts now reuse the
+  // rich kanban card. We pick a column flavour from the same signals
+  // the old PrCard used for its left-edge dot — a resurfaced or
+  // attention-flagged PR maps to needs_attention (urgent banner +
+  // styling); an active reviewer verdict (changes-requested /
+  // commented) maps to awaiting_author so the banner names the
+  // reviewer; everything else is in_progress, the safe default.
+  const column = pickColumnFor(pr);
   return (
-    <div
-      className={
-        'v2-card' +
-        (selected ? ' v2-card--selected' : '') +
-        (dotKind === 'seen' ? ' v2-card--seen' : '') +
-        (dimmed ? ' v2-card--dim' : '')
-      }
-      role="button"
-      tabIndex={0}
-      onClick={onSelect}
-      onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') onSelect(); }}
-      title={dotTooltip}
-    >
-      {banner && (
-        <div className={`v2-card__banner v2-card__banner--${banner.tone}`}>
-          {banner.label}
-        </div>
-      )}
-      <div className="v2-card__row-wrap">
-        {dotClass && <span className={dotClass} aria-hidden="true" />}
-        <div className="v2-card__body">
-        <div className="v2-card__row">
-          <RepoChip repo={pr.repo} />
-          <span className="v2-card__number">#{pr.number}</span>
-          {pr.draft && <span className="v2-pill v2-pill--draft">DRAFT</span>}
-          {resurfaced && <span className="v2-pill v2-pill--resurfaced">Updated since your review</span>}
-          {dotKind === 'seen' && <span className="v2-pill v2-pill--seen">Opened</span>}
-          {dotKind === 'reviewed' && (
-            <span className="v2-pill v2-pill--reviewed">Awaiting author</span>
-          )}
-        </div>
-        <div className="v2-card__title">{pr.title}</div>
-        <div className="v2-card__meta">
-          {pr.author && (
-            <>
-              <Avatar login={pr.author} size={14} className="avatar--repo-small" />
-              <span>{pr.author}</span>
-            </>
-          )}
-          <span className="v2-card__ts" title={`Updated ${formatRelative(pr.updatedAt)}`}>· {formatRelative(pr.updatedAt)}</span>
-          {hasDiff && (
-            <span className="v2-card__diff">
-              <span className="v2-card__diff-add">+{pr.additions}</span>
-              <span className="v2-card__diff-del">−{pr.deletions}</span>
-            </span>
-          )}
-        </div>
-        {hasFoot && (
-          <div className="v2-card__foot">
-            <div className="v2-card__tags">
-              {pr.labels.map(l => {
-                // GitHub colors are hex without the #. Use the color as the
-                // background and pick a readable text color from luminance —
-                // same approach GitHub uses on its own labels. Falls back
-                // to the existing tagClass colour mapping when no color is
-                // recorded yet (legacy rows / pre-V19 sync).
-                const style = labelChipStyle(pr.labelColors?.[l]);
-                return (
-                  <span key={l} className={`v2-pill ${tagClass(l)}`} style={style}>{l}</span>
-                );
-              })}
-            </div>
-            <div className="v2-card__signals">
-              {pr.ciStatus && pr.ciStatus !== 'NONE' && (
-                <span className="v2-card__signal" title={`CI: ${pr.ciStatus.toLowerCase()}`}>
-                  <CiDot status={pr.ciStatus} />
-                  <span>CI</span>
-                </span>
-              )}
-              {pr.commentCount > 0 && (
-                <span className="v2-card__signal" title={`${pr.commentCount} comment${pr.commentCount === 1 ? '' : 's'}`}>
-                  💬 {pr.commentCount}
-                </span>
-              )}
-            </div>
-          </div>
-        )}
-      </div>
-      </div>
-      <button
-        className="v2-hover-action"
-        onClick={e => { e.stopPropagation(); onHandle(); }}
-        title="Mark as handled"
-        type="button"
-      >
-        ✓ Handled
-      </button>
-    </div>
+    <KanbanPrCard
+      pr={pr}
+      column={column}
+      mode="inbox"
+      selected={selected}
+      onSelect={onSelect}
+      onHandle={onHandle}
+    />
   );
 }
+
+function pickColumnFor(pr: PullRequestDto): KanbanColumnKind {
+  if (isResurfaced(pr) || pr.attentionReason !== null) return 'needs_attention';
+  if (pr.handledAction === 'CHANGES_REQUESTED' || pr.handledAction === 'COMMENTED') {
+    return 'awaiting_author';
+  }
+  return 'in_progress';
+}
+
 
 type HandledCardProps = {
   pr: PullRequestDto;
@@ -227,47 +71,20 @@ type HandledCardProps = {
 };
 
 export function HandledCard({ pr, selected, onSelect, onReopen }: HandledCardProps) {
-  const badge = handledBadge(pr.handledAction);
+  // Handled cards now reuse the rich kanban card with column='handled':
+  // KanbanPrCard automatically swaps the ✓ Mark-handled corner button
+  // for a ↺ Reopen one in this column. The handled-badge / reviewedAt
+  // line that the old HandledCard showed is now derivable from the
+  // status pill + meta line on the kanban card.
   return (
-    <div
-      className={`v2-card v2-card--handled${selected ? ' v2-card--selected' : ''}`}
-      role="button"
-      tabIndex={0}
-      onClick={onSelect}
-      onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') onSelect(); }}
-    >
-      <div className="v2-card__row-wrap">
-        <div className="v2-card__body">
-          <div className="v2-card__row">
-            <RepoChip repo={pr.repo} />
-            <span className="v2-card__number">#{pr.number}</span>
-            <span className={`handled-badge ${badge.cls}`}>
-              <span className="handled-badge__icon">{badge.icon}</span>
-              {badge.label}
-            </span>
-            <span className="v2-card__ts">· {formatRelative(pr.reviewedAt)}</span>
-          </div>
-          <div className="v2-card__title">{pr.title}</div>
-          <div className="v2-card__meta">
-            {pr.author && (
-              <>
-                <Avatar login={pr.author} size={14} className="avatar--repo-small" />
-                <span>{pr.author}</span>
-              </>
-            )}
-            <span className="v2-card__ts" title={`Updated ${formatRelative(pr.updatedAt)}`}>· {formatRelative(pr.updatedAt)}</span>
-          </div>
-        </div>
-      </div>
-      <button
-        className="v2-hover-action"
-        onClick={e => { e.stopPropagation(); onReopen(); }}
-        title="Reopen to Inbox"
-        type="button"
-      >
-        ↗ Reopen
-      </button>
-    </div>
+    <KanbanPrCard
+      pr={pr}
+      column="handled"
+      mode="inbox"
+      selected={selected}
+      onSelect={onSelect}
+      onReopen={onReopen}
+    />
   );
 }
 

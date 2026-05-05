@@ -1400,26 +1400,6 @@ function PullRequestPreview({ pr, onOpenReview, onInspectDiffs, onMarkHandled, o
             }
             return <span className="prc-status-pill">Open</span>;
           })()}
-          {/* Branch info — GitHub-style "head → base" pill. Hidden until
-              the detail-sync populates the refs (legacy rows have null
-              for both, in which case we silently skip). The head ref's
-              owner is shown when it differs from base (fork PRs).
-              Defensively guarded against the cross-repo case where
-              headRepo !== baseRepo. */}
-          {detail?.headRef && detail?.baseRef && (
-            <>
-              <span className="prc-meta-sep">·</span>
-              <span className="prc-branches" title={`Merging ${detail.headRepo ?? ''}:${detail.headRef} into ${detail.baseRepo ?? ''}:${detail.baseRef}`}>
-                <code className="prc-branches__ref">
-                  {detail.headRepo && detail.headRepo !== detail.baseRepo
-                    ? `${detail.headRepo.split('/')[0]}:${detail.headRef}`
-                    : detail.headRef}
-                </code>
-                <span className="prc-branches__arrow" aria-hidden="true">→</span>
-                <code className="prc-branches__ref">{detail.baseRef}</code>
-              </span>
-            </>
-          )}
           <span className="prc-meta-sep">·</span>
           {pr.author && (
             <>
@@ -1431,6 +1411,33 @@ function PullRequestPreview({ pr, onOpenReview, onInspectDiffs, onMarkHandled, o
             {pr.createdAt ? `opened ${formatRelativeTime(pr.createdAt)} · ` : ''}updated {formatRelativeTime(pr.updatedAt)}
           </span>
         </div>
+        {/* GitHub-style branch sentence: "AUTHOR wants to merge into BASE
+            from HEAD". Each branch is a monospace pill prefixed with the
+            owner (so cross-fork PRs make the source obvious). Hidden
+            until detail-sync populates the refs. */}
+        {detail?.headRef && detail?.baseRef && (
+          <div className="prc-branch-line">
+            <span aria-hidden="true" className="prc-branch-line__icon">⑂</span>
+            {pr.author && <a className="prc-branch-line__author" href={`https://github.com/${pr.author}`} target="_blank" rel="noreferrer">{pr.author}</a>}
+            <span className="prc-branch-line__verb">wants to merge into</span>
+            <code className="prc-branches__ref" title={`${detail.baseRepo ?? ''}:${detail.baseRef}`}>
+              {detail.baseRepo ? `${detail.baseRepo.split('/')[0]}:${detail.baseRef}` : detail.baseRef}
+            </code>
+            <span className="prc-branch-line__verb">from</span>
+            <code className="prc-branches__ref" title={`${detail.headRepo ?? ''}:${detail.headRef}`}>
+              {detail.headRepo ? `${detail.headRepo.split('/')[0]}:${detail.headRef}` : detail.headRef}
+            </code>
+            <button
+              type="button"
+              className="prc-branch-line__copy"
+              onClick={() => { void navigator.clipboard.writeText(detail.headRef ?? ''); }}
+              title="Copy branch name"
+              aria-label="Copy branch name"
+            >
+              ⎘
+            </button>
+          </div>
+        )}
         <div className="prc-actions">
           {StyleToggle}
           {handledState !== 'done' && (

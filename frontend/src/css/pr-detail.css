@@ -96,30 +96,58 @@
   color: #fff;
 }
 
-/* "head → base" pill in the PR header. Same monospace anchor GitHub
-   uses on its own conversation page so the eye reads it as code. The
-   subtle background separates it from the surrounding meta strip
-   without competing with the status pill above. */
-.prc-branches {
-  display: inline-flex;
+/* GitHub-style branch sentence sitting on its own line under the meta
+   strip — "AUTHOR wants to merge into BASE from HEAD". Each branch is
+   a monospace pill prefixed with the owner; the copy button on the end
+   matches GitHub's affordance for grabbing the head branch name. */
+.prc-branch-line {
+  display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 6px;
-  font-size: 11px;
+  margin-top: 6px;
+  font-size: 12px;
   color: var(--text-2);
+}
+.prc-branch-line__icon {
+  font-size: 13px;
+  color: var(--text-3);
+}
+.prc-branch-line__author {
+  color: var(--text-1);
+  font-weight: 600;
+  text-decoration: none;
+}
+.prc-branch-line__author:hover {
+  color: var(--accent);
+  text-decoration: underline;
+}
+.prc-branch-line__verb {
+  color: var(--text-2);
+}
+.prc-branch-line__copy {
+  appearance: none;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  padding: 1px 5px;
+  font-size: 12px;
+  color: var(--text-3);
+  cursor: pointer;
+}
+.prc-branch-line__copy:hover {
+  color: var(--accent);
+  border-color: var(--border);
 }
 .prc-branches__ref {
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, monospace;
   font-size: 11px;
   padding: 2px 6px;
   border-radius: 4px;
-  background: var(--bg-card);
-  border: 1px solid var(--border);
-  color: var(--text-1);
+  background: rgba(31, 111, 235, 0.10);
+  border: 1px solid rgba(31, 111, 235, 0.18);
+  color: #0969da;
   white-space: nowrap;
-}
-.prc-branches__arrow {
-  color: var(--text-3);
-  font-size: 11px;
 }
 
 .prc-actions {

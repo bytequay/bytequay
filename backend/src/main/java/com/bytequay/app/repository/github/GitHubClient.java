@@ -143,6 +143,16 @@ public class GitHubClient
                     .collect(toImmutableList());
             int reviewerCount = Optional.ofNullable(r.requestedReviewers()).map(List::size).orElse(0);
             String headSha = Optional.ofNullable(r.head()).map(GitHubPullRequestDetailResponse.Head::sha).orElse(null);
+            String headRef = Optional.ofNullable(r.head()).map(GitHubPullRequestDetailResponse.Head::ref).orElse(null);
+            String headRepo = Optional.ofNullable(r.head())
+                    .map(GitHubPullRequestDetailResponse.Head::repo)
+                    .map(GitHubPullRequestDetailResponse.Repo::fullName)
+                    .orElse(null);
+            String baseRef = Optional.ofNullable(r.base()).map(GitHubPullRequestDetailResponse.Base::ref).orElse(null);
+            String baseRepo = Optional.ofNullable(r.base())
+                    .map(GitHubPullRequestDetailResponse.Base::repo)
+                    .map(GitHubPullRequestDetailResponse.Repo::fullName)
+                    .orElse(null);
             return new PrRawDetail(
                     r.body(),
                     labels,
@@ -153,7 +163,11 @@ public class GitHubClient
                     r.deletions(),
                     r.changedFiles(),
                     reviewerCount,
-                    headSha);
+                    headSha,
+                    headRef,
+                    headRepo,
+                    baseRef,
+                    baseRepo);
         }
         catch (RestClientResponseException e) {
             throw toReadableException(e);

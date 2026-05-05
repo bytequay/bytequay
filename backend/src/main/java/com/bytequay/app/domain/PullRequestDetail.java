@@ -46,7 +46,17 @@ public record PullRequestDetail(
          *  PR's repository, as reported by {@code GET /repos/{owner}/{repo}}'s
          *  {@code permissions.push} flag. Gates the merge button on the
          *  detail page so we don't surface a control GitHub will reject. */
-        boolean viewerCanWrite)
+        boolean viewerCanWrite,
+        /** Branch name on the head side (e.g. "feat/foo"). Null on legacy
+         *  rows whose detail predates V36. */
+        String headRef,
+        /** "owner/repo" of the head side; differs from baseRepo on fork PRs. */
+        String headRepo,
+        /** Target branch (almost always the default branch). */
+        String baseRef,
+        /** "owner/repo" of the target side; same as the PR's repo for
+         *  in-repo PRs. */
+        String baseRepo)
 {
     public enum CiStatus
     {

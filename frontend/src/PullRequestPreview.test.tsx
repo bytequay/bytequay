@@ -221,6 +221,10 @@ function makeDetail(overrides: Partial<PullRequestDetailDto> = {}): PullRequestD
     ],
     linkedIssues: [],
     viewerCanWrite: false,
+    headRef: null,
+    headRepo: null,
+    baseRef: null,
+    baseRepo: null,
     ...overrides,
   };
 }

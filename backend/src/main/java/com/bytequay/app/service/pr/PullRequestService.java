@@ -1068,7 +1068,11 @@ public class PullRequestService
                 toCheckRuns(stored.checkRuns()),
                 groupReviewThreads(stored.reviewComments()),
                 stored.linkedIssues() != null ? stored.linkedIssues() : ImmutableList.of(),
-                viewerCanWrite);
+                viewerCanWrite,
+                raw.headRef(),
+                raw.headRepo(),
+                raw.baseRef(),
+                raw.baseRepo());
     }
 
     /**

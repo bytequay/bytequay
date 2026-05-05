@@ -28,6 +28,7 @@ public record GitHubPullRequestDetailResponse(
         @JsonProperty("changed_files") int changedFiles,
         @JsonProperty("requested_reviewers") List<RequestedReviewer> requestedReviewers,
         Head head,
+        Base base,
         Boolean mergeable,
         @JsonProperty("mergeable_state") String mergeableState)
 {
@@ -37,6 +38,19 @@ public record GitHubPullRequestDetailResponse(
     @JsonIgnoreProperties(ignoreUnknown = true)
     public record RequestedReviewer(String login) {}
 
+    /**
+     * The PR's source side. {@code ref} is the branch name (e.g.
+     * "feat/foo"); {@code repo.fullName} is the source repo's
+     * "owner/repo" — present even on same-repo PRs but most useful
+     * for cross-fork PRs where it differs from the base.
+     */
     @JsonIgnoreProperties(ignoreUnknown = true)
-    public record Head(String sha) {}
+    public record Head(String sha, String ref, Repo repo) {}
+
+    /** The PR's target side (almost always the same repo's default branch). */
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    public record Base(String ref, Repo repo) {}
+
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    public record Repo(@JsonProperty("full_name") String fullName) {}
 }

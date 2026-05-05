@@ -99,6 +99,10 @@ function detail(overrides: Partial<PullRequestDetailDto> = {}): PullRequestDetai
     reviewThreads: [],
     linkedIssues: [],
     viewerCanWrite: false,
+    headRef: null,
+    headRepo: null,
+    baseRef: null,
+    baseRepo: null,
     ...overrides,
   };
 }

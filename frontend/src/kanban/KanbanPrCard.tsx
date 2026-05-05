@@ -205,19 +205,16 @@ function KanbanPrCard({ pr, column, mode = 'inbox', selected, onSelect, onHandle
           )}
         </div>
         <div className="kpr-card__signals">
+          {/* Card foot keeps only the CI dot now — the comment count and
+              +/− diff signals were noise more than info on a card-sized
+              surface; they live on the PR detail page where there's
+              room. */}
           {pr.ciStatus && pr.ciStatus !== 'NONE' && (
             <span className="kpr-card__signal" title={`CI: ${pr.ciStatus.toLowerCase()}`}>
               <span className={`kpr-card__ci-dot kpr-card__ci-dot--${pr.ciStatus.toLowerCase()}`} />
               CI
             </span>
           )}
-          <span className="kpr-card__signal" title={`${pr.commentCount} comments`}>
-            💬 {pr.commentCount}
-          </span>
-          <span className="kpr-card__signal kpr-card__signal--diff" title={`+${pr.additions} −${pr.deletions}`}>
-            <span className="kpr-card__diff-add">+{pr.additions}</span>
-            <span className="kpr-card__diff-del">−{pr.deletions}</span>
-          </span>
         </div>
       </div>
     </button>

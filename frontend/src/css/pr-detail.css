@@ -25,16 +25,27 @@
 }
 .prc-header {
   flex: 0 0 auto;
-  padding: 16px 22px 14px;
+  padding: 14px 22px 12px;
   background: var(--bg-elevated);
   border-bottom: 1px solid var(--border);
   display: grid;
   grid-template-columns: 1fr auto;
+  /* Order: back link, then title (with action buttons on the right),
+     then the head→base branch sentence directly under the title, then
+     the meta strip last. The branch line used to be a stray flex item
+     that landed wherever the grid felt like — name its slot so it
+     anchors right under the title. */
   grid-template-areas:
     "back back"
     "title actions"
+    "branch branch"
     "meta meta";
-  gap: 6px 12px;
+  /* Row gap dropped from 6px to 2px — the meta strip's own line-height
+     plus the branch-line's intrinsic baseline already give breathing
+     room; 6px on top of those left dead space between the three info
+     rows under the title. */
+  row-gap: 2px;
+  column-gap: 12px;
 }
 .prc-back {
   display: none; /* the topbar already has Back; keep for future use */
@@ -101,11 +112,14 @@
    a monospace pill prefixed with the owner; the copy button on the end
    matches GitHub's affordance for grabbing the head branch name. */
 .prc-branch-line {
+  grid-area: branch;
   display: flex;
   flex-wrap: wrap;
   align-items: center;
   gap: 6px;
-  margin-top: 6px;
+  /* margin-top dropped — the .prc-header grid's row-gap already
+     provides spacing between rows; the extra 6px stacked on top
+     created the "too large gap" the user reported. */
   font-size: 12px;
   color: var(--text-2);
 }

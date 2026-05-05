@@ -339,8 +339,23 @@ describe('categorize', () => {
     }))).toBe('in_progress');
   });
 
-  it('moves authored drafts into in_progress', () => {
-    expect(categorize(pr({ origin: 'AUTHORED', draft: true, viewedAt: null }))).toBe('in_progress');
+  it('parks drafts in cleared so they don\'t pollute the action zones', () => {
+    // Drafts (your own or someone else's) are not actionable review
+    // requests yet. The kanban's DRAFTING column is the dedicated
+    // home; the sidebar list keeps them out of the way in Cleared.
+    expect(categorize(pr({ origin: 'AUTHORED', draft: true, viewedAt: null }))).toBe('cleared');
+    expect(categorize(pr({ origin: 'REVIEW_REQUESTED', draft: true, viewedAt: null }))).toBe('cleared');
+  });
+
+  it('parks merged PRs in cleared even when local handledAction is null', () => {
+    // GitHub-side merge that hasn't been mirrored into our local
+    // handledAction yet (user merged on web, never opened our app)
+    // would otherwise fall through to in_progress / needs_attention.
+    expect(categorize(pr({ mergedAt: '2026-05-04T10:00:00Z', state: 'closed', handledAction: null }))).toBe('cleared');
+  });
+
+  it('parks closed-without-merge PRs in cleared', () => {
+    expect(categorize(pr({ state: 'closed', mergedAt: null, handledAction: null }))).toBe('cleared');
   });
 
   it('puts CHANGES_REQUESTED into awaiting_author', () => {
@@ -393,7 +408,9 @@ describe('categorize', () => {
 describe('groupByCategory', () => {
   it('buckets each non-handled PR into exactly one zone', () => {
     const a = pr({ id: 1, origin: 'REVIEW_REQUESTED', viewedAt: null }); // needs_attention
-    const b = pr({ id: 2, origin: 'AUTHORED', draft: true });             // in_progress
+    // viewed-but-not-yet-reviewed → in_progress (drafts now park in cleared,
+    // so the original draft fixture moved here)
+    const b = pr({ id: 2, viewedAt: '2026-04-23T08:00:00Z', reviewedAt: null });
     const c = pr({ id: 3, reviewedAt: '2026-04-23T10:00:00Z', handledAction: 'COMMENTED' }); // awaiting_author
     const d = pr({ id: 4, reviewedAt: '2026-04-23T10:00:00Z', handledAction: 'APPROVED' }); // cleared
     const groups = groupByCategory([a, b, c, d]);

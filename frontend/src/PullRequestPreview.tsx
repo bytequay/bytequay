@@ -1364,6 +1364,34 @@ function PullRequestPreview({ pr, onOpenReview, onInspectDiffs, onMarkHandled, o
           ✓ Mark handled
         </button>
         <h1 className="prc-title">{pr.title}</h1>
+        {/* GitHub-style branch sentence sits directly under the title —
+            "AUTHOR wants to merge into BASE from HEAD". Each branch is
+            a monospace pill prefixed with the owner so cross-fork PRs
+            make the source obvious. Hidden until detail-sync populates
+            the refs. */}
+        {detail?.headRef && detail?.baseRef && (
+          <div className="prc-branch-line">
+            <span aria-hidden="true" className="prc-branch-line__icon">⑂</span>
+            {pr.author && <a className="prc-branch-line__author" href={`https://github.com/${pr.author}`} target="_blank" rel="noreferrer">{pr.author}</a>}
+            <span className="prc-branch-line__verb">wants to merge into</span>
+            <code className="prc-branches__ref" title={`${detail.baseRepo ?? ''}:${detail.baseRef}`}>
+              {detail.baseRepo ? `${detail.baseRepo.split('/')[0]}:${detail.baseRef}` : detail.baseRef}
+            </code>
+            <span className="prc-branch-line__verb">from</span>
+            <code className="prc-branches__ref" title={`${detail.headRepo ?? ''}:${detail.headRef}`}>
+              {detail.headRepo ? `${detail.headRepo.split('/')[0]}:${detail.headRef}` : detail.headRef}
+            </code>
+            <button
+              type="button"
+              className="prc-branch-line__copy"
+              onClick={() => { void navigator.clipboard.writeText(detail.headRef ?? ''); }}
+              title="Copy branch name"
+              aria-label="Copy branch name"
+            >
+              ⎘
+            </button>
+          </div>
+        )}
         <div className="prc-meta-line">
           <Avatar login={repoOwner} size={14} className="avatar--repo" />
           <a
@@ -1411,33 +1439,6 @@ function PullRequestPreview({ pr, onOpenReview, onInspectDiffs, onMarkHandled, o
             {pr.createdAt ? `opened ${formatRelativeTime(pr.createdAt)} · ` : ''}updated {formatRelativeTime(pr.updatedAt)}
           </span>
         </div>
-        {/* GitHub-style branch sentence: "AUTHOR wants to merge into BASE
-            from HEAD". Each branch is a monospace pill prefixed with the
-            owner (so cross-fork PRs make the source obvious). Hidden
-            until detail-sync populates the refs. */}
-        {detail?.headRef && detail?.baseRef && (
-          <div className="prc-branch-line">
-            <span aria-hidden="true" className="prc-branch-line__icon">⑂</span>
-            {pr.author && <a className="prc-branch-line__author" href={`https://github.com/${pr.author}`} target="_blank" rel="noreferrer">{pr.author}</a>}
-            <span className="prc-branch-line__verb">wants to merge into</span>
-            <code className="prc-branches__ref" title={`${detail.baseRepo ?? ''}:${detail.baseRef}`}>
-              {detail.baseRepo ? `${detail.baseRepo.split('/')[0]}:${detail.baseRef}` : detail.baseRef}
-            </code>
-            <span className="prc-branch-line__verb">from</span>
-            <code className="prc-branches__ref" title={`${detail.headRepo ?? ''}:${detail.headRef}`}>
-              {detail.headRepo ? `${detail.headRepo.split('/')[0]}:${detail.headRef}` : detail.headRef}
-            </code>
-            <button
-              type="button"
-              className="prc-branch-line__copy"
-              onClick={() => { void navigator.clipboard.writeText(detail.headRef ?? ''); }}
-              title="Copy branch name"
-              aria-label="Copy branch name"
-            >
-              ⎘
-            </button>
-          </div>
-        )}
         <div className="prc-actions">
           {StyleToggle}
           {handledState !== 'done' && (

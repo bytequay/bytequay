@@ -125,6 +125,14 @@ export function categorize(pr: PullRequestDto): Category {
   // Resurfaced PRs always jump back to Needs attention.
   if (isResurfaced(pr)) return 'needs_attention';
 
+  // Terminal-state PRs go to Cleared first. Without these guards a
+  // merged-on-GitHub PR whose local handledAction is still null
+  // (the user merged via the web, never via our app) falls through
+  // to the viewedAt / draft branches and lands in In Progress —
+  // which is wrong: there's nothing to do, the PR is done.
+  if (pr.mergedAt !== null) return 'cleared';
+  if (pr.state === 'closed') return 'cleared';
+
   const action = pr.handledAction;
 
   // User approved (Awaiting Review side) — Cleared zone: visible but quiet.
@@ -133,8 +141,11 @@ export function categorize(pr: PullRequestDto): Category {
   // User left a review without approving — ball is with the author.
   if (action === 'CHANGES_REQUESTED' || action === 'COMMENTED') return 'awaiting_author';
 
-  // User's own draft is In progress by definition.
-  if (pr.draft && pr.origin === 'AUTHORED') return 'in_progress';
+  // Drafts park in Cleared too — they're not yet an actionable review
+  // request, so they don't belong in any active zone. The kanban's
+  // dedicated DRAFTING column is where drafts live as first-class
+  // citizens; the sidebar list keeps them out of the way.
+  if (pr.draft) return 'cleared';
 
   // User has peeked at the PR but hasn't reviewed yet → In progress.
   if (pr.viewedAt !== null && pr.reviewedAt === null) return 'in_progress';

@@ -19,10 +19,8 @@ import {
   MY_PR_COLUMN_LABEL,
   TO_REVIEW_COLUMNS,
   TO_REVIEW_COLUMN_LABEL,
-  type Briefing,
   type MyPrColumn,
   type ToReviewColumn,
-  buildBriefing,
   groupMyPrs,
   groupToReview,
 } from '../prBuckets';
@@ -79,11 +77,9 @@ type Props = {
    *  kanban which lane to render. Team mode ignores this prop and
    *  forces 'mine'. */
   lane?: Lane;
-  /** Called when something inside the kanban (the morning briefing's
-   *  jump-to-lane chips) needs to switch lanes. The page header is
-   *  the source of truth for lane state, so it owns the persistence
-   *  too. Optional — when absent, the jump-to-lane chips no-op. */
-  onLaneChange?: (next: Lane) => void;
+  // onLaneChange went away with the morning-briefing strip — the page
+  // header is the only thing that switches lanes now, and it owns the
+  // setter directly.
   /** "inbox" (default) shows the My-PRs / To-review lane split with the
    *  morning briefing and Active/Recently-closed segment. "team" hides
    *  all of that and renders just the My-PRs column set under a single
@@ -185,20 +181,23 @@ function KanbanBoard(props: Props) {
     }
   }, [repoFilter, repoFilterMatchesAnything]);
 
-  // Briefing counters cover BOTH lanes regardless of the active tab —
-  // the morning briefing's whole job is to point you at whichever lane
-  // has hot work, even if you're currently looking at the other one.
-  const briefing = useMemo(() => buildBriefing(props.prs), [props.prs]);
+  // Briefing was used by the now-removed MorningBriefing strip and the
+  // team-mode header total. The team header still wants a count when no
+  // teamData is provided (rare fallback for the legacy non-paginated
+  // path); keep a minimal computation just for that single number.
+  const minePrCount = useMemo(
+    () => props.prs.filter(p => p.origin === 'AUTHORED').length,
+    [props.prs],
+  );
 
   return (
     <div className="kanban-v2">
-      {mode === 'inbox' && (
-        <MorningBriefing
-          briefing={briefing}
-          activeLane={lane}
-          onJumpToLane={(next) => props.onLaneChange?.(next)}
-        />
-      )}
+      {/* The morning-briefing strip ("☀ N of your PRs need changes · M
+          PRs need your review · → Start review") was removed: the
+          Focus band below it surfaces the same urgent PRs as cards,
+          and the red-dot alert on the page header's My PRs tab covers
+          the same "act here" signal — three places saying the same
+          thing was noise, not info. */}
       {mode === 'inbox' && (
         <FocusBand prs={props.prs} onSelect={props.onSelect} />
       )}
@@ -213,7 +212,7 @@ function KanbanBoard(props: Props) {
             <span className="kanban-v2__tab-count">
               {props.teamData
                 ? Object.values(props.teamData.totals).reduce((s, n) => s + n, 0)
-                : briefing.mineTotal}
+                : minePrCount}
             </span>
           </h3>
         </div>
@@ -456,59 +455,6 @@ function columnSize(kind: MyPrColumn | ToReviewColumn, collapsed: boolean, count
   }
 }
 
-// ── Morning briefing ───────────────────────────────────────────────────────
-// (Briefing type + buildBriefing live in ../prBuckets so the page header
-// can read them too.)
-
-function MorningBriefing({ briefing, activeLane, onJumpToLane }: {
-  briefing: Briefing;
-  activeLane: Lane;
-  onJumpToLane: (lane: Lane) => void;
-}) {
-  const parts: string[] = [];
-  if (briefing.mineNeedsChanges > 0) {
-    parts.push(`${briefing.mineNeedsChanges} of your PR${briefing.mineNeedsChanges === 1 ? '' : 's'} need${briefing.mineNeedsChanges === 1 ? 's' : ''} changes`);
-  }
-  if (briefing.mineReadyToMerge > 0) {
-    parts.push(`${briefing.mineReadyToMerge} ready to merge`);
-  }
-  if (briefing.toReviewNeedsAttention > 0) {
-    parts.push(`${briefing.toReviewNeedsAttention} PR${briefing.toReviewNeedsAttention === 1 ? '' : 's'} need${briefing.toReviewNeedsAttention === 1 ? 's' : ''} your review`);
-  }
-  if (parts.length === 0 && briefing.toReviewInProgress > 0) {
-    parts.push(`${briefing.toReviewInProgress} review${briefing.toReviewInProgress === 1 ? '' : 's'} in progress`);
-  }
-  const summary = parts.length === 0
-    ? 'Inbox zero — nothing needs you right now.'
-    : parts.join(' · ');
-
-  return (
-    <div className="kanban-v2__briefing" role="status">
-      <span className="kanban-v2__briefing-icon" aria-hidden="true">☀</span>
-      <span className="kanban-v2__briefing-text">{summary}</span>
-      <div className="kanban-v2__briefing-actions">
-        {briefing.mineNeedsAction > 0 && activeLane !== 'mine' && (
-          <button
-            type="button"
-            className="kanban-v2__briefing-chip kanban-v2__briefing-chip--warn"
-            onClick={() => onJumpToLane('mine')}
-          >
-            ⚠ Address feedback ({briefing.mineNeedsAction})
-          </button>
-        )}
-        {briefing.toReviewNeedsAttention > 0 && activeLane !== 'to_review' && (
-          <button
-            type="button"
-            className="kanban-v2__briefing-chip kanban-v2__briefing-chip--go"
-            onClick={() => onJumpToLane('to_review')}
-          >
-            → Start review ({briefing.toReviewNeedsAttention})
-          </button>
-        )}
-      </div>
-    </div>
-  );
-}
 
 /**
  * Picking algorithm for the focus band — "what should I touch first".

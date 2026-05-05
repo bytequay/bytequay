@@ -330,88 +330,98 @@ function PullRequestList({ onGoToTeams }: Props) {
     clearActiveScreen();
   };
 
-  // Shared header: brand + current-tab subtitle + tabs + filter + refresh.
-  const header = (
+  // Tab strip lives in the full-width kanban header only. When a PR is
+  // selected, the sidebar shrinks to a list of peers and the tab/scope
+  // controls would just clutter the narrow column — the user has
+  // already drilled in.
+  const tabsStrip = (
+    <div className="pr-list-header__tabs" role="tablist">
+      <button
+        type="button"
+        role="tab"
+        aria-selected={activeTab === 'inbox'}
+        className={`pr-list-tab${activeTab === 'inbox' ? ' pr-list-tab--active' : ''}`}
+        onClick={() => switchTab('inbox')}
+      >
+        Inbox
+      </button>
+      <button
+        type="button"
+        role="tab"
+        aria-selected={activeTab === 'handled'}
+        className={`pr-list-tab${activeTab === 'handled' ? ' pr-list-tab--active' : ''}`}
+        onClick={() => switchTab('handled')}
+      >
+        Handled
+      </button>
+      {/* Scope tabs (My PRs / To review / Teams). Only relevant on
+          the Inbox tab — the Handled tab shows a flat timeline. */}
+      {activeTab === 'inbox' && (
+        <>
+          <span className="pr-list-tabs__divider" aria-hidden="true" />
+          <button
+            type="button"
+            role="tab"
+            aria-selected={lane === 'mine'}
+            className={`pr-list-scope-tab${lane === 'mine' ? ' pr-list-scope-tab--active' : ''}`}
+            onClick={() => setLane('mine')}
+          >
+            <span aria-hidden="true">🚀</span> My PRs
+            {/* Red-dot alert (not a count) when at least one of your
+                PRs needs you. Stays a dot regardless of count — the
+                user clicks in to see what. */}
+            {briefing.mineNeedsAction > 0 && (
+              <span
+                className="pr-list-scope-tab__alert"
+                title={`${briefing.mineNeedsAction} need you`}
+                aria-label={`${briefing.mineNeedsAction} need you`}
+              />
+            )}
+          </button>
+          <button
+            type="button"
+            role="tab"
+            aria-selected={lane === 'to_review'}
+            className={`pr-list-scope-tab${lane === 'to_review' ? ' pr-list-scope-tab--active' : ''}`}
+            onClick={() => setLane('to_review')}
+          >
+            <span aria-hidden="true">📥</span> To review
+          </button>
+          {onGoToTeams && (
+            <button
+              type="button"
+              className="pr-list-scope-tab"
+              onClick={onGoToTeams}
+              title="Open the Teams page"
+            >
+              <span aria-hidden="true">👥</span> Teams
+            </button>
+          )}
+        </>
+      )}
+      {activeTab === 'handled' && continueReviewPr && (
+        <button
+          type="button"
+          className="pr-list-back-review"
+          onClick={handleContinueReview}
+          title={`Jump back to ${continueReviewPr.repo} #${continueReviewPr.number}.`}
+        >
+          ← Back to review
+        </button>
+      )}
+    </div>
+  );
+
+  /** Shared header. `withTabs=false` (sidebar mode) hides the
+   *  Inbox/Handled + scope tab strip — the user has drilled into a
+   *  PR and the tabs would just crowd the narrow column. */
+  const renderHeader = (withTabs: boolean) => (
     <div className="pr-list-header">
       <div className="pr-list-header__title">
         <span className="pr-list-header__brand">Today's review</span>
         <span className="pr-list-header__subtitle">{today}</span>
       </div>
-      <div className="pr-list-header__tabs" role="tablist">
-        <button
-          type="button"
-          role="tab"
-          aria-selected={activeTab === 'inbox'}
-          className={`pr-list-tab${activeTab === 'inbox' ? ' pr-list-tab--active' : ''}`}
-          onClick={() => switchTab('inbox')}
-        >
-          Inbox
-        </button>
-        <button
-          type="button"
-          role="tab"
-          aria-selected={activeTab === 'handled'}
-          className={`pr-list-tab${activeTab === 'handled' ? ' pr-list-tab--active' : ''}`}
-          onClick={() => switchTab('handled')}
-        >
-          Handled
-        </button>
-        {/* Scope tabs (My PRs / To review / Teams). Only relevant on
-            the Inbox tab — the Handled tab shows a flat timeline. */}
-        {activeTab === 'inbox' && (
-          <>
-            <span className="pr-list-tabs__divider" aria-hidden="true" />
-            <button
-              type="button"
-              role="tab"
-              aria-selected={lane === 'mine'}
-              className={`pr-list-scope-tab${lane === 'mine' ? ' pr-list-scope-tab--active' : ''}`}
-              onClick={() => setLane('mine')}
-            >
-              <span aria-hidden="true">🚀</span> My PRs
-              {/* Red-dot alert (not a count) when at least one of your
-                  PRs needs you. Stays a dot regardless of count — the
-                  user clicks in to see what. */}
-              {briefing.mineNeedsAction > 0 && (
-                <span
-                  className="pr-list-scope-tab__alert"
-                  title={`${briefing.mineNeedsAction} need you`}
-                  aria-label={`${briefing.mineNeedsAction} need you`}
-                />
-              )}
-            </button>
-            <button
-              type="button"
-              role="tab"
-              aria-selected={lane === 'to_review'}
-              className={`pr-list-scope-tab${lane === 'to_review' ? ' pr-list-scope-tab--active' : ''}`}
-              onClick={() => setLane('to_review')}
-            >
-              <span aria-hidden="true">📥</span> To review
-            </button>
-            {onGoToTeams && (
-              <button
-                type="button"
-                className="pr-list-scope-tab"
-                onClick={onGoToTeams}
-                title="Open the Teams page"
-              >
-                <span aria-hidden="true">👥</span> Teams
-              </button>
-            )}
-          </>
-        )}
-        {activeTab === 'handled' && continueReviewPr && (
-          <button
-            type="button"
-            className="pr-list-back-review"
-            onClick={handleContinueReview}
-            title={`Jump back to ${continueReviewPr.repo} #${continueReviewPr.number}.`}
-          >
-            ← Back to review
-          </button>
-        )}
-      </div>
+      {withTabs && tabsStrip}
       <input
         className="pr-list-header__filter"
         type="text"
@@ -476,7 +486,10 @@ function PullRequestList({ onGoToTeams }: Props) {
           </aside>
         ) : (
           <aside className="v2-sidebar" style={{ width: sidebarWidth }}>
-            {header}
+            {/* Sidebar mode = a PR is open. Hide the tab strip — the
+                user has drilled in; the narrow column should focus on
+                the peer-PR list, not navigation widgets. */}
+            {renderHeader(false)}
             <button
               type="button"
               className="v2-sidebar__collapse-btn"
@@ -543,7 +556,7 @@ function PullRequestList({ onGoToTeams }: Props) {
   // No selection: full-width view. Inbox → kanban. Handled → timeline.
   return (
     <div className="kanban-page" ref={pageRef}>
-      {header}
+      {renderHeader(true)}
       {loading && <div className="repo-loading">Loading…</div>}
       {error && <div className="repo-error">{error}</div>}
       {!loading && !error && activeTab === 'inbox' && (
@@ -559,9 +572,12 @@ function PullRequestList({ onGoToTeams }: Props) {
             </div>
           ) : (
             <KanbanBoard
-              prs={prs ?? []}
+              // `filtered` is `prs` after the page-header filter
+              // input is applied. The kanban needs the post-filter
+              // list so typing into the box actually narrows the
+              // columns; passing `prs` ignored the filter entirely.
+              prs={filtered}
               lane={lane}
-              onLaneChange={setLane}
               selectedId={selectedId}
               onSelect={handleSelect}
               onHandle={handleMarkHandled}

@@ -19,20 +19,21 @@ import {
   MY_PR_COLUMN_LABEL,
   TO_REVIEW_COLUMNS,
   TO_REVIEW_COLUMN_LABEL,
+  type Briefing,
   type MyPrColumn,
   type ToReviewColumn,
-  categorizeMyPr,
-  categorizeToReview,
+  buildBriefing,
   groupMyPrs,
   groupToReview,
 } from '../prBuckets';
 import KanbanColumn, { type KanbanColumnKind } from './KanbanColumn';
+import KanbanPrCard from './KanbanPrCard';
 
 const COLLAPSED_KEY = 'settings:kanban-collapsed-v2';
-const LANE_KEY = 'settings:kanban-lane';
+export const LANE_KEY = 'settings:kanban-lane';
 const REPO_FILTER_KEY = 'settings:kanban-repo-filter';
 
-type Lane = 'mine' | 'to_review';
+export type Lane = 'mine' | 'to_review';
 
 type CollapsedMap = Partial<Record<KanbanColumnKind, boolean>>;
 
@@ -41,11 +42,13 @@ type CollapsedMap = Partial<Record<KanbanColumnKind, boolean>>;
 // don't usually need a full-width column.
 const DEFAULT_COLLAPSED: CollapsedMap = {
   drafting: true,
-  recently_merged: true,
   // Handled is the user's "set aside" pile — collapsed by default so
   // it doesn't dominate the team page; click to expand and reopen.
   handled: true,
-  cleared_today: true,
+  // recently_merged + cleared_today used to default-collapsed because the
+  // page-level Active/Recently-merged toggle was the primary way to
+  // expand them. That toggle is gone; the kanban now shows the column
+  // by default with its own internal windowing (cap + "+N more").
 };
 
 function loadCollapsed(): CollapsedMap {
@@ -56,7 +59,7 @@ function loadCollapsed(): CollapsedMap {
   return DEFAULT_COLLAPSED;
 }
 
-function loadLane(): Lane {
+export function loadLane(): Lane {
   const raw = localStorage.getItem(LANE_KEY);
   return raw === 'mine' || raw === 'to_review' ? raw : 'to_review';
 }
@@ -71,13 +74,16 @@ type Props = {
   onSelect: (pr: PullRequestDto) => void;
   onHandle: (prId: number) => void;
   onReopen: (prId: number) => void;
-  /** Optional callback invoked when the user clicks the "Teams" tab. The
-   *  kanban itself doesn't render a teams view — the host page (typically
-   *  PullRequestList) routes to its own Teams page. If absent, the tab
-   *  is hidden. */
-  onTeamsClick?: () => void;
-  /** Optional count to render alongside the Teams tab badge. */
-  teamsCount?: number;
+  /** Controlled lane. The page header (PullRequestList) renders the
+   *  My PRs / To review tabs, owns the persistence, and tells the
+   *  kanban which lane to render. Team mode ignores this prop and
+   *  forces 'mine'. */
+  lane?: Lane;
+  /** Called when something inside the kanban (the morning briefing's
+   *  jump-to-lane chips) needs to switch lanes. The page header is
+   *  the source of truth for lane state, so it owns the persistence
+   *  too. Optional — when absent, the jump-to-lane chips no-op. */
+  onLaneChange?: (next: Lane) => void;
   /** "inbox" (default) shows the My-PRs / To-review lane split with the
    *  morning briefing and Active/Recently-closed segment. "team" hides
    *  all of that and renders just the My-PRs column set under a single
@@ -116,14 +122,12 @@ function KanbanBoard(props: Props) {
   // set, just labelled differently) because team PRs are PRs *authored
   // by* team members. The lane tabs, briefing, and Active/Recent segment
   // are all hidden — see the render below.
-  const [lane, setLane] = useState<Lane>(() => mode === 'team' ? 'mine' : loadLane());
+  // Team mode is always "mine"; otherwise honour the controlled prop
+  // from the page header. Falls back to localStorage for back-compat
+  // with any caller that hasn't been migrated to the controlled API.
+  const lane: Lane = mode === 'team' ? 'mine' : (props.lane ?? loadLane());
   const [collapsed, setCollapsed] = useState<CollapsedMap>(loadCollapsed);
   const [repoFilter, setRepoFilter] = useState<string>(loadRepoFilter);
-
-  const setLanePersisted = (next: Lane) => {
-    setLane(next);
-    try { localStorage.setItem(LANE_KEY, next); } catch { /* ignore */ }
-  };
 
   const setRepoFilterPersisted = (next: string) => {
     setRepoFilter(next);
@@ -189,22 +193,23 @@ function KanbanBoard(props: Props) {
   return (
     <div className="kanban-v2">
       {mode === 'inbox' && (
-        <MorningBriefing briefing={briefing} activeLane={lane} onJumpToLane={setLanePersisted} />
+        <MorningBriefing
+          briefing={briefing}
+          activeLane={lane}
+          onJumpToLane={(next) => props.onLaneChange?.(next)}
+        />
+      )}
+      {mode === 'inbox' && (
+        <FocusBand prs={props.prs} onSelect={props.onSelect} />
       )}
 
-      {/* Tab toolbar — left-side lane tabs (My PRs / To review / Teams),
-          right-side segment (Active / Recently closed). The lane tabs
-          have a small left padding so they don't sit flush against the
-          page boundary, matching the mockup.
-          In team mode this collapses to a single "PRs" header — there's
-          only one lane (PRs by team members) so tabs are noise. */}
-      {mode === 'team' ? (
+      {/* Team mode keeps a tiny "PRs" header. Inbox mode renders no
+          toolbar of its own — the lane tabs (My PRs / To review /
+          Teams) live in the page header (PullRequestList). */}
+      {mode === 'team' && (
         <div className="kanban-v2__tab-toolbar">
           <h3 className="kanban-v2__lane-header">
             PRs
-            {/* Team mode: total comes from the columned response, not
-                props.prs (which is empty in team mode). Sums every
-                column INCLUDING handled so the count never drifts. */}
             <span className="kanban-v2__tab-count">
               {props.teamData
                 ? Object.values(props.teamData.totals).reduce((s, n) => s + n, 0)
@@ -212,69 +217,6 @@ function KanbanBoard(props: Props) {
             </span>
           </h3>
         </div>
-      ) : (
-      <div className="kanban-v2__tab-toolbar">
-        <div className="kanban-v2__lane-tabs" role="tablist" aria-label="Kanban lane">
-          <button
-            type="button"
-            role="tab"
-            aria-selected={lane === 'mine'}
-            className={`kanban-v2__tab${lane === 'mine' ? ' kanban-v2__tab--active' : ''}`}
-            onClick={() => setLanePersisted('mine')}
-          >
-            <span className="kanban-v2__tab-icon" aria-hidden="true">🚀</span>
-            <span>My PRs</span>
-            <span className="kanban-v2__tab-count">{briefing.mineTotal}</span>
-            {briefing.mineNeedsAction > 0 && (
-              <span className="kanban-v2__tab-flag" title={`${briefing.mineNeedsAction} need you`}>
-                {briefing.mineNeedsAction} need you
-              </span>
-            )}
-          </button>
-          <button
-            type="button"
-            role="tab"
-            aria-selected={lane === 'to_review'}
-            className={`kanban-v2__tab${lane === 'to_review' ? ' kanban-v2__tab--active' : ''}`}
-            onClick={() => setLanePersisted('to_review')}
-          >
-            <span className="kanban-v2__tab-icon" aria-hidden="true">📥</span>
-            <span>To review</span>
-            <span className="kanban-v2__tab-count">{briefing.toReviewTotal}</span>
-          </button>
-          {props.onTeamsClick && (
-            <button
-              type="button"
-              className="kanban-v2__tab"
-              onClick={props.onTeamsClick}
-              title="Open the Teams page"
-            >
-              <span className="kanban-v2__tab-icon" aria-hidden="true">👥</span>
-              <span>Teams</span>
-              {typeof props.teamsCount === 'number' && (
-                <span className="kanban-v2__tab-count">{props.teamsCount}</span>
-              )}
-            </button>
-          )}
-        </div>
-        {/* Right-side segmented control. For the To-review lane it splits
-            Active vs. Recently-closed (cleared_today shows count of
-            recently-cleared cards). For My PRs it splits Active vs.
-            Recently merged. Today this is a UI-only state — the columns
-            already reflect the same partition. Wired to the underlying
-            collapsed-column state so toggling actually changes the view. */}
-        <RecentSegment
-          lane={lane}
-          counts={{
-            mineActive: briefing.mineTotal - countIn(props.prs, 'AUTHORED', categorizeMyPr_recentlyMerged),
-            mineRecent: countIn(props.prs, 'AUTHORED', categorizeMyPr_recentlyMerged),
-            toReviewActive: briefing.toReviewTotal - countIn(props.prs, 'REVIEW_REQUESTED', categorizeToReview_clearedToday),
-            toReviewRecent: countIn(props.prs, 'REVIEW_REQUESTED', categorizeToReview_clearedToday),
-          }}
-          collapsed={collapsed}
-          onToggle={toggle}
-        />
-      </div>
       )}
 
       {repoOptions.length > 1 && (
@@ -388,7 +330,11 @@ function TeamKanbanBoard({
             onLoadMore={() => teamData.onLoadMoreColumn(col)}
             selectedId={selectedId}
             collapsed={collapsed[col] ?? false}
-            yourMove={col === 'needs_changes' ? 'caution' : col === 'ready_to_merge' ? 'go' : undefined}
+            yourMove={
+              col === 'needs_changes' && total > 0 ? 'caution'
+                : col === 'ready_to_merge' && total > 0 ? 'go'
+                  : undefined
+            }
             onToggle={() => onToggle(col)}
             onSelect={onSelect}
             onHandle={onHandle}
@@ -427,7 +373,14 @@ function MyPrsBoard({ prs, selectedId, collapsed, onToggle, onSelect, onHandle, 
           prs={groups[col]}
           selectedId={selectedId}
           collapsed={collapsed[col] ?? false}
-          yourMove={col === 'needs_changes' ? 'caution' : col === 'ready_to_merge' ? 'go' : undefined}
+          // URGENT (caution) and YOUR MOVE (go) flags only fire when
+          // the column actually has work — design spec: "URGENT flag
+          // pill when non-empty", "YOUR MOVE flag pill when non-empty".
+          yourMove={
+            col === 'needs_changes' && groups[col].length > 0 ? 'caution'
+              : col === 'ready_to_merge' && groups[col].length > 0 ? 'go'
+                : undefined
+          }
           onToggle={() => onToggle(col)}
           onSelect={onSelect}
           onHandle={onHandle}
@@ -491,90 +444,8 @@ function columnSize(kind: MyPrColumn | ToReviewColumn, collapsed: boolean, count
 }
 
 // ── Morning briefing ───────────────────────────────────────────────────────
-
-type Briefing = {
-  mineTotal: number;
-  mineNeedsAction: number;        // needs_changes + ready_to_merge
-  mineReadyToMerge: number;
-  mineNeedsChanges: number;
-  toReviewTotal: number;
-  toReviewNeedsAttention: number;
-  toReviewInProgress: number;
-};
-
-function buildBriefing(prs: PullRequestDto[]): Briefing {
-  const myPrs = prs.filter(p => p.origin === 'AUTHORED');
-  const toReview = prs.filter(p => p.origin === 'REVIEW_REQUESTED');
-  const myGroups = groupMyPrs(myPrs);
-  const trGroups = groupToReview(toReview);
-  return {
-    mineTotal: Object.values(myGroups).reduce((s, l) => s + l.length, 0),
-    mineNeedsAction: myGroups.needs_changes.length + myGroups.ready_to_merge.length,
-    mineReadyToMerge: myGroups.ready_to_merge.length,
-    mineNeedsChanges: myGroups.needs_changes.length,
-    toReviewTotal: Object.values(trGroups).reduce((s, l) => s + l.length, 0),
-    toReviewNeedsAttention: trGroups.needs_attention.length,
-    toReviewInProgress: trGroups.in_progress.length,
-  };
-}
-
-/** Counts PRs of a given origin that fall into `predicate`'s column. */
-function countIn(
-  prs: PullRequestDto[],
-  origin: 'AUTHORED' | 'REVIEW_REQUESTED',
-  predicate: (pr: PullRequestDto) => boolean,
-): number {
-  return prs.filter(p => p.origin === origin && predicate(p)).length;
-}
-const categorizeMyPr_recentlyMerged = (pr: PullRequestDto) =>
-  categorizeMyPr(pr) === 'recently_merged';
-const categorizeToReview_clearedToday = (pr: PullRequestDto) =>
-  categorizeToReview(pr) === 'cleared_today';
-
-/** Right-side segmented control. "Active" collapses the recent column;
- *  "Recently closed" expands it. Stays synced with the column's
- *  collapsed state so toggling either side flips both visually. */
-function RecentSegment({
-  lane,
-  counts,
-  collapsed,
-  onToggle,
-}: {
-  lane: Lane;
-  counts: { mineActive: number; mineRecent: number; toReviewActive: number; toReviewRecent: number };
-  collapsed: CollapsedMap;
-  onToggle: (kind: KanbanColumnKind) => void;
-}) {
-  const recentCol: KanbanColumnKind = lane === 'mine' ? 'recently_merged' : 'cleared_today';
-  const recentExpanded = !(collapsed[recentCol] ?? true);
-  const activeCount = lane === 'mine' ? counts.mineActive : counts.toReviewActive;
-  const recentCount = lane === 'mine' ? counts.mineRecent : counts.toReviewRecent;
-  const recentLabel = lane === 'mine' ? 'Recently merged' : 'Recently closed';
-  return (
-    <div className="kanban-v2__seg" role="tablist" aria-label="Show active or recently-closed PRs">
-      <button
-        type="button"
-        role="tab"
-        aria-selected={!recentExpanded}
-        className={`kanban-v2__seg-btn${!recentExpanded ? ' kanban-v2__seg-btn--active' : ''}`}
-        onClick={() => { if (recentExpanded) onToggle(recentCol); }}
-      >
-        Active
-        <span className="kanban-v2__seg-count">{activeCount}</span>
-      </button>
-      <button
-        type="button"
-        role="tab"
-        aria-selected={recentExpanded}
-        className={`kanban-v2__seg-btn${recentExpanded ? ' kanban-v2__seg-btn--active' : ''}`}
-        onClick={() => { if (!recentExpanded) onToggle(recentCol); }}
-      >
-        {recentLabel}
-        <span className="kanban-v2__seg-count">{recentCount}</span>
-      </button>
-    </div>
-  );
-}
+// (Briefing type + buildBriefing live in ../prBuckets so the page header
+// can read them too.)
 
 function MorningBriefing({ briefing, activeLane, onJumpToLane }: {
   briefing: Briefing;
@@ -623,6 +494,136 @@ function MorningBriefing({ briefing, activeLane, onJumpToLane }: {
         )}
       </div>
     </div>
+  );
+}
+
+/**
+ * Picking algorithm for the focus band — "what should I touch first".
+ * Per docs/mockups/v2/pr-dashboard/SUMMARY.md:
+ *   NEEDS CHANGES > CI failing > Merge conflict > stale (>7d no review)
+ *   > YOUR-MOVE ready-to-merge
+ * Cap 4. Each tier filters down candidates of any origin (My PRs and
+ * To Review both compete for the slots — the band is about urgency,
+ * not lane). Stable order within a tier = oldest-updatedAt first
+ * (most stale = most urgent within the same kind).
+ */
+function pickFocusCards(prs: PullRequestDto[], now: number = Date.now()): PullRequestDto[] {
+  const STALE_MS = 7 * 24 * 60 * 60 * 1000;
+  const seen = new Set<number>();
+  const out: PullRequestDto[] = [];
+  const pushUnique = (pr: PullRequestDto) => {
+    if (seen.has(pr.id) || out.length >= 4) return;
+    seen.add(pr.id);
+    out.push(pr);
+  };
+
+  // Skip merged / closed / draft / handled — they're not actionable now.
+  const eligible = prs.filter(pr =>
+    !pr.mergedAt
+    && pr.state !== 'closed'
+    && !pr.draft
+    && pr.handledAction !== 'MERGED'
+    && pr.handledAction !== 'DISMISSED'
+    && pr.handledAction !== 'MANUAL');
+
+  const byUpdatedAsc = (a: PullRequestDto, b: PullRequestDto) =>
+    new Date(a.updatedAt).getTime() - new Date(b.updatedAt).getTime();
+
+  // Tier 1: NEEDS CHANGES — author has work to do (My PRs only).
+  eligible
+    .filter(pr =>
+      pr.origin === 'AUTHORED'
+      && Object.values(pr.reviewerVerdicts ?? {}).includes('CHANGES_REQUESTED'))
+    .sort(byUpdatedAsc)
+    .forEach(pushUnique);
+
+  // Tier 2: CI failing.
+  eligible
+    .filter(pr => pr.attentionReason === 'CI_FAILING' || pr.ciStatus === 'FAILING')
+    .sort(byUpdatedAsc)
+    .forEach(pushUnique);
+
+  // Tier 3: merge conflict — explicit attention reason or mergeable=false.
+  eligible
+    .filter(pr => pr.attentionReason === 'MERGE_CONFLICT' || pr.mergeable === false)
+    .sort(byUpdatedAsc)
+    .forEach(pushUnique);
+
+  // Tier 4: stale — no reviewer verdicts AND last update >7 days ago.
+  eligible
+    .filter(pr => {
+      const stale = now - new Date(pr.updatedAt).getTime() > STALE_MS;
+      const noVerdicts = Object.keys(pr.reviewerVerdicts ?? {}).length === 0;
+      return stale && noVerdicts;
+    })
+    .sort(byUpdatedAsc)
+    .forEach(pushUnique);
+
+  // Tier 5: YOUR-MOVE — ready-to-merge on My PRs (approval + CI green
+  // + not blocked). Same conditions as categorizeMyPr's ready_to_merge.
+  eligible
+    .filter(pr => {
+      if (pr.origin !== 'AUTHORED') return false;
+      const verdicts = Object.values(pr.reviewerVerdicts ?? {});
+      const hasApproval = verdicts.includes('APPROVED');
+      const hasChanges = verdicts.includes('CHANGES_REQUESTED');
+      return hasApproval && !hasChanges && pr.ciStatus === 'PASSING' && pr.mergeable !== false;
+    })
+    .sort(byUpdatedAsc)
+    .forEach(pushUnique);
+
+  return out;
+}
+
+/**
+ * The 🔥 focus band — a curated horizontal row above the kanban that
+ * answers "what should I touch first" before the user has scrolled.
+ * Same card style as the kanban below; this is visual duplication on
+ * purpose. Hidden when no card qualifies.
+ *
+ * The "Customize…" link is a placeholder — we'll wire it when the
+ * snooze feature ships and per-card snooze becomes available from
+ * the band.
+ */
+function FocusBand({ prs, onSelect }: {
+  prs: PullRequestDto[];
+  onSelect: (pr: PullRequestDto) => void;
+}) {
+  const cards = useMemo(() => pickFocusCards(prs), [prs]);
+  if (cards.length === 0) return null;
+  return (
+    <section className="focus-band" aria-label="Needs your urgent attention">
+      <header className="focus-band__head">
+        <span className="focus-band__title">🔥 Needs your urgent attention</span>
+        <span className="focus-band__count">{cards.length}</span>
+        <span className="focus-band__subtitle">
+          most blocking first · same cards live in the kanban below
+        </span>
+        <button
+          type="button"
+          className="focus-band__customize"
+          disabled
+          title="Coming with the snooze feature"
+        >
+          Customize…
+        </button>
+      </header>
+      <div className="focus-band__row">
+        {cards.map(pr => (
+          <KanbanPrCard
+            key={pr.id}
+            pr={pr}
+            // 'needs_attention' triggers the urgent banner styling on
+            // the card; the picking algorithm already filters to
+            // genuinely-blocking work.
+            column="needs_attention"
+            mode="inbox"
+            selected={false}
+            onSelect={() => onSelect(pr)}
+          />
+        ))}
+      </div>
+    </section>
   );
 }
 

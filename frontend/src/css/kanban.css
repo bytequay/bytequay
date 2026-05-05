@@ -137,6 +137,58 @@
   background: rgba(255, 255, 255, 0.22);
 }
 
+/* Vertical divider between Inbox/Handled and the scope tabs (My PRs /
+   To review / Teams) so the two groups read as related-but-distinct
+   controls rather than one big blob of buttons. */
+.pr-list-tabs__divider {
+  display: inline-block;
+  width: 1px;
+  height: 18px;
+  background: var(--border);
+  margin: 0 6px;
+  align-self: center;
+}
+
+/* Scope tab — visually lighter than the Inbox/Handled toggle since
+   it's a sub-selector within the Inbox view. Active state uses an
+   underline accent; the hover keeps the same accent-tinted bg as
+   the rest of the toolbar. */
+.pr-list-scope-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 10px;
+  border: none;
+  background: transparent;
+  color: var(--text-2);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 500;
+  border-radius: 4px;
+  cursor: pointer;
+  position: relative;
+}
+.pr-list-scope-tab:hover {
+  color: var(--text-1);
+  background: var(--accent-a7);
+}
+.pr-list-scope-tab--active {
+  color: var(--accent);
+  font-weight: 600;
+  background: var(--accent-a7);
+}
+
+/* Red dot for the "needs you" alert on My PRs. Sits flush against the
+   right edge of the tab; not a count, just a signal. */
+.pr-list-scope-tab__alert {
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #cf222e;
+  margin-left: 4px;
+}
+
 .handled-page {
   flex: 1 1 0;
   min-height: 0;
@@ -1371,3 +1423,57 @@ h3 {
   margin: 24px 0;
 }
 
+
+/* ── Focus band ───────────────────────────────────────────────────────
+   The 🔥 row above the kanban that surfaces the most urgent cards
+   first. Lives between the morning briefing and the lane tabs. Same
+   white surface as the rest of the page; the thin red left border
+   is the only thing flagging urgency without being garish. */
+.focus-band {
+  margin: 12px 0 16px;
+  padding: 12px 14px 14px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-left: 3px solid #cf222e;
+  border-radius: 8px;
+}
+.focus-band__head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 10px;
+}
+.focus-band__title {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text-1);
+}
+.focus-band__count {
+  font-size: 10.5px;
+  font-weight: 700;
+  padding: 1px 7px;
+  border-radius: 999px;
+  background: rgba(207, 34, 46, 0.12);
+  color: #cf222e;
+}
+.focus-band__subtitle {
+  font-size: 11.5px;
+  color: var(--text-3);
+  flex: 1 1 auto;
+}
+.focus-band__customize {
+  appearance: none;
+  background: transparent;
+  border: 0;
+  font: inherit;
+  font-size: 11.5px;
+  color: var(--text-3);
+  cursor: not-allowed;
+  padding: 0;
+  text-decoration: underline dotted;
+}
+.focus-band__row {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: 10px;
+}

@@ -512,3 +512,35 @@ function byReviewedAtDesc(a: PullRequestDto, b: PullRequestDto): number {
   const tb = b.reviewedAt ? new Date(b.reviewedAt).getTime() : 0;
   return tb - ta;
 }
+
+// ── Briefing — at-a-glance counters used by the page header / banner ──────
+
+/** Roll-up of the kanban columns the user reads "at a glance". The
+ *  My PRs summary banner pulls from `mine*`; the To Review summary
+ *  banner from `toReview*`. The page-header red-dot alert on the
+ *  My PRs scope tab fires when `mineNeedsAction > 0`. */
+export type Briefing = {
+  mineTotal: number;
+  mineNeedsAction: number;        // needs_changes + ready_to_merge
+  mineReadyToMerge: number;
+  mineNeedsChanges: number;
+  toReviewTotal: number;
+  toReviewNeedsAttention: number;
+  toReviewInProgress: number;
+};
+
+export function buildBriefing(prs: PullRequestDto[]): Briefing {
+  const myPrs = prs.filter(p => p.origin === 'AUTHORED');
+  const toReview = prs.filter(p => p.origin === 'REVIEW_REQUESTED');
+  const myGroups = groupMyPrs(myPrs);
+  const trGroups = groupToReview(toReview);
+  return {
+    mineTotal: Object.values(myGroups).reduce((s, l) => s + l.length, 0),
+    mineNeedsAction: myGroups.needs_changes.length + myGroups.ready_to_merge.length,
+    mineReadyToMerge: myGroups.ready_to_merge.length,
+    mineNeedsChanges: myGroups.needs_changes.length,
+    toReviewTotal: Object.values(trGroups).reduce((s, l) => s + l.length, 0),
+    toReviewNeedsAttention: trGroups.needs_attention.length,
+    toReviewInProgress: trGroups.in_progress.length,
+  };
+}

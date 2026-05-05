@@ -28,6 +28,7 @@ import {
   persistLastReviewingId,
 } from './pullRequestListHelpers';
 import {
+  buildBriefing,
   groupHandledByTime,
   isHandled,
   markHandledPatch,
@@ -40,7 +41,7 @@ import {
   unmergedPatch,
 } from './prBuckets';
 import { CategorizedList, HandledTimeline } from './PrBucketViews';
-import KanbanBoard from './kanban/KanbanBoard';
+import KanbanBoard, { LANE_KEY, loadLane, type Lane } from './kanban/KanbanBoard';
 
 const PRS_CACHE_KEY = 'prs:list';
 const SIDEBAR_COLLAPSED_KEY = 'settings:pr-sidebar-collapsed';
@@ -66,6 +67,15 @@ function PullRequestList({ onGoToTeams }: Props) {
   const [diffViewerCommitSha, setDiffViewerCommitSha] = useState<string | null>(null);
   const [filter, setFilter] = useState('');
   const [activeTab, setActiveTab] = useState<'inbox' | 'handled'>('inbox');
+  // Lane state for the kanban view (My PRs / To review). Lifted out of
+  // KanbanBoard so the page header can render the scope tabs alongside
+  // the Inbox/Handled toggle. Persistence stays at the same localStorage
+  // key the kanban used to own.
+  const [lane, setLaneState] = useState<Lane>(loadLane);
+  const setLane = (next: Lane) => {
+    setLaneState(next);
+    try { localStorage.setItem(LANE_KEY, next); } catch { /* ignore */ }
+  };
   const [lastReviewingPrId, setLastReviewingPrId] = useState<number | null>(loadLastReviewingId);
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const [sidebarWidth, setSidebarWidth] = useState<number>(loadSidebarWidth);
@@ -193,6 +203,10 @@ function PullRequestList({ onGoToTeams }: Props) {
   const handledSorted = useMemo(() => sortHandled(handled), [handled]);
   const handledGroups = useMemo(() => groupHandledByTime(handledSorted), [handledSorted]);
   const tabPrs = activeTab === 'inbox' ? inbox : handledSorted;
+  // Briefing drives the red-dot alert on the My PRs scope tab. The
+  // kanban renders its own copy too — we recompute here so the page
+  // header doesn't have to reach into the child for state.
+  const briefing = useMemo(() => buildBriefing(prs ?? []), [prs]);
 
   // Keyboard j/k style nav over the currently-visible tab's PRs.
   useEffect(() => {
@@ -321,9 +335,7 @@ function PullRequestList({ onGoToTeams }: Props) {
     <div className="pr-list-header">
       <div className="pr-list-header__title">
         <span className="pr-list-header__brand">Today's review</span>
-        <span className="pr-list-header__subtitle">
-          {today} · {tabPrs.length} PR{tabPrs.length === 1 ? '' : 's'}
-        </span>
+        <span className="pr-list-header__subtitle">{today}</span>
       </div>
       <div className="pr-list-header__tabs" role="tablist">
         <button
@@ -333,7 +345,7 @@ function PullRequestList({ onGoToTeams }: Props) {
           className={`pr-list-tab${activeTab === 'inbox' ? ' pr-list-tab--active' : ''}`}
           onClick={() => switchTab('inbox')}
         >
-          Inbox <span className="pr-list-tab__count">{inbox.length}</span>
+          Inbox
         </button>
         <button
           type="button"
@@ -342,8 +354,53 @@ function PullRequestList({ onGoToTeams }: Props) {
           className={`pr-list-tab${activeTab === 'handled' ? ' pr-list-tab--active' : ''}`}
           onClick={() => switchTab('handled')}
         >
-          Handled <span className="pr-list-tab__count">{handled.length}</span>
+          Handled
         </button>
+        {/* Scope tabs (My PRs / To review / Teams). Only relevant on
+            the Inbox tab — the Handled tab shows a flat timeline. */}
+        {activeTab === 'inbox' && (
+          <>
+            <span className="pr-list-tabs__divider" aria-hidden="true" />
+            <button
+              type="button"
+              role="tab"
+              aria-selected={lane === 'mine'}
+              className={`pr-list-scope-tab${lane === 'mine' ? ' pr-list-scope-tab--active' : ''}`}
+              onClick={() => setLane('mine')}
+            >
+              <span aria-hidden="true">🚀</span> My PRs
+              {/* Red-dot alert (not a count) when at least one of your
+                  PRs needs you. Stays a dot regardless of count — the
+                  user clicks in to see what. */}
+              {briefing.mineNeedsAction > 0 && (
+                <span
+                  className="pr-list-scope-tab__alert"
+                  title={`${briefing.mineNeedsAction} need you`}
+                  aria-label={`${briefing.mineNeedsAction} need you`}
+                />
+              )}
+            </button>
+            <button
+              type="button"
+              role="tab"
+              aria-selected={lane === 'to_review'}
+              className={`pr-list-scope-tab${lane === 'to_review' ? ' pr-list-scope-tab--active' : ''}`}
+              onClick={() => setLane('to_review')}
+            >
+              <span aria-hidden="true">📥</span> To review
+            </button>
+            {onGoToTeams && (
+              <button
+                type="button"
+                className="pr-list-scope-tab"
+                onClick={onGoToTeams}
+                title="Open the Teams page"
+              >
+                <span aria-hidden="true">👥</span> Teams
+              </button>
+            )}
+          </>
+        )}
         {activeTab === 'handled' && continueReviewPr && (
           <button
             type="button"
@@ -503,11 +560,12 @@ function PullRequestList({ onGoToTeams }: Props) {
           ) : (
             <KanbanBoard
               prs={prs ?? []}
+              lane={lane}
+              onLaneChange={setLane}
               selectedId={selectedId}
               onSelect={handleSelect}
               onHandle={handleMarkHandled}
               onReopen={handleReopen}
-              onTeamsClick={onGoToTeams}
             />
           )}
         </>

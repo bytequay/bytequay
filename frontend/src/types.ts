@@ -243,6 +243,14 @@ export type PullRequestDetailDto = {
    *  repository — used to gate the merge button on the detail page so we
    *  don't surface a control GitHub will reject. */
   viewerCanWrite: boolean;
+  /** Branch name on the head side (e.g. "feat/foo"). Null on legacy rows. */
+  headRef: string | null;
+  /** "owner/repo" of the head side; differs from baseRepo on fork PRs. */
+  headRepo: string | null;
+  /** Target branch (almost always the default branch). */
+  baseRef: string | null;
+  /** "owner/repo" of the target side; same as the PR's repo for in-repo PRs. */
+  baseRepo: string | null;
 };
 
 /** Lightweight CI-only slice served by /prs/ci. Polled while the detail

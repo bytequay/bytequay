@@ -161,7 +161,7 @@ class TestPrAttention
     void testMergeConflictFiresOnAuthoredPr()
     {
         StoredPrDetail detail = new StoredPrDetail(
-                new PrRawDetail(null, ImmutableList.of(), false, false, "dirty", 0, 0, 0, 0, "abc"),
+                new PrRawDetail(null, ImmutableList.of(), false, false, "dirty", 0, 0, 0, 0, "abc", null, null, null, null),
                 ImmutableList.of(), ImmutableList.of(), ImmutableList.of(),
                 ImmutableList.of(), ImmutableList.of(), ImmutableList.of());
         AttentionReason reason = PrAttention.promoteReason(prWith(PullRequest.Origin.AUTHORED), detail, ME, NOW, NOW);
@@ -172,7 +172,7 @@ class TestPrAttention
     void testMergeConflictDoesNotFireOnReviewRequestedPr()
     {
         StoredPrDetail detail = new StoredPrDetail(
-                new PrRawDetail(null, ImmutableList.of(), false, false, "dirty", 0, 0, 0, 0, "abc"),
+                new PrRawDetail(null, ImmutableList.of(), false, false, "dirty", 0, 0, 0, 0, "abc", null, null, null, null),
                 ImmutableList.of(), ImmutableList.of(), ImmutableList.of(),
                 ImmutableList.of(), ImmutableList.of(), ImmutableList.of());
         AttentionReason reason = PrAttention.promoteReason(prWith(PullRequest.Origin.REVIEW_REQUESTED), detail, ME, NOW, NOW);
@@ -206,7 +206,7 @@ class TestPrAttention
     void testCiFailingTakesPrecedenceOverMergeConflictAndMine()
     {
         StoredPrDetail detail = new StoredPrDetail(
-                new PrRawDetail(null, ImmutableList.of(), false, false, "dirty", 0, 0, 0, 0, "abc"),
+                new PrRawDetail(null, ImmutableList.of(), false, false, "dirty", 0, 0, 0, 0, "abc", null, null, null, null),
                 ImmutableList.of(), ImmutableList.of(), ImmutableList.of(),
                 ImmutableList.of(new PrCheckRunState(null, "ci", "completed", "failure", null, null, null)),
                 ImmutableList.of(), ImmutableList.of());
@@ -233,6 +233,6 @@ class TestPrAttention
 
     private static PrRawDetail rawDetail()
     {
-        return new PrRawDetail(null, ImmutableList.of(), false, null, null, 0, 0, 0, 0, "abc");
+        return new PrRawDetail(null, ImmutableList.of(), false, null, null, 0, 0, 0, 0, "abc", null, null, null, null);
     }
 }

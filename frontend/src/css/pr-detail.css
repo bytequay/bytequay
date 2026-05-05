@@ -95,6 +95,33 @@
   background: #cf222e;
   color: #fff;
 }
+
+/* "head → base" pill in the PR header. Same monospace anchor GitHub
+   uses on its own conversation page so the eye reads it as code. The
+   subtle background separates it from the surrounding meta strip
+   without competing with the status pill above. */
+.prc-branches {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 11px;
+  color: var(--text-2);
+}
+.prc-branches__ref {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, monospace;
+  font-size: 11px;
+  padding: 2px 6px;
+  border-radius: 4px;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  color: var(--text-1);
+  white-space: nowrap;
+}
+.prc-branches__arrow {
+  color: var(--text-3);
+  font-size: 11px;
+}
+
 .prc-actions {
   grid-area: actions;
   display: flex;

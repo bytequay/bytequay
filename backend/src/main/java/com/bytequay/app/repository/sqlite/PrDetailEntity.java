@@ -57,6 +57,18 @@ class PrDetailEntity
 
     private String headSha;
 
+    @Column(name = "head_ref")
+    private String headRef;
+
+    @Column(name = "head_repo")
+    private String headRepo;
+
+    @Column(name = "base_ref")
+    private String baseRef;
+
+    @Column(name = "base_repo")
+    private String baseRepo;
+
     @Column(nullable = false)
     @Convert(converter = InstantToTextConverter.class)
     private Instant syncedAt;
@@ -95,6 +107,18 @@ class PrDetailEntity
 
     String getHeadSha() { return headSha; }
     void setHeadSha(String headSha) { this.headSha = headSha; }
+
+    String getHeadRef() { return headRef; }
+    void setHeadRef(String headRef) { this.headRef = headRef; }
+
+    String getHeadRepo() { return headRepo; }
+    void setHeadRepo(String headRepo) { this.headRepo = headRepo; }
+
+    String getBaseRef() { return baseRef; }
+    void setBaseRef(String baseRef) { this.baseRef = baseRef; }
+
+    String getBaseRepo() { return baseRepo; }
+    void setBaseRepo(String baseRepo) { this.baseRepo = baseRepo; }
 
     Instant getSyncedAt() { return syncedAt; }
     void setSyncedAt(Instant syncedAt) { this.syncedAt = syncedAt; }

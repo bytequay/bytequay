@@ -93,7 +93,11 @@ public class SqlitePrDetailStore
                 d.getDeletions(),
                 d.getChangedFiles(),
                 d.getRequestedReviewerCount(),
-                d.getHeadSha());
+                d.getHeadSha(),
+                d.getHeadRef(),
+                d.getHeadRepo(),
+                d.getBaseRef(),
+                d.getBaseRepo());
 
         List<PrReviewState> reviews = reviewRepo.findByPrId(prId).stream()
                 .map(r -> new PrReviewState(r.getLogin(), r.getState()))
@@ -311,6 +315,10 @@ public class SqlitePrDetailStore
         entity.setChangedFiles(raw.changedFiles());
         entity.setRequestedReviewerCount(raw.requestedReviewerCount());
         entity.setHeadSha(raw.headSha());
+        entity.setHeadRef(raw.headRef());
+        entity.setHeadRepo(raw.headRepo());
+        entity.setBaseRef(raw.baseRef());
+        entity.setBaseRepo(raw.baseRepo());
         entity.setSyncedAt(syncedAt);
         return entity;
     }

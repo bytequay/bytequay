@@ -28,4 +28,17 @@ public record PrRawDetail(
         int deletions,
         int changedFiles,
         int requestedReviewerCount,
-        String headSha) {}
+        String headSha,
+        /** Branch name on the head side (e.g. "feat/foo"). Null on legacy
+         *  rows that pre-date the PR-detail endpoint capturing branch refs. */
+        String headRef,
+        /** "owner/repo" of the head side. Differs from baseRepo when the PR
+         *  comes from a fork. Null on legacy rows. */
+        String headRepo,
+        /** Target branch (almost always the repo's default branch). Null on
+         *  legacy rows. */
+        String baseRef,
+        /** "owner/repo" of the target side. Same as the PR's repo for
+         *  in-repo PRs; differs from headRepo on fork-based PRs. Null on
+         *  legacy rows. */
+        String baseRepo) {}

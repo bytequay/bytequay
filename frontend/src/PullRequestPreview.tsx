@@ -1400,6 +1400,26 @@ function PullRequestPreview({ pr, onOpenReview, onInspectDiffs, onMarkHandled, o
             }
             return <span className="prc-status-pill">Open</span>;
           })()}
+          {/* Branch info — GitHub-style "head → base" pill. Hidden until
+              the detail-sync populates the refs (legacy rows have null
+              for both, in which case we silently skip). The head ref's
+              owner is shown when it differs from base (fork PRs).
+              Defensively guarded against the cross-repo case where
+              headRepo !== baseRepo. */}
+          {detail?.headRef && detail?.baseRef && (
+            <>
+              <span className="prc-meta-sep">·</span>
+              <span className="prc-branches" title={`Merging ${detail.headRepo ?? ''}:${detail.headRef} into ${detail.baseRepo ?? ''}:${detail.baseRef}`}>
+                <code className="prc-branches__ref">
+                  {detail.headRepo && detail.headRepo !== detail.baseRepo
+                    ? `${detail.headRepo.split('/')[0]}:${detail.headRef}`
+                    : detail.headRef}
+                </code>
+                <span className="prc-branches__arrow" aria-hidden="true">→</span>
+                <code className="prc-branches__ref">{detail.baseRef}</code>
+              </span>
+            </>
+          )}
           <span className="prc-meta-sep">·</span>
           {pr.author && (
             <>

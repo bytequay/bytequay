@@ -469,6 +469,46 @@
   margin-left: 4px;
 }
 
+/* Pinned CTA at the bottom of a kanban column. Used today by the
+   Recently Merged column to surface the (deferred) merge-history
+   page. Tinted with the accent so it reads as a navigation, not
+   another card. */
+.kanban-col__footer-cta {
+  appearance: none;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  width: 100%;
+  background: var(--accent-a7);
+  border: 1px solid var(--accent-a40);
+  color: var(--accent);
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  padding: 9px 10px;
+  border-radius: 8px;
+  margin-top: 8px;
+  cursor: pointer;
+  text-align: left;
+  transition: background 120ms ease;
+}
+.kanban-col__footer-cta:hover:not(:disabled) {
+  background: var(--accent-a10);
+}
+.kanban-col__footer-cta:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+.kanban-col__footer-cta-label {
+  color: var(--accent);
+}
+.kanban-col__footer-cta-subtitle {
+  font-weight: 400;
+  font-size: 11px;
+  color: var(--text-3);
+}
+
 /* Column accents — the new layout puts the coloured top border on
    .kanban-col__header (the standalone rounded box), so per-column tints
    target the header, not the bare .kanban-col. Each column also gets a

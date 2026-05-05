@@ -61,12 +61,21 @@ type Props = {
    *  behaviour used by the inbox kanban. */
   totalCount?: number;
   onLoadMore?: () => Promise<void> | void;
+  /** Optional CTA card pinned to the bottom of the column (used by
+   *  the Recently Merged column to surface the deferred merge-history
+   *  page). Disabled until the destination ships. */
+  footerCta?: {
+    label: string;
+    subtitle?: string;
+    onClick?: () => void;
+    disabled?: boolean;
+  };
 };
 
 function KanbanColumn({
   kind, label, prs, selectedId, collapsed, yourMove,
   onToggle, onSelect, onHandle, onReopen, cardMode,
-  totalCount, onLoadMore,
+  totalCount, onLoadMore, footerCta,
 }: Props) {
   const [shownCount, setShownCount] = useState(INITIAL_SHOWN);
   const [loadingMore, setLoadingMore] = useState(false);
@@ -171,6 +180,22 @@ function KanbanColumn({
               </button>
             )}
           </>
+        )}
+        {footerCta && (
+          <button
+            type="button"
+            className="kanban-col__footer-cta"
+            onClick={footerCta.onClick}
+            disabled={footerCta.disabled}
+            title={footerCta.disabled
+              ? 'Coming with the merge history page'
+              : footerCta.label}
+          >
+            <span className="kanban-col__footer-cta-label">{footerCta.label}</span>
+            {footerCta.subtitle && (
+              <span className="kanban-col__footer-cta-subtitle">{footerCta.subtitle}</span>
+            )}
+          </button>
         )}
       </div>
     </section>

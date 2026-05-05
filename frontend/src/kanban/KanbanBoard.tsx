@@ -386,6 +386,19 @@ function MyPrsBoard({ prs, selectedId, collapsed, onToggle, onSelect, onHandle, 
           onHandle={onHandle}
           onReopen={onReopen}
           cardMode={cardMode}
+          // RECENTLY MERGED column gets a "View full merge history →"
+          // CTA pinned to the bottom. The history page itself is a
+          // deferred follow-up — render the CTA disabled for now so
+          // the slot is in place once the page lands.
+          footerCta={
+            col === 'recently_merged'
+              ? {
+                  label: 'View full merge history →',
+                  subtitle: 'all time · filterable',
+                  disabled: true,
+                }
+              : undefined
+          }
         />
       ))}
     </div>

@@ -585,10 +585,10 @@ describe('groupToReview sort order', () => {
     expect(groups.needs_attention.map(p => p.id)).toEqual([1, 2]);
   });
 
-  it('within same severity, oldest createdAt is on top', () => {
-    const newer = pr({ id: 1, origin: 'REVIEW_REQUESTED', attentionReason: 'MENTIONED', createdAt: '2026-04-25T10:00:00Z' });
-    const older = pr({ id: 2, origin: 'REVIEW_REQUESTED', attentionReason: 'MENTIONED', createdAt: '2026-04-20T10:00:00Z' });
-    const groups = groupToReview([newer, older], NOW);
+  it('within same severity, latest-updated PR is on top', () => {
+    const stale = pr({ id: 1, origin: 'REVIEW_REQUESTED', attentionReason: 'MENTIONED', updatedAt: '2026-04-20T10:00:00Z' });
+    const fresh = pr({ id: 2, origin: 'REVIEW_REQUESTED', attentionReason: 'MENTIONED', updatedAt: '2026-04-25T10:00:00Z' });
+    const groups = groupToReview([stale, fresh], NOW);
     expect(groups.needs_attention.map(p => p.id)).toEqual([2, 1]);
   });
 
@@ -622,5 +622,19 @@ describe('groupMyPrs / groupToReview', () => {
     const groups = groupToReview([mine, review], NOW);
     const all = Object.values(groups).flat().map(p => p.id);
     expect(all).toEqual([2]);
+  });
+
+  it('groupMyPrs folds ready_to_merge PRs into waiting_on_review and leaves the column empty', () => {
+    const ready = pr({
+      id: 1,
+      origin: 'AUTHORED',
+      reviewerVerdicts: { alice: 'APPROVED' },
+      ciStatus: 'PASSING',
+      mergeable: true,
+    });
+    const waiting = pr({ id: 2, origin: 'AUTHORED' });
+    const groups = groupMyPrs([ready, waiting], NOW);
+    expect(groups.ready_to_merge).toEqual([]);
+    expect(groups.waiting_on_review.map(p => p.id).sort()).toEqual([1, 2]);
   });
 });

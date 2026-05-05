@@ -23,6 +23,7 @@ import {
   type ToReviewColumn,
   groupMyPrs,
   groupToReview,
+  isSnoozed,
 } from '../prBuckets';
 import KanbanColumn, { type KanbanColumnKind } from './KanbanColumn';
 import KanbanPrCard from './KanbanPrCard';
@@ -200,7 +201,12 @@ function KanbanBoard(props: Props) {
           the same "act here" signal — three places saying the same
           thing was noise, not info. */}
       {mode === 'inbox' && (
-        <FocusBand prs={props.prs} onSelect={props.onSelect} />
+        <FocusBand
+          prs={props.prs}
+          onSelect={props.onSelect}
+          onHandle={props.onHandle}
+          onSnooze={props.onSnooze}
+        />
       )}
 
       {/* Team mode keeps a tiny "PRs" header. Inbox mode renders no
@@ -361,9 +367,20 @@ type BoardProps = Omit<Props, 'prs'> & {
   cardMode?: 'inbox' | 'team';
 };
 
+/** Recently-merged is capped on the inbox lane so a busy week doesn't
+ *  push the active columns off-screen. The full list lives behind the
+ *  "View full merge history →" footer CTA (deferred page). */
+const RECENTLY_MERGED_CAP = 3;
+
 function MyPrsBoard({ prs, selectedId, collapsed, onToggle, onSelect, onHandle, onReopen, onSnooze, cardMode }: BoardProps) {
   const groups = useMemo(() => groupMyPrs(prs), [prs]);
-  const gridTemplate = MY_PR_COLUMNS.map(col => columnSize(col, collapsed[col] ?? false, groups[col].length)).join(' ');
+  const visibleCounts = MY_PR_COLUMNS.map(col =>
+    col === 'recently_merged'
+      ? Math.min(groups[col].length, RECENTLY_MERGED_CAP)
+      : groups[col].length);
+  const gridTemplate = MY_PR_COLUMNS
+    .map((col, i) => columnSize(col, collapsed[col] ?? false, visibleCounts[i]))
+    .join(' ');
 
   return (
     <div className="kanban-board kanban-board--mine" style={{ gridTemplateColumns: gridTemplate }}>
@@ -372,17 +389,13 @@ function MyPrsBoard({ prs, selectedId, collapsed, onToggle, onSelect, onHandle, 
           key={col}
           kind={col}
           label={MY_PR_COLUMN_LABEL[col]}
-          prs={groups[col]}
+          prs={col === 'recently_merged' ? groups[col].slice(0, RECENTLY_MERGED_CAP) : groups[col]}
           selectedId={selectedId}
           collapsed={collapsed[col] ?? false}
-          // URGENT (caution) and YOUR MOVE (go) flags only fire when
-          // the column actually has work — design spec: "URGENT flag
-          // pill when non-empty", "YOUR MOVE flag pill when non-empty".
-          yourMove={
-            col === 'needs_changes' && groups[col].length > 0 ? 'caution'
-              : col === 'ready_to_merge' && groups[col].length > 0 ? 'go'
-                : undefined
-          }
+          // URGENT (caution) flag fires when needs_changes has work —
+          // approved-and-green PRs now land in waiting_on_review, so
+          // there's no separate "your move" go-pill in this lane.
+          yourMove={col === 'needs_changes' && groups[col].length > 0 ? 'caution' : undefined}
           onToggle={() => onToggle(col)}
           onSelect={onSelect}
           onHandle={onHandle}
@@ -463,35 +476,57 @@ function columnSize(kind: MyPrColumn | ToReviewColumn, collapsed: boolean, count
 
 /**
  * Picking algorithm for the focus band — "what should I touch first".
- * Per docs/mockups/v2/pr-dashboard/SUMMARY.md:
- *   NEEDS CHANGES > CI failing > Merge conflict > stale (>7d no review)
- *   > YOUR-MOVE ready-to-merge
- * Cap 4. Each tier filters down candidates of any origin (My PRs and
- * To Review both compete for the slots — the band is about urgency,
- * not lane). Stable order within a tier = oldest-updatedAt first
- * (most stale = most urgent within the same kind).
+ *
+ * Tier order (top → bottom):
+ *   YOUR-MOVE ready-to-merge → NEEDS CHANGES → CI failing → Merge
+ *   conflict → Stale (>7d no review)
+ *
+ * Ready-to-merge sits at tier 0 by explicit user request: an approved-
+ * and-green PR is the cheapest unblock for the rest of the team, so it
+ * always shows up in the band and never gets buried.
+ *
+ * No hard cap — the FocusBand component slices for display and lets
+ * the user reveal the rest with "+ N more". Within each tier, oldest
+ * updatedAt wins so the most-stale card surfaces first.
  */
 function pickFocusCards(prs: PullRequestDto[], now: number = Date.now()): PullRequestDto[] {
   const STALE_MS = 7 * 24 * 60 * 60 * 1000;
   const seen = new Set<number>();
   const out: PullRequestDto[] = [];
   const pushUnique = (pr: PullRequestDto) => {
-    if (seen.has(pr.id) || out.length >= 4) return;
+    if (seen.has(pr.id)) return;
     seen.add(pr.id);
     out.push(pr);
   };
 
-  // Skip merged / closed / draft / handled — they're not actionable now.
+  // Skip merged / closed / draft / handled / snoozed — they're not
+  // actionable right now. Snoozed PRs in particular: the user has
+  // explicitly parked them, so they shouldn't reappear in the focus
+  // band until they wake.
   const eligible = prs.filter(pr =>
     !pr.mergedAt
     && pr.state !== 'closed'
     && !pr.draft
     && pr.handledAction !== 'MERGED'
     && pr.handledAction !== 'DISMISSED'
-    && pr.handledAction !== 'MANUAL');
+    && pr.handledAction !== 'MANUAL'
+    && !isSnoozed(pr, now));
 
   const byUpdatedAsc = (a: PullRequestDto, b: PullRequestDto) =>
     new Date(a.updatedAt).getTime() - new Date(b.updatedAt).getTime();
+
+  // Tier 0: YOUR-MOVE ready-to-merge (My PRs with approval + CI green
+  // + not blocked). Same conditions as categorizeMyPr's ready_to_merge.
+  eligible
+    .filter(pr => {
+      if (pr.origin !== 'AUTHORED') return false;
+      const verdicts = Object.values(pr.reviewerVerdicts ?? {});
+      const hasApproval = verdicts.includes('APPROVED');
+      const hasChanges = verdicts.includes('CHANGES_REQUESTED');
+      return hasApproval && !hasChanges && pr.ciStatus === 'PASSING' && pr.mergeable !== false;
+    })
+    .sort(byUpdatedAsc)
+    .forEach(pushUnique);
 
   // Tier 1: NEEDS CHANGES — author has work to do (My PRs only).
   eligible
@@ -523,21 +558,10 @@ function pickFocusCards(prs: PullRequestDto[], now: number = Date.now()): PullRe
     .sort(byUpdatedAsc)
     .forEach(pushUnique);
 
-  // Tier 5: YOUR-MOVE — ready-to-merge on My PRs (approval + CI green
-  // + not blocked). Same conditions as categorizeMyPr's ready_to_merge.
-  eligible
-    .filter(pr => {
-      if (pr.origin !== 'AUTHORED') return false;
-      const verdicts = Object.values(pr.reviewerVerdicts ?? {});
-      const hasApproval = verdicts.includes('APPROVED');
-      const hasChanges = verdicts.includes('CHANGES_REQUESTED');
-      return hasApproval && !hasChanges && pr.ciStatus === 'PASSING' && pr.mergeable !== false;
-    })
-    .sort(byUpdatedAsc)
-    .forEach(pushUnique);
-
   return out;
 }
+
+const FOCUS_BAND_CAP = 5;
 
 /**
  * The 🔥 focus band — a curated horizontal row above the kanban that
@@ -545,21 +569,34 @@ function pickFocusCards(prs: PullRequestDto[], now: number = Date.now()): PullRe
  * Same card style as the kanban below; this is visual duplication on
  * purpose. Hidden when no card qualifies.
  *
- * The "Customize…" link is a placeholder — we'll wire it when the
- * snooze feature ships and per-card snooze becomes available from
- * the band.
+ * Hard cap of 5 visible cards. When the user resolves a visible card
+ * (snooze / handle / merge / approve), the optimistic patch removes
+ * it from `prs` on the next render, the algorithm re-derives, and
+ * the next-priority hidden card auto-pops into the freed slot.
  */
-function FocusBand({ prs, onSelect }: {
+function FocusBand({ prs, onSelect, onHandle, onSnooze }: {
   prs: PullRequestDto[];
   onSelect: (pr: PullRequestDto) => void;
+  onHandle?: (prId: number) => void;
+  onSnooze?: (prId: number, untilIso: string) => void;
 }) {
   const cards = useMemo(() => pickFocusCards(prs), [prs]);
   if (cards.length === 0) return null;
+
+  const visible = cards.slice(0, FOCUS_BAND_CAP);
+
   return (
     <section className="focus-band" aria-label="Needs your urgent attention">
       <header className="focus-band__head">
         <span className="focus-band__title">🔥 Needs your urgent attention</span>
-        <span className="focus-band__count">{cards.length}</span>
+        {/* Show "5 of 12" when the band is capped so the user knows
+            there's more behind the queue without us surfacing a
+            load-more affordance. */}
+        <span className="focus-band__count">
+          {cards.length > FOCUS_BAND_CAP
+            ? `${visible.length} of ${cards.length}`
+            : cards.length}
+        </span>
         <span className="focus-band__subtitle">
           most blocking first · same cards live in the kanban below
         </span>
@@ -573,7 +610,7 @@ function FocusBand({ prs, onSelect }: {
         </button>
       </header>
       <div className="focus-band__row">
-        {cards.map(pr => (
+        {visible.map(pr => (
           <KanbanPrCard
             key={pr.id}
             pr={pr}
@@ -584,6 +621,8 @@ function FocusBand({ prs, onSelect }: {
             mode="inbox"
             selected={false}
             onSelect={() => onSelect(pr)}
+            onHandle={onHandle ? () => onHandle(pr.id) : undefined}
+            onSnooze={onSnooze ? (untilIso) => onSnooze(pr.id, untilIso) : undefined}
           />
         ))}
       </div>

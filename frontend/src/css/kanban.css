@@ -701,7 +701,7 @@
 .kanban-v2 {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: 6px;
   min-height: 0;
   flex: 1;
 }
@@ -880,7 +880,9 @@
 }
 
 /* Filter chips — repo selector under the lane tabs. Indented to match
-   the lane-tab and briefing-strip insets. */
+   the lane-tab and briefing-strip insets. Negative vertical margin
+   pulls it tight against the lane tabs above and the board below so
+   the chips don't hog space the user's columns need. */
 .kanban-v2__filters {
   display: flex;
   align-items: center;
@@ -888,6 +890,7 @@
   flex-wrap: wrap;
   font-size: 11px;
   padding: 0 14px;
+  margin: -2px 0;
 }
 .kanban-v2__filters-label {
   color: var(--text-3);
@@ -900,7 +903,7 @@
 .kanban-v2__chip {
   font: inherit;
   font-size: 11px;
-  padding: 3px 9px;
+  padding: 1px 8px;
   border: 1px solid var(--border);
   background: var(--bg-card);
   color: var(--text-2);
@@ -1108,28 +1111,28 @@
   flex-shrink: 0;
 }
 .kpr-card__handle {
-  width: 20px;
-  height: 20px;
+  width: 18px;
+  height: 18px;
   border-radius: 50%;
   border: 1px solid var(--border);
   background: var(--bg-card);
   color: var(--text-3);
   font: inherit;
-  font-size: 11px;
+  font-size: 10px;
   line-height: 1;
   cursor: pointer;
-  display: inline-flex;
+  /* Hidden by default so narrow columns don't get crowded by the
+     ✓ / ⌛ controls. Revealed on card hover (or while the snooze
+     menu is open — see kpr-card__snooze-wrap--open below). */
+  display: none;
   align-items: center;
   justify-content: center;
   padding: 0;
-  /* Cards normally read as a single click target — desaturated until
-     hover so the dismiss control doesn't compete with the title for
-     attention. */
-  opacity: 0.55;
-  transition: opacity 0.1s, color 0.1s, border-color 0.1s, background 0.1s;
+  transition: color 0.1s, border-color 0.1s, background 0.1s;
 }
-.kpr-card:hover .kpr-card__handle {
-  opacity: 1;
+.kpr-card:hover .kpr-card__handle,
+.kpr-card__handle:focus-visible {
+  display: inline-flex;
 }
 .kpr-card__handle:hover {
   color: #1a7f37;
@@ -1153,6 +1156,14 @@
 
 .kpr-card__snooze-wrap {
   position: relative;
+  /* Mirrors kpr-card__handle's hide-until-hover. Stays visible while
+     the menu is open even if the user moves the cursor off the card,
+     so they can still pick a preset (see --open modifier in JSX). */
+  display: none;
+}
+.kpr-card:hover .kpr-card__snooze-wrap,
+.kpr-card__snooze-wrap--open,
+.kpr-card__snooze-wrap:focus-within {
   display: inline-flex;
 }
 
@@ -1680,7 +1691,11 @@ h3 {
    white surface as the rest of the page; the thin red left border
    is the only thing flagging urgency without being garish. */
 .focus-band {
-  margin: 12px 0 16px;
+  /* Tight margins so the repo-chip strip below doesn't sit on a wall
+     of whitespace. The kanban-v2 gap (6px) handles spacing between
+     siblings; we just need a hair of room between this band and the
+     page header above. */
+  margin: 4px 0 0;
   padding: 12px 14px 14px;
   background: var(--bg-elevated);
   border: 1px solid var(--border);
@@ -1726,4 +1741,40 @@ h3 {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
   gap: 10px;
+}
+
+/* "+ N more" tile that takes one card slot at the end of the band
+   when the focus list overflows. Styled as a dashed-border placeholder
+   so the eye reads it as "there's more behind here", not as a card. */
+.focus-band__more {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 4px;
+  min-height: 90px;
+  padding: 14px;
+  background: transparent;
+  border: 1px dashed var(--border, rgba(120, 140, 200, 0.40));
+  border-radius: 8px;
+  color: var(--text-2);
+  cursor: pointer;
+  transition: background 0.12s, border-color 0.12s, color 0.12s;
+}
+
+.focus-band__more:hover {
+  background: var(--bg-alt, rgba(120, 140, 200, 0.08));
+  border-color: var(--accent, #3b82f6);
+  color: var(--text-1);
+}
+
+.focus-band__more-plus {
+  font-size: 18px;
+  font-weight: 600;
+  line-height: 1;
+}
+
+.focus-band__more-count {
+  font-size: 12px;
+  font-weight: 500;
 }

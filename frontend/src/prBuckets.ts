@@ -186,6 +186,7 @@ export function groupByCategory(prs: PullRequestDto[], now: number = Date.now())
     if (isHandled(pr)) continue;
     out[categorize(pr)].push(pr);
   }
+  for (const cat of CATEGORIES) out[cat].sort(byUpdatedAtDesc);
   return out;
 }
 
@@ -351,19 +352,30 @@ export type ToReviewColumn =
   | 'awaiting_author'
   | 'cleared_today';
 
+/** Inbox MY-PRs lane — three active columns + recently merged. The
+ *  former "Ready to merge" column was folded into "Waiting on review"
+ *  (approved-and-green PRs are still waiting on the author to click
+ *  merge); needs_changes sits left of waiting_on_review so the
+ *  scariest signal hits the eye first. */
 export const MY_PR_COLUMNS: MyPrColumn[] = [
+  'drafting',
+  'needs_changes',
+  'waiting_on_review',
+  'recently_merged',
+];
+
+/** Team kanban keeps the wider 5-column layout because the backend's
+ *  per-team categorizer still emits ready_to_merge as a distinct
+ *  bucket. Defined independently of MY_PR_COLUMNS so changes to one
+ *  don't bleed into the other. */
+export const MY_PR_COLUMNS_TEAM: MyPrColumn[] = [
   'drafting',
   'waiting_on_review',
   'needs_changes',
   'ready_to_merge',
   'recently_merged',
+  'handled',
 ];
-
-/** Team kanban renders this superset — adds the trailing "Handled"
- *  column for PRs the user dismissed via mark-handled. The inbox
- *  kanban skips it because the inbox/handled split happens at the
- *  page level. */
-export const MY_PR_COLUMNS_TEAM: MyPrColumn[] = [...MY_PR_COLUMNS, 'handled'];
 
 export const TO_REVIEW_COLUMNS: ToReviewColumn[] = [
   'needs_attention',
@@ -473,14 +485,24 @@ export function groupMyPrs(prs: PullRequestDto[], now: number = Date.now()): Rec
     handled: [],
   };
   for (const pr of prs) {
+    // Snoozed PRs are parked — they reappear when the snooze expires
+    // (or the user wakes them). Until then keep them out of every
+    // column so the inbox kanban stays focused on actionable work.
+    if (isSnoozed(pr, now)) continue;
     const col = categorizeMyPr(pr, now);
     if (col) out[col].push(pr);
   }
+  // The inbox MY-PRs lane no longer renders a Ready-to-merge column —
+  // those PRs collapse into Waiting on review (the author still owes
+  // a merge click). categorizeMyPr keeps returning the precise bucket
+  // so callers like the briefing can still ask, but the kanban view
+  // sees them merged.
+  out.waiting_on_review.push(...out.ready_to_merge);
+  out.ready_to_merge = [];
   // Per-column sort so the most actionable card sits at the top.
-  out.drafting.sort(byUpdatedAtAsc);              // oldest first (user prefs)
-  out.waiting_on_review.sort(byCreatedAtAsc);     // oldest = most stale
-  out.needs_changes.sort(byUpdatedAtAsc);         // oldest first (user prefs)
-  out.ready_to_merge.sort(byUpdatedAtAsc);        // oldest first (user prefs)
+  out.drafting.sort(byUpdatedAtDesc);             // newest first (latest activity at top)
+  out.waiting_on_review.sort(byUpdatedAtDesc);    // newest first (latest activity at top)
+  out.needs_changes.sort(byUpdatedAtDesc);        // newest first (latest activity at top)
   out.recently_merged.sort(byMergedAtDesc);       // newest merges first
   out.handled.sort(byReviewedAtDesc);             // most recently dismissed first
   return out;
@@ -494,22 +516,24 @@ export function groupToReview(prs: PullRequestDto[], now: number = Date.now()): 
     cleared_today: [],
   };
   for (const pr of prs) {
+    // See groupMyPrs — snoozed PRs are parked and don't belong in
+    // the active kanban until they wake.
+    if (isSnoozed(pr, now)) continue;
     const col = categorizeToReview(pr, now);
     if (col) out[col].push(pr);
   }
   // Per-column sort. needs_attention uses an attention-severity rank as
   // primary key so a CI_FAILING / MENTIONED PR always sits above a plain
-  // unviewed one — that's the "second PR becomes top 1 once you've handled
-  // the first" behaviour the user wants. Older PRs win ties (stale longer
-  // = more deserving of attention).
+  // unviewed one. Within the same rank, latest-updated wins so the most
+  // recent activity surfaces to the top.
   out.needs_attention.sort((a, b) => {
     const sa = attentionRank(a);
     const sb = attentionRank(b);
     if (sa !== sb) return sa - sb;
-    return byCreatedAtAsc(a, b);
+    return byUpdatedAtDesc(a, b);
   });
-  out.in_progress.sort(byUpdatedAtAsc);           // oldest first (user prefs)
-  out.awaiting_author.sort(byUpdatedAtAsc);       // oldest first (user prefs)
+  out.in_progress.sort(byUpdatedAtDesc);          // newest first (latest activity at top)
+  out.awaiting_author.sort(byUpdatedAtDesc);      // newest first (latest activity at top)
   out.cleared_today.sort(byReviewedAtDesc);       // most recently cleared first
   return out;
 }
@@ -541,8 +565,11 @@ function byCreatedAtAsc(a: PullRequestDto, b: PullRequestDto): number {
   const tb = b.createdAt ? new Date(b.createdAt).getTime() : new Date(b.updatedAt).getTime();
   return ta - tb;
 }
-function byUpdatedAtAsc(a: PullRequestDto, b: PullRequestDto): number {
-  return new Date(a.updatedAt).getTime() - new Date(b.updatedAt).getTime();
+/** Newest first by updatedAt — the kanban / repo / team list default.
+ *  Most-recently-touched PR sits at the top of each group so the user
+ *  sees fresh activity without scrolling. */
+export function byUpdatedAtDesc(a: PullRequestDto, b: PullRequestDto): number {
+  return new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime();
 }
 function byMergedAtDesc(a: PullRequestDto, b: PullRequestDto): number {
   const ta = a.mergedAt ? new Date(a.mergedAt).getTime() : 0;

@@ -14,7 +14,7 @@
 import { useEffect, useMemo, useState } from 'react';
 import type { MyPrColumnSlug, PullRequestDto, TeamColumnsResponse } from '../types';
 import { InboxCard, HandledCard } from '../PrBucketViews';
-import { MY_PR_COLUMNS_TEAM, MY_PR_COLUMN_LABEL } from '../prBuckets';
+import { MY_PR_COLUMNS_TEAM, MY_PR_COLUMN_LABEL, byUpdatedAtDesc } from '../prBuckets';
 
 type Props = {
   data: TeamColumnsResponse;
@@ -95,9 +95,16 @@ function TeamPrSidebar({ data, repoFilter, selectedId, onSelect, onHandle, onReo
     <div className="categorized-list">
       {MY_PR_COLUMNS_TEAM.map(col => {
         const allItems = data.columns[col] ?? [];
-        const items = repoFilter === null
+        const filtered = repoFilter === null
           ? allItems
           : allItems.filter(p => p.repo === repoFilter);
+        // Active columns sort by updatedAt DESC so the most-recently-
+        // touched PR sits on top — matches the My-PRs / To-review
+        // kanban convention. Handled / recently-merged stay in backend
+        // order (already newest-first activity feeds).
+        const items = (col === 'handled' || col === 'recently_merged')
+          ? filtered
+          : [...filtered].sort(byUpdatedAtDesc);
         // When a repo filter is active we only know the visible-page
         // count; backend pagination doesn't ship per-repo totals, so
         // surface that count and skip the "+ N more" affordance below.

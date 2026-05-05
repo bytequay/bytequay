@@ -413,7 +413,7 @@ function SnoozeMenuButton({ onPick }: SnoozeMenuButtonProps) {
   }, [open]);
 
   return (
-    <span ref={wrapRef} className="kpr-card__snooze-wrap">
+    <span ref={wrapRef} className={`kpr-card__snooze-wrap${open ? ' kpr-card__snooze-wrap--open' : ''}`}>
       <button
         type="button"
         className="kpr-card__handle kpr-card__handle--snooze"

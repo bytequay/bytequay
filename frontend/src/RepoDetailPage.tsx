@@ -40,6 +40,7 @@ function loadSidebarWidth(): number {
 }
 import {
   bucketize,
+  byUpdatedAtDesc,
   formatRelative,
   groupHandledByTime,
   markHandledPatch,
@@ -312,6 +313,7 @@ function RepoDetailPage({ owner, repo, initialPrNumber }: Props) {
       if (bucketize(pr) === 'inbox') inbox.push(pr);
       else handled.push(pr);
     }
+    inbox.sort(byUpdatedAtDesc);
     return { inboxPrs: inbox, handledPrs: sortHandled(handled) };
   }, [pulls]);
 

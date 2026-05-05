@@ -72,6 +72,7 @@ type Props = {
   onSelect: (pr: PullRequestDto) => void;
   onHandle: (prId: number) => void;
   onReopen: (prId: number) => void;
+  onSnooze?: (prId: number, untilIso: string) => void;
   /** Controlled lane. The page header (PullRequestList) renders the
    *  My PRs / To review tabs, owns the persistence, and tells the
    *  kanban which lane to render. Team mode ignores this prop and
@@ -267,6 +268,7 @@ function KanbanBoard(props: Props) {
             onSelect={props.onSelect}
             onHandle={props.onHandle}
             onReopen={props.onReopen}
+            onSnooze={props.onSnooze}
             cardMode={mode}
           />
         )
@@ -279,6 +281,7 @@ function KanbanBoard(props: Props) {
             onSelect={props.onSelect}
             onHandle={props.onHandle}
             onReopen={props.onReopen}
+            onSnooze={props.onSnooze}
             cardMode={mode}
           />
         )}
@@ -358,7 +361,7 @@ type BoardProps = Omit<Props, 'prs'> & {
   cardMode?: 'inbox' | 'team';
 };
 
-function MyPrsBoard({ prs, selectedId, collapsed, onToggle, onSelect, onHandle, onReopen, cardMode }: BoardProps) {
+function MyPrsBoard({ prs, selectedId, collapsed, onToggle, onSelect, onHandle, onReopen, onSnooze, cardMode }: BoardProps) {
   const groups = useMemo(() => groupMyPrs(prs), [prs]);
   const gridTemplate = MY_PR_COLUMNS.map(col => columnSize(col, collapsed[col] ?? false, groups[col].length)).join(' ');
 
@@ -384,6 +387,7 @@ function MyPrsBoard({ prs, selectedId, collapsed, onToggle, onSelect, onHandle, 
           onSelect={onSelect}
           onHandle={onHandle}
           onReopen={onReopen}
+          onSnooze={onSnooze}
           cardMode={cardMode}
           // RECENTLY MERGED column gets a "View full merge history →"
           // CTA pinned to the bottom. The history page itself is a
@@ -404,7 +408,7 @@ function MyPrsBoard({ prs, selectedId, collapsed, onToggle, onSelect, onHandle, 
   );
 }
 
-function ToReviewBoard({ prs, selectedId, collapsed, onToggle, onSelect, onHandle, onReopen, cardMode }: BoardProps) {
+function ToReviewBoard({ prs, selectedId, collapsed, onToggle, onSelect, onHandle, onReopen, onSnooze, cardMode }: BoardProps) {
   const groups = useMemo(() => groupToReview(prs), [prs]);
   const gridTemplate = TO_REVIEW_COLUMNS.map(col => columnSize(col, collapsed[col] ?? false, groups[col].length)).join(' ');
 
@@ -423,6 +427,7 @@ function ToReviewBoard({ prs, selectedId, collapsed, onToggle, onSelect, onHandl
           onSelect={onSelect}
           onHandle={onHandle}
           onReopen={onReopen}
+          onSnooze={onSnooze}
           cardMode={cardMode}
         />
       ))}

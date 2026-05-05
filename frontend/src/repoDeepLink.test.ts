@@ -45,6 +45,8 @@ function pr(overrides: Partial<PullRequestDto> = {}): PullRequestDto {
     mergeableState: null,
     headPushedAt: null,
     reviewerVerdicts: {},
+    snoozedUntil: null,
+    snoozeWakeReason: null,
     ...overrides,
   };
 }

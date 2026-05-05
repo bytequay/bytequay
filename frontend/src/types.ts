@@ -85,6 +85,13 @@ export type PullRequestDto = {
    *  COMMENTED / DISMISSED). Empty until the PR's detail has been synced
    *  at least once after V26. */
   reviewerVerdicts: Record<string, string> | null;
+  /** When this PR is snoozed until (ISO-8601). Null when not snoozed.
+   *  The page-header Snoozed tab filters to rows with this set. */
+  snoozedUntil: string | null;
+  /** Reason an auto-wake fired ("CI_FAILING" / "CHANGES_REQUESTED" /
+   *  "MERGE_CONFLICT"). Cleared once the user acknowledges the
+   *  green "PR woke up" banner. */
+  snoozeWakeReason: string | null;
 };
 
 export type CiStatus = 'PASSING' | 'FAILING' | 'PENDING' | 'NONE';
@@ -634,6 +641,13 @@ export type Bridge = {
   markPrViewed: (prId: number) => Promise<void>;
   markPrHandled: (prId: number, action: HandledAction) => Promise<void>;
   reopenPr: (prId: number) => Promise<void>;
+  /** Park the PR until the given ISO-8601 instant. Replaces any
+   *  existing snooze and clears any pending wake reason. */
+  snoozePr: (prId: number, untilIso: string) => Promise<void>;
+  /** Wake a snoozed PR ("Wake now" — no auto-wake reason recorded). */
+  unsnoozePr: (prId: number) => Promise<void>;
+  /** Acknowledge the just-woke alert and clear the stored reason. */
+  clearSnoozeWakeReason: (prId: number) => Promise<void>;
   approvePr: (prId: number, repo: string, number: number) => Promise<void>;
   /** Merge with the given strategy. Omitting {@code strategy} keeps the
    *  historical "rebase" default for compatibility. */

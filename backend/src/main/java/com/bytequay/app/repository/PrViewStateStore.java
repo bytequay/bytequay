@@ -16,6 +16,7 @@ package com.bytequay.app.repository;
 import com.bytequay.app.domain.HandledAction;
 import com.bytequay.app.domain.PrViewState;
 
+import java.time.Instant;
 import java.util.Map;
 
 public interface PrViewStateStore
@@ -31,4 +32,16 @@ public interface PrViewStateStore
 
     /** Clears the reviewed timestamp and action so the PR returns to the Inbox. */
     void reopen(long prId);
+
+    /** Park the PR until {@code until}. Replaces any existing snooze and
+     *  clears any pending wake reason. */
+    void snooze(long prId, Instant until);
+
+    /** Wake a snoozed PR. {@code wakeReason} is recorded so the UI can
+     *  surface the just-woke alert; pass null on user-initiated wake
+     *  ("Wake now") to skip the alert. */
+    void unsnooze(long prId, String wakeReason);
+
+    /** Drop a stored wake reason once the user has acknowledged it. */
+    void clearWakeReason(long prId);
 }

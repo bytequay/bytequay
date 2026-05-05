@@ -29,18 +29,19 @@ import {
 } from './pullRequestListHelpers';
 import {
   buildBriefing,
+  bucketize,
   groupHandledByTime,
-  isHandled,
   markHandledPatch,
   mergedPatch,
   patchPr,
   reopenPatch,
   sortHandled,
-  splitInboxAndHandled,
+  sortSnoozed,
+  splitByBucket,
   syncCachesAfterPrChange,
   unmergedPatch,
 } from './prBuckets';
-import { CategorizedList, HandledTimeline } from './PrBucketViews';
+import { CategorizedList, HandledTimeline, JustWokeBanner, SnoozedList } from './PrBucketViews';
 import KanbanBoard, { LANE_KEY, loadLane, type Lane } from './kanban/KanbanBoard';
 
 const PRS_CACHE_KEY = 'prs:list';
@@ -66,7 +67,7 @@ function PullRequestList({ onGoToTeams }: Props) {
   // whenever the viewer closes or the user navigates away.
   const [diffViewerCommitSha, setDiffViewerCommitSha] = useState<string | null>(null);
   const [filter, setFilter] = useState('');
-  const [activeTab, setActiveTab] = useState<'inbox' | 'handled'>('inbox');
+  const [activeTab, setActiveTab] = useState<'inbox' | 'snoozed' | 'handled'>('inbox');
   // Lane state for the kanban view (My PRs / To review). Lifted out of
   // KanbanBoard so the page header can render the scope tabs alongside
   // the Inbox/Handled toggle. Persistence stays at the same localStorage
@@ -199,10 +200,13 @@ function PullRequestList({ onGoToTeams }: Props) {
     );
   }, [prs, needle]);
 
-  const { inbox, handled } = useMemo(() => splitInboxAndHandled(filtered), [filtered]);
+  const { inbox, snoozed, handled } = useMemo(() => splitByBucket(filtered), [filtered]);
   const handledSorted = useMemo(() => sortHandled(handled), [handled]);
   const handledGroups = useMemo(() => groupHandledByTime(handledSorted), [handledSorted]);
-  const tabPrs = activeTab === 'inbox' ? inbox : handledSorted;
+  const snoozedSorted = useMemo(() => sortSnoozed(snoozed), [snoozed]);
+  const tabPrs = activeTab === 'inbox' ? inbox
+    : activeTab === 'snoozed' ? snoozedSorted
+    : handledSorted;
   // Briefing drives the red-dot alert on the My PRs scope tab. The
   // kanban renders its own copy too — we recompute here so the page
   // header doesn't have to reach into the child for state.
@@ -254,7 +258,7 @@ function PullRequestList({ onGoToTeams }: Props) {
     setSelected(continueReviewPr);
     clearActiveScreen();
     // Move to whichever tab the PR now lives in so the sidebar list matches.
-    setActiveTab(isHandled(continueReviewPr) ? 'handled' : 'inbox');
+    setActiveTab(bucketize(continueReviewPr));
     void window.bridge.markPrViewed(continueReviewPr.id);
   };
 
@@ -324,10 +328,48 @@ function PullRequestList({ onGoToTeams }: Props) {
     [],
   );
 
-  const switchTab = (tab: 'inbox' | 'handled') => {
+  const switchTab = (tab: 'inbox' | 'snoozed' | 'handled') => {
     setActiveTab(tab);
     setSelected(null);
     clearActiveScreen();
+  };
+
+  const handleSnooze = async (prId: number, untilIso: string) => {
+    const previous = (prs ?? []).find(p => p.id === prId);
+    updatePrState(prId, previous?.repo, { snoozedUntil: untilIso, snoozeWakeReason: null });
+    try {
+      await window.bridge.snoozePr(prId, untilIso);
+    } catch (e) {
+      console.warn('snoozePr failed; rolling back', e);
+      if (previous) {
+        updatePrState(prId, previous.repo, {
+          snoozedUntil: previous.snoozedUntil,
+          snoozeWakeReason: previous.snoozeWakeReason,
+        });
+      }
+    }
+  };
+
+  const handleUnsnooze = async (prId: number) => {
+    const previous = (prs ?? []).find(p => p.id === prId);
+    updatePrState(prId, previous?.repo, { snoozedUntil: null, snoozeWakeReason: null });
+    try {
+      await window.bridge.unsnoozePr(prId);
+    } catch (e) {
+      console.warn('unsnoozePr failed; rolling back', e);
+      if (previous) {
+        updatePrState(prId, previous.repo, {
+          snoozedUntil: previous.snoozedUntil,
+          snoozeWakeReason: previous.snoozeWakeReason,
+        });
+      }
+    }
+  };
+
+  const handleClearSnoozeWakeReason = (prId: number) => {
+    const previous = (prs ?? []).find(p => p.id === prId);
+    updatePrState(prId, previous?.repo, { snoozeWakeReason: null });
+    void window.bridge.clearSnoozeWakeReason(prId).catch(() => { /* best-effort */ });
   };
 
   // Tab strip lives in the full-width kanban header only. When a PR is
@@ -344,6 +386,21 @@ function PullRequestList({ onGoToTeams }: Props) {
         onClick={() => switchTab('inbox')}
       >
         Inbox
+      </button>
+      <button
+        type="button"
+        role="tab"
+        aria-selected={activeTab === 'snoozed'}
+        className={`pr-list-tab${activeTab === 'snoozed' ? ' pr-list-tab--active' : ''}`}
+        onClick={() => switchTab('snoozed')}
+        title="PRs you've parked until a later time."
+      >
+        Snoozed
+        {snoozedSorted.length > 0 && (
+          <span className="pr-list-tab__count" aria-label={`${snoozedSorted.length} snoozed`}>
+            {snoozedSorted.length}
+          </span>
+        )}
       </button>
       <button
         type="button"
@@ -508,6 +565,16 @@ function PullRequestList({ onGoToTeams }: Props) {
                   onSelect={handleSelect}
                   onHandle={handleMarkHandled}
                   onReopen={handleReopen}
+                  onSnooze={handleSnooze}
+                />
+              )}
+              {!loading && !error && activeTab === 'snoozed' && (
+                <SnoozedList
+                  prs={snoozedSorted}
+                  selectedId={selectedId}
+                  onSelect={handleSelect}
+                  onUnsnooze={handleUnsnooze}
+                  onClearWakeReason={handleClearSnoozeWakeReason}
                 />
               )}
               {!loading && !error && activeTab === 'handled' && (
@@ -561,6 +628,11 @@ function PullRequestList({ onGoToTeams }: Props) {
       {error && <div className="repo-error">{error}</div>}
       {!loading && !error && activeTab === 'inbox' && (
         <>
+          <JustWokeBanner
+            prs={inbox}
+            onSelect={handleSelect}
+            onDismiss={handleClearSnoozeWakeReason}
+          />
           {/* The "My open PRs" summary panel that used to live above the
               kanban is now redundant — the kanban's "My PRs" lane shows
               authored PRs in proper columns with richer signals. */}
@@ -582,9 +654,21 @@ function PullRequestList({ onGoToTeams }: Props) {
               onSelect={handleSelect}
               onHandle={handleMarkHandled}
               onReopen={handleReopen}
+              onSnooze={handleSnooze}
             />
           )}
         </>
+      )}
+      {!loading && !error && activeTab === 'snoozed' && (
+        <div className="snoozed-page">
+          <SnoozedList
+            prs={snoozedSorted}
+            selectedId={selectedId}
+            onSelect={handleSelect}
+            onUnsnooze={handleUnsnooze}
+            onClearWakeReason={handleClearSnoozeWakeReason}
+          />
+        </div>
       )}
       {!loading && !error && activeTab === 'handled' && (
         handledSorted.length === 0 ? (

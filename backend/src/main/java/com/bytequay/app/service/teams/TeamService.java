@@ -251,7 +251,8 @@ public class TeamService
                 pr.attentionReason(),
                 pr.state(), pr.closedAt(), pr.mergedAt(),
                 pr.mergeable(), pr.mergeableState(),
-                pr.headPushedAt(), pr.reviewerVerdicts());
+                pr.headPushedAt(), pr.reviewerVerdicts(),
+                state.snoozedUntil(), state.snoozeWakeReason());
     }
 
     static String buildSearchQuery(String repoFullName, List<String> authors)

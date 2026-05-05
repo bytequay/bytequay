@@ -31,7 +31,7 @@ import {
   patchPr,
   reopenPatch,
   sortHandled,
-  splitInboxAndHandled,
+  splitByBucket,
 } from './prBuckets';
 
 function pr(overrides: Partial<PullRequestDto> = {}): PullRequestDto {
@@ -64,6 +64,8 @@ function pr(overrides: Partial<PullRequestDto> = {}): PullRequestDto {
     mergeableState: null,
     headPushedAt: null,
     reviewerVerdicts: null,
+    snoozedUntil: null,
+    snoozeWakeReason: null,
     ...overrides,
   };
 }
@@ -165,7 +167,7 @@ describe('isResurfaced', () => {
   });
 });
 
-describe('splitInboxAndHandled', () => {
+describe('splitByBucket', () => {
   it('routes APPROVED to inbox and MERGED / MANUAL / DISMISSED to handled', () => {
     const list = [
       pr({ id: 1, handledAction: 'APPROVED', reviewedAt: '2026-04-23T10:00:00Z' }),
@@ -174,9 +176,26 @@ describe('splitInboxAndHandled', () => {
       pr({ id: 4, handledAction: 'DISMISSED', reviewedAt: '2026-04-23T10:00:00Z' }),
       pr({ id: 5, handledAction: null, reviewedAt: null }),
     ];
-    const { inbox, handled } = splitInboxAndHandled(list);
+    const { inbox, snoozed, handled } = splitByBucket(list);
     expect(inbox.map(p => p.id).sort()).toEqual([1, 5]);
+    expect(snoozed).toEqual([]);
     expect(handled.map(p => p.id).sort()).toEqual([2, 3, 4]);
+  });
+
+  it('routes future-snoozed PRs to the snoozed bucket regardless of handled state', () => {
+    const now = Date.parse('2026-05-05T12:00:00Z');
+    const future = '2026-05-06T12:00:00Z';
+    const past = '2026-05-05T11:00:00Z';
+    const list = [
+      pr({ id: 1, snoozedUntil: future }),
+      pr({ id: 2, snoozedUntil: future, handledAction: 'MERGED', reviewedAt: '2026-04-23T10:00:00Z' }),
+      pr({ id: 3, snoozedUntil: past }),
+      pr({ id: 4, snoozedUntil: null }),
+    ];
+    const { inbox, snoozed, handled } = splitByBucket(list, now);
+    expect(snoozed.map(p => p.id).sort()).toEqual([1, 2]);
+    expect(inbox.map(p => p.id).sort()).toEqual([3, 4]);
+    expect(handled).toEqual([]);
   });
 });
 

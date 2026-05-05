@@ -770,6 +770,10 @@ public class GitHubClient
                 null,
                 null,
                 null,
+                null,
+                // V37 snooze fields — local-state only, joined in by
+                // SqlitePullRequestStore.toDomain via PrViewState.
+                null,
                 null);
     }
 
@@ -1788,6 +1792,9 @@ public class GitHubClient
                 null,
                 null,
                 null,
+                null,
+                null,
+                // V37 snooze fields — local-state only.
                 null,
                 null);
     }

@@ -75,6 +75,11 @@ const bridge: Bridge = {
   markPrHandled: (prId: number, action: HandledAction): Promise<void> =>
     ipcRenderer.invoke('backend:markPrHandled', prId, action),
   reopenPr: (prId: number): Promise<void> => ipcRenderer.invoke('backend:reopenPr', prId),
+  snoozePr: (prId: number, untilIso: string): Promise<void> =>
+    ipcRenderer.invoke('backend:snoozePr', prId, untilIso),
+  unsnoozePr: (prId: number): Promise<void> => ipcRenderer.invoke('backend:unsnoozePr', prId),
+  clearSnoozeWakeReason: (prId: number): Promise<void> =>
+    ipcRenderer.invoke('backend:clearSnoozeWakeReason', prId),
   approvePr: (prId: number, repo: string, number: number): Promise<void> =>
     ipcRenderer.invoke('backend:approvePr', prId, repo, number),
   mergePr: (prId: number, repo: string, number: number, strategy?: 'rebase' | 'squash' | 'merge'): Promise<{ merged: boolean; message: string }> =>

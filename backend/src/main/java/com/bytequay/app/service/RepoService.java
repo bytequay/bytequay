@@ -162,7 +162,9 @@ public class RepoService
                 pr.mergeable(),
                 pr.mergeableState(),
                 pr.headPushedAt(),
-                pr.reviewerVerdicts());
+                pr.reviewerVerdicts(),
+                state.snoozedUntil(),
+                state.snoozeWakeReason());
     }
 
     public List<RepoIssue> getRepoIssues(String pat, String owner, String repo)

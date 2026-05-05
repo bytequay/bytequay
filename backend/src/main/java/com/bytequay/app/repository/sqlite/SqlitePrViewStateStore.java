@@ -45,8 +45,45 @@ public class SqlitePrViewStateStore
                                 e.getPrId(),
                                 e.getViewedAt(),
                                 e.getSnoozedUntil(),
+                                e.getSnoozedAt(),
+                                e.getSnoozeWakeReason(),
                                 e.getReviewedAt(),
                                 e.getHandledAction())));
+    }
+
+    @Override
+    public void snooze(long prId, Instant until)
+    {
+        requireNonNull(until, "until is null");
+        PrViewStateEntity entity = jpaRepository.findById(prId).orElseGet(() -> newEntity(prId));
+        entity.setSnoozedUntil(until);
+        entity.setSnoozedAt(Instant.now());
+        // A fresh snooze clears any prior auto-wake reason — the user
+        // is parking the PR again on purpose.
+        entity.setSnoozeWakeReason(null);
+        jpaRepository.save(entity);
+    }
+
+    @Override
+    public void unsnooze(long prId, String wakeReason)
+    {
+        jpaRepository.findById(prId).ifPresent(entity -> {
+            entity.setSnoozedUntil(null);
+            entity.setSnoozedAt(null);
+            entity.setSnoozeWakeReason(wakeReason);
+            jpaRepository.save(entity);
+        });
+    }
+
+    @Override
+    public void clearWakeReason(long prId)
+    {
+        jpaRepository.findById(prId).ifPresent(entity -> {
+            if (entity.getSnoozeWakeReason() != null) {
+                entity.setSnoozeWakeReason(null);
+                jpaRepository.save(entity);
+            }
+        });
     }
 
     @Override

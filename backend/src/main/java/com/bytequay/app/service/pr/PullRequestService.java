@@ -188,6 +188,17 @@ public class PullRequestService
                 .collect(toImmutableList());
 
         CompletableFuture.allOf(detailFutures.toArray(CompletableFuture[]::new)).join();
+
+        // After detail-sync has refreshed reviewerVerdicts / mergeable /
+        // ciStatus / etc., walk the snoozed PRs and wake any whose timer
+        // has elapsed or whose urgent signals have flipped on. Cheap —
+        // an in-memory pass over the local store.
+        try {
+            runAutoWakeCheck();
+        }
+        catch (Exception e) {
+            log.warn("Snooze auto-wake check failed: {}", e.getMessage());
+        }
     }
 
     private String resolveCurrentLogin(String pat)
@@ -638,6 +649,114 @@ public class PullRequestService
     public void reopen(long prId)
     {
         viewStateStore.reopen(prId);
+    }
+
+    /**
+     * Park a PR until {@code until}. The PR is hidden from the Inbox /
+     * kanban / sidebar lists until that time, until the user explicitly
+     * wakes it, or until the auto-wake check trips an urgent condition
+     * (CI failing, changes requested, merge conflict).
+     */
+    public void snooze(long prId, Instant until)
+    {
+        if (until == null || !until.isAfter(Instant.now())) {
+            throw new ResponseStatusException(HttpStatusCode.valueOf(400),
+                    "Snooze target must be in the future.");
+        }
+        viewStateStore.snooze(prId, until);
+    }
+
+    /** User-initiated wake. No alert banner. */
+    public void unsnooze(long prId)
+    {
+        viewStateStore.unsnooze(prId, null);
+    }
+
+    /** Drop the wake-reason flag once the user has seen the just-woke alert. */
+    public void clearSnoozeWakeReason(long prId)
+    {
+        viewStateStore.clearWakeReason(prId);
+    }
+
+    /**
+     * Walk every PR with a non-null {@code snoozedUntil} and decide
+     * whether to wake it. The four wake conditions:
+     *
+     *   1. Time elapsed.
+     *   2. CI started failing after the snooze was set.
+     *   3. A reviewer requested changes after the snooze was set.
+     *   4. A merge conflict appeared after the snooze was set.
+     *
+     * Each wake records a reason so the frontend can surface a
+     * just-woke alert. Called from {@link #syncFromGitHub} after the
+     * detail-sync passes have updated the rows we need to inspect.
+     */
+    private void runAutoWakeCheck()
+    {
+        Instant now = Instant.now();
+        Map<Long, PrViewState> states = viewStateStore.findAll();
+        for (Map.Entry<Long, PrViewState> entry : states.entrySet()) {
+            PrViewState state = entry.getValue();
+            if (state.snoozedUntil() == null) {
+                continue;
+            }
+            if (!state.snoozedUntil().isAfter(now)) {
+                viewStateStore.unsnooze(state.prId(), "TIME");
+                continue;
+            }
+            // Pull the PR row to inspect its current urgent signals.
+            // Skip if the PR is no longer in the local store (was
+            // unwatched / merged-and-removed since the snooze landed).
+            Optional<PullRequest> prOpt = store.findById(state.prId());
+            if (prOpt.isEmpty()) {
+                continue;
+            }
+            PullRequest pr = prOpt.get();
+            String reason = autoWakeReason(pr, state);
+            if (reason != null) {
+                viewStateStore.unsnooze(state.prId(), reason);
+            }
+        }
+    }
+
+    /**
+     * Returns the wake reason if the PR has tripped an auto-wake
+     * condition since the snooze was set, or null if no condition has
+     * fired. Order matters: CI > CHANGES_REQUESTED > MERGE_CONFLICT
+     * (most-blocking first, matches the focus-band picking order).
+     */
+    private static String autoWakeReason(PullRequest pr, PrViewState state)
+    {
+        // CI started failing while snoozed.
+        if (pr.ciStatus() == PullRequestDetail.CiStatus.FAILING) {
+            return "CI_FAILING";
+        }
+        // A reviewer requested changes after the snooze landed. We
+        // can't tell *when* the verdict was set without an extra
+        // timestamp, so we treat any current CHANGES_REQUESTED as a
+        // wake — false positives are rare (the user just snoozed; if
+        // the verdict was already there they'd have seen it). Cheap
+        // pragmatic check until we wire per-verdict timestamps.
+        Map<String, String> verdicts = pr.reviewerVerdicts();
+        if (verdicts != null) {
+            for (String v : verdicts.values()) {
+                if ("CHANGES_REQUESTED".equals(v)) {
+                    return "CHANGES_REQUESTED";
+                }
+            }
+        }
+        // Merge conflict — only flag if the snooze was set BEFORE the
+        // PR's last update (otherwise the user snoozed it knowing
+        // about the conflict).
+        boolean conflict = Boolean.FALSE.equals(pr.mergeable())
+                || "MERGE_CONFLICT".equals(String.valueOf(pr.attentionReason()));
+        if (conflict
+                && state.snoozedAt() != null
+                && pr.updatedAt() != null
+                && pr.updatedAt().isAfter(state.snoozedAt())) {
+            return "MERGE_CONFLICT";
+        }
+        return null;
     }
 
     // ── Private helpers ───────────────────────────────────────────────────────
@@ -1378,7 +1497,9 @@ public class PullRequestService
                 pr.mergeable(),
                 pr.mergeableState(),
                 pr.headPushedAt(),
-                pr.reviewerVerdicts());
+                pr.reviewerVerdicts(),
+                pr.snoozedUntil(),
+                pr.snoozeWakeReason());
     }
 
     private static <T> T join(CompletableFuture<T> future)

@@ -411,6 +411,33 @@ function registerIpc(): void {
     }
   });
 
+  ipcMain.handle('backend:snoozePr', async (_event, prId: number, untilIso: string) => {
+    const url = new URL(`${BACKEND_BASE}/prs/snooze`);
+    url.searchParams.set('id', String(prId));
+    url.searchParams.set('until', untilIso);
+    const res = await fetch(url, { method: 'POST' });
+    if (!res.ok) {
+      const body = await res.text().catch(() => '');
+      throw new Error(`Snooze failed (${res.status}): ${body}`);
+    }
+  });
+
+  ipcMain.handle('backend:unsnoozePr', async (_event, prId: number) => {
+    const url = new URL(`${BACKEND_BASE}/prs/unsnooze`);
+    url.searchParams.set('id', String(prId));
+    const res = await fetch(url, { method: 'POST' });
+    if (!res.ok) {
+      const body = await res.text().catch(() => '');
+      throw new Error(`Unsnooze failed (${res.status}): ${body}`);
+    }
+  });
+
+  ipcMain.handle('backend:clearSnoozeWakeReason', async (_event, prId: number) => {
+    const url = new URL(`${BACKEND_BASE}/prs/snooze/wake-reason/clear`);
+    url.searchParams.set('id', String(prId));
+    await fetch(url, { method: 'POST' }).catch(() => { /* best-effort */ });
+  });
+
   ipcMain.handle('backend:pullRequestDetail', async (_event, repo: string, number: number) => {
     const url = new URL(`${BACKEND_BASE}/prs/detail`);
     url.searchParams.set('repo', repo);

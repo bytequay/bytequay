@@ -72,7 +72,16 @@ public record PullRequest(
         /** Per-reviewer verdict map: login -> state name (APPROVED,
          *  CHANGES_REQUESTED, COMMENTED, DISMISSED). Empty until the PR's
          *  detail has been synced at least once after V26. */
-        Map<String, String> reviewerVerdicts)
+        Map<String, String> reviewerVerdicts,
+        // --- Snooze (V37) — local-state, never sent to GitHub ---
+        /** When the PR is snoozed until. Null when not snoozed. The
+         *  page header's Snoozed tab filters to rows with this set;
+         *  the auto-wake check fires when current time passes it. */
+        Instant snoozedUntil,
+        /** Populated when an auto-wake fires; cleared once the user
+         *  acknowledges the just-woke alert. Drives the green
+         *  "PR woke up" banner at the top of the Inbox. */
+        String snoozeWakeReason)
 {
     public enum Origin
     {

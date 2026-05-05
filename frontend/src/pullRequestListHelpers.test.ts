@@ -51,6 +51,8 @@ function pr(id: number): PullRequestDto {
     mergeableState: null,
     headPushedAt: null,
     reviewerVerdicts: null,
+    snoozedUntil: null,
+    snoozeWakeReason: null,
   };
 }
 

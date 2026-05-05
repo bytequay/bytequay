@@ -63,6 +63,8 @@ function makePr(overrides: Partial<PullRequestDto> = {}): PullRequestDto {
     mergeableState: 'clean',
     headPushedAt: '2026-04-29T11:00:00Z',
     reviewerVerdicts: {},
+    snoozedUntil: null,
+    snoozeWakeReason: null,
     ...overrides,
   };
 }

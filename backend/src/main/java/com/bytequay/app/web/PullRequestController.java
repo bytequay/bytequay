@@ -23,6 +23,7 @@ import com.bytequay.app.domain.PullRequestDetail;
 import com.bytequay.app.domain.SuggestedReviewer;
 import com.bytequay.app.service.pr.PullRequestService;
 import com.google.common.collect.ImmutableMap;
+import org.springframework.http.HttpStatusCode;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -30,7 +31,10 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.server.ResponseStatusException;
 
+import java.time.Instant;
+import java.time.format.DateTimeParseException;
 import java.util.List;
 import java.util.Map;
 
@@ -464,5 +468,50 @@ public class PullRequestController
     {
         pullRequestService.reopen(prId);
         return ImmutableMap.of("result", "reopened");
+    }
+
+    /**
+     * Snooze a PR until the given ISO-8601 timestamp. The PR is hidden
+     * from Inbox / kanban / sidebar lists until the timer fires or an
+     * urgent condition trips the auto-wake (CI failing, changes
+     * requested, merge conflict).
+     * POST /prs/snooze?id={prId}&until={ISO-8601}
+     */
+    @PostMapping("/prs/snooze")
+    public Map<String, String> snooze(
+            @RequestParam("id") long prId,
+            @RequestParam("until") String untilIso)
+    {
+        Instant until;
+        try {
+            until = Instant.parse(untilIso);
+        }
+        catch (DateTimeParseException e) {
+            throw new ResponseStatusException(HttpStatusCode.valueOf(400),
+                    "Bad 'until' value, expected ISO-8601: " + untilIso);
+        }
+        pullRequestService.snooze(prId, until);
+        return ImmutableMap.of("result", "snoozed");
+    }
+
+    /**
+     * User-initiated wake. POST /prs/unsnooze?id={prId}
+     */
+    @PostMapping("/prs/unsnooze")
+    public Map<String, String> unsnooze(@RequestParam("id") long prId)
+    {
+        pullRequestService.unsnooze(prId);
+        return ImmutableMap.of("result", "unsnoozed");
+    }
+
+    /**
+     * Drop a stored auto-wake reason once the user has seen the
+     * "PR woke up" alert. POST /prs/snooze/wake-reason/clear?id={prId}
+     */
+    @PostMapping("/prs/snooze/wake-reason/clear")
+    public Map<String, String> clearSnoozeWakeReason(@RequestParam("id") long prId)
+    {
+        pullRequestService.clearSnoozeWakeReason(prId);
+        return ImmutableMap.of("result", "cleared");
     }
 }

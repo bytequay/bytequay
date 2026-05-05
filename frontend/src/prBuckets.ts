@@ -42,7 +42,7 @@ export function syncCachesAfterPrChange(
   }
 }
 
-export type Bucket = 'inbox' | 'handled';
+export type Bucket = 'inbox' | 'snoozed' | 'handled';
 
 /**
  * Terminal Handled states per docs/mockups/v2/pr-state-definitions.md:
@@ -59,7 +59,19 @@ export function isHandled(pr: PullRequestDto): boolean {
   return a === 'MERGED' || a === 'DISMISSED' || a === 'MANUAL';
 }
 
-export function bucketize(pr: PullRequestDto): Bucket {
+/**
+ * A PR is snoozed if `snoozedUntil` is set and still in the future. Past
+ * the deadline the backend's auto-wake job clears the field on its next
+ * sync, but the UI shouldn't wait — we treat expired snoozes as inbox.
+ */
+export function isSnoozed(pr: PullRequestDto, now: number = Date.now()): boolean {
+  if (!pr.snoozedUntil) return false;
+  return new Date(pr.snoozedUntil).getTime() > now;
+}
+
+/** Snooze takes precedence over Handled — a parked merged PR still hides. */
+export function bucketize(pr: PullRequestDto, now: number = Date.now()): Bucket {
+  if (isSnoozed(pr, now)) return 'snoozed';
   return isHandled(pr) ? 'handled' : 'inbox';
 }
 
@@ -162,7 +174,7 @@ export function categorize(pr: PullRequestDto): Category {
  * Handled PRs are filtered out — callers who want them should use
  * `splitInboxAndHandled`.
  */
-export function groupByCategory(prs: PullRequestDto[]): Record<Category, PullRequestDto[]> {
+export function groupByCategory(prs: PullRequestDto[], now: number = Date.now()): Record<Category, PullRequestDto[]> {
   const out: Record<Category, PullRequestDto[]> = {
     needs_attention: [],
     in_progress: [],
@@ -170,21 +182,40 @@ export function groupByCategory(prs: PullRequestDto[]): Record<Category, PullReq
     cleared: [],
   };
   for (const pr of prs) {
+    if (isSnoozed(pr, now)) continue;
     if (isHandled(pr)) continue;
     out[categorize(pr)].push(pr);
   }
   return out;
 }
 
-/** Split a PR list into the Inbox (non-handled) and Handled (terminal) sets. */
-export function splitInboxAndHandled(prs: PullRequestDto[]): {
+/** Split a PR list into Inbox (active), Snoozed (parked), and Handled
+ *  (terminal action) sets. Snoozed wins over Handled — a merged-but-
+ *  snoozed PR stays in Snoozed until its wake time. */
+export function splitByBucket(prs: PullRequestDto[], now: number = Date.now()): {
   inbox: PullRequestDto[];
+  snoozed: PullRequestDto[];
   handled: PullRequestDto[];
 } {
   const inbox: PullRequestDto[] = [];
+  const snoozed: PullRequestDto[] = [];
   const handled: PullRequestDto[] = [];
-  for (const pr of prs) (isHandled(pr) ? handled : inbox).push(pr);
-  return { inbox, handled };
+  for (const pr of prs) {
+    const bucket = bucketize(pr, now);
+    if (bucket === 'snoozed') snoozed.push(pr);
+    else if (bucket === 'handled') handled.push(pr);
+    else inbox.push(pr);
+  }
+  return { inbox, snoozed, handled };
+}
+
+/** Sort snoozed PRs by wake time ascending — soonest waking first. */
+export function sortSnoozed(prs: PullRequestDto[]): PullRequestDto[] {
+  return [...prs].sort((a, b) => {
+    const am = a.snoozedUntil ? new Date(a.snoozedUntil).getTime() : 0;
+    const bm = b.snoozedUntil ? new Date(b.snoozedUntil).getTime() : 0;
+    return am - bm;
+  });
 }
 
 export type HandledBadge = { label: string; cls: string; icon: string };
@@ -446,10 +477,10 @@ export function groupMyPrs(prs: PullRequestDto[], now: number = Date.now()): Rec
     if (col) out[col].push(pr);
   }
   // Per-column sort so the most actionable card sits at the top.
-  out.drafting.sort(byUpdatedAtDesc);             // recent edits surface
+  out.drafting.sort(byUpdatedAtAsc);              // oldest first (user prefs)
   out.waiting_on_review.sort(byCreatedAtAsc);     // oldest = most stale
-  out.needs_changes.sort(byUpdatedAtDesc);        // freshest reviewer feedback first
-  out.ready_to_merge.sort(byUpdatedAtDesc);       // newly-passing CI rises
+  out.needs_changes.sort(byUpdatedAtAsc);         // oldest first (user prefs)
+  out.ready_to_merge.sort(byUpdatedAtAsc);        // oldest first (user prefs)
   out.recently_merged.sort(byMergedAtDesc);       // newest merges first
   out.handled.sort(byReviewedAtDesc);             // most recently dismissed first
   return out;
@@ -477,8 +508,8 @@ export function groupToReview(prs: PullRequestDto[], now: number = Date.now()): 
     if (sa !== sb) return sa - sb;
     return byCreatedAtAsc(a, b);
   });
-  out.in_progress.sort(byUpdatedAtDesc);          // recent activity at top
-  out.awaiting_author.sort(byUpdatedAtDesc);      // freshest author response
+  out.in_progress.sort(byUpdatedAtAsc);           // oldest first (user prefs)
+  out.awaiting_author.sort(byUpdatedAtAsc);       // oldest first (user prefs)
   out.cleared_today.sort(byReviewedAtDesc);       // most recently cleared first
   return out;
 }
@@ -510,8 +541,8 @@ function byCreatedAtAsc(a: PullRequestDto, b: PullRequestDto): number {
   const tb = b.createdAt ? new Date(b.createdAt).getTime() : new Date(b.updatedAt).getTime();
   return ta - tb;
 }
-function byUpdatedAtDesc(a: PullRequestDto, b: PullRequestDto): number {
-  return new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime();
+function byUpdatedAtAsc(a: PullRequestDto, b: PullRequestDto): number {
+  return new Date(a.updatedAt).getTime() - new Date(b.updatedAt).getTime();
 }
 function byMergedAtDesc(a: PullRequestDto, b: PullRequestDto): number {
   const ta = a.mergedAt ? new Date(a.mergedAt).getTime() : 0;

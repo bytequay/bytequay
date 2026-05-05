@@ -57,7 +57,8 @@ class TestPullRequestController
                         Instant.parse("2024-05-25T00:00:00Z"),
                         Instant.parse("2024-06-01T00:00:00Z"), AUTHORED, ImmutableList.of(), null, false, null, null, null, ImmutableList.of(),
                         null, 0, 0, 0, null,
-                        "open", null, null, null, null, null, null)));
+                        "open", null, null, null, null, null, null,
+                        null, null)));
 
         mvc.perform(get("/prs"))
                 .andExpect(status().isOk())

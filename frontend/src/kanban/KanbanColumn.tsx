@@ -52,6 +52,7 @@ type Props = {
   onSelect: (pr: PullRequestDto) => void;
   onHandle: (prId: number) => void;
   onReopen: (prId: number) => void;
+  onSnooze?: (prId: number, untilIso: string) => void;
   /** "team" tells the card to show repo avatar + author chip. */
   cardMode?: 'inbox' | 'team';
   /** When provided, the column is in server-paginated mode: prs is just
@@ -74,7 +75,7 @@ type Props = {
 
 function KanbanColumn({
   kind, label, prs, selectedId, collapsed, yourMove,
-  onToggle, onSelect, onHandle, onReopen, cardMode,
+  onToggle, onSelect, onHandle, onReopen, onSnooze, cardMode,
   totalCount, onLoadMore, footerCta,
 }: Props) {
   const [shownCount, setShownCount] = useState(INITIAL_SHOWN);
@@ -163,6 +164,7 @@ function KanbanColumn({
                 onSelect={() => onSelect(pr)}
                 onHandle={() => onHandle(pr.id)}
                 onReopen={() => onReopen(pr.id)}
+                onSnooze={onSnooze ? (untilIso) => onSnooze(pr.id, untilIso) : undefined}
               />
             ))}
             {hiddenCount > 0 && (

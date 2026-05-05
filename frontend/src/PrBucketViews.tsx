@@ -31,9 +31,10 @@ type InboxCardProps = {
   selected: boolean;
   onSelect: () => void;
   onHandle: () => void;
+  onSnooze?: (untilIso: string) => void;
 };
 
-export function InboxCard({ pr, selected, onSelect, onHandle }: InboxCardProps) {
+export function InboxCard({ pr, selected, onSelect, onHandle, onSnooze }: InboxCardProps) {
   // The inbox / repo-detail / handled-timeline contexts now reuse the
   // rich kanban card. We pick a column flavour from the same signals
   // the old PrCard used for its left-edge dot — a resurfaced or
@@ -50,6 +51,7 @@ export function InboxCard({ pr, selected, onSelect, onHandle }: InboxCardProps) 
       selected={selected}
       onSelect={onSelect}
       onHandle={onHandle}
+      onSnooze={onSnooze}
     />
   );
 }
@@ -190,6 +192,7 @@ type CategorizedListProps = {
   onSelect: (pr: PullRequestDto) => void;
   onHandle: (prId: number) => void;
   onReopen: (prId: number) => void;
+  onSnooze?: (prId: number, untilIso: string) => void;
 };
 
 /**
@@ -199,7 +202,7 @@ type CategorizedListProps = {
  * the group you're currently reviewing). The user can still toggle each
  * section manually.
  */
-export function CategorizedList({ prs, selectedId, onSelect, onHandle, onReopen }: CategorizedListProps) {
+export function CategorizedList({ prs, selectedId, onSelect, onHandle, onReopen, onSnooze }: CategorizedListProps) {
   const groups = useMemo(() => groupByCategory(prs), [prs]);
   const selected = selectedId !== null ? prs.find(p => p.id === selectedId) : undefined;
   const activeCategory: Category | null = selected ? categorize(selected) : null;
@@ -266,6 +269,7 @@ export function CategorizedList({ prs, selectedId, onSelect, onHandle, onReopen 
                           selected={selectedId === pr.id}
                           onSelect={() => onSelect(pr)}
                           onHandle={() => onHandle(pr.id)}
+                          onSnooze={onSnooze ? (untilIso) => onSnooze(pr.id, untilIso) : undefined}
                         />
                       )
                   ))
@@ -275,6 +279,132 @@ export function CategorizedList({ prs, selectedId, onSelect, onHandle, onReopen 
           </section>
         );
       })}
+    </div>
+  );
+}
+
+// ── Just-woke banner ────────────────────────────────────────────────────────
+
+type JustWokeBannerProps = {
+  prs: PullRequestDto[];
+  onSelect: (pr: PullRequestDto) => void;
+  onDismiss: (prId: number) => void;
+};
+
+/** Renders nothing when no PR carries a snoozeWakeReason. Otherwise shows a
+ *  green strip listing the woken PRs with one-click dismiss + jump-in. */
+export function JustWokeBanner({ prs, onSelect, onDismiss }: JustWokeBannerProps) {
+  const woken = prs.filter(pr => pr.snoozeWakeReason);
+  if (woken.length === 0) return null;
+  return (
+    <div className="just-woke-banner" role="status">
+      <span className="just-woke-banner__icon" aria-hidden="true">⏰</span>
+      <span className="just-woke-banner__lead">
+        {woken.length === 1 ? '1 PR woke up:' : `${woken.length} PRs woke up:`}
+      </span>
+      <div className="just-woke-banner__items">
+        {woken.map(pr => (
+          <span key={pr.id} className="just-woke-banner__item">
+            <button
+              type="button"
+              className="just-woke-banner__open"
+              onClick={() => onSelect(pr)}
+              title={`Open ${pr.repo} #${pr.number}`}
+            >
+              {pr.repo} #{pr.number} · {WAKE_REASON_COPY[pr.snoozeWakeReason!] ?? pr.snoozeWakeReason}
+            </button>
+            <button
+              type="button"
+              className="just-woke-banner__dismiss"
+              onClick={() => onDismiss(pr.id)}
+              title="Dismiss this alert"
+              aria-label="Dismiss"
+            >
+              ×
+            </button>
+          </span>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+// ── Snoozed list ────────────────────────────────────────────────────────────
+
+type SnoozedListProps = {
+  prs: PullRequestDto[];
+  selectedId: number | null;
+  onSelect: (pr: PullRequestDto) => void;
+  onUnsnooze: (prId: number) => void;
+  onClearWakeReason: (prId: number) => void;
+};
+
+const WAKE_REASON_COPY: Record<string, string> = {
+  CI_FAILING: 'CI failed',
+  CHANGES_REQUESTED: 'Reviewer requested changes',
+  MERGE_CONFLICT: 'Merge conflict appeared',
+};
+
+function formatWakeRelative(iso: string | null, now: number = Date.now()): string {
+  if (!iso) return '';
+  const diffMs = new Date(iso).getTime() - now;
+  if (diffMs <= 0) return 'waking now…';
+  const mins = Math.round(diffMs / 60_000);
+  if (mins < 60) return `wakes in ${mins}m`;
+  const hrs = Math.round(mins / 60);
+  if (hrs < 24) return `wakes in ${hrs}h`;
+  const days = Math.round(hrs / 24);
+  if (days < 7) {
+    return `wakes ${new Date(iso).toLocaleDateString(undefined, { weekday: 'long' })}`;
+  }
+  return `wakes ${new Date(iso).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}`;
+}
+
+export function SnoozedList({ prs, selectedId, onSelect, onUnsnooze, onClearWakeReason }: SnoozedListProps) {
+  if (prs.length === 0) {
+    return <div className="v2-empty">Nothing snoozed. Use the ⌛ button on a PR card to park it for later.</div>;
+  }
+  return (
+    <div className="snoozed-list">
+      {prs.map(pr => (
+        <article
+          key={pr.id}
+          className={`snoozed-card${selectedId === pr.id ? ' snoozed-card--selected' : ''}`}
+          onClick={() => onSelect(pr)}
+          role="button"
+          tabIndex={0}
+        >
+          <header className="snoozed-card__head">
+            <span className="snoozed-card__repo">{pr.repo} · #{pr.number}</span>
+            <span className="snoozed-card__wake">{formatWakeRelative(pr.snoozedUntil)}</span>
+          </header>
+          <div className="snoozed-card__title">{pr.title}</div>
+          {pr.snoozeWakeReason && (
+            <div className="snoozed-card__woke">
+              <span aria-hidden="true">⏰</span>
+              <span>Auto-woke: {WAKE_REASON_COPY[pr.snoozeWakeReason] ?? pr.snoozeWakeReason}</span>
+              <button
+                type="button"
+                className="snoozed-card__woke-dismiss"
+                onClick={(e) => { e.stopPropagation(); onClearWakeReason(pr.id); }}
+                title="Dismiss this just-woke alert."
+              >
+                Dismiss
+              </button>
+            </div>
+          )}
+          <footer className="snoozed-card__actions">
+            <button
+              type="button"
+              className="snoozed-card__wake-now"
+              onClick={(e) => { e.stopPropagation(); onUnsnooze(pr.id); }}
+              title="Wake this PR now and return it to the Inbox."
+            >
+              Wake now
+            </button>
+          </footer>
+        </article>
+      ))}
     </div>
   );
 }

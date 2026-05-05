@@ -11,7 +11,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import type { CSSProperties } from 'react';
+import { useEffect, useRef, useState, type CSSProperties } from 'react';
 import type { PullRequestDto } from '../types';
 import Avatar from '../Avatar';
 import { formatRelative } from '../prBuckets';
@@ -36,6 +36,10 @@ type Props = {
    *  "↺" reopen button appears in the top-right corner. Clears the
    *  PR's handledAction and bounces it back into its proper column. */
   onReopen?: () => void;
+  /** When provided, a small ⌛ button appears next to ✓. Click opens
+   *  a time-preset menu; picking one calls onSnooze with the chosen
+   *  ISO-8601 wake instant. Suppressed on already-done columns. */
+  onSnooze?: (untilIso: string) => void;
 };
 
 /**
@@ -49,7 +53,7 @@ type Props = {
  * from the mockup are intentionally not rendered yet — they need new
  * backend endpoints + a confirmation flow we'll wire in a follow-up.
  */
-function KanbanPrCard({ pr, column, mode = 'inbox', selected, onSelect, onHandle, onReopen }: Props) {
+function KanbanPrCard({ pr, column, mode = 'inbox', selected, onSelect, onHandle, onReopen, onSnooze }: Props) {
   // Defensive — a missed prop from a non-strict caller used to crash the
   // whole UI when .replace(...) was invoked on an undefined column. Treat
   // any missing column as a generic in-progress so the card still renders.
@@ -140,6 +144,14 @@ function KanbanPrCard({ pr, column, mode = 'inbox', selected, onSelect, onHandle
             >
               ↺
             </button>
+          )}
+          {/* Snooze "⌛": opens a time-preset popup. Suppressed on done
+              columns and on the Handled tab — there's nothing to park. */}
+          {onSnooze
+              && safeColumn !== 'cleared_today'
+              && safeColumn !== 'recently_merged'
+              && safeColumn !== 'handled' && (
+            <SnoozeMenuButton onPick={onSnooze} />
           )}
         </div>
       </div>
@@ -328,6 +340,112 @@ function tagStyle(color: string | null | undefined): CSSProperties | undefined {
   const luma = (0.299 * r + 0.587 * g + 0.114 * b) / 255;
   const text = luma > 0.6 ? '#1f2937' : '#ffffff';
   return { background: `#${color}`, color: text, borderColor: 'transparent' };
+}
+
+// ── Snooze menu ────────────────────────────────────────────────────────────
+
+type SnoozePreset = { label: string; compute: () => Date };
+
+/**
+ * Time presets in display order. Computed lazily so `Date.now()` reflects
+ * the moment the user opens the menu, not the card's mount time.
+ */
+const SNOOZE_PRESETS: SnoozePreset[] = [
+  { label: 'In 1 hour', compute: () => new Date(Date.now() + 60 * 60 * 1000) },
+  { label: 'In 4 hours', compute: () => new Date(Date.now() + 4 * 60 * 60 * 1000) },
+  {
+    label: 'Until 6pm today',
+    compute: () => {
+      const d = new Date();
+      d.setHours(18, 0, 0, 0);
+      // If 6pm today is already past, treat it as "tomorrow 6pm" so the
+      // preset is still meaningful when used after work hours.
+      if (d.getTime() <= Date.now()) d.setDate(d.getDate() + 1);
+      return d;
+    },
+  },
+  {
+    label: 'Tomorrow morning (9am)',
+    compute: () => {
+      const d = new Date();
+      d.setDate(d.getDate() + 1);
+      d.setHours(9, 0, 0, 0);
+      return d;
+    },
+  },
+  {
+    label: 'Next Monday (9am)',
+    compute: () => {
+      const d = new Date();
+      const dow = d.getDay();
+      const daysUntilMonday = (8 - dow) % 7 || 7;
+      d.setDate(d.getDate() + daysUntilMonday);
+      d.setHours(9, 0, 0, 0);
+      return d;
+    },
+  },
+];
+
+type SnoozeMenuButtonProps = {
+  onPick: (untilIso: string) => void;
+};
+
+function SnoozeMenuButton({ onPick }: SnoozeMenuButtonProps) {
+  const [open, setOpen] = useState(false);
+  const wrapRef = useRef<HTMLSpanElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const onDoc = (e: MouseEvent) => {
+      if (!wrapRef.current) return;
+      if (wrapRef.current.contains(e.target as Node)) return;
+      setOpen(false);
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setOpen(false);
+    };
+    document.addEventListener('mousedown', onDoc);
+    document.addEventListener('keydown', onKey);
+    return () => {
+      document.removeEventListener('mousedown', onDoc);
+      document.removeEventListener('keydown', onKey);
+    };
+  }, [open]);
+
+  return (
+    <span ref={wrapRef} className="kpr-card__snooze-wrap">
+      <button
+        type="button"
+        className="kpr-card__handle kpr-card__handle--snooze"
+        onClick={(e) => { e.stopPropagation(); setOpen(o => !o); }}
+        title="Snooze — park this PR until later."
+        aria-label="Snooze this PR"
+        aria-expanded={open}
+        aria-haspopup="menu"
+      >
+        ⌛
+      </button>
+      {open && (
+        <div className="kpr-card__snooze-menu" role="menu" onClick={(e) => e.stopPropagation()}>
+          {SNOOZE_PRESETS.map(preset => (
+            <button
+              key={preset.label}
+              type="button"
+              role="menuitem"
+              className="kpr-card__snooze-item"
+              onClick={(e) => {
+                e.stopPropagation();
+                setOpen(false);
+                onPick(preset.compute().toISOString());
+              }}
+            >
+              {preset.label}
+            </button>
+          ))}
+        </div>
+      )}
+    </span>
+  );
 }
 
 export default KanbanPrCard;

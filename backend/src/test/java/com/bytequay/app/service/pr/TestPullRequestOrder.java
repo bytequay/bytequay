@@ -108,6 +108,7 @@ class TestPullRequestOrder
         return new PullRequest(id, "owner/repo", 1, "title", null, "url",
                 null, Instant.parse(updatedAt), AUTHORED, ImmutableList.of(), null, false, viewedAt, reviewedAt, null, ImmutableList.of(),
                 null, 0, 0, 0, null,
-                "open", null, null, null, null, null, null);
+                "open", null, null, null, null, null, null,
+                null, null);
     }
 }

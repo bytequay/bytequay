@@ -1037,6 +1037,7 @@ public class PullRequestService
                                 m.body(), m.filePath(), m.lineNumber(), m.side(),
                                 m.diffHunk(), m.commitId(), m.createdAt(), m.reactions(),
                                 m.outdated(), m.startLine(), m.startSide(),
+                                m.originalLine(), m.originalStartLine(),
                                 m.authorAssociation(),
                                 meta.graphqlNodeId(),
                                 meta.resolved());
@@ -1315,7 +1316,9 @@ public class PullRequestService
                     root.resolved(),
                     root.outdated(),
                     root.startLine(),
-                    root.startSide()));
+                    root.startSide(),
+                    root.originalLine(),
+                    root.originalStartLine()));
         }
         // Newest threads first.
         threads.sort((a, b) -> {

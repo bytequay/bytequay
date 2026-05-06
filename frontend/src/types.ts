@@ -227,6 +227,14 @@ export type ReviewThreadDto = {
   startLine: number | null;
   /** Side of {@link #startLine}; usually matches {@link #side}. */
   startSide: string | null;
+  /** Original line numbers — the file-side coordinates that match
+   *  {@link #diffHunk}. After post-comment edits, line / startLine
+   *  shift forward but these stay anchored to whatever GitHub
+   *  recorded when the comment landed. The DiffHunk slicer prefers
+   *  these (V38 backend); falls back to line/startLine on legacy
+   *  rows where the new fields are still null. */
+  originalLine: number | null;
+  originalStartLine: number | null;
 };
 
 export type LinkedIssueDto = {

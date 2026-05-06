@@ -162,7 +162,15 @@ public record PullRequestDetail(
             Integer startLine,
             /** Side of {@link #startLine} ("LEFT"/"RIGHT"); usually the
              *  same as {@link #side}. */
-            String startSide) {}
+            String startSide,
+            /** Original line numbers matching {@link #diffHunk}. The
+             *  diff_hunk reflects the file *at the time the comment
+             *  landed*; line / startLine shift after edits. Used to
+             *  slice the hunk client-side to the actual commented
+             *  lines. Null on legacy rows synced before V38; frontend
+             *  falls back to {@link #line} / {@link #startLine}. */
+            Integer originalLine,
+            Integer originalStartLine) {}
 
     public record ReviewMessage(
             long githubId,

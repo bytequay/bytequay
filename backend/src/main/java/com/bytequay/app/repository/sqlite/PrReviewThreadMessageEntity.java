@@ -66,6 +66,17 @@ class PrReviewThreadMessageEntity
     @Column(name = "start_side")
     private String startSide;
 
+    /** Original line numbers — the file-side coordinates that match
+     *  {@link #diffHunk}. After the file is edited post-comment, line /
+     *  startLine shift while these stay anchored to whatever GitHub
+     *  recorded when the comment landed. The frontend uses these to
+     *  slice the hunk to the commented range (V38). */
+    @Column(name = "original_line")
+    private Integer originalLine;
+
+    @Column(name = "original_start_line")
+    private Integer originalStartLine;
+
     @Column(name = "diff_hunk")
     private String diffHunk;
 
@@ -155,6 +166,12 @@ class PrReviewThreadMessageEntity
 
     String getStartSide() { return startSide; }
     void setStartSide(String startSide) { this.startSide = startSide; }
+
+    Integer getOriginalLine() { return originalLine; }
+    void setOriginalLine(Integer originalLine) { this.originalLine = originalLine; }
+
+    Integer getOriginalStartLine() { return originalStartLine; }
+    void setOriginalStartLine(Integer originalStartLine) { this.originalStartLine = originalStartLine; }
 
     String getDiffHunk() { return diffHunk; }
     void setDiffHunk(String diffHunk) { this.diffHunk = diffHunk; }

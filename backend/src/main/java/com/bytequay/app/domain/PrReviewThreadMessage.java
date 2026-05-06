@@ -46,6 +46,14 @@ public record PrReviewThreadMessage(
         /** Side of {@link #startLine} ("LEFT"/"RIGHT") — usually matches
          *  {@link #side} but kept separate to mirror GitHub's API shape. */
         String startSide,
+        /** Original line numbers — the file-side coordinates that match
+         *  {@link #diffHunk}. After edits the comment's {@link #lineNumber}
+         *  / {@link #startLine} shift; these stay anchored to whatever
+         *  GitHub recorded when the comment landed. Used by the frontend
+         *  to slice the hunk to the commented range. Null on legacy
+         *  rows; the frontend falls back to lineNumber/startLine. */
+        Integer originalLine,
+        Integer originalStartLine,
         /** Author's association with the repo (MEMBER / CONTRIBUTOR /
          *  OWNER / NONE / FIRST_TIME_CONTRIBUTOR / …). Powers the role
          *  pill in the UI. Null for legacy rows persisted before this

@@ -123,20 +123,27 @@ export function ReviewThreadCard({
           </span>
         )}
       </header>
-      {!folded && thread.diffHunk && (
-        <DiffHunk
-          hunk={thread.diffHunk}
-          range={
-            thread.line != null
-              ? {
-                  startLine: thread.startLine ?? thread.line,
-                  endLine: thread.line,
-                  side: thread.side === 'LEFT' ? 'LEFT' : 'RIGHT',
-                }
-              : undefined
-          }
-        />
-      )}
+      {!folded && thread.diffHunk && (() => {
+        // Prefer the original-line coordinates (V38). They match the
+        // diff_hunk verbatim. Fall back to the current line on legacy
+        // rows where the original fields are null.
+        const endLine = thread.originalLine ?? thread.line;
+        const startLine = thread.originalStartLine ?? thread.startLine ?? endLine;
+        return (
+          <DiffHunk
+            hunk={thread.diffHunk}
+            range={
+              endLine != null
+                ? {
+                    startLine,
+                    endLine,
+                    side: thread.side === 'LEFT' ? 'LEFT' : 'RIGHT',
+                  }
+                : undefined
+            }
+          />
+        );
+      })()}
       {!folded && (
         <div className="prc-review-thread__msgs">
           {thread.messages.map((msg) => (

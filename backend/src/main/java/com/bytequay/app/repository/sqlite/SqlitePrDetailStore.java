@@ -168,6 +168,8 @@ public class SqlitePrDetailStore
                         m.isOutdated(),
                         m.getStartLine(),
                         m.getStartSide(),
+                        m.getOriginalLine(),
+                        m.getOriginalStartLine(),
                         m.getAuthorAssociation(),
                         m.getGraphqlNodeId(),
                         m.getResolved()))
@@ -409,6 +411,8 @@ public class SqlitePrDetailStore
         e.setSide(m.side());
         e.setStartLine(m.startLine());
         e.setStartSide(m.startSide());
+        e.setOriginalLine(m.originalLine());
+        e.setOriginalStartLine(m.originalStartLine());
         e.setDiffHunk(m.diffHunk());
         e.setCommitId(m.commitId());
         e.setCreatedAt(m.createdAt());

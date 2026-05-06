@@ -94,6 +94,8 @@ function makeThread(overrides: Partial<ReviewThreadDto> = {}): ReviewThreadDto {
     outdated: false,
     startLine: null,
     startSide: null,
+    originalLine: null,
+    originalStartLine: null,
     ...overrides,
   };
 }

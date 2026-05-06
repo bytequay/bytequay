@@ -37,6 +37,14 @@ public record GitHubReviewComment(
         // The pair (start_line, line) is the inclusive range covered.
         @JsonProperty("start_line") Integer startLine,
         @JsonProperty("start_side") String startSide,
+        // Original line numbers — the file-side coordinates that match
+        // diff_hunk. After post-comment edits, line / start_line shift
+        // forward but original_line / original_start_line stay anchored
+        // to whatever was in the diff_hunk when the comment landed.
+        // Critical for slicing the hunk to the commented range — see
+        // CommentBody.sliceHunkToRange on the frontend.
+        @JsonProperty("original_line") Integer originalLine,
+        @JsonProperty("original_start_line") Integer originalStartLine,
         @JsonProperty("diff_hunk") String diffHunk,
         @JsonProperty("commit_id") String commitId,
         @JsonProperty("created_at") Instant createdAt,

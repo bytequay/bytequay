@@ -637,6 +637,8 @@ public class GitHubClient
                 outdated,
                 c.startLine(),
                 c.startSide(),
+                c.originalLine(),
+                c.originalStartLine(),
                 c.authorAssociation(),
                 /* graphqlNodeId */ null,
                 /* resolved */ null);

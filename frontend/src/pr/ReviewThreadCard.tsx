@@ -146,36 +146,53 @@ export function ReviewThreadCard({
       })()}
       {!folded && (
         <div className="prc-review-thread__msgs">
-          {thread.messages.map((msg) => (
-            <div key={msg.githubId} className="prc-review-thread__msg">
-              <Avatar login={msg.author ?? ''} size={18} className="prc-review-thread__avatar" />
-              <div className="prc-review-thread__msg-body">
-                <div className="prc-review-thread__msg-head">
-                  {msg.author && <span className="prc-comment-author">{msg.author}</span>}
-                  {prAuthor === msg.author
-                    ? <span className="prc-comment-role">AUTHOR</span>
-                    : authorAssociationLabel(msg.authorAssociation) && (
-                      <span className="prc-comment-role prc-comment-role--association">
-                        {authorAssociationLabel(msg.authorAssociation)}
-                      </span>
-                    )}
-                  {msg.createdAt && <span className="prc-comment-time">{formatRelativeTime(msg.createdAt)}</span>}
-                </div>
-                {msg.body && (
-                  <EditableMarkdownBody
-                    body={msg.body}
-                    canEdit={!!(onEditMessage && currentUserLogin && currentUserLogin === msg.author)}
-                    onSave={(newBody) => onEditMessage!(msg.githubId, newBody)}
-                    renderViewSlot={(b) => <CommentBodyWithSuggestions body={b} hunk={thread.diffHunk} />}
+          {thread.messages.map((msg) => {
+            // GitHub-style head row: author + timestamp on the left,
+            // role pills on the right (per
+            // docs/mockups/issue/pr-details/pr-review-response.png).
+            // Show BOTH the association (Member/Contributor/…) and
+            // AUTHOR pill when the commenter is the PR author —
+            // matches how github.com renders the OP's replies.
+            const associationLabel = authorAssociationLabel(msg.authorAssociation);
+            const isPrAuthor = !!msg.author && prAuthor === msg.author;
+            return (
+              <div key={msg.githubId} className="prc-review-thread__msg">
+                <Avatar login={msg.author ?? ''} size={20} className="prc-review-thread__avatar" />
+                <div className="prc-review-thread__msg-body">
+                  <div className="prc-review-thread__msg-head">
+                    <span className="prc-review-thread__msg-head-left">
+                      {msg.author && <span className="prc-comment-author">{msg.author}</span>}
+                      {msg.createdAt && (
+                        <span className="prc-comment-time">{formatRelativeTime(msg.createdAt)}</span>
+                      )}
+                    </span>
+                    <span className="prc-review-thread__msg-head-right">
+                      {associationLabel && (
+                        <span className="prc-comment-role prc-comment-role--association">
+                          {associationLabel}
+                        </span>
+                      )}
+                      {isPrAuthor && (
+                        <span className="prc-comment-role">AUTHOR</span>
+                      )}
+                    </span>
+                  </div>
+                  {msg.body && (
+                    <EditableMarkdownBody
+                      body={msg.body}
+                      canEdit={!!(onEditMessage && currentUserLogin && currentUserLogin === msg.author)}
+                      onSave={(newBody) => onEditMessage!(msg.githubId, newBody)}
+                      renderViewSlot={(b) => <CommentBodyWithSuggestions body={b} hunk={thread.diffHunk} />}
+                    />
+                  )}
+                  <ReactionChips
+                    reactions={msg.reactions}
+                    onAddReaction={onReact ? (content) => { void onReact(msg.githubId, content); } : undefined}
                   />
-                )}
-                <ReactionChips
-                  reactions={msg.reactions}
-                  onAddReaction={onReact ? (content) => { void onReact(msg.githubId, content); } : undefined}
-                />
+                </div>
               </div>
-            </div>
-          ))}
+            );
+          })}
         </div>
       )}
       {/* Reply composer — see docs/mockups/v2/detail/comment-input.png.

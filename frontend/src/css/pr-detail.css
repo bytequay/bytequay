@@ -948,60 +948,72 @@
   white-space: pre;
   overflow-x: auto;
 }
+/* Per-line review thread messages render as a flat conversation —
+   no per-message bordered card — per
+   docs/mockups/issue/pr-details/pr-review-response.png. Avatar +
+   author + timestamp on the head row, role pills right-aligned, and
+   the body sits flush below the head. Mirrors github.com's
+   conversation surface. */
 .prc-review-thread__msgs {
-  padding: 10px 10px;
+  padding: 14px 16px 12px;
   display: flex;
   flex-direction: column;
-  /* Generous gap between consecutive messages so each reviewer's
-     contribution reads as its own block — matches github.com's
-     vertical rhythm in long review threads. */
-  gap: 30px;
+  /* Tighter gap than the old boxed layout — without per-message
+     borders the eye doesn't need as much whitespace to separate
+     adjacent comments. */
+  gap: 18px;
 }
 .prc-review-thread__msg {
   display: flex;
-  gap: 8px;
+  gap: 10px;
   align-items: flex-start;
 }
 .prc-review-thread__avatar { flex-shrink: 0; margin-top: 2px; }
-/* Each per-line review message renders as a small bordered card with a
-   gray header bar carrying the author + date — same shell GitHub uses
-   on its conversation page so reviewers' contributions read as discrete
-   blocks instead of a wall of inline text. */
 .prc-review-thread__msg-body {
   flex: 1;
   min-width: 0;
-  border: 1px solid var(--border);
-  border-radius: 8px;
-  background: var(--bg-card);
-  overflow: hidden;
 }
-/* Per-line review messages share the comment body size with top-level
-   comments. Kept as a separate rule (rather than relying on inheritance)
-   so this surface can be tuned independently if the denser surrounding
-   chrome makes the same px read differently. */
 .prc-review-thread__msg-body .prc-comment-body {
   font-size: 14px;
-  padding: 10px 14px;
+  padding: 0;
+  margin-top: 2px;
 }
 .prc-review-thread__msg-head {
   display: flex;
   align-items: center;
   gap: 8px;
   font-size: 13px;
-  padding: 6px 12px;
-  background: var(--bg-elevated);
-  border-bottom: 1px solid var(--border);
-  margin: 0;
-}
-/* When a message has no body (rare — reaction-only edge cases) the head
-   bar should sit alone without the dangling separator. */
-.prc-review-thread__msg-body > .prc-review-thread__msg-head:only-child {
+  padding: 0;
+  background: transparent;
   border-bottom: none;
+  margin: 0 0 4px;
 }
-/* Reactions sit below the body inside the same card; give them a touch
-   of breathing room from the body text. */
+.prc-review-thread__msg-head-left {
+  display: inline-flex;
+  align-items: baseline;
+  gap: 8px;
+  flex: 1;
+  min-width: 0;
+}
+.prc-review-thread__msg-head-right {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+.prc-review-thread__msg-body .prc-comment-time {
+  /* Match the github.com look — timestamp reads as a clickable
+     subtitle next to the author. */
+  text-decoration: underline;
+  text-decoration-color: var(--border);
+  text-underline-offset: 2px;
+  cursor: pointer;
+}
+/* Reactions sit below the body. No inner card now, so just a small
+   top margin so they don't collide with the body text. */
 .prc-review-thread__msg-body .reaction-chips {
-  padding: 0 14px 10px;
+  padding: 0;
+  margin-top: 6px;
 }
 
 /* Clickable variant: the whole row is a button so users can click anywhere

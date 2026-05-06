@@ -124,7 +124,18 @@ export function ReviewThreadCard({
         )}
       </header>
       {!folded && thread.diffHunk && (
-        <DiffHunk hunk={thread.diffHunk} />
+        <DiffHunk
+          hunk={thread.diffHunk}
+          range={
+            thread.line != null
+              ? {
+                  startLine: thread.startLine ?? thread.line,
+                  endLine: thread.line,
+                  side: thread.side === 'LEFT' ? 'LEFT' : 'RIGHT',
+                }
+              : undefined
+          }
+        />
       )}
       {!folded && (
         <div className="prc-review-thread__msgs">

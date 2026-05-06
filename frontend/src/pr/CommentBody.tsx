@@ -19,8 +19,57 @@ import { lastTouchedLine } from './utils';
  * for added lines (`+`), red for removed (`-`), neutral for context, and
  * a muted blue tint for the `@@` hunk header. Input is the raw string
  * GitHub returns on review-thread.diffHunk.
+ *
+ * When a `range` is provided, only the lines whose target-side line
+ * number falls within {startLine, endLine} are rendered, with a gutter
+ * showing the actual line numbers and a "Comment on line +X" header —
+ * matches GitHub's web UI for multi-line review comments. Without a
+ * range the hunk renders verbatim (used by code-suggestion blocks).
  */
-export function DiffHunk({ hunk }: { hunk: string }) {
+type Range = {
+  startLine: number;
+  endLine: number;
+  side: 'LEFT' | 'RIGHT';
+};
+
+export function DiffHunk({ hunk, range }: { hunk: string; range?: Range }) {
+  if (range) {
+    const sliced = sliceHunkToRange(hunk, range);
+    if (sliced.length === 0) {
+      // Range fell outside the hunk (e.g. an outdated thread anchored
+      // to a line GitHub no longer exposes in diff_hunk). Fall back to
+      // showing the full hunk so the user at least sees something.
+      return <FullHunk hunk={hunk} />;
+    }
+    const sigil = range.side === 'LEFT' ? '−' : '+';
+    const header = range.startLine === range.endLine
+      ? `Comment on line ${sigil}${range.startLine}`
+      : `Comment on lines ${sigil}${range.startLine} to ${sigil}${range.endLine}`;
+    return (
+      <div className="prc-review-thread__hunk-block">
+        <div className="prc-review-thread__hunk-loc">{header}</div>
+        <pre className="prc-review-thread__hunk">
+          <div className="prc-review-thread__hunk-inner prc-review-thread__hunk-inner--gutter">
+            {sliced.map((row, i) => {
+              const cls = `diff-hunk-line diff-hunk-line--${row.kind}`;
+              const prefix = row.kind === 'add' ? '+' : row.kind === 'del' ? '-' : ' ';
+              return (
+                <div key={i} className={cls}>
+                  <span className="diff-hunk-line__gutter">{row.lineNo}</span>
+                  <span className="diff-hunk-line__sigil">{prefix}</span>
+                  <span className="diff-hunk-line__text">{row.text || ' '}</span>
+                </div>
+              );
+            })}
+          </div>
+        </pre>
+      </div>
+    );
+  }
+  return <FullHunk hunk={hunk} />;
+}
+
+function FullHunk({ hunk }: { hunk: string }) {
   const lines = hunk.split('\n');
   // Inner wrapper sized to max(100%, longest-line) so each row's
   // background paints all the way to the right of the longest line —
@@ -40,6 +89,60 @@ export function DiffHunk({ hunk }: { hunk: string }) {
       </div>
     </pre>
   );
+}
+
+type SlicedRow = { kind: 'add' | 'del' | 'ctx'; lineNo: number; text: string };
+
+/**
+ * Walks the unified-diff hunk, tracking the per-side line numbers from
+ * the @@ header, and returns just the rows whose target-side line
+ * number falls within the given range. Lines on the *other* side
+ * (e.g. `-` lines when the comment is on RIGHT) are omitted — they
+ * confuse the "this is what I commented on" intent.
+ */
+export function sliceHunkToRange(hunk: string, range: Range): SlicedRow[] {
+  const lines = hunk.split('\n');
+  const out: SlicedRow[] = [];
+  // We track one-less-than-current so the first ++ lands on the
+  // header's a / c value.
+  let oldLineNo = 0;
+  let newLineNo = 0;
+  for (const line of lines) {
+    if (line.startsWith('@@')) {
+      const m = /^@@ -(\d+)(?:,\d+)? \+(\d+)(?:,\d+)? @@/.exec(line);
+      if (m) {
+        oldLineNo = parseInt(m[1], 10) - 1;
+        newLineNo = parseInt(m[2], 10) - 1;
+      }
+      continue;
+    }
+    // "\ No newline at end of file" — diff metadata, doesn't advance.
+    if (line.startsWith('\\')) continue;
+
+    if (line.startsWith('+')) {
+      newLineNo++;
+      if (range.side === 'RIGHT' && newLineNo >= range.startLine && newLineNo <= range.endLine) {
+        out.push({ kind: 'add', lineNo: newLineNo, text: line.slice(1) });
+      }
+    }
+    else if (line.startsWith('-')) {
+      oldLineNo++;
+      if (range.side === 'LEFT' && oldLineNo >= range.startLine && oldLineNo <= range.endLine) {
+        out.push({ kind: 'del', lineNo: oldLineNo, text: line.slice(1) });
+      }
+    }
+    else {
+      // Context line — present on both sides. Keep when the comment
+      // side's line number is in range.
+      newLineNo++;
+      oldLineNo++;
+      const lineNo = range.side === 'RIGHT' ? newLineNo : oldLineNo;
+      if (lineNo >= range.startLine && lineNo <= range.endLine) {
+        out.push({ kind: 'ctx', lineNo, text: line.startsWith(' ') ? line.slice(1) : line });
+      }
+    }
+  }
+  return out;
 }
 
 /**

@@ -633,6 +633,10 @@ export type Bridge = {
    *  through GitHub's `is:closed author:@me sort:closed-desc` results. */
   fetchPrHistory: (page: number, perPage?: number) => Promise<PullRequestHistoryPageDto>;
   fetchPullRequestDetail: (repo: string, number: number) => Promise<PullRequestDetailDto>;
+  /** Force-refresh one PR's detail. Drops the backend's cached snapshot
+   *  and re-fetches live from GitHub. Wired to the manual ↻ refresh
+   *  button on the PR detail page. */
+  refreshPullRequestDetail: (repo: string, number: number) => Promise<PullRequestDetailDto>;
   /** Lightweight CI snapshot for the focus-driven detail-page poll. */
   fetchPrCi: (repo: string, number: number) => Promise<PrCiSnapshotDto>;
   /** Raw Actions log text for one check-run. Empty string when GitHub

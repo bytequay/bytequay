@@ -618,6 +618,28 @@ function PullRequestPreview({ pr, onOpenReview, onInspectDiffs, onMarkHandled, o
   // this without leaving the detail page.
   const [draftToggleState, setDraftToggleState] = useState<'idle' | 'running' | 'error'>('idle');
   const [draftToggleError, setDraftToggleError] = useState<string | null>(null);
+  /** Manual refresh — drops the backend's cached snapshot for this PR
+   *  and re-fetches live from GitHub, then replaces the in-memory
+   *  detailCache entry and current view state. Wired to the ↻ button
+   *  in the header so the user can pull in github.com edits without
+   *  waiting for the next periodic sync. */
+  const handleRefreshDetail = async () => {
+    if (refreshing) return;
+    setRefreshing(true);
+    setError(null);
+    try {
+      const fresh = await window.bridge.refreshPullRequestDetail(pr.repo, pr.number);
+      putCache(pr.id, fresh);
+      setDetail(fresh);
+    }
+    catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    }
+    finally {
+      setRefreshing(false);
+    }
+  };
+
   const handleToggleDraft = async () => {
     if (!detail || draftToggleState === 'running') return;
     const nextDraft = !detail.draft;
@@ -913,6 +935,20 @@ function PullRequestPreview({ pr, onOpenReview, onInspectDiffs, onMarkHandled, o
     localStorage.setItem('settings:pr-detail-style', next);
   };
 
+  const RefreshButton = (
+    <button
+      type="button"
+      className="prc-refresh-btn"
+      onClick={() => void handleRefreshDetail()}
+      disabled={refreshing}
+      title="Refresh — re-fetch this PR's comments / timeline from GitHub."
+      aria-label="Refresh PR detail"
+    >
+      <span className={`prc-refresh-btn__icon${refreshing ? ' prc-refresh-btn__icon--spinning' : ''}`} aria-hidden="true">↻</span>
+      <span className="prc-refresh-btn__label">{refreshing ? 'Refreshing…' : 'Refresh'}</span>
+    </button>
+  );
+
   const StyleToggle = (
     <div className="prc-style-toggle" role="tablist" aria-label="Detail layout">
       <button
@@ -954,6 +990,7 @@ function PullRequestPreview({ pr, onOpenReview, onInspectDiffs, onMarkHandled, o
           )}
           <div className="preview__title-row">
             <h1 className="preview__title">{pr.title}</h1>
+            {RefreshButton}
             {StyleToggle}
           </div>
           <div className="preview__meta">
@@ -1440,6 +1477,7 @@ function PullRequestPreview({ pr, onOpenReview, onInspectDiffs, onMarkHandled, o
           </span>
         </div>
         <div className="prc-actions">
+          {RefreshButton}
           {StyleToggle}
           {handledState !== 'done' && (
             <button

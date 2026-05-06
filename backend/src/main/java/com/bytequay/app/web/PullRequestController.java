@@ -78,6 +78,22 @@ public class PullRequestController
     }
 
     /**
+     * Force-refresh one PR's detail. Drops the cached snapshot and
+     * re-fetches live from GitHub. Wired to the manual refresh button
+     * on the detail page so users can pull in changes they made on
+     * github.com without waiting for the next periodic sync.
+     * POST /prs/detail/refresh
+     */
+    @PostMapping("/prs/detail/refresh")
+    public PullRequestDetail refreshDetail(
+            @RequestParam("repo") String repo,
+            @RequestParam("number") int number)
+    {
+        String pat = patResolver.resolve(repo);
+        return pullRequestService.refreshPullRequestDetail(pat, repo, number);
+    }
+
+    /**
      * Returns just the CI status, per-check breakdown, and the viewer's
      * write permission for the PR. Polled by the detail page while the
      * window is focused so a CI flip and the merge button's enable/disable

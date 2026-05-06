@@ -1817,6 +1817,49 @@
   overflow-y: auto;            /* THIS is the scroll surface in clean mode */
 }
 
+/* Manual refresh button on the PR detail header. Force-reloads this
+   PR's comments / timeline / reviews from GitHub (drops the backend's
+   cached snapshot). The ↻ icon spins while the request is in flight. */
+.prc-refresh-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 4px 10px;
+  font: inherit;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-2);
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 7px;
+  cursor: pointer;
+  margin-right: 4px;
+  transition: background 0.1s, color 0.1s, border-color 0.1s;
+}
+.prc-refresh-btn:hover:not(:disabled) {
+  background: var(--accent-a7);
+  color: var(--text-1);
+  border-color: var(--accent-a40, var(--accent));
+}
+.prc-refresh-btn:disabled {
+  cursor: default;
+  opacity: 0.7;
+}
+.prc-refresh-btn__icon {
+  display: inline-block;
+  font-size: 13px;
+  line-height: 1;
+}
+.prc-refresh-btn__icon--spinning {
+  animation: prc-refresh-spin 0.9s linear infinite;
+}
+@keyframes prc-refresh-spin {
+  to { transform: rotate(360deg); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .prc-refresh-btn__icon--spinning { animation: none; }
+}
+
 /* Classic/Clean layout toggle — sits in the actions row of either
    layout's header. Compact pill-segmented control. */
 .prc-style-toggle {

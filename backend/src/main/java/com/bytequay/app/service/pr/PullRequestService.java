@@ -241,6 +241,18 @@ public class PullRequestService
     }
 
     /**
+     * Force-refreshes one PR's detail by dropping the cached snapshot and
+     * re-fetching live from GitHub. Wired to the manual refresh button on
+     * the detail page — the user has seen new comments/reviews on
+     * github.com that aren't in our local cache yet.
+     */
+    public PullRequestDetail refreshPullRequestDetail(String pat, String repo, int number)
+    {
+        invalidateCachedDetail(repo, number);
+        return getPullRequestDetail(pat, repo, number);
+    }
+
+    /**
      * Toggles a PR between draft and ready-for-review. Drops the cached
      * detail so the next fetch reflects the new state and the timeline
      * picks up the synthetic "ready for review" / "marked as draft"

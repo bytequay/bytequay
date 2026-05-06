@@ -53,6 +53,8 @@ const bridge: Bridge = {
   fetchPrs: (): Promise<PullRequestDto[]> => ipcRenderer.invoke('backend:listPrs'),
   fetchPullRequestDetail: (repo: string, number: number): Promise<PullRequestDetailDto> =>
     ipcRenderer.invoke('backend:pullRequestDetail', repo, number),
+  refreshPullRequestDetail: (repo: string, number: number): Promise<PullRequestDetailDto> =>
+    ipcRenderer.invoke('backend:refreshPullRequestDetail', repo, number),
   fetchPrCi: (repo: string, number: number) =>
     ipcRenderer.invoke('backend:prCi', repo, number),
   fetchCheckLog: (repo: string, checkRunId: number) =>

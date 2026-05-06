@@ -1124,28 +1124,31 @@
 
 .diff-row--context { background: transparent; }
 
-/* GitHub Desktop / github.com light palette — warm soft green and pink that
-   read as "added"/"removed" without shouting. The gutter column picks up a
-   slightly stronger tint so line numbers on changed lines stand out. */
+/* GitHub-style green/pink for added/removed lines. The body and gutter
+   tints are intentionally a couple of shades stronger than github.com's
+   defaults — the previous values (#e6ffec / #ffebe9) read as "almost
+   white" on bright displays and made changed lines hard to scan at a
+   glance. The gutter column stays a step deeper than the row so line
+   numbers on changed lines pop. */
 .diff-row--add {
-  background: #e6ffec;
+  background: #cef5d6;
 }
-.diff-row--add .diff-row__gutter { background: #ccffd8; }
+.diff-row--add .diff-row__gutter { background: #9be3a9; }
 .diff-row--add .diff-row__sigil { color: #1a7f37; }
 
 .diff-row--del {
-  background: #ffebe9;
+  background: #ffd0cf;
 }
-.diff-row--del .diff-row__gutter { background: #ffd7d5; }
+.diff-row--del .diff-row__gutter { background: #f5a3a1; }
 .diff-row--del .diff-row__sigil { color: #cf222e; }
 
 [data-theme="atom-one-dark"] .diff-row--add,
 [data-theme="warm"] .diff-row--add {
-  background: rgba(63, 185, 80, 0.12);
+  background: rgba(63, 185, 80, 0.20);
 }
 [data-theme="atom-one-dark"] .diff-row--add .diff-row__gutter,
 [data-theme="warm"] .diff-row--add .diff-row__gutter {
-  background: rgba(63, 185, 80, 0.20);
+  background: rgba(63, 185, 80, 0.34);
 }
 [data-theme="atom-one-dark"] .diff-row--add .diff-row__sigil,
 [data-theme="warm"] .diff-row--add .diff-row__sigil {
@@ -1154,11 +1157,11 @@
 
 [data-theme="atom-one-dark"] .diff-row--del,
 [data-theme="warm"] .diff-row--del {
-  background: rgba(248, 81, 73, 0.12);
+  background: rgba(248, 81, 73, 0.20);
 }
 [data-theme="atom-one-dark"] .diff-row--del .diff-row__gutter,
 [data-theme="warm"] .diff-row--del .diff-row__gutter {
-  background: rgba(248, 81, 73, 0.22);
+  background: rgba(248, 81, 73, 0.36);
 }
 [data-theme="atom-one-dark"] .diff-row--del .diff-row__sigil,
 [data-theme="warm"] .diff-row--del .diff-row__sigil {

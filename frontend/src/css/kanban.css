@@ -574,7 +574,10 @@
   padding: 0;
   display: flex;
   flex-direction: column;
-  gap: 7px;
+  /* A few extra pixels between cards so the eye can clearly tell
+     where one ends and the next begins. Combined with the resting
+     shadow on .kpr-card the boundary reads at a glance. */
+  gap: 10px;
 }
 
 .kanban-col__empty {
@@ -1063,11 +1066,15 @@
   font: inherit;
   text-align: left;
   cursor: pointer;
+  /* Resting elevation — keeps the card visually lifted off the
+     column background so stacked cards don't bleed into each other.
+     Hover deepens it, selected gets the accent ring instead. */
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.06), 0 0 0 1px rgba(15, 23, 42, 0.02);
   transition: border-color 120ms ease, box-shadow 120ms ease, transform 120ms ease;
 }
 .kpr-card:hover {
   border-color: var(--text-3);
-  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+  box-shadow: 0 2px 6px rgba(15, 23, 42, 0.10);
   transform: translateY(-1px);
 }
 .kpr-card--selected {

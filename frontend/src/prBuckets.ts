@@ -393,6 +393,17 @@ export const MY_PR_COLUMN_LABEL: Record<MyPrColumn, string> = {
   handled: 'Handled',
 };
 
+/** Inbox MY-PRs lane uses second-person labels — these PRs are the
+ *  user's own, so "Needs your changes" / "Waiting reviewers" reads
+ *  more directly than the generic team labels above. The team kanban
+ *  keeps the third-person versions because the viewer isn't the
+ *  author there. */
+export const MY_PR_COLUMN_LABEL_INBOX: Record<MyPrColumn, string> = {
+  ...MY_PR_COLUMN_LABEL,
+  waiting_on_review: 'Waiting reviewers',
+  needs_changes: 'Needs your changes',
+};
+
 export const TO_REVIEW_COLUMN_LABEL: Record<ToReviewColumn, string> = {
   needs_attention: 'Needs attention',
   in_progress: 'In progress',
@@ -417,6 +428,14 @@ export function categorizeMyPr(pr: PullRequestDto, now: number = Date.now()): My
   if (pr.state === 'closed' || pr.state === 'merged') return null;
 
   if (pr.draft) return 'drafting';
+
+  // Auto-woke PRs always land in Needs your changes — the wake fires
+  // when CI fails, a reviewer requests changes, or a merge conflict
+  // appears, all of which require the author's eye. The wake banner
+  // on the card explains the specific reason. Acknowledging (opening
+  // the PR) clears snoozeWakeReason so it falls back to its
+  // verdict / CI-derived column on the next render.
+  if (pr.snoozeWakeReason) return 'needs_changes';
 
   const verdicts = pr.reviewerVerdicts ?? {};
   const verdictValues = Object.values(verdicts);
@@ -489,6 +508,10 @@ export function groupMyPrs(prs: PullRequestDto[], now: number = Date.now()): Rec
     // (or the user wakes them). Until then keep them out of every
     // column so the inbox kanban stays focused on actionable work.
     if (isSnoozed(pr, now)) continue;
+    // User-dismissed PRs (MANUAL / DISMISSED) leave the kanban for
+    // the Handled tab. We deliberately keep MERGED so the recently-
+    // merged column still picks those PRs up via mergedAt.
+    if (pr.handledAction === 'MANUAL' || pr.handledAction === 'DISMISSED') continue;
     const col = categorizeMyPr(pr, now);
     if (col) out[col].push(pr);
   }

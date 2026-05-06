@@ -17,6 +17,7 @@ import {
   MY_PR_COLUMNS,
   MY_PR_COLUMNS_TEAM,
   MY_PR_COLUMN_LABEL,
+  MY_PR_COLUMN_LABEL_INBOX,
   TO_REVIEW_COLUMNS,
   TO_REVIEW_COLUMN_LABEL,
   type MyPrColumn,
@@ -74,6 +75,15 @@ type Props = {
   onHandle: (prId: number) => void;
   onReopen: (prId: number) => void;
   onSnooze?: (prId: number, untilIso: string) => void;
+  /** Wires the "View full merge history →" CTA pinned to the bottom
+   *  of the Recently Merged column. When omitted, the CTA renders
+   *  disabled (the placeholder we shipped before the page existed). */
+  onShowMergeHistory?: () => void;
+  /** Drag-drop: toggle GitHub draft state on a PR. Wired from
+   *  PullRequestList (handleSetDraft). Required for drag-to-Drafting
+   *  / drag-to-Waiting-on-review transitions; without it the My-PRs
+   *  cards render non-draggable. */
+  onSetDraft?: (prId: number, repo: string, number: number, draft: boolean) => void;
   /** Controlled lane. The page header (PullRequestList) renders the
    *  My PRs / To review tabs, owns the persistence, and tells the
    *  kanban which lane to render. Team mode ignores this prop and
@@ -275,6 +285,8 @@ function KanbanBoard(props: Props) {
             onHandle={props.onHandle}
             onReopen={props.onReopen}
             onSnooze={props.onSnooze}
+            onShowMergeHistory={props.onShowMergeHistory}
+            onSetDraft={props.onSetDraft}
             cardMode={mode}
           />
         )
@@ -372,7 +384,27 @@ type BoardProps = Omit<Props, 'prs'> & {
  *  "View full merge history →" footer CTA (deferred page). */
 const RECENTLY_MERGED_CAP = 3;
 
-function MyPrsBoard({ prs, selectedId, collapsed, onToggle, onSelect, onHandle, onReopen, onSnooze, cardMode }: BoardProps) {
+/**
+ * Translates a (fromColumn, toColumn) drop into a typed action, or null
+ * if the drop should be silently rejected. v1: just draft-toggle moves
+ * — merge-via-drop is intentionally disabled (the merge button on the
+ * card is the explicit entry point so a drag misfire can't ship code).
+ */
+type DropAction = { kind: 'set_draft'; draft: boolean } | null;
+
+function translateMyPrsDrop(from: KanbanColumnKind, to: KanbanColumnKind): DropAction {
+  // To Drafting from any active column = re-draft the PR.
+  if (to === 'drafting' && (from === 'waiting_on_review' || from === 'needs_changes')) {
+    return { kind: 'set_draft', draft: true };
+  }
+  // From Drafting to Waiting-on-review = mark ready for review.
+  if (from === 'drafting' && to === 'waiting_on_review') {
+    return { kind: 'set_draft', draft: false };
+  }
+  return null;
+}
+
+function MyPrsBoard({ prs, selectedId, collapsed, onToggle, onSelect, onHandle, onReopen, onSnooze, onShowMergeHistory, onSetDraft, cardMode }: BoardProps) {
   const groups = useMemo(() => groupMyPrs(prs), [prs]);
   const visibleCounts = MY_PR_COLUMNS.map(col =>
     col === 'recently_merged'
@@ -382,13 +414,27 @@ function MyPrsBoard({ prs, selectedId, collapsed, onToggle, onSelect, onHandle, 
     .map((col, i) => columnSize(col, collapsed[col] ?? false, visibleCounts[i]))
     .join(' ');
 
+  // Drop wiring: cards are only draggable when a setDraft handler is
+  // available. translateMyPrsDrop decides whether a given (from→to)
+  // transition is meaningful; the column uses that to validate.
+  const acceptDropFrom = (toCol: KanbanColumnKind) =>
+    (fromCol: KanbanColumnKind) => translateMyPrsDrop(fromCol, toCol) !== null;
+  const onCardDrop = onSetDraft
+    ? (payload: { prId: number; fromColumn: KanbanColumnKind; repo: string; number: number }, toCol: KanbanColumnKind) => {
+        const action = translateMyPrsDrop(payload.fromColumn, toCol);
+        if (action?.kind === 'set_draft') {
+          onSetDraft(payload.prId, payload.repo, payload.number, action.draft);
+        }
+      }
+    : undefined;
+
   return (
     <div className="kanban-board kanban-board--mine" style={{ gridTemplateColumns: gridTemplate }}>
       {MY_PR_COLUMNS.map(col => (
         <KanbanColumn
           key={col}
           kind={col}
-          label={MY_PR_COLUMN_LABEL[col]}
+          label={MY_PR_COLUMN_LABEL_INBOX[col]}
           prs={col === 'recently_merged' ? groups[col].slice(0, RECENTLY_MERGED_CAP) : groups[col]}
           selectedId={selectedId}
           collapsed={collapsed[col] ?? false}
@@ -401,17 +447,21 @@ function MyPrsBoard({ prs, selectedId, collapsed, onToggle, onSelect, onHandle, 
           onHandle={onHandle}
           onReopen={onReopen}
           onSnooze={onSnooze}
+          draggable={!!onSetDraft}
+          acceptDropFrom={acceptDropFrom(col)}
+          onCardDrop={onCardDrop}
           cardMode={cardMode}
           // RECENTLY MERGED column gets a "View full merge history →"
-          // CTA pinned to the bottom. The history page itself is a
-          // deferred follow-up — render the CTA disabled for now so
-          // the slot is in place once the page lands.
+          // CTA pinned to the bottom. When the parent wires
+          // onShowMergeHistory we route there; otherwise the CTA
+          // renders disabled.
           footerCta={
             col === 'recently_merged'
               ? {
                   label: 'View full merge history →',
                   subtitle: 'all time · filterable',
-                  disabled: true,
+                  onClick: onShowMergeHistory,
+                  disabled: !onShowMergeHistory,
                 }
               : undefined
           }
@@ -478,12 +528,13 @@ function columnSize(kind: MyPrColumn | ToReviewColumn, collapsed: boolean, count
  * Picking algorithm for the focus band — "what should I touch first".
  *
  * Tier order (top → bottom):
- *   YOUR-MOVE ready-to-merge → NEEDS CHANGES → CI failing → Merge
- *   conflict → Stale (>7d no review)
+ *   Just-woke (snoozeWakeReason set) → YOUR-MOVE ready-to-merge →
+ *   NEEDS CHANGES → CI failing → Merge conflict → Stale (>7d no review)
  *
- * Ready-to-merge sits at tier 0 by explicit user request: an approved-
- * and-green PR is the cheapest unblock for the rest of the team, so it
- * always shows up in the band and never gets buried.
+ * Just-woke pinned to the very top because the user explicitly parked
+ * the PR earlier; the auto-wake fired *because* something changed
+ * (CI failure / changes requested / merge conflict appeared) and they
+ * deserve to see that fact before anything else.
  *
  * No hard cap — the FocusBand component slices for display and lets
  * the user reveal the rest with "+ N more". Within each tier, oldest
@@ -514,6 +565,14 @@ function pickFocusCards(prs: PullRequestDto[], now: number = Date.now()): PullRe
 
   const byUpdatedAsc = (a: PullRequestDto, b: PullRequestDto) =>
     new Date(a.updatedAt).getTime() - new Date(b.updatedAt).getTime();
+
+  // Tier -1: Just-woke — a previously-snoozed PR the auto-wake job
+  // brought back. Always pinned to the very top so the user sees the
+  // wake event before scanning the rest of the band.
+  eligible
+    .filter(pr => !!pr.snoozeWakeReason)
+    .sort(byUpdatedAsc)
+    .forEach(pushUnique);
 
   // Tier 0: YOUR-MOVE ready-to-merge (My PRs with approval + CI green
   // + not blocked). Same conditions as categorizeMyPr's ready_to_merge.

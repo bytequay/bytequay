@@ -11,7 +11,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import { useEffect, useRef, useState, type CSSProperties } from 'react';
+import { useEffect, useRef, useState, type CSSProperties, type DragEvent, type ReactNode } from 'react';
 import type { PullRequestDto } from '../types';
 import Avatar from '../Avatar';
 import { formatRelative } from '../prBuckets';
@@ -40,6 +40,26 @@ type Props = {
    *  a time-preset menu; picking one calls onSnooze with the chosen
    *  ISO-8601 wake instant. Suppressed on already-done columns. */
   onSnooze?: (untilIso: string) => void;
+  /** When true, the card root is HTML5-draggable. The MIME payload
+   *  encodes {prId, fromColumn, repo, number} so a drop target can
+   *  validate the transition without a separate state lookup. */
+  draggable?: boolean;
+  /** When true, the card renders as a static surface — the root
+   *  button is disabled so click-to-open is suppressed and the
+   *  cursor stays default. Used by the Snoozed page where opening
+   *  the detail breaks the row layout. */
+  disabled?: boolean;
+};
+
+/** Custom MIME used for in-app PR drag/drop. Pinned name + JSON body
+ *  so the drop site can detect "is this our drag?" without parsing. */
+export const PR_DRAG_MIME = 'application/x-bytequay-pr';
+
+export type PrDragPayload = {
+  prId: number;
+  fromColumn: KanbanColumnKind;
+  repo: string;
+  number: number;
 };
 
 /**
@@ -53,7 +73,7 @@ type Props = {
  * from the mockup are intentionally not rendered yet — they need new
  * backend endpoints + a confirmation flow we'll wire in a follow-up.
  */
-function KanbanPrCard({ pr, column, mode = 'inbox', selected, onSelect, onHandle, onReopen, onSnooze }: Props) {
+function KanbanPrCard({ pr, column, mode = 'inbox', selected, onSelect, onHandle, onReopen, onSnooze, draggable = false, disabled = false }: Props) {
   // Defensive — a missed prop from a non-strict caller used to crash the
   // whole UI when .replace(...) was invoked on an undefined column. Treat
   // any missing column as a generic in-progress so the card still renders.
@@ -87,8 +107,24 @@ function KanbanPrCard({ pr, column, mode = 'inbox', selected, onSelect, onHandle
     'kpr-card',
     selected ? 'kpr-card--selected' : '',
     isUrgent ? 'kpr-card--urgent' : '',
+    disabled ? 'kpr-card--static' : '',
     `kpr-card--col-${safeColumn.replace(/_/g, '-')}`,
   ].filter(Boolean).join(' ');
+
+  // Drag handler — only attached when draggable is true so non-draggable
+  // cards (team kanban, etc.) don't accidentally trigger native drag.
+  const onDragStart = draggable
+    ? (e: DragEvent<HTMLButtonElement>) => {
+        const payload: PrDragPayload = {
+          prId: pr.id,
+          fromColumn: safeColumn,
+          repo: pr.repo,
+          number: pr.number,
+        };
+        e.dataTransfer.setData(PR_DRAG_MIME, JSON.stringify(payload));
+        e.dataTransfer.effectAllowed = 'move';
+      }
+    : undefined;
 
   return (
     <button
@@ -96,6 +132,9 @@ function KanbanPrCard({ pr, column, mode = 'inbox', selected, onSelect, onHandle
       className={className}
       onClick={onSelect}
       title={`${pr.repo} #${pr.number}`}
+      draggable={draggable}
+      onDragStart={onDragStart}
+      disabled={disabled}
     >
       {banner && (
         <div className={`kpr-card__banner kpr-card__banner--${banner.tone}`}>
@@ -237,9 +276,29 @@ function KanbanPrCard({ pr, column, mode = 'inbox', selected, onSelect, onHandle
 
 type Banner = { tone: 'danger' | 'warn' | 'info' | 'success'; icon: string; text: string };
 
-/** Computes the optional info banner above the card title. Priority order
- *  matches the mockup: blocking failures > stale > approval > mention. */
+/** Wake-reason → human-readable banner copy. Mirrors the strings the
+ *  Snoozed-list card uses so users see the same vocabulary across views. */
+const WAKE_BANNER_COPY: Record<string, string> = {
+  CI_FAILING: 'Just woke up — CI failed',
+  CHANGES_REQUESTED: 'Just woke up — reviewer requested changes',
+  MERGE_CONFLICT: 'Just woke up — merge conflict appeared',
+};
+
+/** Computes the optional info banner above the card title. Priority order:
+ *  wake-up alert (always wins so the user notices) > blocking failures >
+ *  stale > approval > mention. */
 function bannerFor(pr: PullRequestDto, column: KanbanColumnKind): Banner | null {
+  // Wake-up wins everything — the user explicitly parked this PR and
+  // the auto-wake brought it back for a reason. Show that reason
+  // before any other signal.
+  if (pr.snoozeWakeReason) {
+    return {
+      tone: 'success',
+      icon: '⏰',
+      text: WAKE_BANNER_COPY[pr.snoozeWakeReason] ?? `Just woke up — ${pr.snoozeWakeReason}`,
+    };
+  }
+
   const verdicts = pr.reviewerVerdicts ?? {};
   const changesRequesters = Object.entries(verdicts)
     .filter(([, state]) => state === 'CHANGES_REQUESTED')
@@ -351,46 +410,45 @@ type SnoozePreset = { label: string; compute: () => Date };
  * the moment the user opens the menu, not the card's mount time.
  */
 const SNOOZE_PRESETS: SnoozePreset[] = [
-  { label: 'In 1 hour', compute: () => new Date(Date.now() + 60 * 60 * 1000) },
-  { label: 'In 4 hours', compute: () => new Date(Date.now() + 4 * 60 * 60 * 1000) },
+  { label: '1 hour', compute: () => new Date(Date.now() + 60 * 60 * 1000) },
+  { label: '6 hours', compute: () => new Date(Date.now() + 6 * 60 * 60 * 1000) },
   {
-    label: 'Until 6pm today',
-    compute: () => {
-      const d = new Date();
-      d.setHours(18, 0, 0, 0);
-      // If 6pm today is already past, treat it as "tomorrow 6pm" so the
-      // preset is still meaningful when used after work hours.
-      if (d.getTime() <= Date.now()) d.setDate(d.getDate() + 1);
-      return d;
-    },
-  },
-  {
-    label: 'Tomorrow morning (9am)',
+    label: 'Tomorrow morning (10am)',
     compute: () => {
       const d = new Date();
       d.setDate(d.getDate() + 1);
-      d.setHours(9, 0, 0, 0);
+      d.setHours(10, 0, 0, 0);
       return d;
     },
   },
-  {
-    label: 'Next Monday (9am)',
-    compute: () => {
-      const d = new Date();
-      const dow = d.getDay();
-      const daysUntilMonday = (8 - dow) % 7 || 7;
-      d.setDate(d.getDate() + daysUntilMonday);
-      d.setHours(9, 0, 0, 0);
-      return d;
-    },
-  },
+  { label: '1 week', compute: () => new Date(Date.now() + 7 * 24 * 60 * 60 * 1000) },
+  { label: '1 month', compute: () => new Date(Date.now() + 30 * 24 * 60 * 60 * 1000) },
 ];
 
 type SnoozeMenuButtonProps = {
   onPick: (untilIso: string) => void;
+  /** Trigger element customization. Defaults to the corner ⌛ control
+   *  used inside KanbanPrCard. The Snoozed-list "Edit snooze" button
+   *  passes its own classes / label so it reads as a regular action
+   *  button instead of a card overlay. */
+  triggerClassName?: string;
+  triggerContent?: ReactNode;
+  triggerTitle?: string;
+  triggerAriaLabel?: string;
+  /** Wrap-element class. Defaults to the kanban card's hover-aware
+   *  wrap so the trigger fades in/out with the card. Override to
+   *  always-visible when the trigger sits outside a card. */
+  wrapClassName?: string;
 };
 
-function SnoozeMenuButton({ onPick }: SnoozeMenuButtonProps) {
+export function SnoozeMenuButton({
+  onPick,
+  triggerClassName = 'kpr-card__handle kpr-card__handle--snooze',
+  triggerContent = '⌛',
+  triggerTitle = 'Snooze — park this PR until later.',
+  triggerAriaLabel = 'Snooze this PR',
+  wrapClassName,
+}: SnoozeMenuButtonProps) {
   const [open, setOpen] = useState(false);
   const wrapRef = useRef<HTMLSpanElement>(null);
 
@@ -412,18 +470,19 @@ function SnoozeMenuButton({ onPick }: SnoozeMenuButtonProps) {
     };
   }, [open]);
 
+  const baseWrap = wrapClassName ?? 'kpr-card__snooze-wrap';
   return (
-    <span ref={wrapRef} className={`kpr-card__snooze-wrap${open ? ' kpr-card__snooze-wrap--open' : ''}`}>
+    <span ref={wrapRef} className={`${baseWrap}${open ? ` ${baseWrap}--open` : ''}`}>
       <button
         type="button"
-        className="kpr-card__handle kpr-card__handle--snooze"
+        className={triggerClassName}
         onClick={(e) => { e.stopPropagation(); setOpen(o => !o); }}
-        title="Snooze — park this PR until later."
-        aria-label="Snooze this PR"
+        title={triggerTitle}
+        aria-label={triggerAriaLabel}
         aria-expanded={open}
         aria-haspopup="menu"
       >
-        ⌛
+        {triggerContent}
       </button>
       {open && (
         <div className="kpr-card__snooze-menu" role="menu" onClick={(e) => e.stopPropagation()}>

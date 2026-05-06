@@ -28,6 +28,7 @@ import com.bytequay.app.domain.PrTimelineEvent;
 import com.bytequay.app.domain.PullRequest;
 import com.bytequay.app.domain.PullRequestCommit;
 import com.bytequay.app.domain.PullRequestDetail;
+import com.bytequay.app.domain.PullRequestHistoryPage;
 import com.bytequay.app.domain.PullRequestRef;
 import com.bytequay.app.domain.PullRequestReview;
 import com.bytequay.app.domain.RecentEvent;
@@ -63,6 +64,22 @@ public interface PullRequestRepository
     default List<PullRequest> searchPullRequests(String pat, String query)
     {
         throw new UnsupportedOperationException("searchPullRequests not implemented");
+    }
+
+    /**
+     * Paged variant of {@link #searchPullRequests}. Used by the merge-history
+     * page to walk through closed PRs without pulling everything at once.
+     * Returns {@code items}, the server-reported {@code totalCount}, and a
+     * derived {@code hasMore} flag.
+     *
+     * @param pat     GitHub PAT
+     * @param query   GitHub search qualifier string
+     * @param page    1-based page index
+     * @param perPage results per page (GitHub caps this at 100)
+     */
+    default PullRequestHistoryPage searchPullRequestsPaged(String pat, String query, int page, int perPage)
+    {
+        throw new UnsupportedOperationException("searchPullRequestsPaged not implemented");
     }
 
     // ── Pull request detail (individual calls, orchestrated by the service) ──

@@ -13,7 +13,7 @@
  */
 import { useEffect, useMemo, useState } from 'react';
 import type { PullRequestDto } from './types';
-import KanbanPrCard from './kanban/KanbanPrCard';
+import KanbanPrCard, { SnoozeMenuButton } from './kanban/KanbanPrCard';
 import type { KanbanColumnKind } from './kanban/KanbanColumn';
 
 import {
@@ -283,52 +283,6 @@ export function CategorizedList({ prs, selectedId, onSelect, onHandle, onReopen,
   );
 }
 
-// ── Just-woke banner ────────────────────────────────────────────────────────
-
-type JustWokeBannerProps = {
-  prs: PullRequestDto[];
-  onSelect: (pr: PullRequestDto) => void;
-  onDismiss: (prId: number) => void;
-};
-
-/** Renders nothing when no PR carries a snoozeWakeReason. Otherwise shows a
- *  green strip listing the woken PRs with one-click dismiss + jump-in. */
-export function JustWokeBanner({ prs, onSelect, onDismiss }: JustWokeBannerProps) {
-  const woken = prs.filter(pr => pr.snoozeWakeReason);
-  if (woken.length === 0) return null;
-  return (
-    <div className="just-woke-banner" role="status">
-      <span className="just-woke-banner__icon" aria-hidden="true">⏰</span>
-      <span className="just-woke-banner__lead">
-        {woken.length === 1 ? '1 PR woke up:' : `${woken.length} PRs woke up:`}
-      </span>
-      <div className="just-woke-banner__items">
-        {woken.map(pr => (
-          <span key={pr.id} className="just-woke-banner__item">
-            <button
-              type="button"
-              className="just-woke-banner__open"
-              onClick={() => onSelect(pr)}
-              title={`Open ${pr.repo} #${pr.number}`}
-            >
-              {pr.repo} #{pr.number} · {WAKE_REASON_COPY[pr.snoozeWakeReason!] ?? pr.snoozeWakeReason}
-            </button>
-            <button
-              type="button"
-              className="just-woke-banner__dismiss"
-              onClick={() => onDismiss(pr.id)}
-              title="Dismiss this alert"
-              aria-label="Dismiss"
-            >
-              ×
-            </button>
-          </span>
-        ))}
-      </div>
-    </div>
-  );
-}
-
 // ── Snoozed list ────────────────────────────────────────────────────────────
 
 type SnoozedListProps = {
@@ -336,75 +290,128 @@ type SnoozedListProps = {
   selectedId: number | null;
   onSelect: (pr: PullRequestDto) => void;
   onUnsnooze: (prId: number) => void;
-  onClearWakeReason: (prId: number) => void;
+  /** Replaces an existing snooze with a new wake time (same backend
+   *  endpoint as fresh snooze — `snooze()` overwrites). */
+  onEditSnooze: (prId: number, untilIso: string) => void;
+  // onClearWakeReason kept for callsite parity; PRs in the snoozed
+  // bucket can't carry a wake reason (auto-wake clears snoozedUntil
+  // first), so the prop is unused here.
+  onClearWakeReason?: (prId: number) => void;
 };
 
-const WAKE_REASON_COPY: Record<string, string> = {
-  CI_FAILING: 'CI failed',
-  CHANGES_REQUESTED: 'Reviewer requested changes',
-  MERGE_CONFLICT: 'Merge conflict appeared',
-};
+/** "Tomorrow at 8:00 AM" / "Mon Sep 14 at 9:00 AM" — the absolute time
+ *  shown as the primary wake info. Day prefix is contextual: today /
+ *  tomorrow / weekday name / full date. */
+function formatWakeAbsolute(iso: string | null, now: number = Date.now()): string {
+  if (!iso) return '';
+  const target = new Date(iso);
+  const targetDay = new Date(target);
+  targetDay.setHours(0, 0, 0, 0);
+  const todayDay = new Date(now);
+  todayDay.setHours(0, 0, 0, 0);
+  const dayDiff = Math.round((targetDay.getTime() - todayDay.getTime()) / (24 * 60 * 60 * 1000));
+  const time = target.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' });
+  if (dayDiff <= 0) return `today at ${time}`;
+  if (dayDiff === 1) return `tomorrow at ${time}`;
+  if (dayDiff < 7) {
+    return `${target.toLocaleDateString(undefined, { weekday: 'long' })} at ${time}`;
+  }
+  return `${target.toLocaleDateString(undefined, { month: 'short', day: 'numeric' })} at ${time}`;
+}
 
+/** "in 17h" / "in 2d" — the secondary relative-time hint. */
 function formatWakeRelative(iso: string | null, now: number = Date.now()): string {
   if (!iso) return '';
   const diffMs = new Date(iso).getTime() - now;
   if (diffMs <= 0) return 'waking now…';
   const mins = Math.round(diffMs / 60_000);
-  if (mins < 60) return `wakes in ${mins}m`;
+  if (mins < 60) return `in ${mins}m`;
   const hrs = Math.round(mins / 60);
-  if (hrs < 24) return `wakes in ${hrs}h`;
+  if (hrs < 24) return `in ${hrs}h`;
   const days = Math.round(hrs / 24);
-  if (days < 7) {
-    return `wakes ${new Date(iso).toLocaleDateString(undefined, { weekday: 'long' })}`;
-  }
-  return `wakes ${new Date(iso).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}`;
+  return `in ${days}d`;
 }
 
-export function SnoozedList({ prs, selectedId, onSelect, onUnsnooze, onClearWakeReason }: SnoozedListProps) {
-  if (prs.length === 0) {
-    return <div className="v2-empty">Nothing snoozed. Use the ⌛ button on a PR card to park it for later.</div>;
-  }
+export function SnoozedList({ prs, selectedId, onSelect, onUnsnooze, onEditSnooze, onClearWakeReason: _onClearWakeReason }: SnoozedListProps) {
   return (
-    <div className="snoozed-list">
-      {prs.map(pr => (
-        <article
-          key={pr.id}
-          className={`snoozed-card${selectedId === pr.id ? ' snoozed-card--selected' : ''}`}
-          onClick={() => onSelect(pr)}
-          role="button"
-          tabIndex={0}
-        >
-          <header className="snoozed-card__head">
-            <span className="snoozed-card__repo">{pr.repo} · #{pr.number}</span>
-            <span className="snoozed-card__wake">{formatWakeRelative(pr.snoozedUntil)}</span>
-          </header>
-          <div className="snoozed-card__title">{pr.title}</div>
-          {pr.snoozeWakeReason && (
-            <div className="snoozed-card__woke">
-              <span aria-hidden="true">⏰</span>
-              <span>Auto-woke: {WAKE_REASON_COPY[pr.snoozeWakeReason] ?? pr.snoozeWakeReason}</span>
-              <button
-                type="button"
-                className="snoozed-card__woke-dismiss"
-                onClick={(e) => { e.stopPropagation(); onClearWakeReason(pr.id); }}
-                title="Dismiss this just-woke alert."
-              >
-                Dismiss
-              </button>
-            </div>
-          )}
-          <footer className="snoozed-card__actions">
-            <button
-              type="button"
-              className="snoozed-card__wake-now"
-              onClick={(e) => { e.stopPropagation(); onUnsnooze(pr.id); }}
-              title="Wake this PR now and return it to the Inbox."
-            >
-              Wake now
-            </button>
-          </footer>
-        </article>
-      ))}
-    </div>
+    <>
+      <p className="snoozed-explainer">
+        Snoozed PRs stay out of your Inbox until they wake. They wake when the
+        timer runs out — or, always, the moment they become urgent (CI fails,
+        reviewer requests changes, merge conflict appears).
+      </p>
+
+      <header className="snoozed-section-head">
+        <h2 className="snoozed-section-title">Snoozed PRs</h2>
+        <span className="snoozed-section-count">{prs.length}</span>
+        {prs.length > 0 && (
+          <span className="snoozed-section-sort">sort: wake soonest first</span>
+        )}
+      </header>
+
+      {prs.length === 0 ? (
+        <div className="v2-empty snoozed-empty">
+          Nothing snoozed. Use the ⌛ button on a PR card to park it for later.
+        </div>
+      ) : (
+        <div className="snoozed-list">
+          {prs.map(pr => (
+            <article key={pr.id} className="snoozed-row">
+              <div className="snoozed-row__card">
+                {/* Same rich card surface the kanban uses — labels,
+                    reviewers, CI dot, status pill. Column='handled'
+                    keeps it reading as "parked / done for now".
+                    `disabled` suppresses the card click — opening the
+                    detail collapses the list into a sidebar that the
+                    snoozed row layout (card + 220px rail) can't fit
+                    into. The Wake-now / Edit-snooze buttons in the
+                    rail stay clickable. */}
+                <KanbanPrCard
+                  pr={pr}
+                  column="handled"
+                  mode="inbox"
+                  selected={false}
+                  onSelect={() => { /* disabled — see comment above */ }}
+                  disabled
+                />
+              </div>
+              <aside className="snoozed-row__rail">
+                <div className="snoozed-row__info">
+                  <span className="snoozed-row__kind">TIME-BASED</span>
+                  <span className="snoozed-row__when">
+                    Wakes {formatWakeAbsolute(pr.snoozedUntil)}
+                  </span>
+                  <span className="snoozed-row__hint">
+                    {formatWakeRelative(pr.snoozedUntil)}
+                  </span>
+                </div>
+                <div className="snoozed-row__actions">
+                  <button
+                    type="button"
+                    className="snoozed-row__action snoozed-row__action--primary"
+                    onClick={(e) => { e.stopPropagation(); onUnsnooze(pr.id); }}
+                    title="Wake this PR now and return it to the Inbox."
+                  >
+                    Wake now
+                  </button>
+                  {/* Edit snooze reuses the same preset popup the
+                      kanban ⌛ button uses; picking a preset replaces
+                      the existing snoozedUntil via the same backend
+                      endpoint. */}
+                  <SnoozeMenuButton
+                    onPick={(untilIso) => onEditSnooze(pr.id, untilIso)}
+                    triggerClassName="snoozed-row__action"
+                    triggerContent="Edit snooze"
+                    triggerTitle="Pick a different wake time."
+                    triggerAriaLabel="Edit snooze for this PR"
+                    wrapClassName="snoozed-row__edit-wrap"
+                  />
+                </div>
+              </aside>
+            </article>
+          ))}
+        </div>
+      )}
+    </>
   );
 }

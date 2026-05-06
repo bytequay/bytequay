@@ -94,6 +94,16 @@ export type PullRequestDto = {
   snoozeWakeReason: string | null;
 };
 
+/** One page of historic (closed/merged) PRs returned by /prs/history.
+ *  Backed by GitHub search, capped at 1000 total results. */
+export type PullRequestHistoryPageDto = {
+  items: PullRequestDto[];
+  page: number;
+  perPage: number;
+  totalCount: number;
+  hasMore: boolean;
+};
+
 export type CiStatus = 'PASSING' | 'FAILING' | 'PENDING' | 'NONE';
 
 export type ChangedFileDto = {
@@ -618,6 +628,10 @@ export type Bridge = {
   clearPat: () => Promise<boolean>;
   fetchHello: () => Promise<string>;
   fetchPrs: () => Promise<PullRequestDto[]>;
+  /** Live GitHub search for the user's full closed-PR history (merged
+   *  + closed-without-merge). Used by the merge-history page — pages
+   *  through GitHub's `is:closed author:@me sort:closed-desc` results. */
+  fetchPrHistory: (page: number, perPage?: number) => Promise<PullRequestHistoryPageDto>;
   fetchPullRequestDetail: (repo: string, number: number) => Promise<PullRequestDetailDto>;
   /** Lightweight CI snapshot for the focus-driven detail-page poll. */
   fetchPrCi: (repo: string, number: number) => Promise<PrCiSnapshotDto>;

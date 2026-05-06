@@ -29,6 +29,7 @@ import com.bytequay.app.domain.PrViewState;
 import com.bytequay.app.domain.PullRequest;
 import com.bytequay.app.domain.PullRequestCommit;
 import com.bytequay.app.domain.PullRequestDetail;
+import com.bytequay.app.domain.PullRequestHistoryPage;
 import com.bytequay.app.domain.PullRequestRef;
 import com.bytequay.app.domain.Reactions;
 import com.bytequay.app.domain.RepoRef;
@@ -676,6 +677,22 @@ public class PullRequestService
     public void clearSnoozeWakeReason(long prId)
     {
         viewStateStore.clearWakeReason(prId);
+    }
+
+    /**
+     * Live GitHub search for closed (merged + closed-without-merge) PRs the
+     * user authored. Powers the "View full merge history" page — the local
+     * sync only persists the last 7 days of closed PRs so a real history
+     * view has to hit GitHub directly. Sorted server-side by closed date
+     * descending.
+     *
+     * @param page    1-based page index
+     * @param perPage per page count (clamped to [1, 100] by the client)
+     */
+    public PullRequestHistoryPage searchAuthoredHistory(String pat, int page, int perPage)
+    {
+        return gitHub.searchPullRequestsPaged(
+                pat, "is:pr is:closed author:@me sort:closed-desc", page, perPage);
     }
 
     /**

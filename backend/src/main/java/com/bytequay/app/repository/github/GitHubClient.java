@@ -27,6 +27,7 @@ import com.bytequay.app.domain.PrTimelineEvent;
 import com.bytequay.app.domain.PullRequest;
 import com.bytequay.app.domain.PullRequestCommit;
 import com.bytequay.app.domain.PullRequestDetail;
+import com.bytequay.app.domain.PullRequestHistoryPage;
 import com.bytequay.app.domain.PullRequestRef;
 import com.bytequay.app.domain.PullRequestReview;
 import com.bytequay.app.domain.Reactions;
@@ -118,6 +119,44 @@ public class GitHubClient
             return response.items().stream()
                     .map(item -> toPullRequest(item, origin))
                     .collect(toImmutableList());
+        }
+        catch (RestClientResponseException e) {
+            throw toReadableException(e);
+        }
+    }
+
+    @Override
+    public PullRequestHistoryPage searchPullRequestsPaged(String pat, String query, int page, int perPage)
+    {
+        if (pat == null || pat.isBlank()) {
+            throw new ResponseStatusException(HttpStatusCode.valueOf(401), "GitHub PAT missing");
+        }
+        int safePage = Math.max(1, page);
+        int safePerPage = Math.max(1, Math.min(100, perPage));
+        try {
+            GitHubSearchResponse response = gitHubRestClient.get()
+                    .uri(uri -> uri.path("/search/issues")
+                            .queryParam("q", query)
+                            .queryParam("per_page", safePerPage)
+                            .queryParam("page", safePage)
+                            .build())
+                    .header("Authorization", "Bearer " + pat)
+                    .retrieve()
+                    .body(GitHubSearchResponse.class);
+            if (response == null || response.items() == null) {
+                return new PullRequestHistoryPage(ImmutableList.of(), safePage, safePerPage, 0, false);
+            }
+            PullRequest.Origin origin = query.contains("review-requested") ? REVIEW_REQUESTED : AUTHORED;
+            List<PullRequest> items = response.items().stream()
+                    .map(item -> toPullRequest(item, origin))
+                    .collect(toImmutableList());
+            // GitHub caps search at 1000 results, so a page that runs off
+            // the end either by total or by the cap should report no more.
+            int loadedSoFar = (safePage - 1) * safePerPage + items.size();
+            boolean hasMore = items.size() == safePerPage
+                    && loadedSoFar < response.totalCount()
+                    && loadedSoFar < 1000;
+            return new PullRequestHistoryPage(items, safePage, safePerPage, response.totalCount(), hasMore);
         }
         catch (RestClientResponseException e) {
             throw toReadableException(e);

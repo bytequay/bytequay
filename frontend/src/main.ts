@@ -411,6 +411,18 @@ function registerIpc(): void {
     }
   });
 
+  ipcMain.handle('backend:prHistory', async (_event, page: number, perPage?: number) => {
+    const url = new URL(`${BACKEND_BASE}/prs/history`);
+    url.searchParams.set('page', String(page));
+    if (typeof perPage === 'number') url.searchParams.set('perPage', String(perPage));
+    const res = await fetch(url);
+    if (!res.ok) {
+      const body = await res.text().catch(() => '');
+      throw new Error(`backend /prs/history returned ${res.status}: ${body}`);
+    }
+    return res.json();
+  });
+
   ipcMain.handle('backend:snoozePr', async (_event, prId: number, untilIso: string) => {
     const url = new URL(`${BACKEND_BASE}/prs/snooze`);
     url.searchParams.set('id', String(prId));

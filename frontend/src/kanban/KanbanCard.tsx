@@ -30,6 +30,7 @@ type Props = {
   onHandle: () => void;
   onReopen: () => void;
   onSnooze?: (untilIso: string) => void;
+  draggable?: boolean;
 };
 
 /**
@@ -38,7 +39,7 @@ type Props = {
  * eventually layer back in column-specific actions (Mark handled, Reopen)
  * without bloating the rich-card component.
  */
-function KanbanCard({ pr, column, mode, selected, onSelect, onHandle, onReopen, onSnooze }: Props) {
+function KanbanCard({ pr, column, mode, selected, onSelect, onHandle, onReopen, onSnooze, draggable }: Props) {
   return (
     <KanbanPrCard
       pr={pr}
@@ -49,6 +50,7 @@ function KanbanCard({ pr, column, mode, selected, onSelect, onHandle, onReopen, 
       onHandle={onHandle}
       onReopen={onReopen}
       onSnooze={onSnooze}
+      draggable={draggable}
     />
   );
 }

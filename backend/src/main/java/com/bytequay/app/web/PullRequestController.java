@@ -20,6 +20,7 @@ import com.bytequay.app.domain.PrCiSnapshot;
 import com.bytequay.app.domain.PullRequest;
 import com.bytequay.app.domain.PullRequestCommit;
 import com.bytequay.app.domain.PullRequestDetail;
+import com.bytequay.app.domain.PullRequestHistoryPage;
 import com.bytequay.app.domain.SuggestedReviewer;
 import com.bytequay.app.service.pr.PullRequestService;
 import com.google.common.collect.ImmutableMap;
@@ -135,6 +136,20 @@ public class PullRequestController
     {
         pullRequestService.markViewed(prId);
         return ImmutableMap.of("result", "ok");
+    }
+
+    /**
+     * Live GitHub search for the user's full closed-PR history (merged +
+     * closed-without-merge). Powers the "View full merge history" page.
+     * GET /prs/history?page=N&perPage=30
+     */
+    @GetMapping("/prs/history")
+    public PullRequestHistoryPage history(
+            @RequestParam(value = "page", defaultValue = "1") int page,
+            @RequestParam(value = "perPage", defaultValue = "30") int perPage)
+    {
+        String pat = patResolver.resolve();
+        return pullRequestService.searchAuthoredHistory(pat, page, perPage);
     }
 
     /**

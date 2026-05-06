@@ -41,8 +41,9 @@ import {
   syncCachesAfterPrChange,
   unmergedPatch,
 } from './prBuckets';
-import { CategorizedList, HandledTimeline, JustWokeBanner, SnoozedList } from './PrBucketViews';
+import { CategorizedList, HandledTimeline, SnoozedList } from './PrBucketViews';
 import KanbanBoard, { LANE_KEY, loadLane, type Lane } from './kanban/KanbanBoard';
+import MergeHistoryPage from './MergeHistoryPage';
 
 const PRS_CACHE_KEY = 'prs:list';
 const SIDEBAR_COLLAPSED_KEY = 'settings:pr-sidebar-collapsed';
@@ -68,6 +69,10 @@ function PullRequestList({ onGoToTeams }: Props) {
   const [diffViewerCommitSha, setDiffViewerCommitSha] = useState<string | null>(null);
   const [filter, setFilter] = useState('');
   const [activeTab, setActiveTab] = useState<'inbox' | 'snoozed' | 'handled'>('inbox');
+  // Full closed-PR history page (merged + closed-without-merge). Opened
+  // from the kanban's "View full merge history →" footer CTA on the
+  // Recently Merged column. Replaces the kanban view while open.
+  const [mergeHistoryOpen, setMergeHistoryOpen] = useState(false);
   // Lane state for the kanban view (My PRs / To review). Lifted out of
   // KanbanBoard so the page header can render the scope tabs alongside
   // the Inbox/Handled toggle. Persistence stays at the same localStorage
@@ -243,6 +248,9 @@ function PullRequestList({ onGoToTeams }: Props) {
     // means this also propagates to repo / kanban caches on other pages.
     markViewedOptimistically(pr);
     void window.bridge.markPrViewed(pr.id);
+    // Opening a just-woke PR is the implicit acknowledgement — clear the
+    // wake mark so the focus band doesn't keep flagging it.
+    if (pr.snoozeWakeReason) handleClearSnoozeWakeReason(pr.id);
   };
 
   // The PR the user was last reviewing, surfaced as a "Continue review"
@@ -370,6 +378,22 @@ function PullRequestList({ onGoToTeams }: Props) {
     const previous = (prs ?? []).find(p => p.id === prId);
     updatePrState(prId, previous?.repo, { snoozeWakeReason: null });
     void window.bridge.clearSnoozeWakeReason(prId).catch(() => { /* best-effort */ });
+  };
+
+  // Drag-drop on the My-PRs kanban: dragging across the
+  // Drafting ↔ Waiting-on-review boundary toggles the GitHub draft
+  // state. The optimistic patch flips `draft` locally so the card
+  // jumps columns immediately; the bridge call syncs it to GitHub.
+  const handleSetDraft = async (prId: number, repo: string, number: number, draft: boolean) => {
+    const previous = (prs ?? []).find(p => p.id === prId);
+    updatePrState(prId, repo, { draft });
+    try {
+      await window.bridge.setPrDraft(repo, number, draft);
+    }
+    catch (e) {
+      console.warn('setPrDraft failed; rolling back', e);
+      if (previous) updatePrState(prId, repo, { draft: previous.draft });
+    }
   };
 
   // Tab strip lives in the full-width kanban header only. When a PR is
@@ -524,6 +548,22 @@ function PullRequestList({ onGoToTeams }: Props) {
     />
   ) : null;
 
+  // Merge-history overlay — full-page view of closed PRs. Lives outside
+  // the kanban / sidebar branches so it can take the whole screen.
+  if (mergeHistoryOpen) {
+    return (
+      <div className="kanban-page" ref={pageRef}>
+        <MergeHistoryPage
+          onBack={() => setMergeHistoryOpen(false)}
+          onSelect={(pr) => {
+            setMergeHistoryOpen(false);
+            handleSelect(pr);
+          }}
+        />
+      </div>
+    );
+  }
+
   // Selected mode: sidebar (categorised for Inbox, timeline for Handled) +
   // detail pane on the right.
   if (selected) {
@@ -574,6 +614,7 @@ function PullRequestList({ onGoToTeams }: Props) {
                   selectedId={selectedId}
                   onSelect={handleSelect}
                   onUnsnooze={handleUnsnooze}
+                  onEditSnooze={handleSnooze}
                   onClearWakeReason={handleClearSnoozeWakeReason}
                 />
               )}
@@ -628,11 +669,6 @@ function PullRequestList({ onGoToTeams }: Props) {
       {error && <div className="repo-error">{error}</div>}
       {!loading && !error && activeTab === 'inbox' && (
         <>
-          <JustWokeBanner
-            prs={inbox}
-            onSelect={handleSelect}
-            onDismiss={handleClearSnoozeWakeReason}
-          />
           {/* The "My open PRs" summary panel that used to live above the
               kanban is now redundant — the kanban's "My PRs" lane shows
               authored PRs in proper columns with richer signals. */}
@@ -655,6 +691,8 @@ function PullRequestList({ onGoToTeams }: Props) {
               onHandle={handleMarkHandled}
               onReopen={handleReopen}
               onSnooze={handleSnooze}
+              onShowMergeHistory={() => setMergeHistoryOpen(true)}
+              onSetDraft={handleSetDraft}
             />
           )}
         </>
@@ -666,6 +704,7 @@ function PullRequestList({ onGoToTeams }: Props) {
             selectedId={selectedId}
             onSelect={handleSelect}
             onUnsnooze={handleUnsnooze}
+            onEditSnooze={handleSnooze}
             onClearWakeReason={handleClearSnoozeWakeReason}
           />
         </div>

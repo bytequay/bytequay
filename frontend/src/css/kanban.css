@@ -198,170 +198,184 @@
   background: var(--bg-base);
 }
 
+/* Explainer strip at the top of the page — short paragraph telling
+   the user what snooze is for and the auto-wake guarantee. */
+.snoozed-explainer {
+  max-width: 1100px;
+  margin: 0 auto 16px;
+  padding: 12px 14px;
+  background: var(--accent-a7);
+  border: 1px solid var(--border);
+  border-left: 3px solid var(--accent);
+  border-radius: 8px;
+  color: var(--text-1);
+  font-size: 12.5px;
+  line-height: 1.5;
+}
+
+.snoozed-section-head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  max-width: 1100px;
+  margin: 0 auto 10px;
+  padding: 0 2px;
+}
+
+.snoozed-section-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-1);
+  margin: 0;
+}
+
+.snoozed-section-count {
+  font-size: 12px;
+  color: var(--text-3);
+  font-variant-numeric: tabular-nums;
+}
+
+.snoozed-section-sort {
+  margin-left: auto;
+  font-size: 11px;
+  color: var(--text-3);
+}
+
+.snoozed-empty {
+  max-width: 1100px;
+  margin: 32px auto;
+  text-align: center;
+}
+
 .snoozed-list {
   display: flex;
   flex-direction: column;
-  gap: 8px;
-  max-width: 760px;
+  gap: 12px;
+  max-width: 1100px;
   margin: 0 auto;
 }
 
-.just-woke-banner {
+/* Each row: rich KanbanPrCard on the left, info+actions rail on the
+   right. The right rail's TIME-BASED block + buttons mirror the
+   docs/mockups/v2/pr-dashboard/snoozed.png treatment. */
+.snoozed-row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 220px;
+  gap: 14px;
+  align-items: stretch;
+}
+
+/* Card fills the row's full height so the left card and right rail
+   stay flush. Without this the card is its intrinsic height and the
+   rail (with two buttons + info) sticks out below. */
+.snoozed-row__card {
+  min-width: 0;
   display: flex;
-  align-items: center;
-  flex-wrap: wrap;
+}
+.snoozed-row__card > .kpr-card {
+  flex: 1;
+  height: 100%;
+}
+
+.snoozed-row__rail {
+  display: flex;
+  flex-direction: column;
   gap: 8px;
-  margin: 12px 20px 0;
   padding: 10px 12px;
-  background: #dcfce7;
-  border: 1px solid #86efac;
+  background: rgba(217, 119, 6, 0.06);
+  border: 1px solid rgba(217, 119, 6, 0.20);
   border-radius: 8px;
-  color: #166534;
-  font-size: 13px;
 }
 
-.just-woke-banner__icon {
-  font-size: 16px;
-}
-
-.just-woke-banner__lead {
-  font-weight: 600;
-}
-
-.just-woke-banner__items {
+.snoozed-row__info {
   display: flex;
-  flex-wrap: wrap;
-  gap: 6px;
+  flex-direction: column;
+  gap: 2px;
+  flex: 1;
 }
 
-.just-woke-banner__item {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  padding: 2px 4px 2px 8px;
-  background: rgba(22, 101, 52, 0.08);
-  border: 1px solid #86efac;
-  border-radius: 999px;
+.snoozed-row__kind {
+  font-size: 9.5px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: #b45309;
 }
 
-.just-woke-banner__open {
-  background: transparent;
-  border: none;
-  padding: 0;
-  font: inherit;
-  color: #166534;
-  cursor: pointer;
+.snoozed-row__when {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-1);
+  line-height: 1.3;
 }
 
-.just-woke-banner__open:hover {
-  text-decoration: underline;
+.snoozed-row__hint {
+  font-size: 11.5px;
+  color: var(--text-2);
+  font-variant-numeric: tabular-nums;
 }
 
-.just-woke-banner__dismiss {
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  width: 18px;
-  height: 18px;
-  padding: 0;
-  background: transparent;
-  border: none;
-  color: #166534;
-  font-size: 14px;
-  line-height: 1;
-  cursor: pointer;
-  border-radius: 50%;
-}
-
-.just-woke-banner__dismiss:hover {
-  background: rgba(22, 101, 52, 0.18);
-}
-
-.snoozed-card {
+.snoozed-row__actions {
   display: flex;
   flex-direction: column;
   gap: 6px;
-  padding: 10px 12px;
-  border: 1px solid var(--border, rgba(120, 140, 200, 0.32));
-  border-radius: 8px;
-  background: var(--bg-card, #fff);
-  cursor: pointer;
-  transition: border-color 0.12s ease, background 0.12s ease;
+  margin-top: auto;
 }
 
-.snoozed-card:hover {
-  border-color: var(--accent, #3b82f6);
+/* Both action slots stretch to the rail width — direct button (Wake
+   now) and SnoozeMenuButton wrap (Edit snooze). Targeting both so
+   the wrap and the inner button fill the column. */
+.snoozed-row__actions > .snoozed-row__action,
+.snoozed-row__actions > .snoozed-row__edit-wrap {
+  width: 100%;
+}
+.snoozed-row__edit-wrap > .snoozed-row__action {
+  width: 100%;
 }
 
-.snoozed-card--selected {
-  border-color: var(--accent, #3b82f6);
-  background: var(--bg-alt, rgba(59, 130, 246, 0.06));
-}
-
-.snoozed-card__head {
-  display: flex;
-  justify-content: space-between;
-  align-items: center;
-  font-size: 12px;
-  color: var(--text-2);
-}
-
-.snoozed-card__wake {
-  font-variant-numeric: tabular-nums;
-  color: var(--text-1);
-}
-
-.snoozed-card__title {
-  font-size: 14px;
-  font-weight: 600;
-  line-height: 1.35;
-  color: var(--text-0);
-}
-
-.snoozed-card__woke {
-  display: flex;
-  align-items: center;
-  gap: 8px;
+.snoozed-row__action {
+  display: block;
+  box-sizing: border-box;
   padding: 6px 10px;
+  font: inherit;
   font-size: 12px;
-  color: #166534;
-  background: #dcfce7;
-  border: 1px solid #86efac;
-  border-radius: 6px;
-}
-
-.snoozed-card__woke-dismiss {
-  margin-left: auto;
-  padding: 2px 8px;
-  font-size: 11px;
-  color: #166534;
-  background: transparent;
-  border: 1px solid #86efac;
-  border-radius: 999px;
-  cursor: pointer;
-}
-
-.snoozed-card__woke-dismiss:hover {
-  background: rgba(22, 101, 52, 0.08);
-}
-
-.snoozed-card__actions {
-  display: flex;
-  justify-content: flex-end;
-}
-
-.snoozed-card__wake-now {
-  padding: 4px 12px;
-  font-size: 12px;
+  font-weight: 500;
+  line-height: 1.35;
   color: var(--text-1);
-  background: transparent;
-  border: 1px solid var(--border, rgba(120, 140, 200, 0.40));
-  border-radius: 999px;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 6px;
   cursor: pointer;
+  text-align: center;
+  transition: background 0.1s, border-color 0.1s, color 0.1s;
 }
 
-.snoozed-card__wake-now:hover {
-  background: var(--bg-alt, rgba(120, 140, 200, 0.10));
+.snoozed-row__action:hover {
+  background: var(--accent-a7);
+  border-color: var(--accent);
+}
+
+/* Primary swaps colours only — padding / font / border thickness
+   stay identical to the secondary action so the two buttons share
+   the same bounding box. */
+.snoozed-row__action--primary {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #fff;
+}
+
+.snoozed-row__action--primary:hover {
+  background: var(--accent);
+  filter: brightness(1.05);
+  color: #fff;
+}
+
+/* Edit-snooze popup wrapper — relative so the SnoozeMenuButton's
+   absolutely-positioned menu lands beneath the button. Always
+   visible (unlike the kanban card's hover-aware wrap). */
+.snoozed-row__edit-wrap {
+  position: relative;
+  display: block;
 }
 
 .pr-list-back-review {
@@ -484,6 +498,33 @@
   background: transparent;
   border: 0;
   min-width: 0;
+  /* Smooth ring shows on drag-over so the user can see the target. */
+  border-radius: 10px;
+  transition: box-shadow 0.12s, background-color 0.12s;
+}
+
+/* Drag-over states. The card payload only becomes readable on drop
+   (browser security), so we optimistically render "accept" on every
+   drag-enter and let onDrop reject silently if translateMyPrsDrop
+   returns null. */
+.kanban-col--drop-accept {
+  box-shadow: inset 0 0 0 2px rgba(46, 160, 67, 0.55);
+  background: rgba(46, 160, 67, 0.05);
+}
+
+.kanban-col--drop-reject {
+  box-shadow: inset 0 0 0 2px rgba(207, 34, 46, 0.55);
+  background: rgba(207, 34, 46, 0.05);
+}
+
+/* Draggable cards get a grab cursor when the user hovers, and a
+   slight tilt while being dragged (browser-native drag image
+   already moves; the tilt class is purely a hover hint). */
+.kpr-card[draggable="true"] {
+  cursor: grab;
+}
+.kpr-card[draggable="true"]:active {
+  cursor: grabbing;
 }
 
 .kanban-col__header {
@@ -1036,6 +1077,26 @@
 .kpr-card--urgent {
   border-color: #cf222e;
   box-shadow: 0 0 0 3px rgba(207, 34, 46, 0.12);
+}
+
+/* Static card — used by the Snoozed page where opening the detail
+   would collapse the list into a sidebar that the row layout (card
+   + 220px rail) can't fit into. The card still renders all the rich
+   content but reads as a non-interactive surface: default cursor,
+   no hover lift, no selected ring. The Wake-now / Edit-snooze
+   buttons in the rail remain clickable. */
+.kpr-card--static,
+.kpr-card--static:hover {
+  cursor: default;
+  border-color: var(--border);
+  box-shadow: none;
+  transform: none;
+}
+.kpr-card--static:disabled {
+  /* Browser default for disabled buttons washes out the text.
+     Override so the card content still reads at full contrast. */
+  opacity: 1;
+  color: inherit;
 }
 
 .kpr-card__banner {
@@ -1777,4 +1838,253 @@ h3 {
 .focus-band__more-count {
   font-size: 12px;
   font-weight: 500;
+}
+
+/* ── Merge history page ─────────────────────────────────────────────── */
+
+.merge-history {
+  flex: 1 1 0;
+  min-height: 0;
+  overflow-y: auto;
+  padding: 16px 20px 32px;
+  background: var(--bg-base);
+}
+
+.merge-history__header {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 12px;
+}
+
+.merge-history__back {
+  padding: 4px 10px;
+  font: inherit;
+  font-size: 12px;
+  color: var(--text-2);
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.merge-history__back:hover {
+  background: var(--accent-a7);
+  color: var(--text-1);
+}
+
+.merge-history__title {
+  font-size: 16px;
+  font-weight: 600;
+  color: var(--text-0);
+  margin: 0;
+}
+
+.merge-history__count {
+  margin-left: auto;
+  font-size: 12px;
+  color: var(--text-3);
+  font-variant-numeric: tabular-nums;
+}
+
+.merge-history__filters {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 14px;
+  margin-bottom: 16px;
+}
+
+.merge-history__filter-group {
+  display: inline-flex;
+  gap: 2px;
+  padding: 2px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg-base);
+}
+
+.merge-history__filter {
+  padding: 4px 10px;
+  font: inherit;
+  font-size: 12px;
+  color: var(--text-2);
+  background: transparent;
+  border: none;
+  border-radius: 4px;
+  cursor: pointer;
+}
+
+.merge-history__filter:hover {
+  color: var(--text-1);
+  background: var(--accent-a7);
+}
+
+.merge-history__filter--active {
+  background: var(--accent);
+  color: #fff;
+  font-weight: 600;
+}
+
+.merge-history__chips {
+  display: inline-flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 6px;
+  font-size: 11px;
+}
+
+.merge-history__chips-label {
+  color: var(--text-3);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  font-size: 10px;
+}
+
+.merge-history__chip {
+  font: inherit;
+  font-size: 11px;
+  padding: 1px 8px;
+  border: 1px solid var(--border);
+  background: var(--bg-card);
+  color: var(--text-2);
+  border-radius: 999px;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.merge-history__chip:hover {
+  background: var(--accent-a7);
+  color: var(--text-1);
+}
+
+.merge-history__chip--active {
+  background: var(--accent-a7);
+  border-color: var(--accent);
+  color: var(--text-1);
+  font-weight: 500;
+}
+
+.merge-history__chip-count {
+  font-size: 10px;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-3);
+}
+
+.merge-history__chip--active .merge-history__chip-count {
+  color: var(--accent);
+}
+
+.merge-history__group {
+  margin-top: 18px;
+}
+
+.merge-history__group-head {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin-bottom: 8px;
+  padding-bottom: 4px;
+  border-bottom: 1px solid var(--border);
+}
+
+.merge-history__group-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-1);
+  margin: 0;
+}
+
+.merge-history__group-count {
+  font-size: 11px;
+  color: var(--text-3);
+  font-variant-numeric: tabular-nums;
+}
+
+.merge-history__row {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
+  gap: 10px;
+}
+
+.merge-history__card {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.merge-history__card-meta {
+  font-size: 11px;
+  color: var(--text-3);
+  padding-left: 12px;
+}
+
+.merge-history__error {
+  margin: 12px 0;
+  padding: 10px 12px;
+  border: 1px solid #fca5a5;
+  background: rgba(207, 34, 46, 0.06);
+  color: #cf222e;
+  border-radius: 6px;
+  font-size: 12px;
+}
+
+.merge-history__empty {
+  margin: 32px 0;
+  text-align: center;
+  color: var(--text-3);
+  font-size: 13px;
+}
+
+.merge-history__footer {
+  margin-top: 24px;
+  display: flex;
+  justify-content: center;
+}
+
+.merge-history__more {
+  padding: 8px 16px;
+  font: inherit;
+  font-size: 13px;
+  color: var(--text-1);
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  cursor: pointer;
+}
+
+.merge-history__more:hover:not(:disabled) {
+  background: var(--accent-a7);
+  border-color: var(--accent);
+}
+
+.merge-history__more:disabled {
+  cursor: default;
+  opacity: 0.6;
+}
+
+.merge-history__end {
+  font-size: 12px;
+  color: var(--text-3);
+}
+
+/* First-page spinner — fills the page area where the list will appear,
+   so the user sees motion immediately instead of a blank screen. */
+.merge-history__loading-full {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 64px 0;
+}
+
+/* Pagination spinner — sits where the "Load more" button used to be so
+   the user knows we're working without a layout jump. */
+.merge-history__loading-inline {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 8px 0;
 }

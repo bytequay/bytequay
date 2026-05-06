@@ -75,6 +75,8 @@ const bridge: Bridge = {
   markPrHandled: (prId: number, action: HandledAction): Promise<void> =>
     ipcRenderer.invoke('backend:markPrHandled', prId, action),
   reopenPr: (prId: number): Promise<void> => ipcRenderer.invoke('backend:reopenPr', prId),
+  fetchPrHistory: (page: number, perPage?: number) =>
+    ipcRenderer.invoke('backend:prHistory', page, perPage),
   snoozePr: (prId: number, untilIso: string): Promise<void> =>
     ipcRenderer.invoke('backend:snoozePr', prId, untilIso),
   unsnoozePr: (prId: number): Promise<void> => ipcRenderer.invoke('backend:unsnoozePr', prId),

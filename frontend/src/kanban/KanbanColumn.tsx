@@ -11,9 +11,10 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import { useState } from 'react';
+import { useRef, useState, type DragEvent } from 'react';
 import type { PullRequestDto } from '../types';
 import KanbanCard from './KanbanCard';
+import { PR_DRAG_MIME, type PrDragPayload } from './KanbanPrCard';
 
 /** Cards visible before the user clicks "+ N more". One screen's worth. */
 const INITIAL_SHOWN = 5;
@@ -53,6 +54,15 @@ type Props = {
   onHandle: (prId: number) => void;
   onReopen: (prId: number) => void;
   onSnooze?: (prId: number, untilIso: string) => void;
+  /** When provided, the column's cards are HTML5-draggable. Only set
+   *  by the My-PRs board. */
+  draggable?: boolean;
+  /** Validates whether a card from {@code fromColumn} can be dropped
+   *  on this one. Drives the green/red drop-target outline. Without
+   *  this prop the column doesn't accept drops at all. */
+  acceptDropFrom?: (fromColumn: KanbanColumnKind) => boolean;
+  /** Fires after a successful drop with the resolved payload. */
+  onCardDrop?: (payload: PrDragPayload, toColumn: KanbanColumnKind) => void;
   /** "team" tells the card to show repo avatar + author chip. */
   cardMode?: 'inbox' | 'team';
   /** When provided, the column is in server-paginated mode: prs is just
@@ -75,11 +85,17 @@ type Props = {
 
 function KanbanColumn({
   kind, label, prs, selectedId, collapsed, yourMove,
-  onToggle, onSelect, onHandle, onReopen, onSnooze, cardMode,
+  onToggle, onSelect, onHandle, onReopen, onSnooze,
+  draggable, acceptDropFrom, onCardDrop,
+  cardMode,
   totalCount, onLoadMore, footerCta,
 }: Props) {
   const [shownCount, setShownCount] = useState(INITIAL_SHOWN);
   const [loadingMore, setLoadingMore] = useState(false);
+  // Drop-target visual: 'accept' = green outline (drop will translate
+  // to a real action), 'reject' = red outline (drop will be no-op).
+  // Cleared on dragleave-from-column or after drop fires.
+  const [dropState, setDropState] = useState<'accept' | 'reject' | null>(null);
   const slug = kind.replace(/_/g, '-');
   // Done flag was the old delegator's "render as HandledCard" switch — the
   // rich KanbanPrCard handles all column kinds uniformly now.
@@ -128,8 +144,66 @@ function KanbanColumn({
     }
   };
 
+  // ── Drop-target wiring ───────────────────────────────────────────────────
+  //
+  // Only attached when both onCardDrop and acceptDropFrom are provided
+  // (i.e. when the parent board opted into drag/drop). dragenter/leave
+  // fire spuriously when the cursor crosses child nodes, so we use a
+  // depth counter to keep the visual stable while the user hovers.
+  const dropDepthRef = useRef(0);
+  const dropEnabled = !!onCardDrop && !!acceptDropFrom;
+
+  const readPayload = (e: DragEvent<HTMLElement>): PrDragPayload | null => {
+    const raw = e.dataTransfer.getData(PR_DRAG_MIME);
+    if (!raw) return null;
+    try {
+      return JSON.parse(raw) as PrDragPayload;
+    } catch {
+      return null;
+    }
+  };
+
+  const dropHandlers = dropEnabled ? {
+    onDragEnter: (e: DragEvent<HTMLElement>) => {
+      // Skip non-PR drags (e.g. files dragged from Finder).
+      if (!Array.from(e.dataTransfer.types).includes(PR_DRAG_MIME)) return;
+      dropDepthRef.current += 1;
+      if (dropDepthRef.current === 1) {
+        // We can't peek at the payload during dragenter (security: only
+        // available on drop), so we only know fromColumn at drop time.
+        // Show "accept" optimistically and resolve on drop.
+        setDropState('accept');
+      }
+    },
+    onDragOver: (e: DragEvent<HTMLElement>) => {
+      if (!Array.from(e.dataTransfer.types).includes(PR_DRAG_MIME)) return;
+      e.preventDefault();
+      e.dataTransfer.dropEffect = 'move';
+    },
+    onDragLeave: (e: DragEvent<HTMLElement>) => {
+      if (!Array.from(e.dataTransfer.types).includes(PR_DRAG_MIME)) return;
+      dropDepthRef.current = Math.max(0, dropDepthRef.current - 1);
+      if (dropDepthRef.current === 0) setDropState(null);
+    },
+    onDrop: (e: DragEvent<HTMLElement>) => {
+      e.preventDefault();
+      dropDepthRef.current = 0;
+      setDropState(null);
+      const payload = readPayload(e);
+      if (!payload) return;
+      if (payload.fromColumn === kind) return; // dropped on self — no-op
+      if (!acceptDropFrom!(payload.fromColumn)) return;
+      onCardDrop!(payload, kind);
+    },
+  } : {};
+
+  const dropClass = dropState ? ` kanban-col--drop-${dropState}` : '';
+
   return (
-    <section className={`kanban-col kanban-col--${slug}${yourMove ? ` kanban-col--move-${yourMove}` : ''}`}>
+    <section
+      className={`kanban-col kanban-col--${slug}${yourMove ? ` kanban-col--move-${yourMove}` : ''}${dropClass}`}
+      {...dropHandlers}
+    >
       <header className="kanban-col__header">
         <span className="kanban-col__dot" aria-hidden="true" />
         <h3 className="kanban-col__title">{label}</h3>
@@ -165,6 +239,7 @@ function KanbanColumn({
                 onHandle={() => onHandle(pr.id)}
                 onReopen={() => onReopen(pr.id)}
                 onSnooze={onSnooze ? (untilIso) => onSnooze(pr.id, untilIso) : undefined}
+                draggable={draggable}
               />
             ))}
             {hiddenCount > 0 && (

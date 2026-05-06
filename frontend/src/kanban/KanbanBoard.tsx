@@ -193,15 +193,6 @@ function KanbanBoard(props: Props) {
     }
   }, [repoFilter, repoFilterMatchesAnything]);
 
-  // Briefing was used by the now-removed MorningBriefing strip and the
-  // team-mode header total. The team header still wants a count when no
-  // teamData is provided (rare fallback for the legacy non-paginated
-  // path); keep a minimal computation just for that single number.
-  const minePrCount = useMemo(
-    () => props.prs.filter(p => p.origin === 'AUTHORED').length,
-    [props.prs],
-  );
-
   return (
     <div className="kanban-v2">
       {/* The morning-briefing strip ("☀ N of your PRs need changes · M
@@ -217,22 +208,6 @@ function KanbanBoard(props: Props) {
           onHandle={props.onHandle}
           onSnooze={props.onSnooze}
         />
-      )}
-
-      {/* Team mode keeps a tiny "PRs" header. Inbox mode renders no
-          toolbar of its own — the lane tabs (My PRs / To review /
-          Teams) live in the page header (PullRequestList). */}
-      {mode === 'team' && (
-        <div className="kanban-v2__tab-toolbar">
-          <h3 className="kanban-v2__lane-header">
-            PRs
-            <span className="kanban-v2__tab-count">
-              {props.teamData
-                ? Object.values(props.teamData.totals).reduce((s, n) => s + n, 0)
-                : minePrCount}
-            </span>
-          </h3>
-        </div>
       )}
 
       {repoOptions.length > 1 && (

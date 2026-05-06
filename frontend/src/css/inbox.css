@@ -200,6 +200,66 @@
   color: var(--accent);
 }
 
+/* Scope tab bar — sits below the Inbox/Snoozed/Handled toggle when
+   the user is on the Inbox bucket. Replaces the old MY PRS / FOR MY
+   REVIEW / OTHER accordion sections (per the canonical
+   docs/design/pr-dashboard/repo-prs.png). Counts stay because they
+   help the user pick where to look. */
+.v2-scopebar {
+  display: inline-flex;
+  gap: 2px;
+  margin: 6px 16px 0;
+  padding: 2px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg-base);
+  align-self: flex-start;
+}
+
+.v2-scopebar__tab {
+  appearance: none;
+  border: none;
+  background: transparent;
+  padding: 4px 10px;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--text-2);
+  border-radius: 4px;
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+}
+
+.v2-scopebar__tab:hover {
+  color: var(--text-1);
+  background: var(--accent-a7);
+}
+
+.v2-scopebar__tab--active {
+  color: var(--accent);
+  background: var(--accent-a7);
+  font-weight: 600;
+}
+
+.v2-scopebar__count {
+  font-size: 10.5px;
+  font-variant-numeric: tabular-nums;
+  color: var(--text-3);
+}
+
+.v2-scopebar__tab--active .v2-scopebar__count {
+  color: var(--accent);
+}
+
+/* Quiet metadata line — "2 of your PRs in this repo · sort: recent ▾". */
+.v2-scopebar__meta {
+  margin: 8px 16px 0;
+  font-size: 11.5px;
+  color: var(--text-3);
+}
+
 .v2-list {
   flex: 1;
   overflow-y: auto;

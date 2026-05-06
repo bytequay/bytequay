@@ -39,7 +39,6 @@ function loadSidebarWidth(): number {
   return Math.max(SIDEBAR_WIDTH_MIN, Math.min(SIDEBAR_WIDTH_MAX, n));
 }
 import {
-  bucketize,
   byUpdatedAtDesc,
   formatRelative,
   groupHandledByTime,
@@ -49,12 +48,15 @@ import {
   syncCachesAfterPrChange,
   reopenPatch,
   sortHandled,
+  sortSnoozed,
+  splitByBucket,
   unmergedPatch,
 } from './prBuckets';
-import { HandledTimeline, InboxGroup } from './PrBucketViews';
+import { HandledTimeline, InboxCard, SnoozedList } from './PrBucketViews';
 
 type Tab = 'pulls' | 'issues';
-type Bucket = 'inbox' | 'handled';
+type Bucket = 'inbox' | 'snoozed' | 'handled';
+type Scope = 'mine' | 'review' | 'other';
 
 type Props = {
   owner: string;
@@ -84,15 +86,27 @@ function DeepLinkLoading({ owner, repo, number }: { owner: string; repo: string;
   );
 }
 
-function HelpPanel({ bucket, inboxCount, handledCount }: { bucket: Bucket; inboxCount: number; handledCount: number }) {
+function HelpPanel({
+  bucket,
+  inboxCount,
+  snoozedCount,
+  handledCount,
+}: {
+  bucket: Bucket;
+  inboxCount: number;
+  snoozedCount: number;
+  handledCount: number;
+}) {
+  const title = bucket === 'inbox' ? 'Inbox' : bucket === 'snoozed' ? 'Snoozed' : 'Handled';
+  const subtitle = bucket === 'inbox'
+    ? `${inboxCount} PR${inboxCount === 1 ? '' : 's'} need your attention. Hover any card to reveal the ✓ Handled or ⌛ Snooze actions, or click a card to open it.`
+    : bucket === 'snoozed'
+      ? `${snoozedCount} PR${snoozedCount === 1 ? '' : 's'} parked until later. They'll auto-wake on CI failure, requested changes, or merge conflict — or whenever the timer fires.`
+      : `${handledCount} PR${handledCount === 1 ? "'s" : "s you've"} dealt with, newest first. Hover any card to ↗ Reopen it back into your Inbox.`;
   return (
     <div className="v2-help">
-      <h1 className="v2-help__title">{bucket === 'inbox' ? 'Inbox' : 'Handled'}</h1>
-      <p className="v2-help__subtitle">
-        {bucket === 'inbox'
-          ? `${inboxCount} PR${inboxCount === 1 ? '' : 's'} need your attention. Hover any card to reveal the ✓ Handled action, or click a card to open it.`
-          : `${handledCount} PR${handledCount === 1 ? "'s" : "s you've"} dealt with, newest first. Hover any card to ↗ Reopen it back into your Inbox.`}
-      </p>
+      <h1 className="v2-help__title">{title}</h1>
+      <p className="v2-help__subtitle">{subtitle}</p>
 
       <section className="v2-help__card">
         <h3 className="v2-help__card-title">How a PR gets marked as Handled</h3>
@@ -114,14 +128,6 @@ function HelpPanel({ bucket, inboxCount, handledCount }: { bucket: Bucket; inbox
         </p>
       </section>
 
-      <section className="v2-help__card">
-        <h3 className="v2-help__card-title">Legend on the cards</h3>
-        <ul className="v2-help__legend">
-          <li><span className="legend-dot legend-dot--blue" /> <strong>Blue dot</strong> — unread: you haven't opened this PR yet</li>
-          <li><span className="legend-dot legend-dot--orange" /> <strong>Orange dot</strong> — re-surfaced: handled before, updated since</li>
-          <li><span className="legend-dot legend-dot--seen" /> <strong>Hollow ring</strong> — opened but not yet handled</li>
-        </ul>
-      </section>
     </div>
   );
 }
@@ -129,6 +135,7 @@ function HelpPanel({ bucket, inboxCount, handledCount }: { bucket: Bucket; inbox
 function RepoDetailPage({ owner, repo, initialPrNumber }: Props) {
   const [tab, setTab] = useState<Tab>('pulls');
   const [bucket, setBucket] = useState<Bucket>('inbox');
+  const [scope, setScope] = useState<Scope>('mine');
   // Seed from the cache keyed by owner/repo so revisiting the same repo is
   // instant. Different repo → cache miss → we fall back to []/spinner.
   const [pulls, setPulls] = useState<PullRequestDto[]>(
@@ -306,15 +313,14 @@ function RepoDetailPage({ owner, repo, initialPrNumber }: Props) {
 
   const login = currentUser?.login ?? null;
 
-  const { inboxPrs, handledPrs } = useMemo(() => {
-    const inbox: PullRequestDto[] = [];
-    const handled: PullRequestDto[] = [];
-    for (const pr of pulls) {
-      if (bucketize(pr) === 'inbox') inbox.push(pr);
-      else handled.push(pr);
-    }
-    inbox.sort(byUpdatedAtDesc);
-    return { inboxPrs: inbox, handledPrs: sortHandled(handled) };
+  const { inboxPrs, snoozedPrs, handledPrs } = useMemo(() => {
+    const split = splitByBucket(pulls);
+    split.inbox.sort(byUpdatedAtDesc);
+    return {
+      inboxPrs: split.inbox,
+      snoozedPrs: sortSnoozed(split.snoozed),
+      handledPrs: sortHandled(split.handled),
+    };
   }, [pulls]);
 
   const { myPrs, forReview, otherPrs } = useMemo(() => {
@@ -331,6 +337,9 @@ function RepoDetailPage({ owner, repo, initialPrNumber }: Props) {
     }
     return { myPrs: mine, forReview: rev, otherPrs: other };
   }, [inboxPrs, login]);
+
+  const scopedPrs = scope === 'mine' ? myPrs : scope === 'review' ? forReview : otherPrs;
+  const scopeLabel = scope === 'mine' ? 'your PRs' : scope === 'review' ? 'PRs for your review' : 'other PRs';
 
   const handledGroups = useMemo(() => groupHandledByTime(handledPrs), [handledPrs]);
 
@@ -403,6 +412,43 @@ function RepoDetailPage({ owner, repo, initialPrNumber }: Props) {
     }
   };
 
+  // Snooze plumbing — same shape as PullRequestList's. Snoozed PRs
+  // leave the inbox bucket via splitByBucket; the Snoozed tab renders
+  // the SnoozedList component.
+  const handleSnooze = async (prId: number, untilIso: string) => {
+    const previous = pulls.find(p => p.id === prId);
+    const patch: Partial<PullRequestDto> = { snoozedUntil: untilIso, snoozeWakeReason: null };
+    setPulls(prev => patchPr(prev, prId, patch));
+    syncCachesAfterPrChange(prId, patch, fullRepo);
+    try {
+      await window.bridge.snoozePr(prId, untilIso);
+    } catch (e) {
+      console.warn('snoozePr failed; rolling back', e);
+      if (previous) {
+        const rollback: Partial<PullRequestDto> = { snoozedUntil: previous.snoozedUntil, snoozeWakeReason: previous.snoozeWakeReason };
+        setPulls(prev => patchPr(prev, prId, rollback));
+        syncCachesAfterPrChange(prId, rollback, fullRepo);
+      }
+    }
+  };
+
+  const handleUnsnooze = async (prId: number) => {
+    const previous = pulls.find(p => p.id === prId);
+    const patch: Partial<PullRequestDto> = { snoozedUntil: null, snoozeWakeReason: null };
+    setPulls(prev => patchPr(prev, prId, patch));
+    syncCachesAfterPrChange(prId, patch, fullRepo);
+    try {
+      await window.bridge.unsnoozePr(prId);
+    } catch (e) {
+      console.warn('unsnoozePr failed; rolling back', e);
+      if (previous) {
+        const rollback: Partial<PullRequestDto> = { snoozedUntil: previous.snoozedUntil, snoozeWakeReason: previous.snoozeWakeReason };
+        setPulls(prev => patchPr(prev, prId, rollback));
+        syncCachesAfterPrChange(prId, rollback, fullRepo);
+      }
+    }
+  };
+
   const selectedId = selectedPr?.id ?? null;
 
   const expandSidebar = () => {
@@ -448,20 +494,67 @@ function RepoDetailPage({ owner, repo, initialPrNumber }: Props) {
         </div>
 
         {tab === 'pulls' && (
-          <div className="v2-subtabs">
-            <button
-              className={`v2-subtab${bucket === 'inbox' ? ' v2-subtab--active' : ''}`}
-              onClick={() => { setBucket('inbox'); selectPr(null); }}
-            >
-              Inbox <span className="v2-subtab__count">{inboxPrs.length}</span>
-            </button>
-            <button
-              className={`v2-subtab${bucket === 'handled' ? ' v2-subtab--active' : ''}`}
-              onClick={() => { setBucket('handled'); selectPr(null); }}
-            >
-              Handled <span className="v2-subtab__count">{handledPrs.length}</span>
-            </button>
-          </div>
+          <>
+            <div className="v2-subtabs">
+              <button
+                className={`v2-subtab${bucket === 'inbox' ? ' v2-subtab--active' : ''}`}
+                onClick={() => { setBucket('inbox'); selectPr(null); }}
+              >
+                Inbox
+              </button>
+              <button
+                className={`v2-subtab${bucket === 'snoozed' ? ' v2-subtab--active' : ''}`}
+                onClick={() => { setBucket('snoozed'); selectPr(null); }}
+                title="PRs you've parked until a later time."
+              >
+                Snoozed{snoozedPrs.length > 0 && (
+                  <span className="v2-subtab__count">{snoozedPrs.length}</span>
+                )}
+              </button>
+              <button
+                className={`v2-subtab${bucket === 'handled' ? ' v2-subtab--active' : ''}`}
+                onClick={() => { setBucket('handled'); selectPr(null); }}
+              >
+                Handled
+              </button>
+            </div>
+            {/* Scope tab bar — replaces the old MY PRS / FOR MY REVIEW /
+                OTHER accordion sections per docs/design/pr-dashboard/repo-prs.png.
+                Counts stay because they help the user pick where to look. */}
+            {bucket === 'inbox' && (
+              <>
+                <div className="v2-scopebar" role="tablist" aria-label="PR scope">
+                  <button
+                    role="tab"
+                    aria-selected={scope === 'mine'}
+                    className={`v2-scopebar__tab${scope === 'mine' ? ' v2-scopebar__tab--active' : ''}`}
+                    onClick={() => { setScope('mine'); selectPr(null); }}
+                  >
+                    My PRs <span className="v2-scopebar__count">{myPrs.length}</span>
+                  </button>
+                  <button
+                    role="tab"
+                    aria-selected={scope === 'review'}
+                    className={`v2-scopebar__tab${scope === 'review' ? ' v2-scopebar__tab--active' : ''}`}
+                    onClick={() => { setScope('review'); selectPr(null); }}
+                  >
+                    For my review <span className="v2-scopebar__count">{forReview.length}</span>
+                  </button>
+                  <button
+                    role="tab"
+                    aria-selected={scope === 'other'}
+                    className={`v2-scopebar__tab${scope === 'other' ? ' v2-scopebar__tab--active' : ''}`}
+                    onClick={() => { setScope('other'); selectPr(null); }}
+                  >
+                    Other <span className="v2-scopebar__count">{otherPrs.length}</span>
+                  </button>
+                </div>
+                <div className="v2-scopebar__meta">
+                  {scopedPrs.length} {scopeLabel} in this repo · sort: recent
+                </div>
+              </>
+            )}
+          </>
         )}
 
         {loading && (
@@ -475,13 +568,38 @@ function RepoDetailPage({ owner, repo, initialPrNumber }: Props) {
           <div className="v2-list">
             {inboxPrs.length === 0 ? (
               <div className="v2-empty">Inbox zero — nothing needs your attention.</div>
+            ) : scopedPrs.length === 0 ? (
+              <div className="v2-empty">
+                {scope === 'mine'
+                  ? `No PRs of yours in ${owner}/${repo} right now.`
+                  : scope === 'review'
+                    ? `No PRs in ${owner}/${repo} are waiting for your review.`
+                    : `No other PRs in ${owner}/${repo}'s inbox.`}
+              </div>
             ) : (
-              <>
-                <InboxGroup title="MY PRS" color="blue" prs={myPrs} selectedId={selectedId} onSelect={selectPr} onHandle={handleMarkHandled} />
-                <InboxGroup title="FOR MY REVIEW" color="orange" prs={forReview} selectedId={selectedId} onSelect={selectPr} onHandle={handleMarkHandled} />
-                <InboxGroup title="OTHER" color="grey" prs={otherPrs} selectedId={selectedId} onSelect={selectPr} onHandle={handleMarkHandled} />
-              </>
+              scopedPrs.map(pr => (
+                <InboxCard
+                  key={pr.id}
+                  pr={pr}
+                  selected={selectedId === pr.id}
+                  onSelect={() => selectPr(pr)}
+                  onHandle={() => handleMarkHandled(pr.id)}
+                  onSnooze={(untilIso) => handleSnooze(pr.id, untilIso)}
+                />
+              ))
             )}
+          </div>
+        )}
+
+        {!loading && tab === 'pulls' && bucket === 'snoozed' && (
+          <div className="v2-list">
+            <SnoozedList
+              prs={snoozedPrs}
+              selectedId={selectedId}
+              onSelect={selectPr}
+              onUnsnooze={handleUnsnooze}
+              onEditSnooze={handleSnooze}
+            />
           </div>
         )}
 
@@ -573,7 +691,12 @@ function RepoDetailPage({ owner, repo, initialPrNumber }: Props) {
         ) : deepLinkPending && initialPrNumber != null ? (
           <DeepLinkLoading owner={owner} repo={repo} number={initialPrNumber} />
         ) : (
-          <HelpPanel bucket={bucket} inboxCount={inboxPrs.length} handledCount={handledPrs.length} />
+          <HelpPanel
+            bucket={bucket}
+            inboxCount={inboxPrs.length}
+            snoozedCount={snoozedPrs.length}
+            handledCount={handledPrs.length}
+          />
         )}
       </main>
     </div>

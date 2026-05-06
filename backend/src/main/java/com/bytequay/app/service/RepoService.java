@@ -19,7 +19,9 @@ import com.bytequay.app.domain.PrViewState;
 import com.bytequay.app.domain.PullRequest;
 import com.bytequay.app.domain.PullRequestRef;
 import com.bytequay.app.domain.RecentEvent;
+import com.bytequay.app.domain.RepoActivityItem;
 import com.bytequay.app.domain.RepoIssue;
+import com.bytequay.app.domain.RepoMeta;
 import com.bytequay.app.domain.RepoRef;
 import com.bytequay.app.domain.UserOrg;
 import com.bytequay.app.domain.UserProfile;
@@ -170,6 +172,16 @@ public class RepoService
     public List<RepoIssue> getRepoIssues(String pat, String owner, String repo)
     {
         return gitHub.fetchRepoIssues(pat, RepoRef.of(owner, repo));
+    }
+
+    public RepoMeta getRepoMeta(String pat, String owner, String repo)
+    {
+        return gitHub.fetchRepoMeta(pat, RepoRef.of(owner, repo));
+    }
+
+    public List<RepoActivityItem> getRepoActivity(String pat, String owner, String repo)
+    {
+        return gitHub.fetchRepoActivity(pat, RepoRef.of(owner, repo));
     }
 
     public List<UserRepo> getUserRepos(String pat)

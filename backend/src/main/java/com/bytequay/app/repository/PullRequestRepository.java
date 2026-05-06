@@ -32,7 +32,9 @@ import com.bytequay.app.domain.PullRequestHistoryPage;
 import com.bytequay.app.domain.PullRequestRef;
 import com.bytequay.app.domain.PullRequestReview;
 import com.bytequay.app.domain.RecentEvent;
+import com.bytequay.app.domain.RepoActivityItem;
 import com.bytequay.app.domain.RepoIssue;
+import com.bytequay.app.domain.RepoMeta;
 import com.bytequay.app.domain.RepoRef;
 import com.bytequay.app.domain.RequestReviewersCommand;
 import com.bytequay.app.domain.RequestedReviewers;
@@ -489,6 +491,27 @@ public interface PullRequestRepository
     default List<RepoIssue> fetchRepoIssues(String pat, RepoRef repo)
     {
         throw new UnsupportedOperationException("fetchRepoIssues not implemented");
+    }
+
+    /**
+     * Fetches repo-level metadata (description, stars, license, topics,
+     * language byte-counts, etc). Combines GitHub's
+     * {@code /repos/{owner}/{repo}} and {@code /repos/{owner}/{repo}/languages}
+     * so the frontend hero card can render in one round-trip.
+     */
+    default RepoMeta fetchRepoMeta(String pat, RepoRef repo)
+    {
+        throw new UnsupportedOperationException("fetchRepoMeta not implemented");
+    }
+
+    /**
+     * Fetches the most recent ~30 events for the repository (push, PR
+     * opened/merged, issue comment, release, etc). Powers the
+     * "Recent activity" feed on the repo detail page.
+     */
+    default List<RepoActivityItem> fetchRepoActivity(String pat, RepoRef repo)
+    {
+        throw new UnsupportedOperationException("fetchRepoActivity not implemented");
     }
 
     /**

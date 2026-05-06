@@ -19,6 +19,7 @@ import DiffViewerScreen from './DiffViewerScreen';
 import ResizeHandle from './ResizeHandle';
 import Avatar from './Avatar';
 import LogoLoading from './LogoLoading';
+import RepoOverviewPanel from './RepoOverviewPanel';
 import { getCached, setCached } from './dataCache';
 import { decideDeepLinkSelection } from './repoDeepLink';
 
@@ -82,52 +83,6 @@ function DeepLinkLoading({ owner, repo, number }: { owner: string; repo: string;
       <p className="v2-help__subtitle">
         Fetching the pull request — this is normal for PRs that aren't already in your watched list.
       </p>
-    </div>
-  );
-}
-
-function HelpPanel({
-  bucket,
-  inboxCount,
-  snoozedCount,
-  handledCount,
-}: {
-  bucket: Bucket;
-  inboxCount: number;
-  snoozedCount: number;
-  handledCount: number;
-}) {
-  const title = bucket === 'inbox' ? 'Inbox' : bucket === 'snoozed' ? 'Snoozed' : 'Handled';
-  const subtitle = bucket === 'inbox'
-    ? `${inboxCount} PR${inboxCount === 1 ? '' : 's'} need your attention. Hover any card to reveal the ✓ Handled or ⌛ Snooze actions, or click a card to open it.`
-    : bucket === 'snoozed'
-      ? `${snoozedCount} PR${snoozedCount === 1 ? '' : 's'} parked until later. They'll auto-wake on CI failure, requested changes, or merge conflict — or whenever the timer fires.`
-      : `${handledCount} PR${handledCount === 1 ? "'s" : "s you've"} dealt with, newest first. Hover any card to ↗ Reopen it back into your Inbox.`;
-  return (
-    <div className="v2-help">
-      <h1 className="v2-help__title">{title}</h1>
-      <p className="v2-help__subtitle">{subtitle}</p>
-
-      <section className="v2-help__card">
-        <h3 className="v2-help__card-title">How a PR gets marked as Handled</h3>
-        <p>
-          <strong>Automatically</strong>, when you leave a review — Approve, Request changes, or Comment. Also automatically when your own PR is merged or closed.
-        </p>
-        <p>
-          <strong>Manually</strong>, by clicking <span className="inline-pill">✓ Handled</span> on any card (hover to reveal) or from the detail view. Useful for PRs you're waiting on but don't want cluttering your queue.
-        </p>
-      </section>
-
-      <section className="v2-help__card">
-        <h3 className="v2-help__card-title">What brings it back to the Inbox</h3>
-        <p>
-          A new commit, a new review request, or an <code>@mention</code>. When that happens, the card returns with an orange dot and an <span className="inline-pill inline-pill--resurfaced">Updated since your review</span> badge — so you can see at a glance that it isn't a duplicate of something you already did.
-        </p>
-        <p className="v2-help__note">
-          Approved and merged PRs stay in Handled even if they receive new activity.
-        </p>
-      </section>
-
     </div>
   );
 }
@@ -691,12 +646,7 @@ function RepoDetailPage({ owner, repo, initialPrNumber }: Props) {
         ) : deepLinkPending && initialPrNumber != null ? (
           <DeepLinkLoading owner={owner} repo={repo} number={initialPrNumber} />
         ) : (
-          <HelpPanel
-            bucket={bucket}
-            inboxCount={inboxPrs.length}
-            snoozedCount={snoozedPrs.length}
-            handledCount={handledPrs.length}
-          />
+          <RepoOverviewPanel owner={owner} repo={repo} />
         )}
       </main>
     </div>

@@ -291,6 +291,37 @@ export type WatchedRepoDto = {
   displayOrder: number;
 };
 
+/** Repo-level metadata served by /api/repos/{owner}/{repo}/meta.
+ *  Drives the right-pane hero / About / language bar on the repo PR
+ *  detail page. */
+export type RepoMetaDto = {
+  fullName: string;
+  htmlUrl: string;
+  description: string | null;
+  defaultBranch: string | null;
+  license: string | null;
+  stargazersCount: number;
+  forksCount: number;
+  watchersCount: number;
+  openIssuesCount: number;
+  sizeKb: number;
+  createdAt: string | null;
+  pushedAt: string | null;
+  topics: string[];
+  /** Map from language → byte count. The language bar computes
+   *  percentages client-side. */
+  languages: Record<string, number>;
+};
+
+/** One entry in the right-pane "Recent activity" feed. */
+export type RepoActivityItemDto = {
+  type: string;
+  actor: string | null;
+  title: string;
+  htmlUrl: string;
+  createdAt: string | null;
+};
+
 /** Eight named colors that match the Settings → Teams swatch palette
  *  (see docs/mockups/teams/bytequay-team-modal-redesign.html). The
  *  three legacy values (purple / green / orange) stay first so existing
@@ -714,6 +745,10 @@ export type Bridge = {
    *  the (capped) repo list response. */
   getRepoPull: (owner: string, repo: string, number: number) => Promise<PullRequestDto>;
   getRepoIssues: (owner: string, repo: string) => Promise<IssueDto[]>;
+  /** Repo-level metadata for the right-pane hero card. */
+  getRepoMeta: (owner: string, repo: string) => Promise<RepoMetaDto>;
+  /** ~30 most recent events on a repo for the right-pane activity feed. */
+  getRepoActivity: (owner: string, repo: string) => Promise<RepoActivityItemDto[]>;
   getUserRepos: () => Promise<UserRepoDto[]>;
   getUserOrgs: () => Promise<UserOrgDto[]>;
   searchRepos: (query: string) => Promise<UserRepoDto[]>;

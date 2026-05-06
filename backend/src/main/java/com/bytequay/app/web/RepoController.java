@@ -16,7 +16,9 @@ package com.bytequay.app.web;
 import com.bytequay.app.domain.GitHubUserMatch;
 import com.bytequay.app.domain.PullRequest;
 import com.bytequay.app.domain.RecentEvent;
+import com.bytequay.app.domain.RepoActivityItem;
 import com.bytequay.app.domain.RepoIssue;
+import com.bytequay.app.domain.RepoMeta;
 import com.bytequay.app.domain.UserOrg;
 import com.bytequay.app.domain.UserProfile;
 import com.bytequay.app.domain.UserRepo;
@@ -131,6 +133,33 @@ public class RepoController
             @PathVariable String repo)
     {
         return repoService.getRepoIssues(patResolver.resolve(owner + "/" + repo), owner, repo);
+    }
+
+    /**
+     * Repo-level metadata: description, stars, forks, watchers, license,
+     * topics, languages map. Powers the right-pane hero / About /
+     * language bar on the repo detail page.
+     * GET /api/repos/{owner}/{repo}/meta
+     */
+    @GetMapping("/repos/{owner}/{repo}/meta")
+    public RepoMeta getRepoMeta(
+            @PathVariable String owner,
+            @PathVariable String repo)
+    {
+        return repoService.getRepoMeta(patResolver.resolve(owner + "/" + repo), owner, repo);
+    }
+
+    /**
+     * Recent ~30 GitHub events for a repo (push / PR / issue / release …).
+     * Powers the right-pane "Recent activity" timeline.
+     * GET /api/repos/{owner}/{repo}/activity
+     */
+    @GetMapping("/repos/{owner}/{repo}/activity")
+    public List<RepoActivityItem> getRepoActivity(
+            @PathVariable String owner,
+            @PathVariable String repo)
+    {
+        return repoService.getRepoActivity(patResolver.resolve(owner + "/" + repo), owner, repo);
     }
 
     /**

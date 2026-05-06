@@ -32,7 +32,9 @@ import com.bytequay.app.domain.PullRequestRef;
 import com.bytequay.app.domain.PullRequestReview;
 import com.bytequay.app.domain.Reactions;
 import com.bytequay.app.domain.RecentEvent;
+import com.bytequay.app.domain.RepoActivityItem;
 import com.bytequay.app.domain.RepoIssue;
+import com.bytequay.app.domain.RepoMeta;
 import com.bytequay.app.domain.RepoRef;
 import com.bytequay.app.domain.RequestReviewersCommand;
 import com.bytequay.app.domain.SuggestedReviewer;
@@ -66,6 +68,7 @@ import java.util.Base64;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.function.Function;
@@ -1425,6 +1428,180 @@ public class GitHubClient
         catch (RestClientResponseException e) {
             throw toReadableException(e);
         }
+    }
+
+    @Override
+    public RepoMeta fetchRepoMeta(String pat, RepoRef repo)
+    {
+        try {
+            GitHubRepoResponse repoResp = gitHubRestClient.get()
+                    .uri("/repos/{owner}/{repo}", repo.owner(), repo.repo())
+                    .header("Authorization", "Bearer " + pat)
+                    .retrieve()
+                    .body(GitHubRepoResponse.class);
+            if (repoResp == null) {
+                throw new ResponseStatusException(HttpStatusCode.valueOf(502), "Empty response from GitHub /repos");
+            }
+
+            // /languages is a flat name → byte-count map. We tolerate
+            // failure here (rare empty repos / private repos with
+            // restricted scopes) — falling back to an empty map keeps
+            // the rest of the hero card rendering.
+            Map<String, Long> languages;
+            try {
+                languages = gitHubRestClient.get()
+                        .uri("/repos/{owner}/{repo}/languages", repo.owner(), repo.repo())
+                        .header("Authorization", "Bearer " + pat)
+                        .retrieve()
+                        .body(new ParameterizedTypeReference<Map<String, Long>>() {});
+                if (languages == null) {
+                    languages = ImmutableMap.of();
+                }
+            }
+            catch (RestClientResponseException ignored) {
+                languages = ImmutableMap.of();
+            }
+
+            String licenseName = Optional.ofNullable(repoResp.license())
+                    .map(GitHubRepoResponse.License::spdxId)
+                    .orElse(Optional.ofNullable(repoResp.license())
+                            .map(GitHubRepoResponse.License::name)
+                            .orElse(null));
+
+            return new RepoMeta(
+                    repoResp.fullName(),
+                    repoResp.htmlUrl(),
+                    repoResp.description(),
+                    repoResp.defaultBranch(),
+                    licenseName,
+                    repoResp.stargazersCount(),
+                    repoResp.forksCount(),
+                    repoResp.subscribersCount(),
+                    repoResp.openIssuesCount(),
+                    repoResp.size(),
+                    repoResp.createdAt(),
+                    repoResp.pushedAt(),
+                    Optional.ofNullable(repoResp.topics()).orElse(ImmutableList.of()),
+                    languages);
+        }
+        catch (RestClientResponseException e) {
+            throw toReadableException(e);
+        }
+    }
+
+    @Override
+    public List<RepoActivityItem> fetchRepoActivity(String pat, RepoRef repo)
+    {
+        try {
+            List<GitHubRepoEvent> events = gitHubRestClient.get()
+                    .uri(u -> u.path("/repos/{owner}/{repo}/events")
+                            .queryParam("per_page", 30)
+                            .build(repo.owner(), repo.repo()))
+                    .header("Authorization", "Bearer " + pat)
+                    .retrieve()
+                    .body(new ParameterizedTypeReference<>() {});
+            if (events == null) {
+                return ImmutableList.of();
+            }
+            return events.stream()
+                    .map(e -> toRepoActivityItem(e, repo))
+                    .filter(Objects::nonNull)
+                    .collect(toImmutableList());
+        }
+        catch (RestClientResponseException e) {
+            throw toReadableException(e);
+        }
+    }
+
+    /** Translates one GitHub events-API entry into a normalized
+     *  {@link RepoActivityItem}. Returns null for event types we
+     *  don't care to surface (e.g. WatchEvent — adds noise without
+     *  adding signal). */
+    private static RepoActivityItem toRepoActivityItem(GitHubRepoEvent e, RepoRef repo)
+    {
+        String actor = Optional.ofNullable(e.actor()).map(GitHubRepoEvent.Actor::login).orElse(null);
+        String htmlBase = "https://github.com/" + repo.owner() + "/" + repo.repo();
+        String title;
+        String url = htmlBase;
+        switch (e.type()) {
+            case "PushEvent" -> {
+                int commits = Optional.ofNullable(e.payload())
+                        .map(GitHubRepoEvent.Payload::commits)
+                        .map(List::size)
+                        .orElse(0);
+                String ref = Optional.ofNullable(e.payload()).map(GitHubRepoEvent.Payload::ref).orElse("");
+                String branch = ref.startsWith("refs/heads/") ? ref.substring("refs/heads/".length()) : ref;
+                title = commits + (commits == 1 ? " commit" : " commits") + " pushed to " + (branch.isEmpty() ? "branch" : branch);
+            }
+            case "PullRequestEvent" -> {
+                String action = Optional.ofNullable(e.payload()).map(GitHubRepoEvent.Payload::action).orElse("updated");
+                Integer num = Optional.ofNullable(e.payload())
+                        .map(GitHubRepoEvent.Payload::pullRequest)
+                        .map(GitHubRepoEvent.PullRequestRefDto::number)
+                        .orElse(null);
+                String prTitle = Optional.ofNullable(e.payload())
+                        .map(GitHubRepoEvent.Payload::pullRequest)
+                        .map(GitHubRepoEvent.PullRequestRefDto::title)
+                        .orElse("");
+                if (num == null) return null;
+                title = "#" + num + " " + prTitle + " " + action;
+                url = htmlBase + "/pull/" + num;
+            }
+            case "PullRequestReviewEvent" -> {
+                Integer num = Optional.ofNullable(e.payload())
+                        .map(GitHubRepoEvent.Payload::pullRequest)
+                        .map(GitHubRepoEvent.PullRequestRefDto::number)
+                        .orElse(null);
+                if (num == null) return null;
+                title = "review on #" + num;
+                url = htmlBase + "/pull/" + num;
+            }
+            case "IssuesEvent" -> {
+                String action = Optional.ofNullable(e.payload()).map(GitHubRepoEvent.Payload::action).orElse("updated");
+                Integer num = Optional.ofNullable(e.payload())
+                        .map(GitHubRepoEvent.Payload::issue)
+                        .map(GitHubRepoEvent.IssueRefDto::number)
+                        .orElse(null);
+                String issueTitle = Optional.ofNullable(e.payload())
+                        .map(GitHubRepoEvent.Payload::issue)
+                        .map(GitHubRepoEvent.IssueRefDto::title)
+                        .orElse("");
+                if (num == null) return null;
+                title = "#" + num + " " + issueTitle + " " + action;
+                url = htmlBase + "/issues/" + num;
+            }
+            case "IssueCommentEvent" -> {
+                Integer num = Optional.ofNullable(e.payload())
+                        .map(GitHubRepoEvent.Payload::issue)
+                        .map(GitHubRepoEvent.IssueRefDto::number)
+                        .orElse(null);
+                if (num == null) return null;
+                title = "comment on #" + num;
+                url = htmlBase + "/issues/" + num;
+            }
+            case "ReleaseEvent" -> {
+                String tag = Optional.ofNullable(e.payload())
+                        .map(GitHubRepoEvent.Payload::release)
+                        .map(GitHubRepoEvent.ReleaseRefDto::tagName)
+                        .orElse("a release");
+                title = tag + " released";
+                url = htmlBase + "/releases/tag/" + tag;
+            }
+            case "CreateEvent" -> {
+                String refType = Optional.ofNullable(e.payload()).map(GitHubRepoEvent.Payload::refType).orElse("ref");
+                String ref = Optional.ofNullable(e.payload()).map(GitHubRepoEvent.Payload::ref).orElse("");
+                title = refType + " " + ref + " created";
+            }
+            case "DeleteEvent" -> {
+                String refType = Optional.ofNullable(e.payload()).map(GitHubRepoEvent.Payload::refType).orElse("ref");
+                String ref = Optional.ofNullable(e.payload()).map(GitHubRepoEvent.Payload::ref).orElse("");
+                title = refType + " " + ref + " deleted";
+            }
+            // Skip noisy event types.
+            case "WatchEvent", "ForkEvent" -> { return null; }
+            default -> title = e.type();
+        }
+        return new RepoActivityItem(e.type(), actor, title, url, e.createdAt());
     }
 
     private static RepoIssue toRepoIssue(GitHubIssueItem item)

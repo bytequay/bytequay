@@ -38,6 +38,8 @@ import org.springframework.web.server.ResponseStatusException;
 
 import java.time.Duration;
 import java.time.Instant;
+import java.time.LocalDate;
+import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.EnumMap;
 import java.util.LinkedHashMap;
@@ -258,6 +260,92 @@ public class TeamService
     static String buildSearchQuery(String repoFullName, List<String> authors)
     {
         StringBuilder sb = new StringBuilder("is:pr is:open repo:").append(repoFullName);
+        for (String login : authors) {
+            sb.append(" author:").append(login);
+        }
+        return sb.toString();
+    }
+
+    /**
+     * Total number of merged PRs authored by team members in the user's
+     * watched repos within the last {@code days} days. Powers the
+     * "Merged this week" stat on the team home page.
+     *
+     * <p>The team kanban path's {@link #listPullRequestsForTeam} only
+     * surfaces currently-open PRs (the GitHub search uses
+     * {@code is:open}), so the categorizer's {@code RECENTLY_MERGED}
+     * column ends up almost always empty in practice. This method runs
+     * a separate {@code is:merged merged:>{date}} fan-out and reads the
+     * server-reported {@code totalCount} on each search response —
+     * cheaper than fetching the actual PR rows since we only need the
+     * count.
+     *
+     * <p>Caching lives on the frontend (10-minute TTL keyed by team).
+     * No backend cache here; with that much frontend-side throttling
+     * the upstream load is already minimal.
+     */
+    public int countMergedRecently(Function<String, String> patForRepo, long teamId, int days)
+    {
+        requireNonNull(patForRepo, "patForRepo is null");
+        if (days <= 0) {
+            return 0;
+        }
+        Team team = get(teamId);
+        Set<String> members = team.members();
+        if (members.isEmpty()) {
+            return 0;
+        }
+        List<WatchedRepo> watched = watchedRepoStore.findAll();
+        if (watched.isEmpty()) {
+            return 0;
+        }
+
+        // GitHub's `merged:>YYYY-MM-DD` filter is exclusive, so passing
+        // (today - days) returns PRs merged on any day strictly after
+        // that date — i.e. within the last `days` days, day-precision.
+        String since = LocalDate.now(ZoneOffset.UTC).minusDays(days).toString();
+        List<List<String>> authorChunks = Lists.partition(ImmutableList.copyOf(members), AUTHOR_CHUNK_SIZE);
+
+        List<CompletableFuture<Integer>> jobs = new ArrayList<>();
+        for (WatchedRepo repo : watched) {
+            String repoFullName = repo.owner() + "/" + repo.repo();
+            String pat = patForRepo.apply(repoFullName);
+            if (pat == null || pat.isBlank()) {
+                continue;
+            }
+            for (List<String> chunk : authorChunks) {
+                String query = buildMergedSearchQuery(repoFullName, chunk, since);
+                jobs.add(CompletableFuture.supplyAsync(() -> {
+                    try {
+                        // perPage=1 minimises payload — only totalCount
+                        // is read, the items list is discarded.
+                        return gitHub.searchPullRequestsPaged(pat, query, 1, 1).totalCount();
+                    }
+                    catch (Exception e) {
+                        log.warn("merged-recently search failed for {} (chunk size {}): {}",
+                                repoFullName, chunk.size(), e.getMessage());
+                        return 0;
+                    }
+                }, ioExecutor));
+            }
+        }
+
+        // Different author chunks within the same repo cover disjoint
+        // author sets, so a PR (with exactly one author) appears in at
+        // most one chunk and the sum is double-count free.
+        int total = 0;
+        for (CompletableFuture<Integer> job : jobs) {
+            total += job.join();
+        }
+        return total;
+    }
+
+    static String buildMergedSearchQuery(String repoFullName, List<String> authors, String since)
+    {
+        StringBuilder sb = new StringBuilder("is:pr is:merged repo:")
+                .append(repoFullName)
+                .append(" merged:>")
+                .append(since);
         for (String login : authors) {
             sb.append(" author:").append(login);
         }

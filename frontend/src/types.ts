@@ -939,6 +939,10 @@ export type Bridge = {
   getTeamPullsByColumn: (id: number, perColumn: number, force: boolean) => Promise<TeamColumnsResponse>;
   /** Pagination endpoint: next page of one column. */
   getTeamColumnPage: (id: number, column: MyPrColumnSlug, offset: number, limit: number) => Promise<ColumnPageDto>;
+  /** Total merged-PR count for a team in the last {@code days} days.
+   *  Powers the "Merged this week" stat on the team home page; the
+   *  renderer is expected to wrap calls in a ~10-minute TTL cache. */
+  countTeamMergedRecently: (id: number, days: number) => Promise<number>;
   // Credentials vault
   listCredentials: (type?: CredentialType) => Promise<CredentialDto[]>;
   upsertCredential: (req: UpsertCredentialRequest) => Promise<CredentialDto>;

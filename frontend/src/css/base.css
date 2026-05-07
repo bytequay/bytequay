@@ -330,11 +330,28 @@ pre {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 0 16px;
+  /* 78px on the left reserves space for the inset macOS traffic-light
+     buttons (close/minimize/zoom) that now sit on this row in place of
+     the hidden native title bar. -webkit-app-region:drag turns the
+     whole bar into a window drag handle — interactive children below
+     opt out via no-drag. */
+  padding: 0 16px 0 78px;
   height: 44px;
   flex-shrink: 0;
   border-bottom: 1px solid var(--border);
   background: var(--bg-elevated);
+  -webkit-app-region: drag;
+  user-select: none;
+}
+
+/* Restore pointer interactions for any clickable element inside the
+   topbar — without this, drag swallows clicks and the brand / nav
+   buttons stop responding. */
+.global-topbar__brand--btn,
+.global-topbar__breadcrumb,
+.global-topbar__extra > button,
+.global-nav-btn {
+  -webkit-app-region: no-drag;
 }
 
 .global-topbar__left {

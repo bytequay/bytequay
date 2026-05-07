@@ -13,7 +13,7 @@
  */
 import { useEffect, useState } from 'react';
 import Avatar from '../Avatar';
-import { getCached, setCached } from '../dataCache';
+import { getCached, getCachedFresh, setCached } from '../dataCache';
 import TeamEditorModal from './TeamEditorModal';
 import type {
   MyPrColumnSlug,
@@ -36,8 +36,15 @@ type Props = {
 
 const TEAM_KEY = (id: number) => `team:${id}`;
 const COLUMNS_KEY = (id: number) => `team:${id}:columns`;
+const MERGED_KEY = (id: number) => `team:${id}:merged-7d`;
 const IN_FLIGHT_LIMIT = 6;
 const PER_COLUMN = 8;
+const MERGED_DAYS = 7;
+/** Cache the GitHub-search-driven merged count for 10 minutes. The
+ *  upstream search is one request fan-out per (repo × author chunk)
+ *  pair, so re-running it on every page revisit would be wasteful for
+ *  a number that barely moves between fetches. */
+const MERGED_TTL_MS = 10 * 60 * 1000;
 
 const EMPTY_COLUMNS: TeamColumnsResponse = {
   columns: { drafting: [], waiting_on_review: [], needs_changes: [], ready_to_merge: [], recently_merged: [], handled: [] },
@@ -84,16 +91,21 @@ type Flight = {
 };
 
 function pickFlightPRs(data: TeamColumnsResponse): Flight[] {
-  const out: Flight[] = [];
+  // Collect every PR in an active column, paired with its column-derived
+  // pill, then sort by updatedAt desc so the flight list reflects "most
+  // recently active" instead of "iteration order over columns". The
+  // backend column-level sort still drives the kanban itself; this is a
+  // cross-column re-sort just for the team-home in-flight panel.
+  const all: Flight[] = [];
   for (const col of FLIGHT_COLUMNS) {
     const pill = PILL_BY_COLUMN[col];
     if (!pill) continue;
     for (const pr of data.columns[col] ?? []) {
-      out.push({ pr, pill, banner: BANNER_BY_TONE[pill.tone] });
-      if (out.length >= IN_FLIGHT_LIMIT) return out;
+      all.push({ pr, pill, banner: BANNER_BY_TONE[pill.tone] });
     }
   }
-  return out;
+  all.sort((a, b) => (b.pr.updatedAt ?? '').localeCompare(a.pr.updatedAt ?? ''));
+  return all.slice(0, IN_FLIGHT_LIMIT);
 }
 
 function TeamHomePage({ teamId, onOpenKanban, onSelectPr, onBack }: Props) {
@@ -105,6 +117,11 @@ function TeamHomePage({ teamId, onOpenKanban, onSelectPr, onBack }: Props) {
     && getCached<TeamColumnsResponse>(COLUMNS_KEY(teamId)) === undefined);
   const [error, setError] = useState<string | null>(null);
   const [editing, setEditing] = useState(false);
+  // null = still resolving; number = the merged-7d total. Seeded from a
+  // 10-minute TTL cache so revisiting the page within that window
+  // skips the GitHub-search fan-out entirely.
+  const [mergedRecently, setMergedRecently] = useState<number | null>(() =>
+    getCachedFresh<number>(MERGED_KEY(teamId), MERGED_TTL_MS) ?? null);
 
   /** Re-fetch the team record only — no need to re-fan out the kanban
    *  columns when the user just edited name/avatar/colour/description. */
@@ -143,10 +160,35 @@ function TeamHomePage({ teamId, onOpenKanban, onSelectPr, onBack }: Props) {
     return () => { cancelled = true; };
   }, [teamId]);
 
+  // Merged-7d count comes from a separate GitHub-search fan-out on the
+  // backend (the team kanban's `is:open` data path can't see merged
+  // PRs). Cache TTL is 10 minutes — short enough to feel current,
+  // long enough that a flurry of page revisits doesn't re-run the
+  // fan-out per visit.
+  useEffect(() => {
+    const fresh = getCachedFresh<number>(MERGED_KEY(teamId), MERGED_TTL_MS);
+    if (fresh !== undefined) {
+      setMergedRecently(fresh);
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      try {
+        const count = await window.bridge.countTeamMergedRecently(teamId, MERGED_DAYS);
+        if (cancelled) return;
+        setMergedRecently(count);
+        setCached(MERGED_KEY(teamId), count);
+      } catch {
+        // Silent — the stat just shows "—" instead of a number; the rest
+        // of the page is fine.
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [teamId]);
+
   const totals = columnsData.totals;
   const inFlight = totals.needs_changes + totals.waiting_on_review + totals.ready_to_merge + totals.drafting;
   const needReview = totals.waiting_on_review;
-  const mergedThisWeek = totals.recently_merged;
 
   const flightPRs = pickFlightPRs(columnsData);
 
@@ -245,7 +287,9 @@ function TeamHomePage({ teamId, onOpenKanban, onSelectPr, onBack }: Props) {
                 <div className="team-stat__lbl">Need your review</div>
               </div>
               <div className="team-stat">
-                <div className={`team-stat__num${mergedThisWeek > 0 ? ' team-stat__num--success' : ''}`}>{mergedThisWeek}</div>
+                <div className={`team-stat__num${(mergedRecently ?? 0) > 0 ? ' team-stat__num--success' : ''}`}>
+                  {mergedRecently === null ? '—' : mergedRecently}
+                </div>
                 <div className="team-stat__lbl">Merged this week</div>
               </div>
             </div>

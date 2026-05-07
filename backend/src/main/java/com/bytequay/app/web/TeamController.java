@@ -124,6 +124,28 @@ public class TeamController
         return teamService.listPullRequestsForTeamByColumn(patResolver::resolve, id, perColumn, force);
     }
 
+    public record MergedRecentlyResponse(int count, int days) {}
+
+    /**
+     * GET /api/teams/{id}/merged-recently?days=7
+     *
+     * <p>Total number of PRs authored by team members in the user's
+     * watched repos that merged within the last {@code days} days.
+     * Powers the "Merged this week" stat on the team home page.
+     * Computed via a dedicated {@code is:merged} GitHub-search fan-out;
+     * the team kanban's open-only data path can't surface this number.
+     * Frontend caches the response with a 10-minute TTL.
+     */
+    @GetMapping("/{id}/merged-recently")
+    public MergedRecentlyResponse mergedRecently(
+            @PathVariable long id,
+            @RequestParam(value = "days", defaultValue = "7") int days)
+    {
+        int sanitized = Math.max(1, Math.min(90, days));
+        int count = teamService.countMergedRecently(patResolver::resolve, id, sanitized);
+        return new MergedRecentlyResponse(count, sanitized);
+    }
+
     /**
      * GET /api/teams/{id}/pulls/column?column=...&offset=N&limit=M
      *

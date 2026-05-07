@@ -199,6 +199,8 @@ const bridge: Bridge = {
     ipcRenderer.invoke('teams:pullsByColumn', id, perColumn, force),
   getTeamColumnPage: (id: number, column: MyPrColumnSlug, offset: number, limit: number): Promise<ColumnPageDto> =>
     ipcRenderer.invoke('teams:pullsColumnPage', id, column, offset, limit),
+  countTeamMergedRecently: (id: number, days: number): Promise<number> =>
+    ipcRenderer.invoke('teams:mergedRecently', id, days),
   listCredentials: (type?: CredentialType): Promise<CredentialDto[]> =>
     ipcRenderer.invoke('credentials:list', type ?? null),
   upsertCredential: (req: UpsertCredentialRequest): Promise<CredentialDto> =>

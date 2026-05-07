@@ -289,6 +289,13 @@ const createWindow = async () => {
     width: 1100,
     height: 720,
     backgroundColor: MAIN_BG,
+    // Hide the native macOS title bar but keep the traffic-light buttons,
+    // inset into the top-left of the window. Lets our GlobalTopbar be the
+    // single nav row instead of sitting under a redundant "ByteQuay"
+    // title strip. Y is tuned to sit roughly centered against the 44px
+    // .global-topbar height — see frontend/src/css/base.css.
+    titleBarStyle: 'hiddenInset',
+    trafficLightPosition: { x: 14, y: 14 },
     webPreferences: {
       preload: path.join(__dirname, 'preload.js'),
       contextIsolation: true,
@@ -1658,6 +1665,19 @@ const url = new URL(`${BACKEND_BASE}/api/search/repos`);
     const res = await fetch(url);
     if (!res.ok) throw new Error(`backend /api/teams/${id}/pulls/column returned ${res.status}`);
     return res.json();
+  });
+
+  // Merged-PR count for the team home "Merged this week" stat. Backend
+  // does the is:merged search fan-out; the renderer caches the response
+  // for 10 minutes so the upstream lookup runs at most once per team
+  // per cache window.
+  ipcMain.handle('teams:mergedRecently', async (_event, id: number, days: number) => {
+    const url = new URL(`${BACKEND_BASE}/api/teams/${id}/merged-recently`);
+    url.searchParams.set('days', String(days));
+    const res = await fetch(url);
+    if (!res.ok) throw new Error(`backend /api/teams/${id}/merged-recently returned ${res.status}`);
+    const body = await res.json();
+    return body.count as number;
   });
 
   // ── Credentials ─────────────────────────────────────────────────────────

@@ -54,19 +54,32 @@ function AddRepoModal({ owner, repo, onClose, onMapped }: Props) {
 
   const browseLocate = async () => {
     setError(null);
-    const picked = await window.bridge.pickFolder({
-      title: `Locate ${owner}/${repo} on disk`,
-    });
-    if (picked) setLocatedPath(picked);
+    try {
+      const picked = await window.bridge.pickFolder({
+        title: `Locate ${owner}/${repo} on disk`,
+      });
+      if (picked) setLocatedPath(picked);
+    } catch (e) {
+      // Most common cause of a silent failure here is a stale
+      // preload script — the user updated ByteQuay but the
+      // Electron app wasn't restarted, so `bridge.pickFolder` is
+      // unavailable in this renderer. Surface the message so it's
+      // not just a click-with-nothing-happening.
+      setError(folderPickerErrorMessage(e));
+    }
   };
 
   const browseClone = async () => {
     setError(null);
-    const picked = await window.bridge.pickFolder({
-      title: `Choose clone destination for ${owner}/${repo}`,
-      defaultPath: destination || undefined,
-    });
-    if (picked) setDestination(picked);
+    try {
+      const picked = await window.bridge.pickFolder({
+        title: `Choose clone destination for ${owner}/${repo}`,
+        defaultPath: destination || undefined,
+      });
+      if (picked) setDestination(picked);
+    } catch (e) {
+      setError(folderPickerErrorMessage(e));
+    }
   };
 
   const submitLocate = async () => {
@@ -233,6 +246,17 @@ function AddRepoModal({ owner, repo, onClose, onMapped }: Props) {
       </div>
     </div>
   );
+}
+
+function folderPickerErrorMessage(e: unknown): string {
+  const raw = e instanceof Error ? e.message : String(e);
+  // The renderer sees a TypeError when bridge.pickFolder is missing
+  // entirely (preload didn't expose it yet, or the app needs a
+  // restart). Translate to something actionable.
+  if (raw.includes('is not a function')) {
+    return 'Folder picker unavailable — restart ByteQuay so it picks up the latest preload script, then try again.';
+  }
+  return `Couldn't open folder picker: ${raw}`;
 }
 
 export default AddRepoModal;

@@ -920,7 +920,16 @@ const url = new URL(`${BACKEND_BASE}/prs/comment`);
   ipcMain.handle('repos:pickFolder', async (
     _event, options?: { defaultPath?: string; title?: string },
   ) => {
-    if (!mainWindow) return null;
+    if (!mainWindow || mainWindow.isDestroyed()) {
+      // Fail loudly rather than returning null silently — the
+      // renderer surfaces the message so a misconfigured
+      // mainWindow doesn't read as "click does nothing".
+      throw new Error('main window is unavailable');
+    }
+    // On macOS, passing the parent window opens the dialog as a
+    // sheet attached to the title bar. Without it the dialog is
+    // a free-floating window — we want the sheet for visual
+    // anchoring to the modal underneath.
     const result = await dialog.showOpenDialog(mainWindow, {
       properties: ['openDirectory', 'createDirectory'],
       defaultPath: options?.defaultPath,

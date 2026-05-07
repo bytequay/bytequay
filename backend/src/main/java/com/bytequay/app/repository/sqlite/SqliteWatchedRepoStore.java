@@ -80,8 +80,18 @@ public class SqliteWatchedRepoStore
         jpaRepository.save(entity);
     }
 
+    @Override
+    public void setUpstreamRemoteName(String owner, String repo, String upstreamRemoteName)
+    {
+        WatchedRepoEntity entity = jpaRepository.findByOwnerAndRepo(owner, repo)
+                .orElseThrow(() -> new IllegalArgumentException(owner + "/" + repo + " is not watched"));
+        entity.setUpstreamRemoteName(upstreamRemoteName);
+        jpaRepository.save(entity);
+    }
+
     private static WatchedRepo toDomain(WatchedRepoEntity e)
     {
-        return new WatchedRepo(e.getId(), e.getOwner(), e.getRepo(), e.getDisplayOrder(), e.getLocalClonePath());
+        return new WatchedRepo(e.getId(), e.getOwner(), e.getRepo(),
+                e.getDisplayOrder(), e.getLocalClonePath(), e.getUpstreamRemoteName());
     }
 }

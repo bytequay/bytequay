@@ -86,12 +86,12 @@ public class LocalRepoService
         if (!Files.isDirectory(path)) {
             return new LocalRepoStatus(repo.owner(), repo.repo(), repo.localClonePath(),
                     LocalRepoStatus.State.MISSING, null, null,
-                    "Working copy not found at " + path);
+                    "Working copy not found at " + path, repo.upstreamRemoteName());
         }
         if (!gitRunner.isGitWorkingTree(path)) {
             return new LocalRepoStatus(repo.owner(), repo.repo(), repo.localClonePath(),
                     LocalRepoStatus.State.MISSING, null, null,
-                    "Path is not a git working tree");
+                    "Path is not a git working tree", repo.upstreamRemoteName());
         }
         try {
             int dirty = gitRunner.countDirtyFiles(path);
@@ -99,18 +99,20 @@ public class LocalRepoService
             LocalRepoStatus.State state = dirty == 0 ? LocalRepoStatus.State.CLEAN
                     : LocalRepoStatus.State.MODIFIED;
             return new LocalRepoStatus(repo.owner(), repo.repo(), repo.localClonePath(),
-                    state, branch, dirty, null);
+                    state, branch, dirty, null, repo.upstreamRemoteName());
         }
         catch (GitRunner.GitCommandException e) {
             log.warn("git failed on {}: {}", path, e.getMessage());
             return new LocalRepoStatus(repo.owner(), repo.repo(), repo.localClonePath(),
-                    LocalRepoStatus.State.ERROR, null, null, e.stderr().strip());
+                    LocalRepoStatus.State.ERROR, null, null,
+                    e.stderr().strip(), repo.upstreamRemoteName());
         }
         catch (IOException | InterruptedException e) {
             Thread.currentThread().interrupt();
             log.warn("git invocation failed on {}", path, e);
             return new LocalRepoStatus(repo.owner(), repo.repo(), repo.localClonePath(),
-                    LocalRepoStatus.State.ERROR, null, null, e.getMessage());
+                    LocalRepoStatus.State.ERROR, null, null,
+                    e.getMessage(), repo.upstreamRemoteName());
         }
     }
 
@@ -118,7 +120,8 @@ public class LocalRepoService
     {
         return new LocalRepoStatus(repo.owner(), repo.repo(), repo.localClonePath(),
                 LocalRepoStatus.State.GIT_UNAVAILABLE, null, null,
-                "git not found on PATH — install Xcode Command Line Tools");
+                "git not found on PATH — install Xcode Command Line Tools",
+                repo.upstreamRemoteName());
     }
 
     /**
@@ -156,6 +159,9 @@ public class LocalRepoService
         log.info("Cloning {} → {}", url, destination);
         gitRunner.clone(url, destination);
         watchedRepoStore.setLocalClonePath(owner, repo, destination.toString());
+        // Direct clone — origin already points at the watched repo,
+        // so there is no separate "upstream" remote to track.
+        watchedRepoStore.setUpstreamRemoteName(owner, repo, null);
         return statusOf(refreshWatchedRepo(owner, repo));
     }
 
@@ -185,8 +191,8 @@ public class LocalRepoService
         if (remotes.isEmpty()) {
             throw new IllegalArgumentException("No remotes configured at " + path);
         }
-        boolean anyMatches = remotes.stream().anyMatch(r -> remoteMatchesRepo(r.url(), owner, repo));
-        if (!anyMatches) {
+        String upstreamRemoteName = pickUpstreamRemoteName(remotes, owner, repo);
+        if (upstreamRemoteName == null && remotes.stream().noneMatch(r -> remoteMatchesRepo(r.url(), owner, repo))) {
             String summary = remotes.stream()
                     .map(r -> r.name() + " " + redactCredentials(r.url()))
                     .reduce((a, b) -> a + ", " + b)
@@ -195,7 +201,42 @@ public class LocalRepoService
                     "No remote points at " + owner + "/" + repo + ". Found: " + summary);
         }
         watchedRepoStore.setLocalClonePath(owner, repo, path.toString());
+        watchedRepoStore.setUpstreamRemoteName(owner, repo, upstreamRemoteName);
         return statusOf(refreshWatchedRepo(owner, repo));
+    }
+
+    /**
+     * Picks the remote that ByteQuay should treat as the "upstream"
+     * (i.e. the watched repo) when this clone is fork-based:
+     *
+     * <ul>
+     *   <li>If origin points at the watched repo → return null. The
+     *       clone is direct, so there's no separate upstream concept
+     *       and ByteQuay should leave the column unset.</li>
+     *   <li>If origin points elsewhere but another remote points at
+     *       the watched repo → return that remote's name. The user's
+     *       fork-based workflow has origin = fork, upstream = watched
+     *       repo, and we record "upstream" (or whatever they named it)
+     *       so Create-PR knows which remote to push the head ref to
+     *       and which repo to open the PR against.</li>
+     *   <li>If no remote matches → return null and let the caller
+     *       reject the locate.</li>
+     * </ul>
+     */
+    static String pickUpstreamRemoteName(List<GitRunner.Remote> remotes, String owner, String repo)
+    {
+        GitRunner.Remote origin = remotes.stream()
+                .filter(r -> "origin".equals(r.name()))
+                .findFirst()
+                .orElse(null);
+        if (origin != null && remoteMatchesRepo(origin.url(), owner, repo)) {
+            return null;
+        }
+        return remotes.stream()
+                .filter(r -> remoteMatchesRepo(r.url(), owner, repo))
+                .map(GitRunner.Remote::name)
+                .findFirst()
+                .orElse(null);
     }
 
     /**

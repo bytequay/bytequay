@@ -32,4 +32,11 @@ public interface WatchedRepoStore
      *  unmap (e.g. when the user moves / deletes the directory).
      *  Throws IllegalArgumentException if the repo isn't watched. */
     void setLocalClonePath(String owner, String repo, String localClonePath);
+
+    /** Records the name of the git remote that points at the watched
+     *  repo (typically "upstream" in fork-based clones). Pass null
+     *  when the repo is unmapped or when origin already points at the
+     *  watched repo. Throws IllegalArgumentException if the repo
+     *  isn't watched. */
+    void setUpstreamRemoteName(String owner, String repo, String upstreamRemoteName);
 }

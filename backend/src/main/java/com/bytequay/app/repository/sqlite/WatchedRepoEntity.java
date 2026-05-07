@@ -40,6 +40,9 @@ class WatchedRepoEntity
     @Column(name = "local_clone_path")
     private String localClonePath;
 
+    @Column(name = "upstream_remote_name")
+    private String upstreamRemoteName;
+
     protected WatchedRepoEntity() {}
 
     WatchedRepoEntity(String owner, String repo, int displayOrder)
@@ -60,4 +63,7 @@ class WatchedRepoEntity
 
     String getLocalClonePath() { return localClonePath; }
     void setLocalClonePath(String localClonePath) { this.localClonePath = localClonePath; }
+
+    String getUpstreamRemoteName() { return upstreamRemoteName; }
+    void setUpstreamRemoteName(String upstreamRemoteName) { this.upstreamRemoteName = upstreamRemoteName; }
 }

@@ -13,7 +13,21 @@
  */
 package com.bytequay.app.domain;
 
-public record WatchedRepo(long id, String owner, String repo, int displayOrder, String localClonePath)
+/**
+ * @param upstreamRemoteName  Name of the git remote in the local clone
+ *                            that points at github.com/{owner}/{repo}
+ *                            when the user is using a fork-based
+ *                            workflow. Null for direct clones (origin
+ *                            already points at the watched repo) and
+ *                            for not-yet-mapped repos.
+ */
+public record WatchedRepo(
+        long id,
+        String owner,
+        String repo,
+        int displayOrder,
+        String localClonePath,
+        String upstreamRemoteName)
 {
     public String fullName()
     {

@@ -19,6 +19,7 @@ import org.junit.jupiter.api.Test;
 
 import java.time.Duration;
 import java.time.Instant;
+import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -226,5 +227,58 @@ class TestLocalRepoService
         // We can't decide "is it idle" without a timestamp — bail out
         // rather than flagging on incomplete info.
         assertThat(LocalRepoService.classifyCleanup(null, false, false)).isNull();
+    }
+
+    @Test
+    void testPickUpstreamReturnsNullForDirectClone()
+    {
+        // Direct clone: origin is the watched repo. There's nothing
+        // to call "upstream" — we leave the column null.
+        assertThat(LocalRepoService.pickUpstreamRemoteName(
+                List.of(
+                        new GitRunner.Remote("origin", "https://github.com/trinodb/trino.git")),
+                "trinodb", "trino"))
+                .isNull();
+    }
+
+    @Test
+    void testPickUpstreamForForkBased()
+    {
+        // Fork-based: origin = fork, upstream = watched repo. We
+        // return the name "upstream" so Create-PR knows where to
+        // open the PR against.
+        assertThat(LocalRepoService.pickUpstreamRemoteName(
+                List.of(
+                        new GitRunner.Remote("origin", "https://github.com/chenjian2664/trino.git"),
+                        new GitRunner.Remote("upstream", "https://github.com/trinodb/trino.git")),
+                "trinodb", "trino"))
+                .isEqualTo("upstream");
+    }
+
+    @Test
+    void testPickUpstreamHonorsCustomRemoteName()
+    {
+        // User can name the watched-repo remote whatever they want.
+        // We return whatever name is configured, not a hardcoded
+        // "upstream".
+        assertThat(LocalRepoService.pickUpstreamRemoteName(
+                List.of(
+                        new GitRunner.Remote("origin", "https://github.com/chenjian2664/trino.git"),
+                        new GitRunner.Remote("trinodb", "git@github.com:trinodb/trino.git")),
+                "trinodb", "trino"))
+                .isEqualTo("trinodb");
+    }
+
+    @Test
+    void testPickUpstreamReturnsNullWhenNoRemoteMatches()
+    {
+        // Caller is expected to use the null return + a "no remote
+        // matches" check to reject the locate. Here we just confirm
+        // the helper itself returns null.
+        assertThat(LocalRepoService.pickUpstreamRemoteName(
+                List.of(
+                        new GitRunner.Remote("origin", "https://github.com/chenjian2664/something-else.git")),
+                "trinodb", "trino"))
+                .isNull();
     }
 }

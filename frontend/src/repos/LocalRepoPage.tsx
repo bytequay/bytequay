@@ -326,6 +326,24 @@ function LocalRepoPage({ owner, repo, onBack }: Props) {
             {status.localClonePath}
           </div>
         )}
+        {status?.localClonePath && (
+          <div className="local-repo-page__remote-info">
+            {status.upstreamRemoteName ? (
+              <>
+                <span className="local-repo-page__remote-label">Fork-based</span>
+                <span>
+                  origin = your fork ·{' '}
+                  <code>{status.upstreamRemoteName}</code> = {owner}/{repo}
+                </span>
+              </>
+            ) : (
+              <>
+                <span className="local-repo-page__remote-label">Direct clone</span>
+                <span>origin = {owner}/{repo}</span>
+              </>
+            )}
+          </div>
+        )}
         <div className="local-repo-page__actions">
           <button
             type="button"

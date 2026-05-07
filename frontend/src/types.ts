@@ -680,6 +680,10 @@ export type LocalRepoStatusDto = {
   dirtyFileCount: number | null;
   /** Surface for the ERROR / MISSING / GIT_UNAVAILABLE states. */
   errorMessage: string | null;
+  /** Name of the git remote that points at the watched repo when the
+   *  user is using a fork-based workflow. Null for direct clones
+   *  (origin == watched repo) and for unmapped repos. */
+  upstreamRemoteName: string | null;
 };
 
 /** One row of the branches kanban on the repo detail page. */

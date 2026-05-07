@@ -34,7 +34,12 @@ public record LocalRepoStatus(
         Integer dirtyFileCount,
         /** Human-readable error from the last git operation, surfaced
          *  when state is {@link State#ERROR}. */
-        String errorMessage)
+        String errorMessage,
+        /** Name of the git remote that points at the watched repo.
+         *  Null when origin is the watched repo (direct clone) or the
+         *  repo isn't mapped. Drives the "Base: trinodb/trino" hint
+         *  on the page header and the default base for Create-PR. */
+        String upstreamRemoteName)
 {
     public enum State
     {
@@ -62,6 +67,6 @@ public record LocalRepoStatus(
 
     public static LocalRepoStatus unmapped(String owner, String repo)
     {
-        return new LocalRepoStatus(owner, repo, null, State.UNMAPPED, null, null, null);
+        return new LocalRepoStatus(owner, repo, null, State.UNMAPPED, null, null, null, null);
     }
 }

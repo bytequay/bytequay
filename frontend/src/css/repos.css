@@ -774,6 +774,13 @@
   box-shadow: 0 0 0 1px var(--accent) inset;
   background: rgba(99, 102, 241, 0.06);
 }
+/* Keyboard cursor — visible without commitment. j/k moves it; Enter
+   promotes it to .branch-card--action-target. Distinct dashed
+   outline so the user can tell "I'm here" from "I picked this." */
+.branch-card--focused {
+  outline: 2px dashed var(--accent);
+  outline-offset: -2px;
+}
 .branch-card__switch {
   margin-left: auto;
   background: transparent;
@@ -982,6 +989,24 @@
   padding: 0 4px;
 }
 .create-pr-toast__dismiss:hover { color: var(--text-1); }
+
+/* j/k hint above the kanban — discoverable without a tour. Lives
+   on its own row so it doesn't compete with the action bar above. */
+.branches-kanban__hint {
+  font-size: 11px;
+  color: var(--text-3);
+  margin-bottom: 8px;
+}
+.branches-kanban__hint kbd {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, monospace;
+  font-size: 10.5px;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 3px;
+  padding: 1px 5px;
+  margin: 0 2px;
+  color: var(--text-2);
+}
 
 /* Branches kanban. Three columns with a colored 3px top border —
    parallels the PR kanban's visual rhythm. CLEAN UP column ships in

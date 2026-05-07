@@ -101,6 +101,10 @@ function LocalRepoPage({ owner, repo, onBack }: Props) {
   // action that actually needs HEAD on this branch (Push, Pull,
   // Create PR), at which point ByteQuay does `git switch` lazily.
   const [selectedBranch, setSelectedBranch] = useState<string | null>(null);
+  // Keyboard-focused branch — distinct from selectedBranch so the
+  // user can cycle through cards with j/k without committing the
+  // selection until they hit Enter. Null = no keyboard cursor.
+  const [focusedBranch, setFocusedBranch] = useState<string | null>(null);
 
   const reload = async (signal?: { cancelled: boolean }) => {
     const [all, branchList] = await Promise.all([
@@ -311,6 +315,71 @@ function LocalRepoPage({ owner, repo, onBack }: Props) {
   };
 
   const grouped = groupByColumn(branches ?? []);
+
+  // Branches in the order they render top-to-bottom across columns.
+  // j/k cycles through this list — same visual order the user sees,
+  // so the keyboard cursor moves predictably.
+  const orderedBranchNames = COLUMNS.flatMap(col => grouped[col.key].map(b => b.name));
+
+  // j/k navigation, Enter to commit selection, Esc to clear. Skip
+  // when the user is typing (input/textarea/contentEditable) or
+  // when the modal is up — we don't want to hijack keys mid-form.
+  useEffect(() => {
+    if (tab !== 'branches' || branches === null || branches.length === 0) return;
+    if (createPrOpen || cleanupConfirmOpen || forcePushPrompt || branchFormOpen) return;
+    const handler = (e: KeyboardEvent) => {
+      const target = e.target as HTMLElement | null;
+      if (target) {
+        const tag = target.tagName;
+        if (tag === 'INPUT' || tag === 'TEXTAREA' || target.isContentEditable) return;
+      }
+      if (e.metaKey || e.ctrlKey || e.altKey) return;
+      if (e.key === 'j' || e.key === 'k') {
+        e.preventDefault();
+        const ordered = orderedBranchNames;
+        if (ordered.length === 0) return;
+        const cursor = focusedBranch ?? selectedBranch ?? status?.currentBranch ?? null;
+        const idx = cursor ? ordered.indexOf(cursor) : -1;
+        const step = e.key === 'j' ? 1 : -1;
+        const nextIdx = idx < 0 ? (step > 0 ? 0 : ordered.length - 1)
+                                : (idx + step + ordered.length) % ordered.length;
+        setFocusedBranch(ordered[nextIdx]);
+      }
+      else if (e.key === 'Enter') {
+        if (focusedBranch == null) return;
+        e.preventDefault();
+        // Same toggle semantics as a card click — match the click
+        // handler exactly so the keyboard path can't end up in a
+        // state the click path can't reach.
+        setSelectedBranch(prev => {
+          if (prev === focusedBranch) return null;
+          if (status?.currentBranch === focusedBranch) return null;
+          return focusedBranch;
+        });
+      }
+      else if (e.key === 'Escape') {
+        if (focusedBranch != null || selectedBranch != null) {
+          e.preventDefault();
+          setFocusedBranch(null);
+          setSelectedBranch(null);
+        }
+      }
+    };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, [tab, branches, orderedBranchNames, focusedBranch, selectedBranch,
+      status?.currentBranch, createPrOpen, cleanupConfirmOpen,
+      forcePushPrompt, branchFormOpen]);
+
+  // Scroll the keyboard-focused card into view. The kanban can be
+  // taller than the viewport on big repos; without this, j/k off-
+  // screen feels like the keys aren't doing anything.
+  useEffect(() => {
+    if (focusedBranch == null) return;
+    const el = document.querySelector(
+        `[data-branch-name="${CSS.escape(focusedBranch)}"]`) as HTMLElement | null;
+    el?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+  }, [focusedBranch]);
 
   const toggleCleanupSelected = (name: string) => {
     setSelectedForCleanup(prev => {
@@ -581,6 +650,12 @@ function LocalRepoPage({ owner, repo, onBack }: Props) {
             </div>
           )}
 
+          {branches !== null && branches.length > 0 && (
+            <div className="branches-kanban__hint" aria-hidden="true">
+              <kbd>j</kbd>/<kbd>k</kbd> cycle · <kbd>Enter</kbd> select · <kbd>Esc</kbd> clear
+            </div>
+          )}
+
           {branches !== null && (
             <div className="branches-kanban">
               {COLUMNS.map(col => (
@@ -598,6 +673,7 @@ function LocalRepoPage({ owner, repo, onBack }: Props) {
                   onSwitchBranch={runSwitchBranch}
                   switching={actionState === 'switching'}
                   selectedActionBranch={selectedBranch}
+                  focusedBranch={focusedBranch}
                   currentBranch={status?.currentBranch ?? null}
                   onSelectForAction={(name) => {
                     // Click the current branch's card to clear the
@@ -1139,6 +1215,7 @@ function BranchColumn({
   onSwitchBranch,
   switching,
   selectedActionBranch,
+  focusedBranch,
   currentBranch,
   onSelectForAction,
 }: {
@@ -1161,6 +1238,10 @@ function BranchColumn({
    *  PR will target it, switching HEAD lazily as part of the
    *  action). Distinct from {@link currentBranch}. */
   selectedActionBranch?: string | null;
+  /** Branch currently under the keyboard cursor (j/k). Used purely
+   *  for visual highlight; commits to {@link selectedActionBranch}
+   *  on Enter handled at the page level. */
+  focusedBranch?: string | null;
   currentBranch?: string | null;
   onSelectForAction?: (name: string) => void;
 }) {
@@ -1210,6 +1291,7 @@ function BranchColumn({
               onSwitch={onSwitchBranch && !b.isCurrent ? () => onSwitchBranch(b.name) : undefined}
               switching={switching ?? false}
               actionSelected={selectedActionBranch === b.name}
+              focused={focusedBranch === b.name}
               isCurrentHead={currentBranch === b.name}
               onSelectForAction={onSelectForAction}
             />
@@ -1232,6 +1314,7 @@ function BranchCard({
   onSwitch,
   switching,
   actionSelected,
+  focused,
   isCurrentHead,
   onSelectForAction,
 }: {
@@ -1245,6 +1328,10 @@ function BranchCard({
    *  visible highlight so the user knows the action bar will
    *  target this card on next Push / Pull / Create PR. */
   actionSelected?: boolean;
+  /** True when the keyboard cursor (j/k) is currently on this
+   *  card. Distinct from {@link actionSelected} — the cursor only
+   *  commits to selection on Enter. */
+  focused?: boolean;
   isCurrentHead?: boolean;
   onSelectForAction?: (name: string) => void;
 }) {
@@ -1260,6 +1347,7 @@ function BranchCard({
     selected ? 'branch-card--selected' : '',
     selectable ? 'branch-card--selectable' : '',
     actionSelected ? 'branch-card--action-target' : '',
+    focused ? 'branch-card--focused' : '',
   ].filter(Boolean).join(' ');
   const cardClick = selectable ? () => onSelectForAction!(branch.name) : undefined;
   // Title hint adapts to context so the affordance is discoverable
@@ -1280,6 +1368,7 @@ function BranchCard({
   return (
     <article
       className={cls}
+      data-branch-name={branch.name}
       onClick={cardClick}
       onKeyDown={cardClick ? (e) => {
         if (e.key === 'Enter' || e.key === ' ') {

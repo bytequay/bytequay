@@ -63,7 +63,7 @@ const TABS: { key: Tab; label: string }[] = [
  * The IN REVIEW column will stay empty until the list-page sync starts
  * capturing PR head refs (deferred — see LocalRepoService.toLocalBranch).
  */
-function LocalRepoPage({ owner, repo, onBack }: Props) {
+function LocalRepoPage({ owner, repo }: Props) {
   const [status, setStatus] = useState<LocalRepoStatusDto | null>(null);
   const [branches, setBranches] = useState<LocalBranchDto[] | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -423,48 +423,43 @@ function LocalRepoPage({ owner, repo, onBack }: Props) {
   return (
     <div className="local-repo-page">
       <header className="local-repo-page__head">
-        <button
-          type="button"
-          className="local-repo-page__back"
-          onClick={onBack}
-        >
-          ← Repos
-        </button>
-        <div className="local-repo-page__title-row">
-          <h1 className="local-repo-page__title">
-            <span className="local-repo-page__owner">{owner}/</span>
-            <span className="local-repo-page__repo">{repo}</span>
-          </h1>
-          {status?.currentBranch && (
-            <code className="local-repo-page__head-chip">
-              ⎇ {status.currentBranch}
-            </code>
-          )}
-          {status?.dirtyFileCount != null && status.dirtyFileCount > 0 && (
-            <span className="local-repo-page__dirty">
-              {status.dirtyFileCount} modified
-            </span>
-          )}
-        </div>
-        {status?.localClonePath && (
-          <div className="local-repo-page__path" title={status.localClonePath}>
-            {status.localClonePath}
-          </div>
-        )}
-        {status?.localClonePath && (
-          <div className="local-repo-page__remote-info">
-            {status.upstreamRemoteName ? (
-              <span>
-                <code>origin</code> = your fork ·{' '}
-                <code>{status.upstreamRemoteName}</code> = {owner}/{repo}
-              </span>
-            ) : (
-              <span>
-                <code>origin</code> = {owner}/{repo}
+        <div className="local-repo-page__heading">
+          <div className="local-repo-page__title-row">
+            <h1 className="local-repo-page__title">
+              <span className="local-repo-page__owner">{owner}/</span>
+              <span className="local-repo-page__repo">{repo}</span>
+            </h1>
+            {status?.currentBranch && (
+              <code className="local-repo-page__head-chip">
+                ⎇ {status.currentBranch}
+              </code>
+            )}
+            {status?.dirtyFileCount != null && status.dirtyFileCount > 0 && (
+              <span className="local-repo-page__dirty">
+                {status.dirtyFileCount} modified
               </span>
             )}
           </div>
-        )}
+          {status?.localClonePath && (
+            <div className="local-repo-page__head-meta">
+              <div className="local-repo-page__path" title={status.localClonePath}>
+                {status.localClonePath}
+              </div>
+              <div className="local-repo-page__remote-info">
+                {status.upstreamRemoteName ? (
+                  <span>
+                    <code>origin</code> = your fork ·{' '}
+                    <code>{status.upstreamRemoteName}</code> = {owner}/{repo}
+                  </span>
+                ) : (
+                  <span>
+                    <code>origin</code> = {owner}/{repo}
+                  </span>
+                )}
+              </div>
+            </div>
+          )}
+        </div>
         {needsSwitch && selectedBranch && (
           <div className="local-repo-page__action-target">
             <span>

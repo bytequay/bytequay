@@ -26,6 +26,10 @@ type Props = {
   teamId: number;
   /** Open the existing kanban view for this team. */
   onOpenKanban: () => void;
+  /** Open a PR in the in-app PR detail view. The team's PRs are already
+   *  tracked through watched-repo sync so they all open in-app — no need
+   *  to fall back to github.com. */
+  onSelectPr: (owner: string, repo: string, prNumber: number) => void;
   /** Back to whatever surface launched the team page (settings, home, etc.). */
   onBack: () => void;
 };
@@ -92,7 +96,7 @@ function pickFlightPRs(data: TeamColumnsResponse): Flight[] {
   return out;
 }
 
-function TeamHomePage({ teamId, onOpenKanban, onBack }: Props) {
+function TeamHomePage({ teamId, onOpenKanban, onSelectPr, onBack }: Props) {
   const [team, setTeam] = useState<TeamDto | null>(() => getCached<TeamDto>(TEAM_KEY(teamId)) ?? null);
   const [columnsData, setColumnsData] = useState<TeamColumnsResponse>(() =>
     getCached<TeamColumnsResponse>(COLUMNS_KEY(teamId)) ?? EMPTY_COLUMNS);
@@ -267,7 +271,11 @@ function TeamHomePage({ teamId, onOpenKanban, onBack }: Props) {
                           key={pr.id}
                           type="button"
                           className="pr-mini"
-                          onClick={() => { void window.bridge.openExternal(pr.htmlUrl); }}
+                          onClick={() => {
+                            const slash = pr.repo.indexOf('/');
+                            if (slash <= 0) return;
+                            onSelectPr(pr.repo.slice(0, slash), pr.repo.slice(slash + 1), pr.number);
+                          }}
                           title={pr.title}
                         >
                           <span className={`pr-mini__banner pr-mini__banner--${banner}`} aria-hidden="true" />

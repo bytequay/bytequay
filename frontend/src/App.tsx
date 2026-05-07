@@ -280,6 +280,7 @@ function App() {
           <TeamHomePage
             teamId={nav.teamId}
             onOpenKanban={() => setNav({ view: 'team-kanban', teamId: nav.teamId })}
+            onSelectPr={(owner, repo, prNumber) => setNav({ view: 'repo', owner, repo, prNumber })}
             onBack={() => setNav({ view: 'teams' })}
           />
         )}

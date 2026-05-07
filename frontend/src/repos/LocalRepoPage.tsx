@@ -23,6 +23,7 @@ type Props = {
 };
 
 type Column = 'LOCAL_WORK' | 'READY_FOR_PR' | 'IN_REVIEW';
+type Tab = 'branches' | 'commits' | 'activity';
 
 const COLUMNS: { key: Column; label: string; subtitle: string }[] = [
   {
@@ -42,11 +43,17 @@ const COLUMNS: { key: Column; label: string; subtitle: string }[] = [
   },
 ];
 
+const TABS: { key: Tab; label: string }[] = [
+  { key: 'branches', label: 'Branches' },
+  { key: 'commits', label: 'Commits' },
+  { key: 'activity', label: 'Activity' },
+];
+
 /**
- * Repo detail page for a mapped local clone. v1 surfaces the branches
- * kanban only — Pull / Push / Fetch / + Branch / Create PR action bar,
- * plus the Commits and Activity tabs from the design doc, are
- * follow-up commits.
+ * Repo detail page for a mapped local clone. The Branches tab carries
+ * the kanban + action bar; Commits and Activity are skeletons until
+ * their backend slices land (commit listing via `git log`, activity
+ * stream from local event store).
  *
  * The IN REVIEW column will stay empty until the list-page sync starts
  * capturing PR head refs (deferred — see LocalRepoService.toLocalBranch).
@@ -66,6 +73,7 @@ function LocalRepoPage({ owner, repo, onBack }: Props) {
   const [branchFormOpen, setBranchFormOpen] = useState(false);
   const [newBranchName, setNewBranchName] = useState('');
   const [newBranchBase, setNewBranchBase] = useState('');
+  const [tab, setTab] = useState<Tab>('branches');
 
   const reload = async (signal?: { cancelled: boolean }) => {
     const [all, branchList] = await Promise.all([
@@ -291,31 +299,84 @@ function LocalRepoPage({ owner, repo, onBack }: Props) {
         )}
       </header>
 
-      {error && (
-        <div className="local-repo-page__error">
-          Couldn't load branches: {error}
-        </div>
+      <nav className="local-repo-page__tabs" role="tablist" aria-label="Repo views">
+        {TABS.map(t => (
+          <button
+            key={t.key}
+            type="button"
+            role="tab"
+            aria-selected={tab === t.key}
+            className={`local-repo-page__tab${tab === t.key ? ' local-repo-page__tab--active' : ''}`}
+            onClick={() => setTab(t.key)}
+          >
+            {t.label}
+          </button>
+        ))}
+      </nav>
+
+      {tab === 'branches' && (
+        <>
+          {error && (
+            <div className="local-repo-page__error">
+              Couldn't load branches: {error}
+            </div>
+          )}
+
+          {branches === null && !error && (
+            <div className="local-repo-page__loading">
+              <LogoLoading size={48} label="Loading branches" />
+            </div>
+          )}
+
+          {branches !== null && (
+            <div className="branches-kanban">
+              {COLUMNS.map(col => (
+                <BranchColumn
+                  key={col.key}
+                  label={col.label}
+                  subtitle={col.subtitle}
+                  column={col.key}
+                  branches={grouped[col.key]}
+                />
+              ))}
+            </div>
+          )}
+        </>
       )}
 
-      {branches === null && !error && (
-        <div className="local-repo-page__loading">
-          <LogoLoading size={48} label="Loading branches" />
-        </div>
-      )}
+      {tab === 'commits' && <CommitsTab />}
+      {tab === 'activity' && <ActivityTab />}
+    </div>
+  );
+}
 
-      {branches !== null && (
-        <div className="branches-kanban">
-          {COLUMNS.map(col => (
-            <BranchColumn
-              key={col.key}
-              label={col.label}
-              subtitle={col.subtitle}
-              column={col.key}
-              branches={grouped[col.key]}
-            />
-          ))}
-        </div>
-      )}
+// Placeholder until `git log --pretty` wiring lands. Keeping the
+// component shell here so the tab strip's behavior is exercisable now
+// and the slot is obvious for the next slice.
+function CommitsTab() {
+  return (
+    <div className="local-repo-tab-placeholder">
+      <div className="local-repo-tab-placeholder__title">Commits</div>
+      <p className="local-repo-tab-placeholder__body">
+        Commit history for the current branch will land here — graph,
+        author, message, diff drill-in. Coming in a follow-up slice.
+      </p>
+    </div>
+  );
+}
+
+// Placeholder until the local activity store ships. The intent is a
+// chronological feed of repo events the app cares about: branches
+// created/deleted, pushes, PRs opened/merged from this clone.
+function ActivityTab() {
+  return (
+    <div className="local-repo-tab-placeholder">
+      <div className="local-repo-tab-placeholder__title">Activity</div>
+      <p className="local-repo-tab-placeholder__body">
+        A feed of repo-level activity (pushes, branch lifecycle, PR
+        events touching this clone) will appear here. Coming in a
+        follow-up slice.
+      </p>
     </div>
   );
 }

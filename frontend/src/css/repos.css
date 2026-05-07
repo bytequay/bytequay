@@ -479,6 +479,53 @@
   padding: 48px 0;
 }
 
+.local-repo-page__tabs {
+  display: flex;
+  gap: 4px;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 16px;
+}
+.local-repo-page__tab {
+  background: transparent;
+  border: none;
+  border-bottom: 2px solid transparent;
+  color: var(--text-2);
+  cursor: pointer;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 500;
+  padding: 8px 14px;
+  margin-bottom: -1px;
+}
+.local-repo-page__tab:hover { color: var(--text-1); }
+.local-repo-page__tab--active {
+  color: var(--text-1);
+  border-bottom-color: var(--accent);
+}
+
+.local-repo-tab-placeholder {
+  background: var(--bg-elevated);
+  border: 1px dashed var(--border);
+  border-radius: 8px;
+  padding: 32px 24px;
+  text-align: center;
+  color: var(--text-2);
+}
+.local-repo-tab-placeholder__title {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text-1);
+  margin-bottom: 6px;
+}
+.local-repo-tab-placeholder__body {
+  font-size: 13px;
+  margin: 0;
+  max-width: 440px;
+  margin-left: auto;
+  margin-right: auto;
+  line-height: 1.5;
+}
+
 /* Branches kanban. Three columns with a colored 3px top border —
    parallels the PR kanban's visual rhythm. CLEAN UP column ships in
    a follow-up commit. */

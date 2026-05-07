@@ -96,6 +96,13 @@ function KanbanColumn({
   // to a real action), 'reject' = red outline (drop will be no-op).
   // Cleared on dragleave-from-column or after drop fires.
   const [dropState, setDropState] = useState<'accept' | 'reject' | null>(null);
+  // dragenter/leave fire spuriously when the cursor crosses child
+  // nodes; this depth counter keeps the visual stable while the user
+  // hovers. Hoisted above the collapsed-early-return so the hook
+  // count stays stable when a column collapses / expands — otherwise
+  // React throws "Rendered more hooks than during the previous render"
+  // (see error-display-group.png).
+  const dropDepthRef = useRef(0);
   const slug = kind.replace(/_/g, '-');
   // Done flag was the old delegator's "render as HandledCard" switch — the
   // rich KanbanPrCard handles all column kinds uniformly now.
@@ -147,10 +154,9 @@ function KanbanColumn({
   // ── Drop-target wiring ───────────────────────────────────────────────────
   //
   // Only attached when both onCardDrop and acceptDropFrom are provided
-  // (i.e. when the parent board opted into drag/drop). dragenter/leave
-  // fire spuriously when the cursor crosses child nodes, so we use a
-  // depth counter to keep the visual stable while the user hovers.
-  const dropDepthRef = useRef(0);
+  // (i.e. when the parent board opted into drag/drop). dropDepthRef
+  // is declared above with the other hooks so the hook count stays
+  // stable across collapsed / expanded renders.
   const dropEnabled = !!onCardDrop && !!acceptDropFrom;
 
   const readPayload = (e: DragEvent<HTMLElement>): PrDragPayload | null => {

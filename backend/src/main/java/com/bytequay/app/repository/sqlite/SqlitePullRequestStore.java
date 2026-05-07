@@ -256,6 +256,14 @@ public class SqlitePullRequestStore
 
     private static PullRequest toDomain(PullRequestEntity entity, PrViewState state)
     {
+        // GitHub's REST API reports merged PRs as state="closed" with
+        // merged_at set; synthesize "merged" here so every renderer
+        // (status pills on cards + title, kanban categorization) sees
+        // one canonical value instead of having to special-case the
+        // closed-but-merged combination.
+        String synthesizedState = entity.getMergedAt() != null && "closed".equals(entity.getState())
+                ? "merged"
+                : entity.getState();
         return new PullRequest(
                 entity.getId(),
                 entity.getRepo(),
@@ -278,7 +286,7 @@ public class SqlitePullRequestStore
                 entity.getDeletions(),
                 entity.getCommentCount(),
                 entity.getAttentionReason(),
-                entity.getState(),
+                synthesizedState,
                 entity.getClosedAt(),
                 entity.getMergedAt(),
                 entity.getMergeable(),

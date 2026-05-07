@@ -1134,33 +1134,36 @@ function ExpandControls({
       </button>
     );
   }
-  // Middle gap: stacked split. Up chevron, decorative collapsed-content
-  // marker, down chevron — matches docs/mockups/v2/codereview/expand.png.
+  // Middle gap: github.com-style split. Dotted strip on top hints at
+  // hidden lines; the two chevrons sit side-by-side below — up on the
+  // left, down on the right. See docs/mockups/issue/code-diff/g-expand-button.png.
   return (
     <div className="diff-expand-split">
-      <button
-        type="button"
-        className="diff-expand-btn diff-expand-btn--up"
-        onClick={() => onClick(gap, 'up')}
-        disabled={!showUp || upBusy}
-        title={`Expand ${EXPAND_INCREMENT} more lines up`}
-        aria-label={`Expand ${EXPAND_INCREMENT} more lines up`}
-      >
-        <ArrowUpIcon />
-      </button>
       <span className="diff-expand-split__divider" aria-hidden="true">
-        <span /><span /><span />
+        <span /><span /><span /><span />
       </span>
-      <button
-        type="button"
-        className="diff-expand-btn diff-expand-btn--down"
-        onClick={() => onClick(gap, 'down')}
-        disabled={!showDown || downBusy}
-        title={`Expand ${EXPAND_INCREMENT} more lines down`}
-        aria-label={`Expand ${EXPAND_INCREMENT} more lines down`}
-      >
-        <ArrowDownIcon />
-      </button>
+      <div className="diff-expand-split__row">
+        <button
+          type="button"
+          className="diff-expand-btn diff-expand-btn--up"
+          onClick={() => onClick(gap, 'up')}
+          disabled={!showUp || upBusy}
+          title={`Expand ${EXPAND_INCREMENT} more lines up`}
+          aria-label={`Expand ${EXPAND_INCREMENT} more lines up`}
+        >
+          <ArrowUpIcon />
+        </button>
+        <button
+          type="button"
+          className="diff-expand-btn diff-expand-btn--down"
+          onClick={() => onClick(gap, 'down')}
+          disabled={!showDown || downBusy}
+          title={`Expand ${EXPAND_INCREMENT} more lines down`}
+          aria-label={`Expand ${EXPAND_INCREMENT} more lines down`}
+        >
+          <ArrowDownIcon />
+        </button>
+      </div>
     </div>
   );
 }

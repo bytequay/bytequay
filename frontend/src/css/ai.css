@@ -1226,31 +1226,46 @@
   min-height: 20px;
 }
 .diff-expand-split {
-  /* Middle-of-file split. Up chevron, decorative collapsed-content
-     marker, down chevron — three stacked rows sharing the gutter cell. */
+  /* Middle-of-file split — github.com layout. Dotted strip on top
+     marks the hidden range; the two chevrons sit side-by-side below
+     so the whole control stays roughly square instead of stacking
+     three tall rows in the gutter. */
   display: flex;
   flex-direction: column;
   width: 100%;
 }
-/* Three short horizontal dashes stacked vertically, hinting at
-   collapsed code between the up and down chevrons. Non-interactive
-   and intentionally compact so the split control stays close in
-   height to the single-button variant. */
+/* Four short horizontal dashes laid out left-to-right across the top
+   of the control, hinting at collapsed code that sits between the
+   surrounding hunks. Non-interactive. */
 .diff-expand-split__divider {
   display: flex;
-  flex-direction: column;
+  flex-direction: row;
   align-items: center;
   justify-content: center;
-  gap: 1px;
-  padding: 1px 0;
-  border-top: 1px solid var(--border);
-  border-bottom: 1px solid var(--border);
+  gap: 3px;
+  padding: 3px 0 2px;
 }
 .diff-expand-split__divider > span {
-  width: 10px;
+  width: 5px;
   height: 1px;
   background: var(--text-3);
-  opacity: 0.6;
+  opacity: 0.7;
+}
+/* Up + down chevrons share one row beneath the dashes. A 1px divider
+   at the top separates the dashed strip from the buttons; a vertical
+   divider between the buttons lets each chevron read as its own
+   click target. */
+.diff-expand-split__row {
+  display: flex;
+  flex-direction: row;
+  border-top: 1px solid var(--border);
+}
+.diff-expand-split__row .diff-expand-btn {
+  flex: 1;
+  min-height: 18px;
+}
+.diff-expand-split__row .diff-expand-btn--up {
+  border-right: 1px solid var(--border);
 }
 
 /* Expanded context rows look like ordinary context rows — no

@@ -1239,6 +1239,7 @@ public class PullRequestService
                 countApprovals(stored.reviews()),
                 countChangesRequested(stored.reviews()),
                 raw.requestedReviewerCount(),
+                raw.requestedReviewers() != null ? raw.requestedReviewers() : ImmutableList.of(),
                 aggregateCiStatus(stored.checkRuns()),
                 stored.files(),
                 toActivityItems(stored.timeline()),

@@ -258,6 +258,11 @@ export type PullRequestDetailDto = {
   approvalCount: number;
   changesRequestedCount: number;
   pendingReviewerCount: number;
+  /** Logins of reviewers GitHub still considers pending — same source
+   *  as pendingReviewerCount but as a list, so the reviewer sidebar
+   *  can render one row per login. Always present (empty array when
+   *  no reviewer is pending). */
+  requestedReviewers: string[];
   ciStatus: CiStatus;
   files: ChangedFileDto[];
   recentActivity: ActivityItemDto[];

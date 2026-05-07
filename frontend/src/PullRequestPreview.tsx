@@ -1671,6 +1671,7 @@ function PullRequestPreview({ pr, onOpenReview, onInspectDiffs, onMarkHandled, o
               <ReviewerEditor
                 pr={pr}
                 reviewerVerdicts={reviewerVerdicts}
+                pendingReviewers={detail?.requestedReviewers}
                 onRefresh={async () => {
                   const fresh = await window.bridge.fetchPullRequestDetail(pr.repo, pr.number);
                   putCache(pr.id, fresh);

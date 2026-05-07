@@ -146,7 +146,8 @@ class TestPullRequestService
     void testGetPullRequestDetailReturnsFromCacheWhenAvailable()
     {
         PrRawDetail raw = new PrRawDetail(
-                "body", ImmutableList.of("bug"), false, true, "clean", 10, 3, 2, 1, "sha",
+                "body", ImmutableList.of("bug"), false, true, "clean", 10, 3, 2, 1,
+                ImmutableList.of("alice"), "sha",
                 "feat/foo", "owner/my-repo", "main", "owner/my-repo");
         StoredPrDetail stored = new StoredPrDetail(
                 raw,

@@ -28,6 +28,11 @@ public record PrRawDetail(
         int deletions,
         int changedFiles,
         int requestedReviewerCount,
+        /** GitHub logins still on the PR's pending-review list (those
+         *  who were requested but haven't submitted a verdict yet).
+         *  Null on legacy pre-V39 rows; callers that only care about
+         *  presence can fall back to {@link #requestedReviewerCount}. */
+        List<String> requestedReviewers,
         String headSha,
         /** Branch name on the head side (e.g. "feat/foo"). Null on legacy
          *  rows that pre-date the PR-detail endpoint capturing branch refs. */

@@ -28,13 +28,19 @@ import Avatar from '../Avatar';
 export function ReviewerEditor({
   pr,
   reviewerVerdicts,
+  pendingReviewers,
   onRefresh,
 }: {
   pr: PullRequestDto;
   reviewerVerdicts: Map<string, string>;
+  /** Authoritative pending-reviewer list from the PR detail fetch.
+   *  When provided, prefer this over the (possibly stale) list-page
+   *  snapshot on `pr.requestedReviewers`. */
+  pendingReviewers?: string[];
   onRefresh: () => Promise<void>;
 }) {
-  const [reviewers, setReviewers] = useState<string[]>(pr.requestedReviewers);
+  const initial = pendingReviewers ?? pr.requestedReviewers;
+  const [reviewers, setReviewers] = useState<string[]>(initial);
   const [adding, setAdding] = useState(false);
   const [newLogin, setNewLogin] = useState('');
   const [pending, setPending] = useState(false);
@@ -53,7 +59,11 @@ export function ReviewerEditor({
   const [suggestedRecs, setSuggestedRecs] = useState<{ login: string; avatarUrl: string | null; name: string | null }[]>([]);
 
   // Reset when the PR's reviewer list changes externally (sync, switch PR).
-  useEffect(() => { setReviewers(pr.requestedReviewers); }, [pr.requestedReviewers]);
+  // Prefer the detail-derived list since it's freshest; fall back to the
+  // list-page snapshot for the brief moment before detail loads.
+  useEffect(() => {
+    setReviewers(pendingReviewers ?? pr.requestedReviewers);
+  }, [pendingReviewers, pr.requestedReviewers]);
 
   // Fetch GitHub's suggested reviewers once when the user enters the
   // add-flow. Cheap GraphQL call; cache for the duration of this view

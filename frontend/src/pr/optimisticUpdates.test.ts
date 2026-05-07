@@ -94,6 +94,7 @@ function detail(overrides: Partial<PullRequestDetailDto> = {}): PullRequestDetai
     approvalCount: 0,
     changesRequestedCount: 0,
     pendingReviewerCount: 0,
+    requestedReviewers: [],
     ciStatus: 'NONE',
     files: [],
     recentActivity: [],

@@ -93,6 +93,7 @@ public class SqlitePrDetailStore
                 d.getDeletions(),
                 d.getChangedFiles(),
                 d.getRequestedReviewerCount(),
+                d.getRequestedReviewers() != null ? d.getRequestedReviewers() : ImmutableList.of(),
                 d.getHeadSha(),
                 d.getHeadRef(),
                 d.getHeadRepo(),
@@ -316,6 +317,7 @@ public class SqlitePrDetailStore
         entity.setDeletions(raw.deletions());
         entity.setChangedFiles(raw.changedFiles());
         entity.setRequestedReviewerCount(raw.requestedReviewerCount());
+        entity.setRequestedReviewers(raw.requestedReviewers() != null ? raw.requestedReviewers() : ImmutableList.of());
         entity.setHeadSha(raw.headSha());
         entity.setHeadRef(raw.headRef());
         entity.setHeadRepo(raw.headRepo());

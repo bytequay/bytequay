@@ -133,6 +133,7 @@ function makeDetail(overrides: Partial<PullRequestDetailDto> = {}): PullRequestD
     approvalCount: 1,
     changesRequestedCount: 0,
     pendingReviewerCount: 0,
+    requestedReviewers: [],
     ciStatus: 'PASSING',
     files: [
       { filename: 'src/foo.ts', additions: 5, deletions: 2, status: 'modified' },

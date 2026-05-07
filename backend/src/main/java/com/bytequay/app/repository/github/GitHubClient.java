@@ -183,7 +183,12 @@ public class GitHubClient
             List<String> labels = Optional.ofNullable(r.labels()).orElse(ImmutableList.of()).stream()
                     .map(GitHubPullRequestDetailResponse.Label::name)
                     .collect(toImmutableList());
-            int reviewerCount = Optional.ofNullable(r.requestedReviewers()).map(List::size).orElse(0);
+            List<String> reviewerLogins = Optional.ofNullable(r.requestedReviewers())
+                    .orElse(ImmutableList.of()).stream()
+                    .map(GitHubPullRequestDetailResponse.RequestedReviewer::login)
+                    .filter(Objects::nonNull)
+                    .collect(toImmutableList());
+            int reviewerCount = reviewerLogins.size();
             String headSha = Optional.ofNullable(r.head()).map(GitHubPullRequestDetailResponse.Head::sha).orElse(null);
             String headRef = Optional.ofNullable(r.head()).map(GitHubPullRequestDetailResponse.Head::ref).orElse(null);
             String headRepo = Optional.ofNullable(r.head())
@@ -205,6 +210,7 @@ public class GitHubClient
                     r.deletions(),
                     r.changedFiles(),
                     reviewerCount,
+                    reviewerLogins,
                     headSha,
                     headRef,
                     headRepo,

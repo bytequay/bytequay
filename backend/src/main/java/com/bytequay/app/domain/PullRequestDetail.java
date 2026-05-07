@@ -30,6 +30,13 @@ public record PullRequestDetail(
         int approvalCount,
         int changesRequestedCount,
         int pendingReviewerCount,
+        /** Logins still on GitHub's pending-review list — populated
+         *  from the same /pulls/{n} response that {@link #pendingReviewerCount}
+         *  comes from. The frontend renders one row per login in the
+         *  reviewer sidebar (with a re-request button); the count
+         *  alone wasn't enough to surface them. Always non-null;
+         *  empty when no reviewer is pending. */
+        List<String> requestedReviewers,
         CiStatus ciStatus,
         List<ChangedFile> files,
         List<ActivityItem> recentActivity,

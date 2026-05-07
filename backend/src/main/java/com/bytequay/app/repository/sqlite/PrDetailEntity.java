@@ -55,6 +55,10 @@ class PrDetailEntity
     @Column(nullable = false)
     private int requestedReviewerCount;
 
+    @Column(name = "requested_reviewers")
+    @Convert(converter = StringListConverter.class)
+    private List<String> requestedReviewers;
+
     private String headSha;
 
     @Column(name = "head_ref")
@@ -104,6 +108,9 @@ class PrDetailEntity
 
     int getRequestedReviewerCount() { return requestedReviewerCount; }
     void setRequestedReviewerCount(int requestedReviewerCount) { this.requestedReviewerCount = requestedReviewerCount; }
+
+    List<String> getRequestedReviewers() { return requestedReviewers; }
+    void setRequestedReviewers(List<String> requestedReviewers) { this.requestedReviewers = requestedReviewers; }
 
     String getHeadSha() { return headSha; }
     void setHeadSha(String headSha) { this.headSha = headSha; }

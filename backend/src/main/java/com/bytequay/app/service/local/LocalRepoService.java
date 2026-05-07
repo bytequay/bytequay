@@ -13,11 +13,15 @@
  */
 package com.bytequay.app.service.local;
 
+import com.bytequay.app.domain.CreatePullRequestCommand;
 import com.bytequay.app.domain.LocalActivityEntry;
 import com.bytequay.app.domain.LocalBranch;
 import com.bytequay.app.domain.LocalCommit;
 import com.bytequay.app.domain.LocalRepoStatus;
+import com.bytequay.app.domain.PullRequest;
+import com.bytequay.app.domain.RepoRef;
 import com.bytequay.app.domain.WatchedRepo;
+import com.bytequay.app.repository.PullRequestRepository;
 import com.bytequay.app.repository.WatchedRepoStore;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -31,6 +35,7 @@ import java.time.Instant;
 import java.time.format.DateTimeParseException;
 import java.util.List;
 import java.util.Locale;
+import java.util.Optional;
 import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
@@ -52,11 +57,16 @@ public class LocalRepoService
 
     private final WatchedRepoStore watchedRepoStore;
     private final GitRunner gitRunner;
+    private final PullRequestRepository gitHub;
 
-    public LocalRepoService(WatchedRepoStore watchedRepoStore, GitRunner gitRunner)
+    public LocalRepoService(
+            WatchedRepoStore watchedRepoStore,
+            GitRunner gitRunner,
+            PullRequestRepository gitHub)
     {
         this.watchedRepoStore = requireNonNull(watchedRepoStore, "watchedRepoStore is null");
         this.gitRunner = requireNonNull(gitRunner, "gitRunner is null");
+        this.gitHub = requireNonNull(gitHub, "gitHub is null");
     }
 
     /**
@@ -444,6 +454,98 @@ public class LocalRepoService
                 e.authorName(),
                 e.authorEmail(),
                 parseIsoOrNull(e.authoredAt()));
+    }
+
+    /**
+     * Opens a pull request on github.com against the watched repo,
+     * with the local clone's head as the source. For fork-based
+     * clones the head is rendered as {@code "<forkOwner>:<branch>"}
+     * (the cross-fork form GitHub requires); direct clones use a
+     * bare branch name.
+     *
+     * Returns the created PR domain object so the caller can plumb
+     * the new number into the UI without an extra round-trip.
+     */
+    public PullRequest createPullRequest(
+            String pat,
+            String owner,
+            String repo,
+            String title,
+            String bodyText,
+            String base,
+            boolean draft)
+            throws IOException, InterruptedException
+    {
+        Path path = clonePathOrThrow(owner, repo);
+        WatchedRepo watched = refreshWatchedRepo(owner, repo);
+        String headBranch = gitRunner.currentBranch(path);
+        if (headBranch == null) {
+            throw new IllegalStateException("HEAD is detached — switch to a branch before opening a PR");
+        }
+        String headRef = headBranch;
+        if (watched.upstreamRemoteName() != null) {
+            // Fork-based: GitHub needs "<forkOwner>:<branch>" so the
+            // server can resolve the cross-repo ref.
+            String forkOwner = forkOwnerFromOrigin(path);
+            if (forkOwner == null) {
+                throw new IllegalStateException("Couldn't read origin remote to determine fork owner");
+            }
+            headRef = forkOwner + ":" + headBranch;
+        }
+        String resolvedBase = base != null && !base.isBlank() ? base.trim() : "main";
+        CreatePullRequestCommand command = new CreatePullRequestCommand(
+                headRef,
+                resolvedBase,
+                title.trim(),
+                bodyText == null || bodyText.isBlank() ? Optional.empty() : Optional.of(bodyText),
+                Optional.of(draft),
+                Optional.empty());
+        return gitHub.createPullRequest(pat, RepoRef.of(owner, repo), command);
+    }
+
+    /**
+     * Reads the origin remote URL and extracts the GitHub owner
+     * segment. Used to render the cross-fork {@code "<owner>:<branch>"}
+     * head ref for fork-based PR creation. Returns null if the origin
+     * isn't a github.com URL we can parse.
+     */
+    private String forkOwnerFromOrigin(Path workingDir)
+            throws IOException, InterruptedException
+    {
+        String url = gitRunner.originUrl(workingDir);
+        if (url == null) {
+            return null;
+        }
+        return parseGithubOwner(url);
+    }
+
+    /**
+     * Pulls the {@code <owner>} segment out of a github.com remote URL.
+     * Tolerates the same four URL shapes {@link #remoteMatchesRepo}
+     * does (HTTPS / SSH / with-or-without {@code .git}). Returns null
+     * if the URL isn't a github.com remote we recognize.
+     */
+    static String parseGithubOwner(String url)
+    {
+        String cleaned = url == null ? "" : url.trim();
+        if (cleaned.endsWith(".git")) {
+            cleaned = cleaned.substring(0, cleaned.length() - 4);
+        }
+        // SSH form: git@github.com:owner/repo
+        String sshPrefix = "git@github.com:";
+        if (cleaned.startsWith(sshPrefix)) {
+            String tail = cleaned.substring(sshPrefix.length());
+            int slash = tail.indexOf('/');
+            return slash > 0 ? tail.substring(0, slash) : null;
+        }
+        // HTTPS / git protocol: ...github.com/owner/repo
+        int idx = cleaned.toLowerCase(Locale.ROOT).indexOf("github.com/");
+        if (idx < 0) {
+            return null;
+        }
+        String tail = cleaned.substring(idx + "github.com/".length());
+        int slash = tail.indexOf('/');
+        return slash > 0 ? tail.substring(0, slash) : null;
     }
 
     /**

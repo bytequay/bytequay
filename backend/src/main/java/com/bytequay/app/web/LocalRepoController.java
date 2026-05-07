@@ -17,6 +17,7 @@ import com.bytequay.app.domain.LocalActivityEntry;
 import com.bytequay.app.domain.LocalBranch;
 import com.bytequay.app.domain.LocalCommit;
 import com.bytequay.app.domain.LocalRepoStatus;
+import com.bytequay.app.domain.PullRequest;
 import com.bytequay.app.repository.WatchedRepoStore;
 import com.bytequay.app.service.local.GitRunner;
 import com.bytequay.app.service.local.LocalRepoService;
@@ -48,11 +49,16 @@ public class LocalRepoController
 {
     private final LocalRepoService localRepoService;
     private final WatchedRepoStore watchedRepoStore;
+    private final PatResolver patResolver;
 
-    public LocalRepoController(LocalRepoService localRepoService, WatchedRepoStore watchedRepoStore)
+    public LocalRepoController(
+            LocalRepoService localRepoService,
+            WatchedRepoStore watchedRepoStore,
+            PatResolver patResolver)
     {
         this.localRepoService = requireNonNull(localRepoService, "localRepoService is null");
         this.watchedRepoStore = requireNonNull(watchedRepoStore, "watchedRepoStore is null");
+        this.patResolver = requireNonNull(patResolver, "patResolver is null");
     }
 
     /**
@@ -374,6 +380,45 @@ public class LocalRepoController
     }
 
     /**
+     * POST /api/repos/local/{owner}/{repo}/pull-requests — opens a
+     * pull request on github.com against the watched repo, with the
+     * local clone's HEAD branch as the source. Honors the upstream
+     * remote name recorded by the locate flow: fork-based clones
+     * push as {@code "<forkOwner>:<branch>"}, direct clones push as
+     * a bare branch name.
+     */
+    @PostMapping("/{owner}/{repo}/pull-requests")
+    public CreatePrResponse createPullRequest(
+            @PathVariable("owner") String owner,
+            @PathVariable("repo") String repo,
+            @RequestBody CreatePrRequest body)
+    {
+        if (body == null || body.title() == null || body.title().isBlank()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "title is required");
+        }
+        String pat = patResolver.resolve(owner + "/" + repo);
+        try {
+            PullRequest created = localRepoService.createPullRequest(
+                    pat, owner, repo, body.title(), body.body(),
+                    body.base(), body.draft());
+            return new CreatePrResponse(created.number(), created.htmlUrl());
+        }
+        catch (IllegalStateException e) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, e.getMessage());
+        }
+        catch (GitRunner.GitCommandException e) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, e.stderr().strip());
+        }
+        catch (IOException e) {
+            throw new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR, e.getMessage());
+        }
+        catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE, "PR creation interrupted");
+        }
+    }
+
+    /**
      * DELETE /api/repos/local/{owner}/{repo}/branches — bulk-deletes
      * branches by name, but only those flagged as cleanup candidates
      * server-side. Names that don't qualify are silently dropped;
@@ -416,4 +461,6 @@ public class LocalRepoController
     public record ForcePushRequest(boolean confirmed) {}
     public record DeleteBranchesRequest(List<String> names) {}
     public record DeleteBranchesResponse(List<String> deleted) {}
+    public record CreatePrRequest(String title, String body, String base, boolean draft) {}
+    public record CreatePrResponse(int number, String htmlUrl) {}
 }

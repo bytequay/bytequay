@@ -13,6 +13,7 @@
  */
 package com.bytequay.app.repository.github;
 
+import com.bytequay.app.domain.CreatePullRequestCommand;
 import com.bytequay.app.domain.CreateReviewCommand;
 import com.bytequay.app.domain.DiffFile;
 import com.bytequay.app.domain.GitHubUserMatch;
@@ -742,6 +743,41 @@ public class GitHubClient
             return items.stream()
                     .map(item -> toPullRequest(item, fullName))
                     .collect(toImmutableList());
+        }
+        catch (RestClientResponseException e) {
+            throw toReadableException(e);
+        }
+    }
+
+    /**
+     * Opens a new pull request. Maps to POST /repos/{owner}/{repo}/pulls.
+     * The {@link CreatePullRequestCommand#head} field carries the
+     * cross-fork form ({@code "<owner>:<branch>"}) when the PR is
+     * being opened from a fork; same-repo PRs use a bare branch name.
+     */
+    @Override
+    public PullRequest createPullRequest(String pat, RepoRef repo, CreatePullRequestCommand command)
+    {
+        Map<String, Object> body = Maps.newHashMap();
+        body.put("title", command.title());
+        body.put("head", command.head());
+        body.put("base", command.base());
+        command.body().ifPresent(v -> body.put("body", v));
+        command.draft().ifPresent(v -> body.put("draft", v));
+        command.maintainerCanModify().ifPresent(v -> body.put("maintainer_can_modify", v));
+        try {
+            GitHubRepoPullRequestItem item = gitHubRestClient.post()
+                    .uri("/repos/{owner}/{repo}/pulls", repo.owner(), repo.repo())
+                    .header("Authorization", "Bearer " + pat)
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .body(body)
+                    .retrieve()
+                    .body(GitHubRepoPullRequestItem.class);
+            if (item == null) {
+                throw new IllegalStateException(
+                        "GitHub returned an empty body for POST /repos/" + repo.fullName() + "/pulls");
+            }
+            return toPullRequest(item, repo.fullName());
         }
         catch (RestClientResponseException e) {
             throw toReadableException(e);

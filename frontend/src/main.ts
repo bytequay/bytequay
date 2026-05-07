@@ -1054,6 +1054,27 @@ const url = new URL(`${BACKEND_BASE}/prs/comment`);
     return json.deleted ?? [];
   });
 
+  ipcMain.handle('repos:createPullRequest', async (
+    _event,
+    owner: string,
+    repo: string,
+    payload: { title: string; body: string; base: string; draft: boolean },
+  ): Promise<{ number: number; htmlUrl: string }> => {
+    const res = await fetch(
+      `${BACKEND_BASE}/api/repos/local/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/pull-requests`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+      },
+    );
+    if (!res.ok) {
+      const body = await res.text().catch(() => '');
+      throw new Error(extractMessage(body) || `create PR failed (${res.status})`);
+    }
+    return res.json();
+  });
+
   ipcMain.handle('repos:switchLocalBranch', async (
     _event, owner: string, repo: string, name: string,
   ) => {

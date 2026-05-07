@@ -896,6 +896,13 @@ export type Bridge = {
   switchLocalBranch: (
     owner: string, repo: string, name: string,
   ) => Promise<LocalRepoStatusDto>;
+  /** Opens a pull request on github.com against the watched repo,
+   *  with the local clone's HEAD as the source. Returns the new PR
+   *  number and html URL so the caller can navigate or toast. */
+  createLocalPullRequest: (
+    owner: string, repo: string,
+    payload: { title: string; body: string; base: string; draft: boolean },
+  ) => Promise<{ number: number; htmlUrl: string }>;
   /** Bulk-deletes cleanup-eligible branches. The backend re-validates
    *  cleanup status and silently skips any that don't qualify; the
    *  return value is the names that were actually deleted. */

@@ -861,6 +861,90 @@
   justify-content: flex-end;
 }
 
+/* Create-PR modal — shares the force-push panel chrome but holds a
+   form rather than a confirmation. Wider panel so the description
+   textarea has room to breathe. */
+.create-pr-modal__panel {
+  width: min(640px, 100%);
+}
+.create-pr-modal__field {
+  display: block;
+  margin-bottom: 12px;
+  font-size: 12px;
+  color: var(--text-2);
+}
+.create-pr-modal__field > span {
+  display: block;
+  margin-bottom: 4px;
+  font-weight: 600;
+}
+.create-pr-modal__field input,
+.create-pr-modal__field textarea {
+  width: 100%;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text-1);
+  font-family: inherit;
+  font-size: 13px;
+  padding: 8px 10px;
+  box-sizing: border-box;
+}
+.create-pr-modal__field textarea {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, monospace;
+  font-size: 12.5px;
+  resize: vertical;
+}
+.create-pr-modal__field input:focus,
+.create-pr-modal__field textarea:focus {
+  outline: 2px solid var(--accent);
+  outline-offset: -1px;
+}
+.create-pr-modal__draft {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--text-2);
+  margin-bottom: 12px;
+  cursor: pointer;
+}
+
+/* Success toast — anchored to the bottom-right of the page. Lives
+   until the user dismisses; clicking the link opens the new PR on
+   github.com via shell.openExternal (same path as other repo links). */
+.create-pr-toast {
+  position: fixed;
+  bottom: 24px;
+  right: 24px;
+  z-index: 250;
+  background: var(--bg-elevated);
+  border: 1px solid var(--accent);
+  border-radius: 8px;
+  padding: 10px 14px;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  font-size: 13px;
+  color: var(--text-1);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.18);
+}
+.create-pr-toast__link {
+  color: var(--accent);
+  text-decoration: underline;
+  font-size: 12px;
+}
+.create-pr-toast__dismiss {
+  background: transparent;
+  border: none;
+  color: var(--text-3);
+  font-size: 18px;
+  line-height: 1;
+  cursor: pointer;
+  padding: 0 4px;
+}
+.create-pr-toast__dismiss:hover { color: var(--text-1); }
+
 /* Branches kanban. Three columns with a colored 3px top border —
    parallels the PR kanban's visual rhythm. CLEAN UP column ships in
    a follow-up commit. */

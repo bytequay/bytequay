@@ -281,4 +281,34 @@ class TestLocalRepoService
                 "trinodb", "trino"))
                 .isNull();
     }
+
+    @Test
+    void testParseGithubOwnerHttps()
+    {
+        assertThat(LocalRepoService.parseGithubOwner(
+                "https://github.com/chenjian2664/trino_new.git")).isEqualTo("chenjian2664");
+    }
+
+    @Test
+    void testParseGithubOwnerHttpsNoSuffix()
+    {
+        assertThat(LocalRepoService.parseGithubOwner(
+                "https://github.com/chenjian2664/trino_new")).isEqualTo("chenjian2664");
+    }
+
+    @Test
+    void testParseGithubOwnerSsh()
+    {
+        assertThat(LocalRepoService.parseGithubOwner(
+                "git@github.com:chenjian2664/trino_new.git")).isEqualTo("chenjian2664");
+    }
+
+    @Test
+    void testParseGithubOwnerNonGithubReturnsNull()
+    {
+        // gitlab / self-hosted git mirrors are out of scope — we
+        // only know how to talk to github.com.
+        assertThat(LocalRepoService.parseGithubOwner(
+                "https://gitlab.com/chenjian2664/trino_new.git")).isNull();
+    }
 }

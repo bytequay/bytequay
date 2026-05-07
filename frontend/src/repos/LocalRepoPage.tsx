@@ -71,7 +71,7 @@ function LocalRepoPage({ owner, repo, onBack }: Props) {
   // without freezing the whole bar; the action bar disables all
   // buttons while any one is running so we don't fire concurrent
   // git ops in the same working tree.
-  const [actionState, setActionState] = useState<'idle' | 'fetching' | 'pulling' | 'pushing' | 'branching' | 'switching'>('idle');
+  const [actionState, setActionState] = useState<'idle' | 'fetching' | 'pulling' | 'pushing' | 'branching' | 'switching' | 'creating-pr'>('idle');
   const [actionError, setActionError] = useState<string | null>(null);
   // Set when a push failed in a way that suggests force-with-lease
   // would resolve it (non-fast-forward / "updates were rejected").
@@ -89,6 +89,12 @@ function LocalRepoPage({ owner, repo, onBack }: Props) {
   const [selectedForCleanup, setSelectedForCleanup] = useState<Set<string>>(() => new Set());
   const [cleanupConfirmOpen, setCleanupConfirmOpen] = useState(false);
   const [cleanupBusy, setCleanupBusy] = useState(false);
+  // Create-PR modal state. Open while the form is up; the form
+  // owns title/body/base/draft and posts back through this page so
+  // we can refresh the action bar and (eventually) the IN REVIEW
+  // column without a navigation.
+  const [createPrOpen, setCreatePrOpen] = useState(false);
+  const [createPrResult, setCreatePrResult] = useState<{ number: number; htmlUrl: string } | null>(null);
 
   const reload = async (signal?: { cancelled: boolean }) => {
     const [all, branchList] = await Promise.all([
@@ -214,6 +220,25 @@ function LocalRepoPage({ owner, repo, onBack }: Props) {
       await window.bridge.openRepoInIDE(status.localClonePath);
     } catch (e) {
       setActionError(e instanceof Error ? e.message : String(e));
+    }
+  };
+
+  const runCreatePr = async (payload: { title: string; body: string; base: string; draft: boolean }) => {
+    setActionState('creating-pr');
+    setActionError(null);
+    try {
+      const result = await window.bridge.createLocalPullRequest(owner, repo, payload);
+      setCreatePrResult(result);
+      setCreatePrOpen(false);
+      // Refresh the branches list so any IN REVIEW signal the
+      // backend grows later picks up the new PR without a manual
+      // reload.
+      const fresher = await window.bridge.listLocalBranches(owner, repo);
+      setBranches(fresher);
+    } catch (e) {
+      setActionError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setActionState('idle');
     }
   };
 
@@ -381,6 +406,15 @@ function LocalRepoPage({ owner, repo, onBack }: Props) {
           >
             + Branch
           </button>
+          <button
+            type="button"
+            className="button button--primary button--sm"
+            onClick={() => setCreatePrOpen(true)}
+            disabled={actionState !== 'idle' || !status?.localClonePath || !status?.currentBranch}
+            title="Open a pull request from the current branch"
+          >
+            Create PR
+          </button>
           <span className="local-repo-page__actions-spacer" aria-hidden="true" />
           <button
             type="button"
@@ -523,6 +557,29 @@ function LocalRepoPage({ owner, repo, onBack }: Props) {
             </div>
           )}
         </>
+      )}
+
+      {createPrOpen && status?.currentBranch && (
+        <CreatePrModal
+          owner={owner}
+          repo={repo}
+          headBranch={status.currentBranch}
+          forkBased={!!status.upstreamRemoteName}
+          busy={actionState === 'creating-pr'}
+          branches={branches ?? []}
+          onCancel={() => setCreatePrOpen(false)}
+          onSubmit={runCreatePr}
+        />
+      )}
+
+      {createPrResult && (
+        <CreatePrSuccessToast
+          owner={owner}
+          repo={repo}
+          number={createPrResult.number}
+          htmlUrl={createPrResult.htmlUrl}
+          onDismiss={() => setCreatePrResult(null)}
+        />
       )}
 
       {cleanupConfirmOpen && (
@@ -709,6 +766,153 @@ function CommitRow({ commit }: { commit: LocalCommitDto }) {
         </div>
       </div>
     </li>
+  );
+}
+
+function CreatePrModal({
+  owner,
+  repo,
+  headBranch,
+  forkBased,
+  busy,
+  branches,
+  onCancel,
+  onSubmit,
+}: {
+  owner: string;
+  repo: string;
+  headBranch: string;
+  forkBased: boolean;
+  busy: boolean;
+  branches: LocalBranchDto[];
+  onCancel: () => void;
+  onSubmit: (payload: { title: string; body: string; base: string; draft: boolean }) => void;
+}) {
+  const [title, setTitle] = useState('');
+  const [body, setBody] = useState('');
+  const [base, setBase] = useState('main');
+  const [draft, setDraft] = useState(false);
+  const submitDisabled = busy || !title.trim() || !base.trim();
+  return (
+    <div className="force-push-modal" role="dialog" aria-modal="true">
+      <div className="force-push-modal__backdrop" onClick={busy ? undefined : onCancel} />
+      <div className="force-push-modal__panel create-pr-modal__panel">
+        <h2 className="force-push-modal__title">
+          Open pull request
+        </h2>
+        <p className="force-push-modal__body">
+          Open a PR against <code>{owner}/{repo}</code> with{' '}
+          <code>{headBranch}</code> as the head ref.
+          {forkBased
+            ? ' Cross-fork: GitHub will see your fork as the head repo.'
+            : ' Direct clone: head and base live in the same repo.'}
+        </p>
+        <label className="create-pr-modal__field">
+          <span>Title</span>
+          <input
+            type="text"
+            value={title}
+            onChange={(e) => setTitle(e.target.value)}
+            disabled={busy}
+            autoFocus
+            placeholder="Short, imperative — e.g. 'Add support for X'"
+          />
+        </label>
+        <label className="create-pr-modal__field">
+          <span>Description</span>
+          <textarea
+            value={body}
+            onChange={(e) => setBody(e.target.value)}
+            disabled={busy}
+            rows={6}
+            placeholder="What does this PR do? Markdown supported."
+          />
+        </label>
+        <label className="create-pr-modal__field">
+          <span>Base branch</span>
+          <input
+            type="text"
+            value={base}
+            onChange={(e) => setBase(e.target.value)}
+            disabled={busy}
+            list="create-pr-modal__bases"
+            placeholder="main"
+          />
+          <datalist id="create-pr-modal__bases">
+            {branches.map(b => (
+              <option key={b.name} value={b.name} />
+            ))}
+          </datalist>
+        </label>
+        <label className="create-pr-modal__draft">
+          <input
+            type="checkbox"
+            checked={draft}
+            onChange={(e) => setDraft(e.target.checked)}
+            disabled={busy}
+          />
+          <span>Open as draft</span>
+        </label>
+        <div className="force-push-modal__actions">
+          <button
+            type="button"
+            className="button button--secondary button--sm"
+            onClick={onCancel}
+            disabled={busy}
+          >
+            Cancel
+          </button>
+          <button
+            type="button"
+            className="button button--primary button--sm"
+            onClick={() => onSubmit({ title: title.trim(), body, base: base.trim(), draft })}
+            disabled={submitDisabled}
+          >
+            {busy ? 'Opening…' : draft ? 'Open draft PR' : 'Open PR'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function CreatePrSuccessToast({
+  owner,
+  repo,
+  number,
+  htmlUrl,
+  onDismiss,
+}: {
+  owner: string;
+  repo: string;
+  number: number;
+  htmlUrl: string;
+  onDismiss: () => void;
+}) {
+  return (
+    <div className="create-pr-toast" role="status">
+      <span>
+        Opened <strong>{owner}/{repo}#{number}</strong>
+      </span>
+      {htmlUrl && (
+        <a
+          href={htmlUrl}
+          target="_blank"
+          rel="noreferrer noopener"
+          className="create-pr-toast__link"
+        >
+          View on GitHub
+        </a>
+      )}
+      <button
+        type="button"
+        className="create-pr-toast__dismiss"
+        onClick={onDismiss}
+        aria-label="Dismiss"
+      >
+        ×
+      </button>
+    </div>
   );
 }
 

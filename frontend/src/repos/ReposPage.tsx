@@ -14,6 +14,7 @@
 import { useEffect, useState } from 'react';
 import type { LocalRepoStatusDto } from '../types';
 import LogoLoading from '../LogoLoading';
+import AddRepoModal from './AddRepoModal';
 
 type Props = {
   onSelectRepo: (owner: string, repo: string) => void;
@@ -30,6 +31,11 @@ type Props = {
 function ReposPage({ onSelectRepo }: Props) {
   const [repos, setRepos] = useState<LocalRepoStatusDto[] | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // When set, open the Add-repo modal scoped to this repo. Cleared on
+  // close or success. The modal is also responsible for kicking off
+  // the clone / locate IPC calls — this page just decides when it's
+  // visible and folds the result back into the list.
+  const [mappingTarget, setMappingTarget] = useState<{ owner: string; repo: string } | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -40,6 +46,13 @@ function ReposPage({ onSelectRepo }: Props) {
       .catch(e => { if (!cancelled) setError(e instanceof Error ? e.message : String(e)); });
     return () => { cancelled = true; };
   }, []);
+
+  const onMapped = (status: LocalRepoStatusDto) => {
+    setRepos(prev => prev?.map(r =>
+      r.owner === status.owner && r.repo === status.repo ? status : r,
+    ) ?? null);
+    setMappingTarget(null);
+  };
 
   // GIT_UNAVAILABLE on any row implies git itself is missing — every
   // mapped repo will report it. Surface a single banner once instead
@@ -91,15 +104,33 @@ function ReposPage({ onSelectRepo }: Props) {
               key={`${r.owner}/${r.repo}`}
               status={r}
               onOpen={() => onSelectRepo(r.owner, r.repo)}
+              onMapClone={() => setMappingTarget({ owner: r.owner, repo: r.repo })}
             />
           ))}
         </div>
+      )}
+
+      {mappingTarget && (
+        <AddRepoModal
+          owner={mappingTarget.owner}
+          repo={mappingTarget.repo}
+          onClose={() => setMappingTarget(null)}
+          onMapped={onMapped}
+        />
       )}
     </div>
   );
 }
 
-function RepoCard({ status, onOpen }: { status: LocalRepoStatusDto; onOpen: () => void }) {
+function RepoCard({
+  status,
+  onOpen,
+  onMapClone,
+}: {
+  status: LocalRepoStatusDto;
+  onOpen: () => void;
+  onMapClone: () => void;
+}) {
   return (
     <article className={`repo-card repo-card--${status.state.toLowerCase()}`}>
       <header className="repo-card__head">
@@ -134,6 +165,18 @@ function RepoCard({ status, onOpen }: { status: LocalRepoStatusDto; onOpen: () =
 
       {status.errorMessage && status.state !== 'UNMAPPED' && (
         <div className="repo-card__error">{status.errorMessage}</div>
+      )}
+
+      {status.state === 'UNMAPPED' && (
+        <div className="repo-card__cta">
+          <button
+            type="button"
+            className="button button--primary button--sm"
+            onClick={onMapClone}
+          >
+            Map clone…
+          </button>
+        </div>
       )}
     </article>
   );

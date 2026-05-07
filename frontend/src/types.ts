@@ -784,6 +784,21 @@ export type Bridge = {
   /** Set or clear the local-clone path for a watched repo. Pass null
    *  to unmap. Triggered by the Repos page's clone / locate flows. */
   setLocalClonePath: (owner: string, repo: string, path: string | null) => Promise<void>;
+  /** Native folder picker. Returns the selected absolute path, or null
+   *  when the user cancels. Used by the Locate-existing flow and the
+   *  Change-destination button on Clone-fresh. */
+  pickFolder: (options?: { defaultPath?: string; title?: string }) => Promise<string | null>;
+  /** Server-side suggested clone destination
+   *  ({@code ~/Library/Application Support/ByteQuay/repos/{owner}/{repo}}).
+   *  Pre-fills the Add-repo modal's destination field. */
+  defaultClonePath: (owner: string, repo: string) => Promise<string>;
+  /** Runs `git clone` and records the path. Returns the refreshed
+   *  status row so the Repos page can update without a list refetch. */
+  cloneRepo: (owner: string, repo: string, destination: string) => Promise<LocalRepoStatusDto>;
+  /** Verifies the path is a git working tree whose origin matches the
+   *  watched repo, then records it. Errors carry the backend's
+   *  {@code message} field verbatim ("wrong remote: …"). */
+  locateRepo: (owner: string, repo: string, path: string) => Promise<LocalRepoStatusDto>;
   getUserRepos: () => Promise<UserRepoDto[]>;
   getUserOrgs: () => Promise<UserOrgDto[]>;
   searchRepos: (query: string) => Promise<UserRepoDto[]>;

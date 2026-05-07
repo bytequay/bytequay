@@ -16,13 +16,18 @@ package com.bytequay.app.web;
 import com.bytequay.app.domain.LocalRepoStatus;
 import com.bytequay.app.repository.WatchedRepoStore;
 import com.bytequay.app.service.local.LocalRepoService;
+import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.server.ResponseStatusException;
 
+import java.io.IOException;
+import java.nio.file.Path;
 import java.util.List;
 
 import static java.util.Objects.requireNonNull;
@@ -70,5 +75,83 @@ public class LocalRepoController
         watchedRepoStore.setLocalClonePath(owner, repo, path);
     }
 
+    /**
+     * GET /api/repos/local/{owner}/{repo}/default-clone-path —
+     * suggested destination the modal pre-fills for the Clone-fresh
+     * flow. Computed from the user's home dir; sent down rather than
+     * computed on the renderer so we keep the path-shape decision
+     * server-side.
+     */
+    @GetMapping("/{owner}/{repo}/default-clone-path")
+    public DefaultClonePathResponse defaultClonePath(
+            @PathVariable("owner") String owner,
+            @PathVariable("repo") String repo)
+    {
+        return new DefaultClonePathResponse(LocalRepoService.defaultClonePath(owner, repo).toString());
+    }
+
+    /**
+     * POST /api/repos/local/{owner}/{repo}/clone — clones the
+     * watched repo's GitHub URL into {@code body.destination} and
+     * records the path. Synchronous; big repos can take minutes, so
+     * the renderer shows a "Cloning…" state while this is in flight.
+     */
+    @PostMapping("/{owner}/{repo}/clone")
+    public LocalRepoStatus clone(
+            @PathVariable("owner") String owner,
+            @PathVariable("repo") String repo,
+            @RequestBody CloneRequest body)
+    {
+        if (body == null || body.destination() == null || body.destination().isBlank()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "destination is required");
+        }
+        try {
+            return localRepoService.cloneFresh(owner, repo, Path.of(body.destination()));
+        }
+        catch (IllegalStateException e) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, e.getMessage());
+        }
+        catch (IOException e) {
+            throw new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR, e.getMessage());
+        }
+        catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE, "clone interrupted");
+        }
+    }
+
+    /**
+     * POST /api/repos/local/{owner}/{repo}/locate — register an
+     * existing local working tree as the watched repo's clone. The
+     * service verifies the folder is a git working tree whose origin
+     * matches the watched repo; mismatches surface as 400 with a
+     * humane message the modal can render inline.
+     */
+    @PostMapping("/{owner}/{repo}/locate")
+    public LocalRepoStatus locate(
+            @PathVariable("owner") String owner,
+            @PathVariable("repo") String repo,
+            @RequestBody PathRequest body)
+    {
+        if (body == null || body.path() == null || body.path().isBlank()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "path is required");
+        }
+        try {
+            return localRepoService.locateExisting(owner, repo, Path.of(body.path()));
+        }
+        catch (IllegalArgumentException e) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, e.getMessage());
+        }
+        catch (IOException e) {
+            throw new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR, e.getMessage());
+        }
+        catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE, "locate interrupted");
+        }
+    }
+
     public record PathRequest(String path) {}
+    public record CloneRequest(String destination) {}
+    public record DefaultClonePathResponse(String defaultPath) {}
 }

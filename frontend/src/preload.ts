@@ -133,6 +133,14 @@ const bridge: Bridge = {
   listLocalRepos: () => ipcRenderer.invoke('repos:listLocal'),
   setLocalClonePath: (owner: string, repo: string, path: string | null) =>
     ipcRenderer.invoke('repos:setLocalClonePath', owner, repo, path),
+  pickFolder: (options?: { defaultPath?: string; title?: string }) =>
+    ipcRenderer.invoke('repos:pickFolder', options),
+  defaultClonePath: (owner: string, repo: string) =>
+    ipcRenderer.invoke('repos:defaultClonePath', owner, repo),
+  cloneRepo: (owner: string, repo: string, destination: string) =>
+    ipcRenderer.invoke('repos:cloneRepo', owner, repo, destination),
+  locateRepo: (owner: string, repo: string, path: string) =>
+    ipcRenderer.invoke('repos:locateRepo', owner, repo, path),
   getRepoIssues: (owner: string, repo: string): Promise<IssueDto[]> =>
     ipcRenderer.invoke('repos:issues', owner, repo),
   getUserRepos: (): Promise<UserRepoDto[]> => ipcRenderer.invoke('repos:userRepos'),

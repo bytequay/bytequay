@@ -24,6 +24,8 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.List;
+import java.util.Locale;
+import java.util.stream.Stream;
 
 import static com.google.common.collect.ImmutableList.toImmutableList;
 import static java.util.Objects.requireNonNull;
@@ -107,5 +109,107 @@ public class LocalRepoService
         return new LocalRepoStatus(repo.owner(), repo.repo(), repo.localClonePath(),
                 LocalRepoStatus.State.GIT_UNAVAILABLE, null, null,
                 "git not found on PATH — install Xcode Command Line Tools");
+    }
+
+    /**
+     * Default destination for the Clone-fresh flow:
+     * {@code ~/Library/Application Support/ByteQuay/repos/{owner}/{repo}}.
+     * The user can override at clone time via the modal's `Change…`
+     * action; this is the value the modal pre-fills.
+     */
+    public static Path defaultClonePath(String owner, String repo)
+    {
+        String home = System.getProperty("user.home");
+        return Path.of(home, "Library", "Application Support", "ByteQuay", "repos", owner, repo);
+    }
+
+    /**
+     * Runs `git clone` against the GitHub URL of {@code owner/repo}
+     * into {@code destination}, then records the destination on the
+     * watched repo. Throws {@link IllegalStateException} if the
+     * destination already exists with content (refuse to clobber).
+     */
+    public LocalRepoStatus cloneFresh(String owner, String repo, Path destination)
+            throws IOException, InterruptedException
+    {
+        requireNonNull(owner, "owner is null");
+        requireNonNull(repo, "repo is null");
+        requireNonNull(destination, "destination is null");
+        if (Files.exists(destination) && Files.isDirectory(destination)) {
+            try (Stream<Path> entries = Files.list(destination)) {
+                if (entries.findAny().isPresent()) {
+                    throw new IllegalStateException("Destination is not empty: " + destination);
+                }
+            }
+        }
+        String url = "https://github.com/" + owner + "/" + repo + ".git";
+        log.info("Cloning {} → {}", url, destination);
+        gitRunner.clone(url, destination);
+        watchedRepoStore.setLocalClonePath(owner, repo, destination.toString());
+        return statusOf(refreshWatchedRepo(owner, repo));
+    }
+
+    /**
+     * Verifies the user-picked folder is a git working tree whose
+     * `origin` remote points at the watched repo, then records the
+     * path. Throws {@link IllegalArgumentException} on mismatch — the
+     * controller surfaces the message verbatim so the modal can show
+     * "wrong remote: …" inline.
+     */
+    public LocalRepoStatus locateExisting(String owner, String repo, Path path)
+            throws IOException, InterruptedException
+    {
+        requireNonNull(owner, "owner is null");
+        requireNonNull(repo, "repo is null");
+        requireNonNull(path, "path is null");
+        if (!Files.isDirectory(path)) {
+            throw new IllegalArgumentException("Not a directory: " + path);
+        }
+        if (!gitRunner.isGitWorkingTree(path)) {
+            throw new IllegalArgumentException("Not a git working tree: " + path);
+        }
+        String remote = gitRunner.originUrl(path);
+        if (remote == null) {
+            throw new IllegalArgumentException("No `origin` remote configured at " + path);
+        }
+        if (!remoteMatchesRepo(remote, owner, repo)) {
+            throw new IllegalArgumentException(
+                    "Remote `origin` is " + remote + " — expected " + owner + "/" + repo);
+        }
+        watchedRepoStore.setLocalClonePath(owner, repo, path.toString());
+        return statusOf(refreshWatchedRepo(owner, repo));
+    }
+
+    private WatchedRepo refreshWatchedRepo(String owner, String repo)
+    {
+        return watchedRepoStore.find(owner, repo)
+                .orElseThrow(() -> new IllegalStateException(owner + "/" + repo + " is not watched"));
+    }
+
+    /**
+     * Tolerates the four shapes GitHub publishes for the same repo:
+     * {@code git@github.com:owner/repo.git}, {@code https://github.com/owner/repo.git},
+     * {@code https://github.com/owner/repo}, {@code github.com/owner/repo}.
+     * The trailing {@code .git} is also optional. We don't accept other
+     * hosts — those are forks or mirrors and shouldn't be confused
+     * with the watched github.com repo.
+     */
+    static boolean remoteMatchesRepo(String remoteUrl, String owner, String repo)
+    {
+        String cleaned = remoteUrl.trim();
+        if (cleaned.endsWith(".git")) {
+            cleaned = cleaned.substring(0, cleaned.length() - 4);
+        }
+        String wantPath = owner + "/" + repo;
+        // SSH form: git@github.com:owner/repo
+        if (cleaned.startsWith("git@github.com:")) {
+            return cleaned.substring("git@github.com:".length()).equalsIgnoreCase(wantPath);
+        }
+        // HTTPS / git protocol: ...github.com/owner/repo
+        int idx = cleaned.toLowerCase(Locale.ROOT).indexOf("github.com/");
+        if (idx < 0) {
+            return false;
+        }
+        return cleaned.substring(idx + "github.com/".length()).equalsIgnoreCase(wantPath);
     }
 }

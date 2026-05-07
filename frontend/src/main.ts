@@ -11,7 +11,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import { app, BrowserWindow, clipboard, ipcMain, Menu, nativeImage, session, shell, WebContentsView } from 'electron';
+import { app, BrowserWindow, clipboard, dialog, ipcMain, Menu, nativeImage, session, shell, WebContentsView } from 'electron';
 import path from 'node:path';
 import fs from 'node:fs';
 import started from 'electron-squirrel-startup';
@@ -160,6 +160,20 @@ function normalizeDevServerUrl(urlString: string): string {
 }
 
 const MAIN_BG = '#f4efe5';
+
+/** Extracts the human-friendly message field from a Spring error body
+ *  ({@code {"timestamp":..., "status":..., "message":..., "path":...}})
+ *  so the renderer surfaces "wrong remote: …" instead of a JSON dump.
+ *  Falls back to the raw body when parsing fails. */
+function extractMessage(body: string): string {
+  if (!body) return '';
+  try {
+    const parsed = JSON.parse(body) as { message?: string };
+    return parsed.message ?? body;
+  } catch {
+    return body;
+  }
+}
 
 let mainWindow: BrowserWindow | null = null;
 // Embedded github.com review view overlaid on the main window's content area.
@@ -895,6 +909,73 @@ const url = new URL(`${BACKEND_BASE}/prs/comment`);
     if (!res.ok) {
       const body = await res.text().catch(() => '');
       throw new Error(`backend /api/repos/local returned ${res.status}: ${body}`);
+    }
+    return res.json();
+  });
+
+  // Native folder picker for the Locate-existing flow + the
+  // Change-destination button in the Clone-fresh flow. Renderer
+  // can't open dialogs directly because contextIsolation hides
+  // the Electron module surface.
+  ipcMain.handle('repos:pickFolder', async (
+    _event, options?: { defaultPath?: string; title?: string },
+  ) => {
+    if (!mainWindow) return null;
+    const result = await dialog.showOpenDialog(mainWindow, {
+      properties: ['openDirectory', 'createDirectory'],
+      defaultPath: options?.defaultPath,
+      title: options?.title,
+    });
+    if (result.canceled || result.filePaths.length === 0) return null;
+    return result.filePaths[0];
+  });
+
+  ipcMain.handle('repos:defaultClonePath', async (
+    _event, owner: string, repo: string,
+  ): Promise<string> => {
+    const res = await fetch(
+      `${BACKEND_BASE}/api/repos/local/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/default-clone-path`,
+    );
+    if (!res.ok) {
+      const body = await res.text().catch(() => '');
+      throw new Error(`backend default-clone-path returned ${res.status}: ${body}`);
+    }
+    const json = await res.json();
+    return json.defaultPath;
+  });
+
+  ipcMain.handle('repos:cloneRepo', async (
+    _event, owner: string, repo: string, destination: string,
+  ) => {
+    const res = await fetch(
+      `${BACKEND_BASE}/api/repos/local/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/clone`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ destination }),
+      },
+    );
+    if (!res.ok) {
+      const body = await res.text().catch(() => '');
+      throw new Error(extractMessage(body) || `clone failed (${res.status})`);
+    }
+    return res.json();
+  });
+
+  ipcMain.handle('repos:locateRepo', async (
+    _event, owner: string, repo: string, path: string,
+  ) => {
+    const res = await fetch(
+      `${BACKEND_BASE}/api/repos/local/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/locate`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ path }),
+      },
+    );
+    if (!res.ok) {
+      const body = await res.text().catch(() => '');
+      throw new Error(extractMessage(body) || `locate failed (${res.status})`);
     }
     return res.json();
   });

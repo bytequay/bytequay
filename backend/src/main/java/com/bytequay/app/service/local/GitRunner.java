@@ -95,6 +95,50 @@ public class GitRunner
     }
 
     /**
+     * Returns the configured `origin` remote URL of the working tree
+     * at {@code path}, or null if no origin is set. Used by the
+     * Locate-existing flow to verify the user picked a folder whose
+     * remote matches the watched repo before we record it.
+     */
+    public String originUrl(Path workingDir)
+            throws IOException, InterruptedException
+    {
+        GitResult result = run(List.of("git", "config", "--get", "remote.origin.url"), workingDir, 5);
+        // Exit code 1 when the key isn't set — treat that as "no
+        // origin", which lets the locate flow fail with a clean
+        // mismatch message instead of a stack trace.
+        if (result.exitCode() != 0) {
+            return null;
+        }
+        String url = result.stdout().strip();
+        return url.isEmpty() ? null : url;
+    }
+
+    /**
+     * Runs {@code git clone} and waits for completion. Big repos
+     * (trino, kubernetes, …) routinely take several minutes; the
+     * timeout is bumped accordingly. Real progress streaming via
+     * git's --progress and a long-running IPC channel is a follow-up
+     * — for now the caller blocks on this, and the UI shows a
+     * "Cloning…" state.
+     */
+    public void clone(String url, Path destination)
+            throws IOException, InterruptedException
+    {
+        requireNonNull(url, "url is null");
+        requireNonNull(destination, "destination is null");
+        Files.createDirectories(destination.getParent());
+        // 30-minute cap. A clone that doesn't finish in 30 minutes is
+        // almost certainly stuck on auth or DNS — better to fail and
+        // surface the stderr than to hang the IPC indefinitely.
+        GitResult result = run(
+                List.of("git", "clone", url, destination.toString()),
+                null,
+                1800);
+        result.requireSuccess();
+    }
+
+    /**
      * True iff {@code path} is the root of a git working tree (or
      * inside one). Used to validate the user-picked folder in the
      * "Locate existing" flow before we record it on the watched repo.

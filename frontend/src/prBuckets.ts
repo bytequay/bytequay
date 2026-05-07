@@ -508,10 +508,13 @@ export function groupMyPrs(prs: PullRequestDto[], now: number = Date.now()): Rec
     // (or the user wakes them). Until then keep them out of every
     // column so the inbox kanban stays focused on actionable work.
     if (isSnoozed(pr, now)) continue;
-    // User-dismissed PRs (MANUAL / DISMISSED) leave the kanban for
-    // the Handled tab. We deliberately keep MERGED so the recently-
-    // merged column still picks those PRs up via mergedAt.
-    if (pr.handledAction === 'MANUAL' || pr.handledAction === 'DISMISSED') continue;
+    // No handledAction filter here. The inbox MY-PRs lane has no
+    // Handled column to fall into, so dropping a PR because the user
+    // (or a sync) tagged it MANUAL/DISMISSED makes it invisible —
+    // the user reported losing track of an active authored PR
+    // because of this. AUTHORED PRs always belong somewhere
+    // actionable until the PR itself is closed/merged; that's what
+    // categorizeMyPr decides.
     const col = categorizeMyPr(pr, now);
     if (col) out[col].push(pr);
   }

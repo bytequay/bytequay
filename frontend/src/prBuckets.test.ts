@@ -637,4 +637,16 @@ describe('groupMyPrs / groupToReview', () => {
     expect(groups.ready_to_merge).toEqual([]);
     expect(groups.waiting_on_review.map(p => p.id).sort()).toEqual([1, 2]);
   });
+
+  it('groupMyPrs keeps AUTHORED PRs visible even when handledAction is set', () => {
+    // Regression: clicking "Mark handled" on an authored PR used to
+    // drop it from the inbox kanban entirely (the inbox lane has no
+    // Handled column to fall into). The PR is still active work, so
+    // it must still show up in its categorized column.
+    const handledManually = pr({ id: 1, origin: 'AUTHORED', handledAction: 'MANUAL' });
+    const dismissed = pr({ id: 2, origin: 'AUTHORED', handledAction: 'DISMISSED' });
+    const groups = groupMyPrs([handledManually, dismissed], NOW);
+    const all = Object.values(groups).flat().map(p => p.id).sort();
+    expect(all).toEqual([1, 2]);
+  });
 });

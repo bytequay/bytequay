@@ -71,7 +71,7 @@ function LocalRepoPage({ owner, repo, onBack }: Props) {
   // without freezing the whole bar; the action bar disables all
   // buttons while any one is running so we don't fire concurrent
   // git ops in the same working tree.
-  const [actionState, setActionState] = useState<'idle' | 'fetching' | 'pulling' | 'pushing' | 'branching'>('idle');
+  const [actionState, setActionState] = useState<'idle' | 'fetching' | 'pulling' | 'pushing' | 'branching' | 'switching'>('idle');
   const [actionError, setActionError] = useState<string | null>(null);
   // Set when a push failed in a way that suggests force-with-lease
   // would resolve it (non-fast-forward / "updates were rejected").
@@ -214,6 +214,22 @@ function LocalRepoPage({ owner, repo, onBack }: Props) {
       await window.bridge.openRepoInIDE(status.localClonePath);
     } catch (e) {
       setActionError(e instanceof Error ? e.message : String(e));
+    }
+  };
+
+  const runSwitchBranch = async (name: string) => {
+    if (actionState !== 'idle') return;
+    setActionState('switching');
+    setActionError(null);
+    try {
+      const fresh = await window.bridge.switchLocalBranch(owner, repo, name);
+      setStatus(fresh);
+      const fresher = await window.bridge.listLocalBranches(owner, repo);
+      setBranches(fresher);
+    } catch (e) {
+      setActionError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setActionState('idle');
     }
   };
 
@@ -482,6 +498,8 @@ function LocalRepoPage({ owner, repo, onBack }: Props) {
                   onSelectAll={col.key === 'CLEAN_UP' ? () => selectAllCleanup(grouped.CLEAN_UP) : undefined}
                   onDeleteSelected={col.key === 'CLEAN_UP' && selectedForCleanup.size > 0
                     ? () => setCleanupConfirmOpen(true) : undefined}
+                  onSwitchBranch={runSwitchBranch}
+                  switching={actionState === 'switching'}
                 />
               ))}
             </div>
@@ -825,6 +843,8 @@ function BranchColumn({
   onToggleSelected,
   onSelectAll,
   onDeleteSelected,
+  onSwitchBranch,
+  switching,
 }: {
   label: string;
   subtitle: string;
@@ -836,6 +856,8 @@ function BranchColumn({
   onToggleSelected?: (name: string) => void;
   onSelectAll?: () => void;
   onDeleteSelected?: () => void;
+  onSwitchBranch?: (name: string) => void;
+  switching?: boolean;
 }) {
   const allSelected = selected !== undefined
       && branches.length > 0
@@ -880,6 +902,8 @@ function BranchColumn({
               selected={selected?.has(b.name) ?? false}
               onToggleSelected={selected && onToggleSelected
                 ? () => onToggleSelected(b.name) : undefined}
+              onSwitch={onSwitchBranch && !b.isCurrent ? () => onSwitchBranch(b.name) : undefined}
+              switching={switching ?? false}
             />
           ))
         )}
@@ -897,19 +921,43 @@ function BranchCard({
   branch,
   selected,
   onToggleSelected,
+  onSwitch,
+  switching,
 }: {
   branch: LocalBranchDto;
   selected: boolean;
   onToggleSelected?: () => void;
+  onSwitch?: () => void;
+  switching: boolean;
 }) {
+  const switchable = onSwitch !== undefined && !switching;
   const cls = [
     'branch-card',
     branch.isCurrent ? 'branch-card--current' : '',
     branch.cleanupReason ? 'branch-card--cleanup' : '',
     selected ? 'branch-card--selected' : '',
+    switchable ? 'branch-card--switchable' : '',
   ].filter(Boolean).join(' ');
+  // The whole card is the switch target on non-current branches —
+  // but only when there's no checkbox in this column. With a
+  // checkbox present (Clean up), we keep card-click reserved for
+  // the checkbox's natural label behavior and surface Switch as an
+  // explicit button so the affordances don't fight each other.
+  const cardClick = switchable && !onToggleSelected ? onSwitch : undefined;
   return (
-    <article className={cls}>
+    <article
+      className={cls}
+      onClick={cardClick}
+      onKeyDown={cardClick ? (e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          cardClick();
+        }
+      } : undefined}
+      role={cardClick ? 'button' : undefined}
+      tabIndex={cardClick ? 0 : undefined}
+      title={switchable ? `Switch to ${branch.name}` : undefined}
+    >
       <header className="branch-card__head">
         {onToggleSelected && (
           <input
@@ -917,6 +965,7 @@ function BranchCard({
             className="branch-card__check"
             checked={selected}
             onChange={onToggleSelected}
+            onClick={(e) => e.stopPropagation()}
             aria-label={`Select ${branch.name}`}
           />
         )}
@@ -926,6 +975,19 @@ function BranchCard({
         </code>
         {branch.linkedPrNumber != null && (
           <span className="branch-card__pr">#{branch.linkedPrNumber}</span>
+        )}
+        {onToggleSelected && switchable && (
+          // CLEAN UP cards keep the checkbox as primary action; an
+          // explicit Switch button covers the "actually I want to
+          // hop onto this branch first" escape hatch.
+          <button
+            type="button"
+            className="branch-card__switch"
+            onClick={(e) => { e.stopPropagation(); onSwitch?.(); }}
+            title={`Switch to ${branch.name}`}
+          >
+            Switch
+          </button>
         )}
       </header>
       <div className="branch-card__meta">

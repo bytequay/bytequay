@@ -157,6 +157,8 @@ const bridge: Bridge = {
     ipcRenderer.invoke('repos:pushLocalForce', owner, repo),
   createLocalBranch: (owner: string, repo: string, name: string, base?: string) =>
     ipcRenderer.invoke('repos:createLocalBranch', owner, repo, name, base),
+  switchLocalBranch: (owner: string, repo: string, name: string) =>
+    ipcRenderer.invoke('repos:switchLocalBranch', owner, repo, name),
   deleteLocalBranches: (owner: string, repo: string, names: string[]) =>
     ipcRenderer.invoke('repos:deleteLocalBranches', owner, repo, names),
   revealRepoInFinder: (path: string): Promise<void> =>

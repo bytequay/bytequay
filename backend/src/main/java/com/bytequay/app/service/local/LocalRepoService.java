@@ -300,6 +300,23 @@ public class LocalRepoService
     }
 
     /**
+     * Switches HEAD to {@code branchName}. The branch must already
+     * exist locally — use {@link #createBranch} for new branches.
+     * Returns the refreshed status row so the UI can update the
+     * current-branch chip without a re-list.
+     */
+    public LocalRepoStatus switchBranch(String owner, String repo, String branchName)
+            throws IOException, InterruptedException
+    {
+        Path path = clonePathOrThrow(owner, repo);
+        if (branchName == null || branchName.isBlank()) {
+            throw new IllegalArgumentException("Branch name is required");
+        }
+        gitRunner.switchBranch(path, branchName.trim());
+        return statusOf(refreshWatchedRepo(owner, repo));
+    }
+
+    /**
      * Deletes the named local branches, but only if they're cleanup
      * candidates per {@link #classifyCleanup}. The check is server-
      * side authoritative: even if the UI somehow surfaces a Delete

@@ -886,6 +886,12 @@ export type Bridge = {
   createLocalBranch: (
     owner: string, repo: string, name: string, base?: string,
   ) => Promise<LocalRepoStatusDto>;
+  /** Switches HEAD to an existing local branch. Errors when the
+   *  working tree has conflicting uncommitted changes — git's
+   *  stderr surfaces inline so the user can stash or commit. */
+  switchLocalBranch: (
+    owner: string, repo: string, name: string,
+  ) => Promise<LocalRepoStatusDto>;
   /** Bulk-deletes cleanup-eligible branches. The backend re-validates
    *  cleanup status and silently skips any that don't qualify; the
    *  return value is the names that were actually deleted. */

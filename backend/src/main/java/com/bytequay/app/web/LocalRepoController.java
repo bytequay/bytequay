@@ -325,6 +325,23 @@ public class LocalRepoController
         return runGitOperation(() -> localRepoService.createBranch(owner, repo, body.name(), body.base()));
     }
 
+    /**
+     * POST /api/repos/local/{owner}/{repo}/branches/switch —
+     * switches HEAD to an existing local branch. 409 if the working
+     * tree has uncommitted changes that conflict with the target.
+     */
+    @PostMapping("/{owner}/{repo}/branches/switch")
+    public LocalRepoStatus switchBranch(
+            @PathVariable("owner") String owner,
+            @PathVariable("repo") String repo,
+            @RequestBody SwitchBranchRequest body)
+    {
+        if (body == null || body.name() == null || body.name().isBlank()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "name is required");
+        }
+        return runGitOperation(() -> localRepoService.switchBranch(owner, repo, body.name()));
+    }
+
     private LocalRepoStatus runGitOperation(GitOp op)
     {
         try {
@@ -395,6 +412,7 @@ public class LocalRepoController
     public record CloneRequest(String destination) {}
     public record DefaultClonePathResponse(String defaultPath) {}
     public record CreateBranchRequest(String name, String base) {}
+    public record SwitchBranchRequest(String name) {}
     public record ForcePushRequest(boolean confirmed) {}
     public record DeleteBranchesRequest(List<String> names) {}
     public record DeleteBranchesResponse(List<String> deleted) {}

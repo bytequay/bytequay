@@ -157,6 +157,20 @@ public class GitRunner
     }
 
     /**
+     * Switches HEAD to {@code branchName}. Equivalent to
+     * {@code git switch <branch>}. Fails if the working tree has
+     * uncommitted changes that would conflict — git's stderr
+     * surfaces verbatim through the controller's 409 mapping so the
+     * UI can prompt the user to stash or commit.
+     */
+    public void switchBranch(Path workingDir, String branchName)
+            throws IOException, InterruptedException
+    {
+        requireNonNull(branchName, "branchName is null");
+        run(List.of("git", "switch", branchName), workingDir).requireSuccess();
+    }
+
+    /**
      * Deletes the named local branches in a single {@code git branch
      * -D} invocation. {@code -D} is the unconditional form (no merged
      * check) — the cleanup column already encodes the safety filter

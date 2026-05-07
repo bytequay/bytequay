@@ -15,6 +15,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { marked } from 'marked';
 import type { LinkedIssueDto, PullRequestDto } from '../types';
 import Avatar from '../Avatar';
+import MarkdownComposer from '../MarkdownComposer';
 import { formatRelativeTime } from './utils';
 import { inlineLinkedIssueTitles } from './inlineLinkedIssueTitles';
 
@@ -64,6 +65,15 @@ export function DescriptionCard({
       setSaving(false);
     }
   };
+
+  // Size the editor so an existing long description doesn't need
+  // scrolling to read while editing — clamp to a sane window so a
+  // pathological 500-line body doesn't push Save off-screen. The
+  // user can still drag the resize handle for finer control.
+  const composerRows = useMemo(() => {
+    const lines = (draft || body).split('\n').length;
+    return Math.max(8, Math.min(40, lines + 2));
+  }, [draft, body]);
 
   const cleaned = body.replace(/<!--[\s\S]*?-->/g, '').trim();
   // Memoised so the DOM-walk only runs on body / linkedIssues change,
@@ -119,13 +129,14 @@ export function DescriptionCard({
         </header>
         {editing ? (
           <div className="description-card description-card--editing">
-            <textarea
-              className="description-card__textarea"
+            <MarkdownComposer
               value={draft}
-              onChange={(e) => setDraft(e.target.value)}
+              onChange={setDraft}
               placeholder="Describe the change — markdown supported."
+              rows={composerRows}
               disabled={saving}
               autoFocus
+              textareaClassName="description-card__textarea"
             />
             <div className="description-card__actions">
               <button

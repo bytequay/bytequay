@@ -445,7 +445,12 @@
 }
 
 .description-card__textarea {
-  flex: 1 1 0;
+  width: 100%;
+  /* Initial height comes from the `rows` attribute computed in
+     DescriptionCard.tsx — long bodies open with a roomy editor
+     rather than always defaulting to ~180px. The 180px floor and
+     vertical resize handle still apply for short bodies / manual
+     tweaks. */
   min-height: 180px;
   resize: vertical;
   padding: 10px 12px;

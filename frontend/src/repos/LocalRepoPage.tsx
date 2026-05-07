@@ -48,6 +48,11 @@ const COLUMNS: { key: Column; label: string; subtitle: string }[] = [
   },
 ];
 
+// How many branches to show per column before collapsing the rest
+// behind a "Show N more" toggle. Same shape as the PR kanban so
+// big repos don't blow out the viewport with hundreds of cards.
+const COLLAPSED_LIMIT = 6;
+
 const TABS: { key: Tab; label: string }[] = [
   { key: 'branches', label: 'Branches' },
   { key: 'commits', label: 'Commits' },
@@ -105,6 +110,10 @@ function LocalRepoPage({ owner, repo }: Props) {
   // user can cycle through cards with j/k without committing the
   // selection until they hit Enter. Null = no keyboard cursor.
   const [focusedBranch, setFocusedBranch] = useState<string | null>(null);
+  // Columns the user has expanded past the collapsed cap. Branches
+  // beyond {@link COLLAPSED_LIMIT} are hidden until the user clicks
+  // "Show N more" — same pattern as the PR kanban.
+  const [expandedColumns, setExpandedColumns] = useState<Set<Column>>(() => new Set());
 
   const reload = async (signal?: { cancelled: boolean }) => {
     const [all, branchList] = await Promise.all([
@@ -371,6 +380,26 @@ function LocalRepoPage({ owner, repo }: Props) {
       status?.currentBranch, createPrOpen, cleanupConfirmOpen,
       forcePushPrompt, branchFormOpen]);
 
+  // Auto-expand a column when the keyboard cursor lands on a card
+  // that the collapsed view would hide. Otherwise j/k onto the 7th
+  // branch of a column reads as "the keys did nothing" since the
+  // card never renders.
+  useEffect(() => {
+    if (focusedBranch == null) return;
+    for (const col of COLUMNS) {
+      const rows = grouped[col.key];
+      const idx = rows.findIndex(b => b.name === focusedBranch);
+      if (idx >= 0 && idx >= COLLAPSED_LIMIT && !expandedColumns.has(col.key)) {
+        setExpandedColumns(prev => {
+          const next = new Set(prev);
+          next.add(col.key);
+          return next;
+        });
+        break;
+      }
+    }
+  }, [focusedBranch, grouped, expandedColumns]);
+
   // Scroll the keyboard-focused card into view. The kanban can be
   // taller than the viewport on big repos; without this, j/k off-
   // screen feels like the keys aren't doing anything.
@@ -380,6 +409,15 @@ function LocalRepoPage({ owner, repo }: Props) {
         `[data-branch-name="${CSS.escape(focusedBranch)}"]`) as HTMLElement | null;
     el?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
   }, [focusedBranch]);
+
+  const toggleColumnExpanded = (key: Column) => {
+    setExpandedColumns(prev => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  };
 
   const toggleCleanupSelected = (name: string) => {
     setSelectedForCleanup(prev => {
@@ -670,6 +708,9 @@ function LocalRepoPage({ owner, repo }: Props) {
                   selectedActionBranch={selectedBranch}
                   focusedBranch={focusedBranch}
                   currentBranch={status?.currentBranch ?? null}
+                  expanded={expandedColumns.has(col.key)}
+                  collapsedLimit={COLLAPSED_LIMIT}
+                  onToggleExpanded={() => toggleColumnExpanded(col.key)}
                   onSelectForAction={(name) => {
                     // Click the current branch's card to clear the
                     // selection (= "act on HEAD again"); click any
@@ -1213,6 +1254,9 @@ function BranchColumn({
   focusedBranch,
   currentBranch,
   onSelectForAction,
+  expanded,
+  collapsedLimit,
+  onToggleExpanded,
 }: {
   label: string;
   subtitle: string;
@@ -1239,6 +1283,12 @@ function BranchColumn({
   focusedBranch?: string | null;
   currentBranch?: string | null;
   onSelectForAction?: (name: string) => void;
+  /** True when the user has expanded this column past the collapsed
+   *  cap. False shows only the first {@link collapsedLimit} cards
+   *  with a "Show N more" toggle below. */
+  expanded?: boolean;
+  collapsedLimit?: number;
+  onToggleExpanded?: () => void;
 }) {
   const allSelected = selected !== undefined
       && branches.length > 0
@@ -1275,23 +1325,39 @@ function BranchColumn({
       <div className="branches-col__body">
         {branches.length === 0 ? (
           <div className="branches-col__empty">No branches</div>
-        ) : (
-          branches.map(b => (
-            <BranchCard
-              key={b.name}
-              branch={b}
-              selected={selected?.has(b.name) ?? false}
-              onToggleSelected={selected && onToggleSelected
-                ? () => onToggleSelected(b.name) : undefined}
-              onSwitch={onSwitchBranch && !b.isCurrent ? () => onSwitchBranch(b.name) : undefined}
-              switching={switching ?? false}
-              actionSelected={selectedActionBranch === b.name}
-              focused={focusedBranch === b.name}
-              isCurrentHead={currentBranch === b.name}
-              onSelectForAction={onSelectForAction}
-            />
-          ))
-        )}
+        ) : (() => {
+          const limit = collapsedLimit ?? Number.POSITIVE_INFINITY;
+          const visible = expanded ? branches : branches.slice(0, limit);
+          const hidden = branches.length - visible.length;
+          return (
+            <>
+              {visible.map(b => (
+                <BranchCard
+                  key={b.name}
+                  branch={b}
+                  selected={selected?.has(b.name) ?? false}
+                  onToggleSelected={selected && onToggleSelected
+                    ? () => onToggleSelected(b.name) : undefined}
+                  onSwitch={onSwitchBranch && !b.isCurrent ? () => onSwitchBranch(b.name) : undefined}
+                  switching={switching ?? false}
+                  actionSelected={selectedActionBranch === b.name}
+                  focused={focusedBranch === b.name}
+                  isCurrentHead={currentBranch === b.name}
+                  onSelectForAction={onSelectForAction}
+                />
+              ))}
+              {(hidden > 0 || expanded) && onToggleExpanded && (
+                <button
+                  type="button"
+                  className="branches-col__more"
+                  onClick={onToggleExpanded}
+                >
+                  {expanded ? 'Show less ↑' : `Show ${hidden} more ↓`}
+                </button>
+              )}
+            </>
+          );
+        })()}
       </div>
     </section>
   );

@@ -41,6 +41,15 @@ public class GitRunner
 {
     private static final long DEFAULT_TIMEOUT_SECONDS = 30;
 
+    // Runtime-computed control-byte separators. Embedding them as
+    // string literals (e.g. "\0" or with literal US) trips checkstyle's
+    // lexer
+    // because Java resolves Unicode escapes before lexical analysis,
+    // putting actual control bytes in the source. Computing here
+    // keeps the source plain ASCII.
+    private static final String NUL_SEP = String.valueOf((char) 0);
+    private static final String US_SEP = String.valueOf((char) 0x1F);
+
     /**
      * Returns true iff `git --version` succeeded — used as a startup
      * probe so the rest of the local-repo stack can short-circuit
@@ -226,6 +235,69 @@ public class GitRunner
 
     public record BranchRef(String name, String committerDate, String upstream,
                              String upstreamTrack, boolean isCurrent) {}
+
+    /**
+     * Walks {@code git log} on {@code revision} (or HEAD when null)
+     * and returns up to {@code limit} commits, newest first. Powers
+     * the Commits tab. We use {@code -z} so each record is
+     * NUL-terminated, which lets commit subjects safely contain any
+     * byte except NUL — that includes embedded newlines and our
+     * field-separator (US, 0x1F) without escaping logic.
+     *
+     * Bounded latency: {@code git log} on a 100k-commit repo with a
+     * limit of a few hundred completes in milliseconds, so the
+     * default 30s timeout is fine. Larger ranges should page rather
+     * than raising the cap.
+     */
+    public List<CommitEntry> listCommits(Path workingDir, String revision, int limit)
+            throws IOException, InterruptedException
+    {
+        if (limit <= 0) {
+            return List.of();
+        }
+        // %H full sha, %h abbreviated, %an/%ae author, %aI ISO-8601
+        // strict authored timestamp, %s subject. Body deferred until
+        // a "Commit details" drill-in lands.
+        String fmt = "%H" + US_SEP + "%h" + US_SEP + "%an" + US_SEP
+                + "%ae" + US_SEP + "%aI" + US_SEP + "%s";
+        List<String> args = new ArrayList<>(List.of(
+                "git", "log",
+                "--max-count=" + limit,
+                "-z",
+                "--pretty=format:" + fmt));
+        if (revision != null && !revision.isBlank()) {
+            args.add(revision);
+        }
+        GitResult result = run(args, workingDir);
+        result.requireSuccess();
+        String stdout = result.stdout();
+        if (stdout.isEmpty()) {
+            return List.of();
+        }
+        List<CommitEntry> entries = new ArrayList<>();
+        // -z emits records separated by a single NUL with no trailing
+        // NUL on the final record.
+        for (String record : stdout.split(NUL_SEP, -1)) {
+            if (record.isEmpty()) {
+                continue;
+            }
+            String[] parts = record.split(US_SEP, -1);
+            if (parts.length < 6) {
+                continue;
+            }
+            entries.add(new CommitEntry(
+                    parts[0], parts[1], parts[2], parts[3], parts[4], parts[5]));
+        }
+        return List.copyOf(entries);
+    }
+
+    public record CommitEntry(
+            String sha,
+            String shortSha,
+            String authorName,
+            String authorEmail,
+            String authoredAt,
+            String subject) {}
 
     /**
      * Lists all configured remotes for the working tree at

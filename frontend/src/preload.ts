@@ -143,6 +143,8 @@ const bridge: Bridge = {
     ipcRenderer.invoke('repos:locateRepo', owner, repo, path),
   listLocalBranches: (owner: string, repo: string) =>
     ipcRenderer.invoke('repos:listLocalBranches', owner, repo),
+  listLocalCommits: (owner: string, repo: string, revision?: string, limit?: number) =>
+    ipcRenderer.invoke('repos:listLocalCommits', owner, repo, revision, limit),
   fetchLocalRepo: (owner: string, repo: string) =>
     ipcRenderer.invoke('repos:fetchLocal', owner, repo),
   pullLocalRepo: (owner: string, repo: string) =>

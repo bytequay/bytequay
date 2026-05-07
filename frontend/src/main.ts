@@ -1035,6 +1035,24 @@ const url = new URL(`${BACKEND_BASE}/prs/comment`);
     return res.json();
   });
 
+  ipcMain.handle('repos:listLocalCommits', async (
+    _event, owner: string, repo: string, revision?: string, limit?: number,
+  ) => {
+    const params = new URLSearchParams();
+    if (revision && revision.trim()) params.set('revision', revision.trim());
+    if (typeof limit === 'number' && limit > 0) params.set('limit', String(limit));
+    const query = params.toString();
+    const res = await fetch(
+      `${BACKEND_BASE}/api/repos/local/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/commits`
+        + (query ? `?${query}` : ''),
+    );
+    if (!res.ok) {
+      const body = await res.text().catch(() => '');
+      throw new Error(extractMessage(body) || `commits failed (${res.status})`);
+    }
+    return res.json();
+  });
+
   ipcMain.handle('repos:listLocalBranches', async (
     _event, owner: string, repo: string,
   ) => {

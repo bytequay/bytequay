@@ -14,6 +14,7 @@
 package com.bytequay.app.web;
 
 import com.bytequay.app.domain.LocalBranch;
+import com.bytequay.app.domain.LocalCommit;
 import com.bytequay.app.domain.LocalRepoStatus;
 import com.bytequay.app.repository.WatchedRepoStore;
 import com.bytequay.app.service.local.GitRunner;
@@ -25,6 +26,7 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.server.ResponseStatusException;
 
@@ -176,6 +178,40 @@ public class LocalRepoController
         catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE, "branch listing interrupted");
+        }
+    }
+
+    /**
+     * GET /api/repos/local/{owner}/{repo}/commits — recent commits on
+     * {@code revision} (default HEAD). {@code limit} is capped server-
+     * side so a runaway request can't ask {@code git log} for the
+     * entire history of a million-commit repo.
+     */
+    @GetMapping("/{owner}/{repo}/commits")
+    public List<LocalCommit> listCommits(
+            @PathVariable("owner") String owner,
+            @PathVariable("repo") String repo,
+            @RequestParam(name = "revision", required = false) String revision,
+            @RequestParam(name = "limit", required = false, defaultValue = "100") int limit)
+    {
+        // Cap matches what the Commits tab UI scrolls without paging.
+        // Bump together when paging lands.
+        int capped = Math.min(Math.max(limit, 1), 500);
+        try {
+            return localRepoService.listCommits(owner, repo, revision, capped);
+        }
+        catch (IllegalStateException e) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, e.getMessage());
+        }
+        catch (GitRunner.GitCommandException e) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, e.stderr().strip());
+        }
+        catch (IOException e) {
+            throw new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR, e.getMessage());
+        }
+        catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE, "commit listing interrupted");
         }
     }
 

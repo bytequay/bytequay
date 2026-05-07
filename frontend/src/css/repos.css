@@ -534,6 +534,61 @@
   line-height: 1.5;
 }
 
+/* Commits tab: dense one-row-per-commit layout. SHA chip on the
+   left, subject on its own line, author + relative time below.
+   Resembles `git log --oneline` more than github.com — better fit
+   for fast scrolling through recent history. */
+.commits-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+}
+.commit-row {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--border);
+}
+.commit-row:last-child {
+  border-bottom: none;
+}
+.commit-row__sha {
+  flex: 0 0 auto;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, monospace;
+  font-size: 12px;
+  color: var(--accent);
+  background: rgba(99, 102, 241, 0.08);
+  border-radius: 4px;
+  padding: 2px 6px;
+  margin-top: 1px;
+}
+.commit-row__main {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.commit-row__subject {
+  font-size: 13px;
+  color: var(--text-1);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.commit-row__meta {
+  display: flex;
+  gap: 10px;
+  font-size: 12px;
+  color: var(--text-3);
+  margin-top: 2px;
+}
+.commit-row__author {
+  font-weight: 500;
+}
+
 /* Branches kanban. Three columns with a colored 3px top border —
    parallels the PR kanban's visual rhythm. CLEAN UP column ships in
    a follow-up commit. */

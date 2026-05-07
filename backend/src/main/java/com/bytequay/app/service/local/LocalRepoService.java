@@ -14,6 +14,7 @@
 package com.bytequay.app.service.local;
 
 import com.bytequay.app.domain.LocalBranch;
+import com.bytequay.app.domain.LocalCommit;
 import com.bytequay.app.domain.LocalRepoStatus;
 import com.bytequay.app.domain.WatchedRepo;
 import com.bytequay.app.repository.WatchedRepoStore;
@@ -306,6 +307,32 @@ public class LocalRepoService
         return gitRunner.listBranches(path).stream()
                 .map(LocalRepoService::toLocalBranch)
                 .collect(toImmutableList());
+    }
+
+    /**
+     * Returns the most recent commits on {@code revision} (or HEAD
+     * when null/blank) of the watched repo's local clone. The cap
+     * mirrors what the Commits tab renders without paging — small
+     * enough that {@code git log} stays sub-100ms even on big repos.
+     */
+    public List<LocalCommit> listCommits(String owner, String repo, String revision, int limit)
+            throws IOException, InterruptedException
+    {
+        Path path = clonePathOrThrow(owner, repo);
+        return gitRunner.listCommits(path, revision, limit).stream()
+                .map(LocalRepoService::toLocalCommit)
+                .collect(toImmutableList());
+    }
+
+    private static LocalCommit toLocalCommit(GitRunner.CommitEntry e)
+    {
+        return new LocalCommit(
+                e.sha(),
+                e.shortSha(),
+                e.subject(),
+                e.authorName(),
+                e.authorEmail(),
+                parseIsoOrNull(e.authoredAt()));
     }
 
     /** Pulls "ahead 5, behind 2" or "[ahead 5]" out of git's

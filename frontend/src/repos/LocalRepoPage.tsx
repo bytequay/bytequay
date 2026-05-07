@@ -12,7 +12,7 @@
  * limitations under the License.
  */
 import { useEffect, useState } from 'react';
-import type { LocalBranchDto, LocalRepoStatusDto } from '../types';
+import type { LocalBranchDto, LocalCommitDto, LocalRepoStatusDto } from '../types';
 import LogoLoading from '../LogoLoading';
 import { formatRelativeTime } from '../pr/utils';
 
@@ -406,24 +406,96 @@ function LocalRepoPage({ owner, repo, onBack }: Props) {
         </>
       )}
 
-      {tab === 'commits' && <CommitsTab />}
+      {tab === 'commits' && (
+        <CommitsTab
+          owner={owner}
+          repo={repo}
+          // Refetch when the current branch flips so the user sees
+          // the right history after switching with + Branch / pull.
+          revisionKey={status?.currentBranch ?? ''}
+        />
+      )}
       {tab === 'activity' && <ActivityTab />}
     </div>
   );
 }
 
-// Placeholder until `git log --pretty` wiring lands. Keeping the
-// component shell here so the tab strip's behavior is exercisable now
-// and the slot is obvious for the next slice.
-function CommitsTab() {
+function CommitsTab({
+  owner,
+  repo,
+  revisionKey,
+}: {
+  owner: string;
+  repo: string;
+  revisionKey: string;
+}) {
+  const [commits, setCommits] = useState<LocalCommitDto[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    setCommits(null);
+    setError(null);
+    // Pass undefined revision so the backend uses HEAD — saves a
+    // round-trip when revisionKey is the empty string (detached or
+    // not-yet-loaded state).
+    const rev = revisionKey || undefined;
+    window.bridge.listLocalCommits(owner, repo, rev, 100)
+      .then(rows => { if (!cancelled) setCommits(rows); })
+      .catch(e => { if (!cancelled) setError(e instanceof Error ? e.message : String(e)); });
+    return () => { cancelled = true; };
+  }, [owner, repo, revisionKey]);
+
+  if (error) {
+    return (
+      <div className="local-repo-page__error">
+        Couldn't load commits: {error}
+      </div>
+    );
+  }
+  if (commits === null) {
+    return (
+      <div className="local-repo-page__loading">
+        <LogoLoading size={48} label="Loading commits" />
+      </div>
+    );
+  }
+  if (commits.length === 0) {
+    return (
+      <div className="local-repo-tab-placeholder">
+        <div className="local-repo-tab-placeholder__title">No commits</div>
+        <p className="local-repo-tab-placeholder__body">
+          The current branch has no commits to show, or HEAD is
+          detached and points at no history.
+        </p>
+      </div>
+    );
+  }
   return (
-    <div className="local-repo-tab-placeholder">
-      <div className="local-repo-tab-placeholder__title">Commits</div>
-      <p className="local-repo-tab-placeholder__body">
-        Commit history for the current branch will land here — graph,
-        author, message, diff drill-in. Coming in a follow-up slice.
-      </p>
-    </div>
+    <ol className="commits-list">
+      {commits.map(c => <CommitRow key={c.sha} commit={c} />)}
+    </ol>
+  );
+}
+
+function CommitRow({ commit }: { commit: LocalCommitDto }) {
+  return (
+    <li className="commit-row">
+      <code className="commit-row__sha" title={commit.sha}>{commit.shortSha}</code>
+      <div className="commit-row__main">
+        <div className="commit-row__subject">{commit.subject}</div>
+        <div className="commit-row__meta">
+          <span className="commit-row__author" title={commit.authorEmail}>
+            {commit.authorName}
+          </span>
+          {commit.authoredAt && (
+            <span className="commit-row__time" title={commit.authoredAt}>
+              {formatRelativeTime(commit.authoredAt)}
+            </span>
+          )}
+        </div>
+      </div>
+    </li>
   );
 }
 

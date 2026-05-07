@@ -698,6 +698,22 @@ export type LocalBranchDto = {
   linkedPrNumber: number | null;
 };
 
+export type LocalCommitDto = {
+  /** Full 40-char SHA — used as React key and for any future
+   *  drill-in lookups. */
+  sha: string;
+  /** Abbreviated SHA (typically 7 chars) for display. */
+  shortSha: string;
+  /** Commit subject (first line of the message). */
+  subject: string;
+  authorName: string;
+  authorEmail: string;
+  /** ISO 8601 strict authored timestamp, or null when git couldn't
+   *  parse it. Author (not committer) so rebases/amends preserve
+   *  the time the user thinks of as "when I wrote this." */
+  authoredAt: string | null;
+};
+
 export type Bridge = {
   savePat: (pat: string) => Promise<boolean>;
   hasPat: () => Promise<boolean>;
@@ -819,6 +835,11 @@ export type Bridge = {
    *  enough metadata to decide column placement and render the inline
    *  ahead/behind + last-commit chips. */
   listLocalBranches: (owner: string, repo: string) => Promise<LocalBranchDto[]>;
+  /** Recent commits on `revision` (default HEAD). `limit` is server-
+   *  capped at 500. Powers the Commits tab. */
+  listLocalCommits: (
+    owner: string, repo: string, revision?: string, limit?: number,
+  ) => Promise<LocalCommitDto[]>;
   /** `git fetch --all --prune` against the watched repo's clone.
    *  Returns the refreshed status row. */
   fetchLocalRepo: (owner: string, repo: string) => Promise<LocalRepoStatusDto>;

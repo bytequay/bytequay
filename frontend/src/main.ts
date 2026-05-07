@@ -1003,6 +1003,24 @@ const url = new URL(`${BACKEND_BASE}/prs/comment`);
     return res.json();
   });
 
+  ipcMain.handle('repos:pushLocalForce', async (
+    _event, owner: string, repo: string,
+  ) => {
+    const res = await fetch(
+      `${BACKEND_BASE}/api/repos/local/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/push-force`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ confirmed: true }),
+      },
+    );
+    if (!res.ok) {
+      const body = await res.text().catch(() => '');
+      throw new Error(extractMessage(body) || `force push failed (${res.status})`);
+    }
+    return res.json();
+  });
+
   ipcMain.handle('repos:pushLocal', async (
     _event, owner: string, repo: string,
   ) => {

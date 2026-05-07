@@ -160,22 +160,43 @@ public class GitRunner
      * Plain {@code git push} on the current branch. With no upstream
      * tracking ref configured we add {@code -u origin <branch>} so
      * the push lands the branch on the user's fork (origin) and
-     * sets it up to track from then on. Force-push is intentionally
-     * not supported here — the user can run that from the terminal
-     * until ByteQuay grows a {@code --force-with-lease} affordance
-     * with confirmation UX.
+     * sets it up to track from then on.
      */
     public void push(Path workingDir)
             throws IOException, InterruptedException
     {
-        GitResult result = run(
-                List.of("git", "push"),
-                workingDir,
-                300);
+        runPush(workingDir, false);
+    }
+
+    /**
+     * {@code git push --force-with-lease} — overwrites the remote
+     * branch only if its tip still matches what the local clone last
+     * saw. That guard rejects the push when someone else pushed in
+     * between, so the user doesn't blow away a teammate's commit by
+     * accident. Strictly safer than {@code --force}; we never expose
+     * plain force-push. The caller is expected to gate this behind
+     * an explicit confirmation in the UI.
+     */
+    public void pushForceWithLease(Path workingDir)
+            throws IOException, InterruptedException
+    {
+        runPush(workingDir, true);
+    }
+
+    private void runPush(Path workingDir, boolean forceWithLease)
+            throws IOException, InterruptedException
+    {
+        List<String> args = forceWithLease
+                ? List.of("git", "push", "--force-with-lease")
+                : List.of("git", "push");
+        GitResult result = run(args, workingDir, 300);
         // Exit code 128 + "fatal: The current branch ... has no
         // upstream branch" is the most common first-push case —
         // fall back to `git push -u origin HEAD` so it works
         // without forcing the user to set tracking up by hand.
+        // --force-with-lease has nothing to compare against on a
+        // first push, so plain `-u origin HEAD` is the right fallback
+        // for both modes.
         if (result.exitCode() != 0
                 && result.stderr().contains("has no upstream branch")) {
             run(List.of("git", "push", "-u", "origin", "HEAD"), workingDir, 300)

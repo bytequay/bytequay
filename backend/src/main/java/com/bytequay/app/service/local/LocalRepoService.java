@@ -253,14 +253,28 @@ public class LocalRepoService
     /**
      * Pushes the current branch upstream. First-time pushes (no
      * tracking ref yet) are auto-set up via {@code -u origin HEAD}.
-     * Non-fast-forward pushes fail loudly — force-with-lease lives
-     * behind a future confirmation UX.
+     * Non-fast-forward pushes fail loudly; the caller can retry via
+     * {@link #pushForceWithLease} after confirming with the user.
      */
     public LocalRepoStatus push(String owner, String repo)
             throws IOException, InterruptedException
     {
         Path path = clonePathOrThrow(owner, repo);
         gitRunner.push(path);
+        return statusOf(refreshWatchedRepo(owner, repo));
+    }
+
+    /**
+     * {@code git push --force-with-lease} on the current branch.
+     * Caller must have already obtained explicit user confirmation —
+     * this method does not check; the controller's request body
+     * carries a {@code confirmed} flag that gates entry.
+     */
+    public LocalRepoStatus pushForceWithLease(String owner, String repo)
+            throws IOException, InterruptedException
+    {
+        Path path = clonePathOrThrow(owner, repo);
+        gitRunner.pushForceWithLease(path);
         return statusOf(refreshWatchedRepo(owner, repo));
     }
 

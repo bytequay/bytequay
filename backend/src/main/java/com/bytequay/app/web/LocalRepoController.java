@@ -256,6 +256,26 @@ public class LocalRepoController
     }
 
     /**
+     * POST /api/repos/local/{owner}/{repo}/push-force —
+     * {@code git push --force-with-lease}. Refuses to act unless the
+     * request body includes {@code "confirmed": true}, so a missing
+     * confirmation reads as a 400 rather than silently rewriting
+     * remote history.
+     */
+    @PostMapping("/{owner}/{repo}/push-force")
+    public LocalRepoStatus pushForce(
+            @PathVariable("owner") String owner,
+            @PathVariable("repo") String repo,
+            @RequestBody(required = false) ForcePushRequest body)
+    {
+        if (body == null || !body.confirmed()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    "Force-with-lease push requires explicit user confirmation");
+        }
+        return runGitOperation(() -> localRepoService.pushForceWithLease(owner, repo));
+    }
+
+    /**
      * POST /api/repos/local/{owner}/{repo}/branches — creates a new
      * branch from {@code body.base} (or current HEAD when omitted)
      * and switches to it. Returns 400 on missing/blank name, 409
@@ -308,4 +328,5 @@ public class LocalRepoController
     public record CloneRequest(String destination) {}
     public record DefaultClonePathResponse(String defaultPath) {}
     public record CreateBranchRequest(String name, String base) {}
+    public record ForcePushRequest(boolean confirmed) {}
 }

@@ -849,8 +849,13 @@ export type Bridge = {
   pullLocalRepo: (owner: string, repo: string) => Promise<LocalRepoStatusDto>;
   /** Pushes the current branch. First-time pushes auto-set tracking
    *  via `-u origin HEAD`. Non-fast-forward errors carry git's
-   *  stderr — surfaced inline; force-push isn't supported here. */
+   *  stderr — surfaced inline so the caller can decide whether to
+   *  force-with-lease. */
   pushLocalRepo: (owner: string, repo: string) => Promise<LocalRepoStatusDto>;
+  /** `git push --force-with-lease`. Backend rejects unless this IPC
+   *  is invoked, so the caller is responsible for confirming with
+   *  the user before calling. */
+  pushLocalRepoForce: (owner: string, repo: string) => Promise<LocalRepoStatusDto>;
   /** Creates a new local branch from `base` (or current HEAD when
    *  omitted) and switches to it. */
   createLocalBranch: (

@@ -589,6 +589,75 @@
   font-weight: 500;
 }
 
+/* Force-push confirmation modal. Sits over the local-repo page;
+   the backdrop swallows clicks so the user has to make an explicit
+   Cancel/Confirm choice rather than dismissing accidentally. */
+.force-push-modal {
+  position: fixed;
+  inset: 0;
+  z-index: 200;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 24px;
+}
+.force-push-modal__backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(0, 0, 0, 0.42);
+}
+.force-push-modal__panel {
+  position: relative;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 20px 22px;
+  width: min(560px, 100%);
+  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.36);
+}
+.force-push-modal__title {
+  margin: 0 0 10px;
+  font-size: 16px;
+  color: var(--text-1);
+}
+.force-push-modal__body {
+  margin: 0 0 12px;
+  font-size: 13px;
+  color: var(--text-2);
+  line-height: 1.55;
+}
+.force-push-modal__body code,
+.force-push-modal__warning code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, monospace;
+  font-size: 12px;
+  background: var(--bg-card);
+  border-radius: 4px;
+  padding: 1px 5px;
+}
+.force-push-modal__stderr {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 8px 10px;
+  font-size: 12px;
+  color: var(--text-2);
+  max-height: 160px;
+  overflow: auto;
+  white-space: pre-wrap;
+  margin: 0 0 12px;
+}
+.force-push-modal__warning {
+  margin: 0 0 16px;
+  font-size: 12px;
+  color: #b91c1c;
+  line-height: 1.5;
+}
+.force-push-modal__actions {
+  display: flex;
+  gap: 8px;
+  justify-content: flex-end;
+}
+
 /* Branches kanban. Three columns with a colored 3px top border —
    parallels the PR kanban's visual rhythm. CLEAN UP column ships in
    a follow-up commit. */

@@ -68,6 +68,10 @@ function LocalRepoPage({ owner, repo, onBack }: Props) {
   // git ops in the same working tree.
   const [actionState, setActionState] = useState<'idle' | 'fetching' | 'pulling' | 'pushing' | 'branching'>('idle');
   const [actionError, setActionError] = useState<string | null>(null);
+  // Set when a push failed in a way that suggests force-with-lease
+  // would resolve it (non-fast-forward / "updates were rejected").
+  // Holds git's stderr so the modal can show the user exactly why.
+  const [forcePushPrompt, setForcePushPrompt] = useState<string | null>(null);
   // The +Branch popover is small enough not to warrant a full modal —
   // it's an inline disclosure right under the action bar.
   const [branchFormOpen, setBranchFormOpen] = useState(false);
@@ -134,6 +138,30 @@ function LocalRepoPage({ owner, repo, onBack }: Props) {
     setActionError(null);
     try {
       const fresh = await window.bridge.pushLocalRepo(owner, repo);
+      setStatus(fresh);
+      const fresher = await window.bridge.listLocalBranches(owner, repo);
+      setBranches(fresher);
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      setActionError(msg);
+      // git's "non-fast-forward" rejection surfaces with these
+      // stderr fragments. When we see them, offer the force-push
+      // path instead of leaving the user to copy-paste from a
+      // terminal — that's the whole point of this affordance.
+      if (looksLikeNonFastForward(msg)) {
+        setForcePushPrompt(msg);
+      }
+    } finally {
+      setActionState('idle');
+    }
+  };
+
+  const runForcePush = async () => {
+    setActionState('pushing');
+    setActionError(null);
+    setForcePushPrompt(null);
+    try {
+      const fresh = await window.bridge.pushLocalRepoForce(owner, repo);
       setStatus(fresh);
       const fresher = await window.bridge.listLocalBranches(owner, repo);
       setBranches(fresher);
@@ -406,6 +434,18 @@ function LocalRepoPage({ owner, repo, onBack }: Props) {
         </>
       )}
 
+      {forcePushPrompt && (
+        <ForcePushModal
+          owner={owner}
+          repo={repo}
+          branch={status?.currentBranch}
+          stderr={forcePushPrompt}
+          busy={actionState === 'pushing'}
+          onCancel={() => setForcePushPrompt(null)}
+          onConfirm={runForcePush}
+        />
+      )}
+
       {tab === 'commits' && (
         <CommitsTab
           owner={owner}
@@ -416,6 +456,77 @@ function LocalRepoPage({ owner, repo, onBack }: Props) {
         />
       )}
       {tab === 'activity' && <ActivityTab />}
+    </div>
+  );
+}
+
+function looksLikeNonFastForward(stderr: string): boolean {
+  // git's non-fast-forward rejection looks like:
+  //   ! [rejected]        feat -> feat (non-fast-forward)
+  //   error: failed to push some refs to ...
+  //   hint: Updates were rejected because the tip of your current branch is behind
+  // We match on a couple of stable substrings rather than the full
+  // banner so locale changes / version drift don't break detection.
+  const lower = stderr.toLowerCase();
+  return lower.includes('non-fast-forward')
+      || lower.includes('updates were rejected')
+      || lower.includes('failed to push some refs');
+}
+
+function ForcePushModal({
+  owner,
+  repo,
+  branch,
+  stderr,
+  busy,
+  onCancel,
+  onConfirm,
+}: {
+  owner: string;
+  repo: string;
+  branch: string | null | undefined;
+  stderr: string;
+  busy: boolean;
+  onCancel: () => void;
+  onConfirm: () => void;
+}) {
+  return (
+    <div className="force-push-modal" role="dialog" aria-modal="true">
+      <div className="force-push-modal__backdrop" onClick={busy ? undefined : onCancel} />
+      <div className="force-push-modal__panel">
+        <h2 className="force-push-modal__title">Force push with lease?</h2>
+        <p className="force-push-modal__body">
+          Pushing <code>{branch ?? 'HEAD'}</code> to{' '}
+          <code>{owner}/{repo}</code> was rejected because the local
+          branch isn't a fast-forward. ByteQuay can retry with{' '}
+          <code>--force-with-lease</code>: that overwrites the remote
+          tip <strong>only if it still matches what you last fetched</strong>,
+          so you won't accidentally clobber a teammate's commit.
+        </p>
+        <pre className="force-push-modal__stderr">{stderr}</pre>
+        <p className="force-push-modal__warning">
+          This rewrites remote history for this branch. Anyone who
+          already pulled the old tip will need to re-sync.
+        </p>
+        <div className="force-push-modal__actions">
+          <button
+            type="button"
+            className="button button--secondary button--sm"
+            onClick={onCancel}
+            disabled={busy}
+          >
+            Cancel
+          </button>
+          <button
+            type="button"
+            className="button button--danger button--sm"
+            onClick={onConfirm}
+            disabled={busy}
+          >
+            {busy ? 'Pushing…' : 'Force push with lease'}
+          </button>
+        </div>
+      </div>
     </div>
   );
 }

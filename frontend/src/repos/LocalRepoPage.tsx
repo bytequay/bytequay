@@ -59,8 +59,13 @@ function LocalRepoPage({ owner, repo, onBack }: Props) {
   // without freezing the whole bar; the action bar disables all
   // buttons while any one is running so we don't fire concurrent
   // git ops in the same working tree.
-  const [actionState, setActionState] = useState<'idle' | 'fetching' | 'pulling' | 'pushing'>('idle');
+  const [actionState, setActionState] = useState<'idle' | 'fetching' | 'pulling' | 'pushing' | 'branching'>('idle');
   const [actionError, setActionError] = useState<string | null>(null);
+  // The +Branch popover is small enough not to warrant a full modal —
+  // it's an inline disclosure right under the action bar.
+  const [branchFormOpen, setBranchFormOpen] = useState(false);
+  const [newBranchName, setNewBranchName] = useState('');
+  const [newBranchBase, setNewBranchBase] = useState('');
 
   const reload = async (signal?: { cancelled: boolean }) => {
     const [all, branchList] = await Promise.all([
@@ -131,6 +136,27 @@ function LocalRepoPage({ owner, repo, onBack }: Props) {
     }
   };
 
+  const runCreateBranch = async () => {
+    const name = newBranchName.trim();
+    if (!name) return;
+    setActionState('branching');
+    setActionError(null);
+    try {
+      const base = newBranchBase.trim();
+      const fresh = await window.bridge.createLocalBranch(owner, repo, name, base || undefined);
+      setStatus(fresh);
+      const fresher = await window.bridge.listLocalBranches(owner, repo);
+      setBranches(fresher);
+      setNewBranchName('');
+      setNewBranchBase('');
+      setBranchFormOpen(false);
+    } catch (e) {
+      setActionError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setActionState('idle');
+    }
+  };
+
   const grouped = groupByColumn(branches ?? []);
 
   return (
@@ -192,7 +218,74 @@ function LocalRepoPage({ owner, repo, onBack }: Props) {
           >
             {actionState === 'pushing' ? 'Pushing…' : '↑ Push'}
           </button>
+          <button
+            type="button"
+            className="button button--secondary button--sm"
+            onClick={() => setBranchFormOpen(v => !v)}
+            disabled={actionState !== 'idle' || !status?.localClonePath}
+            title="Create a new branch and switch to it"
+          >
+            + Branch
+          </button>
         </div>
+        {branchFormOpen && (
+          <div className="local-repo-page__branch-form">
+            <div className="local-repo-page__branch-form-row">
+              <label>
+                <span>Name</span>
+                <input
+                  type="text"
+                  value={newBranchName}
+                  onChange={(e) => setNewBranchName(e.target.value)}
+                  placeholder="feat/my-change"
+                  disabled={actionState === 'branching'}
+                  autoFocus
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') { e.preventDefault(); void runCreateBranch(); }
+                    if (e.key === 'Escape') { setBranchFormOpen(false); }
+                  }}
+                />
+              </label>
+              <label>
+                <span>From (optional)</span>
+                <input
+                  type="text"
+                  value={newBranchBase}
+                  onChange={(e) => setNewBranchBase(e.target.value)}
+                  placeholder={status?.currentBranch ?? 'current HEAD'}
+                  disabled={actionState === 'branching'}
+                  list="local-repo-page__branch-bases"
+                />
+                {/* Autocomplete out of the existing branch list — saves
+                    the user typing common starting points like
+                    upstream/master. */}
+                <datalist id="local-repo-page__branch-bases">
+                  {branches?.map(b => (
+                    <option key={b.name} value={b.name} />
+                  ))}
+                </datalist>
+              </label>
+              <div className="local-repo-page__branch-form-actions">
+                <button
+                  type="button"
+                  className="button button--secondary button--sm"
+                  onClick={() => { setBranchFormOpen(false); setNewBranchName(''); setNewBranchBase(''); }}
+                  disabled={actionState === 'branching'}
+                >
+                  Cancel
+                </button>
+                <button
+                  type="button"
+                  className="button button--primary button--sm"
+                  onClick={() => { void runCreateBranch(); }}
+                  disabled={actionState === 'branching' || !newBranchName.trim()}
+                >
+                  {actionState === 'branching' ? 'Creating…' : 'Create'}
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
         {actionError && (
           <div className="local-repo-page__action-error">{actionError}</div>
         )}

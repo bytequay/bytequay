@@ -830,6 +830,11 @@ export type Bridge = {
    *  via `-u origin HEAD`. Non-fast-forward errors carry git's
    *  stderr — surfaced inline; force-push isn't supported here. */
   pushLocalRepo: (owner: string, repo: string) => Promise<LocalRepoStatusDto>;
+  /** Creates a new local branch from `base` (or current HEAD when
+   *  omitted) and switches to it. */
+  createLocalBranch: (
+    owner: string, repo: string, name: string, base?: string,
+  ) => Promise<LocalRepoStatusDto>;
   getUserRepos: () => Promise<UserRepoDto[]>;
   getUserOrgs: () => Promise<UserOrgDto[]>;
   searchRepos: (query: string) => Promise<UserRepoDto[]>;

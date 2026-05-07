@@ -424,6 +424,48 @@
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, monospace;
   white-space: pre-wrap;
 }
+
+/* Inline +Branch popover. Renders just under the action bar so the
+   user's eye doesn't have to leave the row that triggered it. */
+.local-repo-page__branch-form {
+  margin-top: 8px;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 10px 12px;
+}
+.local-repo-page__branch-form-row {
+  display: grid;
+  grid-template-columns: 1fr 1fr auto;
+  gap: 10px;
+  align-items: end;
+}
+.local-repo-page__branch-form-row label {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 11px;
+  color: var(--text-3);
+}
+.local-repo-page__branch-form-row input {
+  padding: 6px 8px;
+  border: 1px solid var(--border);
+  border-radius: 5px;
+  background: var(--bg-base);
+  color: var(--text-1);
+  font: inherit;
+  font-size: 12.5px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, monospace;
+}
+.local-repo-page__branch-form-row input:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 2px var(--accent-a10);
+}
+.local-repo-page__branch-form-actions {
+  display: flex;
+  gap: 6px;
+}
 .local-repo-page__error {
   background: rgba(207, 34, 46, 0.08);
   border: 1px solid rgba(207, 34, 46, 0.30);

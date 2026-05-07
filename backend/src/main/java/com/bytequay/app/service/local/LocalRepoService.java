@@ -263,6 +263,23 @@ public class LocalRepoService
         return statusOf(refreshWatchedRepo(owner, repo));
     }
 
+    /**
+     * Creates {@code branchName} from {@code baseRef} (or current
+     * HEAD when null) and switches to it. Returns the refreshed
+     * status row so the UI can update the current-branch chip
+     * without a re-list.
+     */
+    public LocalRepoStatus createBranch(String owner, String repo, String branchName, String baseRef)
+            throws IOException, InterruptedException
+    {
+        Path path = clonePathOrThrow(owner, repo);
+        if (branchName == null || branchName.isBlank()) {
+            throw new IllegalArgumentException("Branch name is required");
+        }
+        gitRunner.createBranch(path, branchName.trim(), baseRef);
+        return statusOf(refreshWatchedRepo(owner, repo));
+    }
+
     private Path clonePathOrThrow(String owner, String repo)
     {
         WatchedRepo watched = refreshWatchedRepo(owner, repo);

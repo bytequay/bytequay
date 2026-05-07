@@ -219,6 +219,24 @@ public class LocalRepoController
         return runGitOperation(() -> localRepoService.push(owner, repo));
     }
 
+    /**
+     * POST /api/repos/local/{owner}/{repo}/branches — creates a new
+     * branch from {@code body.base} (or current HEAD when omitted)
+     * and switches to it. Returns 400 on missing/blank name, 409
+     * when git refuses (e.g. branch already exists).
+     */
+    @PostMapping("/{owner}/{repo}/branches")
+    public LocalRepoStatus createBranch(
+            @PathVariable("owner") String owner,
+            @PathVariable("repo") String repo,
+            @RequestBody CreateBranchRequest body)
+    {
+        if (body == null || body.name() == null || body.name().isBlank()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "name is required");
+        }
+        return runGitOperation(() -> localRepoService.createBranch(owner, repo, body.name(), body.base()));
+    }
+
     private LocalRepoStatus runGitOperation(GitOp op)
     {
         try {
@@ -253,4 +271,5 @@ public class LocalRepoController
     public record PathRequest(String path) {}
     public record CloneRequest(String destination) {}
     public record DefaultClonePathResponse(String defaultPath) {}
+    public record CreateBranchRequest(String name, String base) {}
 }

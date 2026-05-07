@@ -130,6 +130,24 @@ public class GitRunner
     }
 
     /**
+     * Creates {@code branchName} starting from {@code baseRef} (or
+     * the current HEAD when null) and switches to it. The fast,
+     * single-command path is {@code git switch -c <name> [<base>]}.
+     * Throws on conflicting names — git's "already exists" stderr
+     * surfaces verbatim through the controller's 409 mapping.
+     */
+    public void createBranch(Path workingDir, String branchName, String baseRef)
+            throws IOException, InterruptedException
+    {
+        requireNonNull(branchName, "branchName is null");
+        List<String> args = new ArrayList<>(List.of("git", "switch", "-c", branchName));
+        if (baseRef != null && !baseRef.isBlank()) {
+            args.add(baseRef);
+        }
+        run(args, workingDir).requireSuccess();
+    }
+
+    /**
      * Plain {@code git push} on the current branch. With no upstream
      * tracking ref configured we add {@code -u origin <branch>} so
      * the push lands the branch on the user's fork (origin) and

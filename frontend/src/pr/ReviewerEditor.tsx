@@ -115,6 +115,25 @@ export function ReviewerEditor({
     }
   };
 
+  // GitHub's POST /requested_reviewers is the same endpoint whether
+  // we're requesting for the first time or re-requesting after a
+  // verdict has already landed — the bridge call is identical to
+  // {@code add()}. We track a per-login "busy" set so the spinner
+  // sits on the row that was clicked, not on the whole sidebar.
+  const [reRequesting, setReRequesting] = useState<Set<string>>(new Set());
+  const reRequest = async (login: string) => {
+    setReRequesting(prev => { const next = new Set(prev); next.add(login); return next; });
+    setError(null);
+    try {
+      await window.bridge.addRequestedReviewer(pr.repo, pr.number, login);
+      void onRefresh().catch(() => { /* best-effort */ });
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setReRequesting(prev => { const next = new Set(prev); next.delete(login); return next; });
+    }
+  };
+
   const add = async (loginOverride?: string) => {
     const login = (loginOverride ?? newLogin).trim();
     if (!login) return;
@@ -144,7 +163,11 @@ export function ReviewerEditor({
         <div key={login} className="prc-reviewer-row">
           <Avatar login={login} size={20} />
           <span className="prc-reviewer-name">{login}</span>
-          <span className="prc-reviewer-status prc-reviewer-status--pending">pending</span>
+          <span
+            className="prc-reviewer-dot prc-reviewer-dot--pending"
+            title="Review requested — waiting for response"
+            aria-label="pending"
+          />
           <button
             type="button"
             className="prc-reviewer-remove"
@@ -157,15 +180,26 @@ export function ReviewerEditor({
           </button>
         </div>
       ))}
-      {past.map(([login, verdict]) => (
-        <div key={login} className="prc-reviewer-row">
-          <Avatar login={login} size={20} />
-          <span className="prc-reviewer-name">{login}</span>
-          <span className={`prc-reviewer-status prc-reviewer-status--${verdict.toLowerCase()}`}>
-            {verdict.replace(/_/g, ' ').toLowerCase()}
-          </span>
-        </div>
-      ))}
+      {past.map(([login, verdict]) => {
+        const busy = reRequesting.has(login);
+        return (
+          <div key={login} className="prc-reviewer-row">
+            <Avatar login={login} size={20} />
+            <span className="prc-reviewer-name">{login}</span>
+            <button
+              type="button"
+              className="prc-reviewer-rerequest"
+              onClick={() => { void reRequest(login); }}
+              disabled={busy}
+              title={`Re-request review from ${login}`}
+              aria-label={`Re-request review from ${login}`}
+            >
+              {busy ? '…' : '↻'}
+            </button>
+            <ReviewerVerdictIcon verdict={verdict} />
+          </div>
+        );
+      })}
       {adding && suggestedRecs.length > 0 && (
         <div className="prc-reviewer-suggested-row">
           <span className="prc-reviewer-suggested-row__label">Suggested:</span>
@@ -282,5 +316,35 @@ export function ReviewerEditor({
       )}
       {error && <div className="prc-reviewer-error">{error}</div>}
     </>
+  );
+}
+
+/** Compact icon + label combo that surfaces the reviewer's last verdict.
+ *  Glyphs intentionally match github.com's sidebar: ✓ for approved,
+ *  ✗ for changes requested, 💬 for a plain comment. The text is
+ *  conveyed via the title attribute so the row stays visually quiet. */
+function ReviewerVerdictIcon({ verdict }: { verdict: string }) {
+  const v = verdict.toUpperCase();
+  if (v === 'APPROVED') {
+    return (
+      <span className="prc-reviewer-verdict prc-reviewer-verdict--approved" title="Approved" aria-label="approved">
+        ✓
+      </span>
+    );
+  }
+  if (v === 'CHANGES_REQUESTED') {
+    return (
+      <span className="prc-reviewer-verdict prc-reviewer-verdict--changes" title="Changes requested" aria-label="changes requested">
+        ✗
+      </span>
+    );
+  }
+  // Catch-all for COMMENTED + any unknown verdict ("DISMISSED", legacy
+  // states). Render the speech-bubble glyph so the row still shows
+  // *something* happened on this reviewer's side.
+  return (
+    <span className="prc-reviewer-verdict prc-reviewer-verdict--commented" title={verdict.replace(/_/g, ' ').toLowerCase()} aria-label="commented">
+      💬
+    </span>
   );
 }

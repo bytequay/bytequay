@@ -1517,6 +1517,58 @@
 .prc-reviewer-status--requested { background: var(--bg-card); color: var(--text-3); }
 .prc-reviewer-status--pending { background: var(--bg-card); color: var(--text-3); }
 
+/* Compact verdict glyph that lives on the right of a past-reviewer
+   row — replaces the wordy text pill so the row matches github.com's
+   sidebar (see docs/mockups/issue/pr-details/reviewers-request.png).
+   Tinted background mirrors the verdict colours so a quick scan
+   surfaces approvals vs changes-requested without reading glyphs. */
+.prc-reviewer-verdict {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  font-size: 11px;
+  line-height: 1;
+  flex-shrink: 0;
+}
+.prc-reviewer-verdict--approved { background: rgba(46, 160, 67, 0.16); color: #1a7f37; font-weight: 700; }
+.prc-reviewer-verdict--changes  { background: rgba(239, 68, 68, 0.14); color: #b91c1c; font-weight: 700; }
+.prc-reviewer-verdict--commented { background: transparent; }
+
+/* Pending status indicator — small amber dot, mirrors the dot on
+   github.com's reviewers sidebar when a reviewer hasn't started
+   their review yet. */
+.prc-reviewer-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+.prc-reviewer-dot--pending { background: #d4a72c; }
+
+/* Re-request review button — the ↻ glyph next to a past reviewer.
+   Same hit area as the × remove button so the two row-end controls
+   feel symmetrical. Hover lifts the icon to the accent color. */
+.prc-reviewer-rerequest {
+  appearance: none;
+  background: transparent;
+  border: 0;
+  color: var(--text-3);
+  font-size: 13px;
+  line-height: 1;
+  padding: 2px 5px;
+  cursor: pointer;
+  border-radius: 4px;
+  flex-shrink: 0;
+}
+.prc-reviewer-rerequest:hover:not(:disabled) {
+  background: var(--accent-a7);
+  color: var(--accent);
+}
+.prc-reviewer-rerequest:disabled { opacity: 0.4; cursor: default; }
+
 /* Reviewer-editor controls (× chip, "+ Add reviewer", input row). */
 .prc-reviewer-remove {
   appearance: none;

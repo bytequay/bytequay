@@ -16,6 +16,7 @@ import SettingsShell from './settings/SettingsShell';
 import NotificationsScreen from './NotificationsScreen';
 import TeamDetailPage from './teams/TeamDetailPage';
 import TeamHomePage from './teams/TeamHomePage';
+import TeamsManagePage from './teams/TeamsManagePage';
 import type { SettingsSection } from './settings/types';
 import PullRequestList from './PullRequestList';
 import HomePage from './HomePage';
@@ -32,6 +33,7 @@ type Nav =
   | { view: 'home' }
   | { view: 'my-prs' }
   | { view: 'repo'; owner: string; repo: string; prNumber?: number }
+  | { view: 'teams' }
   | { view: 'team'; teamId: number }
   | { view: 'team-kanban'; teamId: number }
   | { view: 'notifications' }
@@ -238,12 +240,12 @@ function App() {
             onSelectRepo={(owner, repo, prNumber) => setNav({ view: 'repo', owner, repo, prNumber })}
             onGoToMyPrs={() => setNav({ view: 'my-prs' })}
             onOpenTeam={(teamId) => setNav({ view: 'team', teamId })}
-            onGoToTeams={() => setNav({ view: 'settings', section: 'teams' })}
+            onGoToTeams={() => setNav({ view: 'teams' })}
           />
         )}
         {nav.view === 'my-prs' && (
           <PullRequestList
-            onGoToTeams={() => setNav({ view: 'settings', section: 'teams' })}
+            onGoToTeams={() => setNav({ view: 'teams' })}
           />
         )}
         {nav.view === 'repo' && (
@@ -268,11 +270,17 @@ function App() {
             onBack={() => setNav({ view: 'repos' })}
           />
         )}
+        {nav.view === 'teams' && (
+          <TeamsManagePage
+            onOpenTeam={(teamId) => setNav({ view: 'team', teamId })}
+            onBack={() => setNav({ view: 'my-prs' })}
+          />
+        )}
         {nav.view === 'team' && (
           <TeamHomePage
             teamId={nav.teamId}
             onOpenKanban={() => setNav({ view: 'team-kanban', teamId: nav.teamId })}
-            onBack={() => setNav({ view: 'settings', section: 'teams' })}
+            onBack={() => setNav({ view: 'teams' })}
           />
         )}
         {nav.view === 'team-kanban' && (

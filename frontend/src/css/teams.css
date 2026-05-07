@@ -635,6 +635,31 @@
   font-weight: 600;
 }
 
+.team-card__avatars {
+  display: inline-flex;
+  align-items: center;
+  margin-right: 2px;
+}
+.team-card__av {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  border: 2px solid var(--bg-card);
+  margin-left: -6px;
+  overflow: hidden;
+  background: var(--bg-elevated);
+}
+.team-card__av:first-child { margin-left: 0; }
+.team-card__av img { display: block; }
+.team-card__av--more {
+  font-size: 9px;
+  font-weight: 600;
+  color: var(--text-3);
+}
+
 .team-card__actions {
   display: flex;
   gap: 8px;

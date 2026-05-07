@@ -14,6 +14,7 @@
 import { useEffect, useState } from 'react';
 import Avatar from '../Avatar';
 import { getCached, setCached } from '../dataCache';
+import TeamEditorModal from './TeamEditorModal';
 import type {
   MyPrColumnSlug,
   PullRequestDto,
@@ -99,6 +100,19 @@ function TeamHomePage({ teamId, onOpenKanban, onBack }: Props) {
     getCached<TeamDto>(TEAM_KEY(teamId)) === undefined
     && getCached<TeamColumnsResponse>(COLUMNS_KEY(teamId)) === undefined);
   const [error, setError] = useState<string | null>(null);
+  const [editing, setEditing] = useState(false);
+
+  /** Re-fetch the team record only — no need to re-fan out the kanban
+   *  columns when the user just edited name/avatar/colour/description. */
+  const refreshTeam = async () => {
+    try {
+      const t = await window.bridge.getTeam(teamId);
+      setTeam(t);
+      setCached(TEAM_KEY(teamId), t);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    }
+  };
 
   useEffect(() => {
     let cancelled = false;
@@ -208,7 +222,10 @@ function TeamHomePage({ teamId, onOpenKanban, onBack }: Props) {
                 </div>
               </div>
               <div className="team-hero__actions">
-                <button type="button" className="button button--secondary" onClick={onOpenKanban}>
+                <button type="button" className="button button--secondary" onClick={() => setEditing(true)}>
+                  Edit team
+                </button>
+                <button type="button" className="button button--primary" onClick={onOpenKanban}>
                   Open team kanban →
                 </button>
               </div>
@@ -308,6 +325,17 @@ function TeamHomePage({ teamId, onOpenKanban, onBack }: Props) {
           </>
         )}
       </div>
+
+      {editing && team && (
+        <TeamEditorModal
+          team={team}
+          onClose={() => setEditing(false)}
+          onSaved={async () => {
+            setEditing(false);
+            await refreshTeam();
+          }}
+        />
+      )}
     </section>
   );
 }

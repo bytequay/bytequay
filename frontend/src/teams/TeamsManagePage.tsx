@@ -12,8 +12,14 @@
  * limitations under the License.
  */
 import { useEffect, useState } from 'react';
+import Avatar from '../Avatar';
+import { getCached, setCached } from '../dataCache';
 import type { TeamDto, TeamSummaryDto } from '../types';
 import TeamEditorModal from './TeamEditorModal';
+
+const TEAM_KEY = (id: number) => `team:${id}`;
+/** Members shown in the per-card avatar stack before "+N" overflow. */
+const HERO_AVATAR_COUNT = 3;
 
 type Props = {
   /** Open the per-team home page. */
@@ -24,6 +30,10 @@ type Props = {
 
 function TeamsManagePage({ onOpenTeam, onBack }: Props) {
   const [teams, setTeams] = useState<TeamSummaryDto[]>([]);
+  /** {teamId → first few member logins}. Populated lazily after listTeams
+   *  via a parallel fan-out so the avatar stack on each card can render
+   *  real GitHub avatars. The summary endpoint only ships memberCount. */
+  const [memberLogins, setMemberLogins] = useState<Record<number, string[]>>({});
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [editing, setEditing] = useState<TeamDto | 'new' | null>(null);
@@ -34,6 +44,25 @@ function TeamsManagePage({ onOpenTeam, onBack }: Props) {
     try {
       const list = await window.bridge.listTeams();
       setTeams(list);
+      // Seed the avatar stacks from cache immediately, then top up from
+      // the network. Each getTeam result is also cached so future visits
+      // (or other pages that read team:N) stay in sync.
+      const seeded: Record<number, string[]> = {};
+      for (const t of list) {
+        const cached = getCached<TeamDto>(TEAM_KEY(t.id));
+        if (cached) seeded[t.id] = cached.members;
+      }
+      if (Object.keys(seeded).length > 0) setMemberLogins(prev => ({ ...prev, ...seeded }));
+      await Promise.all(list.map(async t => {
+        try {
+          const full = await window.bridge.getTeam(t.id);
+          setCached(TEAM_KEY(t.id), full);
+          setMemberLogins(prev => ({ ...prev, [t.id]: full.members }));
+        } catch {
+          // Best-effort — a single team failing to enrich shouldn't kill
+          // the whole grid; the card just shows no avatars.
+        }
+      }));
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
@@ -105,6 +134,24 @@ function TeamsManagePage({ onOpenTeam, onBack }: Props) {
                 </header>
 
                 <div className="team-card__meta">
+                  {(() => {
+                    const logins = memberLogins[t.id] ?? [];
+                    const visible = logins.slice(0, HERO_AVATAR_COUNT);
+                    const overflow = Math.max(0, t.memberCount - visible.length);
+                    if (visible.length === 0) return null;
+                    return (
+                      <div className="team-card__avatars" aria-hidden="true">
+                        {visible.map(login => (
+                          <span key={login} className="team-card__av">
+                            <Avatar login={login} size={20} />
+                          </span>
+                        ))}
+                        {overflow > 0 && (
+                          <span className="team-card__av team-card__av--more">+{overflow}</span>
+                        )}
+                      </div>
+                    );
+                  })()}
                   <span><strong>{t.memberCount}</strong> member{t.memberCount === 1 ? '' : 's'}</span>
                   <span className="team-home__sep">·</span>
                   <span><strong>{t.inboxCount}</strong> in inbox</span>

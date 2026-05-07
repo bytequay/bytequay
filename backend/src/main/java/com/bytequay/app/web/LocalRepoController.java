@@ -16,6 +16,7 @@ package com.bytequay.app.web;
 import com.bytequay.app.domain.LocalBranch;
 import com.bytequay.app.domain.LocalRepoStatus;
 import com.bytequay.app.repository.WatchedRepoStore;
+import com.bytequay.app.service.local.GitRunner;
 import com.bytequay.app.service.local.LocalRepoService;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -176,6 +177,63 @@ public class LocalRepoController
             Thread.currentThread().interrupt();
             throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE, "branch listing interrupted");
         }
+    }
+
+    /**
+     * POST /api/repos/local/{owner}/{repo}/fetch — runs
+     * {@code git fetch --all --prune}. Returns the refreshed status
+     * row so the UI can update without a separate list refetch.
+     */
+    @PostMapping("/{owner}/{repo}/fetch")
+    public LocalRepoStatus fetch(
+            @PathVariable("owner") String owner,
+            @PathVariable("repo") String repo)
+    {
+        return runGitOperation(() -> localRepoService.fetch(owner, repo));
+    }
+
+    /**
+     * POST /api/repos/local/{owner}/{repo}/pull — runs a
+     * fast-forward-only pull on the current branch. Diverging
+     * histories return 409 with git's stderr verbatim.
+     */
+    @PostMapping("/{owner}/{repo}/pull")
+    public LocalRepoStatus pull(
+            @PathVariable("owner") String owner,
+            @PathVariable("repo") String repo)
+    {
+        return runGitOperation(() -> localRepoService.pull(owner, repo));
+    }
+
+    private LocalRepoStatus runGitOperation(GitOp op)
+    {
+        try {
+            return op.call();
+        }
+        catch (IllegalStateException e) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, e.getMessage());
+        }
+        catch (GitRunner.GitCommandException e) {
+            // Non-zero git exit (most commonly: not a fast-forward,
+            // network failure, auth required). 409 conveys "the op
+            // is well-formed but git refused" — let the UI render
+            // git's stderr inline.
+            throw new ResponseStatusException(HttpStatus.CONFLICT, e.stderr().strip());
+        }
+        catch (IOException e) {
+            throw new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR, e.getMessage());
+        }
+        catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE, "git operation interrupted");
+        }
+    }
+
+    @FunctionalInterface
+    private interface GitOp
+    {
+        LocalRepoStatus call()
+                throws IOException, InterruptedException;
     }
 
     public record PathRequest(String path) {}

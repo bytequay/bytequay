@@ -819,6 +819,13 @@ export type Bridge = {
    *  enough metadata to decide column placement and render the inline
    *  ahead/behind + last-commit chips. */
   listLocalBranches: (owner: string, repo: string) => Promise<LocalBranchDto[]>;
+  /** `git fetch --all --prune` against the watched repo's clone.
+   *  Returns the refreshed status row. */
+  fetchLocalRepo: (owner: string, repo: string) => Promise<LocalRepoStatusDto>;
+  /** Fast-forward-only pull on the current branch. Diverged histories
+   *  surface as a thrown Error carrying git's stderr — the UI shows
+   *  it inline (e.g. "needs rebase"). */
+  pullLocalRepo: (owner: string, repo: string) => Promise<LocalRepoStatusDto>;
   getUserRepos: () => Promise<UserRepoDto[]>;
   getUserOrgs: () => Promise<UserOrgDto[]>;
   searchRepos: (query: string) => Promise<UserRepoDto[]>;

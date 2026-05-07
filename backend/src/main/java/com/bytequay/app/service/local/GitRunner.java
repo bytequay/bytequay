@@ -95,6 +95,40 @@ public class GitRunner
     }
 
     /**
+     * Runs {@code git fetch --all --prune} in {@code workingDir} —
+     * pulls every remote's refs, drops dead remote-tracking branches.
+     * The fetched data updates ahead/behind counts on the next
+     * branches-list call. Network-bound; 5-minute cap covers slow
+     * pulls without indefinitely hanging.
+     */
+    public void fetch(Path workingDir)
+            throws IOException, InterruptedException
+    {
+        GitResult result = run(
+                List.of("git", "fetch", "--all", "--prune"),
+                workingDir,
+                300);
+        result.requireSuccess();
+    }
+
+    /**
+     * Runs {@code git pull --ff-only} — fast-forward only, no merge
+     * commits. If the local branch has diverged from upstream the
+     * pull fails loudly; resolving the divergence is explicitly out
+     * of scope for the local-repo MVP (see local-repo-design.md —
+     * conflict resolution is delegated to the user's IDE).
+     */
+    public void pullFastForward(Path workingDir)
+            throws IOException, InterruptedException
+    {
+        GitResult result = run(
+                List.of("git", "pull", "--ff-only"),
+                workingDir,
+                300);
+        result.requireSuccess();
+    }
+
+    /**
      * Lists every local branch with metadata in a single
      * {@code git for-each-ref} invocation. The callback gets one
      * {@link BranchRef} per branch — name, last-commit timestamp,

@@ -403,6 +403,26 @@
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, monospace;
   font-size: 11.5px;
   color: var(--text-3);
+  margin-bottom: 10px;
+}
+
+/* Action bar: fetch/pull live here. push, +branch, create-pr land in
+   follow-up commits. */
+.local-repo-page__actions {
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+.local-repo-page__action-error {
+  margin-top: 8px;
+  background: rgba(207, 34, 46, 0.08);
+  border: 1px solid rgba(207, 34, 46, 0.30);
+  color: #b91c1c;
+  font-size: 12px;
+  padding: 8px 12px;
+  border-radius: 6px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, monospace;
+  white-space: pre-wrap;
 }
 .local-repo-page__error {
   background: rgba(207, 34, 46, 0.08);

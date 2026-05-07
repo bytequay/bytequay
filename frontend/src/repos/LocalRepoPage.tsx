@@ -55,25 +55,66 @@ function LocalRepoPage({ owner, repo, onBack }: Props) {
   const [status, setStatus] = useState<LocalRepoStatusDto | null>(null);
   const [branches, setBranches] = useState<LocalBranchDto[] | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // Per-action busy state so each button can show its own spinner
+  // without freezing the whole bar; the action bar disables all
+  // buttons while any one is running so we don't fire concurrent
+  // git ops in the same working tree.
+  const [actionState, setActionState] = useState<'idle' | 'fetching' | 'pulling'>('idle');
+  const [actionError, setActionError] = useState<string | null>(null);
+
+  const reload = async (signal?: { cancelled: boolean }) => {
+    const [all, branchList] = await Promise.all([
+      window.bridge.listLocalRepos(),
+      window.bridge.listLocalBranches(owner, repo),
+    ]);
+    if (signal?.cancelled) return;
+    const match = all.find(r => r.owner === owner && r.repo === repo);
+    setStatus(match ?? null);
+    setBranches(branchList);
+  };
 
   useEffect(() => {
-    let cancelled = false;
+    const signal = { cancelled: false };
     setStatus(null);
     setBranches(null);
     setError(null);
-    void Promise.all([
-      window.bridge.listLocalRepos(),
-      window.bridge.listLocalBranches(owner, repo),
-    ]).then(([all, branchList]) => {
-      if (cancelled) return;
-      const match = all.find(r => r.owner === owner && r.repo === repo);
-      setStatus(match ?? null);
-      setBranches(branchList);
-    }).catch(e => {
-      if (!cancelled) setError(e instanceof Error ? e.message : String(e));
+    reload(signal).catch(e => {
+      if (!signal.cancelled) setError(e instanceof Error ? e.message : String(e));
     });
-    return () => { cancelled = true; };
+    return () => { signal.cancelled = true; };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [owner, repo]);
+
+  const runFetch = async () => {
+    setActionState('fetching');
+    setActionError(null);
+    try {
+      const fresh = await window.bridge.fetchLocalRepo(owner, repo);
+      setStatus(fresh);
+      // Fetch can change ahead/behind counts on every branch.
+      const fresher = await window.bridge.listLocalBranches(owner, repo);
+      setBranches(fresher);
+    } catch (e) {
+      setActionError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setActionState('idle');
+    }
+  };
+
+  const runPull = async () => {
+    setActionState('pulling');
+    setActionError(null);
+    try {
+      const fresh = await window.bridge.pullLocalRepo(owner, repo);
+      setStatus(fresh);
+      const fresher = await window.bridge.listLocalBranches(owner, repo);
+      setBranches(fresher);
+    } catch (e) {
+      setActionError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setActionState('idle');
+    }
+  };
 
   const grouped = groupByColumn(branches ?? []);
 
@@ -107,6 +148,29 @@ function LocalRepoPage({ owner, repo, onBack }: Props) {
           <div className="local-repo-page__path" title={status.localClonePath}>
             {status.localClonePath}
           </div>
+        )}
+        <div className="local-repo-page__actions">
+          <button
+            type="button"
+            className="button button--secondary button--sm"
+            onClick={() => { void runFetch(); }}
+            disabled={actionState !== 'idle' || !status?.localClonePath}
+            title="git fetch --all --prune"
+          >
+            {actionState === 'fetching' ? 'Fetching…' : '↓ Fetch'}
+          </button>
+          <button
+            type="button"
+            className="button button--secondary button--sm"
+            onClick={() => { void runPull(); }}
+            disabled={actionState !== 'idle' || !status?.localClonePath}
+            title="git pull --ff-only on the current branch"
+          >
+            {actionState === 'pulling' ? 'Pulling…' : '↓ Pull'}
+          </button>
+        </div>
+        {actionError && (
+          <div className="local-repo-page__action-error">{actionError}</div>
         )}
       </header>
 

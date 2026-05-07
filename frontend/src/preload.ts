@@ -143,6 +143,10 @@ const bridge: Bridge = {
     ipcRenderer.invoke('repos:locateRepo', owner, repo, path),
   listLocalBranches: (owner: string, repo: string) =>
     ipcRenderer.invoke('repos:listLocalBranches', owner, repo),
+  fetchLocalRepo: (owner: string, repo: string) =>
+    ipcRenderer.invoke('repos:fetchLocal', owner, repo),
+  pullLocalRepo: (owner: string, repo: string) =>
+    ipcRenderer.invoke('repos:pullLocal', owner, repo),
   getRepoIssues: (owner: string, repo: string): Promise<IssueDto[]> =>
     ipcRenderer.invoke('repos:issues', owner, repo),
   getUserRepos: (): Promise<UserRepoDto[]> => ipcRenderer.invoke('repos:userRepos'),

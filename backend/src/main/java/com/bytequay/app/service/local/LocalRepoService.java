@@ -192,6 +192,43 @@ public class LocalRepoService
     }
 
     /**
+     * Runs `git fetch --all --prune` against the watched repo's
+     * local clone. Returns the refreshed status row so the caller
+     * doesn't need to re-list (counts may have shifted).
+     */
+    public LocalRepoStatus fetch(String owner, String repo)
+            throws IOException, InterruptedException
+    {
+        Path path = clonePathOrThrow(owner, repo);
+        gitRunner.fetch(path);
+        return statusOf(refreshWatchedRepo(owner, repo));
+    }
+
+    /**
+     * Fast-forward pull on the current branch. Returns the refreshed
+     * status row. Surfaces git's stderr as an
+     * {@link GitRunner.GitCommandException} when the pull would not
+     * be fast-forward — the controller maps that to a 409 so the UI
+     * can show "needs rebase" inline.
+     */
+    public LocalRepoStatus pull(String owner, String repo)
+            throws IOException, InterruptedException
+    {
+        Path path = clonePathOrThrow(owner, repo);
+        gitRunner.pullFastForward(path);
+        return statusOf(refreshWatchedRepo(owner, repo));
+    }
+
+    private Path clonePathOrThrow(String owner, String repo)
+    {
+        WatchedRepo watched = refreshWatchedRepo(owner, repo);
+        if (watched.localClonePath() == null) {
+            throw new IllegalStateException(owner + "/" + repo + " has no local clone mapped");
+        }
+        return Path.of(watched.localClonePath());
+    }
+
+    /**
      * Returns the branches of a watched repo's local clone, mapped
      * into LocalBranch records ready for the kanban renderer. Throws
      * IllegalStateException when the repo isn't mapped — the caller

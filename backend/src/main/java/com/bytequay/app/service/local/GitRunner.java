@@ -20,6 +20,7 @@ import java.io.IOException;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.TimeUnit;
 
@@ -180,18 +181,55 @@ public class GitRunner
                              String upstreamTrack, boolean isCurrent) {}
 
     /**
-     * Returns the configured `origin` remote URL of the working tree
-     * at {@code path}, or null if no origin is set. Used by the
-     * Locate-existing flow to verify the user picked a folder whose
-     * remote matches the watched repo before we record it.
+     * Lists all configured remotes for the working tree at
+     * {@code path} as (name, fetch-URL) pairs. Powers the
+     * Locate-existing flow: a fork-based clone has both
+     * {@code origin} (the user's fork) and {@code upstream} (the
+     * watched repo), and we need to accept the clone if either
+     * matches — checking only origin would refuse the standard OSS
+     * contribution layout.
+     */
+    public List<Remote> listRemotes(Path workingDir)
+            throws IOException, InterruptedException
+    {
+        GitResult result = run(List.of("git", "remote", "-v"), workingDir, 5);
+        if (result.exitCode() != 0) {
+            return List.of();
+        }
+        List<Remote> remotes = new ArrayList<>();
+        for (String line : (Iterable<String>) result.stdout().lines()::iterator) {
+            // git remote -v emits two lines per remote — one (fetch),
+            // one (push). Format: "<name>\t<url> (fetch|push)". We
+            // only need the fetch URLs; push URLs differ rarely and
+            // aren't relevant to the locate match.
+            if (!line.endsWith("(fetch)")) {
+                continue;
+            }
+            String[] tabParts = line.split("\t", 2);
+            if (tabParts.length != 2) {
+                continue;
+            }
+            String name = tabParts[0].trim();
+            String url = tabParts[1].replace("(fetch)", "").trim();
+            if (!name.isEmpty() && !url.isEmpty()) {
+                remotes.add(new Remote(name, url));
+            }
+        }
+        return List.copyOf(remotes);
+    }
+
+    public record Remote(String name, String url) {}
+
+    /**
+     * Returns the URL of {@code remote.origin.url}, or null if no
+     * origin is configured. Kept for callers that explicitly need
+     * the origin (vs. any remote); locate uses {@link #listRemotes}
+     * instead so it tolerates fork-based clones.
      */
     public String originUrl(Path workingDir)
             throws IOException, InterruptedException
     {
         GitResult result = run(List.of("git", "config", "--get", "remote.origin.url"), workingDir, 5);
-        // Exit code 1 when the key isn't set — treat that as "no
-        // origin", which lets the locate flow fail with a clean
-        // mismatch message instead of a stack trace.
         if (result.exitCode() != 0) {
             return null;
         }

@@ -77,4 +77,38 @@ class TestLocalRepoService
     {
         assertThat(LocalRepoService.remoteMatchesRepo("", "trinodb", "trino")).isFalse();
     }
+
+    @Test
+    void testRedactStripsHttpsCredentials()
+    {
+        // Embedded PAT — common when GH CLI sets up the remote.
+        assertThat(LocalRepoService.redactCredentials(
+                "https://ghp_abcdef@github.com/chenjian2664/trino_new.git"))
+                .isEqualTo("https://github.com/chenjian2664/trino_new.git");
+    }
+
+    @Test
+    void testRedactStripsUserPasswordCredentials()
+    {
+        assertThat(LocalRepoService.redactCredentials(
+                "https://alice:s3cret@github.com/foo/bar.git"))
+                .isEqualTo("https://github.com/foo/bar.git");
+    }
+
+    @Test
+    void testRedactPreservesSshForm()
+    {
+        // SSH form has a literal "git@" prefix that is NOT a credential.
+        assertThat(LocalRepoService.redactCredentials(
+                "git@github.com:trinodb/trino.git"))
+                .isEqualTo("git@github.com:trinodb/trino.git");
+    }
+
+    @Test
+    void testRedactPreservesHttpsWithoutCredentials()
+    {
+        assertThat(LocalRepoService.redactCredentials(
+                "https://github.com/trinodb/trino.git"))
+                .isEqualTo("https://github.com/trinodb/trino.git");
+    }
 }

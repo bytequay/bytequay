@@ -155,11 +155,14 @@ public class LocalRepoService
     }
 
     /**
-     * Verifies the user-picked folder is a git working tree whose
-     * `origin` remote points at the watched repo, then records the
-     * path. Throws {@link IllegalArgumentException} on mismatch — the
-     * controller surfaces the message verbatim so the modal can show
-     * "wrong remote: …" inline.
+     * Verifies the user-picked folder is a git working tree with at
+     * least one remote pointing at the watched repo, then records
+     * the path. Tolerates the fork-based OSS workflow:
+     * {@code origin} = user's fork, {@code upstream} = watched repo
+     * — both layouts are accepted as long as ANY remote matches.
+     * Throws {@link IllegalArgumentException} on mismatch with the
+     * remote list embedded in the message so the modal can show it
+     * inline.
      */
     public LocalRepoStatus locateExisting(String owner, String repo, Path path)
             throws IOException, InterruptedException
@@ -173,16 +176,43 @@ public class LocalRepoService
         if (!gitRunner.isGitWorkingTree(path)) {
             throw new IllegalArgumentException("Not a git working tree: " + path);
         }
-        String remote = gitRunner.originUrl(path);
-        if (remote == null) {
-            throw new IllegalArgumentException("No `origin` remote configured at " + path);
+        List<GitRunner.Remote> remotes = gitRunner.listRemotes(path);
+        if (remotes.isEmpty()) {
+            throw new IllegalArgumentException("No remotes configured at " + path);
         }
-        if (!remoteMatchesRepo(remote, owner, repo)) {
+        boolean anyMatches = remotes.stream().anyMatch(r -> remoteMatchesRepo(r.url(), owner, repo));
+        if (!anyMatches) {
+            String summary = remotes.stream()
+                    .map(r -> r.name() + " " + redactCredentials(r.url()))
+                    .reduce((a, b) -> a + ", " + b)
+                    .orElse("(none)");
             throw new IllegalArgumentException(
-                    "Remote `origin` is " + remote + " — expected " + owner + "/" + repo);
+                    "No remote points at " + owner + "/" + repo + ". Found: " + summary);
         }
         watchedRepoStore.setLocalClonePath(owner, repo, path.toString());
         return statusOf(refreshWatchedRepo(owner, repo));
+    }
+
+    /**
+     * Strips embedded credentials (PAT or username:password) from a
+     * git URL so they don't leak into the error message we show the
+     * user. {@code https://ghp_xxx@github.com/foo/bar.git} →
+     * {@code https://github.com/foo/bar.git}.
+     */
+    static String redactCredentials(String url)
+    {
+        // Match scheme://[creds@]rest. Only redact if there's actually
+        // a creds segment — preserve "git@github.com:foo/bar" SSH
+        // form which has a literal "git@" that's not a credential.
+        int schemeEnd = url.indexOf("://");
+        if (schemeEnd < 0) {
+            return url;
+        }
+        int at = url.indexOf('@', schemeEnd + 3);
+        if (at < 0) {
+            return url;
+        }
+        return url.substring(0, schemeEnd + 3) + url.substring(at + 1);
     }
 
     private WatchedRepo refreshWatchedRepo(String owner, String repo)

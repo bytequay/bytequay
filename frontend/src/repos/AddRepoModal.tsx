@@ -171,9 +171,11 @@ function AddRepoModal({ owner, repo, onClose, onMapped }: Props) {
               </button>
             </div>
             <p className="add-repo-modal__hint">
-              ByteQuay will check <code>git config --get remote.origin.url</code>{' '}
-              and refuse to map a folder whose origin doesn't match
-              <code> {owner}/{repo}</code>.
+              ByteQuay will scan every remote configured in the folder
+              and accept it if any of them points at{' '}
+              <code>{owner}/{repo}</code> — so a fork-based clone (with
+              your fork as <code>origin</code> and the watched repo as
+              <code> upstream</code>) is fine.
             </p>
             {error && <div className="add-repo-modal__error">{error}</div>}
             <footer className="add-repo-modal__actions">

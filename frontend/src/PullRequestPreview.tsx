@@ -1392,25 +1392,60 @@ function PullRequestPreview({ pr, onOpenReview, onInspectDiffs, onMarkHandled, o
             ← {backLabel ?? 'Back'}
           </button>
         )}
-        <button
-          type="button"
-          className="prc-back"
-          onClick={() => onMarkHandled?.(pr.id).catch(() => { /* best-effort */ })}
-          title="Mark this PR handled"
-        >
-          ✓ Mark handled
-        </button>
-        <h1 className="prc-title">{pr.title}</h1>
-        {/* GitHub-style branch sentence sits directly under the title —
-            "AUTHOR wants to merge into BASE from HEAD". Each branch is
-            a monospace pill prefixed with the owner so cross-fork PRs
-            make the source obvious. Hidden until detail-sync populates
-            the refs. */}
+        {/* Row 1: large title with the #N link folded in at the end —
+            matches docs/mockups/v2/detail/pr-header.png. The ✎ pencil
+            in the mockup is intentionally omitted: there is no
+            updatePrTitle bridge / backend endpoint yet, and a
+            non-functional control would be worse than no control.
+            Wire title editing in a follow-up commit alongside the
+            backend handler. */}
+        <div className="prc-header__title-row">
+          <h1 className="prc-title">
+            {pr.title}
+            <a
+              className="prc-title__number"
+              href={pr.htmlUrl}
+              target="_blank"
+              rel="noreferrer"
+              title="Open this PR on github.com"
+            >
+              #{pr.number}
+            </a>
+          </h1>
+        </div>
+        {/* Row 2: github.com-style branch sentence with the state pill
+            leading and the source/target branches as monospace chips.
+            Per pr-header.png — "[Open] author wants to merge N commits
+            into base from head ⎘". Hidden until detail-sync populates
+            the refs since the sentence reads broken without them. */}
         {detail?.headRef && detail?.baseRef && (
           <div className="prc-branch-line">
-            <span aria-hidden="true" className="prc-branch-line__icon">⑂</span>
+            {(() => {
+              if (pr.mergedAt) {
+                return <span className="prc-status-pill prc-status-pill--merged">Merged</span>;
+              }
+              if (pr.state === 'closed') {
+                return <span className="prc-status-pill prc-status-pill--closed">Closed</span>;
+              }
+              if (detail.draft ?? pr.draft) {
+                return <span className="prc-status-pill prc-status-pill--draft">Draft</span>;
+              }
+              return <span className="prc-status-pill">Open</span>;
+            })()}
             {pr.author && <a className="prc-branch-line__author" href={`https://github.com/${pr.author}`} target="_blank" rel="noreferrer">{pr.author}</a>}
-            <span className="prc-branch-line__verb">wants to merge into</span>
+            <span className="prc-branch-line__verb">
+              {(() => {
+                // Approximate count from the timeline's `committed`
+                // events. Won't be exact on PRs whose timeline has
+                // been truncated, but accurate enough for the header
+                // copy ("1 commit" vs "12 commits"). When the count
+                // can't be derived, fall back to the article-less
+                // form so the sentence still parses.
+                const n = stats.commits;
+                if (n <= 0) return 'wants to merge into';
+                return `wants to merge ${n} commit${n === 1 ? '' : 's'} into`;
+              })()}
+            </span>
             <code className="prc-branches__ref" title={`${detail.baseRepo ?? ''}:${detail.baseRef}`}>
               {detail.baseRepo ? `${detail.baseRepo.split('/')[0]}:${detail.baseRef}` : detail.baseRef}
             </code>
@@ -1429,6 +1464,9 @@ function PullRequestPreview({ pr, onOpenReview, onInspectDiffs, onMarkHandled, o
             </button>
           </div>
         )}
+        {/* Row 3: muted secondary line — repo + relative timestamps.
+            Status pill, #number, and author all moved into the upper
+            rows above, so this strip drops them to avoid duplication. */}
         <div className="prc-meta-line">
           <Avatar login={repoOwner} size={14} className="avatar--repo" />
           <a
@@ -1440,38 +1478,6 @@ function PullRequestPreview({ pr, onOpenReview, onInspectDiffs, onMarkHandled, o
             {pr.repo}
           </a>
           <span className="prc-meta-sep">·</span>
-          <a
-            href={pr.htmlUrl}
-            target="_blank"
-            rel="noreferrer"
-            className="prc-meta-link"
-          >
-            #{pr.number}
-          </a>
-          {/* Status pill: Merged (purple) > Closed (red) > Draft
-              (purple-grey, only when not merged/closed) > Open (green).
-              Reads pr.mergedAt / pr.state from the v26 list-DTO fields
-              so the pill flips as soon as the next sync lands; falls
-              back to "Open" when those fields aren't populated yet. */}
-          {(() => {
-            if (pr.mergedAt) {
-              return <span className="prc-status-pill prc-status-pill--merged">Merged</span>;
-            }
-            if (pr.state === 'closed') {
-              return <span className="prc-status-pill prc-status-pill--closed">Closed</span>;
-            }
-            if (detail?.draft ?? pr.draft) {
-              return <span className="prc-status-pill prc-status-pill--draft">Draft</span>;
-            }
-            return <span className="prc-status-pill">Open</span>;
-          })()}
-          <span className="prc-meta-sep">·</span>
-          {pr.author && (
-            <>
-              <span>by <b>{pr.author}</b></span>
-              <span className="prc-meta-sep">·</span>
-            </>
-          )}
           <span className="prc-meta-time">
             {pr.createdAt ? `opened ${formatRelativeTime(pr.createdAt)} · ` : ''}updated {formatRelativeTime(pr.updatedAt)}
           </span>

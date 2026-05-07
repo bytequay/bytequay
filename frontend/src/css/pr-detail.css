@@ -30,34 +30,55 @@
   border-bottom: 1px solid var(--border);
   display: grid;
   grid-template-columns: 1fr auto;
-  /* Order: back link, then title (with action buttons on the right),
-     then the head→base branch sentence directly under the title, then
-     the meta strip last. The branch line used to be a stray flex item
-     that landed wherever the grid felt like — name its slot so it
-     anchors right under the title. */
+  /* Three info rows on the left + one actions slot on the right.
+     The actions slot spans down so refresh / open-on-remote / review
+     stay vertically centred against the title row, matching
+     docs/mockups/v2/detail/pr-header.png. */
   grid-template-areas:
-    "back back"
-    "title actions"
-    "branch branch"
-    "meta meta";
-  /* Row gap dropped from 6px to 2px — the meta strip's own line-height
-     plus the branch-line's intrinsic baseline already give breathing
-     room; 6px on top of those left dead space between the three info
-     rows under the title. */
-  row-gap: 2px;
+    "back   back"
+    "title  actions"
+    "branch actions"
+    "meta   meta";
+  row-gap: 4px;
   column-gap: 12px;
 }
 .prc-back {
   display: none; /* the topbar already has Back; keep for future use */
 }
-.prc-title {
+/* Title row holds the H1 and (eventually) the edit pencil. The H1
+   itself flows the title text + #N pill inline so they share a
+   baseline — see pr-header.png. */
+.prc-header__title-row {
   grid-area: title;
-  font-size: 18px;
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  min-width: 0;
+}
+.prc-title {
+  /* No grid-area here — the title now sits inside __title-row. */
+  font-size: 24px;
   font-weight: 600;
-  letter-spacing: -0.01em;
-  line-height: 1.3;
+  letter-spacing: -0.015em;
+  line-height: 1.25;
   color: var(--text-1);
   min-width: 0;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 8px;
+  margin: 0;
+}
+/* Inline #N link folded into the title — same colour as github.com's
+   muted variant so the title is the loud thing. */
+.prc-title__number {
+  color: var(--text-3);
+  font-weight: 400;
+  text-decoration: none;
+}
+.prc-title__number:hover {
+  color: var(--accent);
+  text-decoration: underline;
 }
 .prc-meta-line {
   grid-area: meta;

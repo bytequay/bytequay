@@ -131,18 +131,40 @@ function RepoCard({
   onOpen: () => void;
   onMapClone: () => void;
 }) {
+  // Whole card is the click target so users don't have to find the
+  // tiny name link. Mapped repos open the detail page; UNMAPPED
+  // ones open the add-repo modal — same destination as the explicit
+  // "Map clone…" button. The MISSING / ERROR / GIT_UNAVAILABLE
+  // states still navigate so the user can see the error inline.
+  const handleCardClick = () => {
+    if (status.state === 'UNMAPPED') {
+      onMapClone();
+    } else {
+      onOpen();
+    }
+  };
+
   return (
-    <article className={`repo-card repo-card--${status.state.toLowerCase()}`}>
+    <article
+      className={`repo-card repo-card--${status.state.toLowerCase()}`}
+      onClick={handleCardClick}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          handleCardClick();
+        }
+      }}
+      role="button"
+      tabIndex={0}
+      title={status.state === 'UNMAPPED'
+        ? `Map a local clone for ${status.owner}/${status.repo}`
+        : `Open ${status.owner}/${status.repo}`}
+    >
       <header className="repo-card__head">
-        <button
-          type="button"
-          className="repo-card__name"
-          onClick={onOpen}
-          title={`Open ${status.owner}/${status.repo}`}
-        >
+        <span className="repo-card__name">
           <span className="repo-card__owner">{status.owner}/</span>
           <span className="repo-card__repo">{status.repo}</span>
-        </button>
+        </span>
         <StatePill state={status.state} dirty={status.dirtyFileCount} />
       </header>
 
@@ -172,7 +194,9 @@ function RepoCard({
           <button
             type="button"
             className="button button--primary button--sm"
-            onClick={onMapClone}
+            // stopPropagation so clicking the explicit button doesn't
+            // double-fire alongside the card-level click handler.
+            onClick={(e) => { e.stopPropagation(); onMapClone(); }}
           >
             Map clone…
           </button>

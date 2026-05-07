@@ -21,6 +21,7 @@ import com.bytequay.app.domain.LocalRepoStatus;
 import com.bytequay.app.domain.PullRequest;
 import com.bytequay.app.domain.RepoRef;
 import com.bytequay.app.domain.WatchedRepo;
+import com.bytequay.app.repository.PrDetailStore;
 import com.bytequay.app.repository.PullRequestRepository;
 import com.bytequay.app.repository.WatchedRepoStore;
 import org.slf4j.Logger;
@@ -35,6 +36,7 @@ import java.time.Instant;
 import java.time.format.DateTimeParseException;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.regex.Matcher;
@@ -58,15 +60,18 @@ public class LocalRepoService
     private final WatchedRepoStore watchedRepoStore;
     private final GitRunner gitRunner;
     private final PullRequestRepository gitHub;
+    private final PrDetailStore prDetailStore;
 
     public LocalRepoService(
             WatchedRepoStore watchedRepoStore,
             GitRunner gitRunner,
-            PullRequestRepository gitHub)
+            PullRequestRepository gitHub,
+            PrDetailStore prDetailStore)
     {
         this.watchedRepoStore = requireNonNull(watchedRepoStore, "watchedRepoStore is null");
         this.gitRunner = requireNonNull(gitRunner, "gitRunner is null");
         this.gitHub = requireNonNull(gitHub, "gitHub is null");
+        this.prDetailStore = requireNonNull(prDetailStore, "prDetailStore is null");
     }
 
     /**
@@ -425,8 +430,13 @@ public class LocalRepoService
             throw new IllegalStateException(owner + "/" + repo + " has no local clone mapped");
         }
         Path path = Path.of(watched.localClonePath());
+        // Look up linked PRs for this repo once, in a single query,
+        // and pass the map down — beats firing one lookup per branch
+        // for repos with hundreds of refs.
+        Map<String, Integer> prByHeadRef = prDetailStore
+                .openPrNumbersByHeadRef(owner + "/" + repo);
         return gitRunner.listBranches(path).stream()
-                .map(LocalRepoService::toLocalBranch)
+                .map(ref -> toLocalBranch(ref, prByHeadRef))
                 .collect(toImmutableList());
     }
 
@@ -637,7 +647,9 @@ public class LocalRepoService
      *  on doesn't end up flagged. */
     private static final Duration IDLE_THRESHOLD = Duration.ofDays(90);
 
-    private static LocalBranch toLocalBranch(GitRunner.BranchRef ref)
+    private static LocalBranch toLocalBranch(
+            GitRunner.BranchRef ref,
+            Map<String, Integer> prByHeadRef)
     {
         Instant when = parseIsoOrNull(ref.committerDate());
         boolean hasUpstream = !ref.upstream().isEmpty();
@@ -651,12 +663,13 @@ public class LocalRepoService
             behind = b.find() ? Integer.parseInt(b.group(1)) : 0;
         }
         LocalBranch.CleanupReason cleanupReason = classifyCleanup(when, hasUpstream, upstreamGone);
-        // linkedPrNumber stays null for now — populating it requires a
-        // join against PR head refs, which the list-page sync doesn't
-        // capture today. The IN REVIEW column will be empty until that
-        // join lands; deliberately deferred to keep this slice tight.
+        // Best-effort PR link. The map is built from pr_detail rows,
+        // so PRs whose detail isn't synced yet won't show up here —
+        // the column stays empty for those branches until the user
+        // opens the PR (which triggers the detail sync).
+        Integer linkedPrNumber = prByHeadRef.get(ref.name());
         return new LocalBranch(ref.name(), ref.isCurrent(), when, hasUpstream,
-                ahead, behind, null, cleanupReason);
+                ahead, behind, linkedPrNumber, cleanupReason);
     }
 
     static LocalBranch.CleanupReason classifyCleanup(

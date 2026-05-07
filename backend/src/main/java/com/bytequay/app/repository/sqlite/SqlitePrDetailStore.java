@@ -29,8 +29,10 @@ import org.springframework.transaction.annotation.Transactional;
 import java.time.Instant;
 import java.util.HashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
+import java.util.stream.Collectors;
 
 import static com.google.common.collect.ImmutableList.toImmutableList;
 import static java.util.Objects.requireNonNull;
@@ -450,5 +452,19 @@ public class SqlitePrDetailStore
             reviewCommentRepo.deleteByPrId(prId);
             linkedIssueRepo.deleteByPrId(prId);
         }
+    }
+
+    @Override
+    public Map<String, Integer> openPrNumbersByHeadRef(String repo)
+    {
+        // Last-write-wins on collisions (same head_ref appearing on
+        // multiple open PRs). The kanban only needs one number per
+        // branch — for the typical "user has one fork per watched
+        // repo" case this is unambiguous.
+        return detailRepo.findOpenHeadRefsForRepo(repo).stream()
+                .collect(Collectors.toMap(
+                        HeadRefRow::headRef,
+                        HeadRefRow::number,
+                        (a, b) -> a));
     }
 }

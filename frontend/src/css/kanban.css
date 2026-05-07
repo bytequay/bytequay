@@ -1080,6 +1080,12 @@
 .kpr-card--selected {
   border-color: var(--accent);
   box-shadow: 0 0 0 1px var(--accent);
+  /* Subtle accent-tinted fill so selection is obvious at a glance even
+     when the active card scrolls outside the active band — the border
+     ring alone got lost in dense columns. Matches the tint level used
+     by v2-card and pr-item so the affordance reads the same wherever
+     PR cards appear. */
+  background: var(--accent-a10);
 }
 .kpr-card--urgent {
   border-color: #cf222e;

@@ -447,6 +447,45 @@
   flex: 1 1 auto;
   min-width: 12px;
 }
+/* "Acting on: feat/foo" banner that surfaces above the action bar
+   when the user has clicked a non-HEAD branch card. Tells them what
+   the next Push / Pull / Create PR will target and that ByteQuay
+   will run `git switch` lazily as part of that action. */
+.local-repo-page__action-target {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 8px 12px;
+  margin-bottom: 8px;
+  background: rgba(99, 102, 241, 0.08);
+  border: 1px solid rgba(99, 102, 241, 0.30);
+  border-radius: 6px;
+  font-size: 12px;
+  color: var(--text-1);
+}
+.local-repo-page__action-target code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, monospace;
+  background: var(--bg-card);
+  border-radius: 3px;
+  padding: 0 5px;
+  color: var(--text-1);
+}
+.local-repo-page__action-target-clear {
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--text-2);
+  font-size: 11px;
+  padding: 2px 8px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.local-repo-page__action-target-clear:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
 .local-repo-page__action-error {
   margin-top: 8px;
   background: rgba(207, 34, 46, 0.08);
@@ -724,17 +763,25 @@
   outline: 2px solid var(--accent);
   outline-offset: -2px;
 }
-.branch-card--switchable {
+.branch-card--selectable {
   cursor: pointer;
 }
-.branch-card--switchable:hover {
+.branch-card--selectable:hover {
   border-color: var(--accent);
   transform: translateY(-1px);
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08);
 }
-.branch-card--switchable:focus-visible {
+.branch-card--selectable:focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 2px;
+}
+/* Action-target highlight: distinct from CLEAN UP's .selected
+   class. This one signals "next Push / Pull / Create PR will go
+   here, switching HEAD lazily as part of the action." */
+.branch-card--action-target {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 1px var(--accent) inset;
+  background: rgba(99, 102, 241, 0.06);
 }
 .branch-card__switch {
   margin-left: auto;

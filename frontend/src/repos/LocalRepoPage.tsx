@@ -95,6 +95,12 @@ function LocalRepoPage({ owner, repo, onBack }: Props) {
   // column without a navigation.
   const [createPrOpen, setCreatePrOpen] = useState(false);
   const [createPrResult, setCreatePrResult] = useState<{ number: number; htmlUrl: string } | null>(null);
+  // Branch the user clicked to act on. null means "use whatever HEAD
+  // currently is". Distinct from currentBranch so a click is purely
+  // a UI selection — no git command fires until the user invokes an
+  // action that actually needs HEAD on this branch (Push, Pull,
+  // Create PR), at which point ByteQuay does `git switch` lazily.
+  const [selectedBranch, setSelectedBranch] = useState<string | null>(null);
 
   const reload = async (signal?: { cancelled: boolean }) => {
     const [all, branchList] = await Promise.all([
@@ -119,6 +125,27 @@ function LocalRepoPage({ owner, repo, onBack }: Props) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [owner, repo]);
 
+  // The "effective" branch every HEAD-dependent action targets. Defaults
+  // to whatever HEAD currently is; a click on another branch card
+  // overrides it without firing git.
+  const effectiveBranch = selectedBranch ?? status?.currentBranch ?? null;
+  const needsSwitch = selectedBranch !== null
+      && status?.currentBranch !== undefined
+      && selectedBranch !== status.currentBranch;
+
+  // Switch HEAD to selectedBranch when the next action requires it.
+  // Throws on failure so the surrounding try/catch surfaces git's
+  // stderr (dirty tree, conflict, etc.) and the caller's action
+  // never runs. After a successful switch we clear selectedBranch
+  // because HEAD now equals what the user picked — they're back in
+  // sync, no banner needed.
+  const switchIfNeeded = async () => {
+    if (!needsSwitch || !selectedBranch) return;
+    const fresh = await window.bridge.switchLocalBranch(owner, repo, selectedBranch);
+    setStatus(fresh);
+    setSelectedBranch(null);
+  };
+
   const runFetch = async () => {
     setActionState('fetching');
     setActionError(null);
@@ -139,6 +166,7 @@ function LocalRepoPage({ owner, repo, onBack }: Props) {
     setActionState('pulling');
     setActionError(null);
     try {
+      await switchIfNeeded();
       const fresh = await window.bridge.pullLocalRepo(owner, repo);
       setStatus(fresh);
       const fresher = await window.bridge.listLocalBranches(owner, repo);
@@ -154,6 +182,7 @@ function LocalRepoPage({ owner, repo, onBack }: Props) {
     setActionState('pushing');
     setActionError(null);
     try {
+      await switchIfNeeded();
       const fresh = await window.bridge.pushLocalRepo(owner, repo);
       setStatus(fresh);
       const fresher = await window.bridge.listLocalBranches(owner, repo);
@@ -178,6 +207,7 @@ function LocalRepoPage({ owner, repo, onBack }: Props) {
     setActionError(null);
     setForcePushPrompt(null);
     try {
+      await switchIfNeeded();
       const fresh = await window.bridge.pushLocalRepoForce(owner, repo);
       setStatus(fresh);
       const fresher = await window.bridge.listLocalBranches(owner, repo);
@@ -227,6 +257,7 @@ function LocalRepoPage({ owner, repo, onBack }: Props) {
     setActionState('creating-pr');
     setActionError(null);
     try {
+      await switchIfNeeded();
       const result = await window.bridge.createLocalPullRequest(owner, repo, payload);
       setCreatePrResult(result);
       setCreatePrOpen(false);
@@ -367,6 +398,24 @@ function LocalRepoPage({ owner, repo, onBack }: Props) {
                 <span>origin = {owner}/{repo}</span>
               </>
             )}
+          </div>
+        )}
+        {needsSwitch && selectedBranch && (
+          <div className="local-repo-page__action-target">
+            <span>
+              Acting on <code>{selectedBranch}</code>
+              {status?.currentBranch && (
+                <> — Push / Pull / Create PR will switch from{' '}
+                <code>{status.currentBranch}</code> first.</>
+              )}
+            </span>
+            <button
+              type="button"
+              className="local-repo-page__action-target-clear"
+              onClick={() => setSelectedBranch(null)}
+            >
+              Use current HEAD
+            </button>
           </div>
         )}
         <div className="local-repo-page__actions">
@@ -552,6 +601,18 @@ function LocalRepoPage({ owner, repo, onBack }: Props) {
                     ? () => setCleanupConfirmOpen(true) : undefined}
                   onSwitchBranch={runSwitchBranch}
                   switching={actionState === 'switching'}
+                  selectedActionBranch={selectedBranch}
+                  currentBranch={status?.currentBranch ?? null}
+                  onSelectForAction={(name) => {
+                    // Click the current branch's card to clear the
+                    // selection (= "act on HEAD again"); click any
+                    // other card to mark it as the action target.
+                    setSelectedBranch(prev => {
+                      if (prev === name) return null;
+                      if (status?.currentBranch === name) return null;
+                      return name;
+                    });
+                  }}
                 />
               ))}
             </div>
@@ -559,14 +620,15 @@ function LocalRepoPage({ owner, repo, onBack }: Props) {
         </>
       )}
 
-      {createPrOpen && status?.currentBranch && (
+      {createPrOpen && effectiveBranch && (
         <CreatePrModal
           owner={owner}
           repo={repo}
-          headBranch={status.currentBranch}
-          forkBased={!!status.upstreamRemoteName}
+          headBranch={effectiveBranch}
+          forkBased={!!status?.upstreamRemoteName}
           busy={actionState === 'creating-pr'}
           branches={branches ?? []}
+          willSwitchFrom={needsSwitch ? status?.currentBranch ?? null : null}
           onCancel={() => setCreatePrOpen(false)}
           onSubmit={runCreatePr}
         />
@@ -776,6 +838,7 @@ function CreatePrModal({
   forkBased,
   busy,
   branches,
+  willSwitchFrom,
   onCancel,
   onSubmit,
 }: {
@@ -785,6 +848,11 @@ function CreatePrModal({
   forkBased: boolean;
   busy: boolean;
   branches: LocalBranchDto[];
+  /** Set when the user picked a non-HEAD branch via card click and
+   *  the submit will run `git switch headBranch` before creating
+   *  the PR. Lets the modal warn about the lazy switch instead of
+   *  failing surprisingly mid-submit. */
+  willSwitchFrom?: string | null;
   onCancel: () => void;
   onSubmit: (payload: { title: string; body: string; base: string; draft: boolean }) => void;
 }) {
@@ -806,6 +874,13 @@ function CreatePrModal({
           {forkBased
             ? ' Cross-fork: GitHub will see your fork as the head repo.'
             : ' Direct clone: head and base live in the same repo.'}
+          {willSwitchFrom && (
+            <>
+              {' '}ByteQuay will switch HEAD from{' '}
+              <code>{willSwitchFrom}</code> to <code>{headBranch}</code>{' '}
+              before opening the PR.
+            </>
+          )}
         </p>
         <label className="create-pr-modal__field">
           <span>Title</span>
@@ -1067,6 +1142,9 @@ function BranchColumn({
   onDeleteSelected,
   onSwitchBranch,
   switching,
+  selectedActionBranch,
+  currentBranch,
+  onSelectForAction,
 }: {
   label: string;
   subtitle: string;
@@ -1078,8 +1156,17 @@ function BranchColumn({
   onToggleSelected?: (name: string) => void;
   onSelectAll?: () => void;
   onDeleteSelected?: () => void;
+  /** Explicit "switch HEAD now" — surfaced as a small button on
+   *  cleanup cards so the user can hop to a candidate before
+   *  inspecting it in their IDE. */
   onSwitchBranch?: (name: string) => void;
   switching?: boolean;
+  /** Branch the user has clicked to act on (Push / Pull / Create
+   *  PR will target it, switching HEAD lazily as part of the
+   *  action). Distinct from {@link currentBranch}. */
+  selectedActionBranch?: string | null;
+  currentBranch?: string | null;
+  onSelectForAction?: (name: string) => void;
 }) {
   const allSelected = selected !== undefined
       && branches.length > 0
@@ -1126,6 +1213,9 @@ function BranchColumn({
                 ? () => onToggleSelected(b.name) : undefined}
               onSwitch={onSwitchBranch && !b.isCurrent ? () => onSwitchBranch(b.name) : undefined}
               switching={switching ?? false}
+              actionSelected={selectedActionBranch === b.name}
+              isCurrentHead={currentBranch === b.name}
+              onSelectForAction={onSelectForAction}
             />
           ))
         )}
@@ -1145,27 +1235,52 @@ function BranchCard({
   onToggleSelected,
   onSwitch,
   switching,
+  actionSelected,
+  isCurrentHead,
+  onSelectForAction,
 }: {
   branch: LocalBranchDto;
   selected: boolean;
   onToggleSelected?: () => void;
   onSwitch?: () => void;
   switching: boolean;
+  /** True when this card is the user's current "act on this
+   *  branch" pick (set via {@link onSelectForAction}). Renders a
+   *  visible highlight so the user knows the action bar will
+   *  target this card on next Push / Pull / Create PR. */
+  actionSelected?: boolean;
+  isCurrentHead?: boolean;
+  onSelectForAction?: (name: string) => void;
 }) {
   const switchable = onSwitch !== undefined && !switching;
+  // Click toggles the action-selection. Cards in CLEAN UP keep the
+  // checkbox as primary affordance, so we don't hijack their card
+  // click. Same goes for cards with no onSelectForAction handler.
+  const selectable = onSelectForAction !== undefined && !onToggleSelected;
   const cls = [
     'branch-card',
     branch.isCurrent ? 'branch-card--current' : '',
     branch.cleanupReason ? 'branch-card--cleanup' : '',
     selected ? 'branch-card--selected' : '',
-    switchable ? 'branch-card--switchable' : '',
+    selectable ? 'branch-card--selectable' : '',
+    actionSelected ? 'branch-card--action-target' : '',
   ].filter(Boolean).join(' ');
-  // The whole card is the switch target on non-current branches —
-  // but only when there's no checkbox in this column. With a
-  // checkbox present (Clean up), we keep card-click reserved for
-  // the checkbox's natural label behavior and surface Switch as an
-  // explicit button so the affordances don't fight each other.
-  const cardClick = switchable && !onToggleSelected ? onSwitch : undefined;
+  const cardClick = selectable ? () => onSelectForAction!(branch.name) : undefined;
+  // Title hint adapts to context so the affordance is discoverable
+  // without a tour: explain what clicking will do.
+  let cardTitle: string | undefined;
+  if (selectable) {
+    if (isCurrentHead) {
+      cardTitle = actionSelected
+          ? 'Currently the action target (HEAD)'
+          : `${branch.name} is the current HEAD — actions target it by default`;
+    }
+    else {
+      cardTitle = actionSelected
+          ? `Click again to clear — actions will target HEAD instead`
+          : `Click to act on ${branch.name} (will switch HEAD when you Push / Pull / Create PR)`;
+    }
+  }
   return (
     <article
       className={cls}
@@ -1178,7 +1293,7 @@ function BranchCard({
       } : undefined}
       role={cardClick ? 'button' : undefined}
       tabIndex={cardClick ? 0 : undefined}
-      title={switchable ? `Switch to ${branch.name}` : undefined}
+      title={cardTitle}
     >
       <header className="branch-card__head">
         {onToggleSelected && (

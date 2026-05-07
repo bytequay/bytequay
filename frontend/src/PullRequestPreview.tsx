@@ -1925,7 +1925,7 @@ function PullRequestPreview({ pr, onOpenReview, onInspectDiffs, onMarkHandled, o
     if (item.eventType === 'head_ref_force_pushed') {
       return (
         <div key={`a-${key}`} className="prc-event-row">
-          <span className="prc-event-marker" aria-hidden>{eventMarker(item.eventType)}</span>
+          <span className={`prc-event-marker prc-event-marker--${item.eventType}`} aria-hidden>{eventMarker(item.eventType)}</span>
           <Avatar login={item.actor} size={20} className="prc-event-avatar" />
           <span>
             <b>{item.actor}</b> force-pushed
@@ -1946,7 +1946,7 @@ function PullRequestPreview({ pr, onOpenReview, onInspectDiffs, onMarkHandled, o
       if (item.eventType === 'review_requested') {
         return (
           <div key={`a-${key}`} className="prc-event-row">
-            <span className="prc-event-marker" aria-hidden>{eventMarker(item.eventType)}</span>
+            <span className={`prc-event-marker prc-event-marker--${item.eventType}`} aria-hidden>{eventMarker(item.eventType)}</span>
             <Avatar login={item.actor} size={20} className="prc-event-avatar" />
             <span>
               <b>{item.actor}</b> requested
@@ -1964,7 +1964,7 @@ function PullRequestPreview({ pr, onOpenReview, onInspectDiffs, onMarkHandled, o
       const sha = item.eventType === 'committed' ? item.afterSha : null;
       return (
         <div key={`a-${key}`} className="prc-event-row">
-          <span className="prc-event-marker" aria-hidden>{eventMarker(item.eventType)}</span>
+          <span className={`prc-event-marker prc-event-marker--${item.eventType}`} aria-hidden>{eventMarker(item.eventType)}</span>
           <Avatar login={item.actor} size={20} className="prc-event-avatar" />
           <span>
             <b>{item.actor}</b> {activityVerb(item.eventType)}
@@ -2088,7 +2088,7 @@ function PullRequestPreview({ pr, onOpenReview, onInspectDiffs, onMarkHandled, o
       });
       return (
         <div key={`g-${key}`} className="prc-event-row">
-          <span className="prc-event-marker" aria-hidden>{eventMarker(e.eventType)}</span>
+          <span className={`prc-event-marker prc-event-marker--${e.eventType}`} aria-hidden>{eventMarker(e.eventType)}</span>
           <Avatar login={e.actor} size={20} className="prc-event-avatar" />
           <span>
             <b>{e.actor}</b> requested {links} for review
@@ -2116,7 +2116,7 @@ function PullRequestPreview({ pr, onOpenReview, onInspectDiffs, onMarkHandled, o
     const shaLabel = e.eventType === 'head_ref_force_pushed' ? 'last head' : 'last commit';
     return (
       <div key={`g-${key}`} className="prc-event-row">
-        <span className="prc-event-marker" aria-hidden>{eventMarker(e.eventType)}</span>
+        <span className={`prc-event-marker prc-event-marker--${e.eventType}`} aria-hidden>{eventMarker(e.eventType)}</span>
         <Avatar login={e.actor} size={20} className="prc-event-avatar" />
         <span>
           <b>{e.actor}</b> {label}

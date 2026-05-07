@@ -654,6 +654,29 @@
   flex-shrink: 0;
   z-index: 1;
 }
+/* github.com-style colour for special timeline events. The glyph
+   stays the same — what changes is the chip becomes a solid filled
+   circle in the canonical state colour, so a quick scan of the
+   timeline surfaces "this PR was merged / closed / reopened"
+   without having to read each line. */
+.prc-event-marker--merged {
+  background: #8250df;
+  border-color: #8250df;
+  color: #fff;
+  font-weight: 700;
+}
+.prc-event-marker--closed {
+  background: #cf222e;
+  border-color: #cf222e;
+  color: #fff;
+  font-weight: 700;
+}
+.prc-event-marker--reopened {
+  background: #2da44e;
+  border-color: #2da44e;
+  color: #fff;
+  font-weight: 700;
+}
 .prc-event-row .prc-event-avatar {
   flex-shrink: 0;
   width: 20px;

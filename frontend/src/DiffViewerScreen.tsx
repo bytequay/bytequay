@@ -945,6 +945,13 @@ function ContinuousFilesPane({
   const scrollRef = useRef<HTMLDivElement>(null);
   const sectionsRef = useRef<Map<string, HTMLElement>>(new Map());
   const lastSyncedFromClick = useRef<string | null>(null);
+  // Window during which handleScroll suppresses its active-file sync.
+  // Set when we kick off a programmatic scroll so intermediate files
+  // passing under the top band don't bounce setSelectedPath through
+  // every file en route — those re-renders interrupted the smooth
+  // animation and the scroll would land short of the clicked file
+  // (the "moves only ~8 files at a time" bug).
+  const suppressActiveSyncUntil = useRef(0);
 
   // Smoothly scroll to the section when the user picks a file in the rail.
   // We track `lastSyncedFromClick` so the scroll handler doesn't fight the
@@ -955,11 +962,16 @@ function ContinuousFilesPane({
     const el = sectionsRef.current.get(selectedPath);
     if (!el) return;
     lastSyncedFromClick.current = selectedPath;
+    // Cover any reasonable smooth-scroll duration. 1500ms is generous
+    // enough for cross-document jumps; once it elapses the active-
+    // file detector resumes for genuine user scrolling.
+    suppressActiveSyncUntil.current = Date.now() + 1500;
     el.scrollIntoView({ behavior: 'smooth', block: 'start' });
   }, [selectedPath]);
 
   // Pick the file whose header is closest to the top of the scroll area.
   const handleScroll = () => {
+    if (Date.now() < suppressActiveSyncUntil.current) return;
     const scroller = scrollRef.current;
     if (!scroller) return;
     const scrollerTop = scroller.getBoundingClientRect().top;

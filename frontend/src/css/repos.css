@@ -410,6 +410,14 @@
   display: flex;
   gap: 6px;
   flex-wrap: wrap;
+  align-items: center;
+}
+/* Pushes the OS-integration buttons (Finder / Terminal / IDE) to
+   the right edge of the action bar. They're a separate group from
+   the git ops so the visual gap matches their conceptual gap. */
+.local-repo-page__actions-spacer {
+  flex: 1 1 auto;
+  min-width: 12px;
 }
 .local-repo-page__action-error {
   margin-top: 8px;

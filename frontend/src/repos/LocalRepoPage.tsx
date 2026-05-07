@@ -144,6 +144,40 @@ function LocalRepoPage({ owner, repo, onBack }: Props) {
     }
   };
 
+  // Open-in-X actions don't need a busy state — they fire-and-forget
+  // out of process and finish in milliseconds. Errors (no IDE found,
+  // bad path) get reported through the same actionError channel as
+  // the git ops so the user sees feedback in one place.
+  const runReveal = async () => {
+    if (!status?.localClonePath) return;
+    setActionError(null);
+    try {
+      await window.bridge.revealRepoInFinder(status.localClonePath);
+    } catch (e) {
+      setActionError(e instanceof Error ? e.message : String(e));
+    }
+  };
+
+  const runTerminal = async () => {
+    if (!status?.localClonePath) return;
+    setActionError(null);
+    try {
+      await window.bridge.openRepoInTerminal(status.localClonePath);
+    } catch (e) {
+      setActionError(e instanceof Error ? e.message : String(e));
+    }
+  };
+
+  const runIDE = async () => {
+    if (!status?.localClonePath) return;
+    setActionError(null);
+    try {
+      await window.bridge.openRepoInIDE(status.localClonePath);
+    } catch (e) {
+      setActionError(e instanceof Error ? e.message : String(e));
+    }
+  };
+
   const runCreateBranch = async () => {
     const name = newBranchName.trim();
     if (!name) return;
@@ -234,6 +268,34 @@ function LocalRepoPage({ owner, repo, onBack }: Props) {
             title="Create a new branch and switch to it"
           >
             + Branch
+          </button>
+          <span className="local-repo-page__actions-spacer" aria-hidden="true" />
+          <button
+            type="button"
+            className="button button--secondary button--sm"
+            onClick={() => { void runReveal(); }}
+            disabled={!status?.localClonePath}
+            title="Reveal the working-tree folder in Finder"
+          >
+            Finder
+          </button>
+          <button
+            type="button"
+            className="button button--secondary button--sm"
+            onClick={() => { void runTerminal(); }}
+            disabled={!status?.localClonePath}
+            title="Open the repo in iTerm (falls back to Terminal)"
+          >
+            Terminal
+          </button>
+          <button
+            type="button"
+            className="button button--secondary button--sm"
+            onClick={() => { void runIDE(); }}
+            disabled={!status?.localClonePath}
+            title="Open in VS Code / Cursor / JetBrains (first one installed)"
+          >
+            IDE
           </button>
         </div>
         {branchFormOpen && (

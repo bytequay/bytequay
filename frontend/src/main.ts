@@ -14,6 +14,10 @@
 import { app, BrowserWindow, clipboard, dialog, ipcMain, Menu, nativeImage, session, shell, WebContentsView } from 'electron';
 import path from 'node:path';
 import fs from 'node:fs';
+import { execFile } from 'node:child_process';
+import { promisify } from 'node:util';
+
+const execFileAsync = promisify(execFile);
 import started from 'electron-squirrel-startup';
 import { BACKEND_BASE, killBackend, spawnBackend, waitForBackendReady } from './backendProcess';
 
@@ -1060,6 +1064,60 @@ const url = new URL(`${BACKEND_BASE}/prs/comment`);
       throw new Error(extractMessage(body) || `locate failed (${res.status})`);
     }
     return res.json();
+  });
+
+  ipcMain.handle('repos:revealInFinder', async (_event, repoPath: string) => {
+    if (!repoPath) throw new Error('No path mapped for this repo');
+    // showItemInFolder reveals the *parent* with the item selected.
+    // For a repo directory we want the folder itself open in Finder,
+    // so use openPath which double-clicks the folder.
+    const err = await shell.openPath(repoPath);
+    if (err) throw new Error(err);
+  });
+
+  // Try a list of well-known macOS terminal apps in order. We don't
+  // probe LaunchServices for installation up front — `open -a` exits
+  // non-zero if the app isn't there, so the loop short-circuits on
+  // the first match. iTerm first since most devs who installed it
+  // prefer it over the bundled Terminal.
+  const TERMINAL_CANDIDATES = ['iTerm', 'Terminal'];
+  ipcMain.handle('repos:openInTerminal', async (_event, repoPath: string) => {
+    if (!repoPath) throw new Error('No path mapped for this repo');
+    for (const appName of TERMINAL_CANDIDATES) {
+      try {
+        await execFileAsync('open', ['-a', appName, repoPath]);
+        return;
+      } catch {
+        // try next candidate
+      }
+    }
+    throw new Error('No supported terminal found (tried iTerm, Terminal)');
+  });
+
+  // Same shape as the terminal opener — picking among installed IDEs
+  // is a settings concern we'll address later. For now we walk a
+  // sensible mac-dev default order.
+  const IDE_CANDIDATES = [
+    'Visual Studio Code',
+    'Cursor',
+    'IntelliJ IDEA',
+    'IntelliJ IDEA CE',
+    'WebStorm',
+    'GoLand',
+    'PyCharm',
+    'PyCharm CE',
+  ];
+  ipcMain.handle('repos:openInIDE', async (_event, repoPath: string) => {
+    if (!repoPath) throw new Error('No path mapped for this repo');
+    for (const appName of IDE_CANDIDATES) {
+      try {
+        await execFileAsync('open', ['-a', appName, repoPath]);
+        return;
+      } catch {
+        // try next candidate
+      }
+    }
+    throw new Error('No supported IDE found (tried VS Code, Cursor, JetBrains)');
   });
 
   ipcMain.handle('repos:setLocalClonePath', async (

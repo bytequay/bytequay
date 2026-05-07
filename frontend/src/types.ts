@@ -835,6 +835,13 @@ export type Bridge = {
   createLocalBranch: (
     owner: string, repo: string, name: string, base?: string,
   ) => Promise<LocalRepoStatusDto>;
+  /** Opens the repo's working-tree directory in macOS Finder. */
+  revealRepoInFinder: (path: string) => Promise<void>;
+  /** Opens the repo path in iTerm if installed, else Terminal.app. */
+  openRepoInTerminal: (path: string) => Promise<void>;
+  /** Opens the repo path in the first installed IDE from a default
+   *  list (VS Code → Cursor → JetBrains). User-configurable later. */
+  openRepoInIDE: (path: string) => Promise<void>;
   getUserRepos: () => Promise<UserRepoDto[]>;
   getUserOrgs: () => Promise<UserOrgDto[]>;
   searchRepos: (query: string) => Promise<UserRepoDto[]>;

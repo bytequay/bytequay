@@ -31,7 +31,10 @@ import com.bytequay.app.repository.PrViewStateStore;
 import com.bytequay.app.repository.PullRequestRepository;
 import com.bytequay.app.repository.WatchedRepoStore;
 import com.google.common.collect.ImmutableList;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
+import org.springframework.web.server.ResponseStatusException;
 
 import java.time.Duration;
 import java.time.Instant;
@@ -47,6 +50,7 @@ import static java.util.Objects.requireNonNull;
 @Service
 public class RepoService
 {
+    private static final Logger log = LoggerFactory.getLogger(RepoService.class);
     private static final Duration HOME_CACHE_TTL = Duration.ofMinutes(2);
 
     private final WatchedRepoStore watchedRepoStore;
@@ -191,7 +195,25 @@ public class RepoService
 
     public List<UserOrg> getUserOrgs(String pat)
     {
-        return gitHub.fetchUserOrgs(pat);
+        // GET /user/orgs needs the read:org scope on the PAT. Plenty of
+        // valid setups don't grant it (fine-grained tokens without org
+        // permissions, classic PATs without read:org, SSO not authorised
+        // for the org, etc.) — those return 403 from GitHub and a 404
+        // when membership is hidden. The org list is a non-essential
+        // home-page accent; treat scope failures as "no orgs" so the
+        // home page stays clean and the main-process IPC doesn't log a
+        // backend-returned-403 stack on every page load.
+        try {
+            return gitHub.fetchUserOrgs(pat);
+        }
+        catch (ResponseStatusException e) {
+            int status = e.getStatusCode().value();
+            if (status == 403 || status == 404) {
+                log.warn("getUserOrgs: GitHub returned {} (likely missing read:org scope) — returning empty list", status);
+                return ImmutableList.of();
+            }
+            throw e;
+        }
     }
 
     public List<UserRepo> searchRepos(String pat, String query)

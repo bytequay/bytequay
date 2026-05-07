@@ -317,6 +317,19 @@ const createWindow = async () => {
       requestInAppOpen(url);
     }
   });
+  // Tear down any overlay WebContentsView whenever the renderer
+  // (re)loads. The overlays live on mainWindow.contentView at the
+  // main-process level, so they survive a Cmd-R / Ctrl-R refresh
+  // unless we explicitly remove them here — without this, refreshing
+  // the PR detail page left the embedded github.com tab stranded on
+  // top of the home page with no close button (see
+  // docs/mockups/issue/pr-details/refresh-bad-home.png). The initial
+  // page load also fires this event but both destroy* helpers are
+  // no-ops when the views are null, so it's safe.
+  mainWindow.webContents.on('did-start-loading', () => {
+    destroyReviewView();
+    destroyInappView();
+  });
 
   if (MAIN_WINDOW_VITE_DEV_SERVER_URL) {
     await mainWindow.loadURL(normalizeDevServerUrl(MAIN_WINDOW_VITE_DEV_SERVER_URL));

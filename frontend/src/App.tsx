@@ -15,6 +15,7 @@ import { Component, useEffect, useState, type ErrorInfo, type ReactNode } from '
 import SettingsShell from './settings/SettingsShell';
 import NotificationsScreen from './NotificationsScreen';
 import TeamDetailPage from './teams/TeamDetailPage';
+import TeamHomePage from './teams/TeamHomePage';
 import type { SettingsSection } from './settings/types';
 import PullRequestList from './PullRequestList';
 import HomePage from './HomePage';
@@ -32,6 +33,7 @@ type Nav =
   | { view: 'my-prs' }
   | { view: 'repo'; owner: string; repo: string; prNumber?: number }
   | { view: 'team'; teamId: number }
+  | { view: 'team-kanban'; teamId: number }
   | { view: 'notifications' }
   | { view: 'repos' }
   | { view: 'local-repo'; owner: string; repo: string }
@@ -267,9 +269,16 @@ function App() {
           />
         )}
         {nav.view === 'team' && (
+          <TeamHomePage
+            teamId={nav.teamId}
+            onOpenKanban={() => setNav({ view: 'team-kanban', teamId: nav.teamId })}
+            onBack={() => setNav({ view: 'settings', section: 'teams' })}
+          />
+        )}
+        {nav.view === 'team-kanban' && (
           <TeamDetailPage
             teamId={nav.teamId}
-            onBack={() => setNav({ view: 'settings', section: 'teams' })}
+            onBack={() => setNav({ view: 'team', teamId: nav.teamId })}
           />
         )}
         {nav.view === 'settings' && (

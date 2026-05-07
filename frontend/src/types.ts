@@ -714,6 +714,23 @@ export type LocalCommitDto = {
   authoredAt: string | null;
 };
 
+export type LocalActivityEntryDto = {
+  sha: string;
+  shortSha: string;
+  /** `HEAD@{0}` etc. — the relative selector git uses for this
+   *  reflog entry. */
+  selector: string;
+  /** Coarse classification driving the icon and label. */
+  kind:
+    | 'COMMIT' | 'CHECKOUT' | 'MERGE' | 'PULL' | 'PUSH'
+    | 'REBASE' | 'RESET' | 'BRANCH' | 'UNKNOWN';
+  /** Full reflog subject — has the descriptive tail after the
+   *  classifier prefix (e.g. "checkout: moving from main to feat/foo"). */
+  subject: string;
+  /** Author timestamp of the commit this entry points at. */
+  at: string | null;
+};
+
 export type Bridge = {
   savePat: (pat: string) => Promise<boolean>;
   hasPat: () => Promise<boolean>;
@@ -840,6 +857,11 @@ export type Bridge = {
   listLocalCommits: (
     owner: string, repo: string, revision?: string, limit?: number,
   ) => Promise<LocalCommitDto[]>;
+  /** Recent reflog entries — HEAD-mutating events (commits, checkouts,
+   *  merges, pulls, rebases). Powers the Activity tab. */
+  listLocalActivity: (
+    owner: string, repo: string, limit?: number,
+  ) => Promise<LocalActivityEntryDto[]>;
   /** `git fetch --all --prune` against the watched repo's clone.
    *  Returns the refreshed status row. */
   fetchLocalRepo: (owner: string, repo: string) => Promise<LocalRepoStatusDto>;

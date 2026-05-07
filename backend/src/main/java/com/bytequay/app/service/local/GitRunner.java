@@ -321,6 +321,63 @@ public class GitRunner
             String subject) {}
 
     /**
+     * Walks {@code git reflog} and returns up to {@code limit}
+     * recent entries. The reflog records every move HEAD makes —
+     * commits, checkouts, merges, pulls, rebases — so it's the
+     * right primitive for an "activity in this clone" feed.
+     *
+     * Output shape mirrors {@link #listCommits}: NUL between records,
+     * {@link #US_SEP} between fields. {@code %gs} is the reflog
+     * subject ("commit:", "checkout:", "merge:") and {@code %gd} is
+     * the reflog selector ({@code HEAD@{0}}).
+     */
+    public List<ReflogEntry> listReflog(Path workingDir, int limit)
+            throws IOException, InterruptedException
+    {
+        if (limit <= 0) {
+            return List.of();
+        }
+        String fmt = "%H" + US_SEP + "%h" + US_SEP + "%gd" + US_SEP
+                + "%gs" + US_SEP + "%aI";
+        List<String> args = List.of(
+                "git", "reflog",
+                "--max-count=" + limit,
+                "-z",
+                "--pretty=format:" + fmt);
+        GitResult result = run(args, workingDir);
+        result.requireSuccess();
+        String stdout = result.stdout();
+        if (stdout.isEmpty()) {
+            return List.of();
+        }
+        List<ReflogEntry> entries = new ArrayList<>();
+        for (String record : stdout.split(NUL_SEP, -1)) {
+            if (record.isEmpty()) {
+                continue;
+            }
+            String[] parts = record.split(US_SEP, -1);
+            if (parts.length < 5) {
+                continue;
+            }
+            entries.add(new ReflogEntry(
+                    parts[0], parts[1], parts[2], parts[3], parts[4]));
+        }
+        return List.copyOf(entries);
+    }
+
+    public record ReflogEntry(
+            String sha,
+            String shortSha,
+            /** {@code HEAD@{0}}, {@code HEAD@{1}}, … — the relative
+             *  selector git uses to address this entry. */
+            String selector,
+            /** Human-readable description: "commit: …", "checkout: from
+             *  X to Y", "merge: …", "pull: Fast-forward", etc. */
+            String subject,
+            /** Author timestamp of the commit the entry points at. */
+            String authoredAt) {}
+
+    /**
      * Lists all configured remotes for the working tree at
      * {@code path} as (name, fetch-URL) pairs. Powers the
      * Locate-existing flow: a fork-based clone has both

@@ -589,6 +589,89 @@
   font-weight: 500;
 }
 
+/* Activity tab: one row per reflog entry. Glyph + kind chip on the
+   left, description prose on the right. Subdued metadata line below
+   matches the Commits tab's visual rhythm. */
+.activity-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+}
+.activity-row {
+  display: flex;
+  gap: 12px;
+  align-items: flex-start;
+  padding: 10px 14px;
+  border-bottom: 1px solid var(--border);
+}
+.activity-row:last-child { border-bottom: none; }
+.activity-row__glyph {
+  flex: 0 0 22px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  font-size: 12px;
+  background: rgba(99, 102, 241, 0.10);
+  color: var(--accent);
+  margin-top: 1px;
+}
+.activity-row--commit .activity-row__glyph { background: rgba(46, 160, 67, 0.16); color: #2da44e; }
+.activity-row--checkout .activity-row__glyph { background: rgba(99, 102, 241, 0.16); color: var(--accent); }
+.activity-row--merge .activity-row__glyph { background: rgba(126, 87, 194, 0.16); color: #7e57c2; }
+.activity-row--pull .activity-row__glyph { background: rgba(33, 150, 243, 0.16); color: #2196f3; }
+.activity-row--push .activity-row__glyph { background: rgba(33, 150, 243, 0.16); color: #2196f3; }
+.activity-row--rebase .activity-row__glyph { background: rgba(255, 152, 0, 0.18); color: #ef6c00; }
+.activity-row--reset .activity-row__glyph { background: rgba(207, 34, 46, 0.16); color: #b91c1c; }
+.activity-row__main {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.activity-row__line {
+  display: flex;
+  gap: 8px;
+  align-items: baseline;
+  font-size: 13px;
+  color: var(--text-1);
+}
+.activity-row__kind {
+  font-weight: 600;
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-2);
+  flex: 0 0 auto;
+}
+.activity-row__desc {
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.activity-row__meta {
+  display: flex;
+  gap: 10px;
+  font-size: 12px;
+  color: var(--text-3);
+  margin-top: 2px;
+}
+.activity-row__sha {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, monospace;
+  font-size: 11px;
+  background: var(--bg-card);
+  border-radius: 3px;
+  padding: 1px 5px;
+}
+.activity-row__selector {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, monospace;
+  font-size: 11px;
+}
+
 /* Force-push confirmation modal. Sits over the local-repo page;
    the backdrop swallows clicks so the user has to make an explicit
    Cancel/Confirm choice rather than dismissing accidentally. */

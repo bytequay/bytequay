@@ -13,6 +13,7 @@
  */
 package com.bytequay.app.service.local;
 
+import com.bytequay.app.domain.LocalActivityEntry;
 import com.bytequay.app.domain.LocalBranch;
 import com.bytequay.app.domain.LocalCommit;
 import com.bytequay.app.domain.LocalRepoStatus;
@@ -347,6 +348,84 @@ public class LocalRepoService
                 e.authorName(),
                 e.authorEmail(),
                 parseIsoOrNull(e.authoredAt()));
+    }
+
+    /**
+     * Recent {@code git reflog} entries for the watched repo's clone,
+     * mapped into {@link LocalActivityEntry} for the Activity tab.
+     */
+    public List<LocalActivityEntry> listActivity(String owner, String repo, int limit)
+            throws IOException, InterruptedException
+    {
+        Path path = clonePathOrThrow(owner, repo);
+        return gitRunner.listReflog(path, limit).stream()
+                .map(LocalRepoService::toActivityEntry)
+                .collect(toImmutableList());
+    }
+
+    private static LocalActivityEntry toActivityEntry(GitRunner.ReflogEntry e)
+    {
+        return new LocalActivityEntry(
+                e.sha(),
+                e.shortSha(),
+                e.selector(),
+                classifyReflogSubject(e.subject()),
+                e.subject(),
+                parseIsoOrNull(e.authoredAt()));
+    }
+
+    /**
+     * Classifies a reflog subject into one of our known event kinds.
+     * Subjects look like {@code "commit: WIP"}, {@code "checkout: moving
+     * from X to Y"}, {@code "pull: Fast-forward"}, etc. We match on
+     * the colon-prefixed verb because git localizes nothing in the
+     * reflog — these prefixes are stable across versions.
+     */
+    static LocalActivityEntry.Kind classifyReflogSubject(String subject)
+    {
+        if (subject == null || subject.isEmpty()) {
+            return LocalActivityEntry.Kind.UNKNOWN;
+        }
+        int colon = subject.indexOf(':');
+        String prefix = (colon < 0 ? subject : subject.substring(0, colon))
+                .trim()
+                .toLowerCase(Locale.ROOT);
+        return switch (prefix) {
+            case "commit", "commit (initial)", "commit (amend)" -> LocalActivityEntry.Kind.COMMIT;
+            case "checkout" -> LocalActivityEntry.Kind.CHECKOUT;
+            case "merge" -> LocalActivityEntry.Kind.MERGE;
+            case "pull" -> LocalActivityEntry.Kind.PULL;
+            case "push" -> LocalActivityEntry.Kind.PUSH;
+            case "rebase", "rebase (start)", "rebase (pick)", "rebase (continue)",
+                 "rebase (finish)", "rebase -i (start)", "rebase -i (finish)" ->
+                    LocalActivityEntry.Kind.REBASE;
+            case "reset" -> LocalActivityEntry.Kind.RESET;
+            case "branch" -> LocalActivityEntry.Kind.BRANCH;
+            default -> {
+                // git's reflog uses two prefix shapes:
+                //   - bare verb: "commit:", "checkout:", "pull:"
+                //   - verb + arg: "merge feat/foo:", "rebase -i (start):"
+                // The switch above catches the bare forms; here we
+                // fall back to startsWith so the verb+arg forms still
+                // classify correctly.
+                if (prefix.startsWith("commit")) {
+                    yield LocalActivityEntry.Kind.COMMIT;
+                }
+                if (prefix.startsWith("rebase")) {
+                    yield LocalActivityEntry.Kind.REBASE;
+                }
+                if (prefix.startsWith("merge")) {
+                    yield LocalActivityEntry.Kind.MERGE;
+                }
+                if (prefix.startsWith("pull")) {
+                    yield LocalActivityEntry.Kind.PULL;
+                }
+                if (prefix.startsWith("push")) {
+                    yield LocalActivityEntry.Kind.PUSH;
+                }
+                yield LocalActivityEntry.Kind.UNKNOWN;
+            }
+        };
     }
 
     /** Pulls "ahead 5, behind 2" or "[ahead 5]" out of git's

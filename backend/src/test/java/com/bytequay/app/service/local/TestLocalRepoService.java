@@ -13,6 +13,7 @@
  */
 package com.bytequay.app.service.local;
 
+import com.bytequay.app.domain.LocalActivityEntry;
 import org.junit.jupiter.api.Test;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -110,5 +111,73 @@ class TestLocalRepoService
         assertThat(LocalRepoService.redactCredentials(
                 "https://github.com/trinodb/trino.git"))
                 .isEqualTo("https://github.com/trinodb/trino.git");
+    }
+
+    @Test
+    void testClassifyCommitSubject()
+    {
+        assertThat(LocalRepoService.classifyReflogSubject("commit: WIP on auth"))
+                .isEqualTo(LocalActivityEntry.Kind.COMMIT);
+    }
+
+    @Test
+    void testClassifyInitialCommit()
+    {
+        // git emits "commit (initial):" for the first commit in a repo —
+        // the parens trip the simple split-on-colon, so we need the
+        // startsWith fallback to catch it.
+        assertThat(LocalRepoService.classifyReflogSubject("commit (initial): bootstrap"))
+                .isEqualTo(LocalActivityEntry.Kind.COMMIT);
+    }
+
+    @Test
+    void testClassifyAmendCommit()
+    {
+        assertThat(LocalRepoService.classifyReflogSubject("commit (amend): fixup tests"))
+                .isEqualTo(LocalActivityEntry.Kind.COMMIT);
+    }
+
+    @Test
+    void testClassifyCheckout()
+    {
+        assertThat(LocalRepoService.classifyReflogSubject("checkout: moving from main to feat/foo"))
+                .isEqualTo(LocalActivityEntry.Kind.CHECKOUT);
+    }
+
+    @Test
+    void testClassifyPull()
+    {
+        assertThat(LocalRepoService.classifyReflogSubject("pull: Fast-forward"))
+                .isEqualTo(LocalActivityEntry.Kind.PULL);
+    }
+
+    @Test
+    void testClassifyMerge()
+    {
+        assertThat(LocalRepoService.classifyReflogSubject("merge feat/foo: Merge made by 'ort'."))
+                .isEqualTo(LocalActivityEntry.Kind.MERGE);
+    }
+
+    @Test
+    void testClassifyRebaseInteractive()
+    {
+        // Interactive rebase emits "rebase -i (start):" / "(finish):" —
+        // exercises the parenthesized-subject fallback.
+        assertThat(LocalRepoService.classifyReflogSubject("rebase -i (start): checkout origin/main"))
+                .isEqualTo(LocalActivityEntry.Kind.REBASE);
+    }
+
+    @Test
+    void testClassifyUnknownFallsThrough()
+    {
+        assertThat(LocalRepoService.classifyReflogSubject("garbage: never seen"))
+                .isEqualTo(LocalActivityEntry.Kind.UNKNOWN);
+    }
+
+    @Test
+    void testClassifyEmptySubject()
+    {
+        assertThat(LocalRepoService.classifyReflogSubject("")).isEqualTo(LocalActivityEntry.Kind.UNKNOWN);
+        assertThat(LocalRepoService.classifyReflogSubject(null)).isEqualTo(LocalActivityEntry.Kind.UNKNOWN);
     }
 }

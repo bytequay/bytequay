@@ -12,7 +12,7 @@
  * limitations under the License.
  */
 import { useEffect, useState } from 'react';
-import type { LocalBranchDto, LocalCommitDto, LocalRepoStatusDto } from '../types';
+import type { LocalActivityEntryDto, LocalBranchDto, LocalCommitDto, LocalRepoStatusDto } from '../types';
 import LogoLoading from '../LogoLoading';
 import { formatRelativeTime } from '../pr/utils';
 
@@ -455,7 +455,7 @@ function LocalRepoPage({ owner, repo, onBack }: Props) {
           revisionKey={status?.currentBranch ?? ''}
         />
       )}
-      {tab === 'activity' && <ActivityTab />}
+      {tab === 'activity' && <ActivityTab owner={owner} repo={repo} />}
     </div>
   );
 }
@@ -610,19 +610,114 @@ function CommitRow({ commit }: { commit: LocalCommitDto }) {
   );
 }
 
-// Placeholder until the local activity store ships. The intent is a
-// chronological feed of repo events the app cares about: branches
-// created/deleted, pushes, PRs opened/merged from this clone.
-function ActivityTab() {
+function ActivityTab({ owner, repo }: { owner: string; repo: string }) {
+  const [entries, setEntries] = useState<LocalActivityEntryDto[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    setEntries(null);
+    setError(null);
+    window.bridge.listLocalActivity(owner, repo, 100)
+      .then(rows => { if (!cancelled) setEntries(rows); })
+      .catch(e => { if (!cancelled) setError(e instanceof Error ? e.message : String(e)); });
+    return () => { cancelled = true; };
+  }, [owner, repo]);
+
+  if (error) {
+    return (
+      <div className="local-repo-page__error">
+        Couldn't load activity: {error}
+      </div>
+    );
+  }
+  if (entries === null) {
+    return (
+      <div className="local-repo-page__loading">
+        <LogoLoading size={48} label="Loading activity" />
+      </div>
+    );
+  }
+  if (entries.length === 0) {
+    return (
+      <div className="local-repo-tab-placeholder">
+        <div className="local-repo-tab-placeholder__title">No activity yet</div>
+        <p className="local-repo-tab-placeholder__body">
+          The reflog for this clone is empty — nothing has moved
+          HEAD since it was set up.
+        </p>
+      </div>
+    );
+  }
   return (
-    <div className="local-repo-tab-placeholder">
-      <div className="local-repo-tab-placeholder__title">Activity</div>
-      <p className="local-repo-tab-placeholder__body">
-        A feed of repo-level activity (pushes, branch lifecycle, PR
-        events touching this clone) will appear here. Coming in a
-        follow-up slice.
-      </p>
-    </div>
+    <ol className="activity-list">
+      {entries.map((e, i) => (
+        <ActivityRow key={`${e.selector}-${i}`} entry={e} />
+      ))}
+    </ol>
+  );
+}
+
+const ACTIVITY_KIND_LABEL: Record<LocalActivityEntryDto['kind'], string> = {
+  COMMIT: 'Commit',
+  CHECKOUT: 'Checkout',
+  MERGE: 'Merge',
+  PULL: 'Pull',
+  PUSH: 'Push',
+  REBASE: 'Rebase',
+  RESET: 'Reset',
+  BRANCH: 'Branch',
+  UNKNOWN: 'Event',
+};
+
+const ACTIVITY_KIND_GLYPH: Record<LocalActivityEntryDto['kind'], string> = {
+  COMMIT: '●',
+  CHECKOUT: '⎇',
+  MERGE: '⤭',
+  PULL: '↓',
+  PUSH: '↑',
+  REBASE: '↻',
+  RESET: '⤺',
+  BRANCH: '⎇',
+  UNKNOWN: '•',
+};
+
+function activityDescription(entry: LocalActivityEntryDto): string {
+  // Strip the "verb:" prefix — the kind label and glyph already
+  // convey it, and the trailing description is what the user wants
+  // to read. "checkout: moving from main to feat" → "moving from
+  // main to feat". Falls back to the full subject if there's no
+  // colon.
+  const colon = entry.subject.indexOf(':');
+  if (colon < 0) return entry.subject;
+  return entry.subject.slice(colon + 1).trim() || entry.subject;
+}
+
+function ActivityRow({ entry }: { entry: LocalActivityEntryDto }) {
+  const kindClass = entry.kind.toLowerCase();
+  return (
+    <li className={`activity-row activity-row--${kindClass}`}>
+      <span className="activity-row__glyph" aria-hidden="true">
+        {ACTIVITY_KIND_GLYPH[entry.kind]}
+      </span>
+      <div className="activity-row__main">
+        <div className="activity-row__line">
+          <span className="activity-row__kind">{ACTIVITY_KIND_LABEL[entry.kind]}</span>
+          <span className="activity-row__desc" title={entry.subject}>
+            {activityDescription(entry)}
+          </span>
+        </div>
+        <div className="activity-row__meta">
+          <code className="activity-row__sha" title={entry.sha}>{entry.shortSha}</code>
+          <span className="activity-row__selector">{entry.selector}</span>
+          {entry.at && (
+            <span className="activity-row__time" title={entry.at}>
+              {formatRelativeTime(entry.at)}
+            </span>
+          )}
+        </div>
+      </div>
+    </li>
   );
 }
 

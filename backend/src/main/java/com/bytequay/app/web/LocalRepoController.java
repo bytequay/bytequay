@@ -13,6 +13,7 @@
  */
 package com.bytequay.app.web;
 
+import com.bytequay.app.domain.LocalActivityEntry;
 import com.bytequay.app.domain.LocalBranch;
 import com.bytequay.app.domain.LocalCommit;
 import com.bytequay.app.domain.LocalRepoStatus;
@@ -212,6 +213,36 @@ public class LocalRepoController
         catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE, "commit listing interrupted");
+        }
+    }
+
+    /**
+     * GET /api/repos/local/{owner}/{repo}/activity — recent reflog
+     * entries (HEAD-mutating events: commits, checkouts, merges,
+     * pulls, rebases). {@code limit} is server-capped.
+     */
+    @GetMapping("/{owner}/{repo}/activity")
+    public List<LocalActivityEntry> listActivity(
+            @PathVariable("owner") String owner,
+            @PathVariable("repo") String repo,
+            @RequestParam(name = "limit", required = false, defaultValue = "100") int limit)
+    {
+        int capped = Math.min(Math.max(limit, 1), 500);
+        try {
+            return localRepoService.listActivity(owner, repo, capped);
+        }
+        catch (IllegalStateException e) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, e.getMessage());
+        }
+        catch (GitRunner.GitCommandException e) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, e.stderr().strip());
+        }
+        catch (IOException e) {
+            throw new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR, e.getMessage());
+        }
+        catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE, "activity listing interrupted");
         }
     }
 

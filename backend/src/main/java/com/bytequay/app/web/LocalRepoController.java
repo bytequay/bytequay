@@ -13,6 +13,7 @@
  */
 package com.bytequay.app.web;
 
+import com.bytequay.app.domain.LocalBranch;
 import com.bytequay.app.domain.LocalRepoStatus;
 import com.bytequay.app.repository.WatchedRepoStore;
 import com.bytequay.app.service.local.LocalRepoService;
@@ -148,6 +149,32 @@ public class LocalRepoController
         catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE, "locate interrupted");
+        }
+    }
+
+    /**
+     * GET /api/repos/local/{owner}/{repo}/branches — local branches
+     * of the mapped working tree, with metadata that drives the
+     * branches kanban (current flag, last-commit time, upstream
+     * tracking, ahead/behind counts).
+     */
+    @GetMapping("/{owner}/{repo}/branches")
+    public List<LocalBranch> listBranches(
+            @PathVariable("owner") String owner,
+            @PathVariable("repo") String repo)
+    {
+        try {
+            return localRepoService.listBranches(owner, repo);
+        }
+        catch (IllegalStateException e) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, e.getMessage());
+        }
+        catch (IOException e) {
+            throw new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR, e.getMessage());
+        }
+        catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE, "branch listing interrupted");
         }
     }
 

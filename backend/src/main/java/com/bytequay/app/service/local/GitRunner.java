@@ -95,6 +95,57 @@ public class GitRunner
     }
 
     /**
+     * Lists every local branch with metadata in a single
+     * {@code git for-each-ref} invocation. The callback gets one
+     * {@link BranchRef} per branch — name, last-commit timestamp,
+     * upstream-tracking ref, ahead/behind counts. Caller joins
+     * against the watched PR table to fill in linkedPrNumber.
+     *
+     * Output format is delimiter-separated rather than one git call
+     * per branch — N branches in O(1) processes is critical for
+     * repos like trino with hundreds of long-lived branches.
+     */
+    public List<BranchRef> listBranches(Path workingDir)
+            throws IOException, InterruptedException
+    {
+        // Field separator: ASCII Unit Separator (0x1F). Branch names
+        // can technically contain anything except control chars and
+        // a few special tokens, so a normal char would risk false
+        // splits. \x1f is one byte and effectively never appears in
+        // branch names or shortlog output.
+        String fmt = "%(refname:short)"
+                + "%(committerdate:iso-strict)"
+                + "%(upstream)"
+                + "%(upstream:track)"
+                + "%(HEAD)";
+        GitResult result = run(
+                List.of("git", "for-each-ref", "--format=" + fmt, "refs/heads"),
+                workingDir);
+        result.requireSuccess();
+        return result.stdout().lines()
+                .filter(line -> !line.isEmpty())
+                .map(GitRunner::parseBranchRow)
+                .toList();
+    }
+
+    private static BranchRef parseBranchRow(String line)
+    {
+        String[] parts = line.split("", -1);
+        // Defensive: a malformed row ends up with fewer fields. Treat
+        // missing fields as empty so we don't crash listing the whole
+        // repo because one ref had a weird format.
+        String name = parts.length > 0 ? parts[0] : "";
+        String date = parts.length > 1 ? parts[1] : "";
+        String upstream = parts.length > 2 ? parts[2] : "";
+        String track = parts.length > 3 ? parts[3] : "";
+        String head = parts.length > 4 ? parts[4] : "";
+        return new BranchRef(name, date, upstream, track, "*".equals(head));
+    }
+
+    public record BranchRef(String name, String committerDate, String upstream,
+                             String upstreamTrack, boolean isCurrent) {}
+
+    /**
      * Returns the configured `origin` remote URL of the working tree
      * at {@code path}, or null if no origin is set. Used by the
      * Locate-existing flow to verify the user picked a folder whose

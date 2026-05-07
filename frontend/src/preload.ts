@@ -141,6 +141,8 @@ const bridge: Bridge = {
     ipcRenderer.invoke('repos:cloneRepo', owner, repo, destination),
   locateRepo: (owner: string, repo: string, path: string) =>
     ipcRenderer.invoke('repos:locateRepo', owner, repo, path),
+  listLocalBranches: (owner: string, repo: string) =>
+    ipcRenderer.invoke('repos:listLocalBranches', owner, repo),
   getRepoIssues: (owner: string, repo: string): Promise<IssueDto[]> =>
     ipcRenderer.invoke('repos:issues', owner, repo),
   getUserRepos: (): Promise<UserRepoDto[]> => ipcRenderer.invoke('repos:userRepos'),

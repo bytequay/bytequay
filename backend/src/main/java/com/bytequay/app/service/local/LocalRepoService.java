@@ -13,6 +13,7 @@
  */
 package com.bytequay.app.service.local;
 
+import com.bytequay.app.domain.LocalBranch;
 import com.bytequay.app.domain.LocalRepoStatus;
 import com.bytequay.app.domain.WatchedRepo;
 import com.bytequay.app.repository.WatchedRepoStore;
@@ -23,8 +24,12 @@ import org.springframework.stereotype.Service;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.time.Instant;
+import java.time.format.DateTimeParseException;
 import java.util.List;
 import java.util.Locale;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 import java.util.stream.Stream;
 
 import static com.google.common.collect.ImmutableList.toImmutableList;
@@ -184,6 +189,63 @@ public class LocalRepoService
     {
         return watchedRepoStore.find(owner, repo)
                 .orElseThrow(() -> new IllegalStateException(owner + "/" + repo + " is not watched"));
+    }
+
+    /**
+     * Returns the branches of a watched repo's local clone, mapped
+     * into LocalBranch records ready for the kanban renderer. Throws
+     * IllegalStateException when the repo isn't mapped — the caller
+     * is expected to gate on the status row first.
+     */
+    public List<LocalBranch> listBranches(String owner, String repo)
+            throws IOException, InterruptedException
+    {
+        WatchedRepo watched = refreshWatchedRepo(owner, repo);
+        if (watched.localClonePath() == null) {
+            throw new IllegalStateException(owner + "/" + repo + " has no local clone mapped");
+        }
+        Path path = Path.of(watched.localClonePath());
+        return gitRunner.listBranches(path).stream()
+                .map(LocalRepoService::toLocalBranch)
+                .collect(toImmutableList());
+    }
+
+    /** Pulls "ahead 5, behind 2" or "[ahead 5]" out of git's
+     *  upstream:track field, which uses bracketed prose for the
+     *  default-format string. */
+    private static final Pattern AHEAD_RE = Pattern.compile("ahead (\\d+)");
+    private static final Pattern BEHIND_RE = Pattern.compile("behind (\\d+)");
+
+    private static LocalBranch toLocalBranch(GitRunner.BranchRef ref)
+    {
+        Instant when = parseIsoOrNull(ref.committerDate());
+        boolean hasUpstream = !ref.upstream().isEmpty();
+        Integer ahead = null;
+        Integer behind = null;
+        if (hasUpstream) {
+            Matcher a = AHEAD_RE.matcher(ref.upstreamTrack());
+            Matcher b = BEHIND_RE.matcher(ref.upstreamTrack());
+            ahead = a.find() ? Integer.parseInt(a.group(1)) : 0;
+            behind = b.find() ? Integer.parseInt(b.group(1)) : 0;
+        }
+        // linkedPrNumber stays null for now — populating it requires a
+        // join against PR head refs, which the list-page sync doesn't
+        // capture today. The IN REVIEW column will be empty until that
+        // join lands; deliberately deferred to keep this slice tight.
+        return new LocalBranch(ref.name(), ref.isCurrent(), when, hasUpstream, ahead, behind, null);
+    }
+
+    private static Instant parseIsoOrNull(String iso)
+    {
+        if (iso == null || iso.isEmpty()) {
+            return null;
+        }
+        try {
+            return Instant.parse(iso);
+        }
+        catch (DateTimeParseException e) {
+            return null;
+        }
     }
 
     /**

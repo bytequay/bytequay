@@ -682,6 +682,22 @@ export type LocalRepoStatusDto = {
   errorMessage: string | null;
 };
 
+/** One row of the branches kanban on the repo detail page. */
+export type LocalBranchDto = {
+  name: string;
+  isCurrent: boolean;
+  /** ISO timestamp of the branch tip's commit, or null when git
+   *  couldn't parse it (corrupt ref / shallow clone edge case). */
+  lastCommitAt: string | null;
+  hasUpstream: boolean;
+  ahead: number | null;
+  behind: number | null;
+  /** Open PR whose head ref equals this branch — null until the PR
+   *  list-page sync starts capturing head refs. Branches with a
+   *  non-null value land in the IN REVIEW column. */
+  linkedPrNumber: number | null;
+};
+
 export type Bridge = {
   savePat: (pat: string) => Promise<boolean>;
   hasPat: () => Promise<boolean>;
@@ -799,6 +815,10 @@ export type Bridge = {
    *  watched repo, then records it. Errors carry the backend's
    *  {@code message} field verbatim ("wrong remote: …"). */
   locateRepo: (owner: string, repo: string, path: string) => Promise<LocalRepoStatusDto>;
+  /** Local branches for the repo detail page's kanban. Each entry has
+   *  enough metadata to decide column placement and render the inline
+   *  ahead/behind + last-commit chips. */
+  listLocalBranches: (owner: string, repo: string) => Promise<LocalBranchDto[]>;
   getUserRepos: () => Promise<UserRepoDto[]>;
   getUserOrgs: () => Promise<UserOrgDto[]>;
   searchRepos: (query: string) => Promise<UserRepoDto[]>;

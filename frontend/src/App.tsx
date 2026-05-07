@@ -20,6 +20,7 @@ import PullRequestList from './PullRequestList';
 import HomePage from './HomePage';
 import RepoDetailPage from './RepoDetailPage';
 import ReposPage from './repos/ReposPage';
+import LocalRepoPage from './repos/LocalRepoPage';
 import InAppBrowser from './InAppBrowser';
 import LogoLoading from './LogoLoading';
 import OnboardingScreen from './OnboardingScreen';
@@ -33,6 +34,7 @@ type Nav =
   | { view: 'team'; teamId: number }
   | { view: 'notifications' }
   | { view: 'repos' }
+  | { view: 'local-repo'; owner: string; repo: string }
   | { view: 'settings'; section?: SettingsSection };
 
 type GlobalTopbarProps = {
@@ -254,7 +256,14 @@ function App() {
         )}
         {nav.view === 'repos' && (
           <ReposPage
-            onSelectRepo={(owner, repo) => setNav({ view: 'repo', owner, repo })}
+            onSelectRepo={(owner, repo) => setNav({ view: 'local-repo', owner, repo })}
+          />
+        )}
+        {nav.view === 'local-repo' && (
+          <LocalRepoPage
+            owner={nav.owner}
+            repo={nav.repo}
+            onBack={() => setNav({ view: 'repos' })}
           />
         )}
         {nav.view === 'team' && (

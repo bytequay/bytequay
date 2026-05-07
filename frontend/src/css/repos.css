@@ -342,3 +342,198 @@
   gap: 8px;
   margin-top: 4px;
 }
+
+/* Repo detail page — local working-copy view with branches kanban.
+   Header rhythm matches docs/mockups/local-repo-design.md
+   `bytequay_repo_detail_v2`. */
+.local-repo-page {
+  padding: 18px 32px 48px;
+  max-width: 1400px;
+  margin: 0 auto;
+}
+.local-repo-page__head {
+  margin-bottom: 18px;
+}
+.local-repo-page__back {
+  appearance: none;
+  background: transparent;
+  border: 0;
+  font-size: 12px;
+  color: var(--text-3);
+  cursor: pointer;
+  padding: 0;
+  margin-bottom: 8px;
+}
+.local-repo-page__back:hover { color: var(--accent); }
+.local-repo-page__title-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 4px;
+}
+.local-repo-page__title {
+  font-size: 22px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  margin: 0;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, monospace;
+  color: var(--text-1);
+}
+.local-repo-page__owner { color: var(--text-3); font-weight: 500; }
+.local-repo-page__head-chip {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, monospace;
+  font-size: 12px;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 3px 8px;
+  color: var(--text-2);
+}
+.local-repo-page__dirty {
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  background: rgba(212, 160, 23, 0.18);
+  color: #92400e;
+  padding: 2px 8px;
+  border-radius: 999px;
+}
+.local-repo-page__path {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, monospace;
+  font-size: 11.5px;
+  color: var(--text-3);
+}
+.local-repo-page__error {
+  background: rgba(207, 34, 46, 0.08);
+  border: 1px solid rgba(207, 34, 46, 0.30);
+  color: #b91c1c;
+  font-size: 13px;
+  padding: 10px 14px;
+  border-radius: 8px;
+  margin-bottom: 16px;
+}
+.local-repo-page__loading {
+  display: flex;
+  justify-content: center;
+  padding: 48px 0;
+}
+
+/* Branches kanban. Three columns with a colored 3px top border —
+   parallels the PR kanban's visual rhythm. CLEAN UP column ships in
+   a follow-up commit. */
+.branches-kanban {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+.branches-col {
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-top-width: 3px;
+  border-radius: 8px;
+  display: flex;
+  flex-direction: column;
+  min-height: 200px;
+}
+.branches-col--local_work    { border-top-color: #6e7781; }
+.branches-col--ready_for_pr  { border-top-color: #1f6feb; }
+.branches-col--in_review     { border-top-color: #2da44e; }
+
+.branches-col__head {
+  padding: 10px 14px 8px;
+  border-bottom: 1px solid var(--border);
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: baseline;
+  column-gap: 8px;
+}
+.branches-col__label {
+  font-size: 11.5px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--text-2);
+}
+.branches-col__count {
+  font-size: 11px;
+  color: var(--text-3);
+  font-weight: 600;
+}
+.branches-col__sub {
+  grid-column: 1 / -1;
+  font-size: 11px;
+  color: var(--text-3);
+  margin-top: 2px;
+}
+.branches-col__body {
+  padding: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  flex: 1 1 auto;
+}
+.branches-col__empty {
+  font-size: 12px;
+  color: var(--text-3);
+  text-align: center;
+  padding: 20px 8px;
+  font-style: italic;
+}
+
+.branch-card {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 8px 10px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.branch-card--current {
+  border-color: var(--accent);
+  background: var(--accent-a4);
+}
+.branch-card__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 6px;
+}
+.branch-card__name {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, monospace;
+  font-size: 12px;
+  color: var(--text-1);
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.branch-card__head-dot {
+  color: var(--accent);
+  margin-right: 4px;
+  font-size: 9px;
+}
+.branch-card__pr {
+  font-size: 11px;
+  color: #1a7f37;
+  font-weight: 600;
+  background: rgba(46, 160, 67, 0.12);
+  padding: 1px 6px;
+  border-radius: 999px;
+}
+.branch-card__meta {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 11px;
+  color: var(--text-3);
+}
+.branch-card__sync {
+  display: inline-flex;
+  gap: 4px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, monospace;
+}
+.branch-card__no-upstream {
+  font-style: italic;
+}

@@ -71,8 +71,17 @@ public class SqliteWatchedRepoStore
                 .ifPresent(e -> jpaRepository.deleteById(e.getId()));
     }
 
+    @Override
+    public void setLocalClonePath(String owner, String repo, String localClonePath)
+    {
+        WatchedRepoEntity entity = jpaRepository.findByOwnerAndRepo(owner, repo)
+                .orElseThrow(() -> new IllegalArgumentException(owner + "/" + repo + " is not watched"));
+        entity.setLocalClonePath(localClonePath);
+        jpaRepository.save(entity);
+    }
+
     private static WatchedRepo toDomain(WatchedRepoEntity e)
     {
-        return new WatchedRepo(e.getId(), e.getOwner(), e.getRepo(), e.getDisplayOrder());
+        return new WatchedRepo(e.getId(), e.getOwner(), e.getRepo(), e.getDisplayOrder(), e.getLocalClonePath());
     }
 }

@@ -19,6 +19,7 @@ import type { SettingsSection } from './settings/types';
 import PullRequestList from './PullRequestList';
 import HomePage from './HomePage';
 import RepoDetailPage from './RepoDetailPage';
+import ReposPage from './repos/ReposPage';
 import InAppBrowser from './InAppBrowser';
 import LogoLoading from './LogoLoading';
 import OnboardingScreen from './OnboardingScreen';
@@ -31,6 +32,7 @@ type Nav =
   | { view: 'repo'; owner: string; repo: string; prNumber?: number }
   | { view: 'team'; teamId: number }
   | { view: 'notifications' }
+  | { view: 'repos' }
   | { view: 'settings'; section?: SettingsSection };
 
 type GlobalTopbarProps = {
@@ -76,6 +78,13 @@ function GlobalTopbar({ nav, onNav }: GlobalTopbarProps) {
           onClick={() => onNav({ view: 'my-prs' })}
         >
           Pull requests
+        </button>
+        <button
+          className={`global-nav-btn${nav.view === 'repos' ? ' global-nav-btn--active' : ''}`}
+          onClick={() => onNav({ view: 'repos' })}
+          title="Local repos"
+        >
+          Repos
         </button>
         <button
           className={`global-nav-btn${nav.view === 'notifications' ? ' global-nav-btn--active' : ''}`}
@@ -242,6 +251,11 @@ function App() {
         )}
         {nav.view === 'notifications' && (
           <NotificationsScreen />
+        )}
+        {nav.view === 'repos' && (
+          <ReposPage
+            onSelectRepo={(owner, repo) => setNav({ view: 'repo', owner, repo })}
+          />
         )}
         {nav.view === 'team' && (
           <TeamDetailPage

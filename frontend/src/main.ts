@@ -890,6 +890,32 @@ const url = new URL(`${BACKEND_BASE}/prs/comment`);
     return res.json();
   });
 
+  ipcMain.handle('repos:listLocal', async () => {
+    const res = await fetch(`${BACKEND_BASE}/api/repos/local`);
+    if (!res.ok) {
+      const body = await res.text().catch(() => '');
+      throw new Error(`backend /api/repos/local returned ${res.status}: ${body}`);
+    }
+    return res.json();
+  });
+
+  ipcMain.handle('repos:setLocalClonePath', async (
+    _event, owner: string, repo: string, path: string | null,
+  ) => {
+    const res = await fetch(
+      `${BACKEND_BASE}/api/repos/local/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/path`,
+      {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ path: path ?? '' }),
+      },
+    );
+    if (!res.ok) {
+      const body = await res.text().catch(() => '');
+      throw new Error(`backend /api/repos/local/.../path returned ${res.status}: ${body}`);
+    }
+  });
+
   ipcMain.handle('repos:userRepos', async () => {
     const res = await fetch(`${BACKEND_BASE}/api/user/repos`);
     if (!res.ok) throw new Error(`backend /api/user/repos returned ${res.status}`);

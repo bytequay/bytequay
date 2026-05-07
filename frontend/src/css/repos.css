@@ -1,0 +1,187 @@
+/*
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+/* Repos page — top-level local working-copy dashboard. Card grid with
+   one row per watched repo + a state pill. See
+   docs/mockups/local-repo-design.md `bytequay_repos_page_v2`. */
+
+.repos-page {
+  padding: 24px 32px 48px;
+  max-width: 1200px;
+  margin: 0 auto;
+}
+
+.repos-page__header {
+  margin-bottom: 20px;
+}
+
+.repos-page__title {
+  font-size: 22px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+  margin: 0 0 4px;
+  color: var(--text-1);
+}
+
+.repos-page__subtitle {
+  margin: 0;
+  font-size: 13px;
+  color: var(--text-3);
+}
+
+.repos-page__banner {
+  border-radius: 8px;
+  padding: 12px 16px;
+  margin-bottom: 16px;
+  font-size: 13px;
+  line-height: 1.55;
+  border: 1px solid;
+}
+.repos-page__banner--warn {
+  background: rgba(212, 160, 23, 0.10);
+  border-color: rgba(212, 160, 23, 0.30);
+  color: #92400e;
+}
+.repos-page__banner--error {
+  background: rgba(207, 34, 46, 0.08);
+  border-color: rgba(207, 34, 46, 0.30);
+  color: #b91c1c;
+}
+.repos-page__banner code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, monospace;
+  background: rgba(0, 0, 0, 0.06);
+  padding: 1px 6px;
+  border-radius: 4px;
+}
+
+.repos-page__loading {
+  display: flex;
+  justify-content: center;
+  padding: 48px 0;
+}
+
+.repos-page__empty {
+  background: var(--bg-card);
+  border: 1px dashed var(--border);
+  border-radius: 12px;
+  padding: 32px;
+  text-align: center;
+  color: var(--text-3);
+  font-size: 13px;
+}
+
+.repos-page__grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(320px, 1fr));
+  gap: 12px;
+}
+
+.repo-card {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 14px 16px;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
+  transition: border-color 120ms ease, box-shadow 120ms ease;
+}
+.repo-card:hover {
+  border-color: var(--text-3);
+  box-shadow: 0 2px 6px rgba(15, 23, 42, 0.08);
+}
+/* Unmapped rows get a dashed accent border to read as a CTA: "do
+   something here" — same treatment as the dashed Add-repo affordance
+   in the kanban. */
+.repo-card--unmapped {
+  border-style: dashed;
+  border-color: var(--accent-a40);
+  background: var(--accent-a4);
+}
+
+.repo-card__head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 8px;
+}
+
+.repo-card__name {
+  appearance: none;
+  background: none;
+  border: 0;
+  padding: 0;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  color: var(--text-1);
+  font-weight: 600;
+  font-size: 14px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, monospace;
+}
+.repo-card__name:hover { color: var(--accent); }
+.repo-card__owner { color: var(--text-3); font-weight: 400; }
+
+.repo-card__branch {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--text-2);
+}
+.repo-card__branch code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, monospace;
+}
+.repo-card__branch-icon { color: var(--text-3); }
+
+.repo-card__path {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, monospace;
+  font-size: 11.5px;
+  color: var(--text-3);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.repo-card__path--empty {
+  font-family: inherit;
+  font-style: italic;
+}
+
+.repo-card__error {
+  font-size: 11px;
+  color: #b91c1c;
+  background: rgba(207, 34, 46, 0.06);
+  border-radius: 4px;
+  padding: 4px 8px;
+}
+
+/* State pills. Tints follow the existing kanban-status pill recipe so
+   ByteQuay's visual vocabulary stays consistent across surfaces. */
+.repo-pill {
+  display: inline-flex;
+  align-items: center;
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  padding: 2px 8px;
+  border-radius: 999px;
+  flex-shrink: 0;
+}
+.repo-pill--clean    { background: rgba(46, 160, 67, 0.14); color: #1a7f37; }
+.repo-pill--modified { background: rgba(212, 160, 23, 0.18); color: #92400e; }
+.repo-pill--unmapped { background: var(--accent-a10); color: var(--accent); }
+.repo-pill--missing  { background: rgba(207, 34, 46, 0.10); color: #b91c1c; }
+.repo-pill--error    { background: rgba(207, 34, 46, 0.14); color: #b91c1c; }

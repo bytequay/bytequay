@@ -71,6 +71,25 @@ Then double-click the app as normal — the dialog won't return.
 > account is in place. Until then, the `xattr` line is the
 > recommended path.
 
+### Requirements
+
+ByteQuay needs **`git`** on your `PATH` for the local-repo features
+(repos page, branch and commit views, clone / fetch / push). It does
+not bundle git — it shells out to whatever `git` you already use in
+your terminal so your existing config, SSH keys, signing keys, and
+credential helper all just work.
+
+Most dev Macs already have git via Xcode Command Line Tools. If
+`git --version` works in your terminal, you're set. If not:
+
+```sh
+xcode-select --install
+```
+
+The PR dashboard, AI review, diff viewer, and merge controls work
+without git — only the local-repo features need it. ByteQuay
+detects a missing git on launch and points you to this section.
+
 ---
 
 ## What's in the box

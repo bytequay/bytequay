@@ -27,4 +27,9 @@ public interface WatchedRepoStore
     WatchedRepo add(String owner, String repo);
 
     void remove(String owner, String repo);
+
+    /** Updates the local clone path for a watched repo. Pass null to
+     *  unmap (e.g. when the user moves / deletes the directory).
+     *  Throws IllegalArgumentException if the repo isn't watched. */
+    void setLocalClonePath(String owner, String repo, String localClonePath);
 }

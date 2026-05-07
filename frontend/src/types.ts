@@ -666,6 +666,22 @@ export type ReviewSkillDto = {
   updatedAt: string;
 };
 
+/** One row of the Repos page. Mirrors the backend
+ *  {@code LocalRepoStatus} record. */
+export type LocalRepoStatusDto = {
+  owner: string;
+  repo: string;
+  /** Filesystem path of the user's working copy, or null if unmapped. */
+  localClonePath: string | null;
+  state: 'UNMAPPED' | 'CLEAN' | 'MODIFIED' | 'MISSING' | 'GIT_UNAVAILABLE' | 'ERROR';
+  /** Currently checked-out branch; null on unmapped or detached HEAD. */
+  currentBranch: string | null;
+  /** Modified-file count from `git status --porcelain`. Null if unmapped. */
+  dirtyFileCount: number | null;
+  /** Surface for the ERROR / MISSING / GIT_UNAVAILABLE states. */
+  errorMessage: string | null;
+};
+
 export type Bridge = {
   savePat: (pat: string) => Promise<boolean>;
   hasPat: () => Promise<boolean>;
@@ -762,6 +778,12 @@ export type Bridge = {
   getRepoMeta: (owner: string, repo: string) => Promise<RepoMetaDto>;
   /** ~30 most recent events on a repo for the right-pane activity feed. */
   getRepoActivity: (owner: string, repo: string) => Promise<RepoActivityItemDto[]>;
+  /** All watched repos plus their local-clone state (CLEAN / MODIFIED /
+   *  UNMAPPED / …). Drives the Repos page. */
+  listLocalRepos: () => Promise<LocalRepoStatusDto[]>;
+  /** Set or clear the local-clone path for a watched repo. Pass null
+   *  to unmap. Triggered by the Repos page's clone / locate flows. */
+  setLocalClonePath: (owner: string, repo: string, path: string | null) => Promise<void>;
   getUserRepos: () => Promise<UserRepoDto[]>;
   getUserOrgs: () => Promise<UserOrgDto[]>;
   searchRepos: (query: string) => Promise<UserRepoDto[]>;

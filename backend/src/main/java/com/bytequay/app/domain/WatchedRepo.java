@@ -13,7 +13,7 @@
  */
 package com.bytequay.app.domain;
 
-public record WatchedRepo(long id, String owner, String repo, int displayOrder)
+public record WatchedRepo(long id, String owner, String repo, int displayOrder, String localClonePath)
 {
     public String fullName()
     {

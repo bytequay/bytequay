@@ -37,6 +37,9 @@ class WatchedRepoEntity
     @Column(nullable = false)
     private int displayOrder;
 
+    @Column(name = "local_clone_path")
+    private String localClonePath;
+
     protected WatchedRepoEntity() {}
 
     WatchedRepoEntity(String owner, String repo, int displayOrder)
@@ -54,4 +57,7 @@ class WatchedRepoEntity
 
     int getDisplayOrder() { return displayOrder; }
     void setDisplayOrder(int displayOrder) { this.displayOrder = displayOrder; }
+
+    String getLocalClonePath() { return localClonePath; }
+    void setLocalClonePath(String localClonePath) { this.localClonePath = localClonePath; }
 }

@@ -91,9 +91,12 @@ function LocalRepoPage({ owner, repo }: Props) {
   // Names selected for bulk delete in the Clean up column. Lives on
   // the page rather than per-card so the modal can read the full set
   // and we can clear it after a successful delete.
-  const [selectedForCleanup, setSelectedForCleanup] = useState<Set<string>>(() => new Set());
-  const [cleanupConfirmOpen, setCleanupConfirmOpen] = useState(false);
-  const [cleanupBusy, setCleanupBusy] = useState(false);
+  // Branch the user has tapped Delete on. Modal is up while non-null;
+  // a successful delete clears it. Per-card affordance — bulk delete
+  // was removed in favor of one-at-a-time confirms because pushed-
+  // branch deletes shouldn't be a wholesale action.
+  const [deleteTarget, setDeleteTarget] = useState<LocalBranchDto | null>(null);
+  const [deleteBusy, setDeleteBusy] = useState(false);
   // Create-PR modal state. Open while the form is up; the form
   // owns title/body/base/draft and posts back through this page so
   // we can refresh the action bar and (eventually) the IN REVIEW
@@ -335,7 +338,7 @@ function LocalRepoPage({ owner, repo }: Props) {
   // when the modal is up — we don't want to hijack keys mid-form.
   useEffect(() => {
     if (tab !== 'branches' || branches === null || branches.length === 0) return;
-    if (createPrOpen || cleanupConfirmOpen || forcePushPrompt || branchFormOpen) return;
+    if (createPrOpen || deleteTarget || forcePushPrompt || branchFormOpen) return;
     const handler = (e: KeyboardEvent) => {
       const target = e.target as HTMLElement | null;
       if (target) {
@@ -377,7 +380,7 @@ function LocalRepoPage({ owner, repo }: Props) {
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);
   }, [tab, branches, orderedBranchNames, focusedBranch, selectedBranch,
-      status?.currentBranch, createPrOpen, cleanupConfirmOpen,
+      status?.currentBranch, createPrOpen, deleteTarget,
       forcePushPrompt, branchFormOpen]);
 
   // Auto-expand a column when the keyboard cursor lands on a card
@@ -419,42 +422,25 @@ function LocalRepoPage({ owner, repo }: Props) {
     });
   };
 
-  const toggleCleanupSelected = (name: string) => {
-    setSelectedForCleanup(prev => {
-      const next = new Set(prev);
-      if (next.has(name)) next.delete(name);
-      else next.add(name);
-      return next;
-    });
-  };
-
-  const selectAllCleanup = (rows: LocalBranchDto[]) => {
-    setSelectedForCleanup(prev => {
-      // Toggle: if every visible cleanup branch is already selected,
-      // clear the set; otherwise select them all.
-      const allSelected = rows.length > 0 && rows.every(r => prev.has(r.name));
-      if (allSelected) return new Set();
-      return new Set(rows.map(r => r.name));
-    });
-  };
-
-  const runDeleteCleanup = async () => {
-    setCleanupBusy(true);
+  const runDeleteBranch = async (name: string, deleteRemote: boolean) => {
+    setDeleteBusy(true);
     setActionError(null);
     try {
-      const names = Array.from(selectedForCleanup);
-      const deleted = await window.bridge.deleteLocalBranches(owner, repo, names);
-      // Drop deleted names from selection; anything still selected
-      // got skipped server-side (no longer a cleanup candidate) and
-      // the refreshed list will reflect that on its next render.
-      setSelectedForCleanup(new Set(names.filter(n => !deleted.includes(n))));
+      const deleted = await window.bridge.deleteLocalBranches(
+          owner, repo, [name], deleteRemote);
+      if (deleted.length === 0) {
+        // Server refused (typically because the user tried to delete
+        // the current branch via a stale UI). Surface the no-op so
+        // the modal doesn't silently close on success-looking nothing.
+        setActionError(`Branch ${name} could not be deleted (still HEAD?)`);
+      }
       const fresher = await window.bridge.listLocalBranches(owner, repo);
       setBranches(fresher);
-      setCleanupConfirmOpen(false);
+      setDeleteTarget(null);
     } catch (e) {
       setActionError(e instanceof Error ? e.message : String(e));
     } finally {
-      setCleanupBusy(false);
+      setDeleteBusy(false);
     }
   };
 
@@ -698,11 +684,6 @@ function LocalRepoPage({ owner, repo }: Props) {
                   subtitle={col.subtitle}
                   column={col.key}
                   branches={grouped[col.key]}
-                  selected={col.key === 'CLEAN_UP' ? selectedForCleanup : undefined}
-                  onToggleSelected={col.key === 'CLEAN_UP' ? toggleCleanupSelected : undefined}
-                  onSelectAll={col.key === 'CLEAN_UP' ? () => selectAllCleanup(grouped.CLEAN_UP) : undefined}
-                  onDeleteSelected={col.key === 'CLEAN_UP' && selectedForCleanup.size > 0
-                    ? () => setCleanupConfirmOpen(true) : undefined}
                   onSwitchBranch={runSwitchBranch}
                   switching={actionState === 'switching'}
                   selectedActionBranch={selectedBranch}
@@ -721,6 +702,7 @@ function LocalRepoPage({ owner, repo }: Props) {
                       return name;
                     });
                   }}
+                  onDeleteBranch={setDeleteTarget}
                 />
               ))}
             </div>
@@ -752,14 +734,14 @@ function LocalRepoPage({ owner, repo }: Props) {
         />
       )}
 
-      {cleanupConfirmOpen && (
-        <CleanupConfirmModal
+      {deleteTarget && (
+        <DeleteBranchModal
           owner={owner}
           repo={repo}
-          branches={(grouped.CLEAN_UP ?? []).filter(b => selectedForCleanup.has(b.name))}
-          busy={cleanupBusy}
-          onCancel={() => setCleanupConfirmOpen(false)}
-          onConfirm={runDeleteCleanup}
+          branch={deleteTarget}
+          busy={deleteBusy}
+          onCancel={() => setDeleteTarget(null)}
+          onConfirm={(deleteRemote) => runDeleteBranch(deleteTarget.name, deleteRemote)}
         />
       )}
 
@@ -1244,16 +1226,13 @@ function BranchColumn({
   subtitle,
   column,
   branches,
-  selected,
-  onToggleSelected,
-  onSelectAll,
-  onDeleteSelected,
   onSwitchBranch,
   switching,
   selectedActionBranch,
   focusedBranch,
   currentBranch,
   onSelectForAction,
+  onDeleteBranch,
   expanded,
   collapsedLimit,
   onToggleExpanded,
@@ -1262,12 +1241,6 @@ function BranchColumn({
   subtitle: string;
   column: Column;
   branches: LocalBranchDto[];
-  /** When set, the column is in selection mode and rows render with
-   *  checkboxes. Currently only CLEAN UP opts in. */
-  selected?: Set<string>;
-  onToggleSelected?: (name: string) => void;
-  onSelectAll?: () => void;
-  onDeleteSelected?: () => void;
   /** Explicit "switch HEAD now" — surfaced as a small button on
    *  cleanup cards so the user can hop to a candidate before
    *  inspecting it in their IDE. */
@@ -1283,6 +1256,10 @@ function BranchColumn({
   focusedBranch?: string | null;
   currentBranch?: string | null;
   onSelectForAction?: (name: string) => void;
+  /** Per-card "Delete" callback. Receives the branch object so the
+   *  modal upstream can decide whether to offer the "also delete
+   *  remote" checkbox. */
+  onDeleteBranch?: (branch: LocalBranchDto) => void;
   /** True when the user has expanded this column past the collapsed
    *  cap. False shows only the first {@link collapsedLimit} cards
    *  with a "Show N more" toggle below. */
@@ -1290,37 +1267,12 @@ function BranchColumn({
   collapsedLimit?: number;
   onToggleExpanded?: () => void;
 }) {
-  const allSelected = selected !== undefined
-      && branches.length > 0
-      && branches.every(b => selected.has(b.name));
   return (
     <section className={`branches-col branches-col--${column.toLowerCase()}`}>
       <header className="branches-col__head">
         <span className="branches-col__label">{label}</span>
         <span className="branches-col__count">{branches.length}</span>
         <div className="branches-col__sub">{subtitle}</div>
-        {selected && branches.length > 0 && (
-          <div className="branches-col__bulkbar">
-            <label className="branches-col__bulk-toggle">
-              <input
-                type="checkbox"
-                checked={allSelected}
-                onChange={onSelectAll}
-                aria-label={allSelected ? 'Deselect all' : 'Select all'}
-              />
-              <span>{allSelected ? 'Clear' : 'All'}</span>
-            </label>
-            <button
-              type="button"
-              className="button button--danger button--sm"
-              onClick={onDeleteSelected}
-              disabled={!onDeleteSelected}
-              title="Delete selected branches"
-            >
-              Delete{selected.size > 0 ? ` (${selected.size})` : ''}
-            </button>
-          </div>
-        )}
       </header>
       <div className="branches-col__body">
         {branches.length === 0 ? (
@@ -1335,15 +1287,13 @@ function BranchColumn({
                 <BranchCard
                   key={b.name}
                   branch={b}
-                  selected={selected?.has(b.name) ?? false}
-                  onToggleSelected={selected && onToggleSelected
-                    ? () => onToggleSelected(b.name) : undefined}
                   onSwitch={onSwitchBranch && !b.isCurrent ? () => onSwitchBranch(b.name) : undefined}
                   switching={switching ?? false}
                   actionSelected={selectedActionBranch === b.name}
                   focused={focusedBranch === b.name}
                   isCurrentHead={currentBranch === b.name}
                   onSelectForAction={onSelectForAction}
+                  onDelete={onDeleteBranch && !b.isCurrent ? () => onDeleteBranch(b) : undefined}
                 />
               ))}
               {(hidden > 0 || expanded) && onToggleExpanded && (
@@ -1370,18 +1320,15 @@ const CLEANUP_REASON_LABEL: Record<NonNullable<LocalBranchDto['cleanupReason']>,
 
 function BranchCard({
   branch,
-  selected,
-  onToggleSelected,
   onSwitch,
   switching,
   actionSelected,
   focused,
   isCurrentHead,
   onSelectForAction,
+  onDelete,
 }: {
   branch: LocalBranchDto;
-  selected: boolean;
-  onToggleSelected?: () => void;
   onSwitch?: () => void;
   switching: boolean;
   /** True when this card is the user's current "act on this
@@ -1395,17 +1342,16 @@ function BranchCard({
   focused?: boolean;
   isCurrentHead?: boolean;
   onSelectForAction?: (name: string) => void;
+  /** Per-card delete affordance. Undefined for the current branch
+   *  (HEAD can't be deleted) — the card just doesn't render the
+   *  button. */
+  onDelete?: () => void;
 }) {
-  const switchable = onSwitch !== undefined && !switching;
-  // Click toggles the action-selection. Cards in CLEAN UP keep the
-  // checkbox as primary affordance, so we don't hijack their card
-  // click. Same goes for cards with no onSelectForAction handler.
-  const selectable = onSelectForAction !== undefined && !onToggleSelected;
+  const selectable = onSelectForAction !== undefined;
   const cls = [
     'branch-card',
     branch.isCurrent ? 'branch-card--current' : '',
     branch.cleanupReason ? 'branch-card--cleanup' : '',
-    selected ? 'branch-card--selected' : '',
     selectable ? 'branch-card--selectable' : '',
     actionSelected ? 'branch-card--action-target' : '',
     focused ? 'branch-card--focused' : '',
@@ -1442,16 +1388,6 @@ function BranchCard({
       title={cardTitle}
     >
       <header className="branch-card__head">
-        {onToggleSelected && (
-          <input
-            type="checkbox"
-            className="branch-card__check"
-            checked={selected}
-            onChange={onToggleSelected}
-            onClick={(e) => e.stopPropagation()}
-            aria-label={`Select ${branch.name}`}
-          />
-        )}
         <code className="branch-card__name" title={branch.name}>
           {branch.isCurrent && <span className="branch-card__head-dot" aria-hidden="true">●</span>}
           {branch.name}
@@ -1459,19 +1395,29 @@ function BranchCard({
         {branch.linkedPrNumber != null && (
           <span className="branch-card__pr">#{branch.linkedPrNumber}</span>
         )}
-        {onToggleSelected && switchable && (
-          // CLEAN UP cards keep the checkbox as primary action; an
-          // explicit Switch button covers the "actually I want to
-          // hop onto this branch first" escape hatch.
-          <button
-            type="button"
-            className="branch-card__switch"
-            onClick={(e) => { e.stopPropagation(); onSwitch?.(); }}
-            title={`Switch to ${branch.name}`}
-          >
-            Switch
-          </button>
-        )}
+        <span className="branch-card__head-actions">
+          {onSwitch && !switching && (
+            <button
+              type="button"
+              className="branch-card__icon-btn"
+              onClick={(e) => { e.stopPropagation(); onSwitch(); }}
+              title={`Switch HEAD to ${branch.name} now`}
+            >
+              Switch
+            </button>
+          )}
+          {onDelete && (
+            <button
+              type="button"
+              className="branch-card__icon-btn branch-card__icon-btn--danger"
+              onClick={(e) => { e.stopPropagation(); onDelete(); }}
+              title={`Delete ${branch.name}`}
+              aria-label={`Delete ${branch.name}`}
+            >
+              ✕
+            </button>
+          )}
+        </span>
       </header>
       <div className="branch-card__meta">
         {branch.lastCommitAt && (
@@ -1498,47 +1444,53 @@ function BranchCard({
   );
 }
 
-function CleanupConfirmModal({
+function DeleteBranchModal({
   owner,
   repo,
-  branches,
+  branch,
   busy,
   onCancel,
   onConfirm,
 }: {
   owner: string;
   repo: string;
-  branches: LocalBranchDto[];
+  branch: LocalBranchDto;
   busy: boolean;
   onCancel: () => void;
-  onConfirm: () => void;
+  onConfirm: (deleteRemote: boolean) => void;
 }) {
+  const [deleteRemote, setDeleteRemote] = useState(false);
   return (
     <div className="force-push-modal" role="dialog" aria-modal="true">
       <div className="force-push-modal__backdrop" onClick={busy ? undefined : onCancel} />
       <div className="force-push-modal__panel">
         <h2 className="force-push-modal__title">
-          Delete {branches.length} branch{branches.length === 1 ? '' : 'es'}?
+          Delete branch <code>{branch.name}</code>?
         </h2>
         <p className="force-push-modal__body">
-          From <code>{owner}/{repo}</code>. This runs{' '}
-          <code>git branch -D</code> locally — the remote isn't
-          touched. Branches still flagged as cleanup candidates when
-          this fires will be deleted; anything that isn't (e.g. someone
-          pushed in the meantime) will be silently skipped.
+          From <code>{owner}/{repo}</code>. Runs <code>git branch -D</code>{' '}
+          locally — irreversible (the local commits become unreachable
+          unless they're also on a remote or another branch).
+          {branch.cleanupReason && (
+            <>
+              {' '}This branch is flagged as{' '}
+              <strong>{CLEANUP_REASON_LABEL[branch.cleanupReason]}</strong>.
+            </>
+          )}
         </p>
-        <ul className="cleanup-modal__list">
-          {branches.map(b => (
-            <li key={b.name}>
-              <code>{b.name}</code>
-              {b.cleanupReason && (
-                <span className="cleanup-modal__reason">
-                  {CLEANUP_REASON_LABEL[b.cleanupReason]}
-                </span>
-              )}
-            </li>
-          ))}
-        </ul>
+        {branch.hasUpstream && (
+          <label className="create-pr-modal__draft">
+            <input
+              type="checkbox"
+              checked={deleteRemote}
+              onChange={(e) => setDeleteRemote(e.target.checked)}
+              disabled={busy}
+            />
+            <span>
+              Also delete remote branch (<code>git push origin --delete {branch.name}</code>)
+            </span>
+          </label>
+        )}
         <div className="force-push-modal__actions">
           <button
             type="button"
@@ -1551,10 +1503,10 @@ function CleanupConfirmModal({
           <button
             type="button"
             className="button button--danger button--sm"
-            onClick={onConfirm}
-            disabled={busy || branches.length === 0}
+            onClick={() => onConfirm(deleteRemote)}
+            disabled={busy}
           >
-            {busy ? 'Deleting…' : `Delete ${branches.length}`}
+            {busy ? 'Deleting…' : (deleteRemote ? 'Delete local + remote' : 'Delete local')}
           </button>
         </div>
       </div>

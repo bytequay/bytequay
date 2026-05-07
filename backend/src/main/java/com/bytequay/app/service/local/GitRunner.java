@@ -192,6 +192,21 @@ public class GitRunner
     }
 
     /**
+     * {@code git push <remote> --delete <branch>} — removes the branch
+     * from the remote. Used by the per-card delete affordance when
+     * the user opts to delete the remote copy alongside the local one.
+     * Network-bound; 5-minute cap matches push.
+     */
+    public void deleteRemoteBranch(Path workingDir, String remoteName, String branchName)
+            throws IOException, InterruptedException
+    {
+        requireNonNull(remoteName, "remoteName is null");
+        requireNonNull(branchName, "branchName is null");
+        run(List.of("git", "push", remoteName, "--delete", branchName), workingDir, 300)
+                .requireSuccess();
+    }
+
+    /**
      * Plain {@code git push} on the current branch. With no upstream
      * tracking ref configured we add {@code -u origin <branch>} so
      * the push lands the branch on the user's fork (origin) and

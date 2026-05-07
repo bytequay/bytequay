@@ -163,8 +163,8 @@ const bridge: Bridge = {
     owner: string, repo: string,
     payload: { title: string; body: string; base: string; draft: boolean },
   ) => ipcRenderer.invoke('repos:createPullRequest', owner, repo, payload),
-  deleteLocalBranches: (owner: string, repo: string, names: string[]) =>
-    ipcRenderer.invoke('repos:deleteLocalBranches', owner, repo, names),
+  deleteLocalBranches: (owner: string, repo: string, names: string[], deleteRemote?: boolean) =>
+    ipcRenderer.invoke('repos:deleteLocalBranches', owner, repo, names, deleteRemote),
   revealRepoInFinder: (path: string): Promise<void> =>
     ipcRenderer.invoke('repos:revealInFinder', path),
   openRepoInTerminal: (path: string): Promise<void> =>

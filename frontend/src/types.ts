@@ -904,10 +904,12 @@ export type Bridge = {
     payload: { title: string; body: string; base: string; draft: boolean },
   ) => Promise<{ number: number; htmlUrl: string }>;
   /** Bulk-deletes cleanup-eligible branches. The backend re-validates
-   *  cleanup status and silently skips any that don't qualify; the
-   *  return value is the names that were actually deleted. */
+   *  the current branch (always refused) and returns the names that
+   *  were actually deleted. When `deleteRemote` is true, also runs
+   *  `git push origin --delete` for any deleted branch with an
+   *  upstream tracking ref. */
   deleteLocalBranches: (
-    owner: string, repo: string, names: string[],
+    owner: string, repo: string, names: string[], deleteRemote?: boolean,
   ) => Promise<string[]>;
   /** Opens the repo's working-tree directory in macOS Finder. */
   revealRepoInFinder: (path: string) => Promise<void>;

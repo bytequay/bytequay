@@ -740,29 +740,8 @@
   font-size: 11px;
 }
 
-/* Clean up column adornments. The bulk bar lives in the column
-   header; the per-row checkbox sits to the left of the branch name. */
-.branches-col__bulkbar {
-  grid-column: 1 / -1;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  margin-top: 6px;
-}
-.branches-col__bulk-toggle {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  font-size: 11px;
-  color: var(--text-2);
-  cursor: pointer;
-}
 .branch-card--cleanup {
   background: rgba(207, 34, 46, 0.04);
-}
-.branch-card--selected {
-  outline: 2px solid var(--accent);
-  outline-offset: -2px;
 }
 .branch-card--selectable {
   cursor: pointer;
@@ -776,9 +755,9 @@
   outline: 2px solid var(--accent);
   outline-offset: 2px;
 }
-/* Action-target highlight: distinct from CLEAN UP's .selected
-   class. This one signals "next Push / Pull / Create PR will go
-   here, switching HEAD lazily as part of the action." */
+/* Action-target highlight: signals "next Push / Pull / Create PR
+   will target this card, switching HEAD lazily as part of the
+   action." */
 .branch-card--action-target {
   border-color: var(--accent);
   box-shadow: 0 0 0 1px var(--accent) inset;
@@ -791,23 +770,33 @@
   outline: 2px dashed var(--accent);
   outline-offset: -2px;
 }
-.branch-card__switch {
+/* Per-card actions on the right of the card header — Switch
+   (immediate `git switch`) and Delete (✕). Subdued by default;
+   coloured on hover so they don't compete with the branch name. */
+.branch-card__head-actions {
   margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.branch-card__icon-btn {
   background: transparent;
   border: 1px solid var(--border);
-  color: var(--text-2);
+  color: var(--text-3);
   font-size: 11px;
   border-radius: 4px;
-  padding: 2px 8px;
+  padding: 2px 6px;
   cursor: pointer;
+  line-height: 1;
 }
-.branch-card__switch:hover {
+.branch-card__icon-btn:hover {
   border-color: var(--accent);
   color: var(--accent);
 }
-.branch-card__check {
-  margin-right: 4px;
-  cursor: pointer;
+.branch-card__icon-btn--danger:hover {
+  border-color: #b91c1c;
+  color: #b91c1c;
+  background: rgba(207, 34, 46, 0.06);
 }
 .branch-card__cleanup-reason {
   font-size: 11px;
@@ -818,33 +807,6 @@
   text-transform: uppercase;
   letter-spacing: 0.04em;
   font-weight: 600;
-}
-.cleanup-modal__list {
-  list-style: none;
-  margin: 0 0 12px;
-  padding: 8px 10px;
-  background: var(--bg-card);
-  border: 1px solid var(--border);
-  border-radius: 6px;
-  max-height: 200px;
-  overflow: auto;
-  font-size: 12px;
-}
-.cleanup-modal__list li {
-  display: flex;
-  align-items: baseline;
-  gap: 8px;
-  padding: 3px 0;
-}
-.cleanup-modal__list code {
-  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, monospace;
-  color: var(--text-1);
-}
-.cleanup-modal__reason {
-  font-size: 11px;
-  color: #b91c1c;
-  text-transform: uppercase;
-  letter-spacing: 0.04em;
 }
 
 /* Force-push confirmation modal. Sits over the local-repo page;

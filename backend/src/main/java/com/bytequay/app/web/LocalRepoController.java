@@ -419,11 +419,15 @@ public class LocalRepoController
     }
 
     /**
-     * DELETE /api/repos/local/{owner}/{repo}/branches — bulk-deletes
-     * branches by name, but only those flagged as cleanup candidates
-     * server-side. Names that don't qualify are silently dropped;
-     * the response lists what actually got deleted so the UI can
-     * reconcile.
+     * DELETE /api/repos/local/{owner}/{repo}/branches — deletes the
+     * named local branches. The current branch is always refused;
+     * everything else is allowed (cleanup classification is advisory
+     * for the UI, not a hard gate). When {@code deleteRemote} is
+     * true, also runs {@code git push origin --delete <branch>} for
+     * any deleted branch that has an upstream tracking ref.
+     *
+     * Per-card delete from the UI sends a single name; the same
+     * endpoint supports multi-name input for any future bulk caller.
      */
     @DeleteMapping("/{owner}/{repo}/branches")
     public DeleteBranchesResponse deleteBranches(
@@ -436,7 +440,7 @@ public class LocalRepoController
         }
         try {
             return new DeleteBranchesResponse(
-                    localRepoService.deleteCleanupBranches(owner, repo, body.names()));
+                    localRepoService.deleteBranches(owner, repo, body.names(), body.deleteRemote()));
         }
         catch (IllegalStateException e) {
             throw new ResponseStatusException(HttpStatus.NOT_FOUND, e.getMessage());
@@ -459,7 +463,7 @@ public class LocalRepoController
     public record CreateBranchRequest(String name, String base) {}
     public record SwitchBranchRequest(String name) {}
     public record ForcePushRequest(boolean confirmed) {}
-    public record DeleteBranchesRequest(List<String> names) {}
+    public record DeleteBranchesRequest(List<String> names, boolean deleteRemote) {}
     public record DeleteBranchesResponse(List<String> deleted) {}
     public record CreatePrRequest(String title, String body, String base, boolean draft) {}
     public record CreatePrResponse(int number, String htmlUrl) {}

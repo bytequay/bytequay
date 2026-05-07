@@ -373,16 +373,22 @@ public class LocalRepoService
     }
 
     /**
-     * Deletes the named local branches, but only if they're cleanup
-     * candidates per {@link #classifyCleanup}. The check is server-
-     * side authoritative: even if the UI somehow surfaces a Delete
-     * action on a non-cleanup branch, the request will be rejected.
-     * The current branch is never deletable.
+     * Deletes the named local branches via {@code git branch -D},
+     * optionally also pushing a delete to the remote
+     * ({@code git push <remote> --delete <branch>}) for any branch
+     * that has an upstream configured. The current branch is never
+     * deletable; everything else is. Cleanup classification is
+     * advisory for the UI — this method does not gate on it.
      *
-     * Returns the names that were actually deleted; the caller can
-     * compare with the input list to surface any that were skipped.
+     * Returns the names that were actually deleted locally; the
+     * caller can compare with the input list to surface any that
+     * were skipped (currently only the current branch).
      */
-    public List<String> deleteCleanupBranches(String owner, String repo, List<String> names)
+    public List<String> deleteBranches(
+            String owner,
+            String repo,
+            List<String> names,
+            boolean deleteRemote)
             throws IOException, InterruptedException
     {
         Path path = clonePathOrThrow(owner, repo);
@@ -390,18 +396,37 @@ public class LocalRepoService
             return List.of();
         }
         // Re-list branches so we authorize against current state, not
-        // a stale UI snapshot. A branch the UI thought was idle but
-        // that was just pushed gets refused here.
+        // a stale UI snapshot. The current-branch filter below is the
+        // only hard gate left — deleting HEAD is always refused.
         List<LocalBranch> current = listBranches(owner, repo);
-        Set<String> byName = current.stream()
-                .filter(b -> b.cleanupReason() != null && !b.isCurrent())
+        Set<String> nonCurrentNames = current.stream()
+                .filter(b -> !b.isCurrent())
                 .map(LocalBranch::name)
                 .collect(Collectors.toUnmodifiableSet());
         List<String> approved = names.stream()
-                .filter(byName::contains)
+                .filter(nonCurrentNames::contains)
                 .collect(toImmutableList());
         if (approved.isEmpty()) {
             return List.of();
+        }
+        if (deleteRemote) {
+            // Only the branches that actually have an upstream get a
+            // remote delete pushed — the others are local-only and
+            // there's nothing to delete remotely. Push origin --delete
+            // first so a local delete failure doesn't strand the
+            // remote tip with no local pointer to it.
+            Set<String> withUpstream = current.stream()
+                    .filter(b -> approved.contains(b.name()) && b.hasUpstream())
+                    .map(LocalBranch::name)
+                    .collect(Collectors.toUnmodifiableSet());
+            for (String name : withUpstream) {
+                // We push to "origin" because that's where the user's
+                // tracking branch lives in both direct-clone and
+                // fork-based workflows (origin = watched repo or fork
+                // respectively). The upstream remote name on the
+                // watched repo is for PR creation, not for deletes.
+                gitRunner.deleteRemoteBranch(path, "origin", name);
+            }
         }
         gitRunner.deleteBranches(path, approved);
         return approved;

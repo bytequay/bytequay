@@ -1043,14 +1043,14 @@ const url = new URL(`${BACKEND_BASE}/prs/comment`);
   });
 
   ipcMain.handle('repos:deleteLocalBranches', async (
-    _event, owner: string, repo: string, names: string[],
+    _event, owner: string, repo: string, names: string[], deleteRemote?: boolean,
   ): Promise<string[]> => {
     const res = await fetch(
       `${BACKEND_BASE}/api/repos/local/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/branches`,
       {
         method: 'DELETE',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ names }),
+        body: JSON.stringify({ names, deleteRemote: !!deleteRemote }),
       },
     );
     if (!res.ok) {

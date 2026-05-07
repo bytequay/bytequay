@@ -41,29 +41,44 @@ public record LocalBranch(
         /** GitHub PR number whose head ref equals this branch, or null
          *  when no open PR targets it. Drives placement into the
          *  IN REVIEW column. */
-        Integer linkedPrNumber)
+        Integer linkedPrNumber,
+        /** Non-null when this branch is a cleanup candidate — drives
+         *  placement into CLEAN UP and authorizes the branch to be
+         *  deleted via the bulk-delete flow. Null otherwise. */
+        CleanupReason cleanupReason)
 {
     public enum Column
     {
         LOCAL_WORK,
         READY_FOR_PR,
-        IN_REVIEW
+        IN_REVIEW,
+        CLEAN_UP
+    }
+
+    public enum CleanupReason
+    {
+        /** Upstream tracking ref is gone — git's {@code [gone]} marker.
+         *  Typical post-merge state: PR was merged, the remote branch
+         *  was deleted, the local branch is leftover. */
+        REMOTE_GONE,
+        /** Never pushed and the tip commit is older than the idle
+         *  threshold (90d). Long-tail experiments the user forgot. */
+        IDLE_NEVER_PUSHED
     }
 
     /**
-     * Decides the column placement based on the branch's state:
-     *
-     * <ul>
-     *   <li>has linked PR ⇒ IN REVIEW</li>
-     *   <li>has upstream (pushed) but no PR ⇒ READY FOR PR</li>
-     *   <li>no upstream ⇒ LOCAL WORK</li>
-     * </ul>
-     *
-     * The CLEAN UP column (merged-via-PR / never-pushed-idle / remote-
-     * deleted) is deferred until cleanup wiring lands.
+     * Decides the column placement based on the branch's state.
+     * CLEAN_UP wins over IN_REVIEW only on cleanup; otherwise the
+     * usual order applies (linked PR → upstream → no upstream).
+     * The current branch is never a cleanup candidate — deleting
+     * the branch you're standing on isn't a workflow we want to
+     * one-click toward.
      */
     public Column column()
     {
+        if (cleanupReason != null && !isCurrent) {
+            return Column.CLEAN_UP;
+        }
         if (linkedPrNumber != null) {
             return Column.IN_REVIEW;
         }

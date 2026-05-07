@@ -1035,6 +1035,25 @@ const url = new URL(`${BACKEND_BASE}/prs/comment`);
     return res.json();
   });
 
+  ipcMain.handle('repos:deleteLocalBranches', async (
+    _event, owner: string, repo: string, names: string[],
+  ): Promise<string[]> => {
+    const res = await fetch(
+      `${BACKEND_BASE}/api/repos/local/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/branches`,
+      {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ names }),
+      },
+    );
+    if (!res.ok) {
+      const body = await res.text().catch(() => '');
+      throw new Error(extractMessage(body) || `delete branches failed (${res.status})`);
+    }
+    const json = await res.json();
+    return json.deleted ?? [];
+  });
+
   ipcMain.handle('repos:createLocalBranch', async (
     _event, owner: string, repo: string, name: string, base?: string,
   ) => {

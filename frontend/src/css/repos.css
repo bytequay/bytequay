@@ -672,6 +672,72 @@
   font-size: 11px;
 }
 
+/* Clean up column adornments. The bulk bar lives in the column
+   header; the per-row checkbox sits to the left of the branch name. */
+.branches-col__bulkbar {
+  grid-column: 1 / -1;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 6px;
+}
+.branches-col__bulk-toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  font-size: 11px;
+  color: var(--text-2);
+  cursor: pointer;
+}
+.branch-card--cleanup {
+  background: rgba(207, 34, 46, 0.04);
+}
+.branch-card--selected {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+.branch-card__check {
+  margin-right: 4px;
+  cursor: pointer;
+}
+.branch-card__cleanup-reason {
+  font-size: 11px;
+  color: #b91c1c;
+  background: rgba(207, 34, 46, 0.08);
+  border-radius: 4px;
+  padding: 1px 6px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  font-weight: 600;
+}
+.cleanup-modal__list {
+  list-style: none;
+  margin: 0 0 12px;
+  padding: 8px 10px;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  max-height: 200px;
+  overflow: auto;
+  font-size: 12px;
+}
+.cleanup-modal__list li {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  padding: 3px 0;
+}
+.cleanup-modal__list code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, monospace;
+  color: var(--text-1);
+}
+.cleanup-modal__reason {
+  font-size: 11px;
+  color: #b91c1c;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+}
+
 /* Force-push confirmation modal. Sits over the local-repo page;
    the backdrop swallows clicks so the user has to make an explicit
    Cancel/Confirm choice rather than dismissing accidentally. */
@@ -746,7 +812,7 @@
    a follow-up commit. */
 .branches-kanban {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
+  grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: 12px;
 }
 .branches-col {
@@ -761,6 +827,7 @@
 .branches-col--local_work    { border-top-color: #6e7781; }
 .branches-col--ready_for_pr  { border-top-color: #1f6feb; }
 .branches-col--in_review     { border-top-color: #2da44e; }
+.branches-col--clean_up      { border-top-color: #b91c1c; }
 
 .branches-col__head {
   padding: 10px 14px 8px;

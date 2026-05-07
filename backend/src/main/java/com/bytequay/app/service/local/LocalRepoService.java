@@ -26,12 +26,15 @@ import org.springframework.stereotype.Service;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.time.Duration;
 import java.time.Instant;
 import java.time.format.DateTimeParseException;
 import java.util.List;
 import java.util.Locale;
+import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
 import static com.google.common.collect.ImmutableList.toImmutableList;
@@ -296,6 +299,41 @@ public class LocalRepoService
         return statusOf(refreshWatchedRepo(owner, repo));
     }
 
+    /**
+     * Deletes the named local branches, but only if they're cleanup
+     * candidates per {@link #classifyCleanup}. The check is server-
+     * side authoritative: even if the UI somehow surfaces a Delete
+     * action on a non-cleanup branch, the request will be rejected.
+     * The current branch is never deletable.
+     *
+     * Returns the names that were actually deleted; the caller can
+     * compare with the input list to surface any that were skipped.
+     */
+    public List<String> deleteCleanupBranches(String owner, String repo, List<String> names)
+            throws IOException, InterruptedException
+    {
+        Path path = clonePathOrThrow(owner, repo);
+        if (names == null || names.isEmpty()) {
+            return List.of();
+        }
+        // Re-list branches so we authorize against current state, not
+        // a stale UI snapshot. A branch the UI thought was idle but
+        // that was just pushed gets refused here.
+        List<LocalBranch> current = listBranches(owner, repo);
+        Set<String> byName = current.stream()
+                .filter(b -> b.cleanupReason() != null && !b.isCurrent())
+                .map(LocalBranch::name)
+                .collect(Collectors.toUnmodifiableSet());
+        List<String> approved = names.stream()
+                .filter(byName::contains)
+                .collect(toImmutableList());
+        if (approved.isEmpty()) {
+            return List.of();
+        }
+        gitRunner.deleteBranches(path, approved);
+        return approved;
+    }
+
     private Path clonePathOrThrow(String owner, String repo)
     {
         WatchedRepo watched = refreshWatchedRepo(owner, repo);
@@ -434,23 +472,44 @@ public class LocalRepoService
     private static final Pattern AHEAD_RE = Pattern.compile("ahead (\\d+)");
     private static final Pattern BEHIND_RE = Pattern.compile("behind (\\d+)");
 
+    /** Idle threshold for the never-pushed cleanup heuristic. Long
+     *  enough that an experiment the user is genuinely still iterating
+     *  on doesn't end up flagged. */
+    private static final Duration IDLE_THRESHOLD = Duration.ofDays(90);
+
     private static LocalBranch toLocalBranch(GitRunner.BranchRef ref)
     {
         Instant when = parseIsoOrNull(ref.committerDate());
         boolean hasUpstream = !ref.upstream().isEmpty();
+        boolean upstreamGone = hasUpstream && ref.upstreamTrack().contains("gone");
         Integer ahead = null;
         Integer behind = null;
-        if (hasUpstream) {
+        if (hasUpstream && !upstreamGone) {
             Matcher a = AHEAD_RE.matcher(ref.upstreamTrack());
             Matcher b = BEHIND_RE.matcher(ref.upstreamTrack());
             ahead = a.find() ? Integer.parseInt(a.group(1)) : 0;
             behind = b.find() ? Integer.parseInt(b.group(1)) : 0;
         }
+        LocalBranch.CleanupReason cleanupReason = classifyCleanup(when, hasUpstream, upstreamGone);
         // linkedPrNumber stays null for now — populating it requires a
         // join against PR head refs, which the list-page sync doesn't
         // capture today. The IN REVIEW column will be empty until that
         // join lands; deliberately deferred to keep this slice tight.
-        return new LocalBranch(ref.name(), ref.isCurrent(), when, hasUpstream, ahead, behind, null);
+        return new LocalBranch(ref.name(), ref.isCurrent(), when, hasUpstream,
+                ahead, behind, null, cleanupReason);
+    }
+
+    static LocalBranch.CleanupReason classifyCleanup(
+            Instant lastCommitAt, boolean hasUpstream, boolean upstreamGone)
+    {
+        if (upstreamGone) {
+            return LocalBranch.CleanupReason.REMOTE_GONE;
+        }
+        if (!hasUpstream && lastCommitAt != null
+                && Duration.between(lastCommitAt, Instant.now()).compareTo(IDLE_THRESHOLD) > 0) {
+            return LocalBranch.CleanupReason.IDLE_NEVER_PUSHED;
+        }
+        return null;
     }
 
     private static Instant parseIsoOrNull(String iso)

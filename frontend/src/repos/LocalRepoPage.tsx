@@ -22,7 +22,7 @@ type Props = {
   onBack: () => void;
 };
 
-type Column = 'LOCAL_WORK' | 'READY_FOR_PR' | 'IN_REVIEW';
+type Column = 'LOCAL_WORK' | 'READY_FOR_PR' | 'IN_REVIEW' | 'CLEAN_UP';
 type Tab = 'branches' | 'commits' | 'activity';
 
 const COLUMNS: { key: Column; label: string; subtitle: string }[] = [
@@ -40,6 +40,11 @@ const COLUMNS: { key: Column; label: string; subtitle: string }[] = [
     key: 'IN_REVIEW',
     label: 'In review',
     subtitle: 'Open PRs targeting these branches',
+  },
+  {
+    key: 'CLEAN_UP',
+    label: 'Clean up',
+    subtitle: 'Remote gone or never-pushed and idle',
   },
 ];
 
@@ -78,6 +83,12 @@ function LocalRepoPage({ owner, repo, onBack }: Props) {
   const [newBranchName, setNewBranchName] = useState('');
   const [newBranchBase, setNewBranchBase] = useState('');
   const [tab, setTab] = useState<Tab>('branches');
+  // Names selected for bulk delete in the Clean up column. Lives on
+  // the page rather than per-card so the modal can read the full set
+  // and we can clear it after a successful delete.
+  const [selectedForCleanup, setSelectedForCleanup] = useState<Set<string>>(() => new Set());
+  const [cleanupConfirmOpen, setCleanupConfirmOpen] = useState(false);
+  const [cleanupBusy, setCleanupBusy] = useState(false);
 
   const reload = async (signal?: { cancelled: boolean }) => {
     const [all, branchList] = await Promise.all([
@@ -228,6 +239,45 @@ function LocalRepoPage({ owner, repo, onBack }: Props) {
   };
 
   const grouped = groupByColumn(branches ?? []);
+
+  const toggleCleanupSelected = (name: string) => {
+    setSelectedForCleanup(prev => {
+      const next = new Set(prev);
+      if (next.has(name)) next.delete(name);
+      else next.add(name);
+      return next;
+    });
+  };
+
+  const selectAllCleanup = (rows: LocalBranchDto[]) => {
+    setSelectedForCleanup(prev => {
+      // Toggle: if every visible cleanup branch is already selected,
+      // clear the set; otherwise select them all.
+      const allSelected = rows.length > 0 && rows.every(r => prev.has(r.name));
+      if (allSelected) return new Set();
+      return new Set(rows.map(r => r.name));
+    });
+  };
+
+  const runDeleteCleanup = async () => {
+    setCleanupBusy(true);
+    setActionError(null);
+    try {
+      const names = Array.from(selectedForCleanup);
+      const deleted = await window.bridge.deleteLocalBranches(owner, repo, names);
+      // Drop deleted names from selection; anything still selected
+      // got skipped server-side (no longer a cleanup candidate) and
+      // the refreshed list will reflect that on its next render.
+      setSelectedForCleanup(new Set(names.filter(n => !deleted.includes(n))));
+      const fresher = await window.bridge.listLocalBranches(owner, repo);
+      setBranches(fresher);
+      setCleanupConfirmOpen(false);
+    } catch (e) {
+      setActionError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setCleanupBusy(false);
+    }
+  };
 
   return (
     <div className="local-repo-page">
@@ -427,11 +477,27 @@ function LocalRepoPage({ owner, repo, onBack }: Props) {
                   subtitle={col.subtitle}
                   column={col.key}
                   branches={grouped[col.key]}
+                  selected={col.key === 'CLEAN_UP' ? selectedForCleanup : undefined}
+                  onToggleSelected={col.key === 'CLEAN_UP' ? toggleCleanupSelected : undefined}
+                  onSelectAll={col.key === 'CLEAN_UP' ? () => selectAllCleanup(grouped.CLEAN_UP) : undefined}
+                  onDeleteSelected={col.key === 'CLEAN_UP' && selectedForCleanup.size > 0
+                    ? () => setCleanupConfirmOpen(true) : undefined}
                 />
               ))}
             </div>
           )}
         </>
+      )}
+
+      {cleanupConfirmOpen && (
+        <CleanupConfirmModal
+          owner={owner}
+          repo={repo}
+          branches={(grouped.CLEAN_UP ?? []).filter(b => selectedForCleanup.has(b.name))}
+          busy={cleanupBusy}
+          onCancel={() => setCleanupConfirmOpen(false)}
+          onConfirm={runDeleteCleanup}
+        />
       )}
 
       {forcePushPrompt && (
@@ -726,9 +792,14 @@ function groupByColumn(branches: LocalBranchDto[]): Record<Column, LocalBranchDt
     LOCAL_WORK: [],
     READY_FOR_PR: [],
     IN_REVIEW: [],
+    CLEAN_UP: [],
   };
   for (const b of branches) {
-    if (b.linkedPrNumber != null) out.IN_REVIEW.push(b);
+    // Cleanup beats every other column except for the current branch —
+    // we never auto-route the branch you're on into Clean up because
+    // deleting it isn't a one-click flow we want to encourage.
+    if (b.cleanupReason && !b.isCurrent) out.CLEAN_UP.push(b);
+    else if (b.linkedPrNumber != null) out.IN_REVIEW.push(b);
     else if (b.hasUpstream) out.READY_FOR_PR.push(b);
     else out.LOCAL_WORK.push(b);
   }
@@ -750,34 +821,105 @@ function BranchColumn({
   subtitle,
   column,
   branches,
+  selected,
+  onToggleSelected,
+  onSelectAll,
+  onDeleteSelected,
 }: {
   label: string;
   subtitle: string;
   column: Column;
   branches: LocalBranchDto[];
+  /** When set, the column is in selection mode and rows render with
+   *  checkboxes. Currently only CLEAN UP opts in. */
+  selected?: Set<string>;
+  onToggleSelected?: (name: string) => void;
+  onSelectAll?: () => void;
+  onDeleteSelected?: () => void;
 }) {
+  const allSelected = selected !== undefined
+      && branches.length > 0
+      && branches.every(b => selected.has(b.name));
   return (
     <section className={`branches-col branches-col--${column.toLowerCase()}`}>
       <header className="branches-col__head">
         <span className="branches-col__label">{label}</span>
         <span className="branches-col__count">{branches.length}</span>
         <div className="branches-col__sub">{subtitle}</div>
+        {selected && branches.length > 0 && (
+          <div className="branches-col__bulkbar">
+            <label className="branches-col__bulk-toggle">
+              <input
+                type="checkbox"
+                checked={allSelected}
+                onChange={onSelectAll}
+                aria-label={allSelected ? 'Deselect all' : 'Select all'}
+              />
+              <span>{allSelected ? 'Clear' : 'All'}</span>
+            </label>
+            <button
+              type="button"
+              className="button button--danger button--sm"
+              onClick={onDeleteSelected}
+              disabled={!onDeleteSelected}
+              title="Delete selected branches"
+            >
+              Delete{selected.size > 0 ? ` (${selected.size})` : ''}
+            </button>
+          </div>
+        )}
       </header>
       <div className="branches-col__body">
         {branches.length === 0 ? (
           <div className="branches-col__empty">No branches</div>
         ) : (
-          branches.map(b => <BranchCard key={b.name} branch={b} />)
+          branches.map(b => (
+            <BranchCard
+              key={b.name}
+              branch={b}
+              selected={selected?.has(b.name) ?? false}
+              onToggleSelected={selected && onToggleSelected
+                ? () => onToggleSelected(b.name) : undefined}
+            />
+          ))
         )}
       </div>
     </section>
   );
 }
 
-function BranchCard({ branch }: { branch: LocalBranchDto }) {
+const CLEANUP_REASON_LABEL: Record<NonNullable<LocalBranchDto['cleanupReason']>, string> = {
+  REMOTE_GONE: 'Remote gone',
+  IDLE_NEVER_PUSHED: 'Idle · never pushed',
+};
+
+function BranchCard({
+  branch,
+  selected,
+  onToggleSelected,
+}: {
+  branch: LocalBranchDto;
+  selected: boolean;
+  onToggleSelected?: () => void;
+}) {
+  const cls = [
+    'branch-card',
+    branch.isCurrent ? 'branch-card--current' : '',
+    branch.cleanupReason ? 'branch-card--cleanup' : '',
+    selected ? 'branch-card--selected' : '',
+  ].filter(Boolean).join(' ');
   return (
-    <article className={`branch-card${branch.isCurrent ? ' branch-card--current' : ''}`}>
+    <article className={cls}>
       <header className="branch-card__head">
+        {onToggleSelected && (
+          <input
+            type="checkbox"
+            className="branch-card__check"
+            checked={selected}
+            onChange={onToggleSelected}
+            aria-label={`Select ${branch.name}`}
+          />
+        )}
         <code className="branch-card__name" title={branch.name}>
           {branch.isCurrent && <span className="branch-card__head-dot" aria-hidden="true">●</span>}
           {branch.name}
@@ -798,11 +940,80 @@ function BranchCard({ branch }: { branch: LocalBranchDto }) {
             {(branch.behind ?? 0) > 0 && <span title={`${branch.behind} behind`}>↓{branch.behind}</span>}
           </span>
         )}
-        {!branch.hasUpstream && (
+        {!branch.hasUpstream && !branch.cleanupReason && (
           <span className="branch-card__no-upstream">never pushed</span>
+        )}
+        {branch.cleanupReason && (
+          <span className="branch-card__cleanup-reason">
+            {CLEANUP_REASON_LABEL[branch.cleanupReason]}
+          </span>
         )}
       </div>
     </article>
+  );
+}
+
+function CleanupConfirmModal({
+  owner,
+  repo,
+  branches,
+  busy,
+  onCancel,
+  onConfirm,
+}: {
+  owner: string;
+  repo: string;
+  branches: LocalBranchDto[];
+  busy: boolean;
+  onCancel: () => void;
+  onConfirm: () => void;
+}) {
+  return (
+    <div className="force-push-modal" role="dialog" aria-modal="true">
+      <div className="force-push-modal__backdrop" onClick={busy ? undefined : onCancel} />
+      <div className="force-push-modal__panel">
+        <h2 className="force-push-modal__title">
+          Delete {branches.length} branch{branches.length === 1 ? '' : 'es'}?
+        </h2>
+        <p className="force-push-modal__body">
+          From <code>{owner}/{repo}</code>. This runs{' '}
+          <code>git branch -D</code> locally — the remote isn't
+          touched. Branches still flagged as cleanup candidates when
+          this fires will be deleted; anything that isn't (e.g. someone
+          pushed in the meantime) will be silently skipped.
+        </p>
+        <ul className="cleanup-modal__list">
+          {branches.map(b => (
+            <li key={b.name}>
+              <code>{b.name}</code>
+              {b.cleanupReason && (
+                <span className="cleanup-modal__reason">
+                  {CLEANUP_REASON_LABEL[b.cleanupReason]}
+                </span>
+              )}
+            </li>
+          ))}
+        </ul>
+        <div className="force-push-modal__actions">
+          <button
+            type="button"
+            className="button button--secondary button--sm"
+            onClick={onCancel}
+            disabled={busy}
+          >
+            Cancel
+          </button>
+          <button
+            type="button"
+            className="button button--danger button--sm"
+            onClick={onConfirm}
+            disabled={busy || branches.length === 0}
+          >
+            {busy ? 'Deleting…' : `Delete ${branches.length}`}
+          </button>
+        </div>
+      </div>
+    </div>
   );
 }
 

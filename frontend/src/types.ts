@@ -696,6 +696,9 @@ export type LocalBranchDto = {
    *  list-page sync starts capturing head refs. Branches with a
    *  non-null value land in the IN REVIEW column. */
   linkedPrNumber: number | null;
+  /** Non-null when the branch is a cleanup candidate — drives
+   *  placement into CLEAN UP and authorizes server-side delete. */
+  cleanupReason: 'REMOTE_GONE' | 'IDLE_NEVER_PUSHED' | null;
 };
 
 export type LocalCommitDto = {
@@ -883,6 +886,12 @@ export type Bridge = {
   createLocalBranch: (
     owner: string, repo: string, name: string, base?: string,
   ) => Promise<LocalRepoStatusDto>;
+  /** Bulk-deletes cleanup-eligible branches. The backend re-validates
+   *  cleanup status and silently skips any that don't qualify; the
+   *  return value is the names that were actually deleted. */
+  deleteLocalBranches: (
+    owner: string, repo: string, names: string[],
+  ) => Promise<string[]>;
   /** Opens the repo's working-tree directory in macOS Finder. */
   revealRepoInFinder: (path: string) => Promise<void>;
   /** Opens the repo path in iTerm if installed, else Terminal.app. */

@@ -21,6 +21,7 @@ import com.bytequay.app.repository.WatchedRepoStore;
 import com.bytequay.app.service.local.GitRunner;
 import com.bytequay.app.service.local.LocalRepoService;
 import org.springframework.http.HttpStatus;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -355,9 +356,46 @@ public class LocalRepoController
                 throws IOException, InterruptedException;
     }
 
+    /**
+     * DELETE /api/repos/local/{owner}/{repo}/branches — bulk-deletes
+     * branches by name, but only those flagged as cleanup candidates
+     * server-side. Names that don't qualify are silently dropped;
+     * the response lists what actually got deleted so the UI can
+     * reconcile.
+     */
+    @DeleteMapping("/{owner}/{repo}/branches")
+    public DeleteBranchesResponse deleteBranches(
+            @PathVariable("owner") String owner,
+            @PathVariable("repo") String repo,
+            @RequestBody DeleteBranchesRequest body)
+    {
+        if (body == null || body.names() == null || body.names().isEmpty()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "names is required");
+        }
+        try {
+            return new DeleteBranchesResponse(
+                    localRepoService.deleteCleanupBranches(owner, repo, body.names()));
+        }
+        catch (IllegalStateException e) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, e.getMessage());
+        }
+        catch (GitRunner.GitCommandException e) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, e.stderr().strip());
+        }
+        catch (IOException e) {
+            throw new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR, e.getMessage());
+        }
+        catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE, "delete interrupted");
+        }
+    }
+
     public record PathRequest(String path) {}
     public record CloneRequest(String destination) {}
     public record DefaultClonePathResponse(String defaultPath) {}
     public record CreateBranchRequest(String name, String base) {}
     public record ForcePushRequest(boolean confirmed) {}
+    public record DeleteBranchesRequest(List<String> names) {}
+    public record DeleteBranchesResponse(List<String> deleted) {}
 }

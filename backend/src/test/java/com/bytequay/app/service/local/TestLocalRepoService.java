@@ -14,7 +14,11 @@
 package com.bytequay.app.service.local;
 
 import com.bytequay.app.domain.LocalActivityEntry;
+import com.bytequay.app.domain.LocalBranch;
 import org.junit.jupiter.api.Test;
+
+import java.time.Duration;
+import java.time.Instant;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -179,5 +183,48 @@ class TestLocalRepoService
     {
         assertThat(LocalRepoService.classifyReflogSubject("")).isEqualTo(LocalActivityEntry.Kind.UNKNOWN);
         assertThat(LocalRepoService.classifyReflogSubject(null)).isEqualTo(LocalActivityEntry.Kind.UNKNOWN);
+    }
+
+    @Test
+    void testCleanupRemoteGoneWins()
+    {
+        // Even with a recent commit, [gone] upstream is the canonical
+        // post-merge cleanup signal — flag it.
+        Instant recent = Instant.now().minus(Duration.ofDays(1));
+        assertThat(LocalRepoService.classifyCleanup(recent, true, true))
+                .isEqualTo(LocalBranch.CleanupReason.REMOTE_GONE);
+    }
+
+    @Test
+    void testCleanupNeverPushedAndIdle()
+    {
+        Instant ancient = Instant.now().minus(Duration.ofDays(120));
+        assertThat(LocalRepoService.classifyCleanup(ancient, false, false))
+                .isEqualTo(LocalBranch.CleanupReason.IDLE_NEVER_PUSHED);
+    }
+
+    @Test
+    void testCleanupNeverPushedButRecent()
+    {
+        // 30d active branch — user is still iterating; don't flag.
+        Instant recent = Instant.now().minus(Duration.ofDays(30));
+        assertThat(LocalRepoService.classifyCleanup(recent, false, false)).isNull();
+    }
+
+    @Test
+    void testCleanupPushedAndCurrent()
+    {
+        // Healthy tracking branch with an upstream still alive — never
+        // a cleanup candidate regardless of age.
+        Instant ancient = Instant.now().minus(Duration.ofDays(365));
+        assertThat(LocalRepoService.classifyCleanup(ancient, true, false)).isNull();
+    }
+
+    @Test
+    void testCleanupNullTimestampSkipsIdleCheck()
+    {
+        // We can't decide "is it idle" without a timestamp — bail out
+        // rather than flagging on incomplete info.
+        assertThat(LocalRepoService.classifyCleanup(null, false, false)).isNull();
     }
 }

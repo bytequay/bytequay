@@ -157,6 +157,27 @@ public class GitRunner
     }
 
     /**
+     * Deletes the named local branches in a single {@code git branch
+     * -D} invocation. {@code -D} is the unconditional form (no merged
+     * check) — the cleanup column already encodes the safety filter
+     * server-side, so a second client-side check would just refuse
+     * branches the user explicitly chose. Authorization that they
+     * belong in cleanup happens in the service layer; this method
+     * is the dumb executor.
+     */
+    public void deleteBranches(Path workingDir, List<String> names)
+            throws IOException, InterruptedException
+    {
+        requireNonNull(names, "names is null");
+        if (names.isEmpty()) {
+            return;
+        }
+        List<String> args = new ArrayList<>(List.of("git", "branch", "-D"));
+        args.addAll(names);
+        run(args, workingDir).requireSuccess();
+    }
+
+    /**
      * Plain {@code git push} on the current branch. With no upstream
      * tracking ref configured we add {@code -u origin <branch>} so
      * the push lands the branch on the user's fork (origin) and

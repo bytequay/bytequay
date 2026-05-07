@@ -75,9 +75,7 @@ function RepoOverviewPanel({ owner, repo }: Props) {
       {meta ? (
         <RepoHero meta={meta} fullName={fullName} githubUrl={githubUrl} owner={owner} />
       ) : metaError ? (
-        <div className="repo-overview__error">
-          Couldn't load repo info: {metaError}
-        </div>
+        <FriendlyError what="repo info" raw={metaError} />
       ) : (
         <div className="repo-overview__hero-loading">
           <LogoLoading size={48} label={`Loading ${fullName}`} />
@@ -87,6 +85,29 @@ function RepoOverviewPanel({ owner, repo }: Props) {
       {meta && <RepoAbout meta={meta} />}
 
       <RepoActivity items={activity} error={activityError} githubUrl={githubUrl} />
+    </div>
+  );
+}
+
+/** Wraps a raw IPC/HTTP error string into a humane message. The raw
+ *  GitHub rate-limit response is a giant JSON blob that's useless to
+ *  the user — we strip it down to "rate limit hit, try again later"
+ *  and keep the original behind a details disclosure for debugging. */
+function FriendlyError({ what, raw }: { what: string; raw: string }) {
+  const isRateLimit = /API rate limit exceeded|secondary rate limit/i.test(raw);
+  if (isRateLimit) {
+    return (
+      <div className="repo-overview__error">
+        <strong>GitHub rate limit reached.</strong> ByteQuay can't load
+        the {what} right now — GitHub caps authenticated requests at
+        5,000/hour and we've burnt through them. Try again in a few
+        minutes; the limit resets on a rolling window.
+      </div>
+    );
+  }
+  return (
+    <div className="repo-overview__error">
+      Couldn't load {what}: {raw}
     </div>
   );
 }
@@ -198,7 +219,7 @@ function RepoActivity({ items, error, githubUrl }: {
     <section className="repo-activity">
       <h2 className="repo-activity__title">Recent activity</h2>
       {error ? (
-        <div className="repo-overview__error">Couldn't load activity: {error}</div>
+        <FriendlyError what="activity" raw={error} />
       ) : items === null ? (
         <div className="repo-activity__loading">
           <LogoLoading size={36} label="Loading activity" />

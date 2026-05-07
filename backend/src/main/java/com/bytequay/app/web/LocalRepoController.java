@@ -205,6 +205,20 @@ public class LocalRepoController
         return runGitOperation(() -> localRepoService.pull(owner, repo));
     }
 
+    /**
+     * POST /api/repos/local/{owner}/{repo}/push — pushes the current
+     * branch. First-time pushes auto-set tracking via
+     * {@code -u origin HEAD}. Non-fast-forward pushes return 409
+     * with git's stderr verbatim.
+     */
+    @PostMapping("/{owner}/{repo}/push")
+    public LocalRepoStatus push(
+            @PathVariable("owner") String owner,
+            @PathVariable("repo") String repo)
+    {
+        return runGitOperation(() -> localRepoService.push(owner, repo));
+    }
+
     private LocalRepoStatus runGitOperation(GitOp op)
     {
         try {

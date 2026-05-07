@@ -249,6 +249,20 @@ public class LocalRepoService
         return statusOf(refreshWatchedRepo(owner, repo));
     }
 
+    /**
+     * Pushes the current branch upstream. First-time pushes (no
+     * tracking ref yet) are auto-set up via {@code -u origin HEAD}.
+     * Non-fast-forward pushes fail loudly — force-with-lease lives
+     * behind a future confirmation UX.
+     */
+    public LocalRepoStatus push(String owner, String repo)
+            throws IOException, InterruptedException
+    {
+        Path path = clonePathOrThrow(owner, repo);
+        gitRunner.push(path);
+        return statusOf(refreshWatchedRepo(owner, repo));
+    }
+
     private Path clonePathOrThrow(String owner, String repo)
     {
         WatchedRepo watched = refreshWatchedRepo(owner, repo);

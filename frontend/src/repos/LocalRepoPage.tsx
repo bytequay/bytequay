@@ -59,7 +59,7 @@ function LocalRepoPage({ owner, repo, onBack }: Props) {
   // without freezing the whole bar; the action bar disables all
   // buttons while any one is running so we don't fire concurrent
   // git ops in the same working tree.
-  const [actionState, setActionState] = useState<'idle' | 'fetching' | 'pulling'>('idle');
+  const [actionState, setActionState] = useState<'idle' | 'fetching' | 'pulling' | 'pushing'>('idle');
   const [actionError, setActionError] = useState<string | null>(null);
 
   const reload = async (signal?: { cancelled: boolean }) => {
@@ -106,6 +106,21 @@ function LocalRepoPage({ owner, repo, onBack }: Props) {
     setActionError(null);
     try {
       const fresh = await window.bridge.pullLocalRepo(owner, repo);
+      setStatus(fresh);
+      const fresher = await window.bridge.listLocalBranches(owner, repo);
+      setBranches(fresher);
+    } catch (e) {
+      setActionError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setActionState('idle');
+    }
+  };
+
+  const runPush = async () => {
+    setActionState('pushing');
+    setActionError(null);
+    try {
+      const fresh = await window.bridge.pushLocalRepo(owner, repo);
       setStatus(fresh);
       const fresher = await window.bridge.listLocalBranches(owner, repo);
       setBranches(fresher);
@@ -167,6 +182,15 @@ function LocalRepoPage({ owner, repo, onBack }: Props) {
             title="git pull --ff-only on the current branch"
           >
             {actionState === 'pulling' ? 'Pulling…' : '↓ Pull'}
+          </button>
+          <button
+            type="button"
+            className="button button--secondary button--sm"
+            onClick={() => { void runPush(); }}
+            disabled={actionState !== 'idle' || !status?.localClonePath}
+            title="git push the current branch (auto-sets tracking on first push)"
+          >
+            {actionState === 'pushing' ? 'Pushing…' : '↑ Push'}
           </button>
         </div>
         {actionError && (

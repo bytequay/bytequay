@@ -130,6 +130,35 @@ public class GitRunner
     }
 
     /**
+     * Plain {@code git push} on the current branch. With no upstream
+     * tracking ref configured we add {@code -u origin <branch>} so
+     * the push lands the branch on the user's fork (origin) and
+     * sets it up to track from then on. Force-push is intentionally
+     * not supported here — the user can run that from the terminal
+     * until ByteQuay grows a {@code --force-with-lease} affordance
+     * with confirmation UX.
+     */
+    public void push(Path workingDir)
+            throws IOException, InterruptedException
+    {
+        GitResult result = run(
+                List.of("git", "push"),
+                workingDir,
+                300);
+        // Exit code 128 + "fatal: The current branch ... has no
+        // upstream branch" is the most common first-push case —
+        // fall back to `git push -u origin HEAD` so it works
+        // without forcing the user to set tracking up by hand.
+        if (result.exitCode() != 0
+                && result.stderr().contains("has no upstream branch")) {
+            run(List.of("git", "push", "-u", "origin", "HEAD"), workingDir, 300)
+                    .requireSuccess();
+            return;
+        }
+        result.requireSuccess();
+    }
+
+    /**
      * Lists every local branch with metadata in a single
      * {@code git for-each-ref} invocation. The callback gets one
      * {@link BranchRef} per branch — name, last-commit timestamp,

@@ -826,6 +826,10 @@ export type Bridge = {
    *  surface as a thrown Error carrying git's stderr — the UI shows
    *  it inline (e.g. "needs rebase"). */
   pullLocalRepo: (owner: string, repo: string) => Promise<LocalRepoStatusDto>;
+  /** Pushes the current branch. First-time pushes auto-set tracking
+   *  via `-u origin HEAD`. Non-fast-forward errors carry git's
+   *  stderr — surfaced inline; force-push isn't supported here. */
+  pushLocalRepo: (owner: string, repo: string) => Promise<LocalRepoStatusDto>;
   getUserRepos: () => Promise<UserRepoDto[]>;
   getUserOrgs: () => Promise<UserOrgDto[]>;
   searchRepos: (query: string) => Promise<UserRepoDto[]>;

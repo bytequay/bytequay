@@ -999,6 +999,20 @@ const url = new URL(`${BACKEND_BASE}/prs/comment`);
     return res.json();
   });
 
+  ipcMain.handle('repos:pushLocal', async (
+    _event, owner: string, repo: string,
+  ) => {
+    const res = await fetch(
+      `${BACKEND_BASE}/api/repos/local/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/push`,
+      { method: 'POST' },
+    );
+    if (!res.ok) {
+      const body = await res.text().catch(() => '');
+      throw new Error(extractMessage(body) || `push failed (${res.status})`);
+    }
+    return res.json();
+  });
+
   ipcMain.handle('repos:listLocalBranches', async (
     _event, owner: string, repo: string,
   ) => {

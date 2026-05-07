@@ -385,18 +385,14 @@ function LocalRepoPage({ owner, repo, onBack }: Props) {
         {status?.localClonePath && (
           <div className="local-repo-page__remote-info">
             {status.upstreamRemoteName ? (
-              <>
-                <span className="local-repo-page__remote-label">Fork-based</span>
-                <span>
-                  origin = your fork ·{' '}
-                  <code>{status.upstreamRemoteName}</code> = {owner}/{repo}
-                </span>
-              </>
+              <span>
+                <code>origin</code> = your fork ·{' '}
+                <code>{status.upstreamRemoteName}</code> = {owner}/{repo}
+              </span>
             ) : (
-              <>
-                <span className="local-repo-page__remote-label">Direct clone</span>
-                <span>origin = {owner}/{repo}</span>
-              </>
+              <span>
+                <code>origin</code> = {owner}/{repo}
+              </span>
             )}
           </div>
         )}
@@ -872,8 +868,8 @@ function CreatePrModal({
           Open a PR against <code>{owner}/{repo}</code> with{' '}
           <code>{headBranch}</code> as the head ref.
           {forkBased
-            ? ' Cross-fork: GitHub will see your fork as the head repo.'
-            : ' Direct clone: head and base live in the same repo.'}
+            ? ' Your fork hosts the branch; the PR is opened cross-fork.'
+            : ' Branch and base both live in this repo (no fork involved).'}
           {willSwitchFrom && (
             <>
               {' '}ByteQuay will switch HEAD from{' '}

@@ -655,8 +655,7 @@
   overflow: hidden;
 }
 
-.preview__back,
-.prc-back-link {
+.preview__back {
   appearance: none;
   background: transparent;
   border: 0;
@@ -667,15 +666,11 @@
   cursor: pointer;
   display: inline-block;
 }
-.preview__back:hover,
-.prc-back-link:hover { color: var(--accent); }
-.prc-back-link {
-  /* Sits in the dedicated "back" row at the top of the prc-header grid. */
-  grid-area: back;
-  margin-bottom: 0;
-  text-align: left;
-  justify-self: start;
-}
+.preview__back:hover { color: var(--accent); }
+/* `.prc-back-link` is now styled as a plain `button button--secondary
+   button--sm` inside the prc-actions cluster — no extra rules needed.
+   The class hook is kept on the element only as a stable selector
+   for tests / a11y queries. */
 
 .preview__title {
   margin: 0 0 4px;
@@ -1819,6 +1814,22 @@
 }
 
 /* Markdown body ─────────────────────────────────────── */
+
+/* Themed chips for `@user` mentions and `#N` issue references found
+   anywhere in markdown bodies — wrapped in by renderMarkdown's
+   post-processor. Background uses --accent-a10 + --accent so each
+   theme paints them in its native colour: blue on github-light,
+   purple on the purple theme, green on warm, etc. */
+.md-ref-mention,
+.md-ref-issue {
+  display: inline-block;
+  padding: 0 5px;
+  border-radius: 4px;
+  background: var(--accent-a10);
+  color: var(--accent);
+  font-weight: 500;
+  font-size: 0.95em;
+}
 
 .md-body {
   font-size: 0.9rem;

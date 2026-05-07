@@ -1606,12 +1606,23 @@
   border-color: #1d4ed8;
 }
 /* Larger Review button variant — used in the PR detail toolbar where it's
-   the primary action and should pull the eye in. */
+   the primary action and should pull the eye in. Bumped a step bigger
+   than the surrounding controls so it reads as the dominant action and
+   stays easy to hit at the right edge of the header bar. */
 .button--review--lg {
-  font-size: 14px;
+  font-size: 15px;
   font-weight: 700;
-  padding: 10px 22px;
+  padding: 12px 28px;
   letter-spacing: 0.01em;
+}
+
+/* Compact button modifier — used on supporting actions like
+   "Mark handled" so they sit visually under the primary Review
+   button. Trims padding and bumps weight down a notch. */
+.button--sm {
+  padding: 6px 12px;
+  font-size: 12px;
+  font-weight: 500;
 }
 
 /* "Open on Remote" — secondary action that hops to the embedded github.com

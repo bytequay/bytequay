@@ -58,6 +58,11 @@ function GlobalTopbar({ nav, onNav }: GlobalTopbarProps) {
             ← {nav.owner}/{nav.repo}
           </button>
         )}
+        {/* Portal target: child screens (e.g. PullRequestList) mount
+            their own context-back button here via createPortal so it
+            sits next to the brand/breadcrumb without forcing the page
+            state up into App. */}
+        <div id="global-topbar-extra" className="global-topbar__extra" />
       </div>
       <nav className="global-topbar__nav">
         <button

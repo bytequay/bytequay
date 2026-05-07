@@ -368,23 +368,40 @@ pre {
   background: var(--accent-a7);
 }
 
-.global-topbar__breadcrumb {
-  background: none;
-  border: none;
+/* Pill-shaped breadcrumb buttons in the global topbar — both the
+   built-in "← owner/repo" and the portalled "← Back to kanban" share
+   this look so they read as the same affordance class. The tinted
+   background makes them stand out against the topbar without
+   competing with the brand. */
+.global-topbar__breadcrumb,
+.global-topbar__extra > button {
+  background: var(--accent-a7);
+  border: 1px solid var(--accent-a10);
   font-size: 12px;
-  color: var(--text-3);
+  color: var(--text-2);
   cursor: pointer;
-  padding: 2px 6px;
-  border-radius: 4px;
+  padding: 4px 10px;
+  border-radius: 999px;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
   max-width: 260px;
+  font-family: inherit;
+  font-weight: 500;
 }
 
-.global-topbar__breadcrumb:hover {
-  background: var(--accent-a7);
+.global-topbar__breadcrumb:hover,
+.global-topbar__extra > button:hover {
+  background: var(--accent-a10);
   color: var(--accent);
+  border-color: var(--accent-a40);
+}
+
+/* Portal slot — children mount here. display:contents so the slot
+   itself is invisible and its child sits next to the breadcrumb as
+   if it were a sibling. */
+.global-topbar__extra {
+  display: contents;
 }
 
 .global-topbar__nav {

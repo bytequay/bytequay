@@ -12,6 +12,7 @@
  * limitations under the License.
  */
 import { useEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import type { PullRequestDto } from './types';
 import PullRequestPreview from './PullRequestPreview';
 import ReviewScreen from './ReviewScreen';
@@ -63,6 +64,13 @@ function PullRequestList({ onGoToTeams }: Props) {
   const [selected, setSelected] = useState<PullRequestDto | null>(null);
   const [reviewingPr, setReviewingPr] = useState<PullRequestDto | null>(null);
   const [diffViewerPr, setDiffViewerPr] = useState<PullRequestDto | null>(null);
+  // The "← Back to kanban" affordance portals into the global topbar
+  // (App.tsx renders the slot). We resolve the target node after mount
+  // so the first render doesn't see a null DOM.
+  const [topbarExtraNode, setTopbarExtraNode] = useState<HTMLElement | null>(null);
+  useEffect(() => {
+    setTopbarExtraNode(document.getElementById('global-topbar-extra'));
+  }, []);
   // Lets the timeline's clickable SHA chips open the diff viewer pointed
   // at a specific commit. Stays in sync with diffViewerPr — cleared
   // whenever the viewer closes or the user navigates away.
@@ -641,19 +649,22 @@ function PullRequestList({ onGoToTeams }: Props) {
             height to fill. The previous :has() approach was unreliable
             depending on what's rendered. */}
         <main className="v2-main v2-main--screen">
-          {!reviewingPr && !diffViewerPr && (
-            <div className="v2-main__nav">
-              <button
-                type="button"
-                className="v2-back-btn"
-                onClick={() => setSelected(null)}
-                title={activeTab === 'inbox'
-                  ? 'Return to the kanban board.'
-                  : 'Return to the handled list.'}
-              >
-                ← {activeTab === 'inbox' ? 'Back to kanban' : 'Back to list'}
-              </button>
-            </div>
+          {/* The "← Back to kanban" / "Back to list" affordance now
+              portals into the global topbar (App.tsx's
+              #global-topbar-extra slot) instead of sitting in its own
+              band above the screen. Saves a vertical strip and groups
+              the back action with the existing repo breadcrumb. */}
+          {topbarExtraNode && !reviewingPr && !diffViewerPr && createPortal(
+            <button
+              type="button"
+              onClick={() => setSelected(null)}
+              title={activeTab === 'inbox'
+                ? 'Return to the kanban board.'
+                : 'Return to the handled list.'}
+            >
+              ← {activeTab === 'inbox' ? 'Back to kanban' : 'Back to list'}
+            </button>,
+            topbarExtraNode,
           )}
           <div className="v2-main__screen">{screen}</div>
         </main>

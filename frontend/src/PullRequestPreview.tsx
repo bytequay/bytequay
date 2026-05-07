@@ -53,6 +53,30 @@ const SIDE_WIDTH_MIN = 180;
 const SIDE_WIDTH_MAX = 520;
 const SIDE_WIDTH_DEFAULT = 260;
 
+/** Renders a PR title string with backtick-wrapped segments turned into
+ *  inline `<code>` spans. We don't run the title through a full markdown
+ *  pass — github.com only honours inline code in titles, and pulling in
+ *  marked here would also enable headings / lists / images, none of
+ *  which make sense in a single-line title. Unbalanced trailing
+ *  backticks fall through as literal text so a malformed title still
+ *  renders. */
+function renderTitleWithInlineCode(title: string): ReactNode[] {
+  const parts = title.split('`');
+  const out: ReactNode[] = [];
+  for (let i = 0; i < parts.length; i++) {
+    if (i % 2 === 1 && i < parts.length - 1) {
+      out.push(<code key={i} className="prc-title__code">{parts[i]}</code>);
+    } else if (i % 2 === 1) {
+      // Trailing unmatched backtick — keep both the ` and the text after
+      // it so users see exactly what was typed instead of a silent drop.
+      out.push(<span key={i}>{'`' + parts[i]}</span>);
+    } else {
+      out.push(parts[i]);
+    }
+  }
+  return out;
+}
+
 /** Threshold past which the failure summary auto-collapses to a teaser
  *  with a "Show more" button. Long check outputs (think a CI log dump
  *  with 200 lines of stack trace) shouldn't blow out the merge bar by
@@ -1382,16 +1406,6 @@ function PullRequestPreview({ pr, onOpenReview, onInspectDiffs, onMarkHandled, o
   return (
     <div className="prc-page">
       <header className="prc-header">
-        {onBack && (
-          <button
-            type="button"
-            className="prc-back-link"
-            onClick={onBack}
-            title={`Back to ${backLabel ?? 'previous page'}`}
-          >
-            ← {backLabel ?? 'Back'}
-          </button>
-        )}
         {/* Row 1: large title with the #N link folded in at the end —
             matches docs/mockups/v2/detail/pr-header.png. The ✎ pencil
             in the mockup is intentionally omitted: there is no
@@ -1401,7 +1415,7 @@ function PullRequestPreview({ pr, onOpenReview, onInspectDiffs, onMarkHandled, o
             backend handler. */}
         <div className="prc-header__title-row">
           <h1 className="prc-title">
-            {pr.title}
+            {renderTitleWithInlineCode(pr.title)}
             <a
               className="prc-title__number"
               href={pr.htmlUrl}
@@ -1481,6 +1495,22 @@ function PullRequestPreview({ pr, onOpenReview, onInspectDiffs, onMarkHandled, o
           <span className="prc-meta-time">
             {pr.createdAt ? `opened ${formatRelativeTime(pr.createdAt)} · ` : ''}updated {formatRelativeTime(pr.updatedAt)}
           </span>
+          {/* GitHub-mark icon button stands in for the old "Open on
+              Remote" text button — it lives next to the timestamps so
+              the actions row only has to carry the primary "Review"
+              action plus the small secondary controls. Triggers the
+              same embedded-tab handler. */}
+          <button
+            type="button"
+            className="prc-meta-github"
+            onClick={handleOpenEmbeddedReview}
+            title="Open the embedded github.com window for this PR"
+            aria-label="Open this PR in the embedded github.com window"
+          >
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="currentColor" aria-hidden="true">
+              <path d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82a7.65 7.65 0 0 1 2-.27c.68 0 1.36.09 2 .27 1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0 0 16 8c0-4.42-3.58-8-8-8z" />
+            </svg>
+          </button>
         </div>
         <div className="prc-actions">
           {RefreshButton}
@@ -1488,7 +1518,7 @@ function PullRequestPreview({ pr, onOpenReview, onInspectDiffs, onMarkHandled, o
           {handledState !== 'done' && (
             <button
               type="button"
-              className="button button--secondary"
+              className="button button--secondary button--sm"
               disabled={handledState === 'running'}
               onClick={handleMarkHandled}
               title="Mark as handled in your local queue. Doesn't touch GitHub."
@@ -1499,14 +1529,6 @@ function PullRequestPreview({ pr, onOpenReview, onInspectDiffs, onMarkHandled, o
           {handledState === 'done' && (
             <span className="action-badge action-badge--success">✓ Handled</span>
           )}
-          <button
-            type="button"
-            className="button button--remote"
-            onClick={handleOpenEmbeddedReview}
-            title="Open the embedded github.com window for this PR."
-          >
-            Open on Remote
-          </button>
           {onInspectDiffs && (
             <button
               type="button"

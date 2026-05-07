@@ -25,17 +25,21 @@
 }
 .prc-header {
   flex: 0 0 auto;
-  padding: 14px 22px 12px;
+  /* Tight top padding — the title sits right under the topbar so a
+     14px breathing strip felt like dead space. The bottom keeps a
+     little more room so the meta row doesn't kiss the timeline. */
+  padding: 6px 22px 12px;
   background: var(--bg-elevated);
   border-bottom: 1px solid var(--border);
   display: grid;
   grid-template-columns: 1fr auto;
   /* Three info rows on the left + one actions slot on the right.
      The actions slot spans down so refresh / open-on-remote / review
-     stay vertically centred against the title row, matching
-     docs/mockups/v2/detail/pr-header.png. */
+     (and the back-to-kanban button, now folded into the actions
+     cluster) stay vertically centred against the title row. The
+     dedicated "back" row that used to sit on top is gone — it left a
+     mostly-empty band above the title (see back-to-button.png). */
   grid-template-areas:
-    "back   back"
     "title  actions"
     "branch actions"
     "meta   meta";
@@ -69,16 +73,42 @@
   gap: 8px;
   margin: 0;
 }
-/* Inline #N link folded into the title — same colour as github.com's
-   muted variant so the title is the loud thing. */
+/* Inline #N link folded into the title — themed chip using the
+   accent palette so the colour shifts per theme (purple in purple,
+   blue in github-light, green in warm…). Smaller padding than body
+   chips because the title font is already large. */
 .prc-title__number {
-  color: var(--text-3);
-  font-weight: 400;
+  background: var(--accent-a10);
+  color: var(--accent);
+  font-weight: 500;
   text-decoration: none;
+  padding: 1px 8px;
+  border-radius: 6px;
+  font-size: 0.7em;
 }
 .prc-title__number:hover {
-  color: var(--accent);
-  text-decoration: underline;
+  background: var(--accent-a40);
+}
+/* Backtick-wrapped segments inside the title render as inline code —
+   github.com does the same when you put `Foo#bar` in a PR title. The
+   translucent grey tint (same recipe github.com uses for inline code)
+   adapts to the elevated header background without disappearing the
+   way --bg-card did, while staying neutral against any theme. */
+.prc-title__code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, monospace;
+  font-size: 0.85em;
+  font-weight: 500;
+  background: rgba(110, 119, 129, 0.22);
+  border-radius: 4px;
+  padding: 1px 6px;
+  color: var(--text-1);
+  /* Slight nudge so the box-aligned glyphs sit on the same baseline as
+     the surrounding text. */
+  vertical-align: 1px;
+}
+[data-theme="atom-one-dark"] .prc-title__code,
+[data-theme="warm"] .prc-title__code {
+  background: rgba(175, 184, 193, 0.18);
 }
 .prc-meta-line {
   grid-area: meta;
@@ -93,6 +123,26 @@
 .prc-meta-link:hover { color: var(--accent); text-decoration: underline; }
 .prc-meta-sep { opacity: 0.5; }
 .prc-meta-time { color: var(--text-3); }
+/* GitHub-mark icon button living in the meta line. Replaces the
+   verbose "Open on Remote" text button so the actions row is left
+   with just the primary Review action. Sized to match the meta
+   line's body text height. */
+.prc-meta-github {
+  appearance: none;
+  background: transparent;
+  border: 0;
+  padding: 2px 4px;
+  margin-left: 4px;
+  color: var(--text-3);
+  display: inline-flex;
+  align-items: center;
+  cursor: pointer;
+  border-radius: 4px;
+}
+.prc-meta-github:hover {
+  color: var(--text-1);
+  background: var(--bg-card);
+}
 /* Status pill in the PR detail header. Default = Open (green); the
    modifier classes below paint Merged purple, Closed red, Draft grey.
    Bigger + solid background than the rest of the meta strip so the

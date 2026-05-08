@@ -49,7 +49,7 @@ describe('SlackPage (Slice 2b)', () => {
 
   it('renders the connect prompt when no workspace is linked', async () => {
     installBridge();
-    render(<SlackPage />);
+    render(<SlackPage onOpenIntegrationsSettings={() => undefined} />);
     await waitFor(() => {
       expect(screen.getByRole('heading', { name: /connect your slack workspace/i })).toBeDefined();
     });
@@ -58,7 +58,7 @@ describe('SlackPage (Slice 2b)', () => {
 
   it('opens the Slack authorize URL in the system browser when Connect is clicked', async () => {
     const stub = installBridge();
-    render(<SlackPage />);
+    render(<SlackPage onOpenIntegrationsSettings={() => undefined} />);
     await waitFor(() => screen.getByRole('button', { name: /^connect slack workspace$/i }));
 
     await act(async () => {
@@ -77,7 +77,7 @@ describe('SlackPage (Slice 2b)', () => {
     installBridge({
       getSlackAuthorizeUrl: vi.fn().mockResolvedValue({ configured: false }),
     });
-    render(<SlackPage />);
+    render(<SlackPage onOpenIntegrationsSettings={() => undefined} />);
     await waitFor(() => screen.getByRole('button', { name: /^connect slack workspace$/i }));
 
     await act(async () => {
@@ -98,7 +98,7 @@ describe('SlackPage (Slice 2b)', () => {
         authedUserId: 'U999',
       }),
     });
-    render(<SlackPage />);
+    render(<SlackPage onOpenIntegrationsSettings={() => undefined} />);
     await waitFor(() => {
       expect(screen.getByRole('heading', { name: /acme corp linked/i })).toBeDefined();
     });

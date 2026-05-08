@@ -162,6 +162,91 @@ class TestSlackOAuthService
         assertThat(store.findSecret(CredentialType.INTEGRATION, SlackOAuthService.SLACK_USER_TOKEN_NAME)).isEmpty();
     }
 
+    @Test
+    void testVaultRowConfiguresService()
+    {
+        // No env fallback — only the vault row. Mirrors the BYO Settings flow:
+        // user pastes client_id (label) + client_secret (value) and the
+        // service should pick them up at call time without a restart.
+        InMemoryCredentialStore store = new InMemoryCredentialStore();
+        store.upsert(
+                CredentialType.INTEGRATION,
+                SlackOAuthService.SLACK_OAUTH_APP_NAME,
+                "default",
+                "vault-secret",
+                "vault-client",
+                null);
+        SlackOAuthService service = build(store, null, null, (cid, sec, code, uri) -> {
+            assertThat(cid).isEqualTo("vault-client");
+            assertThat(sec).isEqualTo("vault-secret");
+            return OK_RESPONSE;
+        }, Clock.systemUTC());
+
+        assertThat(service.isConfigured()).isTrue();
+        String url = service.issueAuthorizeUrl();
+        assertThat(url).contains("client_id=vault-client");
+        service.exchangeCode("auth-code", stateFromUrl(url));
+    }
+
+    @Test
+    void testVaultRowOverridesEnvFallback()
+    {
+        // Env-fallback values are present but the vault row should win
+        // — keeps a stale env var from masking a freshly pasted secret.
+        InMemoryCredentialStore store = new InMemoryCredentialStore();
+        store.upsert(
+                CredentialType.INTEGRATION,
+                SlackOAuthService.SLACK_OAUTH_APP_NAME,
+                "default",
+                "vault-secret",
+                "vault-client",
+                null);
+        SlackOAuthService service = build(store, "env-client", "env-secret", (cid, sec, code, uri) -> {
+            assertThat(cid).isEqualTo("vault-client");
+            assertThat(sec).isEqualTo("vault-secret");
+            return OK_RESPONSE;
+        }, Clock.systemUTC());
+
+        service.exchangeCode("auth-code", stateFromUrl(service.issueAuthorizeUrl()));
+    }
+
+    @Test
+    void testEnvFallbackUsedWhenVaultEmpty()
+    {
+        InMemoryCredentialStore store = new InMemoryCredentialStore();
+        SlackOAuthService service = build(store, "env-client", "env-secret", (cid, sec, code, uri) -> {
+            assertThat(cid).isEqualTo("env-client");
+            assertThat(sec).isEqualTo("env-secret");
+            return OK_RESPONSE;
+        }, Clock.systemUTC());
+
+        assertThat(service.isConfigured()).isTrue();
+        service.exchangeCode("auth-code", stateFromUrl(service.issueAuthorizeUrl()));
+    }
+
+    @Test
+    void testVaultRowMissingSecretFallsBackToEnv()
+    {
+        // A row with only client_id (label) but no value is treated as
+        // half-configured — the env secret fills the gap. This matches
+        // a partial save where the user pasted only the client_id.
+        InMemoryCredentialStore store = new InMemoryCredentialStore();
+        store.upsert(
+                CredentialType.INTEGRATION,
+                SlackOAuthService.SLACK_OAUTH_APP_NAME,
+                "default",
+                "",
+                "vault-client",
+                null);
+        SlackOAuthService service = build(store, "env-client", "env-secret", (cid, sec, code, uri) -> {
+            assertThat(cid).isEqualTo("vault-client");
+            assertThat(sec).isEqualTo("env-secret");
+            return OK_RESPONSE;
+        }, Clock.systemUTC());
+
+        service.exchangeCode("auth-code", stateFromUrl(service.issueAuthorizeUrl()));
+    }
+
     // ── Helpers ────────────────────────────────────────────────────────
 
     private static SlackOAuthService build(String clientId, String clientSecret, OAuthExchanger exchanger, Clock clock)

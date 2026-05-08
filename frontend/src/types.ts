@@ -527,10 +527,11 @@ export type UserStatsDto = {
 
 // Coarse category for a stored credential. The pair (type, name) uniquely
 // identifies a row in the backend `credentials` table. Conventions:
-//   ACCOUNT — singleton; name is always "github"
-//   REPO    — name is the repo full slug "owner/repo"
-//   AI      — name is the provider id ("anthropic", "openai", "local", ...)
-export type CredentialType = 'ACCOUNT' | 'REPO' | 'AI';
+//   ACCOUNT     — singleton; name is always "github"
+//   REPO        — name is the repo full slug "owner/repo"
+//   AI          — name is the provider id ("anthropic", "openai", "local", ...)
+//   INTEGRATION — name is the integration id ("slack-oauth-app", etc.)
+export type CredentialType = 'ACCOUNT' | 'REPO' | 'AI' | 'INTEGRATION';
 
 export type CredentialDto = {
   id: number;

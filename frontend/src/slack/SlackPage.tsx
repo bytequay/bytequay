@@ -35,7 +35,11 @@ type Phase =
   | { kind: 'connected'; team: SlackConnectionDto }
   | { kind: 'error'; message: string };
 
-function SlackPage() {
+type SlackPageProps = {
+  onOpenIntegrationsSettings: () => void;
+};
+
+function SlackPage({ onOpenIntegrationsSettings }: SlackPageProps) {
   const [phase, setPhase] = useState<Phase>({ kind: 'loading' });
 
   const refreshConnection = useCallback(async () => {
@@ -99,7 +103,9 @@ function SlackPage() {
         {phase.kind === 'loading' && <div className="slack-status">Loading…</div>}
         {phase.kind === 'error' && <ErrorCard message={phase.message} onRetry={refreshConnection} />}
         {phase.kind === 'connected' && <ConnectedCard team={phase.team} />}
-        {phase.kind === 'pre-connect-not-configured' && <NotConfiguredCard />}
+        {phase.kind === 'pre-connect-not-configured' && (
+          <NotConfiguredCard onOpenSettings={onOpenIntegrationsSettings} />
+        )}
         {(phase.kind === 'pre-connect' || phase.kind === 'awaiting-callback') && (
           <ConnectCard
             awaiting={phase.kind === 'awaiting-callback'}
@@ -231,17 +237,24 @@ function ConnectCard({
   );
 }
 
-function NotConfiguredCard() {
+function NotConfiguredCard({ onOpenSettings }: { onOpenSettings: () => void }) {
   return (
     <div className="slack-connect-card">
       <div className="slack-connect-icon" aria-hidden="true">#</div>
       <h1 className="slack-connect-title">Slack OAuth isn't configured</h1>
       <p className="slack-connect-desc">
-        To enable the Slack integration, register a Slack app and supply{' '}
-        <code>SLACK_CLIENT_ID</code> and <code>SLACK_CLIENT_SECRET</code> as
-        environment variables to the backend. The renderer will pick up the
-        change once the backend restarts.
+        ByteQuay uses a <strong>bring-your-own Slack app</strong>: register a
+        small app on api.slack.com (a two-minute walkthrough lives in Settings)
+        and paste its <code>client_id</code> and <code>client_secret</code>.
+        Once those are saved, come back here to connect a workspace.
       </p>
+      <button
+        type="button"
+        className="slack-connect-btn"
+        onClick={onOpenSettings}
+      >
+        Open Settings → Integrations
+      </button>
     </div>
   );
 }

@@ -265,7 +265,9 @@ function App() {
           />
         )}
         {nav.view === 'slack' && (
-          <SlackPage />
+          <SlackPage
+            onOpenIntegrationsSettings={() => setNav({ view: 'settings', section: 'integrations' })}
+          />
         )}
         {nav.view === 'notifications' && (
           <NotificationsScreen />

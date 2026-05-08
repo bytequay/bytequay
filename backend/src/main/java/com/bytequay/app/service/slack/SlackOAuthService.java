@@ -48,10 +48,12 @@ import static com.bytequay.app.repository.CredentialStore.DEFAULT_INSTANCE_NAME;
 import static java.util.Objects.requireNonNull;
 
 /**
- * Slack OAuth (v2) handshake. Reads {@code SLACK_CLIENT_ID} and
- * {@code SLACK_CLIENT_SECRET} from the environment at startup; the
- * service is "not configured" — and every endpoint short-circuits with
- * 503 — when either is absent.
+ * Slack OAuth (v2) handshake. Resolves {@code client_id} and
+ * {@code client_secret} at call time from the credentials vault under
+ * {@code (INTEGRATION, "slack-oauth-app")} (BYO Slack app — slice 2c)
+ * and falls back to the {@code SLACK_CLIENT_ID} / {@code SLACK_CLIENT_SECRET}
+ * environment variables. The service is "not configured" — and every
+ * endpoint short-circuits with 503 — when neither source supplies a value.
  *
  * <p>Flow:
  * <ol>
@@ -66,10 +68,11 @@ import static java.util.Objects.requireNonNull;
  *       {@code (INTEGRATION, "slack")}.</li>
  * </ol>
  *
- * <p>Slice 2a delivers the backend service + REST endpoints. Custom
- * URL scheme registration in Electron's main process and renderer
- * wiring (connect button, "Waiting for browser…" overlay, status
- * sidebar) land in Slice 2b.
+ * <p>Credential layout for the BYO Slack app row:
+ * <ul>
+ *   <li>{@code Credential.label} — the public {@code client_id}.</li>
+ *   <li>{@code Credential.value} — the encrypted {@code client_secret}.</li>
+ * </ul>
  *
  * @see <a href="docs/mockups/design/slack/scopes.md">scopes.md</a>
  *      for the pinned user-token scope list.
@@ -79,6 +82,8 @@ public class SlackOAuthService
 {
     /** Credential name for the Slack user token (xoxp-). */
     public static final String SLACK_USER_TOKEN_NAME = "slack";
+    /** Credential name for the BYO Slack OAuth app (client_id + client_secret). */
+    public static final String SLACK_OAUTH_APP_NAME = "slack-oauth-app";
 
     static final String SLACK_CLIENT_ID_ENV = "SLACK_CLIENT_ID";
     static final String SLACK_CLIENT_SECRET_ENV = "SLACK_CLIENT_SECRET";
@@ -107,9 +112,8 @@ public class SlackOAuthService
     private static final Logger log = LoggerFactory.getLogger(SlackOAuthService.class);
 
     private final CredentialService credentialService;
-    /** Null when the integration isn't configured. */
-    private final String clientId;
-    private final String clientSecret;
+    private final String envClientId;
+    private final String envClientSecret;
     private final OAuthExchanger exchanger;
     private final Clock clock;
 
@@ -128,25 +132,26 @@ public class SlackOAuthService
                 Clock.systemUTC());
     }
 
-    /** Test seam — explicit configuration + injectable exchanger / clock. */
+    /** Test seam — explicit env-fallback values + injectable exchanger / clock. */
     SlackOAuthService(
             CredentialService credentialService,
-            String clientId,
-            String clientSecret,
+            String envClientId,
+            String envClientSecret,
             OAuthExchanger exchanger,
             Clock clock)
     {
         this.credentialService = requireNonNull(credentialService, "credentialService is null");
-        this.clientId = blankToNull(clientId);
-        this.clientSecret = blankToNull(clientSecret);
+        this.envClientId = blankToNull(envClientId);
+        this.envClientSecret = blankToNull(envClientSecret);
         this.exchanger = requireNonNull(exchanger, "exchanger is null");
         this.clock = requireNonNull(clock, "clock is null");
     }
 
-    /** True iff both env vars are present and non-blank. */
+    /** True iff both client_id and client_secret resolve from either the
+     *  vault row or the env-var fallback. */
     public boolean isConfigured()
     {
-        return clientId != null && clientSecret != null;
+        return resolveClientId() != null && resolveClientSecret() != null;
     }
 
     /** Constructs the Slack authorize URL the renderer should open in
@@ -154,13 +159,13 @@ public class SlackOAuthService
      *  process — keep that round-trip in mind when designing tests. */
     public String issueAuthorizeUrl()
     {
-        requireConfigured();
+        String resolvedClientId = requireConfiguredClientId();
 
         sweepExpiredStates();
         String state = generateState();
         issuedStates.put(state, clock.instant());
         return AUTHORIZE_ENDPOINT
-                + "?client_id=" + urlEncode(clientId)
+                + "?client_id=" + urlEncode(resolvedClientId)
                 + "&user_scope=" + urlEncode(String.join(",", USER_SCOPES))
                 + "&redirect_uri=" + urlEncode(REDIRECT_URI)
                 + "&state=" + urlEncode(state);
@@ -171,7 +176,8 @@ public class SlackOAuthService
      *  triggers a 400. */
     public ConnectionInfo exchangeCode(String code, String state)
     {
-        requireConfigured();
+        String resolvedClientId = requireConfiguredClientId();
+        String resolvedClientSecret = requireConfiguredClientSecret();
         if (code == null || code.isBlank()) {
             throw new ResponseStatusException(HttpStatusCode.valueOf(400), "OAuth code missing");
         }
@@ -179,7 +185,7 @@ public class SlackOAuthService
 
         TokenResponse response;
         try {
-            response = exchanger.exchange(clientId, clientSecret, code, REDIRECT_URI);
+            response = exchanger.exchange(resolvedClientId, resolvedClientSecret, code, REDIRECT_URI);
         }
         catch (RuntimeException e) {
             log.warn("Slack oauth.v2.access call failed: {}", e.getMessage());
@@ -221,13 +227,43 @@ public class SlackOAuthService
         log.info("Slack workspace disconnected");
     }
 
-    private void requireConfigured()
+    /** Vault row first (label = client_id), {@code SLACK_CLIENT_ID} env-var fallback. */
+    private String resolveClientId()
     {
-        if (!isConfigured()) {
+        Optional<Credential> row = credentialService.get(CredentialType.INTEGRATION, SLACK_OAUTH_APP_NAME);
+        String fromVault = row.map(Credential::label).orElse(null);
+        return blankToNull(fromVault) != null ? fromVault.trim() : envClientId;
+    }
+
+    /** Vault row first (encrypted value = client_secret), {@code SLACK_CLIENT_SECRET}
+     *  env-var fallback. */
+    private String resolveClientSecret()
+    {
+        String fromVault = credentialService.getSecret(CredentialType.INTEGRATION, SLACK_OAUTH_APP_NAME)
+                .orElse(null);
+        return blankToNull(fromVault) != null ? fromVault.trim() : envClientSecret;
+    }
+
+    private String requireConfiguredClientId()
+    {
+        String value = resolveClientId();
+        if (value == null || resolveClientSecret() == null) {
             throw new ResponseStatusException(
                     HttpStatusCode.valueOf(503),
-                    "Slack OAuth is not configured — set " + SLACK_CLIENT_ID_ENV + " and " + SLACK_CLIENT_SECRET_ENV);
+                    "Slack OAuth is not configured — set client_id / client_secret in Settings → Integrations");
         }
+        return value;
+    }
+
+    private String requireConfiguredClientSecret()
+    {
+        String value = resolveClientSecret();
+        if (value == null || resolveClientId() == null) {
+            throw new ResponseStatusException(
+                    HttpStatusCode.valueOf(503),
+                    "Slack OAuth is not configured — set client_id / client_secret in Settings → Integrations");
+        }
+        return value;
     }
 
     private void consumeState(String state)

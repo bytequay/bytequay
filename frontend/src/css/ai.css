@@ -2304,6 +2304,37 @@
   margin-bottom: 14px;
 }
 
+/* Numbered setup walkthrough — used by the Slack BYO-app guide. Indented
+   list with comfortable line-height and a code-formatted scopes block. */
+.settings-setup-steps {
+  margin: 0;
+  padding-left: 22px;
+  font-size: 13px;
+  color: var(--text-2);
+  line-height: 1.65;
+}
+.settings-setup-steps li { margin-bottom: 10px; }
+.settings-setup-steps li:last-child { margin-bottom: 0; }
+.settings-setup-steps code {
+  font-size: 12px;
+  background: var(--bg-card);
+  border: 1px solid var(--border-light);
+  padding: 1px 5px;
+  border-radius: 4px;
+}
+
+.settings-setup-scopes {
+  display: block;
+  margin: 6px 0 0;
+  padding: 8px 10px;
+  font-size: 12px;
+  line-height: 1.55;
+  background: var(--bg-card);
+  border: 1px solid var(--border-light);
+  border-radius: 6px;
+  word-break: break-word;
+}
+
 .setting-row {
   display: grid;
   grid-template-columns: 1fr auto;

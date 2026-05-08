@@ -1413,6 +1413,18 @@
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, monospace;
   font-size: 12px;
   line-height: 1.55;
+  white-space: pre;
+}
+/* Inner wrapper sized to max(100%, longest-line) so the .diff-hunk-line
+   children's backgrounds paint past the viewport on long lines —
+   without this, scrolling horizontally exposes an unpainted gap on the
+   right of the viewport. Same trick the PR diff uses on
+   .prc-review-thread__hunk-inner; see pr-detail.css for the
+   mockup that documented the regression this guards against. */
+.commit-diff__body-inner {
+  display: block;
+  width: max-content;
+  min-width: 100%;
 }
 
 /* Files-changed totals row in the middle pane. */

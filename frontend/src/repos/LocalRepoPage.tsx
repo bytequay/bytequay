@@ -1227,6 +1227,7 @@ function CommitDiffViewer({ diff }: { diff: LocalFileDiffDto }) {
         )}
       </div>
       <pre className="commit-diff__body">
+        <div className="commit-diff__body-inner">
         {lines.map((line, i) => {
           let cls = 'diff-hunk-line';
           if (line.startsWith('@@')
@@ -1237,8 +1238,9 @@ function CommitDiffViewer({ diff }: { diff: LocalFileDiffDto }) {
           else if (line.startsWith('+')) cls += ' diff-hunk-line--add';
           else if (line.startsWith('-')) cls += ' diff-hunk-line--del';
           else cls += ' diff-hunk-line--ctx';
-          return <div key={i} className={cls}>{line || ' '}</div>;
+          return <div key={i} className={cls}>{line || ' '}</div>;
         })}
+        </div>
       </pre>
     </div>
   );

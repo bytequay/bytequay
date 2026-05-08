@@ -960,12 +960,61 @@ class TestPullRequestService
     }
 
     @Test
-    void testEditReviewCommentDoesNotInvalidateDetail()
+    void testEditReviewCommentPatchesCachedReviewBody()
     {
+        PrReviewThreadMessage message = new PrReviewThreadMessage(
+                4357983764L,
+                null,
+                null,
+                "alice",
+                "old body",
+                "src/Main.java",
+                12,
+                "RIGHT",
+                "@@",
+                "abc123",
+                Instant.parse("2026-05-08T00:00:00Z"),
+                Reactions.EMPTY,
+                false,
+                null,
+                null,
+                null,
+                null,
+                "MEMBER",
+                "thread-node-id",
+                false);
+        when(detailStore.findPrIdByReviewCommentId(4357983764L)).thenReturn(Optional.of(123L));
+        when(detailStore.find(123L)).thenReturn(Optional.of(new StoredPrDetail(
+                null,
+                ImmutableList.of(),
+                ImmutableList.of(),
+                ImmutableList.of(),
+                ImmutableList.of(),
+                ImmutableList.of(message),
+                ImmutableList.of())));
+
         pullRequestService.editReviewComment("pat", "trinodb/trino", 4357983764L, "updated");
 
         verify(gitHub).editReviewComment("pat", "trinodb", "trino", 4357983764L, "updated");
         verify(detailInvalidator, never()).invalidate(anyString(), anyInt());
+
+        ArgumentCaptor<StoredPrDetail> captor = ArgumentCaptor.forClass(StoredPrDetail.class);
+        verify(detailStore).save(eq(123L), captor.capture());
+        PrReviewThreadMessage patched = captor.getValue().reviewComments().get(0);
+        assertThat(patched.body()).isEqualTo("updated");
+        assertThat(patched.resolved()).isFalse();
+        assertThat(patched.graphqlNodeId()).isEqualTo("thread-node-id");
+    }
+
+    @Test
+    void testEditReviewCommentSkipsCachePatchWhenCommentUnknown()
+    {
+        when(detailStore.findPrIdByReviewCommentId(4357983764L)).thenReturn(Optional.empty());
+
+        pullRequestService.editReviewComment("pat", "trinodb/trino", 4357983764L, "updated");
+
+        verify(gitHub).editReviewComment("pat", "trinodb", "trino", 4357983764L, "updated");
+        verify(detailStore, never()).save(anyLong(), any());
     }
 
     @Test

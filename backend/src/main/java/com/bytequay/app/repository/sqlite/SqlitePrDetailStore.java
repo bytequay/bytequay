@@ -473,4 +473,10 @@ public class SqlitePrDetailStore
     {
         return timelineRepo.findPrIdsByCommentedEventGithubId(commentId).stream().findFirst();
     }
+
+    @Override
+    public Optional<Long> findPrIdByReviewCommentId(long commentId)
+    {
+        return reviewCommentRepo.findPrIdsByGithubId(commentId).stream().findFirst();
+    }
 }

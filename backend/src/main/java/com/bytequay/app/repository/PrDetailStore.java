@@ -80,6 +80,17 @@ public interface PrDetailStore
     }
 
     /**
+     * Returns the PR id whose cached review-thread messages include the
+     * given GitHub comment id, or empty if no cached detail references
+     * it. Same role as {@link #findPrIdByIssueCommentId} for per-line
+     * review comments.
+     */
+    default Optional<Long> findPrIdByReviewCommentId(long commentId)
+    {
+        return Optional.empty();
+    }
+
+    /**
      * Returns a map of {@code head_ref → pr_number} for all currently
      * open PRs against {@code repo} (form {@code "owner/repo"}) that
      * have detail synced. Used by the local-repo branches kanban to

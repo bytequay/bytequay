@@ -487,12 +487,41 @@ public class PullRequestService
      * Updates the body of a per-line review comment owned by the
      * authenticated user. Same author-gating story as
      * {@link #editIssueComment(String, String, long, String)}.
+     *
+     * <p>After GitHub accepts the edit we patch the cached detail in
+     * place so the next {@code /prs/detail} read shows the new body
+     * immediately.
      */
     public void editReviewComment(String pat, String repo, long commentId, String body)
     {
         requireNotBlank(body, "comment body must not be blank");
         RepoRef ref = parseRepoRef(repo);
         gitHub.editReviewComment(pat, ref.owner(), ref.repo(), commentId, body);
+        detailStore.findPrIdByReviewCommentId(commentId).ifPresent(prId ->
+                detailStore.find(prId).ifPresent(cached ->
+                        detailStore.save(prId, withReviewCommentBody(cached, commentId, body))));
+    }
+
+    /**
+     * Returns a new {@link StoredPrDetail} with the body of the
+     * review-thread message identified by {@code commentId} replaced.
+     * Other rows pass through unchanged.
+     */
+    private static StoredPrDetail withReviewCommentBody(StoredPrDetail detail, long commentId, String body)
+    {
+        List<PrReviewThreadMessage> patched = detail.reviewComments().stream()
+                .map(m -> m.githubId() == commentId
+                        ? new PrReviewThreadMessage(
+                                m.githubId(), m.inReplyTo(), m.reviewId(), m.author(), body,
+                                m.filePath(), m.lineNumber(), m.side(), m.diffHunk(), m.commitId(),
+                                m.createdAt(), m.reactions(), m.outdated(), m.startLine(), m.startSide(),
+                                m.originalLine(), m.originalStartLine(), m.authorAssociation(),
+                                m.graphqlNodeId(), m.resolved())
+                        : m)
+                .collect(toImmutableList());
+        return new StoredPrDetail(
+                detail.raw(), detail.reviews(), detail.files(), detail.timeline(),
+                detail.checkRuns(), patched, detail.linkedIssues());
     }
 
     /**

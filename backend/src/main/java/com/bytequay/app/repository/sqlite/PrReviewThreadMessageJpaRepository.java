@@ -28,4 +28,16 @@ interface PrReviewThreadMessageJpaRepository
 
     @Query("SELECT e.githubId FROM PrReviewThreadMessageEntity e WHERE e.prId = :prId")
     List<Long> findGithubIdsByPrId(@Param("prId") long prId);
+
+    /**
+     * Returns the {@code pr_id}s whose review-thread messages include one
+     * with the given GitHub id. Used to route an edit / reaction
+     * mutation to the correct cached detail when the caller has the
+     * comment id but not the PR id. List shape rather than Optional
+     * defensively against the unique constraint being scoped to
+     * (pr_id, github_id) — comment ids are globally unique on GitHub
+     * but the table doesn't enforce that.
+     */
+    @Query("SELECT e.prId FROM PrReviewThreadMessageEntity e WHERE e.githubId = :githubId")
+    List<Long> findPrIdsByGithubId(@Param("githubId") long githubId);
 }

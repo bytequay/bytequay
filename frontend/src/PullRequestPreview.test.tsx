@@ -272,6 +272,12 @@ async function render(detail: PullRequestDetailDto, pr = makePr()) {
   return bridge;
 }
 
+function updateTextarea(textarea: HTMLTextAreaElement, value: string) {
+  const setter = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')?.set;
+  setter?.call(textarea, value);
+  textarea.dispatchEvent(new Event('input', { bubbles: true }));
+}
+
 describe('PullRequestPreview render smoke', () => {
   it('renders without throwing for a detail covering every risky branch', async () => {
     await render(makeDetail());
@@ -382,6 +388,35 @@ describe('PullRequestPreview render smoke', () => {
     expect(bridge.fetchPullRequestDetail).toHaveBeenCalledTimes(1);
     expect(bridge.refreshPullRequestDetail).not.toHaveBeenCalled();
     expect(container.querySelector('.prc-review-thread .reaction-chip__count')?.textContent).toBe('3');
+  });
+
+  it('keeps review-thread replies optimistic without fetching stale detail', async () => {
+    const bridge = await render(makeDetail());
+    const stub = container.querySelector<HTMLInputElement>('.prc-review-thread__reply-stub-input');
+    expect(stub).toBeTruthy();
+
+    await act(async () => {
+      stub!.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    });
+
+    const textarea = container.querySelector<HTMLTextAreaElement>('.prc-review-thread__reply-input');
+    expect(textarea).toBeTruthy();
+    await act(async () => {
+      updateTextarea(textarea!, 'thanks for the fix');
+    });
+
+    const button = Array.from(container.querySelectorAll('button'))
+      .find(el => el.textContent === 'Reply');
+    expect(button).toBeTruthy();
+    await act(async () => {
+      button!.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    });
+    await act(async () => { await Promise.resolve(); });
+
+    expect(bridge.replyToReviewThread).toHaveBeenCalledWith('trinodb/trino', 42, 5001, 'thanks for the fix');
+    expect(bridge.fetchPullRequestDetail).toHaveBeenCalledTimes(1);
+    expect(bridge.refreshPullRequestDetail).not.toHaveBeenCalled();
+    expect(container.innerHTML).toContain('thanks for the fix');
   });
 
   it('keeps thread resolution optimistic without fetching stale detail', async () => {

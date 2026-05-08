@@ -11,8 +11,8 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import { useEffect, useState, type KeyboardEvent as ReactKeyboardEvent, type MouseEvent as ReactMouseEvent } from 'react';
-import type { LocalActivityEntryDto, LocalBranchDto, LocalCommitDto, LocalCommitFileDto, LocalFileDiffDto, LocalRepoStatusDto } from '../types';
+import { Fragment, useEffect, useState, type KeyboardEvent as ReactKeyboardEvent, type MouseEvent as ReactMouseEvent } from 'react';
+import type { LocalActivityEntryDto, LocalBranchDto, LocalCommitDto, LocalCommitFileDto, LocalFileDiffDto, LocalMergeBaseDto, LocalRepoStatusDto } from '../types';
 import LogoLoading from '../LogoLoading';
 import { formatRelativeTime } from '../pr/utils';
 import { DiffFileTreePane } from '../diff/DiffFileTreePane';
@@ -917,6 +917,7 @@ function CommitsTab({
   const [diff, setDiff] = useState<LocalFileDiffDto | null>(null);
   const [diffError, setDiffError] = useState<string | null>(null);
   const [collapsedDirs, setCollapsedDirs] = useState<ReadonlySet<string>>(new Set());
+  const [mergeBase, setMergeBase] = useState<LocalMergeBaseDto | null>(null);
   const toggleDir = (path: string) =>
     setCollapsedDirs((prev) => {
       const next = new Set(prev);
@@ -950,6 +951,7 @@ function CommitsTab({
     setFiles(null);
     setSelectedFile(null);
     setDiff(null);
+    setMergeBase(null);
     const rev = revisionKey || undefined;
     window.bridge.listLocalCommits(owner, repo, rev, 100)
       .then(rows => {
@@ -960,6 +962,15 @@ function CommitsTab({
         if (rows.length > 0) setSelectedShas(new Set([rows[0].sha]));
       })
       .catch(e => { if (!cancelled) setCommitsError(e instanceof Error ? e.message : String(e)); });
+    // Best-effort merge-base lookup. We don't surface fetch errors —
+    // the divider is a nice-to-have. When it fails (HEAD-only repo,
+    // single-commit branch, base unresolvable) we just don't render
+    // it. Only meaningful when the user is on a non-default branch.
+    if (rev) {
+      window.bridge.getLocalMergeBase(owner, repo, rev)
+        .then((mb) => { if (!cancelled) setMergeBase(mb); })
+        .catch(() => { /* swallow — divider is optional */ });
+    }
     return () => { cancelled = true; };
   }, [owner, repo, revisionKey]);
 
@@ -1044,12 +1055,18 @@ function CommitsTab({
         <aside className="commits-pane__commits">
           <ol className="commits-list">
             {commits.map(c => (
-              <CommitRow
-                key={c.sha}
-                commit={c}
-                selected={selectedShas.has(c.sha)}
-                onClick={(additive) => onCommitClick(c.sha, additive)}
-              />
+              <Fragment key={c.sha}>
+                {mergeBase?.sha === c.sha && mergeBase.base && (
+                  <li className="commits-list__divider" aria-hidden="true">
+                    — {revisionKey} branched from <code>{mergeBase.base}</code> —
+                  </li>
+                )}
+                <CommitRow
+                  commit={c}
+                  selected={selectedShas.has(c.sha)}
+                  onClick={(additive) => onCommitClick(c.sha, additive)}
+                />
+              </Fragment>
             ))}
           </ol>
         </aside>

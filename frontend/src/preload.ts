@@ -150,6 +150,8 @@ const bridge: Bridge = {
     ipcRenderer.invoke('repos:listLocalCommitFiles', owner, repo, sha),
   getLocalCommitDiff: (owner: string, repo: string, sha: string, path: string) =>
     ipcRenderer.invoke('repos:getLocalCommitDiff', owner, repo, sha, path),
+  getLocalMergeBase: (owner: string, repo: string, branch: string, base?: string) =>
+    ipcRenderer.invoke('repos:getLocalMergeBase', owner, repo, branch, base),
   listLocalActivity: (owner: string, repo: string, limit?: number) =>
     ipcRenderer.invoke('repos:listLocalActivity', owner, repo, limit),
   fetchLocalRepo: (owner: string, repo: string) =>

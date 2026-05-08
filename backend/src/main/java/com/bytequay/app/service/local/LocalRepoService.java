@@ -19,6 +19,7 @@ import com.bytequay.app.domain.LocalBranch;
 import com.bytequay.app.domain.LocalCommit;
 import com.bytequay.app.domain.LocalCommitFile;
 import com.bytequay.app.domain.LocalFileDiff;
+import com.bytequay.app.domain.LocalMergeBase;
 import com.bytequay.app.domain.LocalRepoStatus;
 import com.bytequay.app.domain.PullRequest;
 import com.bytequay.app.domain.PullRequestDraft;
@@ -553,6 +554,29 @@ public class LocalRepoService
         return gitRunner.listCommits(path, resolved, limit).stream()
                 .map(LocalRepoService::toLocalCommit)
                 .collect(toImmutableList());
+    }
+
+    /**
+     * Merge-base of {@code branch} and {@code base} — the sha where
+     * {@code branch} branched off. {@code base} is optional; when
+     * blank, falls back to the repo's default branch (origin/HEAD).
+     * Returns null when neither side resolves or when the histories
+     * are unrelated, so the UI can quietly skip the "branched from"
+     * divider rather than error out.
+     */
+    public LocalMergeBase mergeBase(String owner, String repo, String branch, String base)
+            throws IOException, InterruptedException
+    {
+        Path path = clonePathOrThrow(owner, repo);
+        String resolvedBranch = resolveLogRevision(path, branch);
+        String resolvedBase = (base == null || base.isBlank())
+                ? gitRunner.defaultBranch(path).orElse(null)
+                : resolveLogRevision(path, base);
+        if (resolvedBase == null) {
+            return new LocalMergeBase(null, null);
+        }
+        Optional<String> sha = gitRunner.mergeBase(path, resolvedBranch, resolvedBase);
+        return new LocalMergeBase(sha.orElse(null), resolvedBase);
     }
 
     private String resolveLogRevision(Path workingDir, String requested)

@@ -474,6 +474,30 @@ public class GitRunner
     }
 
     /**
+     * Best-common-ancestor sha of {@code branch} and {@code base} —
+     * git's notion of a branch point. Returns {@link Optional#empty()}
+     * when there's no common ancestor (truly unrelated histories) or
+     * when either ref doesn't resolve. The Commits tab uses this to
+     * place a "branched from <base>" divider after the matching row in
+     * the per-branch commit list.
+     */
+    public Optional<String> mergeBase(Path workingDir, String branch, String base)
+            throws IOException, InterruptedException
+    {
+        requireNonNull(branch, "branch is null");
+        requireNonNull(base, "base is null");
+        GitResult result = run(
+                List.of("git", "merge-base", branch, base),
+                workingDir,
+                15);
+        if (result.exitCode() != 0) {
+            return Optional.empty();
+        }
+        String sha = result.stdout().strip();
+        return sha.isEmpty() ? Optional.empty() : Optional.of(sha);
+    }
+
+    /**
      * Walks {@code git log} on {@code revision} (or HEAD when null)
      * and returns up to {@code limit} commits, newest first. Powers
      * the Commits tab. We use {@code -z} so each record is

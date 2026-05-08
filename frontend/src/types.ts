@@ -768,6 +768,15 @@ export type LocalFileDiffDto = {
   truncated: boolean;
 };
 
+/** Branch-point info for the Commits tab: sha = the merge-base of
+ *  the active branch and base; base = the resolved base name (after
+ *  origin/ fallback) for display. Both are null when there's no
+ *  common ancestor or no default branch. */
+export type LocalMergeBaseDto = {
+  sha: string | null;
+  base: string | null;
+};
+
 export type LocalActivityEntryDto = {
   sha: string;
   shortSha: string;
@@ -919,6 +928,12 @@ export type Bridge = {
   getLocalCommitDiff: (
     owner: string, repo: string, sha: string, path: string,
   ) => Promise<LocalFileDiffDto>;
+  /** Merge-base sha of branch and base (default base = origin/HEAD).
+   *  Used to render a "branched from <base>" divider in the Commits
+   *  tab's commit list. */
+  getLocalMergeBase: (
+    owner: string, repo: string, branch: string, base?: string,
+  ) => Promise<LocalMergeBaseDto>;
   /** Recent reflog entries — HEAD-mutating events (commits, checkouts,
    *  merges, pulls, rebases). Powers the Activity tab. */
   listLocalActivity: (

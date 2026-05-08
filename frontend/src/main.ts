@@ -1244,6 +1244,22 @@ const url = new URL(`${BACKEND_BASE}/prs/comment`);
     return res.json();
   });
 
+  ipcMain.handle('repos:getLocalMergeBase', async (
+    _event, owner: string, repo: string, branch: string, base: string | undefined,
+  ) => {
+    const params = new URLSearchParams();
+    params.set('branch', branch);
+    if (base) params.set('base', base);
+    const res = await fetch(
+      `${BACKEND_BASE}/api/repos/local/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/merge-base?${params.toString()}`,
+    );
+    if (!res.ok) {
+      const body = await res.text().catch(() => '');
+      throw new Error(extractMessage(body) || `merge-base lookup failed (${res.status})`);
+    }
+    return res.json();
+  });
+
   ipcMain.handle('repos:listLocalBranches', async (
     _event, owner: string, repo: string,
   ) => {

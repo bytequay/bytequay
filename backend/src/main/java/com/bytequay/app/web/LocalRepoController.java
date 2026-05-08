@@ -18,6 +18,7 @@ import com.bytequay.app.domain.LocalBranch;
 import com.bytequay.app.domain.LocalCommit;
 import com.bytequay.app.domain.LocalCommitFile;
 import com.bytequay.app.domain.LocalFileDiff;
+import com.bytequay.app.domain.LocalMergeBase;
 import com.bytequay.app.domain.LocalRepoStatus;
 import com.bytequay.app.domain.PullRequest;
 import com.bytequay.app.domain.PullRequestDraft;
@@ -282,6 +283,38 @@ public class LocalRepoController
         catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE, "commit-diff fetch interrupted");
+        }
+    }
+
+    /**
+     * GET /api/repos/local/{owner}/{repo}/merge-base?branch=&base= —
+     * merge-base sha of {@code branch} and {@code base}. {@code base}
+     * is optional; when omitted, falls back to the repo's default
+     * branch. Returns {@code {sha:null,base:null}} when no common
+     * ancestor exists, so the UI can quietly skip the divider.
+     */
+    @GetMapping("/{owner}/{repo}/merge-base")
+    public LocalMergeBase mergeBase(
+            @PathVariable("owner") String owner,
+            @PathVariable("repo") String repo,
+            @RequestParam("branch") String branch,
+            @RequestParam(name = "base", required = false) String base)
+    {
+        try {
+            return localRepoService.mergeBase(owner, repo, branch, base);
+        }
+        catch (IllegalStateException e) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, e.getMessage());
+        }
+        catch (GitRunner.GitCommandException e) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, e.stderr().strip());
+        }
+        catch (IOException e) {
+            throw new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR, e.getMessage());
+        }
+        catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE, "merge-base lookup interrupted");
         }
     }
 

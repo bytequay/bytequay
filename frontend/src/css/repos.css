@@ -1419,6 +1419,31 @@
 .commits-pane__add { color: #1a7f37; }
 .commits-pane__del { color: #cf222e; }
 
+/* "branched from <base>" divider in the commits list. Renders just
+   before the merge-base commit so anything below the line is
+   already-on-base history. Visual treatment is intentionally
+   muted — it's a label, not a row. */
+.commits-list__divider {
+  list-style: none;
+  text-align: center;
+  font-size: 11px;
+  color: var(--text-3);
+  font-style: italic;
+  padding: 8px 12px;
+  border-top: 1px dashed var(--border);
+  border-bottom: 1px dashed var(--border);
+  background: var(--bg-elevated);
+}
+.commits-list__divider code {
+  font-style: normal;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, monospace;
+  font-size: 11px;
+  color: var(--accent);
+  background: var(--accent-a7);
+  border-radius: 3px;
+  padding: 0 4px;
+}
+
 /* Selection summary bar above the files pane. Mirrors the PR diff
    viewer's commits-pill chrome (see CommitsSelector.tsx) so the
    single-vs-multi selection state reads the same in both places. */

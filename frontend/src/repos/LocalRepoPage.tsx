@@ -51,7 +51,7 @@ const COLUMNS: { key: Column; label: string; subtitle: string }[] = [
 // How many branches to show per column before collapsing the rest
 // behind a "Show N more" toggle. Same shape as the PR kanban so
 // big repos don't blow out the viewport with hundreds of cards.
-const COLLAPSED_LIMIT = 6;
+const COLLAPSED_LIMIT = 5;
 
 const TABS: { key: Tab; label: string }[] = [
   { key: 'branches', label: 'Branches' },

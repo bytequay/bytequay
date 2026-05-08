@@ -28,11 +28,16 @@ import {
   type Gap,
   type LoadedGap,
 } from './diffExpand';
-import { buildFileTree, flattenFileTree, treeOrderedFiles } from './fileTree';
+import { treeOrderedFiles } from './fileTree';
 import ResizeHandle from './ResizeHandle';
 import AiReviewSidebar, { type AiReviewSidebarHandle } from './AiReviewSidebar';
 import PolishButtons from './ai/PolishButtons';
 import MarkdownComposer from './MarkdownComposer';
+import { statusBadge } from './diffStatusBadge';
+import { DiffFileTreePane } from './diff/DiffFileTreePane';
+import { CommitsSelector } from './diff/CommitsSelector';
+import { unionCommitFiles } from './diff/unionCommitFiles';
+import { commitSubject } from './diff/commitDisplay';
 
 type FilesMode = 'tree' | 'flat';
 type ReviewVerdict = 'COMMENT' | 'APPROVE' | 'REQUEST_CHANGES';
@@ -84,27 +89,6 @@ type Props = {
   initialCommitSha?: string | null;
 };
 
-function formatShortSha(sha: unknown): string {
-  // Defensive: a non-string slipped in once via an onClick handler that
-  // forwarded its MouseEvent into the optional `initialCommitSha`
-  // argument. Coerce to string and accept anything; render an empty
-  // span when we can't make sense of it.
-  if (typeof sha !== 'string') return '';
-  return sha.slice(0, 7);
-}
-
-// Flat view shows full repo paths, which can run 80+ characters in deep
-// monorepos. Replace the middle directory segments with "…" so the file's
-// basename always stays fully visible. The full path remains in the row's
-// `title` for hover-to-inspect.
-function truncatePathMiddle(path: string, headSegments = 1, tailSegments = 2): string {
-  const segments = path.split('/');
-  if (segments.length <= headSegments + tailSegments) return path;
-  const head = segments.slice(0, headSegments).join('/');
-  const tail = segments.slice(-tailSegments).join('/');
-  return `${head}/…/${tail}`;
-}
-
 /** Minimal CSS attribute-selector escaper. Browsers ship CSS.escape but
  *  Safari/old Electron sometimes don't expose it on `window.CSS`, and
  *  jsdom (in tests) doesn't either. Covers the only chars that show up in
@@ -122,67 +106,6 @@ function formatRelative(iso: string | null): string {
   const hrs = Math.round(mins / 60);
   if (hrs < 24) return `${hrs}h ago`;
   return `${Math.round(hrs / 24)}d ago`;
-}
-
-function commitSubject(message: string | null): string {
-  if (!message) return '';
-  const first = message.split('\n')[0];
-  return first.length > 120 ? first.slice(0, 117) + '…' : first;
-}
-
-function statusBadge(status: string): { letter: string; cls: string } {
-  switch (status) {
-    case 'added': return { letter: 'A', cls: 'added' };
-    case 'removed': return { letter: 'D', cls: 'removed' };
-    case 'renamed': return { letter: 'R', cls: 'renamed' };
-    case 'copied': return { letter: 'C', cls: 'copied' };
-    default: return { letter: 'M', cls: 'modified' };
-  }
-}
-
-function Chevron({ open }: { open: boolean }) {
-  return (
-    <svg
-      className={`tree-chevron${open ? ' tree-chevron--open' : ''}`}
-      width="10"
-      height="10"
-      viewBox="0 0 10 10"
-      aria-hidden="true"
-    >
-      <path
-        d="M3.5 2L7 5L3.5 8"
-        stroke="currentColor"
-        strokeWidth="1.5"
-        strokeLinecap="round"
-        strokeLinejoin="round"
-        fill="none"
-      />
-    </svg>
-  );
-}
-
-function FolderIcon({ open }: { open: boolean }) {
-  return (
-    <svg
-      className="tree-folder"
-      width="14"
-      height="14"
-      viewBox="0 0 14 14"
-      aria-hidden="true"
-    >
-      {open ? (
-        <path
-          d="M1.5 3.5a1 1 0 0 1 1-1h3l1.2 1.2h4.8a1 1 0 0 1 1 1v.8H3.1l-1.6 5.6a.5.5 0 0 1-.5.4H1V3.5Zm1.2 7.5 1.5-5.2h9.3l-1.5 5.2H2.7Z"
-          fill="currentColor"
-        />
-      ) : (
-        <path
-          d="M2.5 2.5a1 1 0 0 0-1 1v7a1 1 0 0 0 1 1h9a1 1 0 0 0 1-1V5a1 1 0 0 0-1-1H7.2L6 2.5H2.5Z"
-          fill="currentColor"
-        />
-      )}
-    </svg>
-  );
 }
 
 function severityClass(s: string): string {
@@ -1896,7 +1819,6 @@ function DiffViewerScreen({ pr, onBack, onApprove, initialCommitSha }: Props) {
     () => new Set(initialCommitSha ? [initialCommitSha] : []),
   );
   const [commitDiffLoading, setCommitDiffLoading] = useState(false);
-  const [commitsOpen, setCommitsOpen] = useState(false);
   const [collapsedDirs, setCollapsedDirs] = useState<Set<string>>(new Set());
   const [filesWidth, setFilesWidth] = useState<number>(loadWidth);
   const [mode, setMode] = useState<FilesMode>(loadMode);
@@ -2049,10 +1971,10 @@ function DiffViewerScreen({ pr, onBack, onApprove, initialCommitSha }: Props) {
     }
   };
 
-  const tree = useMemo(() => (files ? buildFileTree(files, f => f.filename) : []), [files]);
-  const treeRows = useMemo(() => flattenFileTree(tree, collapsedDirs), [tree, collapsedDirs]);
-  // Order the flat file list AND the continuous-scroll sections by tree
-  // DFS so the user sees the same sequence regardless of view mode.
+  // Order the continuous-scroll diff sections by tree DFS so they match
+  // the order of the file-tree pane regardless of which view mode the
+  // user picks. DiffFileTreePane recomputes the tree internally — we
+  // only need orderedFiles up here for ContinuousFilesPane.
   const orderedFiles = useMemo(() => (files ? treeOrderedFiles(files, f => f.filename) : []), [files]);
 
   const toggleDir = (path: string) =>
@@ -2135,16 +2057,7 @@ function DiffViewerScreen({ pr, onBack, onApprove, initialCommitSha }: Props) {
         const diffs = await Promise.all(
           ordered.map(s => window.bridge.fetchPrCommitDiff(pr.repo, pr.number, s)),
         );
-        const byPath = new Map<string, DiffFileDto>();
-        for (const diff of diffs) {
-          for (const f of diff) {
-            const prev = byPath.get(f.filename);
-            byPath.set(f.filename, prev
-              ? { ...f, additions: prev.additions + f.additions, deletions: prev.deletions + f.deletions }
-              : { ...f });
-          }
-        }
-        merged = [...byPath.values()];
+        merged = unionCommitFiles(diffs, f => f.filename);
       }
       setFiles(merged);
       setSelectedPath(merged.length > 0 ? merged[0].filename : null);
@@ -2260,71 +2173,18 @@ function DiffViewerScreen({ pr, onBack, onApprove, initialCommitSha }: Props) {
       </div>
 
       {commits && commits.length > 0 && (
-        <div className="diff-viewer__sub">
-          <div className="diff-viewer__sub-left">
-            <span className="diff-viewer__sub-label">Showing:</span>
-            <button
-              type="button"
-              className="commits-pill"
-              onClick={() => setCommitsOpen(o => !o)}
-              title={selectedCommits.size === 0
-                ? 'All commits in this PR (cumulative diff). Click to filter by commit.'
-                : selectedCommits.size === 1
-                  ? "Showing only this commit's changes — click to change selection."
-                  : `Showing the union of ${selectedCommits.size} selected commits.`}
-            >
-              <span className="commits-pill__icon" aria-hidden="true">⊞</span>
-              {selectedCommits.size === 0 ? (
-                <><b>All {commits.length} commit{commits.length === 1 ? '' : 's'}</b> (cumulative)</>
-              ) : selectedCommits.size === 1 ? (
-                <><b>{formatShortSha([...selectedCommits][0])}</b> · single commit</>
-              ) : (
-                <><b>{selectedCommits.size} of {commits.length} commits</b> selected</>
-              )}
-              <span className="commits-pill__caret" aria-hidden="true">▾</span>
-            </button>
-            {commitDiffLoading && (
-              <span className="diff-viewer__sub-status">Loading commit diff…</span>
-            )}
-          </div>
-          <div className="diff-viewer__sub-right">
-            <span className="diff-viewer__sub-stat">{files?.length ?? 0} files</span>
-          </div>
-          {commitsOpen && (
-            <div className="commits-popover" onClick={(e) => e.stopPropagation()}>
-              <button
-                type="button"
-                className={'commits-popover__row commits-popover__row--all' + (selectedCommits.size === 0 ? ' commits-popover__row--active' : '')}
-                onClick={() => { clearCommitSelection(); setCommitsOpen(false); }}
-              >
-                <code className="commits-popover__sha">All</code>
-                <span className="commits-popover__subject">All commits (cumulative)</span>
-              </button>
-              {commits.map((c) => {
-                const checked = selectedCommits.has(c.sha);
-                return (
-                  <label
-                    key={c.sha}
-                    className={'commits-popover__row commits-popover__row--checkable' + (checked ? ' commits-popover__row--active' : '')}
-                    title={c.message ?? ''}
-                  >
-                    <input
-                      type="checkbox"
-                      className="commits-popover__check"
-                      checked={checked}
-                      onChange={() => toggleCommit(c.sha)}
-                    />
-                    <code className="commits-popover__sha">{formatShortSha(c.sha)}</code>
-                    <span className="commits-popover__subject">{commitSubject(c.message)}</span>
-                    {c.authoredAt && (
-                      <span className="commits-popover__time">{formatRelative(c.authoredAt)}</span>
-                    )}
-                  </label>
-                );
-              })}
-            </div>
-          )}
-        </div>
+        <CommitsSelector
+          commits={commits.map(c => ({
+            sha: c.sha,
+            subject: commitSubject(c.message),
+            authoredAt: c.authoredAt,
+          }))}
+          selected={selectedCommits}
+          onToggle={toggleCommit}
+          onClear={clearCommitSelection}
+          loading={commitDiffLoading}
+          rightChrome={<span className="diff-viewer__sub-stat">{files?.length ?? 0} files</span>}
+        />
       )}
 
       <div
@@ -2399,69 +2259,17 @@ function DiffViewerScreen({ pr, onBack, onApprove, initialCommitSha }: Props) {
               ◀
             </button>
           </div>
-          <div className={`diff-viewer__files-list diff-viewer__files-list--${mode}`}>
-            {files === null && !error && <div className="diff-viewer__loading">Loading files…</div>}
-            {error && <div className="diff-viewer__error">{error}</div>}
-            {files !== null && files.length === 0 && (
-              <div className="diff-viewer__empty">No files changed.</div>
-            )}
-            {files !== null && mode === 'tree' && treeRows.map((row) => {
-              // Tighter indent than GitHub Desktop — the diff viewer's
-              // file pane is narrow, every horizontal pixel back to the
-              // filename helps readability.
-              const indent = 4 + row.depth * 10;
-              if (row.kind === 'dir') {
-                return (
-                  <button
-                    key={`dir:${row.path}`}
-                    type="button"
-                    className="diff-file-row diff-file-row--dir"
-                    style={{ paddingLeft: indent }}
-                    onClick={() => toggleDir(row.path)}
-                    title={row.path}
-                  >
-                    <Chevron open={!row.collapsed} />
-                    <FolderIcon open={!row.collapsed} />
-                    <span className="diff-tree-dir-name">{row.name}</span>
-                  </button>
-                );
-              }
-              const badge = statusBadge(row.data.status);
-              return (
-                <button
-                  key={`file:${row.path}`}
-                  type="button"
-                  className={`diff-file-row diff-file-row--file${selectedPath === row.path ? ' diff-file-row--selected' : ''}`}
-                  style={{ paddingLeft: indent }}
-                  onClick={() => setSelectedPath(row.path)}
-                  title={row.path}
-                >
-                  <span className="tree-chevron tree-chevron--placeholder" aria-hidden="true" />
-                  <span className={`diff-file-row__badge diff-file-row__badge--${badge.cls}`} title={row.data.status}>
-                    {badge.letter}
-                  </span>
-                  <span className="diff-file-row__name">{row.name}</span>
-                </button>
-              );
-            })}
-            {files !== null && mode === 'flat' && orderedFiles.map((f) => {
-              const badge = statusBadge(f.status);
-              return (
-                <button
-                  key={`flat:${f.filename}`}
-                  type="button"
-                  className={`diff-file-row diff-file-row--flat${selectedPath === f.filename ? ' diff-file-row--selected' : ''}`}
-                  onClick={() => setSelectedPath(f.filename)}
-                  title={f.filename}
-                >
-                  <span className={`diff-file-row__badge diff-file-row__badge--${badge.cls}`} title={f.status}>
-                    {badge.letter}
-                  </span>
-                  <span className="diff-file-row__name diff-file-row__name--path">{truncatePathMiddle(f.filename)}</span>
-                </button>
-              );
-            })}
-          </div>
+          <DiffFileTreePane
+            files={files}
+            error={error}
+            mode={mode}
+            pathOf={(f) => f.filename}
+            statusBadgeOf={(f) => statusBadge(f.status)}
+            selectedPath={selectedPath}
+            onSelectPath={setSelectedPath}
+            collapsedDirs={collapsedDirs}
+            onToggleDir={toggleDir}
+          />
         </aside>
         )}
 

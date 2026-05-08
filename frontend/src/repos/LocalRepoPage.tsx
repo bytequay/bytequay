@@ -11,11 +11,12 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useState } from 'react';
 import type { LocalActivityEntryDto, LocalBranchDto, LocalCommitDto, LocalCommitFileDto, LocalFileDiffDto, LocalRepoStatusDto } from '../types';
 import LogoLoading from '../LogoLoading';
 import { formatRelativeTime } from '../pr/utils';
-import { buildFileTree, flattenFileTree } from '../fileTree';
+import { DiffFileTreePane } from '../diff/DiffFileTreePane';
+import { statusBadgeFromLetter } from '../diffStatusBadge';
 
 type Props = {
   owner: string;
@@ -910,6 +911,13 @@ function CommitsTab({
   const [selectedFile, setSelectedFile] = useState<string | null>(null);
   const [diff, setDiff] = useState<LocalFileDiffDto | null>(null);
   const [diffError, setDiffError] = useState<string | null>(null);
+  const [collapsedDirs, setCollapsedDirs] = useState<ReadonlySet<string>>(new Set());
+  const toggleDir = (path: string) =>
+    setCollapsedDirs((prev) => {
+      const next = new Set(prev);
+      if (next.has(path)) next.delete(path); else next.add(path);
+      return next;
+    });
 
   // Reload commits when the branch under inspection changes; reset
   // the per-commit/file state so the right two panes don't show
@@ -1013,25 +1021,20 @@ function CommitsTab({
           </ol>
         </aside>
         <aside className="commits-pane__files">
-          {filesError && (
-            <div className="local-repo-page__error">{filesError}</div>
-          )}
-          {files === null && !filesError && (
-            <div className="commits-pane__placeholder">Loading files…</div>
-          )}
-          {files !== null && files.length === 0 && (
-            <div className="commits-pane__placeholder">No file changes</div>
-          )}
+          <div className="commits-pane__files-header">Files changed</div>
+          <DiffFileTreePane
+            files={files}
+            error={filesError}
+            mode="tree"
+            pathOf={(f) => f.path}
+            statusBadgeOf={(f) => statusBadgeFromLetter(f.status)}
+            selectedPath={selectedFile}
+            onSelectPath={setSelectedFile}
+            collapsedDirs={collapsedDirs}
+            onToggleDir={toggleDir}
+          />
           {files !== null && files.length > 0 && (
-            <>
-              <div className="commits-pane__files-header">Files changed</div>
-              <CommitFilesTree
-                files={files}
-                selectedFile={selectedFile}
-                onSelectFile={setSelectedFile}
-              />
-              <CommitFilesTotal files={files} />
-            </>
+            <CommitFilesTotal files={files} />
           )}
         </aside>
         <section className="commits-pane__diff">
@@ -1093,138 +1096,6 @@ function CommitRow({
   );
 }
 
-function CommitFilesTree({
-  files,
-  selectedFile,
-  onSelectFile,
-}: {
-  files: LocalCommitFileDto[];
-  selectedFile: string | null;
-  onSelectFile: (path: string) => void;
-}) {
-  const [collapsed, setCollapsed] = useState<ReadonlySet<string>>(new Set());
-  const tree = useMemo(() => buildFileTree(files, f => f.path), [files]);
-  const rows = useMemo(() => flattenFileTree(tree, collapsed), [tree, collapsed]);
-  const toggle = (path: string) =>
-    setCollapsed((prev) => {
-      const next = new Set(prev);
-      if (next.has(path)) next.delete(path); else next.add(path);
-      return next;
-    });
-  return (
-    <ul className="commit-files-list">
-      {rows.map((row) => {
-        const indent = 8 + row.depth * 12;
-        if (row.kind === 'dir') {
-          return (
-            <CommitFolderRow
-              key={`d:${row.path}`}
-              name={row.name}
-              path={row.path}
-              indent={indent}
-              collapsed={row.collapsed}
-              onToggle={() => toggle(row.path)}
-            />
-          );
-        }
-        return (
-          <CommitFileRow
-            key={`f:${row.path}`}
-            file={row.data}
-            displayName={row.name}
-            indent={indent}
-            selected={selectedFile === row.path}
-            onClick={() => onSelectFile(row.path)}
-          />
-        );
-      })}
-    </ul>
-  );
-}
-
-function CommitFolderRow({
-  name,
-  path,
-  indent,
-  collapsed,
-  onToggle,
-}: {
-  name: string;
-  path: string;
-  indent: number;
-  collapsed: boolean;
-  onToggle: () => void;
-}) {
-  return (
-    <li
-      className="commit-folder-row"
-      style={{ paddingLeft: indent }}
-      onClick={onToggle}
-      role="button"
-      tabIndex={0}
-      title={path}
-      onKeyDown={(e) => {
-        if (e.key === 'Enter' || e.key === ' ') {
-          e.preventDefault();
-          onToggle();
-        }
-      }}
-    >
-      <span className={`commit-folder-row__chevron${collapsed ? '' : ' commit-folder-row__chevron--open'}`} aria-hidden="true">
-        ▸
-      </span>
-      <span className="commit-folder-row__name">{name}</span>
-    </li>
-  );
-}
-
-function CommitFileRow({
-  file,
-  displayName,
-  indent,
-  selected,
-  onClick,
-}: {
-  file: LocalCommitFileDto;
-  displayName: string;
-  indent: number;
-  selected: boolean;
-  onClick: () => void;
-}) {
-  // Binary files (additions/deletions === -1) get a "binary" hint
-  // instead of misleading line counts.
-  const binary = file.additions < 0 || file.deletions < 0;
-  return (
-    <li
-      className={`commit-file-row${selected ? ' commit-file-row--selected' : ''}`}
-      style={{ paddingLeft: indent }}
-      onClick={onClick}
-      role="button"
-      tabIndex={0}
-      onKeyDown={(e) => {
-        if (e.key === 'Enter' || e.key === ' ') {
-          e.preventDefault();
-          onClick();
-        }
-      }}
-      title={file.path}
-    >
-      <span className="commit-file-row__status" data-status={file.status}>
-        {file.status}
-      </span>
-      <span className="commit-file-row__path">{displayName}</span>
-      {binary ? (
-        <span className="commit-file-row__counts commit-file-row__counts--binary">binary</span>
-      ) : (
-        <span className="commit-file-row__counts">
-          <span className="commit-file-row__add">+{file.additions}</span>
-          <span className="commit-file-row__del">-{file.deletions}</span>
-        </span>
-      )}
-    </li>
-  );
-}
-
 function CommitFilesTotal({ files }: { files: LocalCommitFileDto[] }) {
   let adds = 0;
   let dels = 0;
@@ -1235,8 +1106,8 @@ function CommitFilesTotal({ files }: { files: LocalCommitFileDto[] }) {
   }
   return (
     <div className="commits-pane__files-total">
-      Total <span className="commit-file-row__add">+{adds}</span>{' '}
-      <span className="commit-file-row__del">-{dels}</span>{' '}
+      Total <span className="commits-pane__add">+{adds}</span>{' '}
+      <span className="commits-pane__del">-{dels}</span>{' '}
       in {files.length} file{files.length === 1 ? '' : 's'}
       {bin > 0 && <> ({bin} binary)</>}
     </div>
@@ -1244,9 +1115,11 @@ function CommitFilesTotal({ files }: { files: LocalCommitFileDto[] }) {
 }
 
 function CommitDiffViewer({ diff }: { diff: LocalFileDiffDto }) {
-  // Split the patch into lines and color-code by leading char.
-  // Diff headers (--- / +++ / @@ / index) get their own subtle
-  // styling so the body stands out.
+  // Reuse the PR diff viewer's diff-hunk-line classes so colors and
+  // theme overrides (atom-one-dark / warm) match across the two
+  // diff surfaces. File headers (--- / +++) and the git "diff "/
+  // "index " preamble fold into the same blue-tinted --head
+  // treatment as @@ hunk markers.
   const lines = diff.patch.split('\n');
   return (
     <div className="commit-diff">
@@ -1261,12 +1134,15 @@ function CommitDiffViewer({ diff }: { diff: LocalFileDiffDto }) {
       </div>
       <pre className="commit-diff__body">
         {lines.map((line, i) => {
-          let cls = 'commit-diff__line';
-          if (line.startsWith('+++') || line.startsWith('---')) cls += ' commit-diff__line--filehdr';
-          else if (line.startsWith('@@')) cls += ' commit-diff__line--hunk';
-          else if (line.startsWith('+')) cls += ' commit-diff__line--add';
-          else if (line.startsWith('-')) cls += ' commit-diff__line--del';
-          else if (line.startsWith('diff ') || line.startsWith('index ')) cls += ' commit-diff__line--meta';
+          let cls = 'diff-hunk-line';
+          if (line.startsWith('@@')
+              || line.startsWith('+++') || line.startsWith('---')
+              || line.startsWith('diff ') || line.startsWith('index ')) {
+            cls += ' diff-hunk-line--head';
+          }
+          else if (line.startsWith('+')) cls += ' diff-hunk-line--add';
+          else if (line.startsWith('-')) cls += ' diff-hunk-line--del';
+          else cls += ' diff-hunk-line--ctx';
           return <div key={i} className={cls}>{line || ' '}</div>;
         })}
       </pre>

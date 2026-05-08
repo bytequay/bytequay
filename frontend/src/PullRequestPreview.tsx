@@ -650,6 +650,11 @@ function PullRequestPreview({ pr, onOpenReview, onInspectDiffs, onMarkHandled, o
     return fresh;
   };
 
+  const handleDescriptionSaved = (newBody: string) => {
+    setDetail(prev => prev ? { ...prev, body: newBody } : prev);
+    void refreshDetailFromGitHub().catch(() => { /* keep optimistic body */ });
+  };
+
   /** Manual refresh — drops the backend's cached snapshot for this PR
    *  and re-fetches live from GitHub, then replaces the in-memory
    *  detailCache entry and current view state. Wired to the ↻ button
@@ -1078,7 +1083,7 @@ function PullRequestPreview({ pr, onOpenReview, onInspectDiffs, onMarkHandled, o
                   pr={pr}
                   body={detail.body ?? ''}
                   linkedIssues={detail.linkedIssues ?? []}
-                  onSaved={(newBody) => setDetail({ ...detail, body: newBody })}
+                  onSaved={handleDescriptionSaved}
                 />
               </section>
 
@@ -1546,7 +1551,7 @@ function PullRequestPreview({ pr, onOpenReview, onInspectDiffs, onMarkHandled, o
                 pr={pr}
                 body={detail.body ?? ''}
                 linkedIssues={detail.linkedIssues ?? []}
-                onSaved={(newBody) => setDetail({ ...detail, body: newBody })}
+                onSaved={handleDescriptionSaved}
               />
 
               {timelineEntries.map((e, i) => {

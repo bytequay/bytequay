@@ -13,8 +13,9 @@
  */
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { renderMarkdown } from './markdown';
-import type { AiReviewCommentDto, AiReviewDraftDto, DiffFileDto, PullRequestCommitDto, PullRequestDto, ReviewMessageDto, ReviewThreadDto, UserProfileDto } from './types';
+import type { AiReviewCommentDto, AiReviewDraftDto, DiffFileDto, PullRequestCommitDto, PullRequestDetailDto, PullRequestDto, ReviewMessageDto, ReviewThreadDto, UserProfileDto } from './types';
 import { getCached } from './dataCache';
+import { putCache } from './detailCache';
 import Avatar from './Avatar';
 import { parseUnifiedDiff } from './diffParse';
 import {
@@ -700,10 +701,8 @@ function InlineExistingThread({
   /** PR primary key — required for the resolve / unresolve path. */
   prId: number;
   prNumber: number;
-  /** Called after a successful action on this thread. The reply path
-   *  passes a synthesised message so the parent can patch local state
-   *  immediately; the resolve / unresolve path passes nothing and
-   *  relies on the background refetch alone. */
+  /** Called after a successful reply with a synthesised message so the
+   *  parent can patch local state immediately. */
   onReplied: (optimisticReply?: ReviewMessageDto) => void;
 }) {
   const [replying, setReplying] = useState(false);
@@ -805,7 +804,6 @@ function InlineExistingThread({
                 setResolvedLocal(next);
                 try {
                   await window.bridge.setReviewThreadResolved(repo, prId, thread.rootGithubId, next);
-                  onReplied();
                 } catch (e) {
                   setResolvedLocal(!next);
                   setError(e instanceof Error ? e.message : String(e));
@@ -935,10 +933,10 @@ function ContinuousFilesPane({
   prNumber: number;
   headSha: string | null;
   threads: ReviewThreadDto[];
-  /** Callback invoked after a successful reply / resolve / new-comment.
+  /** Callback invoked after a successful reply / new-comment.
    *  - `rootGithubId` + `optimisticReply` set ⇒ append the message to
-   *    that thread immediately, then refetch in the background.
-   *  - both unset (new top-level inline comment) ⇒ just refetch. */
+   *    that thread immediately.
+   *  - both unset (new top-level inline comment) ⇒ force-refresh detail. */
   onThreadReplied: (rootGithubId?: number, optimisticReply?: ReviewMessageDto) => void;
   prAuthor: string | null;
 }) {
@@ -1061,10 +1059,10 @@ type FileDiffProps = {
   /** Existing per-line review threads on this PR. Rendered inline below
    *  the matching diff row so reviewers see prior conversation in context. */
   threads: ReviewThreadDto[];
-  /** Refresh-callback invoked after a successful reply or resolve.
+  /** Refresh-callback invoked after a successful reply or new inline comment.
    *  - `rootGithubId` + `optimisticReply` set ⇒ append the message to
-   *    that thread immediately, then refetch in the background.
-   *  - both unset (resolve / new top-level comment) ⇒ just refetch. */
+   *    that thread immediately.
+   *  - both unset (new top-level comment) ⇒ force-refresh detail. */
   onThreadReplied: (rootGithubId?: number, optimisticReply?: ReviewMessageDto) => void;
   prAuthor: string | null;
 };
@@ -1940,9 +1938,18 @@ function DiffViewerScreen({ pr, onBack, onApprove, initialCommitSha }: Props) {
   // Pull existing review threads for inline rendering. Keep this separate
   // from the diff/commits load so a slow detail call doesn't block the
   // main view.
-  const refreshReviewThreads = async () => {
+  const refreshDetailFromGitHub = async (): Promise<PullRequestDetailDto> => {
+    const detail = await window.bridge.refreshPullRequestDetail(pr.repo, pr.number);
+    putCache(pr.id, detail);
+    return detail;
+  };
+
+  const refreshReviewThreads = async (force = false) => {
     try {
-      const detail = await window.bridge.fetchPullRequestDetail(pr.repo, pr.number);
+      const detail = force
+        ? await refreshDetailFromGitHub()
+        : await window.bridge.fetchPullRequestDetail(pr.repo, pr.number);
+      putCache(pr.id, detail);
       setReviewThreads(detail.reviewThreads ?? []);
     } catch {
       // Best-effort: an empty list just means no inline-comment markers,
@@ -1957,6 +1964,12 @@ function DiffViewerScreen({ pr, onBack, onApprove, initialCommitSha }: Props) {
     setApproveError(null);
     try {
       await onApprove(pr.id, pr.repo, pr.number);
+      try {
+        await refreshDetailFromGitHub();
+      } catch {
+        // Best-effort. The approval landed remotely; the next natural
+        // detail refresh will reconcile if this fresh read fails.
+      }
       onBack();
     } catch (e) {
       setApproveError(e instanceof Error ? e.message : String(e));
@@ -2472,15 +2485,16 @@ function DiffViewerScreen({ pr, onBack, onApprove, initialCommitSha }: Props) {
               threads={reviewThreads}
               onThreadReplied={(rootGithubId, optimisticReply) => {
                 // Patch local state right away so the user sees their
-                // reply land before the slow PR-detail refetch resolves.
+                // reply land without pulling a stale SQLite snapshot over it.
                 if (rootGithubId != null && optimisticReply) {
                   setReviewThreads(prev => prev.map(t =>
                     t.rootGithubId === rootGithubId
                       ? { ...t, messages: [...t.messages, optimisticReply] }
                       : t,
                   ));
+                  return;
                 }
-                void refreshReviewThreads();
+                void refreshReviewThreads(true);
               }}
               prAuthor={pr.author}
             />

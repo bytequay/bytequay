@@ -21,15 +21,19 @@ package com.bytequay.app.domain;
  *
  * <p>Conventions for the {@code name} component:
  * <ul>
- *   <li>{@link #ACCOUNT} — singleton; name is always {@code "github"}.</li>
- *   <li>{@link #REPO}    — name is the repo's full slug, {@code "owner/repo"}.</li>
- *   <li>{@link #AI}      — name is the provider id ({@code "anthropic"},
+ *   <li>{@link #ACCOUNT}     — singleton; name is always {@code "github"}.</li>
+ *   <li>{@link #REPO}        — name is the repo's full slug, {@code "owner/repo"}.</li>
+ *   <li>{@link #AI}          — name is the provider id ({@code "anthropic"},
  *       {@code "openai"}, {@code "local"}).</li>
+ *   <li>{@link #INTEGRATION} — name is the integration id
+ *       ({@code "slack"} for the user token, {@code "slack-app"} for the
+ *       Socket Mode app-level token, etc.).</li>
  * </ul>
  */
 public enum CredentialType
 {
     ACCOUNT,
     REPO,
-    AI
+    AI,
+    INTEGRATION
 }

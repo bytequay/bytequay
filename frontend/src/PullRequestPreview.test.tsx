@@ -362,6 +362,37 @@ describe('PullRequestPreview render smoke', () => {
     expect(container.innerHTML).toContain('Mark as ready');
   });
 
+  it('uses force-refresh reconciliation after a PR body edit', async () => {
+    const bridge = await render(makeDetail());
+    bridge.refreshPullRequestDetail.mockResolvedValue(makeDetail({ body: 'fresh body from GitHub' }));
+
+    const edit = container.querySelector<HTMLButtonElement>('.description-card__edit');
+    expect(edit).toBeTruthy();
+
+    await act(async () => {
+      edit!.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    });
+
+    const textarea = container.querySelector<HTMLTextAreaElement>('.description-card__textarea');
+    expect(textarea).toBeTruthy();
+    await act(async () => {
+      updateTextarea(textarea!, 'updated PR body');
+    });
+
+    const save = Array.from(container.querySelectorAll('button'))
+      .find(el => el.textContent === 'Save');
+    expect(save).toBeTruthy();
+    await act(async () => {
+      save!.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    });
+    await act(async () => { await Promise.resolve(); });
+
+    expect(bridge.updatePrBody).toHaveBeenCalledWith('trinodb/trino', 42, 'updated PR body');
+    expect(bridge.refreshPullRequestDetail).toHaveBeenCalledWith('trinodb/trino', 42);
+    expect(bridge.fetchPullRequestDetail).toHaveBeenCalledTimes(1);
+    expect(container.innerHTML).toContain('fresh body from GitHub');
+  });
+
   it('keeps issue reactions optimistic without fetching stale detail', async () => {
     const bridge = await render(makeDetail());
     const chip = container.querySelector('.prc-comment-card .reaction-chip--clickable');

@@ -450,15 +450,20 @@ public class PullRequestService
      * the GraphQL fetch on the previous PR-detail load) before firing
      * the mutation. Throws 404 when the thread isn't in the cache or
      * its node id hasn't been written yet.
+     *
+     * <p>After GitHub accepts the mutation we patch the cached detail
+     * in place so the next {@code /prs/detail} read returns the new
+     * resolved flag immediately, instead of the previous "wait for the
+     * 30s TTL or the next background sync" behaviour that made
+     * unresolve clicks feel like they hadn't taken.
      */
     public void setReviewThreadResolved(String pat, long prId, long rootCommentId, boolean resolved)
     {
-        String nodeId = detailStore.find(prId)
-                .map(d -> d.reviewComments().stream()
-                        .filter(m -> m.githubId() == rootCommentId && m.graphqlNodeId() != null)
-                        .findFirst()
-                        .map(PrReviewThreadMessage::graphqlNodeId)
-                        .orElse(null))
+        StoredPrDetail cached = detailStore.find(prId).orElse(null);
+        String nodeId = cached == null ? null : cached.reviewComments().stream()
+                .filter(m -> m.githubId() == rootCommentId && m.graphqlNodeId() != null)
+                .findFirst()
+                .map(PrReviewThreadMessage::graphqlNodeId)
                 .orElse(null);
         if (nodeId == null) {
             throw new ResponseStatusException(
@@ -471,10 +476,29 @@ public class PullRequestService
         else {
             gitHub.unresolveReviewThread(pat, nodeId);
         }
-        // The new resolved flag is reflected on the next PR-detail
-        // fetch (the GraphQL fetcher runs on every fetchPullRequestDetail
-        // call). The frontend optimistically toggles its local copy
-        // immediately so the user doesn't see a flicker.
+        detailStore.save(prId, withReviewThreadResolved(cached, rootCommentId, resolved));
+    }
+
+    /**
+     * Returns a new {@link StoredPrDetail} with the {@code resolved} flag
+     * on the thread root identified by {@code rootCommentId} replaced.
+     * Other rows pass through unchanged.
+     */
+    private static StoredPrDetail withReviewThreadResolved(StoredPrDetail detail, long rootCommentId, boolean resolved)
+    {
+        List<PrReviewThreadMessage> patched = detail.reviewComments().stream()
+                .map(m -> m.githubId() == rootCommentId
+                        ? new PrReviewThreadMessage(
+                                m.githubId(), m.inReplyTo(), m.reviewId(), m.author(), m.body(),
+                                m.filePath(), m.lineNumber(), m.side(), m.diffHunk(), m.commitId(),
+                                m.createdAt(), m.reactions(), m.outdated(), m.startLine(), m.startSide(),
+                                m.originalLine(), m.originalStartLine(), m.authorAssociation(),
+                                m.graphqlNodeId(), resolved)
+                        : m)
+                .collect(toImmutableList());
+        return new StoredPrDetail(
+                detail.raw(), detail.reviews(), detail.files(), detail.timeline(),
+                detail.checkRuns(), patched, detail.linkedIssues());
     }
 
     private static final Set<String> ALLOWED_REACTION_CONTENT = Set.of(

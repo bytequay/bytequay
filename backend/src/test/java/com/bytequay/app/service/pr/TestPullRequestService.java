@@ -39,6 +39,7 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
@@ -61,6 +62,7 @@ import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
@@ -872,41 +874,133 @@ class TestPullRequestService
     }
 
     @Test
-    void testSetReviewThreadResolvedDoesNotInvalidateDetail()
+    void testSetReviewThreadResolvedPatchesCachedDetail()
     {
+        PrReviewThreadMessage root = new PrReviewThreadMessage(
+                4357983764L,
+                null,
+                null,
+                "alice",
+                "please fix",
+                "src/Main.java",
+                12,
+                "RIGHT",
+                "@@",
+                "abc123",
+                Instant.parse("2026-05-08T00:00:00Z"),
+                Reactions.EMPTY,
+                false,
+                null,
+                null,
+                null,
+                null,
+                "MEMBER",
+                "thread-node-id",
+                false);
         when(detailStore.find(123L)).thenReturn(Optional.of(new StoredPrDetail(
                 null,
                 ImmutableList.of(),
                 ImmutableList.of(),
                 ImmutableList.of(),
                 ImmutableList.of(),
-                ImmutableList.of(new PrReviewThreadMessage(
-                        4357983764L,
-                        null,
-                        null,
-                        "alice",
-                        "please fix",
-                        "src/Main.java",
-                        12,
-                        "RIGHT",
-                        "@@",
-                        "abc123",
-                        Instant.parse("2026-05-08T00:00:00Z"),
-                        Reactions.EMPTY,
-                        false,
-                        null,
-                        null,
-                        null,
-                        null,
-                        "MEMBER",
-                        "thread-node-id",
-                        false)),
+                ImmutableList.of(root),
                 ImmutableList.of())));
 
         pullRequestService.setReviewThreadResolved("pat", 123L, 4357983764L, true);
 
         verify(gitHub).resolveReviewThread("pat", "thread-node-id");
         verify(detailInvalidator, never()).invalidate(anyString(), anyInt());
+
+        ArgumentCaptor<StoredPrDetail> captor = ArgumentCaptor.forClass(StoredPrDetail.class);
+        verify(detailStore).save(eq(123L), captor.capture());
+        PrReviewThreadMessage patched = captor.getValue().reviewComments().get(0);
+        assertThat(patched.resolved()).isTrue();
+        assertThat(patched.body()).isEqualTo("please fix");
+        assertThat(patched.graphqlNodeId()).isEqualTo("thread-node-id");
+    }
+
+    @Test
+    void testSetReviewThreadUnresolvedFlipsFlagBackToFalse()
+    {
+        PrReviewThreadMessage root = new PrReviewThreadMessage(
+                4357983764L,
+                null,
+                null,
+                "alice",
+                "please fix",
+                "src/Main.java",
+                12,
+                "RIGHT",
+                "@@",
+                "abc123",
+                Instant.parse("2026-05-08T00:00:00Z"),
+                Reactions.EMPTY,
+                false,
+                null,
+                null,
+                null,
+                null,
+                "MEMBER",
+                "thread-node-id",
+                true);
+        when(detailStore.find(123L)).thenReturn(Optional.of(new StoredPrDetail(
+                null,
+                ImmutableList.of(),
+                ImmutableList.of(),
+                ImmutableList.of(),
+                ImmutableList.of(),
+                ImmutableList.of(root),
+                ImmutableList.of())));
+
+        pullRequestService.setReviewThreadResolved("pat", 123L, 4357983764L, false);
+
+        verify(gitHub).unresolveReviewThread("pat", "thread-node-id");
+
+        ArgumentCaptor<StoredPrDetail> captor = ArgumentCaptor.forClass(StoredPrDetail.class);
+        verify(detailStore).save(eq(123L), captor.capture());
+        assertThat(captor.getValue().reviewComments().get(0).resolved()).isFalse();
+    }
+
+    @Test
+    void testSetReviewThreadResolvedDoesNotPatchWhenGitHubFails()
+    {
+        PrReviewThreadMessage root = new PrReviewThreadMessage(
+                4357983764L,
+                null,
+                null,
+                "alice",
+                "please fix",
+                "src/Main.java",
+                12,
+                "RIGHT",
+                "@@",
+                "abc123",
+                Instant.parse("2026-05-08T00:00:00Z"),
+                Reactions.EMPTY,
+                false,
+                null,
+                null,
+                null,
+                null,
+                "MEMBER",
+                "thread-node-id",
+                false);
+        when(detailStore.find(123L)).thenReturn(Optional.of(new StoredPrDetail(
+                null,
+                ImmutableList.of(),
+                ImmutableList.of(),
+                ImmutableList.of(),
+                ImmutableList.of(),
+                ImmutableList.of(root),
+                ImmutableList.of())));
+        doThrow(new RuntimeException("GitHub down"))
+                .when(gitHub).resolveReviewThread("pat", "thread-node-id");
+
+        assertThatThrownBy(() ->
+                pullRequestService.setReviewThreadResolved("pat", 123L, 4357983764L, true))
+                .isInstanceOf(RuntimeException.class);
+
+        verify(detailStore, never()).save(anyLong(), any());
     }
 
     // ── Reaction endpoints ─────────────────────────────────────────────────────

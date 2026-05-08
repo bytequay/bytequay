@@ -1405,11 +1405,13 @@ function PullRequestPreview({ pr, onOpenReview, onInspectDiffs, onMarkHandled, o
         <div className="prc-header__title-row">
           <h1 className="prc-title">
             {renderTitleWithInlineCode(pr.title)}
+            {/* No target="_blank": main.ts's will-navigate handler
+                routes plain clicks into the in-app browser overlay,
+                whereas window-open clicks (target="_blank") spawn a
+                detached native popup with no path back to the app. */}
             <a
               className="prc-title__number"
               href={pr.htmlUrl}
-              target="_blank"
-              rel="noreferrer"
               title="Open this PR on github.com"
             >
               #{pr.number}

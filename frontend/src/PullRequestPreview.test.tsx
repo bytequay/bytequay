@@ -237,6 +237,8 @@ function makeDetail(overrides: Partial<PullRequestDetailDto> = {}): PullRequestD
 function bridgeStub(detail: PullRequestDetailDto) {
   return {
     fetchPullRequestDetail: vi.fn().mockResolvedValue(detail),
+    refreshPullRequestDetail: vi.fn().mockResolvedValue(detail),
+    setPrDraft: vi.fn().mockResolvedValue(undefined),
     addRequestedReviewer: vi.fn().mockResolvedValue(undefined),
     removeRequestedReviewer: vi.fn().mockResolvedValue(undefined),
     setReviewThreadResolved: vi.fn().mockResolvedValue(undefined),
@@ -259,13 +261,15 @@ beforeEach(() => {
 });
 
 async function render(detail: PullRequestDetailDto, pr = makePr()) {
-  (window as unknown as { bridge: ReturnType<typeof bridgeStub> }).bridge = bridgeStub(detail);
+  const bridge = bridgeStub(detail);
+  (window as unknown as { bridge: ReturnType<typeof bridgeStub> }).bridge = bridge;
   await act(async () => {
     root.render(<PullRequestPreview pr={pr} />);
   });
   // Drain the fetchPullRequestDetail promise + any chained setStates.
   await act(async () => { await Promise.resolve(); });
   await act(async () => { await Promise.resolve(); });
+  return bridge;
 }
 
 describe('PullRequestPreview render smoke', () => {
@@ -327,5 +331,24 @@ describe('PullRequestPreview render smoke', () => {
       reviewThreads: [],
     }));
     expect(container.innerHTML).toContain('@alice');
+  });
+
+  it('uses force-refresh reconciliation after a draft toggle', async () => {
+    const bridge = await render(makeDetail({ draft: false }));
+    bridge.refreshPullRequestDetail.mockResolvedValue(makeDetail({ draft: true }));
+
+    const button = Array.from(container.querySelectorAll('button'))
+      .find(el => el.textContent === 'Convert to draft');
+    expect(button).toBeTruthy();
+
+    await act(async () => {
+      button!.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    });
+    await act(async () => { await Promise.resolve(); });
+
+    expect(bridge.setPrDraft).toHaveBeenCalledWith('trinodb/trino', 42, true);
+    expect(bridge.refreshPullRequestDetail).toHaveBeenCalledWith('trinodb/trino', 42);
+    expect(bridge.fetchPullRequestDetail).toHaveBeenCalledTimes(1);
+    expect(container.innerHTML).toContain('Mark as ready');
   });
 });

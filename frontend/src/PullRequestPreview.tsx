@@ -642,6 +642,14 @@ function PullRequestPreview({ pr, onOpenReview, onInspectDiffs, onMarkHandled, o
   // this without leaving the detail page.
   const [draftToggleState, setDraftToggleState] = useState<'idle' | 'running' | 'error'>('idle');
   const [draftToggleError, setDraftToggleError] = useState<string | null>(null);
+
+  const refreshDetailFromGitHub = async (): Promise<PullRequestDetailDto> => {
+    const fresh = await window.bridge.refreshPullRequestDetail(pr.repo, pr.number);
+    putCache(pr.id, fresh);
+    setDetail(fresh);
+    return fresh;
+  };
+
   /** Manual refresh — drops the backend's cached snapshot for this PR
    *  and re-fetches live from GitHub, then replaces the in-memory
    *  detailCache entry and current view state. Wired to the ↻ button
@@ -652,9 +660,7 @@ function PullRequestPreview({ pr, onOpenReview, onInspectDiffs, onMarkHandled, o
     setRefreshing(true);
     setError(null);
     try {
-      const fresh = await window.bridge.refreshPullRequestDetail(pr.repo, pr.number);
-      putCache(pr.id, fresh);
-      setDetail(fresh);
+      await refreshDetailFromGitHub();
     }
     catch (e) {
       setError(e instanceof Error ? e.message : String(e));
@@ -674,9 +680,7 @@ function PullRequestPreview({ pr, onOpenReview, onInspectDiffs, onMarkHandled, o
       // Optimistically reflect the new draft state immediately, then
       // re-fetch so the timeline picks up GitHub's synthetic event.
       setDetail(prev => prev ? { ...prev, draft: nextDraft } : prev);
-      const fresh = await window.bridge.fetchPullRequestDetail(pr.repo, pr.number);
-      putCache(pr.id, fresh);
-      setDetail(fresh);
+      await refreshDetailFromGitHub();
       setDraftToggleState('idle');
     }
     catch (e) {
@@ -843,9 +847,7 @@ function PullRequestPreview({ pr, onOpenReview, onInspectDiffs, onMarkHandled, o
       await onMerge(pr.id, pr.repo, pr.number, strategy);
       // Drop the cached detail and refetch so the merged status, timeline
       // event, and disabled merge button all update in one pass.
-      const fresh = await window.bridge.fetchPullRequestDetail(pr.repo, pr.number);
-      putCache(pr.id, fresh);
-      setDetail(fresh);
+      await refreshDetailFromGitHub();
       setMergeState('idle');
     }
     catch (e) {
@@ -879,9 +881,7 @@ function PullRequestPreview({ pr, onOpenReview, onInspectDiffs, onMarkHandled, o
     // to CLOSED and the timeline picks up the new event. Then mark the
     // PR handled like before so the inbox row moves to Handled.
     try {
-      const fresh = await window.bridge.fetchPullRequestDetail(pr.repo, pr.number);
-      putCache(pr.id, fresh);
-      setDetail(fresh);
+      await refreshDetailFromGitHub();
     }
     catch {
       // best-effort — the PR is closed remotely either way
@@ -1673,9 +1673,7 @@ function PullRequestPreview({ pr, onOpenReview, onInspectDiffs, onMarkHandled, o
                 reviewerVerdicts={reviewerVerdicts}
                 pendingReviewers={detail?.requestedReviewers}
                 onRefresh={async () => {
-                  const fresh = await window.bridge.fetchPullRequestDetail(pr.repo, pr.number);
-                  putCache(pr.id, fresh);
-                  setDetail(fresh);
+                  await refreshDetailFromGitHub();
                 }}
               />
             </section>

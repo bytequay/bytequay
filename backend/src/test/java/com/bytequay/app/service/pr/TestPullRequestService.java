@@ -13,16 +13,20 @@
  */
 package com.bytequay.app.service.pr;
 
+import com.bytequay.app.domain.DiffFile;
 import com.bytequay.app.domain.HandledAction;
 import com.bytequay.app.domain.MergePullRequestCommand;
 import com.bytequay.app.domain.PrCheckRunState;
+import com.bytequay.app.domain.PrCiSnapshot;
 import com.bytequay.app.domain.PrRawDetail;
 import com.bytequay.app.domain.PrReviewState;
 import com.bytequay.app.domain.PrTimelineEvent;
 import com.bytequay.app.domain.PullRequestDetail;
 import com.bytequay.app.domain.PullRequestRef;
 import com.bytequay.app.domain.Reactions;
+import com.bytequay.app.domain.RepoRef;
 import com.bytequay.app.domain.StoredPrDetail;
+import com.bytequay.app.domain.SuggestedReviewer;
 import com.bytequay.app.domain.UpdatePullRequestCommand;
 import com.bytequay.app.repository.AppSettingsStore;
 import com.bytequay.app.repository.PrDetailStore;
@@ -163,6 +167,8 @@ class TestPullRequestService
                 ImmutableList.of());
         when(store.findIdByRepoAndNumber("owner/my-repo", 42)).thenReturn(Optional.of(7L));
         when(detailStore.find(7L)).thenReturn(Optional.of(stored));
+        when(responseCache.getViewerCanWrite(eq("pat"), eq(RepoRef.of("owner", "my-repo")), any()))
+                .thenReturn(true);
 
         PullRequestDetail result = pullRequestService.getPullRequestDetail("pat", "owner/my-repo", 42);
 
@@ -173,6 +179,26 @@ class TestPullRequestService
         assertThat(result.changesRequestedCount()).isZero();
         assertThat(result.ciStatus()).isEqualTo(PASSING);
         assertThat(result.files()).hasSize(1);
+        assertThat(result.viewerCanWrite()).isTrue();
+        verify(responseCache).getViewerCanWrite(eq("pat"), eq(RepoRef.of("owner", "my-repo")), any());
+    }
+
+    @Test
+    void testGetPullRequestCiSnapshotReadsViewerPermissionFromCache()
+    {
+        PrRawDetail raw = new PrRawDetail(
+                "body", ImmutableList.of(), false, true, "clean", 10, 0, 0, 0,
+                ImmutableList.of(), "sha",
+                "feat/foo", "owner/repo", "main", "owner/repo");
+        when(gitHub.fetchPrDetail(eq("pat"), any(PullRequestRef.class))).thenReturn(raw);
+        when(gitHub.fetchPrCheckRuns("pat", "owner", "repo", "sha")).thenReturn(ImmutableList.of());
+        when(responseCache.getViewerCanWrite(eq("pat"), eq(RepoRef.of("owner", "repo")), any()))
+                .thenReturn(true);
+
+        PrCiSnapshot result = pullRequestService.getPullRequestCiSnapshot("pat", "owner/repo", 7);
+
+        assertThat(result.viewerCanWrite()).isTrue();
+        verify(responseCache).getViewerCanWrite(eq("pat"), eq(RepoRef.of("owner", "repo")), any());
     }
 
     // ── countApprovals ─────────────────────────────────────────────────────────
@@ -638,6 +664,48 @@ class TestPullRequestService
 
         assertThat(result).isEmpty();
         verify(gitHub).fetchPrCommits(eq("pat"), any(PullRequestRef.class));
+    }
+
+    @Test
+    void testGetCommitDiffFilesDelegatesThroughResponseCache()
+    {
+        List<DiffFile> files = ImmutableList.of(new DiffFile("README.md", "modified", 1, 0, "@@"));
+        when(responseCache.getCommitDiffFiles(eq("pat"), eq(PullRequestRef.of("owner", "repo", 7)), eq("sha"), any()))
+                .thenReturn(files);
+
+        List<DiffFile> result = pullRequestService.getCommitDiffFiles("pat", "owner/repo", 7, "sha");
+
+        assertThat(result).isSameAs(files);
+        verify(responseCache).getCommitDiffFiles(eq("pat"), eq(PullRequestRef.of("owner", "repo", 7)), eq("sha"), any());
+        verify(gitHub, never()).fetchCommitDiffFiles(anyString(), any(), anyString());
+    }
+
+    @Test
+    void testGetFileBlobLinesDelegatesThroughResponseCache()
+    {
+        List<String> lines = ImmutableList.of("hello");
+        when(responseCache.getFileBlobLines(eq("pat"), eq(RepoRef.of("owner", "repo")), eq("README.md"), eq("sha"), any()))
+                .thenReturn(lines);
+
+        List<String> result = pullRequestService.getFileBlobLines("pat", "owner/repo", "README.md", "sha");
+
+        assertThat(result).isSameAs(lines);
+        verify(responseCache).getFileBlobLines(eq("pat"), eq(RepoRef.of("owner", "repo")), eq("README.md"), eq("sha"), any());
+        verify(gitHub, never()).fetchFileBlobLines(anyString(), any(), anyString(), anyString());
+    }
+
+    @Test
+    void testGetSuggestedReviewersDelegatesThroughResponseCache()
+    {
+        List<SuggestedReviewer> reviewers = ImmutableList.of(new SuggestedReviewer("alice", null, "Alice", false, true));
+        when(responseCache.getSuggestedReviewers(eq("pat"), eq(PullRequestRef.of("owner", "repo", 7)), any()))
+                .thenReturn(reviewers);
+
+        List<SuggestedReviewer> result = pullRequestService.getSuggestedReviewers("pat", "owner/repo", 7);
+
+        assertThat(result).isSameAs(reviewers);
+        verify(responseCache).getSuggestedReviewers(eq("pat"), eq(PullRequestRef.of("owner", "repo", 7)), any());
+        verify(gitHub, never()).fetchSuggestedReviewers(anyString(), any());
     }
 
     @Test

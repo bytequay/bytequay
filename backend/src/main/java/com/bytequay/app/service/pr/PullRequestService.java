@@ -223,11 +223,11 @@ public class PullRequestService
     public PullRequestDetail getPullRequestDetail(String pat, String repo, int number)
     {
         PullRequestRef ref = parseRef(repo, number);
-        // viewerCanWrite is per-PAT and not safe to persist alongside the
-        // SQLite-cached detail (a different PAT could come back with a
-        // different answer). Fetch it fresh on every detail call — one
-        // extra GET is cheap relative to the rest of the orchestration.
-        boolean viewerCanWrite = gitHub.fetchViewerCanWrite(pat, RepoRef.of(ref.owner(), ref.repo()));
+        RepoRef repoRef = RepoRef.of(ref.owner(), ref.repo());
+        boolean viewerCanWrite = responseCache.getViewerCanWrite(
+                pat,
+                repoRef,
+                () -> gitHub.fetchViewerCanWrite(pat, repoRef));
 
         Optional<Long> prId = store.findIdByRepoAndNumber(repo, number);
         if (prId.isPresent()) {
@@ -316,7 +316,11 @@ public class PullRequestService
         List<PrCheckRunState> runs = raw != null && raw.headSha() != null
                 ? gitHub.fetchPrCheckRuns(pat, ref.owner(), ref.repo(), raw.headSha())
                 : ImmutableList.of();
-        boolean viewerCanWrite = gitHub.fetchViewerCanWrite(pat, RepoRef.of(ref.owner(), ref.repo()));
+        RepoRef repoRef = RepoRef.of(ref.owner(), ref.repo());
+        boolean viewerCanWrite = responseCache.getViewerCanWrite(
+                pat,
+                repoRef,
+                () -> gitHub.fetchViewerCanWrite(pat, repoRef));
         return new PrCiSnapshot(
                 aggregateCiStatus(runs),
                 toCheckRuns(runs),
@@ -358,7 +362,12 @@ public class PullRequestService
      */
     public List<DiffFile> getCommitDiffFiles(String pat, String repo, int number, String sha)
     {
-        return gitHub.fetchCommitDiffFiles(pat, parseRef(repo, number), sha);
+        PullRequestRef ref = parseRef(repo, number);
+        return responseCache.getCommitDiffFiles(
+                pat,
+                ref,
+                sha,
+                () -> gitHub.fetchCommitDiffFiles(pat, ref, sha));
     }
 
     /**
@@ -368,7 +377,13 @@ public class PullRequestService
      */
     public List<String> getFileBlobLines(String pat, String repo, String path, String sha)
     {
-        return gitHub.fetchFileBlobLines(pat, parseRepoRef(repo), path, sha);
+        RepoRef repoRef = parseRepoRef(repo);
+        return responseCache.getFileBlobLines(
+                pat,
+                repoRef,
+                path,
+                sha,
+                () -> gitHub.fetchFileBlobLines(pat, repoRef, path, sha));
     }
 
     /**
@@ -537,7 +552,11 @@ public class PullRequestService
      */
     public List<SuggestedReviewer> getSuggestedReviewers(String pat, String repo, int number)
     {
-        return gitHub.fetchSuggestedReviewers(pat, parseRef(repo, number));
+        PullRequestRef ref = parseRef(repo, number);
+        return responseCache.getSuggestedReviewers(
+                pat,
+                ref,
+                () -> gitHub.fetchSuggestedReviewers(pat, ref));
     }
 
     /**

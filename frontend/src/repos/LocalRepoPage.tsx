@@ -492,7 +492,7 @@ function LocalRepoPage({ owner, repo, onSelectPr, initialBranch }: Props) {
   };
 
   return (
-    <div className="local-repo-page">
+    <div className={`local-repo-page${tab === 'commits' ? ' local-repo-page--wide' : ''}`}>
       <header className="local-repo-page__head">
         <div className="local-repo-page__heading">
           <div className="local-repo-page__title-row">

@@ -354,6 +354,12 @@
   max-width: 1400px;
   margin: 0 auto;
 }
+/* Commits tab needs every horizontal pixel for the 3-pane diff
+   view — drop the page-level width cap so the panes span the
+   full screen instead of squeezing into the centered column. */
+.local-repo-page--wide {
+  max-width: none;
+}
 .local-repo-page__head {
   margin-bottom: 18px;
 }

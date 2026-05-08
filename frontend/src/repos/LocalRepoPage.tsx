@@ -1632,7 +1632,23 @@ function BranchCard({
               ↑ Push
             </button>
           )}
-          {onCreatePr && (
+          {onCreatePr && branch.rebasePreview === 'CONFLICTS' && (
+            // Rebase preview said this branch conflicts with the base
+            // — opening a PR from it would just create one that's
+            // immediately marked unmergeable, so swap the CTA out for
+            // a disabled Rebase button. The action is unwired for now
+            // (no in-app conflict resolution yet — see the deferred
+            // merge-conflicts UI work).
+            <button
+              type="button"
+              className="branch-card__btn branch-card__btn--cta"
+              disabled
+              title={`Resolve rebase conflicts against the base before opening a PR from ${branch.name}`}
+            >
+              Rebase
+            </button>
+          )}
+          {onCreatePr && branch.rebasePreview !== 'CONFLICTS' && (
             <button
               type="button"
               className="branch-card__btn branch-card__btn--cta"

@@ -333,14 +333,34 @@ const createWindow = async () => {
     }
     return { action: 'deny' };
   });
+  // Origin of the app's own renderer — `http://localhost:<port>` in dev
+  // (Vite served), undefined in packaged builds (renderer is loaded from
+  // file:// which doesn't match the http(s) regex below anyway). Used to
+  // distinguish self-navigations (e.g. Vite HMR triggering a reload after
+  // a long idle / sleep wake) from real external link clicks. Without
+  // this guard the will-navigate handler would intercept Vite's recovery
+  // reload and pop an InAppBrowser loading the app inside itself —
+  // see docs/mockups/issue/long-running-page.png.
+  const appOrigin = (() => {
+    if (!MAIN_WINDOW_VITE_DEV_SERVER_URL) return null;
+    try {
+      return new URL(normalizeDevServerUrl(MAIN_WINDOW_VITE_DEV_SERVER_URL)).origin;
+    }
+    catch {
+      return null;
+    }
+  })();
   // Belt-and-braces for same-window navigation: a plain <a href> click
   // (or middle-click that bypasses target=_blank) used to navigate the
   // main window itself off to the external page, replacing the React UI.
   mainWindow.webContents.on('will-navigate', (event, url) => {
-    if (/^https?:/i.test(url)) {
-      event.preventDefault();
-      requestInAppOpen(url);
-    }
+    if (!/^https?:/i.test(url)) return;
+    // Skip navigations back to the app's own origin (Vite HMR reload,
+    // dev-server reconnect after sleep, etc.). Otherwise we'd hijack
+    // them into an in-app overlay showing the app inside itself.
+    if (appOrigin && url.startsWith(appOrigin)) return;
+    event.preventDefault();
+    requestInAppOpen(url);
   });
   // Tear down any overlay WebContentsView whenever the renderer
   // (re)loads. The overlays live on mainWindow.contentView at the

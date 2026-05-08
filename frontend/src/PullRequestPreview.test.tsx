@@ -453,6 +453,36 @@ describe('PullRequestPreview render smoke', () => {
     expect(container.innerHTML).toContain('updated top-level comment');
   });
 
+  it('keeps review-thread message edits optimistic without fetching stale detail', async () => {
+    setCached('home:profile', { login: 'reviewer' });
+    const bridge = await render(makeDetail());
+    const edit = container.querySelector<HTMLButtonElement>('.prc-review-thread .editable-comment-body__edit');
+    expect(edit).toBeTruthy();
+
+    await act(async () => {
+      edit!.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    });
+
+    const textarea = container.querySelector<HTMLTextAreaElement>('.editable-comment-body__textarea');
+    expect(textarea).toBeTruthy();
+    await act(async () => {
+      updateTextarea(textarea!, 'updated review-thread comment');
+    });
+
+    const save = Array.from(container.querySelectorAll('button'))
+      .find(el => el.textContent === 'Save');
+    expect(save).toBeTruthy();
+    await act(async () => {
+      save!.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    });
+    await act(async () => { await Promise.resolve(); });
+
+    expect(bridge.editReviewComment).toHaveBeenCalledWith('trinodb/trino', 1001, 'updated review-thread comment');
+    expect(bridge.fetchPullRequestDetail).toHaveBeenCalledTimes(1);
+    expect(bridge.refreshPullRequestDetail).not.toHaveBeenCalled();
+    expect(container.innerHTML).toContain('updated review-thread comment');
+  });
+
   it('keeps thread resolution optimistic without fetching stale detail', async () => {
     const bridge = await render(makeDetail());
     const button = Array.from(container.querySelectorAll('button'))

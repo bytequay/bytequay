@@ -2023,6 +2023,7 @@ function DiffViewerScreen({ pr, onBack, onApprove, initialCommitSha }: Props) {
         body: body ?? null,
       });
       setAiDraft(updated);
+      await refreshReviewThreads(true);
       setSubmitOpen(false);
       setPublishState('idle');
     } catch (e) {

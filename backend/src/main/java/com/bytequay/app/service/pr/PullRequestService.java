@@ -101,6 +101,7 @@ public class PullRequestService
     private final AppSettingsStore settingsStore;
     private final CredentialService credentialService;
     private final GitHubResponseCache responseCache;
+    private final PullRequestDetailInvalidator detailInvalidator;
     private final Executor executor;
     private final Executor ioExecutor;
 
@@ -112,6 +113,7 @@ public class PullRequestService
             AppSettingsStore settingsStore,
             CredentialService credentialService,
             GitHubResponseCache responseCache,
+            PullRequestDetailInvalidator detailInvalidator,
             @Qualifier(APPLICATION_EXECUTOR) Executor executor,
             @Qualifier(IO_EXECUTOR) Executor ioExecutor)
     {
@@ -122,6 +124,7 @@ public class PullRequestService
         this.settingsStore = requireNonNull(settingsStore, "settingsStore is null");
         this.credentialService = requireNonNull(credentialService, "credentialService is null");
         this.responseCache = requireNonNull(responseCache, "responseCache is null");
+        this.detailInvalidator = requireNonNull(detailInvalidator, "detailInvalidator is null");
         this.executor = requireNonNull(executor, "executor is null");
         this.ioExecutor = requireNonNull(ioExecutor, "ioExecutor is null");
     }
@@ -963,10 +966,7 @@ public class PullRequestService
 
     private void invalidatePullRequestDetail(String repo, int number)
     {
-        PullRequestRef ref = parseRef(repo, number);
-        store.findIdByRepoAndNumber(repo, number)
-                .ifPresent(id -> detailStore.deleteByPrIds(ImmutableSet.of(id)));
-        responseCache.invalidatePullRequest(ref);
+        detailInvalidator.invalidate(repo, number);
     }
 
     private StoredPrDetail fetchDetailFromGitHub(String pat, PullRequestRef ref)

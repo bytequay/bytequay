@@ -25,6 +25,7 @@ import com.bytequay.app.domain.ReviewSkill;
 import com.bytequay.app.repository.AiReviewDraftStore;
 import com.bytequay.app.repository.PullRequestRepository;
 import com.bytequay.app.repository.PullRequestStore;
+import com.bytequay.app.service.pr.PullRequestDetailInvalidator;
 import com.bytequay.app.service.skills.ReviewSkillService;
 import org.springframework.http.HttpStatusCode;
 import org.springframework.stereotype.Service;
@@ -53,19 +54,22 @@ public class AiReviewService
     private final LlmReviewerRegistry registry;
     private final AiReviewDraftStore draftStore;
     private final ReviewSkillService skillService;
+    private final PullRequestDetailInvalidator detailInvalidator;
 
     public AiReviewService(
             PullRequestStore pullRequestStore,
             PullRequestRepository gitHub,
             LlmReviewerRegistry registry,
             AiReviewDraftStore draftStore,
-            ReviewSkillService skillService)
+            ReviewSkillService skillService,
+            PullRequestDetailInvalidator detailInvalidator)
     {
         this.pullRequestStore = requireNonNull(pullRequestStore, "pullRequestStore is null");
         this.gitHub = requireNonNull(gitHub, "gitHub is null");
         this.registry = requireNonNull(registry, "registry is null");
         this.draftStore = requireNonNull(draftStore, "draftStore is null");
         this.skillService = requireNonNull(skillService, "skillService is null");
+        this.detailInvalidator = requireNonNull(detailInvalidator, "detailInvalidator is null");
     }
 
     /**
@@ -354,6 +358,7 @@ public class AiReviewService
                 inline);
 
         gitHub.createReview(pat, parseRef(repo, number), command);
+        detailInvalidator.invalidate(repo, number);
         return draftStore.markPublished(draftId);
     }
 

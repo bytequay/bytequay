@@ -208,6 +208,24 @@ public class GitRunner
     }
 
     /**
+     * True iff git can resolve {@code ref} in {@code workingDir} —
+     * tag, branch, remote-tracking ref, SHA, anything {@code git
+     * rev-parse --verify} accepts. Cheap probe used to fall back from
+     * a bare base name to its remote-tracking equivalent when the
+     * user hasn't checked out a local branch by that name.
+     */
+    public boolean refExists(Path workingDir, String ref)
+            throws IOException, InterruptedException
+    {
+        requireNonNull(ref, "ref is null");
+        GitResult result = run(
+                List.of("git", "rev-parse", "--verify", "--quiet", ref + "^{commit}"),
+                workingDir,
+                5);
+        return result.exitCode() == 0;
+    }
+
+    /**
      * Returns the unified diff between {@code baseRef} and {@code headRef}
      * ({@code git diff base..head}), truncated to {@code maxBytes} so a
      * giant PR doesn't blow up the AI prompt budget. Truncation is

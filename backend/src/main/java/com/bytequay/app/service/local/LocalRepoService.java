@@ -574,11 +574,39 @@ public class LocalRepoService
         if (headBranch == null) {
             throw new IllegalStateException("HEAD is detached — switch to a branch before drafting.");
         }
-        String resolvedBase = baseBranch != null && !baseBranch.isBlank() ? baseBranch.trim() : "main";
-        String diff = gitRunner.diff(path, resolvedBase, headBranch, DIFF_MAX_BYTES);
+        String requestedBase = baseBranch != null && !baseBranch.isBlank() ? baseBranch.trim() : "main";
+        String diffBase = resolveDiffBase(path, requestedBase);
+        String diff = gitRunner.diff(path, diffBase, headBranch, DIFF_MAX_BYTES);
         String template = readPrTemplate(path).orElse(null);
+        // The model sees the human-friendly base name (what the PR
+        // will target on GitHub); the diff was computed against
+        // whatever ref git could resolve locally (often origin/<base>
+        // when the user hasn't checked out the base branch).
         return llmReviewerRegistry.active()
-                .draftPullRequest(headBranch, resolvedBase, diff, template);
+                .draftPullRequest(headBranch, requestedBase, diff, template);
+    }
+
+    /**
+     * Picks a ref git can actually diff against. Tries the bare name
+     * first (matches when the user has a local branch by that name),
+     * then {@code origin/<name>} (the common case where {@code main}
+     * exists only as a remote-tracking ref). Throws when neither
+     * resolves so the user gets a clear error instead of git's
+     * ambiguous-revision message.
+     */
+    private String resolveDiffBase(Path workingDir, String requestedBase)
+            throws IOException, InterruptedException
+    {
+        if (gitRunner.refExists(workingDir, requestedBase)) {
+            return requestedBase;
+        }
+        String originForm = "origin/" + requestedBase;
+        if (gitRunner.refExists(workingDir, originForm)) {
+            return originForm;
+        }
+        throw new IllegalStateException(
+                "Couldn't resolve base '" + requestedBase + "' locally — fetch first, "
+                        + "or pick a base that exists in this clone.");
     }
 
     private static final int DIFF_MAX_BYTES = 60_000;

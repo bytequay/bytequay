@@ -100,6 +100,7 @@ public class PullRequestService
     private final PrViewStateStore viewStateStore;
     private final AppSettingsStore settingsStore;
     private final CredentialService credentialService;
+    private final GitHubResponseCache responseCache;
     private final Executor executor;
     private final Executor ioExecutor;
 
@@ -110,6 +111,7 @@ public class PullRequestService
             PrViewStateStore viewStateStore,
             AppSettingsStore settingsStore,
             CredentialService credentialService,
+            GitHubResponseCache responseCache,
             @Qualifier(APPLICATION_EXECUTOR) Executor executor,
             @Qualifier(IO_EXECUTOR) Executor ioExecutor)
     {
@@ -119,6 +121,7 @@ public class PullRequestService
         this.viewStateStore = requireNonNull(viewStateStore, "viewStateStore is null");
         this.settingsStore = requireNonNull(settingsStore, "settingsStore is null");
         this.credentialService = requireNonNull(credentialService, "credentialService is null");
+        this.responseCache = requireNonNull(responseCache, "responseCache is null");
         this.executor = requireNonNull(executor, "executor is null");
         this.ioExecutor = requireNonNull(ioExecutor, "ioExecutor is null");
     }
@@ -248,7 +251,7 @@ public class PullRequestService
      */
     public PullRequestDetail refreshPullRequestDetail(String pat, String repo, int number)
     {
-        invalidateCachedDetail(repo, number);
+        invalidatePullRequestDetail(repo, number);
         return getPullRequestDetail(pat, repo, number);
     }
 
@@ -261,7 +264,7 @@ public class PullRequestService
     public void setPullRequestDraft(String pat, String repo, int number, boolean draft)
     {
         gitHub.setPullRequestDraft(pat, parseRef(repo, number), draft);
-        invalidateCachedDetail(repo, number);
+        invalidatePullRequestDetail(repo, number);
     }
 
     /**
@@ -382,6 +385,7 @@ public class PullRequestService
         if (close) {
             gitHub.updatePullRequest(pat, ref, UpdatePullRequestCommand.close());
             viewStateStore.markReviewed(prId, HandledAction.DISMISSED);
+            invalidatePullRequestDetail(repo, number);
         }
     }
 
@@ -511,7 +515,7 @@ public class PullRequestService
                 pat,
                 parseRef(repo, number),
                 new RequestReviewersCommand(ImmutableList.of(reviewer.trim()), ImmutableList.of()));
-        invalidateCachedDetail(repo, number);
+        invalidatePullRequestDetail(repo, number);
     }
 
     /** Removes one user from the PR's requested reviewers. */
@@ -522,7 +526,7 @@ public class PullRequestService
                 pat,
                 parseRef(repo, number),
                 new RequestReviewersCommand(ImmutableList.of(reviewer.trim()), ImmutableList.of()));
-        invalidateCachedDetail(repo, number);
+        invalidatePullRequestDetail(repo, number);
     }
 
     /**
@@ -576,7 +580,7 @@ public class PullRequestService
         gitHub.createInlineReviewComment(pat, parseRef(repo, number),
                 body, path, line, resolvedSide, commitId,
                 resolvedStartLine, resolvedStartSide);
-        invalidateCachedDetail(repo, number);
+        invalidatePullRequestDetail(repo, number);
     }
 
     /**
@@ -598,7 +602,7 @@ public class PullRequestService
         // Drop the cached detail so the next `GET /prs/detail` refetches and
         // reflects the new body. Simpler and less error-prone than patching
         // the cache in place.
-        invalidateCachedDetail(repo, number);
+        invalidatePullRequestDetail(repo, number);
     }
 
     /**
@@ -612,7 +616,7 @@ public class PullRequestService
         // timeline and the new "reviewed APPROVED" event shows up in the
         // conversation immediately. Without this the user waits for the
         // next background sync (~2 min) to see their own approval land.
-        invalidateCachedDetail(repo, number);
+        invalidatePullRequestDetail(repo, number);
     }
 
     /**
@@ -631,7 +635,7 @@ public class PullRequestService
         // timeline and the new "merged" / "closed" events surface
         // immediately, instead of waiting for the next background sync
         // (~2 min) to refresh the cached StoredPrDetail.
-        invalidateCachedDetail(repo, number);
+        invalidatePullRequestDetail(repo, number);
         return result;
     }
 
@@ -938,10 +942,12 @@ public class PullRequestService
         return side == null || side.isBlank() ? defaultSide : side.toUpperCase(Locale.ROOT);
     }
 
-    private void invalidateCachedDetail(String repo, int number)
+    private void invalidatePullRequestDetail(String repo, int number)
     {
+        PullRequestRef ref = parseRef(repo, number);
         store.findIdByRepoAndNumber(repo, number)
                 .ifPresent(id -> detailStore.deleteByPrIds(ImmutableSet.of(id)));
+        responseCache.invalidatePullRequest(ref);
     }
 
     private StoredPrDetail fetchDetailFromGitHub(String pat, PullRequestRef ref)

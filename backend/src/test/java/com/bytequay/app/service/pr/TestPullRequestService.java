@@ -42,6 +42,7 @@ import org.springframework.web.server.ResponseStatusException;
 import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 import java.util.concurrent.Executor;
 
 import static com.bytequay.app.domain.PullRequestDetail.CiStatus.FAILING;
@@ -83,6 +84,9 @@ class TestPullRequestService
     @SuppressWarnings("UnusedVariable")
     @Mock
     private CredentialService credentialService;
+
+    @Mock
+    private GitHubResponseCache responseCache;
 
     @SuppressWarnings("UnusedVariable")
     @Mock
@@ -454,26 +458,35 @@ class TestPullRequestService
         verify(gitHub).createIssueComment(eq("pat"), any(PullRequestRef.class), eq("LGTM"));
         verify(gitHub, never()).updatePullRequest(anyString(), any(), any());
         verify(viewStateStore, never()).markReviewed(anyLong(), any());
+        verifyNoInteractions(responseCache);
     }
 
     @Test
     void testCommentOnPullRequestClosesWithoutCommentWhenBodyBlank()
     {
+        when(store.findIdByRepoAndNumber("owner/repo", 7)).thenReturn(Optional.of(123L));
+
         pullRequestService.commentOnPullRequest("pat", "owner/repo", 7, 99L, "   ", true);
 
         verify(gitHub, never()).createIssueComment(anyString(), any(), anyString());
         verify(gitHub).updatePullRequest(eq("pat"), any(PullRequestRef.class), any(UpdatePullRequestCommand.class));
         verify(viewStateStore).markReviewed(99L, HandledAction.DISMISSED);
+        verify(detailStore).deleteByPrIds(eq(Set.of(123L)));
+        verify(responseCache).invalidatePullRequest(eq(PullRequestRef.of("owner", "repo", 7)));
     }
 
     @Test
     void testCommentOnPullRequestPostsCommentThenCloses()
     {
+        when(store.findIdByRepoAndNumber("owner/repo", 7)).thenReturn(Optional.of(123L));
+
         pullRequestService.commentOnPullRequest("pat", "owner/repo", 7, 99L, "not needed anymore", true);
 
         verify(gitHub).createIssueComment(eq("pat"), any(PullRequestRef.class), eq("not needed anymore"));
         verify(gitHub).updatePullRequest(eq("pat"), any(PullRequestRef.class), any(UpdatePullRequestCommand.class));
         verify(viewStateStore).markReviewed(99L, HandledAction.DISMISSED);
+        verify(detailStore).deleteByPrIds(eq(Set.of(123L)));
+        verify(responseCache).invalidatePullRequest(eq(PullRequestRef.of("owner", "repo", 7)));
     }
 
     @Test
@@ -483,6 +496,7 @@ class TestPullRequestService
 
         verifyNoInteractions(gitHub);
         verify(viewStateStore, never()).markReviewed(anyLong(), any());
+        verifyNoInteractions(responseCache);
     }
 
     // ── approvePullRequest / mergePullRequest / markHandled / reopen ───────────
@@ -699,6 +713,7 @@ class TestPullRequestService
         pullRequestService.addReviewCommentReaction("pat", "trinodb/trino", 4357983764L, "+1");
 
         verify(gitHub).addReviewCommentReaction("pat", "trinodb", "trino", 4357983764L, "+1");
+        verify(responseCache, never()).invalidatePullRequest(any());
     }
 
     @Test
@@ -707,6 +722,7 @@ class TestPullRequestService
         pullRequestService.addIssueCommentReaction("pat", "trinodb/trino", 4357983764L, "heart");
 
         verify(gitHub).addIssueCommentReaction("pat", "trinodb", "trino", 4357983764L, "heart");
+        verify(responseCache, never()).invalidatePullRequest(any());
     }
 
     @Test

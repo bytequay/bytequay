@@ -17,6 +17,7 @@ import NotificationsScreen from './NotificationsScreen';
 import TeamDetailPage from './teams/TeamDetailPage';
 import TeamHomePage from './teams/TeamHomePage';
 import TeamsManagePage from './teams/TeamsManagePage';
+import SlackPage from './slack/SlackPage';
 import type { SettingsSection } from './settings/types';
 import PullRequestList from './PullRequestList';
 import HomePage from './HomePage';
@@ -36,6 +37,7 @@ type Nav =
   | { view: 'teams' }
   | { view: 'team'; teamId: number }
   | { view: 'team-kanban'; teamId: number }
+  | { view: 'slack' }
   | { view: 'notifications' }
   | { view: 'repos' }
   | { view: 'local-repo'; owner: string; repo: string }
@@ -91,6 +93,13 @@ function GlobalTopbar({ nav, onNav }: GlobalTopbarProps) {
           title="Local repos"
         >
           Repos
+        </button>
+        <button
+          className={`global-nav-btn${nav.view === 'slack' ? ' global-nav-btn--active' : ''}`}
+          onClick={() => onNav({ view: 'slack' })}
+          title="Slack"
+        >
+          Slack
         </button>
         <button
           className={`global-nav-btn${nav.view === 'notifications' ? ' global-nav-btn--active' : ''}`}
@@ -254,6 +263,9 @@ function App() {
             repo={nav.repo}
             initialPrNumber={nav.prNumber}
           />
+        )}
+        {nav.view === 'slack' && (
+          <SlackPage />
         )}
         {nav.view === 'notifications' && (
           <NotificationsScreen />

@@ -605,6 +605,11 @@ type Props = {
   // Label for the back button — defaults to "Back" when omitted. Callers
   // can pass "Team" / "Repo" / etc. so the breadcrumb names the origin.
   backLabel?: string;
+  /** Reverse nav from this PR to its head branch's local-repo
+   *  Commits tab. The head-ref chip surfaces a button that calls
+   *  this when the head is in the same repo (cross-fork PRs hide
+   *  it — the branch isn't in the local clone). */
+  onOpenLocalBranch?: (owner: string, repo: string, branch: string) => void;
 };
 
 /** Polling interval for the focus-driven CI snapshot refresh. ~12s is a
@@ -617,7 +622,7 @@ const CI_POLL_INTERVAL_MS = 12_000;
 type ActionState = 'idle' | 'confirming' | 'running' | 'done' | 'error';
 
 
-function PullRequestPreview({ pr, onOpenReview, onInspectDiffs, onMarkHandled, onMerge, onBack, backLabel }: Props) {
+function PullRequestPreview({ pr, onOpenReview, onInspectDiffs, onMarkHandled, onMerge, onBack, backLabel, onOpenLocalBranch }: Props) {
   const [detail, setDetail] = useState<PullRequestDetailDto | null>(null);
   const [loading, setLoading] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
@@ -1460,6 +1465,24 @@ function PullRequestPreview({ pr, onOpenReview, onInspectDiffs, onMarkHandled, o
             >
               ⎘
             </button>
+            {/* Reverse nav: open this branch's commits in the
+                local-repo page. Hidden when the head is on a fork
+                (the branch isn't in the local clone of the target
+                repo) and when the parent didn't wire the prop. */}
+            {onOpenLocalBranch && detail.headRef
+                && (!detail.headRepo || detail.headRepo === pr.repo) && (
+              <button
+                type="button"
+                className="prc-branch-line__open-local"
+                onClick={() => {
+                  const [o, r] = pr.repo.split('/');
+                  if (o && r) onOpenLocalBranch(o, r, detail.headRef!);
+                }}
+                title={`Open ${detail.headRef} in the local-repo Commits tab`}
+              >
+                Open in local repo →
+              </button>
+            )}
           </div>
         )}
         {/* Row 3: muted secondary line — repo + relative timestamps.

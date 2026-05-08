@@ -40,7 +40,7 @@ type Nav =
   | { view: 'slack' }
   | { view: 'notifications' }
   | { view: 'repos' }
-  | { view: 'local-repo'; owner: string; repo: string }
+  | { view: 'local-repo'; owner: string; repo: string; initialBranch?: string }
   | { view: 'settings'; section?: SettingsSection };
 
 type GlobalTopbarProps = {
@@ -262,6 +262,8 @@ function App() {
             owner={nav.owner}
             repo={nav.repo}
             initialPrNumber={nav.prNumber}
+            onOpenLocalBranch={(owner, repo, branch) =>
+              setNav({ view: 'local-repo', owner, repo, initialBranch: branch })}
           />
         )}
         {nav.view === 'slack' && (
@@ -283,6 +285,7 @@ function App() {
             repo={nav.repo}
             onBack={() => setNav({ view: 'repos' })}
             onSelectPr={(owner, repo, prNumber) => setNav({ view: 'repo', owner, repo, prNumber })}
+            initialBranch={nav.initialBranch}
           />
         )}
         {nav.view === 'teams' && (

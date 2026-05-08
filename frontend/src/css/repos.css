@@ -678,6 +678,28 @@
   font-size: 11px;
   color: var(--accent);
 }
+/* Copy-full-SHA button — sits next to the short sha. Same pattern as
+   .prc-branch-line__copy in pr-detail.css; brief ✓ flash on success
+   gives the user feedback without a toast. Sized larger than the
+   sha glyph itself so the click target is comfortable in the dense
+   commit row. */
+.commit-row__copy {
+  appearance: none;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  padding: 3px 7px;
+  margin-left: 2px;
+  font-size: 14px;
+  line-height: 1;
+  color: var(--text-3);
+  cursor: pointer;
+}
+.commit-row__copy:hover {
+  color: var(--accent);
+  border-color: var(--border);
+  background: var(--bg-elevated);
+}
 
 /* Activity tab: one row per reflog entry. Glyph + kind chip on the
    left, description prose on the right. Subdued metadata line below

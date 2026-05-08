@@ -66,6 +66,11 @@ type Props = {
    *  initial pulls fetch lands. Used by deep-links from the home-page
    *  activity feed (clicking #1234 jumps straight to the PR detail). */
   initialPrNumber?: number;
+  /** Reverse nav from a PR back to its head branch's local-repo
+   *  Commits tab. PullRequestPreview surfaces a button next to the
+   *  head ref that calls this. App-level so the nav target lines up
+   *  with the existing local-repo route. */
+  onOpenLocalBranch?: (owner: string, repo: string, branch: string) => void;
 };
 
 /** Right-pane placeholder shown while a deep-link's PR fetch is in
@@ -87,7 +92,7 @@ function DeepLinkLoading({ owner, repo, number }: { owner: string; repo: string;
   );
 }
 
-function RepoDetailPage({ owner, repo, initialPrNumber }: Props) {
+function RepoDetailPage({ owner, repo, initialPrNumber, onOpenLocalBranch }: Props) {
   const [tab, setTab] = useState<Tab>('pulls');
   const [bucket, setBucket] = useState<Bucket>('inbox');
   const [scope, setScope] = useState<Scope>('mine');
@@ -642,6 +647,7 @@ function RepoDetailPage({ owner, repo, initialPrNumber }: Props) {
             }}
             onMarkHandled={handleMarkHandled}
             onMerge={handleMerge}
+            onOpenLocalBranch={onOpenLocalBranch}
           />
         ) : deepLinkPending && initialPrNumber != null ? (
           <DeepLinkLoading owner={owner} repo={repo} number={initialPrNumber} />

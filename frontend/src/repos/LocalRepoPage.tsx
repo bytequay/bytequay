@@ -28,6 +28,12 @@ type Props = {
    *  the user clicks a branch's PR pill. App-level so we reuse the
    *  same nav target as the PR list flow. */
   onSelectPr?: (owner: string, repo: string, prNumber: number) => void;
+  /** When set, the page opens directly on the Commits tab with this
+   *  branch's history shown — used for the reverse nav from a PR
+   *  detail page back to its head branch. Falls through the normal
+   *  remote-only fallback (origin/<name>) if the branch isn't
+   *  checked out locally. */
+  initialBranch?: string;
 };
 
 type Column = 'LOCAL_WORK' | 'READY_FOR_PR' | 'IN_REVIEW' | 'CLEAN_UP';
@@ -76,7 +82,7 @@ const TABS: { key: Tab; label: string }[] = [
  * The IN REVIEW column will stay empty until the list-page sync starts
  * capturing PR head refs (deferred — see LocalRepoService.toLocalBranch).
  */
-function LocalRepoPage({ owner, repo, onSelectPr }: Props) {
+function LocalRepoPage({ owner, repo, onSelectPr, initialBranch }: Props) {
   const [status, setStatus] = useState<LocalRepoStatusDto | null>(null);
   const [branches, setBranches] = useState<LocalBranchDto[] | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -95,11 +101,14 @@ function LocalRepoPage({ owner, repo, onSelectPr }: Props) {
   const [branchFormOpen, setBranchFormOpen] = useState(false);
   const [newBranchName, setNewBranchName] = useState('');
   const [newBranchBase, setNewBranchBase] = useState('');
-  const [tab, setTab] = useState<Tab>('branches');
+  const [tab, setTab] = useState<Tab>(
+    // Reverse-nav from a PR detail page lands directly on the
+    // Commits tab for the PR's head branch.
+    initialBranch ? 'commits' : 'branches');
   // Branch the Commits tab is filtered to (null = use HEAD's
   // currentBranch). Card click in the Branches tab sets this and
   // switches the tab; the Commits tab reads it as its revisionKey.
-  const [commitsBranch, setCommitsBranch] = useState<string | null>(null);
+  const [commitsBranch, setCommitsBranch] = useState<string | null>(initialBranch ?? null);
   // Names selected for bulk delete in the Clean up column. Lives on
   // the page rather than per-card so the modal can read the full set
   // and we can clear it after a successful delete.
@@ -1135,6 +1144,15 @@ function CommitRow({
   const handleClick = (e: ReactMouseEvent | ReactKeyboardEvent) => {
     onClick(e.metaKey || e.ctrlKey);
   };
+  const [copied, setCopied] = useState(false);
+  const handleCopy = (e: ReactMouseEvent) => {
+    // Don't bubble to the row click handler — copying the sha is a
+    // distinct intent from selecting the commit.
+    e.stopPropagation();
+    void navigator.clipboard.writeText(commit.sha);
+    setCopied(true);
+    window.setTimeout(() => setCopied(false), 1200);
+  };
   return (
     <li
       className={`commit-row${selected ? ' commit-row--selected' : ''}`}
@@ -1163,6 +1181,15 @@ function CommitRow({
           </span>
           <span className="commit-row__sep" aria-hidden="true">·</span>
           <code className="commit-row__sha" title={commit.sha}>{commit.shortSha}</code>
+          <button
+            type="button"
+            className="commit-row__copy"
+            onClick={handleCopy}
+            title={copied ? 'Copied!' : `Copy full SHA (${commit.sha})`}
+            aria-label="Copy full SHA"
+          >
+            {copied ? '✓' : '⎘'}
+          </button>
           {commit.authoredAt && (
             <>
               <span className="commit-row__sep" aria-hidden="true">·</span>

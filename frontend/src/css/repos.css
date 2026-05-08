@@ -1435,8 +1435,9 @@
 }
 
 /* Per-file diff viewer chrome — the body itself is rendered with the
-   shared .diff-hunk-line classes from pr-detail.css, so colors and
-   theme overrides match the PR diff viewer. */
+   shared .diff-row* classes from ai.css (line-number gutter + content
+   column with pre-wrap), so colors and geometry match the PR diff
+   viewer. */
 .commit-diff {
   display: flex;
   flex-direction: column;
@@ -1459,6 +1460,11 @@
   overflow: hidden;
   text-overflow: ellipsis;
 }
+.commit-diff__stats {
+  flex: 0 0 auto;
+  font-size: 11px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, monospace;
+}
 .commit-diff__truncated {
   flex: 0 0 auto;
   font-size: 10px;
@@ -1471,11 +1477,6 @@
 }
 .commit-diff__body {
   flex: 1 1 auto;
-  /* Vertical scroll only — long lines wrap rather than introducing a
-     horizontal scrollbar (matches the PR FileDiff's .diff-row__content
-     behaviour). The override below flips .diff-hunk-line from `pre`
-     to `pre-wrap` only inside this container, so the PR review-thread
-     mini-hunks (which want horizontal scroll) keep their behaviour. */
   overflow-y: auto;
   overflow-x: hidden;
   margin: 0;
@@ -1485,15 +1486,14 @@
   font-size: 12px;
   line-height: 1.55;
 }
-.commit-diff__body-inner {
-  display: block;
-  /* Wrapping mode means the inner wrapper just fills 100% — no need
-     for the max-content trick the horizontal-scroll variant used. */
+.commit-diff__hunk + .commit-diff__hunk {
+  border-top: 1px solid var(--border-hairline);
 }
-.commit-diff__body .diff-hunk-line {
-  white-space: pre-wrap;
-  overflow-wrap: anywhere;
-  word-break: break-word;
+.commit-diff__empty {
+  padding: 24px;
+  text-align: center;
+  color: var(--text-3);
+  font-size: 12px;
 }
 
 /* Files-changed totals row in the middle pane. */

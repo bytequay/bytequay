@@ -19,6 +19,7 @@ import { DiffFileTreePane } from '../diff/DiffFileTreePane';
 import { statusBadgeFromLetter } from '../diffStatusBadge';
 import { unionCommitFiles } from '../diff/unionCommitFiles';
 import { formatShortSha } from '../diff/commitDisplay';
+import { parseUnifiedDiff } from '../diffParse';
 import ResizeHandle from '../ResizeHandle';
 
 // Persisted widths for the Commits-tab 3-pane layout. Same pattern as
@@ -1409,39 +1410,63 @@ function CommitFilesTotal({ files }: { files: LocalCommitFileDto[] }) {
 }
 
 function CommitDiffViewer({ diff }: { diff: LocalFileDiffDto }) {
-  // Reuse the PR diff viewer's diff-hunk-line classes so colors and
-  // theme overrides (atom-one-dark / warm) match across the two
-  // diff surfaces. File headers (--- / +++) and the git "diff "/
-  // "index " preamble fold into the same blue-tinted --head
-  // treatment as @@ hunk markers.
-  const lines = diff.patch.split('\n');
+  // Parse the unified patch into hunks so each line gets a real
+  // (oldLine, newLine) pair — same data shape the PR diff viewer
+  // works with (see diffParse.ts). Render with the .diff-row*
+  // classes from ai.css so the gutter geometry matches.
+  const hunks = parseUnifiedDiff(diff.patch);
+  let adds = 0;
+  let dels = 0;
+  for (const h of hunks) {
+    for (const r of h.rows) {
+      if (r.kind === 'add') adds++;
+      else if (r.kind === 'del') dels++;
+    }
+  }
   return (
     <div className="commit-diff">
       <div className="commit-diff__header">
         <code className="commit-diff__path">{diff.path}</code>
+        <span className="commit-diff__stats">
+          <span className="commits-pane__add">+{adds}</span>{' '}
+          <span className="commits-pane__del">−{dels}</span>
+        </span>
         {diff.truncated && (
           <span className="commit-diff__truncated"
-                title="Diff was capped server-side; the model only sees the prefix">
+                title="Diff was capped server-side; the rest is omitted">
             truncated
           </span>
         )}
       </div>
-      <pre className="commit-diff__body">
-        <div className="commit-diff__body-inner">
-        {lines.map((line, i) => {
-          let cls = 'diff-hunk-line';
-          if (line.startsWith('@@')
-              || line.startsWith('+++') || line.startsWith('---')
-              || line.startsWith('diff ') || line.startsWith('index ')) {
-            cls += ' diff-hunk-line--head';
-          }
-          else if (line.startsWith('+')) cls += ' diff-hunk-line--add';
-          else if (line.startsWith('-')) cls += ' diff-hunk-line--del';
-          else cls += ' diff-hunk-line--ctx';
-          return <div key={i} className={cls}>{line || ' '}</div>;
-        })}
-        </div>
-      </pre>
+      <div className="commit-diff__body">
+        {hunks.map((hunk, hi) => (
+          <div key={hi} className="commit-diff__hunk">
+            <div className="diff-row diff-row--hunk-header">
+              <span className="diff-row__gutter" />
+              <span className="diff-row__gutter" />
+              <span className="diff-row__content">{hunk.header}</span>
+            </div>
+            {hunk.rows.map((row, ri) => {
+              if (row.kind === 'hunk-header') return null; // already rendered above
+              const cls = `diff-row diff-row--${row.kind}`;
+              const sigil = row.kind === 'add' ? '+' : row.kind === 'del' ? '−' : ' ';
+              return (
+                <div key={ri} className={cls}>
+                  <span className="diff-row__gutter">{row.oldLine ?? ''}</span>
+                  <span className="diff-row__gutter">{row.newLine ?? ''}</span>
+                  <span className="diff-row__content">
+                    <span className="diff-row__sigil">{sigil}</span>
+                    {row.content}
+                  </span>
+                </div>
+              );
+            })}
+          </div>
+        ))}
+        {hunks.length === 0 && (
+          <div className="commit-diff__empty">No diff content for this file.</div>
+        )}
+      </div>
     </div>
   );
 }

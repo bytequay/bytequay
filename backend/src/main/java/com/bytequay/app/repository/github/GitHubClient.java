@@ -1021,17 +1021,21 @@ public class GitHubClient
     }
 
     @Override
-    public void replyToReviewComment(String pat, PullRequestRef pr, long rootCommentId, String body)
+    public PrReviewThreadMessage replyToReviewComment(String pat, PullRequestRef pr, long rootCommentId, String body)
     {
         try {
-            gitHubRestClient.post()
+            GitHubReviewComment created = gitHubRestClient.post()
                     .uri("/repos/{owner}/{repo}/pulls/{number}/comments/{commentId}/replies",
                             pr.owner(), pr.repo(), pr.number(), rootCommentId)
                     .header("Authorization", "Bearer " + pat)
                     .contentType(MediaType.APPLICATION_JSON)
                     .body(ImmutableMap.of("body", body))
                     .retrieve()
-                    .toBodilessEntity();
+                    .body(GitHubReviewComment.class);
+            if (created == null) {
+                throw new IllegalStateException("GitHub returned no body from reply-to-review-comment");
+            }
+            return toReviewThreadMessage(created);
         }
         catch (RestClientResponseException e) {
             throw toReadableException(e);

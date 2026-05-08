@@ -411,11 +411,36 @@ public class PullRequestService
      * Replies to an existing per-line review thread on the PR. {@code rootCommentId}
      * is the GitHub id of the thread root (root or any reply works on
      * GitHub's side, but we always pass the root for clarity).
+     *
+     * <p>After GitHub accepts the reply we append the returned message to
+     * the cached PR detail so the next {@code /prs/detail} read shows the
+     * reply (with its real GitHub id) without waiting for a background
+     * sync.
      */
     public void replyToReviewThread(String pat, String repo, int number, long rootCommentId, String body)
     {
         requireNotBlank(body, "reply body must not be blank");
-        gitHub.replyToReviewComment(pat, parseRef(repo, number), rootCommentId, body);
+        PrReviewThreadMessage created = gitHub.replyToReviewComment(pat, parseRef(repo, number), rootCommentId, body);
+        store.findIdByRepoAndNumber(repo, number).ifPresent(prId ->
+                detailStore.find(prId).ifPresent(cached ->
+                        detailStore.save(prId, withReviewThreadReplyAppended(cached, created))));
+    }
+
+    /**
+     * Returns a new {@link StoredPrDetail} with {@code reply} appended to
+     * {@code reviewComments}. No-op de-dup beyond the GitHub id check the
+     * SQLite save layer already performs — the caller is expected to pass
+     * a fresh reply.
+     */
+    private static StoredPrDetail withReviewThreadReplyAppended(StoredPrDetail detail, PrReviewThreadMessage reply)
+    {
+        List<PrReviewThreadMessage> patched = ImmutableList.<PrReviewThreadMessage>builder()
+                .addAll(detail.reviewComments())
+                .add(reply)
+                .build();
+        return new StoredPrDetail(
+                detail.raw(), detail.reviews(), detail.files(), detail.timeline(),
+                detail.checkRuns(), patched, detail.linkedIssues());
     }
 
     /**

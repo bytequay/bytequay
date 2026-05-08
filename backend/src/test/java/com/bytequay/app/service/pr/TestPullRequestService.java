@@ -843,16 +843,73 @@ class TestPullRequestService
     // stale SQLite snapshot from overwriting local optimistic UI.
 
     @Test
-    void testReplyToReviewThreadDoesNotInvalidateDetail()
+    void testReplyToReviewThreadAppendsReplyToCachedDetail()
     {
-        pullRequestService.replyToReviewThread("pat", "trinodb/trino", 7, 4357983764L, "thanks");
-
-        verify(gitHub).replyToReviewComment(
+        PrReviewThreadMessage reply = new PrReviewThreadMessage(
+                999L,
+                4357983764L,
+                null,
+                "bob",
+                "thanks",
+                "src/Main.java",
+                12,
+                "RIGHT",
+                "@@",
+                "abc123",
+                Instant.parse("2026-05-08T01:00:00Z"),
+                Reactions.EMPTY,
+                false,
+                null,
+                null,
+                null,
+                null,
+                "MEMBER",
+                null,
+                null);
+        when(gitHub.replyToReviewComment(
                 "pat",
                 PullRequestRef.of("trinodb", "trino", 7),
                 4357983764L,
-                "thanks");
+                "thanks")).thenReturn(reply);
+        when(store.findIdByRepoAndNumber("trinodb/trino", 7)).thenReturn(Optional.of(123L));
+        when(detailStore.find(123L)).thenReturn(Optional.of(new StoredPrDetail(
+                null,
+                ImmutableList.of(),
+                ImmutableList.of(),
+                ImmutableList.of(),
+                ImmutableList.of(),
+                ImmutableList.of(),
+                ImmutableList.of())));
+
+        pullRequestService.replyToReviewThread("pat", "trinodb/trino", 7, 4357983764L, "thanks");
+
         verify(detailInvalidator, never()).invalidate(anyString(), anyInt());
+
+        ArgumentCaptor<StoredPrDetail> captor = ArgumentCaptor.forClass(StoredPrDetail.class);
+        verify(detailStore).save(eq(123L), captor.capture());
+        assertThat(captor.getValue().reviewComments())
+                .singleElement()
+                .satisfies(m -> {
+                    assertThat(m.githubId()).isEqualTo(999L);
+                    assertThat(m.body()).isEqualTo("thanks");
+                    assertThat(m.inReplyTo()).isEqualTo(4357983764L);
+                });
+    }
+
+    @Test
+    void testReplyToReviewThreadSkipsCachePatchWhenPrUnknown()
+    {
+        when(gitHub.replyToReviewComment(any(), any(), anyLong(), anyString()))
+                .thenReturn(new PrReviewThreadMessage(
+                        999L, 4357983764L, null, "bob", "thanks",
+                        "src/Main.java", 12, "RIGHT", "@@", "abc123",
+                        Instant.parse("2026-05-08T01:00:00Z"), Reactions.EMPTY,
+                        false, null, null, null, null, "MEMBER", null, null));
+        when(store.findIdByRepoAndNumber("trinodb/trino", 7)).thenReturn(Optional.empty());
+
+        pullRequestService.replyToReviewThread("pat", "trinodb/trino", 7, 4357983764L, "thanks");
+
+        verify(detailStore, never()).save(anyLong(), any());
     }
 
     @Test

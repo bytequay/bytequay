@@ -302,8 +302,13 @@ public interface PullRequestRepository
     /**
      * Replies inline to an existing per-line review comment thread. Maps to:
      * POST /repos/{owner}/{repo}/pulls/{n}/comments/{commentId}/replies
+     *
+     * <p>Returns the new reply as a {@link PrReviewThreadMessage} with the
+     * GitHub-assigned id, server timestamps, and {@code inReplyTo} set to
+     * the thread root — so callers can patch a cached detail in place
+     * without an extra refetch.
      */
-    default void replyToReviewComment(String pat, PullRequestRef pr, long rootCommentId, String body)
+    default PrReviewThreadMessage replyToReviewComment(String pat, PullRequestRef pr, long rootCommentId, String body)
     {
         throw new UnsupportedOperationException("replyToReviewComment not implemented");
     }

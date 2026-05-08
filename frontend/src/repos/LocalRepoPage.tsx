@@ -11,12 +11,14 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import { useEffect, useState } from 'react';
+import { useEffect, useState, type KeyboardEvent as ReactKeyboardEvent, type MouseEvent as ReactMouseEvent } from 'react';
 import type { LocalActivityEntryDto, LocalBranchDto, LocalCommitDto, LocalCommitFileDto, LocalFileDiffDto, LocalRepoStatusDto } from '../types';
 import LogoLoading from '../LogoLoading';
 import { formatRelativeTime } from '../pr/utils';
 import { DiffFileTreePane } from '../diff/DiffFileTreePane';
 import { statusBadgeFromLetter } from '../diffStatusBadge';
+import { unionCommitFiles } from '../diff/unionCommitFiles';
+import { formatShortSha } from '../diff/commitDisplay';
 
 type Props = {
   owner: string;
@@ -905,7 +907,10 @@ function CommitsTab({
 }) {
   const [commits, setCommits] = useState<LocalCommitDto[] | null>(null);
   const [commitsError, setCommitsError] = useState<string | null>(null);
-  const [selectedSha, setSelectedSha] = useState<string | null>(null);
+  // Multi-commit selection. Plain click replaces; ⌘/Ctrl+click toggles.
+  // Default once commits load is the tip (newest), so the panes have
+  // something to render on first paint.
+  const [selectedShas, setSelectedShas] = useState<ReadonlySet<string>>(new Set());
   const [files, setFiles] = useState<LocalCommitFileDto[] | null>(null);
   const [filesError, setFilesError] = useState<string | null>(null);
   const [selectedFile, setSelectedFile] = useState<string | null>(null);
@@ -918,6 +923,21 @@ function CommitsTab({
       if (next.has(path)) next.delete(path); else next.add(path);
       return next;
     });
+  const onCommitClick = (sha: string, additive: boolean) => {
+    if (additive) {
+      setSelectedShas((prev) => {
+        const next = new Set(prev);
+        if (next.has(sha)) next.delete(sha); else next.add(sha);
+        // Disallow empty selection — falls back to the clicked sha so
+        // the panes always have data to show. (Empty == cumulative
+        // since branch-point lands in the merge-base slice.)
+        if (next.size === 0) next.add(sha);
+        return next;
+      });
+    } else {
+      setSelectedShas(new Set([sha]));
+    }
+  };
 
   // Reload commits when the branch under inspection changes; reset
   // the per-commit/file state so the right two panes don't show
@@ -926,7 +946,7 @@ function CommitsTab({
     let cancelled = false;
     setCommits(null);
     setCommitsError(null);
-    setSelectedSha(null);
+    setSelectedShas(new Set());
     setFiles(null);
     setSelectedFile(null);
     setDiff(null);
@@ -937,42 +957,55 @@ function CommitsTab({
         setCommits(rows);
         // Auto-select the tip so the panes have data on first paint —
         // matches the mockup which shows a commit pre-selected.
-        if (rows.length > 0) setSelectedSha(rows[0].sha);
+        if (rows.length > 0) setSelectedShas(new Set([rows[0].sha]));
       })
       .catch(e => { if (!cancelled) setCommitsError(e instanceof Error ? e.message : String(e)); });
     return () => { cancelled = true; };
   }, [owner, repo, revisionKey]);
 
-  // Files for the selected commit. Auto-picks the first file so the
-  // diff pane has something to show.
+  // Files across the selected commits — single fetch when one is
+  // selected, parallel fetch + union when multiple. Auto-picks the
+  // first file so the diff pane has something to show.
   useEffect(() => {
-    if (selectedSha == null) return;
+    if (selectedShas.size === 0) return;
     let cancelled = false;
     setFiles(null);
     setFilesError(null);
     setSelectedFile(null);
     setDiff(null);
-    window.bridge.listLocalCommitFiles(owner, repo, selectedSha)
-      .then(rows => {
+    // Order shas chronologically (oldest → newest) so the latest
+    // occurrence wins when unionCommitFiles merges. The list comes
+    // back newest-first from git log; reverse + filter by selection.
+    const ordered = (commits ?? [])
+      .map((c) => c.sha)
+      .filter((sha) => selectedShas.has(sha))
+      .reverse();
+    Promise.all(ordered.map((sha) => window.bridge.listLocalCommitFiles(owner, repo, sha)))
+      .then((perCommit) => {
         if (cancelled) return;
-        setFiles(rows);
-        if (rows.length > 0) setSelectedFile(rows[0].path);
+        const merged = unionCommitFiles(perCommit, (f) => f.path);
+        setFiles(merged);
+        if (merged.length > 0) setSelectedFile(merged[0].path);
       })
-      .catch(e => { if (!cancelled) setFilesError(e instanceof Error ? e.message : String(e)); });
+      .catch((e) => { if (!cancelled) setFilesError(e instanceof Error ? e.message : String(e)); });
     return () => { cancelled = true; };
-  }, [owner, repo, selectedSha]);
+  }, [owner, repo, selectedShas, commits]);
 
-  // Per-file diff. Refetched whenever sha or path changes.
+  // Per-file diff. With multiple commits selected, use the latest
+  // (newest) selected commit's patch for the file — same heuristic
+  // the PR diff viewer uses, and matches what the user expects to
+  // see when scrolling a multi-commit selection.
+  const latestSelectedSha = (commits ?? []).find((c) => selectedShas.has(c.sha))?.sha ?? null;
   useEffect(() => {
-    if (selectedSha == null || selectedFile == null) return;
+    if (latestSelectedSha == null || selectedFile == null) return;
     let cancelled = false;
     setDiff(null);
     setDiffError(null);
-    window.bridge.getLocalCommitDiff(owner, repo, selectedSha, selectedFile)
+    window.bridge.getLocalCommitDiff(owner, repo, latestSelectedSha, selectedFile)
       .then(d => { if (!cancelled) setDiff(d); })
       .catch(e => { if (!cancelled) setDiffError(e instanceof Error ? e.message : String(e)); });
     return () => { cancelled = true; };
-  }, [owner, repo, selectedSha, selectedFile]);
+  }, [owner, repo, latestSelectedSha, selectedFile]);
 
   if (commitsError) {
     return (
@@ -1014,14 +1047,18 @@ function CommitsTab({
               <CommitRow
                 key={c.sha}
                 commit={c}
-                selected={selectedSha === c.sha}
-                onClick={() => setSelectedSha(c.sha)}
+                selected={selectedShas.has(c.sha)}
+                onClick={(additive) => onCommitClick(c.sha, additive)}
               />
             ))}
           </ol>
         </aside>
         <aside className="commits-pane__files">
-          <div className="commits-pane__files-header">Files changed</div>
+          <CommitsSelectionSummary
+            commits={commits}
+            selected={selectedShas}
+            onClear={() => setSelectedShas(new Set([commits[0].sha]))}
+          />
           <DiffFileTreePane
             files={files}
             error={filesError}
@@ -1063,18 +1100,24 @@ function CommitRow({
 }: {
   commit: LocalCommitDto;
   selected: boolean;
-  onClick: () => void;
+  /** True when ⌘/Ctrl was held — caller treats it as additive
+   *  (toggle this sha in/out of the selection); else replace. */
+  onClick: (additive: boolean) => void;
 }) {
+  const handleClick = (e: ReactMouseEvent | ReactKeyboardEvent) => {
+    onClick(e.metaKey || e.ctrlKey);
+  };
   return (
     <li
       className={`commit-row${selected ? ' commit-row--selected' : ''}`}
-      onClick={onClick}
+      onClick={handleClick}
       role="button"
       tabIndex={0}
+      title="Click to select; ⌘/Ctrl-click to add to a multi-commit selection"
       onKeyDown={(e) => {
         if (e.key === 'Enter' || e.key === ' ') {
           e.preventDefault();
-          onClick();
+          handleClick(e);
         }
       }}
     >
@@ -1093,6 +1136,40 @@ function CommitRow({
         </div>
       </div>
     </li>
+  );
+}
+
+function CommitsSelectionSummary({
+  commits,
+  selected,
+  onClear,
+}: {
+  commits: LocalCommitDto[];
+  selected: ReadonlySet<string>;
+  onClear: () => void;
+}) {
+  if (selected.size === 0) return null;
+  if (selected.size === 1) {
+    const sha = [...selected][0];
+    const c = commits.find((x) => x.sha === sha);
+    return (
+      <div className="commits-selection-summary">
+        <span className="commits-selection-summary__icon" aria-hidden="true">⊞</span>
+        <code className="commits-selection-summary__sha">{c?.shortSha ?? formatShortSha(sha)}</code>
+        <span className="commits-selection-summary__subject">{c?.subject ?? ''}</span>
+      </div>
+    );
+  }
+  return (
+    <div className="commits-selection-summary commits-selection-summary--multi">
+      <span className="commits-selection-summary__icon" aria-hidden="true">⊞</span>
+      <span className="commits-selection-summary__label">
+        <b>{selected.size} of {commits.length} commits</b> selected — union diff
+      </span>
+      <button type="button" className="commits-selection-summary__clear" onClick={onClear}>
+        Clear
+      </button>
+    </div>
   );
 }
 

@@ -26,6 +26,15 @@ import { BACKEND_BASE, killBackend, spawnBackend, waitForBackendReady } from './
 // this up from forge.config.ts -> packagerConfig.name).
 app.setName('ByteQuay');
 
+// Register the bytequay:// custom URL scheme so the OS sends OAuth
+// redirects (Slack, future integrations) back to our running app.
+// `open-url` (macOS) / second-instance args (Win/Linux) carry the
+// inbound URL once registered. The packaged build also declares this
+// in Info.plist; the runtime call covers the dev workflow where the
+// .app bundle isn't installed.
+const APP_PROTOCOL = 'bytequay';
+app.setAsDefaultProtocolClient(APP_PROTOCOL);
+
 /** Pre-1.0 version surfaced in the About dialog and packaged metadata.
  *  Bump alongside frontend/package.json + backend/pom.xml when we cut
  *  a release. Shown in the About panel as e.g. "ByteQuay 0.1.0". */
@@ -1718,6 +1727,30 @@ const url = new URL(`${BACKEND_BASE}/api/search/repos`);
     return body.count as number;
   });
 
+  // ── Slack integration ───────────────────────────────────────────────────
+  // Renderer-driven OAuth handshake: getAuthorizeUrl() → openExternal in
+  // the system browser → Slack redirects to bytequay://slack-oauth-callback
+  // → the open-url handler above forwards the code/state to the backend
+  // and emits slack:oauth-complete here. The renderer subscribes to that
+  // event and re-fetches /connection to pick up the new state.
+  ipcMain.handle('slack:authorizeUrl', async () => {
+    const res = await fetch(`${BACKEND_BASE}/api/slack/oauth/authorize-url`);
+    if (!res.ok) throw new Error(`backend /api/slack/oauth/authorize-url returned ${res.status}`);
+    return res.json();
+  });
+
+  ipcMain.handle('slack:connection', async () => {
+    const res = await fetch(`${BACKEND_BASE}/api/slack/connection`);
+    if (!res.ok) throw new Error(`backend /api/slack/connection returned ${res.status}`);
+    return res.json();
+  });
+
+  ipcMain.handle('slack:disconnect', async () => {
+    const res = await fetch(`${BACKEND_BASE}/api/slack/disconnect`, { method: 'POST' });
+    if (!res.ok) throw new Error(`backend /api/slack/disconnect returned ${res.status}`);
+    return res.json();
+  });
+
   // ── Credentials ─────────────────────────────────────────────────────────
   // Credentials are uniquely identified by the pair (type, name). The backend
   // exposes them at /api/credentials with optional ?type= filter; per-row
@@ -2051,6 +2084,54 @@ app.on('ready', async () => {
     console.error('Failed to start ByteQuay', error);
   }
 });
+
+// Slack (and future integration) OAuth callback: Slack's browser tab
+// redirects to bytequay://slack-oauth-callback?code=…&state=… and the
+// OS hands the URL to our running app via this event. We forward the
+// code+state to the backend's exchange endpoint and tell the renderer
+// the result so it can flip from pre-connect to connected.
+app.on('open-url', (event, url) => {
+  event.preventDefault();
+  if (!url.startsWith(APP_PROTOCOL + '://')) return;
+  void handleSlackOAuthCallback(url);
+});
+
+async function handleSlackOAuthCallback(url: string): Promise<void> {
+  let parsed: URL;
+  try {
+    parsed = new URL(url);
+  } catch {
+    return;
+  }
+  if (parsed.host !== 'slack-oauth-callback') return;
+  const code = parsed.searchParams.get('code');
+  const state = parsed.searchParams.get('state');
+  if (!code || !state) {
+    notifyOauthComplete({ success: false, error: 'Missing code or state in callback URL' });
+    return;
+  }
+  try {
+    const res = await fetch(`${BACKEND_BASE}/api/slack/oauth/callback`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ code, state }),
+    });
+    if (!res.ok) {
+      const text = await res.text().catch(() => '');
+      notifyOauthComplete({ success: false, error: `backend ${res.status}: ${text}` });
+      return;
+    }
+    notifyOauthComplete({ success: true });
+  } catch (e) {
+    notifyOauthComplete({ success: false, error: e instanceof Error ? e.message : String(e) });
+  }
+}
+
+function notifyOauthComplete(payload: { success: boolean; error?: string }): void {
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.send('slack:oauth-complete', payload);
+  }
+}
 
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') {

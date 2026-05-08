@@ -453,6 +453,15 @@ export type SuggestedReviewerDto = {
   isCommenter: boolean;
 };
 
+/** Slack workspace connection status returned by GET /api/slack/connection.
+ *  When {@code connected} is false, every other field is absent. */
+export type SlackConnectionDto = {
+  connected: boolean;
+  teamId?: string;
+  teamName?: string;
+  authedUserId?: string;
+};
+
 /** Mirror of backend MyPrColumn enum slugs. The team kanban now
  *  categorizes server-side and paginates per column, so these slugs
  *  cross the wire as both query params and response keys. */
@@ -956,6 +965,21 @@ export type Bridge = {
    *  Powers the "Merged this week" stat on the team home page; the
    *  renderer is expected to wrap calls in a ~10-minute TTL cache. */
   countTeamMergedRecently: (id: number, days: number) => Promise<number>;
+  // Slack integration
+  /** Returns the Slack authorize URL the renderer should open in the
+   *  system browser. {@code configured} is false when the backend hasn't
+   *  been given SLACK_CLIENT_ID / SLACK_CLIENT_SECRET — in that case
+   *  {@code url} is omitted and the renderer should show a hint. */
+  getSlackAuthorizeUrl: () => Promise<{ configured: boolean; url?: string }>;
+  /** Connection-state snapshot. Cheap; backed by a credential lookup. */
+  getSlackConnection: () => Promise<SlackConnectionDto>;
+  disconnectSlack: () => Promise<void>;
+  /** Subscribes to OAuth-callback completions. Fires after Slack
+   *  redirects to bytequay://slack-oauth-callback and the backend has
+   *  exchanged the code. {@code success} is false when the exchange
+   *  errored (state mismatch, Slack-side rejection, network).
+   *  Returns a teardown that removes the listener. */
+  onSlackOauthComplete: (callback: (payload: { success: boolean; error?: string }) => void) => () => void;
   // Credentials vault
   listCredentials: (type?: CredentialType) => Promise<CredentialDto[]>;
   upsertCredential: (req: UpsertCredentialRequest) => Promise<CredentialDto>;

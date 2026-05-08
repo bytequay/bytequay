@@ -109,6 +109,37 @@
   font-weight: 600;
 }
 
+/* Connected variants — workspace header is no longer dimmed once we're
+   linked, the icon picks up the Slack-purple identity, and the help
+   block hosts a disconnect affordance. */
+.slack-ws-header--connected { opacity: 1; }
+.slack-ws-icon--connected {
+  background: linear-gradient(135deg, #4a154b, #350d36);
+  border: 0;
+  color: #fff;
+}
+.slack-ws-name--connected { color: var(--text-1); }
+
+.slack-disconnect-link {
+  appearance: none;
+  background: transparent;
+  border: 0;
+  font: inherit;
+  font-size: 11.5px;
+  color: var(--accent);
+  cursor: pointer;
+  padding: 4px 0 0;
+  margin-top: 8px;
+  display: block;
+}
+.slack-disconnect-link:hover { text-decoration: underline; }
+
+.slack-status {
+  font-size: 13px;
+  color: var(--text-3);
+  text-align: center;
+}
+
 /* Main pane — the connect card. */
 .slack-main {
   display: flex;

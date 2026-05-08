@@ -32,6 +32,7 @@ import type {
   PullRequestDto,
   RecentEventDto,
   ReviewSkillDto,
+  SlackConnectionDto,
   SuggestedReviewerDto,
   SyncSettingsDto,
   TeamDto,
@@ -328,6 +329,16 @@ const bridge: Bridge = {
     const listener = (_event: unknown, s: InAppNavState) => callback(s);
     ipcRenderer.on('inapp:nav-state', listener);
     return () => ipcRenderer.removeListener('inapp:nav-state', listener);
+  },
+  getSlackAuthorizeUrl: (): Promise<{ configured: boolean; url?: string }> =>
+    ipcRenderer.invoke('slack:authorizeUrl'),
+  getSlackConnection: (): Promise<SlackConnectionDto> =>
+    ipcRenderer.invoke('slack:connection'),
+  disconnectSlack: (): Promise<void> => ipcRenderer.invoke('slack:disconnect'),
+  onSlackOauthComplete: (callback: (payload: { success: boolean; error?: string }) => void) => {
+    const listener = (_event: unknown, payload: { success: boolean; error?: string }) => callback(payload);
+    ipcRenderer.on('slack:oauth-complete', listener);
+    return () => ipcRenderer.removeListener('slack:oauth-complete', listener);
   },
 };
 

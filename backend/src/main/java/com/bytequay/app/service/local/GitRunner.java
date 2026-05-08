@@ -17,12 +17,14 @@ import com.google.common.collect.ImmutableList;
 import org.springframework.stereotype.Component;
 
 import java.io.IOException;
+import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
 
 import static java.util.Objects.requireNonNull;
@@ -226,11 +228,18 @@ public class GitRunner
     }
 
     /**
-     * Returns the unified diff between {@code baseRef} and {@code headRef}
-     * ({@code git diff base..head}), truncated to {@code maxBytes} so a
-     * giant PR doesn't blow up the AI prompt budget. Truncation is
-     * indicated by an inline marker so the caller (and the model) knows
-     * the data is incomplete.
+     * Returns the unified diff for what {@code headRef} adds on top of
+     * its merge-base with {@code baseRef} — same set of changes
+     * GitHub renders on a PR ({@code git diff base...head}, three
+     * dots). Truncated to {@code maxBytes} so a giant PR doesn't
+     * blow up the AI prompt budget; truncation is indicated by an
+     * inline marker so the caller (and the model) knows the data is
+     * incomplete.
+     *
+     * <p>Long-running branches against a stale local base would
+     * produce huge two-dot diffs (mainline drift dominates the real
+     * changes); three-dot scopes the diff to the branch's commits
+     * and matches what the user expects from "the PR diff".
      */
     public String diff(Path workingDir, String baseRef, String headRef, int maxBytes)
             throws IOException, InterruptedException
@@ -238,9 +247,9 @@ public class GitRunner
         requireNonNull(baseRef, "baseRef is null");
         requireNonNull(headRef, "headRef is null");
         GitResult result = run(
-                List.of("git", "diff", baseRef + ".." + headRef),
+                List.of("git", "diff", baseRef + "..." + headRef),
                 workingDir,
-                60);
+                180);
         result.requireSuccess();
         String stdout = result.stdout();
         if (maxBytes > 0 && stdout.length() > maxBytes) {
@@ -687,14 +696,55 @@ public class GitRunner
         // fail fast instead of hanging the request thread.
         pb.environment().put("GIT_TERMINAL_PROMPT", "0");
         Process process = pb.start();
+        // Drain stdout/stderr on background threads while git runs.
+        // Without this, a command that writes more than the pipe
+        // buffer (~64KB on macOS) before reading anything will block
+        // git on its next write — the parent isn't reading yet —
+        // and waitFor times out even though the work would have
+        // finished in milliseconds. `git diff` on a large branch
+        // hits this routinely. Virtual threads keep the cost
+        // negligible for the common small-output case.
+        Thread stdoutDrain = Thread.ofVirtual().start(
+                () -> drainSilently(process.getInputStream()));
+        Thread stderrDrain = Thread.ofVirtual().start(
+                () -> drainSilently(process.getErrorStream()));
         boolean finished = process.waitFor(timeoutSeconds, TimeUnit.SECONDS);
         if (!finished) {
             process.destroyForcibly();
+            stdoutDrain.interrupt();
+            stderrDrain.interrupt();
             throw new IOException("git " + args + " timed out after " + timeoutSeconds + "s");
         }
-        String stdout = new String(process.getInputStream().readAllBytes(), StandardCharsets.UTF_8);
-        String stderr = new String(process.getErrorStream().readAllBytes(), StandardCharsets.UTF_8);
-        return new GitResult(process.exitValue(), stdout, stderr, ImmutableList.copyOf(args));
+        // join() lets the drainers finish copying anything still in
+        // flight after git exited; bounded by 5s in case a drainer
+        // somehow gets stuck (shouldn't, but cheap insurance).
+        stdoutDrain.join(5_000);
+        stderrDrain.join(5_000);
+        String stdout = bufferedOutput.remove(stdoutDrain);
+        String stderr = bufferedOutput.remove(stderrDrain);
+        return new GitResult(
+                process.exitValue(),
+                stdout == null ? "" : stdout,
+                stderr == null ? "" : stderr,
+                ImmutableList.copyOf(args));
+    }
+
+    /** Per-thread capture of what a drainer read. ConcurrentHashMap
+     *  because the drainer thread writes the result and the caller
+     *  thread reads it after join — no shared mutability across
+     *  invocations since drainers are one-shot. */
+    private final ConcurrentHashMap<Thread, String> bufferedOutput = new ConcurrentHashMap<>();
+
+    private void drainSilently(InputStream in)
+    {
+        try (in) {
+            byte[] bytes = in.readAllBytes();
+            bufferedOutput.put(Thread.currentThread(), new String(bytes, StandardCharsets.UTF_8));
+        }
+        catch (IOException e) {
+            // Process killed or stream closed — leave the entry
+            // unset; run() treats absent as empty.
+        }
     }
 
     public record GitResult(int exitCode, String stdout, String stderr, List<String> args)

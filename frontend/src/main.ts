@@ -1218,6 +1218,19 @@ const url = new URL(`${BACKEND_BASE}/prs/comment`);
     return res.json();
   });
 
+  ipcMain.handle('repos:getLocalCommitDetail', async (
+    _event, owner: string, repo: string, sha: string,
+  ) => {
+    const res = await fetch(
+      `${BACKEND_BASE}/api/repos/local/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/commits/${encodeURIComponent(sha)}/detail`,
+    );
+    if (!res.ok) {
+      const body = await res.text().catch(() => '');
+      throw new Error(extractMessage(body) || `commit detail fetch failed (${res.status})`);
+    }
+    return res.json();
+  });
+
   ipcMain.handle('repos:listLocalCommitFiles', async (
     _event, owner: string, repo: string, sha: string,
   ) => {

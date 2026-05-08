@@ -768,6 +768,15 @@ export type LocalFileDiffDto = {
   truncated: boolean;
 };
 
+/** Subject + body of a single commit. Lazy-fetched when a commit is
+ *  selected in the Commits tab so the listCommits payload stays
+ *  small even on branches with long release-note style commits. */
+export type LocalCommitDetailDto = {
+  sha: string;
+  subject: string;
+  body: string;
+};
+
 /** Branch-point info for the Commits tab: sha = the merge-base of
  *  the active branch and base; base = the resolved base name (after
  *  origin/ fallback) for display. Both are null when there's no
@@ -920,6 +929,11 @@ export type Bridge = {
   listLocalCommits: (
     owner: string, repo: string, revision?: string, limit?: number,
   ) => Promise<LocalCommitDto[]>;
+  /** Subject + body of a single commit — feeds the patch-detail card
+   *  at the top of the Commits tab's middle pane. */
+  getLocalCommitDetail: (
+    owner: string, repo: string, sha: string,
+  ) => Promise<LocalCommitDetailDto>;
   /** Files touched by a single commit — middle pane of the Commits tab. */
   listLocalCommitFiles: (
     owner: string, repo: string, sha: string,

@@ -17,6 +17,7 @@ import com.bytequay.app.domain.CreatePullRequestCommand;
 import com.bytequay.app.domain.LocalActivityEntry;
 import com.bytequay.app.domain.LocalBranch;
 import com.bytequay.app.domain.LocalCommit;
+import com.bytequay.app.domain.LocalCommitDetail;
 import com.bytequay.app.domain.LocalCommitFile;
 import com.bytequay.app.domain.LocalFileDiff;
 import com.bytequay.app.domain.LocalMergeBase;
@@ -635,6 +636,22 @@ public class LocalRepoService
         String patch = gitRunner.commitFileDiff(path, sha, filePath, FILE_DIFF_MAX_BYTES);
         boolean truncated = patch.contains("(diff truncated at ");
         return new LocalFileDiff(filePath, patch, truncated);
+    }
+
+    /**
+     * Subject + body of one commit. Lazy-fetched when a commit is
+     * selected in the Commits tab so the listCommits response stays
+     * small. Throws on unresolvable shas instead of returning empty
+     * so the caller surfaces a clear error rather than a blank card.
+     */
+    public LocalCommitDetail commitDetail(String owner, String repo, String sha)
+            throws IOException, InterruptedException
+    {
+        Path path = clonePathOrThrow(owner, repo);
+        return gitRunner.commitDetail(path, sha)
+                .map(e -> new LocalCommitDetail(e.sha(), e.subject(), e.body()))
+                .orElseThrow(() -> new IllegalStateException(
+                        "Commit '" + sha + "' not found in this clone."));
     }
 
     /**

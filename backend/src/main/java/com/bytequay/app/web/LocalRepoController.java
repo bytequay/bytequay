@@ -16,6 +16,7 @@ package com.bytequay.app.web;
 import com.bytequay.app.domain.LocalActivityEntry;
 import com.bytequay.app.domain.LocalBranch;
 import com.bytequay.app.domain.LocalCommit;
+import com.bytequay.app.domain.LocalCommitDetail;
 import com.bytequay.app.domain.LocalCommitFile;
 import com.bytequay.app.domain.LocalFileDiff;
 import com.bytequay.app.domain.LocalMergeBase;
@@ -253,6 +254,36 @@ public class LocalRepoController
         catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE, "commit-files listing interrupted");
+        }
+    }
+
+    /**
+     * GET /api/repos/local/{owner}/{repo}/commits/{sha}/detail —
+     * subject + body of a single commit. Lazy-fetched when the user
+     * selects a commit in the Commits tab so the patch-detail card
+     * can show the full message.
+     */
+    @GetMapping("/{owner}/{repo}/commits/{sha}/detail")
+    public LocalCommitDetail commitDetail(
+            @PathVariable("owner") String owner,
+            @PathVariable("repo") String repo,
+            @PathVariable("sha") String sha)
+    {
+        try {
+            return localRepoService.commitDetail(owner, repo, sha);
+        }
+        catch (IllegalStateException e) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, e.getMessage());
+        }
+        catch (GitRunner.GitCommandException e) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, e.stderr().strip());
+        }
+        catch (IOException e) {
+            throw new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR, e.getMessage());
+        }
+        catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE, "commit-detail fetch interrupted");
         }
     }
 

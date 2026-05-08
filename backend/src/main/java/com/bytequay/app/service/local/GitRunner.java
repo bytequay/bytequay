@@ -481,6 +481,42 @@ public class GitRunner
      * place a "branched from <base>" divider after the matching row in
      * the per-branch commit list.
      */
+    /**
+     * Subject + body of one commit ({@code git log -1 sha}). Used by
+     * the Commits-tab patch-detail card; kept off the listCommits
+     * response so a 100-row commit list doesn't pay for the body
+     * text on every branch load. Returns {@link Optional#empty()}
+     * when the sha doesn't resolve.
+     *
+     * <p>Output is one record using {@link #US_SEP} between subject
+     * and body — letting body contain anything except NUL.
+     */
+    public Optional<CommitDetailEntry> commitDetail(Path workingDir, String sha)
+            throws IOException, InterruptedException
+    {
+        requireNonNull(sha, "sha is null");
+        String fmt = "%H" + US_SEP + "%s" + US_SEP + "%b";
+        GitResult result = run(
+                List.of("git", "log", "-1", "-z", "--pretty=format:" + fmt, sha),
+                workingDir,
+                15);
+        if (result.exitCode() != 0) {
+            return Optional.empty();
+        }
+        String stdout = result.stdout();
+        // -z on -1 still emits a trailing NUL; strip it before splitting.
+        if (stdout.endsWith(NUL_SEP)) {
+            stdout = stdout.substring(0, stdout.length() - 1);
+        }
+        String[] parts = stdout.split(US_SEP, -1);
+        if (parts.length < 3) {
+            return Optional.empty();
+        }
+        return Optional.of(new CommitDetailEntry(parts[0], parts[1], parts[2]));
+    }
+
+    public record CommitDetailEntry(String sha, String subject, String body) {}
+
     public Optional<String> mergeBase(Path workingDir, String branch, String base)
             throws IOException, InterruptedException
     {

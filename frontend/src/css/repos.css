@@ -1525,6 +1525,50 @@
   padding: 0 4px;
 }
 
+/* Patch-detail card — single-commit mode only. Sits at the top of
+   the middle pane (above the files-changed list) and shows subject
+   + full message body. Per docs/mockups/design/local-repo/
+   code-diff-v3.png. */
+.patch-detail-card {
+  padding: 12px 14px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-elevated);
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  flex: 0 0 auto;
+}
+.patch-detail-card__subject {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-1);
+  line-height: 1.35;
+}
+.patch-detail-card__body {
+  margin: 0;
+  font-family: inherit;
+  font-size: 12px;
+  color: var(--text-3);
+  line-height: 1.5;
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 8em;
+  overflow: hidden;
+}
+.patch-detail-card__fold {
+  appearance: none;
+  align-self: flex-start;
+  background: transparent;
+  border: 0;
+  padding: 0;
+  font-size: 11px;
+  color: var(--accent);
+  cursor: pointer;
+}
+.patch-detail-card__fold:hover {
+  text-decoration: underline;
+}
+
 /* Selection summary bar above the files pane. Mirrors the PR diff
    viewer's commits-pill chrome (see CommitsSelector.tsx) so the
    single-vs-multi selection state reads the same in both places. */

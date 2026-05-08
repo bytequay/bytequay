@@ -12,7 +12,7 @@
  * limitations under the License.
  */
 import { Fragment, useEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type MouseEvent as ReactMouseEvent } from 'react';
-import type { LocalActivityEntryDto, LocalBranchDto, LocalCommitDto, LocalCommitFileDto, LocalFileDiffDto, LocalMergeBaseDto, LocalRepoStatusDto } from '../types';
+import type { LocalActivityEntryDto, LocalBranchDto, LocalCommitDetailDto, LocalCommitDto, LocalCommitFileDto, LocalFileDiffDto, LocalMergeBaseDto, LocalRepoStatusDto } from '../types';
 import LogoLoading from '../LogoLoading';
 import { formatRelativeTime } from '../pr/utils';
 import { DiffFileTreePane } from '../diff/DiffFileTreePane';
@@ -942,6 +942,11 @@ function CommitsTab({
   const [diffError, setDiffError] = useState<string | null>(null);
   const [collapsedDirs, setCollapsedDirs] = useState<ReadonlySet<string>>(new Set());
   const [mergeBase, setMergeBase] = useState<LocalMergeBaseDto | null>(null);
+  // Lazy-fetched subject + body for the patch-detail card. Refreshed
+  // whenever the single-selected commit changes; cleared when the
+  // user moves into multi-select (the card is only meaningful for
+  // a single commit, the multi-select chip takes its slot instead).
+  const [commitDetail, setCommitDetail] = useState<LocalCommitDetailDto | null>(null);
   // User-resizable column widths. Loaded once from localStorage so the
   // user's last layout sticks across navigations.
   const [leftWidth, setLeftWidth] = useState<number>(() => {
@@ -1082,6 +1087,22 @@ function CommitsTab({
     return () => { cancelled = true; };
   }, [owner, repo, oldestSelectedSha, newestSelectedSha, selectedFile]);
 
+  // Patch-detail card data — only fetched in single-select mode.
+  // Multi-select shows the union-diff chip in the same slot.
+  const detailSha = selectedShas.size === 1 ? newestSelectedSha : null;
+  useEffect(() => {
+    if (detailSha == null) {
+      setCommitDetail(null);
+      return;
+    }
+    let cancelled = false;
+    setCommitDetail(null);
+    window.bridge.getLocalCommitDetail(owner, repo, detailSha)
+      .then(d => { if (!cancelled) setCommitDetail(d); })
+      .catch(() => { /* card is best-effort — don't surface errors */ });
+    return () => { cancelled = true; };
+  }, [owner, repo, detailSha]);
+
   if (commitsError) {
     return (
       <div className="local-repo-page__error">
@@ -1143,12 +1164,21 @@ function CommitsTab({
         </aside>
         <ResizeHandle onResize={handleLeftResize} ariaLabel="Resize commits panel" />
         <aside className="commits-pane__files">
-          <div className="commits-pane__section-header">Files changed</div>
-          <CommitsSelectionSummary
-            commits={commits}
-            selected={selectedShas}
-            onClear={() => setSelectedShas(new Set([commits[0].sha]))}
-          />
+          {selectedShas.size > 1 ? (
+            <CommitsSelectionSummary
+              commits={commits}
+              selected={selectedShas}
+              onClear={() => setSelectedShas(new Set([commits[0].sha]))}
+            />
+          ) : (
+            <PatchDetailCard
+              commit={commits.find(c => selectedShas.has(c.sha)) ?? null}
+              detail={commitDetail}
+            />
+          )}
+          <div className="commits-pane__section-header">
+            Files changed{files != null && files.length > 0 ? ` (${files.length})` : ''}
+          </div>
           <DiffFileTreePane
             files={files}
             error={filesError}
@@ -1312,6 +1342,50 @@ function CommitsSelectionSummary({
       <button type="button" className="commits-selection-summary__clear" onClick={onClear}>
         Clear
       </button>
+    </div>
+  );
+}
+
+/** Patch-detail card — sits at the top of the middle pane in
+ *  single-commit mode and shows subject + full message body.
+ *  Per docs/mockups/design/local-repo/code-diff-v3.png. The body
+ *  is folded behind a "View full message" toggle when it's long
+ *  enough that the file list below would otherwise scroll out of
+ *  reach. Detail is lazy-fetched, so we show subject-only chrome
+ *  on the first paint while it lands. */
+function PatchDetailCard({
+  commit,
+  detail,
+}: {
+  commit: LocalCommitDto | null;
+  detail: LocalCommitDetailDto | null;
+}) {
+  const [expanded, setExpanded] = useState(false);
+  if (!commit) return null;
+  // Prefer detail.subject when it has loaded — handles the rare case
+  // where the listCommits row's subject differs from `git log -1 %s`
+  // on the same sha (shouldn't happen normally; defensive). Fall back
+  // to the row's subject so the card shows something immediately.
+  const subject = detail?.subject ?? commit.subject;
+  const body = (detail?.body ?? '').trimEnd();
+  const FOLD_THRESHOLD = 400;
+  const long = body.length > FOLD_THRESHOLD;
+  const shown = !long || expanded ? body : body.slice(0, FOLD_THRESHOLD).replace(/\n[^\n]*$/, '') + '…';
+  return (
+    <div className="patch-detail-card">
+      <div className="patch-detail-card__subject">{subject}</div>
+      {body && (
+        <pre className="patch-detail-card__body">{shown}</pre>
+      )}
+      {long && (
+        <button
+          type="button"
+          className="patch-detail-card__fold"
+          onClick={() => setExpanded(e => !e)}
+        >
+          {expanded ? 'Show less' : 'View full message'}
+        </button>
+      )}
     </div>
   );
 }

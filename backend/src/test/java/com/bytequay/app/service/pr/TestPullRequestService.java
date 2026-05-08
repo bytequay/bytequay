@@ -524,6 +524,72 @@ class TestPullRequestService
         verifyNoInteractions(detailInvalidator);
     }
 
+    // ── structural mutation invalidation ──────────────────────────────────────
+
+    @Test
+    void testSetPullRequestDraftInvalidatesDetail()
+    {
+        pullRequestService.setPullRequestDraft("pat", "owner/repo", 7, true);
+
+        verify(gitHub).setPullRequestDraft(eq("pat"), eq(PullRequestRef.of("owner", "repo", 7)), eq(true));
+        verify(detailInvalidator).invalidate("owner/repo", 7);
+    }
+
+    @Test
+    void testAddRequestedReviewerInvalidatesDetail()
+    {
+        pullRequestService.addRequestedReviewer("pat", "owner/repo", 7, " alice ");
+
+        verify(gitHub).requestReviewers(eq("pat"), eq(PullRequestRef.of("owner", "repo", 7)), any());
+        verify(detailInvalidator).invalidate("owner/repo", 7);
+    }
+
+    @Test
+    void testRemoveRequestedReviewerInvalidatesDetail()
+    {
+        pullRequestService.removeRequestedReviewer("pat", "owner/repo", 7, "alice");
+
+        verify(gitHub).removeRequestedReviewers(eq("pat"), eq(PullRequestRef.of("owner", "repo", 7)), any());
+        verify(detailInvalidator).invalidate("owner/repo", 7);
+    }
+
+    @Test
+    void testCreateInlineReviewCommentInvalidatesDetail()
+    {
+        pullRequestService.createInlineReviewComment(
+                "pat",
+                "owner/repo",
+                7,
+                "please fix",
+                "src/Main.java",
+                12,
+                "RIGHT",
+                "abc123",
+                null,
+                null);
+
+        verify(gitHub).createInlineReviewComment(
+                "pat",
+                PullRequestRef.of("owner", "repo", 7),
+                "please fix",
+                "src/Main.java",
+                12,
+                "RIGHT",
+                "abc123",
+                null,
+                null);
+        verify(detailInvalidator).invalidate("owner/repo", 7);
+    }
+
+    @Test
+    void testUpdatePullRequestBodyInvalidatesDetail()
+    {
+        pullRequestService.updatePullRequestBody("pat", "owner/repo", 7, "new body");
+
+        verify(gitHub).updatePullRequest(eq("pat"), eq(PullRequestRef.of("owner", "repo", 7)), any(UpdatePullRequestCommand.class));
+        verify(detailInvalidator).invalidate("owner/repo", 7);
+    }
+
     // ── approvePullRequest / mergePullRequest / markHandled / reopen ───────────
 
     @Test
@@ -533,6 +599,7 @@ class TestPullRequestService
 
         verify(gitHub).createReview(eq("pat"), any(PullRequestRef.class), any());
         verify(viewStateStore).markReviewed(99L, HandledAction.APPROVED);
+        verify(detailInvalidator).invalidate("owner/repo", 7);
     }
 
     @Test
@@ -554,6 +621,7 @@ class TestPullRequestService
         assertThat(matcher.captured).isNotNull();
         assertThat(matcher.captured.mergeMethod()).isEqualTo("rebase");
         verify(viewStateStore).markReviewed(99L, HandledAction.MERGED);
+        verify(detailInvalidator).invalidate("owner/repo", 7);
     }
 
     @Test

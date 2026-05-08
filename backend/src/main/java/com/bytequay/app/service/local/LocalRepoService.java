@@ -26,6 +26,7 @@ import com.bytequay.app.repository.PullRequestRepository;
 import com.bytequay.app.repository.PullRequestStore;
 import com.bytequay.app.repository.WatchedRepoStore;
 import com.bytequay.app.service.ai.LlmReviewerRegistry;
+import com.google.common.collect.ImmutableList;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
@@ -382,6 +383,23 @@ public class LocalRepoService
     }
 
     /**
+     * Materializes a remote-only branch into a local tracking branch
+     * and switches HEAD to it. Used for IN_REVIEW phantoms whose head
+     * ref isn't checked out in this clone — typically a branch the
+     * user pushed from another machine.
+     */
+    public LocalRepoStatus checkoutRemoteBranch(String owner, String repo, String branchName)
+            throws IOException, InterruptedException
+    {
+        Path path = clonePathOrThrow(owner, repo);
+        if (branchName == null || branchName.isBlank()) {
+            throw new IllegalArgumentException("Branch name is required");
+        }
+        gitRunner.checkoutRemoteBranch(path, branchName.trim());
+        return statusOf(refreshWatchedRepo(owner, repo));
+    }
+
+    /**
      * Deletes the named local branches via {@code git branch -D},
      * optionally also pushing a delete to the remote
      * ({@code git push <remote> --delete <branch>}) for any branch
@@ -477,9 +495,43 @@ public class LocalRepoService
         // has no HEAD ref (shallow / locally-created repo) — every
         // branch's commitCount stays null in that case.
         Optional<String> defaultBranch = gitRunner.defaultBranch(path);
-        return gitRunner.listBranches(path).stream()
+        List<LocalBranch> local = gitRunner.listBranches(path).stream()
                 .map(ref -> toLocalBranch(ref, prByHeadRef, path, defaultBranch))
                 .collect(toImmutableList());
+        // Synthesize entries for PRs whose head ref isn't checked out
+        // locally — typically a branch the user pushed from another
+        // machine. Without this, IN_REVIEW would silently miss PRs
+        // until the user manually `git switch`es each one.
+        Set<String> localNames = local.stream()
+                .map(LocalBranch::name)
+                .collect(Collectors.toUnmodifiableSet());
+        List<LocalBranch> remoteOnly = prByHeadRef.entrySet().stream()
+                .filter(e -> !localNames.contains(e.getKey()))
+                .map(e -> remoteOnlyBranch(e.getKey(), e.getValue()))
+                .collect(toImmutableList());
+        return ImmutableList.<LocalBranch>builder()
+                .addAll(local)
+                .addAll(remoteOnly)
+                .build();
+    }
+
+    /** Phantom IN_REVIEW entry for a PR whose head branch hasn't been
+     *  checked out locally. ahead/behind/cleanup all stay null —
+     *  there's no local history to compare. */
+    private static LocalBranch remoteOnlyBranch(String name, int prNumber)
+    {
+        return new LocalBranch(
+                name,
+                /* isCurrent */ false,
+                /* lastCommitAt */ null,
+                /* hasUpstream */ false,
+                /* ahead */ null,
+                /* behind */ null,
+                /* linkedPrNumber */ prNumber,
+                /* cleanupReason */ null,
+                /* commitCount */ null,
+                /* rebasePreview */ null,
+                /* remoteOnly */ true);
     }
 
     /**
@@ -817,7 +869,8 @@ public class LocalRepoService
         LocalBranch.RebasePreview rebasePreview = resolveRebasePreview(
                 workingDir, ref, hasUpstream, upstreamGone, behind, commitCount, defaultBranch);
         return new LocalBranch(ref.name(), ref.isCurrent(), when, hasUpstream,
-                ahead, behind, linkedPrNumber, cleanupReason, commitCount, rebasePreview);
+                ahead, behind, linkedPrNumber, cleanupReason, commitCount, rebasePreview,
+                /* remoteOnly */ false);
     }
 
     /**

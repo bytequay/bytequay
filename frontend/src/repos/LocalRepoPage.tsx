@@ -76,7 +76,7 @@ function LocalRepoPage({ owner, repo }: Props) {
   // without freezing the whole bar; the action bar disables all
   // buttons while any one is running so we don't fire concurrent
   // git ops in the same working tree.
-  const [actionState, setActionState] = useState<'idle' | 'fetching' | 'pulling' | 'pushing' | 'branching' | 'switching' | 'creating-pr'>('idle');
+  const [actionState, setActionState] = useState<'idle' | 'fetching' | 'pulling' | 'pushing' | 'branching' | 'switching' | 'creating-pr' | 'checking-out'>('idle');
   const [actionError, setActionError] = useState<string | null>(null);
   // Set when a push failed in a way that suggests force-with-lease
   // would resolve it (non-fast-forward / "updates were rejected").
@@ -186,6 +186,21 @@ function LocalRepoPage({ owner, repo }: Props) {
     try {
       await switchIfNeeded();
       const fresh = await window.bridge.pullLocalRepo(owner, repo);
+      setStatus(fresh);
+      const fresher = await window.bridge.listLocalBranches(owner, repo);
+      setBranches(fresher);
+    } catch (e) {
+      setActionError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setActionState('idle');
+    }
+  };
+
+  const runCheckoutRemote = async (name: string) => {
+    setActionState('checking-out');
+    setActionError(null);
+    try {
+      const fresh = await window.bridge.checkoutRemoteBranch(owner, repo, name);
       setStatus(fresh);
       const fresher = await window.bridge.listLocalBranches(owner, repo);
       setBranches(fresher);
@@ -710,6 +725,9 @@ function LocalRepoPage({ owner, repo }: Props) {
                     : undefined}
                   onCreatePrForBranch={col.key === 'READY_FOR_PR'
                     ? (name) => openCreatePrForBranch(name)
+                    : undefined}
+                  onCheckoutRemote={col.key === 'IN_REVIEW'
+                    ? (name) => { void runCheckoutRemote(name); }
                     : undefined}
                 />
               ))}
@@ -1295,6 +1313,7 @@ function BranchColumn({
   onDeleteBranch,
   onPushBranch,
   onCreatePrForBranch,
+  onCheckoutRemote,
   expanded,
   collapsedLimit,
   onToggleExpanded,
@@ -1329,6 +1348,9 @@ function BranchColumn({
    *  Click pre-selects the card's branch and opens the Create PR
    *  modal. */
   onCreatePrForBranch?: (name: string) => void;
+  /** Per-card "Check out" — only wired in IN_REVIEW for remote-only
+   *  cards. Materializes the branch from origin and switches HEAD. */
+  onCheckoutRemote?: (name: string) => void;
   /** True when the user has expanded this column past the collapsed
    *  cap. False shows only the first {@link collapsedLimit} cards
    *  with a "Show N more" toggle below. */
@@ -1363,9 +1385,10 @@ function BranchColumn({
                   focused={focusedBranch === b.name}
                   isCurrentHead={currentBranch === b.name}
                   onSelectForAction={onSelectForAction}
-                  onDelete={onDeleteBranch && !b.isCurrent ? () => onDeleteBranch(b) : undefined}
+                  onDelete={onDeleteBranch && !b.isCurrent && !b.remoteOnly ? () => onDeleteBranch(b) : undefined}
                   onPush={onPushBranch && !b.isCurrent ? () => onPushBranch(b.name) : undefined}
                   onCreatePr={onCreatePrForBranch && !b.isCurrent ? () => onCreatePrForBranch(b.name) : undefined}
+                  onCheckout={onCheckoutRemote && b.remoteOnly ? () => onCheckoutRemote(b.name) : undefined}
                 />
               ))}
               {(hidden > 0 || expanded) && onToggleExpanded && (
@@ -1402,6 +1425,7 @@ function BranchCard({
   onDelete,
   onPush,
   onCreatePr,
+  onCheckout,
 }: {
   branch: LocalBranchDto;
   column: Column;
@@ -1421,6 +1445,9 @@ function BranchCard({
   onPush?: () => void;
   /** Per-card primary "Create PR ↗" — only on READY FOR PR cards. */
   onCreatePr?: () => void;
+  /** Per-card primary "Check out" — only on remote-only IN_REVIEW
+   *  cards. Fetches the branch from origin and switches HEAD. */
+  onCheckout?: () => void;
 }) {
   const selectable = onSelectForAction !== undefined;
   const cls = [
@@ -1484,7 +1511,13 @@ function BranchCard({
         )}
       </header>
       <div className="branch-card__meta">
-        {branch.lastCommitAt && (
+        {branch.remoteOnly && (
+          <span className="branch-card__remote-only"
+                title="A PR exists for this branch but it isn't checked out in this clone yet">
+            Remote only · not checked out
+          </span>
+        )}
+        {!branch.remoteOnly && branch.lastCommitAt && (
           <span title={branch.lastCommitAt}>
             {formatRelativeTime(branch.lastCommitAt)}
           </span>
@@ -1537,7 +1570,7 @@ function BranchCard({
             ? rebase unknown
           </span>
         )}
-        {!branch.hasUpstream && !branch.cleanupReason && (
+        {!branch.hasUpstream && !branch.cleanupReason && !branch.remoteOnly && (
           <>
             <span aria-hidden="true">·</span>
             <span className="branch-card__no-upstream">never pushed</span>
@@ -1549,7 +1582,19 @@ function BranchCard({
           </span>
         )}
       </div>
-      {(onPush || onCreatePr || onSwitch || onDelete) && !branch.isCurrent && (
+      {branch.remoteOnly && onCheckout && (
+        <div className="branch-card__foot">
+          <button
+            type="button"
+            className="branch-card__btn branch-card__btn--cta"
+            onClick={(e) => { e.stopPropagation(); onCheckout(); }}
+            title={`Fetch ${branch.name} from origin and switch HEAD to it`}
+          >
+            ↓ Check out
+          </button>
+        </div>
+      )}
+      {!branch.remoteOnly && (onPush || onCreatePr || onSwitch || onDelete) && !branch.isCurrent && (
         <div className="branch-card__foot">
           {onPush && (
             <button

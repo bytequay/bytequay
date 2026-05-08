@@ -1147,6 +1147,24 @@ const url = new URL(`${BACKEND_BASE}/prs/comment`);
     return res.json();
   });
 
+  ipcMain.handle('repos:checkoutRemoteBranch', async (
+    _event, owner: string, repo: string, name: string,
+  ) => {
+    const res = await fetch(
+      `${BACKEND_BASE}/api/repos/local/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/branches/checkout-remote`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name }),
+      },
+    );
+    if (!res.ok) {
+      const body = await res.text().catch(() => '');
+      throw new Error(extractMessage(body) || `checkout failed (${res.status})`);
+    }
+    return res.json();
+  });
+
   ipcMain.handle('repos:createLocalBranch', async (
     _event, owner: string, repo: string, name: string, base?: string,
   ) => {

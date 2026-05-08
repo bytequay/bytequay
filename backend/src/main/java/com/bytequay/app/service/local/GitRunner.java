@@ -174,6 +174,24 @@ public class GitRunner
     }
 
     /**
+     * Materializes a branch the user has on a remote but not in the
+     * local clone — fetches the ref from origin, then runs
+     * {@code git switch} which auto-creates a tracking branch when
+     * exactly one remote-tracking ref matches. Used when the user
+     * picks an IN_REVIEW PR whose head branch hasn't been checked
+     * out locally (e.g. they pushed it from another machine).
+     */
+    public void checkoutRemoteBranch(Path workingDir, String branchName)
+            throws IOException, InterruptedException
+    {
+        requireNonNull(branchName, "branchName is null");
+        // 5-minute fetch cap — covers slow networks without hanging
+        // the request thread indefinitely.
+        run(List.of("git", "fetch", "origin", branchName), workingDir, 300).requireSuccess();
+        run(List.of("git", "switch", branchName), workingDir).requireSuccess();
+    }
+
+    /**
      * Deletes the named local branches in a single {@code git branch
      * -D} invocation. {@code -D} is the unconditional form (no merged
      * check) — the cleanup column already encodes the safety filter

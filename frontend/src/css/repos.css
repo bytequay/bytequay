@@ -1153,6 +1153,14 @@
 .branch-card__commits {
   color: var(--text-2);
 }
+/* Remote-only IN_REVIEW phantoms — italicized hint that this card
+   represents a PR's head branch the user hasn't checked out
+   locally. Same italic treatment as never-pushed for visual
+   consistency. */
+.branch-card__remote-only {
+  font-style: italic;
+  color: var(--text-3);
+}
 /* Rebase-status pill in the meta line. Variants tint by outcome:
    blue for fast-forward (no rebase needed), green for clean rebase,
    amber for conflicts, neutral for unknown. */

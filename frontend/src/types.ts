@@ -727,6 +727,11 @@ export type LocalBranchDto = {
    *  (upstream when behind, default branch otherwise). Null when no
    *  rebase is meaningful for this branch's state. */
   rebasePreview: 'CLEAN' | 'CONFLICTS' | 'UNKNOWN' | null;
+  /** True for synthesized IN_REVIEW entries that mirror an open PR
+   *  whose head branch isn't checked out in this clone (typically a
+   *  branch the user pushed from another machine). The card surfaces
+   *  a Check-out CTA instead of the usual action set. */
+  remoteOnly: boolean;
 };
 
 export type LocalCommitDto = {
@@ -918,6 +923,11 @@ export type Bridge = {
    *  working tree has conflicting uncommitted changes — git's
    *  stderr surfaces inline so the user can stash or commit. */
   switchLocalBranch: (
+    owner: string, repo: string, name: string,
+  ) => Promise<LocalRepoStatusDto>;
+  /** Fetches a branch from origin then switches to it. Backs the
+   *  Check-out action on remote-only IN_REVIEW cards. */
+  checkoutRemoteBranch: (
     owner: string, repo: string, name: string,
   ) => Promise<LocalRepoStatusDto>;
   /** Opens a pull request on github.com against the watched repo,

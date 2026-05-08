@@ -55,7 +55,13 @@ public record LocalBranch(
          *  target (upstream tracking ref when present, else the default
          *  branch). Null when no rebase is meaningful (no behind /
          *  no unique commits) or the preview couldn't run. */
-        RebasePreview rebasePreview)
+        RebasePreview rebasePreview,
+        /** True for synthesized entries that mirror an open PR whose
+         *  head branch isn't checked out in this clone (typically a
+         *  branch the user pushed from another machine). The card
+         *  surfaces a Check-out action; ahead/behind/cleanup fields
+         *  are all null because we have no local history to compare. */
+        boolean remoteOnly)
 {
     public enum Column
     {

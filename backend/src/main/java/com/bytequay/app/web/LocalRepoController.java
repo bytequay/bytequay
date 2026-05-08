@@ -349,6 +349,25 @@ public class LocalRepoController
         return runGitOperation(() -> localRepoService.switchBranch(owner, repo, body.name()));
     }
 
+    /**
+     * POST /api/repos/local/{owner}/{repo}/branches/checkout-remote —
+     * fetches a branch from origin and switches to it. Used by
+     * IN_REVIEW phantom cards to materialize a PR's head branch
+     * locally on demand. 409 surfaces git's stderr (no such ref on
+     * origin, dirty tree, etc.) so the modal can show it inline.
+     */
+    @PostMapping("/{owner}/{repo}/branches/checkout-remote")
+    public LocalRepoStatus checkoutRemoteBranch(
+            @PathVariable("owner") String owner,
+            @PathVariable("repo") String repo,
+            @RequestBody SwitchBranchRequest body)
+    {
+        if (body == null || body.name() == null || body.name().isBlank()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "name is required");
+        }
+        return runGitOperation(() -> localRepoService.checkoutRemoteBranch(owner, repo, body.name()));
+    }
+
     private LocalRepoStatus runGitOperation(GitOp op)
     {
         try {

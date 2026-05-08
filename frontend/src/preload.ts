@@ -160,6 +160,8 @@ const bridge: Bridge = {
     ipcRenderer.invoke('repos:createLocalBranch', owner, repo, name, base),
   switchLocalBranch: (owner: string, repo: string, name: string) =>
     ipcRenderer.invoke('repos:switchLocalBranch', owner, repo, name),
+  checkoutRemoteBranch: (owner: string, repo: string, name: string) =>
+    ipcRenderer.invoke('repos:checkoutRemoteBranch', owner, repo, name),
   createLocalPullRequest: (
     owner: string, repo: string,
     payload: { title: string; body: string; base: string; draft: boolean },

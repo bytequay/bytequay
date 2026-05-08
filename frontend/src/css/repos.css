@@ -1143,6 +1143,11 @@
 .branch-card__no-upstream {
   font-style: italic;
 }
+/* "12 commits" — work-on-branch indicator. Tone-down vs ahead/behind
+   so it reads as supplementary context rather than an action signal. */
+.branch-card__commits {
+  color: var(--text-2);
+}
 /* Rebase-status pill in the meta line. Phase 1 only renders the
    "push fast-forwards" variant (computable from existing data);
    the clean-rebase / conflicts variants land in Phase 3. */

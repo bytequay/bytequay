@@ -45,7 +45,12 @@ public record LocalBranch(
         /** Non-null when this branch is a cleanup candidate — drives
          *  placement into CLEAN UP and authorizes the branch to be
          *  deleted via the bulk-delete flow. Null otherwise. */
-        CleanupReason cleanupReason)
+        CleanupReason cleanupReason,
+        /** Commits reachable from this branch but not from the repo's
+         *  default base — the size of the work that lives on this
+         *  branch. Null for the default branch itself, when the default
+         *  can't be resolved, or when rev-list failed. */
+        Integer commitCount)
 {
     public enum Column
     {

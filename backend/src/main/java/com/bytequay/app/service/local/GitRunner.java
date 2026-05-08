@@ -22,6 +22,7 @@ import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Optional;
 import java.util.concurrent.TimeUnit;
 
 import static java.util.Objects.requireNonNull;
@@ -332,6 +333,61 @@ public class GitRunner
 
     public record BranchRef(String name, String committerDate, String upstream,
                              String upstreamTrack, boolean isCurrent) {}
+
+    /**
+     * Returns the local clone's idea of the upstream's default branch,
+     * read from {@code refs/remotes/origin/HEAD}. Returns
+     * {@link Optional#empty()} when origin/HEAD isn't set — happens
+     * after a shallow clone or in repos created locally without an
+     * origin push.
+     */
+    public Optional<String> defaultBranch(Path workingDir)
+            throws IOException, InterruptedException
+    {
+        GitResult result = run(
+                List.of("git", "symbolic-ref", "--short", "refs/remotes/origin/HEAD"),
+                workingDir,
+                5);
+        if (result.exitCode() != 0) {
+            return Optional.empty();
+        }
+        // symbolic-ref --short returns "origin/main"; strip the remote
+        // prefix to get the bare branch name the user types.
+        String full = result.stdout().strip();
+        int slash = full.indexOf('/');
+        if (slash < 0 || slash == full.length() - 1) {
+            return Optional.empty();
+        }
+        return Optional.of(full.substring(slash + 1));
+    }
+
+    /**
+     * Counts commits reachable from {@code branch} that aren't
+     * reachable from {@code base} — the work unique to this branch.
+     * Same shape as the upstream "ahead" count, but vs the default
+     * branch instead of the tracking ref. Returns null when either
+     * ref is unresolvable so a missing default doesn't blow up the
+     * whole listBranches call.
+     */
+    public Integer commitCountUniqueTo(Path workingDir, String branch, String base)
+            throws IOException, InterruptedException
+    {
+        requireNonNull(branch, "branch is null");
+        requireNonNull(base, "base is null");
+        GitResult result = run(
+                List.of("git", "rev-list", "--count", branch, "^" + base),
+                workingDir,
+                15);
+        if (result.exitCode() != 0) {
+            return null;
+        }
+        try {
+            return Integer.parseInt(result.stdout().strip());
+        }
+        catch (NumberFormatException e) {
+            return null;
+        }
+    }
 
     /**
      * Walks {@code git log} on {@code revision} (or HEAD when null)

@@ -703,6 +703,11 @@ export type LocalBranchDto = {
   /** Non-null when the branch is a cleanup candidate — drives
    *  placement into CLEAN UP and authorizes server-side delete. */
   cleanupReason: 'REMOTE_GONE' | 'IDLE_NEVER_PUSHED' | null;
+  /** Commits unique to this branch vs the repo's default base — the
+   *  size of the work that lives on the branch. Null for the default
+   *  branch itself, when origin/HEAD isn't set, or when rev-list
+   *  failed. */
+  commitCount: number | null;
 };
 
 export type LocalCommitDto = {

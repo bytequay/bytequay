@@ -466,8 +466,13 @@ public class LocalRepoService
         // for repos with hundreds of refs.
         Map<String, Integer> prByHeadRef = prDetailStore
                 .openPrNumbersByHeadRef(owner + "/" + repo);
+        // Default branch resolved once so the per-branch commit-count
+        // calls all measure against the same base. Empty when origin
+        // has no HEAD ref (shallow / locally-created repo) — every
+        // branch's commitCount stays null in that case.
+        Optional<String> defaultBranch = gitRunner.defaultBranch(path);
         return gitRunner.listBranches(path).stream()
-                .map(ref -> toLocalBranch(ref, prByHeadRef))
+                .map(ref -> toLocalBranch(ref, prByHeadRef, path, defaultBranch))
                 .collect(toImmutableList());
     }
 
@@ -739,9 +744,11 @@ public class LocalRepoService
      *  on doesn't end up flagged. */
     private static final Duration IDLE_THRESHOLD = Duration.ofDays(90);
 
-    private static LocalBranch toLocalBranch(
+    private LocalBranch toLocalBranch(
             GitRunner.BranchRef ref,
-            Map<String, Integer> prByHeadRef)
+            Map<String, Integer> prByHeadRef,
+            Path workingDir,
+            Optional<String> defaultBranch)
     {
         Instant when = parseIsoOrNull(ref.committerDate());
         boolean hasUpstream = !ref.upstream().isEmpty();
@@ -760,8 +767,34 @@ public class LocalRepoService
         // the column stays empty for those branches until the user
         // opens the PR (which triggers the detail sync).
         Integer linkedPrNumber = prByHeadRef.get(ref.name());
+        Integer commitCount = resolveCommitCount(workingDir, ref.name(), defaultBranch);
         return new LocalBranch(ref.name(), ref.isCurrent(), when, hasUpstream,
-                ahead, behind, linkedPrNumber, cleanupReason);
+                ahead, behind, linkedPrNumber, cleanupReason, commitCount);
+    }
+
+    /**
+     * Counts commits on {@code branch} that aren't on the repo's
+     * default base. Skips the default branch itself (vs-itself is
+     * always zero and reads as misleading) and swallows IO errors —
+     * a missing count just hides the chip rather than failing the
+     * whole branches list.
+     */
+    private Integer resolveCommitCount(
+            Path workingDir, String branch, Optional<String> defaultBranch)
+    {
+        if (defaultBranch.isEmpty() || defaultBranch.get().equals(branch)) {
+            return null;
+        }
+        try {
+            return gitRunner.commitCountUniqueTo(workingDir, branch, defaultBranch.get());
+        }
+        catch (IOException e) {
+            return null;
+        }
+        catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            return null;
+        }
     }
 
     static LocalBranch.CleanupReason classifyCleanup(

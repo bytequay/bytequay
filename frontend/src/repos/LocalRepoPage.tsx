@@ -1482,6 +1482,15 @@ function BranchCard({
             {formatRelativeTime(branch.lastCommitAt)}
           </span>
         )}
+        {branch.commitCount != null && branch.commitCount > 0 && (
+          <>
+            <span aria-hidden="true">·</span>
+            <span className="branch-card__commits"
+                  title="Commits on this branch that aren't on the default base">
+              {branch.commitCount === 1 ? '1 commit' : `${branch.commitCount} commits`}
+            </span>
+          </>
+        )}
         {branch.hasUpstream && (branch.ahead || branch.behind) && (
           <>
             <span aria-hidden="true">·</span>

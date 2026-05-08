@@ -546,9 +546,31 @@ public class LocalRepoService
             throws IOException, InterruptedException
     {
         Path path = clonePathOrThrow(owner, repo);
-        return gitRunner.listCommits(path, revision, limit).stream()
+        // Remote-only branches (PRs pushed from another machine, no
+        // local checkout) only exist at refs/remotes/origin/<name>;
+        // fall back so the Commits tab still works for them.
+        String resolved = resolveLogRevision(path, revision);
+        return gitRunner.listCommits(path, resolved, limit).stream()
                 .map(LocalRepoService::toLocalCommit)
                 .collect(toImmutableList());
+    }
+
+    private String resolveLogRevision(Path workingDir, String requested)
+            throws IOException, InterruptedException
+    {
+        if (requested == null || requested.isBlank()) {
+            return requested;
+        }
+        if (gitRunner.refExists(workingDir, requested)) {
+            return requested;
+        }
+        String originForm = "origin/" + requested;
+        if (gitRunner.refExists(workingDir, originForm)) {
+            return originForm;
+        }
+        throw new IllegalStateException(
+                "Couldn't resolve branch '" + requested + "' locally — fetch first, "
+                        + "or check out the branch.");
     }
 
     private static LocalCommit toLocalCommit(GitRunner.CommitEntry e)

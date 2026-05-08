@@ -931,7 +931,7 @@ export type Bridge = {
    *  diff between current HEAD and `base`. Returns the draft so the
    *  Open-PR modal can fill its inputs for the user to refine. */
   draftLocalPullRequest: (
-    owner: string, repo: string, base: string,
+    owner: string, repo: string, base: string, head: string,
   ) => Promise<{ title: string; description: string }>;
   /** Bulk-deletes cleanup-eligible branches. The backend re-validates
    *  the current branch (always refused) and returns the names that

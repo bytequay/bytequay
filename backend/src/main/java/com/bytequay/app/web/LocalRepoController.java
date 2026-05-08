@@ -434,7 +434,9 @@ public class LocalRepoController
     {
         try {
             return localRepoService.draftPullRequestWithAi(
-                    owner, repo, body == null ? null : body.base());
+                    owner, repo,
+                    body == null ? null : body.base(),
+                    body == null ? null : body.head());
         }
         catch (IllegalStateException e) {
             // Covers: HEAD detached, no diff, no API key configured,
@@ -503,5 +505,5 @@ public class LocalRepoController
     public record DeleteBranchesResponse(List<String> deleted) {}
     public record CreatePrRequest(String title, String body, String base, boolean draft) {}
     public record CreatePrResponse(int number, String htmlUrl) {}
-    public record DraftPrRequest(String base) {}
+    public record DraftPrRequest(String base, String head) {}
 }

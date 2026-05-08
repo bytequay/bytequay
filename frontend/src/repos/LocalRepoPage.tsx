@@ -980,15 +980,23 @@ function CreatePrModal({
   const [aiError, setAiError] = useState<string | null>(null);
   const submitDisabled = busy || aiBusy || !title.trim() || !base.trim();
 
+  // Empty diff is a confusing AI failure — catch the head==base case
+  // up front so the user sees a clear hint instead of "no diff".
+  const aiHeadEqualsBase = base.trim() === headBranch;
   const runAiDraft = async () => {
     if (!base.trim()) {
       setAiError('Set a base branch first — the AI needs the diff target.');
       return;
     }
+    if (aiHeadEqualsBase) {
+      setAiError(`Head and base are both '${headBranch}' — switch to a feature branch first.`);
+      return;
+    }
     setAiBusy(true);
     setAiError(null);
     try {
-      const draftResult = await window.bridge.draftLocalPullRequest(owner, repo, base.trim());
+      const draftResult = await window.bridge.draftLocalPullRequest(
+          owner, repo, base.trim(), headBranch);
       setTitle(draftResult.title);
       setBody(draftResult.description);
     } catch (e) {
@@ -1072,8 +1080,10 @@ function CreatePrModal({
             type="button"
             className="button button--secondary button--sm create-pr-modal__ai-btn"
             onClick={() => { void runAiDraft(); }}
-            disabled={busy || aiBusy || !base.trim()}
-            title="Diff HEAD against the base, send to your active LLM, fill the title and description"
+            disabled={busy || aiBusy || !base.trim() || aiHeadEqualsBase}
+            title={aiHeadEqualsBase
+              ? `Head and base both equal ${headBranch} — pick a different base or switch branches.`
+              : 'Diff HEAD against the base, send to your active LLM, fill the title and description'}
           >
             {aiBusy ? 'Drafting…' : '✨ Run AI'}
           </button>

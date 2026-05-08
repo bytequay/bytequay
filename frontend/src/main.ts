@@ -1091,14 +1091,14 @@ const url = new URL(`${BACKEND_BASE}/prs/comment`);
   });
 
   ipcMain.handle('repos:draftPullRequest', async (
-    _event, owner: string, repo: string, base: string,
+    _event, owner: string, repo: string, base: string, head: string,
   ): Promise<{ title: string; description: string }> => {
     const res = await fetch(
       `${BACKEND_BASE}/api/repos/local/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/pull-requests/draft`,
       {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ base }),
+        body: JSON.stringify({ base, head }),
       },
     );
     if (!res.ok) {

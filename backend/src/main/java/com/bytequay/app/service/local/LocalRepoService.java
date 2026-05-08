@@ -569,15 +569,27 @@ public class LocalRepoService
     public PullRequestDraft draftPullRequestWithAi(
             String owner,
             String repo,
-            String baseBranch)
+            String baseBranch,
+            String headBranchOverride)
             throws IOException, InterruptedException
     {
         Path path = clonePathOrThrow(owner, repo);
-        String headBranch = gitRunner.currentBranch(path);
+        // Frontend supplies the head when the user lazy-selected a
+        // branch via a card click — at that point HEAD on disk still
+        // points at the previously-checked-out branch. Falling back
+        // to currentBranch covers the legacy callers (and the case
+        // where no card was clicked).
+        String headBranch = headBranchOverride != null && !headBranchOverride.isBlank()
+                ? headBranchOverride.trim()
+                : gitRunner.currentBranch(path);
         if (headBranch == null) {
             throw new IllegalStateException("HEAD is detached — switch to a branch before drafting.");
         }
         String requestedBase = baseBranch != null && !baseBranch.isBlank() ? baseBranch.trim() : "main";
+        if (headBranch.equals(requestedBase)) {
+            throw new IllegalStateException(
+                    "Head and base are both '" + headBranch + "' — switch to a feature branch first.");
+        }
         String diffBase = resolveDiffBase(path, requestedBase);
         String diff = gitRunner.diff(path, diffBase, headBranch, DIFF_MAX_BYTES);
         String template = readPrTemplate(path).orElse(null);

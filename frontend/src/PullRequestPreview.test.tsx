@@ -15,6 +15,7 @@ import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import PullRequestPreview from './PullRequestPreview';
+import { invalidate, setCached } from './dataCache';
 import { clearCache } from './detailCache';
 import type {
   ActivityItemDto,
@@ -245,6 +246,8 @@ function bridgeStub(detail: PullRequestDetailDto) {
     addIssueCommentReaction: vi.fn().mockResolvedValue(undefined),
     addReviewCommentReaction: vi.fn().mockResolvedValue(undefined),
     replyToReviewThread: vi.fn().mockResolvedValue(undefined),
+    editIssueComment: vi.fn().mockResolvedValue(undefined),
+    editReviewComment: vi.fn().mockResolvedValue(undefined),
     commentPr: vi.fn().mockResolvedValue(undefined),
     updatePrBody: vi.fn().mockResolvedValue(undefined),
   };
@@ -255,6 +258,7 @@ let root: Root;
 
 beforeEach(() => {
   clearCache();
+  invalidate('home:profile');
   container = document.createElement('div');
   document.body.appendChild(container);
   root = createRoot(container);
@@ -417,6 +421,36 @@ describe('PullRequestPreview render smoke', () => {
     expect(bridge.fetchPullRequestDetail).toHaveBeenCalledTimes(1);
     expect(bridge.refreshPullRequestDetail).not.toHaveBeenCalled();
     expect(container.innerHTML).toContain('thanks for the fix');
+  });
+
+  it('keeps issue comment edits optimistic without fetching stale detail', async () => {
+    setCached('home:profile', { login: 'commenter' });
+    const bridge = await render(makeDetail());
+    const edit = container.querySelector<HTMLButtonElement>('.prc-comment-card .editable-comment-body__edit');
+    expect(edit).toBeTruthy();
+
+    await act(async () => {
+      edit!.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    });
+
+    const textarea = container.querySelector<HTMLTextAreaElement>('.editable-comment-body__textarea');
+    expect(textarea).toBeTruthy();
+    await act(async () => {
+      updateTextarea(textarea!, 'updated top-level comment');
+    });
+
+    const save = Array.from(container.querySelectorAll('button'))
+      .find(el => el.textContent === 'Save');
+    expect(save).toBeTruthy();
+    await act(async () => {
+      save!.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    });
+    await act(async () => { await Promise.resolve(); });
+
+    expect(bridge.editIssueComment).toHaveBeenCalledWith('trinodb/trino', 9001, 'updated top-level comment');
+    expect(bridge.fetchPullRequestDetail).toHaveBeenCalledTimes(1);
+    expect(bridge.refreshPullRequestDetail).not.toHaveBeenCalled();
+    expect(container.innerHTML).toContain('updated top-level comment');
   });
 
   it('keeps thread resolution optimistic without fetching stale detail', async () => {

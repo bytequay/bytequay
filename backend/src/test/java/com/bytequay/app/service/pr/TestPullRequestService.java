@@ -1166,6 +1166,59 @@ class TestPullRequestService
     }
 
     @Test
+    void testAddReviewCommentReactionBumpsCachedReactionCount()
+    {
+        PrReviewThreadMessage message = new PrReviewThreadMessage(
+                4357983764L,
+                null,
+                null,
+                "alice",
+                "please fix",
+                "src/Main.java",
+                12,
+                "RIGHT",
+                "@@",
+                "abc123",
+                Instant.parse("2026-05-08T00:00:00Z"),
+                new Reactions(2, 0, 0, 0, 0, 1, 0, 0),
+                false,
+                null,
+                null,
+                null,
+                null,
+                "MEMBER",
+                "thread-node-id",
+                false);
+        when(detailStore.findPrIdByReviewCommentId(4357983764L)).thenReturn(Optional.of(123L));
+        when(detailStore.find(123L)).thenReturn(Optional.of(new StoredPrDetail(
+                null,
+                ImmutableList.of(),
+                ImmutableList.of(),
+                ImmutableList.of(),
+                ImmutableList.of(),
+                ImmutableList.of(message),
+                ImmutableList.of())));
+
+        pullRequestService.addReviewCommentReaction("pat", "trinodb/trino", 4357983764L, "heart");
+
+        ArgumentCaptor<StoredPrDetail> captor = ArgumentCaptor.forClass(StoredPrDetail.class);
+        verify(detailStore).save(eq(123L), captor.capture());
+        Reactions patched = captor.getValue().reviewComments().get(0).reactions();
+        assertThat(patched.heart()).isEqualTo(2);
+        assertThat(patched.plusOne()).isEqualTo(2);
+    }
+
+    @Test
+    void testAddReviewCommentReactionSkipsCachePatchWhenCommentUnknown()
+    {
+        when(detailStore.findPrIdByReviewCommentId(4357983764L)).thenReturn(Optional.empty());
+
+        pullRequestService.addReviewCommentReaction("pat", "trinodb/trino", 4357983764L, "+1");
+
+        verify(detailStore, never()).save(anyLong(), any());
+    }
+
+    @Test
     void testAddIssueCommentReactionWithValidRepoForwardsToGitHub()
     {
         pullRequestService.addIssueCommentReaction("pat", "trinodb/trino", 4357983764L, "heart");

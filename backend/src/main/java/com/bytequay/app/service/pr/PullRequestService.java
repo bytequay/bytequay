@@ -590,6 +590,12 @@ public class PullRequestService
      * is GitHub's reaction-content string ("+1", "heart", "rocket", …).
      * Idempotent on GitHub — re-adding the same reaction returns 200 OK
      * with the existing reaction id.
+     *
+     * <p>After GitHub accepts the reaction we bump the matching
+     * reaction count on the cached review-thread message so the next
+     * {@code /prs/detail} read shows the new chip without waiting for
+     * the next background sync. Re-clicks bump the cache count again
+     * even though GitHub stays at +1; the next full sync reconciles.
      */
     public void addReviewCommentReaction(String pat, String repo, long commentId, String content)
     {
@@ -603,10 +609,62 @@ public class PullRequestService
         // number-must-be-positive invariant.
         RepoRef ref = parseRepoRef(repo);
         gitHub.addReviewCommentReaction(pat, ref.owner(), ref.repo(), commentId, content);
-        // The reaction lands on GitHub immediately. The local DB count
-        // updates on the next pulls/comments sync; the frontend
-        // optimistically bumps its in-memory tally so the user sees the
-        // new chip without waiting.
+        detailStore.findPrIdByReviewCommentId(commentId).ifPresent(prId ->
+                detailStore.find(prId).ifPresent(cached ->
+                        detailStore.save(prId, withReviewCommentReaction(cached, commentId, content))));
+    }
+
+    /**
+     * Returns a new {@link StoredPrDetail} with the matching review-thread
+     * message's reaction tally for {@code content} bumped by one. Other
+     * rows pass through unchanged.
+     */
+    private static StoredPrDetail withReviewCommentReaction(StoredPrDetail detail, long commentId, String content)
+    {
+        List<PrReviewThreadMessage> patched = detail.reviewComments().stream()
+                .map(m -> m.githubId() == commentId
+                        ? new PrReviewThreadMessage(
+                                m.githubId(), m.inReplyTo(), m.reviewId(), m.author(), m.body(),
+                                m.filePath(), m.lineNumber(), m.side(), m.diffHunk(), m.commitId(),
+                                m.createdAt(), bumpReaction(m.reactions(), content), m.outdated(),
+                                m.startLine(), m.startSide(), m.originalLine(), m.originalStartLine(),
+                                m.authorAssociation(), m.graphqlNodeId(), m.resolved())
+                        : m)
+                .collect(toImmutableList());
+        return new StoredPrDetail(
+                detail.raw(), detail.reviews(), detail.files(), detail.timeline(),
+                detail.checkRuns(), patched, detail.linkedIssues());
+    }
+
+    /**
+     * Returns a copy of {@code reactions} (or {@link Reactions#EMPTY} if
+     * null) with the count for {@code content} incremented by one. Any
+     * unrecognised content returns the input unchanged — the
+     * controller-side allowlist guarantees we never get there in
+     * practice, but we don't want a typo to corrupt a valid count.
+     */
+    private static Reactions bumpReaction(Reactions reactions, String content)
+    {
+        Reactions base = reactions == null ? Reactions.EMPTY : reactions;
+        return switch (content) {
+            case "+1" -> new Reactions(base.plusOne() + 1, base.minusOne(), base.laugh(), base.hooray(),
+                    base.confused(), base.heart(), base.rocket(), base.eyes());
+            case "-1" -> new Reactions(base.plusOne(), base.minusOne() + 1, base.laugh(), base.hooray(),
+                    base.confused(), base.heart(), base.rocket(), base.eyes());
+            case "laugh" -> new Reactions(base.plusOne(), base.minusOne(), base.laugh() + 1, base.hooray(),
+                    base.confused(), base.heart(), base.rocket(), base.eyes());
+            case "hooray" -> new Reactions(base.plusOne(), base.minusOne(), base.laugh(), base.hooray() + 1,
+                    base.confused(), base.heart(), base.rocket(), base.eyes());
+            case "confused" -> new Reactions(base.plusOne(), base.minusOne(), base.laugh(), base.hooray(),
+                    base.confused() + 1, base.heart(), base.rocket(), base.eyes());
+            case "heart" -> new Reactions(base.plusOne(), base.minusOne(), base.laugh(), base.hooray(),
+                    base.confused(), base.heart() + 1, base.rocket(), base.eyes());
+            case "rocket" -> new Reactions(base.plusOne(), base.minusOne(), base.laugh(), base.hooray(),
+                    base.confused(), base.heart(), base.rocket() + 1, base.eyes());
+            case "eyes" -> new Reactions(base.plusOne(), base.minusOne(), base.laugh(), base.hooray(),
+                    base.confused(), base.heart(), base.rocket(), base.eyes() + 1);
+            default -> base;
+        };
     }
 
     /**

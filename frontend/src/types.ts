@@ -694,6 +694,11 @@ export type LocalRepoStatusDto = {
    *  user is using a fork-based workflow. Null for direct clones
    *  (origin == watched repo) and for unmapped repos. */
   upstreamRemoteName: string | null;
+  /** Repo's default branch as the local clone sees it (read from
+   *  origin/HEAD). Drives the Base field's default in Create-PR so
+   *  forks of repos that default to `master` (Trino, etc.) don't
+   *  surprise the user with `main`. Null when origin/HEAD isn't set. */
+  defaultBranch: string | null;
 };
 
 /** One row of the branches kanban on the repo detail page. */

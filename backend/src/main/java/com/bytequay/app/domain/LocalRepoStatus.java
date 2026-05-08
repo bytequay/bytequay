@@ -39,7 +39,14 @@ public record LocalRepoStatus(
          *  Null when origin is the watched repo (direct clone) or the
          *  repo isn't mapped. Drives the "Base: trinodb/trino" hint
          *  on the page header and the default base for Create-PR. */
-        String upstreamRemoteName)
+        String upstreamRemoteName,
+        /** Repo's default branch as the local clone sees it
+         *  ({@code git symbolic-ref refs/remotes/origin/HEAD}). Used
+         *  to pre-fill the Base field in the Create-PR modal so a fork
+         *  whose upstream defaults to {@code master} (Trino, etc.)
+         *  doesn't surprise the user with {@code main}. Null when
+         *  origin/HEAD isn't set or the repo is unmapped. */
+        String defaultBranch)
 {
     public enum State
     {
@@ -67,6 +74,6 @@ public record LocalRepoStatus(
 
     public static LocalRepoStatus unmapped(String owner, String repo)
     {
-        return new LocalRepoStatus(owner, repo, null, State.UNMAPPED, null, null, null, null);
+        return new LocalRepoStatus(owner, repo, null, State.UNMAPPED, null, null, null, null, null);
     }
 }

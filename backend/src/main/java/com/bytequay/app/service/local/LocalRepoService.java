@@ -107,33 +107,36 @@ public class LocalRepoService
         if (!Files.isDirectory(path)) {
             return new LocalRepoStatus(repo.owner(), repo.repo(), repo.localClonePath(),
                     LocalRepoStatus.State.MISSING, null, null,
-                    "Working copy not found at " + path, repo.upstreamRemoteName());
+                    "Working copy not found at " + path, repo.upstreamRemoteName(), null);
         }
         if (!gitRunner.isGitWorkingTree(path)) {
             return new LocalRepoStatus(repo.owner(), repo.repo(), repo.localClonePath(),
                     LocalRepoStatus.State.MISSING, null, null,
-                    "Path is not a git working tree", repo.upstreamRemoteName());
+                    "Path is not a git working tree", repo.upstreamRemoteName(), null);
         }
         try {
             int dirty = gitRunner.countDirtyFiles(path);
             String branch = gitRunner.currentBranch(path);
+            // origin/HEAD lookup — null on shallow clones / repos
+            // without a configured default. Cheap symbolic-ref read.
+            String defaultBranch = gitRunner.defaultBranch(path).orElse(null);
             LocalRepoStatus.State state = dirty == 0 ? LocalRepoStatus.State.CLEAN
                     : LocalRepoStatus.State.MODIFIED;
             return new LocalRepoStatus(repo.owner(), repo.repo(), repo.localClonePath(),
-                    state, branch, dirty, null, repo.upstreamRemoteName());
+                    state, branch, dirty, null, repo.upstreamRemoteName(), defaultBranch);
         }
         catch (GitRunner.GitCommandException e) {
             log.warn("git failed on {}: {}", path, e.getMessage());
             return new LocalRepoStatus(repo.owner(), repo.repo(), repo.localClonePath(),
                     LocalRepoStatus.State.ERROR, null, null,
-                    e.stderr().strip(), repo.upstreamRemoteName());
+                    e.stderr().strip(), repo.upstreamRemoteName(), null);
         }
         catch (IOException | InterruptedException e) {
             Thread.currentThread().interrupt();
             log.warn("git invocation failed on {}", path, e);
             return new LocalRepoStatus(repo.owner(), repo.repo(), repo.localClonePath(),
                     LocalRepoStatus.State.ERROR, null, null,
-                    e.getMessage(), repo.upstreamRemoteName());
+                    e.getMessage(), repo.upstreamRemoteName(), null);
         }
     }
 
@@ -142,7 +145,7 @@ public class LocalRepoService
         return new LocalRepoStatus(repo.owner(), repo.repo(), repo.localClonePath(),
                 LocalRepoStatus.State.GIT_UNAVAILABLE, null, null,
                 "git not found on PATH — install Xcode Command Line Tools",
-                repo.upstreamRemoteName());
+                repo.upstreamRemoteName(), null);
     }
 
     /**

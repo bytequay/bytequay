@@ -735,6 +735,7 @@ function LocalRepoPage({ owner, repo }: Props) {
           forkBased={!!status?.upstreamRemoteName}
           busy={actionState === 'creating-pr'}
           branches={branches ?? []}
+          defaultBranch={status?.defaultBranch ?? null}
           willSwitchFrom={needsSwitch ? status?.currentBranch ?? null : null}
           onCancel={() => setCreatePrOpen(false)}
           onSubmit={runCreatePr}
@@ -945,6 +946,7 @@ function CreatePrModal({
   forkBased,
   busy,
   branches,
+  defaultBranch,
   willSwitchFrom,
   onCancel,
   onSubmit,
@@ -955,6 +957,10 @@ function CreatePrModal({
   forkBased: boolean;
   busy: boolean;
   branches: LocalBranchDto[];
+  /** Repo's default branch as resolved from origin/HEAD on the local
+   *  clone. Pre-fills the Base field so forks of repos that default
+   *  to master (Trino, etc.) don't get a wrong "main" prompt. */
+  defaultBranch: string | null;
   /** Set when the user picked a non-HEAD branch via card click and
    *  the submit will run `git switch headBranch` before creating
    *  the PR. Lets the modal warn about the lazy switch instead of
@@ -965,7 +971,7 @@ function CreatePrModal({
 }) {
   const [title, setTitle] = useState('');
   const [body, setBody] = useState('');
-  const [base, setBase] = useState('main');
+  const [base, setBase] = useState(defaultBranch || 'main');
   const [draft, setDraft] = useState(false);
   // AI-draft flow lives next to the form fields it populates. Busy
   // state is local so the AI button can spin without locking the

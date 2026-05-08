@@ -1557,7 +1557,8 @@ public class PullRequestService
                 pr.headPushedAt(),
                 pr.reviewerVerdicts(),
                 pr.snoozedUntil(),
-                pr.snoozeWakeReason());
+                pr.snoozeWakeReason(),
+                pr.headRef());
     }
 
     private static <T> T join(CompletableFuture<T> future)

@@ -139,7 +139,7 @@ class TestPrAttention
                 null, null, null, ImmutableList.of(),
                 null, 0, 0, 0, null,
                 "open", null, null, null, null, null, null,
-                null, null);
+                null, null, null);
     }
 
     @Test

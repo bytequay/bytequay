@@ -117,6 +117,9 @@ public class SqlitePullRequestStore
                         if (entity.getHeadPushedAt() == null) {
                             entity.setHeadPushedAt(prev.getHeadPushedAt());
                         }
+                        if (entity.getHeadRef() == null) {
+                            entity.setHeadRef(prev.getHeadRef());
+                        }
                     }
                     return entity;
                 })
@@ -251,6 +254,7 @@ public class SqlitePullRequestStore
         entity.setMergeableState(pr.mergeableState());
         entity.setHeadPushedAt(pr.headPushedAt());
         entity.setReviewerVerdicts(pr.reviewerVerdicts());
+        entity.setHeadRef(pr.headRef());
         return entity;
     }
 
@@ -294,6 +298,7 @@ public class SqlitePullRequestStore
                 entity.getHeadPushedAt(),
                 entity.getReviewerVerdicts(),
                 Optional.ofNullable(state).map(PrViewState::snoozedUntil).orElse(null),
-                Optional.ofNullable(state).map(PrViewState::snoozeWakeReason).orElse(null));
+                Optional.ofNullable(state).map(PrViewState::snoozeWakeReason).orElse(null),
+                entity.getHeadRef());
     }
 }

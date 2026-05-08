@@ -36,7 +36,8 @@ record GitHubRepoPullRequestItem(
         User user,
         List<Label> labels,
         boolean draft,
-        @JsonProperty("requested_reviewers") List<RequestedReviewer> requestedReviewers)
+        @JsonProperty("requested_reviewers") List<RequestedReviewer> requestedReviewers,
+        Head head)
 {
     @JsonIgnoreProperties(ignoreUnknown = true)
     record User(String login) {}
@@ -46,4 +47,9 @@ record GitHubRepoPullRequestItem(
 
     @JsonIgnoreProperties(ignoreUnknown = true)
     record RequestedReviewer(String login) {}
+
+    /** PR's source branch — `head.ref` is the bare branch name on the
+     *  head's repo. Used to join PRs back to local clones. */
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    record Head(String ref) {}
 }

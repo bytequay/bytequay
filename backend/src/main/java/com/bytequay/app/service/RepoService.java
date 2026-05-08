@@ -170,7 +170,8 @@ public class RepoService
                 pr.headPushedAt(),
                 pr.reviewerVerdicts(),
                 state.snoozedUntil(),
-                state.snoozeWakeReason());
+                state.snoozeWakeReason(),
+                pr.headRef());
     }
 
     public List<RepoIssue> getRepoIssues(String pat, String owner, String repo)

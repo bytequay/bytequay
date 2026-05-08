@@ -22,8 +22,8 @@ import com.bytequay.app.domain.PullRequest;
 import com.bytequay.app.domain.PullRequestDraft;
 import com.bytequay.app.domain.RepoRef;
 import com.bytequay.app.domain.WatchedRepo;
-import com.bytequay.app.repository.PrDetailStore;
 import com.bytequay.app.repository.PullRequestRepository;
+import com.bytequay.app.repository.PullRequestStore;
 import com.bytequay.app.repository.WatchedRepoStore;
 import com.bytequay.app.service.ai.LlmReviewerRegistry;
 import org.slf4j.Logger;
@@ -63,20 +63,20 @@ public class LocalRepoService
     private final WatchedRepoStore watchedRepoStore;
     private final GitRunner gitRunner;
     private final PullRequestRepository gitHub;
-    private final PrDetailStore prDetailStore;
+    private final PullRequestStore pullRequestStore;
     private final LlmReviewerRegistry llmReviewerRegistry;
 
     public LocalRepoService(
             WatchedRepoStore watchedRepoStore,
             GitRunner gitRunner,
             PullRequestRepository gitHub,
-            PrDetailStore prDetailStore,
+            PullRequestStore pullRequestStore,
             LlmReviewerRegistry llmReviewerRegistry)
     {
         this.watchedRepoStore = requireNonNull(watchedRepoStore, "watchedRepoStore is null");
         this.gitRunner = requireNonNull(gitRunner, "gitRunner is null");
         this.gitHub = requireNonNull(gitHub, "gitHub is null");
-        this.prDetailStore = requireNonNull(prDetailStore, "prDetailStore is null");
+        this.pullRequestStore = requireNonNull(pullRequestStore, "pullRequestStore is null");
         this.llmReviewerRegistry = requireNonNull(llmReviewerRegistry, "llmReviewerRegistry is null");
     }
 
@@ -463,8 +463,11 @@ public class LocalRepoService
         Path path = Path.of(watched.localClonePath());
         // Look up linked PRs for this repo once, in a single query,
         // and pass the map down — beats firing one lookup per branch
-        // for repos with hundreds of refs.
-        Map<String, Integer> prByHeadRef = prDetailStore
+        // for repos with hundreds of refs. Read off the list-PR table
+        // (V42 captured head_ref there) so the IN REVIEW column
+        // populates from the list sync, not just after a per-PR
+        // detail fetch.
+        Map<String, Integer> prByHeadRef = pullRequestStore
                 .openPrNumbersByHeadRef(owner + "/" + repo);
         // Default branch resolved once so the per-branch commit-count
         // calls all measure against the same base. Empty when origin

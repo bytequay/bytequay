@@ -18,6 +18,7 @@ import com.bytequay.app.domain.PullRequest;
 import com.bytequay.app.domain.PullRequestDetail;
 
 import java.time.Instant;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
@@ -75,6 +76,28 @@ public interface PullRequestStore
 
     /** Returns the full PR record for the given id, or empty if not found. */
     Optional<PullRequest> findById(long prId);
+
+    /**
+     * Returns a map of {@code head_ref → pr_number} for every open PR
+     * in {@code repo} ({@code "owner/name"}). Powers the local-repo
+     * kanban's IN REVIEW column without requiring per-PR detail to
+     * have been synced first. PRs whose row pre-dates V42 (head_ref
+     * still null) are skipped — they'll join the next list sync.
+     */
+    default Map<String, Integer> openPrNumbersByHeadRef(String repo)
+    {
+        Map<String, Integer> out = new HashMap<>();
+        for (PullRequest pr : findAll()) {
+            if (!repo.equals(pr.repo()) || pr.headRef() == null) {
+                continue;
+            }
+            // Last-write-wins on collisions (same head_ref appears on
+            // more than one open PR — a recreate-then-recreate edge
+            // case). The latest one is the most actionable.
+            out.put(pr.headRef(), pr.number());
+        }
+        return out;
+    }
 
     /**
      * Updates the detail-derived enrichment columns for a single PR row.

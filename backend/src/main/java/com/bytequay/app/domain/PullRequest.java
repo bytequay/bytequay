@@ -81,7 +81,12 @@ public record PullRequest(
         /** Populated when an auto-wake fires; cleared once the user
          *  acknowledges the just-woke alert. Drives the green
          *  "PR woke up" banner at the top of the Inbox. */
-        String snoozeWakeReason)
+        String snoozeWakeReason,
+        /** PR head branch name from GitHub's list response (head.ref).
+         *  Captured by the list sync so the local-repo kanban can map
+         *  a local branch to its open PR without waiting for the
+         *  per-PR detail fetch. Null on legacy rows. */
+        String headRef)
 {
     public enum Origin
     {

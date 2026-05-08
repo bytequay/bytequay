@@ -109,6 +109,6 @@ class TestPullRequestOrder
                 null, Instant.parse(updatedAt), AUTHORED, ImmutableList.of(), null, false, viewedAt, reviewedAt, null, ImmutableList.of(),
                 null, 0, 0, 0, null,
                 "open", null, null, null, null, null, null,
-                null, null);
+                null, null, null);
     }
 }

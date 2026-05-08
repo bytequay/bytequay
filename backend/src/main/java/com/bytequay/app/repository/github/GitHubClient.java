@@ -860,7 +860,11 @@ public class GitHubClient
                 // V37 snooze fields — local-state only, joined in by
                 // SqlitePullRequestStore.toDomain via PrViewState.
                 null,
-                null);
+                null,
+                // V42: head ref captured from the list response so the
+                // local-repo kanban can map a local branch to its open
+                // PR without waiting for the per-PR detail fetch.
+                Optional.ofNullable(item.head()).map(GitHubRepoPullRequestItem.Head::ref).orElse(null));
     }
 
     @Override
@@ -2056,6 +2060,9 @@ public class GitHubClient
                 null,
                 // V37 snooze fields — local-state only.
                 null,
+                null,
+                // V42: search responses don't expose head.ref; the next
+                // list-page sync will fill it in.
                 null);
     }
 

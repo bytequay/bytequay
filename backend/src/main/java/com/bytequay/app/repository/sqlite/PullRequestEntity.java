@@ -129,6 +129,13 @@ class PullRequestEntity
     @Convert(converter = StringMapConverter.class)
     private Map<String, String> reviewerVerdicts;
 
+    /** PR head branch name (GitHub's head.ref on the list response).
+     *  Populated by the list sync so the local-repo kanban can map a
+     *  local branch to its open PR without waiting for the per-PR
+     *  detail fetch. NULL on legacy rows that pre-date V42. */
+    @Column(name = "head_ref")
+    private String headRef;
+
     @Column(nullable = false, updatable = false)
     @Convert(converter = InstantToTextConverter.class)
     private Instant internalCreatedAt;
@@ -227,4 +234,7 @@ class PullRequestEntity
 
     Map<String, String> getReviewerVerdicts() { return reviewerVerdicts; }
     void setReviewerVerdicts(Map<String, String> reviewerVerdicts) { this.reviewerVerdicts = reviewerVerdicts; }
+
+    String getHeadRef() { return headRef; }
+    void setHeadRef(String headRef) { this.headRef = headRef; }
 }

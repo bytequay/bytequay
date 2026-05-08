@@ -717,6 +717,10 @@ export type LocalBranchDto = {
    *  branch itself, when origin/HEAD isn't set, or when rev-list
    *  failed. */
   commitCount: number | null;
+  /** Outcome of a virtual merge of this branch onto its rebase target
+   *  (upstream when behind, default branch otherwise). Null when no
+   *  rebase is meaningful for this branch's state. */
+  rebasePreview: 'CLEAN' | 'CONFLICTS' | 'UNKNOWN' | null;
 };
 
 export type LocalCommitDto = {

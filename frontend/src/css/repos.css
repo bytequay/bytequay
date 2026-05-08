@@ -1148,9 +1148,9 @@
 .branch-card__commits {
   color: var(--text-2);
 }
-/* Rebase-status pill in the meta line. Phase 1 only renders the
-   "push fast-forwards" variant (computable from existing data);
-   the clean-rebase / conflicts variants land in Phase 3. */
+/* Rebase-status pill in the meta line. Variants tint by outcome:
+   blue for fast-forward (no rebase needed), green for clean rebase,
+   amber for conflicts, neutral for unknown. */
 .rebase-pill {
   display: inline-flex;
   align-items: center;
@@ -1166,6 +1166,21 @@
   background: rgba(31, 111, 235, 0.10);
   color: #1f6feb;
   border-color: rgba(31, 111, 235, 0.30);
+}
+.rebase-pill--clean {
+  background: rgba(46, 160, 67, 0.12);
+  color: #1a7f37;
+  border-color: rgba(46, 160, 67, 0.30);
+}
+.rebase-pill--conflicts {
+  background: rgba(212, 160, 23, 0.16);
+  color: #92400e;
+  border-color: rgba(212, 160, 23, 0.40);
+}
+.rebase-pill--unknown {
+  background: rgba(110, 119, 129, 0.10);
+  color: var(--text-3);
+  border-color: rgba(110, 119, 129, 0.30);
 }
 /* Footer button row — primary CTA on the left, secondary buttons
    right of it. CLEAN UP cards collapse Delete into the primary

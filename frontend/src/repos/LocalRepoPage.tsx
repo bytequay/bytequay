@@ -1512,6 +1512,24 @@ function BranchCard({
             ↑ push fast-forwards
           </span>
         )}
+        {branch.rebasePreview === 'CLEAN' && (
+          <span className="rebase-pill rebase-pill--clean"
+                title="Virtual merge against the rebase target reported no conflicts">
+            ✓ rebase clean
+          </span>
+        )}
+        {branch.rebasePreview === 'CONFLICTS' && (
+          <span className="rebase-pill rebase-pill--conflicts"
+                title="Virtual merge against the rebase target hit file-level conflicts — you'll need to resolve them mid-rebase">
+            ⚠ rebase has conflicts
+          </span>
+        )}
+        {branch.rebasePreview === 'UNKNOWN' && (
+          <span className="rebase-pill rebase-pill--unknown"
+                title="Couldn't preview the rebase — base ref may be missing locally">
+            ? rebase unknown
+          </span>
+        )}
         {!branch.hasUpstream && !branch.cleanupReason && (
           <>
             <span aria-hidden="true">·</span>

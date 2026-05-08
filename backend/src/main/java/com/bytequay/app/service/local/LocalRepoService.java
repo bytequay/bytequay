@@ -768,8 +768,72 @@ public class LocalRepoService
         // opens the PR (which triggers the detail sync).
         Integer linkedPrNumber = prByHeadRef.get(ref.name());
         Integer commitCount = resolveCommitCount(workingDir, ref.name(), defaultBranch);
+        LocalBranch.RebasePreview rebasePreview = resolveRebasePreview(
+                workingDir, ref, hasUpstream, upstreamGone, behind, commitCount, defaultBranch);
         return new LocalBranch(ref.name(), ref.isCurrent(), when, hasUpstream,
-                ahead, behind, linkedPrNumber, cleanupReason, commitCount);
+                ahead, behind, linkedPrNumber, cleanupReason, commitCount, rebasePreview);
+    }
+
+    /**
+     * Picks a rebase target and asks merge-tree what it'd cost.
+     * Two paths:
+     *   - upstream branches that are behind their tracking ref get
+     *     previewed against the upstream (the natural "rebase before
+     *     push" target);
+     *   - branches without upstream that have unique commits vs the
+     *     default get previewed against the default (the "rebase
+     *     before opening a PR" target).
+     * Branches that wouldn't trigger a rebase in practice (nothing
+     * behind / no unique commits / no resolvable target) get null
+     * and the card stays unannotated.
+     */
+    private LocalBranch.RebasePreview resolveRebasePreview(
+            Path workingDir,
+            GitRunner.BranchRef ref,
+            boolean hasUpstream,
+            boolean upstreamGone,
+            Integer behind,
+            Integer commitCount,
+            Optional<String> defaultBranch)
+    {
+        String base;
+        if (hasUpstream && !upstreamGone && behind != null && behind > 0) {
+            base = stripRefsRemotes(ref.upstream());
+        }
+        else if (!hasUpstream && commitCount != null && commitCount > 0
+                && defaultBranch.isPresent() && !defaultBranch.get().equals(ref.name())) {
+            base = defaultBranch.get();
+        }
+        else {
+            return null;
+        }
+        try {
+            GitRunner.RebaseOutcome outcome = gitRunner.rebasePreview(workingDir, ref.name(), base);
+            return switch (outcome) {
+                case CLEAN -> LocalBranch.RebasePreview.CLEAN;
+                case CONFLICTS -> LocalBranch.RebasePreview.CONFLICTS;
+                case UNKNOWN -> LocalBranch.RebasePreview.UNKNOWN;
+            };
+        }
+        catch (IOException e) {
+            return LocalBranch.RebasePreview.UNKNOWN;
+        }
+        catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            return null;
+        }
+    }
+
+    /** Turns {@code refs/remotes/origin/foo} (the form
+     *  {@code for-each-ref %(upstream)} emits) into the short
+     *  {@code origin/foo} merge-tree expects. */
+    private static String stripRefsRemotes(String ref)
+    {
+        String prefix = "refs/remotes/";
+        if (ref.startsWith(prefix)) {
+            return ref.substring(prefix.length());
+        }
+        return ref;
     }
 
     /**

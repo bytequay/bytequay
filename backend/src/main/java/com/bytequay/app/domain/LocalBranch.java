@@ -50,7 +50,12 @@ public record LocalBranch(
          *  default base — the size of the work that lives on this
          *  branch. Null for the default branch itself, when the default
          *  can't be resolved, or when rev-list failed. */
-        Integer commitCount)
+        Integer commitCount,
+        /** Outcome of a virtual merge of this branch onto its rebase
+         *  target (upstream tracking ref when present, else the default
+         *  branch). Null when no rebase is meaningful (no behind /
+         *  no unique commits) or the preview couldn't run. */
+        RebasePreview rebasePreview)
 {
     public enum Column
     {
@@ -58,6 +63,20 @@ public record LocalBranch(
         READY_FOR_PR,
         IN_REVIEW,
         CLEAN_UP
+    }
+
+    public enum RebasePreview
+    {
+        /** Virtual merge succeeded with no conflicts — the rebase
+         *  should apply cleanly. */
+        CLEAN,
+        /** Virtual merge reported file-level conflicts — the user will
+         *  hit conflicts mid-rebase and need to resolve them. */
+        CONFLICTS,
+        /** merge-tree failed for a reason other than a conflict (e.g.
+         *  base ref unresolvable). The pill renders as a quiet
+         *  fallback rather than a confident verdict. */
+        UNKNOWN
     }
 
     public enum CleanupReason

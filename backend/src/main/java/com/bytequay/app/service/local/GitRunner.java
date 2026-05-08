@@ -362,6 +362,43 @@ public class GitRunner
     }
 
     /**
+     * Virtual merge of {@code head} onto {@code base} via
+     * {@code git merge-tree --write-tree}. Returns {@link RebaseOutcome#CLEAN}
+     * when the merge applies without conflicts (exit 0),
+     * {@link RebaseOutcome#CONFLICTS} when git reports conflicting paths
+     * (exit 1), and {@link RebaseOutcome#UNKNOWN} for any other
+     * failure (unresolvable ref, ancient git, etc).
+     *
+     * Conflict-on-merge is a close proxy for conflict-on-rebase: a
+     * proper rebase replays each commit against the new tip while a
+     * merge unifies the whole change set, so they can disagree on
+     * exotic histories. For the kanban's "will this rebase be
+     * painful?" hint that's accurate enough.
+     */
+    public RebaseOutcome rebasePreview(Path workingDir, String head, String base)
+            throws IOException, InterruptedException
+    {
+        requireNonNull(head, "head is null");
+        requireNonNull(base, "base is null");
+        GitResult result = run(
+                List.of("git", "merge-tree", "--write-tree", "--no-messages", base, head),
+                workingDir,
+                30);
+        return switch (result.exitCode()) {
+            case 0 -> RebaseOutcome.CLEAN;
+            case 1 -> RebaseOutcome.CONFLICTS;
+            default -> RebaseOutcome.UNKNOWN;
+        };
+    }
+
+    public enum RebaseOutcome
+    {
+        CLEAN,
+        CONFLICTS,
+        UNKNOWN
+    }
+
+    /**
      * Counts commits reachable from {@code branch} that aren't
      * reachable from {@code base} — the work unique to this branch.
      * Same shape as the upstream "ahead" count, but vs the default

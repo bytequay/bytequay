@@ -11,10 +11,11 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import type { LocalActivityEntryDto, LocalBranchDto, LocalCommitDto, LocalCommitFileDto, LocalFileDiffDto, LocalRepoStatusDto } from '../types';
 import LogoLoading from '../LogoLoading';
 import { formatRelativeTime } from '../pr/utils';
+import { buildFileTree, flattenFileTree } from '../fileTree';
 
 type Props = {
   owner: string;
@@ -1024,16 +1025,11 @@ function CommitsTab({
           {files !== null && files.length > 0 && (
             <>
               <div className="commits-pane__files-header">Files changed</div>
-              <ul className="commit-files-list">
-                {files.map(f => (
-                  <CommitFileRow
-                    key={f.path}
-                    file={f}
-                    selected={selectedFile === f.path}
-                    onClick={() => setSelectedFile(f.path)}
-                  />
-                ))}
-              </ul>
+              <CommitFilesTree
+                files={files}
+                selectedFile={selectedFile}
+                onSelectFile={setSelectedFile}
+              />
               <CommitFilesTotal files={files} />
             </>
           )}
@@ -1097,12 +1093,101 @@ function CommitRow({
   );
 }
 
+function CommitFilesTree({
+  files,
+  selectedFile,
+  onSelectFile,
+}: {
+  files: LocalCommitFileDto[];
+  selectedFile: string | null;
+  onSelectFile: (path: string) => void;
+}) {
+  const [collapsed, setCollapsed] = useState<ReadonlySet<string>>(new Set());
+  const tree = useMemo(() => buildFileTree(files, f => f.path), [files]);
+  const rows = useMemo(() => flattenFileTree(tree, collapsed), [tree, collapsed]);
+  const toggle = (path: string) =>
+    setCollapsed((prev) => {
+      const next = new Set(prev);
+      if (next.has(path)) next.delete(path); else next.add(path);
+      return next;
+    });
+  return (
+    <ul className="commit-files-list">
+      {rows.map((row) => {
+        const indent = 8 + row.depth * 12;
+        if (row.kind === 'dir') {
+          return (
+            <CommitFolderRow
+              key={`d:${row.path}`}
+              name={row.name}
+              path={row.path}
+              indent={indent}
+              collapsed={row.collapsed}
+              onToggle={() => toggle(row.path)}
+            />
+          );
+        }
+        return (
+          <CommitFileRow
+            key={`f:${row.path}`}
+            file={row.data}
+            displayName={row.name}
+            indent={indent}
+            selected={selectedFile === row.path}
+            onClick={() => onSelectFile(row.path)}
+          />
+        );
+      })}
+    </ul>
+  );
+}
+
+function CommitFolderRow({
+  name,
+  path,
+  indent,
+  collapsed,
+  onToggle,
+}: {
+  name: string;
+  path: string;
+  indent: number;
+  collapsed: boolean;
+  onToggle: () => void;
+}) {
+  return (
+    <li
+      className="commit-folder-row"
+      style={{ paddingLeft: indent }}
+      onClick={onToggle}
+      role="button"
+      tabIndex={0}
+      title={path}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          onToggle();
+        }
+      }}
+    >
+      <span className={`commit-folder-row__chevron${collapsed ? '' : ' commit-folder-row__chevron--open'}`} aria-hidden="true">
+        ▸
+      </span>
+      <span className="commit-folder-row__name">{name}</span>
+    </li>
+  );
+}
+
 function CommitFileRow({
   file,
+  displayName,
+  indent,
   selected,
   onClick,
 }: {
   file: LocalCommitFileDto;
+  displayName: string;
+  indent: number;
   selected: boolean;
   onClick: () => void;
 }) {
@@ -1112,6 +1197,7 @@ function CommitFileRow({
   return (
     <li
       className={`commit-file-row${selected ? ' commit-file-row--selected' : ''}`}
+      style={{ paddingLeft: indent }}
       onClick={onClick}
       role="button"
       tabIndex={0}
@@ -1126,7 +1212,7 @@ function CommitFileRow({
       <span className="commit-file-row__status" data-status={file.status}>
         {file.status}
       </span>
-      <span className="commit-file-row__path">{file.path}</span>
+      <span className="commit-file-row__path">{displayName}</span>
       {binary ? (
         <span className="commit-file-row__counts commit-file-row__counts--binary">binary</span>
       ) : (

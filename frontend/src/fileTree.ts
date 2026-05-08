@@ -12,58 +12,56 @@
  * limitations under the License.
  */
 
-import type { DiffFileDto } from './types';
+export type FileTreeNode<T> = DirNode<T> | FileNode<T>;
 
-export type FileTreeNode = DirNode | FileNode;
-
-export type DirNode = {
+export type DirNode<T> = {
   kind: 'dir';
   /** display name; may contain '/' after compaction (e.g. "src/main/java") */
   name: string;
   /** full path from root, used as a stable key for collapse state */
   path: string;
-  children: FileTreeNode[];
+  children: FileTreeNode<T>[];
 };
 
-export type FileNode = {
+export type FileNode<T> = {
   kind: 'file';
   name: string;
   path: string;
-  file: DiffFileDto;
+  data: T;
 };
 
-export function buildFileTree(files: DiffFileDto[]): FileTreeNode[] {
-  const root: FileTreeNode[] = [];
-  for (const file of files) {
-    const parts = file.filename.split('/');
-    insert(root, parts, 0, file, '');
+export function buildFileTree<T>(items: T[], pathOf: (item: T) => string): FileTreeNode<T>[] {
+  const root: FileTreeNode<T>[] = [];
+  for (const item of items) {
+    const parts = pathOf(item).split('/');
+    insert(root, parts, 0, item, '');
   }
   sortTree(root);
   return compactChildren(root);
 }
 
-function insert(
-  children: FileTreeNode[],
+function insert<T>(
+  children: FileTreeNode<T>[],
   parts: string[],
   idx: number,
-  file: DiffFileDto,
+  item: T,
   pathPrefix: string,
 ): void {
   const name = parts[idx];
   const fullPath = pathPrefix ? `${pathPrefix}/${name}` : name;
   if (idx === parts.length - 1) {
-    children.push({ kind: 'file', name, path: fullPath, file });
+    children.push({ kind: 'file', name, path: fullPath, data: item });
     return;
   }
-  let dir = children.find((c): c is DirNode => c.kind === 'dir' && c.name === name);
+  let dir = children.find((c): c is DirNode<T> => c.kind === 'dir' && c.name === name);
   if (!dir) {
     dir = { kind: 'dir', name, path: fullPath, children: [] };
     children.push(dir);
   }
-  insert(dir.children, parts, idx + 1, file, fullPath);
+  insert(dir.children, parts, idx + 1, item, fullPath);
 }
 
-function sortTree(children: FileTreeNode[]): void {
+function sortTree<T>(children: FileTreeNode<T>[]): void {
   children.sort((a, b) => {
     if (a.kind !== b.kind) return a.kind === 'dir' ? -1 : 1;
     return a.name.localeCompare(b.name);
@@ -73,7 +71,7 @@ function sortTree(children: FileTreeNode[]): void {
   }
 }
 
-function compactChildren(children: FileTreeNode[]): FileTreeNode[] {
+function compactChildren<T>(children: FileTreeNode<T>[]): FileTreeNode<T>[] {
   return children.map((c) => {
     if (c.kind !== 'dir') return c;
     let cur = c;
@@ -91,19 +89,19 @@ function compactChildren(children: FileTreeNode[]): FileTreeNode[] {
 }
 
 /** Flattened row used by the renderer. Depth drives indentation. */
-export type TreeRow =
+export type TreeRow<T> =
   | { kind: 'dir'; name: string; path: string; depth: number; collapsed: boolean }
-  | { kind: 'file'; name: string; path: string; file: DiffFileDto; depth: number };
+  | { kind: 'file'; name: string; path: string; data: T; depth: number };
 
-export function flattenFileTree(
-  nodes: FileTreeNode[],
+export function flattenFileTree<T>(
+  nodes: FileTreeNode<T>[],
   collapsed: ReadonlySet<string>,
   depth = 0,
-): TreeRow[] {
-  const rows: TreeRow[] = [];
+): TreeRow<T>[] {
+  const rows: TreeRow<T>[] = [];
   for (const node of nodes) {
     if (node.kind === 'file') {
-      rows.push({ kind: 'file', name: node.name, path: node.path, file: node.file, depth });
+      rows.push({ kind: 'file', name: node.name, path: node.path, data: node.data, depth });
       continue;
     }
     const isCollapsed = collapsed.has(node.path);
@@ -116,14 +114,14 @@ export function flattenFileTree(
 }
 
 /**
- * Returns {@code files} in the order they would appear under a fully
+ * Returns {@code items} in the order they would appear under a fully
  * expanded tree view — directory-grouped, depth-first. Used to sort the
  * flat list and the continuous-scroll diff sections so the order is the
  * same regardless of the file-list mode the user picks.
  */
-export function treeOrderedFiles(files: DiffFileDto[]): DiffFileDto[] {
-  const rows = flattenFileTree(buildFileTree(files), new Set());
+export function treeOrderedFiles<T>(items: T[], pathOf: (item: T) => string): T[] {
+  const rows = flattenFileTree(buildFileTree(items, pathOf), new Set());
   return rows
-    .filter((r): r is Extract<TreeRow, { kind: 'file' }> => r.kind === 'file')
-    .map(r => r.file);
+    .filter((r): r is Extract<TreeRow<T>, { kind: 'file' }> => r.kind === 'file')
+    .map(r => r.data);
 }

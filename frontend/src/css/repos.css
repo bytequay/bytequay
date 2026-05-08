@@ -1379,15 +1379,13 @@
 .commit-file-row {
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 7px 12px;
+  gap: 6px;
+  padding: 6px 12px;
   font-size: 12px;
   color: var(--text-1);
-  border-bottom: 1px solid var(--border-hairline);
   border-left: 3px solid transparent;
   cursor: pointer;
 }
-.commit-file-row:last-child { border-bottom: none; }
 .commit-file-row:hover { background: var(--accent-a4); }
 .commit-file-row--selected,
 .commit-file-row--selected:hover {
@@ -1415,8 +1413,43 @@
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
-  direction: rtl;
-  text-align: left;
+}
+
+/* Folder header in the files-changed tree. Same row geometry as a
+   file row so indents line up; chevron rotates 90deg when open
+   (matching the PR diff viewer's tree look). Compacted directory
+   chains render their joined name (e.g. "src/main/java") in one
+   row to keep the tree shallow on deep Java/Maven layouts. */
+.commit-folder-row {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  font-size: 12px;
+  color: var(--text-2);
+  cursor: pointer;
+  user-select: none;
+}
+.commit-folder-row:hover { background: var(--accent-a4); }
+.commit-folder-row__chevron {
+  flex: 0 0 auto;
+  width: 12px;
+  font-size: 10px;
+  color: var(--text-3);
+  transition: transform 80ms ease-out;
+  display: inline-block;
+}
+.commit-folder-row__chevron--open {
+  transform: rotate(90deg);
+}
+.commit-folder-row__name {
+  flex: 1 1 auto;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, monospace;
+  font-size: 12px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  font-weight: 500;
 }
 .commit-file-row__counts {
   flex: 0 0 auto;

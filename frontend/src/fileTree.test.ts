@@ -19,8 +19,10 @@ function f(filename: string): DiffFileDto {
   return { filename, status: 'modified', additions: 1, deletions: 0, patch: null };
 }
 
+const pathOfDiff = (d: DiffFileDto) => d.filename;
+
 /** Abbreviated dump of the tree, for concise assertions. */
-function dump(nodes: FileTreeNode[]): unknown {
+function dump(nodes: FileTreeNode<DiffFileDto>[]): unknown {
   return nodes.map((n) =>
     n.kind === 'dir' ? { dir: n.name, children: dump(n.children) } : { file: n.path },
   );
@@ -28,11 +30,11 @@ function dump(nodes: FileTreeNode[]): unknown {
 
 describe('buildFileTree', () => {
   it('returns an empty array for no files', () => {
-    expect(buildFileTree([])).toEqual([]);
+    expect(buildFileTree<DiffFileDto>([], pathOfDiff)).toEqual([]);
   });
 
   it('groups files into directories', () => {
-    const tree = buildFileTree([f('src/a.ts'), f('src/b.ts'), f('README.md')]);
+    const tree = buildFileTree([f('src/a.ts'), f('src/b.ts'), f('README.md')], pathOfDiff);
     expect(dump(tree)).toEqual([
       { dir: 'src', children: [{ file: 'src/a.ts' }, { file: 'src/b.ts' }] },
       { file: 'README.md' },
@@ -40,7 +42,7 @@ describe('buildFileTree', () => {
   });
 
   it('compacts a single-child directory chain into one node', () => {
-    const tree = buildFileTree([f('src/main/java/com/foo/A.java'), f('src/main/java/com/foo/B.java')]);
+    const tree = buildFileTree([f('src/main/java/com/foo/A.java'), f('src/main/java/com/foo/B.java')], pathOfDiff);
     expect(dump(tree)).toEqual([
       {
         dir: 'src/main/java/com/foo',
@@ -54,7 +56,7 @@ describe('buildFileTree', () => {
       f('src/main/java/com/foo/A.java'),
       f('src/main/java/com/foo/B.java'),
       f('src/main/resources/C.xml'),
-    ]);
+    ], pathOfDiff);
     expect(dump(tree)).toEqual([
       {
         dir: 'src/main',
@@ -70,12 +72,12 @@ describe('buildFileTree', () => {
   });
 
   it('does not compact a directory whose only child is a file', () => {
-    const tree = buildFileTree([f('docs/README.md')]);
+    const tree = buildFileTree([f('docs/README.md')], pathOfDiff);
     expect(dump(tree)).toEqual([{ dir: 'docs', children: [{ file: 'docs/README.md' }] }]);
   });
 
   it('puts directories before files at the same level, alphabetically within', () => {
-    const tree = buildFileTree([f('z-top.ts'), f('src/b.ts'), f('src/a.ts'), f('a-top.ts')]);
+    const tree = buildFileTree([f('z-top.ts'), f('src/b.ts'), f('src/a.ts'), f('a-top.ts')], pathOfDiff);
     expect(dump(tree)).toEqual([
       { dir: 'src', children: [{ file: 'src/a.ts' }, { file: 'src/b.ts' }] },
       { file: 'a-top.ts' },
@@ -89,7 +91,7 @@ describe('flattenFileTree', () => {
     f('src/a.ts'),
     f('src/b.ts'),
     f('docs/README.md'),
-  ]);
+  ], pathOfDiff);
 
   it('produces one row per node in depth-first order when nothing is collapsed', () => {
     const rows = flattenFileTree(tree, new Set());

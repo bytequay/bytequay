@@ -2049,11 +2049,11 @@ function DiffViewerScreen({ pr, onBack, onApprove, initialCommitSha }: Props) {
     }
   };
 
-  const tree = useMemo(() => (files ? buildFileTree(files) : []), [files]);
+  const tree = useMemo(() => (files ? buildFileTree(files, f => f.filename) : []), [files]);
   const treeRows = useMemo(() => flattenFileTree(tree, collapsedDirs), [tree, collapsedDirs]);
   // Order the flat file list AND the continuous-scroll sections by tree
   // DFS so the user sees the same sequence regardless of view mode.
-  const orderedFiles = useMemo(() => (files ? treeOrderedFiles(files) : []), [files]);
+  const orderedFiles = useMemo(() => (files ? treeOrderedFiles(files, f => f.filename) : []), [files]);
 
   const toggleDir = (path: string) =>
     setCollapsedDirs((prev) => {
@@ -2426,7 +2426,7 @@ function DiffViewerScreen({ pr, onBack, onApprove, initialCommitSha }: Props) {
                   </button>
                 );
               }
-              const badge = statusBadge(row.file.status);
+              const badge = statusBadge(row.data.status);
               return (
                 <button
                   key={`file:${row.path}`}
@@ -2437,7 +2437,7 @@ function DiffViewerScreen({ pr, onBack, onApprove, initialCommitSha }: Props) {
                   title={row.path}
                 >
                   <span className="tree-chevron tree-chevron--placeholder" aria-hidden="true" />
-                  <span className={`diff-file-row__badge diff-file-row__badge--${badge.cls}`} title={row.file.status}>
+                  <span className={`diff-file-row__badge diff-file-row__badge--${badge.cls}`} title={row.data.status}>
                     {badge.letter}
                   </span>
                   <span className="diff-file-row__name">{row.name}</span>

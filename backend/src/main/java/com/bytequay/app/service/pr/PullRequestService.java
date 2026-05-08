@@ -894,7 +894,8 @@ public class PullRequestService
                     detail.raw() != null ? detail.raw().mergeable() : null,
                     detail.raw() != null ? detail.raw().mergeableState() : null,
                     latestPushAt(detail.timeline()),
-                    rolledUpReviewerVerdicts(detail.reviews()));
+                    rolledUpReviewerVerdicts(detail.reviews()),
+                    detail.raw() != null ? detail.raw().headRef() : null);
         }
         catch (Exception e) {
             log.warn("Failed to sync detail for PR {}/{}: {}", pr.repo(), pr.number(), e.getMessage());

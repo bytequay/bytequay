@@ -169,10 +169,17 @@ public class SqlitePullRequestStore
         // "stale empty after a reviewer later requested changes", which
         // is exactly the trino #29289 case. Re-syncing on every cycle
         // is cheap relative to the kanban being silently wrong.
+        // Null head_ref also forces a re-sync — the V42 column was
+        // added after these rows were stored and only the detail
+        // fetch fills it; without this clause the local-repo IN_REVIEW
+        // column stays empty for every legacy PR.
         return jpaRepository.findAll().stream()
                 .filter(e -> {
                     Map<String, String> verdicts = e.getReviewerVerdicts();
-                    return verdicts == null || verdicts.isEmpty();
+                    if (verdicts == null || verdicts.isEmpty()) {
+                        return true;
+                    }
+                    return e.getHeadRef() == null;
                 })
                 .map(PullRequestEntity::getId)
                 .collect(Collectors.toUnmodifiableSet());
@@ -204,7 +211,8 @@ public class SqlitePullRequestStore
             Boolean mergeable,
             String mergeableState,
             Instant headPushedAt,
-            Map<String, String> reviewerVerdicts)
+            Map<String, String> reviewerVerdicts,
+            String headRef)
     {
         jpaRepository.findById(prId).ifPresent(entity -> {
             entity.setCiStatus(ciStatus);
@@ -216,6 +224,13 @@ public class SqlitePullRequestStore
             entity.setMergeableState(mergeableState);
             entity.setHeadPushedAt(headPushedAt);
             entity.setReviewerVerdicts(reviewerVerdicts);
+            // Only overwrite head_ref when the detail sync actually
+            // produced one. Detail can briefly miss it on first fetch
+            // (GitHub still computing); keeping the previous value
+            // beats blanking the IN_REVIEW lookup.
+            if (headRef != null) {
+                entity.setHeadRef(headRef);
+            }
             jpaRepository.save(entity);
         });
     }

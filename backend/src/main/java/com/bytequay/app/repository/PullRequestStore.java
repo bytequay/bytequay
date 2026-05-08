@@ -122,5 +122,6 @@ public interface PullRequestStore
             Boolean mergeable,
             String mergeableState,
             Instant headPushedAt,
-            Map<String, String> reviewerVerdicts);
+            Map<String, String> reviewerVerdicts,
+            String headRef);
 }

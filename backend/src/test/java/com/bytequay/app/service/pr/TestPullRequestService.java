@@ -20,6 +20,7 @@ import com.bytequay.app.domain.PrCheckRunState;
 import com.bytequay.app.domain.PrCiSnapshot;
 import com.bytequay.app.domain.PrRawDetail;
 import com.bytequay.app.domain.PrReviewState;
+import com.bytequay.app.domain.PrReviewThreadMessage;
 import com.bytequay.app.domain.PrTimelineEvent;
 import com.bytequay.app.domain.PullRequestDetail;
 import com.bytequay.app.domain.PullRequestRef;
@@ -832,6 +833,80 @@ class TestPullRequestService
                 + "resolves #3.";
         assertThat(PullRequestService.extractClosingReferences(body, "trinodb", "trino"))
                 .containsExactlyInAnyOrder(1, 2, 3);
+    }
+
+    // ── Conversation mutation freshness ────────────────────────────────────────
+    // Conversation mutations intentionally stay optimistic: they write to
+    // GitHub, but do not invalidate the PR-detail caches. This keeps a
+    // stale SQLite snapshot from overwriting local optimistic UI.
+
+    @Test
+    void testReplyToReviewThreadDoesNotInvalidateDetail()
+    {
+        pullRequestService.replyToReviewThread("pat", "trinodb/trino", 7, 4357983764L, "thanks");
+
+        verify(gitHub).replyToReviewComment(
+                "pat",
+                PullRequestRef.of("trinodb", "trino", 7),
+                4357983764L,
+                "thanks");
+        verify(detailInvalidator, never()).invalidate(anyString(), anyInt());
+    }
+
+    @Test
+    void testEditIssueCommentDoesNotInvalidateDetail()
+    {
+        pullRequestService.editIssueComment("pat", "trinodb/trino", 4357983764L, "updated");
+
+        verify(gitHub).editIssueComment("pat", "trinodb", "trino", 4357983764L, "updated");
+        verify(detailInvalidator, never()).invalidate(anyString(), anyInt());
+    }
+
+    @Test
+    void testEditReviewCommentDoesNotInvalidateDetail()
+    {
+        pullRequestService.editReviewComment("pat", "trinodb/trino", 4357983764L, "updated");
+
+        verify(gitHub).editReviewComment("pat", "trinodb", "trino", 4357983764L, "updated");
+        verify(detailInvalidator, never()).invalidate(anyString(), anyInt());
+    }
+
+    @Test
+    void testSetReviewThreadResolvedDoesNotInvalidateDetail()
+    {
+        when(detailStore.find(123L)).thenReturn(Optional.of(new StoredPrDetail(
+                null,
+                ImmutableList.of(),
+                ImmutableList.of(),
+                ImmutableList.of(),
+                ImmutableList.of(),
+                ImmutableList.of(new PrReviewThreadMessage(
+                        4357983764L,
+                        null,
+                        null,
+                        "alice",
+                        "please fix",
+                        "src/Main.java",
+                        12,
+                        "RIGHT",
+                        "@@",
+                        "abc123",
+                        Instant.parse("2026-05-08T00:00:00Z"),
+                        Reactions.EMPTY,
+                        false,
+                        null,
+                        null,
+                        null,
+                        null,
+                        "MEMBER",
+                        "thread-node-id",
+                        false)),
+                ImmutableList.of())));
+
+        pullRequestService.setReviewThreadResolved("pat", 123L, 4357983764L, true);
+
+        verify(gitHub).resolveReviewThread("pat", "thread-node-id");
+        verify(detailInvalidator, never()).invalidate(anyString(), anyInt());
     }
 
     // ── Reaction endpoints ─────────────────────────────────────────────────────

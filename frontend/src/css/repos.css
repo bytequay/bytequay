@@ -622,7 +622,7 @@
 }
 .commit-row {
   display: flex;
-  gap: 12px;
+  gap: 10px;
   align-items: flex-start;
   padding: 10px 14px;
   border-bottom: 1px solid var(--border);
@@ -630,15 +630,16 @@
 .commit-row:last-child {
   border-bottom: none;
 }
-.commit-row__sha {
+/* Author dot — stable per-author tint (see authorColor() in
+   LocalRepoPage.tsx) so "same person again" reads at a glance
+   without an avatar fetch. Sits where the SHA chip used to be. */
+.commit-row__author-dot {
   flex: 0 0 auto;
-  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, monospace;
-  font-size: 12px;
-  color: var(--accent);
-  background: rgba(99, 102, 241, 0.08);
-  border-radius: 4px;
-  padding: 2px 6px;
-  margin-top: 1px;
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  margin-top: 5px;
+  box-shadow: 0 0 0 2px var(--bg-card);
 }
 .commit-row__main {
   flex: 1 1 auto;
@@ -647,19 +648,35 @@
 .commit-row__subject {
   font-size: 13px;
   color: var(--text-1);
-  white-space: nowrap;
+  /* Two-line clamp: long subjects wrap once and then ellipsize, so
+     the row height stays predictable without losing context the way
+     a single-line ellipsis did. */
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
   overflow: hidden;
-  text-overflow: ellipsis;
+  line-height: 1.35;
 }
 .commit-row__meta {
   display: flex;
-  gap: 10px;
-  font-size: 12px;
+  flex-wrap: wrap;
+  gap: 4px 6px;
+  font-size: 11px;
   color: var(--text-3);
-  margin-top: 2px;
+  margin-top: 4px;
+  align-items: center;
 }
 .commit-row__author {
   font-weight: 500;
+  color: var(--text-2);
+}
+.commit-row__sep {
+  color: var(--text-4);
+}
+.commit-row__sha {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, monospace;
+  font-size: 11px;
+  color: var(--accent);
 }
 
 /* Activity tab: one row per reflog entry. Glyph + kind chip on the
@@ -1317,17 +1334,27 @@
   flex-direction: column;
 }
 .commits-pane__commits {
-  overflow-y: auto;
+  /* Header pins; the list scrolls. Without flex+min-height:0 on the
+     ol, Safari/old WebKit lets the inner overflow:auto child push
+     the parent's height, defeating the sticky header. */
+  overflow: hidden;
 }
 .commits-pane__commits .commits-list {
   border: none;
   border-radius: 0;
   background: transparent;
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow-y: auto;
 }
 .commits-pane__files {
   overflow: hidden;
 }
-.commits-pane__files-header {
+/* Per-aside section header — uppercase mini-label that mirrors the
+   "COMMITS" / "FILES CHANGED" treatment in
+   docs/mockups/design/local-repo/code-diff.png. Used inside
+   .commits-pane__commits and .commits-pane__files. */
+.commits-pane__section-header {
   font-size: 11px;
   font-weight: 600;
   letter-spacing: 0.04em;
@@ -1335,6 +1362,7 @@
   color: var(--text-3);
   padding: 10px 12px;
   border-bottom: 1px solid var(--border);
+  flex: 0 0 auto;
 }
 .commits-pane__files-total {
   border-top: 1px solid var(--border);

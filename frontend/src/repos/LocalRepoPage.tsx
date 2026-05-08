@@ -1053,6 +1053,7 @@ function CommitsTab({
       </div>
       <div className="commits-pane__body">
         <aside className="commits-pane__commits">
+          <div className="commits-pane__section-header">Commits</div>
           <ol className="commits-list">
             {commits.map(c => (
               <Fragment key={c.sha}>
@@ -1071,6 +1072,7 @@ function CommitsTab({
           </ol>
         </aside>
         <aside className="commits-pane__files">
+          <div className="commits-pane__section-header">Files changed</div>
           <CommitsSelectionSummary
             commits={commits}
             selected={selectedShas}
@@ -1138,22 +1140,56 @@ function CommitRow({
         }
       }}
     >
-      <code className="commit-row__sha" title={commit.sha}>{commit.shortSha}</code>
+      <span
+        className="commit-row__author-dot"
+        style={{ background: authorColor(commit.authorEmail || commit.authorName) }}
+        title={commit.authorName}
+        aria-hidden="true"
+      />
       <div className="commit-row__main">
         <div className="commit-row__subject">{commit.subject}</div>
         <div className="commit-row__meta">
           <span className="commit-row__author" title={commit.authorEmail}>
-            {commit.authorName}
+            @{commit.authorName}
           </span>
+          <span className="commit-row__sep" aria-hidden="true">·</span>
+          <code className="commit-row__sha" title={commit.sha}>{commit.shortSha}</code>
           {commit.authoredAt && (
-            <span className="commit-row__time" title={commit.authoredAt}>
-              {formatRelativeTime(commit.authoredAt)}
-            </span>
+            <>
+              <span className="commit-row__sep" aria-hidden="true">·</span>
+              <span className="commit-row__time" title={commit.authoredAt}>
+                {formatRelativeTime(commit.authoredAt)}
+              </span>
+            </>
           )}
         </div>
       </div>
     </li>
   );
+}
+
+/** Stable hash → 8-color palette for the author dot. We don't have
+ *  GitHub user data on local commits (just author name + email from
+ *  git's own ident), so a deterministic per-author tint gives the
+ *  user a quick "same person again" cue without an avatar fetch. */
+function authorColor(key: string): string {
+  // 8-color palette tuned for both light and dark themes — moderate
+  // saturation, ~50% lightness so the dot reads against either bg.
+  const PALETTE = [
+    '#1f6a57', // accent green
+    '#cf6900', // amber
+    '#1f6feb', // blue
+    '#8a5cf5', // purple
+    '#cf222e', // red
+    '#1a7f37', // forest
+    '#996600', // mustard
+    '#0e8c8c', // teal
+  ];
+  let h = 0;
+  for (let i = 0; i < key.length; i++) {
+    h = ((h << 5) - h + key.charCodeAt(i)) | 0;
+  }
+  return PALETTE[Math.abs(h) % PALETTE.length];
 }
 
 function CommitsSelectionSummary({

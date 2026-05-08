@@ -550,15 +550,6 @@ function LocalRepoPage({ owner, repo }: Props) {
           >
             + Branch
           </button>
-          <button
-            type="button"
-            className="button button--primary button--sm"
-            onClick={() => setCreatePrOpen(true)}
-            disabled={actionState !== 'idle' || !status?.localClonePath || !status?.currentBranch}
-            title="Open a pull request from the current branch"
-          >
-            Create PR
-          </button>
           <span className="local-repo-page__actions-spacer" aria-hidden="true" />
           <button
             type="button"

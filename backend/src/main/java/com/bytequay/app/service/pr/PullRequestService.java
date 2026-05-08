@@ -672,6 +672,11 @@ public class PullRequestService
      * "commented" timeline events). Same content-allowlist + path
      * shape as the review-comment variant — only the GitHub URL
      * differs (issues/comments vs pulls/comments).
+     *
+     * <p>After GitHub accepts the reaction we bump the matching tally
+     * on the cached timeline event in place, mirroring the
+     * review-comment patch path so the next {@code /prs/detail} read
+     * shows the new chip without waiting for a background sync.
      */
     public void addIssueCommentReaction(String pat, String repo, long commentId, String content)
     {
@@ -682,6 +687,30 @@ public class PullRequestService
         }
         RepoRef ref = parseRepoRef(repo);
         gitHub.addIssueCommentReaction(pat, ref.owner(), ref.repo(), commentId, content);
+        detailStore.findPrIdByIssueCommentId(commentId).ifPresent(prId ->
+                detailStore.find(prId).ifPresent(cached ->
+                        detailStore.save(prId, withTimelineCommentReaction(cached, commentId, content))));
+    }
+
+    /**
+     * Returns a new {@link StoredPrDetail} with the reaction tally on
+     * the {@code commented} timeline event identified by
+     * {@code commentId} bumped by one for {@code content}. Other rows
+     * pass through unchanged.
+     */
+    private static StoredPrDetail withTimelineCommentReaction(StoredPrDetail detail, long commentId, String content)
+    {
+        List<PrTimelineEvent> patched = detail.timeline().stream()
+                .map(e -> e.githubId() != null && e.githubId() == commentId && "commented".equals(e.event())
+                        ? new PrTimelineEvent(
+                                e.githubId(), e.event(), e.actor(), e.state(), e.timestamp(), e.body(),
+                                e.beforeSha(), e.afterSha(), e.requestedReviewer(), e.reviewId(),
+                                e.authorAssociation(), bumpReaction(e.reactions(), content))
+                        : e)
+                .collect(toImmutableList());
+        return new StoredPrDetail(
+                detail.raw(), detail.reviews(), detail.files(), patched,
+                detail.checkRuns(), detail.reviewComments(), detail.linkedIssues());
     }
 
     /**

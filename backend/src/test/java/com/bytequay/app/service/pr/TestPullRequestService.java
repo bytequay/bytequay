@@ -1229,6 +1229,51 @@ class TestPullRequestService
     }
 
     @Test
+    void testAddIssueCommentReactionBumpsCachedReactionCount()
+    {
+        PrTimelineEvent commented = new PrTimelineEvent(
+                4357983764L,
+                "commented",
+                "alice",
+                null,
+                Instant.parse("2026-05-08T00:00:00Z"),
+                "looks good",
+                null,
+                null,
+                null,
+                null,
+                "MEMBER",
+                new Reactions(0, 0, 0, 0, 0, 0, 0, 1));
+        when(detailStore.findPrIdByIssueCommentId(4357983764L)).thenReturn(Optional.of(123L));
+        when(detailStore.find(123L)).thenReturn(Optional.of(new StoredPrDetail(
+                null,
+                ImmutableList.of(),
+                ImmutableList.of(),
+                ImmutableList.of(commented),
+                ImmutableList.of(),
+                ImmutableList.of(),
+                ImmutableList.of())));
+
+        pullRequestService.addIssueCommentReaction("pat", "trinodb/trino", 4357983764L, "rocket");
+
+        ArgumentCaptor<StoredPrDetail> captor = ArgumentCaptor.forClass(StoredPrDetail.class);
+        verify(detailStore).save(eq(123L), captor.capture());
+        Reactions patched = captor.getValue().timeline().get(0).reactions();
+        assertThat(patched.rocket()).isEqualTo(1);
+        assertThat(patched.eyes()).isEqualTo(1);
+    }
+
+    @Test
+    void testAddIssueCommentReactionSkipsCachePatchWhenCommentUnknown()
+    {
+        when(detailStore.findPrIdByIssueCommentId(4357983764L)).thenReturn(Optional.empty());
+
+        pullRequestService.addIssueCommentReaction("pat", "trinodb/trino", 4357983764L, "heart");
+
+        verify(detailStore, never()).save(anyLong(), any());
+    }
+
+    @Test
     void testAddReviewCommentReactionRejectsInvalidContent()
     {
         assertThatThrownBy(() ->

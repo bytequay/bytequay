@@ -25,8 +25,8 @@ import { EditableMarkdownBody } from './EditableMarkdownBody';
  * Renders a single review thread plus an inline reply composer. Clicking the
  * thread (or the explicit Reply button) opens a small textarea below the
  * messages; submitting hits {@code POST /prs/review-threads/{id}/reply} via
- * the bridge. The parent supplies an {@code onReply} callback which is
- * responsible for refreshing the PR detail after the reply succeeds.
+ * the bridge. The parent supplies an {@code onReply} callback which owns the
+ * optimistic local-state patch after the reply succeeds.
  */
 export function ReviewThreadCard({
   thread,

@@ -351,4 +351,37 @@ describe('PullRequestPreview render smoke', () => {
     expect(bridge.fetchPullRequestDetail).toHaveBeenCalledTimes(1);
     expect(container.innerHTML).toContain('Mark as ready');
   });
+
+  it('keeps issue reactions optimistic without fetching stale detail', async () => {
+    const bridge = await render(makeDetail());
+    const chip = container.querySelector('.prc-comment-card .reaction-chip--clickable');
+    expect(chip).toBeTruthy();
+
+    await act(async () => {
+      chip!.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    });
+    await act(async () => { await Promise.resolve(); });
+
+    expect(bridge.addIssueCommentReaction).toHaveBeenCalledWith('trinodb/trino', 9001, 'heart');
+    expect(bridge.fetchPullRequestDetail).toHaveBeenCalledTimes(1);
+    expect(bridge.refreshPullRequestDetail).not.toHaveBeenCalled();
+    expect(container.querySelector('.prc-comment-card .reaction-chip__count')?.textContent).toBe('2');
+  });
+
+  it('keeps thread resolution optimistic without fetching stale detail', async () => {
+    const bridge = await render(makeDetail());
+    const button = Array.from(container.querySelectorAll('button'))
+      .find(el => el.textContent === 'Resolve conversation');
+    expect(button).toBeTruthy();
+
+    await act(async () => {
+      button!.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    });
+    await act(async () => { await Promise.resolve(); });
+
+    expect(bridge.setReviewThreadResolved).toHaveBeenCalledWith('trinodb/trino', 1, 5001, true);
+    expect(bridge.fetchPullRequestDetail).toHaveBeenCalledTimes(1);
+    expect(bridge.refreshPullRequestDetail).not.toHaveBeenCalled();
+    expect(container.innerHTML).toContain('Unresolve conversation');
+  });
 });

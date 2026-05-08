@@ -726,11 +726,6 @@ function PullRequestPreview({ pr, onOpenReview, onInspectDiffs, onMarkHandled, o
     setDetail(prev => optimisticallyToggleResolved(prev, rootGithubId, resolved));
     try {
       await window.bridge.setReviewThreadResolved(pr.repo, pr.id, rootGithubId, resolved);
-      // Re-fetch detail so the GraphQL flag is the canonical value
-      // (and so any in-flight reaction tally also lands).
-      const fresh = await window.bridge.fetchPullRequestDetail(pr.repo, pr.number);
-      putCache(pr.id, fresh);
-      setDetail(fresh);
     } catch (e) {
       setDetail(prev => optimisticallyToggleResolved(prev, rootGithubId, !resolved));
       console.warn('setReviewThreadResolved failed', e);
@@ -744,9 +739,6 @@ function PullRequestPreview({ pr, onOpenReview, onInspectDiffs, onMarkHandled, o
     setDetail(prev => optimisticallyBumpReaction(prev, commentGithubId, content));
     try {
       await window.bridge.addIssueCommentReaction(pr.repo, commentGithubId, content);
-      const fresh = await window.bridge.fetchPullRequestDetail(pr.repo, pr.number);
-      putCache(pr.id, fresh);
-      setDetail(fresh);
     } catch (e) {
       setDetail(prev => optimisticallyBumpReaction(prev, commentGithubId, content, -1));
       console.warn('addIssueCommentReaction failed', e);
@@ -754,16 +746,12 @@ function PullRequestPreview({ pr, onOpenReview, onInspectDiffs, onMarkHandled, o
   };
 
   /** Add an emoji reaction to a review-thread message. Optimistically
-   *  bumps the local count so the chip appears immediately, then
-   *  refreshes the PR detail in the background to pick up GitHub's
-   *  authoritative tally. */
+   *  bumps the local count so the chip appears immediately. The next
+   *  natural detail refresh picks up GitHub's authoritative tally. */
   const handleReact = async (commentGithubId: number, content: ReactionContent): Promise<void> => {
     setDetail(prev => optimisticallyBumpReaction(prev, commentGithubId, content));
     try {
       await window.bridge.addReviewCommentReaction(pr.repo, commentGithubId, content);
-      const fresh = await window.bridge.fetchPullRequestDetail(pr.repo, pr.number);
-      putCache(pr.id, fresh);
-      setDetail(fresh);
     } catch (e) {
       // Rollback the optimistic bump on failure.
       setDetail(prev => optimisticallyBumpReaction(prev, commentGithubId, content, -1));
@@ -918,10 +906,7 @@ function PullRequestPreview({ pr, onOpenReview, onInspectDiffs, onMarkHandled, o
   };
 
   /** Posts a reply to the given review thread, then patches the new
-   *  message into local state right away so the user sees it without
-   *  waiting on the slow full-detail refetch. The refetch still runs
-   *  in the background to pick up GitHub's real comment id and
-   *  reconcile anything else that changed. Throws if the post itself
+   *  message into local state right away. Throws if the post itself
    *  fails so the composer can surface the error. */
   const handleReply = async (rootGithubId: number, body: string) => {
     await window.bridge.replyToReviewThread(pr.repo, pr.number, rootGithubId, body);
@@ -938,12 +923,6 @@ function PullRequestPreview({ pr, onOpenReview, onInspectDiffs, onMarkHandled, o
       authorAssociation: null,
     };
     setDetail(prev => optimisticallyAppendReply(prev, rootGithubId, optimistic));
-    // Background reconciliation — don't await, the user already sees
-    // their reply. Errors here are non-fatal: the worst case is the
-    // temp message lingers until the next natural detail refresh.
-    void window.bridge.fetchPullRequestDetail(pr.repo, pr.number)
-      .then(fresh => { putCache(pr.id, fresh); setDetail(fresh); })
-      .catch(() => { /* best-effort */ });
   };
 
   const repoOwner = pr.repo.includes('/') ? pr.repo.split('/')[0] : pr.repo;

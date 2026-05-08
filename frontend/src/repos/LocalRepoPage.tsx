@@ -149,15 +149,17 @@ function LocalRepoPage({ owner, repo }: Props) {
       && status?.currentBranch !== undefined
       && selectedBranch !== status.currentBranch;
 
-  // Switch HEAD to selectedBranch when the next action requires it.
-  // Throws on failure so the surrounding try/catch surfaces git's
-  // stderr (dirty tree, conflict, etc.) and the caller's action
-  // never runs. After a successful switch we clear selectedBranch
-  // because HEAD now equals what the user picked — they're back in
-  // sync, no banner needed.
-  const switchIfNeeded = async () => {
-    if (!needsSwitch || !selectedBranch) return;
-    const fresh = await window.bridge.switchLocalBranch(owner, repo, selectedBranch);
+  // Switch HEAD to {@code overrideBranch} (or {@link selectedBranch}
+  // when the override is null) when it differs from current. Throws
+  // on failure so the surrounding try/catch surfaces git's stderr
+  // (dirty tree, conflict, etc.) and the caller's action never runs.
+  // After a successful switch we clear selectedBranch because HEAD
+  // now equals what the user picked — they're back in sync, no
+  // banner needed.
+  const switchIfNeeded = async (overrideBranch?: string) => {
+    const target = overrideBranch ?? selectedBranch;
+    if (!target || target === status?.currentBranch) return;
+    const fresh = await window.bridge.switchLocalBranch(owner, repo, target);
     setStatus(fresh);
     setSelectedBranch(null);
   };
@@ -194,11 +196,11 @@ function LocalRepoPage({ owner, repo }: Props) {
     }
   };
 
-  const runPush = async () => {
+  const runPush = async (overrideBranch?: string) => {
     setActionState('pushing');
     setActionError(null);
     try {
-      await switchIfNeeded();
+      await switchIfNeeded(overrideBranch);
       const fresh = await window.bridge.pushLocalRepo(owner, repo);
       setStatus(fresh);
       const fresher = await window.bridge.listLocalBranches(owner, repo);
@@ -216,6 +218,15 @@ function LocalRepoPage({ owner, repo }: Props) {
     } finally {
       setActionState('idle');
     }
+  };
+
+  const openCreatePrForBranch = (name: string) => {
+    // Per-card "Create PR" pre-selects the card's branch; the modal
+    // then reads `effectiveBranch` and the existing lazy-switch
+    // wires the rest. Same code path as click-card → click action-
+    // bar Create PR, just collapsed into one click.
+    setSelectedBranch(name === status?.currentBranch ? null : name);
+    setCreatePrOpen(true);
   };
 
   const runForcePush = async () => {
@@ -703,6 +714,12 @@ function LocalRepoPage({ owner, repo }: Props) {
                     });
                   }}
                   onDeleteBranch={setDeleteTarget}
+                  onPushBranch={col.key === 'LOCAL_WORK'
+                    ? (name) => { void runPush(name); }
+                    : undefined}
+                  onCreatePrForBranch={col.key === 'READY_FOR_PR'
+                    ? (name) => openCreatePrForBranch(name)
+                    : undefined}
                 />
               ))}
             </div>
@@ -1269,6 +1286,8 @@ function BranchColumn({
   currentBranch,
   onSelectForAction,
   onDeleteBranch,
+  onPushBranch,
+  onCreatePrForBranch,
   expanded,
   collapsedLimit,
   onToggleExpanded,
@@ -1277,9 +1296,9 @@ function BranchColumn({
   subtitle: string;
   column: Column;
   branches: LocalBranchDto[];
-  /** Explicit "switch HEAD now" — surfaced as a small button on
-   *  cleanup cards so the user can hop to a candidate before
-   *  inspecting it in their IDE. */
+  /** Explicit "switch HEAD now" — kept on every card as a secondary
+   *  affordance (lets the user hop to a branch before inspecting
+   *  it in their IDE without going through the lazy-switch flow). */
   onSwitchBranch?: (name: string) => void;
   switching?: boolean;
   /** Branch the user has clicked to act on (Push / Pull / Create
@@ -1296,6 +1315,13 @@ function BranchColumn({
    *  modal upstream can decide whether to offer the "also delete
    *  remote" checkbox. */
   onDeleteBranch?: (branch: LocalBranchDto) => void;
+  /** Per-card primary "Push" — only wired in LOCAL WORK. Click
+   *  pushes the card's branch (lazy-switching first when needed). */
+  onPushBranch?: (name: string) => void;
+  /** Per-card primary "Create PR" — only wired in READY FOR PR.
+   *  Click pre-selects the card's branch and opens the Create PR
+   *  modal. */
+  onCreatePrForBranch?: (name: string) => void;
   /** True when the user has expanded this column past the collapsed
    *  cap. False shows only the first {@link collapsedLimit} cards
    *  with a "Show N more" toggle below. */
@@ -1323,6 +1349,7 @@ function BranchColumn({
                 <BranchCard
                   key={b.name}
                   branch={b}
+                  column={column}
                   onSwitch={onSwitchBranch && !b.isCurrent ? () => onSwitchBranch(b.name) : undefined}
                   switching={switching ?? false}
                   actionSelected={selectedActionBranch === b.name}
@@ -1330,6 +1357,8 @@ function BranchColumn({
                   isCurrentHead={currentBranch === b.name}
                   onSelectForAction={onSelectForAction}
                   onDelete={onDeleteBranch && !b.isCurrent ? () => onDeleteBranch(b) : undefined}
+                  onPush={onPushBranch && !b.isCurrent ? () => onPushBranch(b.name) : undefined}
+                  onCreatePr={onCreatePrForBranch && !b.isCurrent ? () => onCreatePrForBranch(b.name) : undefined}
                 />
               ))}
               {(hidden > 0 || expanded) && onToggleExpanded && (
@@ -1356,6 +1385,7 @@ const CLEANUP_REASON_LABEL: Record<NonNullable<LocalBranchDto['cleanupReason']>,
 
 function BranchCard({
   branch,
+  column,
   onSwitch,
   switching,
   actionSelected,
@@ -1363,25 +1393,27 @@ function BranchCard({
   isCurrentHead,
   onSelectForAction,
   onDelete,
+  onPush,
+  onCreatePr,
 }: {
   branch: LocalBranchDto;
+  column: Column;
   onSwitch?: () => void;
   switching: boolean;
   /** True when this card is the user's current "act on this
-   *  branch" pick (set via {@link onSelectForAction}). Renders a
-   *  visible highlight so the user knows the action bar will
-   *  target this card on next Push / Pull / Create PR. */
+   *  branch" pick (set via {@link onSelectForAction}). */
   actionSelected?: boolean;
   /** True when the keyboard cursor (j/k) is currently on this
-   *  card. Distinct from {@link actionSelected} — the cursor only
-   *  commits to selection on Enter. */
+   *  card. Distinct from {@link actionSelected}. */
   focused?: boolean;
   isCurrentHead?: boolean;
   onSelectForAction?: (name: string) => void;
-  /** Per-card delete affordance. Undefined for the current branch
-   *  (HEAD can't be deleted) — the card just doesn't render the
-   *  button. */
+  /** Per-card delete (×) — undefined for the current branch. */
   onDelete?: () => void;
+  /** Per-card primary "↑ Push" — only on LOCAL WORK cards. */
+  onPush?: () => void;
+  /** Per-card primary "Create PR ↗" — only on READY FOR PR cards. */
+  onCreatePr?: () => void;
 }) {
   const selectable = onSelectForAction !== undefined;
   const cls = [
@@ -1408,6 +1440,13 @@ function BranchCard({
           : `Click to act on ${branch.name} (will switch HEAD when you Push / Pull / Create PR)`;
     }
   }
+  // "Push fast-forwards" — ahead-only cases push as a fast-forward
+  // with no rebase needed. Computable from existing ahead/behind
+  // without backend support; the diverged-and-clean / diverged-and-
+  // conflict pills land in Phase 3.
+  const isFastForwardPush = branch.hasUpstream
+      && (branch.ahead ?? 0) > 0
+      && (branch.behind ?? 0) === 0;
   return (
     <article
       className={cls}
@@ -1428,32 +1467,14 @@ function BranchCard({
           {branch.isCurrent && <span className="branch-card__head-dot" aria-hidden="true">●</span>}
           {branch.name}
         </code>
+        {actionSelected && (
+          <span className="branch-card__acting-pill" aria-label="Acting on this branch">
+            ACTING
+          </span>
+        )}
         {branch.linkedPrNumber != null && (
           <span className="branch-card__pr">#{branch.linkedPrNumber}</span>
         )}
-        <span className="branch-card__head-actions">
-          {onSwitch && !switching && (
-            <button
-              type="button"
-              className="branch-card__icon-btn"
-              onClick={(e) => { e.stopPropagation(); onSwitch(); }}
-              title={`Switch HEAD to ${branch.name} now`}
-            >
-              Switch
-            </button>
-          )}
-          {onDelete && (
-            <button
-              type="button"
-              className="branch-card__icon-btn branch-card__icon-btn--danger"
-              onClick={(e) => { e.stopPropagation(); onDelete(); }}
-              title={`Delete ${branch.name}`}
-              aria-label={`Delete ${branch.name}`}
-            >
-              ✕
-            </button>
-          )}
-        </span>
       </header>
       <div className="branch-card__meta">
         {branch.lastCommitAt && (
@@ -1462,13 +1483,31 @@ function BranchCard({
           </span>
         )}
         {branch.hasUpstream && (branch.ahead || branch.behind) && (
-          <span className="branch-card__sync">
-            {(branch.ahead ?? 0) > 0 && <span title={`${branch.ahead} ahead`}>↑{branch.ahead}</span>}
-            {(branch.behind ?? 0) > 0 && <span title={`${branch.behind} behind`}>↓{branch.behind}</span>}
+          <>
+            <span aria-hidden="true">·</span>
+            {(branch.ahead ?? 0) > 0 && (
+              <span className="branch-card__ahead" title={`${branch.ahead} ahead — local commits not yet on origin`}>
+                ↑{branch.ahead}
+              </span>
+            )}
+            {(branch.behind ?? 0) > 0 && (
+              <span className="branch-card__behind" title={`${branch.behind} behind — origin has commits not yet local`}>
+                ↓{branch.behind}
+              </span>
+            )}
+          </>
+        )}
+        {isFastForwardPush && (
+          <span className="rebase-pill rebase-pill--fwd"
+                title="Push will fast-forward — no rebase needed">
+            ↑ push fast-forwards
           </span>
         )}
         {!branch.hasUpstream && !branch.cleanupReason && (
-          <span className="branch-card__no-upstream">never pushed</span>
+          <>
+            <span aria-hidden="true">·</span>
+            <span className="branch-card__no-upstream">never pushed</span>
+          </>
         )}
         {branch.cleanupReason && (
           <span className="branch-card__cleanup-reason">
@@ -1476,6 +1515,63 @@ function BranchCard({
           </span>
         )}
       </div>
+      {(onPush || onCreatePr || onSwitch || onDelete) && !branch.isCurrent && (
+        <div className="branch-card__foot">
+          {onPush && (
+            <button
+              type="button"
+              className="branch-card__btn branch-card__btn--cta"
+              onClick={(e) => { e.stopPropagation(); onPush(); }}
+              title={`Push ${branch.name}`}
+            >
+              ↑ Push
+            </button>
+          )}
+          {onCreatePr && (
+            <button
+              type="button"
+              className="branch-card__btn branch-card__btn--cta"
+              onClick={(e) => { e.stopPropagation(); onCreatePr(); }}
+              title={`Open a pull request from ${branch.name}`}
+            >
+              Create PR ↗
+            </button>
+          )}
+          {column === 'CLEAN_UP' && onDelete && (
+            // CLEAN UP collapses delete into the primary slot — the
+            // whole point of the column is to delete things, no need
+            // for a secondary ✕ button next to it.
+            <button
+              type="button"
+              className="branch-card__btn branch-card__btn--danger"
+              onClick={(e) => { e.stopPropagation(); onDelete(); }}
+            >
+              Delete
+            </button>
+          )}
+          {onSwitch && !switching && (
+            <button
+              type="button"
+              className="branch-card__btn"
+              onClick={(e) => { e.stopPropagation(); onSwitch(); }}
+              title={`Switch HEAD to ${branch.name} now`}
+            >
+              Switch
+            </button>
+          )}
+          {column !== 'CLEAN_UP' && onDelete && (
+            <button
+              type="button"
+              className="branch-card__btn branch-card__btn--icon"
+              onClick={(e) => { e.stopPropagation(); onDelete(); }}
+              title={`Delete ${branch.name}`}
+              aria-label={`Delete ${branch.name}`}
+            >
+              ✕
+            </button>
+          )}
+        </div>
+      )}
     </article>
   );
 }

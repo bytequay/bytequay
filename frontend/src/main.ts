@@ -1244,6 +1244,23 @@ const url = new URL(`${BACKEND_BASE}/prs/comment`);
     return res.json();
   });
 
+  ipcMain.handle('repos:getLocalCommitRangeDiff', async (
+    _event, owner: string, repo: string, oldestSha: string, newestSha: string, path: string,
+  ) => {
+    const params = new URLSearchParams();
+    params.set('oldest', oldestSha);
+    params.set('newest', newestSha);
+    params.set('path', path);
+    const res = await fetch(
+      `${BACKEND_BASE}/api/repos/local/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/commits-range/diff?${params.toString()}`,
+    );
+    if (!res.ok) {
+      const body = await res.text().catch(() => '');
+      throw new Error(extractMessage(body) || `commit range-diff failed (${res.status})`);
+    }
+    return res.json();
+  });
+
   ipcMain.handle('repos:getLocalMergeBase', async (
     _event, owner: string, repo: string, branch: string, base: string | undefined,
   ) => {

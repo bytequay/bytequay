@@ -1002,21 +1002,30 @@ function CommitsTab({
     return () => { cancelled = true; };
   }, [owner, repo, selectedShas, commits]);
 
-  // Per-file diff. With multiple commits selected, use the latest
-  // (newest) selected commit's patch for the file — same heuristic
-  // the PR diff viewer uses, and matches what the user expects to
-  // see when scrolling a multi-commit selection.
-  const latestSelectedSha = (commits ?? []).find((c) => selectedShas.has(c.sha))?.sha ?? null;
+  // Per-file diff. Single selection → that commit's patch via
+  // `git show`. Multiple selection → range diff via
+  // `git diff <oldest>^..<newest>` so the user sees the COMBINED
+  // changes across the selection, not just the newest commit's
+  // changes. Sparse selections (gaps) over-include the un-selected
+  // middle commits — git can't produce a true "just-these-commits"
+  // diff, and most users select contiguous ranges anyway.
+  const ordered = (commits ?? []).filter((c) => selectedShas.has(c.sha));
+  const newestSelectedSha = ordered[0]?.sha ?? null;       // commits is newest-first
+  const oldestSelectedSha = ordered[ordered.length - 1]?.sha ?? null;
   useEffect(() => {
-    if (latestSelectedSha == null || selectedFile == null) return;
+    if (newestSelectedSha == null || oldestSelectedSha == null || selectedFile == null) return;
     let cancelled = false;
     setDiff(null);
     setDiffError(null);
-    window.bridge.getLocalCommitDiff(owner, repo, latestSelectedSha, selectedFile)
+    const fetchDiff = newestSelectedSha === oldestSelectedSha
+      ? window.bridge.getLocalCommitDiff(owner, repo, newestSelectedSha, selectedFile)
+      : window.bridge.getLocalCommitRangeDiff(
+          owner, repo, oldestSelectedSha, newestSelectedSha, selectedFile);
+    fetchDiff
       .then(d => { if (!cancelled) setDiff(d); })
       .catch(e => { if (!cancelled) setDiffError(e instanceof Error ? e.message : String(e)); });
     return () => { cancelled = true; };
-  }, [owner, repo, latestSelectedSha, selectedFile]);
+  }, [owner, repo, oldestSelectedSha, newestSelectedSha, selectedFile]);
 
   if (commitsError) {
     return (

@@ -928,6 +928,13 @@ export type Bridge = {
   getLocalCommitDiff: (
     owner: string, repo: string, sha: string, path: string,
   ) => Promise<LocalFileDiffDto>;
+  /** Per-file unified diff across a commit range (oldest^..newest).
+   *  Used when the Commits tab has more than one commit selected so
+   *  the user sees the combined patch instead of just the latest
+   *  selected commit's changes. */
+  getLocalCommitRangeDiff: (
+    owner: string, repo: string, oldestSha: string, newestSha: string, path: string,
+  ) => Promise<LocalFileDiffDto>;
   /** Merge-base sha of branch and base (default base = origin/HEAD).
    *  Used to render a "branched from <base>" divider in the Commits
    *  tab's commit list. */

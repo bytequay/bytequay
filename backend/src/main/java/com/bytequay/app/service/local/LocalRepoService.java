@@ -637,6 +637,29 @@ public class LocalRepoService
         return new LocalFileDiff(filePath, patch, truncated);
     }
 
+    /**
+     * One file's unified diff across a commit range — used by the
+     * Commits tab when the user has selected more than one commit.
+     * The {@code oldestSha} and {@code newestSha} args are the
+     * boundary commits in the user's selection (chronological order);
+     * the underlying {@code git diff} runs against
+     * {@code oldestSha^..newestSha} so the patch captures every
+     * change those commits introduced. Note: a sparse selection
+     * (gaps between commits) over-includes the un-selected middle
+     * commits — git can't produce a "just-these-commits" diff
+     * directly. Truncation matches {@link #commitFileDiff}.
+     */
+    public LocalFileDiff commitRangeFileDiff(
+            String owner, String repo, String oldestSha, String newestSha, String filePath)
+            throws IOException, InterruptedException
+    {
+        Path path = clonePathOrThrow(owner, repo);
+        String patch = gitRunner.rangeFileDiff(
+                path, oldestSha + "^", newestSha, filePath, FILE_DIFF_MAX_BYTES);
+        boolean truncated = patch.contains("(diff truncated at ");
+        return new LocalFileDiff(filePath, patch, truncated);
+    }
+
     private static final int FILE_DIFF_MAX_BYTES = 250_000;
 
     /**

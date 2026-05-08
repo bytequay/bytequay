@@ -287,6 +287,38 @@ public class LocalRepoController
     }
 
     /**
+     * GET /api/repos/local/{owner}/{repo}/commits-range/diff
+     *     ?oldest=&newest=&path= — unified diff for one file across
+     * the commit range {@code oldest^..newest}. Used by the Commits
+     * tab when more than one commit is selected.
+     */
+    @GetMapping("/{owner}/{repo}/commits-range/diff")
+    public LocalFileDiff commitRangeFileDiff(
+            @PathVariable("owner") String owner,
+            @PathVariable("repo") String repo,
+            @RequestParam("oldest") String oldestSha,
+            @RequestParam("newest") String newestSha,
+            @RequestParam("path") String filePath)
+    {
+        try {
+            return localRepoService.commitRangeFileDiff(owner, repo, oldestSha, newestSha, filePath);
+        }
+        catch (IllegalStateException e) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, e.getMessage());
+        }
+        catch (GitRunner.GitCommandException e) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, e.stderr().strip());
+        }
+        catch (IOException e) {
+            throw new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR, e.getMessage());
+        }
+        catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE, "commit range-diff fetch interrupted");
+        }
+    }
+
+    /**
      * GET /api/repos/local/{owner}/{repo}/merge-base?branch=&base= —
      * merge-base sha of {@code branch} and {@code base}. {@code base}
      * is optional; when omitted, falls back to the repo's default

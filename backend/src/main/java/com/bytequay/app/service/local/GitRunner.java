@@ -658,6 +658,36 @@ public class GitRunner
     }
 
     /**
+     * Unified diff for one file across a commit range
+     * ({@code git diff <base>..<head> -- <path>}). Used by the branch
+     * Commits tab when the user has selected more than one commit —
+     * the caller passes the parent of the oldest selected commit
+     * ({@code <oldestSelected>^}) as {@code base} and the newest
+     * selected commit as {@code head}, so the resulting patch
+     * captures every change those commits introduced as one unified
+     * diff. Truncation behavior matches {@link #commitFileDiff}.
+     */
+    public String rangeFileDiff(Path workingDir, String base, String head, String path, int maxBytes)
+            throws IOException, InterruptedException
+    {
+        requireNonNull(base, "base is null");
+        requireNonNull(head, "head is null");
+        requireNonNull(path, "path is null");
+        GitResult result = run(
+                List.of("git", "diff", base + ".." + head, "--", path),
+                workingDir,
+                60);
+        result.requireSuccess();
+        String stdout = result.stdout();
+        if (maxBytes > 0 && stdout.length() > maxBytes) {
+            return stdout.substring(0, maxBytes)
+                    + "\n\n... (diff truncated at " + maxBytes + " bytes; "
+                    + (stdout.length() - maxBytes) + " more bytes omitted)\n";
+        }
+        return stdout;
+    }
+
+    /**
      * Walks {@code git reflog} and returns up to {@code limit}
      * recent entries. The reflog records every move HEAD makes —
      * commits, checkouts, merges, pulls, rebases — so it's the

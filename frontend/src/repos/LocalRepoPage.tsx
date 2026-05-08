@@ -11,7 +11,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import { Fragment, useEffect, useState, type KeyboardEvent as ReactKeyboardEvent, type MouseEvent as ReactMouseEvent } from 'react';
+import { Fragment, useEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type MouseEvent as ReactMouseEvent } from 'react';
 import type { LocalActivityEntryDto, LocalBranchDto, LocalCommitDto, LocalCommitFileDto, LocalFileDiffDto, LocalMergeBaseDto, LocalRepoStatusDto } from '../types';
 import LogoLoading from '../LogoLoading';
 import { formatRelativeTime } from '../pr/utils';
@@ -19,6 +19,21 @@ import { DiffFileTreePane } from '../diff/DiffFileTreePane';
 import { statusBadgeFromLetter } from '../diffStatusBadge';
 import { unionCommitFiles } from '../diff/unionCommitFiles';
 import { formatShortSha } from '../diff/commitDisplay';
+import ResizeHandle from '../ResizeHandle';
+
+// Persisted widths for the Commits-tab 3-pane layout. Same pattern as
+// DiffViewerScreen — left/middle column widths are user-controlled via
+// drag handles, the right diff column takes whatever remains so it
+// always grows with the viewport. localStorage keys are scoped to this
+// view so they don't collide with the PR diff viewer's keys.
+const COMMITS_TAB_LEFT_KEY = 'bq.localRepo.commitsTab.leftWidth';
+const COMMITS_TAB_MID_KEY = 'bq.localRepo.commitsTab.midWidth';
+const COMMITS_TAB_LEFT_DEFAULT = 320;
+const COMMITS_TAB_MID_DEFAULT = 280;
+const COMMITS_TAB_LEFT_MIN = 200;
+const COMMITS_TAB_LEFT_MAX = 600;
+const COMMITS_TAB_MID_MIN = 180;
+const COMMITS_TAB_MID_MAX = 600;
 
 type Props = {
   owner: string;
@@ -927,6 +942,37 @@ function CommitsTab({
   const [diffError, setDiffError] = useState<string | null>(null);
   const [collapsedDirs, setCollapsedDirs] = useState<ReadonlySet<string>>(new Set());
   const [mergeBase, setMergeBase] = useState<LocalMergeBaseDto | null>(null);
+  // User-resizable column widths. Loaded once from localStorage so the
+  // user's last layout sticks across navigations.
+  const [leftWidth, setLeftWidth] = useState<number>(() => {
+    const raw = localStorage.getItem(COMMITS_TAB_LEFT_KEY);
+    const n = raw ? Number(raw) : NaN;
+    return Number.isFinite(n) ? n : COMMITS_TAB_LEFT_DEFAULT;
+  });
+  const [midWidth, setMidWidth] = useState<number>(() => {
+    const raw = localStorage.getItem(COMMITS_TAB_MID_KEY);
+    const n = raw ? Number(raw) : NaN;
+    return Number.isFinite(n) ? n : COMMITS_TAB_MID_DEFAULT;
+  });
+  const bodyRef = useRef<HTMLDivElement | null>(null);
+  const handleLeftResize = (clientX: number) => {
+    const rect = bodyRef.current?.getBoundingClientRect();
+    if (!rect) return;
+    const next = Math.max(COMMITS_TAB_LEFT_MIN, Math.min(COMMITS_TAB_LEFT_MAX, clientX - rect.left));
+    setLeftWidth(next);
+    localStorage.setItem(COMMITS_TAB_LEFT_KEY, String(next));
+  };
+  const handleMidResize = (clientX: number) => {
+    const rect = bodyRef.current?.getBoundingClientRect();
+    if (!rect) return;
+    // The middle pane sits to the right of the (already-resizable) left
+    // pane and its own left-edge handle, so we measure from the right
+    // edge of the left handle's column rather than the body's left.
+    const midStart = rect.left + leftWidth + 5;
+    const next = Math.max(COMMITS_TAB_MID_MIN, Math.min(COMMITS_TAB_MID_MAX, clientX - midStart));
+    setMidWidth(next);
+    localStorage.setItem(COMMITS_TAB_MID_KEY, String(next));
+  };
   const toggleDir = (path: string) =>
     setCollapsedDirs((prev) => {
       const next = new Set(prev);
@@ -1069,7 +1115,13 @@ function CommitsTab({
         {' '}
         <code className="commits-pane__branch">{revisionKey || 'HEAD'}</code>
       </div>
-      <div className="commits-pane__body">
+      <div
+        className="commits-pane__body"
+        ref={bodyRef}
+        style={{
+          gridTemplateColumns: `${leftWidth}px 5px ${midWidth}px 5px minmax(0, 1fr)`,
+        }}
+      >
         <aside className="commits-pane__commits">
           <div className="commits-pane__section-header">Commits</div>
           <ol className="commits-list">
@@ -1089,6 +1141,7 @@ function CommitsTab({
             ))}
           </ol>
         </aside>
+        <ResizeHandle onResize={handleLeftResize} ariaLabel="Resize commits panel" />
         <aside className="commits-pane__files">
           <div className="commits-pane__section-header">Files changed</div>
           <CommitsSelectionSummary
@@ -1111,6 +1164,7 @@ function CommitsTab({
             <CommitFilesTotal files={files} />
           )}
         </aside>
+        <ResizeHandle onResize={handleMidResize} ariaLabel="Resize files panel" />
         <section className="commits-pane__diff">
           {diffError && (
             <div className="local-repo-page__error">{diffError}</div>

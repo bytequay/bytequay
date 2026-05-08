@@ -1343,23 +1343,32 @@
 }
 .commits-pane__body {
   display: grid;
-  grid-template-columns: minmax(240px, 1fr) minmax(220px, 1fr) minmax(420px, 2.4fr);
-  gap: 12px;
+  /* Column template is set inline by CommitsTab so the user-resizable
+     widths can drive the layout. Falls back here if the inline style
+     is missing. Format: <left> 5px <mid> 5px 1fr — the two 5px tracks
+     host the ResizeHandle dividers. */
+  grid-template-columns: 320px 5px 280px 5px minmax(0, 1fr);
   /* Fixed-height pane area so the inner columns scroll independently
      instead of stretching the page; matches the mockup where the
      commits/files/diff trio sits inside a viewport-bounded card. */
   min-height: 560px;
   height: calc(100vh - 260px);
+  /* Single shared frame around the trio so the panes read as one
+     surface rather than three floating cards. The internal dividers
+     are drawn by the .resize-handle children's ::before line. */
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
 }
 .commits-pane__commits,
 .commits-pane__files,
 .commits-pane__diff {
   background: var(--bg-card);
-  border: 1px solid var(--border);
-  border-radius: 8px;
   overflow: hidden;
   display: flex;
   flex-direction: column;
+  min-width: 0;
 }
 .commits-pane__commits {
   /* Header pins; the list scrolls. Without flex+min-height:0 on the

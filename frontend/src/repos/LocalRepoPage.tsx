@@ -20,6 +20,10 @@ type Props = {
   owner: string;
   repo: string;
   onBack: () => void;
+  /** Open the PR detail page (RepoDetailPage with focused PR) when
+   *  the user clicks a branch's PR pill. App-level so we reuse the
+   *  same nav target as the PR list flow. */
+  onSelectPr?: (owner: string, repo: string, prNumber: number) => void;
 };
 
 type Column = 'LOCAL_WORK' | 'READY_FOR_PR' | 'IN_REVIEW' | 'CLEAN_UP';
@@ -68,7 +72,7 @@ const TABS: { key: Tab; label: string }[] = [
  * The IN REVIEW column will stay empty until the list-page sync starts
  * capturing PR head refs (deferred — see LocalRepoService.toLocalBranch).
  */
-function LocalRepoPage({ owner, repo }: Props) {
+function LocalRepoPage({ owner, repo, onSelectPr }: Props) {
   const [status, setStatus] = useState<LocalRepoStatusDto | null>(null);
   const [branches, setBranches] = useState<LocalBranchDto[] | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -729,6 +733,9 @@ function LocalRepoPage({ owner, repo }: Props) {
                   onCheckoutRemote={col.key === 'IN_REVIEW'
                     ? (name) => { void runCheckoutRemote(name); }
                     : undefined}
+                  onSelectPr={onSelectPr
+                    ? (prNumber) => onSelectPr(owner, repo, prNumber)
+                    : undefined}
                 />
               ))}
             </div>
@@ -1314,6 +1321,7 @@ function BranchColumn({
   onPushBranch,
   onCreatePrForBranch,
   onCheckoutRemote,
+  onSelectPr,
   expanded,
   collapsedLimit,
   onToggleExpanded,
@@ -1351,6 +1359,8 @@ function BranchColumn({
   /** Per-card "Check out" — only wired in IN_REVIEW for remote-only
    *  cards. Materializes the branch from origin and switches HEAD. */
   onCheckoutRemote?: (name: string) => void;
+  /** Click on a card's PR pill jumps to the PR detail page. */
+  onSelectPr?: (prNumber: number) => void;
   /** True when the user has expanded this column past the collapsed
    *  cap. False shows only the first {@link collapsedLimit} cards
    *  with a "Show N more" toggle below. */
@@ -1389,6 +1399,9 @@ function BranchColumn({
                   onPush={onPushBranch && !b.isCurrent ? () => onPushBranch(b.name) : undefined}
                   onCreatePr={onCreatePrForBranch && !b.isCurrent ? () => onCreatePrForBranch(b.name) : undefined}
                   onCheckout={onCheckoutRemote && b.remoteOnly ? () => onCheckoutRemote(b.name) : undefined}
+                  onSelectPr={onSelectPr && b.linkedPrNumber != null
+                    ? () => onSelectPr(b.linkedPrNumber!)
+                    : undefined}
                 />
               ))}
               {(hidden > 0 || expanded) && onToggleExpanded && (
@@ -1426,6 +1439,7 @@ function BranchCard({
   onPush,
   onCreatePr,
   onCheckout,
+  onSelectPr,
 }: {
   branch: LocalBranchDto;
   column: Column;
@@ -1448,6 +1462,9 @@ function BranchCard({
   /** Per-card primary "Check out" — only on remote-only IN_REVIEW
    *  cards. Fetches the branch from origin and switches HEAD. */
   onCheckout?: () => void;
+  /** Click on the PR pill jumps to the PR detail page. Set when
+   *  the branch has a linked PR. */
+  onSelectPr?: () => void;
 }) {
   const selectable = onSelectForAction !== undefined;
   const cls = [
@@ -1506,9 +1523,18 @@ function BranchCard({
             ACTING
           </span>
         )}
-        {branch.linkedPrNumber != null && (
+        {branch.linkedPrNumber != null && (onSelectPr ? (
+          <button
+            type="button"
+            className="branch-card__pr branch-card__pr--clickable"
+            onClick={(e) => { e.stopPropagation(); onSelectPr(); }}
+            title={`Open PR #${branch.linkedPrNumber}`}
+          >
+            #{branch.linkedPrNumber}
+          </button>
+        ) : (
           <span className="branch-card__pr">#{branch.linkedPrNumber}</span>
-        )}
+        ))}
       </header>
       <div className="branch-card__meta">
         {branch.remoteOnly && (

@@ -282,6 +282,7 @@ function App() {
             owner={nav.owner}
             repo={nav.repo}
             onBack={() => setNav({ view: 'repos' })}
+            onSelectPr={(owner, repo, prNumber) => setNav({ view: 'repo', owner, repo, prNumber })}
           />
         )}
         {nav.view === 'teams' && (

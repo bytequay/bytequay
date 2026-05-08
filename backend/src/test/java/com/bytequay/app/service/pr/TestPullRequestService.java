@@ -913,12 +913,50 @@ class TestPullRequestService
     }
 
     @Test
-    void testEditIssueCommentDoesNotInvalidateDetail()
+    void testEditIssueCommentPatchesCachedTimelineBody()
     {
+        PrTimelineEvent commented = new PrTimelineEvent(
+                4357983764L,
+                "commented",
+                "alice",
+                null,
+                Instant.parse("2026-05-08T00:00:00Z"),
+                "old body",
+                null,
+                null,
+                null,
+                null,
+                "MEMBER",
+                Reactions.EMPTY);
+        when(detailStore.findPrIdByIssueCommentId(4357983764L)).thenReturn(Optional.of(123L));
+        when(detailStore.find(123L)).thenReturn(Optional.of(new StoredPrDetail(
+                null,
+                ImmutableList.of(),
+                ImmutableList.of(),
+                ImmutableList.of(commented),
+                ImmutableList.of(),
+                ImmutableList.of(),
+                ImmutableList.of())));
+
         pullRequestService.editIssueComment("pat", "trinodb/trino", 4357983764L, "updated");
 
         verify(gitHub).editIssueComment("pat", "trinodb", "trino", 4357983764L, "updated");
         verify(detailInvalidator, never()).invalidate(anyString(), anyInt());
+
+        ArgumentCaptor<StoredPrDetail> captor = ArgumentCaptor.forClass(StoredPrDetail.class);
+        verify(detailStore).save(eq(123L), captor.capture());
+        assertThat(captor.getValue().timeline().get(0).body()).isEqualTo("updated");
+    }
+
+    @Test
+    void testEditIssueCommentSkipsCachePatchWhenCommentUnknown()
+    {
+        when(detailStore.findPrIdByIssueCommentId(4357983764L)).thenReturn(Optional.empty());
+
+        pullRequestService.editIssueComment("pat", "trinodb/trino", 4357983764L, "updated");
+
+        verify(gitHub).editIssueComment("pat", "trinodb", "trino", 4357983764L, "updated");
+        verify(detailStore, never()).save(anyLong(), any());
     }
 
     @Test

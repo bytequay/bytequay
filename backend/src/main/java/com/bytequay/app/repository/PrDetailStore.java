@@ -68,6 +68,18 @@ public interface PrDetailStore
     void deleteByPrIds(Set<Long> prIds);
 
     /**
+     * Returns the PR id whose cached timeline contains a {@code commented}
+     * event with the given GitHub comment id, or empty if no cached
+     * detail references it. Used by the conversation-mutation patch path
+     * (edit body, react) to find the cache row to update when the caller
+     * only has a comment id.
+     */
+    default Optional<Long> findPrIdByIssueCommentId(long commentId)
+    {
+        return Optional.empty();
+    }
+
+    /**
      * Returns a map of {@code head_ref → pr_number} for all currently
      * open PRs against {@code repo} (form {@code "owner/repo"}) that
      * have detail synced. Used by the local-repo branches kanban to

@@ -467,4 +467,10 @@ public class SqlitePrDetailStore
                         HeadRefRow::number,
                         (a, b) -> a));
     }
+
+    @Override
+    public Optional<Long> findPrIdByIssueCommentId(long commentId)
+    {
+        return timelineRepo.findPrIdsByCommentedEventGithubId(commentId).stream().findFirst();
+    }
 }

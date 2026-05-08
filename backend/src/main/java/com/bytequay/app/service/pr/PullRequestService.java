@@ -448,12 +448,39 @@ public class PullRequestService
      * authenticated user. GitHub returns 403 for comments authored by
      * someone else; the frontend already gates the affordance on the
      * author check, so a 403 here is purely a defensive backstop.
+     *
+     * <p>After GitHub accepts the edit we patch the cached detail in
+     * place so the next {@code /prs/detail} read shows the new body
+     * immediately.
      */
     public void editIssueComment(String pat, String repo, long commentId, String body)
     {
         requireNotBlank(body, "comment body must not be blank");
         RepoRef ref = parseRepoRef(repo);
         gitHub.editIssueComment(pat, ref.owner(), ref.repo(), commentId, body);
+        detailStore.findPrIdByIssueCommentId(commentId).ifPresent(prId ->
+                detailStore.find(prId).ifPresent(cached ->
+                        detailStore.save(prId, withTimelineCommentBody(cached, commentId, body))));
+    }
+
+    /**
+     * Returns a new {@link StoredPrDetail} with the body of the
+     * {@code commented} timeline event identified by {@code commentId}
+     * replaced. Other rows pass through unchanged.
+     */
+    private static StoredPrDetail withTimelineCommentBody(StoredPrDetail detail, long commentId, String body)
+    {
+        List<PrTimelineEvent> patched = detail.timeline().stream()
+                .map(e -> e.githubId() != null && e.githubId() == commentId && "commented".equals(e.event())
+                        ? new PrTimelineEvent(
+                                e.githubId(), e.event(), e.actor(), e.state(), e.timestamp(), body,
+                                e.beforeSha(), e.afterSha(), e.requestedReviewer(), e.reviewId(),
+                                e.authorAssociation(), e.reactions())
+                        : e)
+                .collect(toImmutableList());
+        return new StoredPrDetail(
+                detail.raw(), detail.reviews(), detail.files(), patched,
+                detail.checkRuns(), detail.reviewComments(), detail.linkedIssues());
     }
 
     /**

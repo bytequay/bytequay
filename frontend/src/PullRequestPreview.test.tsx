@@ -368,6 +368,22 @@ describe('PullRequestPreview render smoke', () => {
     expect(container.querySelector('.prc-comment-card .reaction-chip__count')?.textContent).toBe('2');
   });
 
+  it('keeps review-thread reactions optimistic without fetching stale detail', async () => {
+    const bridge = await render(makeDetail());
+    const chip = container.querySelector('.prc-review-thread .reaction-chip--clickable');
+    expect(chip).toBeTruthy();
+
+    await act(async () => {
+      chip!.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    });
+    await act(async () => { await Promise.resolve(); });
+
+    expect(bridge.addReviewCommentReaction).toHaveBeenCalledWith('trinodb/trino', 1001, '+1');
+    expect(bridge.fetchPullRequestDetail).toHaveBeenCalledTimes(1);
+    expect(bridge.refreshPullRequestDetail).not.toHaveBeenCalled();
+    expect(container.querySelector('.prc-review-thread .reaction-chip__count')?.textContent).toBe('3');
+  });
+
   it('keeps thread resolution optimistic without fetching stale detail', async () => {
     const bridge = await render(makeDetail());
     const button = Array.from(container.querySelectorAll('button'))

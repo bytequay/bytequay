@@ -16,6 +16,8 @@ package com.bytequay.app.web;
 import com.bytequay.app.domain.LocalActivityEntry;
 import com.bytequay.app.domain.LocalBranch;
 import com.bytequay.app.domain.LocalCommit;
+import com.bytequay.app.domain.LocalCommitFile;
+import com.bytequay.app.domain.LocalFileDiff;
 import com.bytequay.app.domain.LocalRepoStatus;
 import com.bytequay.app.domain.PullRequest;
 import com.bytequay.app.domain.PullRequestDraft;
@@ -221,6 +223,65 @@ public class LocalRepoController
         catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE, "commit listing interrupted");
+        }
+    }
+
+    /**
+     * GET /api/repos/local/{owner}/{repo}/commits/{sha}/files —
+     * lists every file touched by a single commit, with status and
+     * line counts. Powers the middle pane of the Commits tab.
+     */
+    @GetMapping("/{owner}/{repo}/commits/{sha}/files")
+    public List<LocalCommitFile> commitFiles(
+            @PathVariable("owner") String owner,
+            @PathVariable("repo") String repo,
+            @PathVariable("sha") String sha)
+    {
+        try {
+            return localRepoService.commitFiles(owner, repo, sha);
+        }
+        catch (IllegalStateException e) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, e.getMessage());
+        }
+        catch (GitRunner.GitCommandException e) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, e.stderr().strip());
+        }
+        catch (IOException e) {
+            throw new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR, e.getMessage());
+        }
+        catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE, "commit-files listing interrupted");
+        }
+    }
+
+    /**
+     * GET /api/repos/local/{owner}/{repo}/commits/{sha}/diff?path= —
+     * unified diff for a single file at this commit. Drives the right
+     * pane of the Commits tab.
+     */
+    @GetMapping("/{owner}/{repo}/commits/{sha}/diff")
+    public LocalFileDiff commitFileDiff(
+            @PathVariable("owner") String owner,
+            @PathVariable("repo") String repo,
+            @PathVariable("sha") String sha,
+            @RequestParam("path") String filePath)
+    {
+        try {
+            return localRepoService.commitFileDiff(owner, repo, sha, filePath);
+        }
+        catch (IllegalStateException e) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, e.getMessage());
+        }
+        catch (GitRunner.GitCommandException e) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, e.stderr().strip());
+        }
+        catch (IOException e) {
+            throw new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR, e.getMessage());
+        }
+        catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE, "commit-diff fetch interrupted");
         }
     }
 

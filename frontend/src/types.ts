@@ -750,6 +750,24 @@ export type LocalCommitDto = {
   authoredAt: string | null;
 };
 
+/** One file touched by a commit — middle pane of the Commits tab.
+ *  Status mirrors git's --name-status short codes (A/M/D/R/C/T).
+ *  additions/deletions are -1 for binary files. */
+export type LocalCommitFileDto = {
+  path: string;
+  status: string;
+  additions: number;
+  deletions: number;
+};
+
+/** Per-file diff at a commit — drives the right pane of the Commits
+ *  tab. truncated is true when the patch was capped by the backend. */
+export type LocalFileDiffDto = {
+  path: string;
+  patch: string;
+  truncated: boolean;
+};
+
 export type LocalActivityEntryDto = {
   sha: string;
   shortSha: string;
@@ -893,6 +911,14 @@ export type Bridge = {
   listLocalCommits: (
     owner: string, repo: string, revision?: string, limit?: number,
   ) => Promise<LocalCommitDto[]>;
+  /** Files touched by a single commit — middle pane of the Commits tab. */
+  listLocalCommitFiles: (
+    owner: string, repo: string, sha: string,
+  ) => Promise<LocalCommitFileDto[]>;
+  /** Per-file unified diff at a commit — right pane of the Commits tab. */
+  getLocalCommitDiff: (
+    owner: string, repo: string, sha: string, path: string,
+  ) => Promise<LocalFileDiffDto>;
   /** Recent reflog entries — HEAD-mutating events (commits, checkouts,
    *  merges, pulls, rebases). Powers the Activity tab. */
   listLocalActivity: (

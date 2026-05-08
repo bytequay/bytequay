@@ -1271,3 +1271,246 @@
   border-color: rgba(207, 34, 46, 0.40);
   background: rgba(207, 34, 46, 0.06);
 }
+
+/* Commits tab — 3-pane layout: commits | files | diff. Modeled on
+   docs/mockups/design/local-repo/code-diff.png. The page itself
+   already owns the vertical scroll, so each pane manages its own
+   internal overflow at a stable shared height. */
+.commits-pane {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.commits-pane__header {
+  font-size: 12px;
+  color: var(--text-3);
+}
+.commits-pane__label {
+  margin-right: 4px;
+}
+.commits-pane__branch {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, monospace;
+  font-size: 12px;
+  color: var(--text-2);
+  background: var(--accent-a7);
+  border-radius: 4px;
+  padding: 1px 6px;
+}
+.commits-pane__body {
+  display: grid;
+  grid-template-columns: minmax(240px, 1fr) minmax(220px, 1fr) minmax(420px, 2.4fr);
+  gap: 12px;
+  /* Fixed-height pane area so the inner columns scroll independently
+     instead of stretching the page; matches the mockup where the
+     commits/files/diff trio sits inside a viewport-bounded card. */
+  min-height: 560px;
+  height: calc(100vh - 260px);
+}
+.commits-pane__commits,
+.commits-pane__files,
+.commits-pane__diff {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  overflow: hidden;
+  display: flex;
+  flex-direction: column;
+}
+.commits-pane__commits {
+  overflow-y: auto;
+}
+.commits-pane__commits .commits-list {
+  border: none;
+  border-radius: 0;
+  background: transparent;
+}
+.commits-pane__files {
+  overflow: hidden;
+}
+.commits-pane__files-header {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--text-3);
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--border);
+}
+.commits-pane__files-total {
+  border-top: 1px solid var(--border);
+  padding: 8px 12px;
+  font-size: 12px;
+  color: var(--text-3);
+}
+.commits-pane__diff {
+  overflow: hidden;
+}
+.commits-pane__placeholder {
+  padding: 18px 14px;
+  font-size: 12px;
+  color: var(--text-3);
+  text-align: center;
+}
+
+/* Selected-row treatment for both commits and files: a tinted
+   background + accent-colored left bar. Matches the mockup's
+   pinkish accent placement; we use the project accent token so it
+   stays on-brand across themes. */
+.commit-row {
+  cursor: pointer;
+  border-left: 3px solid transparent;
+}
+.commit-row:hover {
+  background: var(--accent-a4);
+}
+.commit-row--selected,
+.commit-row--selected:hover {
+  background: var(--accent-a10);
+  border-left-color: var(--accent);
+}
+
+.commit-files-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  flex: 1 1 auto;
+  overflow-y: auto;
+}
+.commit-file-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 7px 12px;
+  font-size: 12px;
+  color: var(--text-1);
+  border-bottom: 1px solid var(--border-hairline);
+  border-left: 3px solid transparent;
+  cursor: pointer;
+}
+.commit-file-row:last-child { border-bottom: none; }
+.commit-file-row:hover { background: var(--accent-a4); }
+.commit-file-row--selected,
+.commit-file-row--selected:hover {
+  background: var(--accent-a10);
+  border-left-color: var(--accent);
+}
+.commit-file-row__status {
+  flex: 0 0 auto;
+  width: 14px;
+  text-align: center;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, monospace;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--text-3);
+}
+.commit-file-row__status[data-status="A"] { color: #1a7f37; }
+.commit-file-row__status[data-status="D"] { color: #cf222e; }
+.commit-file-row__status[data-status="M"] { color: var(--accent); }
+.commit-file-row__status[data-status^="R"] { color: #8a5cf5; }
+.commit-file-row__status[data-status^="C"] { color: #8a5cf5; }
+.commit-file-row__path {
+  flex: 1 1 auto;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, monospace;
+  font-size: 12px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  direction: rtl;
+  text-align: left;
+}
+.commit-file-row__counts {
+  flex: 0 0 auto;
+  display: inline-flex;
+  gap: 6px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, monospace;
+  font-size: 11px;
+}
+.commit-file-row__counts--binary {
+  color: var(--text-3);
+  font-style: italic;
+}
+.commit-file-row__add { color: #1a7f37; }
+.commit-file-row__del { color: #cf222e; }
+
+/* Per-file diff viewer. Header shows the path + a "truncated" chip
+   when the patch was capped server-side; body is a monospace block
+   with one element per source line so add/del/hunk/header can each
+   take their own background. */
+.commit-diff {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+}
+.commit-diff__header {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-elevated);
+}
+.commit-diff__path {
+  flex: 1 1 auto;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, monospace;
+  font-size: 12px;
+  color: var(--text-2);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.commit-diff__truncated {
+  flex: 0 0 auto;
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: #cf222e;
+  background: rgba(207, 34, 46, 0.08);
+  border-radius: 4px;
+  padding: 2px 6px;
+}
+.commit-diff__body {
+  flex: 1 1 auto;
+  overflow: auto;
+  margin: 0;
+  padding: 0;
+  background: var(--bg-card);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, monospace;
+  font-size: 12px;
+  line-height: 1.55;
+}
+.commit-diff__line {
+  padding: 0 12px;
+  white-space: pre;
+  color: var(--text-1);
+  min-height: 1.55em;
+}
+.commit-diff__line--filehdr {
+  background: rgba(31, 111, 235, 0.10);
+  color: #1f6feb;
+}
+.commit-diff__line--hunk {
+  background: rgba(31, 111, 235, 0.06);
+  color: #1f6feb;
+}
+.commit-diff__line--add {
+  background: #ddffe7;
+}
+.commit-diff__line--del {
+  background: #ffd7d5;
+}
+.commit-diff__line--meta {
+  color: var(--text-3);
+}
+[data-theme="atom-one-dark"] .commit-diff__line--add,
+[data-theme="warm"] .commit-diff__line--add {
+  background: rgba(46, 160, 67, 0.18);
+  color: var(--text-1);
+}
+[data-theme="atom-one-dark"] .commit-diff__line--del,
+[data-theme="warm"] .commit-diff__line--del {
+  background: rgba(248, 81, 73, 0.18);
+  color: var(--text-1);
+}
+[data-theme="atom-one-dark"] .commit-diff__line {
+  color: var(--text-2);
+}

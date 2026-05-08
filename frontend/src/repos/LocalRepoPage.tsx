@@ -12,7 +12,7 @@
  * limitations under the License.
  */
 import { useEffect, useState } from 'react';
-import type { LocalActivityEntryDto, LocalBranchDto, LocalCommitDto, LocalRepoStatusDto } from '../types';
+import type { LocalActivityEntryDto, LocalBranchDto, LocalCommitDto, LocalCommitFileDto, LocalFileDiffDto, LocalRepoStatusDto } from '../types';
 import LogoLoading from '../LogoLoading';
 import { formatRelativeTime } from '../pr/utils';
 
@@ -92,6 +92,10 @@ function LocalRepoPage({ owner, repo, onSelectPr }: Props) {
   const [newBranchName, setNewBranchName] = useState('');
   const [newBranchBase, setNewBranchBase] = useState('');
   const [tab, setTab] = useState<Tab>('branches');
+  // Branch the Commits tab is filtered to (null = use HEAD's
+  // currentBranch). Card click in the Branches tab sets this and
+  // switches the tab; the Commits tab reads it as its revisionKey.
+  const [commitsBranch, setCommitsBranch] = useState<string | null>(null);
   // Names selected for bulk delete in the Clean up column. Lives on
   // the page rather than per-card so the modal can read the full set
   // and we can clear it after a successful delete.
@@ -714,9 +718,13 @@ function LocalRepoPage({ owner, repo, onSelectPr }: Props) {
                   collapsedLimit={COLLAPSED_LIMIT}
                   onToggleExpanded={() => toggleColumnExpanded(col.key)}
                   onSelectForAction={(name) => {
-                    // Click the current branch's card to clear the
-                    // selection (= "act on HEAD again"); click any
-                    // other card to mark it as the action target.
+                    // Card click does two things: navigate to the
+                    // Commits tab filtered to this branch (the
+                    // primary action — see the v2 mockup), and keep
+                    // the lazy "act on this branch" selection for
+                    // keyboard nav / Create-PR's lazy-switch banner.
+                    setCommitsBranch(name);
+                    setTab('commits');
                     setSelectedBranch(prev => {
                       if (prev === name) return null;
                       if (status?.currentBranch === name) return null;
@@ -795,9 +803,10 @@ function LocalRepoPage({ owner, repo, onSelectPr }: Props) {
         <CommitsTab
           owner={owner}
           repo={repo}
-          // Refetch when the current branch flips so the user sees
-          // the right history after switching with + Branch / pull.
-          revisionKey={status?.currentBranch ?? ''}
+          // commitsBranch is set by branch-card click; falls back to
+          // HEAD's currentBranch when the user landed on this tab
+          // directly. Refetches when either changes.
+          revisionKey={commitsBranch ?? status?.currentBranch ?? ''}
         />
       )}
       {tab === 'activity' && <ActivityTab owner={owner} repo={repo} />}
@@ -876,6 +885,13 @@ function ForcePushModal({
   );
 }
 
+/**
+ * Three-pane Commits tab matching docs/mockups/design/local-repo/code-diff.png.
+ * Left: commits on `revisionKey`. Middle: files for the selected
+ * commit. Right: per-file unified diff. Selecting a commit auto-
+ * picks its first file so the right pane never sits blank when
+ * there's something to show.
+ */
 function CommitsTab({
   owner,
   repo,
@@ -886,26 +902,73 @@ function CommitsTab({
   revisionKey: string;
 }) {
   const [commits, setCommits] = useState<LocalCommitDto[] | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const [commitsError, setCommitsError] = useState<string | null>(null);
+  const [selectedSha, setSelectedSha] = useState<string | null>(null);
+  const [files, setFiles] = useState<LocalCommitFileDto[] | null>(null);
+  const [filesError, setFilesError] = useState<string | null>(null);
+  const [selectedFile, setSelectedFile] = useState<string | null>(null);
+  const [diff, setDiff] = useState<LocalFileDiffDto | null>(null);
+  const [diffError, setDiffError] = useState<string | null>(null);
 
+  // Reload commits when the branch under inspection changes; reset
+  // the per-commit/file state so the right two panes don't show
+  // stale content from the previous branch.
   useEffect(() => {
     let cancelled = false;
     setCommits(null);
-    setError(null);
-    // Pass undefined revision so the backend uses HEAD — saves a
-    // round-trip when revisionKey is the empty string (detached or
-    // not-yet-loaded state).
+    setCommitsError(null);
+    setSelectedSha(null);
+    setFiles(null);
+    setSelectedFile(null);
+    setDiff(null);
     const rev = revisionKey || undefined;
     window.bridge.listLocalCommits(owner, repo, rev, 100)
-      .then(rows => { if (!cancelled) setCommits(rows); })
-      .catch(e => { if (!cancelled) setError(e instanceof Error ? e.message : String(e)); });
+      .then(rows => {
+        if (cancelled) return;
+        setCommits(rows);
+        // Auto-select the tip so the panes have data on first paint —
+        // matches the mockup which shows a commit pre-selected.
+        if (rows.length > 0) setSelectedSha(rows[0].sha);
+      })
+      .catch(e => { if (!cancelled) setCommitsError(e instanceof Error ? e.message : String(e)); });
     return () => { cancelled = true; };
   }, [owner, repo, revisionKey]);
 
-  if (error) {
+  // Files for the selected commit. Auto-picks the first file so the
+  // diff pane has something to show.
+  useEffect(() => {
+    if (selectedSha == null) return;
+    let cancelled = false;
+    setFiles(null);
+    setFilesError(null);
+    setSelectedFile(null);
+    setDiff(null);
+    window.bridge.listLocalCommitFiles(owner, repo, selectedSha)
+      .then(rows => {
+        if (cancelled) return;
+        setFiles(rows);
+        if (rows.length > 0) setSelectedFile(rows[0].path);
+      })
+      .catch(e => { if (!cancelled) setFilesError(e instanceof Error ? e.message : String(e)); });
+    return () => { cancelled = true; };
+  }, [owner, repo, selectedSha]);
+
+  // Per-file diff. Refetched whenever sha or path changes.
+  useEffect(() => {
+    if (selectedSha == null || selectedFile == null) return;
+    let cancelled = false;
+    setDiff(null);
+    setDiffError(null);
+    window.bridge.getLocalCommitDiff(owner, repo, selectedSha, selectedFile)
+      .then(d => { if (!cancelled) setDiff(d); })
+      .catch(e => { if (!cancelled) setDiffError(e instanceof Error ? e.message : String(e)); });
+    return () => { cancelled = true; };
+  }, [owner, repo, selectedSha, selectedFile]);
+
+  if (commitsError) {
     return (
       <div className="local-repo-page__error">
-        Couldn't load commits: {error}
+        Couldn't load commits: {commitsError}
       </div>
     );
   }
@@ -921,22 +984,101 @@ function CommitsTab({
       <div className="local-repo-tab-placeholder">
         <div className="local-repo-tab-placeholder__title">No commits</div>
         <p className="local-repo-tab-placeholder__body">
-          The current branch has no commits to show, or HEAD is
-          detached and points at no history.
+          {revisionKey
+            ? <>Branch <code>{revisionKey}</code> has no commits to show.</>
+            : 'The current branch has no commits to show, or HEAD is detached and points at no history.'}
         </p>
       </div>
     );
   }
   return (
-    <ol className="commits-list">
-      {commits.map(c => <CommitRow key={c.sha} commit={c} />)}
-    </ol>
+    <div className="commits-pane">
+      <div className="commits-pane__header">
+        <span className="commits-pane__label">Showing commits on</span>
+        {' '}
+        <code className="commits-pane__branch">{revisionKey || 'HEAD'}</code>
+      </div>
+      <div className="commits-pane__body">
+        <aside className="commits-pane__commits">
+          <ol className="commits-list">
+            {commits.map(c => (
+              <CommitRow
+                key={c.sha}
+                commit={c}
+                selected={selectedSha === c.sha}
+                onClick={() => setSelectedSha(c.sha)}
+              />
+            ))}
+          </ol>
+        </aside>
+        <aside className="commits-pane__files">
+          {filesError && (
+            <div className="local-repo-page__error">{filesError}</div>
+          )}
+          {files === null && !filesError && (
+            <div className="commits-pane__placeholder">Loading files…</div>
+          )}
+          {files !== null && files.length === 0 && (
+            <div className="commits-pane__placeholder">No file changes</div>
+          )}
+          {files !== null && files.length > 0 && (
+            <>
+              <div className="commits-pane__files-header">Files changed</div>
+              <ul className="commit-files-list">
+                {files.map(f => (
+                  <CommitFileRow
+                    key={f.path}
+                    file={f}
+                    selected={selectedFile === f.path}
+                    onClick={() => setSelectedFile(f.path)}
+                  />
+                ))}
+              </ul>
+              <CommitFilesTotal files={files} />
+            </>
+          )}
+        </aside>
+        <section className="commits-pane__diff">
+          {diffError && (
+            <div className="local-repo-page__error">{diffError}</div>
+          )}
+          {!diffError && diff === null && selectedFile != null && (
+            <div className="commits-pane__placeholder">Loading diff…</div>
+          )}
+          {!diffError && diff === null && selectedFile == null && files !== null && files.length === 0 && (
+            <div className="commits-pane__placeholder">Pick a commit to view its changes</div>
+          )}
+          {!diffError && diff !== null && (
+            <CommitDiffViewer diff={diff} />
+          )}
+        </section>
+      </div>
+    </div>
   );
 }
 
-function CommitRow({ commit }: { commit: LocalCommitDto }) {
+function CommitRow({
+  commit,
+  selected,
+  onClick,
+}: {
+  commit: LocalCommitDto;
+  selected: boolean;
+  onClick: () => void;
+}) {
   return (
-    <li className="commit-row">
+    <li
+      className={`commit-row${selected ? ' commit-row--selected' : ''}`}
+      onClick={onClick}
+      role="button"
+      tabIndex={0}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          onClick();
+        }
+      }}
+    >
       <code className="commit-row__sha" title={commit.sha}>{commit.shortSha}</code>
       <div className="commit-row__main">
         <div className="commit-row__subject">{commit.subject}</div>
@@ -952,6 +1094,97 @@ function CommitRow({ commit }: { commit: LocalCommitDto }) {
         </div>
       </div>
     </li>
+  );
+}
+
+function CommitFileRow({
+  file,
+  selected,
+  onClick,
+}: {
+  file: LocalCommitFileDto;
+  selected: boolean;
+  onClick: () => void;
+}) {
+  // Binary files (additions/deletions === -1) get a "binary" hint
+  // instead of misleading line counts.
+  const binary = file.additions < 0 || file.deletions < 0;
+  return (
+    <li
+      className={`commit-file-row${selected ? ' commit-file-row--selected' : ''}`}
+      onClick={onClick}
+      role="button"
+      tabIndex={0}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          onClick();
+        }
+      }}
+      title={file.path}
+    >
+      <span className="commit-file-row__status" data-status={file.status}>
+        {file.status}
+      </span>
+      <span className="commit-file-row__path">{file.path}</span>
+      {binary ? (
+        <span className="commit-file-row__counts commit-file-row__counts--binary">binary</span>
+      ) : (
+        <span className="commit-file-row__counts">
+          <span className="commit-file-row__add">+{file.additions}</span>
+          <span className="commit-file-row__del">-{file.deletions}</span>
+        </span>
+      )}
+    </li>
+  );
+}
+
+function CommitFilesTotal({ files }: { files: LocalCommitFileDto[] }) {
+  let adds = 0;
+  let dels = 0;
+  let bin = 0;
+  for (const f of files) {
+    if (f.additions < 0 || f.deletions < 0) bin += 1;
+    else { adds += f.additions; dels += f.deletions; }
+  }
+  return (
+    <div className="commits-pane__files-total">
+      Total <span className="commit-file-row__add">+{adds}</span>{' '}
+      <span className="commit-file-row__del">-{dels}</span>{' '}
+      in {files.length} file{files.length === 1 ? '' : 's'}
+      {bin > 0 && <> ({bin} binary)</>}
+    </div>
+  );
+}
+
+function CommitDiffViewer({ diff }: { diff: LocalFileDiffDto }) {
+  // Split the patch into lines and color-code by leading char.
+  // Diff headers (--- / +++ / @@ / index) get their own subtle
+  // styling so the body stands out.
+  const lines = diff.patch.split('\n');
+  return (
+    <div className="commit-diff">
+      <div className="commit-diff__header">
+        <code className="commit-diff__path">{diff.path}</code>
+        {diff.truncated && (
+          <span className="commit-diff__truncated"
+                title="Diff was capped server-side; the model only sees the prefix">
+            truncated
+          </span>
+        )}
+      </div>
+      <pre className="commit-diff__body">
+        {lines.map((line, i) => {
+          let cls = 'commit-diff__line';
+          if (line.startsWith('+++') || line.startsWith('---')) cls += ' commit-diff__line--filehdr';
+          else if (line.startsWith('@@')) cls += ' commit-diff__line--hunk';
+          else if (line.startsWith('+')) cls += ' commit-diff__line--add';
+          else if (line.startsWith('-')) cls += ' commit-diff__line--del';
+          else if (line.startsWith('diff ') || line.startsWith('index ')) cls += ' commit-diff__line--meta';
+          return <div key={i} className={cls}>{line || ' '}</div>;
+        })}
+      </pre>
+    </div>
   );
 }
 

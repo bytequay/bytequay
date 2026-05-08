@@ -1218,6 +1218,32 @@ const url = new URL(`${BACKEND_BASE}/prs/comment`);
     return res.json();
   });
 
+  ipcMain.handle('repos:listLocalCommitFiles', async (
+    _event, owner: string, repo: string, sha: string,
+  ) => {
+    const res = await fetch(
+      `${BACKEND_BASE}/api/repos/local/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/commits/${encodeURIComponent(sha)}/files`,
+    );
+    if (!res.ok) {
+      const body = await res.text().catch(() => '');
+      throw new Error(extractMessage(body) || `commit files failed (${res.status})`);
+    }
+    return res.json();
+  });
+
+  ipcMain.handle('repos:getLocalCommitDiff', async (
+    _event, owner: string, repo: string, sha: string, path: string,
+  ) => {
+    const res = await fetch(
+      `${BACKEND_BASE}/api/repos/local/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/commits/${encodeURIComponent(sha)}/diff?path=${encodeURIComponent(path)}`,
+    );
+    if (!res.ok) {
+      const body = await res.text().catch(() => '');
+      throw new Error(extractMessage(body) || `commit diff failed (${res.status})`);
+    }
+    return res.json();
+  });
+
   ipcMain.handle('repos:listLocalBranches', async (
     _event, owner: string, repo: string,
   ) => {

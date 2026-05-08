@@ -22,7 +22,9 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
@@ -533,6 +535,103 @@ public class GitRunner
             String authorEmail,
             String authoredAt,
             String subject) {}
+
+    /**
+     * Lists every file touched by a single commit, with status and
+     * line counts. Powers the middle pane of the Commits tab.
+     *
+     * <p>Combined {@code --name-status} + {@code --numstat} pass: one
+     * git invocation, two record formats. {@code --format=} suppresses
+     * the commit header so we only get file-change lines. Binary files
+     * appear with a {@code -}/{@code -} count which we map to -1.
+     */
+    public List<CommitFileChange> commitFiles(Path workingDir, String sha)
+            throws IOException, InterruptedException
+    {
+        requireNonNull(sha, "sha is null");
+        // Two passes are simpler than parsing the combined --raw output.
+        // numstat → additions/deletions; name-status → A/M/D/R/C/T flag.
+        // Both are O(touched files) so the cost is negligible.
+        GitResult numstat = run(
+                List.of("git", "show", "--numstat", "--format=", sha),
+                workingDir);
+        numstat.requireSuccess();
+        Map<String, int[]> counts = new HashMap<>();
+        for (String line : numstat.stdout().split("\n")) {
+            if (line.isEmpty()) {
+                continue;
+            }
+            String[] parts = line.split("\t", 3);
+            if (parts.length < 3) {
+                continue;
+            }
+            int adds = "-".equals(parts[0]) ? -1 : parseIntSafe(parts[0]);
+            int dels = "-".equals(parts[1]) ? -1 : parseIntSafe(parts[1]);
+            counts.put(parts[2], new int[] {adds, dels});
+        }
+        GitResult nameStatus = run(
+                List.of("git", "show", "--name-status", "--format=", sha),
+                workingDir);
+        nameStatus.requireSuccess();
+        List<CommitFileChange> files = new ArrayList<>();
+        for (String line : nameStatus.stdout().split("\n")) {
+            if (line.isEmpty()) {
+                continue;
+            }
+            String[] parts = line.split("\t", 3);
+            if (parts.length < 2) {
+                continue;
+            }
+            // Renames/copies emit "R<score>\t<old>\t<new>" — the path
+            // we surface is the new one (where the change lives now).
+            String status = parts[0].substring(0, 1);
+            String path = parts.length == 3 ? parts[2] : parts[1];
+            int[] count = counts.getOrDefault(path, new int[] {0, 0});
+            files.add(new CommitFileChange(path, status, count[0], count[1]));
+        }
+        return List.copyOf(files);
+    }
+
+    private static int parseIntSafe(String s)
+    {
+        try {
+            return Integer.parseInt(s);
+        }
+        catch (NumberFormatException e) {
+            return 0;
+        }
+    }
+
+    public record CommitFileChange(String path, String status, int additions, int deletions) {}
+
+    /**
+     * Returns the unified diff for one file at a specific commit
+     * ({@code git show <sha> -- <path>}), truncated to {@code maxBytes}
+     * with an inline marker so a giant patch doesn't blow up the
+     * renderer. Pipe-drain in {@link #run} keeps git from blocking on
+     * a full stdout buffer for large diffs.
+     */
+    public String commitFileDiff(Path workingDir, String sha, String path, int maxBytes)
+            throws IOException, InterruptedException
+    {
+        requireNonNull(sha, "sha is null");
+        requireNonNull(path, "path is null");
+        // --format= suppresses the commit message header; -- separates
+        // the path from the revision so weirdly-named files don't get
+        // misread as refs.
+        GitResult result = run(
+                List.of("git", "show", "--format=", sha, "--", path),
+                workingDir,
+                60);
+        result.requireSuccess();
+        String stdout = result.stdout();
+        if (maxBytes > 0 && stdout.length() > maxBytes) {
+            return stdout.substring(0, maxBytes)
+                    + "\n\n... (diff truncated at " + maxBytes + " bytes; "
+                    + (stdout.length() - maxBytes) + " more bytes omitted)\n";
+        }
+        return stdout;
+    }
 
     /**
      * Walks {@code git reflog} and returns up to {@code limit}

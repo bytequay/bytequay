@@ -17,6 +17,8 @@ import com.bytequay.app.domain.CreatePullRequestCommand;
 import com.bytequay.app.domain.LocalActivityEntry;
 import com.bytequay.app.domain.LocalBranch;
 import com.bytequay.app.domain.LocalCommit;
+import com.bytequay.app.domain.LocalCommitFile;
+import com.bytequay.app.domain.LocalFileDiff;
 import com.bytequay.app.domain.LocalRepoStatus;
 import com.bytequay.app.domain.PullRequest;
 import com.bytequay.app.domain.PullRequestDraft;
@@ -559,6 +561,37 @@ public class LocalRepoService
                 e.authorEmail(),
                 parseIsoOrNull(e.authoredAt()));
     }
+
+    /**
+     * Files touched by {@code sha}. Powers the middle pane of the
+     * Commits tab (file tree the user picks from to load a per-file
+     * diff into the right pane).
+     */
+    public List<LocalCommitFile> commitFiles(String owner, String repo, String sha)
+            throws IOException, InterruptedException
+    {
+        Path path = clonePathOrThrow(owner, repo);
+        return gitRunner.commitFiles(path, sha).stream()
+                .map(f -> new LocalCommitFile(f.path(), f.status(), f.additions(), f.deletions()))
+                .collect(toImmutableList());
+    }
+
+    /**
+     * One file's unified diff at {@code sha}. Capped at
+     * {@link #FILE_DIFF_MAX_BYTES} so a giant change (e.g. a generated
+     * vendor file) doesn't blow up the renderer; the truncated flag
+     * lets the UI flag it inline.
+     */
+    public LocalFileDiff commitFileDiff(String owner, String repo, String sha, String filePath)
+            throws IOException, InterruptedException
+    {
+        Path path = clonePathOrThrow(owner, repo);
+        String patch = gitRunner.commitFileDiff(path, sha, filePath, FILE_DIFF_MAX_BYTES);
+        boolean truncated = patch.contains("(diff truncated at ");
+        return new LocalFileDiff(filePath, patch, truncated);
+    }
+
+    private static final int FILE_DIFF_MAX_BYTES = 250_000;
 
     /**
      * Opens a pull request on github.com against the watched repo,

@@ -146,6 +146,10 @@ const bridge: Bridge = {
     ipcRenderer.invoke('repos:listLocalBranches', owner, repo),
   listLocalCommits: (owner: string, repo: string, revision?: string, limit?: number) =>
     ipcRenderer.invoke('repos:listLocalCommits', owner, repo, revision, limit),
+  listLocalCommitFiles: (owner: string, repo: string, sha: string) =>
+    ipcRenderer.invoke('repos:listLocalCommitFiles', owner, repo, sha),
+  getLocalCommitDiff: (owner: string, repo: string, sha: string, path: string) =>
+    ipcRenderer.invoke('repos:getLocalCommitDiff', owner, repo, sha, path),
   listLocalActivity: (owner: string, repo: string, limit?: number) =>
     ipcRenderer.invoke('repos:listLocalActivity', owner, repo, limit),
   fetchLocalRepo: (owner: string, repo: string) =>

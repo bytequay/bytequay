@@ -393,6 +393,27 @@ describe('PullRequestPreview render smoke', () => {
     expect(container.innerHTML).toContain('fresh body from GitHub');
   });
 
+  it('uses force-refresh reconciliation after removing a requested reviewer', async () => {
+    const bridge = await render(
+      makeDetail({ requestedReviewers: ['alice'] }),
+      makePr({ requestedReviewers: ['alice'] }),
+    );
+    bridge.refreshPullRequestDetail.mockResolvedValue(makeDetail({ requestedReviewers: [] }));
+
+    const remove = container.querySelector<HTMLButtonElement>('[aria-label="Remove alice"]');
+    expect(remove).toBeTruthy();
+
+    await act(async () => {
+      remove!.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    });
+    await act(async () => { await Promise.resolve(); });
+
+    expect(bridge.removeRequestedReviewer).toHaveBeenCalledWith('trinodb/trino', 42, 'alice');
+    expect(bridge.refreshPullRequestDetail).toHaveBeenCalledWith('trinodb/trino', 42);
+    expect(bridge.fetchPullRequestDetail).toHaveBeenCalledTimes(1);
+    expect(container.querySelector('[aria-label="Remove alice"]')).toBeNull();
+  });
+
   it('keeps issue reactions optimistic without fetching stale detail', async () => {
     const bridge = await render(makeDetail());
     const chip = container.querySelector('.prc-comment-card .reaction-chip--clickable');

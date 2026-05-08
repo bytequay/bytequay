@@ -250,6 +250,8 @@ function bridgeStub(detail: PullRequestDetailDto) {
     editReviewComment: vi.fn().mockResolvedValue(undefined),
     commentPr: vi.fn().mockResolvedValue(undefined),
     updatePrBody: vi.fn().mockResolvedValue(undefined),
+    getSuggestedReviewers: vi.fn().mockResolvedValue([]),
+    searchUsers: vi.fn().mockResolvedValue([]),
   };
 }
 
@@ -280,6 +282,12 @@ function updateTextarea(textarea: HTMLTextAreaElement, value: string) {
   const setter = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')?.set;
   setter?.call(textarea, value);
   textarea.dispatchEvent(new Event('input', { bubbles: true }));
+}
+
+function updateInput(input: HTMLInputElement, value: string) {
+  const setter = Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value')?.set;
+  setter?.call(input, value);
+  input.dispatchEvent(new Event('input', { bubbles: true }));
 }
 
 describe('PullRequestPreview render smoke', () => {
@@ -412,6 +420,35 @@ describe('PullRequestPreview render smoke', () => {
     expect(bridge.refreshPullRequestDetail).toHaveBeenCalledWith('trinodb/trino', 42);
     expect(bridge.fetchPullRequestDetail).toHaveBeenCalledTimes(1);
     expect(container.querySelector('[aria-label="Remove alice"]')).toBeNull();
+  });
+
+  it('uses force-refresh reconciliation after adding a requested reviewer', async () => {
+    const bridge = await render(makeDetail({ requestedReviewers: [] }));
+    bridge.refreshPullRequestDetail.mockResolvedValue(makeDetail({ requestedReviewers: ['dana'] }));
+
+    const open = container.querySelector<HTMLButtonElement>('.prc-reviewer-add');
+    expect(open).toBeTruthy();
+    await act(async () => {
+      open!.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    });
+
+    const input = container.querySelector<HTMLInputElement>('.prc-reviewer-add-input');
+    expect(input).toBeTruthy();
+    await act(async () => {
+      updateInput(input!, 'dana');
+    });
+
+    const add = container.querySelector<HTMLButtonElement>('.prc-reviewer-add-btn');
+    expect(add).toBeTruthy();
+    await act(async () => {
+      add!.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    });
+    await act(async () => { await Promise.resolve(); });
+
+    expect(bridge.addRequestedReviewer).toHaveBeenCalledWith('trinodb/trino', 42, 'dana');
+    expect(bridge.refreshPullRequestDetail).toHaveBeenCalledWith('trinodb/trino', 42);
+    expect(bridge.fetchPullRequestDetail).toHaveBeenCalledTimes(1);
+    expect(container.querySelector('[aria-label="Remove dana"]')).toBeTruthy();
   });
 
   it('keeps issue reactions optimistic without fetching stale detail', async () => {

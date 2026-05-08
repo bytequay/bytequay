@@ -926,6 +926,36 @@
   margin-bottom: 12px;
   cursor: pointer;
 }
+/* Pushes the Run-AI button to the left of the action row, with
+   Cancel + primary on the right — same shape the user expects from
+   "secondary action / spacer / primary action" patterns. */
+.create-pr-modal__actions {
+  align-items: center;
+}
+.create-pr-modal__action-spacer {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.create-pr-modal__ai-btn {
+  /* Accent tint to suggest the AI affordance without screaming for
+     attention — the user's primary path is still typing manually. */
+  border-color: var(--accent);
+  color: var(--accent);
+}
+.create-pr-modal__ai-btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+.create-pr-modal__ai-error {
+  margin-bottom: 10px;
+  background: rgba(207, 34, 46, 0.08);
+  border: 1px solid rgba(207, 34, 46, 0.30);
+  color: #b91c1c;
+  font-size: 12px;
+  padding: 8px 10px;
+  border-radius: 6px;
+  white-space: pre-wrap;
+}
 
 /* Success toast — anchored to the bottom-right of the page. Lives
    until the user dismisses; clicking the link opens the new PR on

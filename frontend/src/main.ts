@@ -1081,6 +1081,24 @@ const url = new URL(`${BACKEND_BASE}/prs/comment`);
     return json.deleted ?? [];
   });
 
+  ipcMain.handle('repos:draftPullRequest', async (
+    _event, owner: string, repo: string, base: string,
+  ): Promise<{ title: string; description: string }> => {
+    const res = await fetch(
+      `${BACKEND_BASE}/api/repos/local/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/pull-requests/draft`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ base }),
+      },
+    );
+    if (!res.ok) {
+      const body = await res.text().catch(() => '');
+      throw new Error(extractMessage(body) || `draft PR failed (${res.status})`);
+    }
+    return res.json();
+  });
+
   ipcMain.handle('repos:createPullRequest', async (
     _event,
     owner: string,

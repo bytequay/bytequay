@@ -19,16 +19,19 @@ import com.bytequay.app.domain.LocalBranch;
 import com.bytequay.app.domain.LocalCommit;
 import com.bytequay.app.domain.LocalRepoStatus;
 import com.bytequay.app.domain.PullRequest;
+import com.bytequay.app.domain.PullRequestDraft;
 import com.bytequay.app.domain.RepoRef;
 import com.bytequay.app.domain.WatchedRepo;
 import com.bytequay.app.repository.PrDetailStore;
 import com.bytequay.app.repository.PullRequestRepository;
 import com.bytequay.app.repository.WatchedRepoStore;
+import com.bytequay.app.service.ai.LlmReviewerRegistry;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
 import java.io.IOException;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Duration;
@@ -61,17 +64,20 @@ public class LocalRepoService
     private final GitRunner gitRunner;
     private final PullRequestRepository gitHub;
     private final PrDetailStore prDetailStore;
+    private final LlmReviewerRegistry llmReviewerRegistry;
 
     public LocalRepoService(
             WatchedRepoStore watchedRepoStore,
             GitRunner gitRunner,
             PullRequestRepository gitHub,
-            PrDetailStore prDetailStore)
+            PrDetailStore prDetailStore,
+            LlmReviewerRegistry llmReviewerRegistry)
     {
         this.watchedRepoStore = requireNonNull(watchedRepoStore, "watchedRepoStore is null");
         this.gitRunner = requireNonNull(gitRunner, "gitRunner is null");
         this.gitHub = requireNonNull(gitHub, "gitHub is null");
         this.prDetailStore = requireNonNull(prDetailStore, "prDetailStore is null");
+        this.llmReviewerRegistry = requireNonNull(llmReviewerRegistry, "llmReviewerRegistry is null");
     }
 
     /**
@@ -536,6 +542,67 @@ public class LocalRepoService
                 Optional.of(draft),
                 Optional.empty());
         return gitHub.createPullRequest(pat, RepoRef.of(owner, repo), command);
+    }
+
+    /**
+     * Asks the active LLM provider to draft a PR title + description
+     * from the diff between the current branch and {@code baseBranch}.
+     * Reads the repo's {@code PULL_REQUEST_TEMPLATE.md} (when present)
+     * and includes it in the prompt so the description respects the
+     * team's section structure.
+     *
+     * <p>Diff is capped at {@link #DIFF_MAX_BYTES} so a giant PR doesn't
+     * overflow the prompt budget — the cap is enforced server-side
+     * with a clear marker so the AI knows the input is incomplete.
+     */
+    public PullRequestDraft draftPullRequestWithAi(
+            String owner,
+            String repo,
+            String baseBranch)
+            throws IOException, InterruptedException
+    {
+        Path path = clonePathOrThrow(owner, repo);
+        String headBranch = gitRunner.currentBranch(path);
+        if (headBranch == null) {
+            throw new IllegalStateException("HEAD is detached — switch to a branch before drafting.");
+        }
+        String resolvedBase = baseBranch != null && !baseBranch.isBlank() ? baseBranch.trim() : "main";
+        String diff = gitRunner.diff(path, resolvedBase, headBranch, DIFF_MAX_BYTES);
+        String template = readPrTemplate(path).orElse(null);
+        return llmReviewerRegistry.active()
+                .draftPullRequest(headBranch, resolvedBase, diff, template);
+    }
+
+    private static final int DIFF_MAX_BYTES = 60_000;
+    private static final int PR_TEMPLATE_MAX_BYTES = 16_000;
+    private static final List<String> PR_TEMPLATE_PATHS = List.of(
+            ".github/PULL_REQUEST_TEMPLATE.md",
+            ".github/pull_request_template.md",
+            "PULL_REQUEST_TEMPLATE.md",
+            "pull_request_template.md",
+            "docs/PULL_REQUEST_TEMPLATE.md",
+            "docs/pull_request_template.md");
+
+    /**
+     * Walks {@link #PR_TEMPLATE_PATHS} in order and returns the first
+     * existing template's content (capped to {@link #PR_TEMPLATE_MAX_BYTES}).
+     * Multi-template repos ({@code .github/PULL_REQUEST_TEMPLATE/}
+     * directory) aren't picked up here — surfacing those would require
+     * a UI to let the user choose which template to use; deferred.
+     */
+    private static Optional<String> readPrTemplate(Path workingDir)
+            throws IOException
+    {
+        for (String relative : PR_TEMPLATE_PATHS) {
+            Path candidate = workingDir.resolve(relative);
+            if (!Files.isRegularFile(candidate)) {
+                continue;
+            }
+            byte[] bytes = Files.readAllBytes(candidate);
+            int len = Math.min(bytes.length, PR_TEMPLATE_MAX_BYTES);
+            return Optional.of(new String(bytes, 0, len, StandardCharsets.UTF_8));
+        }
+        return Optional.empty();
     }
 
     /**

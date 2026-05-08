@@ -950,7 +950,30 @@ function CreatePrModal({
   const [body, setBody] = useState('');
   const [base, setBase] = useState('main');
   const [draft, setDraft] = useState(false);
-  const submitDisabled = busy || !title.trim() || !base.trim();
+  // AI-draft flow lives next to the form fields it populates. Busy
+  // state is local so the AI button can spin without locking the
+  // submit button (and vice versa).
+  const [aiBusy, setAiBusy] = useState(false);
+  const [aiError, setAiError] = useState<string | null>(null);
+  const submitDisabled = busy || aiBusy || !title.trim() || !base.trim();
+
+  const runAiDraft = async () => {
+    if (!base.trim()) {
+      setAiError('Set a base branch first — the AI needs the diff target.');
+      return;
+    }
+    setAiBusy(true);
+    setAiError(null);
+    try {
+      const draftResult = await window.bridge.draftLocalPullRequest(owner, repo, base.trim());
+      setTitle(draftResult.title);
+      setBody(draftResult.description);
+    } catch (e) {
+      setAiError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setAiBusy(false);
+    }
+  };
   return (
     <div className="force-push-modal" role="dialog" aria-modal="true">
       <div className="force-push-modal__backdrop" onClick={busy ? undefined : onCancel} />
@@ -1018,7 +1041,20 @@ function CreatePrModal({
           />
           <span>Open as draft</span>
         </label>
-        <div className="force-push-modal__actions">
+        {aiError && (
+          <div className="create-pr-modal__ai-error">{aiError}</div>
+        )}
+        <div className="force-push-modal__actions create-pr-modal__actions">
+          <button
+            type="button"
+            className="button button--secondary button--sm create-pr-modal__ai-btn"
+            onClick={() => { void runAiDraft(); }}
+            disabled={busy || aiBusy || !base.trim()}
+            title="Diff HEAD against the base, send to your active LLM, fill the title and description"
+          >
+            {aiBusy ? 'Drafting…' : '✨ Run AI'}
+          </button>
+          <span className="create-pr-modal__action-spacer" aria-hidden="true" />
           <button
             type="button"
             className="button button--secondary button--sm"

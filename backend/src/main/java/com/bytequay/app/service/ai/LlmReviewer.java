@@ -13,6 +13,7 @@
  */
 package com.bytequay.app.service.ai;
 
+import com.bytequay.app.domain.PullRequestDraft;
 import com.bytequay.app.domain.ReviewOutput;
 import com.bytequay.app.domain.ReviewRequest;
 
@@ -97,5 +98,31 @@ public interface LlmReviewer
     {
         throw new UnsupportedOperationException(
                 providerId() + " doesn't support CI failure diagnosis yet. Switch to a provider that does in Settings → AI.");
+    }
+
+    /**
+     * Drafts a pull-request title + description from the diff between
+     * the branch the user is about to push and the target base. The
+     * caller has already gathered the inputs:
+     *
+     * <ul>
+     *   <li>{@code headBranch} — the source branch (current HEAD or
+     *       whatever the user picked).</li>
+     *   <li>{@code baseBranch} — the merge target (e.g. "main").</li>
+     *   <li>{@code diff} — unified diff already truncated to a token-
+     *       safe size by the caller.</li>
+     *   <li>{@code prTemplate} — the repo's {@code PULL_REQUEST_TEMPLATE.md}
+     *       content if found, or null. Templates are rendered into
+     *       the description so the team's conventions show through.</li>
+     * </ul>
+     *
+     * <p>Default implementation throws so callers can detect providers
+     * that haven't implemented this yet.
+     */
+    default PullRequestDraft draftPullRequest(
+            String headBranch, String baseBranch, String diff, String prTemplate)
+    {
+        throw new UnsupportedOperationException(
+                providerId() + " doesn't support PR drafting yet. Switch to a provider that does in Settings → AI.");
     }
 }

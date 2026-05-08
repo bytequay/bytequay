@@ -207,6 +207,32 @@ public class GitRunner
     }
 
     /**
+     * Returns the unified diff between {@code baseRef} and {@code headRef}
+     * ({@code git diff base..head}), truncated to {@code maxBytes} so a
+     * giant PR doesn't blow up the AI prompt budget. Truncation is
+     * indicated by an inline marker so the caller (and the model) knows
+     * the data is incomplete.
+     */
+    public String diff(Path workingDir, String baseRef, String headRef, int maxBytes)
+            throws IOException, InterruptedException
+    {
+        requireNonNull(baseRef, "baseRef is null");
+        requireNonNull(headRef, "headRef is null");
+        GitResult result = run(
+                List.of("git", "diff", baseRef + ".." + headRef),
+                workingDir,
+                60);
+        result.requireSuccess();
+        String stdout = result.stdout();
+        if (maxBytes > 0 && stdout.length() > maxBytes) {
+            return stdout.substring(0, maxBytes)
+                    + "\n\n... (diff truncated at " + maxBytes + " bytes; "
+                    + (stdout.length() - maxBytes) + " more bytes omitted)\n";
+        }
+        return stdout;
+    }
+
+    /**
      * Plain {@code git push} on the current branch. With no upstream
      * tracking ref configured we add {@code -u origin <branch>} so
      * the push lands the branch on the user's fork (origin) and

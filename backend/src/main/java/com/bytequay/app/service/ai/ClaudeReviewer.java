@@ -14,6 +14,7 @@
 package com.bytequay.app.service.ai;
 
 import com.bytequay.app.domain.CredentialType;
+import com.bytequay.app.domain.PullRequestDraft;
 import com.bytequay.app.domain.ReviewOutput;
 import com.bytequay.app.domain.ReviewRequest;
 import com.bytequay.app.repository.AppSettingsStore;
@@ -352,6 +353,76 @@ public class ClaudeReviewer
             log.warn("Anthropic polish call returned {}: {}", e.getStatusCode().value(), e.getResponseBodyAsString());
             throw new IllegalStateException(
                     "Claude polish failed (" + e.getStatusCode().value() + "). Check your API key and try again.", e);
+        }
+    }
+
+    @Override
+    public PullRequestDraft draftPullRequest(
+            String headBranch, String baseBranch, String diff, String prTemplate)
+    {
+        if (diff == null || diff.isBlank()) {
+            throw new IllegalStateException(
+                    "No diff between " + headBranch + " and " + baseBranch + " — nothing to summarize.");
+        }
+        String apiKey = credentialService.getSecret(CredentialType.AI, ANTHROPIC_NAME)
+                .orElseThrow(() -> new IllegalStateException(
+                        "Anthropic API key not configured. Add it in Settings → AI review."));
+        String model = appSettings.get(AppSettingsStore.Key.LLM_MODEL)
+                .filter(s -> !s.isBlank())
+                .orElse(DEFAULT_MODEL);
+
+        // Strict-JSON contract on the system prompt; the user message
+        // carries the inputs. Template (when present) is included so
+        // the description respects the team's section structure rather
+        // than us inventing one.
+        String system = """
+                You draft a GitHub pull request title and description from a unified diff. \
+                Output STRICT JSON: {"title": string, "description": string}. \
+                The title is short, imperative, and specific (under 72 chars). \
+                The description is markdown. If the team's PR template is included below, \
+                fill its sections; otherwise default to a brief Summary, a What changed list \
+                (one bullet per substantive change), and a Test plan (1-3 verifications). \
+                Do not invent files or behaviors not present in the diff. \
+                Output ONLY the JSON object — no preamble, no markdown fences.""";
+        StringBuilder user = new StringBuilder();
+        user.append("Head branch: `").append(headBranch == null ? "(unknown)" : headBranch).append("`\n");
+        user.append("Base branch: `").append(baseBranch == null ? "(unknown)" : baseBranch).append("`\n\n");
+        if (prTemplate != null && !prTemplate.isBlank()) {
+            user.append("Repo PR template:\n```markdown\n").append(prTemplate).append("\n```\n\n");
+        }
+        user.append("Unified diff:\n```diff\n").append(diff).append("\n```\n");
+
+        MessagesRequest body = new MessagesRequest(
+                model,
+                /* maxTokens */ 2_000,
+                system,
+                ImmutableList.of(new MessagesRequest.Message("user", user.toString())),
+                false);
+
+        try {
+            MessagesResponse response = client.post()
+                    .uri("/v1/messages")
+                    .header("x-api-key", apiKey)
+                    .body(body)
+                    .retrieve()
+                    .body(MessagesResponse.class);
+            String text = extractText(response).trim();
+            String json = extractJsonObject(text);
+            JsonNode node = objectMapper.readTree(json);
+            String title = node.path("title").asText("").trim();
+            String description = node.path("description").asText("").trim();
+            if (title.isEmpty()) {
+                throw new IllegalStateException("Claude returned no title for the PR draft.");
+            }
+            return new PullRequestDraft(title, description);
+        }
+        catch (RestClientResponseException e) {
+            log.warn("Anthropic draftPullRequest returned {}: {}", e.getStatusCode().value(), e.getResponseBodyAsString());
+            throw new IllegalStateException(
+                    "Claude PR draft failed (" + e.getStatusCode().value() + "). Check your API key and try again.", e);
+        }
+        catch (IOException e) {
+            throw new IllegalStateException("Claude returned malformed PR draft JSON: " + e.getMessage(), e);
         }
     }
 

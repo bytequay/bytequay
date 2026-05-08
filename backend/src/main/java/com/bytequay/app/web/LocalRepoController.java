@@ -18,6 +18,7 @@ import com.bytequay.app.domain.LocalBranch;
 import com.bytequay.app.domain.LocalCommit;
 import com.bytequay.app.domain.LocalRepoStatus;
 import com.bytequay.app.domain.PullRequest;
+import com.bytequay.app.domain.PullRequestDraft;
 import com.bytequay.app.repository.WatchedRepoStore;
 import com.bytequay.app.service.local.GitRunner;
 import com.bytequay.app.service.local.LocalRepoService;
@@ -419,6 +420,41 @@ public class LocalRepoController
     }
 
     /**
+     * POST /api/repos/local/{owner}/{repo}/pull-requests/draft —
+     * asks the active LLM to draft a title + description from the
+     * diff between the current branch and {@code body.base}. The
+     * client fills the response into the Open-PR form so the user
+     * can hand-edit before submitting.
+     */
+    @PostMapping("/{owner}/{repo}/pull-requests/draft")
+    public PullRequestDraft draftPullRequest(
+            @PathVariable("owner") String owner,
+            @PathVariable("repo") String repo,
+            @RequestBody DraftPrRequest body)
+    {
+        try {
+            return localRepoService.draftPullRequestWithAi(
+                    owner, repo, body == null ? null : body.base());
+        }
+        catch (IllegalStateException e) {
+            // Covers: HEAD detached, no diff, no API key configured,
+            // model JSON malformed. CONFLICT carries the message
+            // straight to the modal.
+            throw new ResponseStatusException(HttpStatus.CONFLICT, e.getMessage());
+        }
+        catch (GitRunner.GitCommandException e) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, e.stderr().strip());
+        }
+        catch (IOException e) {
+            throw new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR, e.getMessage());
+        }
+        catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE, "draft interrupted");
+        }
+    }
+
+    /**
      * DELETE /api/repos/local/{owner}/{repo}/branches — deletes the
      * named local branches. The current branch is always refused;
      * everything else is allowed (cleanup classification is advisory
@@ -467,4 +503,5 @@ public class LocalRepoController
     public record DeleteBranchesResponse(List<String> deleted) {}
     public record CreatePrRequest(String title, String body, String base, boolean draft) {}
     public record CreatePrResponse(int number, String htmlUrl) {}
+    public record DraftPrRequest(String base) {}
 }

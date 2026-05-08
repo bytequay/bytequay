@@ -903,6 +903,12 @@ export type Bridge = {
     owner: string, repo: string,
     payload: { title: string; body: string; base: string; draft: boolean },
   ) => Promise<{ number: number; htmlUrl: string }>;
+  /** Asks the active LLM to draft a PR title + description from the
+   *  diff between current HEAD and `base`. Returns the draft so the
+   *  Open-PR modal can fill its inputs for the user to refine. */
+  draftLocalPullRequest: (
+    owner: string, repo: string, base: string,
+  ) => Promise<{ title: string; description: string }>;
   /** Bulk-deletes cleanup-eligible branches. The backend re-validates
    *  the current branch (always refused) and returns the names that
    *  were actually deleted. When `deleteRemote` is true, also runs

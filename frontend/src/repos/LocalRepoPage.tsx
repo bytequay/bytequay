@@ -98,7 +98,7 @@ const TABS: { key: Tab; label: string }[] = [
  * The IN REVIEW column will stay empty until the list-page sync starts
  * capturing PR head refs (deferred — see LocalRepoService.toLocalBranch).
  */
-function LocalRepoPage({ owner, repo, onSelectPr, initialBranch }: Props) {
+function LocalRepoPage({ owner, repo, onBack, onSelectPr, initialBranch }: Props) {
   const [status, setStatus] = useState<LocalRepoStatusDto | null>(null);
   const [branches, setBranches] = useState<LocalBranchDto[] | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -510,6 +510,19 @@ function LocalRepoPage({ owner, repo, onSelectPr, initialBranch }: Props) {
   return (
     <div className={`local-repo-page${tab === 'commits' ? ' local-repo-page--wide' : ''}`}>
       <header className="local-repo-page__head">
+        {/* Breadcrumb back to the repository overview page. Mirrors
+            RepositoryPage's "← Repos" so the back-affordance stays
+            consistent across the repo nav chain. App.tsx wires
+            onBack to { view: 'repository', owner, repo }. */}
+        <nav className="local-repo-page__breadcrumb">
+          <button
+            type="button"
+            className="local-repo-page__back"
+            onClick={onBack}
+          >
+            ← {owner}/{repo}
+          </button>
+        </nav>
         <div className="local-repo-page__heading">
           <div className="local-repo-page__title-row">
             <h1 className="local-repo-page__title">
@@ -844,6 +857,17 @@ function LocalRepoPage({ owner, repo, onSelectPr, initialBranch }: Props) {
   );
 }
 
+/**
+ * Backend's resolveLogRevision throws a stable string when a branch
+ * isn't local and isn't on origin yet. Pull the branch name out so the
+ * commits panel can offer a "Fetch <name>" button instead of dumping
+ * the raw error. Returns null when the error string doesn't match.
+ */
+function parseMissingBranch(error: string): string | null {
+  const m = /Couldn't resolve branch '([^']+)' locally/.exec(error);
+  return m ? m[1] : null;
+}
+
 function looksLikeNonFastForward(stderr: string): boolean {
   // git's non-fast-forward rejection looks like:
   //   ! [rejected]        feat -> feat (non-fast-forward)
@@ -935,6 +959,11 @@ function CommitsTab({
 }) {
   const [commits, setCommits] = useState<LocalCommitDto[] | null>(null);
   const [commitsError, setCommitsError] = useState<string | null>(null);
+  // Bumped after a successful "fetch and retry" so the commits useEffect
+  // re-runs without the user having to re-navigate. Lets the missing-
+  // branch CTA below surface a recovery flow inline.
+  const [reloadCounter, setReloadCounter] = useState(0);
+  const [fetchingMissingBranch, setFetchingMissingBranch] = useState(false);
   // Multi-commit selection. Plain click replaces; ⌘/Ctrl+click toggles.
   // Default once commits load is the tip (newest), so the panes have
   // something to render on first paint.
@@ -1045,7 +1074,7 @@ function CommitsTab({
         .catch(() => { /* swallow — divider is optional */ });
     }
     return () => { cancelled = true; };
-  }, [owner, repo, revisionKey]);
+  }, [owner, repo, revisionKey, reloadCounter]);
 
   // Files for the middle pane. History mode → union of selected
   // commits' files (or the full <compareBase>..<branch> range when
@@ -1154,6 +1183,43 @@ function CommitsTab({
   }, [owner, repo, detailSha]);
 
   if (commitsError) {
+    // The backend throws a specific message when a branch isn't local
+    // and isn't on origin yet — usually because the user clicked into
+    // a PR's head branch from the PR detail page before fetching it.
+    // Surface a recovery CTA instead of a raw error string.
+    const missingBranch = parseMissingBranch(commitsError);
+    if (missingBranch) {
+      return (
+        <div className="local-repo-tab-placeholder">
+          <div className="local-repo-tab-placeholder__title">Branch isn't available locally</div>
+          <p className="local-repo-tab-placeholder__body">
+            <code>{missingBranch}</code> isn't checked out and isn't on
+            origin yet. Fetch from origin to pull it in, then we'll
+            reload the commits automatically.
+          </p>
+          <div style={{ marginTop: 16 }}>
+            <button
+              type="button"
+              className="button button--primary button--sm"
+              disabled={fetchingMissingBranch}
+              onClick={async () => {
+                setFetchingMissingBranch(true);
+                try {
+                  await window.bridge.fetchLocalRepo(owner, repo);
+                  setReloadCounter(c => c + 1);
+                } catch (e) {
+                  setCommitsError(e instanceof Error ? e.message : String(e));
+                } finally {
+                  setFetchingMissingBranch(false);
+                }
+              }}
+            >
+              {fetchingMissingBranch ? 'Fetching…' : `Fetch ${missingBranch}`}
+            </button>
+          </div>
+        </div>
+      );
+    }
     return (
       <div className="local-repo-page__error">
         Couldn't load commits: {commitsError}

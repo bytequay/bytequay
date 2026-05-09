@@ -109,6 +109,13 @@ function IssueDetailScreen({ owner, repo, number, onBack, embedded }: Props) {
           >
             View on GitHub ↗
           </a>
+          <StateToggleButton
+            owner={owner}
+            repo={repo}
+            number={detail.number}
+            currentState={detail.state}
+            onChanged={(updated) => setDetail(updated)}
+          />
         </div>
       </header>
 
@@ -249,6 +256,65 @@ function CommentCard({
         dangerouslySetInnerHTML={{ __html: renderMarkdown(safeBody) }}
       />
     </article>
+  );
+}
+
+/** Header-row Close / Reopen button. Toggles between the two states
+ *  via PATCH and replaces the local detail with the refreshed
+ *  payload so the status pill, closed timestamp, and Notes panel all
+ *  flip in one render. The list-side state in RepoDetailPage stays
+ *  stale for now — closing an issue here doesn't move it from the
+ *  Open bucket to Closed in the sidebar until the lists refetch.
+ *  Tracked as a follow-up in the I4b commit message. */
+function StateToggleButton({
+  owner,
+  repo,
+  number,
+  currentState,
+  onChanged,
+}: {
+  owner: string;
+  repo: string;
+  number: number;
+  currentState: string;
+  onChanged: (updated: IssueDetailDto) => void;
+}) {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const isClosed = currentState === 'closed';
+  const next: 'open' | 'closed' = isClosed ? 'open' : 'closed';
+  const label = busy
+    ? (isClosed ? 'Reopening…' : 'Closing…')
+    : (isClosed ? 'Reopen issue' : 'Close issue');
+
+  const submit = async (): Promise<void> => {
+    if (busy) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const updated = await window.bridge.setIssueState(owner, repo, number, next);
+      onChanged(updated);
+    }
+    catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    }
+    finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <span className="issue-detail__state-action">
+      <button
+        type="button"
+        className={`button button--sm ${isClosed ? 'button--secondary' : 'button--primary'}`}
+        onClick={() => { void submit(); }}
+        disabled={busy}
+      >
+        {label}
+      </button>
+      {error && <span className="issue-detail__state-error" title={error}>Failed: {error.slice(0, 60)}…</span>}
+    </span>
   );
 }
 

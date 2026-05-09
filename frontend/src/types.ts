@@ -969,6 +969,7 @@ export type Bridge = {
   getRepoIssues: (owner: string, repo: string, state?: 'open' | 'closed') => Promise<IssueDto[]>;
   getIssueDetail: (owner: string, repo: string, number: number) => Promise<IssueDetailDto>;
   createIssueComment: (owner: string, repo: string, number: number, body: string) => Promise<IssueCommentDto>;
+  setIssueState: (owner: string, repo: string, number: number, state: 'open' | 'closed') => Promise<IssueDetailDto>;
   /** Repo-level metadata for the right-pane hero card. */
   getRepoMeta: (owner: string, repo: string) => Promise<RepoMetaDto>;
   /** ~30 most recent events on a repo for the right-pane activity feed. */

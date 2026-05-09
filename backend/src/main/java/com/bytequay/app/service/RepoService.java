@@ -298,6 +298,44 @@ public class RepoService
     }
 
     /**
+     * Toggles an issue's state. Returns the post-flip detail with the
+     * existing comment list spliced back in — GitHubClient drops the
+     * comments to keep its method one-fetch-per-call, so we re-attach
+     * here using the cached fetch path. The frontend uses the result
+     * to update both detail.state and any derived UI (close
+     * timestamp, status pill).
+     */
+    public IssueDetail setIssueState(String pat, String owner, String repo, int number, String state)
+    {
+        if (!"open".equals(state) && !"closed".equals(state)) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    "state must be \"open\" or \"closed\"; got: " + state);
+        }
+        RepoRef ref = RepoRef.of(owner, repo);
+        IssueDetail flipped = gitHub.setIssueState(pat, ref, number, state);
+        // Re-fetch comments so closedAt timestamps in any new
+        // status-change comment-style events show up. Cheap follow-up,
+        // and avoids forcing the frontend to do a second round-trip.
+        List<IssueDetail.Comment> comments = gitHub.fetchIssueDetailComments(pat, ref, number);
+        return new IssueDetail(
+                flipped.id(),
+                flipped.number(),
+                flipped.title(),
+                flipped.body(),
+                flipped.author(),
+                flipped.authorAvatarUrl(),
+                flipped.state(),
+                flipped.htmlUrl(),
+                flipped.createdAt(),
+                flipped.updatedAt(),
+                flipped.closedAt(),
+                flipped.labels(),
+                flipped.assignees(),
+                flipped.milestone(),
+                comments);
+    }
+
+    /**
      * Returns the cached {@link RepoMeta} for one repo. Stale-while-
      * revalidate: a row that's at most one hour old AND complete is
      * returned immediately; an older row is returned immediately and a

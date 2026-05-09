@@ -534,6 +534,20 @@ public interface PullRequestRepository
     }
 
     /**
+     * Toggles an issue's state to "open" or "closed". GitHub's PATCH
+     * endpoint also accepts a state_reason ("completed" /
+     * "not_planned" / "reopened"); we leave it out so GitHub picks
+     * the sensible default per direction. Returns the updated
+     * detail so callers can refresh their local view without a
+     * second fetch.
+     * Maps to: PATCH /repos/{owner}/{repo}/issues/{number}
+     */
+    default IssueDetail setIssueState(String pat, RepoRef repo, int number, String state)
+    {
+        throw new UnsupportedOperationException("setIssueState not implemented");
+    }
+
+    /**
      * Fetches repo-level metadata (description, stars, license, topics,
      * language byte-counts, etc). Combines GitHub's
      * {@code /repos/{owner}/{repo}} and {@code /repos/{owner}/{repo}/languages}

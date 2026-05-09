@@ -1529,6 +1529,34 @@ public class GitHubClient
     }
 
     @Override
+    public IssueDetail setIssueState(String pat, RepoRef repo, int number, String state)
+    {
+        try {
+            GitHubIssueItem item = gitHubRestClient.patch()
+                    .uri("/repos/{owner}/{repo}/issues/{number}",
+                            repo.owner(), repo.repo(), number)
+                    .header("Authorization", "Bearer " + pat)
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .body(ImmutableMap.of("state", state))
+                    .retrieve()
+                    .body(GitHubIssueItem.class);
+            if (item == null) {
+                throw new ResponseStatusException(
+                        HttpStatusCode.valueOf(502),
+                        "Empty response from GitHub when toggling issue state");
+            }
+            // Comments don't change as a side-effect of a state flip — the
+            // caller already has them and merging back here would mean a
+            // second fetch we don't need. Return with an empty list and
+            // let the caller (RepoService) splice in whatever it has.
+            return toIssueDetail(item, ImmutableList.of());
+        }
+        catch (RestClientResponseException e) {
+            throw toReadableException(e);
+        }
+    }
+
+    @Override
     public IssueDetail.Comment postIssueComment(String pat, RepoRef repo, int number, String body)
     {
         try {

@@ -187,6 +187,27 @@ public class RepoController
     public record IssueCommentRequest(String body) {}
 
     /**
+     * Closes or reopens an issue. {@code state} must be "open" or
+     * "closed". Returns the refreshed detail so the page can flip
+     * its status pill and refresh comments without a second
+     * round-trip.
+     * PATCH /api/repos/{owner}/{repo}/issues/{number}  body:{state}
+     */
+    @PatchMapping("/repos/{owner}/{repo}/issues/{number}")
+    public IssueDetail setIssueState(
+            @PathVariable String owner,
+            @PathVariable String repo,
+            @PathVariable int number,
+            @RequestBody IssueStateRequest request)
+    {
+        return repoService.setIssueState(
+                patResolver.resolve(owner + "/" + repo), owner, repo, number, request.state());
+    }
+
+    /** PATCH body shape for {@link #setIssueState}. */
+    public record IssueStateRequest(String state) {}
+
+    /**
      * Repo-level metadata: description, stars, forks, watchers, license,
      * topics, languages map. Powers the right-pane hero / About /
      * language bar on the repo detail page.

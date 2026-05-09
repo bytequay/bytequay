@@ -491,6 +491,29 @@ describe('PullRequestPreview render smoke', () => {
     expect(bridge.fetchPullRequestDetail).toHaveBeenCalledTimes(1);
   });
 
+  it('keeps plain PR comments optimistic without fetching stale detail', async () => {
+    const bridge = await render(makeDetail());
+
+    const textarea = container.querySelector<HTMLTextAreaElement>('.pr-comment-box__input');
+    expect(textarea).toBeTruthy();
+    await act(async () => {
+      updateTextarea(textarea!, 'plain comment');
+    });
+
+    const comment = Array.from(container.querySelectorAll('button'))
+      .find(el => el.textContent === 'Comment');
+    expect(comment).toBeTruthy();
+
+    await act(async () => {
+      comment!.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    });
+    await act(async () => { await Promise.resolve(); });
+
+    expect(bridge.commentPr).toHaveBeenCalledWith(1, 'trinodb/trino', 42, 'plain comment', false);
+    expect(bridge.refreshPullRequestDetail).not.toHaveBeenCalled();
+    expect(bridge.fetchPullRequestDetail).toHaveBeenCalledTimes(1);
+  });
+
   it('uses force-refresh reconciliation after merging a pull request', async () => {
     const onMerge = vi.fn().mockResolvedValue(undefined);
     const bridge = await render(makeDetail({ viewerCanWrite: true }), makePr(), { onMerge });

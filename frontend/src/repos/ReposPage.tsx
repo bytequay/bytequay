@@ -305,7 +305,7 @@ function RepoCardIdentity({
 }) {
   return (
     <div className="repo-card__identity">
-      <RepoAvatar owner={status.owner} repo={status.repo} />
+      <RepoAvatar repo={status.repo} avatarUrl={meta?.ownerAvatarUrl ?? null} />
       <div className="repo-card__identity-main">
         <div className="repo-card__name">
           <span className="repo-card__owner">{status.owner}/</span>
@@ -440,10 +440,20 @@ function WatchPlaceholderCard({ onClick }: { onClick: () => void }) {
   );
 }
 
-function RepoAvatar({ owner: _owner, repo }: { owner: string; repo: string }) {
-  // Stable per-repo color so cards read as visually distinct in a long
-  // grid without needing a network avatar fetch. Same hash recipe as
-  // the commit-row author dot.
+function RepoAvatar({ repo, avatarUrl }: { repo: string; avatarUrl: string | null }) {
+  if (avatarUrl) {
+    return (
+      <img
+        className="repo-card__avatar repo-card__avatar--image"
+        src={avatarUrl}
+        alt=""
+        aria-hidden="true"
+      />
+    );
+  }
+  // Fallback: deterministic colour-and-letter placeholder until the
+  // meta row lands (very first ever visit) or for legacy rows
+  // persisted before the avatar column existed.
   const PALETTE = ['#1f6a57', '#cf6900', '#1f6feb', '#8a5cf5', '#cf222e', '#1a7f37', '#996600', '#0e8c8c'];
   let h = 0;
   for (let i = 0; i < repo.length; i++) {

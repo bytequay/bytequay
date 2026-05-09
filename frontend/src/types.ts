@@ -1326,6 +1326,10 @@ export type Bridge = {
    *  fullscreen so the renderer can fill the now-vacant traffic-light
    *  reserve with a brand mark. */
   onFullScreenChange: (callback: (payload: { isFullScreen: boolean }) => void) => () => void;
+  /** Synchronous pull paired with onFullScreenChange — the renderer
+   *  queries this on mount to recover the initial state if the main
+   *  process's did-finish-load push raced React's listener registration. */
+  getFullScreenState: () => Promise<boolean>;
 };
 
 export type InAppNavState = {

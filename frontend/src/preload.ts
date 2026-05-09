@@ -370,6 +370,7 @@ const bridge: Bridge = {
     ipcRenderer.on('window:fullscreen-state', listener);
     return () => ipcRenderer.removeListener('window:fullscreen-state', listener);
   },
+  getFullScreenState: (): Promise<boolean> => ipcRenderer.invoke('window:get-fullscreen'),
   getSlackAuthorizeUrl: (): Promise<{ configured: boolean; url?: string }> =>
     ipcRenderer.invoke('slack:authorizeUrl'),
   getSlackConnection: (): Promise<SlackConnectionDto> =>

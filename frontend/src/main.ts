@@ -332,6 +332,14 @@ const createWindow = async () => {
   mainWindow.webContents.on('did-finish-load', () => {
     if (mainWindow) sendFullScreenState(mainWindow.isFullScreen());
   });
+  // The did-finish-load push above can race the renderer registering its
+  // onFullScreenChange listener — when it does, the renderer misses the
+  // initial state and the topbar's brand mark stays hidden even though
+  // the window is fullscreen. Pair the push with a synchronous pull the
+  // renderer can query once on mount to recover the truth.
+  ipcMain.handle('window:get-fullscreen', () => {
+    return mainWindow ? mainWindow.isFullScreen() : false;
+  });
 
   // Route every external link into the in-app browser overlay rather
   // than letting Electron spawn a child window or replace the main

@@ -267,6 +267,12 @@ function App() {
 
   useEffect(() => {
     const unsub = window.bridge.onFullScreenChange(({ isFullScreen }) => setFullScreen(isFullScreen));
+    // Recover the initial state in case the main process's did-finish-load
+    // push fired before this listener was registered (cold start launched
+    // straight into fullscreen, slow first React render, etc.) — without
+    // this, the topbar's brand mark stays hidden even though the window is
+    // fullscreen.
+    void window.bridge.getFullScreenState().then(setFullScreen).catch(() => {});
     return unsub;
   }, []);
 

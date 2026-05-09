@@ -225,7 +225,19 @@ function LocalRepoPage({ owner, repo, onBack, onSelectPr, initialBranch }: Props
   }, [focusMenuOpen]);
 
   const isForkWithParent = meta?.parentOwner != null && meta?.parentName != null;
-  const activeFocus: 'fork' | 'upstream' = status?.viewFocus ?? 'fork';
+  const storedFocus: 'fork' | 'upstream' = status?.viewFocus ?? 'fork';
+  // Upstream is only actionable when the local clone has a remote
+  // pointing at the parent — otherwise we have nowhere to fetch
+  // upstream commits from. Surface the dropdown either way (so the
+  // user knows the repo is a fork) but disable the upstream item.
+  const upstreamRemoteMissing = !status?.upstreamRemoteName;
+  // What the UI should *display* as active — coerce upstream back to
+  // fork when the upstream item is non-functional, even if a stored
+  // 'upstream' lingers from a previous configuration. The persisted
+  // value is left alone so adding the remote later restores intent.
+  const activeFocus: 'fork' | 'upstream' = (storedFocus === 'upstream' && upstreamRemoteMissing)
+    ? 'fork'
+    : storedFocus;
   // The upstream-derived ref the commits tab queries when the user is
   // in upstream view: `<remote>/<branch>` (e.g. `upstream/master`).
   // Null when we don't have all three pieces — we fall back to HEAD.
@@ -640,12 +652,25 @@ function LocalRepoPage({ owner, repo, onBack, onSelectPr, initialBranch }: Props
                       type="button"
                       role="menuitemradio"
                       aria-checked={activeFocus === 'upstream'}
-                      className={`local-repo-page__focus-item${activeFocus === 'upstream' ? ' local-repo-page__focus-item--active' : ''}`}
-                      onClick={() => { void handleSelectFocus('upstream'); }}
+                      disabled={upstreamRemoteMissing}
+                      title={upstreamRemoteMissing
+                        ? `Add a git remote pointing at ${meta!.parentOwner}/${meta!.parentName} to enable upstream view`
+                        : undefined}
+                      className={
+                        'local-repo-page__focus-item'
+                        + (activeFocus === 'upstream' ? ' local-repo-page__focus-item--active' : '')
+                        + (upstreamRemoteMissing ? ' local-repo-page__focus-item--disabled' : '')
+                      }
+                      onClick={() => {
+                        if (upstreamRemoteMissing) return;
+                        void handleSelectFocus('upstream');
+                      }}
                     >
                       <span className="local-repo-page__focus-check">{activeFocus === 'upstream' ? '✓' : ''}</span>
                       <span className="local-repo-page__focus-name">{meta!.parentOwner}/{meta!.parentName}</span>
-                      <span className="local-repo-page__focus-tag">upstream</span>
+                      <span className="local-repo-page__focus-tag">
+                        {upstreamRemoteMissing ? 'no upstream remote' : 'upstream'}
+                      </span>
                     </button>
                   </div>
                 )}

@@ -640,6 +640,15 @@
 .local-repo-page__focus-item--active {
   background: var(--bg-hover, rgba(0, 0, 0, 0.04));
 }
+.local-repo-page__focus-item--disabled,
+.local-repo-page__focus-item:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+.local-repo-page__focus-item--disabled:hover,
+.local-repo-page__focus-item:disabled:hover {
+  background: transparent;
+}
 .local-repo-page__focus-check {
   color: var(--text-1);
   font-weight: 700;

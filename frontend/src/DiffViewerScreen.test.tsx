@@ -15,7 +15,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import DiffViewerScreen from './DiffViewerScreen';
-import type { PullRequestDetailDto, PullRequestDto } from './types';
+import type { DiffFileDto, PullRequestCommitDto, PullRequestDetailDto, PullRequestDto } from './types';
 
 // React 19 enforces this flag before async act() works.
 (globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -87,14 +87,43 @@ function makeDetail(overrides: Partial<PullRequestDetailDto> = {}): PullRequestD
   };
 }
 
-function bridgeStub(detail: PullRequestDetailDto) {
+function makeDiffFile(overrides: Partial<DiffFileDto> = {}): DiffFileDto {
+  return {
+    filename: 'src/foo.ts',
+    status: 'modified',
+    additions: 1,
+    deletions: 0,
+    patch: '@@ -1,1 +1,1 @@\n+new line',
+    ...overrides,
+  };
+}
+
+function makeCommit(overrides: Partial<PullRequestCommitDto> = {}): PullRequestCommitDto {
+  return {
+    sha: 'abc123',
+    authorLogin: 'octocat',
+    authorName: 'Octocat',
+    authoredAt: '2026-04-29T11:00:00Z',
+    message: 'Update foo',
+    ...overrides,
+  };
+}
+
+function bridgeStub(detail: PullRequestDetailDto, options: {
+  files?: DiffFileDto[];
+  commits?: PullRequestCommitDto[];
+} = {}) {
   return {
     markPrViewed: vi.fn().mockResolvedValue(undefined),
     fetchPullRequestDetail: vi.fn().mockResolvedValue(detail),
     refreshPullRequestDetail: vi.fn().mockResolvedValue(detail),
-    fetchPrDiffFiles: vi.fn().mockResolvedValue([]),
-    fetchPrCommits: vi.fn().mockResolvedValue([]),
+    fetchPrDiffFiles: vi.fn().mockResolvedValue(options.files ?? []),
+    fetchPrCommits: vi.fn().mockResolvedValue(options.commits ?? []),
     fetchPrCommitDiff: vi.fn().mockResolvedValue([]),
+    fetchFileBlob: vi.fn().mockResolvedValue({ lines: [] }),
+    createInlineReviewComment: vi.fn().mockResolvedValue(undefined),
+    stageReviewComment: vi.fn(),
+    polishCommentText: vi.fn(),
     listAiProviders: vi.fn().mockResolvedValue([]),
     getLatestAiReview: vi.fn().mockResolvedValue(null),
     getAiReviewStatus: vi.fn().mockResolvedValue({ state: 'IDLE', error: null }),
@@ -105,6 +134,7 @@ let container: HTMLDivElement;
 let root: Root;
 
 beforeEach(() => {
+  Element.prototype.scrollIntoView = vi.fn();
   container = document.createElement('div');
   document.body.appendChild(container);
   root = createRoot(container);
@@ -120,8 +150,10 @@ afterEach(() => {
 async function render(detail = makeDetail(), props: {
   onApprove?: (prId: number, repo: string, number: number) => Promise<void>;
   onBack?: () => void;
+  files?: DiffFileDto[];
+  commits?: PullRequestCommitDto[];
 } = {}) {
-  const bridge = bridgeStub(detail);
+  const bridge = bridgeStub(detail, { files: props.files, commits: props.commits });
   (window as unknown as { bridge: ReturnType<typeof bridgeStub> }).bridge = bridge;
   await act(async () => {
     root.render(
@@ -134,7 +166,14 @@ async function render(detail = makeDetail(), props: {
   });
   await act(async () => { await Promise.resolve(); });
   await act(async () => { await Promise.resolve(); });
+  await act(async () => { await Promise.resolve(); });
   return bridge;
+}
+
+function updateTextarea(textarea: HTMLTextAreaElement, value: string) {
+  const setter = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, 'value')?.set;
+  setter?.call(textarea, value);
+  textarea.dispatchEvent(new Event('input', { bubbles: true }));
 }
 
 describe('DiffViewerScreen freshness', () => {
@@ -156,5 +195,48 @@ describe('DiffViewerScreen freshness', () => {
     expect(bridge.refreshPullRequestDetail).toHaveBeenCalledWith('trinodb/trino', 42);
     expect(bridge.fetchPullRequestDetail).toHaveBeenCalledWith('trinodb/trino', 42);
     expect(onBack).toHaveBeenCalled();
+  });
+
+  it('uses force-refresh reconciliation after posting a new inline comment', async () => {
+    const bridge = await render(makeDetail(), {
+      files: [makeDiffFile()],
+      commits: [makeCommit()],
+    });
+
+    const row = container.querySelector<HTMLElement>('[data-anchor="src/foo.ts:RIGHT:1"]');
+    expect(row).toBeTruthy();
+
+    await act(async () => {
+      row!.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    });
+
+    const textarea = container.querySelector<HTMLTextAreaElement>('.diff-inline-composer__input');
+    expect(textarea).toBeTruthy();
+    await act(async () => {
+      updateTextarea(textarea!, 'please adjust this line');
+    });
+
+    const post = Array.from(container.querySelectorAll('button'))
+      .find(el => el.textContent === 'Add single comment');
+    expect(post).toBeTruthy();
+
+    await act(async () => {
+      post!.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    });
+    await act(async () => { await Promise.resolve(); });
+
+    expect(bridge.createInlineReviewComment).toHaveBeenCalledWith(
+      'trinodb/trino',
+      42,
+      'please adjust this line',
+      'src/foo.ts',
+      1,
+      'RIGHT',
+      'abc123',
+      null,
+      null,
+    );
+    expect(bridge.refreshPullRequestDetail).toHaveBeenCalledWith('trinodb/trino', 42);
+    expect(bridge.fetchPullRequestDetail).toHaveBeenCalledWith('trinodb/trino', 42);
   });
 });

@@ -25,6 +25,13 @@
 .repos-page__header {
   margin-bottom: 20px;
 }
+.repos-page__header-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 16px;
+  margin-bottom: 14px;
+}
 
 .repos-page__title {
   font-size: 22px;
@@ -38,6 +45,60 @@
   margin: 0;
   font-size: 13px;
   color: var(--text-3);
+  max-width: 720px;
+}
+
+/* Watch-a-repo CTA. Disabled in v1 — the browse-GitHub flow ships
+   in a follow-up; the button is here so the layout matches the
+   mockup and the affordance is discoverable. */
+.repos-page__watch-btn {
+  appearance: none;
+  flex: 0 0 auto;
+  background: var(--accent);
+  color: white;
+  border: 0;
+  border-radius: 6px;
+  padding: 8px 14px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+.repos-page__watch-btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+/* Filter chips at the top of the page — All / Mapped / Unmapped.
+   Same shape as the kanban bucket chips so the visual vocabulary
+   stays consistent. Counts are inline so the user knows what each
+   chip will reveal before clicking. */
+.repos-page__filters {
+  display: flex;
+  gap: 6px;
+}
+.repos-page__filter-chip {
+  appearance: none;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 4px 12px;
+  font-size: 12px;
+  color: var(--text-2);
+  cursor: pointer;
+  font-weight: 500;
+}
+.repos-page__filter-chip:hover {
+  border-color: var(--accent-a40);
+}
+.repos-page__filter-chip--active {
+  background: var(--text-1);
+  color: var(--bg-base);
+  border-color: var(--text-1);
+}
+.repos-page__filter-chip-count {
+  margin-left: 4px;
+  opacity: 0.65;
+  font-weight: 600;
 }
 
 .repos-page__banner {
@@ -117,11 +178,33 @@
   background: var(--accent-a4);
 }
 
-.repo-card__head {
+/* Three-section repo card per docs/mockups/design/repository/
+   repositories.png. Top section is identity (avatar + name + tagline
+   + GitHub stats). Middle section is the local-clone block (mapped
+   row OR unmapped CTA). Bottom section is the activity strip. */
+
+.repo-card__identity {
   display: flex;
-  align-items: baseline;
-  justify-content: space-between;
-  gap: 8px;
+  gap: 10px;
+  align-items: flex-start;
+}
+.repo-card__identity-main {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+
+.repo-card__avatar {
+  flex: 0 0 auto;
+  width: 28px;
+  height: 28px;
+  border-radius: 6px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 14px;
+  font-weight: 700;
+  color: white;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, monospace;
 }
 
 .repo-card__name {
@@ -129,22 +212,78 @@
   font-weight: 600;
   font-size: 14px;
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, monospace;
+  display: block;
 }
 .repo-card__owner { color: var(--text-3); font-weight: 400; }
+.repo-card__repo { color: var(--text-1); }
 
-.repo-card__branch {
+.repo-card__tagline {
+  margin: 4px 0 6px;
+  font-size: 12px;
+  color: var(--text-3);
+  line-height: 1.4;
+  display: -webkit-box;
+  -webkit-line-clamp: 2;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+}
+
+.repo-card__stats {
+  display: flex;
+  gap: 12px;
+  font-size: 11.5px;
+  color: var(--text-3);
+}
+.repo-card__stat {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+}
+.repo-card__stat span { opacity: 0.65; }
+
+/* Middle section — local-clone block. Mapped variant has a tinted
+   gray-soft background; unmapped variant has a purple-tinted bg
+   with a left accent bar so it reads as a CTA. */
+.repo-card__clone {
+  display: grid;
+  grid-template-columns: 64px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 10px;
+  border-radius: 6px;
+}
+.repo-card__clone--mapped {
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-hairline);
+}
+.repo-card__clone--unmapped {
+  background: var(--accent-a7);
+  border: 1px solid var(--accent-a40);
+  border-left-width: 3px;
+}
+.repo-card__clone-label {
+  font-size: 9.5px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--text-3);
+}
+.repo-card__clone-body {
   display: flex;
   align-items: center;
-  gap: 6px;
-  font-size: 12px;
-  color: var(--text-2);
+  gap: 8px;
+  min-width: 0;
 }
-.repo-card__branch code {
+.repo-card__clone-branch {
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, monospace;
+  font-size: 12px;
+  color: var(--text-1);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 50%;
 }
-.repo-card__branch-icon { color: var(--text-3); }
-
-.repo-card__path {
+.repo-card__clone-path {
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, monospace;
   font-size: 11.5px;
   color: var(--text-3);
@@ -152,17 +291,80 @@
   overflow: hidden;
   text-overflow: ellipsis;
 }
-.repo-card__path--empty {
-  font-family: inherit;
-  font-style: italic;
+.repo-card__clone-empty {
+  font-size: 12px;
+  color: var(--accent);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.repo-card__clone-cta {
+  appearance: none;
+  background: var(--accent);
+  color: white;
+  border: 0;
+  border-radius: 4px;
+  padding: 4px 10px;
+  font-size: 11px;
+  font-weight: 600;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.repo-card__clone-cta:hover { background: var(--accent-dark); }
+
+/* Bottom section — activity strip. Open-PR / open-issue counts on
+   the left, last-activity timestamp ghost-aligned right. */
+.repo-card__activity {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  font-size: 11.5px;
+  color: var(--text-3);
+}
+.repo-card__activity-need {
+  color: #b91c1c;
+}
+.repo-card__activity-need strong { color: #b91c1c; }
+.repo-card__activity-stat strong { color: var(--text-1); font-weight: 600; }
+.repo-card__activity-time {
+  margin-left: auto;
 }
 
-.repo-card__error {
-  font-size: 11px;
-  color: #b91c1c;
-  background: rgba(207, 34, 46, 0.06);
-  border-radius: 4px;
-  padding: 4px 8px;
+/* Watch-a-repo placeholder — a dashed-border, lower-affordance card
+   that lives at the end of the grid. Disabled in v1; the actual
+   "browse GitHub repos to watch" flow ships in a follow-up. */
+.repo-card--placeholder {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  text-align: center;
+  border-style: dashed;
+  background: var(--bg-elevated);
+  cursor: default;
+}
+.repo-card--placeholder:hover {
+  transform: none;
+  border-color: var(--border);
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
+}
+.repo-card__placeholder-glyph {
+  font-size: 24px;
+  color: var(--text-3);
+  font-weight: 300;
+}
+.repo-card__placeholder-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-2);
+}
+.repo-card__placeholder-body {
+  font-size: 11.5px;
+  color: var(--text-3);
+  margin: 0;
+  max-width: 240px;
+  line-height: 1.4;
 }
 
 /* State pills. Tints follow the existing kanban-status pill recipe so
@@ -183,10 +385,6 @@
 .repo-pill--unmapped { background: var(--accent-a10); color: var(--accent); }
 .repo-pill--missing  { background: rgba(207, 34, 46, 0.10); color: #b91c1c; }
 .repo-pill--error    { background: rgba(207, 34, 46, 0.14); color: #b91c1c; }
-
-.repo-card__cta {
-  margin-top: 4px;
-}
 
 /* Add-repo modal — opens scoped to a single watched repo. Two-stage:
    choose mode (Locate vs Clone), then a per-mode form.

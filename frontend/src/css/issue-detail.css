@@ -245,12 +245,19 @@
 .issue-detail__composer-actions {
   display: flex;
   align-items: center;
-  justify-content: flex-end;
   gap: 12px;
+}
+/* AI polish lives on the left edge of the actions row; the hint and
+   submit button hug the right via margin-left:auto on the hint. */
+.issue-detail__composer-polish {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
 }
 .issue-detail__composer-hint {
   font-size: 11.5px;
   color: var(--text-3);
+  margin-left: auto;
 }
 
 .issue-detail__rail {

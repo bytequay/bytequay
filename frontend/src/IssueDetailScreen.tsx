@@ -15,6 +15,7 @@ import { useEffect, useState } from 'react';
 import type { IssueCommentDto, IssueDetailDto } from './types';
 import Avatar from './Avatar';
 import LogoLoading from './LogoLoading';
+import PolishButtons from './ai/PolishButtons';
 import { renderMarkdown } from './markdown';
 import { formatRelative } from './prBuckets';
 
@@ -378,6 +379,14 @@ function ReplyComposer({
       />
       {error && <div className="issue-detail__composer-error">{error}</div>}
       <div className="issue-detail__composer-actions">
+        <span className="issue-detail__composer-polish">
+          <PolishButtons
+            value={body}
+            onChange={setBody}
+            onError={setError}
+            disabled={submitting}
+          />
+        </span>
         <span className="issue-detail__composer-hint">⌘/Ctrl ↵ to send</span>
         <button
           type="button"

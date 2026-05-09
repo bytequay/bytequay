@@ -57,9 +57,12 @@ class TestSlackOAuthService
         assertThatThrownBy(service::issueAuthorizeUrl)
                 .isInstanceOf(ResponseStatusException.class)
                 .hasMessageContaining("503");
+        // exchangeCode without a known state surfaces as a 400 (Unknown state)
+        // before it can reach a configured-flow check, since the state token
+        // is the only thing that decides which flow to dispatch on.
         assertThatThrownBy(() -> service.exchangeCode("c", "s"))
                 .isInstanceOf(ResponseStatusException.class)
-                .hasMessageContaining("503");
+                .hasMessageContaining("Unknown OAuth state");
     }
 
     @Test
@@ -247,6 +250,216 @@ class TestSlackOAuthService
         service.exchangeCode("auth-code", stateFromUrl(service.issueAuthorizeUrl()));
     }
 
+    // ── PKCE flow ──────────────────────────────────────────────────────
+
+    @Test
+    void testPkceAuthorizeUrlContainsChallengeAndS256()
+    {
+        SlackOAuthService service = buildPkce(
+                new InMemoryCredentialStore(),
+                "pkce-client",
+                new RecordingExchanger(),
+                Clock.systemUTC());
+
+        String url = service.issueAuthorizeUrl();
+
+        assertThat(url).contains("client_id=pkce-client");
+        assertThat(url).contains("code_challenge=");
+        assertThat(url).contains("code_challenge_method=S256");
+        assertThat(url).contains("&state=");
+        for (String scope : SlackOAuthService.USER_SCOPES) {
+            assertThat(url).contains(scope.replace(":", "%3A"));
+        }
+    }
+
+    @Test
+    void testPkcePreferredOverByoWhenBothConfigured()
+    {
+        // Both PKCE client_id AND BYO env vars are set. issueAuthorizeUrl
+        // should pick PKCE (it's the preferred flow for new connections),
+        // detectable by the presence of code_challenge.
+        SlackOAuthService service = buildWithPkce(
+                new InMemoryCredentialStore(),
+                "pkce-client",
+                "byo-env-client",
+                "byo-env-secret",
+                new RecordingExchanger(),
+                Clock.systemUTC());
+
+        String url = service.issueAuthorizeUrl();
+
+        assertThat(url).contains("client_id=pkce-client");
+        assertThat(url).contains("code_challenge=");
+        assertThat(url).doesNotContain("client_id=byo-env-client");
+    }
+
+    @Test
+    void testPkceExchangePersistsJsonEnvelope()
+    {
+        InMemoryCredentialStore store = new InMemoryCredentialStore();
+        RecordingExchanger exchanger = new RecordingExchanger();
+        exchanger.pkceResponse = new TokenResponse(
+                true, null, "xoxp-pkce-token", "T123", "Acme Corp", "U999",
+                "xoxr-refresh-token", 3600);
+        Clock clock = Clock.fixed(Instant.parse("2026-05-10T00:00:00Z"), ZoneOffset.UTC);
+        SlackOAuthService service = buildPkce(store, "pkce-client", exchanger, clock);
+
+        String state = stateFromUrl(service.issueAuthorizeUrl());
+        ConnectionInfo info = service.exchangeCode("auth-code", state);
+
+        assertThat(info.teamId()).isEqualTo("T123");
+        assertThat(exchanger.lastPkceClientId).isEqualTo("pkce-client");
+        assertThat(exchanger.lastPkceCodeVerifier).isNotBlank();
+        // The vault row holds a JSON envelope, not a bare token, on PKCE.
+        Optional<String> raw = store.findSecret(CredentialType.INTEGRATION, SlackOAuthService.SLACK_USER_TOKEN_NAME);
+        assertThat(raw).isPresent();
+        assertThat(raw.get())
+                .startsWith("{")
+                .contains("\"flow\":\"pkce\"")
+                .contains("\"access\":\"xoxp-pkce-token\"")
+                .contains("\"refresh\":\"xoxr-refresh-token\"")
+                .contains("\"expiresAt\":\"2026-05-10T01:00:00Z\"");
+    }
+
+    @Test
+    void testGetValidAccessTokenRefreshesNearExpiry()
+    {
+        InMemoryCredentialStore store = new InMemoryCredentialStore();
+        RecordingExchanger exchanger = new RecordingExchanger();
+        // Initial PKCE handshake: token expires in 60s, well inside the
+        // 5-minute REFRESH_THRESHOLD, so the next read should rotate.
+        exchanger.pkceResponse = new TokenResponse(
+                true, null, "xoxp-old", "T1", "Acme", "U1",
+                "xoxr-old-refresh", 60);
+        AdvanceableClock clock = new AdvanceableClock(Instant.parse("2026-05-10T00:00:00Z"));
+        SlackOAuthService service = buildPkce(store, "pkce-client", exchanger, clock);
+
+        service.exchangeCode("auth-code", stateFromUrl(service.issueAuthorizeUrl()));
+
+        // Pre-expiry refresh response.
+        exchanger.refreshResponse = new TokenResponse(
+                true, null, "xoxp-new", "T1", "Acme", "U1",
+                "xoxr-new-refresh", 1800);
+
+        // Move close enough to expiry that the threshold trips.
+        clock.advance(Duration.ofSeconds(30));
+
+        Optional<String> token = service.getValidAccessToken();
+
+        assertThat(token).contains("xoxp-new");
+        assertThat(exchanger.lastRefreshClientId).isEqualTo("pkce-client");
+        assertThat(exchanger.lastRefreshToken).isEqualTo("xoxr-old-refresh");
+        // Vault row was rewritten with the new bundle.
+        Optional<String> raw = store.findSecret(CredentialType.INTEGRATION, SlackOAuthService.SLACK_USER_TOKEN_NAME);
+        assertThat(raw).isPresent();
+        assertThat(raw.get()).contains("\"access\":\"xoxp-new\"").contains("\"refresh\":\"xoxr-new-refresh\"");
+    }
+
+    @Test
+    void testGetValidAccessTokenSkipsRefreshWhenStillFresh()
+    {
+        InMemoryCredentialStore store = new InMemoryCredentialStore();
+        RecordingExchanger exchanger = new RecordingExchanger();
+        exchanger.pkceResponse = new TokenResponse(
+                true, null, "xoxp-fresh", "T1", "Acme", "U1",
+                "xoxr-refresh", 3600);
+        AdvanceableClock clock = new AdvanceableClock(Instant.parse("2026-05-10T00:00:00Z"));
+        SlackOAuthService service = buildPkce(store, "pkce-client", exchanger, clock);
+
+        service.exchangeCode("auth-code", stateFromUrl(service.issueAuthorizeUrl()));
+
+        // Still 55 minutes from the 60-min expiry — well outside the 5-min
+        // refresh threshold; the exchanger.refreshPkce path must NOT fire.
+        clock.advance(Duration.ofMinutes(5));
+
+        Optional<String> token = service.getValidAccessToken();
+
+        assertThat(token).contains("xoxp-fresh");
+        assertThat(exchanger.lastRefreshClientId).isNull();
+    }
+
+    @Test
+    void testGetValidAccessTokenReturnsByoTokenWithoutRefresh()
+    {
+        // Existing BYO connection persisted as a bare access token. PKCE
+        // refresh logic must not touch it — those tokens never expire.
+        InMemoryCredentialStore store = new InMemoryCredentialStore();
+        store.upsert(
+                CredentialType.INTEGRATION,
+                SlackOAuthService.SLACK_USER_TOKEN_NAME,
+                "default",
+                "xoxp-legacy-byo",
+                "slack|T1|Acme|U1",
+                null);
+        RecordingExchanger exchanger = new RecordingExchanger();
+        SlackOAuthService service = buildWithPkce(store, "pkce-client", null, null, exchanger, Clock.systemUTC());
+
+        Optional<String> token = service.getValidAccessToken();
+
+        assertThat(token).contains("xoxp-legacy-byo");
+        assertThat(exchanger.lastRefreshClientId).isNull();
+    }
+
+    @Test
+    void testByoFlowStillPersistsBareToken()
+    {
+        // Regression: even after the PKCE plumbing landed, BYO connections
+        // must continue to store a plain string in Credential.value so the
+        // existing read path (and any out-of-process tools) sees them
+        // unchanged.
+        InMemoryCredentialStore store = new InMemoryCredentialStore();
+        SlackOAuthService service = build(
+                store, "byo-client", "byo-secret",
+                (cid, sec, code, uri) -> OK_RESPONSE,
+                Clock.systemUTC());
+
+        service.exchangeCode("auth-code", stateFromUrl(service.issueAuthorizeUrl()));
+
+        Optional<String> raw = store.findSecret(CredentialType.INTEGRATION, SlackOAuthService.SLACK_USER_TOKEN_NAME);
+        assertThat(raw).contains("xoxp-test-token");
+        assertThat(raw.get()).doesNotStartWith("{");
+    }
+
+    /** Records the most recent BYO / PKCE / refresh call for assertions
+     *  and lets each test pre-stage the response it wants returned. */
+    private static final class RecordingExchanger
+            implements OAuthExchanger
+    {
+        TokenResponse byoResponse = OK_RESPONSE;
+        TokenResponse pkceResponse = OK_RESPONSE;
+        TokenResponse refreshResponse;
+
+        String lastPkceClientId;
+        String lastPkceCodeVerifier;
+        String lastRefreshClientId;
+        String lastRefreshToken;
+
+        @Override
+        public TokenResponse exchange(String clientId, String clientSecret, String code, String redirectUri)
+        {
+            return byoResponse;
+        }
+
+        @Override
+        public TokenResponse exchangePkce(String clientId, String codeVerifier, String code, String redirectUri)
+        {
+            this.lastPkceClientId = clientId;
+            this.lastPkceCodeVerifier = codeVerifier;
+            return pkceResponse;
+        }
+
+        @Override
+        public TokenResponse refreshPkce(String clientId, String refreshToken)
+        {
+            this.lastRefreshClientId = clientId;
+            this.lastRefreshToken = refreshToken;
+            if (refreshResponse == null) {
+                throw new AssertionError("refreshPkce called without a staged response");
+            }
+            return refreshResponse;
+        }
+    }
+
     // ── Helpers ────────────────────────────────────────────────────────
 
     private static SlackOAuthService build(String clientId, String clientSecret, OAuthExchanger exchanger, Clock clock)
@@ -261,8 +474,30 @@ class TestSlackOAuthService
             OAuthExchanger exchanger,
             Clock clock)
     {
+        // BYO-only construction. PKCE-flavoured tests use buildPkce() so the
+        // BYO test surface stays pkceClientId-agnostic.
+        return buildWithPkce(store, null, clientId, clientSecret, exchanger, clock);
+    }
+
+    private static SlackOAuthService buildPkce(
+            InMemoryCredentialStore store,
+            String pkceClientId,
+            OAuthExchanger exchanger,
+            Clock clock)
+    {
+        return buildWithPkce(store, pkceClientId, null, null, exchanger, clock);
+    }
+
+    private static SlackOAuthService buildWithPkce(
+            InMemoryCredentialStore store,
+            String pkceClientId,
+            String envClientId,
+            String envClientSecret,
+            OAuthExchanger exchanger,
+            Clock clock)
+    {
         CredentialService credentials = new CredentialService(store, new InMemoryAppSettingsStore());
-        return new SlackOAuthService(credentials, clientId, clientSecret, exchanger, clock);
+        return new SlackOAuthService(credentials, pkceClientId, envClientId, envClientSecret, exchanger, clock);
     }
 
     private static String stateFromUrl(String url)

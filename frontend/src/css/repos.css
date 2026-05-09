@@ -338,8 +338,9 @@
 }
 
 /* Watch-a-repo placeholder — a dashed-border, lower-affordance card
-   that lives at the end of the grid. Disabled in v1; the actual
-   "browse GitHub repos to watch" flow ships in a follow-up. */
+   that lives at the end of the grid and opens the watch-a-repo modal
+   when clicked. Inherits .repo-card's cursor:pointer + hover lift so
+   the affordance matches the other cards. */
 .repo-card--placeholder {
   display: flex;
   flex-direction: column;
@@ -349,12 +350,6 @@
   text-align: center;
   border-style: dashed;
   background: var(--bg-elevated);
-  cursor: default;
-}
-.repo-card--placeholder:hover {
-  transform: none;
-  border-color: var(--border);
-  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
 }
 .repo-card__placeholder-glyph {
   font-size: 24px;

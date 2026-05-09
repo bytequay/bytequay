@@ -12,9 +12,10 @@
  * limitations under the License.
  */
 import { useEffect, useMemo, useState } from 'react';
-import type { LocalRepoStatusDto, PullRequestDto, RepoMetaDto, UserProfileDto } from '../types';
+import type { LocalRepoStatusDto, PullRequestDto, RepoMetaDto, UserProfileDto, WatchedRepoDto } from '../types';
 import LogoLoading from '../LogoLoading';
 import AddRepoModal from './AddRepoModal';
+import WatchRepoModal from '../AddRepoModal';
 import { formatRelativeTime } from '../pr/utils';
 
 type Props = {
@@ -41,6 +42,7 @@ function ReposPage({ onSelectRepo }: Props) {
   // this page just decides when it's visible and folds the result back
   // into the list.
   const [mappingTarget, setMappingTarget] = useState<{ owner: string; repo: string } | null>(null);
+  const [showWatchModal, setShowWatchModal] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -64,6 +66,22 @@ function ReposPage({ onSelectRepo }: Props) {
     ) ?? null);
     setMappingTarget(null);
   };
+
+  // Watching a new repo on the backend doesn't return a LocalRepoStatusDto,
+  // so we re-fetch the list to pick up the new UNMAPPED entry. The modal
+  // stays open so the user can add several at a time.
+  const handleAddWatched = async (owner: string, repo: string) => {
+    await window.bridge.addWatchedRepo(owner, repo);
+    const fresh = await window.bridge.listLocalRepos();
+    setRepos(fresh);
+  };
+
+  // Modal expects WatchedRepoDto[] only to mark already-watched rows; the
+  // local-repos list already contains every watched repo, so we synthesise
+  // the minimum shape rather than firing a second backend call.
+  const watchedSynthetic = useMemo<WatchedRepoDto[]>(() =>
+    (repos ?? []).map((r, i) => ({ id: i, owner: r.owner, repo: r.repo, displayOrder: i })),
+  [repos]);
 
   // GIT_UNAVAILABLE on any row implies git itself is missing — every
   // mapped repo will report it. Surface a single banner once instead
@@ -105,7 +123,7 @@ function ReposPage({ onSelectRepo }: Props) {
             type="button"
             className="repos-page__watch-btn"
             title="Watch a new repo (browse GitHub)"
-            disabled
+            onClick={() => setShowWatchModal(true)}
           >
             + Watch a repo
           </button>
@@ -158,7 +176,7 @@ function ReposPage({ onSelectRepo }: Props) {
               onMapClone={() => setMappingTarget({ owner: r.owner, repo: r.repo })}
             />
           ))}
-          <WatchPlaceholderCard />
+          <WatchPlaceholderCard onClick={() => setShowWatchModal(true)} />
         </div>
       )}
 
@@ -168,6 +186,14 @@ function ReposPage({ onSelectRepo }: Props) {
           repo={mappingTarget.repo}
           onClose={() => setMappingTarget(null)}
           onMapped={onMapped}
+        />
+      )}
+
+      {showWatchModal && (
+        <WatchRepoModal
+          watchedRepos={watchedSynthetic}
+          onAdd={handleAddWatched}
+          onClose={() => setShowWatchModal(false)}
         />
       )}
     </div>
@@ -389,9 +415,21 @@ function RepoCardActivity({
   );
 }
 
-function WatchPlaceholderCard() {
+function WatchPlaceholderCard({ onClick }: { onClick: () => void }) {
   return (
-    <article className="repo-card repo-card--placeholder" aria-label="Watch a repo">
+    <article
+      className="repo-card repo-card--placeholder"
+      role="button"
+      tabIndex={0}
+      onClick={onClick}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          onClick();
+        }
+      }}
+      aria-label="Watch a repo"
+    >
       <span className="repo-card__placeholder-glyph" aria-hidden="true">+</span>
       <span className="repo-card__placeholder-title">Watch a repo</span>
       <p className="repo-card__placeholder-body">

@@ -450,6 +450,35 @@ export type IssueDto = {
   labels: string[];
 };
 
+export type IssueLabelDto = { name: string; color: string };
+export type IssueAssigneeDto = { login: string; avatarUrl: string | null };
+export type IssueMilestoneDto = { title: string; state: string };
+export type IssueCommentDto = {
+  id: number;
+  author: string | null;
+  authorAvatarUrl: string | null;
+  body: string;
+  createdAt: string;
+};
+
+export type IssueDetailDto = {
+  id: number;
+  number: number;
+  title: string;
+  body: string | null;
+  author: string | null;
+  authorAvatarUrl: string | null;
+  state: string;
+  htmlUrl: string;
+  createdAt: string;
+  updatedAt: string;
+  closedAt: string | null;
+  labels: IssueLabelDto[];
+  assignees: IssueAssigneeDto[];
+  milestone: IssueMilestoneDto | null;
+  comments: IssueCommentDto[];
+};
+
 export type UserRepoDto = {
   owner: string;
   name: string;
@@ -924,6 +953,7 @@ export type Bridge = {
    *  the (capped) repo list response. */
   getRepoPull: (owner: string, repo: string, number: number) => Promise<PullRequestDto>;
   getRepoIssues: (owner: string, repo: string, state?: 'open' | 'closed') => Promise<IssueDto[]>;
+  getIssueDetail: (owner: string, repo: string, number: number) => Promise<IssueDetailDto>;
   /** Repo-level metadata for the right-pane hero card. */
   getRepoMeta: (owner: string, repo: string) => Promise<RepoMetaDto>;
   /** ~30 most recent events on a repo for the right-pane activity feed. */

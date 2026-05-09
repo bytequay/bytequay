@@ -15,6 +15,7 @@ package com.bytequay.app.web;
 
 import com.bytequay.app.domain.ContributionCalendar;
 import com.bytequay.app.domain.GitHubUserMatch;
+import com.bytequay.app.domain.IssueDetail;
 import com.bytequay.app.domain.PullRequest;
 import com.bytequay.app.domain.RecentEvent;
 import com.bytequay.app.domain.RepoActivityItem;
@@ -88,13 +89,15 @@ public class RepoController
     }
 
     /**
-     * Fetches the authenticated user's GitHub profile. Requires a Bearer PAT.
+     * Returns the cached profile from the local DB. The scheduler refreshes
+     * this row on a 2-minute tick; first launch returns 404 until the first
+     * tick lands.
      * GET /api/profile
      */
     @GetMapping("/profile")
     public UserProfile getProfile()
     {
-        return repoService.getUserProfile(patResolver.resolve());
+        return repoService.getUserProfile();
     }
 
     /**
@@ -151,6 +154,20 @@ public class RepoController
     }
 
     /**
+     * Single-issue detail payload for the in-app issue page — body,
+     * labels, assignees, milestone, and the conversation comments.
+     * GET /api/repos/{owner}/{repo}/issues/{number}/detail
+     */
+    @GetMapping("/repos/{owner}/{repo}/issues/{number}/detail")
+    public IssueDetail getIssueDetail(
+            @PathVariable String owner,
+            @PathVariable String repo,
+            @PathVariable int number)
+    {
+        return repoService.getIssueDetail(patResolver.resolve(owner + "/" + repo), owner, repo, number);
+    }
+
+    /**
      * Repo-level metadata: description, stars, forks, watchers, license,
      * topics, languages map. Powers the right-pane hero / About /
      * language bar on the repo detail page.
@@ -188,24 +205,25 @@ public class RepoController
     }
 
     /**
-     * Lists organisations the authenticated user is a member of. Used by the
-     * home page profile card to show org affiliations.
+     * Returns the cached org list from the local DB. Refreshed every 30 days
+     * by the scheduler; reads return an empty list until the first tick lands.
      * GET /api/user/orgs
      */
     @GetMapping("/user/orgs")
     public List<UserOrg> getUserOrgs()
     {
-        return repoService.getUserOrgs(patResolver.resolve());
+        return repoService.getUserOrgs();
     }
 
     /**
-     * Returns recent GitHub events for a user filtered to the current month. Requires a Bearer PAT.
+     * Returns the cached recent-activity feed (current month only) from the
+     * local DB. Refreshed every 2 minutes by the scheduler.
      * GET /api/activity/recent?login={login}
      */
     @GetMapping("/activity/recent")
     public List<RecentEvent> getRecentActivity(@RequestParam("login") String login)
     {
-        return repoService.getRecentEvents(patResolver.resolve(), login);
+        return repoService.getRecentEvents(login);
     }
 
     /**
@@ -232,13 +250,14 @@ public class RepoController
     }
 
     /**
-     * Returns recent events from users the authenticated user follows, up to 10.
+     * Returns the cached following feed from the local DB. Refreshed every 2
+     * minutes by the scheduler; trimmed to the most recent 10 events.
      * GET /api/activity/following?login={login}
      */
     @GetMapping("/activity/following")
     public List<RecentEvent> getFollowingActivity(@RequestParam("login") String login)
     {
-        return repoService.getFollowingEvents(patResolver.resolve(), login);
+        return repoService.getFollowingEvents(login);
     }
 
     /**

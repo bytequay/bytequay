@@ -18,6 +18,7 @@ import com.bytequay.app.domain.CreatePullRequestCommand;
 import com.bytequay.app.domain.CreateReviewCommand;
 import com.bytequay.app.domain.DiffFile;
 import com.bytequay.app.domain.GitHubUserMatch;
+import com.bytequay.app.domain.IssueDetail;
 import com.bytequay.app.domain.ListPullRequestsQuery;
 import com.bytequay.app.domain.MergePullRequestCommand;
 import com.bytequay.app.domain.MergeResult;
@@ -1483,6 +1484,91 @@ public class GitHubClient
         catch (RestClientResponseException e) {
             throw toReadableException(e);
         }
+    }
+
+    @Override
+    public IssueDetail fetchIssueDetail(String pat, RepoRef repo, int number)
+    {
+        try {
+            GitHubIssueItem item = gitHubRestClient.get()
+                    .uri("/repos/{owner}/{repo}/issues/{number}",
+                            repo.owner(), repo.repo(), number)
+                    .header("Authorization", "Bearer " + pat)
+                    .retrieve()
+                    .body(GitHubIssueItem.class);
+            if (item == null) {
+                throw new ResponseStatusException(
+                        HttpStatusCode.valueOf(502), "Empty response from GitHub /issues/{n}");
+            }
+            // Comments are loaded in a follow-up call from the service so
+            // GitHubClient stays one-fetch-per-method. Pass an empty list
+            // here; RepoService merges in the real comments.
+            return toIssueDetail(item, ImmutableList.of());
+        }
+        catch (RestClientResponseException e) {
+            throw toReadableException(e);
+        }
+    }
+
+    @Override
+    public List<IssueDetail.Comment> fetchIssueDetailComments(String pat, RepoRef repo, int number)
+    {
+        try {
+            List<GitHubIssueComment> raw = paginate(pat,
+                    "/repos/{owner}/{repo}/issues/{number}/comments",
+                    u -> u.build(repo.owner(), repo.repo(), number),
+                    new ParameterizedTypeReference<List<GitHubIssueComment>>() {},
+                    null);
+            return raw.stream()
+                    .map(GitHubClient::toIssueDetailComment)
+                    .collect(toImmutableList());
+        }
+        catch (RestClientResponseException e) {
+            throw toReadableException(e);
+        }
+    }
+
+    private static IssueDetail toIssueDetail(GitHubIssueItem item, List<IssueDetail.Comment> comments)
+    {
+        List<IssueDetail.Label> labels = Optional.ofNullable(item.labels()).orElse(ImmutableList.of()).stream()
+                .map(l -> new IssueDetail.Label(l.name(), l.color()))
+                .collect(toImmutableList());
+        List<IssueDetail.Assignee> assignees = Optional.ofNullable(item.assignees()).orElse(ImmutableList.of()).stream()
+                .map(u -> new IssueDetail.Assignee(u.login(), u.avatarUrl()))
+                .collect(toImmutableList());
+        IssueDetail.Milestone milestone = item.milestone() == null
+                ? null
+                : new IssueDetail.Milestone(item.milestone().title(), item.milestone().state());
+        String authorLogin = Optional.ofNullable(item.user()).map(GitHubIssueItem.User::login).orElse(null);
+        String authorAvatar = Optional.ofNullable(item.user()).map(GitHubIssueItem.User::avatarUrl).orElse(null);
+        return new IssueDetail(
+                item.id(),
+                item.number(),
+                item.title(),
+                item.body(),
+                authorLogin,
+                authorAvatar,
+                item.state(),
+                item.htmlUrl(),
+                item.createdAt(),
+                item.updatedAt(),
+                item.closedAt(),
+                labels,
+                assignees,
+                milestone,
+                comments);
+    }
+
+    private static IssueDetail.Comment toIssueDetailComment(GitHubIssueComment c)
+    {
+        String authorLogin = Optional.ofNullable(c.user()).map(GitHubIssueComment.User::login).orElse(null);
+        String authorAvatar = Optional.ofNullable(c.user()).map(GitHubIssueComment.User::avatarUrl).orElse(null);
+        return new IssueDetail.Comment(
+                c.id(),
+                authorLogin,
+                authorAvatar,
+                c.body(),
+                c.createdAt());
     }
 
     @Override

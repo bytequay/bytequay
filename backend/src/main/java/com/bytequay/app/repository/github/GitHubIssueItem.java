@@ -22,14 +22,27 @@ record GitHubIssueItem(
         long id,
         int number,
         String title,
+        /** Markdown body. Always returned by /issues/{n}; not always
+         *  populated by /issues (the list endpoint often omits the
+         *  body for performance), so list callers should ignore this. */
+        String body,
         String state,
         User user,
         @JsonProperty("html_url") String htmlUrl,
+        @JsonProperty("created_at") Instant createdAt,
         @JsonProperty("updated_at") Instant updatedAt,
+        @JsonProperty("closed_at") Instant closedAt,
         @JsonProperty("pull_request") Object pullRequest,
-        List<Label> labels)
+        List<Label> labels,
+        List<User> assignees,
+        Milestone milestone)
 {
-    record User(String login) {}
+    /** GitHub returns the avatar URL on the user payload too — we
+     *  carry it so the detail page can render the assignee row
+     *  without a second fetch. Null on tests / legacy mocks. */
+    record User(String login, @JsonProperty("avatar_url") String avatarUrl) {}
 
     record Label(String name, String color) {}
+
+    record Milestone(String title, String state) {}
 }

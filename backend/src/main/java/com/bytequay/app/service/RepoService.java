@@ -15,6 +15,7 @@ package com.bytequay.app.service;
 
 import com.bytequay.app.domain.ContributionCalendar;
 import com.bytequay.app.domain.GitHubUserMatch;
+import com.bytequay.app.domain.IssueDetail;
 import com.bytequay.app.domain.ListPullRequestsQuery;
 import com.bytequay.app.domain.PrViewState;
 import com.bytequay.app.domain.PullRequest;
@@ -29,6 +30,9 @@ import com.bytequay.app.domain.UserOrg;
 import com.bytequay.app.domain.UserProfile;
 import com.bytequay.app.domain.UserRepo;
 import com.bytequay.app.domain.WatchedRepo;
+import com.bytequay.app.repository.AppSettingsStore;
+import com.bytequay.app.repository.GithubHomeCacheStore;
+import com.bytequay.app.repository.GithubHomeCacheStore.EventFeed;
 import com.bytequay.app.repository.PrViewStateStore;
 import com.bytequay.app.repository.PullRequestRepository;
 import com.bytequay.app.repository.RepoMetaStore;
@@ -59,7 +63,6 @@ import static java.util.Objects.requireNonNull;
 public class RepoService
 {
     private static final Logger log = LoggerFactory.getLogger(RepoService.class);
-    private static final Duration HOME_CACHE_TTL = Duration.ofMinutes(2);
     /** Window inside which a {@link RepoMeta} row in {@link RepoMetaStore}
      *  is treated as fresh enough to skip a background refresh. Picked at
      *  one hour because description / license / topics / language bytes
@@ -71,11 +74,9 @@ public class RepoService
     private final PrViewStateStore viewStateStore;
     private final RepoListCache repoListCache;
     private final RepoMetaStore repoMetaStore;
+    private final GithubHomeCacheStore homeCache;
+    private final AppSettingsStore settingsStore;
     private final Executor ioExecutor;
-
-    private volatile CachedValue<UserProfile> cachedProfile;
-    private volatile CachedValue<List<RecentEvent>> cachedRecentEvents;
-    private volatile CachedValue<List<RecentEvent>> cachedFollowingEvents;
 
     public RepoService(
             WatchedRepoStore watchedRepoStore,
@@ -83,6 +84,8 @@ public class RepoService
             PrViewStateStore viewStateStore,
             RepoListCache repoListCache,
             RepoMetaStore repoMetaStore,
+            GithubHomeCacheStore homeCache,
+            AppSettingsStore settingsStore,
             @Qualifier(IO_EXECUTOR) Executor ioExecutor)
     {
         this.watchedRepoStore = requireNonNull(watchedRepoStore, "watchedRepoStore is null");
@@ -90,6 +93,8 @@ public class RepoService
         this.viewStateStore = requireNonNull(viewStateStore, "viewStateStore is null");
         this.repoListCache = requireNonNull(repoListCache, "repoListCache is null");
         this.repoMetaStore = requireNonNull(repoMetaStore, "repoMetaStore is null");
+        this.homeCache = requireNonNull(homeCache, "homeCache is null");
+        this.settingsStore = requireNonNull(settingsStore, "settingsStore is null");
         this.ioExecutor = requireNonNull(ioExecutor, "ioExecutor is null");
     }
 
@@ -125,12 +130,31 @@ public class RepoService
         return gitHub.fetchContributionCalendar(pat, login);
     }
 
-    public UserProfile getUserProfile(String pat)
+    /**
+     * Reads the cached profile from the local DB. Pure-DB read — no GitHub
+     * call on this path. {@link com.bytequay.app.scheduler.GithubHomeCacheRefreshJob}
+     * owns the writes; this method 404s until the first scheduler tick lands a
+     * row, and the home page already handles that as "profile not yet known".
+     */
+    public UserProfile getUserProfile()
     {
-        CachedValue<UserProfile> c = cachedProfile;
-        if (c != null && c.isValid()) {
-            return c.value();
+        Optional<String> login = settingsStore.get(AppSettingsStore.Key.GITHUB_LOGIN);
+        if (login.isEmpty()) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, "Profile not yet cached");
         }
+        return homeCache.findProfile(login.get())
+                .map(GithubHomeCacheStore.TimedValue::value)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatus.NOT_FOUND, "Profile not yet cached"));
+    }
+
+    /**
+     * Fetches the profile from GitHub (REST + the GraphQL Sponsors overlay)
+     * and persists the merged result to the cache. Used by the scheduler on
+     * its 2-minute tick and on profile-edit so the next read reflects the
+     * change immediately.
+     */
+    public UserProfile refreshUserProfileFromGitHub(String pat)
+    {
         UserProfile rest = gitHub.fetchUserProfile(pat);
         // hasSponsors lives in GraphQL only — overlay it onto the REST result.
         // Failure-path returns false from GitHubClient, which means the
@@ -149,7 +173,11 @@ public class RepoService
                 rest.company(),
                 rest.email(),
                 hasSponsors);
-        cachedProfile = CachedValue.of(fresh);
+        homeCache.putProfile(fresh.login(), fresh, Instant.now());
+        // Single-user app, but the rest of the cache (events, stats, orgs)
+        // keys by login — record it so the scheduler and read-side endpoints
+        // can resolve the active user without a second round-trip.
+        settingsStore.set(AppSettingsStore.Key.GITHUB_LOGIN, fresh.login());
         return fresh;
     }
 
@@ -226,6 +254,37 @@ public class RepoService
     }
 
     /**
+     * Loads one issue's detail payload — body, labels, assignees,
+     * milestone, comments — for the in-app detail page. Two upstream
+     * calls (issue + comments) fired sequentially; could parallelise
+     * later if the latency shows up in profiling. Not cached: detail
+     * pages are visited one at a time, so a per-page TTL would just
+     * mask staleness on revisit.
+     */
+    public IssueDetail getIssueDetail(String pat, String owner, String repo, int number)
+    {
+        RepoRef ref = RepoRef.of(owner, repo);
+        IssueDetail base = gitHub.fetchIssueDetail(pat, ref, number);
+        List<IssueDetail.Comment> comments = gitHub.fetchIssueDetailComments(pat, ref, number);
+        return new IssueDetail(
+                base.id(),
+                base.number(),
+                base.title(),
+                base.body(),
+                base.author(),
+                base.authorAvatarUrl(),
+                base.state(),
+                base.htmlUrl(),
+                base.createdAt(),
+                base.updatedAt(),
+                base.closedAt(),
+                base.labels(),
+                base.assignees(),
+                base.milestone(),
+                comments);
+    }
+
+    /**
      * Returns the cached {@link RepoMeta} for one repo. Stale-while-
      * revalidate: a row that's at most one hour old AND complete is
      * returned immediately; an older row is returned immediately and a
@@ -281,27 +340,45 @@ public class RepoService
         return gitHub.fetchUserRepos(pat);
     }
 
-    public List<UserOrg> getUserOrgs(String pat)
+    /**
+     * Reads the cached org list from the local DB. The scheduler refreshes
+     * this row every 30 days; reads always return whatever's there, falling
+     * back to an empty list if the first refresh hasn't landed yet.
+     */
+    public List<UserOrg> getUserOrgs()
     {
-        // GET /user/orgs needs the read:org scope on the PAT. Plenty of
-        // valid setups don't grant it (fine-grained tokens without org
-        // permissions, classic PATs without read:org, SSO not authorised
-        // for the org, etc.) — those return 403 from GitHub and a 404
-        // when membership is hidden. The org list is a non-essential
-        // home-page accent; treat scope failures as "no orgs" so the
-        // home page stays clean and the main-process IPC doesn't log a
-        // backend-returned-403 stack on every page load.
+        Optional<String> login = settingsStore.get(AppSettingsStore.Key.GITHUB_LOGIN);
+        if (login.isEmpty()) {
+            return ImmutableList.of();
+        }
+        return homeCache.findOrgs(login.get())
+                .map(GithubHomeCacheStore.TimedValue::value)
+                .orElse(ImmutableList.of());
+    }
+
+    /**
+     * Fetches {@code /user/orgs} and persists the result. {@code read:org}
+     * scope is optional on the PAT — without it GitHub returns 403/404 and
+     * we cache an empty list (the home-page org strip simply hides).
+     */
+    public List<UserOrg> refreshUserOrgsFromGitHub(String pat, String login)
+    {
+        List<UserOrg> fresh;
         try {
-            return gitHub.fetchUserOrgs(pat);
+            fresh = ImmutableList.copyOf(gitHub.fetchUserOrgs(pat));
         }
         catch (ResponseStatusException e) {
             int status = e.getStatusCode().value();
             if (status == 403 || status == 404) {
-                log.warn("getUserOrgs: GitHub returned {} (likely missing read:org scope) — returning empty list", status);
-                return ImmutableList.of();
+                log.warn("refreshUserOrgs: GitHub returned {} (likely missing read:org scope) — caching empty list", status);
+                fresh = ImmutableList.of();
             }
-            throw e;
+            else {
+                throw e;
+            }
         }
+        homeCache.putOrgs(login, fresh, Instant.now());
+        return fresh;
     }
 
     public List<UserRepo> searchRepos(String pat, String query)
@@ -319,51 +396,58 @@ public class RepoService
         return gitHub.searchUsers(pat, query.trim());
     }
 
-    public List<RecentEvent> getRecentEvents(String pat, String login)
+    /**
+     * Reads the cached recent-activity feed from the local DB. The scheduler
+     * refreshes this row every 2 minutes; reads return whatever's there, or
+     * an empty list before the first refresh.
+     */
+    public List<RecentEvent> getRecentEvents(String login)
     {
-        CachedValue<List<RecentEvent>> c = cachedRecentEvents;
-        if (c != null && c.isValid()) {
-            return c.value();
-        }
+        return homeCache.findEvents(login, EventFeed.RECENT)
+                .map(GithubHomeCacheStore.TimedValue::value)
+                .orElse(ImmutableList.of());
+    }
+
+    public List<RecentEvent> getFollowingEvents(String login)
+    {
+        return homeCache.findEvents(login, EventFeed.FOLLOWING)
+                .map(GithubHomeCacheStore.TimedValue::value)
+                .orElse(ImmutableList.of());
+    }
+
+    /**
+     * Fetches {@code /users/{login}/events}, filters to the current month
+     * (matches the home page's "this month" framing), and persists.
+     */
+    public List<RecentEvent> refreshRecentEventsFromGitHub(String pat, String login)
+    {
         Instant monthStart = ZonedDateTime.now(ZoneOffset.UTC)
                 .toLocalDate().withDayOfMonth(1).atStartOfDay(ZoneOffset.UTC).toInstant();
         List<RecentEvent> fresh = gitHub.fetchUserEvents(pat, login, 100).stream()
                 .filter(e -> e.createdAt() != null && !e.createdAt().isBefore(monthStart))
                 .collect(toImmutableList());
-        cachedRecentEvents = CachedValue.of(fresh);
+        homeCache.putEvents(login, EventFeed.RECENT, fresh, Instant.now());
         return fresh;
     }
 
-    public List<RecentEvent> getFollowingEvents(String pat, String login)
+    /**
+     * Fetches {@code /users/{login}/received_events} and trims to the most
+     * recent 10 (matches the home-page "Following" card).
+     */
+    public List<RecentEvent> refreshFollowingEventsFromGitHub(String pat, String login)
     {
-        CachedValue<List<RecentEvent>> cachedValue = cachedFollowingEvents;
-        if (cachedValue != null && cachedValue.isValid()) {
-            return cachedValue.value();
-        }
         List<RecentEvent> all = gitHub.fetchReceivedEvents(pat, login, 30);
         List<RecentEvent> fresh = ImmutableList.copyOf(all.size() <= 10 ? all : all.subList(0, 10));
-        cachedFollowingEvents = CachedValue.of(fresh);
+        homeCache.putEvents(login, EventFeed.FOLLOWING, fresh, Instant.now());
         return fresh;
     }
 
     public UserProfile updateUserProfile(String pat, String name, String bio, String location)
     {
-        UserProfile updated = gitHub.updateUserProfile(pat, name, bio, location);
-        // Invalidate cached profile so the next read reflects the update immediately
-        cachedProfile = null;
-        return updated;
-    }
-
-    private record CachedValue<T>(T value, Instant expiresAt)
-    {
-        static <T> CachedValue<T> of(T value)
-        {
-            return new CachedValue<>(value, Instant.now().plus(HOME_CACHE_TTL));
-        }
-
-        boolean isValid()
-        {
-            return Instant.now().isBefore(expiresAt);
-        }
+        gitHub.updateUserProfile(pat, name, bio, location);
+        // Re-fetch + persist via the same path the scheduler uses so the
+        // hasSponsors overlay is re-applied and the cache reflects the edit
+        // on the very next read.
+        return refreshUserProfileFromGitHub(pat);
     }
 }

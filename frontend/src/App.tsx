@@ -22,6 +22,7 @@ import type { SettingsSection } from './settings/types';
 import PullRequestList from './PullRequestList';
 import HomePage from './HomePage';
 import RepoDetailPage from './RepoDetailPage';
+import IssueDetailScreen from './IssueDetailScreen';
 import ReposPage from './repos/ReposPage';
 import RepositoryPage from './repos/RepositoryPage';
 import LocalRepoPage from './repos/LocalRepoPage';
@@ -38,6 +39,10 @@ type Nav =
    *  returns the user where they came from — Repository home, Local
    *  repo, Team kanban, or just Home. Defaults to Home when unset. */
   | { view: 'repo'; owner: string; repo: string; prNumber?: number; initialTab?: 'pulls' | 'issues'; back?: Nav }
+  /** In-app issue detail page. {@code back} carries the surface that
+   *  opened the issue — typically the Issues sidebar tab — so the
+   *  breadcrumb returns there instead of jumping to Home. */
+  | { view: 'issue'; owner: string; repo: string; number: number; back?: Nav }
   | { view: 'teams' }
   | { view: 'team'; teamId: number }
   | { view: 'team-kanban'; teamId: number }
@@ -352,6 +357,16 @@ function App() {
             initialTab={nav.initialTab}
             onOpenLocalBranch={(owner, repo, branch) =>
               setNav({ view: 'local-repo', owner, repo, initialBranch: branch })}
+            onSelectIssue={(owner, repo, number) =>
+              setNav({ view: 'issue', owner, repo, number, back: nav })}
+          />
+        )}
+        {nav.view === 'issue' && (
+          <IssueDetailScreen
+            owner={nav.owner}
+            repo={nav.repo}
+            number={nav.number}
+            onBack={() => setNav(nav.back ?? { view: 'home' })}
           />
         )}
         {nav.view === 'slack' && (

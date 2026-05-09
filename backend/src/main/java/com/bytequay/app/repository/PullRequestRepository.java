@@ -18,6 +18,7 @@ import com.bytequay.app.domain.CreatePullRequestCommand;
 import com.bytequay.app.domain.CreateReviewCommand;
 import com.bytequay.app.domain.DiffFile;
 import com.bytequay.app.domain.GitHubUserMatch;
+import com.bytequay.app.domain.IssueDetail;
 import com.bytequay.app.domain.ListPullRequestsQuery;
 import com.bytequay.app.domain.MergePullRequestCommand;
 import com.bytequay.app.domain.MergeResult;
@@ -498,6 +499,27 @@ public interface PullRequestRepository
     default List<RepoIssue> fetchRepoIssues(String pat, RepoRef repo, String state)
     {
         throw new UnsupportedOperationException("fetchRepoIssues not implemented");
+    }
+
+    /**
+     * Fetches a single issue's full payload for the in-app detail page.
+     * Comments are loaded separately by {@link #fetchIssueDetailComments}
+     * so each method maps cleanly to one upstream HTTP call.
+     * Maps to: GET /repos/{owner}/{repo}/issues/{number}
+     */
+    default IssueDetail fetchIssueDetail(String pat, RepoRef repo, int number)
+    {
+        throw new UnsupportedOperationException("fetchIssueDetail not implemented");
+    }
+
+    /**
+     * Loads the conversation comments on one issue. Returns an empty
+     * list when the issue has no comments yet.
+     * Maps to: GET /repos/{owner}/{repo}/issues/{number}/comments
+     */
+    default List<IssueDetail.Comment> fetchIssueDetailComments(String pat, RepoRef repo, int number)
+    {
+        throw new UnsupportedOperationException("fetchIssueDetailComments not implemented");
     }
 
     /**

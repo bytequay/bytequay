@@ -80,6 +80,9 @@ type Props = {
    *  head ref that calls this. App-level so the nav target lines up
    *  with the existing local-repo route. */
   onOpenLocalBranch?: (owner: string, repo: string, branch: string) => void;
+  /** Open an issue's in-app detail page. Defaults to opening on
+   *  github.com when unset (used by IssueRow). */
+  onSelectIssue?: (owner: string, repo: string, number: number) => void;
 };
 
 /** Right-pane placeholder shown while a deep-link's PR fetch is in
@@ -101,7 +104,7 @@ function DeepLinkLoading({ owner, repo, number }: { owner: string; repo: string;
   );
 }
 
-function RepoDetailPage({ owner, repo, initialPrNumber, initialTab, onOpenLocalBranch }: Props) {
+function RepoDetailPage({ owner, repo, initialPrNumber, initialTab, onOpenLocalBranch, onSelectIssue }: Props) {
   const [tab, setTab] = useState<Tab>(initialTab ?? 'pulls');
   const [bucket, setBucket] = useState<Bucket>('inbox');
   const [scope, setScope] = useState<Scope>('mine');
@@ -657,6 +660,7 @@ function RepoDetailPage({ owner, repo, initialPrNumber, initialTab, onOpenLocalB
             closedIssues={closedIssues}
             loading={issueLoading}
             error={issueLoadError}
+            onSelectIssue={onSelectIssue ? (n) => onSelectIssue(owner, repo, n) : undefined}
           />
         )}
       </aside>
@@ -719,6 +723,7 @@ function IssueListPane({
   closedIssues,
   loading,
   error,
+  onSelectIssue,
 }: {
   state: IssueState;
   onChangeState: (next: IssueState) => void;
@@ -728,6 +733,7 @@ function IssueListPane({
   closedIssues: IssueDto[] | null;
   loading: boolean;
   error: string | null;
+  onSelectIssue?: (number: number) => void;
 }) {
   const issues = state === 'open' ? openIssues : closedIssues;
   const filtered = useMemo(() => {
@@ -791,7 +797,7 @@ function IssueListPane({
           </li>
         )}
         {filtered?.map(issue => (
-          <IssueRow key={issue.id} issue={issue} />
+          <IssueRow key={issue.id} issue={issue} onSelect={onSelectIssue} />
         ))}
       </ul>
     </>
@@ -802,10 +808,20 @@ function IssueListPane({
  *  layout from docs/mockups/design/repository/repository-issues.png:
  *  status circle + title with inline label chips + a small meta line.
  *  Click still routes to github.com — the in-app detail page is I3. */
-function IssueRow({ issue }: { issue: IssueDto }) {
-  const open = (): void => { void window.bridge.openExternal(issue.htmlUrl); };
+function IssueRow({ issue, onSelect }: { issue: IssueDto; onSelect?: (number: number) => void }) {
   const isClosed = issue.state === 'closed';
   const statusLabel = isClosed ? 'Closed' : 'Open';
+  // Prefer the in-app detail page when the parent wires onSelect
+  // (route shipped in I3). Falls back to opening github.com so the
+  // row stays useful for any caller that hasn't plumbed nav yet.
+  const open = (): void => {
+    if (onSelect) {
+      onSelect(issue.number);
+    }
+    else {
+      void window.bridge.openExternal(issue.htmlUrl);
+    }
+  };
   return (
     <li
       className="issue-row"
@@ -813,7 +829,7 @@ function IssueRow({ issue }: { issue: IssueDto }) {
       tabIndex={0}
       onClick={open}
       onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); open(); } }}
-      title="Open on GitHub"
+      title={onSelect ? 'Open issue' : 'Open on GitHub'}
     >
       <span
         className={`issue-row__status issue-row__status--${isClosed ? 'closed' : 'open'}`}

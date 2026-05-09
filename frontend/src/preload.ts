@@ -28,6 +28,7 @@ import type {
   MyPrColumnSlug,
   TeamColumnsResponse,
   HandledAction,
+  IssueDetailDto,
   IssueDto,
   PullRequestDetailDto,
   PullRequestDto,
@@ -201,6 +202,8 @@ const bridge: Bridge = {
     ipcRenderer.invoke('repos:openInIDE', path),
   getRepoIssues: (owner: string, repo: string, state?: 'open' | 'closed'): Promise<IssueDto[]> =>
     ipcRenderer.invoke('repos:issues', owner, repo, state),
+  getIssueDetail: (owner: string, repo: string, number: number): Promise<IssueDetailDto> =>
+    ipcRenderer.invoke('repos:issueDetail', owner, repo, number),
   getUserRepos: (): Promise<UserRepoDto[]> => ipcRenderer.invoke('repos:userRepos'),
   getUserOrgs: (): Promise<UserOrgDto[]> => ipcRenderer.invoke('repos:userOrgs'),
   searchRepos: (query: string): Promise<UserRepoDto[]> => ipcRenderer.invoke('repos:searchRepos', query),

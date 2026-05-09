@@ -37,7 +37,7 @@ public record GitHubIssueComment(
         @JsonProperty("author_association") String authorAssociation)
 {
     @JsonIgnoreProperties(ignoreUnknown = true)
-    public record User(String login) {}
+    public record User(String login, @JsonProperty("avatar_url") String avatarUrl) {}
 
     @JsonIgnoreProperties(ignoreUnknown = true)
     public record Reactions(

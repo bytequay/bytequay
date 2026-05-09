@@ -324,6 +324,10 @@ export type RepoMetaDto = {
   /** Map from language → byte count. The language bar computes
    *  percentages client-side. */
   languages: Record<string, number>;
+  /** GitHub's owner.avatar_url. Null on legacy rows persisted before
+   *  the column existed; the avatar component falls back to a
+   *  colour-and-letter placeholder. */
+  ownerAvatarUrl: string | null;
 };
 
 /** One entry in the right-pane "Recent activity" feed. */

@@ -75,6 +75,7 @@ public class SqliteRepoMetaStore
                 : ImmutableMap.copyOf(meta.languages());
         entity.setTopics(topics);
         entity.setLanguages(languages);
+        entity.setOwnerAvatarUrl(meta.ownerAvatarUrl());
         entity.setSyncedAt(syncedAt);
         this.repo.save(entity);
     }
@@ -95,7 +96,8 @@ public class SqliteRepoMetaStore
                 e.getCreatedAt(),
                 e.getPushedAt(),
                 e.getTopics() == null ? ImmutableList.of() : ImmutableList.copyOf(e.getTopics()),
-                e.getLanguages() == null ? ImmutableMap.of() : ImmutableMap.copyOf(e.getLanguages()));
+                e.getLanguages() == null ? ImmutableMap.of() : ImmutableMap.copyOf(e.getLanguages()),
+                e.getOwnerAvatarUrl());
         return new StoredRepoMeta(meta, e.getSyncedAt());
     }
 }

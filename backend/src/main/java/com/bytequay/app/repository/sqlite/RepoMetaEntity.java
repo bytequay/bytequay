@@ -78,6 +78,9 @@ class RepoMetaEntity
     @Convert(converter = StringLongMapConverter.class)
     private Map<String, Long> languages;
 
+    @Column(name = "owner_avatar_url")
+    private String ownerAvatarUrl;
+
     @Column(name = "synced_at", nullable = false)
     @Convert(converter = InstantToTextConverter.class)
     private Instant syncedAt;
@@ -126,6 +129,9 @@ class RepoMetaEntity
 
     Map<String, Long> getLanguages() { return languages; }
     void setLanguages(Map<String, Long> languages) { this.languages = languages; }
+
+    String getOwnerAvatarUrl() { return ownerAvatarUrl; }
+    void setOwnerAvatarUrl(String ownerAvatarUrl) { this.ownerAvatarUrl = ownerAvatarUrl; }
 
     Instant getSyncedAt() { return syncedAt; }
     void setSyncedAt(Instant syncedAt) { this.syncedAt = syncedAt; }

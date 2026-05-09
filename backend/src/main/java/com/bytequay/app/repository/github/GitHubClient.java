@@ -1536,7 +1536,10 @@ public class GitHubClient
                     repoResp.createdAt(),
                     repoResp.pushedAt(),
                     Optional.ofNullable(repoResp.topics()).orElse(ImmutableList.of()),
-                    languages);
+                    languages,
+                    Optional.ofNullable(repoResp.owner())
+                            .map(GitHubRepoResponse.Owner::avatarUrl)
+                            .orElse(null));
         }
         catch (RestClientResponseException e) {
             throw toReadableException(e);

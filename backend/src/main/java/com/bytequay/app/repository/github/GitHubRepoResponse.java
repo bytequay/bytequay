@@ -38,11 +38,17 @@ record GitHubRepoResponse(
         long size,
         @JsonProperty("created_at") Instant createdAt,
         @JsonProperty("pushed_at") Instant pushedAt,
-        List<String> topics)
+        List<String> topics,
+        Owner owner)
 {
     @JsonIgnoreProperties(ignoreUnknown = true)
     record License(
             String key,
             String name,
             @JsonProperty("spdx_id") String spdxId) {}
+
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    record Owner(
+            String login,
+            @JsonProperty("avatar_url") String avatarUrl) {}
 }

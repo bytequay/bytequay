@@ -207,6 +207,13 @@
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, monospace;
 }
 
+/* Real GitHub avatar (owner.avatar_url). Keep the rounded corners from
+   the placeholder rule so swapping in/out doesn't shift the shape. */
+.repo-card__avatar--image {
+  object-fit: cover;
+  background: transparent;
+}
+
 .repo-card__name {
   color: var(--text-1);
   font-weight: 600;

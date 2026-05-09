@@ -44,4 +44,9 @@ public record RepoMeta(
          *  {@code /repos/{owner}/{repo}/languages}. The frontend computes
          *  percentages and renders the language bar. Empty when the repo
          *  has no detectable code (rare). */
-        Map<String, Long> languages) {}
+        Map<String, Long> languages,
+        /** GitHub's {@code owner.avatar_url} — used by the repo avatar
+         *  on the overview page. Null on legacy rows persisted before
+         *  this field was added; the frontend falls back to a
+         *  colour-and-letter placeholder. */
+        String ownerAvatarUrl) {}

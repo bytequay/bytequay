@@ -180,7 +180,7 @@ function RepositoryHero({
 }) {
   return (
     <header className="repository-hero">
-      <RepoAvatar repo={repo} size={36} />
+      <RepoAvatar repo={repo} avatarUrl={meta?.ownerAvatarUrl ?? null} size={36} />
       <div className="repository-hero__main">
         <div className="repository-hero__title-row">
           <h1 className="repository-hero__title">
@@ -534,7 +534,31 @@ function AtAGlancePanel({
   );
 }
 
-function RepoAvatar({ repo, size = 28 }: { repo: string; size?: number }) {
+function RepoAvatar({
+  repo,
+  avatarUrl = null,
+  size = 28,
+}: {
+  repo: string;
+  avatarUrl?: string | null;
+  size?: number;
+}) {
+  if (avatarUrl) {
+    return (
+      <img
+        className="repo-card__avatar repo-card__avatar--image"
+        src={avatarUrl}
+        alt=""
+        width={size}
+        height={size}
+        style={{ width: size, height: size }}
+        aria-hidden="true"
+      />
+    );
+  }
+  // Fallback: deterministic colour-and-letter placeholder. Used until
+  // the meta row lands (very first ever visit) or for legacy rows
+  // persisted before V44 added the avatar column.
   const PALETTE = ['#1f6a57', '#cf6900', '#1f6feb', '#8a5cf5', '#cf222e', '#1a7f37', '#996600', '#0e8c8c'];
   let h = 0;
   for (let i = 0; i < repo.length; i++) {

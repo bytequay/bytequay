@@ -1189,9 +1189,15 @@ export type Bridge = {
    *  backend has stored the refresh token (or once the user gives up).
    *  Email is set on success; error is set on failure. */
   connectGmailAccount: () => Promise<{ success: boolean; error?: string; email?: string }>;
-  /** All currently connected Gmail accounts, one row per email. */
-  listGmailAccounts: () => Promise<Array<{ email: string }>>;
-  /** Drops the stored refresh token for a single Gmail account. */
+  /** Connects a Gmail account via IMAP + app password. Validates the
+   *  credentials by opening an imaps session before persisting; throws
+   *  on auth failure. Sister to {@link connectGmailAccount}. */
+  connectGmailImap: (email: string, appPassword: string) => Promise<{ email: string }>;
+  /** All currently connected Gmail accounts (both OAuth and IMAP),
+   *  with the auth mode badge for each row. */
+  listGmailAccounts: () => Promise<Array<{ email: string; authMode: 'OAUTH' | 'IMAP' }>>;
+  /** Drops the stored credential for a single Gmail account regardless
+   *  of auth mode. Idempotent on both sides. */
   disconnectGmailAccount: (email: string) => Promise<void>;
   // Credentials vault
   listCredentials: (type?: CredentialType) => Promise<CredentialDto[]>;

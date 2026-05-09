@@ -393,7 +393,9 @@ const bridge: Bridge = {
   },
   connectGmailAccount: (): Promise<{ success: boolean; error?: string; email?: string }> =>
     ipcRenderer.invoke('gmailOAuth:connect'),
-  listGmailAccounts: (): Promise<Array<{ email: string }>> =>
+  connectGmailImap: (email: string, appPassword: string): Promise<{ email: string }> =>
+    ipcRenderer.invoke('gmailImap:connect', { email, appPassword }),
+  listGmailAccounts: (): Promise<Array<{ email: string; authMode: 'OAUTH' | 'IMAP' }>> =>
     ipcRenderer.invoke('gmailOAuth:listAccounts'),
   disconnectGmailAccount: (email: string): Promise<void> =>
     ipcRenderer.invoke('gmailOAuth:disconnect', email),

@@ -298,9 +298,11 @@ function SlackSetupGuide() {
 
 type GmailConnectStatus = 'idle' | 'awaiting' | 'error';
 
+type AuthMode = 'oauth' | 'imap';
+
 function GmailSection() {
   const [credential, setCredential] = useState<CredentialDto | null>(null);
-  const [accounts, setAccounts] = useState<Array<{ email: string }>>([]);
+  const [accounts, setAccounts] = useState<Array<{ email: string; authMode: 'OAUTH' | 'IMAP' }>>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -309,8 +311,13 @@ function GmailSection() {
   const [clientSecret, setClientSecret] = useState('');
   const [saving, setSaving] = useState(false);
 
+  const [authMode, setAuthMode] = useState<AuthMode>('oauth');
+
   const [connectStatus, setConnectStatus] = useState<GmailConnectStatus>('idle');
   const [connectError, setConnectError] = useState<string | null>(null);
+
+  const [imapEmail, setImapEmail] = useState('');
+  const [imapAppPassword, setImapAppPassword] = useState('');
 
   const load = async () => {
     setLoading(true);
@@ -318,7 +325,7 @@ function GmailSection() {
     try {
       const [list, accs] = await Promise.all([
         window.bridge.listCredentials('INTEGRATION'),
-        window.bridge.listGmailAccounts().catch((): Array<{ email: string }> => []),
+        window.bridge.listGmailAccounts().catch((): Array<{ email: string; authMode: 'OAUTH' | 'IMAP' }> => []),
       ]);
       setCredential(list.find(c => c.name === GMAIL_NAME) ?? null);
       setAccounts(accs);
@@ -380,7 +387,7 @@ function GmailSection() {
     }
   };
 
-  const connect = async () => {
+  const connectOauth = async () => {
     setConnectStatus('awaiting');
     setConnectError(null);
     try {
@@ -393,6 +400,26 @@ function GmailSection() {
         setConnectStatus('error');
         setConnectError(res.error ?? 'Gmail sign-in failed');
       }
+    } catch (e) {
+      setConnectStatus('error');
+      setConnectError(e instanceof Error ? e.message : String(e));
+    }
+  };
+
+  const connectImap = async () => {
+    if (!imapEmail.trim() || !imapAppPassword.trim()) {
+      setConnectStatus('error');
+      setConnectError('Email and app password must both be set.');
+      return;
+    }
+    setConnectStatus('awaiting');
+    setConnectError(null);
+    try {
+      await window.bridge.connectGmailImap(imapEmail.trim(), imapAppPassword);
+      setConnectStatus('idle');
+      setImapEmail('');
+      setImapAppPassword('');
+      await load();
     } catch (e) {
       setConnectStatus('error');
       setConnectError(e instanceof Error ? e.message : String(e));
@@ -519,35 +546,136 @@ function GmailSection() {
         </SettingCard>
       )}
 
-      {!loading && credential && (
+      {!loading && (
         <SettingCard
           title="Connected Gmail accounts"
           hint={accounts.length === 0
-            ? 'No accounts connected yet. Click below to add one — repeat to add more.'
+            ? 'No accounts connected yet. Pick an auth method below.'
             : `${accounts.length} account${accounts.length === 1 ? '' : 's'} connected.`}
-          action={
-            <button
-              className="button button--primary"
-              type="button"
-              onClick={() => void connect()}
-              disabled={connectStatus === 'awaiting'}
-            >
-              {connectStatus === 'awaiting' && 'Waiting for Google…'}
-              {(connectStatus === 'idle' || connectStatus === 'error') && '+ Connect Gmail account'}
-            </button>
-          }
         >
-          {connectStatus === 'awaiting' && (
+          <SettingRow
+            title="Auth method"
+            description={authMode === 'oauth'
+              ? 'OAuth — one-click consent in the browser. Limited to 100 test users until verified.'
+              : 'IMAP app password — works for any account without Google verification, but uglier setup.'}
+            control={
+              <span className="auth-mode-picker">
+                <label className={`auth-mode-pill ${authMode === 'oauth' ? 'auth-mode-pill--active' : ''}`}>
+                  <input
+                    type="radio"
+                    name="gmail-auth-mode"
+                    value="oauth"
+                    checked={authMode === 'oauth'}
+                    onChange={() => setAuthMode('oauth')}
+                  />
+                  OAuth
+                </label>
+                <label className={`auth-mode-pill ${authMode === 'imap' ? 'auth-mode-pill--active' : ''}`}>
+                  <input
+                    type="radio"
+                    name="gmail-auth-mode"
+                    value="imap"
+                    checked={authMode === 'imap'}
+                    onChange={() => setAuthMode('imap')}
+                  />
+                  App password
+                </label>
+              </span>
+            }
+          />
+
+          {authMode === 'oauth' && !credential && (
+            <SettingRow
+              title="OAuth client missing"
+              description="Save a client_id + client_secret above before connecting via OAuth, or pick App password instead."
+              control={<></>}
+            />
+          )}
+
+          {authMode === 'oauth' && credential && (
+            <SettingRow
+              title="Sign in with Google"
+              description="Opens your browser to the Google consent screen."
+              control={
+                <button
+                  className="button button--primary"
+                  type="button"
+                  onClick={() => void connectOauth()}
+                  disabled={connectStatus === 'awaiting'}
+                >
+                  {connectStatus === 'awaiting' ? 'Waiting for Google…' : '+ Connect via OAuth'}
+                </button>
+              }
+            />
+          )}
+
+          {authMode === 'imap' && (
+            <>
+              <SettingRow
+                title="Email"
+                description="The Gmail address to connect."
+                control={
+                  <input
+                    className="settings-input-number"
+                    style={{ width: 280 }}
+                    type="email"
+                    value={imapEmail}
+                    onChange={e => setImapEmail(e.target.value)}
+                    placeholder="you@gmail.com"
+                  />
+                }
+              />
+              <SettingRow
+                title="App password"
+                description={<>16-char string from <a href="https://myaccount.google.com/apppasswords" target="_blank" rel="noreferrer">myaccount.google.com/apppasswords</a> (requires 2FA enabled). Spaces are stripped.</>}
+                control={
+                  <input
+                    className="settings-input-number"
+                    style={{ width: 280 }}
+                    type="password"
+                    value={imapAppPassword}
+                    onChange={e => setImapAppPassword(e.target.value)}
+                    placeholder="xxxx xxxx xxxx xxxx"
+                  />
+                }
+              />
+              <SettingRow
+                title=""
+                control={
+                  <button
+                    className="button button--primary"
+                    type="button"
+                    onClick={() => void connectImap()}
+                    disabled={connectStatus === 'awaiting'}
+                  >
+                    {connectStatus === 'awaiting' ? 'Verifying…' : '+ Connect via IMAP'}
+                  </button>
+                }
+              />
+            </>
+          )}
+
+          {connectStatus === 'awaiting' && authMode === 'oauth' && (
             <div className="repo-loading">A new tab opened in your browser — finish the consent flow there.</div>
           )}
           {connectStatus === 'error' && connectError && (
             <div className="repo-error">{connectError}</div>
           )}
+
           {accounts.map(acc => (
             <SettingRow
-              key={acc.email}
-              title={acc.email}
-              description="OAuth refresh token stored locally."
+              key={`${acc.email}-${acc.authMode}`}
+              title={
+                <>
+                  {acc.email}{' '}
+                  <span className={`auth-method-pill auth-method-pill--${acc.authMode === 'OAUTH' ? 'oauth' : 'pat'}`}>
+                    {acc.authMode === 'OAUTH' ? 'OAuth' : 'IMAP'}
+                  </span>
+                </>
+              }
+              description={acc.authMode === 'OAUTH'
+                ? 'OAuth refresh token stored locally.'
+                : 'IMAP app password stored locally.'}
               control={
                 <button
                   className="button button--danger"

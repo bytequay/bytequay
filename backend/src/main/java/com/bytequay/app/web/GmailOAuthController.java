@@ -13,6 +13,7 @@
  */
 package com.bytequay.app.web;
 
+import com.bytequay.app.service.gmail.GmailImapAuthService;
 import com.bytequay.app.service.gmail.GmailOAuthService;
 import com.bytequay.app.service.gmail.GmailOAuthService.ConnectionInfo;
 import com.google.common.collect.ImmutableMap;
@@ -25,29 +26,36 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
 
 import static java.util.Objects.requireNonNull;
 
 /**
- * REST surface for the Gmail OAuth flow. Multi-account by design — the
- * connect dance can run repeatedly to add more Google accounts; each
- * connection lands in its own credential row and shows up in
- * {@link #accounts()}.
+ * REST surface for the Gmail OAuth flow plus the cross-mode account
+ * listing / disconnect endpoints. Two auth modes coexist: OAuth refresh
+ * tokens (this controller's authorize-url + callback path) and IMAP
+ * app passwords (handled by {@link GmailImapController#connect}). The
+ * accounts and disconnect endpoints span both so the UI shows a
+ * single unified list with an auth-mode badge per row.
  */
 @RestController
 @RequestMapping("/api/auth/gmail")
 public class GmailOAuthController
 {
     private final GmailOAuthService oauth;
+    private final GmailImapAuthService imap;
 
-    public GmailOAuthController(GmailOAuthService oauth)
+    public GmailOAuthController(GmailOAuthService oauth, GmailImapAuthService imap)
     {
         this.oauth = requireNonNull(oauth, "oauth is null");
+        this.imap = requireNonNull(imap, "imap is null");
     }
 
     public record CallbackRequest(String code, String state) {}
+
+    public record GmailAccount(String email, String authMode) {}
 
     /**
      * GET /api/auth/gmail/authorize-url?redirectUri=… — returns the URL
@@ -82,24 +90,35 @@ public class GmailOAuthController
     }
 
     /**
-     * GET /api/auth/gmail/accounts — list of connected accounts.
-     * Returns an empty list when nothing's connected. Cheap; backed
-     * by a single credentials-store lookup per row.
+     * GET /api/auth/gmail/accounts — unified list of connected accounts
+     * across both auth modes. Each entry carries its {@code authMode}
+     * so the UI can badge it accordingly. Returns an empty list when
+     * nothing's connected.
      */
     @GetMapping("/accounts")
-    public List<ConnectionInfo> accounts()
+    public List<GmailAccount> accounts()
     {
-        return oauth.listAccounts();
+        List<GmailAccount> out = new ArrayList<>();
+        for (ConnectionInfo info : oauth.listAccounts()) {
+            out.add(new GmailAccount(info.email(), "OAUTH"));
+        }
+        for (GmailImapAuthService.ConnectionInfo info : imap.listAccounts()) {
+            out.add(new GmailAccount(info.email(), "IMAP"));
+        }
+        return out;
     }
 
     /**
      * DELETE /api/auth/gmail/accounts/{email} — drops the stored
-     * refresh token for {@code email}. Idempotent.
+     * credential for {@code email} regardless of auth mode. Both
+     * deletions are idempotent, so it's safe to call when only one
+     * mode has the address.
      */
     @DeleteMapping("/accounts/{email}")
     public Map<String, String> disconnect(@PathVariable String email)
     {
         oauth.disconnect(email);
+        imap.disconnect(email);
         return ImmutableMap.of("result", "disconnected", "email", email);
     }
 }

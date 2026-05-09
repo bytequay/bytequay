@@ -2046,6 +2046,31 @@ const url = new URL(`${BACKEND_BASE}/api/search/repos`);
     return runGmailLoopbackDance();
   });
 
+  // Sister to gmailOAuth:connect — uses an app password instead of an
+  // OAuth refresh token. Same accounts list, distinguished by authMode.
+  ipcMain.handle('gmailImap:connect', async (_event, payload: unknown) => {
+    if (!payload || typeof payload !== 'object') {
+      throw new Error('payload must be { email, appPassword }');
+    }
+    const { email, appPassword } = payload as { email?: string; appPassword?: string };
+    if (typeof email !== 'string' || email.trim().length === 0) {
+      throw new Error('email must be a non-empty string');
+    }
+    if (typeof appPassword !== 'string' || appPassword.trim().length === 0) {
+      throw new Error('appPassword must be a non-empty string');
+    }
+    const res = await fetch(`${BACKEND_BASE}/api/auth/gmail/imap/connect`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email: email.trim(), appPassword }),
+    });
+    if (!res.ok) {
+      const body = await res.text().catch(() => '');
+      throw new Error(`backend /api/auth/gmail/imap/connect returned ${res.status}: ${body}`);
+    }
+    return res.json();
+  });
+
   ipcMain.handle('gmailOAuth:listAccounts', async () => {
     const res = await fetch(`${BACKEND_BASE}/api/auth/gmail/accounts`);
     if (!res.ok) throw new Error(`backend /api/auth/gmail/accounts returned ${res.status}`);

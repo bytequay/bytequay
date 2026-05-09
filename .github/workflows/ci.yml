@@ -13,6 +13,12 @@ on:
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: 'true'
 
+# Cancel previous PR builds once a newer commit arrives. Push builds keep a
+# commit-scoped group so mainline CI still records each pushed revision.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event_name == 'pull_request' && format('pr-{0}', github.event.number) || github.sha }}
+  cancel-in-progress: true
+
 jobs:
   path-filters:
     name: Detect changed areas

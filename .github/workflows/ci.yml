@@ -140,3 +140,19 @@ jobs:
         # tests can't see — the kind of bug that only surfaces when the
         # app is actually packaged for shipping.
         run: npm run package
+
+  ci-success:
+    name: CI success
+    if: ${{ always() }}
+    needs:
+      - path-filters
+      - backend
+      - frontend
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - name: Check results
+        run: |
+          echo '${{ needs.path-filters.result }}' | grep -xE 'success|skipped' || { echo 'Job "path-filters" failed' >&2; exit 1; }
+          echo '${{ needs.backend.result }}' | grep -xE 'success|skipped' || { echo 'Job "backend" failed' >&2; exit 1; }
+          echo '${{ needs.frontend.result }}' | grep -xE 'success|skipped' || { echo 'Job "frontend" failed' >&2; exit 1; }

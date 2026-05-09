@@ -291,7 +291,11 @@
    See docs/mockups/v2/detail/comments-layout.png. */
 .prc-timeline {
   overflow-y: auto;
-  padding: 16px 22px 22px 0;
+  /* Left padding pushes the timeline's avatar gutter past the header's
+     22px content edge — the inner geometry (avatar at 16, rail at 80,
+     markers centered on the rail) is relative to this padding, so the
+     whole layout shifts together without breaking alignment. */
+  padding: 16px 22px 22px 30px;
   display: flex;
   flex-direction: column;
   gap: 10px;

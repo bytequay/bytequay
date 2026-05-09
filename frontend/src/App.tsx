@@ -77,6 +77,32 @@ function TopbarBrandMark({ size = 30 }: { size?: number }) {
   );
 }
 
+const BYTEQUAY_REPO_URL = 'https://github.com/chenjian2664/bytequay';
+
+/**
+ * Canonical GitHub octocat mark. Inlined as currentColor so it picks
+ * up the wordmark slot's text color and adapts to theme tokens.
+ */
+function GithubMark({ size = 18 }: { size?: number }) {
+  return (
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      viewBox="0 0 16 16"
+      width={size}
+      height={size}
+      role="img"
+      aria-label="ByteQuay on GitHub"
+      fill="currentColor"
+    >
+      <path
+        fillRule="evenodd"
+        clipRule="evenodd"
+        d="M8 0C3.58 0 0 3.58 0 8c0 3.54 2.29 6.53 5.47 7.59.4.07.55-.17.55-.38 0-.19-.01-.82-.01-1.49-2.01.37-2.53-.49-2.69-.94-.09-.23-.48-.94-.82-1.13-.28-.15-.68-.52-.01-.53.63-.01 1.08.58 1.23.82.72 1.21 1.87.87 2.33.66.07-.52.28-.87.51-1.07-1.78-.2-3.64-.89-3.64-3.95 0-.87.31-1.59.82-2.15-.08-.2-.36-1.02.08-2.12 0 0 .67-.21 2.2.82a7.66 7.66 0 014 0c1.53-1.04 2.2-.82 2.2-.82.44 1.1.16 1.92.08 2.12.51.56.82 1.27.82 2.15 0 3.07-1.87 3.75-3.65 3.95.29.25.54.73.54 1.48 0 1.07-.01 1.93-.01 2.2 0 .21.15.46.55.38A8.013 8.013 0 0016 8c0-4.42-3.58-8-8-8z"
+      />
+    </svg>
+  );
+}
+
 function GlobalTopbar({ nav, onNav, fullScreen }: GlobalTopbarProps) {
   return (
     <div className={`global-topbar${fullScreen ? ' global-topbar--fullscreen' : ''}`}>
@@ -91,14 +117,19 @@ function GlobalTopbar({ nav, onNav, fullScreen }: GlobalTopbarProps) {
         </button>
       )}
       <div className="global-topbar__left">
-        <button
+        {/* Plain href (no target="_blank") so main.ts's will-navigate
+            handler intercepts the click and opens the in-app browser
+            overlay — keeps the user inside the app shell with a × to
+            close. The wordmark used to route to Home; the right-side
+            "Home" nav button still does that, and in fullscreen the
+            traffic-light brand mark also routes home. */}
+        <a
           className="global-topbar__brand global-topbar__brand--btn"
-          onClick={() => onNav({ view: 'home' })}
-          title="Home"
-          type="button"
+          href={BYTEQUAY_REPO_URL}
+          title="ByteQuay on GitHub"
         >
-          <span>ByteQuay</span>
-        </button>
+          <GithubMark />
+        </a>
         {nav.view === 'repo' && (
           <button
             className="global-topbar__breadcrumb"

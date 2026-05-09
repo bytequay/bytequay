@@ -1897,3 +1897,491 @@
 .commits-selection-summary__clear:hover {
   background: var(--accent-a4);
 }
+
+/* ----- Repository home page (`/repos/:org/:repo`) -----
+   Per docs/mockups/design/repository/repository-overview.png. Hero
+   + tab strip + 2-column overview content. The non-Overview tabs
+   navigate out to the existing PR / Issues / Branches / Commits
+   surfaces in R2; full inline integration ships in R3. */
+
+.repository-page {
+  padding: 18px 32px 48px;
+  max-width: 1200px;
+  margin: 0 auto;
+  height: 100%;
+  overflow-y: auto;
+}
+.repository-page__loading {
+  display: flex;
+  justify-content: center;
+  padding: 64px 0;
+}
+.repository-page__placeholder {
+  padding: 48px;
+  text-align: center;
+  color: var(--text-3);
+  font-size: 13px;
+}
+.repository-page__breadcrumb {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--text-3);
+  margin-bottom: 10px;
+}
+.repository-page__back {
+  appearance: none;
+  background: transparent;
+  border: 0;
+  font: inherit;
+  color: var(--text-3);
+  cursor: pointer;
+  padding: 0;
+}
+.repository-page__back:hover { color: var(--accent); }
+.repository-page__crumb-current {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, monospace;
+  color: var(--text-1);
+  font-weight: 500;
+}
+
+.repository-hero {
+  display: flex;
+  gap: 14px;
+  align-items: flex-start;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 18px 20px;
+}
+.repository-hero__main {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.repository-hero__title-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: flex-start;
+  gap: 16px;
+  margin-bottom: 4px;
+}
+.repository-hero__title {
+  margin: 0;
+  font-size: 18px;
+  font-weight: 700;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, monospace;
+  color: var(--text-1);
+}
+.repository-hero__owner { color: var(--text-3); font-weight: 400; }
+.repository-hero__actions {
+  display: flex;
+  gap: 6px;
+  flex-shrink: 0;
+}
+.repository-hero__action {
+  appearance: none;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 5px 10px;
+  font-size: 12px;
+  color: var(--text-1);
+  cursor: pointer;
+  text-decoration: none;
+  display: inline-flex;
+  align-items: center;
+}
+.repository-hero__action:hover { border-color: var(--accent); color: var(--accent); }
+.repository-hero__action:disabled { opacity: 0.55; cursor: not-allowed; }
+.repository-hero__action--star {
+  background: var(--accent-a7);
+  color: var(--accent);
+  border-color: var(--accent-a40);
+}
+.repository-hero__tagline {
+  margin: 4px 0 8px;
+  font-size: 12.5px;
+  color: var(--text-3);
+  line-height: 1.4;
+}
+.repository-hero__tagline--error { color: #b91c1c; }
+.repository-hero__stats {
+  display: flex;
+  gap: 18px;
+  font-size: 12px;
+  color: var(--text-3);
+  margin-bottom: 8px;
+}
+.repository-hero__stats strong { color: var(--text-1); font-weight: 600; }
+.repository-hero__topics {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+.repository-hero__topic {
+  background: var(--accent-a7);
+  color: var(--accent);
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: 999px;
+}
+
+.repository-page__tabs {
+  display: flex;
+  gap: 4px;
+  margin: 14px 0 16px;
+  border-bottom: 1px solid var(--border);
+}
+.repository-page__tab {
+  appearance: none;
+  background: transparent;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  padding: 10px 14px;
+  font: inherit;
+  font-size: 13px;
+  color: var(--text-2);
+  cursor: pointer;
+  margin-bottom: -1px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.repository-page__tab:hover { color: var(--text-1); }
+.repository-page__tab--active {
+  color: var(--accent);
+  border-bottom-color: var(--accent);
+  font-weight: 600;
+}
+.repository-page__tab--disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+.repository-page__tab-count {
+  background: var(--bg-elevated);
+  color: var(--text-3);
+  font-size: 11px;
+  padding: 1px 6px;
+  border-radius: 999px;
+}
+.repository-page__tab--active .repository-page__tab-count {
+  background: var(--accent-a10);
+  color: var(--accent);
+}
+
+.repository-overview {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 320px;
+  gap: 16px;
+}
+.repository-overview__main {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.repository-overview__side {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.repo-overview-panel {
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  padding: 14px 16px;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
+}
+.repo-overview-panel__loading {
+  font-size: 12px;
+  color: var(--text-3);
+}
+.repo-overview-panel__h {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--text-3);
+  margin-bottom: 8px;
+}
+.repo-overview-panel__sub-h {
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--text-3);
+  margin-top: 12px;
+  margin-bottom: 6px;
+  border-top: 1px solid var(--border-hairline);
+  padding-top: 10px;
+}
+
+/* Local-clone block on the Overview — wide horizontal card with the
+   path, branch, status pill, and an Open-branches shortcut. Mirrors
+   the per-card local-clone block on /repos but takes more horizontal
+   real estate. */
+.repo-overview-panel--clone {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 12px 16px;
+}
+.repo-overview-panel__clone-left {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+  flex: 1 1 auto;
+}
+.repo-overview-panel__clone-label {
+  font-size: 9.5px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--text-3);
+}
+.repo-overview-panel__clone-path {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, monospace;
+  font-size: 12px;
+  color: var(--text-1);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.repo-overview-panel__clone-branch {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, monospace;
+  font-size: 12px;
+  color: var(--accent);
+  background: var(--accent-a7);
+  border-radius: 4px;
+  padding: 2px 8px;
+}
+.repo-overview-panel__clone-action {
+  appearance: none;
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 5px 10px;
+  font-size: 11.5px;
+  color: var(--text-2);
+  cursor: pointer;
+}
+.repo-overview-panel__clone-action:hover { border-color: var(--accent); color: var(--accent); }
+.repo-overview-panel--clone-unmapped {
+  background: var(--accent-a7);
+  border-left: 3px solid var(--accent-a40);
+}
+.repo-overview-panel__clone-msg {
+  flex: 1 1 auto;
+  font-size: 12.5px;
+  color: var(--accent);
+}
+.repo-overview-panel__clone-cta {
+  appearance: none;
+  background: var(--accent);
+  color: white;
+  border: 0;
+  border-radius: 6px;
+  padding: 6px 14px;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+/* Pull requests panel — mini-tabs (Needs your review / Yours / All
+   open) over a list of PR rows with a colored left bar per urgency. */
+.repo-overview-panel--prs {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.repo-overview-panel__head {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 12px;
+}
+.repo-overview-panel__head-label {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  color: var(--text-3);
+}
+.repo-overview-panel__head-link {
+  appearance: none;
+  background: transparent;
+  border: 0;
+  font: inherit;
+  font-size: 11.5px;
+  color: var(--accent);
+  cursor: pointer;
+}
+.repo-overview-panel__head-link:hover { text-decoration: underline; }
+.repo-overview-panel__pr-tabs {
+  display: flex;
+  gap: 4px;
+  border-bottom: 1px solid var(--border);
+}
+.repo-overview-panel__pr-tab {
+  appearance: none;
+  background: transparent;
+  border: 0;
+  border-bottom: 2px solid transparent;
+  padding: 6px 8px;
+  font: inherit;
+  font-size: 12px;
+  color: var(--text-2);
+  cursor: pointer;
+  margin-bottom: -1px;
+}
+.repo-overview-panel__pr-tab span {
+  margin-left: 4px;
+  font-size: 10.5px;
+  background: var(--bg-elevated);
+  color: var(--text-3);
+  padding: 0 5px;
+  border-radius: 999px;
+}
+.repo-overview-panel__pr-tab--active {
+  color: var(--accent);
+  border-bottom-color: var(--accent);
+  font-weight: 600;
+}
+.repo-overview-panel__pr-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.repo-overview-panel__pr-empty {
+  padding: 16px;
+  font-size: 12px;
+  color: var(--text-3);
+  text-align: center;
+}
+
+.pr-mini {
+  display: grid;
+  grid-template-columns: 56px minmax(0, 1fr) auto;
+  gap: 10px;
+  align-items: center;
+  padding: 8px 10px;
+  border-radius: 6px;
+  border-left: 3px solid transparent;
+  cursor: pointer;
+}
+.pr-mini:hover { background: var(--bg-elevated); }
+.pr-mini--red    { border-left-color: #cf222e; }
+.pr-mini--amber  { border-left-color: #cf6900; }
+.pr-mini--green  { border-left-color: #1a7f37; }
+.pr-mini--blue   { border-left-color: var(--accent); }
+.pr-mini__number {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, monospace;
+  font-size: 11px;
+  color: var(--text-3);
+}
+.pr-mini__main { min-width: 0; }
+.pr-mini__title {
+  font-size: 13px;
+  color: var(--text-1);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.pr-mini__meta {
+  font-size: 11px;
+  color: var(--text-3);
+  margin-top: 2px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.pr-mini__pill {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  padding: 2px 8px;
+  border-radius: 999px;
+}
+.pr-mini__pill--red    { background: rgba(207, 34, 46, 0.10); color: #cf222e; }
+.pr-mini__pill--amber  { background: rgba(212, 160, 23, 0.16); color: #92400e; }
+.pr-mini__pill--green  { background: rgba(46, 160, 67, 0.14); color: #1a7f37; }
+.pr-mini__pill--blue   { background: var(--accent-a10); color: var(--accent); }
+
+/* About panel — description, links, languages bar. */
+.repo-overview-panel__about-desc {
+  font-size: 12.5px;
+  color: var(--text-2);
+  line-height: 1.5;
+  margin: 0 0 8px;
+}
+.repo-overview-panel__about-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+.repo-overview-panel__chip {
+  display: inline-flex;
+  align-items: center;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  font-size: 11px;
+  padding: 2px 8px;
+  color: var(--text-2);
+  text-decoration: none;
+}
+.repo-overview-panel__chip:hover { border-color: var(--accent); color: var(--accent); }
+.repo-overview-panel__lang-bar {
+  display: flex;
+  height: 8px;
+  border-radius: 999px;
+  overflow: hidden;
+  background: var(--bg-elevated);
+}
+.repo-overview-panel__lang-bar > span { display: block; height: 100%; }
+.repo-overview-panel__lang-list {
+  list-style: none;
+  margin: 6px 0 0;
+  padding: 0;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 14px;
+  font-size: 11px;
+  color: var(--text-3);
+}
+.repo-overview-panel__lang-list li {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+.repo-overview-panel__lang-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  display: inline-block;
+}
+
+/* At-a-glance panel — meta dl + polling section. */
+.repo-overview-panel__meta {
+  display: grid;
+  grid-template-columns: max-content 1fr;
+  column-gap: 14px;
+  row-gap: 4px;
+  margin: 0;
+  font-size: 12px;
+}
+.repo-overview-panel__meta dt {
+  color: var(--text-3);
+}
+.repo-overview-panel__meta dd {
+  margin: 0;
+  color: var(--text-1);
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, monospace;
+  font-size: 11.5px;
+}

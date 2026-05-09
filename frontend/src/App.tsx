@@ -23,6 +23,7 @@ import PullRequestList from './PullRequestList';
 import HomePage from './HomePage';
 import RepoDetailPage from './RepoDetailPage';
 import ReposPage from './repos/ReposPage';
+import RepositoryPage from './repos/RepositoryPage';
 import LocalRepoPage from './repos/LocalRepoPage';
 import InAppBrowser from './InAppBrowser';
 import LogoLoading from './LogoLoading';
@@ -40,6 +41,7 @@ type Nav =
   | { view: 'slack' }
   | { view: 'notifications' }
   | { view: 'repos' }
+  | { view: 'repository'; owner: string; repo: string }
   | { view: 'local-repo'; owner: string; repo: string; initialBranch?: string }
   | { view: 'settings'; section?: SettingsSection };
 
@@ -352,7 +354,19 @@ function App() {
         )}
         {nav.view === 'repos' && (
           <ReposPage
-            onSelectRepo={(owner, repo) => setNav({ view: 'local-repo', owner, repo })}
+            onSelectRepo={(owner, repo) => setNav({ view: 'repository', owner, repo })}
+          />
+        )}
+        {nav.view === 'repository' && (
+          <RepositoryPage
+            owner={nav.owner}
+            repo={nav.repo}
+            onBack={() => setNav({ view: 'repos' })}
+            onOpenPrs={(owner, repo) => setNav({ view: 'repo', owner, repo })}
+            onOpenIssues={(owner, repo) => setNav({ view: 'repo', owner, repo })}
+            onOpenBranches={(owner, repo) => setNav({ view: 'local-repo', owner, repo })}
+            onOpenCommits={(owner, repo) => setNav({ view: 'local-repo', owner, repo })}
+            onSelectPr={(owner, repo, prNumber) => setNav({ view: 'repo', owner, repo, prNumber })}
           />
         )}
         {nav.view === 'local-repo' && (

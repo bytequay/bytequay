@@ -19,7 +19,6 @@ import DiffViewerScreen from './DiffViewerScreen';
 import ResizeHandle from './ResizeHandle';
 import Avatar from './Avatar';
 import LogoLoading from './LogoLoading';
-import RepoOverviewPanel from './RepoOverviewPanel';
 import { getCached, setCached } from './dataCache';
 import { decideDeepLinkSelection } from './repoDeepLink';
 
@@ -71,14 +70,6 @@ type Props = {
    *  head ref that calls this. App-level so the nav target lines up
    *  with the existing local-repo route. */
   onOpenLocalBranch?: (owner: string, repo: string, branch: string) => void;
-  /** When true, the page is mounted inside the unified RepositoryPage
-   *  shell (R3b). Hides the in-sidebar `Pull Requests / Issues` tab
-   *  row — the outer Repository tab strip already plays that role —
-   *  and lets the parent drive which inner tab is active via
-   *  `embeddedTab`. */
-  embedded?: boolean;
-  /** Outer tab when embedded. Ignored unless `embedded` is true. */
-  embeddedTab?: 'pulls' | 'issues';
 };
 
 /** Right-pane placeholder shown while a deep-link's PR fetch is in
@@ -100,13 +91,8 @@ function DeepLinkLoading({ owner, repo, number }: { owner: string; repo: string;
   );
 }
 
-function RepoDetailPage({ owner, repo, initialPrNumber, onOpenLocalBranch, embedded, embeddedTab }: Props) {
-  const [innerTab, setInnerTab] = useState<Tab>('pulls');
-  // When mounted under the Repository shell, the outer tab strip drives
-  // which inner tab is shown — local state is ignored. Standalone
-  // mode keeps the legacy behaviour (sidebar tab buttons toggle state).
-  const tab: Tab = embedded ? (embeddedTab ?? 'pulls') : innerTab;
-  const setTab = setInnerTab;
+function RepoDetailPage({ owner, repo, initialPrNumber, onOpenLocalBranch }: Props) {
+  const [tab, setTab] = useState<Tab>('pulls');
   const [bucket, setBucket] = useState<Bucket>('inbox');
   const [scope, setScope] = useState<Scope>('mine');
   // Seed from the cache keyed by owner/repo so revisiting the same repo is
@@ -457,16 +443,14 @@ function RepoDetailPage({ owner, repo, initialPrNumber, onOpenLocalBranch, embed
         >
           ◀
         </button>
-        {!embedded && (
-          <div className="v2-sidebar__tabs">
-            <button className={`v2-tab${tab === 'pulls' ? ' v2-tab--active' : ''}`} onClick={() => setTab('pulls')}>
-              Pull Requests <span className="v2-tab__count">{pulls.length}</span>
-            </button>
-            <button className={`v2-tab${tab === 'issues' ? ' v2-tab--active' : ''}`} onClick={() => setTab('issues')}>
-              Issues <span className="v2-tab__count">{issues.length}</span>
-            </button>
-          </div>
-        )}
+        <div className="v2-sidebar__tabs">
+          <button className={`v2-tab${tab === 'pulls' ? ' v2-tab--active' : ''}`} onClick={() => setTab('pulls')}>
+            Pull Requests <span className="v2-tab__count">{pulls.length}</span>
+          </button>
+          <button className={`v2-tab${tab === 'issues' ? ' v2-tab--active' : ''}`} onClick={() => setTab('issues')}>
+            Issues <span className="v2-tab__count">{issues.length}</span>
+          </button>
+        </div>
 
         {tab === 'pulls' && (
           <>
@@ -667,9 +651,26 @@ function RepoDetailPage({ owner, repo, initialPrNumber, onOpenLocalBranch, embed
         ) : deepLinkPending && initialPrNumber != null ? (
           <DeepLinkLoading owner={owner} repo={repo} number={initialPrNumber} />
         ) : (
-          <RepoOverviewPanel owner={owner} repo={repo} />
+          <NoSelectionPlaceholder tab={tab} repo={`${owner}/${repo}`} />
         )}
       </main>
+    </div>
+  );
+}
+
+/** Right-pane placeholder shown when no PR/issue is selected. The
+ *  prior surface (RepoOverviewPanel) duplicated metadata that already
+ *  lives on the unified Repository home, so the right pane stays empty
+ *  here until the user picks a row from the sidebar. */
+function NoSelectionPlaceholder({ tab, repo }: { tab: Tab; repo: string }) {
+  return (
+    <div className="v2-help v2-help--idle">
+      <h1 className="v2-help__title">{repo}</h1>
+      <p className="v2-help__subtitle">
+        {tab === 'pulls'
+          ? 'Pick a pull request from the list to preview it here.'
+          : 'Pick an issue to open it on GitHub.'}
+      </p>
     </div>
   );
 }

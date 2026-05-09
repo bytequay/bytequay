@@ -21,33 +21,23 @@ import type {
 } from '../types';
 import LogoLoading from '../LogoLoading';
 import { formatRelativeTime } from '../pr/utils';
-import RepoDetailPage from '../RepoDetailPage';
 
 type Props = {
   owner: string;
   repo: string;
   onBack: () => void;
-  /** Label for the breadcrumb back-button. Defaults to "Repos" — the
-   *  PR-deep-link route overrides to "Home" since that's where the
-   *  user came from in that case. */
-  backLabel?: string;
-  /** Branches / Commits still navigate to the standalone LocalRepoPage —
-   *  R3b-1 only inlined Pulls/Issues. R3b-2 will swap these for inline
-   *  mounts too. */
+  /** Tab clicks navigate the user out of this shell into the existing
+   *  PRs / Issues / Branches / Commits surfaces. Inlining them inside
+   *  the shell was tried in R3b-1 and rolled back — the embedded
+   *  layouts didn't read well, and the standalone pages are the
+   *  canonical detail surfaces. */
+  onOpenPrs: (owner: string, repo: string) => void;
+  onOpenIssues: (owner: string, repo: string) => void;
   onOpenBranches: (owner: string, repo: string) => void;
   onOpenCommits: (owner: string, repo: string) => void;
   /** Click target for an inline PR card on the Overview panel — same
    *  callback shape PullRequestList uses elsewhere. */
   onSelectPr: (owner: string, repo: string, prNumber: number) => void;
-  /** Reverse nav from a PR back to its head branch's local-repo Commits
-   *  tab. Forwarded to the embedded RepoDetailPage for the Pulls tab. */
-  onOpenLocalBranch?: (owner: string, repo: string, branch: string) => void;
-  /** Initial outer tab. Lets deep-links from the home activity feed land
-   *  directly on the Pull Requests tab while keeping the unified shell. */
-  initialTab?: Tab;
-  /** When `initialTab === 'pulls'`, forward this to the embedded
-   *  RepoDetailPage so it auto-selects the matching PR. */
-  deepLinkPrNumber?: number;
 };
 
 type Tab = 'overview' | 'pulls' | 'issues' | 'branches' | 'commits';
@@ -61,26 +51,8 @@ type PrFilter = 'needs-you' | 'yours' | 'all-open';
  * the repo isn't mapped to a local clone — those flows need git.
  */
 function RepositoryPage(props: Props) {
-  const {
-    owner,
-    repo,
-    onBack,
-    backLabel = 'Repos',
-    onOpenBranches,
-    onOpenCommits,
-    onSelectPr,
-    onOpenLocalBranch,
-    initialTab,
-    deepLinkPrNumber,
-  } = props;
-  const [tab, setTab] = useState<Tab>(initialTab ?? 'overview');
-  // Re-seed the active tab whenever the route's deep-link arguments
-  // change — e.g., the user clicks a PR on the home page while already
-  // on this repo's Overview tab. Without this, the URL would update but
-  // the tab strip wouldn't move.
-  useEffect(() => {
-    if (initialTab) setTab(initialTab);
-  }, [initialTab, deepLinkPrNumber, owner, repo]);
+  const { owner, repo, onBack, onOpenPrs, onOpenIssues, onOpenBranches, onOpenCommits, onSelectPr } = props;
+  const [tab, setTab] = useState<Tab>('overview');
   const [meta, setMeta] = useState<RepoMetaDto | null>(null);
   const [metaError, setMetaError] = useState<string | null>(null);
   const [status, setStatus] = useState<LocalRepoStatusDto | null>(null);
@@ -125,62 +97,43 @@ function RepositoryPage(props: Props) {
   // DTO, so just pass the list through.
   const openIssues = issues ?? [];
 
-  // Pulls / Issues tabs mount the embedded RepoDetailPage which has its
-  // own sidebar+main flex layout — give it the full window width and
-  // height by switching the page to a flex column and dropping the
-  // chrome's max-width / scroll on the body.
-  const embedded = tab === 'pulls' || tab === 'issues';
   return (
-    <div className={`repository-page${embedded ? ' repository-page--embedded' : ''}`}>
-      <div className="repository-page__chrome">
-        <nav className="repository-page__breadcrumb">
-          <button className="repository-page__back" onClick={onBack} type="button">← {backLabel}</button>
-          <span className="repository-page__crumb-sep" aria-hidden="true">/</span>
-          <span className="repository-page__crumb-current">{owner}/{repo}</span>
-        </nav>
+    <div className="repository-page">
+      <nav className="repository-page__breadcrumb">
+        <button className="repository-page__back" onClick={onBack} type="button">← Repos</button>
+        <span className="repository-page__crumb-sep" aria-hidden="true">/</span>
+        <span className="repository-page__crumb-current">{owner}/{repo}</span>
+      </nav>
 
-        <RepositoryHero owner={owner} repo={repo} meta={meta} metaError={metaError} />
+      <RepositoryHero owner={owner} repo={repo} meta={meta} metaError={metaError} />
 
-        <div className="repository-page__tabs" role="tablist">
-          <RepoTab label="Overview" active={tab === 'overview'} onClick={() => setTab('overview')} />
-          <RepoTab label="Pull Requests" count={openPulls.length} active={tab === 'pulls'} onClick={() => setTab('pulls')} />
-          <RepoTab label="Issues" count={openIssues.length} active={tab === 'issues'} onClick={() => setTab('issues')} />
-          <RepoTab label="Branches" active={tab === 'branches'} disabled={!isMapped} disabledHint="map a clone to enable" onClick={() => { setTab('branches'); onOpenBranches(owner, repo); }} />
-          <RepoTab label="Commits" active={tab === 'commits'} disabled={!isMapped} disabledHint="map a clone to enable" onClick={() => { setTab('commits'); onOpenCommits(owner, repo); }} />
+      <div className="repository-page__tabs" role="tablist">
+        <RepoTab label="Overview" active={tab === 'overview'} onClick={() => setTab('overview')} />
+        <RepoTab label="Pull Requests" count={openPulls.length} active={tab === 'pulls'} onClick={() => { setTab('pulls'); onOpenPrs(owner, repo); }} />
+        <RepoTab label="Issues" count={openIssues.length} active={tab === 'issues'} onClick={() => { setTab('issues'); onOpenIssues(owner, repo); }} />
+        <RepoTab label="Branches" active={tab === 'branches'} disabled={!isMapped} disabledHint="map a clone to enable" onClick={() => { setTab('branches'); onOpenBranches(owner, repo); }} />
+        <RepoTab label="Commits" active={tab === 'commits'} disabled={!isMapped} disabledHint="map a clone to enable" onClick={() => { setTab('commits'); onOpenCommits(owner, repo); }} />
+      </div>
+
+      {tab === 'overview' && (
+        <RepositoryOverview
+          owner={owner}
+          repo={repo}
+          status={status}
+          meta={meta}
+          pulls={openPulls}
+          issues={openIssues}
+          meLogin={me?.login ?? null}
+          onOpenAllPrs={() => onOpenPrs(owner, repo)}
+          onOpenBranches={() => onOpenBranches(owner, repo)}
+          onSelectPr={onSelectPr}
+        />
+      )}
+      {tab !== 'overview' && (
+        <div className="repository-page__placeholder">
+          Opening {tab}…
         </div>
-      </div>
-
-      <div className={`repository-page__body${embedded ? ' repository-page__body--embedded' : ''}`}>
-        {tab === 'overview' && (
-          <RepositoryOverview
-            owner={owner}
-            repo={repo}
-            status={status}
-            meta={meta}
-            pulls={openPulls}
-            issues={openIssues}
-            meLogin={me?.login ?? null}
-            onOpenAllPrs={() => setTab('pulls')}
-            onOpenBranches={() => onOpenBranches(owner, repo)}
-            onSelectPr={onSelectPr}
-          />
-        )}
-        {embedded && (
-          <RepoDetailPage
-            owner={owner}
-            repo={repo}
-            embedded
-            embeddedTab={tab as 'pulls' | 'issues'}
-            initialPrNumber={tab === 'pulls' ? deepLinkPrNumber : undefined}
-            onOpenLocalBranch={onOpenLocalBranch}
-          />
-        )}
-        {(tab === 'branches' || tab === 'commits') && (
-          <div className="repository-page__placeholder">
-            Opening {tab}…
-          </div>
-        )}
-      </div>
+      )}
     </div>
   );
 }

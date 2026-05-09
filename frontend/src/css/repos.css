@@ -1904,47 +1904,12 @@
    navigate out to the existing PR / Issues / Branches / Commits
    surfaces in R2; full inline integration ships in R3. */
 
-/* Default mode (Overview / Branches / Commits): page scrolls as a
-   normal padded page with a max-width column. Embedded mode (Pulls /
-   Issues): page becomes a flex column so the embedded RepoDetailPage's
-   sidebar+main can flex to fill the remaining height, and the body
-   strips its max-width / padding so the embedded layout spans the
-   full window. */
 .repository-page {
+  padding: 18px 32px 48px;
+  max-width: 1200px;
+  margin: 0 auto;
   height: 100%;
-  display: flex;
-  flex-direction: column;
-  min-height: 0;
-}
-.repository-page__chrome {
-  padding: 18px 32px 0;
-  max-width: 1200px;
-  width: 100%;
-  margin: 0 auto;
-  flex: 0 0 auto;
-}
-.repository-page__body {
-  flex: 1 1 auto;
-  min-height: 0;
-  padding: 12px 32px 48px;
-  max-width: 1200px;
-  width: 100%;
-  margin: 0 auto;
   overflow-y: auto;
-}
-.repository-page__body--embedded {
-  /* RepoDetailPage owns its own scrolling — drop chrome padding /
-     max-width so the embedded sidebar+main spans the full viewport. */
-  padding: 0;
-  max-width: none;
-  margin: 0;
-  overflow: hidden;
-  display: flex;
-  min-height: 0;
-}
-.repository-page__body--embedded > .v2-page {
-  flex: 1 1 auto;
-  min-width: 0;
 }
 .repository-page__loading {
   display: flex;

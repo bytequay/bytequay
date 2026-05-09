@@ -16,7 +16,6 @@ package com.bytequay.app.service;
 import com.bytequay.app.domain.PullRequest;
 import com.bytequay.app.domain.RepoActivityItem;
 import com.bytequay.app.domain.RepoIssue;
-import com.bytequay.app.domain.RepoMeta;
 import com.bytequay.app.domain.RepoRef;
 import org.springframework.stereotype.Component;
 
@@ -27,11 +26,13 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.function.Supplier;
 
 /**
- * In-memory TTL cache for the four repo-page list endpoints
- * ({@code /pulls}, {@code /issues}, {@code /meta}, {@code /activity}).
- * Each kind keeps its own {@code Map<RepoRef, CachedValue<T>>} with a
- * dedicated TTL — short for activity (it's a "what's happening now"
- * feed), long for meta (description / license / topics rarely change).
+ * In-memory TTL cache for the repo-page list endpoints
+ * ({@code /pulls}, {@code /issues}, {@code /activity}). Each kind
+ * keeps its own {@code Map<RepoRef, CachedValue<T>>} with a dedicated
+ * TTL — short for activity (it's a "what's happening now" feed),
+ * longer for issues. {@code /meta} doesn't live here: it's persisted
+ * to {@link com.bytequay.app.repository.RepoMetaStore} so it survives
+ * a backend restart.
  *
  * <p>The pulls cache holds the raw GitHub-derived list. The viewState
  * overlay (handled / snoozed / viewed flags) is applied by
@@ -43,12 +44,10 @@ public class RepoListCache
 {
     private static final Duration PULLS_TTL = Duration.ofMinutes(2);
     private static final Duration ISSUES_TTL = Duration.ofMinutes(5);
-    private static final Duration META_TTL = Duration.ofMinutes(30);
     private static final Duration ACTIVITY_TTL = Duration.ofMinutes(1);
 
     private final ConcurrentHashMap<RepoRef, CachedValue<List<PullRequest>>> pulls = new ConcurrentHashMap<>();
     private final ConcurrentHashMap<RepoRef, CachedValue<List<RepoIssue>>> issues = new ConcurrentHashMap<>();
-    private final ConcurrentHashMap<RepoRef, CachedValue<RepoMeta>> meta = new ConcurrentHashMap<>();
     private final ConcurrentHashMap<RepoRef, CachedValue<List<RepoActivityItem>>> activity = new ConcurrentHashMap<>();
 
     public List<PullRequest> getPulls(RepoRef ref, Supplier<List<PullRequest>> loader)
@@ -59,11 +58,6 @@ public class RepoListCache
     public List<RepoIssue> getIssues(RepoRef ref, Supplier<List<RepoIssue>> loader)
     {
         return getOrLoad(issues, ref, loader, ISSUES_TTL);
-    }
-
-    public RepoMeta getMeta(RepoRef ref, Supplier<RepoMeta> loader)
-    {
-        return getOrLoad(meta, ref, loader, META_TTL);
     }
 
     public List<RepoActivityItem> getActivity(RepoRef ref, Supplier<List<RepoActivityItem>> loader)
@@ -86,7 +80,6 @@ public class RepoListCache
     {
         pulls.clear();
         issues.clear();
-        meta.clear();
         activity.clear();
     }
 

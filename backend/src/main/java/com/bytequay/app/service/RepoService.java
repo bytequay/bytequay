@@ -24,16 +24,19 @@ import com.bytequay.app.domain.RepoActivityItem;
 import com.bytequay.app.domain.RepoIssue;
 import com.bytequay.app.domain.RepoMeta;
 import com.bytequay.app.domain.RepoRef;
+import com.bytequay.app.domain.StoredRepoMeta;
 import com.bytequay.app.domain.UserOrg;
 import com.bytequay.app.domain.UserProfile;
 import com.bytequay.app.domain.UserRepo;
 import com.bytequay.app.domain.WatchedRepo;
 import com.bytequay.app.repository.PrViewStateStore;
 import com.bytequay.app.repository.PullRequestRepository;
+import com.bytequay.app.repository.RepoMetaStore;
 import com.bytequay.app.repository.WatchedRepoStore;
 import com.google.common.collect.ImmutableList;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.web.server.ResponseStatusException;
@@ -45,7 +48,10 @@ import java.time.ZonedDateTime;
 import java.util.Collections;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
+import java.util.concurrent.Executor;
 
+import static com.bytequay.app.config.AsyncConfig.IO_EXECUTOR;
 import static com.google.common.collect.ImmutableList.toImmutableList;
 import static java.util.Objects.requireNonNull;
 
@@ -54,11 +60,18 @@ public class RepoService
 {
     private static final Logger log = LoggerFactory.getLogger(RepoService.class);
     private static final Duration HOME_CACHE_TTL = Duration.ofMinutes(2);
+    /** Window inside which a {@link RepoMeta} row in {@link RepoMetaStore}
+     *  is treated as fresh enough to skip a background refresh. Picked at
+     *  one hour because description / license / topics / language bytes
+     *  change on the order of days; reading hour-old data is fine. */
+    private static final Duration REPO_META_TTL = Duration.ofHours(1);
 
     private final WatchedRepoStore watchedRepoStore;
     private final PullRequestRepository gitHub;
     private final PrViewStateStore viewStateStore;
     private final RepoListCache repoListCache;
+    private final RepoMetaStore repoMetaStore;
+    private final Executor ioExecutor;
 
     private volatile CachedValue<UserProfile> cachedProfile;
     private volatile CachedValue<List<RecentEvent>> cachedRecentEvents;
@@ -68,12 +81,16 @@ public class RepoService
             WatchedRepoStore watchedRepoStore,
             PullRequestRepository gitHub,
             PrViewStateStore viewStateStore,
-            RepoListCache repoListCache)
+            RepoListCache repoListCache,
+            RepoMetaStore repoMetaStore,
+            @Qualifier(IO_EXECUTOR) Executor ioExecutor)
     {
         this.watchedRepoStore = requireNonNull(watchedRepoStore, "watchedRepoStore is null");
         this.gitHub = requireNonNull(gitHub, "gitHub is null");
         this.viewStateStore = requireNonNull(viewStateStore, "viewStateStore is null");
         this.repoListCache = requireNonNull(repoListCache, "repoListCache is null");
+        this.repoMetaStore = requireNonNull(repoMetaStore, "repoMetaStore is null");
+        this.ioExecutor = requireNonNull(ioExecutor, "ioExecutor is null");
     }
 
     public List<WatchedRepo> listWatchedRepos()
@@ -207,10 +224,38 @@ public class RepoService
         return repoListCache.getIssues(ref, () -> gitHub.fetchRepoIssues(pat, ref));
     }
 
+    /**
+     * Returns the cached {@link RepoMeta} for one repo. Stale-while-
+     * revalidate: a row that's at most one hour old is returned
+     * immediately, an older row is returned immediately and a background
+     * refresh runs on the IO executor, an absent row triggers a
+     * synchronous fetch (the only path that blocks on GitHub here).
+     */
     public RepoMeta getRepoMeta(String pat, String owner, String repo)
     {
-        RepoRef ref = RepoRef.of(owner, repo);
-        return repoListCache.getMeta(ref, () -> gitHub.fetchRepoMeta(pat, ref));
+        Optional<StoredRepoMeta> stored = repoMetaStore.find(owner, repo);
+        Instant now = Instant.now();
+        if (stored.isPresent()) {
+            boolean fresh = !stored.get().syncedAt().isBefore(now.minus(REPO_META_TTL));
+            if (!fresh) {
+                ioExecutor.execute(() -> refreshRepoMeta(pat, owner, repo));
+            }
+            return stored.get().meta();
+        }
+        RepoMeta fresh = gitHub.fetchRepoMeta(pat, RepoRef.of(owner, repo));
+        repoMetaStore.save(owner, repo, fresh, now);
+        return fresh;
+    }
+
+    private void refreshRepoMeta(String pat, String owner, String repo)
+    {
+        try {
+            RepoMeta fresh = gitHub.fetchRepoMeta(pat, RepoRef.of(owner, repo));
+            repoMetaStore.save(owner, repo, fresh, Instant.now());
+        }
+        catch (Exception e) {
+            log.warn("Background repo-meta refresh for {}/{} failed: {}", owner, repo, e.getMessage());
+        }
     }
 
     public List<RepoActivityItem> getRepoActivity(String pat, String owner, String repo)

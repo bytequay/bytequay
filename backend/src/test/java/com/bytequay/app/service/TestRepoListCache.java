@@ -13,13 +13,10 @@
  */
 package com.bytequay.app.service;
 
-import com.bytequay.app.domain.RepoMeta;
 import com.bytequay.app.domain.RepoRef;
 import com.google.common.collect.ImmutableList;
-import com.google.common.collect.ImmutableMap;
 import org.junit.jupiter.api.Test;
 
-import java.time.Instant;
 import java.util.concurrent.atomic.AtomicInteger;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -67,34 +64,20 @@ class TestRepoListCache
     @Test
     void testInvalidatePullsLeavesOtherKindsUntouched()
     {
-        AtomicInteger metaCalls = new AtomicInteger();
-        // Seed the meta cache for the same repo, then invalidate pulls — meta
-        // should remain hot.
-        cache.getMeta(REPO, () -> {
-            metaCalls.incrementAndGet();
-            return new RepoMeta(
-                    "trinodb/trino",
-                    "https://github.com/trinodb/trino",
-                    "Distributed SQL query engine",
-                    "main",
-                    "Apache-2.0",
-                    1,
-                    2,
-                    3,
-                    4,
-                    1024,
-                    Instant.parse("2026-05-08T00:00:00Z"),
-                    Instant.parse("2026-05-08T00:00:00Z"),
-                    ImmutableList.of(),
-                    ImmutableMap.of());
+        AtomicInteger activityCalls = new AtomicInteger();
+        // Seed the activity cache for the same repo, then invalidate pulls —
+        // activity should remain hot.
+        cache.getActivity(REPO, () -> {
+            activityCalls.incrementAndGet();
+            return ImmutableList.of();
         });
         cache.invalidatePulls(REPO);
-        cache.getMeta(REPO, () -> {
-            metaCalls.incrementAndGet();
-            throw new IllegalStateException("meta cache was unexpectedly invalidated");
+        cache.getActivity(REPO, () -> {
+            activityCalls.incrementAndGet();
+            throw new IllegalStateException("activity cache was unexpectedly invalidated");
         });
 
-        assertThat(metaCalls.get()).isEqualTo(1);
+        assertThat(activityCalls.get()).isEqualTo(1);
     }
 
     @Test

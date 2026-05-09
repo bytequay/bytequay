@@ -2002,6 +2002,33 @@ const url = new URL(`${BACKEND_BASE}/api/search/repos`);
     return res.json();
   });
 
+  // ── GitHub OAuth ────────────────────────────────────────────────────────
+  // Same shape as Slack: getAuthorizeUrl → openExternal → GitHub redirects
+  // to bytequay://github-oauth-callback → open-url handler below forwards
+  // code/state to the backend → emits github:oauth-complete. The token
+  // lands in the same Keychain slot the PAT path uses, so the rest of the
+  // app sees no difference between OAuth and PAT auth.
+  ipcMain.handle('githubOAuth:authorizeUrl', async () => {
+    const res = await fetch(`${BACKEND_BASE}/api/auth/github/authorize-url`);
+    if (!res.ok) {
+      const body = await res.text().catch(() => '');
+      throw new Error(`backend /api/auth/github/authorize-url returned ${res.status}: ${body}`);
+    }
+    return res.json();
+  });
+
+  ipcMain.handle('githubOAuth:connection', async () => {
+    const res = await fetch(`${BACKEND_BASE}/api/auth/github/connection`);
+    if (!res.ok) throw new Error(`backend /api/auth/github/connection returned ${res.status}`);
+    return res.json();
+  });
+
+  ipcMain.handle('githubOAuth:disconnect', async () => {
+    const res = await fetch(`${BACKEND_BASE}/api/auth/github/disconnect`, { method: 'POST' });
+    if (!res.ok) throw new Error(`backend /api/auth/github/disconnect returned ${res.status}`);
+    return res.json();
+  });
+
   // ── Credentials ─────────────────────────────────────────────────────────
   // Credentials are uniquely identified by the pair (type, name). The backend
   // exposes them at /api/credentials with optional ?type= filter; per-row
@@ -2344,21 +2371,25 @@ app.on('ready', async () => {
 app.on('open-url', (event, url) => {
   event.preventDefault();
   if (!url.startsWith(APP_PROTOCOL + '://')) return;
-  void handleSlackOAuthCallback(url);
-});
-
-async function handleSlackOAuthCallback(url: string): Promise<void> {
   let parsed: URL;
   try {
     parsed = new URL(url);
   } catch {
     return;
   }
-  if (parsed.host !== 'slack-oauth-callback') return;
+  if (parsed.host === 'slack-oauth-callback') {
+    void handleSlackOAuthCallback(parsed);
+  }
+  else if (parsed.host === 'github-oauth-callback') {
+    void handleGitHubOAuthCallback(parsed);
+  }
+});
+
+async function handleSlackOAuthCallback(parsed: URL): Promise<void> {
   const code = parsed.searchParams.get('code');
   const state = parsed.searchParams.get('state');
   if (!code || !state) {
-    notifyOauthComplete({ success: false, error: 'Missing code or state in callback URL' });
+    notifySlackOauthComplete({ success: false, error: 'Missing code or state in callback URL' });
     return;
   }
   try {
@@ -2369,18 +2400,49 @@ async function handleSlackOAuthCallback(url: string): Promise<void> {
     });
     if (!res.ok) {
       const text = await res.text().catch(() => '');
-      notifyOauthComplete({ success: false, error: `backend ${res.status}: ${text}` });
+      notifySlackOauthComplete({ success: false, error: `backend ${res.status}: ${text}` });
       return;
     }
-    notifyOauthComplete({ success: true });
+    notifySlackOauthComplete({ success: true });
   } catch (e) {
-    notifyOauthComplete({ success: false, error: e instanceof Error ? e.message : String(e) });
+    notifySlackOauthComplete({ success: false, error: e instanceof Error ? e.message : String(e) });
   }
 }
 
-function notifyOauthComplete(payload: { success: boolean; error?: string }): void {
+async function handleGitHubOAuthCallback(parsed: URL): Promise<void> {
+  const code = parsed.searchParams.get('code');
+  const state = parsed.searchParams.get('state');
+  if (!code || !state) {
+    notifyGitHubOauthComplete({ success: false, error: 'Missing code or state in callback URL' });
+    return;
+  }
+  try {
+    const res = await fetch(`${BACKEND_BASE}/api/auth/github/callback`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ code, state }),
+    });
+    if (!res.ok) {
+      const text = await res.text().catch(() => '');
+      notifyGitHubOauthComplete({ success: false, error: `backend ${res.status}: ${text}` });
+      return;
+    }
+    const body = (await res.json().catch(() => ({}))) as { login?: string };
+    notifyGitHubOauthComplete({ success: true, login: body.login });
+  } catch (e) {
+    notifyGitHubOauthComplete({ success: false, error: e instanceof Error ? e.message : String(e) });
+  }
+}
+
+function notifySlackOauthComplete(payload: { success: boolean; error?: string }): void {
   if (mainWindow && !mainWindow.isDestroyed()) {
     mainWindow.webContents.send('slack:oauth-complete', payload);
+  }
+}
+
+function notifyGitHubOauthComplete(payload: { success: boolean; error?: string; login?: string }): void {
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.send('github:oauth-complete', payload);
   }
 }
 

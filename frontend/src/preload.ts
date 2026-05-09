@@ -381,6 +381,16 @@ const bridge: Bridge = {
     ipcRenderer.on('slack:oauth-complete', listener);
     return () => ipcRenderer.removeListener('slack:oauth-complete', listener);
   },
+  getGitHubOAuthAuthorizeUrl: (): Promise<{ configured: boolean; url?: string }> =>
+    ipcRenderer.invoke('githubOAuth:authorizeUrl'),
+  getGitHubOAuthConnection: (): Promise<{ connected: boolean; login?: string }> =>
+    ipcRenderer.invoke('githubOAuth:connection'),
+  disconnectGitHubOAuth: (): Promise<void> => ipcRenderer.invoke('githubOAuth:disconnect'),
+  onGitHubOauthComplete: (callback: (payload: { success: boolean; error?: string; login?: string }) => void) => {
+    const listener = (_event: unknown, payload: { success: boolean; error?: string; login?: string }) => callback(payload);
+    ipcRenderer.on('github:oauth-complete', listener);
+    return () => ipcRenderer.removeListener('github:oauth-complete', listener);
+  },
 };
 
 contextBridge.exposeInMainWorld('bridge', bridge);

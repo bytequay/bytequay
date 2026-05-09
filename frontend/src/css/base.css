@@ -642,4 +642,32 @@ pre {
   opacity: 0.5;
   cursor: not-allowed;
 }
+.onboarding__cta--secondary {
+  background: var(--bg-elevated);
+  color: var(--text-1);
+  border: 1px solid var(--border);
+}
+.onboarding__cta--secondary:hover:not(:disabled) {
+  background: var(--bg-card);
+}
+.onboarding__oauth {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin-bottom: 18px;
+}
+.onboarding__altlink {
+  appearance: none;
+  background: none;
+  border: none;
+  color: var(--accent);
+  font-size: 13px;
+  cursor: pointer;
+  padding: 4px;
+  text-decoration: underline;
+  text-underline-offset: 3px;
+}
+.onboarding__altlink:hover {
+  color: var(--accent-dark, var(--accent));
+}
 

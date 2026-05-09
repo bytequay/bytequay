@@ -30,6 +30,12 @@ env:
   # segment. setup-java/setup-node both use actions/cache under the hood.
   SEGMENT_DOWNLOAD_TIMEOUT_MINS: 5
 
+# Serialize release uploads for the same tag/ref so a manual rerun cannot
+# race the tag-triggered build while both attach assets to the same release.
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: false
+
 jobs:
   macos:
     name: macOS — build DMG + ZIP

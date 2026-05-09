@@ -85,11 +85,11 @@ class TestRepoListCache
     {
         RepoRef otherRepo = RepoRef.of("trinodb", "trino-py");
         AtomicInteger calls = new AtomicInteger();
-        cache.getIssues(REPO, () -> {
+        cache.getIssues(REPO, "open", () -> {
             calls.incrementAndGet();
             return ImmutableList.of();
         });
-        cache.getIssues(otherRepo, () -> {
+        cache.getIssues(otherRepo, "open", () -> {
             calls.incrementAndGet();
             return ImmutableList.of();
         });

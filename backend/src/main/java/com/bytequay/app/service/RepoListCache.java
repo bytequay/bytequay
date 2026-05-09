@@ -47,7 +47,9 @@ public class RepoListCache
     private static final Duration ACTIVITY_TTL = Duration.ofMinutes(1);
 
     private final ConcurrentHashMap<RepoRef, CachedValue<List<PullRequest>>> pulls = new ConcurrentHashMap<>();
-    private final ConcurrentHashMap<RepoRef, CachedValue<List<RepoIssue>>> issues = new ConcurrentHashMap<>();
+    /** Issues are bucketed by state ("open" / "closed") so the user can
+     *  flip the tab without one bucket clobbering the other. */
+    private final ConcurrentHashMap<IssuesKey, CachedValue<List<RepoIssue>>> issues = new ConcurrentHashMap<>();
     private final ConcurrentHashMap<RepoRef, CachedValue<List<RepoActivityItem>>> activity = new ConcurrentHashMap<>();
 
     public List<PullRequest> getPulls(RepoRef ref, Supplier<List<PullRequest>> loader)
@@ -55,15 +57,18 @@ public class RepoListCache
         return getOrLoad(pulls, ref, loader, PULLS_TTL);
     }
 
-    public List<RepoIssue> getIssues(RepoRef ref, Supplier<List<RepoIssue>> loader)
+    public List<RepoIssue> getIssues(RepoRef ref, String state, Supplier<List<RepoIssue>> loader)
     {
-        return getOrLoad(issues, ref, loader, ISSUES_TTL);
+        return getOrLoad(issues, new IssuesKey(ref, state), loader, ISSUES_TTL);
     }
 
     public List<RepoActivityItem> getActivity(RepoRef ref, Supplier<List<RepoActivityItem>> loader)
     {
         return getOrLoad(activity, ref, loader, ACTIVITY_TTL);
     }
+
+    /** Cache key for the per-state issues map. */
+    private record IssuesKey(RepoRef ref, String state) {}
 
     /**
      * Drops the cached PR list for one repo. Called from PullRequestService
@@ -83,18 +88,18 @@ public class RepoListCache
         activity.clear();
     }
 
-    private static <T> T getOrLoad(
-            ConcurrentHashMap<RepoRef, CachedValue<T>> map,
-            RepoRef ref,
+    private static <K, T> T getOrLoad(
+            ConcurrentHashMap<K, CachedValue<T>> map,
+            K key,
             Supplier<T> loader,
             Duration ttl)
     {
-        CachedValue<T> existing = map.get(ref);
+        CachedValue<T> existing = map.get(key);
         if (existing != null && existing.isValid()) {
             return existing.value();
         }
         T fresh = loader.get();
-        map.put(ref, new CachedValue<>(fresh, Instant.now().plus(ttl)));
+        map.put(key, new CachedValue<>(fresh, Instant.now().plus(ttl)));
         return fresh;
     }
 

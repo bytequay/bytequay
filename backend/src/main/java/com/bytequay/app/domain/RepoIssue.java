@@ -21,6 +21,9 @@ public record RepoIssue(
         int number,
         String title,
         String author,
+        /** GitHub's state field — "open" or "closed". Lets the frontend
+         *  pick the right status icon and tab without re-querying. */
+        String state,
         String htmlUrl,
         Instant updatedAt,
         List<String> labels)

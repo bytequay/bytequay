@@ -199,8 +199,8 @@ const bridge: Bridge = {
     ipcRenderer.invoke('repos:openInTerminal', path),
   openRepoInIDE: (path: string): Promise<void> =>
     ipcRenderer.invoke('repos:openInIDE', path),
-  getRepoIssues: (owner: string, repo: string): Promise<IssueDto[]> =>
-    ipcRenderer.invoke('repos:issues', owner, repo),
+  getRepoIssues: (owner: string, repo: string, state?: 'open' | 'closed'): Promise<IssueDto[]> =>
+    ipcRenderer.invoke('repos:issues', owner, repo, state),
   getUserRepos: (): Promise<UserRepoDto[]> => ipcRenderer.invoke('repos:userRepos'),
   getUserOrgs: (): Promise<UserOrgDto[]> => ipcRenderer.invoke('repos:userOrgs'),
   searchRepos: (query: string): Promise<UserRepoDto[]> => ipcRenderer.invoke('repos:searchRepos', query),

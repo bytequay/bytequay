@@ -136,15 +136,18 @@ public class RepoController
     }
 
     /**
-     * Lists open issues (not PRs) for a watched repo. Requires a Bearer PAT.
-     * GET /api/repos/{owner}/{repo}/issues
+     * Lists issues (not PRs) for a watched repo. {@code state} maps
+     * directly to GitHub's filter — typically "open" (default) or
+     * "closed". Requires a Bearer PAT.
+     * GET /api/repos/{owner}/{repo}/issues?state=open
      */
     @GetMapping("/repos/{owner}/{repo}/issues")
     public List<RepoIssue> getRepoIssues(
             @PathVariable String owner,
-            @PathVariable String repo)
+            @PathVariable String repo,
+            @RequestParam(name = "state", defaultValue = "open") String state)
     {
-        return repoService.getRepoIssues(patResolver.resolve(owner + "/" + repo), owner, repo);
+        return repoService.getRepoIssues(patResolver.resolve(owner + "/" + repo), owner, repo, state);
     }
 
     /**

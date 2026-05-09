@@ -685,6 +685,69 @@
   border-color: var(--accent);
 }
 
+/* ── Issues filter strip (Open/Closed tabs + search) ─────────────
+   Sits above the issue-list inside the v2-sidebar's Issues tab. The
+   inner status-circle in each tab button gives a quick visual key:
+   user can see which colour means open vs closed without needing a
+   legend. */
+.issue-pane__filters {
+  padding: 10px 14px 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  border-bottom: 1px solid var(--border);
+}
+.issue-pane__state-tabs {
+  display: flex;
+  gap: 4px;
+}
+.issue-pane__state-tab {
+  appearance: none;
+  background: transparent;
+  border: 1px solid transparent;
+  padding: 4px 10px;
+  border-radius: 6px;
+  font: inherit;
+  font-size: 12.5px;
+  color: var(--text-2);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.issue-pane__state-tab:hover {
+  color: var(--text-1);
+  background: var(--bg-elevated);
+}
+.issue-pane__state-tab--active {
+  color: var(--text-0);
+  background: var(--bg-elevated);
+  border-color: var(--border);
+}
+.issue-pane__state-count {
+  font-size: 11px;
+  color: var(--text-3);
+  font-variant-numeric: tabular-nums;
+}
+.issue-pane__state-tab--active .issue-pane__state-count {
+  color: var(--text-2);
+}
+.issue-pane__search {
+  appearance: none;
+  width: 100%;
+  padding: 6px 10px;
+  font: inherit;
+  font-size: 12.5px;
+  border: 1px solid var(--border);
+  background: var(--bg-base);
+  color: var(--text-1);
+  border-radius: 6px;
+}
+.issue-pane__search:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
 /* ── Issues list (Issues sidebar tab on RepoDetailPage) ──────────
    Row-style layout per docs/mockups/design/repository/repository-issues.png:
    status circle on the left, title + inline label chips, meta line
@@ -715,17 +778,26 @@
 .issue-row:last-child {
   border-bottom: none;
 }
-/* Open issues: green outlined circle. Closed/state plumbing in I2
-   will introduce a filled-purple variant for closed-as-completed
-   and a grey variant for closed-as-not-planned. */
+/* Status circle — one shared base, two variants:
+     - --open  : green outlined circle (matches GitHub's open-issue affordance)
+     - --closed: filled purple (the "completed" variant; we don't have
+       not-planned distinction in the DTO yet, so closed renders the
+       same regardless of close reason). */
 .issue-row__status {
   flex: 0 0 auto;
   width: 14px;
   height: 14px;
   border-radius: 50%;
   margin-top: 4px;
-  border: 1.6px solid #1a7f37;
+  border: 1.6px solid transparent;
   background: transparent;
+}
+.issue-row__status--open {
+  border-color: #1a7f37;
+}
+.issue-row__status--closed {
+  border-color: #8250df;
+  background: #8250df;
 }
 .issue-row__main {
   flex: 1 1 auto;

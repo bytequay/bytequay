@@ -441,6 +441,10 @@ export type IssueDto = {
   number: number;
   title: string;
   author: string | null;
+  /** GitHub state — "open" or "closed". Drives the row's status icon
+   *  and lets the Issues tab split into Open / Closed buckets without
+   *  a re-fetch round-trip. */
+  state: string;
   htmlUrl: string;
   updatedAt: string;
   labels: string[];
@@ -919,7 +923,7 @@ export type Bridge = {
   /** Single-PR fetch — used by the deep-link fallback when a PR isn't in
    *  the (capped) repo list response. */
   getRepoPull: (owner: string, repo: string, number: number) => Promise<PullRequestDto>;
-  getRepoIssues: (owner: string, repo: string) => Promise<IssueDto[]>;
+  getRepoIssues: (owner: string, repo: string, state?: 'open' | 'closed') => Promise<IssueDto[]>;
   /** Repo-level metadata for the right-pane hero card. */
   getRepoMeta: (owner: string, repo: string) => Promise<RepoMetaDto>;
   /** ~30 most recent events on a repo for the right-pane activity feed. */

@@ -1453,17 +1453,18 @@ public class GitHubClient
     // ── Repos and Users ───────────────────────────────────────────────────────
 
     @Override
-    public List<RepoIssue> fetchRepoIssues(String pat, RepoRef repo)
+    public List<RepoIssue> fetchRepoIssues(String pat, RepoRef repo, String state)
     {
         // GitHub's /repos/{owner}/{repo}/issues returns both issues and PRs
         // (PRs are a special subtype of issues), so we request the API maximum
         // (per_page=100) and filter PRs out client-side. We also sort by
         // updated desc so the freshest issues show up first regardless of the
         // 100-item cap.
+        String stateParam = (state == null || state.isBlank()) ? "open" : state;
         try {
             List<GitHubIssueItem> items = gitHubRestClient.get()
                     .uri(u -> u.path("/repos/{owner}/{repo}/issues")
-                            .queryParam("state", "open")
+                            .queryParam("state", stateParam)
                             .queryParam("sort", "updated")
                             .queryParam("direction", "desc")
                             .queryParam("per_page", 100)
@@ -1672,6 +1673,7 @@ public class GitHubClient
                 item.number(),
                 item.title(),
                 author,
+                item.state(),
                 item.htmlUrl(),
                 item.updatedAt(),
                 labels);

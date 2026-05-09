@@ -944,10 +944,10 @@ const url = new URL(`${BACKEND_BASE}/prs/comment`);
     return res.json();
   });
 
-  ipcMain.handle('repos:issues', async (_event, owner: string, repo: string) => {
-    const res = await fetch(
-      `${BACKEND_BASE}/api/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/issues`,
-    );
+  ipcMain.handle('repos:issues', async (_event, owner: string, repo: string, state?: string) => {
+    const url = new URL(`${BACKEND_BASE}/api/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/issues`);
+    if (state) url.searchParams.set('state', state);
+    const res = await fetch(url);
     if (!res.ok) {
       const body = await res.text().catch(() => '');
       throw new Error(`backend repo issues returned ${res.status}: ${body}`);

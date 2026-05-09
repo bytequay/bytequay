@@ -491,10 +491,11 @@ public interface PullRequestRepository
     // ── Repos and Users ───────────────────────────────────────────────────────
 
     /**
-     * Lists open issues (excluding pull requests) for a repository.
-     * Maps to: GET /repos/{owner}/{repo}/issues?state=open
+     * Lists issues (excluding pull requests) for a repository. {@code state}
+     * maps directly to GitHub's filter — typically "open" or "closed".
+     * Maps to: GET /repos/{owner}/{repo}/issues?state={state}
      */
-    default List<RepoIssue> fetchRepoIssues(String pat, RepoRef repo)
+    default List<RepoIssue> fetchRepoIssues(String pat, RepoRef repo, String state)
     {
         throw new UnsupportedOperationException("fetchRepoIssues not implemented");
     }

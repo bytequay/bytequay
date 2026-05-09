@@ -23,7 +23,13 @@ import { getCached, setCached } from './dataCache';
 import { decideDeepLinkSelection } from './repoDeepLink';
 
 const repoPullsKey = (owner: string, repo: string) => `repo:${owner}/${repo}:pulls`;
-const repoIssuesKey = (owner: string, repo: string) => `repo:${owner}/${repo}:issues`;
+/** Per-state cache key — open and closed are fetched on different
+ *  triggers (open eagerly on mount, closed on first tab click) so we
+ *  cache them separately to avoid clobbering. */
+const repoIssuesKey = (owner: string, repo: string, state: IssueState) =>
+  `repo:${owner}/${repo}:issues:${state}`;
+
+type IssueState = 'open' | 'closed';
 
 const SIDEBAR_WIDTH_KEY = 'settings:pr-sidebar-width';
 const SIDEBAR_COLLAPSED_KEY = 'settings:pr-sidebar-collapsed';
@@ -104,9 +110,21 @@ function RepoDetailPage({ owner, repo, initialPrNumber, initialTab, onOpenLocalB
   const [pulls, setPulls] = useState<PullRequestDto[]>(
     () => getCached<PullRequestDto[]>(repoPullsKey(owner, repo)) ?? [],
   );
-  const [issues, setIssues] = useState<IssueDto[]>(
-    () => getCached<IssueDto[]>(repoIssuesKey(owner, repo)) ?? [],
+  // Open and closed issues live in separate slots so the user can flip
+  // tabs without one bucket clobbering the other. Both are seeded from
+  // dataCache so revisiting a repo paints instantly. Closed is loaded
+  // lazily on first click — keeps the rate-limit hit small for repos
+  // with thousands of closed issues.
+  const [openIssues, setOpenIssues] = useState<IssueDto[] | null>(
+    () => getCached<IssueDto[]>(repoIssuesKey(owner, repo, 'open')) ?? null,
   );
+  const [closedIssues, setClosedIssues] = useState<IssueDto[] | null>(
+    () => getCached<IssueDto[]>(repoIssuesKey(owner, repo, 'closed')) ?? null,
+  );
+  const [issueState, setIssueState] = useState<IssueState>('open');
+  const [issueSearch, setIssueSearch] = useState('');
+  const [issueLoadError, setIssueLoadError] = useState<string | null>(null);
+  const [issueLoading, setIssueLoading] = useState(false);
   const [loading, setLoading] = useState(
     getCached(repoPullsKey(owner, repo)) === undefined,
   );
@@ -149,9 +167,14 @@ function RepoDetailPage({ owner, repo, initialPrNumber, initialTab, onOpenLocalB
     // data we keep the old lists on-screen for one frame (they're about to
     // be replaced), otherwise start empty + show spinner.
     const cachedPulls = getCached<PullRequestDto[]>(repoPullsKey(owner, repo));
-    const cachedIssues = getCached<IssueDto[]>(repoIssuesKey(owner, repo));
+    const cachedOpenIssues = getCached<IssueDto[]>(repoIssuesKey(owner, repo, 'open'));
+    const cachedClosedIssues = getCached<IssueDto[]>(repoIssuesKey(owner, repo, 'closed'));
     setPulls(cachedPulls ?? []);
-    setIssues(cachedIssues ?? []);
+    setOpenIssues(cachedOpenIssues ?? null);
+    setClosedIssues(cachedClosedIssues ?? null);
+    setIssueState('open');
+    setIssueSearch('');
+    setIssueLoadError(null);
     // Try to auto-select from the cache synchronously — if the user
     // visited this repo before, the deep-link should land on the PR
     // immediately without waiting for the fetch.
@@ -209,7 +232,7 @@ function RepoDetailPage({ owner, repo, initialPrNumber, initialTab, onOpenLocalB
 
     Promise.allSettled([
       window.bridge.getRepoPulls(owner, repo),
-      window.bridge.getRepoIssues(owner, repo),
+      window.bridge.getRepoIssues(owner, repo, 'open'),
     ]).then(([pullsResult, issuesResult]) => {
       if (cancelled) return;
       if (pullsResult.status === 'fulfilled') {
@@ -234,8 +257,10 @@ function RepoDetailPage({ owner, repo, initialPrNumber, initialTab, onOpenLocalB
         setError(pullsResult.reason instanceof Error ? pullsResult.reason.message : 'Failed to load PRs');
       }
       if (issuesResult.status === 'fulfilled') {
-        setIssues(issuesResult.value);
-        setCached(repoIssuesKey(owner, repo), issuesResult.value);
+        setOpenIssues(issuesResult.value);
+        setCached(repoIssuesKey(owner, repo, 'open'), issuesResult.value);
+      } else {
+        setIssueLoadError(issuesResult.reason instanceof Error ? issuesResult.reason.message : 'Failed to load issues');
       }
       setLoading(false);
       // If we never resolved the deep-link (PR genuinely not found via
@@ -245,6 +270,28 @@ function RepoDetailPage({ owner, repo, initialPrNumber, initialTab, onOpenLocalB
     });
     return () => { cancelled = true; };
   }, [owner, repo, initialPrNumber]);
+
+  // Lazy-load the closed-issues bucket on first toggle. Skips re-fetch
+  // when we already have a cached result (per-repo, per-state cache).
+  useEffect(() => {
+    if (issueState !== 'closed') return;
+    if (closedIssues !== null) return;
+    if (issueLoading) return;
+    let cancelled = false;
+    setIssueLoading(true);
+    setIssueLoadError(null);
+    window.bridge.getRepoIssues(owner, repo, 'closed')
+      .then(rows => {
+        if (cancelled) return;
+        setClosedIssues(rows);
+        setCached(repoIssuesKey(owner, repo, 'closed'), rows);
+      })
+      .catch(e => {
+        if (!cancelled) setIssueLoadError(e instanceof Error ? e.message : String(e));
+      })
+      .finally(() => { if (!cancelled) setIssueLoading(false); });
+    return () => { cancelled = true; };
+  }, [issueState, owner, repo, closedIssues, issueLoading]);
 
   const reloadPulls = async () => {
     try {
@@ -473,7 +520,10 @@ function RepoDetailPage({ owner, repo, initialPrNumber, initialTab, onOpenLocalB
             Pull Requests <span className="v2-tab__count">{pulls.length}</span>
           </button>
           <button className={`v2-tab${tab === 'issues' ? ' v2-tab--active' : ''}`} onClick={() => setTab('issues')}>
-            Issues <span className="v2-tab__count">{issues.length}</span>
+            Issues
+            {openIssues != null && (
+              <span className="v2-tab__count">{openIssues.length}</span>
+            )}
           </button>
         </div>
 
@@ -598,13 +648,16 @@ function RepoDetailPage({ owner, repo, initialPrNumber, initialTab, onOpenLocalB
         )}
 
         {!loading && tab === 'issues' && (
-          <ul className="issue-list">
-            {issues.length === 0 ? (
-              <li className="v2-empty">No open issues</li>
-            ) : issues.map(issue => (
-              <IssueRow key={issue.id} issue={issue} />
-            ))}
-          </ul>
+          <IssueListPane
+            state={issueState}
+            onChangeState={setIssueState}
+            search={issueSearch}
+            onChangeSearch={setIssueSearch}
+            openIssues={openIssues}
+            closedIssues={closedIssues}
+            loading={issueLoading}
+            error={issueLoadError}
+          />
         )}
       </aside>
       )}
@@ -653,12 +706,106 @@ function RepoDetailPage({ owner, repo, initialPrNumber, initialTab, onOpenLocalB
  *  prior surface (RepoOverviewPanel) duplicated metadata that already
  *  lives on the unified Repository home, so the right pane stays empty
  *  here until the user picks a row from the sidebar. */
+/** Issues sidebar pane — Open/Closed tabs + a search box on top of the
+ *  row list. Closed bucket loads lazily on first toggle (see the
+ *  effect in RepoDetailPage); the empty/loading states cover both
+ *  the "haven't fetched yet" and "GitHub said zero" cases. */
+function IssueListPane({
+  state,
+  onChangeState,
+  search,
+  onChangeSearch,
+  openIssues,
+  closedIssues,
+  loading,
+  error,
+}: {
+  state: IssueState;
+  onChangeState: (next: IssueState) => void;
+  search: string;
+  onChangeSearch: (next: string) => void;
+  openIssues: IssueDto[] | null;
+  closedIssues: IssueDto[] | null;
+  loading: boolean;
+  error: string | null;
+}) {
+  const issues = state === 'open' ? openIssues : closedIssues;
+  const filtered = useMemo(() => {
+    if (!issues) return null;
+    const needle = search.trim().toLowerCase();
+    if (!needle) return issues;
+    return issues.filter(i => i.title.toLowerCase().includes(needle));
+  }, [issues, search]);
+
+  return (
+    <>
+      <div className="issue-pane__filters">
+        <div className="issue-pane__state-tabs" role="tablist">
+          <button
+            type="button"
+            role="tab"
+            aria-selected={state === 'open'}
+            className={`issue-pane__state-tab${state === 'open' ? ' issue-pane__state-tab--active' : ''}`}
+            onClick={() => onChangeState('open')}
+          >
+            <span className="issue-row__status issue-row__status--open" aria-hidden="true" />
+            Open
+            {openIssues != null && (
+              <span className="issue-pane__state-count">{openIssues.length}</span>
+            )}
+          </button>
+          <button
+            type="button"
+            role="tab"
+            aria-selected={state === 'closed'}
+            className={`issue-pane__state-tab${state === 'closed' ? ' issue-pane__state-tab--active' : ''}`}
+            onClick={() => onChangeState('closed')}
+          >
+            <span className="issue-row__status issue-row__status--closed" aria-hidden="true" />
+            Closed
+            {closedIssues != null && (
+              <span className="issue-pane__state-count">{closedIssues.length}</span>
+            )}
+          </button>
+        </div>
+        <input
+          type="search"
+          className="issue-pane__search"
+          placeholder="Search issues…"
+          value={search}
+          onChange={e => onChangeSearch(e.target.value)}
+        />
+      </div>
+      {error && <div className="repo-error">{error}</div>}
+      {loading && filtered === null && (
+        <div className="repo-loading">
+          <LogoLoading size={48} />
+        </div>
+      )}
+      <ul className="issue-list">
+        {filtered != null && filtered.length === 0 && (
+          <li className="v2-empty">
+            {search.trim()
+              ? 'No issues match that search.'
+              : state === 'open' ? 'No open issues' : 'No closed issues'}
+          </li>
+        )}
+        {filtered?.map(issue => (
+          <IssueRow key={issue.id} issue={issue} />
+        ))}
+      </ul>
+    </>
+  );
+}
+
 /** One row in the redesigned Issues list. Mirrors the GitHub-style
  *  layout from docs/mockups/design/repository/repository-issues.png:
  *  status circle + title with inline label chips + a small meta line.
  *  Click still routes to github.com — the in-app detail page is I3. */
 function IssueRow({ issue }: { issue: IssueDto }) {
   const open = (): void => { void window.bridge.openExternal(issue.htmlUrl); };
+  const isClosed = issue.state === 'closed';
+  const statusLabel = isClosed ? 'Closed' : 'Open';
   return (
     <li
       className="issue-row"
@@ -668,9 +815,11 @@ function IssueRow({ issue }: { issue: IssueDto }) {
       onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); open(); } }}
       title="Open on GitHub"
     >
-      {/* Status icon — green outlined circle for open issues, matching
-          GitHub's affordance. Closed/state plumbing lands in I2. */}
-      <span className="issue-row__status issue-row__status--open" aria-label="Open" title="Open" />
+      <span
+        className={`issue-row__status issue-row__status--${isClosed ? 'closed' : 'open'}`}
+        aria-label={statusLabel}
+        title={statusLabel}
+      />
       <div className="issue-row__main">
         <div className="issue-row__title-line">
           <span className="issue-row__title">{issue.title}</span>

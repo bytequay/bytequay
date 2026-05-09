@@ -352,7 +352,8 @@ pre {
    it, "ByteQuay" floats with an empty gap on its left. Absolutely
    positioned (rather than inserted at the start of __left) so the
    wordmark stays at its current x — only the previously-empty zone is
-   filled. */
+   filled. Renders as a button (Home shortcut), so it opts out of the
+   topbar's drag region and grows a hover tint. */
 .global-topbar__mark {
   position: absolute;
   top: 0;
@@ -362,7 +363,21 @@ pre {
   display: flex;
   align-items: center;
   justify-content: center;
-  pointer-events: none;
+  appearance: none;
+  background: transparent;
+  border: none;
+  padding: 0;
+  cursor: pointer;
+  -webkit-app-region: no-drag;
+  border-radius: 6px;
+  transition: background 120ms ease;
+}
+.global-topbar__mark:hover {
+  background: var(--accent-a7);
+}
+.global-topbar__mark:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
 }
 
 /* Restore pointer interactions for any clickable element inside the

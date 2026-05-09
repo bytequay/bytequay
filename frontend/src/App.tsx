@@ -58,7 +58,7 @@ type GlobalTopbarProps = {
  * the topbar is the only consumer and the SVG is small enough that a
  * separate file would be more friction than reuse.
  */
-function TopbarBrandMark({ size = 22 }: { size?: number }) {
+function TopbarBrandMark({ size = 30 }: { size?: number }) {
   return (
     <svg
       xmlns="http://www.w3.org/2000/svg"
@@ -68,11 +68,11 @@ function TopbarBrandMark({ size = 22 }: { size?: number }) {
       role="img"
       aria-label="ByteQuay"
     >
-      <rect x="15" y="15" width="70" height="70" rx="12" fill="#7C3AED" />
-      <path d="M 15 68 Q 30 62 42 68 T 70 68 L 85 68 L 85 85 L 15 85 Z" fill="#8B5CF6" />
-      <line x1="32" y1="28" x2="42" y2="52" stroke="#FFFFFF" strokeWidth="3.5" strokeLinecap="round" />
-      <line x1="45" y1="28" x2="55" y2="52" stroke="#FFFFFF" strokeWidth="3.5" strokeLinecap="round" opacity="0.7" />
-      <line x1="58" y1="28" x2="68" y2="52" stroke="#FFFFFF" strokeWidth="3.5" strokeLinecap="round" />
+      <rect x="10" y="10" width="80" height="80" rx="14" fill="#7C3AED" />
+      <path d="M 10 68 Q 28 60 42 68 T 72 68 L 90 68 L 90 90 L 10 90 Z" fill="#8B5CF6" />
+      <line x1="30" y1="26" x2="42" y2="54" stroke="#FFFFFF" strokeWidth="4" strokeLinecap="round" />
+      <line x1="44" y1="26" x2="56" y2="54" stroke="#FFFFFF" strokeWidth="4" strokeLinecap="round" opacity="0.7" />
+      <line x1="58" y1="26" x2="70" y2="54" stroke="#FFFFFF" strokeWidth="4" strokeLinecap="round" />
     </svg>
   );
 }
@@ -81,9 +81,14 @@ function GlobalTopbar({ nav, onNav, fullScreen }: GlobalTopbarProps) {
   return (
     <div className={`global-topbar${fullScreen ? ' global-topbar--fullscreen' : ''}`}>
       {fullScreen && (
-        <div className="global-topbar__mark" aria-hidden="true">
+        <button
+          className="global-topbar__mark"
+          onClick={() => onNav({ view: 'home' })}
+          title="Home"
+          type="button"
+        >
           <TopbarBrandMark />
-        </div>
+        </button>
       )}
       <div className="global-topbar__left">
         <button

@@ -25,6 +25,10 @@ type EditField = 'name' | 'bio' | 'location';
 
 function AccountPage({ onClearPat }: Props) {
   const [profile, setProfile] = useState<UserProfileDto | null>(null);
+  // The credential row's `label` carries the GitHub login when the token
+  // came from OAuth; PATs save with label=null. We use that distinction
+  // to label the row "OAuth" vs "Personal access token".
+  const [oauthLogin, setOauthLogin] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [refreshing, setRefreshing] = useState(false);
@@ -40,8 +44,12 @@ function AccountPage({ onClearPat }: Props) {
     }
     setError(null);
     try {
-      const fresh = await window.bridge.getUserProfile();
+      const [fresh, conn] = await Promise.all([
+        window.bridge.getUserProfile(),
+        window.bridge.getGitHubOAuthConnection().catch(() => ({ connected: false, login: undefined } as { connected: boolean; login?: string })),
+      ]);
       setProfile(fresh);
+      setOauthLogin(conn.connected && conn.login ? conn.login : null);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
@@ -154,6 +162,17 @@ function AccountPage({ onClearPat }: Props) {
             hint={<>Connected as <b>@{profile.login}</b>. Followers {profile.followers} · Following {profile.following} · Public repos {profile.publicRepos}.</>}
           >
             <SettingRow
+              title="Sign-in method"
+              description={oauthLogin
+                ? `OAuth · token issued by GitHub for @${oauthLogin}.`
+                : 'Personal access token · pasted manually during onboarding.'}
+              control={
+                <span className={`auth-method-pill ${oauthLogin ? 'auth-method-pill--oauth' : 'auth-method-pill--pat'}`}>
+                  {oauthLogin ? 'OAuth' : 'PAT'}
+                </span>
+              }
+            />
+            <SettingRow
               title="Open profile on GitHub"
               control={
                 <a className="button button--secondary" href={profile.htmlUrl} target="_blank" rel="noreferrer">
@@ -164,7 +183,9 @@ function AccountPage({ onClearPat }: Props) {
             {onClearPat && (
               <SettingRow
                 title="Disconnect"
-                description="Clear the stored GitHub PAT. You'll be sent back to the first-run setup."
+                description={oauthLogin
+                  ? "Revokes the stored OAuth token. You'll be sent back to the first-run setup."
+                  : "Clears the stored GitHub PAT. You'll be sent back to the first-run setup."}
                 control={<button className="button button--danger" type="button" onClick={onClearPat}>Disconnect</button>}
               />
             )}

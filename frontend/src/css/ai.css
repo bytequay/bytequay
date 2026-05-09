@@ -2343,6 +2343,24 @@
   padding: 11px 0;
   border-top: 1px solid var(--border);
 }
+.auth-method-pill {
+  display: inline-block;
+  padding: 3px 10px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+.auth-method-pill--oauth {
+  background: var(--accent-a10, rgba(130, 80, 223, 0.12));
+  color: var(--accent);
+}
+.auth-method-pill--pat {
+  background: var(--bg-elevated);
+  color: var(--text-2);
+  border: 1px solid var(--border);
+}
 
 .setting-row:first-of-type {
   border-top: none;

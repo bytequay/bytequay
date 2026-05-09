@@ -18,6 +18,7 @@ import com.bytequay.app.domain.PrViewState;
 import com.bytequay.app.domain.RecentEvent;
 import com.bytequay.app.domain.UserStats;
 import com.bytequay.app.repository.AppSettingsStore;
+import com.bytequay.app.repository.GithubHomeCacheStore;
 import com.bytequay.app.repository.PrViewStateStore;
 import com.bytequay.app.repository.PullRequestRepository;
 import com.google.common.collect.ImmutableList;
@@ -46,78 +47,106 @@ public class StatsService
     // hammering GitHub's events endpoint. The events feed itself has its
     // own propagation delay (typically <5 min for public repos, longer
     // for private), so anything tighter than this just burns API quota.
-    private static final Duration CACHE_TTL = Duration.ofMinutes(5);
+    public static final Duration CACHE_TTL = Duration.ofMinutes(5);
     private static final int RAW_EVENTS_LIMIT = 100;
 
     private final PullRequestRepository gitHub;
     private final PrViewStateStore viewStateStore;
     private final CredentialService credentialService;
     private final AppSettingsStore settingsStore;
-
-    private volatile UserStats cached = UserStats.empty();
+    private final GithubHomeCacheStore homeCache;
 
     public StatsService(
             PullRequestRepository gitHub,
             PrViewStateStore viewStateStore,
             CredentialService credentialService,
-            AppSettingsStore settingsStore)
+            AppSettingsStore settingsStore,
+            GithubHomeCacheStore homeCache)
     {
         this.gitHub = requireNonNull(gitHub, "gitHub is null");
         this.viewStateStore = requireNonNull(viewStateStore, "viewStateStore is null");
         this.credentialService = requireNonNull(credentialService, "credentialService is null");
         this.settingsStore = requireNonNull(settingsStore, "settingsStore is null");
+        this.homeCache = requireNonNull(homeCache, "homeCache is null");
     }
 
+    /**
+     * Returns the cached stats from the local DB. With {@code force=true}
+     * (the home-page ↻ button), runs a synchronous refresh first so the user
+     * sees the post-push numbers immediately. Otherwise it's a pure read —
+     * staleness is the scheduler's problem.
+     */
     public UserStats getStats(String login, boolean force)
     {
         if (login != null && !login.isBlank()) {
             settingsStore.set(AppSettingsStore.Key.GITHUB_LOGIN, login);
         }
         if (force) {
-            forceRefresh(login);
+            Optional<String> pat = credentialService.getSecret(CredentialType.ACCOUNT, GITHUB_ACCOUNT_NAME).filter(s -> !s.isBlank());
+            if (pat.isPresent() && login != null && !login.isBlank()) {
+                try {
+                    return refreshFromGitHub(pat.get(), login);
+                }
+                catch (Exception e) {
+                    log.warn("Force stats refresh failed: {}", e.getMessage());
+                }
+            }
         }
-        else {
-            refreshIfStale(login);
-        }
-        return cached;
+        return readFromCache(login);
     }
 
-    private void forceRefresh(String login)
+    /**
+     * Reads the cached stats row by login. Returns {@link UserStats#empty()}
+     * if the row hasn't been populated yet — same shape the in-memory cache
+     * used to start with, so the home page renders zeros until the first
+     * scheduler tick lands.
+     */
+    private UserStats readFromCache(String login)
     {
-        Optional<String> pat = credentialService.getSecret(CredentialType.ACCOUNT, GITHUB_ACCOUNT_NAME).filter(s -> !s.isBlank());
-        if (pat.isEmpty() || login == null || login.isBlank()) {
-            return;
+        if (login == null || login.isBlank()) {
+            return UserStats.empty();
         }
-        try {
-            cached = compute(pat.get(), login);
-        }
-        catch (Exception e) {
-            log.warn("Force stats refresh failed: {}", e.getMessage());
-        }
+        return homeCache.findStats(login)
+                .map(GithubHomeCacheStore.TimedValue::value)
+                .orElseGet(UserStats::empty);
     }
 
-    /** Called from the sync job; uses the stored login so it can run without a request. */
+    /** Called by the post-PR-sync hook so the home-page numbers reflect any
+     *  freshly-marked-reviewed PRs without waiting for the next 5-min tick. */
     public void refreshIfStale()
     {
         Optional<String> login = settingsStore.get(AppSettingsStore.Key.GITHUB_LOGIN);
-        refreshIfStale(login.orElse(null));
-    }
-
-    private void refreshIfStale(String login)
-    {
-        if (Duration.between(cached.updatedAt(), Instant.now()).compareTo(CACHE_TTL) < 0) {
+        if (login.isEmpty()) {
+            return;
+        }
+        Instant fetchedAt = homeCache.findStats(login.get())
+                .map(GithubHomeCacheStore.TimedValue::fetchedAt)
+                .orElse(Instant.EPOCH);
+        if (Duration.between(fetchedAt, Instant.now()).compareTo(CACHE_TTL) < 0) {
             return;
         }
         Optional<String> pat = credentialService.getSecret(CredentialType.ACCOUNT, GITHUB_ACCOUNT_NAME).filter(s -> !s.isBlank());
-        if (pat.isEmpty() || login == null || login.isBlank()) {
+        if (pat.isEmpty()) {
             return;
         }
         try {
-            cached = compute(pat.get(), login);
+            refreshFromGitHub(pat.get(), login.get());
         }
         catch (Exception e) {
             log.warn("Stats refresh failed: {}", e.getMessage());
         }
+    }
+
+    /**
+     * Fetches the raw events from GitHub, recomputes the periodised stats,
+     * and persists them. Called from {@link #getStats} on force-refresh and
+     * from the scheduler on its TTL tick.
+     */
+    public UserStats refreshFromGitHub(String pat, String login)
+    {
+        UserStats fresh = compute(pat, login);
+        homeCache.putStats(login, fresh, Instant.now());
+        return fresh;
     }
 
     private UserStats compute(String pat, String login)

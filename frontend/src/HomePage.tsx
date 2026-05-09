@@ -21,14 +21,16 @@ import YearInCodeHeatmap from './YearInCodeHeatmap';
 import { bucketize } from './prBuckets';
 import { getCached, setCached } from './dataCache';
 
-const KEY_PROFILE = 'home:profile';
+// The five GitHub-sourced flows (profile, recent/following events, stats,
+// orgs) used to be cached client-side via getCached/setCached for
+// instant-paint on tab return. The backend now persists those in SQLite via
+// GithubHomeCacheRefreshJob, so the frontend reads straight from the
+// already-cached backend on every mount and the localStorage layer is gone
+// for those keys. The remaining keys back DB-sourced flows that didn't
+// move — keeping their localStorage cache preserves the instant-paint UX.
 const KEY_WATCHED = 'home:watchedRepos';
-const KEY_EVENTS = 'home:recentEvents';
-const KEY_FOLLOWING = 'home:followingEvents';
-const KEY_STATS = 'home:stats';
 const KEY_PRS = 'prs:list';
 const KEY_TEAMS = 'home:teams';
-const KEY_ORGS = 'home:orgs';
 
 type Props = {
   /** Navigate into the repo page in-app. {@code prNumber} is honoured by
@@ -190,28 +192,24 @@ function HomePage({ onSelectRepo, onGoToMyPrs, onOpenTeam, onGoToTeams }: Props)
     openUrl(url);
   };
 
-  // Seed every piece of state from the module cache so a return to this tab
-  // renders the last-known data instantly. The load() effect below still
-  // runs in the background and silently refreshes — stale-while-revalidate.
-  const cachedProfile = getCached<UserProfileDto>(KEY_PROFILE);
+  // Seed the still-client-cached state (watched repos, teams, PR list) from
+  // the module cache so a return to this tab renders instantly. The five
+  // GitHub-sourced flows below (profile, events, following, stats, orgs)
+  // start empty and populate from the backend's DB cache on the load() call.
   const cachedWatched = getCached<WatchedRepoDto[]>(KEY_WATCHED);
-  const cachedEvents = getCached<RecentEventDto[]>(KEY_EVENTS);
-  const cachedFollowing = getCached<RecentEventDto[]>(KEY_FOLLOWING);
-  const cachedStats = getCached<UserStatsDto>(KEY_STATS);
   const cachedPrs = getCached<PullRequestDto[]>(KEY_PRS);
   const cachedTeams = getCached<TeamSummaryDto[]>(KEY_TEAMS);
-  const cachedOrgs = getCached<UserOrgDto[]>(KEY_ORGS);
 
-  const [profile, setProfile] = useState<UserProfileDto | null>(cachedProfile ?? null);
+  const [profile, setProfile] = useState<UserProfileDto | null>(null);
   const [repos, setRepos] = useState<WatchedRepoDto[]>(cachedWatched ?? []);
-  const [events, setEvents] = useState<RecentEventDto[]>(cachedEvents ?? []);
-  const [followingEvents, setFollowingEvents] = useState<RecentEventDto[]>(cachedFollowing ?? []);
-  const [stats, setStats] = useState<UserStatsDto | null>(cachedStats ?? null);
+  const [events, setEvents] = useState<RecentEventDto[]>([]);
+  const [followingEvents, setFollowingEvents] = useState<RecentEventDto[]>([]);
+  const [stats, setStats] = useState<UserStatsDto | null>(null);
   const [prs, setPrs] = useState<PullRequestDto[] | null>(cachedPrs ?? null);
   const [teams, setTeams] = useState<TeamSummaryDto[]>(cachedTeams ?? []);
-  const [orgs, setOrgs] = useState<UserOrgDto[]>(cachedOrgs ?? []);
+  const [orgs, setOrgs] = useState<UserOrgDto[]>([]);
   // Only show the first-load spinner when we have nothing to paint yet.
-  const [loading, setLoading] = useState(cachedProfile === undefined && cachedWatched === undefined);
+  const [loading, setLoading] = useState(cachedWatched === undefined);
   const [period, setPeriod] = useState<StatPeriod>('week');
   const [showModal, setShowModal] = useState(false);
   const [showEditProfile, setShowEditProfile] = useState(false);
@@ -230,7 +228,6 @@ function HomePage({ onSelectRepo, onGoToMyPrs, onOpenTeam, onGoToTeams }: Props)
     const loadedProfile = profileResult.status === 'fulfilled' ? profileResult.value : null;
     if (loadedProfile) {
       setProfile(loadedProfile);
-      setCached(KEY_PROFILE, loadedProfile);
     }
     if (reposResult.status === 'fulfilled') {
       setRepos(reposResult.value);
@@ -240,31 +237,26 @@ function HomePage({ onSelectRepo, onGoToMyPrs, onOpenTeam, onGoToTeams }: Props)
 
     if (loadedProfile) {
       window.bridge.getRecentActivity(loadedProfile.login)
-        .then(v => { setEvents(v); setCached(KEY_EVENTS, v); })
+        .then(setEvents)
         .catch(() => {});
       window.bridge.getFollowingActivity(loadedProfile.login)
-        .then(v => { setFollowingEvents(v); setCached(KEY_FOLLOWING, v); })
+        .then(setFollowingEvents)
         .catch(() => {});
       window.bridge.getUserStats(loadedProfile.login)
-        .then(v => { setStats(v); setCached(KEY_STATS, v); })
+        .then(setStats)
         .catch(() => {});
     }
-    // Teams + orgs were previously refreshed only by the manual stats-
-    // refresh button, which meant a brand-new HomePage mount showed
-    // whatever was in localStorage — including a stale empty array
-    // populated before the user had created any teams. Pull them on
-    // every mount so the home view matches the source of truth.
+    // Orgs read from the backend's DB cache regardless of profile — the
+    // backend keys orgs by the stored GITHUB_LOGIN, so the call works even
+    // before profile lands on screen.
+    window.bridge.getUserOrgs()
+      .then(setOrgs)
+      .catch(() => {});
+    // Teams + PR list still live in localStorage (DB-backed on the backend
+    // already, but reads aren't free; the cache makes tab return instant).
     window.bridge.listTeams()
       .then(v => { setTeams(v); setCached(KEY_TEAMS, v); })
       .catch(() => {});
-    window.bridge.getUserOrgs()
-      .then(v => { setOrgs(v); setCached(KEY_ORGS, v); })
-      .catch(() => {});
-    // PR list — drives the "Start reviewing all my PRs" CTA's live
-    // counts (awaiting / mine). Previously fetched only by the stats-
-    // refresh button, so a cold mount showed the CTA without numbers
-    // until the user clicked refresh. Pull on every mount so the
-    // counts appear with the rest of the page.
     window.bridge.fetchPrs()
       .then(v => { setPrs(v); setCached(KEY_PRS, v); })
       .catch(() => {});
@@ -279,7 +271,6 @@ function HomePage({ onSelectRepo, onGoToMyPrs, onOpenTeam, onGoToTeams }: Props)
     try {
       const v = await window.bridge.getUserStats(profile.login, true);
       setStats(v);
-      setCached(KEY_STATS, v);
     } catch {
       // Best-effort: leave the existing stats showing, no error toast yet.
     } finally {
@@ -292,7 +283,7 @@ function HomePage({ onSelectRepo, onGoToMyPrs, onOpenTeam, onGoToTeams }: Props)
       .then(v => { setTeams(v); setCached(KEY_TEAMS, v); })
       .catch(() => {});
     window.bridge.getUserOrgs()
-      .then(v => { setOrgs(v); setCached(KEY_ORGS, v); })
+      .then(setOrgs)
       .catch(() => {});
   }
 

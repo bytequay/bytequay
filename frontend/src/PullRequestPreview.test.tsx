@@ -12,7 +12,7 @@
  * limitations under the License.
  */
 import { describe, it, expect, beforeEach, vi } from 'vitest';
-import { act } from 'react';
+import { act, type ComponentProps } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import PullRequestPreview from './PullRequestPreview';
 import { invalidate, setCached } from './dataCache';
@@ -266,11 +266,15 @@ beforeEach(() => {
   root = createRoot(container);
 });
 
-async function render(detail: PullRequestDetailDto, pr = makePr()) {
+async function render(
+  detail: PullRequestDetailDto,
+  pr = makePr(),
+  props: Partial<Omit<ComponentProps<typeof PullRequestPreview>, 'pr'>> = {},
+) {
   const bridge = bridgeStub(detail);
   (window as unknown as { bridge: ReturnType<typeof bridgeStub> }).bridge = bridge;
   await act(async () => {
-    root.render(<PullRequestPreview pr={pr} />);
+    root.render(<PullRequestPreview pr={pr} {...props} />);
   });
   // Drain the fetchPullRequestDetail promise + any chained setStates.
   await act(async () => { await Promise.resolve(); });
@@ -483,6 +487,33 @@ describe('PullRequestPreview render smoke', () => {
     await act(async () => { await Promise.resolve(); });
 
     expect(bridge.commentPr).toHaveBeenCalledWith(1, 'trinodb/trino', 42, '', true);
+    expect(bridge.refreshPullRequestDetail).toHaveBeenCalledWith('trinodb/trino', 42);
+    expect(bridge.fetchPullRequestDetail).toHaveBeenCalledTimes(1);
+  });
+
+  it('uses force-refresh reconciliation after merging a pull request', async () => {
+    const onMerge = vi.fn().mockResolvedValue(undefined);
+    const bridge = await render(makeDetail({ viewerCanWrite: true }), makePr(), { onMerge });
+    bridge.refreshPullRequestDetail.mockResolvedValue(makeDetail({ viewerCanWrite: true }));
+
+    const merge = Array.from(container.querySelectorAll('button'))
+      .find(el => el.textContent === 'Rebase and merge');
+    expect(merge).toBeTruthy();
+
+    await act(async () => {
+      merge!.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    });
+
+    const confirm = Array.from(container.querySelectorAll('button'))
+      .find(el => el.textContent === 'Yes, merge');
+    expect(confirm).toBeTruthy();
+
+    await act(async () => {
+      confirm!.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    });
+    await act(async () => { await Promise.resolve(); });
+
+    expect(onMerge).toHaveBeenCalledWith(1, 'trinodb/trino', 42, 'rebase');
     expect(bridge.refreshPullRequestDetail).toHaveBeenCalledWith('trinodb/trino', 42);
     expect(bridge.fetchPullRequestDetail).toHaveBeenCalledTimes(1);
   });

@@ -218,29 +218,41 @@ public class RepoService
                 pr.headRef());
     }
 
-    public List<RepoIssue> getRepoIssues(String pat, String owner, String repo)
+    public List<RepoIssue> getRepoIssues(String pat, String owner, String repo, String state)
     {
         RepoRef ref = RepoRef.of(owner, repo);
-        return repoListCache.getIssues(ref, () -> gitHub.fetchRepoIssues(pat, ref));
+        String normalized = (state == null || state.isBlank()) ? "open" : state;
+        return repoListCache.getIssues(ref, normalized, () -> gitHub.fetchRepoIssues(pat, ref, normalized));
     }
 
     /**
      * Returns the cached {@link RepoMeta} for one repo. Stale-while-
-     * revalidate: a row that's at most one hour old is returned
-     * immediately, an older row is returned immediately and a background
-     * refresh runs on the IO executor, an absent row triggers a
-     * synchronous fetch (the only path that blocks on GitHub here).
+     * revalidate: a row that's at most one hour old AND complete is
+     * returned immediately; an older row is returned immediately and a
+     * background refresh runs on the IO executor; an absent row, or one
+     * persisted before V44 added {@code owner_avatar_url}, triggers a
+     * synchronous fetch.
      */
     public RepoMeta getRepoMeta(String pat, String owner, String repo)
     {
         Optional<StoredRepoMeta> stored = repoMetaStore.find(owner, repo);
         Instant now = Instant.now();
         if (stored.isPresent()) {
-            boolean fresh = !stored.get().syncedAt().isBefore(now.minus(REPO_META_TTL));
-            if (!fresh) {
-                ioExecutor.execute(() -> refreshRepoMeta(pat, owner, repo));
+            StoredRepoMeta s = stored.get();
+            // GitHub always returns owner.avatar_url, so a null here means
+            // the row was persisted before V44 added the column. Treat
+            // that as a synchronous-refresh signal so the caller paints
+            // the real avatar on the very next mount instead of waiting
+            // for the TTL to fire.
+            boolean complete = s.meta().ownerAvatarUrl() != null;
+            boolean fresh = !s.syncedAt().isBefore(now.minus(REPO_META_TTL));
+            if (complete && fresh) {
+                return s.meta();
             }
-            return stored.get().meta();
+            if (complete) {
+                ioExecutor.execute(() -> refreshRepoMeta(pat, owner, repo));
+                return s.meta();
+            }
         }
         RepoMeta fresh = gitHub.fetchRepoMeta(pat, RepoRef.of(owner, repo));
         repoMetaStore.save(owner, repo, fresh, now);

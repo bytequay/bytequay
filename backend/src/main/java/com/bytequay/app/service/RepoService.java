@@ -13,6 +13,7 @@
  */
 package com.bytequay.app.service;
 
+import com.bytequay.app.domain.ContributionCalendar;
 import com.bytequay.app.domain.GitHubUserMatch;
 import com.bytequay.app.domain.ListPullRequestsQuery;
 import com.bytequay.app.domain.PrViewState;
@@ -33,6 +34,7 @@ import com.bytequay.app.repository.WatchedRepoStore;
 import com.google.common.collect.ImmutableList;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.http.HttpStatus;
 import org.springframework.stereotype.Service;
 import org.springframework.web.server.ResponseStatusException;
 
@@ -84,6 +86,23 @@ public class RepoService
     public void removeWatchedRepo(String owner, String repo)
     {
         watchedRepoStore.remove(owner, repo);
+    }
+
+    /**
+     * Last-12-months contribution heatmap for {@code login}, sourced from
+     * GitHub's GraphQL contribution calendar. The repository layer
+     * already swallows GraphQL failures into an empty calendar (since
+     * the home card can render a blank grid without breaking the page),
+     * so this method is a thin pass-through. {@code login} is required —
+     * GraphQL needs an explicit user, there's no "viewer" shorthand for
+     * contribution data.
+     */
+    public ContributionCalendar getContributionCalendar(String pat, String login)
+    {
+        if (login == null || login.isBlank()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "login must not be blank");
+        }
+        return gitHub.fetchContributionCalendar(pat, login);
     }
 
     public UserProfile getUserProfile(String pat)

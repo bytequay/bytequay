@@ -13,6 +13,7 @@
  */
 package com.bytequay.app.web;
 
+import com.bytequay.app.domain.ContributionCalendar;
 import com.bytequay.app.domain.GitHubUserMatch;
 import com.bytequay.app.domain.PullRequest;
 import com.bytequay.app.domain.RecentEvent;
@@ -94,6 +95,17 @@ public class RepoController
     public UserProfile getProfile()
     {
         return repoService.getUserProfile(patResolver.resolve());
+    }
+
+    /**
+     * Last-12-months contribution heatmap for one user — drives the
+     * home page's "Your year in code" card.
+     * GET /api/contribution-graph?login=...
+     */
+    @GetMapping("/contribution-graph")
+    public ContributionCalendar getContributionGraph(@RequestParam("login") String login)
+    {
+        return repoService.getContributionCalendar(patResolver.resolve(), login);
     }
 
     /**

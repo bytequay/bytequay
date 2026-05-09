@@ -13,6 +13,7 @@
  */
 package com.bytequay.app.repository;
 
+import com.bytequay.app.domain.ContributionCalendar;
 import com.bytequay.app.domain.CreatePullRequestCommand;
 import com.bytequay.app.domain.CreateReviewCommand;
 import com.bytequay.app.domain.DiffFile;
@@ -526,6 +527,18 @@ public interface PullRequestRepository
     default UserProfile fetchUserProfile(String pat)
     {
         throw new UnsupportedOperationException("fetchUserProfile not implemented");
+    }
+
+    /**
+     * Fetches the rolling 12-month contribution calendar for {@code login}
+     * via GraphQL {@code contributionsCollection.contributionCalendar}.
+     * Powers the "Your year in code" home-page heatmap. Implementations
+     * may return an empty calendar (zero total, no weeks) on auth /
+     * network failure since this is a non-essential affordance.
+     */
+    default ContributionCalendar fetchContributionCalendar(String pat, String login)
+    {
+        throw new UnsupportedOperationException("fetchContributionCalendar not implemented");
     }
 
     /**

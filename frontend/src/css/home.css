@@ -707,24 +707,73 @@
   flex-shrink: 0;
 }
 
-/* Let the contribution chart scale with the card — the ghchart SVG has no
-   intrinsic aspect-ratio baggage, so stretching it to the card's width just
-   gives bigger squares instead of horizontal overflow. */
-.home-year-chart-scroll {
+/* Native contribution heatmap. Rendered as inline SVG with a viewBox so
+   it scales crisply at any zoom — the renderer paints rects at the
+   actual displayed size, no bitmap intermediate. */
+.home-heatmap {
   width: 100%;
-  overflow: hidden;
+  margin-top: 8px;
 }
 
-.home-year-chart {
+.home-heatmap--loading {
+  /* Reserve space so the card height doesn't jump when the response lands. */
+  aspect-ratio: 770 / 130;
+}
+
+.home-heatmap__svg {
   display: block;
   width: 100%;
   height: auto;
-  border-radius: 4px;
-  /* The upstream SVG ships without a viewBox, so Chromium rasterizes it
-     at its intrinsic 663x104 once and bitmap-scales from there when the
-     card grows. Force nearest-neighbour upscaling so the heatmap cells
-     stay crisp at fullscreen instead of softening into a blur. */
-  image-rendering: pixelated;
+}
+
+.home-heatmap__month,
+.home-heatmap__dow {
+  font-family: var(--font-sans, system-ui, -apple-system, sans-serif);
+  font-size: 9px;
+  fill: var(--text-3);
+}
+
+.home-heatmap__cell {
+  transition: stroke 80ms ease-out;
+  stroke: transparent;
+  stroke-width: 1;
+}
+
+.home-heatmap__cell:hover {
+  stroke: rgba(0, 0, 0, 0.4);
+}
+
+.home-heatmap__footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-top: 8px;
+  font-size: 12px;
+  color: var(--text-3);
+}
+
+.home-heatmap__total {
+  /* Slightly stronger than the legend so the count is the lead element. */
+  color: var(--text-2);
+}
+
+.home-heatmap__legend {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+}
+
+.home-heatmap__legend-label {
+  font-size: 11px;
+  color: var(--text-3);
+  margin: 0 4px;
+}
+
+.home-heatmap__legend-swatch {
+  display: inline-block;
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
 }
 
 /* Daily card on the home page — one curated quote / tip per day, sits

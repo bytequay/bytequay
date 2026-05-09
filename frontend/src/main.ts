@@ -911,6 +911,14 @@ const url = new URL(`${BACKEND_BASE}/prs/comment`);
     return res.json();
   });
 
+  ipcMain.handle('repos:contributionGraph', async (_event, login: string) => {
+    const url = new URL(`${BACKEND_BASE}/api/contribution-graph`);
+    url.searchParams.set('login', login);
+    const res = await fetch(url);
+    if (!res.ok) throw new Error(`backend contribution-graph returned ${res.status}`);
+    return res.json();
+  });
+
   ipcMain.handle('repos:pulls', async (_event, owner: string, repo: string) => {
     const res = await fetch(
       `${BACKEND_BASE}/api/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/pulls`,

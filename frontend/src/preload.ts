@@ -18,6 +18,7 @@ import type {
   AiSettingsDto,
   Bridge,
   ColumnPageDto,
+  ContributionCalendarDto,
   InAppNavState,
   CreateTeamRequest,
   CredentialDto,
@@ -123,6 +124,8 @@ const bridge: Bridge = {
   removeWatchedRepo: (owner: string, repo: string): Promise<void> =>
     ipcRenderer.invoke('repos:remove', owner, repo),
   getUserProfile: (): Promise<UserProfileDto> => ipcRenderer.invoke('repos:profile'),
+  getContributionCalendar: (login: string): Promise<ContributionCalendarDto> =>
+    ipcRenderer.invoke('repos:contributionGraph', login),
   getRepoPulls: (owner: string, repo: string): Promise<PullRequestDto[]> =>
     ipcRenderer.invoke('repos:pulls', owner, repo),
   getRepoPull: (owner: string, repo: string, number: number): Promise<PullRequestDto> =>

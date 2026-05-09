@@ -17,6 +17,7 @@ import Avatar from './Avatar';
 import AddRepoModal from './AddRepoModal';
 import ActivityRow from './ActivityRow';
 import DailyCardSection from './DailyCardSection';
+import YearInCodeHeatmap from './YearInCodeHeatmap';
 import { bucketize } from './prBuckets';
 import { getCached, setCached } from './dataCache';
 
@@ -448,15 +449,7 @@ function HomePage({ onSelectRepo, onGoToMyPrs, onOpenTeam, onGoToTeams }: Props)
               </div>
               <span className="home-year-card__badge">Last 12 months</span>
             </div>
-            {profile && (
-              <div className="home-year-chart-scroll">
-                <img
-                  src={`https://ghchart.rshah.org/${profile.login}`}
-                  alt={`${profile.login}'s contribution graph`}
-                  className="home-year-chart"
-                />
-              </div>
-            )}
+            {profile && <YearInCodeHeatmap login={profile.login} />}
           </div>
           <DailyCardSection />
         </div>

@@ -413,6 +413,25 @@ export type UserProfileDto = {
   hasSponsors: boolean;
 };
 
+/** One day in the rolling-12-months contribution heatmap. */
+export type ContributionDayDto = {
+  /** ISO yyyy-MM-dd. */
+  date: string;
+  contributionCount: number;
+  /** GitHub-supplied palette hex (e.g. #ebedf0 .. #216e39). */
+  color: string;
+};
+
+/** One column (week) in the contribution heatmap. */
+export type ContributionWeekDto = {
+  days: ContributionDayDto[];
+};
+
+export type ContributionCalendarDto = {
+  totalContributions: number;
+  weeks: ContributionWeekDto[];
+};
+
 export type IssueDto = {
   id: number;
   number: number;
@@ -890,6 +909,8 @@ export type Bridge = {
   addWatchedRepo: (owner: string, repo: string) => Promise<WatchedRepoDto>;
   removeWatchedRepo: (owner: string, repo: string) => Promise<void>;
   getUserProfile: () => Promise<UserProfileDto>;
+  /** Last-12-months contribution heatmap for the home-page card. */
+  getContributionCalendar: (login: string) => Promise<ContributionCalendarDto>;
   getRepoPulls: (owner: string, repo: string) => Promise<PullRequestDto[]>;
   /** Single-PR fetch — used by the deep-link fallback when a PR isn't in
    *  the (capped) repo list response. */

@@ -13,6 +13,7 @@
  */
 package com.bytequay.app.repository.github;
 
+import com.bytequay.app.domain.ContributionCalendar;
 import com.bytequay.app.domain.CreatePullRequestCommand;
 import com.bytequay.app.domain.CreateReviewCommand;
 import com.bytequay.app.domain.DiffFile;
@@ -65,6 +66,7 @@ import org.springframework.web.util.UriBuilder;
 import java.net.URI;
 import java.nio.charset.StandardCharsets;
 import java.time.Instant;
+import java.time.LocalDate;
 import java.util.Base64;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -1742,6 +1744,85 @@ public class GitHubClient
                 response.email(),
                 false);
     }
+
+    @Override
+    public ContributionCalendar fetchContributionCalendar(String pat, String login)
+    {
+        // contributionsCollection without from/to defaults to the trailing
+        // 12 months — exactly what the home-page card claims in its
+        // "Last 12 months" badge. The {color} field comes back as
+        // GitHub's own palette hex, so the UI inherits whatever palette
+        // GitHub ships without us having to bucket counts client-side.
+        String query = "query($login: String!) {"
+                + "  user(login: $login) {"
+                + "    contributionsCollection {"
+                + "      contributionCalendar {"
+                + "        totalContributions"
+                + "        weeks {"
+                + "          contributionDays { date contributionCount color }"
+                + "        }"
+                + "      }"
+                + "    }"
+                + "  }"
+                + "}";
+        Map<String, Object> body = ImmutableMap.of(
+                "query", query,
+                "variables", ImmutableMap.of("login", login));
+        try {
+            ContributionGqlResponse response = graphqlRestClient.post()
+                    .header("Authorization", "Bearer " + pat)
+                    .body(body)
+                    .retrieve()
+                    .body(ContributionGqlResponse.class);
+            if (response == null
+                    || response.data() == null
+                    || response.data().user() == null
+                    || response.data().user().contributionsCollection() == null
+                    || response.data().user().contributionsCollection().contributionCalendar() == null) {
+                return new ContributionCalendar(0, ImmutableList.of());
+            }
+            ContributionGqlCalendar cal = response.data().user().contributionsCollection().contributionCalendar();
+            List<ContributionGqlWeek> rawWeeks = cal.weeks() != null ? cal.weeks() : ImmutableList.of();
+            List<ContributionCalendar.Week> weeks = rawWeeks.stream()
+                    .map(w -> new ContributionCalendar.Week(
+                            (w.contributionDays() == null ? ImmutableList.<ContributionGqlDay>of() : w.contributionDays())
+                                    .stream()
+                                    .map(d -> new ContributionCalendar.Day(
+                                            LocalDate.parse(d.date()),
+                                            d.contributionCount() == null ? 0 : d.contributionCount(),
+                                            d.color()))
+                                    .collect(toImmutableList())))
+                    .collect(toImmutableList());
+            int total = cal.totalContributions() == null ? 0 : cal.totalContributions();
+            return new ContributionCalendar(total, weeks);
+        }
+        catch (RestClientResponseException e) {
+            // Non-essential affordance — degrade silently rather than
+            // failing the whole home page on a flaky GraphQL hop.
+            return new ContributionCalendar(0, ImmutableList.of());
+        }
+    }
+
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    record ContributionGqlResponse(ContributionGqlData data) {}
+
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    record ContributionGqlData(ContributionGqlUser user) {}
+
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    record ContributionGqlUser(ContributionGqlCollection contributionsCollection) {}
+
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    record ContributionGqlCollection(ContributionGqlCalendar contributionCalendar) {}
+
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    record ContributionGqlCalendar(Integer totalContributions, List<ContributionGqlWeek> weeks) {}
+
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    record ContributionGqlWeek(List<ContributionGqlDay> contributionDays) {}
+
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    record ContributionGqlDay(String date, Integer contributionCount, String color) {}
 
     @Override
     public List<UserRepo> fetchUserRepos(String pat)

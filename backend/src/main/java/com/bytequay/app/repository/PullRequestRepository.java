@@ -523,6 +523,17 @@ public interface PullRequestRepository
     }
 
     /**
+     * Posts a new comment on an issue and returns the GitHub-side
+     * payload as a normalised {@link IssueDetail.Comment} so the
+     * caller can append it directly to its rendered timeline.
+     * Maps to: POST /repos/{owner}/{repo}/issues/{number}/comments
+     */
+    default IssueDetail.Comment postIssueComment(String pat, RepoRef repo, int number, String body)
+    {
+        throw new UnsupportedOperationException("postIssueComment not implemented");
+    }
+
+    /**
      * Fetches repo-level metadata (description, stars, license, topics,
      * language byte-counts, etc). Combines GitHub's
      * {@code /repos/{owner}/{repo}} and {@code /repos/{owner}/{repo}/languages}

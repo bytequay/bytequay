@@ -12,7 +12,7 @@
  * limitations under the License.
  */
 import { useEffect, useState } from 'react';
-import type { IssueDetailDto } from './types';
+import type { IssueCommentDto, IssueDetailDto } from './types';
 import Avatar from './Avatar';
 import LogoLoading from './LogoLoading';
 import { renderMarkdown } from './markdown';
@@ -133,6 +133,15 @@ function IssueDetailScreen({ owner, repo, number, onBack, embedded }: Props) {
               body={c.body}
             />
           ))}
+          <ReplyComposer
+            owner={owner}
+            repo={repo}
+            number={detail.number}
+            onPosted={(newComment) =>
+              setDetail((prev) => prev
+                ? { ...prev, comments: [...prev.comments, newComment] }
+                : prev)}
+          />
         </div>
 
         <aside className="issue-detail__rail">
@@ -240,6 +249,80 @@ function CommentCard({
         dangerouslySetInnerHTML={{ __html: renderMarkdown(safeBody) }}
       />
     </article>
+  );
+}
+
+/** Bottom-of-conversation reply box. Optimistically appends the new
+ *  comment via {@code onPosted} on success and clears the textarea;
+ *  surfaces network/GitHub errors inline (rate-limit, validation,
+ *  permissions) without dropping what the user typed. */
+function ReplyComposer({
+  owner,
+  repo,
+  number,
+  onPosted,
+}: {
+  owner: string;
+  repo: string;
+  number: number;
+  onPosted: (comment: IssueCommentDto) => void;
+}) {
+  const [body, setBody] = useState('');
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const submit = async (): Promise<void> => {
+    if (submitting) return;
+    if (body.trim().length === 0) return;
+    setSubmitting(true);
+    setError(null);
+    try {
+      const comment = await window.bridge.createIssueComment(owner, repo, number, body);
+      onPosted(comment);
+      setBody('');
+    }
+    catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    }
+    finally {
+      setSubmitting(false);
+    }
+  };
+
+  const canSubmit = !submitting && body.trim().length > 0;
+
+  return (
+    <div className="issue-detail__composer">
+      <div className="issue-detail__composer-head">Reply</div>
+      <textarea
+        className="issue-detail__composer-input"
+        value={body}
+        onChange={(e) => setBody(e.target.value)}
+        placeholder="Leave a comment…"
+        rows={4}
+        disabled={submitting}
+        onKeyDown={(e) => {
+          // Cmd/Ctrl + Enter posts — matches GitHub's keyboard shortcut
+          // for issue comments.
+          if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
+            e.preventDefault();
+            void submit();
+          }
+        }}
+      />
+      {error && <div className="issue-detail__composer-error">{error}</div>}
+      <div className="issue-detail__composer-actions">
+        <span className="issue-detail__composer-hint">⌘/Ctrl ↵ to send</span>
+        <button
+          type="button"
+          className="button button--primary button--sm"
+          onClick={() => { void submit(); }}
+          disabled={!canSubmit}
+        >
+          {submitting ? 'Posting…' : 'Comment'}
+        </button>
+      </div>
+    </div>
   );
 }
 

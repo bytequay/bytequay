@@ -285,6 +285,19 @@ public class RepoService
     }
 
     /**
+     * Posts a comment on an issue. Returns the GitHub-side payload
+     * normalised to {@link IssueDetail.Comment} so the UI can append
+     * the row directly without a refetch.
+     */
+    public IssueDetail.Comment createIssueComment(String pat, String owner, String repo, int number, String body)
+    {
+        if (body == null || body.isBlank()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "Comment body must not be blank");
+        }
+        return gitHub.postIssueComment(pat, RepoRef.of(owner, repo), number, body);
+    }
+
+    /**
      * Returns the cached {@link RepoMeta} for one repo. Stale-while-
      * revalidate: a row that's at most one hour old AND complete is
      * returned immediately; an older row is returned immediately and a

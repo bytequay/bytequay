@@ -168,6 +168,25 @@ public class RepoController
     }
 
     /**
+     * Posts a comment on one issue. Returns the new comment so the
+     * in-app issue page can append it without a refetch round-trip.
+     * POST /api/repos/{owner}/{repo}/issues/{number}/comments  body:{body}
+     */
+    @PostMapping("/repos/{owner}/{repo}/issues/{number}/comments")
+    public IssueDetail.Comment createIssueComment(
+            @PathVariable String owner,
+            @PathVariable String repo,
+            @PathVariable int number,
+            @RequestBody IssueCommentRequest request)
+    {
+        return repoService.createIssueComment(
+                patResolver.resolve(owner + "/" + repo), owner, repo, number, request.body());
+    }
+
+    /** POST body shape for {@link #createIssueComment}. */
+    public record IssueCommentRequest(String body) {}
+
+    /**
      * Repo-level metadata: description, stars, forks, watchers, license,
      * topics, languages map. Powers the right-pane hero / About /
      * language bar on the repo detail page.

@@ -352,6 +352,11 @@ const bridge: Bridge = {
     ipcRenderer.on('inapp:nav-state', listener);
     return () => ipcRenderer.removeListener('inapp:nav-state', listener);
   },
+  onFullScreenChange: (callback: (payload: { isFullScreen: boolean }) => void) => {
+    const listener = (_event: unknown, payload: { isFullScreen: boolean }) => callback(payload);
+    ipcRenderer.on('window:fullscreen-state', listener);
+    return () => ipcRenderer.removeListener('window:fullscreen-state', listener);
+  },
   getSlackAuthorizeUrl: (): Promise<{ configured: boolean; url?: string }> =>
     ipcRenderer.invoke('slack:authorizeUrl'),
   getSlackConnection: (): Promise<SlackConnectionDto> =>

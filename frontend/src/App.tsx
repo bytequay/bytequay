@@ -46,11 +46,45 @@ type Nav =
 type GlobalTopbarProps = {
   nav: Nav;
   onNav: (nav: Nav) => void;
+  /** True while the main window is in macOS native fullscreen — the
+   *  inset traffic lights vanish in that state, so we draw a small
+   *  brand mark in the otherwise-empty 78px reserve. */
+  fullScreen: boolean;
 };
 
-function GlobalTopbar({ nav, onNav }: GlobalTopbarProps) {
+/**
+ * Static, animation-free version of the LogoOnboarding mark, sized
+ * for the topbar. Lives here rather than in its own component because
+ * the topbar is the only consumer and the SVG is small enough that a
+ * separate file would be more friction than reuse.
+ */
+function TopbarBrandMark({ size = 22 }: { size?: number }) {
   return (
-    <div className="global-topbar">
+    <svg
+      xmlns="http://www.w3.org/2000/svg"
+      viewBox="0 0 100 100"
+      width={size}
+      height={size}
+      role="img"
+      aria-label="ByteQuay"
+    >
+      <rect x="15" y="15" width="70" height="70" rx="12" fill="#7C3AED" />
+      <path d="M 15 68 Q 30 62 42 68 T 70 68 L 85 68 L 85 85 L 15 85 Z" fill="#8B5CF6" />
+      <line x1="32" y1="28" x2="42" y2="52" stroke="#FFFFFF" strokeWidth="3.5" strokeLinecap="round" />
+      <line x1="45" y1="28" x2="55" y2="52" stroke="#FFFFFF" strokeWidth="3.5" strokeLinecap="round" opacity="0.7" />
+      <line x1="58" y1="28" x2="68" y2="52" stroke="#FFFFFF" strokeWidth="3.5" strokeLinecap="round" />
+    </svg>
+  );
+}
+
+function GlobalTopbar({ nav, onNav, fullScreen }: GlobalTopbarProps) {
+  return (
+    <div className={`global-topbar${fullScreen ? ' global-topbar--fullscreen' : ''}`}>
+      {fullScreen && (
+        <div className="global-topbar__mark" aria-hidden="true">
+          <TopbarBrandMark />
+        </div>
+      )}
       <div className="global-topbar__left">
         <button
           className="global-topbar__brand global-topbar__brand--btn"
@@ -179,6 +213,7 @@ function App() {
   // main process whenever a link is clicked in the React UI; cleared by
   // the × button on the InAppBrowser toolbar.
   const [inAppUrl, setInAppUrl] = useState<string | null>(null);
+  const [fullScreen, setFullScreen] = useState<boolean>(false);
 
   useEffect(() => {
     applyTheme(loadTheme());
@@ -186,6 +221,11 @@ function App() {
 
   useEffect(() => {
     const unsub = window.bridge.onInAppOpenRequest(({ url }) => setInAppUrl(url));
+    return unsub;
+  }, []);
+
+  useEffect(() => {
+    const unsub = window.bridge.onFullScreenChange(({ isFullScreen }) => setFullScreen(isFullScreen));
     return unsub;
   }, []);
 
@@ -238,7 +278,7 @@ function App() {
   // Ready: global app shell with persistent topbar
   return (
     <div className="app-shell">
-      <GlobalTopbar nav={nav} onNav={setNav} />
+      <GlobalTopbar nav={nav} onNav={setNav} fullScreen={fullScreen} />
       <div className="app-content">
         <RouteErrorBoundary
           resetKey={JSON.stringify(nav)}

@@ -317,6 +317,22 @@ const createWindow = async () => {
     mainWindow = null;
   });
 
+  // Fullscreen state → renderer. When macOS native fullscreen hides
+  // the inset traffic lights, the topbar's 78px reserve looks like an
+  // empty gap; the renderer fills it with a brand mark only while
+  // fullscreen. We push state on transition (and on did-finish-load
+  // below) so the React state stays in sync with the OS window.
+  const sendFullScreenState = (isFullScreen: boolean) => {
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send('window:fullscreen-state', { isFullScreen });
+    }
+  };
+  mainWindow.on('enter-full-screen', () => sendFullScreenState(true));
+  mainWindow.on('leave-full-screen', () => sendFullScreenState(false));
+  mainWindow.webContents.on('did-finish-load', () => {
+    if (mainWindow) sendFullScreenState(mainWindow.isFullScreen());
+  });
+
   // Route every external link into the in-app browser overlay rather
   // than letting Electron spawn a child window or replace the main
   // window's React UI. The renderer subscribes to `inapp:open-request`

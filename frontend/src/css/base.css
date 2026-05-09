@@ -342,6 +342,27 @@ pre {
   background: var(--bg-elevated);
   -webkit-app-region: drag;
   user-select: none;
+  /* `position: relative` anchors the absolutely-positioned brand mark
+     (rendered only in fullscreen) into the 78px traffic-light reserve. */
+  position: relative;
+}
+
+/* Brand mark fills the 78px traffic-light reserve when the window is
+   in macOS native fullscreen and the inset lights are hidden — without
+   it, "ByteQuay" floats with an empty gap on its left. Absolutely
+   positioned (rather than inserted at the start of __left) so the
+   wordmark stays at its current x — only the previously-empty zone is
+   filled. */
+.global-topbar__mark {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  left: 0;
+  width: 78px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  pointer-events: none;
 }
 
 /* Restore pointer interactions for any clickable element inside the

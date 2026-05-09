@@ -1239,6 +1239,10 @@ export type Bridge = {
   /** Push of the in-app browser's current nav state (URL + title +
    *  back/forward + loading) for the toolbar to render against. */
   onInAppNavState: (callback: (s: InAppNavState) => void) => () => void;
+  /** Fires whenever the main window enters/leaves macOS native
+   *  fullscreen so the renderer can fill the now-vacant traffic-light
+   *  reserve with a brand mark. */
+  onFullScreenChange: (callback: (payload: { isFullScreen: boolean }) => void) => () => void;
 };
 
 export type InAppNavState = {

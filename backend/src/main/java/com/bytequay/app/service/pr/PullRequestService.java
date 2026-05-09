@@ -43,6 +43,7 @@ import com.bytequay.app.repository.PrViewStateStore;
 import com.bytequay.app.repository.PullRequestRepository;
 import com.bytequay.app.repository.PullRequestStore;
 import com.bytequay.app.service.CredentialService;
+import com.bytequay.app.service.RepoListCache;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
@@ -102,6 +103,7 @@ public class PullRequestService
     private final CredentialService credentialService;
     private final GitHubResponseCache responseCache;
     private final PullRequestDetailInvalidator detailInvalidator;
+    private final RepoListCache repoListCache;
     private final Executor executor;
     private final Executor ioExecutor;
 
@@ -114,6 +116,7 @@ public class PullRequestService
             CredentialService credentialService,
             GitHubResponseCache responseCache,
             PullRequestDetailInvalidator detailInvalidator,
+            RepoListCache repoListCache,
             @Qualifier(APPLICATION_EXECUTOR) Executor executor,
             @Qualifier(IO_EXECUTOR) Executor ioExecutor)
     {
@@ -125,6 +128,7 @@ public class PullRequestService
         this.credentialService = requireNonNull(credentialService, "credentialService is null");
         this.responseCache = requireNonNull(responseCache, "responseCache is null");
         this.detailInvalidator = requireNonNull(detailInvalidator, "detailInvalidator is null");
+        this.repoListCache = requireNonNull(repoListCache, "repoListCache is null");
         this.executor = requireNonNull(executor, "executor is null");
         this.ioExecutor = requireNonNull(ioExecutor, "ioExecutor is null");
     }
@@ -268,6 +272,7 @@ public class PullRequestService
     {
         gitHub.setPullRequestDraft(pat, parseRef(repo, number), draft);
         invalidatePullRequestDetail(repo, number);
+        repoListCache.invalidatePulls(parseRepoRef(repo));
     }
 
     /**
@@ -404,6 +409,7 @@ public class PullRequestService
             gitHub.updatePullRequest(pat, ref, UpdatePullRequestCommand.close());
             viewStateStore.markReviewed(prId, HandledAction.DISMISSED);
             invalidatePullRequestDetail(repo, number);
+            repoListCache.invalidatePulls(parseRepoRef(repo));
         }
     }
 
@@ -726,6 +732,7 @@ public class PullRequestService
                 parseRef(repo, number),
                 new RequestReviewersCommand(ImmutableList.of(reviewer.trim()), ImmutableList.of()));
         invalidatePullRequestDetail(repo, number);
+        repoListCache.invalidatePulls(parseRepoRef(repo));
     }
 
     /** Removes one user from the PR's requested reviewers. */
@@ -737,6 +744,7 @@ public class PullRequestService
                 parseRef(repo, number),
                 new RequestReviewersCommand(ImmutableList.of(reviewer.trim()), ImmutableList.of()));
         invalidatePullRequestDetail(repo, number);
+        repoListCache.invalidatePulls(parseRepoRef(repo));
     }
 
     /**
@@ -831,6 +839,7 @@ public class PullRequestService
         // conversation immediately. Without this the user waits for the
         // next background sync (~2 min) to see their own approval land.
         invalidatePullRequestDetail(repo, number);
+        repoListCache.invalidatePulls(parseRepoRef(repo));
     }
 
     /**
@@ -850,6 +859,7 @@ public class PullRequestService
         // immediately, instead of waiting for the next background sync
         // (~2 min) to refresh the cached StoredPrDetail.
         invalidatePullRequestDetail(repo, number);
+        repoListCache.invalidatePulls(parseRepoRef(repo));
         return result;
     }
 

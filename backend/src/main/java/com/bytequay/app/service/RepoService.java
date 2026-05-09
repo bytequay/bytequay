@@ -58,6 +58,7 @@ public class RepoService
     private final WatchedRepoStore watchedRepoStore;
     private final PullRequestRepository gitHub;
     private final PrViewStateStore viewStateStore;
+    private final RepoListCache repoListCache;
 
     private volatile CachedValue<UserProfile> cachedProfile;
     private volatile CachedValue<List<RecentEvent>> cachedRecentEvents;
@@ -66,11 +67,13 @@ public class RepoService
     public RepoService(
             WatchedRepoStore watchedRepoStore,
             PullRequestRepository gitHub,
-            PrViewStateStore viewStateStore)
+            PrViewStateStore viewStateStore,
+            RepoListCache repoListCache)
     {
         this.watchedRepoStore = requireNonNull(watchedRepoStore, "watchedRepoStore is null");
         this.gitHub = requireNonNull(gitHub, "gitHub is null");
         this.viewStateStore = requireNonNull(viewStateStore, "viewStateStore is null");
+        this.repoListCache = requireNonNull(repoListCache, "repoListCache is null");
     }
 
     public List<WatchedRepo> listWatchedRepos()
@@ -135,9 +138,14 @@ public class RepoService
 
     public List<PullRequest> getRepoPullRequests(String pat, String owner, String repo)
     {
-        List<PullRequest> fresh = gitHub.listPullRequests(pat, RepoRef.of(owner, repo), ListPullRequestsQuery.openPullRequests());
+        RepoRef ref = RepoRef.of(owner, repo);
+        // Cache the GitHub-derived list, but overlay viewState on every
+        // read — that way "Mark handled" / snooze clicks reflect
+        // immediately, without waiting for the 2-min TTL to expire.
+        List<PullRequest> base = repoListCache.getPulls(ref,
+                () -> gitHub.listPullRequests(pat, ref, ListPullRequestsQuery.openPullRequests()));
         Map<Long, PrViewState> stateByPrId = viewStateStore.findAll();
-        return fresh.stream()
+        return base.stream()
                 .map(pr -> overlayViewState(pr, stateByPrId.get(pr.id())))
                 .collect(toImmutableList());
     }
@@ -195,17 +203,20 @@ public class RepoService
 
     public List<RepoIssue> getRepoIssues(String pat, String owner, String repo)
     {
-        return gitHub.fetchRepoIssues(pat, RepoRef.of(owner, repo));
+        RepoRef ref = RepoRef.of(owner, repo);
+        return repoListCache.getIssues(ref, () -> gitHub.fetchRepoIssues(pat, ref));
     }
 
     public RepoMeta getRepoMeta(String pat, String owner, String repo)
     {
-        return gitHub.fetchRepoMeta(pat, RepoRef.of(owner, repo));
+        RepoRef ref = RepoRef.of(owner, repo);
+        return repoListCache.getMeta(ref, () -> gitHub.fetchRepoMeta(pat, ref));
     }
 
     public List<RepoActivityItem> getRepoActivity(String pat, String owner, String repo)
     {
-        return gitHub.fetchRepoActivity(pat, RepoRef.of(owner, repo));
+        RepoRef ref = RepoRef.of(owner, repo);
+        return repoListCache.getActivity(ref, () -> gitHub.fetchRepoActivity(pat, ref));
     }
 
     public List<UserRepo> getUserRepos(String pat)

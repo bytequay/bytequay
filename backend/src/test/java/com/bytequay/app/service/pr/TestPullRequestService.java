@@ -35,6 +35,7 @@ import com.bytequay.app.repository.PrViewStateStore;
 import com.bytequay.app.repository.PullRequestRepository;
 import com.bytequay.app.repository.PullRequestStore;
 import com.bytequay.app.service.CredentialService;
+import com.bytequay.app.service.RepoListCache;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
 import org.junit.jupiter.api.Test;
@@ -97,6 +98,9 @@ class TestPullRequestService
 
     @Mock
     private PullRequestDetailInvalidator detailInvalidator;
+
+    @Mock
+    private RepoListCache repoListCache;
 
     @SuppressWarnings("UnusedVariable")
     @Mock
@@ -492,6 +496,7 @@ class TestPullRequestService
         verify(viewStateStore, never()).markReviewed(anyLong(), any());
         verifyNoInteractions(responseCache);
         verifyNoInteractions(detailInvalidator);
+        verifyNoInteractions(repoListCache);
     }
 
     @Test
@@ -503,6 +508,7 @@ class TestPullRequestService
         verify(gitHub).updatePullRequest(eq("pat"), any(PullRequestRef.class), any(UpdatePullRequestCommand.class));
         verify(viewStateStore).markReviewed(99L, HandledAction.DISMISSED);
         verify(detailInvalidator).invalidate("owner/repo", 7);
+        verify(repoListCache).invalidatePulls(RepoRef.of("owner", "repo"));
     }
 
     @Test
@@ -514,6 +520,7 @@ class TestPullRequestService
         verify(gitHub).updatePullRequest(eq("pat"), any(PullRequestRef.class), any(UpdatePullRequestCommand.class));
         verify(viewStateStore).markReviewed(99L, HandledAction.DISMISSED);
         verify(detailInvalidator).invalidate("owner/repo", 7);
+        verify(repoListCache).invalidatePulls(RepoRef.of("owner", "repo"));
     }
 
     @Test
@@ -536,6 +543,7 @@ class TestPullRequestService
 
         verify(gitHub).setPullRequestDraft(eq("pat"), eq(PullRequestRef.of("owner", "repo", 7)), eq(true));
         verify(detailInvalidator).invalidate("owner/repo", 7);
+        verify(repoListCache).invalidatePulls(RepoRef.of("owner", "repo"));
     }
 
     @Test
@@ -545,6 +553,7 @@ class TestPullRequestService
 
         verify(gitHub).requestReviewers(eq("pat"), eq(PullRequestRef.of("owner", "repo", 7)), any());
         verify(detailInvalidator).invalidate("owner/repo", 7);
+        verify(repoListCache).invalidatePulls(RepoRef.of("owner", "repo"));
     }
 
     @Test
@@ -554,6 +563,7 @@ class TestPullRequestService
 
         verify(gitHub).removeRequestedReviewers(eq("pat"), eq(PullRequestRef.of("owner", "repo", 7)), any());
         verify(detailInvalidator).invalidate("owner/repo", 7);
+        verify(repoListCache).invalidatePulls(RepoRef.of("owner", "repo"));
     }
 
     @Test
@@ -603,6 +613,7 @@ class TestPullRequestService
         verify(gitHub).createReview(eq("pat"), any(PullRequestRef.class), any());
         verify(viewStateStore).markReviewed(99L, HandledAction.APPROVED);
         verify(detailInvalidator).invalidate("owner/repo", 7);
+        verify(repoListCache).invalidatePulls(RepoRef.of("owner", "repo"));
     }
 
     @Test
@@ -625,6 +636,7 @@ class TestPullRequestService
         assertThat(matcher.captured.mergeMethod()).isEqualTo("rebase");
         verify(viewStateStore).markReviewed(99L, HandledAction.MERGED);
         verify(detailInvalidator).invalidate("owner/repo", 7);
+        verify(repoListCache).invalidatePulls(RepoRef.of("owner", "repo"));
     }
 
     @Test

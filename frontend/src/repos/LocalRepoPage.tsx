@@ -13,6 +13,7 @@
  */
 import { Fragment, useEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type MouseEvent as ReactMouseEvent } from 'react';
 import type { LocalActivityEntryDto, LocalBranchDto, LocalCommitDetailDto, LocalCommitDto, LocalCommitFileDto, LocalFileDiffDto, LocalMergeBaseDto, LocalRepoStatusDto } from '../types';
+import Avatar from '../Avatar';
 import LogoLoading from '../LogoLoading';
 import { formatRelativeTime } from '../pr/utils';
 import { DiffFileTreePane } from '../diff/DiffFileTreePane';
@@ -1441,11 +1442,9 @@ function CommitRow({
         }
       }}
     >
-      <span
-        className="commit-row__author-dot"
-        style={{ background: authorColor(commit.authorEmail || commit.authorName) }}
-        title={commit.authorName}
-        aria-hidden="true"
+      <CommitAuthorAvatar
+        name={commit.authorName}
+        email={commit.authorEmail}
       />
       <div className="commit-row__main">
         <div className="commit-row__subject">{commit.subject}</div>
@@ -1478,28 +1477,60 @@ function CommitRow({
   );
 }
 
-/** Stable hash → 8-color palette for the author dot. We don't have
- *  GitHub user data on local commits (just author name + email from
- *  git's own ident), so a deterministic per-author tint gives the
- *  user a quick "same person again" cue without an avatar fetch. */
+/** GitHub's no-reply commit emails encode the author's login. Two
+ *  formats in the wild:
+ *    12345+username@users.noreply.github.com  (post-2017 default)
+ *    username@users.noreply.github.com         (legacy "private email")
+ *  Returns the login when the address matches, null otherwise. */
+function gitHubLoginFromEmail(email: string | null | undefined): string | null {
+  if (!email) return null;
+  const m = /^(?:\d+\+)?([^@]+)@users\.noreply\.github\.com$/.exec(email);
+  return m ? m[1] : null;
+}
+
+/** Stable hash → 8-color palette for the per-author tint when we
+ *  can't resolve a GitHub avatar. Same idea as the old author-dot:
+ *  give the user a "same person again" cue at a glance. */
 function authorColor(key: string): string {
-  // 8-color palette tuned for both light and dark themes — moderate
-  // saturation, ~50% lightness so the dot reads against either bg.
   const PALETTE = [
-    '#1f6a57', // accent green
-    '#cf6900', // amber
-    '#1f6feb', // blue
-    '#8a5cf5', // purple
-    '#cf222e', // red
-    '#1a7f37', // forest
-    '#996600', // mustard
-    '#0e8c8c', // teal
+    '#1f6a57', '#cf6900', '#1f6feb', '#8a5cf5',
+    '#cf222e', '#1a7f37', '#996600', '#0e8c8c',
   ];
   let h = 0;
   for (let i = 0; i < key.length; i++) {
     h = ((h << 5) - h + key.charCodeAt(i)) | 0;
   }
   return PALETTE[Math.abs(h) % PALETTE.length];
+}
+
+/** Avatar slot for a local commit row. When the author's email is a
+ *  GitHub no-reply address we know the login and can use the real
+ *  GitHub avatar (cheap CDN hit, cached by the renderer). Otherwise
+ *  we fall back to a tinted-initial circle keyed by the author's
+ *  ident — same per-author cue the colored dot used to give. */
+function CommitAuthorAvatar({ name, email }: { name: string; email: string | null | undefined }) {
+  const login = gitHubLoginFromEmail(email);
+  if (login) {
+    return <Avatar login={login} size={20} className="commit-row__avatar" />;
+  }
+  const initial = (name?.trim().charAt(0) || '?').toUpperCase();
+  return (
+    <span
+      className="commit-row__avatar avatar avatar--fallback"
+      style={{
+        width: 20,
+        height: 20,
+        fontSize: 10,
+        background: authorColor(email || name),
+        color: '#fff',
+      }}
+      aria-label={name}
+      title={name}
+      role="img"
+    >
+      {initial}
+    </span>
+  );
 }
 
 function CommitsSelectionSummary({

@@ -841,16 +841,13 @@
 .commit-row:last-child {
   border-bottom: none;
 }
-/* Author dot — stable per-author tint (see authorColor() in
-   LocalRepoPage.tsx) so "same person again" reads at a glance
-   without an avatar fetch. Sits where the SHA chip used to be. */
-.commit-row__author-dot {
+/* Author avatar — real GitHub avatar when the no-reply email gives
+   us a login, otherwise a tinted-initial circle (see authorColor()
+   in LocalRepoPage.tsx) so "same person again" still reads at a
+   glance. Sits where the SHA chip used to be. */
+.commit-row__avatar {
   flex: 0 0 auto;
-  width: 10px;
-  height: 10px;
-  border-radius: 50%;
-  margin-top: 5px;
-  box-shadow: 0 0 0 2px var(--bg-card);
+  margin-top: 1px;
 }
 .commit-row__main {
   flex: 1 1 auto;

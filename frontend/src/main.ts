@@ -907,7 +907,10 @@ const url = new URL(`${BACKEND_BASE}/prs/comment`);
 
   ipcMain.handle('repos:profile', async () => {
     const res = await fetch(`${BACKEND_BASE}/api/profile`);
-    if (!res.ok) throw new Error(`backend /api/profile returned ${res.status}`);
+    if (!res.ok) {
+      const body = await res.text().catch(() => '');
+      throw new Error(`backend /api/profile returned ${res.status}: ${body}`);
+    }
     return res.json();
   });
 
@@ -923,7 +926,10 @@ const url = new URL(`${BACKEND_BASE}/prs/comment`);
     const res = await fetch(
       `${BACKEND_BASE}/api/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/pulls`,
     );
-    if (!res.ok) throw new Error(`backend repo pulls returned ${res.status}`);
+    if (!res.ok) {
+      const body = await res.text().catch(() => '');
+      throw new Error(`backend repo pulls returned ${res.status}: ${body}`);
+    }
     return res.json();
   });
 
@@ -942,7 +948,10 @@ const url = new URL(`${BACKEND_BASE}/prs/comment`);
     const res = await fetch(
       `${BACKEND_BASE}/api/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/issues`,
     );
-    if (!res.ok) throw new Error(`backend repo issues returned ${res.status}`);
+    if (!res.ok) {
+      const body = await res.text().catch(() => '');
+      throw new Error(`backend repo issues returned ${res.status}: ${body}`);
+    }
     return res.json();
   });
 

@@ -1781,7 +1781,7 @@ h3 {
      siblings; we just need a hair of room between this band and the
      page header above. */
   margin: 4px 0 0;
-  padding: 12px 14px 14px;
+  padding: 8px 14px 10px;
   background: var(--bg-elevated);
   border: 1px solid var(--border);
   border-left: 3px solid #cf222e;
@@ -1791,7 +1791,7 @@ h3 {
   display: flex;
   align-items: center;
   gap: 10px;
-  margin-bottom: 10px;
+  margin-bottom: 6px;
 }
 .focus-band__title {
   font-size: 13px;
@@ -1824,8 +1824,30 @@ h3 {
 }
 .focus-band__row {
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  /* Wider min-track so the urgent band reads as a short, scannable
+     row of compact rows rather than a 4-5 column grid of squat cards.
+     Pairs with the .focus-band__row .kpr-card overrides below to give
+     each card more horizontal breathing room and less vertical bulk. */
+  grid-template-columns: repeat(auto-fill, minmax(380px, 1fr));
   gap: 10px;
+}
+
+/* Focus-band-only card overrides. The same KanbanPrCard renders in
+   kanban columns (where the existing 2-line title + wrapping meta is
+   the right call) and on the Snoozed page; both surfaces are
+   untouched. Here in the band the cards sit shoulder-to-shoulder, so
+   we trade vertical chrome for horizontal density: tighter padding,
+   smaller inter-row gap, and a single-line title + meta line. */
+.focus-band__row .kpr-card {
+  padding: 8px 12px;
+  gap: 4px;
+}
+.focus-band__row .kpr-card__title {
+  -webkit-line-clamp: 1;
+}
+.focus-band__row .kpr-card__meta {
+  flex-wrap: nowrap;
+  overflow: hidden;
 }
 
 /* "+ N more" tile that takes one card slot at the end of the band

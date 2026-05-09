@@ -720,7 +720,11 @@
   width: 100%;
   height: auto;
   border-radius: 4px;
-  image-rendering: -webkit-optimize-contrast;
+  /* The upstream SVG ships without a viewBox, so Chromium rasterizes it
+     at its intrinsic 663x104 once and bitmap-scales from there when the
+     card grows. Force nearest-neighbour upscaling so the heatmap cells
+     stay crisp at fullscreen instead of softening into a blur. */
+  image-rendering: pixelated;
 }
 
 /* Daily card on the home page — one curated quote / tip per day, sits

@@ -21,7 +21,6 @@ import SlackPage from './slack/SlackPage';
 import type { SettingsSection } from './settings/types';
 import PullRequestList from './PullRequestList';
 import HomePage from './HomePage';
-import RepoDetailPage from './RepoDetailPage';
 import ReposPage from './repos/ReposPage';
 import RepositoryPage from './repos/RepositoryPage';
 import LocalRepoPage from './repos/LocalRepoPage';
@@ -132,14 +131,6 @@ function GlobalTopbar({ nav, onNav, fullScreen }: GlobalTopbarProps) {
         >
           <GithubMark />
         </a>
-        {nav.view === 'repo' && (
-          <button
-            className="global-topbar__breadcrumb"
-            onClick={() => onNav({ view: 'home' })}
-          >
-            ← {nav.owner}/{nav.repo}
-          </button>
-        )}
         {/* Portal target: child screens (e.g. PullRequestList) mount
             their own context-back button here via createPortal so it
             sits next to the brand/breadcrumb without forcing the page
@@ -342,10 +333,16 @@ function App() {
           />
         )}
         {nav.view === 'repo' && (
-          <RepoDetailPage
+          <RepositoryPage
             owner={nav.owner}
             repo={nav.repo}
-            initialPrNumber={nav.prNumber}
+            initialTab="pulls"
+            deepLinkPrNumber={nav.prNumber}
+            onBack={() => setNav({ view: 'home' })}
+            backLabel="Home"
+            onOpenBranches={(owner, repo) => setNav({ view: 'local-repo', owner, repo })}
+            onOpenCommits={(owner, repo) => setNav({ view: 'local-repo', owner, repo })}
+            onSelectPr={(owner, repo, prNumber) => setNav({ view: 'repo', owner, repo, prNumber })}
             onOpenLocalBranch={(owner, repo, branch) =>
               setNav({ view: 'local-repo', owner, repo, initialBranch: branch })}
           />
@@ -368,11 +365,11 @@ function App() {
             owner={nav.owner}
             repo={nav.repo}
             onBack={() => setNav({ view: 'repos' })}
-            onOpenPrs={(owner, repo) => setNav({ view: 'repo', owner, repo })}
-            onOpenIssues={(owner, repo) => setNav({ view: 'repo', owner, repo })}
             onOpenBranches={(owner, repo) => setNav({ view: 'local-repo', owner, repo })}
             onOpenCommits={(owner, repo) => setNav({ view: 'local-repo', owner, repo })}
             onSelectPr={(owner, repo, prNumber) => setNav({ view: 'repo', owner, repo, prNumber })}
+            onOpenLocalBranch={(owner, repo, branch) =>
+              setNav({ view: 'local-repo', owner, repo, initialBranch: branch })}
           />
         )}
         {nav.view === 'local-repo' && (

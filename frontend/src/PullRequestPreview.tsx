@@ -1611,7 +1611,7 @@ function PullRequestPreview({ pr, onOpenReview, onInspectDiffs, onMarkHandled, o
             <PrCommentBox
               ref={commentBoxRef}
               pr={pr}
-              onClosed={() => { void onMarkHandled?.(pr.id).catch(() => { /* best-effort */ }); }}
+              onClosed={() => { void handleClosed(); }}
             />
           </main>
 

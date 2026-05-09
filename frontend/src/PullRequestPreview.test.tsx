@@ -469,6 +469,24 @@ describe('PullRequestPreview render smoke', () => {
     expect(container.querySelector('[aria-label="Remove critic"]')).toBeTruthy();
   });
 
+  it('uses force-refresh reconciliation after closing a pull request', async () => {
+    const bridge = await render(makeDetail());
+    bridge.refreshPullRequestDetail.mockResolvedValue(makeDetail());
+
+    const close = Array.from(container.querySelectorAll('button'))
+      .find(el => el.textContent === 'Close pull request');
+    expect(close).toBeTruthy();
+
+    await act(async () => {
+      close!.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    });
+    await act(async () => { await Promise.resolve(); });
+
+    expect(bridge.commentPr).toHaveBeenCalledWith(1, 'trinodb/trino', 42, '', true);
+    expect(bridge.refreshPullRequestDetail).toHaveBeenCalledWith('trinodb/trino', 42);
+    expect(bridge.fetchPullRequestDetail).toHaveBeenCalledTimes(1);
+  });
+
   it('keeps issue reactions optimistic without fetching stale detail', async () => {
     const bridge = await render(makeDetail());
     const chip = container.querySelector('.prc-comment-card .reaction-chip--clickable');

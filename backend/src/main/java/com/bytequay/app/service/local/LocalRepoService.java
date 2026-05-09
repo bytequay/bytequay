@@ -639,6 +639,41 @@ public class LocalRepoService
     }
 
     /**
+     * Files in the working tree that differ from HEAD — uncommitted
+     * changes (staged + unstaged + untracked). Powers the Commits
+     * tab's "Changes" mode. Returns the same shape as
+     * {@link #commitFiles(String, String, String)} so the same
+     * file-tree pane renders both, just with the working tree as
+     * the source.
+     */
+    public List<LocalCommitFile> workingTreeFiles(String owner, String repo)
+            throws IOException, InterruptedException
+    {
+        Path path = clonePathOrThrow(owner, repo);
+        return gitRunner.workingTreeFiles(path).stream()
+                // additions/deletions stay 0 — the porcelain status doesn't
+                // carry line counts and computing them per-file would
+                // require a per-file diff, which we already do lazily on
+                // selection. The Files-changed list just shows the path.
+                .map(f -> new LocalCommitFile(f.path(), f.status(), 0, 0))
+                .collect(toImmutableList());
+    }
+
+    /**
+     * Working-tree diff for one file — git diff HEAD -- path, with
+     * an untracked-file fallback. Drives the right pane of the
+     * Commits tab in Changes mode.
+     */
+    public LocalFileDiff workingTreeFileDiff(String owner, String repo, String filePath)
+            throws IOException, InterruptedException
+    {
+        Path path = clonePathOrThrow(owner, repo);
+        String patch = gitRunner.workingTreeFileDiff(path, filePath, FILE_DIFF_MAX_BYTES);
+        boolean truncated = patch.contains("(diff truncated at ");
+        return new LocalFileDiff(filePath, patch, truncated);
+    }
+
+    /**
      * Subject + body of one commit. Lazy-fetched when a commit is
      * selected in the Commits tab so the listCommits response stays
      * small. Throws on unresolvable shas instead of returning empty

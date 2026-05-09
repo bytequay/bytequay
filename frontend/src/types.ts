@@ -934,6 +934,19 @@ export type Bridge = {
   getLocalCommitDetail: (
     owner: string, repo: string, sha: string,
   ) => Promise<LocalCommitDetailDto>;
+  /** Working-tree files (uncommitted: staged + unstaged + untracked).
+   *  Powers the Commits tab's "Changes" mode. Returns the same shape
+   *  as listLocalCommitFiles so the file-tree pane renders both
+   *  uniformly. */
+  listLocalWorkingTreeFiles: (
+    owner: string, repo: string,
+  ) => Promise<LocalCommitFileDto[]>;
+  /** Working-tree diff for one file (git diff HEAD -- path, with an
+   *  untracked-file fallback). Powers the Commits tab's "Changes"
+   *  mode right pane. */
+  getLocalWorkingTreeDiff: (
+    owner: string, repo: string, path: string,
+  ) => Promise<LocalFileDiffDto>;
   /** Files touched by a single commit — middle pane of the Commits tab. */
   listLocalCommitFiles: (
     owner: string, repo: string, sha: string,

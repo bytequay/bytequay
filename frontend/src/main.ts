@@ -1231,6 +1231,32 @@ const url = new URL(`${BACKEND_BASE}/prs/comment`);
     return res.json();
   });
 
+  ipcMain.handle('repos:listLocalWorkingTreeFiles', async (
+    _event, owner: string, repo: string,
+  ) => {
+    const res = await fetch(
+      `${BACKEND_BASE}/api/repos/local/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/working-tree/files`,
+    );
+    if (!res.ok) {
+      const body = await res.text().catch(() => '');
+      throw new Error(extractMessage(body) || `working-tree status failed (${res.status})`);
+    }
+    return res.json();
+  });
+
+  ipcMain.handle('repos:getLocalWorkingTreeDiff', async (
+    _event, owner: string, repo: string, path: string,
+  ) => {
+    const res = await fetch(
+      `${BACKEND_BASE}/api/repos/local/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/working-tree/diff?path=${encodeURIComponent(path)}`,
+    );
+    if (!res.ok) {
+      const body = await res.text().catch(() => '');
+      throw new Error(extractMessage(body) || `working-tree diff fetch failed (${res.status})`);
+    }
+    return res.json();
+  });
+
   ipcMain.handle('repos:listLocalCommitFiles', async (
     _event, owner: string, repo: string, sha: string,
   ) => {

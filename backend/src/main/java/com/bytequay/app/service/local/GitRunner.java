@@ -491,6 +491,110 @@ public class GitRunner
      * <p>Output is one record using {@link #US_SEP} between subject
      * and body — letting body contain anything except NUL.
      */
+    /**
+     * Lists files in the working tree that differ from HEAD —
+     * uncommitted changes (staged + unstaged + untracked). Powers
+     * the Commits tab's "Changes" mode. We use {@code --porcelain=v1
+     * -z} so paths with spaces / unicode round-trip cleanly.
+     *
+     * <p>Each porcelain v1 record is two status chars + space + path,
+     * NUL-terminated. We surface a single {@code WorkingTreeFile}
+     * per path — when both staged and unstaged columns are populated
+     * we keep the staged status, since that's what would land on
+     * the next commit.
+     */
+    public List<WorkingTreeFile> workingTreeFiles(Path workingDir)
+            throws IOException, InterruptedException
+    {
+        GitResult result = run(
+                List.of("git", "status", "--porcelain=v1", "-z"),
+                workingDir,
+                15);
+        result.requireSuccess();
+        String stdout = result.stdout();
+        if (stdout.isEmpty()) {
+            return ImmutableList.of();
+        }
+        ImmutableList.Builder<WorkingTreeFile> out = ImmutableList.builder();
+        // Records are NUL-separated. For renames, porcelain v1 emits
+        // `R<sp>old<NUL>new` — handle by consuming an extra token.
+        String[] records = stdout.split(NUL_SEP, -1);
+        for (int i = 0; i < records.length; i++) {
+            String rec = records[i];
+            if (rec.length() < 4) {
+                // skip empties + the trailing ""
+                continue;
+            }
+            char staged = rec.charAt(0);
+            char unstaged = rec.charAt(1);
+            String path = rec.substring(3);
+            // Pick the most informative status: staged wins, fall
+            // back to unstaged. Untracked is "??" — collapse to "A".
+            char status;
+            if (staged == '?' && unstaged == '?') {
+                status = 'A';
+            }
+            else if (staged != ' ' && staged != '?') {
+                status = staged;
+            }
+            else {
+                status = unstaged;
+            }
+            // Renames consume a second NUL-separated token (the new path).
+            if (status == 'R' || status == 'C') {
+                if (i + 1 < records.length) {
+                    path = records[i + 1];
+                    i++;
+                }
+            }
+            out.add(new WorkingTreeFile(path, String.valueOf(status)));
+        }
+        return out.build();
+    }
+
+    public record WorkingTreeFile(String path, String status) {}
+
+    /**
+     * Unified diff for one file in the working tree —
+     * {@code git diff HEAD -- <path>} so the patch reflects both
+     * staged and unstaged changes against the last commit.
+     * Untracked files appear as "added" without an existing blob;
+     * we fall back to {@code git diff --no-index /dev/null path}
+     * for those so the user still sees the new file's content.
+     * Truncation matches {@link #commitFileDiff}.
+     */
+    public String workingTreeFileDiff(Path workingDir, String path, int maxBytes)
+            throws IOException, InterruptedException
+    {
+        requireNonNull(path, "path is null");
+        // Try HEAD-relative diff first. For untracked files git-diff
+        // returns nothing; fall back to a no-index diff against
+        // /dev/null so the user still sees the new content.
+        GitResult result = run(
+                List.of("git", "diff", "HEAD", "--", path),
+                workingDir,
+                30);
+        result.requireSuccess();
+        String stdout = result.stdout();
+        if (stdout.isBlank()) {
+            // Probably untracked. /dev/null on macOS works the same as Linux.
+            GitResult untracked = run(
+                    List.of("git", "diff", "--no-index", "--", "/dev/null", path),
+                    workingDir,
+                    30);
+            // git diff --no-index returns 1 when files differ — that's "success" for our purposes.
+            if (untracked.exitCode() == 0 || untracked.exitCode() == 1) {
+                stdout = untracked.stdout();
+            }
+        }
+        if (maxBytes > 0 && stdout.length() > maxBytes) {
+            return stdout.substring(0, maxBytes)
+                    + "\n\n... (diff truncated at " + maxBytes + " bytes; "
+                    + (stdout.length() - maxBytes) + " more bytes omitted)\n";
+        }
+        return stdout;
+    }
+
     public Optional<CommitDetailEntry> commitDetail(Path workingDir, String sha)
             throws IOException, InterruptedException
     {

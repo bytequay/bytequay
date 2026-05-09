@@ -943,6 +943,10 @@ function CommitsTab({
   const [diffError, setDiffError] = useState<string | null>(null);
   const [collapsedDirs, setCollapsedDirs] = useState<ReadonlySet<string>>(new Set());
   const [mergeBase, setMergeBase] = useState<LocalMergeBaseDto | null>(null);
+  // Left-pane mode toggle. 'history' = commits list (default); 'changes'
+  // = working-tree (uncommitted) files. The middle + right panes are
+  // shared — they just switch which data source feeds them.
+  const [mode, setMode] = useState<'history' | 'changes'>('history');
   // Lazy-fetched subject + body for the patch-detail card. Refreshed
   // whenever the single-selected commit changes; cleared when the
   // user moves into multi-select (the card is only meaningful for
@@ -1035,16 +1039,26 @@ function CommitsTab({
     return () => { cancelled = true; };
   }, [owner, repo, revisionKey]);
 
-  // Files across the selected commits — single fetch when one is
-  // selected, parallel fetch + union when multiple. Auto-picks the
-  // first file so the diff pane has something to show.
+  // Files for the middle pane. History mode → union of selected
+  // commits' files. Changes mode → working-tree (uncommitted) files.
+  // Auto-picks the first file so the diff pane has something to show.
   useEffect(() => {
-    if (selectedShas.size === 0) return;
     let cancelled = false;
     setFiles(null);
     setFilesError(null);
     setSelectedFile(null);
     setDiff(null);
+    if (mode === 'changes') {
+      window.bridge.listLocalWorkingTreeFiles(owner, repo)
+        .then((rows) => {
+          if (cancelled) return;
+          setFiles(rows);
+          if (rows.length > 0) setSelectedFile(rows[0].path);
+        })
+        .catch((e) => { if (!cancelled) setFilesError(e instanceof Error ? e.message : String(e)); });
+      return () => { cancelled = true; };
+    }
+    if (selectedShas.size === 0) return;
     // Order shas chronologically (oldest → newest) so the latest
     // occurrence wins when unionCommitFiles merges. The list comes
     // back newest-first from git log; reverse + filter by selection.
@@ -1061,7 +1075,7 @@ function CommitsTab({
       })
       .catch((e) => { if (!cancelled) setFilesError(e instanceof Error ? e.message : String(e)); });
     return () => { cancelled = true; };
-  }, [owner, repo, selectedShas, commits]);
+  }, [owner, repo, mode, selectedShas, commits]);
 
   // Per-file diff. Single selection → that commit's patch via
   // `git show`. Multiple selection → range diff via
@@ -1074,19 +1088,26 @@ function CommitsTab({
   const newestSelectedSha = ordered[0]?.sha ?? null;       // commits is newest-first
   const oldestSelectedSha = ordered[ordered.length - 1]?.sha ?? null;
   useEffect(() => {
-    if (newestSelectedSha == null || oldestSelectedSha == null || selectedFile == null) return;
+    if (selectedFile == null) return;
     let cancelled = false;
     setDiff(null);
     setDiffError(null);
-    const fetchDiff = newestSelectedSha === oldestSelectedSha
-      ? window.bridge.getLocalCommitDiff(owner, repo, newestSelectedSha, selectedFile)
-      : window.bridge.getLocalCommitRangeDiff(
-          owner, repo, oldestSelectedSha, newestSelectedSha, selectedFile);
+    let fetchDiff: Promise<LocalFileDiffDto>;
+    if (mode === 'changes') {
+      fetchDiff = window.bridge.getLocalWorkingTreeDiff(owner, repo, selectedFile);
+    }
+    else {
+      if (newestSelectedSha == null || oldestSelectedSha == null) return;
+      fetchDiff = newestSelectedSha === oldestSelectedSha
+        ? window.bridge.getLocalCommitDiff(owner, repo, newestSelectedSha, selectedFile)
+        : window.bridge.getLocalCommitRangeDiff(
+            owner, repo, oldestSelectedSha, newestSelectedSha, selectedFile);
+    }
     fetchDiff
       .then(d => { if (!cancelled) setDiff(d); })
       .catch(e => { if (!cancelled) setDiffError(e instanceof Error ? e.message : String(e)); });
     return () => { cancelled = true; };
-  }, [owner, repo, oldestSelectedSha, newestSelectedSha, selectedFile]);
+  }, [owner, repo, mode, oldestSelectedSha, newestSelectedSha, selectedFile]);
 
   // Patch-detail card data — only fetched in single-select mode.
   // Multi-select shows the union-diff chip in the same slot.
@@ -1145,7 +1166,38 @@ function CommitsTab({
         }}
       >
         <aside className="commits-pane__commits">
-          <div className="commits-pane__section-header">Commits</div>
+          <div className="commits-pane__mode-tabs" role="tablist">
+            <button
+              type="button"
+              role="tab"
+              aria-selected={mode === 'changes'}
+              className={`commits-pane__mode-tab${mode === 'changes' ? ' commits-pane__mode-tab--active' : ''}`}
+              onClick={() => setMode('changes')}
+            >
+              Changes{mode === 'changes' && files != null ? ` (${files.length})` : ''}
+            </button>
+            <button
+              type="button"
+              role="tab"
+              aria-selected={mode === 'history'}
+              className={`commits-pane__mode-tab${mode === 'history' ? ' commits-pane__mode-tab--active' : ''}`}
+              onClick={() => setMode('history')}
+            >
+              History
+            </button>
+          </div>
+          {mode === 'changes' ? (
+            <div className="commits-pane__changes-empty">
+              {files == null && !filesError && 'Reading working tree…'}
+              {filesError && <span className="commits-pane__changes-error">{filesError}</span>}
+              {files != null && files.length === 0 && (
+                <span>No uncommitted changes.</span>
+              )}
+              {files != null && files.length > 0 && (
+                <span>{files.length} file{files.length === 1 ? '' : 's'} changed in the working tree.</span>
+              )}
+            </div>
+          ) : (
           <ol className="commits-list">
             {commits.map(c => (
               <Fragment key={c.sha}>
@@ -1162,23 +1214,27 @@ function CommitsTab({
               </Fragment>
             ))}
           </ol>
+          )}
         </aside>
         <ResizeHandle onResize={handleLeftResize} ariaLabel="Resize commits panel" />
         <aside className="commits-pane__files">
-          {selectedShas.size > 1 ? (
-            <CommitsSelectionSummary
-              commits={commits}
-              selected={selectedShas}
-              onClear={() => setSelectedShas(new Set([commits[0].sha]))}
-            />
-          ) : (
-            <PatchDetailCard
-              commit={commits.find(c => selectedShas.has(c.sha)) ?? null}
-              detail={commitDetail}
-            />
+          {mode === 'history' && (
+            selectedShas.size > 1 ? (
+              <CommitsSelectionSummary
+                commits={commits}
+                selected={selectedShas}
+                onClear={() => setSelectedShas(new Set([commits[0].sha]))}
+              />
+            ) : (
+              <PatchDetailCard
+                commit={commits.find(c => selectedShas.has(c.sha)) ?? null}
+                detail={commitDetail}
+              />
+            )
           )}
           <div className="commits-pane__section-header">
-            Files changed{files != null && files.length > 0 ? ` (${files.length})` : ''}
+            {mode === 'changes' ? 'Working tree' : 'Files changed'}
+            {files != null && files.length > 0 ? ` (${files.length})` : ''}
           </div>
           <DiffFileTreePane
             files={files}

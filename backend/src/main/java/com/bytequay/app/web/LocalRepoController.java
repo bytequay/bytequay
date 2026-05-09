@@ -258,6 +258,65 @@ public class LocalRepoController
     }
 
     /**
+     * GET /api/repos/local/{owner}/{repo}/working-tree/files —
+     * working-tree files (uncommitted: staged + unstaged + untracked)
+     * via git status --porcelain. Powers the Commits tab's "Changes"
+     * mode middle pane.
+     */
+    @GetMapping("/{owner}/{repo}/working-tree/files")
+    public List<LocalCommitFile> workingTreeFiles(
+            @PathVariable("owner") String owner,
+            @PathVariable("repo") String repo)
+    {
+        try {
+            return localRepoService.workingTreeFiles(owner, repo);
+        }
+        catch (IllegalStateException e) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, e.getMessage());
+        }
+        catch (GitRunner.GitCommandException e) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, e.stderr().strip());
+        }
+        catch (IOException e) {
+            throw new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR, e.getMessage());
+        }
+        catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE, "working-tree status interrupted");
+        }
+    }
+
+    /**
+     * GET /api/repos/local/{owner}/{repo}/working-tree/diff?path= —
+     * working-tree diff for one file (git diff HEAD -- path, with
+     * an untracked-file fallback). Powers the Commits tab's
+     * "Changes" mode right pane.
+     */
+    @GetMapping("/{owner}/{repo}/working-tree/diff")
+    public LocalFileDiff workingTreeFileDiff(
+            @PathVariable("owner") String owner,
+            @PathVariable("repo") String repo,
+            @RequestParam("path") String filePath)
+    {
+        try {
+            return localRepoService.workingTreeFileDiff(owner, repo, filePath);
+        }
+        catch (IllegalStateException e) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, e.getMessage());
+        }
+        catch (GitRunner.GitCommandException e) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, e.stderr().strip());
+        }
+        catch (IOException e) {
+            throw new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR, e.getMessage());
+        }
+        catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE, "working-tree diff fetch interrupted");
+        }
+    }
+
+    /**
      * GET /api/repos/local/{owner}/{repo}/commits/{sha}/detail —
      * subject + body of a single commit. Lazy-fetched when the user
      * selects a commit in the Commits tab so the patch-detail card

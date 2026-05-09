@@ -148,6 +148,10 @@ const bridge: Bridge = {
     ipcRenderer.invoke('repos:listLocalCommits', owner, repo, revision, limit),
   getLocalCommitDetail: (owner: string, repo: string, sha: string) =>
     ipcRenderer.invoke('repos:getLocalCommitDetail', owner, repo, sha),
+  listLocalWorkingTreeFiles: (owner: string, repo: string) =>
+    ipcRenderer.invoke('repos:listLocalWorkingTreeFiles', owner, repo),
+  getLocalWorkingTreeDiff: (owner: string, repo: string, path: string) =>
+    ipcRenderer.invoke('repos:getLocalWorkingTreeDiff', owner, repo, path),
   listLocalCommitFiles: (owner: string, repo: string, sha: string) =>
     ipcRenderer.invoke('repos:listLocalCommitFiles', owner, repo, sha),
   getLocalCommitDiff: (owner: string, repo: string, sha: string, path: string) =>

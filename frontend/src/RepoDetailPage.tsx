@@ -65,6 +65,10 @@ type Props = {
    *  initial pulls fetch lands. Used by deep-links from the home-page
    *  activity feed (clicking #1234 jumps straight to the PR detail). */
   initialPrNumber?: number;
+  /** Sidebar tab to land on. Defaults to `'pulls'`. The Repository
+   *  home's Issues tab passes `'issues'` so clicking through doesn't
+   *  drop the user back on the PR list. */
+  initialTab?: 'pulls' | 'issues';
   /** Reverse nav from a PR back to its head branch's local-repo
    *  Commits tab. PullRequestPreview surfaces a button next to the
    *  head ref that calls this. App-level so the nav target lines up
@@ -91,8 +95,8 @@ function DeepLinkLoading({ owner, repo, number }: { owner: string; repo: string;
   );
 }
 
-function RepoDetailPage({ owner, repo, initialPrNumber, onOpenLocalBranch }: Props) {
-  const [tab, setTab] = useState<Tab>('pulls');
+function RepoDetailPage({ owner, repo, initialPrNumber, initialTab, onOpenLocalBranch }: Props) {
+  const [tab, setTab] = useState<Tab>(initialTab ?? 'pulls');
   const [bucket, setBucket] = useState<Bucket>('inbox');
   const [scope, setScope] = useState<Scope>('mine');
   // Seed from the cache keyed by owner/repo so revisiting the same repo is
@@ -299,6 +303,27 @@ function RepoDetailPage({ owner, repo, initialPrNumber, onOpenLocalBranch }: Pro
 
   const scopedPrs = scope === 'mine' ? myPrs : scope === 'review' ? forReview : otherPrs;
   const scopeLabel = scope === 'mine' ? 'your PRs' : scope === 'review' ? 'PRs for your review' : 'other PRs';
+
+  // Auto-select the first "My PR" once the list resolves, so landing
+  // on this page from the Repository home's Pull Requests tab shows a
+  // useful preview instead of an empty right pane. Only on the Pulls
+  // tab — landing on Issues shouldn't quietly preload a PR in the
+  // right pane. Skipped when the user deep-linked to a specific PR
+  // (initialPrNumber) or already picked one. Tracked per-repo so
+  // clearing the selection later doesn't keep re-picking the same PR
+  // behind the user's back.
+  const autoSelectedRepoRef = useRef<string | null>(null);
+  useEffect(() => {
+    const key = `${owner}/${repo}`;
+    if (autoSelectedRepoRef.current === key) return;
+    if (tab !== 'pulls') return;
+    if (initialPrNumber != null) return;
+    if (selectedPr != null) return;
+    if (loading) return;
+    if (myPrs.length === 0) return;
+    autoSelectedRepoRef.current = key;
+    setSelectedPr(myPrs[0]);
+  }, [owner, repo, tab, initialPrNumber, selectedPr, loading, myPrs]);
 
   const handledGroups = useMemo(() => groupHandledByTime(handledPrs), [handledPrs]);
 

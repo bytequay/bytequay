@@ -34,7 +34,7 @@ type Status = 'checking' | 'needs-pat' | 'ready';
 type Nav =
   | { view: 'home' }
   | { view: 'my-prs' }
-  | { view: 'repo'; owner: string; repo: string; prNumber?: number }
+  | { view: 'repo'; owner: string; repo: string; prNumber?: number; initialTab?: 'pulls' | 'issues' }
   | { view: 'teams' }
   | { view: 'team'; teamId: number }
   | { view: 'team-kanban'; teamId: number }
@@ -346,6 +346,7 @@ function App() {
             owner={nav.owner}
             repo={nav.repo}
             initialPrNumber={nav.prNumber}
+            initialTab={nav.initialTab}
             onOpenLocalBranch={(owner, repo, branch) =>
               setNav({ view: 'local-repo', owner, repo, initialBranch: branch })}
           />
@@ -368,8 +369,8 @@ function App() {
             owner={nav.owner}
             repo={nav.repo}
             onBack={() => setNav({ view: 'repos' })}
-            onOpenPrs={(owner, repo) => setNav({ view: 'repo', owner, repo })}
-            onOpenIssues={(owner, repo) => setNav({ view: 'repo', owner, repo })}
+            onOpenPrs={(owner, repo) => setNav({ view: 'repo', owner, repo, initialTab: 'pulls' })}
+            onOpenIssues={(owner, repo) => setNav({ view: 'repo', owner, repo, initialTab: 'issues' })}
             onOpenBranches={(owner, repo) => setNav({ view: 'local-repo', owner, repo })}
             onOpenCommits={(owner, repo) => setNav({ view: 'local-repo', owner, repo })}
             onSelectPr={(owner, repo, prNumber) => setNav({ view: 'repo', owner, repo, prNumber })}

@@ -89,9 +89,19 @@ public class SqliteWatchedRepoStore
         jpaRepository.save(entity);
     }
 
+    @Override
+    public void setViewFocus(String owner, String repo, String viewFocus)
+    {
+        WatchedRepoEntity entity = jpaRepository.findByOwnerAndRepo(owner, repo)
+                .orElseThrow(() -> new IllegalArgumentException(owner + "/" + repo + " is not watched"));
+        entity.setViewFocus(viewFocus);
+        jpaRepository.save(entity);
+    }
+
     private static WatchedRepo toDomain(WatchedRepoEntity e)
     {
         return new WatchedRepo(e.getId(), e.getOwner(), e.getRepo(),
-                e.getDisplayOrder(), e.getLocalClonePath(), e.getUpstreamRemoteName());
+                e.getDisplayOrder(), e.getLocalClonePath(), e.getUpstreamRemoteName(),
+                e.getViewFocus());
     }
 }

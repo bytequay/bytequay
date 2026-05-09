@@ -29,6 +29,7 @@ import com.bytequay.app.service.local.LocalRepoService;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
@@ -795,8 +796,36 @@ public class LocalRepoController
         }
     }
 
+    /**
+     * PATCH /api/repos/local/{owner}/{repo}/view-focus — persists the
+     * user's choice of commits-tab focus for the repo detail page.
+     * Body: {@code {"viewFocus": "fork"}} or
+     * {@code {"viewFocus": "upstream"}}. Returns the refreshed status
+     * row. No git or GitHub calls — pure local DB write.
+     */
+    @PatchMapping("/{owner}/{repo}/view-focus")
+    public LocalRepoStatus setViewFocus(
+            @PathVariable("owner") String owner,
+            @PathVariable("repo") String repo,
+            @RequestBody ViewFocusRequest body)
+    {
+        if (body == null || body.viewFocus() == null) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "viewFocus is required");
+        }
+        try {
+            return localRepoService.setViewFocus(owner, repo, body.viewFocus());
+        }
+        catch (IllegalArgumentException e) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, e.getMessage());
+        }
+        catch (IllegalStateException e) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, e.getMessage());
+        }
+    }
+
     public record PathRequest(String path) {}
     public record CloneRequest(String destination) {}
+    public record ViewFocusRequest(String viewFocus) {}
     public record DefaultClonePathResponse(String defaultPath) {}
     public record CreateBranchRequest(String name, String base) {}
     public record SwitchBranchRequest(String name) {}

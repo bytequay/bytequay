@@ -105,6 +105,7 @@ public class LocalRepoService
 
     private LocalRepoStatus statusOf(WatchedRepo repo)
     {
+        String viewFocus = LocalRepoStatus.resolveViewFocus(repo.viewFocus(), repo.upstreamRemoteName());
         if (repo.localClonePath() == null) {
             return LocalRepoStatus.unmapped(repo.owner(), repo.repo());
         }
@@ -112,12 +113,12 @@ public class LocalRepoService
         if (!Files.isDirectory(path)) {
             return new LocalRepoStatus(repo.owner(), repo.repo(), repo.localClonePath(),
                     LocalRepoStatus.State.MISSING, null, null,
-                    "Working copy not found at " + path, repo.upstreamRemoteName(), null);
+                    "Working copy not found at " + path, repo.upstreamRemoteName(), null, viewFocus);
         }
         if (!gitRunner.isGitWorkingTree(path)) {
             return new LocalRepoStatus(repo.owner(), repo.repo(), repo.localClonePath(),
                     LocalRepoStatus.State.MISSING, null, null,
-                    "Path is not a git working tree", repo.upstreamRemoteName(), null);
+                    "Path is not a git working tree", repo.upstreamRemoteName(), null, viewFocus);
         }
         try {
             int dirty = gitRunner.countDirtyFiles(path);
@@ -128,20 +129,20 @@ public class LocalRepoService
             LocalRepoStatus.State state = dirty == 0 ? LocalRepoStatus.State.CLEAN
                     : LocalRepoStatus.State.MODIFIED;
             return new LocalRepoStatus(repo.owner(), repo.repo(), repo.localClonePath(),
-                    state, branch, dirty, null, repo.upstreamRemoteName(), defaultBranch);
+                    state, branch, dirty, null, repo.upstreamRemoteName(), defaultBranch, viewFocus);
         }
         catch (GitRunner.GitCommandException e) {
             log.warn("git failed on {}: {}", path, e.getMessage());
             return new LocalRepoStatus(repo.owner(), repo.repo(), repo.localClonePath(),
                     LocalRepoStatus.State.ERROR, null, null,
-                    e.stderr().strip(), repo.upstreamRemoteName(), null);
+                    e.stderr().strip(), repo.upstreamRemoteName(), null, viewFocus);
         }
         catch (IOException | InterruptedException e) {
             Thread.currentThread().interrupt();
             log.warn("git invocation failed on {}", path, e);
             return new LocalRepoStatus(repo.owner(), repo.repo(), repo.localClonePath(),
                     LocalRepoStatus.State.ERROR, null, null,
-                    e.getMessage(), repo.upstreamRemoteName(), null);
+                    e.getMessage(), repo.upstreamRemoteName(), null, viewFocus);
         }
     }
 
@@ -150,7 +151,8 @@ public class LocalRepoService
         return new LocalRepoStatus(repo.owner(), repo.repo(), repo.localClonePath(),
                 LocalRepoStatus.State.GIT_UNAVAILABLE, null, null,
                 "git not found on PATH — install Xcode Command Line Tools",
-                repo.upstreamRemoteName(), null);
+                repo.upstreamRemoteName(), null,
+                LocalRepoStatus.resolveViewFocus(repo.viewFocus(), repo.upstreamRemoteName()));
     }
 
     /**
@@ -294,6 +296,21 @@ public class LocalRepoService
     {
         return watchedRepoStore.find(owner, repo)
                 .orElseThrow(() -> new IllegalStateException(owner + "/" + repo + " is not watched"));
+    }
+
+    /**
+     * Persists the user's choice of commits-tab focus for the repo
+     * detail page. {@code viewFocus} must be {@code "fork"} or
+     * {@code "upstream"}. Returns the refreshed status row so the UI
+     * can re-render from the response without a follow-up fetch.
+     */
+    public LocalRepoStatus setViewFocus(String owner, String repo, String viewFocus)
+    {
+        if (!"fork".equals(viewFocus) && !"upstream".equals(viewFocus)) {
+            throw new IllegalArgumentException("viewFocus must be 'fork' or 'upstream', got: " + viewFocus);
+        }
+        watchedRepoStore.setViewFocus(owner, repo, viewFocus);
+        return statusOf(refreshWatchedRepo(owner, repo));
     }
 
     /**

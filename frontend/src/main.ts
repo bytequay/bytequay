@@ -966,6 +966,22 @@ const url = new URL(`${BACKEND_BASE}/prs/comment`);
     return res.json();
   });
 
+  ipcMain.handle('repos:createIssueComment', async (_event, owner: string, repo: string, number: number, body: string) => {
+    const res = await fetch(
+      `${BACKEND_BASE}/api/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/issues/${number}/comments`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ body }),
+      },
+    );
+    if (!res.ok) {
+      const text = await res.text().catch(() => '');
+      throw new Error(`backend issue comment returned ${res.status}: ${text}`);
+    }
+    return res.json();
+  });
+
   ipcMain.handle('repos:meta', async (_event, owner: string, repo: string) => {
     const res = await fetch(
       `${BACKEND_BASE}/api/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/meta`,
@@ -1493,6 +1509,24 @@ const url = new URL(`${BACKEND_BASE}/prs/comment`);
       const body = await res.text().catch(() => '');
       throw new Error(`backend /api/repos/local/.../path returned ${res.status}: ${body}`);
     }
+  });
+
+  ipcMain.handle('repos:setViewFocus', async (
+    _event, owner: string, repo: string, viewFocus: 'fork' | 'upstream',
+  ) => {
+    const res = await fetch(
+      `${BACKEND_BASE}/api/repos/local/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/view-focus`,
+      {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ viewFocus }),
+      },
+    );
+    if (!res.ok) {
+      const body = await res.text().catch(() => '');
+      throw new Error(`backend /api/repos/local/.../view-focus returned ${res.status}: ${body}`);
+    }
+    return res.json();
   });
 
   ipcMain.handle('repos:userRepos', async () => {

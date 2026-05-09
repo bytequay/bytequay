@@ -43,6 +43,9 @@ class WatchedRepoEntity
     @Column(name = "upstream_remote_name")
     private String upstreamRemoteName;
 
+    @Column(name = "view_focus")
+    private String viewFocus;
+
     protected WatchedRepoEntity() {}
 
     WatchedRepoEntity(String owner, String repo, int displayOrder)
@@ -66,4 +69,7 @@ class WatchedRepoEntity
 
     String getUpstreamRemoteName() { return upstreamRemoteName; }
     void setUpstreamRemoteName(String upstreamRemoteName) { this.upstreamRemoteName = upstreamRemoteName; }
+
+    String getViewFocus() { return viewFocus; }
+    void setViewFocus(String viewFocus) { this.viewFocus = viewFocus; }
 }

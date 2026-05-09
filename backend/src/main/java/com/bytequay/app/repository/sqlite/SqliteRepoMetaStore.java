@@ -76,6 +76,9 @@ public class SqliteRepoMetaStore
         entity.setTopics(topics);
         entity.setLanguages(languages);
         entity.setOwnerAvatarUrl(meta.ownerAvatarUrl());
+        entity.setParentOwner(meta.parentOwner());
+        entity.setParentRepo(meta.parentName());
+        entity.setParentDefaultBranch(meta.parentDefaultBranch());
         entity.setSyncedAt(syncedAt);
         this.repo.save(entity);
     }
@@ -97,7 +100,10 @@ public class SqliteRepoMetaStore
                 e.getPushedAt(),
                 e.getTopics() == null ? ImmutableList.of() : ImmutableList.copyOf(e.getTopics()),
                 e.getLanguages() == null ? ImmutableMap.of() : ImmutableMap.copyOf(e.getLanguages()),
-                e.getOwnerAvatarUrl());
+                e.getOwnerAvatarUrl(),
+                e.getParentOwner(),
+                e.getParentRepo(),
+                e.getParentDefaultBranch());
         return new StoredRepoMeta(meta, e.getSyncedAt());
     }
 }

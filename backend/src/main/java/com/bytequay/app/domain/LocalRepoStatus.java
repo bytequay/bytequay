@@ -46,7 +46,13 @@ public record LocalRepoStatus(
          *  whose upstream defaults to {@code master} (Trino, etc.)
          *  doesn't surprise the user with {@code main}. Null when
          *  origin/HEAD isn't set or the repo is unmapped. */
-        String defaultBranch)
+        String defaultBranch,
+        /** Resolved focus for the repo detail page's commits tab:
+         *  {@code "fork"} or {@code "upstream"}. Defaults to
+         *  {@code "upstream"} when {@link #upstreamRemoteName} is set
+         *  (the user is watching a fork) and {@code "fork"} otherwise.
+         *  Persisted user choice always wins over the default. */
+        String viewFocus)
 {
     public enum State
     {
@@ -74,6 +80,18 @@ public record LocalRepoStatus(
 
     public static LocalRepoStatus unmapped(String owner, String repo)
     {
-        return new LocalRepoStatus(owner, repo, null, State.UNMAPPED, null, null, null, null, null);
+        return new LocalRepoStatus(owner, repo, null, State.UNMAPPED, null, null, null, null, null, "fork");
+    }
+
+    /** Resolves the effective view focus for a status row given the
+     *  user's persisted choice (may be null) and whether the repo has
+     *  an upstream remote configured. Returns {@code "upstream"} for
+     *  forks with no explicit choice, {@code "fork"} otherwise. */
+    public static String resolveViewFocus(String stored, String upstreamRemoteName)
+    {
+        if ("fork".equals(stored) || "upstream".equals(stored)) {
+            return stored;
+        }
+        return upstreamRemoteName != null ? "upstream" : "fork";
     }
 }

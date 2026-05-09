@@ -577,6 +577,85 @@
   color: var(--text-1);
 }
 .local-repo-page__owner { color: var(--text-3); font-weight: 500; }
+
+/* Fork → upstream view-focus dropdown. The h1-styled button shows
+   the active focus's owner/repo with a small caret; the popover
+   below it lists both choices with a checkmark on the active row. */
+.local-repo-page__focus {
+  position: relative;
+}
+.local-repo-page__title--toggle {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  background: transparent;
+  border: 0;
+  padding: 0;
+  cursor: pointer;
+  text-align: left;
+  color: inherit;
+}
+.local-repo-page__title--toggle:hover .local-repo-page__focus-caret,
+.local-repo-page__title--toggle:focus-visible .local-repo-page__focus-caret {
+  color: var(--text-1);
+}
+.local-repo-page__focus-caret {
+  font-size: 14px;
+  color: var(--text-3);
+  font-family: ui-sans-serif, system-ui, sans-serif;
+  font-weight: 500;
+}
+.local-repo-page__focus-menu {
+  position: absolute;
+  top: calc(100% + 6px);
+  left: 0;
+  z-index: 20;
+  min-width: 260px;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: 0 8px 20px rgba(0, 0, 0, 0.12);
+  padding: 4px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.local-repo-page__focus-item {
+  display: grid;
+  grid-template-columns: 16px 1fr auto;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  border: 0;
+  background: transparent;
+  border-radius: 6px;
+  cursor: pointer;
+  font-size: 13px;
+  color: var(--text-1);
+  text-align: left;
+}
+.local-repo-page__focus-item:hover {
+  background: var(--bg-hover, rgba(0, 0, 0, 0.04));
+}
+.local-repo-page__focus-item--active {
+  background: var(--bg-hover, rgba(0, 0, 0, 0.04));
+}
+.local-repo-page__focus-check {
+  color: var(--text-1);
+  font-weight: 700;
+  width: 16px;
+  text-align: center;
+}
+.local-repo-page__focus-name {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, monospace;
+}
+.local-repo-page__focus-tag {
+  font-size: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-3);
+  font-weight: 600;
+}
 .local-repo-page__head-chip {
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, monospace;
   font-size: 12px;

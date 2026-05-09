@@ -39,4 +39,10 @@ public interface WatchedRepoStore
      *  watched repo. Throws IllegalArgumentException if the repo
      *  isn't watched. */
     void setUpstreamRemoteName(String owner, String repo, String upstreamRemoteName);
+
+    /** Records the user's choice for the repo detail page's commits-
+     *  tab focus: {@code "fork"} or {@code "upstream"}. Pass null to
+     *  unset and let the service resolve a default. Throws
+     *  IllegalArgumentException if the repo isn't watched. */
+    void setViewFocus(String owner, String repo, String viewFocus);
 }

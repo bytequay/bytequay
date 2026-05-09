@@ -100,7 +100,7 @@ class TestLocalRepoServiceDraftPullRequest
         {
             when(watchedRepoStore.find("trinodb", "trino"))
                     .thenReturn(Optional.of(new WatchedRepo(
-                            1L, "trinodb", "trino", 0, workingDir.toString(), null)));
+                            1L, "trinodb", "trino", 0, workingDir.toString(), null, null)));
             when(registry.active()).thenReturn(reviewer);
             this.service = new LocalRepoService(
                     watchedRepoStore, gitRunner, gitHub, pullRequestStore, registry);

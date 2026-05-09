@@ -328,6 +328,16 @@ export type RepoMetaDto = {
    *  the column existed; the avatar component falls back to a
    *  colour-and-letter placeholder. */
   ownerAvatarUrl: string | null;
+  /** GitHub's parent.owner.login. Non-null when this repo is a fork;
+   *  null otherwise. Drives the fork → upstream view-focus dropdown
+   *  on the repo detail page. */
+  parentOwner: string | null;
+  /** GitHub's parent.name. Pairs with parentOwner. */
+  parentName: string | null;
+  /** GitHub's parent.default_branch — the upstream's default branch.
+   *  Used as the ref the commits tab queries when the toggle is in
+   *  upstream view. */
+  parentDefaultBranch: string | null;
 };
 
 /** One entry in the right-pane "Recent activity" feed. */
@@ -755,6 +765,10 @@ export type LocalRepoStatusDto = {
    *  forks of repos that default to `master` (Trino, etc.) don't
    *  surprise the user with `main`. Null when origin/HEAD isn't set. */
   defaultBranch: string | null;
+  /** Resolved focus for the repo detail page's commits tab. The
+   *  backend defaults to "upstream" when this row has an
+   *  upstreamRemoteName and the user hasn't toggled yet, else "fork". */
+  viewFocus: 'fork' | 'upstream';
 };
 
 /** One row of the branches kanban on the repo detail page. */
@@ -954,6 +968,7 @@ export type Bridge = {
   getRepoPull: (owner: string, repo: string, number: number) => Promise<PullRequestDto>;
   getRepoIssues: (owner: string, repo: string, state?: 'open' | 'closed') => Promise<IssueDto[]>;
   getIssueDetail: (owner: string, repo: string, number: number) => Promise<IssueDetailDto>;
+  createIssueComment: (owner: string, repo: string, number: number, body: string) => Promise<IssueCommentDto>;
   /** Repo-level metadata for the right-pane hero card. */
   getRepoMeta: (owner: string, repo: string) => Promise<RepoMetaDto>;
   /** ~30 most recent events on a repo for the right-pane activity feed. */
@@ -964,6 +979,14 @@ export type Bridge = {
   /** Set or clear the local-clone path for a watched repo. Pass null
    *  to unmap. Triggered by the Repos page's clone / locate flows. */
   setLocalClonePath: (owner: string, repo: string, path: string | null) => Promise<void>;
+  /** Persists the user's choice of fork-vs-upstream focus for the
+   *  repo detail page's commits tab. Returns the refreshed status row
+   *  so the caller can update local state without a list refetch. */
+  setViewFocus: (
+    owner: string,
+    repo: string,
+    viewFocus: 'fork' | 'upstream',
+  ) => Promise<LocalRepoStatusDto>;
   /** Native folder picker. Returns the selected absolute path, or null
    *  when the user cancels. Used by the Locate-existing flow and the
    *  Change-destination button on Clone-fresh. */

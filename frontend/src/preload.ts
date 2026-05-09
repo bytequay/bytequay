@@ -28,6 +28,7 @@ import type {
   MyPrColumnSlug,
   TeamColumnsResponse,
   HandledAction,
+  IssueCommentDto,
   IssueDetailDto,
   IssueDto,
   PullRequestDetailDto,
@@ -138,6 +139,8 @@ const bridge: Bridge = {
   listLocalRepos: () => ipcRenderer.invoke('repos:listLocal'),
   setLocalClonePath: (owner: string, repo: string, path: string | null) =>
     ipcRenderer.invoke('repos:setLocalClonePath', owner, repo, path),
+  setViewFocus: (owner: string, repo: string, viewFocus: 'fork' | 'upstream') =>
+    ipcRenderer.invoke('repos:setViewFocus', owner, repo, viewFocus),
   pickFolder: (options?: { defaultPath?: string; title?: string }) =>
     ipcRenderer.invoke('repos:pickFolder', options),
   defaultClonePath: (owner: string, repo: string) =>
@@ -204,6 +207,8 @@ const bridge: Bridge = {
     ipcRenderer.invoke('repos:issues', owner, repo, state),
   getIssueDetail: (owner: string, repo: string, number: number): Promise<IssueDetailDto> =>
     ipcRenderer.invoke('repos:issueDetail', owner, repo, number),
+  createIssueComment: (owner: string, repo: string, number: number, body: string): Promise<IssueCommentDto> =>
+    ipcRenderer.invoke('repos:createIssueComment', owner, repo, number, body),
   getUserRepos: (): Promise<UserRepoDto[]> => ipcRenderer.invoke('repos:userRepos'),
   getUserOrgs: (): Promise<UserOrgDto[]> => ipcRenderer.invoke('repos:userOrgs'),
   searchRepos: (query: string): Promise<UserRepoDto[]> => ipcRenderer.invoke('repos:searchRepos', query),

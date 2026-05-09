@@ -81,6 +81,15 @@ class RepoMetaEntity
     @Column(name = "owner_avatar_url")
     private String ownerAvatarUrl;
 
+    @Column(name = "parent_owner")
+    private String parentOwner;
+
+    @Column(name = "parent_repo")
+    private String parentRepo;
+
+    @Column(name = "parent_default_branch")
+    private String parentDefaultBranch;
+
     @Column(name = "synced_at", nullable = false)
     @Convert(converter = InstantToTextConverter.class)
     private Instant syncedAt;
@@ -132,6 +141,15 @@ class RepoMetaEntity
 
     String getOwnerAvatarUrl() { return ownerAvatarUrl; }
     void setOwnerAvatarUrl(String ownerAvatarUrl) { this.ownerAvatarUrl = ownerAvatarUrl; }
+
+    String getParentOwner() { return parentOwner; }
+    void setParentOwner(String parentOwner) { this.parentOwner = parentOwner; }
+
+    String getParentRepo() { return parentRepo; }
+    void setParentRepo(String parentRepo) { this.parentRepo = parentRepo; }
+
+    String getParentDefaultBranch() { return parentDefaultBranch; }
+    void setParentDefaultBranch(String parentDefaultBranch) { this.parentDefaultBranch = parentDefaultBranch; }
 
     Instant getSyncedAt() { return syncedAt; }
     void setSyncedAt(Instant syncedAt) { this.syncedAt = syncedAt; }

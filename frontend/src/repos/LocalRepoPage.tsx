@@ -12,7 +12,7 @@
  * limitations under the License.
  */
 import { Fragment, useEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type MouseEvent as ReactMouseEvent } from 'react';
-import type { LocalActivityEntryDto, LocalBranchDto, LocalCommitDetailDto, LocalCommitDto, LocalCommitFileDto, LocalFileDiffDto, LocalMergeBaseDto, LocalRepoStatusDto } from '../types';
+import type { LocalActivityEntryDto, LocalBranchDto, LocalCommitDetailDto, LocalCommitDto, LocalCommitFileDto, LocalFileDiffDto, LocalMergeBaseDto, LocalRepoStatusDto, RepoMetaDto } from '../types';
 import Avatar from '../Avatar';
 import LogoLoading from '../LogoLoading';
 import { formatRelativeTime } from '../pr/utils';
@@ -103,6 +103,16 @@ function LocalRepoPage({ owner, repo, onBack, onSelectPr, initialBranch }: Props
   const [status, setStatus] = useState<LocalRepoStatusDto | null>(null);
   const [branches, setBranches] = useState<LocalBranchDto[] | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // Repo-level GitHub metadata, fetched lazily once per page load.
+  // We only read parent.{owner,name,defaultBranch} for the fork →
+  // upstream view-focus dropdown next to the title; failure is
+  // best-effort (no dropdown when meta is missing — no other UI
+  // depends on this field on this page).
+  const [meta, setMeta] = useState<RepoMetaDto | null>(null);
+  // Whether the fork/upstream popover is open. Closes on item-click,
+  // outside-click, or ESC.
+  const [focusMenuOpen, setFocusMenuOpen] = useState(false);
+  const focusMenuRef = useRef<HTMLDivElement | null>(null);
   // Per-action busy state so each button can show its own spinner
   // without freezing the whole bar; the action bar disables all
   // buttons while any one is running so we don't fire concurrent
@@ -178,6 +188,65 @@ function LocalRepoPage({ owner, repo, onBack, onSelectPr, initialBranch }: Props
     return () => { signal.cancelled = true; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [owner, repo]);
+
+  // Best-effort fetch of repo meta — only used to know whether this
+  // repo is a fork (via parentOwner/parentName) and what the upstream's
+  // default branch is for the commits-tab revision swap. Page renders
+  // fine without it; we just don't show the dropdown.
+  useEffect(() => {
+    let cancelled = false;
+    setMeta(null);
+    window.bridge.getRepoMeta(owner, repo)
+      .then(m => { if (!cancelled) setMeta(m); })
+      .catch(() => { /* swallow — no dropdown without meta */ });
+    return () => { cancelled = true; };
+  }, [owner, repo]);
+
+  // Close the focus-toggle popover on outside click / ESC.
+  useEffect(() => {
+    if (!focusMenuOpen) return;
+    const onClick = (e: MouseEvent) => {
+      if (focusMenuRef.current && !focusMenuRef.current.contains(e.target as Node)) {
+        setFocusMenuOpen(false);
+      }
+    };
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setFocusMenuOpen(false);
+    };
+    window.addEventListener('mousedown', onClick);
+    window.addEventListener('keydown', onKey);
+    return () => {
+      window.removeEventListener('mousedown', onClick);
+      window.removeEventListener('keydown', onKey);
+    };
+  }, [focusMenuOpen]);
+
+  const isForkWithParent = meta?.parentOwner != null && meta?.parentName != null;
+  const activeFocus: 'fork' | 'upstream' = status?.viewFocus ?? 'fork';
+  // The upstream-derived ref the commits tab queries when the user is
+  // in upstream view: `<remote>/<branch>` (e.g. `upstream/master`).
+  // Null when we don't have all three pieces — we fall back to HEAD.
+  const upstreamRevision = activeFocus === 'upstream'
+      && status?.upstreamRemoteName
+      && meta?.parentDefaultBranch
+    ? `${status.upstreamRemoteName}/${meta.parentDefaultBranch}`
+    : null;
+
+  const handleSelectFocus = async (next: 'fork' | 'upstream') => {
+    setFocusMenuOpen(false);
+    if (next === activeFocus) return;
+    try {
+      const fresh = await window.bridge.setViewFocus(owner, repo, next);
+      setStatus(fresh);
+      // Reset the kanban-selected branch so the commits tab reverts to
+      // the new default ref (HEAD or upstream/<branch>) instead of
+      // sticking on whatever branch the user clicked previously.
+      setCommitsBranch(null);
+    }
+    catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    }
+  };
 
   // The "effective" branch every HEAD-dependent action targets. Defaults
   // to whatever HEAD currently is; a click on another branch card
@@ -526,10 +595,64 @@ function LocalRepoPage({ owner, repo, onBack, onSelectPr, initialBranch }: Props
         </nav>
         <div className="local-repo-page__heading">
           <div className="local-repo-page__title-row">
-            <h1 className="local-repo-page__title">
-              <span className="local-repo-page__owner">{owner}/</span>
-              <span className="local-repo-page__repo">{repo}</span>
-            </h1>
+            {isForkWithParent ? (
+              <div className="local-repo-page__focus" ref={focusMenuRef}>
+                <button
+                  type="button"
+                  className="local-repo-page__title local-repo-page__title--toggle"
+                  onClick={() => setFocusMenuOpen(o => !o)}
+                  aria-haspopup="menu"
+                  aria-expanded={focusMenuOpen}
+                  title={activeFocus === 'upstream'
+                    ? `Viewing ${meta!.parentOwner}/${meta!.parentName} — click to switch`
+                    : `Viewing your fork — click to switch to ${meta!.parentOwner}/${meta!.parentName}`}
+                >
+                  {activeFocus === 'upstream' ? (
+                    <>
+                      <span className="local-repo-page__owner">{meta!.parentOwner}/</span>
+                      <span className="local-repo-page__repo">{meta!.parentName}</span>
+                    </>
+                  ) : (
+                    <>
+                      <span className="local-repo-page__owner">{owner}/</span>
+                      <span className="local-repo-page__repo">{repo}</span>
+                    </>
+                  )}
+                  <span className="local-repo-page__focus-caret" aria-hidden="true">▾</span>
+                </button>
+                {focusMenuOpen && (
+                  <div className="local-repo-page__focus-menu" role="menu">
+                    <button
+                      type="button"
+                      role="menuitemradio"
+                      aria-checked={activeFocus === 'fork'}
+                      className={`local-repo-page__focus-item${activeFocus === 'fork' ? ' local-repo-page__focus-item--active' : ''}`}
+                      onClick={() => { void handleSelectFocus('fork'); }}
+                    >
+                      <span className="local-repo-page__focus-check">{activeFocus === 'fork' ? '✓' : ''}</span>
+                      <span className="local-repo-page__focus-name">{owner}/{repo}</span>
+                      <span className="local-repo-page__focus-tag">fork</span>
+                    </button>
+                    <button
+                      type="button"
+                      role="menuitemradio"
+                      aria-checked={activeFocus === 'upstream'}
+                      className={`local-repo-page__focus-item${activeFocus === 'upstream' ? ' local-repo-page__focus-item--active' : ''}`}
+                      onClick={() => { void handleSelectFocus('upstream'); }}
+                    >
+                      <span className="local-repo-page__focus-check">{activeFocus === 'upstream' ? '✓' : ''}</span>
+                      <span className="local-repo-page__focus-name">{meta!.parentOwner}/{meta!.parentName}</span>
+                      <span className="local-repo-page__focus-tag">upstream</span>
+                    </button>
+                  </div>
+                )}
+              </div>
+            ) : (
+              <h1 className="local-repo-page__title">
+                <span className="local-repo-page__owner">{owner}/</span>
+                <span className="local-repo-page__repo">{repo}</span>
+              </h1>
+            )}
             {status?.currentBranch && (
               <code className="local-repo-page__head-chip">
                 ⎇ {status.currentBranch}
@@ -847,9 +970,10 @@ function LocalRepoPage({ owner, repo, onBack, onSelectPr, initialBranch }: Props
           owner={owner}
           repo={repo}
           // commitsBranch is set by branch-card click; falls back to
-          // HEAD's currentBranch when the user landed on this tab
-          // directly. Refetches when either changes.
-          revisionKey={commitsBranch ?? status?.currentBranch ?? ''}
+          // the upstream-derived ref (when the user has the focus
+          // toggle on upstream) and finally to HEAD's currentBranch.
+          // Refetches when any of these change.
+          revisionKey={commitsBranch ?? upstreamRevision ?? status?.currentBranch ?? ''}
           branches={branches}
         />
       )}

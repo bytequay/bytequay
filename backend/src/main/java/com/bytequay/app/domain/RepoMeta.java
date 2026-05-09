@@ -49,4 +49,14 @@ public record RepoMeta(
          *  on the overview page. Null on legacy rows persisted before
          *  this field was added; the frontend falls back to a
          *  colour-and-letter placeholder. */
-        String ownerAvatarUrl) {}
+        String ownerAvatarUrl,
+        /** GitHub's {@code parent.owner.login}. Non-null when this repo
+         *  is a fork; null otherwise. Drives the fork → upstream
+         *  view-focus dropdown on the repo detail page. */
+        String parentOwner,
+        /** GitHub's {@code parent.name}. Pairs with {@link #parentOwner}. */
+        String parentName,
+        /** GitHub's {@code parent.default_branch} — the upstream's
+         *  default branch. Used as the ref the commits tab queries
+         *  when the toggle is in upstream view. */
+        String parentDefaultBranch) {}

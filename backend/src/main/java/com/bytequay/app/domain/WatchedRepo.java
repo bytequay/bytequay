@@ -20,6 +20,13 @@ package com.bytequay.app.domain;
  *                            workflow. Null for direct clones (origin
  *                            already points at the watched repo) and
  *                            for not-yet-mapped repos.
+ * @param viewFocus           Persisted choice for the repo detail
+ *                            page's commits-tab focus: {@code "fork"}
+ *                            or {@code "upstream"}. Null when the user
+ *                            has not toggled it yet — callers resolve
+ *                            null to {@code "upstream"} when an
+ *                            upstream remote is configured, else to
+ *                            {@code "fork"}.
  */
 public record WatchedRepo(
         long id,
@@ -27,7 +34,8 @@ public record WatchedRepo(
         String repo,
         int displayOrder,
         String localClonePath,
-        String upstreamRemoteName)
+        String upstreamRemoteName,
+        String viewFocus)
 {
     public String fullName()
     {

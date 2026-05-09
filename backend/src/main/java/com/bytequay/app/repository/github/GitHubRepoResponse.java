@@ -39,7 +39,10 @@ record GitHubRepoResponse(
         @JsonProperty("created_at") Instant createdAt,
         @JsonProperty("pushed_at") Instant pushedAt,
         List<String> topics,
-        Owner owner)
+        Owner owner,
+        // Only populated when this repo is a fork. Drives the
+        // fork → upstream view-focus dropdown on the detail page.
+        Parent parent)
 {
     @JsonIgnoreProperties(ignoreUnknown = true)
     record License(
@@ -51,4 +54,10 @@ record GitHubRepoResponse(
     record Owner(
             String login,
             @JsonProperty("avatar_url") String avatarUrl) {}
+
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    record Parent(
+            String name,
+            @JsonProperty("default_branch") String defaultBranch,
+            Owner owner) {}
 }

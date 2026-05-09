@@ -1528,6 +1528,30 @@ public class GitHubClient
         }
     }
 
+    @Override
+    public IssueDetail.Comment postIssueComment(String pat, RepoRef repo, int number, String body)
+    {
+        try {
+            GitHubIssueComment posted = gitHubRestClient.post()
+                    .uri("/repos/{owner}/{repo}/issues/{number}/comments",
+                            repo.owner(), repo.repo(), number)
+                    .header("Authorization", "Bearer " + pat)
+                    .contentType(MediaType.APPLICATION_JSON)
+                    .body(ImmutableMap.of("body", body))
+                    .retrieve()
+                    .body(GitHubIssueComment.class);
+            if (posted == null) {
+                throw new ResponseStatusException(
+                        HttpStatusCode.valueOf(502),
+                        "Empty response from GitHub when posting issue comment");
+            }
+            return toIssueDetailComment(posted);
+        }
+        catch (RestClientResponseException e) {
+            throw toReadableException(e);
+        }
+    }
+
     private static IssueDetail toIssueDetail(GitHubIssueItem item, List<IssueDetail.Comment> comments)
     {
         List<IssueDetail.Label> labels = Optional.ofNullable(item.labels()).orElse(ImmutableList.of()).stream()
@@ -1609,6 +1633,15 @@ public class GitHubClient
                             .map(GitHubRepoResponse.License::name)
                             .orElse(null));
 
+            GitHubRepoResponse.Parent parent = repoResp.parent();
+            String parentOwner = parent == null
+                    ? null
+                    : Optional.ofNullable(parent.owner())
+                            .map(GitHubRepoResponse.Owner::login)
+                            .orElse(null);
+            String parentName = parent == null ? null : parent.name();
+            String parentDefaultBranch = parent == null ? null : parent.defaultBranch();
+
             return new RepoMeta(
                     repoResp.fullName(),
                     repoResp.htmlUrl(),
@@ -1626,7 +1659,10 @@ public class GitHubClient
                     languages,
                     Optional.ofNullable(repoResp.owner())
                             .map(GitHubRepoResponse.Owner::avatarUrl)
-                            .orElse(null));
+                            .orElse(null),
+                    parentOwner,
+                    parentName,
+                    parentDefaultBranch);
         }
         catch (RestClientResponseException e) {
             throw toReadableException(e);

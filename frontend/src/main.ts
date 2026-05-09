@@ -1257,6 +1257,39 @@ const url = new URL(`${BACKEND_BASE}/prs/comment`);
     return res.json();
   });
 
+  ipcMain.handle('repos:listLocalRangeFiles', async (
+    _event, owner: string, repo: string, base: string, head: string,
+  ) => {
+    const params = new URLSearchParams();
+    params.set('base', base);
+    params.set('head', head);
+    const res = await fetch(
+      `${BACKEND_BASE}/api/repos/local/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/range/files?${params.toString()}`,
+    );
+    if (!res.ok) {
+      const body = await res.text().catch(() => '');
+      throw new Error(extractMessage(body) || `range files lookup failed (${res.status})`);
+    }
+    return res.json();
+  });
+
+  ipcMain.handle('repos:getLocalRangeDiff', async (
+    _event, owner: string, repo: string, base: string, head: string, path: string,
+  ) => {
+    const params = new URLSearchParams();
+    params.set('base', base);
+    params.set('head', head);
+    params.set('path', path);
+    const res = await fetch(
+      `${BACKEND_BASE}/api/repos/local/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/range/diff?${params.toString()}`,
+    );
+    if (!res.ok) {
+      const body = await res.text().catch(() => '');
+      throw new Error(extractMessage(body) || `range diff fetch failed (${res.status})`);
+    }
+    return res.json();
+  });
+
   ipcMain.handle('repos:listLocalCommitFiles', async (
     _event, owner: string, repo: string, sha: string,
   ) => {

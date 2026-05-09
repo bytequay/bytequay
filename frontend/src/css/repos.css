@@ -1557,6 +1557,42 @@
   border-bottom-color: var(--accent);
   background: var(--bg-card);
 }
+/* Compare-branches dropdown — sits between the mode tabs and the
+   commits list. Picking a base flips the middle/right panes to
+   show git diff <base>..<branch>. */
+.commits-pane__compare {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-elevated);
+}
+.commits-pane__compare-select {
+  flex: 1 1 auto;
+  font: inherit;
+  font-size: 11px;
+  padding: 4px 6px;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  background: var(--bg-card);
+  color: var(--text-1);
+  cursor: pointer;
+}
+.commits-pane__compare-clear {
+  appearance: none;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 4px;
+  font-size: 12px;
+  color: var(--text-3);
+  cursor: pointer;
+  padding: 2px 6px;
+}
+.commits-pane__compare-clear:hover {
+  color: var(--accent);
+  border-color: var(--border);
+}
 .commits-pane__changes-empty {
   padding: 18px 14px;
   font-size: 12px;

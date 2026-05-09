@@ -152,6 +152,10 @@ const bridge: Bridge = {
     ipcRenderer.invoke('repos:listLocalWorkingTreeFiles', owner, repo),
   getLocalWorkingTreeDiff: (owner: string, repo: string, path: string) =>
     ipcRenderer.invoke('repos:getLocalWorkingTreeDiff', owner, repo, path),
+  listLocalRangeFiles: (owner: string, repo: string, base: string, head: string) =>
+    ipcRenderer.invoke('repos:listLocalRangeFiles', owner, repo, base, head),
+  getLocalRangeDiff: (owner: string, repo: string, base: string, head: string, path: string) =>
+    ipcRenderer.invoke('repos:getLocalRangeDiff', owner, repo, base, head, path),
   listLocalCommitFiles: (owner: string, repo: string, sha: string) =>
     ipcRenderer.invoke('repos:listLocalCommitFiles', owner, repo, sha),
   getLocalCommitDiff: (owner: string, repo: string, sha: string, path: string) =>

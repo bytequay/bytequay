@@ -807,6 +807,58 @@ public class GitRunner
      * captures every change those commits introduced as one unified
      * diff. Truncation behavior matches {@link #commitFileDiff}.
      */
+    /**
+     * Files that differ between {@code base} and {@code head}
+     * ({@code git diff --name-status -z base..head}). Returns the
+     * same shape as {@link #commitFiles} but for a range —
+     * additions/deletions are 0 (we'd need a second pass with
+     * {@code --numstat} to fill them in; per-file diffs already
+     * carry the line counts when the user drills in). Used by the
+     * Commits tab's compare-branches mode.
+     */
+    public List<CommitFileChange> rangeFiles(Path workingDir, String base, String head)
+            throws IOException, InterruptedException
+    {
+        requireNonNull(base, "base is null");
+        requireNonNull(head, "head is null");
+        GitResult result = run(
+                List.of("git", "diff", "--name-status", "-z", base + ".." + head),
+                workingDir,
+                30);
+        result.requireSuccess();
+        String stdout = result.stdout();
+        if (stdout.isEmpty()) {
+            return ImmutableList.of();
+        }
+        ImmutableList.Builder<CommitFileChange> out = ImmutableList.builder();
+        // -z splits records by NUL. For renames/copies the format is
+        // R<score><NUL>old<NUL>new — three NUL-separated tokens.
+        String[] parts = stdout.split(NUL_SEP, -1);
+        for (int i = 0; i < parts.length; i++) {
+            String tok = parts[i];
+            if (tok.isEmpty()) {
+                continue;
+            }
+            char status = tok.charAt(0);
+            String path;
+            if ((status == 'R' || status == 'C') && i + 2 < parts.length) {
+                // R/C entries take both an old path (skipped) and a new path.
+                i++;
+                path = parts[i + 1];
+                i++;
+            }
+            else {
+                if (i + 1 >= parts.length) {
+                    continue;
+                }
+                path = parts[i + 1];
+                i++;
+            }
+            out.add(new CommitFileChange(path, String.valueOf(status), 0, 0));
+        }
+        return out.build();
+    }
+
     public String rangeFileDiff(Path workingDir, String base, String head, String path, int maxBytes)
             throws IOException, InterruptedException
     {

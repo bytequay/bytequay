@@ -690,6 +690,46 @@ public class LocalRepoService
     }
 
     /**
+     * Files that differ between {@code base} and {@code head} —
+     * used by the Commits tab's compare-branches mode. The base /
+     * head args may be raw shas, branch names, or any ref git
+     * accepts; both go through the same origin/<name> fallback as
+     * the listCommits flow when the bare name doesn't resolve.
+     */
+    public List<LocalCommitFile> rangeFiles(String owner, String repo, String base, String head)
+            throws IOException, InterruptedException
+    {
+        Path path = clonePathOrThrow(owner, repo);
+        String resolvedBase = resolveLogRevision(path, base);
+        String resolvedHead = resolveLogRevision(path, head);
+        return gitRunner.rangeFiles(path, resolvedBase, resolvedHead).stream()
+                .map(f -> new LocalCommitFile(f.path(), f.status(), f.additions(), f.deletions()))
+                .collect(toImmutableList());
+    }
+
+    /**
+     * Per-file unified diff between two refs — counterpart to
+     * {@link #rangeFiles}. Same args, same shape as
+     * {@link #commitFileDiff}. Used by the Commits tab's
+     * compare-branches mode; differs from
+     * {@link #commitRangeFileDiff} in that there's no {@code ^}
+     * shift on the base (branch refs aren't shas, so {@code ^}
+     * would point at the wrong commit).
+     */
+    public LocalFileDiff rangeFileDiff(
+            String owner, String repo, String base, String head, String filePath)
+            throws IOException, InterruptedException
+    {
+        Path path = clonePathOrThrow(owner, repo);
+        String resolvedBase = resolveLogRevision(path, base);
+        String resolvedHead = resolveLogRevision(path, head);
+        String patch = gitRunner.rangeFileDiff(
+                path, resolvedBase, resolvedHead, filePath, FILE_DIFF_MAX_BYTES);
+        boolean truncated = patch.contains("(diff truncated at ");
+        return new LocalFileDiff(filePath, patch, truncated);
+    }
+
+    /**
      * One file's unified diff across a commit range — used by the
      * Commits tab when the user has selected more than one commit.
      * The {@code oldestSha} and {@code newestSha} args are the

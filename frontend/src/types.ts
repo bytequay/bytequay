@@ -947,6 +947,18 @@ export type Bridge = {
   getLocalWorkingTreeDiff: (
     owner: string, repo: string, path: string,
   ) => Promise<LocalFileDiffDto>;
+  /** Files differing between two refs — used by the Commits tab's
+   *  compare-branches mode. Both refs may be branch names or shas;
+   *  origin/<name> fallback is applied per the listCommits flow. */
+  listLocalRangeFiles: (
+    owner: string, repo: string, base: string, head: string,
+  ) => Promise<LocalCommitFileDto[]>;
+  /** Per-file unified diff between two refs — counterpart to
+   *  listLocalRangeFiles. Differs from getLocalCommitRangeDiff in
+   *  that there's no ^ shift on the base, so branch refs work. */
+  getLocalRangeDiff: (
+    owner: string, repo: string, base: string, head: string, path: string,
+  ) => Promise<LocalFileDiffDto>;
   /** Files touched by a single commit — middle pane of the Commits tab. */
   listLocalCommitFiles: (
     owner: string, repo: string, sha: string,

@@ -836,6 +836,7 @@ function LocalRepoPage({ owner, repo, onSelectPr, initialBranch }: Props) {
           // HEAD's currentBranch when the user landed on this tab
           // directly. Refetches when either changes.
           revisionKey={commitsBranch ?? status?.currentBranch ?? ''}
+          branches={branches}
         />
       )}
       {tab === 'activity' && <ActivityTab owner={owner} repo={repo} />}
@@ -925,10 +926,12 @@ function CommitsTab({
   owner,
   repo,
   revisionKey,
+  branches,
 }: {
   owner: string;
   repo: string;
   revisionKey: string;
+  branches: LocalBranchDto[] | null;
 }) {
   const [commits, setCommits] = useState<LocalCommitDto[] | null>(null);
   const [commitsError, setCommitsError] = useState<string | null>(null);
@@ -947,6 +950,11 @@ function CommitsTab({
   // = working-tree (uncommitted) files. The middle + right panes are
   // shared — they just switch which data source feeds them.
   const [mode, setMode] = useState<'history' | 'changes'>('history');
+  // Compare-branches base. When set (only meaningful in History mode),
+  // the middle/right panes show `git diff <compareBase>..<branch>`
+  // instead of the selected commits' changes — for "what's different
+  // between this branch and main" without leaving the page.
+  const [compareBase, setCompareBase] = useState<string | null>(null);
   // Lazy-fetched subject + body for the patch-detail card. Refreshed
   // whenever the single-selected commit changes; cleared when the
   // user moves into multi-select (the card is only meaningful for
@@ -1040,8 +1048,10 @@ function CommitsTab({
   }, [owner, repo, revisionKey]);
 
   // Files for the middle pane. History mode → union of selected
-  // commits' files. Changes mode → working-tree (uncommitted) files.
-  // Auto-picks the first file so the diff pane has something to show.
+  // commits' files (or the full <compareBase>..<branch> range when
+  // compare-branches is active). Changes mode → working-tree
+  // (uncommitted) files. Auto-picks the first file so the diff
+  // pane has something to show.
   useEffect(() => {
     let cancelled = false;
     setFiles(null);
@@ -1050,6 +1060,16 @@ function CommitsTab({
     setDiff(null);
     if (mode === 'changes') {
       window.bridge.listLocalWorkingTreeFiles(owner, repo)
+        .then((rows) => {
+          if (cancelled) return;
+          setFiles(rows);
+          if (rows.length > 0) setSelectedFile(rows[0].path);
+        })
+        .catch((e) => { if (!cancelled) setFilesError(e instanceof Error ? e.message : String(e)); });
+      return () => { cancelled = true; };
+    }
+    if (compareBase != null && revisionKey) {
+      window.bridge.listLocalRangeFiles(owner, repo, compareBase, revisionKey)
         .then((rows) => {
           if (cancelled) return;
           setFiles(rows);
@@ -1075,7 +1095,7 @@ function CommitsTab({
       })
       .catch((e) => { if (!cancelled) setFilesError(e instanceof Error ? e.message : String(e)); });
     return () => { cancelled = true; };
-  }, [owner, repo, mode, selectedShas, commits]);
+  }, [owner, repo, mode, compareBase, revisionKey, selectedShas, commits]);
 
   // Per-file diff. Single selection → that commit's patch via
   // `git show`. Multiple selection → range diff via
@@ -1096,6 +1116,14 @@ function CommitsTab({
     if (mode === 'changes') {
       fetchDiff = window.bridge.getLocalWorkingTreeDiff(owner, repo, selectedFile);
     }
+    else if (compareBase != null && revisionKey) {
+      // Compare-branches: git diff <compareBase>..<branch> -- file.
+      // Uses the dedicated range-diff endpoint (no ^ shift) since
+      // <branch>^ would point at the parent of the branch tip
+      // rather than at the branch itself.
+      fetchDiff = window.bridge.getLocalRangeDiff(
+          owner, repo, compareBase, revisionKey, selectedFile);
+    }
     else {
       if (newestSelectedSha == null || oldestSelectedSha == null) return;
       fetchDiff = newestSelectedSha === oldestSelectedSha
@@ -1107,7 +1135,7 @@ function CommitsTab({
       .then(d => { if (!cancelled) setDiff(d); })
       .catch(e => { if (!cancelled) setDiffError(e instanceof Error ? e.message : String(e)); });
     return () => { cancelled = true; };
-  }, [owner, repo, mode, oldestSelectedSha, newestSelectedSha, selectedFile]);
+  }, [owner, repo, mode, compareBase, revisionKey, oldestSelectedSha, newestSelectedSha, selectedFile]);
 
   // Patch-detail card data — only fetched in single-select mode.
   // Multi-select shows the union-diff chip in the same slot.
@@ -1186,6 +1214,33 @@ function CommitsTab({
               History
             </button>
           </div>
+          {mode === 'history' && (
+            <div className="commits-pane__compare">
+              <select
+                className="commits-pane__compare-select"
+                value={compareBase ?? ''}
+                onChange={(e) => setCompareBase(e.target.value || null)}
+                title="Compare this branch against another branch"
+              >
+                <option value="">Select branch to compare…</option>
+                {(branches ?? [])
+                  .filter((b) => b.name !== revisionKey)
+                  .map((b) => (
+                    <option key={b.name} value={b.name}>{b.name}</option>
+                  ))}
+              </select>
+              {compareBase && (
+                <button
+                  type="button"
+                  className="commits-pane__compare-clear"
+                  onClick={() => setCompareBase(null)}
+                  title="Clear comparison"
+                >
+                  ✕
+                </button>
+              )}
+            </div>
+          )}
           {mode === 'changes' ? (
             <div className="commits-pane__changes-empty">
               {files == null && !filesError && 'Reading working tree…'}
@@ -1218,7 +1273,7 @@ function CommitsTab({
         </aside>
         <ResizeHandle onResize={handleLeftResize} ariaLabel="Resize commits panel" />
         <aside className="commits-pane__files">
-          {mode === 'history' && (
+          {mode === 'history' && compareBase == null && (
             selectedShas.size > 1 ? (
               <CommitsSelectionSummary
                 commits={commits}
@@ -1232,8 +1287,20 @@ function CommitsTab({
               />
             )
           )}
+          {mode === 'history' && compareBase != null && (
+            <div className="commits-selection-summary commits-selection-summary--multi">
+              <span className="commits-selection-summary__icon" aria-hidden="true">⇄</span>
+              <span className="commits-selection-summary__label">
+                Comparing <code>{revisionKey}</code> against <code>{compareBase}</code>
+              </span>
+            </div>
+          )}
           <div className="commits-pane__section-header">
-            {mode === 'changes' ? 'Working tree' : 'Files changed'}
+            {mode === 'changes'
+              ? 'Working tree'
+              : compareBase != null
+                ? 'Files in range'
+                : 'Files changed'}
             {files != null && files.length > 0 ? ` (${files.length})` : ''}
           </div>
           <DiffFileTreePane

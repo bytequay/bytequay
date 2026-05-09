@@ -377,6 +377,71 @@ public class LocalRepoController
     }
 
     /**
+     * GET /api/repos/local/{owner}/{repo}/range/files?base=&head= —
+     * file list for the diff between two refs. Used by the Commits
+     * tab's compare-branches mode. Both refs may be branch names
+     * or shas; falls through origin/<name> on missing local refs.
+     */
+    @GetMapping("/{owner}/{repo}/range/files")
+    public List<LocalCommitFile> rangeFiles(
+            @PathVariable("owner") String owner,
+            @PathVariable("repo") String repo,
+            @RequestParam("base") String base,
+            @RequestParam("head") String head)
+    {
+        try {
+            return localRepoService.rangeFiles(owner, repo, base, head);
+        }
+        catch (IllegalStateException e) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, e.getMessage());
+        }
+        catch (GitRunner.GitCommandException e) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, e.stderr().strip());
+        }
+        catch (IOException e) {
+            throw new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR, e.getMessage());
+        }
+        catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE, "range-files lookup interrupted");
+        }
+    }
+
+    /**
+     * GET /api/repos/local/{owner}/{repo}/range/diff?base=&head=&path=
+     * — unified diff for one file between two refs (git diff
+     * base..head -- path). Used by the Commits tab's compare-branches
+     * mode. Differs from /commits-range/diff in that there's no ^
+     * shift — branch refs aren't shas, so ^ would point at the
+     * wrong commit.
+     */
+    @GetMapping("/{owner}/{repo}/range/diff")
+    public LocalFileDiff rangeFileDiff(
+            @PathVariable("owner") String owner,
+            @PathVariable("repo") String repo,
+            @RequestParam("base") String base,
+            @RequestParam("head") String head,
+            @RequestParam("path") String filePath)
+    {
+        try {
+            return localRepoService.rangeFileDiff(owner, repo, base, head, filePath);
+        }
+        catch (IllegalStateException e) {
+            throw new ResponseStatusException(HttpStatus.NOT_FOUND, e.getMessage());
+        }
+        catch (GitRunner.GitCommandException e) {
+            throw new ResponseStatusException(HttpStatus.CONFLICT, e.stderr().strip());
+        }
+        catch (IOException e) {
+            throw new ResponseStatusException(HttpStatus.INTERNAL_SERVER_ERROR, e.getMessage());
+        }
+        catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE, "range diff fetch interrupted");
+        }
+    }
+
+    /**
      * GET /api/repos/local/{owner}/{repo}/commits-range/diff
      *     ?oldest=&newest=&path= — unified diff for one file across
      * the commit range {@code oldest^..newest}. Used by the Commits

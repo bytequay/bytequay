@@ -1630,8 +1630,6 @@
   line-height: 1.5;
   white-space: pre-wrap;
   word-break: break-word;
-  max-height: 8em;
-  overflow: hidden;
 }
 .patch-detail-card__fold {
   appearance: none;

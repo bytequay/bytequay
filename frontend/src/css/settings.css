@@ -291,3 +291,27 @@
   gap: 6px;
 }
 
+/* Disclosure for the rare BYO-OAuth setup path on Settings → Integrations.
+   Collapsed by default, opens automatically when a credential already
+   exists so power users don't have to click twice to see their config. */
+.settings-advanced-details {
+  margin: 8px 0;
+}
+.settings-advanced-details > summary {
+  cursor: pointer;
+  padding: 6px 12px;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-2);
+  border: 1px dashed var(--border);
+  border-radius: 6px;
+  user-select: none;
+}
+.settings-advanced-details > summary:hover {
+  color: var(--accent);
+  border-color: var(--accent-a40);
+}
+.settings-advanced-details[open] > summary {
+  margin-bottom: 8px;
+}
+

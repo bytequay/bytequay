@@ -230,7 +230,8 @@ function ConnectCard({
         <span className="slack-local-first-lock" aria-hidden="true">🔒</span>
         <span>
           <strong>Local-first.</strong> Tokens stay on your machine,
-          messages cache locally. Nothing leaves without a click.
+          messages cache locally. Nothing leaves without a click. One
+          click connects — no app registration on your side.
         </span>
       </div>
     </div>
@@ -238,15 +239,19 @@ function ConnectCard({
 }
 
 function NotConfiguredCard({ onOpenSettings }: { onOpenSettings: () => void }) {
+  // Reachable only when this build was shipped without the embedded
+  // PKCE client_id (dev builds, custom forks). End users on the
+  // packaged dmg always hit ConnectCard. Settings → Integrations
+  // exposes a BYO fallback for anyone running their own Slack app.
   return (
     <div className="slack-connect-card">
       <div className="slack-connect-icon" aria-hidden="true">#</div>
       <h1 className="slack-connect-title">Slack OAuth isn't configured</h1>
       <p className="slack-connect-desc">
-        ByteQuay uses a <strong>bring-your-own Slack app</strong>: register a
-        small app on api.slack.com (a two-minute walkthrough lives in Settings)
-        and paste its <code>client_id</code> and <code>client_secret</code>.
-        Once those are saved, come back here to connect a workspace.
+        This build of ByteQuay shipped without an embedded Slack app.
+        You can still connect by registering your own Slack app and
+        pasting its <code>client_id</code> + <code>client_secret</code>{' '}
+        into Settings → Integrations.
       </p>
       <button
         type="button"

@@ -36,8 +36,9 @@ function IntegrationsPage() {
         <div>
           <h2 className="settings-shell-page__title">Integrations</h2>
           <div className="settings-shell-page__subtitle">
-            Bring-your-own OAuth app credentials for Slack and Gmail.
-            Both stay encrypted on this machine.
+            Slack ships with one-click connect via PKCE. Gmail still uses
+            bring-your-own credentials. Anything saved here stays encrypted
+            on this machine.
           </div>
         </div>
       </div>
@@ -131,76 +132,99 @@ function SlackSection() {
     }
   };
 
+  // The BYO sections used to be the primary connect path; PKCE made them
+  // unnecessary for end users. We keep them around as an "Advanced"
+  // disclosure for anyone running their own Slack app (forks, custom
+  // distributions, builds shipped without an embedded client_id).
+  // Open-by-default when a credential already exists so the existing
+  // power-user flow stays one click away.
+  const detailsOpen = credential != null || editing;
+
   return (
     <>
       <SettingCard
-        title="Slack — bring your own app"
+        title="Slack"
         hint={
           <>
-            ByteQuay doesn't ship a hosted Slack app yet, so each user registers a small
-            personal Slack app and pastes its <code>client_id</code> and <code>client_secret</code> here.
-            Both values are stored encrypted on this machine and never leave it.
-            Follow the steps below — it takes about two minutes.
+            ByteQuay's <b>Slack</b> tab connects to your workspace with one
+            click via Slack's PKCE flow — no app registration on your side,
+            no credentials to manage. Head over there to connect or
+            disconnect.
           </>
         }
       />
 
-      <SlackSetupGuide />
-
-      {loading && <div className="repo-loading">Loading…</div>}
-      {error && <div className="repo-error">{error}</div>}
-
-      {!loading && !editing && credential && (
+      <details className="settings-advanced-details" open={detailsOpen}>
+        <summary>Advanced — use your own Slack app</summary>
         <SettingCard
-          title="Saved Slack app"
-          action={
-            <a
-              className="button button--secondary"
-              href="https://api.slack.com/apps"
-              target="_blank"
-              rel="noreferrer"
-            >
-              Open Slack apps ↗
-            </a>
+          title="Slack — bring your own app"
+          hint={
+            <>
+              Power users can register their own Slack app and have ByteQuay
+              authenticate against it instead of the embedded one. Useful
+              for forks, custom builds, or workspaces with strict app
+              policies. Stored values stay encrypted on this machine and
+              never leave it.
+            </>
           }
-        >
-          <SettingRow
-            title="Client ID"
-            description={<code>{credential.label ?? '—'}</code>}
-            control={<></>}
-          />
-          <SettingRow
-            title="Client Secret"
-            description={<code>{credential.preview}</code>}
-            control={
-              <>
-                <button className="button button--secondary" type="button" onClick={startEdit}>
-                  Replace
-                </button>
-                <button className="button button--danger" type="button" onClick={() => void remove()} disabled={saving}>
-                  Delete
-                </button>
-              </>
-            }
-          />
-        </SettingCard>
-      )}
+        />
 
-      {!loading && !editing && !credential && (
-        <SettingCard title="Add Slack app credentials">
-          <SettingRow
-            title="No Slack app saved"
-            description="Without a Slack app, the Connect button on the Slack tab can't kick off OAuth."
-            control={
-              <button className="button button--primary" type="button" onClick={startEdit}>
-                + Add Slack app
-              </button>
-            }
-          />
-        </SettingCard>
-      )}
+        <SlackSetupGuide />
 
-      {!loading && editing && (
+        {loading && <div className="repo-loading">Loading…</div>}
+        {error && <div className="repo-error">{error}</div>}
+
+        {!loading && !editing && credential && (
+          <SettingCard
+            title="Saved Slack app"
+            action={
+              <a
+                className="button button--secondary"
+                href="https://api.slack.com/apps"
+                target="_blank"
+                rel="noreferrer"
+              >
+                Open Slack apps ↗
+              </a>
+            }
+          >
+            <SettingRow
+              title="Client ID"
+              description={<code>{credential.label ?? '—'}</code>}
+              control={<></>}
+            />
+            <SettingRow
+              title="Client Secret"
+              description={<code>{credential.preview}</code>}
+              control={
+                <>
+                  <button className="button button--secondary" type="button" onClick={startEdit}>
+                    Replace
+                  </button>
+                  <button className="button button--danger" type="button" onClick={() => void remove()} disabled={saving}>
+                    Delete
+                  </button>
+                </>
+              }
+            />
+          </SettingCard>
+        )}
+
+        {!loading && !editing && !credential && (
+          <SettingCard title="Add Slack app credentials">
+            <SettingRow
+              title="No Slack app saved"
+              description="Optional — only needed if you're not using the embedded one-click connect."
+              control={
+                <button className="button button--primary" type="button" onClick={startEdit}>
+                  + Add Slack app
+                </button>
+              }
+            />
+          </SettingCard>
+        )}
+
+        {!loading && editing && (
         <SettingCard title={credential ? 'Replace Slack app' : 'Add Slack app'}>
           <SettingRow
             title="Client ID"
@@ -245,7 +269,8 @@ function SlackSection() {
             }
           />
         </SettingCard>
-      )}
+        )}
+      </details>
     </>
   );
 }

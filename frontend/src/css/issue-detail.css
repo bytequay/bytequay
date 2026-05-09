@@ -14,6 +14,16 @@
   color: var(--text-1);
   background: var(--bg-base);
 }
+/* When mounted inside RepoDetailPage's right pane the surrounding
+   v2-main already centres / pads the content area, so the embedded
+   variant drops the max-width column and lets the pane decide the
+   width. Padding is trimmed (the sidebar provides one edge of
+   breathing room and the v2-main lays the rest). */
+.issue-detail--embedded {
+  max-width: none;
+  margin: 0;
+  padding: 18px 28px 36px;
+}
 .issue-detail__loading,
 .issue-detail__error {
   padding: 48px;

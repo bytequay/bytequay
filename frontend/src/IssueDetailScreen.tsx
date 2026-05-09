@@ -22,7 +22,13 @@ type Props = {
   owner: string;
   repo: string;
   number: number;
-  onBack: () => void;
+  /** Required in standalone mode (own page). Optional/ignored when
+   *  embedded inside another shell that owns the back affordance. */
+  onBack?: () => void;
+  /** When mounted inside RepoDetailPage's right pane the surrounding
+   *  v2-page chrome already provides nav, so the screen drops its
+   *  own breadcrumb and adapts its outer layout to fill the pane. */
+  embedded?: boolean;
 };
 
 /**
@@ -33,7 +39,7 @@ type Props = {
  * v1: Activity / Linked tabs, reactions, reply composer, close /
  * reopen, subscribe — tracked as I3b/I4.
  */
-function IssueDetailScreen({ owner, repo, number, onBack }: Props) {
+function IssueDetailScreen({ owner, repo, number, onBack, embedded }: Props) {
   const [detail, setDetail] = useState<IssueDetailDto | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -47,18 +53,23 @@ function IssueDetailScreen({ owner, repo, number, onBack }: Props) {
     return () => { cancelled = true; };
   }, [owner, repo, number]);
 
+  const wrapperClass = `issue-detail${embedded ? ' issue-detail--embedded' : ''}`;
+  const breadcrumb = !embedded && onBack
+    ? <IssueDetailBreadcrumb owner={owner} repo={repo} number={detail?.number ?? number} onBack={onBack} />
+    : null;
+
   if (error) {
     return (
-      <div className="issue-detail">
-        <IssueDetailBreadcrumb owner={owner} repo={repo} number={number} onBack={onBack} />
+      <div className={wrapperClass}>
+        {breadcrumb}
         <div className="issue-detail__error">Couldn't load issue: {error}</div>
       </div>
     );
   }
   if (!detail) {
     return (
-      <div className="issue-detail">
-        <IssueDetailBreadcrumb owner={owner} repo={repo} number={number} onBack={onBack} />
+      <div className={wrapperClass}>
+        {breadcrumb}
         <div className="issue-detail__loading">
           <LogoLoading size={48} label={`Loading #${number}`} />
         </div>
@@ -69,8 +80,8 @@ function IssueDetailScreen({ owner, repo, number, onBack }: Props) {
   const isClosed = detail.state === 'closed';
 
   return (
-    <div className="issue-detail">
-      <IssueDetailBreadcrumb owner={owner} repo={repo} number={detail.number} onBack={onBack} />
+    <div className={wrapperClass}>
+      {breadcrumb}
 
       <header className="issue-detail__header">
         <h1 className="issue-detail__title">

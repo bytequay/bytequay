@@ -13,6 +13,7 @@
  */
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { IssueDto, PullRequestDto, UserProfileDto } from './types';
+import IssueDetailScreen from './IssueDetailScreen';
 import PullRequestPreview from './PullRequestPreview';
 import ReviewScreen from './ReviewScreen';
 import DiffViewerScreen from './DiffViewerScreen';
@@ -80,9 +81,6 @@ type Props = {
    *  head ref that calls this. App-level so the nav target lines up
    *  with the existing local-repo route. */
   onOpenLocalBranch?: (owner: string, repo: string, branch: string) => void;
-  /** Open an issue's in-app detail page. Defaults to opening on
-   *  github.com when unset (used by IssueRow). */
-  onSelectIssue?: (owner: string, repo: string, number: number) => void;
 };
 
 /** Right-pane placeholder shown while a deep-link's PR fetch is in
@@ -104,7 +102,7 @@ function DeepLinkLoading({ owner, repo, number }: { owner: string; repo: string;
   );
 }
 
-function RepoDetailPage({ owner, repo, initialPrNumber, initialTab, onOpenLocalBranch, onSelectIssue }: Props) {
+function RepoDetailPage({ owner, repo, initialPrNumber, initialTab, onOpenLocalBranch }: Props) {
   const [tab, setTab] = useState<Tab>(initialTab ?? 'pulls');
   const [bucket, setBucket] = useState<Bucket>('inbox');
   const [scope, setScope] = useState<Scope>('mine');
@@ -128,6 +126,11 @@ function RepoDetailPage({ owner, repo, initialPrNumber, initialTab, onOpenLocalB
   const [issueSearch, setIssueSearch] = useState('');
   const [issueLoadError, setIssueLoadError] = useState<string | null>(null);
   const [issueLoading, setIssueLoading] = useState(false);
+  /** Number of the issue currently previewed in the right pane (when
+   *  the Issues tab is active). Mirrors selectedPr's role for the PR
+   *  flow — clicking a row sets this; the right pane's IssueDetail
+   *  component fetches its own payload from the number alone. */
+  const [selectedIssueNumber, setSelectedIssueNumber] = useState<number | null>(null);
   const [loading, setLoading] = useState(
     getCached(repoPullsKey(owner, repo)) === undefined,
   );
@@ -178,6 +181,7 @@ function RepoDetailPage({ owner, repo, initialPrNumber, initialTab, onOpenLocalB
     setIssueState('open');
     setIssueSearch('');
     setIssueLoadError(null);
+    setSelectedIssueNumber(null);
     // Try to auto-select from the cache synchronously — if the user
     // visited this repo before, the deep-link should land on the PR
     // immediately without waiting for the fetch.
@@ -314,6 +318,16 @@ function RepoDetailPage({ owner, repo, initialPrNumber, initialTab, onOpenLocalB
     // re-expands so the user can pick another. Manual chevron clicks
     // still take precedence afterwards.
     const fold = pr !== null;
+    setSidebarCollapsed(fold);
+    localStorage.setItem(SIDEBAR_COLLAPSED_KEY, fold ? '1' : '0');
+  };
+
+  const selectIssue = (number: number | null) => {
+    setSelectedIssueNumber(number);
+    // Mirror selectPr's sidebar behaviour — folding when picking a row
+    // gives the right pane the room it needs for the issue body +
+    // comments + right rail.
+    const fold = number !== null;
     setSidebarCollapsed(fold);
     localStorage.setItem(SIDEBAR_COLLAPSED_KEY, fold ? '1' : '0');
   };
@@ -660,7 +674,8 @@ function RepoDetailPage({ owner, repo, initialPrNumber, initialTab, onOpenLocalB
             closedIssues={closedIssues}
             loading={issueLoading}
             error={issueLoadError}
-            onSelectIssue={onSelectIssue ? (n) => onSelectIssue(owner, repo, n) : undefined}
+            onSelectIssue={selectIssue}
+            selectedIssueNumber={selectedIssueNumber}
           />
         )}
       </aside>
@@ -682,6 +697,13 @@ function RepoDetailPage({ owner, repo, initialPrNumber, initialTab, onOpenLocalB
             onBack={() => { setDiffViewerPr(null); setDiffViewerCommitSha(null); }}
             onApprove={handleApprove}
             initialCommitSha={diffViewerCommitSha}
+          />
+        ) : tab === 'issues' && selectedIssueNumber != null ? (
+          <IssueDetailScreen
+            owner={owner}
+            repo={repo}
+            number={selectedIssueNumber}
+            embedded
           />
         ) : selectedPr ? (
           <PullRequestPreview
@@ -724,6 +746,7 @@ function IssueListPane({
   loading,
   error,
   onSelectIssue,
+  selectedIssueNumber,
 }: {
   state: IssueState;
   onChangeState: (next: IssueState) => void;
@@ -734,6 +757,9 @@ function IssueListPane({
   loading: boolean;
   error: string | null;
   onSelectIssue?: (number: number) => void;
+  /** Highlights the currently-previewed row. Mirrors selectedId on
+   *  the PR list so the user keeps their place after click. */
+  selectedIssueNumber?: number | null;
 }) {
   const issues = state === 'open' ? openIssues : closedIssues;
   const filtered = useMemo(() => {
@@ -797,7 +823,12 @@ function IssueListPane({
           </li>
         )}
         {filtered?.map(issue => (
-          <IssueRow key={issue.id} issue={issue} onSelect={onSelectIssue} />
+          <IssueRow
+            key={issue.id}
+            issue={issue}
+            onSelect={onSelectIssue}
+            selected={issue.number === selectedIssueNumber}
+          />
         ))}
       </ul>
     </>
@@ -808,12 +839,20 @@ function IssueListPane({
  *  layout from docs/mockups/design/repository/repository-issues.png:
  *  status circle + title with inline label chips + a small meta line.
  *  Click still routes to github.com — the in-app detail page is I3. */
-function IssueRow({ issue, onSelect }: { issue: IssueDto; onSelect?: (number: number) => void }) {
+function IssueRow({
+  issue,
+  onSelect,
+  selected,
+}: {
+  issue: IssueDto;
+  onSelect?: (number: number) => void;
+  selected?: boolean;
+}) {
   const isClosed = issue.state === 'closed';
   const statusLabel = isClosed ? 'Closed' : 'Open';
-  // Prefer the in-app detail page when the parent wires onSelect
-  // (route shipped in I3). Falls back to opening github.com so the
-  // row stays useful for any caller that hasn't plumbed nav yet.
+  // Prefer the in-pane preview when the parent wires onSelect (the
+  // RepoDetailPage flow). Falls back to opening github.com so the
+  // row stays useful for any caller that hasn't plumbed selection.
   const open = (): void => {
     if (onSelect) {
       onSelect(issue.number);
@@ -824,7 +863,7 @@ function IssueRow({ issue, onSelect }: { issue: IssueDto; onSelect?: (number: nu
   };
   return (
     <li
-      className="issue-row"
+      className={`issue-row${selected ? ' issue-row--selected' : ''}`}
       role="button"
       tabIndex={0}
       onClick={open}

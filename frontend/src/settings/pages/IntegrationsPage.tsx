@@ -296,7 +296,7 @@ function SlackSetupGuide() {
 
 /* ─── Gmail ────────────────────────────────────────────────────── */
 
-type GmailConnectStatus = 'idle' | 'launching' | 'awaiting' | 'error';
+type GmailConnectStatus = 'idle' | 'awaiting' | 'error';
 
 function GmailSection() {
   const [credential, setCredential] = useState<CredentialDto | null>(null);
@@ -330,21 +330,6 @@ function GmailSection() {
   };
 
   useEffect(() => { void load(); }, []);
-
-  useEffect(() => {
-    const teardown = window.bridge.onGmailOauthComplete((payload) => {
-      if (payload.success) {
-        setConnectStatus('idle');
-        setConnectError(null);
-        void load();
-      }
-      else {
-        setConnectStatus('error');
-        setConnectError(payload.error ?? 'Gmail sign-in failed');
-      }
-    });
-    return teardown;
-  }, []);
 
   const startEdit = () => {
     setEditing(true);
@@ -396,17 +381,18 @@ function GmailSection() {
   };
 
   const connect = async () => {
-    setConnectStatus('launching');
+    setConnectStatus('awaiting');
     setConnectError(null);
     try {
-      const res = await window.bridge.getGmailOAuthAuthorizeUrl();
-      if (!res.configured || !res.url) {
-        setConnectStatus('error');
-        setConnectError('Gmail OAuth client not configured. Save client_id and client_secret first.');
-        return;
+      const res = await window.bridge.connectGmailAccount();
+      if (res.success) {
+        setConnectStatus('idle');
+        await load();
       }
-      await window.bridge.openExternal(res.url);
-      setConnectStatus('awaiting');
+      else {
+        setConnectStatus('error');
+        setConnectError(res.error ?? 'Gmail sign-in failed');
+      }
     } catch (e) {
       setConnectStatus('error');
       setConnectError(e instanceof Error ? e.message : String(e));
@@ -544,9 +530,8 @@ function GmailSection() {
               className="button button--primary"
               type="button"
               onClick={() => void connect()}
-              disabled={connectStatus === 'launching' || connectStatus === 'awaiting'}
+              disabled={connectStatus === 'awaiting'}
             >
-              {connectStatus === 'launching' && 'Opening browser…'}
               {connectStatus === 'awaiting' && 'Waiting for Google…'}
               {(connectStatus === 'idle' || connectStatus === 'error') && '+ Connect Gmail account'}
             </button>

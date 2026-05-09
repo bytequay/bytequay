@@ -22,6 +22,7 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.util.List;
@@ -49,21 +50,24 @@ public class GmailOAuthController
     public record CallbackRequest(String code, String state) {}
 
     /**
-     * GET /api/auth/gmail/authorize-url — returns the URL the renderer
-     * should open in the system browser. Mints a fresh CSRF state +
-     * PKCE pair as a side effect.
+     * GET /api/auth/gmail/authorize-url?redirectUri=… — returns the URL
+     * the renderer should open in the system browser. Mints a fresh
+     * CSRF state + PKCE pair as a side effect.
+     *
+     * <p>The renderer passes the loopback URL it just bound to
+     * (Google's Desktop OAuth client only accepts {@code http://127.0.0.1:*}).
      *
      * <p>Response shape: {@code {"configured": bool, "url": string?}}.
      */
     @GetMapping("/authorize-url")
-    public Map<String, Object> authorizeUrl()
+    public Map<String, Object> authorizeUrl(@RequestParam String redirectUri)
     {
         if (!oauth.isConfigured()) {
             return ImmutableMap.of("configured", false);
         }
         return ImmutableMap.of(
                 "configured", true,
-                "url", oauth.issueAuthorizeUrl());
+                "url", oauth.issueAuthorizeUrl(redirectUri));
     }
 
     /**

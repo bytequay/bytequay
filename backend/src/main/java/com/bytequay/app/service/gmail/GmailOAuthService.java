@@ -98,7 +98,6 @@ public class GmailOAuthService
 
     static final String GMAIL_CLIENT_ID_ENV = "GMAIL_CLIENT_ID";
     static final String GMAIL_CLIENT_SECRET_ENV = "GMAIL_CLIENT_SECRET";
-    static final String REDIRECT_URI = "bytequay://gmail-oauth-callback";
     static final String AUTHORIZE_ENDPOINT = "https://accounts.google.com/o/oauth2/v2/auth";
     static final String TOKEN_ENDPOINT = "https://oauth2.googleapis.com/token";
     static final String USERINFO_ENDPOINT = "https://www.googleapis.com/oauth2/v3/userinfo";
@@ -158,20 +157,33 @@ public class GmailOAuthService
 
     /**
      * Mints a fresh CSRF state token + PKCE pair, stashes the verifier
+     * (and the loopback {@code redirectUri} the renderer just bound to)
      * under the state, and returns the URL to open in the system
-     * browser. Throws 503 if the OAuth client isn't configured.
+     * browser.
+     *
+     * <p>Google's "Desktop app" OAuth client type doesn't support
+     * custom URI schemes — only HTTP loopback addresses
+     * ({@code http://127.0.0.1:<port>/...}). The renderer therefore
+     * spins up an ephemeral HTTP listener before each connect, passes
+     * its bound URL here, and Google redirects there with the code.
+     * The exact same URL must be sent at token-exchange time, which
+     * is why we stash it in {@link PendingExchange}.
      */
-    public String issueAuthorizeUrl()
+    public String issueAuthorizeUrl(String redirectUri)
     {
+        if (redirectUri == null || redirectUri.isBlank()) {
+            throw new ResponseStatusException(HttpStatusCode.valueOf(400),
+                    "redirectUri must not be blank");
+        }
         String clientId = requireConfigured(resolveClientId(), "client_id");
         purgeExpired();
         String state = randomUrlSafe(32);
         String codeVerifier = randomUrlSafe(64);
         String codeChallenge = sha256Base64Url(codeVerifier);
-        pending.put(state, new PendingExchange(Instant.now(clock), codeVerifier));
+        pending.put(state, new PendingExchange(Instant.now(clock), codeVerifier, redirectUri));
         return AUTHORIZE_ENDPOINT
                 + "?client_id=" + url(clientId)
-                + "&redirect_uri=" + url(REDIRECT_URI)
+                + "&redirect_uri=" + url(redirectUri)
                 + "&response_type=code"
                 + "&scope=" + url(String.join(" ", SCOPES))
                 + "&state=" + url(state)
@@ -214,7 +226,8 @@ public class GmailOAuthService
         }
         String clientId = requireConfigured(resolveClientId(), "client_id");
         String clientSecret = requireConfigured(resolveClientSecret(), "client_secret");
-        TokenResponse tokens = exchanger.exchange(clientId, clientSecret, code, exchange.codeVerifier());
+        TokenResponse tokens = exchanger.exchange(
+                clientId, clientSecret, code, exchange.codeVerifier(), exchange.redirectUri());
         if (tokens.refreshToken() == null || tokens.refreshToken().isBlank()) {
             // Without offline access_type or with a previously-consented
             // app where Google decided not to mint a new refresh token,
@@ -320,12 +333,17 @@ public class GmailOAuthService
 
     public record TokenResponse(String accessToken, String refreshToken) {}
 
-    private record PendingExchange(Instant issuedAt, String codeVerifier) {}
+    private record PendingExchange(Instant issuedAt, String codeVerifier, String redirectUri) {}
 
     /** Test seam — extracted so unit tests don't have to mock HTTP. */
     interface OAuthExchanger
     {
-        TokenResponse exchange(String clientId, String clientSecret, String code, String codeVerifier);
+        TokenResponse exchange(
+                String clientId,
+                String clientSecret,
+                String code,
+                String codeVerifier,
+                String redirectUri);
 
         String fetchEmail(String accessToken);
     }
@@ -338,13 +356,18 @@ public class GmailOAuthService
         private final ObjectMapper json = new ObjectMapper();
 
         @Override
-        public TokenResponse exchange(String clientId, String clientSecret, String code, String codeVerifier)
+        public TokenResponse exchange(
+                String clientId,
+                String clientSecret,
+                String code,
+                String codeVerifier,
+                String redirectUri)
         {
             String form = "client_id=" + url(clientId)
                     + "&client_secret=" + url(clientSecret)
                     + "&code=" + url(code)
                     + "&grant_type=authorization_code"
-                    + "&redirect_uri=" + url(REDIRECT_URI)
+                    + "&redirect_uri=" + url(redirectUri)
                     + "&code_verifier=" + url(codeVerifier);
             HttpRequest req = HttpRequest.newBuilder()
                     .uri(URI.create(TOKEN_ENDPOINT))

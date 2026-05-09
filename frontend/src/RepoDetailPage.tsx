@@ -598,47 +598,13 @@ function RepoDetailPage({ owner, repo, initialPrNumber, initialTab, onOpenLocalB
         )}
 
         {!loading && tab === 'issues' && (
-          <div className="v2-list">
+          <ul className="issue-list">
             {issues.length === 0 ? (
-              <div className="v2-empty">No open issues</div>
+              <li className="v2-empty">No open issues</li>
             ) : issues.map(issue => (
-              <div
-                key={issue.id}
-                className="v2-card v2-card--issue"
-                role="button"
-                tabIndex={0}
-                onClick={() => void window.bridge.openExternal(issue.htmlUrl)}
-                onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') void window.bridge.openExternal(issue.htmlUrl); }}
-                title="Open on GitHub"
-              >
-                <div className="v2-card__body">
-                  <div className="v2-card__row">
-                    <span className="v2-card__number">#{issue.number}</span>
-                    <span className="v2-card__ts">· {formatRelative(issue.updatedAt)}</span>
-                  </div>
-                  <div className="v2-card__title">{issue.title}</div>
-                  {issue.labels.length > 0 && (
-                    <div className="v2-card__labels">
-                      {issue.labels.slice(0, 4).map(label => (
-                        <span key={label} className="v2-pill v2-pill--label">{label}</span>
-                      ))}
-                      {issue.labels.length > 4 && (
-                        <span className="v2-pill v2-pill--label">+{issue.labels.length - 4}</span>
-                      )}
-                    </div>
-                  )}
-                  <div className="v2-card__meta">
-                    {issue.author && (
-                      <>
-                        <Avatar login={issue.author} size={14} className="avatar--repo-small" />
-                        <span>{issue.author}</span>
-                      </>
-                    )}
-                  </div>
-                </div>
-              </div>
+              <IssueRow key={issue.id} issue={issue} />
             ))}
-          </div>
+          </ul>
         )}
       </aside>
       )}
@@ -687,6 +653,47 @@ function RepoDetailPage({ owner, repo, initialPrNumber, initialTab, onOpenLocalB
  *  prior surface (RepoOverviewPanel) duplicated metadata that already
  *  lives on the unified Repository home, so the right pane stays empty
  *  here until the user picks a row from the sidebar. */
+/** One row in the redesigned Issues list. Mirrors the GitHub-style
+ *  layout from docs/mockups/design/repository/repository-issues.png:
+ *  status circle + title with inline label chips + a small meta line.
+ *  Click still routes to github.com — the in-app detail page is I3. */
+function IssueRow({ issue }: { issue: IssueDto }) {
+  const open = (): void => { void window.bridge.openExternal(issue.htmlUrl); };
+  return (
+    <li
+      className="issue-row"
+      role="button"
+      tabIndex={0}
+      onClick={open}
+      onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); open(); } }}
+      title="Open on GitHub"
+    >
+      {/* Status icon — green outlined circle for open issues, matching
+          GitHub's affordance. Closed/state plumbing lands in I2. */}
+      <span className="issue-row__status issue-row__status--open" aria-label="Open" title="Open" />
+      <div className="issue-row__main">
+        <div className="issue-row__title-line">
+          <span className="issue-row__title">{issue.title}</span>
+          {issue.labels.slice(0, 4).map(label => (
+            <span key={label} className="issue-row__label">{label}</span>
+          ))}
+          {issue.labels.length > 4 && (
+            <span className="issue-row__label issue-row__label--more">+{issue.labels.length - 4}</span>
+          )}
+        </div>
+        <div className="issue-row__meta">
+          <span className="issue-row__num">#{issue.number}</span>
+          {issue.author && <> · opened by <span className="issue-row__author">@{issue.author}</span></>}
+          {issue.updatedAt && <> · last activity {formatRelative(issue.updatedAt)}</>}
+        </div>
+      </div>
+      {issue.author && (
+        <Avatar login={issue.author} size={20} className="issue-row__avatar" />
+      )}
+    </li>
+  );
+}
+
 function NoSelectionPlaceholder({ tab, repo }: { tab: Tab; repo: string }) {
   return (
     <div className="v2-help v2-help--idle">

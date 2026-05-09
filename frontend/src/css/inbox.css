@@ -685,6 +685,99 @@
   border-color: var(--accent);
 }
 
+/* ── Issues list (Issues sidebar tab on RepoDetailPage) ──────────
+   Row-style layout per docs/mockups/design/repository/repository-issues.png:
+   status circle on the left, title + inline label chips, meta line
+   below, and the issue author's avatar on the right.
+
+   Using a list (<ul>/<li>) here rather than v2-card so the tab can
+   evolve toward GitHub-style filterable rows in I2 without dragging
+   the PR-card chrome along. */
+.issue-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+}
+.issue-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 10px 16px;
+  border-bottom: 1px solid var(--border);
+  cursor: pointer;
+  background: transparent;
+}
+.issue-row:hover {
+  background: var(--bg-elevated);
+}
+.issue-row:last-child {
+  border-bottom: none;
+}
+/* Open issues: green outlined circle. Closed/state plumbing in I2
+   will introduce a filled-purple variant for closed-as-completed
+   and a grey variant for closed-as-not-planned. */
+.issue-row__status {
+  flex: 0 0 auto;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  margin-top: 4px;
+  border: 1.6px solid #1a7f37;
+  background: transparent;
+}
+.issue-row__main {
+  flex: 1 1 auto;
+  min-width: 0;
+}
+.issue-row__title-line {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin-bottom: 4px;
+}
+.issue-row__title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-1);
+  /* Constrain so a long title wraps within the line, letting label
+     chips flow onto the same logical row when there's space. */
+  flex: 0 1 auto;
+  word-break: break-word;
+}
+.issue-row__label {
+  font-size: 11px;
+  padding: 1px 8px;
+  border-radius: 999px;
+  background: var(--accent-a7);
+  color: var(--accent);
+  white-space: nowrap;
+  font-weight: 500;
+}
+.issue-row__label--more {
+  background: var(--bg-base);
+  color: var(--text-3);
+}
+.issue-row__meta {
+  font-size: 11.5px;
+  color: var(--text-3);
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+.issue-row__num {
+  font-variant-numeric: tabular-nums;
+}
+.issue-row__author {
+  color: var(--text-2);
+}
+.issue-row__avatar {
+  flex: 0 0 auto;
+  margin-top: 1px;
+}
+
 .v2-pill--resurfaced {
   background: rgba(230, 126, 34, 0.15);
   color: #c0651a;

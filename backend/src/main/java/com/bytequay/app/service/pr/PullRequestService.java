@@ -93,7 +93,7 @@ public class PullRequestService
 
     private static final Set<String> INTERESTING_EVENTS = ImmutableSet.of(
             "committed", "reviewed", "review_requested", "commented", "merged", "closed", "reopened",
-            "head_ref_force_pushed");
+            "head_ref_force_pushed", "added_to_merge_queue", "removed_from_merge_queue");
 
     private final PullRequestRepository gitHub;
     private final PullRequestStore store;

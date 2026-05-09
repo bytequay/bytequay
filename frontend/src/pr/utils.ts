@@ -110,6 +110,8 @@ export function activityVerb(eventType: string): string {
     // to review" — see renderActivity. This default is only used when the
     // requestedReviewer field is missing (very old data).
     case 'review_requested': return 'requested a review';
+    case 'added_to_merge_queue': return 'added this PR to the merge queue';
+    case 'removed_from_merge_queue': return 'removed this PR from the merge queue';
     default: return eventType;
   }
 }
@@ -127,6 +129,8 @@ export function eventMarker(eventType: string): string {
     case 'merged': return '✓';
     case 'closed': return '×';
     case 'reopened': return '↺';
+    case 'added_to_merge_queue': return '⏳';
+    case 'removed_from_merge_queue': return '×';
     case 'labeled':
     case 'unlabeled': return '●';
     case 'assigned':

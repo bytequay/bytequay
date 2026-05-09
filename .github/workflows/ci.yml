@@ -23,6 +23,7 @@ jobs:
   path-filters:
     name: Detect changed areas
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     outputs:
       backend: ${{ steps.filter.outputs.backend }}
       frontend: ${{ steps.filter.outputs.frontend }}
@@ -44,6 +45,7 @@ jobs:
     needs: path-filters
     if: github.event_name != 'pull_request' || needs.path-filters.outputs.backend == 'true'
     runs-on: ubuntu-latest
+    timeout-minutes: 30
 
     steps:
       - uses: actions/checkout@v4
@@ -68,6 +70,7 @@ jobs:
     needs: path-filters
     if: github.event_name != 'pull_request' || needs.path-filters.outputs.frontend == 'true'
     runs-on: ubuntu-latest
+    timeout-minutes: 30
 
     steps:
       - uses: actions/checkout@v4

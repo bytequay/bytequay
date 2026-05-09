@@ -2029,6 +2029,35 @@ const url = new URL(`${BACKEND_BASE}/api/search/repos`);
     return res.json();
   });
 
+  // ── Gmail OAuth ────────────────────────────────────────────────────────
+  // Multi-account: each connect dance lands a new credential row; the
+  // accounts list reflects everything the user has wired up.
+  ipcMain.handle('gmailOAuth:authorizeUrl', async () => {
+    const res = await fetch(`${BACKEND_BASE}/api/auth/gmail/authorize-url`);
+    if (!res.ok) {
+      const body = await res.text().catch(() => '');
+      throw new Error(`backend /api/auth/gmail/authorize-url returned ${res.status}: ${body}`);
+    }
+    return res.json();
+  });
+
+  ipcMain.handle('gmailOAuth:listAccounts', async () => {
+    const res = await fetch(`${BACKEND_BASE}/api/auth/gmail/accounts`);
+    if (!res.ok) throw new Error(`backend /api/auth/gmail/accounts returned ${res.status}`);
+    return res.json();
+  });
+
+  ipcMain.handle('gmailOAuth:disconnect', async (_event, email: string) => {
+    if (typeof email !== 'string' || email.trim().length === 0) {
+      throw new Error('email must be a non-empty string');
+    }
+    const res = await fetch(
+      `${BACKEND_BASE}/api/auth/gmail/accounts/${encodeURIComponent(email)}`,
+      { method: 'DELETE' });
+    if (!res.ok) throw new Error(`backend /api/auth/gmail/accounts/${email} returned ${res.status}`);
+    return res.json();
+  });
+
   // ── Credentials ─────────────────────────────────────────────────────────
   // Credentials are uniquely identified by the pair (type, name). The backend
   // exposes them at /api/credentials with optional ?type= filter; per-row
@@ -2383,6 +2412,9 @@ app.on('open-url', (event, url) => {
   else if (parsed.host === 'github-oauth-callback') {
     void handleGitHubOAuthCallback(parsed);
   }
+  else if (parsed.host === 'gmail-oauth-callback') {
+    void handleGmailOAuthCallback(parsed);
+  }
 });
 
 async function handleSlackOAuthCallback(parsed: URL): Promise<void> {
@@ -2443,6 +2475,37 @@ function notifySlackOauthComplete(payload: { success: boolean; error?: string })
 function notifyGitHubOauthComplete(payload: { success: boolean; error?: string; login?: string }): void {
   if (mainWindow && !mainWindow.isDestroyed()) {
     mainWindow.webContents.send('github:oauth-complete', payload);
+  }
+}
+
+async function handleGmailOAuthCallback(parsed: URL): Promise<void> {
+  const code = parsed.searchParams.get('code');
+  const state = parsed.searchParams.get('state');
+  if (!code || !state) {
+    notifyGmailOauthComplete({ success: false, error: 'Missing code or state in callback URL' });
+    return;
+  }
+  try {
+    const res = await fetch(`${BACKEND_BASE}/api/auth/gmail/callback`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ code, state }),
+    });
+    if (!res.ok) {
+      const text = await res.text().catch(() => '');
+      notifyGmailOauthComplete({ success: false, error: `backend ${res.status}: ${text}` });
+      return;
+    }
+    const body = (await res.json().catch(() => ({}))) as { email?: string };
+    notifyGmailOauthComplete({ success: true, email: body.email });
+  } catch (e) {
+    notifyGmailOauthComplete({ success: false, error: e instanceof Error ? e.message : String(e) });
+  }
+}
+
+function notifyGmailOauthComplete(payload: { success: boolean; error?: string; email?: string }): void {
+  if (mainWindow && !mainWindow.isDestroyed()) {
+    mainWindow.webContents.send('gmail:oauth-complete', payload);
   }
 }
 

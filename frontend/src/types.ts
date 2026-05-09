@@ -1182,6 +1182,19 @@ export type Bridge = {
    *  to bytequay://github-oauth-callback and the backend has exchanged the
    *  code. Returns a teardown that removes the listener. */
   onGitHubOauthComplete: (callback: (payload: { success: boolean; error?: string; login?: string }) => void) => () => void;
+  /** Issues an authorize URL for the Gmail OAuth + PKCE flow. The renderer
+   *  opens it in the system browser. {@code configured} is false when the
+   *  backend hasn't been given GMAIL_CLIENT_ID / GMAIL_CLIENT_SECRET nor a
+   *  (INTEGRATION, "gmail-oauth-app") credential row. */
+  getGmailOAuthAuthorizeUrl: () => Promise<{ configured: boolean; url?: string }>;
+  /** All currently connected Gmail accounts, one row per email. */
+  listGmailAccounts: () => Promise<Array<{ email: string }>>;
+  /** Drops the stored refresh token for a single Gmail account. */
+  disconnectGmailAccount: (email: string) => Promise<void>;
+  /** Subscribes to Gmail OAuth-callback completions. Fires after Google
+   *  redirects to bytequay://gmail-oauth-callback and the backend has
+   *  exchanged the code. {@code email} is set on success. */
+  onGmailOauthComplete: (callback: (payload: { success: boolean; error?: string; email?: string }) => void) => () => void;
   // Credentials vault
   listCredentials: (type?: CredentialType) => Promise<CredentialDto[]>;
   upsertCredential: (req: UpsertCredentialRequest) => Promise<CredentialDto>;

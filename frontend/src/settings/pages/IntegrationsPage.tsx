@@ -16,22 +16,41 @@ import type { CredentialDto } from '../../types';
 import SettingCard from '../shared/SettingCard';
 import SettingRow from '../shared/SettingRow';
 
-const TYPE = 'INTEGRATION' as const;
-const NAME = 'slack-oauth-app';
-const REDIRECT_URI = 'bytequay://slack-oauth-callback';
+const SLACK_NAME = 'slack-oauth-app';
+const SLACK_REDIRECT = 'bytequay://slack-oauth-callback';
+const GMAIL_NAME = 'gmail-oauth-app';
+const GMAIL_REDIRECT = 'bytequay://gmail-oauth-callback';
 
 /**
- * BYO Slack OAuth app configuration. Users register their own app on
- * api.slack.com and paste the public {@code client_id} (label) plus the
- * encrypted {@code client_secret} (value) into a single credential row.
- * The Slack tab picks the values up at the next call — no backend
- * restart needed.
- *
- * The setup-guide card mirrors the steps in
- * docs/mockups/design/slack/scopes.md so users have everything they
- * need without leaving the app.
+ * BYO OAuth app configuration for the third-party providers ByteQuay
+ * talks to. Each provider gets its own card: the user pastes their
+ * own {@code client_id} / {@code client_secret} from the provider's
+ * developer console, then connects accounts through the resulting
+ * OAuth dance. Both pieces of state live in the local credentials
+ * vault and never leave this machine.
  */
 function IntegrationsPage() {
+  return (
+    <>
+      <div className="settings-shell-page__head">
+        <div>
+          <h2 className="settings-shell-page__title">Integrations</h2>
+          <div className="settings-shell-page__subtitle">
+            Bring-your-own OAuth app credentials for Slack and Gmail.
+            Both stay encrypted on this machine.
+          </div>
+        </div>
+      </div>
+
+      <SlackSection />
+      <GmailSection />
+    </>
+  );
+}
+
+/* ─── Slack ────────────────────────────────────────────────────── */
+
+function SlackSection() {
   const [credential, setCredential] = useState<CredentialDto | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -45,8 +64,8 @@ function IntegrationsPage() {
     setLoading(true);
     setError(null);
     try {
-      const list = await window.bridge.listCredentials(TYPE);
-      const existing = list.find(c => c.name === NAME) ?? null;
+      const list = await window.bridge.listCredentials('INTEGRATION');
+      const existing = list.find(c => c.name === SLACK_NAME) ?? null;
       setCredential(existing);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
@@ -82,8 +101,8 @@ function IntegrationsPage() {
     setError(null);
     try {
       await window.bridge.upsertCredential({
-        type: TYPE,
-        name: NAME,
+        type: 'INTEGRATION',
+        name: SLACK_NAME,
         value: clientSecret.trim(),
         label: clientId.trim(),
         notes: null,
@@ -103,7 +122,7 @@ function IntegrationsPage() {
     setSaving(true);
     setError(null);
     try {
-      await window.bridge.deleteCredential(TYPE, NAME);
+      await window.bridge.deleteCredential('INTEGRATION', SLACK_NAME);
       await load();
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
@@ -114,15 +133,6 @@ function IntegrationsPage() {
 
   return (
     <>
-      <div className="settings-shell-page__head">
-        <div>
-          <h2 className="settings-shell-page__title">Integrations</h2>
-          <div className="settings-shell-page__subtitle">
-            Connect ByteQuay to Slack so the cockpit can show your mentions and DMs.
-          </div>
-        </div>
-      </div>
-
       <SettingCard
         title="Slack — bring your own app"
         hint={
@@ -135,7 +145,7 @@ function IntegrationsPage() {
         }
       />
 
-      <SetupGuide />
+      <SlackSetupGuide />
 
       {loading && <div className="repo-loading">Loading…</div>}
       {error && <div className="repo-error">{error}</div>}
@@ -240,7 +250,7 @@ function IntegrationsPage() {
   );
 }
 
-function SetupGuide() {
+function SlackSetupGuide() {
   return (
     <SettingCard title="How to register a Slack app">
       <ol className="settings-setup-steps">
@@ -252,7 +262,7 @@ function SetupGuide() {
         </li>
         <li>
           Open <b>OAuth &amp; Permissions</b>. Under <b>Redirect URLs</b>, add{' '}
-          <code>{REDIRECT_URI}</code> and click <b>Save URLs</b>.
+          <code>{SLACK_REDIRECT}</code> and click <b>Save URLs</b>.
         </li>
         <li>
           On the same page, scroll to <b>Scopes → User Token Scopes</b> and add all
@@ -278,6 +288,333 @@ function SetupGuide() {
         <li>
           Switch to the <b>Slack</b> tab in the sidebar and click <b>Connect Slack workspace</b>.
           Your browser will open Slack's authorize page, then redirect back to ByteQuay.
+        </li>
+      </ol>
+    </SettingCard>
+  );
+}
+
+/* ─── Gmail ────────────────────────────────────────────────────── */
+
+type GmailConnectStatus = 'idle' | 'launching' | 'awaiting' | 'error';
+
+function GmailSection() {
+  const [credential, setCredential] = useState<CredentialDto | null>(null);
+  const [accounts, setAccounts] = useState<Array<{ email: string }>>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  const [editing, setEditing] = useState(false);
+  const [clientId, setClientId] = useState('');
+  const [clientSecret, setClientSecret] = useState('');
+  const [saving, setSaving] = useState(false);
+
+  const [connectStatus, setConnectStatus] = useState<GmailConnectStatus>('idle');
+  const [connectError, setConnectError] = useState<string | null>(null);
+
+  const load = async () => {
+    setLoading(true);
+    setError(null);
+    try {
+      const [list, accs] = await Promise.all([
+        window.bridge.listCredentials('INTEGRATION'),
+        window.bridge.listGmailAccounts().catch((): Array<{ email: string }> => []),
+      ]);
+      setCredential(list.find(c => c.name === GMAIL_NAME) ?? null);
+      setAccounts(accs);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => { void load(); }, []);
+
+  useEffect(() => {
+    const teardown = window.bridge.onGmailOauthComplete((payload) => {
+      if (payload.success) {
+        setConnectStatus('idle');
+        setConnectError(null);
+        void load();
+      }
+      else {
+        setConnectStatus('error');
+        setConnectError(payload.error ?? 'Gmail sign-in failed');
+      }
+    });
+    return teardown;
+  }, []);
+
+  const startEdit = () => {
+    setEditing(true);
+    setClientId(credential?.label ?? '');
+    setClientSecret('');
+  };
+
+  const cancelEdit = () => {
+    setEditing(false);
+    setClientId('');
+    setClientSecret('');
+  };
+
+  const save = async () => {
+    if (!clientId.trim()) { setError('Client ID must not be blank.'); return; }
+    if (!clientSecret.trim()) { setError('Client Secret must not be blank.'); return; }
+    setSaving(true);
+    setError(null);
+    try {
+      await window.bridge.upsertCredential({
+        type: 'INTEGRATION',
+        name: GMAIL_NAME,
+        value: clientSecret.trim(),
+        label: clientId.trim(),
+        notes: null,
+      });
+      setEditing(false);
+      setClientSecret('');
+      await load();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const remove = async () => {
+    if (!confirm('Delete the saved Gmail app credentials? Connected Gmail accounts stay until disconnected individually.')) return;
+    setSaving(true);
+    setError(null);
+    try {
+      await window.bridge.deleteCredential('INTEGRATION', GMAIL_NAME);
+      await load();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const connect = async () => {
+    setConnectStatus('launching');
+    setConnectError(null);
+    try {
+      const res = await window.bridge.getGmailOAuthAuthorizeUrl();
+      if (!res.configured || !res.url) {
+        setConnectStatus('error');
+        setConnectError('Gmail OAuth client not configured. Save client_id and client_secret first.');
+        return;
+      }
+      await window.bridge.openExternal(res.url);
+      setConnectStatus('awaiting');
+    } catch (e) {
+      setConnectStatus('error');
+      setConnectError(e instanceof Error ? e.message : String(e));
+    }
+  };
+
+  const disconnectAccount = async (email: string) => {
+    if (!confirm(`Disconnect ${email}? You'll need to re-authorize to reconnect.`)) return;
+    try {
+      await window.bridge.disconnectGmailAccount(email);
+      await load();
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    }
+  };
+
+  return (
+    <>
+      <SettingCard
+        title="Gmail — bring your own OAuth client"
+        hint={
+          <>
+            Same model as Slack: register a personal OAuth client on Google Cloud Console
+            and paste its <code>client_id</code> + <code>client_secret</code> here. Once
+            saved, you can connect one or more Gmail accounts; each lands a separate
+            refresh token in your local keychain.
+          </>
+        }
+      />
+
+      <GmailSetupGuide />
+
+      {loading && <div className="repo-loading">Loading…</div>}
+      {error && <div className="repo-error">{error}</div>}
+
+      {!loading && !editing && credential && (
+        <SettingCard
+          title="Saved Gmail OAuth client"
+          action={
+            <a
+              className="button button--secondary"
+              href="https://console.cloud.google.com/apis/credentials"
+              target="_blank"
+              rel="noreferrer"
+            >
+              Open Cloud Console ↗
+            </a>
+          }
+        >
+          <SettingRow
+            title="Client ID"
+            description={<code>{credential.label ?? '—'}</code>}
+            control={<></>}
+          />
+          <SettingRow
+            title="Client Secret"
+            description={<code>{credential.preview}</code>}
+            control={
+              <>
+                <button className="button button--secondary" type="button" onClick={startEdit}>Replace</button>
+                <button className="button button--danger" type="button" onClick={() => void remove()} disabled={saving}>Delete</button>
+              </>
+            }
+          />
+        </SettingCard>
+      )}
+
+      {!loading && !editing && !credential && (
+        <SettingCard title="Add Gmail OAuth client">
+          <SettingRow
+            title="No Gmail OAuth client saved"
+            description="Without it, you can't connect Gmail accounts."
+            control={
+              <button className="button button--primary" type="button" onClick={startEdit}>
+                + Add Gmail OAuth client
+              </button>
+            }
+          />
+        </SettingCard>
+      )}
+
+      {!loading && editing && (
+        <SettingCard title={credential ? 'Replace Gmail OAuth client' : 'Add Gmail OAuth client'}>
+          <SettingRow
+            title="Client ID"
+            description={<>From the Cloud Console under <b>APIs &amp; Services → Credentials → OAuth 2.0 Client IDs</b>. Public — fine to paste.</>}
+            control={
+              <input
+                className="settings-input-number"
+                style={{ width: 280 }}
+                type="text"
+                value={clientId}
+                onChange={e => setClientId(e.target.value)}
+                placeholder="1234567890-xxxxxxxxxx.apps.googleusercontent.com"
+                autoFocus
+              />
+            }
+          />
+          <SettingRow
+            title="Client Secret"
+            description="Right below Client ID. Stored encrypted on this machine."
+            control={
+              <input
+                className="settings-input-number"
+                style={{ width: 280 }}
+                type="password"
+                value={clientSecret}
+                onChange={e => setClientSecret(e.target.value)}
+                placeholder="••••••••••••••••••••••••••••••••"
+              />
+            }
+          />
+          <SettingRow
+            title=""
+            control={
+              <>
+                <button className="button button--primary" type="button" onClick={() => void save()} disabled={saving}>
+                  {saving ? 'Saving…' : credential ? 'Replace' : 'Save'}
+                </button>
+                <button className="button button--secondary" type="button" onClick={cancelEdit} disabled={saving}>Cancel</button>
+              </>
+            }
+          />
+        </SettingCard>
+      )}
+
+      {!loading && credential && (
+        <SettingCard
+          title="Connected Gmail accounts"
+          hint={accounts.length === 0
+            ? 'No accounts connected yet. Click below to add one — repeat to add more.'
+            : `${accounts.length} account${accounts.length === 1 ? '' : 's'} connected.`}
+          action={
+            <button
+              className="button button--primary"
+              type="button"
+              onClick={() => void connect()}
+              disabled={connectStatus === 'launching' || connectStatus === 'awaiting'}
+            >
+              {connectStatus === 'launching' && 'Opening browser…'}
+              {connectStatus === 'awaiting' && 'Waiting for Google…'}
+              {(connectStatus === 'idle' || connectStatus === 'error') && '+ Connect Gmail account'}
+            </button>
+          }
+        >
+          {connectStatus === 'awaiting' && (
+            <div className="repo-loading">A new tab opened in your browser — finish the consent flow there.</div>
+          )}
+          {connectStatus === 'error' && connectError && (
+            <div className="repo-error">{connectError}</div>
+          )}
+          {accounts.map(acc => (
+            <SettingRow
+              key={acc.email}
+              title={acc.email}
+              description="OAuth refresh token stored locally."
+              control={
+                <button
+                  className="button button--danger"
+                  type="button"
+                  onClick={() => void disconnectAccount(acc.email)}
+                >
+                  Disconnect
+                </button>
+              }
+            />
+          ))}
+        </SettingCard>
+      )}
+    </>
+  );
+}
+
+function GmailSetupGuide() {
+  return (
+    <SettingCard title="How to register a Gmail OAuth client">
+      <ol className="settings-setup-steps">
+        <li>
+          Open <a href="https://console.cloud.google.com/" target="_blank" rel="noreferrer">console.cloud.google.com</a>{' '}
+          and create a new project (or pick an existing one).
+        </li>
+        <li>
+          Under <b>APIs &amp; Services → Library</b>, enable <b>Gmail API</b>.
+        </li>
+        <li>
+          Go to <b>APIs &amp; Services → OAuth consent screen</b>. Pick <b>External</b>,
+          fill in app name (<code>ByteQuay</code>), support email, and a developer
+          contact email. Add yourself under <b>Test users</b> — until the app is
+          verified, only listed test users can sign in (capped at 100). For a
+          personal tool that's fine.
+        </li>
+        <li>
+          Add the scope <code>https://www.googleapis.com/auth/gmail.modify</code>{' '}
+          on the consent-screen scopes step.
+        </li>
+        <li>
+          Go to <b>APIs &amp; Services → Credentials</b>. Click{' '}
+          <b>+ Create Credentials → OAuth client ID</b>. Pick <b>Desktop app</b>{' '}
+          as the application type and name it <code>ByteQuay</code>.
+        </li>
+        <li>
+          After creation, edit the client and add{' '}
+          <code>{GMAIL_REDIRECT}</code> under <b>Authorized redirect URIs</b>{' '}
+          (custom URI scheme is supported on Desktop app type).
+        </li>
+        <li>
+          Copy the <b>Client ID</b> and <b>Client Secret</b> from the credential
+          row and paste them into the form below.
         </li>
       </ol>
     </SettingCard>

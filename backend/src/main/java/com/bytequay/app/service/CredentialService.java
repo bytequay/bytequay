@@ -75,6 +75,13 @@ public class CredentialService
         return credentialStore.findByType(type);
     }
 
+    /** All instances of (type, name), in insertion order. Used by services
+     *  that store one row per connected account (Gmail). */
+    public List<Credential> listByTypeAndName(CredentialType type, String name)
+    {
+        return credentialStore.findByTypeAndName(type, name);
+    }
+
     /** Earliest-created instance for (type, name). */
     public Optional<Credential> get(CredentialType type, String name)
     {

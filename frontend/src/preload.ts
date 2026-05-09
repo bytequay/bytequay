@@ -391,6 +391,17 @@ const bridge: Bridge = {
     ipcRenderer.on('github:oauth-complete', listener);
     return () => ipcRenderer.removeListener('github:oauth-complete', listener);
   },
+  getGmailOAuthAuthorizeUrl: (): Promise<{ configured: boolean; url?: string }> =>
+    ipcRenderer.invoke('gmailOAuth:authorizeUrl'),
+  listGmailAccounts: (): Promise<Array<{ email: string }>> =>
+    ipcRenderer.invoke('gmailOAuth:listAccounts'),
+  disconnectGmailAccount: (email: string): Promise<void> =>
+    ipcRenderer.invoke('gmailOAuth:disconnect', email),
+  onGmailOauthComplete: (callback: (payload: { success: boolean; error?: string; email?: string }) => void) => {
+    const listener = (_event: unknown, payload: { success: boolean; error?: string; email?: string }) => callback(payload);
+    ipcRenderer.on('gmail:oauth-complete', listener);
+    return () => ipcRenderer.removeListener('gmail:oauth-complete', listener);
+  },
 };
 
 contextBridge.exposeInMainWorld('bridge', bridge);

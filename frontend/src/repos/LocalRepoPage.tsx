@@ -16,7 +16,7 @@ import type { LocalActivityEntryDto, LocalBranchDto, LocalCommitDetailDto, Local
 import Avatar from '../Avatar';
 import LogoLoading from '../LogoLoading';
 import { formatRelativeTime } from '../pr/utils';
-import { DiffFileTreePane } from '../diff/DiffFileTreePane';
+import { DiffFileTreePane, type FilesPaneMode } from '../diff/DiffFileTreePane';
 import { statusBadgeFromLetter } from '../diffStatusBadge';
 import { unionCommitFiles } from '../diff/unionCommitFiles';
 import { formatShortSha } from '../diff/commitDisplay';
@@ -30,6 +30,9 @@ import ResizeHandle from '../ResizeHandle';
 // view so they don't collide with the PR diff viewer's keys.
 const COMMITS_TAB_LEFT_KEY = 'bq.localRepo.commitsTab.leftWidth';
 const COMMITS_TAB_MID_KEY = 'bq.localRepo.commitsTab.midWidth';
+// Shared with the PR diff viewer (DiffViewerScreen.tsx) so the user's
+// Tree/Flat preference applies across both surfaces.
+const FILES_MODE_KEY = 'settings:diff-files-mode';
 const COMMITS_TAB_LEFT_DEFAULT = 320;
 const COMMITS_TAB_MID_DEFAULT = 280;
 const COMMITS_TAB_LEFT_MIN = 200;
@@ -1099,6 +1102,13 @@ function CommitsTab({
   const [diff, setDiff] = useState<LocalFileDiffDto | null>(null);
   const [diffError, setDiffError] = useState<string | null>(null);
   const [collapsedDirs, setCollapsedDirs] = useState<ReadonlySet<string>>(new Set());
+  const [filesMode, setFilesMode] = useState<FilesPaneMode>(() =>
+    localStorage.getItem(FILES_MODE_KEY) === 'flat' ? 'flat' : 'tree',
+  );
+  const switchFilesMode = (next: FilesPaneMode) => {
+    setFilesMode(next);
+    localStorage.setItem(FILES_MODE_KEY, next);
+  };
   const [mergeBase, setMergeBase] = useState<LocalMergeBaseDto | null>(null);
   // Left-pane mode toggle. 'history' = commits list (default); 'changes'
   // = working-tree (uncommitted) files. The middle + right panes are
@@ -1487,17 +1497,45 @@ function CommitsTab({
             </div>
           )}
           <div className="commits-pane__section-header">
-            {mode === 'changes'
-              ? 'Working tree'
-              : compareBase != null
-                ? 'Files in range'
-                : 'Files changed'}
-            {files != null && files.length > 0 ? ` (${files.length})` : ''}
+            <span className="commits-pane__section-title">
+              {mode === 'changes'
+                ? 'Working tree'
+                : compareBase != null
+                  ? 'Files in range'
+                  : 'Files changed'}
+              {files != null && files.length > 0 ? ` (${files.length})` : ''}
+            </span>
+            <div
+              className="diff-viewer__mode-toggle commits-pane__mode-toggle"
+              role="tablist"
+              aria-label="File list layout"
+            >
+              <button
+                type="button"
+                role="tab"
+                className={`diff-viewer__mode-btn${filesMode === 'tree' ? ' diff-viewer__mode-btn--active' : ''}`}
+                onClick={() => switchFilesMode('tree')}
+                aria-selected={filesMode === 'tree'}
+                title="Tree — group by directory, compact single-child chains"
+              >
+                Tree
+              </button>
+              <button
+                type="button"
+                role="tab"
+                className={`diff-viewer__mode-btn${filesMode === 'flat' ? ' diff-viewer__mode-btn--active' : ''}`}
+                onClick={() => switchFilesMode('flat')}
+                aria-selected={filesMode === 'flat'}
+                title="Flat — one row per file, full path on each row"
+              >
+                Flat
+              </button>
+            </div>
           </div>
           <DiffFileTreePane
             files={files}
             error={filesError}
-            mode="tree"
+            mode={filesMode}
             pathOf={(f) => f.path}
             statusBadgeOf={(f) => statusBadgeFromLetter(f.status)}
             selectedPath={selectedFile}

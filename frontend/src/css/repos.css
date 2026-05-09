@@ -1673,9 +1673,24 @@
   letter-spacing: 0.04em;
   text-transform: uppercase;
   color: var(--text-3);
-  padding: 10px 12px;
+  /* Tighter vertical padding than other section headers because this row
+     also hosts the Tree/Flat toggle (~22px tall); 6/12 keeps the row a
+     consistent height with or without the toggle. */
+  padding: 6px 12px;
   border-bottom: 1px solid var(--border);
   flex: 0 0 auto;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+.commits-pane__section-title {
+  /* min-width:0 lets the title truncate via ellipsis in narrow columns
+     so the toggle on the right always stays visible. */
+  min-width: 0;
+  flex: 1 1 auto;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 .commits-pane__files-total {
   border-top: 1px solid var(--border);

@@ -302,4 +302,25 @@ describe('DiffViewerScreen freshness', () => {
     expect(bridge.fetchPullRequestDetail).toHaveBeenCalledWith('trinodb/trino', 42);
     expect(container.innerHTML).toContain('thanks for the context');
   });
+
+  it('keeps review-thread resolution optimistic without fetching stale detail', async () => {
+    const bridge = await render(makeDetail({ reviewThreads: [makeThread()] }), {
+      files: [makeDiffFile()],
+      commits: [makeCommit()],
+    });
+
+    const resolve = Array.from(container.querySelectorAll('button'))
+      .find(el => el.textContent === 'Resolve');
+    expect(resolve).toBeTruthy();
+
+    await act(async () => {
+      resolve!.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    });
+    await act(async () => { await Promise.resolve(); });
+
+    expect(bridge.setReviewThreadResolved).toHaveBeenCalledWith('trinodb/trino', 1, 5001, true);
+    expect(bridge.refreshPullRequestDetail).not.toHaveBeenCalled();
+    expect(bridge.fetchPullRequestDetail).toHaveBeenCalledWith('trinodb/trino', 42);
+    expect(container.innerHTML).toContain('Resolved');
+  });
 });

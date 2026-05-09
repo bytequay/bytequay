@@ -14,8 +14,29 @@ env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: 'true'
 
 jobs:
+  path-filters:
+    name: Detect changed areas
+    runs-on: ubuntu-latest
+    outputs:
+      backend: ${{ steps.filter.outputs.backend }}
+      frontend: ${{ steps.filter.outputs.frontend }}
+    steps:
+      - uses: dorny/paths-filter@fbd0ab8f3e69293af611ebaee6363fc25e6d187d # v4
+        id: filter
+        if: github.event_name == 'pull_request'
+        with:
+          filters: |
+            backend:
+              - 'backend/**'
+              - '.github/workflows/ci.yml'
+            frontend:
+              - 'frontend/**'
+              - '.github/workflows/ci.yml'
+
   backend:
     name: Backend — build, license check, tests
+    needs: path-filters
+    if: github.event_name != 'pull_request' || needs.path-filters.outputs.backend == 'true'
     runs-on: ubuntu-latest
 
     steps:
@@ -38,6 +59,8 @@ jobs:
 
   frontend:
     name: Frontend — lint, type check, tests, build
+    needs: path-filters
+    if: github.event_name != 'pull_request' || needs.path-filters.outputs.frontend == 'true'
     runs-on: ubuntu-latest
 
     steps:

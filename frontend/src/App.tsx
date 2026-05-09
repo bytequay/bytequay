@@ -324,7 +324,13 @@ function App() {
         >
         {nav.view === 'home' && (
           <HomePage
-            onSelectRepo={(owner, repo, prNumber) => setNav({ view: 'repo', owner, repo, prNumber })}
+            onSelectRepo={(owner, repo, prNumber) =>
+              // Specific PR → deep-link straight to the PR detail page.
+              // Bare repo click → land on the unified repository home,
+              // which now owns the per-repo overview surface.
+              prNumber != null
+                ? setNav({ view: 'repo', owner, repo, prNumber })
+                : setNav({ view: 'repository', owner, repo })}
             onGoToMyPrs={() => setNav({ view: 'my-prs' })}
             onOpenTeam={(teamId) => setNav({ view: 'team', teamId })}
             onGoToTeams={() => setNav({ view: 'teams' })}

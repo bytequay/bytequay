@@ -34,7 +34,10 @@ type Status = 'checking' | 'needs-pat' | 'ready';
 type Nav =
   | { view: 'home' }
   | { view: 'my-prs' }
-  | { view: 'repo'; owner: string; repo: string; prNumber?: number; initialTab?: 'pulls' | 'issues' }
+  /** `back` carries the parent screen so the PR-detail breadcrumb
+   *  returns the user where they came from — Repository home, Local
+   *  repo, Team kanban, or just Home. Defaults to Home when unset. */
+  | { view: 'repo'; owner: string; repo: string; prNumber?: number; initialTab?: 'pulls' | 'issues'; back?: Nav }
   | { view: 'teams' }
   | { view: 'team'; teamId: number }
   | { view: 'team-kanban'; teamId: number }
@@ -135,7 +138,7 @@ function GlobalTopbar({ nav, onNav, fullScreen }: GlobalTopbarProps) {
         {nav.view === 'repo' && (
           <button
             className="global-topbar__breadcrumb"
-            onClick={() => onNav({ view: 'home' })}
+            onClick={() => onNav(nav.back ?? { view: 'home' })}
           >
             ← {nav.owner}/{nav.repo}
           </button>
@@ -329,7 +332,7 @@ function App() {
               // Bare repo click → land on the unified repository home,
               // which now owns the per-repo overview surface.
               prNumber != null
-                ? setNav({ view: 'repo', owner, repo, prNumber })
+                ? setNav({ view: 'repo', owner, repo, prNumber, back: { view: 'home' } })
                 : setNav({ view: 'repository', owner, repo })}
             onGoToMyPrs={() => setNav({ view: 'my-prs' })}
             onOpenTeam={(teamId) => setNav({ view: 'team', teamId })}
@@ -369,19 +372,23 @@ function App() {
             owner={nav.owner}
             repo={nav.repo}
             onBack={() => setNav({ view: 'repos' })}
-            onOpenPrs={(owner, repo) => setNav({ view: 'repo', owner, repo, initialTab: 'pulls' })}
-            onOpenIssues={(owner, repo) => setNav({ view: 'repo', owner, repo, initialTab: 'issues' })}
+            onOpenPrs={(owner, repo) => setNav({ view: 'repo', owner, repo, initialTab: 'pulls', back: nav })}
+            onOpenIssues={(owner, repo) => setNav({ view: 'repo', owner, repo, initialTab: 'issues', back: nav })}
             onOpenBranches={(owner, repo) => setNav({ view: 'local-repo', owner, repo })}
-            onOpenCommits={(owner, repo) => setNav({ view: 'local-repo', owner, repo })}
-            onSelectPr={(owner, repo, prNumber) => setNav({ view: 'repo', owner, repo, prNumber })}
+            onSelectPr={(owner, repo, prNumber) => setNav({ view: 'repo', owner, repo, prNumber, back: nav })}
           />
         )}
         {nav.view === 'local-repo' && (
           <LocalRepoPage
             owner={nav.owner}
             repo={nav.repo}
-            onBack={() => setNav({ view: 'repos' })}
-            onSelectPr={(owner, repo, prNumber) => setNav({ view: 'repo', owner, repo, prNumber })}
+            // Back-target is the repository page (the repo's
+            // overview/PRs/issues hub) rather than the repos list —
+            // that's the natural parent now and keeps the
+            // breadcrumb chain short. Repos list is still one tab
+            // away on the topbar for users who want to jump out.
+            onBack={() => setNav({ view: 'repository', owner: nav.owner, repo: nav.repo })}
+            onSelectPr={(owner, repo, prNumber) => setNav({ view: 'repo', owner, repo, prNumber, back: nav })}
             initialBranch={nav.initialBranch}
           />
         )}
@@ -395,7 +402,7 @@ function App() {
           <TeamHomePage
             teamId={nav.teamId}
             onOpenKanban={() => setNav({ view: 'team-kanban', teamId: nav.teamId })}
-            onSelectPr={(owner, repo, prNumber) => setNav({ view: 'repo', owner, repo, prNumber })}
+            onSelectPr={(owner, repo, prNumber) => setNav({ view: 'repo', owner, repo, prNumber, back: nav })}
             onBack={() => setNav({ view: 'teams' })}
           />
         )}

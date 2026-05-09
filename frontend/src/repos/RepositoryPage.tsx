@@ -27,31 +27,30 @@ type Props = {
   repo: string;
   onBack: () => void;
   /** Tab clicks navigate the user out of this shell into the existing
-   *  PRs / Issues / Branches / Commits surfaces. Inlining them inside
-   *  the shell was tried in R3b-1 and rolled back — the embedded
-   *  layouts didn't read well, and the standalone pages are the
-   *  canonical detail surfaces. */
+   *  PRs / Issues / Branches surfaces. Inlining them inside the shell
+   *  was tried in R3b-1 and rolled back — the embedded layouts didn't
+   *  read well, and the standalone pages are the canonical detail
+   *  surfaces. */
   onOpenPrs: (owner: string, repo: string) => void;
   onOpenIssues: (owner: string, repo: string) => void;
   onOpenBranches: (owner: string, repo: string) => void;
-  onOpenCommits: (owner: string, repo: string) => void;
   /** Click target for an inline PR card on the Overview panel — same
    *  callback shape PullRequestList uses elsewhere. */
   onSelectPr: (owner: string, repo: string, prNumber: number) => void;
 };
 
-type Tab = 'overview' | 'pulls' | 'issues' | 'branches' | 'commits';
+type Tab = 'overview' | 'pulls' | 'issues' | 'branches';
 type PrFilter = 'needs-you' | 'yours' | 'all-open';
 
 /**
  * Repository home page — unified entry per
  * docs/mockups/design/repository/SUMMARY.md. Hero + tab strip
- * (Overview / Pull Requests / Issues / Branches / Commits) with the
- * Overview tab as the default. Branches / Commits show a hint when
- * the repo isn't mapped to a local clone — those flows need git.
+ * (Overview / Pull Requests / Issues / Branches) with the Overview
+ * tab as the default. Branches shows a hint when the repo isn't
+ * mapped to a local clone — that flow needs git.
  */
 function RepositoryPage(props: Props) {
-  const { owner, repo, onBack, onOpenPrs, onOpenIssues, onOpenBranches, onOpenCommits, onSelectPr } = props;
+  const { owner, repo, onBack, onOpenPrs, onOpenIssues, onOpenBranches, onSelectPr } = props;
   const [tab, setTab] = useState<Tab>('overview');
   const [meta, setMeta] = useState<RepoMetaDto | null>(null);
   const [metaError, setMetaError] = useState<string | null>(null);
@@ -112,7 +111,6 @@ function RepositoryPage(props: Props) {
         <RepoTab label="Pull Requests" count={openPulls.length} active={tab === 'pulls'} onClick={() => { setTab('pulls'); onOpenPrs(owner, repo); }} />
         <RepoTab label="Issues" count={openIssues.length} active={tab === 'issues'} onClick={() => { setTab('issues'); onOpenIssues(owner, repo); }} />
         <RepoTab label="Branches" active={tab === 'branches'} disabled={!isMapped} disabledHint="map a clone to enable" onClick={() => { setTab('branches'); onOpenBranches(owner, repo); }} />
-        <RepoTab label="Commits" active={tab === 'commits'} disabled={!isMapped} disabledHint="map a clone to enable" onClick={() => { setTab('commits'); onOpenCommits(owner, repo); }} />
       </div>
 
       {tab === 'overview' && (

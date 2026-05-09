@@ -6,6 +6,10 @@ on:
   pull_request:
     branches: [main]
 
+defaults:
+  run:
+    shell: bash --noprofile --norc -euo pipefail {0}
+
 # Run JavaScript-based actions on the runner's Node 24 instead of
 # Node 20. GitHub forces this default starting June 2nd, 2026 and
 # removes Node 20 from the runner image on September 16th, 2026; opt

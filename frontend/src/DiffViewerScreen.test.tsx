@@ -15,7 +15,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { act } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import DiffViewerScreen from './DiffViewerScreen';
-import type { DiffFileDto, PullRequestCommitDto, PullRequestDetailDto, PullRequestDto } from './types';
+import type { DiffFileDto, PullRequestCommitDto, PullRequestDetailDto, PullRequestDto, ReviewThreadDto } from './types';
 
 // React 19 enforces this flag before async act() works.
 (globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -109,6 +109,32 @@ function makeCommit(overrides: Partial<PullRequestCommitDto> = {}): PullRequestC
   };
 }
 
+function makeThread(overrides: Partial<ReviewThreadDto> = {}): ReviewThreadDto {
+  return {
+    rootGithubId: 5001,
+    filePath: 'src/foo.ts',
+    line: 1,
+    side: 'RIGHT',
+    diffHunk: '@@ -1,1 +1,1 @@\n+new line',
+    messages: [{
+      githubId: 1001,
+      author: 'reviewer',
+      body: 'existing thread comment',
+      createdAt: '2026-04-29T11:00:00Z',
+      reactions: null,
+      reviewId: null,
+      authorAssociation: 'MEMBER',
+    }],
+    resolved: false,
+    outdated: false,
+    startLine: null,
+    startSide: null,
+    originalLine: null,
+    originalStartLine: null,
+    ...overrides,
+  };
+}
+
 function bridgeStub(detail: PullRequestDetailDto, options: {
   files?: DiffFileDto[];
   commits?: PullRequestCommitDto[];
@@ -122,6 +148,8 @@ function bridgeStub(detail: PullRequestDetailDto, options: {
     fetchPrCommitDiff: vi.fn().mockResolvedValue([]),
     fetchFileBlob: vi.fn().mockResolvedValue({ lines: [] }),
     createInlineReviewComment: vi.fn().mockResolvedValue(undefined),
+    replyToReviewThread: vi.fn().mockResolvedValue(undefined),
+    setReviewThreadResolved: vi.fn().mockResolvedValue(undefined),
     stageReviewComment: vi.fn(),
     polishCommentText: vi.fn(),
     listAiProviders: vi.fn().mockResolvedValue([]),
@@ -238,5 +266,40 @@ describe('DiffViewerScreen freshness', () => {
     );
     expect(bridge.refreshPullRequestDetail).toHaveBeenCalledWith('trinodb/trino', 42);
     expect(bridge.fetchPullRequestDetail).toHaveBeenCalledWith('trinodb/trino', 42);
+  });
+
+  it('keeps review-thread replies optimistic without fetching stale detail', async () => {
+    const bridge = await render(makeDetail({ reviewThreads: [makeThread()] }), {
+      files: [makeDiffFile()],
+      commits: [makeCommit()],
+    });
+
+    const openReply = Array.from(container.querySelectorAll('button'))
+      .find(el => el.textContent === 'Write a reply…');
+    expect(openReply).toBeTruthy();
+
+    await act(async () => {
+      openReply!.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    });
+
+    const textarea = container.querySelector<HTMLTextAreaElement>('.diff-thread__reply-input');
+    expect(textarea).toBeTruthy();
+    await act(async () => {
+      updateTextarea(textarea!, 'thanks for the context');
+    });
+
+    const reply = Array.from(container.querySelectorAll('button'))
+      .find(el => el.textContent === 'Reply');
+    expect(reply).toBeTruthy();
+
+    await act(async () => {
+      reply!.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    });
+    await act(async () => { await Promise.resolve(); });
+
+    expect(bridge.replyToReviewThread).toHaveBeenCalledWith('trinodb/trino', 42, 5001, 'thanks for the context');
+    expect(bridge.refreshPullRequestDetail).not.toHaveBeenCalled();
+    expect(bridge.fetchPullRequestDetail).toHaveBeenCalledWith('trinodb/trino', 42);
+    expect(container.innerHTML).toContain('thanks for the context');
   });
 });

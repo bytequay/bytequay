@@ -23,6 +23,7 @@ defaults:
 # in early so we're already on the supported runtime when that lands.
 env:
   FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: 'true'
+  MAVEN_OPTS: "-Xmx1G -XX:+ExitOnOutOfMemoryError"
   # Keep dependency-cache restores from hanging too long on a stuck cache
   # segment. setup-java/setup-node both use actions/cache under the hood.
   SEGMENT_DOWNLOAD_TIMEOUT_MINS: 5

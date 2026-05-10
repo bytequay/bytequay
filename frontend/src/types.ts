@@ -469,6 +469,9 @@ export type IssueCommentDto = {
   authorAvatarUrl: string | null;
   body: string;
   createdAt: string;
+  /** Aggregated reaction counts. Always present — empty rows arrive
+   *  with zeros, never null. */
+  reactions: ReactionsDto;
 };
 
 export type IssueDetailDto = {
@@ -1099,6 +1102,12 @@ export type Bridge = {
   getIssueDetail: (owner: string, repo: string, number: number) => Promise<IssueDetailDto>;
   createIssueComment: (owner: string, repo: string, number: number, body: string) => Promise<IssueCommentDto>;
   setIssueState: (owner: string, repo: string, number: number, state: 'open' | 'closed') => Promise<IssueDetailDto>;
+  /** Adds an emoji reaction to a comment on the in-app Issue detail
+   *  page. Disambiguated from the PR-side {@link addIssueCommentReaction}
+   *  by routing through the {@code /api/repos/.../issues/comments/...}
+   *  endpoint (the PR side uses {@code /api/prs/issue-comments/...}).
+   *  {@code content} is one of the eight allowlisted GitHub strings. */
+  addIssueDetailCommentReaction: (owner: string, repo: string, commentId: number, content: string) => Promise<{ result: string }>;
   /** Repo-level metadata for the right-pane hero card. */
   getRepoMeta: (owner: string, repo: string) => Promise<RepoMetaDto>;
   /** ~30 most recent events on a repo for the right-pane activity feed. */

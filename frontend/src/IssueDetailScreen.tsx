@@ -11,13 +11,15 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import { useEffect, useState } from 'react';
-import type { IssueCommentDto, IssueDetailDto } from './types';
+import { useCallback, useEffect, useState } from 'react';
+import type { IssueCommentDto, IssueDetailDto, ReactionsDto } from './types';
 import Avatar from './Avatar';
 import LogoLoading from './LogoLoading';
 import PolishButtons from './ai/PolishButtons';
 import { renderMarkdown } from './markdown';
 import { formatRelative } from './prBuckets';
+import { ReactionChips } from './pr/Reactions';
+import { REACTION_FIELD, type ReactionContent } from './pr/utils';
 
 type Props = {
   owner: string;
@@ -53,6 +55,23 @@ function IssueDetailScreen({ owner, repo, number, onBack, embedded }: Props) {
       .catch(e => { if (!cancelled) setError(e instanceof Error ? e.message : String(e)); });
     return () => { cancelled = true; };
   }, [owner, repo, number]);
+
+  // Optimistic reaction toggle: bump the in-state count immediately so
+  // the chip animates in without waiting for the round-trip; if the
+  // backend call fails, the catch path rolls the count back so the UI
+  // never shows phantom reactions. Mirrors PR/optimisticUpdates.
+  const addReaction = useCallback(async (commentId: number, content: ReactionContent) => {
+    setDetail(prev => prev ? bumpCommentReaction(prev, commentId, content, +1) : prev);
+    try {
+      await window.bridge.addIssueDetailCommentReaction(owner, repo, commentId, content);
+    } catch (e) {
+      // Roll the optimistic +1 back. We swallow the rejection (only
+      // logging) to match the PR-side reaction path — the chip
+      // returning to its previous count is the user-visible feedback.
+      setDetail(prev => prev ? bumpCommentReaction(prev, commentId, content, -1) : prev);
+      console.warn('addIssueDetailCommentReaction failed', e);
+    }
+  }, [owner, repo]);
 
   const wrapperClass = `issue-detail${embedded ? ' issue-detail--embedded' : ''}`;
   const breadcrumb = !embedded && onBack
@@ -135,10 +154,13 @@ function IssueDetailScreen({ owner, repo, number, onBack, embedded }: Props) {
           {detail.comments.map(c => (
             <CommentCard
               key={c.id}
+              commentId={c.id}
               author={c.author}
               avatarUrl={c.authorAvatarUrl}
               createdAt={c.createdAt}
               body={c.body}
+              reactions={c.reactions}
+              onAddReaction={addReaction}
             />
           ))}
           <ReplyComposer
@@ -229,19 +251,33 @@ function IssueDetailBreadcrumb({ owner, repo, number, onBack }: { owner: string;
 }
 
 function CommentCard({
+  commentId,
   author,
   avatarUrl: _avatarUrl,
   createdAt,
   body,
   isAuthor,
+  reactions,
+  onAddReaction,
 }: {
+  /** GitHub comment id; absent on the issue body card (the issue's own
+   *  description has no comment row, just the issue itself). */
+  commentId?: number;
   author: string | null;
   avatarUrl: string | null;
   createdAt: string;
   body: string | null;
   isAuthor?: boolean;
+  reactions?: ReactionsDto;
+  /** Optional toggle handler. Wired only for real comments — the issue
+   *  body card omits it because issue-body reactions go through a
+   *  different GitHub endpoint we don't surface yet. */
+  onAddReaction?: (commentId: number, content: ReactionContent) => Promise<void>;
 }) {
   const safeBody = body && body.trim().length > 0 ? body : '_No description provided._';
+  const handlePick = onAddReaction && commentId != null
+    ? (content: ReactionContent) => { void onAddReaction(commentId, content); }
+    : undefined;
   return (
     <article className={`issue-detail__comment${isAuthor ? ' issue-detail__comment--author' : ''}`}>
       <header className="issue-detail__comment-head">
@@ -256,8 +292,28 @@ function CommentCard({
         className="issue-detail__comment-body"
         dangerouslySetInnerHTML={{ __html: renderMarkdown(safeBody) }}
       />
+      {reactions && <ReactionChips reactions={reactions} onAddReaction={handlePick} />}
     </article>
   );
+}
+
+/** Returns a copy of {@code detail} with the named reaction tally on
+ *  one comment shifted by {@code delta}. Used by the optimistic
+ *  reaction-toggle path — the +1 happens immediately so the chip
+ *  animates in, the -1 fires only on backend failure as a rollback. */
+function bumpCommentReaction(
+  detail: IssueDetailDto,
+  commentId: number,
+  content: ReactionContent,
+  delta: number,
+): IssueDetailDto {
+  const field = REACTION_FIELD[content];
+  const comments = detail.comments.map(c => {
+    if (c.id !== commentId) return c;
+    const next: ReactionsDto = { ...c.reactions, [field]: Math.max(0, c.reactions[field] + delta) };
+    return { ...c, reactions: next };
+  });
+  return { ...detail, comments };
 }
 
 /** Header-row Close / Reopen button. Toggles between the two states

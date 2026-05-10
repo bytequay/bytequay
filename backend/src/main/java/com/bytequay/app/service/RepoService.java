@@ -53,6 +53,7 @@ import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.concurrent.Executor;
 
 import static com.bytequay.app.config.AsyncConfig.IO_EXECUTOR;
@@ -68,6 +69,14 @@ public class RepoService
      *  one hour because description / license / topics / language bytes
      *  change on the order of days; reading hour-old data is fine. */
     private static final Duration REPO_META_TTL = Duration.ofHours(1);
+
+    /** Same allowlist {@code PullRequestService} validates against —
+     *  GitHub's reactions API takes exactly these eight content
+     *  strings. Duplicated here rather than imported because the two
+     *  services live in different packages and the constant is
+     *  trivially small. */
+    private static final Set<String> ALLOWED_REACTION_CONTENT = Set.of(
+            "+1", "-1", "laugh", "confused", "heart", "hooray", "rocket", "eyes");
 
     private final WatchedRepoStore watchedRepoStore;
     private final PullRequestRepository gitHub;
@@ -333,6 +342,23 @@ public class RepoService
                 flipped.assignees(),
                 flipped.milestone(),
                 comments);
+    }
+
+    /**
+     * Adds an emoji reaction to an issue comment. Mirrors the PR-side
+     * {@code addIssueCommentReaction} flow but doesn't patch any cached
+     * detail row — issue detail isn't cached server-side, so the next
+     * {@link #getIssueDetail} call surfaces the new tally directly from
+     * GitHub. {@code content} must be one of the eight allowlisted
+     * GitHub reaction strings (validated by the underlying client).
+     */
+    public void addIssueCommentReaction(String pat, String owner, String repo, long commentId, String content)
+    {
+        if (!ALLOWED_REACTION_CONTENT.contains(content)) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST,
+                    "reaction content must be one of " + ALLOWED_REACTION_CONTENT);
+        }
+        gitHub.addIssueCommentReaction(pat, owner, repo, commentId, content);
     }
 
     /**

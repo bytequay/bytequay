@@ -1620,7 +1620,8 @@ public class GitHubClient
                 authorLogin,
                 authorAvatar,
                 c.body(),
-                c.createdAt());
+                c.createdAt(),
+                toIssueCommentReactions(c.reactions()));
     }
 
     @Override

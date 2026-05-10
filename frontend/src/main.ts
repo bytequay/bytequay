@@ -1035,6 +1035,22 @@ const url = new URL(`${BACKEND_BASE}/prs/comment`);
     return res.json();
   });
 
+  ipcMain.handle('repos:addIssueCommentReaction', async (_event, owner: string, repo: string, commentId: number, content: string) => {
+    const res = await fetch(
+      `${BACKEND_BASE}/api/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/issues/comments/${commentId}/reactions`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ content }),
+      },
+    );
+    if (!res.ok) {
+      const text = await res.text().catch(() => '');
+      throw new Error(`backend addIssueCommentReaction returned ${res.status}: ${text}`);
+    }
+    return res.json();
+  });
+
   ipcMain.handle('repos:meta', async (_event, owner: string, repo: string) => {
     const res = await fetch(
       `${BACKEND_BASE}/api/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/meta`,

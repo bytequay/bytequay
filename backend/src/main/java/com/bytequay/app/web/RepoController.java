@@ -208,6 +208,28 @@ public class RepoController
     public record IssueStateRequest(String state) {}
 
     /**
+     * Adds an emoji reaction to an issue comment. Returns {@code result:
+     * reacted} on success; idempotent on the GitHub side, so re-toggling
+     * the same content from the same viewer is a no-op as far as the
+     * count is concerned.
+     * POST /api/repos/{owner}/{repo}/issues/comments/{commentId}/reactions  body:{content}
+     */
+    @PostMapping("/repos/{owner}/{repo}/issues/comments/{commentId}/reactions")
+    public Map<String, String> addIssueCommentReaction(
+            @PathVariable String owner,
+            @PathVariable String repo,
+            @PathVariable long commentId,
+            @RequestBody IssueReactionRequest request)
+    {
+        repoService.addIssueCommentReaction(
+                patResolver.resolve(owner + "/" + repo), owner, repo, commentId, request.content());
+        return ImmutableMap.of("result", "reacted");
+    }
+
+    /** POST body shape for {@link #addIssueCommentReaction}. */
+    public record IssueReactionRequest(String content) {}
+
+    /**
      * Repo-level metadata: description, stars, forks, watchers, license,
      * topics, languages map. Powers the right-pane hero / About /
      * language bar on the repo detail page.

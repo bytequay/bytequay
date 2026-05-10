@@ -22,7 +22,7 @@ import java.util.List;
  * doesn't apply to an issue: no diff, no CI, no review threads, no
  * merge bar. Body + comments + the right-rail facts (labels with
  * colour, assignees, milestone) cover the read-only flow that ships
- * first; reactions, linked PRs, and the activity tab arrive in I3b.
+ * first; linked PRs and the activity tab still defer to I3b/I4.
  */
 public record IssueDetail(
         long id,
@@ -52,12 +52,14 @@ public record IssueDetail(
 
     public record Milestone(String title, String state) {}
 
-    /** One comment in the conversation thread. Reactions are deferred
-     *  to I3b — they need separate plumbing for the toggle endpoint. */
+    /** One comment in the conversation thread. */
     public record Comment(
             long id,
             String author,
             String authorAvatarUrl,
             String body,
-            Instant createdAt) {}
+            Instant createdAt,
+            /** Aggregated reaction counts. Never null — empty rows use
+             *  {@link Reactions#EMPTY} so callers don't have to null-check. */
+            Reactions reactions) {}
 }

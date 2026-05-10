@@ -40,12 +40,17 @@ type Props = {
    *  user-mention tokens like {@code <@U123>} into "@you" in the
    *  thread-context preview. */
   authedUserId?: string;
+  /** When set, clicking a DM inbox item routes up to the dedicated
+   *  dm.png view instead of doing inline expansion. Mentions still
+   *  expand inline regardless — they're optimised for the in-list
+   *  thread-context glance. */
+  onSelectDm?: (item: SlackInboxItemDto) => void;
 };
 
 const REFRESH_INTERVAL_MS = 30_000;
 const AUTO_ARCHIVE_MS = 4 * 60 * 60 * 1000;
 
-function SlackInbox({ followedChannels, authedUserId }: Props) {
+function SlackInbox({ followedChannels, authedUserId, onSelectDm }: Props) {
   const [filter, setFilter] = useState<SlackInboxFilter>('all');
   const [items, setItems] = useState<SlackInboxItemDto[] | null>(null);
   const [loadError, setLoadError] = useState<string | null>(null);
@@ -98,6 +103,13 @@ function SlackInbox({ followedChannels, authedUserId }: Props) {
   const dayGroups = useMemo(() => groupByDay(items ?? []), [items]);
 
   const onExpand = useCallback(async (item: SlackInboxItemDto) => {
+    // DMs route to a dedicated full-page view per dm.png; only mentions
+    // expand inline. The caller decides — when onSelectDm isn't
+    // provided we fall back to inline expand for both kinds.
+    if (item.inboxKind === 'dm' && onSelectDm) {
+      onSelectDm(item);
+      return;
+    }
     const key = itemKey(item);
     if (expandedKey === key) {
       setExpandedKey(null);
@@ -169,11 +181,7 @@ function SlackInbox({ followedChannels, authedUserId }: Props) {
         <FilterPill label={`DMs ${counts.dms}`} active={filter === 'dms'} onClick={() => setFilter('dms')} />
       </div>
 
-      {items.length === 0 && (
-        <div className="slack-inbox__empty">
-          You're all caught up.
-        </div>
-      )}
+      {items.length === 0 && <EmptyInboxState />}
 
       <div className="slack-inbox__stream">
         {dayGroups.map(group => (
@@ -200,6 +208,19 @@ function SlackInbox({ followedChannels, authedUserId }: Props) {
           </div>
         ))}
       </div>
+    </div>
+  );
+}
+
+function EmptyInboxState() {
+  return (
+    <div className="slack-inbox-empty">
+      <div className="slack-inbox-empty__icon" aria-hidden="true">✉</div>
+      <h2 className="slack-inbox-empty__title">You're all caught up</h2>
+      <p className="slack-inbox-empty__desc">
+        No <strong>@you mentions</strong> or unread <strong>DMs</strong>. Your followed
+        channels' full feeds are still in the sidebar — pick one to read.
+      </p>
     </div>
   );
 }

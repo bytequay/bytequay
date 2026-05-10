@@ -37,6 +37,7 @@ import type {
   PullRequestDto,
   RecentEventDto,
   ReviewSkillDto,
+  SlackChannelFeedDto,
   SlackChannelRowDto,
   SlackConnectionDto,
   SlackInboxFilter,
@@ -406,6 +407,10 @@ const bridge: Bridge = {
     ipcRenderer.invoke('slack:replyInboxItem', channelId, ts, text),
   archiveSlackInboxItem: (channelId: string, ts: string): Promise<{ result: string }> =>
     ipcRenderer.invoke('slack:archiveInboxItem', channelId, ts),
+  getSlackChannelFeed: (channelId: string): Promise<SlackChannelFeedDto> =>
+    ipcRenderer.invoke('slack:getChannelFeed', channelId),
+  postSlackFeedMessage: (channelId: string, text: string, threadTs: string | null): Promise<{ result: string; postedTs?: string }> =>
+    ipcRenderer.invoke('slack:postFeedMessage', channelId, text, threadTs),
   getGitHubOAuthAuthorizeUrl: (): Promise<{ configured: boolean; url?: string }> =>
     ipcRenderer.invoke('githubOAuth:authorizeUrl'),
   getGitHubOAuthConnection: (): Promise<{ connected: boolean; login?: string }> =>

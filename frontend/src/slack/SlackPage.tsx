@@ -12,9 +12,11 @@
  * limitations under the License.
  */
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import type { SlackChannelRowDto, SlackConnectionDto } from '../types';
+import type { SlackChannelRowDto, SlackConnectionDto, SlackInboxItemDto } from '../types';
 import SlackChannelPicker from './SlackChannelPicker';
 import SlackInbox from './SlackInbox';
+import SlackChannelFeed from './SlackChannelFeed';
+import SlackDmView from './SlackDmView';
 
 /**
  * Slack tab — Slice 2b. Pre-connect surface from Slice 1 plus:
@@ -34,9 +36,14 @@ type Phase =
   | { kind: 'pre-connect' }
   | { kind: 'pre-connect-not-configured' }
   | { kind: 'awaiting-callback' }
-  | { kind: 'connected'; team: SlackConnectionDto; followed: FollowedChannel[] }
+  | { kind: 'connected'; team: SlackConnectionDto; followed: FollowedChannel[]; view: ConnectedView }
   | { kind: 'pick-channels'; team: SlackConnectionDto; mode: 'first-run' | 'management' }
   | { kind: 'error'; message: string };
+
+type ConnectedView =
+  | { kind: 'inbox' }
+  | { kind: 'channel-feed'; channelId: string }
+  | { kind: 'dm-view'; channelId: string; peerLabel: string };
 
 type FollowedChannel = { id: string; name: string; isPrivate: boolean };
 
@@ -64,14 +71,19 @@ function SlackPage({ onOpenIntegrationsSettings }: SlackPageProps) {
         // If the channel list call fails (e.g. token revoked), still
         // land on the connected card — the user can disconnect from
         // there. Don't block the whole tab on a secondary call.
-        setPhase({ kind: 'connected', team: c, followed: [] });
+        setPhase({ kind: 'connected', team: c, followed: [], view: { kind: 'inbox' } });
         return;
       }
       const firstRun = rows.some(r => r.isSmartDefault);
       if (firstRun) {
         setPhase({ kind: 'pick-channels', team: c, mode: 'first-run' });
       } else {
-        setPhase({ kind: 'connected', team: c, followed: toFollowed(rows) });
+        setPhase(prev => {
+          // Preserve the current view across refreshes — switching back to
+          // inbox on every poll would yank the user out of a channel feed.
+          const view = prev.kind === 'connected' ? prev.view : { kind: 'inbox' as const };
+          return { kind: 'connected', team: c, followed: toFollowed(rows), view };
+        });
       }
     } catch (e) {
       setPhase({ kind: 'error', message: e instanceof Error ? e.message : String(e) });
@@ -120,7 +132,32 @@ function SlackPage({ onOpenIntegrationsSettings }: SlackPageProps) {
 
   const handlePickerSaved = useCallback((rows: SlackChannelRowDto[]) => {
     setPhase(prev => prev.kind === 'pick-channels'
-      ? { kind: 'connected', team: prev.team, followed: toFollowed(rows) }
+      ? { kind: 'connected', team: prev.team, followed: toFollowed(rows), view: { kind: 'inbox' } }
+      : prev);
+  }, []);
+
+  const navigateInbox = useCallback(() => {
+    setPhase(prev => prev.kind === 'connected'
+      ? { ...prev, view: { kind: 'inbox' } }
+      : prev);
+  }, []);
+
+  const navigateChannelFeed = useCallback((channelId: string) => {
+    setPhase(prev => prev.kind === 'connected'
+      ? { ...prev, view: { kind: 'channel-feed', channelId } }
+      : prev);
+  }, []);
+
+  const navigateDmView = useCallback((item: SlackInboxItemDto) => {
+    setPhase(prev => prev.kind === 'connected'
+      ? { ...prev, view: { kind: 'dm-view', channelId: item.channelId, peerLabel: item.userId ?? 'unknown' } }
+      : prev);
+  }, []);
+
+  const handleMarkDmHandled = useCallback(async (channelId: string, ts: string) => {
+    await window.bridge.archiveSlackInboxItem(channelId, ts);
+    setPhase(prev => prev.kind === 'connected'
+      ? { ...prev, view: { kind: 'inbox' } }
       : prev);
   }, []);
 
@@ -138,8 +175,11 @@ function SlackPage({ onOpenIntegrationsSettings }: SlackPageProps) {
         <ConnectedSidebar
           team={phase.team}
           followed={phase.followed}
+          activeView={phase.view}
           onDisconnect={handleDisconnect}
           onPickChannels={handleOpenPicker}
+          onNavigateInbox={navigateInbox}
+          onNavigateChannel={navigateChannelFeed}
         />
       );
     }
@@ -148,14 +188,17 @@ function SlackPage({ onOpenIntegrationsSettings }: SlackPageProps) {
         <ConnectedSidebar
           team={phase.team}
           followed={[]}
+          activeView={null}
           onDisconnect={handleDisconnect}
           onPickChannels={() => { /* already on picker */ }}
+          onNavigateInbox={() => { /* picker is modal */ }}
+          onNavigateChannel={() => { /* picker is modal */ }}
           activePicker
         />
       );
     }
     return <PreConnectSidebar />;
-  }, [phase, handleDisconnect, handleOpenPicker]);
+  }, [phase, handleDisconnect, handleOpenPicker, navigateInbox, navigateChannelFeed]);
 
   return (
     <div className="slack-page">
@@ -163,10 +206,29 @@ function SlackPage({ onOpenIntegrationsSettings }: SlackPageProps) {
       <main className="slack-main">
         {phase.kind === 'loading' && <div className="slack-status">Loading…</div>}
         {phase.kind === 'error' && <ErrorCard message={phase.message} onRetry={refreshConnection} />}
-        {phase.kind === 'connected' && (
+        {phase.kind === 'connected' && phase.view.kind === 'inbox' && (
           <SlackInbox
             followedChannels={phase.followed}
             authedUserId={phase.team.authedUserId}
+            onSelectDm={navigateDmView}
+          />
+        )}
+        {phase.kind === 'connected' && phase.view.kind === 'channel-feed' && (
+          <SlackChannelFeed
+            channelId={phase.view.channelId}
+            channelName={channelName(phase.followed, phase.view.channelId)}
+            isPrivate={isChannelPrivate(phase.followed, phase.view.channelId)}
+            authedUserId={phase.team.authedUserId}
+          />
+        )}
+        {phase.kind === 'connected' && phase.view.kind === 'dm-view' && (
+          <SlackDmView
+            channelId={phase.view.channelId}
+            peerLabel={phase.view.peerLabel}
+            authedUserId={phase.team.authedUserId}
+            onBack={navigateInbox}
+            onMarkHandled={(ts) => handleMarkDmHandled(
+              phase.kind === 'connected' && phase.view.kind === 'dm-view' ? phase.view.channelId : '', ts)}
           />
         )}
         {phase.kind === 'pick-channels' && (
@@ -224,18 +286,26 @@ function PreConnectSidebar() {
 function ConnectedSidebar({
   team,
   followed,
+  activeView,
   onDisconnect,
   onPickChannels,
+  onNavigateInbox,
+  onNavigateChannel,
   activePicker,
 }: {
   team: SlackConnectionDto;
   followed: FollowedChannel[];
+  activeView: ConnectedView | null;
   onDisconnect: () => void;
   onPickChannels: () => void;
+  onNavigateInbox: () => void;
+  onNavigateChannel: (channelId: string) => void;
   activePicker?: boolean;
 }) {
   const initial = (team.teamName ?? '?').charAt(0).toUpperCase();
   const pickLabel = followed.length === 0 ? 'Pick channels…' : 'Manage followed channels…';
+  const inboxActive = activeView?.kind === 'inbox' || activeView?.kind === 'dm-view';
+  const activeChannelId = activeView?.kind === 'channel-feed' ? activeView.channelId : null;
   return (
     <aside className="slack-sidebar">
       <div className="slack-ws-header slack-ws-header--connected">
@@ -246,10 +316,14 @@ function ConnectedSidebar({
         </div>
       </div>
 
-      <div className="slack-sb-item slack-sb-item--muted" aria-disabled="true">
+      <button
+        type="button"
+        className={`slack-sb-item slack-sb-item--button${inboxActive ? ' slack-sb-item--active' : ''}`}
+        onClick={onNavigateInbox}
+      >
         <span className="slack-sb-glyph" aria-hidden="true">📥</span>
         <span>Inbox</span>
-      </div>
+      </button>
 
       <div className="slack-sb-label">Followed channels</div>
 
@@ -258,17 +332,20 @@ function ConnectedSidebar({
           <span className="slack-sb-empty">no channels followed yet</span>
         </div>
       )}
-      {followed.map(c => (
-        <div
-          key={c.id}
-          className="slack-sb-item slack-sb-item--muted slack-sb-item--indent"
-          aria-disabled="true"
-          title="Channel feed view ships in a later slice."
-        >
-          <span className="slack-sb-glyph" aria-hidden="true">{c.isPrivate ? '🔒' : '#'}</span>
-          <span>{c.name}</span>
-        </div>
-      ))}
+      {followed.map(c => {
+        const active = activeChannelId === c.id;
+        return (
+          <button
+            key={c.id}
+            type="button"
+            className={`slack-sb-item slack-sb-item--button slack-sb-item--indent${active ? ' slack-sb-item--active' : ''}`}
+            onClick={() => onNavigateChannel(c.id)}
+          >
+            <span className="slack-sb-glyph" aria-hidden="true">{c.isPrivate ? '🔒' : '#'}</span>
+            <span>{c.name}</span>
+          </button>
+        );
+      })}
 
       <button
         type="button"
@@ -280,13 +357,23 @@ function ConnectedSidebar({
       </button>
 
       <div className="slack-sb-help">
-        Inbox + channel feed views ship in upcoming slices. Token is stored locally.
+        DM and inbox views: ⌘+Enter to send. Token stored locally.
         <button type="button" className="slack-disconnect-link" onClick={onDisconnect}>
           Disconnect workspace
         </button>
       </div>
     </aside>
   );
+}
+
+function channelName(followed: FollowedChannel[], channelId: string): string {
+  const found = followed.find(c => c.id === channelId);
+  return found ? found.name : channelId;
+}
+
+function isChannelPrivate(followed: FollowedChannel[], channelId: string): boolean {
+  const found = followed.find(c => c.id === channelId);
+  return found?.isPrivate ?? false;
 }
 
 function toFollowed(rows: readonly SlackChannelRowDto[]): FollowedChannel[] {

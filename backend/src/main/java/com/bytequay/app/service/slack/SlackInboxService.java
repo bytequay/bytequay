@@ -115,6 +115,24 @@ public class SlackInboxService
         return out.build();
     }
 
+    /**
+     * All messages for one channel (or DM) oldest-first. Backs the
+     * channel-feed view and the DM expanded view in Slice 6 — both
+     * read from the same {@code slack_messages} cache, just keyed by
+     * a Cxxxx vs Dxxxx prefix.
+     */
+    public List<SlackMessage> getChannelFeed(String channelId)
+    {
+        Optional<ConnectionInfo> conn = oauthService.getConnection();
+        if (conn.isEmpty()) {
+            return List.of();
+        }
+        // findByChannel returns newest-first; the feed renders oldest-first
+        // so the natural reading order matches Slack's web app.
+        List<SlackMessage> newestFirst = messageStore.findByChannel(conn.get().teamId(), channelId);
+        return newestFirst.reversed();
+    }
+
     /** Full thread (parent + replies) for the inbox MENTION expanded
      *  view. Reads from the local cache; the polling loop is what keeps
      *  it fresh. Falls back to {@code conversations.replies} on demand
@@ -175,6 +193,20 @@ public class SlackInboxService
     {
         ConnectionInfo conn = requireConnection();
         stateStore.markArchived(conn.teamId(), channelId, ts, clock.instant());
+    }
+
+    /**
+     * Posts a message to a channel/DM without touching the inbox state
+     * machine. Backs the channel-feed thread reply box and the DM
+     * compose box in Slice 6 (the inbox reply path is the one that
+     * marks RESPONDED — different surface, different semantics).
+     */
+    public String postFeedMessage(String channelId, String text, String threadTs)
+    {
+        requireConnection();
+        String token = oauthService.getValidAccessToken()
+                .orElseThrow(() -> new ResponseStatusException(HttpStatusCode.valueOf(401), "Slack token missing"));
+        return apiClient.postMessage(token, channelId, text, threadTs);
     }
 
     /**

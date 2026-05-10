@@ -566,6 +566,22 @@ export type SlackInboxThreadDto = {
   messages: SlackInboxThreadMessageDto[];
 };
 
+/** Channel-feed and DM-view payload (slice 6). One row per cached
+ *  message in the channel; the renderer groups by threadTs to fold
+ *  thread replies under their parent. */
+export type SlackFeedMessageDto = {
+  ts: string;
+  userId: string | null;
+  text: string | null;
+  threadTs: string | null;
+  hasAtYou: boolean;
+};
+
+export type SlackChannelFeedDto = {
+  channelId: string;
+  messages: SlackFeedMessageDto[];
+};
+
 /** One row of the channel-picker payload (slice 3). Mirrors
  *  com.bytequay.app.service.slack.SlackChannelService.ChannelRow. */
 export type SlackChannelRowDto = {
@@ -1302,6 +1318,12 @@ export type Bridge = {
   replySlackInboxItem: (channelId: string, ts: string, text: string) => Promise<{ result: string; postedTs?: string }>;
   /** Manual archive-now ("Archive now" link in the responded countdown bar). */
   archiveSlackInboxItem: (channelId: string, ts: string) => Promise<{ result: string }>;
+  /** Channel-feed payload (slice 6) — oldest-first stream of cached messages. */
+  getSlackChannelFeed: (channelId: string) => Promise<SlackChannelFeedDto>;
+  /** Posts to a channel/DM without touching the inbox state machine.
+   *  threadTs is null for top-level posts (DM compose box) and the
+   *  thread root for thread replies (channel-feed thread expand). */
+  postSlackFeedMessage: (channelId: string, text: string, threadTs: string | null) => Promise<{ result: string; postedTs?: string }>;
   /** Issues an authorize URL for the GitHub OAuth + PKCE flow. The renderer
    *  opens it in the system browser. {@code configured} is false when the
    *  backend hasn't been given GITHUB_CLIENT_ID / GITHUB_CLIENT_SECRET — in

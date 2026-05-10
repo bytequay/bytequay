@@ -2111,6 +2111,31 @@ const url = new URL(`${BACKEND_BASE}/api/search/repos`);
     return res.json();
   });
 
+  // ── Slack channel-feed / DM-view (slice 6) ──────────────────────────────
+  ipcMain.handle('slack:getChannelFeed', async (_event, channelId: string) => {
+    const url = `${BACKEND_BASE}/api/slack/feed/${encodeURIComponent(channelId)}`;
+    const res = await fetch(url);
+    if (!res.ok) {
+      const body = await res.text().catch(() => '');
+      throw new Error(`backend ${url} returned ${res.status}: ${body}`);
+    }
+    return res.json();
+  });
+
+  ipcMain.handle('slack:postFeedMessage', async (_event, channelId: string, text: string, threadTs: string | null) => {
+    const url = `${BACKEND_BASE}/api/slack/feed/${encodeURIComponent(channelId)}/reply`;
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ text, threadTs }),
+    });
+    if (!res.ok) {
+      const body = await res.text().catch(() => '');
+      throw new Error(`backend ${url} returned ${res.status}: ${body}`);
+    }
+    return res.json();
+  });
+
   // ── GitHub OAuth ────────────────────────────────────────────────────────
   // Same shape as Slack: getAuthorizeUrl → openExternal → GitHub redirects
   // to bytequay://github-oauth-callback → open-url handler below forwards

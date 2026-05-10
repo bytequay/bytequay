@@ -14,6 +14,7 @@
 package com.bytequay.app.service.slack;
 
 import com.bytequay.app.domain.SlackChannel;
+import com.bytequay.app.domain.SlackDmConversation;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.collect.ImmutableList;
@@ -31,6 +32,7 @@ import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.Iterator;
 import java.util.List;
 
@@ -100,37 +102,7 @@ public class SlackApiClient
         // member of" — conversations.list returns every channel in the
         // workspace, which would be the wrong default for our picker.
         URI uri = URI.create("https://slack.com/api/users.conversations?" + query);
-        HttpRequest request = HttpRequest.newBuilder(uri)
-                .header("Authorization", "Bearer " + userToken)
-                .header("Accept", "application/json")
-                .GET()
-                .build();
-        HttpResponse<String> response;
-        try (HttpClient http = HttpClient.newHttpClient()) {
-            response = http.send(request, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
-        }
-        catch (IOException e) {
-            throw new ResponseStatusException(HttpStatusCode.valueOf(502), "Slack channels endpoint I/O failure", e);
-        }
-        catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-            throw new ResponseStatusException(HttpStatusCode.valueOf(502), "Slack channels endpoint interrupted", e);
-        }
-        JsonNode root;
-        try {
-            root = MAPPER.readTree(response.body());
-        }
-        catch (IOException e) {
-            throw new ResponseStatusException(HttpStatusCode.valueOf(502), "Slack returned non-JSON response", e);
-        }
-        if (!root.path("ok").asBoolean(false)) {
-            String slackError = root.path("error").asText("unknown_error");
-            log.warn("Slack users.conversations error: {}", slackError);
-            throw new ResponseStatusException(
-                    HttpStatusCode.valueOf(502),
-                    "Slack rejected channels list: " + slackError);
-        }
-        return root;
+        return slackGet(uri, userToken, "users.conversations");
     }
 
     private static SlackChannel parseChannel(JsonNode channel)
@@ -155,6 +127,184 @@ public class SlackApiClient
             latestActivityAt = parseTimestampMillis(channel.path("updated"));
         }
         return new SlackChannel(id, name, isPrivate, memberCount, latestActivityAt);
+    }
+
+    /**
+     * Lists the user's open IM and MPIM conversations. Reuses
+     * {@code users.conversations} (not {@code im.list}, which is
+     * deprecated). The picker doesn't show these — they're for the
+     * polling loop, which needs an up-to-date set of "DMs to fetch
+     * history for" on every tick.
+     *
+     * <p>Returns one {@link SlackDmConversation} per Slack conversation;
+     * IMs always carry exactly one peer user id, MPIMs carry the names
+     * Slack assembles into {@code mpim_name} but we keep the user-id
+     * list for renderer flexibility.
+     */
+    public List<SlackDmConversation> listImAndMpimConversations(String userToken, String workspaceId)
+    {
+        ImmutableList.Builder<SlackDmConversation> all = ImmutableList.builder();
+        String cursor = null;
+        Instant now = Instant.now();
+        do {
+            JsonNode page = fetchImPage(userToken, cursor);
+            JsonNode channels = page.path("channels");
+            if (channels.isArray()) {
+                for (JsonNode ch : channels) {
+                    SlackDmConversation parsed = parseDmConversation(ch, workspaceId, now);
+                    if (parsed != null) {
+                        all.add(parsed);
+                    }
+                }
+            }
+            cursor = page.path("response_metadata").path("next_cursor").asText("");
+        } while (cursor != null && !cursor.isEmpty());
+        return all.build();
+    }
+
+    /**
+     * Pages of {@code conversations.history} for one channel since the
+     * supplied watermark. {@code oldest} is a Slack ts string —
+     * passing the empty string or null fetches whatever the page-limit
+     * gives us at the head of the channel.
+     *
+     * <p>Returns the raw {@code message} JsonNodes in chronological
+     * order (oldest first), which is the order the categoriser + store
+     * upserts naturally process them.
+     */
+    public List<JsonNode> getConversationsHistory(String userToken, String channelId, String oldest)
+    {
+        List<JsonNode> chronological = new ArrayList<>();
+        String cursor = null;
+        do {
+            JsonNode page = fetchHistoryPage(userToken, channelId, oldest, cursor);
+            JsonNode messages = page.path("messages");
+            if (messages.isArray()) {
+                // Slack returns history newest-first. Prepend each page's
+                // newest-first batch so the final list is oldest-first
+                // overall.
+                List<JsonNode> batch = new ArrayList<>();
+                for (JsonNode m : messages) {
+                    batch.add(m);
+                }
+                for (int i = batch.size() - 1; i >= 0; i--) {
+                    chronological.add(batch.get(i));
+                }
+            }
+            cursor = page.path("response_metadata").path("next_cursor").asText("");
+        } while (cursor != null && !cursor.isEmpty());
+        return chronological;
+    }
+
+    private JsonNode fetchImPage(String userToken, String cursor)
+    {
+        StringBuilder query = new StringBuilder()
+                .append("types=im,mpim")
+                .append("&exclude_archived=true")
+                .append("&limit=").append(PAGE_LIMIT);
+        if (cursor != null && !cursor.isEmpty()) {
+            query.append("&cursor=").append(URLEncoder.encode(cursor, StandardCharsets.UTF_8));
+        }
+        URI uri = URI.create("https://slack.com/api/users.conversations?" + query);
+        return slackGet(uri, userToken, "users.conversations(im,mpim)");
+    }
+
+    private JsonNode fetchHistoryPage(String userToken, String channelId, String oldest, String cursor)
+    {
+        StringBuilder query = new StringBuilder()
+                .append("channel=").append(URLEncoder.encode(channelId, StandardCharsets.UTF_8))
+                .append("&limit=").append(PAGE_LIMIT)
+                // inclusive=false (the default) is what we want — the
+                // watermark IS the message we last ingested, so we only
+                // want strictly newer ts values.
+                .append("&inclusive=false");
+        if (oldest != null && !oldest.isEmpty()) {
+            query.append("&oldest=").append(URLEncoder.encode(oldest, StandardCharsets.UTF_8));
+        }
+        if (cursor != null && !cursor.isEmpty()) {
+            query.append("&cursor=").append(URLEncoder.encode(cursor, StandardCharsets.UTF_8));
+        }
+        URI uri = URI.create("https://slack.com/api/conversations.history?" + query);
+        return slackGet(uri, userToken, "conversations.history");
+    }
+
+    /** Shared HTTP+error path for Slack GET endpoints; keeps the per-call
+     *  methods focused on building the query string. */
+    private JsonNode slackGet(URI uri, String userToken, String label)
+    {
+        HttpRequest request = HttpRequest.newBuilder(uri)
+                .header("Authorization", "Bearer " + userToken)
+                .header("Accept", "application/json")
+                .GET()
+                .build();
+        HttpResponse<String> response;
+        try (HttpClient http = HttpClient.newHttpClient()) {
+            response = http.send(request, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+        }
+        catch (IOException e) {
+            throw new ResponseStatusException(HttpStatusCode.valueOf(502), "Slack " + label + " I/O failure", e);
+        }
+        catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new ResponseStatusException(HttpStatusCode.valueOf(502), "Slack " + label + " interrupted", e);
+        }
+        JsonNode root;
+        try {
+            root = MAPPER.readTree(response.body());
+        }
+        catch (IOException e) {
+            throw new ResponseStatusException(HttpStatusCode.valueOf(502), "Slack returned non-JSON response", e);
+        }
+        if (!root.path("ok").asBoolean(false)) {
+            String slackError = root.path("error").asText("unknown_error");
+            log.warn("Slack {} error: {}", label, slackError);
+            throw new ResponseStatusException(
+                    HttpStatusCode.valueOf(502),
+                    "Slack rejected " + label + ": " + slackError);
+        }
+        return root;
+    }
+
+    private static SlackDmConversation parseDmConversation(JsonNode channel, String workspaceId, Instant fetchedAt)
+    {
+        String id = channel.path("id").asText(null);
+        if (id == null || id.isBlank()) {
+            return null;
+        }
+        boolean isGroup = channel.path("is_mpim").asBoolean(false);
+        ImmutableList.Builder<String> peers = ImmutableList.builder();
+        if (isGroup) {
+            // Slack populates `members` for MPIMs, but `users.conversations`
+            // omits it on the listing endpoint. Parse `mpim_name`
+            // (e.g. "mpdm-bob--alice--carol-1") which carries the user
+            // handles separated by "--". This is best-effort —
+            // SlackPollingService refreshes peer ids opportunistically
+            // when it sees full message payloads.
+            String mpimName = channel.path("name").asText("");
+            if (mpimName.startsWith("mpdm-")) {
+                String stripped = mpimName.substring("mpdm-".length());
+                int trailingDash = stripped.lastIndexOf('-');
+                if (trailingDash >= 0) {
+                    stripped = stripped.substring(0, trailingDash);
+                }
+                for (String handle : stripped.split("--")) {
+                    if (!handle.isEmpty()) {
+                        peers.add(handle);
+                    }
+                }
+            }
+        }
+        else {
+            String peer = channel.path("user").asText(null);
+            if (peer != null && !peer.isBlank()) {
+                peers.add(peer);
+            }
+        }
+        String latestTs = channel.path("latest").path("ts").asText(null);
+        if (latestTs != null && latestTs.isBlank()) {
+            latestTs = null;
+        }
+        return new SlackDmConversation(workspaceId, id, isGroup, peers.build(), latestTs, fetchedAt);
     }
 
     /** Slack timestamps are double-formatted strings: "1700000000.123456".

@@ -2027,6 +2027,25 @@
 .diff-viewer__sub-right { color: var(--text-3); font-size: 11px; }
 .diff-viewer__sub-stat { font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, monospace; }
 .diff-viewer__sub-status { color: var(--text-3); font-size: 11px; margin-left: 4px; }
+.diff-viewer__sub-notice {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 2px 8px;
+  margin-left: 4px;
+  font-size: 11px;
+  color: var(--text-2, #5b4a8a);
+  background: var(--warning-bg, #fff7e0);
+  border: 1px solid var(--warning-border, #f0d68a);
+  border-radius: 4px;
+}
+.diff-viewer__sub-notice code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, monospace;
+  font-size: 10.5px;
+  background: rgba(0, 0, 0, 0.04);
+  padding: 0 4px;
+  border-radius: 3px;
+}
 
 .commits-pill {
   appearance: none;
@@ -2059,6 +2078,15 @@
   box-shadow: 0 8px 24px rgba(0,0,0,0.10);
   padding: 6px;
   z-index: 25;
+}
+/* Invisible click-catcher behind the popover. Sits below the popover
+   in z-order but above everything else, so any click outside the
+   popover hits this backdrop and dismisses. */
+.commits-popover__backdrop {
+  position: fixed;
+  inset: 0;
+  z-index: 24;
+  background: transparent;
 }
 .commits-popover__row {
   appearance: none;

@@ -13,6 +13,7 @@
  */
 package com.bytequay.app.service.gmail;
 
+import com.bytequay.app.domain.EmailMessageDetail;
 import com.bytequay.app.domain.EmailThreadDetail;
 import com.bytequay.app.domain.EmailThreadMeta;
 import com.bytequay.app.domain.LinkedRef;
@@ -28,6 +29,7 @@ import org.springframework.web.server.ResponseStatusException;
 
 import java.time.Duration;
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
@@ -67,6 +69,7 @@ public class EmailService
     private final GoogleAccessTokenService tokens;
     private final GmailApiClient gmail;
     private final LinkDetector linkDetector;
+    private final EmailHtmlEnricher htmlEnricher;
     private final EmailMessageStore store;
     private final EmailSyncService sync;
     private final PullRequestService pullRequestService;
@@ -79,6 +82,7 @@ public class EmailService
             GoogleAccessTokenService tokens,
             GmailApiClient gmail,
             LinkDetector linkDetector,
+            EmailHtmlEnricher htmlEnricher,
             EmailMessageStore store,
             EmailSyncService sync,
             PullRequestService pullRequestService,
@@ -87,6 +91,7 @@ public class EmailService
         this.tokens = requireNonNull(tokens, "tokens is null");
         this.gmail = requireNonNull(gmail, "gmail is null");
         this.linkDetector = requireNonNull(linkDetector, "linkDetector is null");
+        this.htmlEnricher = requireNonNull(htmlEnricher, "htmlEnricher is null");
         this.store = requireNonNull(store, "store is null");
         this.sync = requireNonNull(sync, "sync is null");
         this.pullRequestService = requireNonNull(pullRequestService, "pullRequestService is null");
@@ -149,7 +154,14 @@ public class EmailService
                 triggerPrRefresh(ref);
             }
         }
-        return new EmailThreadDetail(raw.id(), raw.subject(), raw.messages(), refs);
+        List<EmailMessageDetail> enriched = new ArrayList<>(raw.messages().size());
+        for (EmailMessageDetail msg : raw.messages()) {
+            enriched.add(new EmailMessageDetail(
+                    msg.id(), msg.threadId(), msg.from(), msg.to(), msg.cc(),
+                    msg.subject(), msg.receivedAt(), msg.unread(), msg.labels(),
+                    msg.bodyText(), htmlEnricher.enrich(msg.bodyHtml(), refs)));
+        }
+        return new EmailThreadDetail(raw.id(), raw.subject(), List.copyOf(enriched), refs);
     }
 
     /** Fire-and-forget. Resolves the PAT for the repo (which may not

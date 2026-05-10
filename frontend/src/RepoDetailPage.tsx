@@ -76,6 +76,11 @@ type Props = {
    *  home's Issues tab passes `'issues'` so clicking through doesn't
    *  drop the user back on the PR list. */
   initialTab?: 'pulls' | 'issues';
+  /** When set together with {@link #initialPrNumber}, the page jumps
+   *  past the PR conversation view straight into the DiffViewer at
+   *  the given commit SHA. Email-injected "↗ ByteQuay" buttons use
+   *  this so the user lands on the code diff page they care about. */
+  initialDiffCommitSha?: string;
   /** Reverse nav from a PR back to its head branch's local-repo
    *  Commits tab. PullRequestPreview surfaces a button next to the
    *  head ref that calls this. App-level so the nav target lines up
@@ -102,7 +107,7 @@ function DeepLinkLoading({ owner, repo, number }: { owner: string; repo: string;
   );
 }
 
-function RepoDetailPage({ owner, repo, initialPrNumber, initialTab, onOpenLocalBranch }: Props) {
+function RepoDetailPage({ owner, repo, initialPrNumber, initialTab, initialDiffCommitSha, onOpenLocalBranch }: Props) {
   const [tab, setTab] = useState<Tab>(initialTab ?? 'pulls');
   const [bucket, setBucket] = useState<Bucket>('inbox');
   const [scope, setScope] = useState<Scope>('mine');
@@ -277,6 +282,26 @@ function RepoDetailPage({ owner, repo, initialPrNumber, initialTab, onOpenLocalB
     });
     return () => { cancelled = true; };
   }, [owner, repo, initialPrNumber]);
+
+  // Email "↗ ByteQuay" deep-link target: when we land with a commit SHA
+  // alongside a PR number, auto-open the DiffViewer at that commit once
+  // the PR resolves (synchronous cache seed or async deep-link fetch).
+  // Guarded by a ref so manually closing the DiffViewer doesn't bounce
+  // the user right back into it.
+  const diffOpenedRef = useRef<string | null>(null);
+  useEffect(() => {
+    diffOpenedRef.current = null;
+  }, [initialPrNumber, initialDiffCommitSha, owner, repo]);
+  useEffect(() => {
+    if (!initialDiffCommitSha) return;
+    if (initialPrNumber == null) return;
+    if (!selectedPr || selectedPr.number !== initialPrNumber) return;
+    const key = `${owner}/${repo}#${initialPrNumber}@${initialDiffCommitSha}`;
+    if (diffOpenedRef.current === key) return;
+    diffOpenedRef.current = key;
+    setDiffViewerCommitSha(initialDiffCommitSha);
+    setDiffViewerPr(selectedPr);
+  }, [selectedPr, initialPrNumber, initialDiffCommitSha, owner, repo]);
 
   // Lazy-load the closed-issues bucket on first toggle. Skips re-fetch
   // when we already have a cached result (per-repo, per-state cache).

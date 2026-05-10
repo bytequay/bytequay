@@ -2023,14 +2023,30 @@ function DiffViewerScreen({ pr, onBack, onApprove, initialCommitSha }: Props) {
       filesPromise,
       window.bridge.fetchPrCommits(pr.repo, pr.number),
     ]).then(([filesRes, commitsRes]) => {
+      const loadedCommits = commitsRes.status === 'fulfilled' ? commitsRes.value : null;
+      if (loadedCommits) setCommits(loadedCommits);
+      // Stale email deep-link: SHA isn't in this PR's commits anymore
+      // (force-push, rebase, etc.). Fall back to the cumulative diff
+      // so the user sees something useful — the notice rendered next
+      // to the commits pill explains what happened.
+      const deepLinkMissing = initialCommitSha != null && loadedCommits != null
+        && !loadedCommits.some(c =>
+          c.sha.startsWith(initialCommitSha) || initialCommitSha.startsWith(c.sha));
+      if (deepLinkMissing) {
+        setSelectedCommits(new Set());
+        window.bridge.fetchPrDiffFiles(pr.repo, pr.number)
+          .then(fallback => {
+            setFiles(fallback);
+            if (fallback.length > 0) setSelectedPath(fallback[0].filename);
+          })
+          .catch(e => setError(e instanceof Error ? e.message : String(e)));
+        return;
+      }
       if (filesRes.status === 'fulfilled') {
         setFiles(filesRes.value);
         if (filesRes.value.length > 0) setSelectedPath(filesRes.value[0].filename);
       } else {
         setError(filesRes.reason instanceof Error ? filesRes.reason.message : String(filesRes.reason));
-      }
-      if (commitsRes.status === 'fulfilled') {
-        setCommits(commitsRes.value);
       }
     });
   }, [pr.repo, pr.number, initialCommitSha]);
@@ -2172,20 +2188,32 @@ function DiffViewerScreen({ pr, onBack, onApprove, initialCommitSha }: Props) {
         )}
       </div>
 
-      {commits && commits.length > 0 && (
-        <CommitsSelector
-          commits={commits.map(c => ({
-            sha: c.sha,
-            subject: commitSubject(c.message),
-            authoredAt: c.authoredAt,
-          }))}
-          selected={selectedCommits}
-          onToggle={toggleCommit}
-          onClear={clearCommitSelection}
-          loading={commitDiffLoading}
-          rightChrome={<span className="diff-viewer__sub-stat">{files?.length ?? 0} files</span>}
-        />
-      )}
+      {commits && commits.length > 0 && (() => {
+        // Email "↗ ByteQuay" deep-links may carry a SHA that's no
+        // longer in the PR (force-pushed away, rebased out, etc.).
+        // Detect that case and surface a small notice so the user
+        // doesn't wonder why the cumulative-diff banner is showing.
+        const deepLinkSha = initialCommitSha;
+        const deepLinkMissing = deepLinkSha != null
+          && !commits.some(c => c.sha.startsWith(deepLinkSha) || deepLinkSha.startsWith(c.sha));
+        return (
+          <CommitsSelector
+            commits={commits.map(c => ({
+              sha: c.sha,
+              subject: commitSubject(c.message),
+              authoredAt: c.authoredAt,
+            }))}
+            selected={selectedCommits}
+            onToggle={toggleCommit}
+            onClear={clearCommitSelection}
+            loading={commitDiffLoading}
+            rightChrome={<span className="diff-viewer__sub-stat">{files?.length ?? 0} files</span>}
+            notice={deepLinkMissing
+              ? <>Commit <code>{deepLinkSha?.slice(0, 7)}</code> is no longer in this PR — likely force-pushed. Showing the cumulative diff instead.</>
+              : undefined}
+          />
+        );
+      })()}
 
       <div
         className="diff-viewer__body"

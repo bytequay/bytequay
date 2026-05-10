@@ -38,7 +38,7 @@ type Nav =
   /** `back` carries the parent screen so the PR-detail breadcrumb
    *  returns the user where they came from — Repository home, Local
    *  repo, Team kanban, or just Home. Defaults to Home when unset. */
-  | { view: 'repo'; owner: string; repo: string; prNumber?: number; initialTab?: 'pulls' | 'issues'; back?: Nav }
+  | { view: 'repo'; owner: string; repo: string; prNumber?: number; initialTab?: 'pulls' | 'issues'; diffCommitSha?: string; back?: Nav }
   | { view: 'teams' }
   | { view: 'team'; teamId: number }
   | { view: 'team-kanban'; teamId: number }
@@ -292,6 +292,30 @@ function App() {
     return unsub;
   }, []);
 
+  // bytequay:// links injected into email bodies (see EmailHtmlEnricher)
+  // arrive here as { action, params }. Currently only "pr-diff" exists —
+  // it jumps straight to the repo PR-detail view with the email as the
+  // back-target so the breadcrumb returns the user to their inbox.
+  useEffect(() => {
+    const unsub = window.bridge.onAppNavRequest(({ action, params }) => {
+      if (action !== 'pr-diff') return;
+      const owner = params.owner;
+      const repo = params.repo;
+      const prNumber = parseInt(params.pr ?? '', 10);
+      if (!owner || !repo || !Number.isFinite(prNumber)) return;
+      setNav(prev => ({
+        view: 'repo',
+        owner,
+        repo,
+        prNumber,
+        initialTab: 'pulls',
+        diffCommitSha: params.sha || undefined,
+        back: prev,
+      }));
+    });
+    return unsub;
+  }, []);
+
   useEffect(() => {
     const unsub = window.bridge.onFullScreenChange(({ isFullScreen }) => setFullScreen(isFullScreen));
     // Recover the initial state in case the main process's did-finish-load
@@ -385,6 +409,7 @@ function App() {
             repo={nav.repo}
             initialPrNumber={nav.prNumber}
             initialTab={nav.initialTab}
+            initialDiffCommitSha={nav.diffCommitSha}
             onOpenLocalBranch={(owner, repo, branch) =>
               setNav({ view: 'local-repo', owner, repo, initialBranch: branch })}
           />

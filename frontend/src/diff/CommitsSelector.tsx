@@ -11,7 +11,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import { useState, type ReactNode } from 'react';
+import { useEffect, useState, type ReactNode } from 'react';
 import { commitSubject, formatShortSha } from './commitDisplay';
 import { formatRelativeTime } from '../pr/utils';
 
@@ -49,6 +49,11 @@ export type CommitsSelectorProps = {
    *  the matching row. */
   mergeBaseSha?: string;
   baseLabel?: string;
+  /** Optional notice rendered to the right of the pill (before
+   *  rightChrome). Used by DiffViewerScreen to flag that a deep-linked
+   *  commit SHA is no longer in the loaded commits — typical for old
+   *  email notifications after a force-push. */
+  notice?: ReactNode;
 };
 
 export function CommitsSelector(props: CommitsSelectorProps) {
@@ -62,8 +67,19 @@ export function CommitsSelector(props: CommitsSelectorProps) {
     cumulativeLabel,
     mergeBaseSha,
     baseLabel,
+    notice,
   } = props;
   const [open, setOpen] = useState(false);
+
+  // Escape closes the popover too — keyboard parity with click-outside.
+  useEffect(() => {
+    if (!open) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') setOpen(false);
+    };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [open]);
 
   if (commits.length === 0) return null;
 
@@ -95,12 +111,19 @@ export function CommitsSelector(props: CommitsSelectorProps) {
         {loading && (
           <span className="diff-viewer__sub-status">Loading commit diff…</span>
         )}
+        {notice && <span className="diff-viewer__sub-notice">{notice}</span>}
       </div>
       {rightChrome && (
         <div className="diff-viewer__sub-right">{rightChrome}</div>
       )}
       {open && (
-        <div className="commits-popover" onClick={(e) => e.stopPropagation()}>
+        <>
+          {/* Backdrop: any click outside the popover hits this and
+              closes. More reliable than a document-mousedown listener
+              because it doesn't depend on event-listener ordering or
+              stopPropagation in parent components. */}
+          <div className="commits-popover__backdrop" onClick={() => setOpen(false)} />
+          <div className="commits-popover" onClick={(e) => e.stopPropagation()}>
           <button
             type="button"
             className={'commits-popover__row commits-popover__row--all' + (selected.size === 0 ? ' commits-popover__row--active' : '')}
@@ -140,7 +163,8 @@ export function CommitsSelector(props: CommitsSelectorProps) {
               </div>
             );
           })}
-        </div>
+          </div>
+        </>
       )}
     </div>
   );

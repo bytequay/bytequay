@@ -430,16 +430,22 @@ function ThreadMessage({ message, isLast }: { message: EmailMessageDetailDto; is
   );
 }
 
-/** Renders Gmail HTML inside an iframe sandbox — no JS, no remote-image
- *  auto-loading, no parent-document access. */
+/** Renders Gmail HTML inside an iframe sandbox — no JS, no
+ *  parent-document access. {@code allow-popups} lets clicks on
+ *  links inside the email open via the main-process
+ *  setWindowOpenHandler, which routes them into the in-app browser
+ *  overlay. {@code <base target="_blank">} forces every link to
+ *  use the popup path so we don't lose the iframe's content to
+ *  in-frame navigation. */
 function SanitizedHtml({ html }: { html: string }) {
   const safeHtml = html.replace(/<script[\s\S]*?<\/script>/gi, '');
+  const wrapped = '<base target="_blank">' + safeHtml;
   return (
     <iframe
       title="Email body"
       className="email-detail__iframe"
-      sandbox=""
-      srcDoc={safeHtml}
+      sandbox="allow-popups"
+      srcDoc={wrapped}
     />
   );
 }

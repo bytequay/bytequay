@@ -38,11 +38,10 @@ public class LinkDetector
     private static final Pattern GITHUB_PR_OR_ISSUE = Pattern.compile(
             "https://github\\.com/([\\w.-]+)/([\\w.-]+)/(pull|issues)/(\\d+)");
 
-    /** Commit URL — full SHA in path. We trim to 7 chars for the chip
-     *  label since that's how GitHub displays commit references in
-     *  notification subjects and bodies. */
-    private static final Pattern GITHUB_COMMIT = Pattern.compile(
-            "https://github\\.com/([\\w.-]+)/([\\w.-]+)/commit/([0-9a-f]{7,40})");
+    // Commit URLs were briefly surfaced as panel chips, but for PR
+    // notifications that touch many commits the panel got noisy.
+    // Now we let the body's inline commit links carry the click —
+    // the renderer rewrites <a href> to open in the system browser.
 
     public List<LinkedRef> detect(EmailThreadDetail thread)
     {
@@ -70,18 +69,6 @@ public class LinkDetector
             String dedupKey = kind + ":" + owner + "/" + repo + "#" + number;
             if (seen.add(dedupKey)) {
                 out.add(new LinkedRef(kind, owner, repo, number, prMatcher.group(0)));
-            }
-        }
-        Matcher commitMatcher = GITHUB_COMMIT.matcher(body);
-        while (commitMatcher.find()) {
-            String owner = commitMatcher.group(1);
-            String repo = commitMatcher.group(2);
-            String sha = commitMatcher.group(3);
-            String shortSha = sha.length() > 7 ? sha.substring(0, 7) : sha;
-            String dedupKey = "COMMIT:" + owner + "/" + repo + "@" + sha;
-            if (seen.add(dedupKey)) {
-                out.add(new LinkedRef(
-                        LinkedRef.Kind.COMMIT, owner, repo, shortSha, commitMatcher.group(0)));
             }
         }
     }

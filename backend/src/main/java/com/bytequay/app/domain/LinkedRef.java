@@ -14,21 +14,22 @@
 package com.bytequay.app.domain;
 
 /**
- * A PR or issue reference auto-detected inside an email body —
- * surfaced in the email preview pane as a "linked context" panel
- * with an "Open in ByteQuay" affordance. Lets users jump from a
- * GitHub-notification email straight to the PR review surface.
+ * A PR / issue / commit reference auto-detected inside an email body
+ * — surfaced in the email preview pane as an "Open in ByteQuay"
+ * affordance. {@code slug} is the displayable identifier:
+ * {@code "29073"} for PR/issue, the abbreviated SHA for commits.
  */
 public record LinkedRef(
         Kind kind,
         String owner,
         String repo,
-        int number,
+        String slug,
         String url)
 {
     public enum Kind
     {
         PR,
-        ISSUE
+        ISSUE,
+        COMMIT
     }
 }

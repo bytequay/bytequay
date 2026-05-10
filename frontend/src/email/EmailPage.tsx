@@ -392,7 +392,9 @@ function ThreadDetailPane({ account, meta, onArchive, onToggleRead, onOpenLinked
                 title={ref.url}
               >
                 <span className="email-linked-refs__kind">{ref.kind}</span>
-                <span className="email-linked-refs__num">#{ref.number}</span>
+                <span className="email-linked-refs__num">
+                  {ref.kind === 'COMMIT' ? ref.slug : `#${ref.slug}`}
+                </span>
                 <span className="email-linked-refs__repo">{ref.owner}/{ref.repo}</span>
                 <span className="email-linked-refs__arrow">→</span>
               </button>

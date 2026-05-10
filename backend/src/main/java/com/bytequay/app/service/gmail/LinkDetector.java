@@ -26,18 +26,23 @@ import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
 /**
- * Scans email bodies for GitHub PR / issue references and returns a
- * de-duplicated list of {@link LinkedRef}s. v1 uses regex; v2 swaps
- * this implementation for a Claude call that also extracts the
- * action-requested signal (per docs/mockups/design/email/SUMMARY.md).
+ * Scans email bodies for GitHub PR / issue / commit references and
+ * returns a de-duplicated list of {@link LinkedRef}s. v1 uses regex;
+ * v2 swaps this implementation for a Claude call that also extracts
+ * the action-requested signal (per docs/mockups/design/email/SUMMARY.md).
  */
 @Component
 public class LinkDetector
 {
-    /** Matches the github.com URL form most embedded in notification
-     *  bodies — covers both pull and issue paths. */
-    private static final Pattern GITHUB_URL = Pattern.compile(
+    /** PR / issue URL — most embedded in notification bodies. */
+    private static final Pattern GITHUB_PR_OR_ISSUE = Pattern.compile(
             "https://github\\.com/([\\w.-]+)/([\\w.-]+)/(pull|issues)/(\\d+)");
+
+    /** Commit URL — full SHA in path. We trim to 7 chars for the chip
+     *  label since that's how GitHub displays commit references in
+     *  notification subjects and bodies. */
+    private static final Pattern GITHUB_COMMIT = Pattern.compile(
+            "https://github\\.com/([\\w.-]+)/([\\w.-]+)/commit/([0-9a-f]{7,40})");
 
     public List<LinkedRef> detect(EmailThreadDetail thread)
     {
@@ -55,22 +60,28 @@ public class LinkDetector
         if (body == null || body.isEmpty()) {
             return;
         }
-        Matcher m = GITHUB_URL.matcher(body);
-        while (m.find()) {
-            String owner = m.group(1);
-            String repo = m.group(2);
-            String kindStr = m.group(3);
-            int number;
-            try {
-                number = Integer.parseInt(m.group(4));
-            }
-            catch (NumberFormatException e) {
-                continue;
-            }
+        Matcher prMatcher = GITHUB_PR_OR_ISSUE.matcher(body);
+        while (prMatcher.find()) {
+            String owner = prMatcher.group(1);
+            String repo = prMatcher.group(2);
+            String kindStr = prMatcher.group(3);
+            String number = prMatcher.group(4);
             LinkedRef.Kind kind = "pull".equals(kindStr) ? LinkedRef.Kind.PR : LinkedRef.Kind.ISSUE;
             String dedupKey = kind + ":" + owner + "/" + repo + "#" + number;
             if (seen.add(dedupKey)) {
-                out.add(new LinkedRef(kind, owner, repo, number, m.group(0)));
+                out.add(new LinkedRef(kind, owner, repo, number, prMatcher.group(0)));
+            }
+        }
+        Matcher commitMatcher = GITHUB_COMMIT.matcher(body);
+        while (commitMatcher.find()) {
+            String owner = commitMatcher.group(1);
+            String repo = commitMatcher.group(2);
+            String sha = commitMatcher.group(3);
+            String shortSha = sha.length() > 7 ? sha.substring(0, 7) : sha;
+            String dedupKey = "COMMIT:" + owner + "/" + repo + "@" + sha;
+            if (seen.add(dedupKey)) {
+                out.add(new LinkedRef(
+                        LinkedRef.Kind.COMMIT, owner, repo, shortSha, commitMatcher.group(0)));
             }
         }
     }

@@ -581,14 +581,14 @@ export type EmailThreadMetaDto = {
   messageCount: number;
 };
 
-/** Mirror of backend LinkedRef — a PR or issue auto-detected inside
- *  an email body. Surfaced as an "Open in ByteQuay" affordance in
- *  the email preview pane. */
+/** Mirror of backend LinkedRef — a PR / issue / commit auto-detected
+ *  inside an email body. {@code slug} is the displayable identifier:
+ *  the number for PR/issue, the abbreviated SHA for commit. */
 export type LinkedRefDto = {
-  kind: 'PR' | 'ISSUE';
+  kind: 'PR' | 'ISSUE' | 'COMMIT';
   owner: string;
   repo: string;
-  number: number;
+  slug: string;
   url: string;
 };
 

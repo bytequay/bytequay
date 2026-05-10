@@ -15,7 +15,10 @@ package com.bytequay.app.service.gmail;
 
 import com.bytequay.app.domain.EmailThreadDetail;
 import com.bytequay.app.domain.EmailThreadMeta;
+import com.bytequay.app.domain.LinkedRef;
 import com.bytequay.app.repository.EmailMessageStore;
+import com.bytequay.app.service.pr.PullRequestService;
+import com.bytequay.app.web.PatResolver;
 import com.google.common.collect.ImmutableList;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -23,7 +26,12 @@ import org.springframework.http.HttpStatusCode;
 import org.springframework.stereotype.Service;
 import org.springframework.web.server.ResponseStatusException;
 
+import java.time.Duration;
+import java.time.Instant;
 import java.util.List;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentMap;
 import java.util.function.Function;
 
 import static java.util.Objects.requireNonNull;
@@ -51,24 +59,38 @@ public class EmailService
 {
     private static final Logger log = LoggerFactory.getLogger(EmailService.class);
 
+    /** Dedup window for the email-triggered PR detail refresh — if the
+     *  user opens the same email thread twice in this many minutes, we
+     *  don't kick off a redundant refresh. */
+    private static final Duration PR_REFRESH_DEDUP_TTL = Duration.ofMinutes(5);
+
     private final GoogleAccessTokenService tokens;
     private final GmailApiClient gmail;
     private final LinkDetector linkDetector;
     private final EmailMessageStore store;
     private final EmailSyncService sync;
+    private final PullRequestService pullRequestService;
+    private final PatResolver patResolver;
+    /** "owner/repo#number" → last-refresh-time, dedup for the email
+     *  -triggered PR refresh. */
+    private final ConcurrentMap<String, Instant> recentPrRefreshes = new ConcurrentHashMap<>();
 
     public EmailService(
             GoogleAccessTokenService tokens,
             GmailApiClient gmail,
             LinkDetector linkDetector,
             EmailMessageStore store,
-            EmailSyncService sync)
+            EmailSyncService sync,
+            PullRequestService pullRequestService,
+            PatResolver patResolver)
     {
         this.tokens = requireNonNull(tokens, "tokens is null");
         this.gmail = requireNonNull(gmail, "gmail is null");
         this.linkDetector = requireNonNull(linkDetector, "linkDetector is null");
         this.store = requireNonNull(store, "store is null");
         this.sync = requireNonNull(sync, "sync is null");
+        this.pullRequestService = requireNonNull(pullRequestService, "pullRequestService is null");
+        this.patResolver = requireNonNull(patResolver, "patResolver is null");
     }
 
     /**
@@ -107,15 +129,67 @@ public class EmailService
     }
 
     /** Full thread including every message, parsed body, and any
-     *  PR/issue refs the LinkDetector found inside the bodies. */
+     *  PR/issue/commit refs the LinkDetector found inside the bodies.
+     *
+     *  <p>As a side effect, fires a background PullRequest detail
+     *  refresh for any detected PR refs — so when the user clicks
+     *  "Open PR →" from the panel, the diff already reflects the
+     *  commit/comments the email is notifying them about. Deduped on
+     *  a {@link #PR_REFRESH_DEDUP_TTL} window so reopening the same
+     *  thread twice doesn't fire twice. */
     public EmailThreadDetail getThread(String email, String threadId)
     {
         requireNonBlank(email, "email");
         requireNonBlank(threadId, "threadId");
         EmailThreadDetail raw = runWithToken(email,
                 accessToken -> gmail.getThreadFull(accessToken, threadId));
-        return new EmailThreadDetail(
-                raw.id(), raw.subject(), raw.messages(), linkDetector.detect(raw));
+        List<LinkedRef> refs = linkDetector.detect(raw);
+        for (LinkedRef ref : refs) {
+            if (ref.kind() == LinkedRef.Kind.PR) {
+                triggerPrRefresh(ref);
+            }
+        }
+        return new EmailThreadDetail(raw.id(), raw.subject(), raw.messages(), refs);
+    }
+
+    /** Fire-and-forget. Resolves the PAT for the repo (which may not
+     *  even be in watched_repos — refreshPullRequestDetail still
+     *  works for arbitrary owner/repo via the user's PAT) and runs
+     *  the existing detail refresh on a background thread. Errors
+     *  are swallowed since they're not user-actionable. */
+    private void triggerPrRefresh(LinkedRef ref)
+    {
+        int number;
+        try {
+            number = Integer.parseInt(ref.slug());
+        }
+        catch (NumberFormatException e) {
+            return;
+        }
+        String key = ref.owner() + "/" + ref.repo() + "#" + number;
+        Instant now = Instant.now();
+        Instant prev = recentPrRefreshes.get(key);
+        if (prev != null && prev.plus(PR_REFRESH_DEDUP_TTL).isAfter(now)) {
+            return;
+        }
+        recentPrRefreshes.put(key, now);
+        // Cleanup stale entries opportunistically so the map doesn't
+        // grow without bound.
+        if (recentPrRefreshes.size() > 256) {
+            recentPrRefreshes.entrySet().removeIf(
+                    e -> e.getValue().plus(PR_REFRESH_DEDUP_TTL).isBefore(now));
+        }
+        String repoFull = ref.owner() + "/" + ref.repo();
+        CompletableFuture.runAsync(() -> {
+            try {
+                String pat = patResolver.resolve(repoFull);
+                pullRequestService.refreshPullRequestDetail(pat, repoFull, number);
+                log.debug("Email-triggered PR refresh ok: {}", key);
+            }
+            catch (Exception e) {
+                log.debug("Email-triggered PR refresh failed for {}: {}", key, e.getMessage());
+            }
+        });
     }
 
     /** Removes the INBOX label from every message in the thread —

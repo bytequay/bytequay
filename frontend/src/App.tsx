@@ -395,14 +395,23 @@ function App() {
         {nav.view === 'email' && (
           <EmailPage
             onOpenIntegrationsSettings={() => setNav({ view: 'settings', section: 'integrations' })}
-            onOpenLinkedRef={ref => setNav({
-              view: 'repo',
-              owner: ref.owner,
-              repo: ref.repo,
-              prNumber: ref.kind === 'PR' ? ref.number : undefined,
-              initialTab: ref.kind === 'PR' ? 'pulls' : 'issues',
-              back: nav,
-            })}
+            onOpenLinkedRef={ref => {
+              if (ref.kind === 'COMMIT') {
+                // No in-app commit-detail route yet — open the
+                // github.com commit page in the system browser.
+                void window.bridge.openExternal(ref.url);
+                return;
+              }
+              const number = parseInt(ref.slug, 10);
+              setNav({
+                view: 'repo',
+                owner: ref.owner,
+                repo: ref.repo,
+                prNumber: ref.kind === 'PR' && Number.isFinite(number) ? number : undefined,
+                initialTab: ref.kind === 'PR' ? 'pulls' : 'issues',
+                back: nav,
+              });
+            }}
           />
         )}
         {nav.view === 'notifications' && (

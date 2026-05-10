@@ -13,19 +13,22 @@
  */
 package com.bytequay.app.domain;
 
-import java.util.List;
-
 /**
- * Full conversation thread including every message, oldest-first.
- * The renderer stacks the messages and lets the user scan the whole
- * thread inline. {@code subject} is taken from the first message
- * (Gmail keeps the original conversation title even if a "Re:" gets
- * added per-reply).
+ * A PR or issue reference auto-detected inside an email body —
+ * surfaced in the email preview pane as a "linked context" panel
+ * with an "Open in ByteQuay" affordance. Lets users jump from a
+ * GitHub-notification email straight to the PR review surface.
  */
-public record EmailThreadDetail(
-        String id,
-        String subject,
-        List<EmailMessageDetail> messages,
-        List<LinkedRef> linkedRefs)
+public record LinkedRef(
+        Kind kind,
+        String owner,
+        String repo,
+        int number,
+        String url)
 {
+    public enum Kind
+    {
+        PR,
+        ISSUE
+    }
 }

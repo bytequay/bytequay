@@ -12,7 +12,7 @@
  * limitations under the License.
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
-import type { EmailMessageDetailDto, EmailThreadDetailDto, EmailThreadMetaDto } from '../types';
+import type { EmailMessageDetailDto, EmailThreadDetailDto, EmailThreadMetaDto, LinkedRefDto } from '../types';
 
 type Account = { email: string; authMode: 'OAUTH' | 'IMAP' };
 
@@ -20,6 +20,9 @@ type Props = {
   /** Click handler for "no Gmail account connected" empty state — jumps the
    *  user to Settings → Integrations to add one. */
   onOpenIntegrationsSettings: () => void;
+  /** Routes a detected PR/issue link to the Repository PR/issues tab.
+   *  Wired by App.tsx so the email surface can hand off triage. */
+  onOpenLinkedRef: (ref: LinkedRefDto) => void;
 };
 
 /**
@@ -31,7 +34,7 @@ type Props = {
  * <p>Archive / mark-read operate on the entire thread, like Gmail
  * itself does.
  */
-export default function EmailPage({ onOpenIntegrationsSettings }: Props) {
+export default function EmailPage({ onOpenIntegrationsSettings, onOpenLinkedRef }: Props) {
   const [accounts, setAccounts] = useState<Account[] | null>(null);
   const [accountsError, setAccountsError] = useState<string | null>(null);
   const [selectedAccount, setSelectedAccount] = useState<string | null>(null);
@@ -305,6 +308,7 @@ export default function EmailPage({ onOpenIntegrationsSettings }: Props) {
                 meta={selectedThread}
                 onArchive={() => void archive(selectedThread.id)}
                 onToggleRead={() => void toggleRead(selectedThread.id, selectedThread.unread)}
+                onOpenLinkedRef={onOpenLinkedRef}
               />
             ) : (
               <div className="email-page__hint">Pick a thread on the left.</div>
@@ -323,9 +327,10 @@ type DetailProps = {
   meta: EmailThreadMetaDto;
   onArchive: () => void;
   onToggleRead: () => void;
+  onOpenLinkedRef: (ref: LinkedRefDto) => void;
 };
 
-function ThreadDetailPane({ account, meta, onArchive, onToggleRead }: DetailProps) {
+function ThreadDetailPane({ account, meta, onArchive, onToggleRead, onOpenLinkedRef }: DetailProps) {
   const [detail, setDetail] = useState<EmailThreadDetailDto | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -372,6 +377,27 @@ function ThreadDetailPane({ account, meta, onArchive, onToggleRead }: DetailProp
       </div>
       {loading && <div className="repo-loading">Loading thread…</div>}
       {error && <div className="repo-error">{error}</div>}
+      {detail && detail.linkedRefs.length > 0 && (
+        <div className="email-linked-refs">
+          <div className="email-linked-refs__label">Detected links · open in ByteQuay</div>
+          <div className="email-linked-refs__items">
+            {detail.linkedRefs.map(ref => (
+              <button
+                key={ref.url}
+                type="button"
+                className="email-linked-refs__item"
+                onClick={() => onOpenLinkedRef(ref)}
+                title={ref.url}
+              >
+                <span className="email-linked-refs__kind">{ref.kind}</span>
+                <span className="email-linked-refs__num">#{ref.number}</span>
+                <span className="email-linked-refs__repo">{ref.owner}/{ref.repo}</span>
+                <span className="email-linked-refs__arrow">→</span>
+              </button>
+            ))}
+          </div>
+        </div>
+      )}
       {detail && (
         <div className="email-detail__messages">
           {detail.messages.map((m, i) => (

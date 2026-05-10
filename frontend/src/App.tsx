@@ -377,6 +377,14 @@ function App() {
         {nav.view === 'email' && (
           <EmailPage
             onOpenIntegrationsSettings={() => setNav({ view: 'settings', section: 'integrations' })}
+            onOpenLinkedRef={ref => setNav({
+              view: 'repo',
+              owner: ref.owner,
+              repo: ref.repo,
+              prNumber: ref.kind === 'PR' ? ref.number : undefined,
+              initialTab: ref.kind === 'PR' ? 'pulls' : 'issues',
+              back: nav,
+            })}
           />
         )}
         {nav.view === 'notifications' && (

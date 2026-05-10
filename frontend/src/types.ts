@@ -581,12 +581,26 @@ export type EmailThreadMetaDto = {
   messageCount: number;
 };
 
+/** Mirror of backend LinkedRef — a PR or issue auto-detected inside
+ *  an email body. Surfaced as an "Open in ByteQuay" affordance in
+ *  the email preview pane. */
+export type LinkedRefDto = {
+  kind: 'PR' | 'ISSUE';
+  owner: string;
+  repo: string;
+  number: number;
+  url: string;
+};
+
 /** Mirror of backend EmailThreadDetail. Every message in the thread,
- *  oldest-first; the renderer stacks them in the preview pane. */
+ *  oldest-first; the renderer stacks them in the preview pane.
+ *  {@code linkedRefs} are PR/issue refs auto-detected inside the
+ *  bodies — shown above the message stack as a context panel. */
 export type EmailThreadDetailDto = {
   id: string;
   subject: string;
   messages: EmailMessageDetailDto[];
+  linkedRefs: LinkedRefDto[];
 };
 
 /** Mirror of backend MyPrColumn enum slugs. The team kanban now

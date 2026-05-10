@@ -327,7 +327,9 @@ public class GmailApiClient
         // Oldest first so the renderer can scan a thread top-down like
         // a conversation transcript.
         out.sort(Comparator.comparing(EmailMessageDetail::receivedAt));
-        return new EmailThreadDetail(threadId, subject, List.copyOf(out));
+        // linkedRefs left empty here — EmailService runs the detector
+        // and replaces this thread with an enriched copy.
+        return new EmailThreadDetail(threadId, subject, List.copyOf(out), List.of());
     }
 
     private static final class BodyAccumulator

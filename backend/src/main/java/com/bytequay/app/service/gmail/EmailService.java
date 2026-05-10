@@ -65,12 +65,14 @@ public class EmailService
 
     private final GoogleAccessTokenService tokens;
     private final GmailApiClient gmail;
+    private final LinkDetector linkDetector;
     private final ExecutorService executor;
 
-    public EmailService(GoogleAccessTokenService tokens, GmailApiClient gmail)
+    public EmailService(GoogleAccessTokenService tokens, GmailApiClient gmail, LinkDetector linkDetector)
     {
         this.tokens = requireNonNull(tokens, "tokens is null");
         this.gmail = requireNonNull(gmail, "gmail is null");
+        this.linkDetector = requireNonNull(linkDetector, "linkDetector is null");
         this.executor = Executors.newFixedThreadPool(MAX_PARALLEL_FETCHES, r -> {
             Thread t = new Thread(r, "gmail-fetch");
             t.setDaemon(true);
@@ -144,12 +146,16 @@ public class EmailService
                 .collect(Collectors.toUnmodifiableList());
     }
 
-    /** Full thread including every message and parsed body. */
+    /** Full thread including every message, parsed body, and any
+     *  PR/issue refs the LinkDetector found inside the bodies. */
     public EmailThreadDetail getThread(String email, String threadId)
     {
         requireNonBlank(email, "email");
         requireNonBlank(threadId, "threadId");
-        return runWithToken(email, accessToken -> gmail.getThreadFull(accessToken, threadId));
+        EmailThreadDetail raw = runWithToken(email,
+                accessToken -> gmail.getThreadFull(accessToken, threadId));
+        return new EmailThreadDetail(
+                raw.id(), raw.subject(), raw.messages(), linkDetector.detect(raw));
     }
 
     /** Removes the INBOX label from every message in the thread —

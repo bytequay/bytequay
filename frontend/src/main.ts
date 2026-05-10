@@ -2134,6 +2134,25 @@ const url = new URL(`${BACKEND_BASE}/api/search/repos`);
     return res.json();
   });
 
+  ipcMain.handle('email:refreshThreads', async (_event, payload: unknown) => {
+    const { account, pageSize } = (payload ?? {}) as { account?: string; pageSize?: number };
+    if (typeof account !== 'string' || account.trim().length === 0) {
+      throw new Error('account must be a non-empty string');
+    }
+    const params = new URLSearchParams({ account: account.trim() });
+    if (typeof pageSize === 'number' && pageSize > 0) {
+      params.set('pageSize', String(pageSize));
+    }
+    const res = await fetch(
+      `${BACKEND_BASE}/api/email/threads/refresh?${params.toString()}`,
+      { method: 'POST' });
+    if (!res.ok) {
+      const body = await res.text().catch(() => '');
+      throw new Error(`backend /api/email/threads/refresh returned ${res.status}: ${body}`);
+    }
+    return res.json();
+  });
+
   ipcMain.handle('email:getThread', async (_event, payload: unknown) => {
     const { account, id } = (payload ?? {}) as { account?: string; id?: string };
     if (typeof account !== 'string' || account.trim().length === 0) {

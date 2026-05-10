@@ -199,6 +199,75 @@ public class GmailApiClient
         doPostJson(accessToken, uri, json);
     }
 
+    /* ── Profile + history (sync support) ───────────────────────── */
+
+    /** Returns the account's current historyId — used to seed the
+     *  {@code last_history_id} watermark after a full sync. */
+    public String getCurrentHistoryId(String accessToken)
+    {
+        URI uri = URI.create(API_BASE + "/profile");
+        JsonNode body = doGet(accessToken, uri);
+        return body.path("historyId").asText(null);
+    }
+
+    /**
+     * Returns delta events since {@code startHistoryId}. Each event
+     * reports messages added / deleted, label additions / removals.
+     * Pages via {@code nextPageToken} when the delta is large; we
+     * follow pagination here so the caller sees the full delta.
+     *
+     * <p>Throws 404 wrapped as 410 GONE when {@code startHistoryId}
+     * is too old (Gmail prunes history older than ~7 days). The
+     * caller's correct response is to drop the cache and rerun a
+     * full sync.
+     */
+    public HistoryListResult listHistorySince(String accessToken, String startHistoryId)
+    {
+        List<JsonNode> allEvents = new ArrayList<>();
+        String pageToken = null;
+        String latestHistoryId = startHistoryId;
+        do {
+            StringBuilder qs = new StringBuilder("?startHistoryId=").append(url(startHistoryId))
+                    .append("&historyTypes=messageAdded")
+                    .append("&historyTypes=messageDeleted")
+                    .append("&historyTypes=labelAdded")
+                    .append("&historyTypes=labelRemoved");
+            if (pageToken != null) {
+                qs.append("&pageToken=").append(url(pageToken));
+            }
+            URI uri = URI.create(API_BASE + "/history" + qs);
+            JsonNode body;
+            try {
+                body = doGet(accessToken, uri);
+            }
+            catch (ResponseStatusException e) {
+                // Gmail returns 404 when startHistoryId is older than
+                // its retained window (~7d). Surface as 410 so the
+                // caller knows to rebuild rather than retry.
+                if (e.getStatusCode().value() / 100 == 4) {
+                    throw new ResponseStatusException(HttpStatusCode.valueOf(410),
+                            "Gmail history watermark expired; full re-sync needed", e);
+                }
+                throw e;
+            }
+            String nextHistoryId = body.path("historyId").asText(null);
+            if (nextHistoryId != null) {
+                latestHistoryId = nextHistoryId;
+            }
+            for (JsonNode h : body.path("history")) {
+                allEvents.add(h);
+            }
+            pageToken = body.path("nextPageToken").asText(null);
+            if (pageToken != null && pageToken.isEmpty()) {
+                pageToken = null;
+            }
+        }
+        while (pageToken != null);
+        return new HistoryListResult(latestHistoryId, allEvents);
+    }
+
+    public record HistoryListResult(String latestHistoryId, List<JsonNode> events) {}
+
     private EmailMessageMeta toMeta(JsonNode body)
     {
         String id = body.path("id").asText(null);

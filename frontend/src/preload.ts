@@ -408,6 +408,8 @@ const bridge: Bridge = {
     ipcRenderer.invoke('gmailOAuth:disconnect', email),
   listEmailThreads: (account: string, pageSize?: number): Promise<EmailThreadMetaDto[]> =>
     ipcRenderer.invoke('email:listThreads', { account, pageSize }),
+  refreshEmailThreads: (account: string, pageSize?: number): Promise<EmailThreadMetaDto[]> =>
+    ipcRenderer.invoke('email:refreshThreads', { account, pageSize }),
   getEmailThread: (account: string, id: string): Promise<EmailThreadDetailDto> =>
     ipcRenderer.invoke('email:getThread', { account, id }),
   archiveEmailThread: (account: string, id: string): Promise<void> =>

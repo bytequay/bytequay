@@ -15,21 +15,16 @@ package com.bytequay.app.service.gmail;
 
 import com.bytequay.app.domain.EmailThreadDetail;
 import com.bytequay.app.domain.EmailThreadMeta;
+import com.bytequay.app.repository.EmailMessageStore;
 import com.google.common.collect.ImmutableList;
-import jakarta.annotation.PreDestroy;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatusCode;
 import org.springframework.stereotype.Service;
 import org.springframework.web.server.ResponseStatusException;
 
-import java.util.Comparator;
 import java.util.List;
-import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
 import java.util.function.Function;
-import java.util.stream.Collectors;
 
 import static java.util.Objects.requireNonNull;
 
@@ -54,43 +49,34 @@ import static java.util.Objects.requireNonNull;
 @Service
 public class EmailService
 {
-    /** Caps parallel metadata fetches. Gmail enforces a per-user
-     *  concurrent-request limit (~10) that's separate from the
-     *  quota-per-second one — bursts of 50 unbounded calls hit it
-     *  fast and the requests come back as 429s. Five gives us
-     *  headroom under that ceiling and is empirically still fast. */
-    private static final int MAX_PARALLEL_FETCHES = 5;
-
     private static final Logger log = LoggerFactory.getLogger(EmailService.class);
 
     private final GoogleAccessTokenService tokens;
     private final GmailApiClient gmail;
     private final LinkDetector linkDetector;
-    private final ExecutorService executor;
+    private final EmailMessageStore store;
+    private final EmailSyncService sync;
 
-    public EmailService(GoogleAccessTokenService tokens, GmailApiClient gmail, LinkDetector linkDetector)
+    public EmailService(
+            GoogleAccessTokenService tokens,
+            GmailApiClient gmail,
+            LinkDetector linkDetector,
+            EmailMessageStore store,
+            EmailSyncService sync)
     {
         this.tokens = requireNonNull(tokens, "tokens is null");
         this.gmail = requireNonNull(gmail, "gmail is null");
         this.linkDetector = requireNonNull(linkDetector, "linkDetector is null");
-        this.executor = Executors.newFixedThreadPool(MAX_PARALLEL_FETCHES, r -> {
-            Thread t = new Thread(r, "gmail-fetch");
-            t.setDaemon(true);
-            return t;
-        });
-    }
-
-    @PreDestroy
-    public void shutdown()
-    {
-        executor.shutdown();
+        this.store = requireNonNull(store, "store is null");
+        this.sync = requireNonNull(sync, "sync is null");
     }
 
     /**
-     * Returns the inbox for {@code email} grouped by thread, newest
-     * first, capped at {@code pageSize} threads (Gmail's hard ceiling
-     * is 500). Throws 401 if the refresh token is missing or has been
-     * revoked, 502 for upstream Gmail trouble.
+     * Returns the inbox grouped by thread from the local SQLite
+     * mirror, newest first. If the cache is empty (first connect),
+     * triggers a synchronous full sync first. Otherwise returns
+     * whatever's cached — fresh data lands via the background poll
+     * tick or an explicit {@link #refresh(String)} call.
      */
     public List<EmailThreadMeta> listInboxThreads(String email, int pageSize)
     {
@@ -102,48 +88,22 @@ public class EmailService
             throw new ResponseStatusException(HttpStatusCode.valueOf(400),
                     "pageSize must be in [1, 500]");
         }
-        String accessToken;
-        List<String> ids;
-        try {
-            accessToken = tokens.getAccessToken(email);
-            ids = gmail.listInboxThreadIds(accessToken, pageSize);
+        // Cold-start the cache for accounts we've never synced.
+        if (store.getSyncState(email).isEmpty()) {
+            log.info("Cold cache for {} — running initial Gmail sync", email);
+            sync.fullSync(email);
         }
-        catch (ResponseStatusException e) {
-            // 401 from Gmail means the cached access token is stale or
-            // the refresh token was revoked. Drop the cache and let
-            // the caller retry; we don't auto-retry here because a
-            // genuinely-revoked token would loop forever.
-            if (e.getStatusCode().value() == 401) {
-                tokens.invalidate(email);
-            }
-            throw e;
-        }
-        log.debug("Inbox for {} has {} threads; fetching metadata in parallel (cap={})",
-                email, ids.size(), MAX_PARALLEL_FETCHES);
-        List<CompletableFuture<EmailThreadMeta>> futures = ids.stream()
-                .map(id -> CompletableFuture.supplyAsync(
-                        () -> gmail.getThreadMetadata(accessToken, id), executor))
-                .collect(Collectors.toUnmodifiableList());
-        try {
-            CompletableFuture.allOf(futures.toArray(new CompletableFuture[0])).join();
-        }
-        catch (Exception e) {
-            // Unwrap CompletionException → underlying ResponseStatusException
-            // so the controller surfaces the original status code.
-            Throwable cause = e.getCause();
-            if (cause instanceof ResponseStatusException rse) {
-                if (rse.getStatusCode().value() == 401) {
-                    tokens.invalidate(email);
-                }
-                throw rse;
-            }
-            throw new ResponseStatusException(HttpStatusCode.valueOf(502),
-                    "Gmail metadata fetch failed: " + e.getMessage(), e);
-        }
-        return futures.stream()
-                .map(CompletableFuture::join)
-                .sorted(Comparator.comparing(EmailThreadMeta::receivedAt).reversed())
-                .collect(Collectors.toUnmodifiableList());
+        return store.listInboxThreads(email, pageSize);
+    }
+
+    /** Force-refresh handler — runs an incremental sync (or full
+     *  if the watermark is missing/stale) and returns the resulting
+     *  cached inbox. */
+    public List<EmailThreadMeta> refresh(String email, int pageSize)
+    {
+        requireNonBlank(email, "email");
+        sync.incrementalSync(email);
+        return store.listInboxThreads(email, pageSize);
     }
 
     /** Full thread including every message, parsed body, and any
@@ -159,7 +119,8 @@ public class EmailService
     }
 
     /** Removes the INBOX label from every message in the thread —
-     *  Gmail's archive semantics. */
+     *  Gmail's archive semantics. Cache write-through flips the local
+     *  rows off-inbox so the list view drops the row immediately. */
     public void archiveThread(String email, String threadId)
     {
         requireNonBlank(email, "email");
@@ -168,6 +129,7 @@ public class EmailService
             gmail.modifyThread(accessToken, threadId, ImmutableList.of(), ImmutableList.of("INBOX"));
             return null;
         });
+        sync.onThreadModified(email, threadId, false, false);
     }
 
     /** Removes the UNREAD label from every message in the thread.
@@ -181,6 +143,7 @@ public class EmailService
             gmail.modifyThread(accessToken, threadId, ImmutableList.of(), ImmutableList.of("UNREAD"));
             return null;
         });
+        sync.onThreadModified(email, threadId, true, false);
     }
 
     /** Adds the UNREAD label back to every message in the thread. */
@@ -192,6 +155,7 @@ public class EmailService
             gmail.modifyThread(accessToken, threadId, ImmutableList.of("UNREAD"), ImmutableList.of());
             return null;
         });
+        sync.onThreadModified(email, threadId, true, true);
     }
 
     /**

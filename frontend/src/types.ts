@@ -1285,6 +1285,10 @@ export type Bridge = {
    *  newest first. pageSize defaults to 50 server-side; capped at
    *  500 (Gmail limit). */
   listEmailThreads: (account: string, pageSize?: number) => Promise<EmailThreadMetaDto[]>;
+  /** Force-syncs the local cache from Gmail (incremental, or full
+   *  if the watermark expired) and returns the resulting list. The
+   *  Refresh button calls this; mount uses the cache-only listEmailThreads. */
+  refreshEmailThreads: (account: string, pageSize?: number) => Promise<EmailThreadMetaDto[]>;
   /** Full thread including every message and its parsed body. */
   getEmailThread: (account: string, id: string) => Promise<EmailThreadDetailDto>;
   /** Archive / mark-read / mark-unread operate on the entire thread —

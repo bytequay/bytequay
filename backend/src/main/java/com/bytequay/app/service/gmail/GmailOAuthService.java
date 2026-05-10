@@ -15,6 +15,7 @@ package com.bytequay.app.service.gmail;
 
 import com.bytequay.app.domain.Credential;
 import com.bytequay.app.domain.CredentialType;
+import com.bytequay.app.repository.EmailMessageStore;
 import com.bytequay.app.service.CredentialService;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -122,15 +123,21 @@ public class GmailOAuthService
     private final String envClientSecret;
     private final OAuthExchanger exchanger;
     private final Clock clock;
-    /** Optional collaborator. Wired by Spring; null in unit tests so the
+    /** Optional collaborator. Wired by Spring; no-op in unit tests so the
      *  exchange flow doesn't require a fake access-token service. */
     private final Consumer<String> accessTokenInvalidator;
+    /** Optional collaborator. Drops local mirror state for the email
+     *  on disconnect. No-op in unit tests. */
+    private final Consumer<String> cacheInvalidator;
 
     private final ConcurrentMap<String, PendingExchange> pending = new ConcurrentHashMap<>();
     private final SecureRandom random = new SecureRandom();
 
     @Autowired
-    public GmailOAuthService(CredentialService credentialService, GoogleAccessTokenService tokens)
+    public GmailOAuthService(
+            CredentialService credentialService,
+            GoogleAccessTokenService tokens,
+            EmailMessageStore emailStore)
     {
         this(
                 credentialService,
@@ -138,7 +145,11 @@ public class GmailOAuthService
                 System.getenv(GMAIL_CLIENT_SECRET_ENV),
                 new HttpExchanger(),
                 Clock.systemUTC(),
-                tokens::invalidate);
+                tokens::invalidate,
+                email -> {
+                    emailStore.deleteAllForAccount(email);
+                    emailStore.deleteSyncStateForAccount(email);
+                });
     }
 
     GmailOAuthService(
@@ -148,7 +159,8 @@ public class GmailOAuthService
             OAuthExchanger exchanger,
             Clock clock)
     {
-        this(credentialService, envClientId, envClientSecret, exchanger, clock, ignored -> {});
+        this(credentialService, envClientId, envClientSecret, exchanger, clock,
+                ignored -> {}, ignored -> {});
     }
 
     GmailOAuthService(
@@ -157,7 +169,8 @@ public class GmailOAuthService
             String envClientSecret,
             OAuthExchanger exchanger,
             Clock clock,
-            Consumer<String> accessTokenInvalidator)
+            Consumer<String> accessTokenInvalidator,
+            Consumer<String> cacheInvalidator)
     {
         this.credentialService = requireNonNull(credentialService, "credentialService is null");
         this.envClientId = blankToNull(envClientId);
@@ -165,6 +178,7 @@ public class GmailOAuthService
         this.exchanger = requireNonNull(exchanger, "exchanger is null");
         this.clock = requireNonNull(clock, "clock is null");
         this.accessTokenInvalidator = requireNonNull(accessTokenInvalidator, "accessTokenInvalidator is null");
+        this.cacheInvalidator = requireNonNull(cacheInvalidator, "cacheInvalidator is null");
     }
 
     public boolean isConfigured()
@@ -280,11 +294,14 @@ public class GmailOAuthService
                 .collect(Collectors.toUnmodifiableList());
     }
 
-    /** Drops the account row keyed by {@code email}, and clears any
-     *  cached access token derived from it. Idempotent. */
+    /** Drops the account row keyed by {@code email}, clears any
+     *  cached access token derived from it, and asks the cache
+     *  invalidator to wipe related state (mirrored messages, sync
+     *  watermarks). Idempotent. */
     public void disconnect(String email)
     {
         accessTokenInvalidator.accept(email);
+        cacheInvalidator.accept(email);
         if (email == null || email.isBlank()) {
             throw new ResponseStatusException(HttpStatusCode.valueOf(400),
                     "email must not be blank");

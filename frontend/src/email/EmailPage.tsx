@@ -66,11 +66,13 @@ export default function EmailPage({ onOpenIntegrationsSettings, onOpenLinkedRef 
     return () => { cancelled = true; };
   }, []);
 
-  const loadInbox = useCallback(async (account: string) => {
+  const loadInbox = useCallback(async (account: string, force = false) => {
     setLoading(true);
     setError(null);
     try {
-      const list = await window.bridge.listEmailThreads(account);
+      const list = force
+        ? await window.bridge.refreshEmailThreads(account)
+        : await window.bridge.listEmailThreads(account);
       setThreads(list);
     }
     catch (e) {
@@ -252,7 +254,7 @@ export default function EmailPage({ onOpenIntegrationsSettings, onOpenLinkedRef 
           <button
             className="button button--secondary"
             type="button"
-            onClick={() => selectedAccount && void loadInbox(selectedAccount)}
+            onClick={() => selectedAccount && void loadInbox(selectedAccount, true)}
             disabled={loading || account?.authMode !== 'OAUTH'}
           >
             {loading ? 'Refreshing…' : 'Refresh'}

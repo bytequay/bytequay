@@ -65,6 +65,17 @@ public class EmailController
         return emailService.listInboxThreads(account, pageSize);
     }
 
+    /** POST /api/email/threads/refresh?account={email} — force an
+     *  incremental sync against Gmail and return the resulting cached
+     *  inbox. The Refresh button in the UI calls this. */
+    @PostMapping("/threads/refresh")
+    public List<EmailThreadMeta> refresh(
+            @RequestParam String account,
+            @RequestParam(required = false, defaultValue = "" + DEFAULT_PAGE_SIZE) int pageSize)
+    {
+        return emailService.refresh(account, pageSize);
+    }
+
     /**
      * GET /api/email/threads/{id}?account={email} — full thread
      * including every message with parsed body.

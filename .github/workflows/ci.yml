@@ -35,6 +35,16 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  workflow-lint:
+    name: Workflow lint
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Lint GitHub Actions workflows
+        uses: raven-actions/actionlint@v2
+
   path-filters:
     name: Detect changed areas
     runs-on: ubuntu-latest
@@ -153,6 +163,7 @@ jobs:
     name: CI success
     if: ${{ always() }}
     needs:
+      - workflow-lint
       - path-filters
       - backend
       - frontend
@@ -161,6 +172,7 @@ jobs:
     steps:
       - name: Check results
         run: |
+          echo '${{ needs.workflow-lint.result }}' | grep -xE 'success|skipped' || { echo 'Job "workflow-lint" failed' >&2; exit 1; }
           echo '${{ needs.path-filters.result }}' | grep -xE 'success|skipped' || { echo 'Job "path-filters" failed' >&2; exit 1; }
           echo '${{ needs.backend.result }}' | grep -xE 'success|skipped' || { echo 'Job "backend" failed' >&2; exit 1; }
           echo '${{ needs.frontend.result }}' | grep -xE 'success|skipped' || { echo 'Job "frontend" failed' >&2; exit 1; }

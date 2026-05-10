@@ -2088,6 +2088,27 @@ const url = new URL(`${BACKEND_BASE}/api/search/repos`);
     return res.json();
   });
 
+  // ── Email (Gmail inbox, read-only slice) ───────────────────────────────
+  ipcMain.handle('email:listMessages', async (_event, payload: unknown) => {
+    if (!payload || typeof payload !== 'object') {
+      throw new Error('payload must be { account, pageSize? }');
+    }
+    const { account, pageSize } = payload as { account?: string; pageSize?: number };
+    if (typeof account !== 'string' || account.trim().length === 0) {
+      throw new Error('account must be a non-empty string');
+    }
+    const params = new URLSearchParams({ account: account.trim() });
+    if (typeof pageSize === 'number' && pageSize > 0) {
+      params.set('pageSize', String(pageSize));
+    }
+    const res = await fetch(`${BACKEND_BASE}/api/email/messages?${params.toString()}`);
+    if (!res.ok) {
+      const body = await res.text().catch(() => '');
+      throw new Error(`backend /api/email/messages returned ${res.status}: ${body}`);
+    }
+    return res.json();
+  });
+
   // ── Credentials ─────────────────────────────────────────────────────────
   // Credentials are uniquely identified by the pair (type, name). The backend
   // exposes them at /api/credentials with optional ?type= filter; per-row

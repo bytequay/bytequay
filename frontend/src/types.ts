@@ -528,6 +528,19 @@ export type SlackConnectionDto = {
   authedUserId?: string;
 };
 
+/** Mirror of backend EmailMessageMeta. Lightweight projection used by
+ *  the inbox list view; body is omitted and lazy-fetched on open. */
+export type EmailMessageMetaDto = {
+  id: string;
+  threadId: string;
+  from: string;
+  subject: string;
+  snippet: string;
+  /** ISO-8601 instant string. */
+  receivedAt: string;
+  unread: boolean;
+};
+
 /** Mirror of backend MyPrColumn enum slugs. The team kanban now
  *  categorizes server-side and paginates per column, so these slugs
  *  cross the wire as both query params and response keys. */
@@ -1199,6 +1212,9 @@ export type Bridge = {
   /** Drops the stored credential for a single Gmail account regardless
    *  of auth mode. Idempotent on both sides. */
   disconnectGmailAccount: (email: string) => Promise<void>;
+  /** Lists messages in the inbox for the given account, newest first.
+   *  pageSize defaults to 50 server-side; capped at 500 (Gmail limit). */
+  listEmailMessages: (account: string, pageSize?: number) => Promise<EmailMessageMetaDto[]>;
   // Credentials vault
   listCredentials: (type?: CredentialType) => Promise<CredentialDto[]>;
   upsertCredential: (req: UpsertCredentialRequest) => Promise<CredentialDto>;

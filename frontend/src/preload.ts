@@ -24,6 +24,7 @@ import type {
   CredentialDto,
   CredentialType,
   DailyCardDto,
+  EmailMessageMetaDto,
   GitHubUserMatchDto,
   MyPrColumnSlug,
   TeamColumnsResponse,
@@ -399,6 +400,8 @@ const bridge: Bridge = {
     ipcRenderer.invoke('gmailOAuth:listAccounts'),
   disconnectGmailAccount: (email: string): Promise<void> =>
     ipcRenderer.invoke('gmailOAuth:disconnect', email),
+  listEmailMessages: (account: string, pageSize?: number): Promise<EmailMessageMetaDto[]> =>
+    ipcRenderer.invoke('email:listMessages', { account, pageSize }),
 };
 
 contextBridge.exposeInMainWorld('bridge', bridge);

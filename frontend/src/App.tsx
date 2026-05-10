@@ -18,6 +18,7 @@ import TeamDetailPage from './teams/TeamDetailPage';
 import TeamHomePage from './teams/TeamHomePage';
 import TeamsManagePage from './teams/TeamsManagePage';
 import SlackPage from './slack/SlackPage';
+import EmailPage from './email/EmailPage';
 import type { SettingsSection } from './settings/types';
 import PullRequestList from './PullRequestList';
 import HomePage from './HomePage';
@@ -42,6 +43,7 @@ type Nav =
   | { view: 'team'; teamId: number }
   | { view: 'team-kanban'; teamId: number }
   | { view: 'slack' }
+  | { view: 'email' }
   | { view: 'notifications' }
   | { view: 'repos' }
   | { view: 'repository'; owner: string; repo: string }
@@ -175,6 +177,13 @@ function GlobalTopbar({ nav, onNav, fullScreen }: GlobalTopbarProps) {
           title="Slack"
         >
           Slack
+        </button>
+        <button
+          className={`global-nav-btn${nav.view === 'email' ? ' global-nav-btn--active' : ''}`}
+          onClick={() => onNav({ view: 'email' })}
+          title="Email"
+        >
+          Email
         </button>
         <button
           className={`global-nav-btn${nav.view === 'notifications' ? ' global-nav-btn--active' : ''}`}
@@ -362,6 +371,11 @@ function App() {
         )}
         {nav.view === 'slack' && (
           <SlackPage
+            onOpenIntegrationsSettings={() => setNav({ view: 'settings', section: 'integrations' })}
+          />
+        )}
+        {nav.view === 'email' && (
+          <EmailPage
             onOpenIntegrationsSettings={() => setNav({ view: 'settings', section: 'integrations' })}
           />
         )}

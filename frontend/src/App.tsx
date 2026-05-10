@@ -375,6 +375,8 @@ function App() {
         {nav.view === 'my-prs' && (
           <PullRequestList
             onGoToTeams={() => setNav({ view: 'teams' })}
+            onOpenLocalBranch={(owner, repo, branch) =>
+              setNav({ view: 'local-repo', owner, repo, initialBranch: branch })}
           />
         )}
         {nav.view === 'repo' && (
@@ -465,6 +467,8 @@ function App() {
           <TeamDetailPage
             teamId={nav.teamId}
             onBack={() => setNav({ view: 'team', teamId: nav.teamId })}
+            onOpenLocalBranch={(owner, repo, branch) =>
+              setNav({ view: 'local-repo', owner, repo, initialBranch: branch })}
           />
         )}
         {nav.view === 'settings' && (

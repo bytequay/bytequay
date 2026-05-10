@@ -54,9 +54,13 @@ type Props = {
   /** Optional handler that navigates the app to the Teams section, used
    *  by the kanban's Teams tab. If not provided, the tab is hidden. */
   onGoToTeams?: () => void;
+  /** Click on the PR's head-ref chip routes here so the user can jump
+   *  from the dashboard preview to the local-repo Commits tab. App
+   *  wires this to setNav({view:'local-repo', initialBranch}). */
+  onOpenLocalBranch?: (owner: string, repo: string, branch: string) => void;
 };
 
-function PullRequestList({ onGoToTeams }: Props) {
+function PullRequestList({ onGoToTeams, onOpenLocalBranch }: Props) {
   const cachedPrs = getCached<PullRequestDto[]>(PRS_CACHE_KEY);
   const [prs, setPrs] = useState<PullRequestDto[] | null>(cachedPrs ?? null);
   const [error, setError] = useState<string | null>(null);
@@ -553,6 +557,7 @@ function PullRequestList({ onGoToTeams }: Props) {
       }}
       onMarkHandled={handleMarkHandled}
       onMerge={handleMerge}
+      onOpenLocalBranch={onOpenLocalBranch}
     />
   ) : null;
 

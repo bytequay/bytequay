@@ -224,24 +224,6 @@
   color: var(--accent);
   border-color: var(--border);
 }
-/* Reverse-nav button — jumps from the PR header to the local-repo
-   Commits tab for this branch. Same row as the copy button; tonal
-   accent makes it read as an action while staying compact. */
-.prc-branch-line__open-local {
-  appearance: none;
-  background: var(--accent-a7);
-  border: 1px solid var(--accent-a40);
-  border-radius: 4px;
-  padding: 2px 8px;
-  font-size: 11px;
-  color: var(--accent);
-  cursor: pointer;
-  margin-left: 4px;
-}
-.prc-branch-line__open-local:hover {
-  background: var(--accent-a10);
-  color: var(--accent-dark);
-}
 .prc-branches__ref {
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, monospace;
   font-size: 11px;
@@ -251,6 +233,21 @@
   border: 1px solid rgba(31, 111, 235, 0.18);
   color: #0969da;
   white-space: nowrap;
+}
+/* When the head-ref chip is also the click target for "open in
+   local-repo Commits", give it a button affordance: pointer cursor
+   + a brighter hover state without changing the resting tint, so
+   the chip still reads as a code reference at a glance. */
+button.prc-branches__ref--clickable {
+  appearance: none;
+  cursor: pointer;
+  font: inherit;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, monospace;
+  font-size: 11px;
+}
+button.prc-branches__ref--clickable:hover {
+  background: rgba(31, 111, 235, 0.18);
+  border-color: rgba(31, 111, 235, 0.40);
 }
 
 .prc-actions {

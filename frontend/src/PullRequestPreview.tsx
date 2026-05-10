@@ -1455,9 +1455,28 @@ function PullRequestPreview({ pr, onOpenReview, onInspectDiffs, onMarkHandled, o
               {detail.baseRepo ? `${detail.baseRepo.split('/')[0]}:${detail.baseRef}` : detail.baseRef}
             </code>
             <span className="prc-branch-line__verb">from</span>
-            <code className="prc-branches__ref" title={`${detail.headRepo ?? ''}:${detail.headRef}`}>
-              {detail.headRepo ? `${detail.headRepo.split('/')[0]}:${detail.headRef}` : detail.headRef}
-            </code>
+            {onOpenLocalBranch && detail.headRef ? (
+              // The chip itself is the click target — opens this
+              // branch's commits in the local-repo Commits tab. The
+              // local-repo page handles the "branch not in local
+              // clone yet" case with a fetch-and-retry prompt, so we
+              // don't gate this on detail.headRepo === pr.repo.
+              <button
+                type="button"
+                className="prc-branches__ref prc-branches__ref--clickable"
+                title={`Open ${detail.headRepo ?? ''}:${detail.headRef} in the local-repo Commits tab`}
+                onClick={() => {
+                  const [o, r] = pr.repo.split('/');
+                  if (o && r) onOpenLocalBranch(o, r, detail.headRef!);
+                }}
+              >
+                {detail.headRepo ? `${detail.headRepo.split('/')[0]}:${detail.headRef}` : detail.headRef}
+              </button>
+            ) : (
+              <code className="prc-branches__ref" title={`${detail.headRepo ?? ''}:${detail.headRef}`}>
+                {detail.headRepo ? `${detail.headRepo.split('/')[0]}:${detail.headRef}` : detail.headRef}
+              </code>
+            )}
             <button
               type="button"
               className="prc-branch-line__copy"
@@ -1467,24 +1486,6 @@ function PullRequestPreview({ pr, onOpenReview, onInspectDiffs, onMarkHandled, o
             >
               ⎘
             </button>
-            {/* Reverse nav: open this branch's commits in the
-                local-repo page. Hidden when the head is on a fork
-                (the branch isn't in the local clone of the target
-                repo) and when the parent didn't wire the prop. */}
-            {onOpenLocalBranch && detail.headRef
-                && (!detail.headRepo || detail.headRepo === pr.repo) && (
-              <button
-                type="button"
-                className="prc-branch-line__open-local"
-                onClick={() => {
-                  const [o, r] = pr.repo.split('/');
-                  if (o && r) onOpenLocalBranch(o, r, detail.headRef!);
-                }}
-                title={`Open ${detail.headRef} in the local-repo Commits tab`}
-              >
-                Open in local repo →
-              </button>
-            )}
           </div>
         )}
         {/* Row 3: muted secondary line — repo + relative timestamps.

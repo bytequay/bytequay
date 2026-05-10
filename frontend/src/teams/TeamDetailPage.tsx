@@ -27,6 +27,9 @@ type Props = {
   teamId: number;
   /** Sends the user back to Settings → Teams. */
   onBack: () => void;
+  /** Click on a PR's head-ref chip routes here so the user can jump
+   *  from the team kanban preview to the local-repo Commits tab. */
+  onOpenLocalBranch?: (owner: string, repo: string, branch: string) => void;
 };
 
 // SWR cache keys. The columns response captures per-column slices +
@@ -59,7 +62,7 @@ function loadSidebarWidth(): number {
   return Math.max(SIDEBAR_WIDTH_MIN, Math.min(SIDEBAR_WIDTH_MAX, n));
 }
 
-function TeamDetailPage({ teamId, onBack }: Props) {
+function TeamDetailPage({ teamId, onBack, onOpenLocalBranch }: Props) {
   const [team, setTeam] = useState<TeamDto | null>(() => getCached<TeamDto>(TEAM_KEY(teamId)) ?? null);
   const [columnsData, setColumnsData] = useState<TeamColumnsResponse>(() =>
     getCached<TeamColumnsResponse>(COLUMNS_KEY(teamId)) ?? EMPTY_COLUMNS,
@@ -394,6 +397,7 @@ function TeamDetailPage({ teamId, onBack }: Props) {
           onInspectDiffs={enterDiff}
           onMarkHandled={handleMarkHandled}
           onMerge={handleMerge}
+          onOpenLocalBranch={onOpenLocalBranch}
         />
       </div>
     ) : null;

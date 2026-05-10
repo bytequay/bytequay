@@ -13,8 +13,8 @@
  */
 package com.bytequay.app.web;
 
-import com.bytequay.app.domain.EmailMessageDetail;
-import com.bytequay.app.domain.EmailMessageMeta;
+import com.bytequay.app.domain.EmailThreadDetail;
+import com.bytequay.app.domain.EmailThreadMeta;
 import com.bytequay.app.service.gmail.EmailService;
 import com.google.common.collect.ImmutableMap;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -30,16 +30,18 @@ import java.util.Map;
 import static java.util.Objects.requireNonNull;
 
 /**
- * REST surface for the read-only Gmail inbox view (slice 2 of the
- * email feature). Lists messages for one account; body / archive /
- * mark-read are deferred to the next slice.
+ * REST surface for the Gmail inbox. Operates on Gmail's
+ * <strong>thread</strong> abstraction — one row per conversation, not
+ * per individual message — so multi-message threads (PR notifications,
+ * email back-and-forth) collapse into a single inbox card the way
+ * Gmail's web UI shows them.
  */
 @RestController
 @RequestMapping("/api/email")
 public class EmailController
 {
     /** Default page size — matches the design doc's "render the
-     *  most recent 50 messages" target for the master-detail list. */
+     *  most recent 50 threads" target for the master-detail list. */
     private static final int DEFAULT_PAGE_SIZE = 50;
 
     private final EmailService emailService;
@@ -50,51 +52,53 @@ public class EmailController
     }
 
     /**
-     * GET /api/email/messages?account={email}&pageSize={n}
+     * GET /api/email/threads?account={email}&pageSize={n}
      *
-     * <p>Returns the inbox for the requested account, newest first.
-     * {@code pageSize} defaults to 50 and is capped at 500 (Gmail's
-     * own limit).
+     * <p>Returns the inbox grouped by thread, newest first. {@code pageSize}
+     * defaults to 50 and is capped at 500 (Gmail's own limit).
      */
-    @GetMapping("/messages")
-    public List<EmailMessageMeta> listMessages(
+    @GetMapping("/threads")
+    public List<EmailThreadMeta> listThreads(
             @RequestParam String account,
             @RequestParam(required = false, defaultValue = "" + DEFAULT_PAGE_SIZE) int pageSize)
     {
-        return emailService.listInbox(account, pageSize);
+        return emailService.listInboxThreads(account, pageSize);
     }
 
     /**
-     * GET /api/email/messages/{id}?account={email} — full message
-     * including parsed body (text and/or HTML).
+     * GET /api/email/threads/{id}?account={email} — full thread
+     * including every message with parsed body.
      */
-    @GetMapping("/messages/{id}")
-    public EmailMessageDetail getMessage(@PathVariable String id, @RequestParam String account)
+    @GetMapping("/threads/{id}")
+    public EmailThreadDetail getThread(@PathVariable String id, @RequestParam String account)
     {
-        return emailService.getMessage(account, id);
+        return emailService.getThread(account, id);
     }
 
-    /** POST /api/email/messages/{id}/archive?account={email} — removes INBOX label. */
-    @PostMapping("/messages/{id}/archive")
+    /** POST /api/email/threads/{id}/archive?account={email} — removes
+     *  INBOX label from every message in the thread. */
+    @PostMapping("/threads/{id}/archive")
     public Map<String, String> archive(@PathVariable String id, @RequestParam String account)
     {
-        emailService.archive(account, id);
+        emailService.archiveThread(account, id);
         return ImmutableMap.of("result", "archived", "id", id);
     }
 
-    /** POST /api/email/messages/{id}/mark-read?account={email} — removes UNREAD label. */
-    @PostMapping("/messages/{id}/mark-read")
+    /** POST /api/email/threads/{id}/mark-read?account={email} — removes
+     *  UNREAD label from every message in the thread. */
+    @PostMapping("/threads/{id}/mark-read")
     public Map<String, String> markRead(@PathVariable String id, @RequestParam String account)
     {
-        emailService.markRead(account, id);
+        emailService.markThreadRead(account, id);
         return ImmutableMap.of("result", "read", "id", id);
     }
 
-    /** POST /api/email/messages/{id}/mark-unread?account={email} — adds UNREAD label. */
-    @PostMapping("/messages/{id}/mark-unread")
+    /** POST /api/email/threads/{id}/mark-unread?account={email} — adds
+     *  UNREAD label to every message in the thread. */
+    @PostMapping("/threads/{id}/mark-unread")
     public Map<String, String> markUnread(@PathVariable String id, @RequestParam String account)
     {
-        emailService.markUnread(account, id);
+        emailService.markThreadUnread(account, id);
         return ImmutableMap.of("result", "unread", "id", id);
     }
 }

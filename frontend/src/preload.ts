@@ -24,8 +24,8 @@ import type {
   CredentialDto,
   CredentialType,
   DailyCardDto,
-  EmailMessageDetailDto,
-  EmailMessageMetaDto,
+  EmailThreadDetailDto,
+  EmailThreadMetaDto,
   GitHubUserMatchDto,
   MyPrColumnSlug,
   TeamColumnsResponse,
@@ -406,16 +406,16 @@ const bridge: Bridge = {
     ipcRenderer.invoke('gmailOAuth:listAccounts'),
   disconnectGmailAccount: (email: string): Promise<void> =>
     ipcRenderer.invoke('gmailOAuth:disconnect', email),
-  listEmailMessages: (account: string, pageSize?: number): Promise<EmailMessageMetaDto[]> =>
-    ipcRenderer.invoke('email:listMessages', { account, pageSize }),
-  getEmailMessage: (account: string, id: string): Promise<EmailMessageDetailDto> =>
-    ipcRenderer.invoke('email:getMessage', { account, id }),
-  archiveEmail: (account: string, id: string): Promise<void> =>
-    ipcRenderer.invoke('email:archive', { account, id }),
-  markEmailRead: (account: string, id: string): Promise<void> =>
-    ipcRenderer.invoke('email:markRead', { account, id }),
-  markEmailUnread: (account: string, id: string): Promise<void> =>
-    ipcRenderer.invoke('email:markUnread', { account, id }),
+  listEmailThreads: (account: string, pageSize?: number): Promise<EmailThreadMetaDto[]> =>
+    ipcRenderer.invoke('email:listThreads', { account, pageSize }),
+  getEmailThread: (account: string, id: string): Promise<EmailThreadDetailDto> =>
+    ipcRenderer.invoke('email:getThread', { account, id }),
+  archiveEmailThread: (account: string, id: string): Promise<void> =>
+    ipcRenderer.invoke('email:archiveThread', { account, id }),
+  markEmailThreadRead: (account: string, id: string): Promise<void> =>
+    ipcRenderer.invoke('email:markThreadRead', { account, id }),
+  markEmailThreadUnread: (account: string, id: string): Promise<void> =>
+    ipcRenderer.invoke('email:markThreadUnread', { account, id }),
 };
 
 contextBridge.exposeInMainWorld('bridge', bridge);

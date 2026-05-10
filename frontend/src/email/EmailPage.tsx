@@ -12,7 +12,7 @@
  * limitations under the License.
  */
 import { useCallback, useEffect, useState } from 'react';
-import type { EmailMessageDetailDto, EmailMessageMetaDto } from '../types';
+import type { EmailMessageDetailDto, EmailThreadDetailDto, EmailThreadMetaDto } from '../types';
 
 type Account = { email: string; authMode: 'OAUTH' | 'IMAP' };
 
@@ -23,24 +23,23 @@ type Props = {
 };
 
 /**
- * Master-detail inbox. Left pane (460px) lists messages for the
- * selected account; right pane shows the selected message body with
- * Archive / Mark read action bar. OAuth path only — IMAP-connected
- * accounts show a "not yet wired" hint.
+ * Master-detail inbox, thread-based. One row per Gmail conversation
+ * (matches Gmail's web UI), with a (N) badge for multi-message
+ * threads. Click a thread to load the full conversation in the right
+ * pane — every message stacked oldest-first.
  *
- * <p>Optimistic UI: archive removes the row from the list immediately
- * and rolls back on error. Mark-read updates the unread flag locally
- * before the server confirms.
+ * <p>Archive / mark-read operate on the entire thread, like Gmail
+ * itself does.
  */
 export default function EmailPage({ onOpenIntegrationsSettings }: Props) {
   const [accounts, setAccounts] = useState<Account[] | null>(null);
   const [accountsError, setAccountsError] = useState<string | null>(null);
   const [selectedAccount, setSelectedAccount] = useState<string | null>(null);
 
-  const [messages, setMessages] = useState<EmailMessageMetaDto[] | null>(null);
+  const [threads, setThreads] = useState<EmailThreadMetaDto[] | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [selectedId, setSelectedId] = useState<string | null>(null);
+  const [selectedThreadId, setSelectedThreadId] = useState<string | null>(null);
 
   // Load accounts on mount; auto-select the first OAuth account.
   useEffect(() => {
@@ -65,70 +64,69 @@ export default function EmailPage({ onOpenIntegrationsSettings }: Props) {
     setLoading(true);
     setError(null);
     try {
-      const list = await window.bridge.listEmailMessages(account);
-      setMessages(list);
+      const list = await window.bridge.listEmailThreads(account);
+      setThreads(list);
     }
     catch (e) {
       setError(e instanceof Error ? e.message : String(e));
-      setMessages(null);
+      setThreads(null);
     }
     finally {
       setLoading(false);
     }
   }, []);
 
-  // Load messages whenever the selected account changes.
+  // Load threads whenever the selected account changes.
   useEffect(() => {
     if (selectedAccount == null) {
-      setMessages(null);
+      setThreads(null);
       return;
     }
     const account = accounts?.find(a => a.email === selectedAccount);
     if (account?.authMode !== 'OAUTH') {
-      setMessages(null);
+      setThreads(null);
       return;
     }
     void loadInbox(selectedAccount);
-    setSelectedId(null);
+    setSelectedThreadId(null);
   }, [selectedAccount, accounts, loadInbox]);
 
   const archive = async (id: string) => {
     if (!selectedAccount) return;
-    // Optimistic: remove from the list, advance selection to next row.
-    const prev = messages;
+    // Optimistic: remove the thread, advance selection to next row.
+    const prev = threads;
     if (!prev) return;
-    const idx = prev.findIndex(m => m.id === id);
-    const next = prev.filter(m => m.id !== id);
-    setMessages(next);
-    if (selectedId === id) {
-      setSelectedId(idx < next.length ? next[idx]?.id ?? null : next[next.length - 1]?.id ?? null);
+    const idx = prev.findIndex(t => t.id === id);
+    const next = prev.filter(t => t.id !== id);
+    setThreads(next);
+    if (selectedThreadId === id) {
+      setSelectedThreadId(idx < next.length ? next[idx]?.id ?? null : next[next.length - 1]?.id ?? null);
     }
     try {
-      await window.bridge.archiveEmail(selectedAccount, id);
+      await window.bridge.archiveEmailThread(selectedAccount, id);
     }
     catch (e) {
-      // Roll back.
-      setMessages(prev);
-      setSelectedId(id);
+      setThreads(prev);
+      setSelectedThreadId(id);
       setError(e instanceof Error ? e.message : String(e));
     }
   };
 
   const toggleRead = async (id: string, currentlyUnread: boolean) => {
     if (!selectedAccount) return;
-    const prev = messages;
+    const prev = threads;
     if (!prev) return;
-    setMessages(prev.map(m => m.id === id ? { ...m, unread: !currentlyUnread } : m));
+    setThreads(prev.map(t => t.id === id ? { ...t, unread: !currentlyUnread } : t));
     try {
       if (currentlyUnread) {
-        await window.bridge.markEmailRead(selectedAccount, id);
+        await window.bridge.markEmailThreadRead(selectedAccount, id);
       }
       else {
-        await window.bridge.markEmailUnread(selectedAccount, id);
+        await window.bridge.markEmailThreadUnread(selectedAccount, id);
       }
     }
     catch (e) {
-      setMessages(prev);
+      setThreads(prev);
       setError(e instanceof Error ? e.message : String(e));
     }
   };
@@ -158,7 +156,7 @@ export default function EmailPage({ onOpenIntegrationsSettings }: Props) {
   }
 
   const account = accounts.find(a => a.email === selectedAccount);
-  const selectedMessage = messages?.find(m => m.id === selectedId) ?? null;
+  const selectedThread = threads?.find(t => t.id === selectedThreadId) ?? null;
 
   return (
     <div className="email-page">
@@ -200,60 +198,67 @@ export default function EmailPage({ onOpenIntegrationsSettings }: Props) {
 
       {error && <div className="repo-error">{error}</div>}
 
-      {account?.authMode === 'OAUTH' && messages != null && (
+      {account?.authMode === 'OAUTH' && threads != null && (
         <div className="email-pane">
           <div className="email-pane__list">
-            {messages.length === 0 && <div className="email-page__hint">Inbox is empty.</div>}
+            {threads.length === 0 && <div className="email-page__hint">Inbox is empty.</div>}
             <ul className="email-list email-list--inset">
-              {messages.map(m => (
+              {threads.map(t => (
                 <li
-                  key={m.id}
-                  className={`email-row${m.unread ? ' email-row--unread' : ''}${m.id === selectedId ? ' email-row--selected' : ''}`}
-                  onClick={() => setSelectedId(m.id)}
+                  key={t.id}
+                  className={`email-row${t.unread ? ' email-row--unread' : ''}${t.id === selectedThreadId ? ' email-row--selected' : ''}`}
+                  onClick={() => setSelectedThreadId(t.id)}
                 >
                   <div className="email-row__rail" aria-hidden="true" />
                   <div className="email-row__body">
                     <div className="email-row__line1">
-                      <span className="email-row__from">{shortenFrom(m.from)}</span>
-                      <span className="email-row__time">{formatRelative(m.receivedAt)}</span>
+                      <span className="email-row__from">
+                        {shortenFrom(t.from)}
+                        {t.messageCount > 1 && (
+                          <span className="email-row__count" title={`${t.messageCount} messages in this thread`}>
+                            {' '}({t.messageCount})
+                          </span>
+                        )}
+                      </span>
+                      <span className="email-row__time">{formatRelative(t.receivedAt)}</span>
                     </div>
-                    <div className="email-row__subject">{m.subject || '(no subject)'}</div>
-                    <div className="email-row__snippet">{m.snippet}</div>
+                    <div className="email-row__subject">{t.subject || '(no subject)'}</div>
+                    <div className="email-row__snippet">{t.snippet}</div>
                   </div>
                 </li>
               ))}
             </ul>
           </div>
           <div className="email-pane__detail">
-            {selectedMessage ? (
-              <EmailDetailPane
-                key={selectedMessage.id}
+            {selectedThread ? (
+              <ThreadDetailPane
+                key={selectedThread.id}
                 account={selectedAccount!}
-                meta={selectedMessage}
-                onArchive={() => void archive(selectedMessage.id)}
-                onToggleRead={() => void toggleRead(selectedMessage.id, selectedMessage.unread)}
+                meta={selectedThread}
+                onArchive={() => void archive(selectedThread.id)}
+                onToggleRead={() => void toggleRead(selectedThread.id, selectedThread.unread)}
               />
             ) : (
-              <div className="email-page__hint">Pick a message on the left.</div>
+              <div className="email-page__hint">Pick a thread on the left.</div>
             )}
           </div>
         </div>
       )}
 
-      {loading && messages == null && <div className="repo-loading">Loading inbox…</div>}
+      {loading && threads == null && <div className="repo-loading">Loading inbox…</div>}
     </div>
   );
 }
 
 type DetailProps = {
   account: string;
-  meta: EmailMessageMetaDto;
+  meta: EmailThreadMetaDto;
   onArchive: () => void;
   onToggleRead: () => void;
 };
 
-function EmailDetailPane({ account, meta, onArchive, onToggleRead }: DetailProps) {
-  const [detail, setDetail] = useState<EmailMessageDetailDto | null>(null);
+function ThreadDetailPane({ account, meta, onArchive, onToggleRead }: DetailProps) {
+  const [detail, setDetail] = useState<EmailThreadDetailDto | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
@@ -264,7 +269,7 @@ function EmailDetailPane({ account, meta, onArchive, onToggleRead }: DetailProps
     setDetail(null);
     void (async () => {
       try {
-        const d = await window.bridge.getEmailMessage(account, meta.id);
+        const d = await window.bridge.getEmailThread(account, meta.id);
         if (cancelled) return;
         setDetail(d);
       }
@@ -288,32 +293,48 @@ function EmailDetailPane({ account, meta, onArchive, onToggleRead }: DetailProps
         <button className="button button--secondary" type="button" onClick={onToggleRead}>
           {meta.unread ? '✓ Mark as read' : '◌ Mark as unread'}
         </button>
+        {detail && detail.messages.length > 1 && (
+          <span className="email-detail__count">
+            {detail.messages.length} messages
+          </span>
+        )}
       </div>
       <div className="email-detail__head">
-        <div className="email-detail__subject">{meta.subject || '(no subject)'}</div>
-        <div className="email-detail__from">{meta.from}</div>
-        {detail?.to && <div className="email-detail__to">to {detail.to}</div>}
+        <div className="email-detail__subject">{detail?.subject ?? meta.subject ?? '(no subject)'}</div>
       </div>
-      {loading && <div className="repo-loading">Loading message…</div>}
+      {loading && <div className="repo-loading">Loading thread…</div>}
       {error && <div className="repo-error">{error}</div>}
       {detail && (
-        <div className="email-detail__body">
-          {detail.bodyHtml
-            ? <SanitizedHtml html={detail.bodyHtml} />
-            : <pre className="email-detail__plain">{detail.bodyText ?? '(empty body)'}</pre>}
+        <div className="email-detail__messages">
+          {detail.messages.map((m, i) => (
+            <ThreadMessage key={m.id} message={m} isLast={i === detail.messages.length - 1} />
+          ))}
         </div>
       )}
     </div>
   );
 }
 
+function ThreadMessage({ message, isLast }: { message: EmailMessageDetailDto; isLast: boolean }) {
+  return (
+    <div className={`thread-message${isLast ? ' thread-message--latest' : ''}`}>
+      <div className="thread-message__head">
+        <div className="thread-message__from">{message.from}</div>
+        <div className="thread-message__time">{new Date(message.receivedAt).toLocaleString()}</div>
+      </div>
+      {message.to && <div className="thread-message__to">to {message.to}</div>}
+      <div className="thread-message__body">
+        {message.bodyHtml
+          ? <SanitizedHtml html={message.bodyHtml} />
+          : <pre className="thread-message__plain">{message.bodyText ?? '(empty body)'}</pre>}
+      </div>
+    </div>
+  );
+}
+
 /** Renders Gmail HTML inside an iframe sandbox — no JS, no remote-image
- *  auto-loading, no parent-document access. The iframe srcdoc carves the
- *  HTML off into its own document so styles in the email don't bleed
- *  into ByteQuay's UI. */
+ *  auto-loading, no parent-document access. */
 function SanitizedHtml({ html }: { html: string }) {
-  // Strip <script> tags as a belt-and-suspenders measure even though
-  // sandbox="" already disables JS.
   const safeHtml = html.replace(/<script[\s\S]*?<\/script>/gi, '');
   return (
     <iframe
@@ -325,9 +346,7 @@ function SanitizedHtml({ html }: { html: string }) {
   );
 }
 
-/** Strips the address from a "Display Name <addr@host>" header so the
- *  card shows just the friendly name when present. Falls back to the
- *  whole string. */
+/** Strips the address from a "Display Name <addr@host>" header. */
 function shortenFrom(raw: string): string {
   if (!raw) return '';
   const angleStart = raw.indexOf('<');

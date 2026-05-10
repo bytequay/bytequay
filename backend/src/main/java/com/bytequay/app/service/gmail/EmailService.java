@@ -13,8 +13,8 @@
  */
 package com.bytequay.app.service.gmail;
 
-import com.bytequay.app.domain.EmailMessageDetail;
-import com.bytequay.app.domain.EmailMessageMeta;
+import com.bytequay.app.domain.EmailThreadDetail;
+import com.bytequay.app.domain.EmailThreadMeta;
 import com.google.common.collect.ImmutableList;
 import jakarta.annotation.PreDestroy;
 import org.slf4j.Logger;
@@ -35,18 +35,21 @@ import static java.util.Objects.requireNonNull;
 
 /**
  * Inbox-list orchestrator. Resolves an access token for the requested
- * account, asks Gmail for the inbox message IDs, fetches metadata for
- * each in parallel, and returns the result newest-first.
+ * account, asks Gmail for the inbox thread IDs, fetches metadata for
+ * each in parallel, and returns the threads newest-first.
  *
- * <p>One round trip costs {@code 1 + N} HTTP calls to Gmail, but the
- * N happen in parallel so wall-clock is dominated by the slowest one
- * (~200–600ms total for 50 messages). Gmail's per-user quota
- * (250 units/sec) leaves plenty of room here; we don't bother
- * batching for slice 1.
+ * <p>One round trip costs {@code 1 + N} HTTP calls to Gmail, capped at
+ * {@link #MAX_PARALLEL_FETCHES} concurrency to stay under Gmail's
+ * per-user concurrent-request limit.
  *
- * <p>This is the OAuth-only path. The IMAP adapter (for
- * {@code (ACCOUNT, "gmail-imap", *)} accounts) plugs in alongside
- * once the UI shape is settled.
+ * <p>Operates on Gmail's <strong>thread</strong> abstraction, not
+ * individual messages — matches Gmail's UI semantics where a row in
+ * the inbox is a conversation, archive applies to the whole thread,
+ * and the unread state is "any message in the thread is unread".
+ *
+ * <p>OAuth-only path. The IMAP adapter for
+ * {@code (ACCOUNT, "gmail-imap", *)} accounts plugs in alongside once
+ * the UI shape is settled.
  */
 @Service
 public class EmailService
@@ -82,12 +85,12 @@ public class EmailService
     }
 
     /**
-     * Returns the inbox for {@code email}, newest first, capped at
-     * {@code pageSize} entries (Gmail's hard ceiling is 500). Throws
-     * 401 if the refresh token is missing or has been revoked, 502
-     * for upstream Gmail trouble.
+     * Returns the inbox for {@code email} grouped by thread, newest
+     * first, capped at {@code pageSize} threads (Gmail's hard ceiling
+     * is 500). Throws 401 if the refresh token is missing or has been
+     * revoked, 502 for upstream Gmail trouble.
      */
-    public List<EmailMessageMeta> listInbox(String email, int pageSize)
+    public List<EmailThreadMeta> listInboxThreads(String email, int pageSize)
     {
         if (email == null || email.isBlank()) {
             throw new ResponseStatusException(HttpStatusCode.valueOf(400),
@@ -101,7 +104,7 @@ public class EmailService
         List<String> ids;
         try {
             accessToken = tokens.getAccessToken(email);
-            ids = gmail.listInboxIds(accessToken, pageSize);
+            ids = gmail.listInboxThreadIds(accessToken, pageSize);
         }
         catch (ResponseStatusException e) {
             // 401 from Gmail means the cached access token is stale or
@@ -113,11 +116,11 @@ public class EmailService
             }
             throw e;
         }
-        log.debug("Inbox for {} has {} messages; fetching metadata in parallel (cap={})",
+        log.debug("Inbox for {} has {} threads; fetching metadata in parallel (cap={})",
                 email, ids.size(), MAX_PARALLEL_FETCHES);
-        List<CompletableFuture<EmailMessageMeta>> futures = ids.stream()
+        List<CompletableFuture<EmailThreadMeta>> futures = ids.stream()
                 .map(id -> CompletableFuture.supplyAsync(
-                        () -> gmail.getMessageMetadata(accessToken, id), executor))
+                        () -> gmail.getThreadMetadata(accessToken, id), executor))
                 .collect(Collectors.toUnmodifiableList());
         try {
             CompletableFuture.allOf(futures.toArray(new CompletableFuture[0])).join();
@@ -137,47 +140,50 @@ public class EmailService
         }
         return futures.stream()
                 .map(CompletableFuture::join)
-                .sorted(Comparator.comparing(EmailMessageMeta::receivedAt).reversed())
+                .sorted(Comparator.comparing(EmailThreadMeta::receivedAt).reversed())
                 .collect(Collectors.toUnmodifiableList());
     }
 
-    /** Full message detail including parsed body. */
-    public EmailMessageDetail getMessage(String email, String messageId)
+    /** Full thread including every message and parsed body. */
+    public EmailThreadDetail getThread(String email, String threadId)
     {
         requireNonBlank(email, "email");
-        requireNonBlank(messageId, "messageId");
-        return runWithToken(email, accessToken -> gmail.getMessageFull(accessToken, messageId));
+        requireNonBlank(threadId, "threadId");
+        return runWithToken(email, accessToken -> gmail.getThreadFull(accessToken, threadId));
     }
 
-    /** Removes the INBOX label — Gmail's archive semantics. */
-    public void archive(String email, String messageId)
+    /** Removes the INBOX label from every message in the thread —
+     *  Gmail's archive semantics. */
+    public void archiveThread(String email, String threadId)
     {
         requireNonBlank(email, "email");
-        requireNonBlank(messageId, "messageId");
+        requireNonBlank(threadId, "threadId");
         runWithToken(email, accessToken -> {
-            gmail.modifyMessage(accessToken, messageId, ImmutableList.of(), ImmutableList.of("INBOX"));
+            gmail.modifyThread(accessToken, threadId, ImmutableList.of(), ImmutableList.of("INBOX"));
             return null;
         });
     }
 
-    /** Removes the UNREAD label — Gmail flips the bold-vs-not. */
-    public void markRead(String email, String messageId)
+    /** Removes the UNREAD label from every message in the thread.
+     *  Operating on the thread (not individual messages) keeps
+     *  ByteQuay's read-state in lockstep with what Gmail's UI shows. */
+    public void markThreadRead(String email, String threadId)
     {
         requireNonBlank(email, "email");
-        requireNonBlank(messageId, "messageId");
+        requireNonBlank(threadId, "threadId");
         runWithToken(email, accessToken -> {
-            gmail.modifyMessage(accessToken, messageId, ImmutableList.of(), ImmutableList.of("UNREAD"));
+            gmail.modifyThread(accessToken, threadId, ImmutableList.of(), ImmutableList.of("UNREAD"));
             return null;
         });
     }
 
-    /** Adds the UNREAD label back. */
-    public void markUnread(String email, String messageId)
+    /** Adds the UNREAD label back to every message in the thread. */
+    public void markThreadUnread(String email, String threadId)
     {
         requireNonBlank(email, "email");
-        requireNonBlank(messageId, "messageId");
+        requireNonBlank(threadId, "threadId");
         runWithToken(email, accessToken -> {
-            gmail.modifyMessage(accessToken, messageId, ImmutableList.of("UNREAD"), ImmutableList.of());
+            gmail.modifyThread(accessToken, threadId, ImmutableList.of("UNREAD"), ImmutableList.of());
             return null;
         });
     }

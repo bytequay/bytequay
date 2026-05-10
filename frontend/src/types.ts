@@ -548,23 +548,10 @@ export type SlackChannelRowDto = {
   isSmartDefault: boolean;
 };
 
-/** Mirror of backend EmailMessageMeta. Lightweight projection used by
- *  the inbox list view; body is omitted and lazy-fetched on open. */
-export type EmailMessageMetaDto = {
-  id: string;
-  threadId: string;
-  from: string;
-  subject: string;
-  snippet: string;
-  /** ISO-8601 instant string. */
-  receivedAt: string;
-  unread: boolean;
-};
-
 /** Mirror of backend EmailMessageDetail. Includes the parsed body
- *  (text and/or HTML) plus full headers — fetched when the user opens
- *  a message in the preview pane. Either bodyText or bodyHtml may be
- *  null; the renderer prefers HTML when both are present. */
+ *  (text and/or HTML) plus full headers — used inside an
+ *  EmailThreadDetailDto. Either bodyText or bodyHtml may be null; the
+ *  renderer prefers HTML when both are present. */
 export type EmailMessageDetailDto = {
   id: string;
   threadId: string;
@@ -577,6 +564,29 @@ export type EmailMessageDetailDto = {
   labels: string[];
   bodyText: string | null;
   bodyHtml: string | null;
+};
+
+/** Mirror of backend EmailThreadMeta. The unit shown as one card in
+ *  the inbox list — represents a Gmail conversation, with the latest
+ *  message's sender/subject/snippet plus a count for the (N) badge
+ *  on multi-message threads. */
+export type EmailThreadMetaDto = {
+  id: string;
+  latestMessageId: string | null;
+  from: string;
+  subject: string;
+  snippet: string;
+  receivedAt: string;
+  unread: boolean;
+  messageCount: number;
+};
+
+/** Mirror of backend EmailThreadDetail. Every message in the thread,
+ *  oldest-first; the renderer stacks them in the preview pane. */
+export type EmailThreadDetailDto = {
+  id: string;
+  subject: string;
+  messages: EmailMessageDetailDto[];
 };
 
 /** Mirror of backend MyPrColumn enum slugs. The team kanban now
@@ -1257,17 +1267,18 @@ export type Bridge = {
   /** Drops the stored credential for a single Gmail account regardless
    *  of auth mode. Idempotent on both sides. */
   disconnectGmailAccount: (email: string) => Promise<void>;
-  /** Lists messages in the inbox for the given account, newest first.
-   *  pageSize defaults to 50 server-side; capped at 500 (Gmail limit). */
-  listEmailMessages: (account: string, pageSize?: number) => Promise<EmailMessageMetaDto[]>;
-  /** Full message including parsed body. Lazy-fetched when the user
-   *  opens a row in the preview pane. */
-  getEmailMessage: (account: string, id: string) => Promise<EmailMessageDetailDto>;
-  /** Removes the INBOX label — Gmail's archive semantics. */
-  archiveEmail: (account: string, id: string) => Promise<void>;
-  /** Removes / adds the UNREAD label. */
-  markEmailRead: (account: string, id: string) => Promise<void>;
-  markEmailUnread: (account: string, id: string) => Promise<void>;
+  /** Lists conversation threads in the inbox for the given account,
+   *  newest first. pageSize defaults to 50 server-side; capped at
+   *  500 (Gmail limit). */
+  listEmailThreads: (account: string, pageSize?: number) => Promise<EmailThreadMetaDto[]>;
+  /** Full thread including every message and its parsed body. */
+  getEmailThread: (account: string, id: string) => Promise<EmailThreadDetailDto>;
+  /** Archive / mark-read / mark-unread operate on the entire thread —
+   *  matches Gmail's UI semantics, where these actions apply to the
+   *  conversation, not a single message. */
+  archiveEmailThread: (account: string, id: string) => Promise<void>;
+  markEmailThreadRead: (account: string, id: string) => Promise<void>;
+  markEmailThreadUnread: (account: string, id: string) => Promise<void>;
   // Credentials vault
   listCredentials: (type?: CredentialType) => Promise<CredentialDto[]>;
   upsertCredential: (req: UpsertCredentialRequest) => Promise<CredentialDto>;

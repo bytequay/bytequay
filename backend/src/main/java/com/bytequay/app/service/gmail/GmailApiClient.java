@@ -15,6 +15,8 @@ package com.bytequay.app.service.gmail;
 
 import com.bytequay.app.domain.EmailMessageDetail;
 import com.bytequay.app.domain.EmailMessageMeta;
+import com.bytequay.app.domain.EmailThreadDetail;
+import com.bytequay.app.domain.EmailThreadMeta;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
@@ -33,6 +35,7 @@ import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Base64;
+import java.util.Comparator;
 import java.util.List;
 
 /**
@@ -125,6 +128,77 @@ public class GmailApiClient
         doPostJson(accessToken, uri, json);
     }
 
+    /* ── Threads ─────────────────────────────────────────────────── */
+
+    /**
+     * Returns thread IDs for the inbox, newest first. One round trip;
+     * each thread carries multiple messages that we lazy-fetch.
+     */
+    public List<String> listInboxThreadIds(String accessToken, int pageSize)
+    {
+        if (pageSize <= 0 || pageSize > 500) {
+            throw new IllegalArgumentException("pageSize must be in [1, 500], got " + pageSize);
+        }
+        URI uri = URI.create(API_BASE + "/threads?labelIds=INBOX&maxResults=" + pageSize);
+        JsonNode body = doGet(accessToken, uri);
+        List<String> ids = new ArrayList<>();
+        for (JsonNode t : body.path("threads")) {
+            String id = t.path("id").asText(null);
+            if (id != null) {
+                ids.add(id);
+            }
+        }
+        return ids;
+    }
+
+    /**
+     * Fetches metadata for one thread — enough for the inbox list
+     * card. Picks the latest message in the thread to represent the
+     * row, counts total messages, and reports unread if any message
+     * carries the UNREAD label (matches Gmail's bold-or-not row
+     * semantics).
+     */
+    public EmailThreadMeta getThreadMetadata(String accessToken, String threadId)
+    {
+        URI uri = URI.create(API_BASE + "/threads/" + url(threadId)
+                + "?format=metadata"
+                + "&metadataHeaders=From"
+                + "&metadataHeaders=Subject"
+                + "&metadataHeaders=Date");
+        JsonNode body = doGet(accessToken, uri);
+        return toThreadMeta(body);
+    }
+
+    /** Fetches the full thread (every message, with body) for the
+     *  detail pane. */
+    public EmailThreadDetail getThreadFull(String accessToken, String threadId)
+    {
+        URI uri = URI.create(API_BASE + "/threads/" + url(threadId) + "?format=full");
+        JsonNode body = doGet(accessToken, uri);
+        return toThreadDetail(body);
+    }
+
+    /**
+     * Modifies labels on every message in a thread atomically. Gmail
+     * itself uses this when you archive or mark-read from its UI —
+     * applying to the thread keeps the per-message and per-thread
+     * states consistent.
+     */
+    public void modifyThread(
+            String accessToken,
+            String threadId,
+            List<String> addLabelIds,
+            List<String> removeLabelIds)
+    {
+        String json = "{"
+                + "\"addLabelIds\":" + jsonStringArray(addLabelIds)
+                + ","
+                + "\"removeLabelIds\":" + jsonStringArray(removeLabelIds)
+                + "}";
+        URI uri = URI.create(API_BASE + "/threads/" + url(threadId) + "/modify");
+        doPostJson(accessToken, uri, json);
+    }
+
     private EmailMessageMeta toMeta(JsonNode body)
     {
         String id = body.path("id").asText(null);
@@ -196,6 +270,64 @@ public class GmailApiClient
         return new EmailMessageDetail(
                 id, threadId, from, to, cc, subject, receivedAt, unread,
                 List.copyOf(labels), acc.text, acc.html);
+    }
+
+    private EmailThreadMeta toThreadMeta(JsonNode body)
+    {
+        String threadId = body.path("id").asText(null);
+        JsonNode messages = body.path("messages");
+        if (!messages.isArray() || messages.size() == 0) {
+            // Empty thread shouldn't happen but guard anyway — return a
+            // skeleton row the renderer can show without crashing.
+            return new EmailThreadMeta(threadId, null, "", "", "", Instant.EPOCH, false, 0);
+        }
+        // Latest = highest internalDate. Gmail's API returns messages
+        // in insertion order which is *usually* chronological but
+        // not contractually so — sort defensively.
+        EmailMessageMeta latest = null;
+        boolean anyUnread = false;
+        for (JsonNode msg : messages) {
+            EmailMessageMeta m = toMeta(msg);
+            if (m.unread()) {
+                anyUnread = true;
+            }
+            if (latest == null || m.receivedAt().isAfter(latest.receivedAt())) {
+                latest = m;
+            }
+        }
+        return new EmailThreadMeta(
+                threadId,
+                latest.id(),
+                latest.from(),
+                latest.subject(),
+                latest.snippet(),
+                latest.receivedAt(),
+                anyUnread,
+                messages.size());
+    }
+
+    private EmailThreadDetail toThreadDetail(JsonNode body)
+    {
+        String threadId = body.path("id").asText(null);
+        JsonNode messages = body.path("messages");
+        List<EmailMessageDetail> out = new ArrayList<>();
+        String subject = "";
+        if (messages.isArray()) {
+            for (JsonNode msg : messages) {
+                EmailMessageDetail detail = toDetail(msg);
+                out.add(detail);
+                // Keep the first non-blank subject as the thread subject.
+                // Gmail repeats "Re:" prefixes per message; the original
+                // is the most useful header for a thread title.
+                if (subject.isEmpty() && !detail.subject().isEmpty()) {
+                    subject = detail.subject();
+                }
+            }
+        }
+        // Oldest first so the renderer can scan a thread top-down like
+        // a conversation transcript.
+        out.sort(Comparator.comparing(EmailMessageDetail::receivedAt));
+        return new EmailThreadDetail(threadId, subject, List.copyOf(out));
     }
 
     private static final class BodyAccumulator

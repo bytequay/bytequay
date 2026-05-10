@@ -268,3 +268,61 @@
   border: 0;
   background: #fff;
 }
+.email-detail__count {
+  margin-left: auto;
+  align-self: center;
+  font-size: 12px;
+  color: var(--text-3);
+}
+.email-detail__messages {
+  flex: 1;
+  overflow-y: auto;
+  display: flex;
+  flex-direction: column;
+}
+.thread-message {
+  border-bottom: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+}
+.thread-message:last-child {
+  border-bottom: 0;
+}
+.thread-message__head {
+  display: flex;
+  justify-content: space-between;
+  padding: 12px 18px 4px;
+  font-size: 13px;
+}
+.thread-message__from {
+  color: var(--text-1);
+  font-weight: 500;
+}
+.thread-message__time {
+  color: var(--text-3);
+  font-size: 12px;
+}
+.thread-message__to {
+  padding: 0 18px 8px;
+  color: var(--text-3);
+  font-size: 12px;
+}
+.thread-message__body {
+  flex: 1;
+}
+.thread-message__plain {
+  margin: 0;
+  padding: 12px 18px 18px;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, monospace;
+  font-size: 13px;
+  white-space: pre-wrap;
+  color: var(--text-1);
+}
+.thread-message--latest .thread-message__from {
+  font-weight: 600;
+}
+.email-row__count {
+  color: var(--text-3);
+  font-weight: 400;
+  font-size: 12px;
+}

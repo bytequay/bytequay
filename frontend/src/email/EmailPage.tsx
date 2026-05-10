@@ -157,6 +157,48 @@ export default function EmailPage({ onOpenIntegrationsSettings }: Props) {
     autoMarkedRef.current = new Set();
   }, [selectedAccount]);
 
+  // Keyboard shortcuts: j/k or arrow keys to walk the list, e to
+  // archive, u to toggle read. Suppressed when focus is in an input
+  // or contenteditable so it doesn't fight typing.
+  useEffect(() => {
+    const acc = accounts?.find(a => a.email === selectedAccount);
+    if (acc?.authMode !== 'OAUTH' || !threads || threads.length === 0) return;
+    const onKey = (e: KeyboardEvent) => {
+      const target = e.target as HTMLElement | null;
+      if (target) {
+        const tag = target.tagName;
+        if (tag === 'INPUT' || tag === 'TEXTAREA' || target.isContentEditable) return;
+      }
+      const idx = selectedThreadId
+        ? threads.findIndex(t => t.id === selectedThreadId)
+        : -1;
+      if (e.key === 'j' || e.key === 'ArrowDown') {
+        e.preventDefault();
+        const next = idx < 0 ? 0 : Math.min(idx + 1, threads.length - 1);
+        setSelectedThreadId(threads[next].id);
+      }
+      else if (e.key === 'k' || e.key === 'ArrowUp') {
+        e.preventDefault();
+        const next = idx < 0 ? 0 : Math.max(idx - 1, 0);
+        setSelectedThreadId(threads[next].id);
+      }
+      else if (e.key === 'e' && selectedThreadId) {
+        e.preventDefault();
+        void archive(selectedThreadId);
+      }
+      else if ((e.key === 'u' || e.key === 'U') && selectedThreadId) {
+        e.preventDefault();
+        const t = threads.find(th => th.id === selectedThreadId);
+        if (t) void toggleRead(selectedThreadId, t.unread);
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+    // archive / toggleRead are stable enough; we re-bind when threads
+    // or selection change so the closure sees the latest state.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [threads, selectedThreadId, selectedAccount, accounts]);
+
   if (accountsError) {
     return (
       <div className="email-page">

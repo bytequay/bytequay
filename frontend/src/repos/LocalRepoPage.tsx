@@ -1003,6 +1003,7 @@ function LocalRepoPage({ owner, repo, onBack, onSelectPr, initialBranch }: Props
           // Refetches when any of these change.
           revisionKey={commitsBranch ?? upstreamRevision ?? status?.currentBranch ?? ''}
           branches={branches}
+          dirtyFileCount={status?.dirtyFileCount ?? null}
         />
       )}
       {tab === 'activity' && <ActivityTab owner={owner} repo={repo} />}
@@ -1104,11 +1105,17 @@ function CommitsTab({
   repo,
   revisionKey,
   branches,
+  dirtyFileCount,
 }: {
   owner: string;
   repo: string;
   revisionKey: string;
   branches: LocalBranchDto[] | null;
+  /** Working-tree dirty count from {@code git status --porcelain},
+   *  surfaced on the Changes tab label so the user knows whether
+   *  there's anything to review without first clicking the tab. Null
+   *  when the repo is unmapped. */
+  dirtyFileCount: number | null;
 }) {
   const [commits, setCommits] = useState<LocalCommitDto[] | null>(null);
   const [commitsError, setCommitsError] = useState<string | null>(null);
@@ -1428,7 +1435,14 @@ function CommitsTab({
               className={`commits-pane__mode-tab${mode === 'changes' ? ' commits-pane__mode-tab--active' : ''}`}
               onClick={() => setMode('changes')}
             >
-              Changes{mode === 'changes' && files != null ? ` (${files.length})` : ''}
+              Changes{(() => {
+                // Live count from the loaded file list when the
+                // user is in Changes mode; otherwise fall back to
+                // the status row's dirty count so the badge stays
+                // visible even from the History tab.
+                const n = mode === 'changes' && files != null ? files.length : dirtyFileCount;
+                return n != null ? ` (${n})` : '';
+              })()}
             </button>
             <button
               type="button"

@@ -620,7 +620,18 @@ function GmailSection() {
           {authMode === 'oauth' && credential && (
             <SettingRow
               title="Sign in with Google"
-              description="Opens your browser to the Google consent screen."
+              description={
+                <>
+                  Opens your browser to the Google consent screen.{' '}
+                  <b>Important:</b> on the second consent page Google calls
+                  &quot;Select what ByteQuay can access&quot;, you must
+                  <b> tick the checkbox</b> next to &quot;Read, compose and
+                  send emails from your Gmail account&quot; before clicking
+                  Continue. Google&apos;s granular consent is opt-in per
+                  scope — clicking through without ticking it will
+                  silently grant a token without Gmail permissions.
+                </>
+              }
               control={
                 <button
                   className="button button--primary"

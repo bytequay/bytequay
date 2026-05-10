@@ -253,3 +253,265 @@
   color: var(--text-1);
   font-weight: 600;
 }
+
+/* Sidebar — "Pick channels" affordance under the followed list. */
+.slack-sb-pick {
+  appearance: none;
+  background: transparent;
+  border: 1px dashed var(--border);
+  border-radius: 6px;
+  font: inherit;
+  font-size: 12px;
+  color: var(--accent);
+  cursor: pointer;
+  margin: 6px 4px 0;
+  padding: 6px 10px;
+  text-align: left;
+}
+.slack-sb-pick:hover:not(:disabled) {
+  background: var(--accent-a7);
+  border-style: solid;
+}
+.slack-sb-pick:disabled {
+  cursor: default;
+  color: var(--text-3);
+  opacity: 0.7;
+}
+.slack-sb-pick--active {
+  background: var(--accent-a7);
+  border-style: solid;
+  color: var(--text-1);
+}
+
+/* ── Channel picker (mockup: docs/mockups/design/slack/channel-selection.png)
+   Used for both first-run (Skip / Continue) and management (Cancel / Save).
+   Lives inside .slack-main, so it inherits the centered scroll container. */
+.slack-picker {
+  width: 100%;
+  max-width: 640px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: 12px;
+  padding: 32px 32px 0;
+  display: flex;
+  flex-direction: column;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.04);
+}
+
+.slack-picker__head {
+  text-align: center;
+  margin-bottom: 18px;
+}
+.slack-picker__step {
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  color: var(--accent);
+  margin-bottom: 6px;
+}
+.slack-picker__title {
+  margin: 0 0 8px;
+  font-size: 20px;
+  font-weight: 700;
+  letter-spacing: -0.015em;
+  color: var(--text-1);
+}
+.slack-picker__desc {
+  margin: 0 auto;
+  max-width: 520px;
+  font-size: 13px;
+  color: var(--text-2);
+  line-height: 1.55;
+}
+.slack-picker__desc strong {
+  color: var(--text-1);
+  font-weight: 600;
+}
+
+.slack-picker__filter-row {
+  margin-bottom: 10px;
+}
+.slack-picker__filter {
+  width: 100%;
+  appearance: none;
+  background: var(--bg-base);
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 8px 12px;
+  font: inherit;
+  font-size: 13px;
+  color: var(--text-1);
+}
+.slack-picker__filter:focus {
+  outline: none;
+  border-color: var(--accent);
+}
+
+.slack-picker__list {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  max-height: 360px;
+  overflow-y: auto;
+  border: 1px solid var(--border-light);
+  border-radius: 8px;
+  padding: 6px;
+  background: var(--bg-base);
+}
+
+.slack-picker__empty {
+  padding: 20px;
+  text-align: center;
+  color: var(--text-4);
+  font-size: 12.5px;
+}
+
+.slack-picker__row {
+  appearance: none;
+  background: transparent;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 8px 10px;
+  color: var(--text-1);
+  transition: background-color 100ms ease, border-color 100ms ease;
+}
+.slack-picker__row:hover { background: var(--bg-card); }
+.slack-picker__row--selected {
+  background: var(--accent-a7);
+  border-color: var(--accent);
+}
+
+.slack-picker__row-glyph {
+  font-size: 14px;
+  width: 18px;
+  text-align: center;
+  color: var(--text-3);
+  flex-shrink: 0;
+}
+.slack-picker__row-meta {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.slack-picker__row-name {
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-1);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.slack-picker__row-sub {
+  font-size: 11.5px;
+  color: var(--text-3);
+}
+
+.slack-picker__badge {
+  font-size: 9.5px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  color: var(--accent);
+  background: var(--accent-a7);
+  border-radius: 4px;
+  padding: 2px 6px;
+  margin-right: 4px;
+  white-space: nowrap;
+}
+
+/* Toggle visual — mirrors the mockup's pill switch. */
+.slack-picker__toggle {
+  width: 32px;
+  height: 18px;
+  border-radius: 999px;
+  background: var(--border);
+  position: relative;
+  flex-shrink: 0;
+  transition: background-color 120ms ease;
+}
+.slack-picker__toggle--on { background: var(--accent); }
+.slack-picker__toggle-knob {
+  position: absolute;
+  top: 2px;
+  left: 2px;
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  background: #fff;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.18);
+  transition: left 120ms ease;
+}
+.slack-picker__toggle--on .slack-picker__toggle-knob { left: 16px; }
+
+.slack-picker__footer {
+  margin-top: 14px;
+  padding: 14px 0 18px;
+  border-top: 1px solid var(--border-light);
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 8px 16px;
+  align-items: center;
+}
+.slack-picker__count {
+  font-size: 12.5px;
+  color: var(--text-2);
+}
+.slack-picker__count strong { color: var(--text-1); font-weight: 600; }
+
+.slack-picker__error {
+  padding: 24px;
+  text-align: center;
+  font-size: 13px;
+  color: var(--danger, #b3261e);
+}
+.slack-picker__error--inline {
+  grid-column: 1 / -1;
+  padding: 0;
+  text-align: right;
+  font-size: 12.5px;
+}
+
+.slack-picker__loading {
+  padding: 24px;
+  text-align: center;
+  color: var(--text-3);
+  font-size: 13px;
+}
+
+.slack-picker__actions {
+  display: flex;
+  gap: 8px;
+  justify-self: end;
+}
+
+.slack-picker__btn {
+  appearance: none;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  padding: 8px 16px;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+}
+.slack-picker__btn:disabled { cursor: default; opacity: 0.6; }
+.slack-picker__btn--ghost {
+  background: transparent;
+  border-color: var(--border);
+  color: var(--text-2);
+}
+.slack-picker__btn--ghost:hover:not(:disabled) { background: var(--bg-card); }
+.slack-picker__btn--primary {
+  background: #4a154b;
+  color: #fff;
+  border-color: #4a154b;
+}
+.slack-picker__btn--primary:hover:not(:disabled) { background: #350d36; }

@@ -13,15 +13,19 @@
  */
 package com.bytequay.app.web;
 
+import com.bytequay.app.service.slack.SlackChannelService;
+import com.bytequay.app.service.slack.SlackChannelService.ChannelRow;
 import com.bytequay.app.service.slack.SlackOAuthService;
 import com.bytequay.app.service.slack.SlackOAuthService.ConnectionInfo;
 import com.google.common.collect.ImmutableMap;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 
@@ -42,13 +46,17 @@ import static java.util.Objects.requireNonNull;
 public class SlackController
 {
     private final SlackOAuthService oauth;
+    private final SlackChannelService channelService;
 
-    public SlackController(SlackOAuthService oauth)
+    public SlackController(SlackOAuthService oauth, SlackChannelService channelService)
     {
         this.oauth = requireNonNull(oauth, "oauth is null");
+        this.channelService = requireNonNull(channelService, "channelService is null");
     }
 
     public record CallbackRequest(String code, String state) {}
+
+    public record FollowedChannelsRequest(List<String> channelIds) {}
 
     /**
      * GET /api/slack/oauth/authorize-url — returns the Slack authorize URL
@@ -118,5 +126,31 @@ public class SlackController
     {
         oauth.disconnect();
         return ImmutableMap.of("result", "disconnected");
+    }
+
+    /**
+     * GET /api/slack/channels — list the user's joined Slack channels with
+     * isFollowed + isSmartDefault flags. Powers the channel-selection
+     * screen (slice 3). 503 when no workspace is connected, 502 when
+     * Slack itself errors.
+     */
+    @GetMapping("/channels")
+    public List<ChannelRow> channels()
+    {
+        return channelService.listChannels();
+    }
+
+    /**
+     * PUT /api/slack/channels/followed — replaces the user's followed-
+     * channel set for the connected workspace. Body:
+     * {@code {"channelIds": ["Cxxxxx", "Gxxxxx", ...]}}. The response
+     * is the same shape as GET /channels with the new isFollowed flags
+     * applied (smart-default flags are dropped after the first save).
+     */
+    @PutMapping("/channels/followed")
+    public List<ChannelRow> replaceFollowed(@RequestBody FollowedChannelsRequest req)
+    {
+        List<String> ids = req.channelIds() != null ? req.channelIds() : List.of();
+        return channelService.replaceFollowed(ids);
     }
 }

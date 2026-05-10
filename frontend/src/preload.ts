@@ -36,6 +36,7 @@ import type {
   PullRequestDto,
   RecentEventDto,
   ReviewSkillDto,
+  SlackChannelRowDto,
   SlackConnectionDto,
   SuggestedReviewerDto,
   SyncSettingsDto,
@@ -382,6 +383,10 @@ const bridge: Bridge = {
     ipcRenderer.on('slack:oauth-complete', listener);
     return () => ipcRenderer.removeListener('slack:oauth-complete', listener);
   },
+  listSlackChannels: (): Promise<SlackChannelRowDto[]> =>
+    ipcRenderer.invoke('slack:listChannels'),
+  replaceFollowedSlackChannels: (channelIds: string[]): Promise<SlackChannelRowDto[]> =>
+    ipcRenderer.invoke('slack:replaceFollowedChannels', channelIds),
   getGitHubOAuthAuthorizeUrl: (): Promise<{ configured: boolean; url?: string }> =>
     ipcRenderer.invoke('githubOAuth:authorizeUrl'),
   getGitHubOAuthConnection: (): Promise<{ connected: boolean; login?: string }> =>

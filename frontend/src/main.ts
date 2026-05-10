@@ -2004,6 +2004,29 @@ const url = new URL(`${BACKEND_BASE}/api/search/repos`);
     return res.json();
   });
 
+  // ── Slack channel selection (slice 3) ───────────────────────────────────
+  ipcMain.handle('slack:listChannels', async () => {
+    const res = await fetch(`${BACKEND_BASE}/api/slack/channels`);
+    if (!res.ok) {
+      const body = await res.text().catch(() => '');
+      throw new Error(`backend /api/slack/channels returned ${res.status}: ${body}`);
+    }
+    return res.json();
+  });
+
+  ipcMain.handle('slack:replaceFollowedChannels', async (_event, channelIds: string[]) => {
+    const res = await fetch(`${BACKEND_BASE}/api/slack/channels/followed`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ channelIds }),
+    });
+    if (!res.ok) {
+      const body = await res.text().catch(() => '');
+      throw new Error(`backend /api/slack/channels/followed returned ${res.status}: ${body}`);
+    }
+    return res.json();
+  });
+
   // ── GitHub OAuth ────────────────────────────────────────────────────────
   // Same shape as Slack: getAuthorizeUrl → openExternal → GitHub redirects
   // to bytequay://github-oauth-callback → open-url handler below forwards

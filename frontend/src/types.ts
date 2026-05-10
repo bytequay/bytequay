@@ -528,6 +528,26 @@ export type SlackConnectionDto = {
   authedUserId?: string;
 };
 
+/** One row of the channel-picker payload (slice 3). Mirrors
+ *  com.bytequay.app.service.slack.SlackChannelService.ChannelRow. */
+export type SlackChannelRowDto = {
+  channel: {
+    id: string;
+    name: string;
+    isPrivate: boolean;
+    /** Slack omits this on the rare row that's missing num_members. */
+    memberCount: number | null;
+    /** ISO-8601 instant; null when Slack supplies neither latest.ts nor updated. */
+    latestActivityAt: string | null;
+  };
+  /** True when the user has saved this channel as followed. */
+  isFollowed: boolean;
+  /** True only on first-run (no rows in followed_channels yet) for the top
+   *  three by latestActivityAt. The picker pre-toggles these and shows a
+   *  "SMART DEFAULT" badge. Always false after the first save. */
+  isSmartDefault: boolean;
+};
+
 /** Mirror of backend EmailMessageMeta. Lightweight projection used by
  *  the inbox list view; body is omitted and lazy-fetched on open. */
 export type EmailMessageMetaDto = {
@@ -1183,6 +1203,13 @@ export type Bridge = {
    *  errored (state mismatch, Slack-side rejection, network).
    *  Returns a teardown that removes the listener. */
   onSlackOauthComplete: (callback: (payload: { success: boolean; error?: string }) => void) => () => void;
+  /** Lists the user's joined Slack channels with isFollowed +
+   *  isSmartDefault flags for the channel-picker. */
+  listSlackChannels: () => Promise<SlackChannelRowDto[]>;
+  /** Replaces the followed-channel set for the connected workspace.
+   *  Returns the refreshed picker payload (smart-default flags drop
+   *  off after the first save). */
+  replaceFollowedSlackChannels: (channelIds: string[]) => Promise<SlackChannelRowDto[]>;
   /** Issues an authorize URL for the GitHub OAuth + PKCE flow. The renderer
    *  opens it in the system browser. {@code configured} is false when the
    *  backend hasn't been given GITHUB_CLIENT_ID / GITHUB_CLIENT_SECRET — in

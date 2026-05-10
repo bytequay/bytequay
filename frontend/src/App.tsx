@@ -110,6 +110,24 @@ function GithubMark({ size = 18 }: { size?: number }) {
   );
 }
 
+/** Friendly label for the breadcrumb's "← parent" target. Returns
+ *  null for repo-style parents (Repository, etc.) so the caller can
+ *  fall back to the owner/repo string for those — that's the
+ *  established muscle memory. */
+function breadcrumbLabel(back: Nav | undefined): string | null {
+  if (!back) return null;
+  switch (back.view) {
+    case 'email': return 'Email';
+    case 'slack': return 'Slack';
+    case 'home': return 'Home';
+    case 'my-prs': return 'My PRs';
+    case 'notifications': return 'Notifications';
+    case 'teams': return 'Teams';
+    case 'repos': return 'Repos';
+    default: return null;
+  }
+}
+
 function GlobalTopbar({ nav, onNav, fullScreen }: GlobalTopbarProps) {
   return (
     <div className={`global-topbar${fullScreen ? ' global-topbar--fullscreen' : ''}`}>
@@ -142,7 +160,7 @@ function GlobalTopbar({ nav, onNav, fullScreen }: GlobalTopbarProps) {
             className="global-topbar__breadcrumb"
             onClick={() => onNav(nav.back ?? { view: 'home' })}
           >
-            ← {nav.owner}/{nav.repo}
+            ← {breadcrumbLabel(nav.back) ?? `${nav.owner}/${nav.repo}`}
           </button>
         )}
         {/* Portal target: child screens (e.g. PullRequestList) mount

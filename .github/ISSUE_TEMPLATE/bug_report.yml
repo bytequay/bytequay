@@ -1,0 +1,57 @@
+---
+name: Bug report
+description: Report a problem with the ByteQuay desktop app
+type: Bug
+body:
+  - type: markdown
+    attributes:
+      value: |
+        * Check whether the issue is already reported before opening a new one.
+        * Do not share passwords, personal access tokens, OAuth tokens, private repository URLs, email contents, Slack message contents, or other sensitive data.
+        * If this may be a security issue, do not file a public issue.
+
+  - type: input
+    id: version
+    attributes:
+      label: ByteQuay version
+      description: Which app version or commit are you running?
+      placeholder: "Example: v0.1.0 or commit abc1234"
+    validations:
+      required: true
+
+  - type: dropdown
+    id: platform
+    attributes:
+      label: Platform
+      description: Where did you see the problem?
+      options:
+        - macOS
+        - Other
+    validations:
+      required: true
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      description: Which part of the app is affected?
+      options:
+        - Pull request review
+        - Repository view
+        - GitHub authentication
+        - Slack integration
+        - Email integration
+        - Settings
+        - Backend sidecar
+        - Release/install
+        - Other
+    validations:
+      required: true
+
+  - type: textarea
+    id: description
+    attributes:
+      label: Please describe the bug
+      description: Include what happened, what you expected, and minimal steps to reproduce. Redact any private data from logs or screenshots.
+    validations:
+      required: true

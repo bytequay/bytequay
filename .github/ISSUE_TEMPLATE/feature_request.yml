@@ -1,0 +1,36 @@
+---
+name: Feature request
+description: Suggest an improvement for the ByteQuay desktop app
+type: Feature
+body:
+  - type: markdown
+    attributes:
+      value: |
+        * Check whether the feature is already requested before opening a new issue.
+        * Do not share passwords, personal access tokens, OAuth tokens, private repository URLs, email contents, Slack message contents, or other sensitive data.
+
+  - type: dropdown
+    id: area
+    attributes:
+      label: Area
+      description: Which part of the app would this improve?
+      options:
+        - Pull request review
+        - Repository view
+        - GitHub authentication
+        - Slack integration
+        - Email integration
+        - Settings
+        - Backend sidecar
+        - Release/install
+        - Other
+    validations:
+      required: true
+
+  - type: textarea
+    id: request
+    attributes:
+      label: Feature request / improvement
+      description: Describe the requested change, the workflow it supports, and any tradeoffs or alternatives you have considered.
+    validations:
+      required: true

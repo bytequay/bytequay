@@ -279,23 +279,51 @@ public class GmailApiClient
                 .POST(HttpRequest.BodyPublishers.ofString(jsonBody)));
     }
 
+    /** Max retry attempts for transient failures (429 / 503). 1 + 2 retries
+     *  is enough for the brief concurrency-burst spikes Gmail throws when
+     *  we open the inbox; beyond that the user gets a real error. */
+    private static final int MAX_RETRIES = 2;
+    /** Base backoff in millis. Doubled per attempt (200, 400). */
+    private static final long BACKOFF_BASE_MS = 200L;
+
     private JsonNode send(String accessToken, HttpRequest.Builder builder)
     {
         HttpRequest req = builder
                 .header("Authorization", "Bearer " + accessToken)
                 .build();
-        HttpResponse<String> resp;
-        try {
-            resp = httpClient.send(req, HttpResponse.BodyHandlers.ofString());
-        }
-        catch (IOException e) {
-            throw new ResponseStatusException(HttpStatusCode.valueOf(502),
-                    "Gmail API call failed: " + e.getMessage(), e);
-        }
-        catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-            throw new ResponseStatusException(HttpStatusCode.valueOf(502),
-                    "Gmail API call interrupted", e);
+        HttpResponse<String> resp = null;
+        for (int attempt = 0; attempt <= MAX_RETRIES; attempt++) {
+            try {
+                resp = httpClient.send(req, HttpResponse.BodyHandlers.ofString());
+            }
+            catch (IOException e) {
+                throw new ResponseStatusException(HttpStatusCode.valueOf(502),
+                        "Gmail API call failed: " + e.getMessage(), e);
+            }
+            catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                throw new ResponseStatusException(HttpStatusCode.valueOf(502),
+                        "Gmail API call interrupted", e);
+            }
+            int sc = resp.statusCode();
+            // Retry on rate-limit / transient-server-error responses; the
+            // per-user concurrency cap on Gmail throws a lot of 429s when
+            // we burst metadata fetches at the start of an inbox load.
+            if ((sc == 429 || sc == 503) && attempt < MAX_RETRIES) {
+                long delayMs = backoffMs(resp, attempt);
+                log.debug("Gmail {} returned {} (attempt {}/{}); retrying in {}ms",
+                        req.uri().getPath(), sc, attempt + 1, MAX_RETRIES + 1, delayMs);
+                try {
+                    Thread.sleep(delayMs);
+                }
+                catch (InterruptedException ie) {
+                    Thread.currentThread().interrupt();
+                    throw new ResponseStatusException(HttpStatusCode.valueOf(502),
+                            "Gmail API retry interrupted", ie);
+                }
+                continue;
+            }
+            break;
         }
         if (resp.statusCode() == 401) {
             // Bubble up so the caller can invalidate the cached access
@@ -316,6 +344,27 @@ public class GmailApiClient
         catch (IOException e) {
             throw new ResponseStatusException(HttpStatusCode.valueOf(502),
                     "Gmail API returned non-JSON: " + resp.body(), e);
+        }
+    }
+
+    /** Backoff selection: prefer Retry-After header when Google sends one,
+     *  otherwise exponential from {@link #BACKOFF_BASE_MS}. */
+    private static long backoffMs(HttpResponse<?> resp, int attempt)
+    {
+        return resp.headers().firstValue("Retry-After")
+                .map(GmailApiClient::parseRetryAfterMs)
+                .orElse(BACKOFF_BASE_MS << attempt);
+    }
+
+    private static long parseRetryAfterMs(String header)
+    {
+        try {
+            // Retry-After can be seconds (integer) or an HTTP-date. We
+            // only handle the seconds form — the date form is rare here.
+            return Long.parseLong(header.trim()) * 1000L;
+        }
+        catch (NumberFormatException e) {
+            return BACKOFF_BASE_MS;
         }
     }
 

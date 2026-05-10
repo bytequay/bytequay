@@ -16,6 +16,7 @@ package com.bytequay.app.service.gmail;
 import com.bytequay.app.domain.EmailMessageDetail;
 import com.bytequay.app.domain.EmailMessageMeta;
 import com.google.common.collect.ImmutableList;
+import jakarta.annotation.PreDestroy;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatusCode;
@@ -25,6 +26,8 @@ import org.springframework.web.server.ResponseStatusException;
 import java.util.Comparator;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 import java.util.function.Function;
 import java.util.stream.Collectors;
 
@@ -48,15 +51,34 @@ import static java.util.Objects.requireNonNull;
 @Service
 public class EmailService
 {
+    /** Caps parallel metadata fetches. Gmail enforces a per-user
+     *  concurrent-request limit (~10) that's separate from the
+     *  quota-per-second one — bursts of 50 unbounded calls hit it
+     *  fast and the requests come back as 429s. Five gives us
+     *  headroom under that ceiling and is empirically still fast. */
+    private static final int MAX_PARALLEL_FETCHES = 5;
+
     private static final Logger log = LoggerFactory.getLogger(EmailService.class);
 
     private final GoogleAccessTokenService tokens;
     private final GmailApiClient gmail;
+    private final ExecutorService executor;
 
     public EmailService(GoogleAccessTokenService tokens, GmailApiClient gmail)
     {
         this.tokens = requireNonNull(tokens, "tokens is null");
         this.gmail = requireNonNull(gmail, "gmail is null");
+        this.executor = Executors.newFixedThreadPool(MAX_PARALLEL_FETCHES, r -> {
+            Thread t = new Thread(r, "gmail-fetch");
+            t.setDaemon(true);
+            return t;
+        });
+    }
+
+    @PreDestroy
+    public void shutdown()
+    {
+        executor.shutdown();
     }
 
     /**
@@ -91,10 +113,11 @@ public class EmailService
             }
             throw e;
         }
-        log.debug("Inbox for {} has {} messages; fetching metadata in parallel", email, ids.size());
+        log.debug("Inbox for {} has {} messages; fetching metadata in parallel (cap={})",
+                email, ids.size(), MAX_PARALLEL_FETCHES);
         List<CompletableFuture<EmailMessageMeta>> futures = ids.stream()
                 .map(id -> CompletableFuture.supplyAsync(
-                        () -> gmail.getMessageMetadata(accessToken, id)))
+                        () -> gmail.getMessageMetadata(accessToken, id), executor))
                 .collect(Collectors.toUnmodifiableList());
         try {
             CompletableFuture.allOf(futures.toArray(new CompletableFuture[0])).join();

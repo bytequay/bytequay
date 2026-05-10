@@ -23,6 +23,7 @@ import com.bytequay.app.repository.SlackChannelWatermarkStore;
 import com.bytequay.app.repository.SlackDmConversationStore;
 import com.bytequay.app.repository.SlackMessageStore;
 import com.bytequay.app.service.slack.SlackApiClient;
+import com.bytequay.app.service.slack.SlackInboxService;
 import com.bytequay.app.service.slack.SlackOAuthService;
 import com.bytequay.app.service.slack.SlackOAuthService.ConnectionInfo;
 import com.fasterxml.jackson.databind.JsonNode;
@@ -277,6 +278,7 @@ class TestSlackPollingJob
         final InMemoryMessageStore messageStore = new InMemoryMessageStore();
         final InMemoryWatermarkStore watermarks = new InMemoryWatermarkStore();
         final InMemoryDmStore dms = new InMemoryDmStore();
+        final SlackInboxService inboxService = mock(SlackInboxService.class);
         final List<FollowedChannel> followed = followedStore.workspaceRows;
         final Clock clock = Clock.fixed(NOW, ZoneOffset.UTC);
 
@@ -288,7 +290,7 @@ class TestSlackPollingJob
 
         SlackPollingJob job()
         {
-            return new SlackPollingJob(oauth, api, followedStore, messageStore, watermarks, dms, clock);
+            return new SlackPollingJob(oauth, api, followedStore, messageStore, watermarks, dms, inboxService, clock);
         }
     }
 
@@ -337,7 +339,23 @@ class TestSlackPollingJob
         }
 
         @Override
+        public Optional<SlackMessage> find(String workspaceId, String channelId, String ts)
+        {
+            return inserted.stream()
+                    .filter(m -> m.workspaceId().equals(workspaceId)
+                            && m.channelId().equals(channelId)
+                            && m.ts().equals(ts))
+                    .findFirst();
+        }
+
+        @Override
         public List<SlackMessage> findByChannel(String workspaceId, String channelId)
+        {
+            return List.of();
+        }
+
+        @Override
+        public List<SlackMessage> findByThread(String workspaceId, String channelId, String threadTs)
         {
             return List.of();
         }

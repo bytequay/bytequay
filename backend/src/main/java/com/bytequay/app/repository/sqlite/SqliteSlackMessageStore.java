@@ -20,6 +20,7 @@ import org.springframework.stereotype.Repository;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
+import java.util.Optional;
 
 import static com.google.common.collect.ImmutableList.toImmutableList;
 import static java.util.Locale.ROOT;
@@ -60,9 +61,25 @@ public class SqliteSlackMessageStore
     }
 
     @Override
+    public Optional<SlackMessage> find(String workspaceId, String channelId, String ts)
+    {
+        SlackMessageEntity.SlackMessageKey key =
+                new SlackMessageEntity.SlackMessageKey(workspaceId, channelId, ts);
+        return repo.findById(key).map(SqliteSlackMessageStore::toDomain);
+    }
+
+    @Override
     public List<SlackMessage> findByChannel(String workspaceId, String channelId)
     {
         return repo.findByIdWorkspaceIdAndIdChannelIdOrderByIdTsDesc(workspaceId, channelId).stream()
+                .map(SqliteSlackMessageStore::toDomain)
+                .collect(toImmutableList());
+    }
+
+    @Override
+    public List<SlackMessage> findByThread(String workspaceId, String channelId, String threadTs)
+    {
+        return repo.findByIdWorkspaceIdAndIdChannelIdAndThreadTsOrderByIdTsAsc(workspaceId, channelId, threadTs).stream()
                 .map(SqliteSlackMessageStore::toDomain)
                 .collect(toImmutableList());
     }

@@ -17,6 +17,7 @@ import com.bytequay.app.domain.SlackInboxKind;
 import com.bytequay.app.domain.SlackMessage;
 
 import java.util.List;
+import java.util.Optional;
 
 /**
  * Local store for messages ingested from Slack. Slice 4 only writes
@@ -37,8 +38,16 @@ public interface SlackMessageStore
      */
     void insertIfAbsent(List<SlackMessage> messages);
 
+    /** Lookup by the (workspace, channel, ts) primary key. Used by the
+     *  inbox-state path to look up a thread-root parent. */
+    Optional<SlackMessage> find(String workspaceId, String channelId, String ts);
+
     /** All messages for a single channel, newest first. Used by the channel-feed view. */
     List<SlackMessage> findByChannel(String workspaceId, String channelId);
+
+    /** All messages in one thread (parent + replies) for a channel,
+     *  oldest first. Used by the inbox MENTION expanded view. */
+    List<SlackMessage> findByThread(String workspaceId, String channelId, String threadTs);
 
     /** All messages of one inbox kind across all channels, newest first. Used by the inbox view. */
     List<SlackMessage> findByInboxKind(String workspaceId, SlackInboxKind kind);

@@ -24,8 +24,10 @@ import com.bytequay.app.repository.SlackDmConversationStore;
 import com.bytequay.app.repository.SlackMessageStore;
 import com.bytequay.app.service.slack.SlackApiClient;
 import com.bytequay.app.service.slack.SlackInboxCategorizer;
+import com.bytequay.app.service.slack.SlackInboxService;
 import com.bytequay.app.service.slack.SlackOAuthService;
 import com.bytequay.app.service.slack.SlackOAuthService.ConnectionInfo;
+import com.bytequay.app.service.slack.SlackTs;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.google.common.collect.ImmutableList;
 import org.slf4j.Logger;
@@ -77,6 +79,7 @@ public class SlackPollingJob
     private final SlackMessageStore messageStore;
     private final SlackChannelWatermarkStore watermarkStore;
     private final SlackDmConversationStore dmConversationStore;
+    private final SlackInboxService inboxService;
     private final Clock clock;
 
     private final AtomicBoolean running = new AtomicBoolean(false);
@@ -88,9 +91,10 @@ public class SlackPollingJob
             FollowedChannelStore followedChannelStore,
             SlackMessageStore messageStore,
             SlackChannelWatermarkStore watermarkStore,
-            SlackDmConversationStore dmConversationStore)
+            SlackDmConversationStore dmConversationStore,
+            SlackInboxService inboxService)
     {
-        this(oauthService, apiClient, followedChannelStore, messageStore, watermarkStore, dmConversationStore, Clock.systemUTC());
+        this(oauthService, apiClient, followedChannelStore, messageStore, watermarkStore, dmConversationStore, inboxService, Clock.systemUTC());
     }
 
     SlackPollingJob(
@@ -100,6 +104,7 @@ public class SlackPollingJob
             SlackMessageStore messageStore,
             SlackChannelWatermarkStore watermarkStore,
             SlackDmConversationStore dmConversationStore,
+            SlackInboxService inboxService,
             Clock clock)
     {
         this.oauthService = requireNonNull(oauthService, "oauthService is null");
@@ -108,6 +113,7 @@ public class SlackPollingJob
         this.messageStore = requireNonNull(messageStore, "messageStore is null");
         this.watermarkStore = requireNonNull(watermarkStore, "watermarkStore is null");
         this.dmConversationStore = requireNonNull(dmConversationStore, "dmConversationStore is null");
+        this.inboxService = requireNonNull(inboxService, "inboxService is null");
         this.clock = requireNonNull(clock, "clock is null");
     }
 
@@ -194,7 +200,7 @@ public class SlackPollingJob
                 // channel_join / channel_topic events would refetch the
                 // same window forever.
                 String ts = node.path("ts").asText("");
-                if (!ts.isEmpty() && compareTs(ts, maxTs) > 0) {
+                if (!ts.isEmpty() && SlackTs.compare(ts, maxTs) > 0) {
                     maxTs = ts;
                 }
                 SlackMessage parsed = parseMessage(node, workspaceId, channelId, authedUserId, isDm, now);
@@ -203,7 +209,14 @@ public class SlackPollingJob
                 }
                 messages.add(parsed);
             }
-            messageStore.insertIfAbsent(messages.build());
+            List<SlackMessage> built = messages.build();
+            messageStore.insertIfAbsent(built);
+            // Feed the inbox state machine — this creates UNREAD rows for
+            // fresh MENTION/DM threads and resurrects archived items
+            // per the asymmetric rule. Runs after insertIfAbsent so the
+            // parent-thread lookup in the inbox service can find the
+            // root message in the cache.
+            inboxService.recordNewMessages(workspaceId, built);
             // Watermark advances even when every message is filtered out
             // (e.g. all bot messages with no user_id) — otherwise a
             // followed channel that only carries bot traffic would
@@ -257,25 +270,10 @@ public class SlackPollingJob
                 fetchedAt);
     }
 
-    /** Slack ts strings are "<seconds>.<microseconds>". Lexicographic
-     *  compare works iff both sides have the same integer width — they
-     *  do for the foreseeable future (10-digit unix seconds), and on
-     *  parse failure we fall back to numeric. */
+    /** Test seam — exposes the SlackTs helper through the scheduler so
+     *  TestSlackPollingJob can keep its existing assertions. */
     static int compareTs(String a, String b)
     {
-        if (a == null || a.isEmpty()) {
-            return b == null || b.isEmpty() ? 0 : -1;
-        }
-        if (b == null || b.isEmpty()) {
-            return 1;
-        }
-        try {
-            double da = Double.parseDouble(a);
-            double db = Double.parseDouble(b);
-            return Double.compare(da, db);
-        }
-        catch (NumberFormatException e) {
-            return a.compareTo(b);
-        }
+        return SlackTs.compare(a, b);
     }
 }

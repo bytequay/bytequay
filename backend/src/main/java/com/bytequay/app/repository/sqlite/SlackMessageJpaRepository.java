@@ -23,4 +23,10 @@ interface SlackMessageJpaRepository
     List<SlackMessageEntity> findByIdWorkspaceIdAndIdChannelIdOrderByIdTsDesc(String workspaceId, String channelId);
 
     List<SlackMessageEntity> findByIdWorkspaceIdAndInboxKindOrderByIdTsDesc(String workspaceId, String inboxKind);
+
+    /** Thread = the parent (id.ts == threadTs) plus every reply (threadTs == threadTs).
+     *  Slack guarantees the parent's ts equals its own thread_ts, but we
+     *  union both shapes to be defensive against historical data. */
+    List<SlackMessageEntity> findByIdWorkspaceIdAndIdChannelIdAndThreadTsOrderByIdTsAsc(
+            String workspaceId, String channelId, String threadTs);
 }

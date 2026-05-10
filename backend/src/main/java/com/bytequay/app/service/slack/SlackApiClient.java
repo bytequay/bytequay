@@ -196,6 +196,70 @@ public class SlackApiClient
         return chronological;
     }
 
+    /**
+     * Fetches the parent + every reply for a thread via
+     * {@code conversations.replies}. Used when expanding a MENTION
+     * inbox item — the inbox view needs the full back-context, not
+     * just the message that pinged the user.
+     *
+     * <p>Returns oldest-first like {@link #getConversationsHistory},
+     * including the parent (Slack always echoes it as the first
+     * element of the {@code messages} array).
+     */
+    public List<JsonNode> getConversationsReplies(String userToken, String channelId, String threadTs)
+    {
+        List<JsonNode> chronological = new ArrayList<>();
+        String cursor = null;
+        do {
+            JsonNode page = fetchRepliesPage(userToken, channelId, threadTs, cursor);
+            JsonNode messages = page.path("messages");
+            if (messages.isArray()) {
+                for (JsonNode m : messages) {
+                    chronological.add(m);
+                }
+            }
+            cursor = page.path("response_metadata").path("next_cursor").asText("");
+        } while (cursor != null && !cursor.isEmpty());
+        return chronological;
+    }
+
+    /**
+     * Posts a message via {@code chat.postMessage}. Returns the ts of
+     * the new message on success — the inbox-state machine immediately
+     * marks the parent thread RESPONDED, so we don't actually need the
+     * ts back, but surfacing it keeps the API symmetric with future
+     * "edit my reply" flows.
+     *
+     * <p>{@code threadTs} is optional: pass null to post a top-level
+     * message (used by the channel-feed view's compose box later);
+     * pass the thread root to reply inline.
+     */
+    public String postMessage(String userToken, String channelId, String text, String threadTs)
+    {
+        StringBuilder form = new StringBuilder()
+                .append("channel=").append(URLEncoder.encode(channelId, StandardCharsets.UTF_8))
+                .append("&text=").append(URLEncoder.encode(text, StandardCharsets.UTF_8));
+        if (threadTs != null && !threadTs.isEmpty()) {
+            form.append("&thread_ts=").append(URLEncoder.encode(threadTs, StandardCharsets.UTF_8));
+        }
+        URI uri = URI.create("https://slack.com/api/chat.postMessage");
+        JsonNode root = slackPostForm(uri, userToken, form.toString(), "chat.postMessage");
+        return root.path("ts").asText(null);
+    }
+
+    private JsonNode fetchRepliesPage(String userToken, String channelId, String threadTs, String cursor)
+    {
+        StringBuilder query = new StringBuilder()
+                .append("channel=").append(URLEncoder.encode(channelId, StandardCharsets.UTF_8))
+                .append("&ts=").append(URLEncoder.encode(threadTs, StandardCharsets.UTF_8))
+                .append("&limit=").append(PAGE_LIMIT);
+        if (cursor != null && !cursor.isEmpty()) {
+            query.append("&cursor=").append(URLEncoder.encode(cursor, StandardCharsets.UTF_8));
+        }
+        URI uri = URI.create("https://slack.com/api/conversations.replies?" + query);
+        return slackGet(uri, userToken, "conversations.replies");
+    }
+
     private JsonNode fetchImPage(String userToken, String cursor)
     {
         StringBuilder query = new StringBuilder()
@@ -226,6 +290,45 @@ public class SlackApiClient
         }
         URI uri = URI.create("https://slack.com/api/conversations.history?" + query);
         return slackGet(uri, userToken, "conversations.history");
+    }
+
+    /** Shared HTTP+error path for Slack POST form-encoded endpoints
+     *  (chat.postMessage and friends). Mirrors {@link #slackGet} —
+     *  identical Slack-error handling, only the request shape differs. */
+    private JsonNode slackPostForm(URI uri, String userToken, String body, String label)
+    {
+        HttpRequest request = HttpRequest.newBuilder(uri)
+                .header("Authorization", "Bearer " + userToken)
+                .header("Content-Type", "application/x-www-form-urlencoded; charset=utf-8")
+                .header("Accept", "application/json")
+                .POST(HttpRequest.BodyPublishers.ofString(body, StandardCharsets.UTF_8))
+                .build();
+        HttpResponse<String> response;
+        try (HttpClient http = HttpClient.newHttpClient()) {
+            response = http.send(request, HttpResponse.BodyHandlers.ofString(StandardCharsets.UTF_8));
+        }
+        catch (IOException e) {
+            throw new ResponseStatusException(HttpStatusCode.valueOf(502), "Slack " + label + " I/O failure", e);
+        }
+        catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new ResponseStatusException(HttpStatusCode.valueOf(502), "Slack " + label + " interrupted", e);
+        }
+        JsonNode root;
+        try {
+            root = MAPPER.readTree(response.body());
+        }
+        catch (IOException e) {
+            throw new ResponseStatusException(HttpStatusCode.valueOf(502), "Slack returned non-JSON response", e);
+        }
+        if (!root.path("ok").asBoolean(false)) {
+            String slackError = root.path("error").asText("unknown_error");
+            log.warn("Slack {} error: {}", label, slackError);
+            throw new ResponseStatusException(
+                    HttpStatusCode.valueOf(502),
+                    "Slack rejected " + label + ": " + slackError);
+        }
+        return root;
     }
 
     /** Shared HTTP+error path for Slack GET endpoints; keeps the per-call

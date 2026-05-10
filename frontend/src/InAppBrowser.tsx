@@ -20,6 +20,10 @@ type Props = {
   /** Closes the overlay; the renderer should setState back to null so the
    *  React UI shows again. Also drives the × button in the toolbar. */
   onClose: () => void;
+  /** True while the main window is in macOS native fullscreen — the
+   *  inset traffic lights vanish in that state, so the toolbar can
+   *  drop its 78px left reserve and let "Back to app" sit at the edge. */
+  fullScreen: boolean;
 };
 
 /**
@@ -38,7 +42,7 @@ type Props = {
  *   tracks the slot div.
  * - Unmount: bridge.unmountInAppBrowser() releases the WebContents.
  */
-export default function InAppBrowser({ url, onClose }: Props) {
+export default function InAppBrowser({ url, onClose, fullScreen }: Props) {
   const slotRef = useRef<HTMLDivElement>(null);
   const [nav, setNav] = useState<InAppNavState>({
     url,
@@ -97,7 +101,7 @@ export default function InAppBrowser({ url, onClose }: Props) {
   const displayTitle = nav.title || displayUrl;
   return (
     <div className="inapp-browser">
-      <div className="inapp-browser__toolbar">
+      <div className={`inapp-browser__toolbar${fullScreen ? '' : ' inapp-browser__toolbar--with-tl-reserve'}`}>
         <button
           type="button"
           className="inapp-browser__back-to-app"

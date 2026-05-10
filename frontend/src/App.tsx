@@ -447,7 +447,7 @@ function App() {
         </RouteErrorBoundary>
       </div>
       {inAppUrl && (
-        <InAppBrowser url={inAppUrl} onClose={() => setInAppUrl(null)} />
+        <InAppBrowser url={inAppUrl} onClose={() => setInAppUrl(null)} fullScreen={fullScreen} />
       )}
     </div>
   );

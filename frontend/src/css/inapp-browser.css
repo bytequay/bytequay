@@ -21,6 +21,15 @@
   border-bottom: 1px solid var(--border);
   flex: 0 0 auto;
 }
+/* Out of fullscreen, the inset macOS traffic lights sit at the very
+   top-left of the renderer (titleBarStyle: hiddenInset, position
+   {x:14, y:14} in main.ts). Reserve the same 78px the global topbar
+   does so "Back to app" doesn't slide under the lights. In native
+   fullscreen the lights vanish — App.tsx clears the modifier and the
+   toolbar reclaims the space. */
+.inapp-browser__toolbar--with-tl-reserve {
+  padding-left: 78px;
+}
 .inapp-browser__nav {
   display: inline-flex;
   align-items: center;

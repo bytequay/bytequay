@@ -44,6 +44,7 @@ import java.util.List;
 import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
+import java.util.function.Consumer;
 import java.util.stream.Collectors;
 
 import static java.util.Objects.requireNonNull;
@@ -121,19 +122,23 @@ public class GmailOAuthService
     private final String envClientSecret;
     private final OAuthExchanger exchanger;
     private final Clock clock;
+    /** Optional collaborator. Wired by Spring; null in unit tests so the
+     *  exchange flow doesn't require a fake access-token service. */
+    private final Consumer<String> accessTokenInvalidator;
 
     private final ConcurrentMap<String, PendingExchange> pending = new ConcurrentHashMap<>();
     private final SecureRandom random = new SecureRandom();
 
     @Autowired
-    public GmailOAuthService(CredentialService credentialService)
+    public GmailOAuthService(CredentialService credentialService, GoogleAccessTokenService tokens)
     {
         this(
                 credentialService,
                 System.getenv(GMAIL_CLIENT_ID_ENV),
                 System.getenv(GMAIL_CLIENT_SECRET_ENV),
                 new HttpExchanger(),
-                Clock.systemUTC());
+                Clock.systemUTC(),
+                tokens::invalidate);
     }
 
     GmailOAuthService(
@@ -143,11 +148,23 @@ public class GmailOAuthService
             OAuthExchanger exchanger,
             Clock clock)
     {
+        this(credentialService, envClientId, envClientSecret, exchanger, clock, ignored -> {});
+    }
+
+    GmailOAuthService(
+            CredentialService credentialService,
+            String envClientId,
+            String envClientSecret,
+            OAuthExchanger exchanger,
+            Clock clock,
+            Consumer<String> accessTokenInvalidator)
+    {
         this.credentialService = requireNonNull(credentialService, "credentialService is null");
         this.envClientId = blankToNull(envClientId);
         this.envClientSecret = blankToNull(envClientSecret);
         this.exchanger = requireNonNull(exchanger, "exchanger is null");
         this.clock = requireNonNull(clock, "clock is null");
+        this.accessTokenInvalidator = requireNonNull(accessTokenInvalidator, "accessTokenInvalidator is null");
     }
 
     public boolean isConfigured()
@@ -245,6 +262,9 @@ public class GmailOAuthService
                 tokens.refreshToken(),
                 email,
                 "Acquired via Gmail OAuth on " + Instant.now(clock));
+        // Drop any cached access token derived from a previously-stored
+        // refresh token for this email — its scope set is now stale.
+        accessTokenInvalidator.accept(email);
         log.info("Gmail OAuth completed for email={}", email);
         return new ConnectionInfo(email);
     }
@@ -260,9 +280,11 @@ public class GmailOAuthService
                 .collect(Collectors.toUnmodifiableList());
     }
 
-    /** Drops the account row keyed by {@code email}. Idempotent. */
+    /** Drops the account row keyed by {@code email}, and clears any
+     *  cached access token derived from it. Idempotent. */
     public void disconnect(String email)
     {
+        accessTokenInvalidator.accept(email);
         if (email == null || email.isBlank()) {
             throw new ResponseStatusException(HttpStatusCode.valueOf(400),
                     "email must not be blank");

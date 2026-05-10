@@ -11,7 +11,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import type { EmailMessageDetailDto, EmailThreadDetailDto, EmailThreadMetaDto } from '../types';
 
 type Account = { email: string; authMode: 'OAUTH' | 'IMAP' };
@@ -40,6 +40,9 @@ export default function EmailPage({ onOpenIntegrationsSettings }: Props) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [selectedThreadId, setSelectedThreadId] = useState<string | null>(null);
+  // Tracks thread IDs we've already auto-marked-read so re-rendering or
+  // toggling back to unread + reselecting doesn't loop.
+  const autoMarkedRef = useRef<Set<string>>(new Set());
 
   // Load accounts on mount; auto-select the first OAuth account.
   useEffect(() => {
@@ -130,6 +133,29 @@ export default function EmailPage({ onOpenIntegrationsSettings }: Props) {
       setError(e instanceof Error ? e.message : String(e));
     }
   };
+
+  // Auto-mark-as-read on selection, matching Gmail's web UI: opening
+  // an unread thread immediately flips it to read locally and fires a
+  // background mark-read call to Google. Per-thread dedup via
+  // autoMarkedRef so toggling back to unread + reselecting doesn't
+  // loop the API call.
+  useEffect(() => {
+    if (!selectedAccount || !selectedThreadId || !threads) return;
+    const t = threads.find(th => th.id === selectedThreadId);
+    if (!t || !t.unread) return;
+    if (autoMarkedRef.current.has(selectedThreadId)) return;
+    autoMarkedRef.current.add(selectedThreadId);
+    void toggleRead(selectedThreadId, true);
+    // toggleRead is intentionally not in deps — capturing it as a closure
+    // is fine, we only want to re-run when selectedThreadId changes.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selectedThreadId, selectedAccount]);
+
+  // Reset the auto-mark dedup when the account changes — per-account
+  // threads are a fresh universe.
+  useEffect(() => {
+    autoMarkedRef.current = new Set();
+  }, [selectedAccount]);
 
   if (accountsError) {
     return (

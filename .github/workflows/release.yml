@@ -76,7 +76,7 @@ jobs:
         run: find frontend/out/make -type f \( -name '*.dmg' -o -name '*.zip' \) -ls
 
       - name: Attach installers to GitHub Release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@3bb12739c298aeb8a4eeaf626c5b8d85266b0e65 # v2
         with:
           # Both formats: DMG for the typical "drag to Applications"
           # flow, ZIP for users who prefer manual extraction (and what

@@ -2111,7 +2111,7 @@ const url = new URL(`${BACKEND_BASE}/api/search/repos`);
     return res.json();
   });
 
-  // ── Email (Gmail inbox, read-only slice) ───────────────────────────────
+  // ── Email (Gmail inbox) ────────────────────────────────────────────────
   ipcMain.handle('email:listMessages', async (_event, payload: unknown) => {
     if (!payload || typeof payload !== 'object') {
       throw new Error('payload must be { account, pageSize? }');
@@ -2130,6 +2130,54 @@ const url = new URL(`${BACKEND_BASE}/api/search/repos`);
       throw new Error(`backend /api/email/messages returned ${res.status}: ${body}`);
     }
     return res.json();
+  });
+
+  ipcMain.handle('email:getMessage', async (_event, payload: unknown) => {
+    const { account, id } = (payload ?? {}) as { account?: string; id?: string };
+    if (typeof account !== 'string' || account.trim().length === 0) {
+      throw new Error('account must be a non-empty string');
+    }
+    if (typeof id !== 'string' || id.trim().length === 0) {
+      throw new Error('id must be a non-empty string');
+    }
+    const params = new URLSearchParams({ account: account.trim() });
+    const res = await fetch(
+      `${BACKEND_BASE}/api/email/messages/${encodeURIComponent(id)}?${params.toString()}`);
+    if (!res.ok) {
+      const body = await res.text().catch(() => '');
+      throw new Error(`backend /api/email/messages/${id} returned ${res.status}: ${body}`);
+    }
+    return res.json();
+  });
+
+  // Archive / mark-read / mark-unread share the POST shape: account in
+  // query, no body. Each maps to a single users.messages.modify call.
+  const emailAction = async (action: string, account: string, id: string) => {
+    const params = new URLSearchParams({ account });
+    const res = await fetch(
+      `${BACKEND_BASE}/api/email/messages/${encodeURIComponent(id)}/${action}?${params.toString()}`,
+      { method: 'POST' });
+    if (!res.ok) {
+      const body = await res.text().catch(() => '');
+      throw new Error(`backend /api/email/messages/${id}/${action} returned ${res.status}: ${body}`);
+    }
+    return res.json();
+  };
+
+  ipcMain.handle('email:archive', async (_event, payload: unknown) => {
+    const { account, id } = (payload ?? {}) as { account?: string; id?: string };
+    if (!account || !id) throw new Error('account and id are required');
+    return emailAction('archive', account, id);
+  });
+  ipcMain.handle('email:markRead', async (_event, payload: unknown) => {
+    const { account, id } = (payload ?? {}) as { account?: string; id?: string };
+    if (!account || !id) throw new Error('account and id are required');
+    return emailAction('mark-read', account, id);
+  });
+  ipcMain.handle('email:markUnread', async (_event, payload: unknown) => {
+    const { account, id } = (payload ?? {}) as { account?: string; id?: string };
+    if (!account || !id) throw new Error('account and id are required');
+    return emailAction('mark-unread', account, id);
   });
 
   // ── Credentials ─────────────────────────────────────────────────────────

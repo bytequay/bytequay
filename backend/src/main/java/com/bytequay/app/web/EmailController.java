@@ -13,14 +13,19 @@
  */
 package com.bytequay.app.web;
 
+import com.bytequay.app.domain.EmailMessageDetail;
 import com.bytequay.app.domain.EmailMessageMeta;
 import com.bytequay.app.service.gmail.EmailService;
+import com.google.common.collect.ImmutableMap;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.util.List;
+import java.util.Map;
 
 import static java.util.Objects.requireNonNull;
 
@@ -57,5 +62,39 @@ public class EmailController
             @RequestParam(required = false, defaultValue = "" + DEFAULT_PAGE_SIZE) int pageSize)
     {
         return emailService.listInbox(account, pageSize);
+    }
+
+    /**
+     * GET /api/email/messages/{id}?account={email} — full message
+     * including parsed body (text and/or HTML).
+     */
+    @GetMapping("/messages/{id}")
+    public EmailMessageDetail getMessage(@PathVariable String id, @RequestParam String account)
+    {
+        return emailService.getMessage(account, id);
+    }
+
+    /** POST /api/email/messages/{id}/archive?account={email} — removes INBOX label. */
+    @PostMapping("/messages/{id}/archive")
+    public Map<String, String> archive(@PathVariable String id, @RequestParam String account)
+    {
+        emailService.archive(account, id);
+        return ImmutableMap.of("result", "archived", "id", id);
+    }
+
+    /** POST /api/email/messages/{id}/mark-read?account={email} — removes UNREAD label. */
+    @PostMapping("/messages/{id}/mark-read")
+    public Map<String, String> markRead(@PathVariable String id, @RequestParam String account)
+    {
+        emailService.markRead(account, id);
+        return ImmutableMap.of("result", "read", "id", id);
+    }
+
+    /** POST /api/email/messages/{id}/mark-unread?account={email} — adds UNREAD label. */
+    @PostMapping("/messages/{id}/mark-unread")
+    public Map<String, String> markUnread(@PathVariable String id, @RequestParam String account)
+    {
+        emailService.markUnread(account, id);
+        return ImmutableMap.of("result", "unread", "id", id);
     }
 }

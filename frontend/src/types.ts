@@ -561,6 +561,24 @@ export type EmailMessageMetaDto = {
   unread: boolean;
 };
 
+/** Mirror of backend EmailMessageDetail. Includes the parsed body
+ *  (text and/or HTML) plus full headers — fetched when the user opens
+ *  a message in the preview pane. Either bodyText or bodyHtml may be
+ *  null; the renderer prefers HTML when both are present. */
+export type EmailMessageDetailDto = {
+  id: string;
+  threadId: string;
+  from: string;
+  to: string;
+  cc: string;
+  subject: string;
+  receivedAt: string;
+  unread: boolean;
+  labels: string[];
+  bodyText: string | null;
+  bodyHtml: string | null;
+};
+
 /** Mirror of backend MyPrColumn enum slugs. The team kanban now
  *  categorizes server-side and paginates per column, so these slugs
  *  cross the wire as both query params and response keys. */
@@ -1242,6 +1260,14 @@ export type Bridge = {
   /** Lists messages in the inbox for the given account, newest first.
    *  pageSize defaults to 50 server-side; capped at 500 (Gmail limit). */
   listEmailMessages: (account: string, pageSize?: number) => Promise<EmailMessageMetaDto[]>;
+  /** Full message including parsed body. Lazy-fetched when the user
+   *  opens a row in the preview pane. */
+  getEmailMessage: (account: string, id: string) => Promise<EmailMessageDetailDto>;
+  /** Removes the INBOX label — Gmail's archive semantics. */
+  archiveEmail: (account: string, id: string) => Promise<void>;
+  /** Removes / adds the UNREAD label. */
+  markEmailRead: (account: string, id: string) => Promise<void>;
+  markEmailUnread: (account: string, id: string) => Promise<void>;
   // Credentials vault
   listCredentials: (type?: CredentialType) => Promise<CredentialDto[]>;
   upsertCredential: (req: UpsertCredentialRequest) => Promise<CredentialDto>;

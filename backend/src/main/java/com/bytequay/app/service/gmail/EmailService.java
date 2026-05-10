@@ -13,7 +13,9 @@
  */
 package com.bytequay.app.service.gmail;
 
+import com.bytequay.app.domain.EmailMessageDetail;
 import com.bytequay.app.domain.EmailMessageMeta;
+import com.google.common.collect.ImmutableList;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatusCode;
@@ -23,6 +25,7 @@ import org.springframework.web.server.ResponseStatusException;
 import java.util.Comparator;
 import java.util.List;
 import java.util.concurrent.CompletableFuture;
+import java.util.function.Function;
 import java.util.stream.Collectors;
 
 import static java.util.Objects.requireNonNull;
@@ -113,5 +116,74 @@ public class EmailService
                 .map(CompletableFuture::join)
                 .sorted(Comparator.comparing(EmailMessageMeta::receivedAt).reversed())
                 .collect(Collectors.toUnmodifiableList());
+    }
+
+    /** Full message detail including parsed body. */
+    public EmailMessageDetail getMessage(String email, String messageId)
+    {
+        requireNonBlank(email, "email");
+        requireNonBlank(messageId, "messageId");
+        return runWithToken(email, accessToken -> gmail.getMessageFull(accessToken, messageId));
+    }
+
+    /** Removes the INBOX label — Gmail's archive semantics. */
+    public void archive(String email, String messageId)
+    {
+        requireNonBlank(email, "email");
+        requireNonBlank(messageId, "messageId");
+        runWithToken(email, accessToken -> {
+            gmail.modifyMessage(accessToken, messageId, ImmutableList.of(), ImmutableList.of("INBOX"));
+            return null;
+        });
+    }
+
+    /** Removes the UNREAD label — Gmail flips the bold-vs-not. */
+    public void markRead(String email, String messageId)
+    {
+        requireNonBlank(email, "email");
+        requireNonBlank(messageId, "messageId");
+        runWithToken(email, accessToken -> {
+            gmail.modifyMessage(accessToken, messageId, ImmutableList.of(), ImmutableList.of("UNREAD"));
+            return null;
+        });
+    }
+
+    /** Adds the UNREAD label back. */
+    public void markUnread(String email, String messageId)
+    {
+        requireNonBlank(email, "email");
+        requireNonBlank(messageId, "messageId");
+        runWithToken(email, accessToken -> {
+            gmail.modifyMessage(accessToken, messageId, ImmutableList.of("UNREAD"), ImmutableList.of());
+            return null;
+        });
+    }
+
+    /**
+     * Resolves an access token, runs {@code call}, and on a 401 from
+     * Gmail invalidates the cached token so the next attempt refreshes.
+     * We don't auto-retry — a genuinely-revoked refresh token would
+     * loop forever and the user needs to reconnect anyway.
+     */
+    private <T> T runWithToken(String email, Function<String, T> call)
+    {
+        String accessToken = tokens.getAccessToken(email);
+        try {
+            return call.apply(accessToken);
+        }
+        catch (ResponseStatusException e) {
+            if (e.getStatusCode().value() == 401) {
+                tokens.invalidate(email);
+            }
+            throw e;
+        }
+    }
+
+    private static void requireNonBlank(String value, String fieldName)
+    {
+        if (value == null || value.isBlank()) {
+            throw new ResponseStatusException(HttpStatusCode.valueOf(400),
+                    fieldName + " must not be blank");
+        }
     }
 }

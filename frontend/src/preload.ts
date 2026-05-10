@@ -24,6 +24,7 @@ import type {
   CredentialDto,
   CredentialType,
   DailyCardDto,
+  EmailMessageDetailDto,
   EmailMessageMetaDto,
   GitHubUserMatchDto,
   MyPrColumnSlug,
@@ -407,6 +408,14 @@ const bridge: Bridge = {
     ipcRenderer.invoke('gmailOAuth:disconnect', email),
   listEmailMessages: (account: string, pageSize?: number): Promise<EmailMessageMetaDto[]> =>
     ipcRenderer.invoke('email:listMessages', { account, pageSize }),
+  getEmailMessage: (account: string, id: string): Promise<EmailMessageDetailDto> =>
+    ipcRenderer.invoke('email:getMessage', { account, id }),
+  archiveEmail: (account: string, id: string): Promise<void> =>
+    ipcRenderer.invoke('email:archive', { account, id }),
+  markEmailRead: (account: string, id: string): Promise<void> =>
+    ipcRenderer.invoke('email:markRead', { account, id }),
+  markEmailUnread: (account: string, id: string): Promise<void> =>
+    ipcRenderer.invoke('email:markUnread', { account, id }),
 };
 
 contextBridge.exposeInMainWorld('bridge', bridge);

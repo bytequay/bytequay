@@ -13,6 +13,7 @@
  */
 package com.bytequay.app.service.gmail;
 
+import com.bytequay.app.domain.EmailMessageDetail;
 import com.bytequay.app.domain.EmailMessageMeta;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -31,6 +32,7 @@ import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.Base64;
 import java.util.List;
 
 /**
@@ -88,6 +90,41 @@ public class GmailApiClient
         return toMeta(body);
     }
 
+    /**
+     * Fetches the full message including body. The renderer uses this
+     * when the user opens a message in the preview pane. Walks the
+     * MIME tree to extract the first {@code text/plain} and
+     * {@code text/html} parts (multipart/alternative emails carry
+     * both; either may be present alone).
+     */
+    public EmailMessageDetail getMessageFull(String accessToken, String messageId)
+    {
+        URI uri = URI.create(API_BASE + "/messages/" + url(messageId) + "?format=full");
+        JsonNode body = doGet(accessToken, uri);
+        return toDetail(body);
+    }
+
+    /**
+     * Modifies a message's labels — used for archive (remove INBOX),
+     * mark-read (remove UNREAD), mark-unread (add UNREAD). Either
+     * argument may be empty; both empty is a no-op on Google's side
+     * but we still spend a quota unit.
+     */
+    public void modifyMessage(
+            String accessToken,
+            String messageId,
+            List<String> addLabelIds,
+            List<String> removeLabelIds)
+    {
+        String json = "{"
+                + "\"addLabelIds\":" + jsonStringArray(addLabelIds)
+                + ","
+                + "\"removeLabelIds\":" + jsonStringArray(removeLabelIds)
+                + "}";
+        URI uri = URI.create(API_BASE + "/messages/" + url(messageId) + "/modify");
+        doPostJson(accessToken, uri, json);
+    }
+
     private EmailMessageMeta toMeta(JsonNode body)
     {
         String id = body.path("id").asText(null);
@@ -116,13 +153,136 @@ public class GmailApiClient
         return new EmailMessageMeta(id, threadId, from, subject, snippet, receivedAt, unread);
     }
 
+    private EmailMessageDetail toDetail(JsonNode body)
+    {
+        String id = body.path("id").asText(null);
+        String threadId = body.path("threadId").asText(null);
+        String from = "";
+        String to = "";
+        String cc = "";
+        String subject = "";
+        for (JsonNode header : body.path("payload").path("headers")) {
+            String name = header.path("name").asText("");
+            String value = header.path("value").asText("");
+            if ("From".equalsIgnoreCase(name)) {
+                from = value;
+            }
+            else if ("To".equalsIgnoreCase(name)) {
+                to = value;
+            }
+            else if ("Cc".equalsIgnoreCase(name)) {
+                cc = value;
+            }
+            else if ("Subject".equalsIgnoreCase(name)) {
+                subject = value;
+            }
+        }
+        long internalDateMs = body.path("internalDate").asLong(0L);
+        Instant receivedAt = internalDateMs > 0 ? Instant.ofEpochMilli(internalDateMs) : Instant.EPOCH;
+        List<String> labels = new ArrayList<>();
+        boolean unread = false;
+        for (JsonNode label : body.path("labelIds")) {
+            String l = label.asText("");
+            labels.add(l);
+            if ("UNREAD".equals(l)) {
+                unread = true;
+            }
+        }
+        // Walk the MIME tree depth-first, collecting the first text/plain
+        // and the first text/html we find. Multipart/alternative emails
+        // carry both; older plain-text emails carry just text/plain.
+        BodyAccumulator acc = new BodyAccumulator();
+        collectBody(body.path("payload"), acc);
+        return new EmailMessageDetail(
+                id, threadId, from, to, cc, subject, receivedAt, unread,
+                List.copyOf(labels), acc.text, acc.html);
+    }
+
+    private static final class BodyAccumulator
+    {
+        String text;
+        String html;
+    }
+
+    private void collectBody(JsonNode part, BodyAccumulator acc)
+    {
+        if (part == null || part.isMissingNode()) {
+            return;
+        }
+        String mimeType = part.path("mimeType").asText("");
+        JsonNode parts = part.path("parts");
+        if (parts.isArray() && parts.size() > 0) {
+            for (JsonNode child : parts) {
+                collectBody(child, acc);
+            }
+            return;
+        }
+        // Leaf part — record the body if we don't already have one of
+        // this type and it's a body type we care about.
+        String data = part.path("body").path("data").asText("");
+        if (data.isEmpty()) {
+            return;
+        }
+        String decoded = decodeBase64Url(data);
+        if ("text/plain".equalsIgnoreCase(mimeType) && acc.text == null) {
+            acc.text = decoded;
+        }
+        else if ("text/html".equalsIgnoreCase(mimeType) && acc.html == null) {
+            acc.html = decoded;
+        }
+    }
+
+    private static String decodeBase64Url(String input)
+    {
+        try {
+            byte[] bytes = Base64.getUrlDecoder().decode(input);
+            return new String(bytes, StandardCharsets.UTF_8);
+        }
+        catch (IllegalArgumentException e) {
+            log.warn("Couldn't decode Gmail body part as base64url: {}", e.getMessage());
+            return "";
+        }
+    }
+
+    private static String jsonStringArray(List<String> items)
+    {
+        if (items == null || items.isEmpty()) {
+            return "[]";
+        }
+        StringBuilder sb = new StringBuilder("[");
+        boolean first = true;
+        for (String s : items) {
+            if (!first) {
+                sb.append(',');
+            }
+            sb.append('"').append(s.replace("\\", "\\\\").replace("\"", "\\\"")).append('"');
+            first = false;
+        }
+        sb.append(']');
+        return sb.toString();
+    }
+
     private JsonNode doGet(String accessToken, URI uri)
     {
-        HttpRequest req = HttpRequest.newBuilder()
+        return send(accessToken, HttpRequest.newBuilder()
                 .uri(uri)
-                .header("Authorization", "Bearer " + accessToken)
                 .header("Accept", "application/json")
-                .GET()
+                .GET());
+    }
+
+    private JsonNode doPostJson(String accessToken, URI uri, String jsonBody)
+    {
+        return send(accessToken, HttpRequest.newBuilder()
+                .uri(uri)
+                .header("Accept", "application/json")
+                .header("Content-Type", "application/json")
+                .POST(HttpRequest.BodyPublishers.ofString(jsonBody)));
+    }
+
+    private JsonNode send(String accessToken, HttpRequest.Builder builder)
+    {
+        HttpRequest req = builder
+                .header("Authorization", "Bearer " + accessToken)
                 .build();
         HttpResponse<String> resp;
         try {
@@ -145,9 +305,9 @@ public class GmailApiClient
                     "Gmail API returned 401: " + resp.body());
         }
         if (resp.statusCode() / 100 != 2) {
-            log.warn("Gmail API {} returned {}: {}", uri.getPath(), resp.statusCode(), resp.body());
+            log.warn("Gmail API {} returned {}: {}", req.uri().getPath(), resp.statusCode(), resp.body());
             throw new ResponseStatusException(HttpStatusCode.valueOf(502),
-                    "Gmail API returned " + resp.statusCode() + " on " + uri.getPath()
+                    "Gmail API returned " + resp.statusCode() + " on " + req.uri().getPath()
                             + ": " + resp.body());
         }
         try {

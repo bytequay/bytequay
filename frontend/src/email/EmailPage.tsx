@@ -11,8 +11,8 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import { useEffect, useState } from 'react';
-import type { EmailMessageMetaDto } from '../types';
+import { useCallback, useEffect, useState } from 'react';
+import type { EmailMessageDetailDto, EmailMessageMetaDto } from '../types';
 
 type Account = { email: string; authMode: 'OAUTH' | 'IMAP' };
 
@@ -23,24 +23,24 @@ type Props = {
 };
 
 /**
- * First slice of the Email surface — read-only inbox. Accounts list
- * lives at the top, picker for which account to view (auto-picks the
- * first one). Below it, a flat list of message cards. No preview
- * pane, no archive/mark-read yet — those land in the next slice once
- * we've validated the OAuth path against a real Gmail inbox.
+ * Master-detail inbox. Left pane (460px) lists messages for the
+ * selected account; right pane shows the selected message body with
+ * Archive / Mark read action bar. OAuth path only — IMAP-connected
+ * accounts show a "not yet wired" hint.
  *
- * <p>OAuth-only for now. IMAP-connected accounts are visible in the
- * picker but selecting one shows a "not yet implemented" hint until
- * the IMAP adapter ships.
+ * <p>Optimistic UI: archive removes the row from the list immediately
+ * and rolls back on error. Mark-read updates the unread flag locally
+ * before the server confirms.
  */
 export default function EmailPage({ onOpenIntegrationsSettings }: Props) {
   const [accounts, setAccounts] = useState<Account[] | null>(null);
   const [accountsError, setAccountsError] = useState<string | null>(null);
-  const [selected, setSelected] = useState<string | null>(null);
+  const [selectedAccount, setSelectedAccount] = useState<string | null>(null);
 
   const [messages, setMessages] = useState<EmailMessageMetaDto[] | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [selectedId, setSelectedId] = useState<string | null>(null);
 
   // Load accounts on mount; auto-select the first OAuth account.
   useEffect(() => {
@@ -51,7 +51,7 @@ export default function EmailPage({ onOpenIntegrationsSettings }: Props) {
         if (cancelled) return;
         setAccounts(list);
         const firstOauth = list.find(a => a.authMode === 'OAUTH');
-        setSelected(firstOauth?.email ?? list[0]?.email ?? null);
+        setSelectedAccount(firstOauth?.email ?? list[0]?.email ?? null);
       }
       catch (e) {
         if (cancelled) return;
@@ -61,51 +61,75 @@ export default function EmailPage({ onOpenIntegrationsSettings }: Props) {
     return () => { cancelled = true; };
   }, []);
 
-  // Load messages whenever the selected account changes.
-  useEffect(() => {
-    if (selected == null) {
-      setMessages(null);
-      return;
-    }
-    const account = accounts?.find(a => a.email === selected);
-    if (account?.authMode !== 'OAUTH') {
-      setMessages(null);
-      return;
-    }
-    let cancelled = false;
-    setLoading(true);
-    setError(null);
-    void (async () => {
-      try {
-        const list = await window.bridge.listEmailMessages(selected);
-        if (cancelled) return;
-        setMessages(list);
-      }
-      catch (e) {
-        if (cancelled) return;
-        setError(e instanceof Error ? e.message : String(e));
-        setMessages(null);
-      }
-      finally {
-        if (!cancelled) setLoading(false);
-      }
-    })();
-    return () => { cancelled = true; };
-  }, [selected, accounts]);
-
-  const refresh = async () => {
-    if (!selected) return;
+  const loadInbox = useCallback(async (account: string) => {
     setLoading(true);
     setError(null);
     try {
-      const list = await window.bridge.listEmailMessages(selected);
+      const list = await window.bridge.listEmailMessages(account);
       setMessages(list);
     }
     catch (e) {
       setError(e instanceof Error ? e.message : String(e));
+      setMessages(null);
     }
     finally {
       setLoading(false);
+    }
+  }, []);
+
+  // Load messages whenever the selected account changes.
+  useEffect(() => {
+    if (selectedAccount == null) {
+      setMessages(null);
+      return;
+    }
+    const account = accounts?.find(a => a.email === selectedAccount);
+    if (account?.authMode !== 'OAUTH') {
+      setMessages(null);
+      return;
+    }
+    void loadInbox(selectedAccount);
+    setSelectedId(null);
+  }, [selectedAccount, accounts, loadInbox]);
+
+  const archive = async (id: string) => {
+    if (!selectedAccount) return;
+    // Optimistic: remove from the list, advance selection to next row.
+    const prev = messages;
+    if (!prev) return;
+    const idx = prev.findIndex(m => m.id === id);
+    const next = prev.filter(m => m.id !== id);
+    setMessages(next);
+    if (selectedId === id) {
+      setSelectedId(idx < next.length ? next[idx]?.id ?? null : next[next.length - 1]?.id ?? null);
+    }
+    try {
+      await window.bridge.archiveEmail(selectedAccount, id);
+    }
+    catch (e) {
+      // Roll back.
+      setMessages(prev);
+      setSelectedId(id);
+      setError(e instanceof Error ? e.message : String(e));
+    }
+  };
+
+  const toggleRead = async (id: string, currentlyUnread: boolean) => {
+    if (!selectedAccount) return;
+    const prev = messages;
+    if (!prev) return;
+    setMessages(prev.map(m => m.id === id ? { ...m, unread: !currentlyUnread } : m));
+    try {
+      if (currentlyUnread) {
+        await window.bridge.markEmailRead(selectedAccount, id);
+      }
+      else {
+        await window.bridge.markEmailUnread(selectedAccount, id);
+      }
+    }
+    catch (e) {
+      setMessages(prev);
+      setError(e instanceof Error ? e.message : String(e));
     }
   };
 
@@ -133,7 +157,8 @@ export default function EmailPage({ onOpenIntegrationsSettings }: Props) {
     );
   }
 
-  const selectedAccount = accounts.find(a => a.email === selected);
+  const account = accounts.find(a => a.email === selectedAccount);
+  const selectedMessage = messages?.find(m => m.id === selectedId) ?? null;
 
   return (
     <div className="email-page">
@@ -143,8 +168,8 @@ export default function EmailPage({ onOpenIntegrationsSettings }: Props) {
             <button
               key={acc.email}
               type="button"
-              className={`email-account-chip${acc.email === selected ? ' email-account-chip--active' : ''}`}
-              onClick={() => setSelected(acc.email)}
+              className={`email-account-chip${acc.email === selectedAccount ? ' email-account-chip--active' : ''}`}
+              onClick={() => setSelectedAccount(acc.email)}
               title={`${acc.email} · ${acc.authMode}`}
             >
               <span className="email-account-chip__email">{acc.email}</span>
@@ -158,32 +183,61 @@ export default function EmailPage({ onOpenIntegrationsSettings }: Props) {
           <button
             className="button button--secondary"
             type="button"
-            onClick={() => void refresh()}
-            disabled={loading || selectedAccount?.authMode !== 'OAUTH'}
+            onClick={() => selectedAccount && void loadInbox(selectedAccount)}
+            disabled={loading || account?.authMode !== 'OAUTH'}
           >
             {loading ? 'Refreshing…' : 'Refresh'}
           </button>
         </div>
       </header>
 
-      {selectedAccount?.authMode === 'IMAP' && (
+      {account?.authMode === 'IMAP' && (
         <div className="email-page__hint">
           IMAP inbox loading isn't wired up yet — only OAuth-connected accounts can
-          be browsed in this slice. Switch to an OAuth account or check back in
-          the next iteration.
+          be browsed. Switch to an OAuth account or check back in the next slice.
         </div>
       )}
 
       {error && <div className="repo-error">{error}</div>}
 
-      {selectedAccount?.authMode === 'OAUTH' && messages != null && messages.length === 0 && (
-        <div className="email-page__hint">Inbox is empty.</div>
-      )}
-
-      {selectedAccount?.authMode === 'OAUTH' && messages != null && messages.length > 0 && (
-        <ul className="email-list">
-          {messages.map(m => <EmailRow key={m.id} message={m} />)}
-        </ul>
+      {account?.authMode === 'OAUTH' && messages != null && (
+        <div className="email-pane">
+          <div className="email-pane__list">
+            {messages.length === 0 && <div className="email-page__hint">Inbox is empty.</div>}
+            <ul className="email-list email-list--inset">
+              {messages.map(m => (
+                <li
+                  key={m.id}
+                  className={`email-row${m.unread ? ' email-row--unread' : ''}${m.id === selectedId ? ' email-row--selected' : ''}`}
+                  onClick={() => setSelectedId(m.id)}
+                >
+                  <div className="email-row__rail" aria-hidden="true" />
+                  <div className="email-row__body">
+                    <div className="email-row__line1">
+                      <span className="email-row__from">{shortenFrom(m.from)}</span>
+                      <span className="email-row__time">{formatRelative(m.receivedAt)}</span>
+                    </div>
+                    <div className="email-row__subject">{m.subject || '(no subject)'}</div>
+                    <div className="email-row__snippet">{m.snippet}</div>
+                  </div>
+                </li>
+              ))}
+            </ul>
+          </div>
+          <div className="email-pane__detail">
+            {selectedMessage ? (
+              <EmailDetailPane
+                key={selectedMessage.id}
+                account={selectedAccount!}
+                meta={selectedMessage}
+                onArchive={() => void archive(selectedMessage.id)}
+                onToggleRead={() => void toggleRead(selectedMessage.id, selectedMessage.unread)}
+              />
+            ) : (
+              <div className="email-page__hint">Pick a message on the left.</div>
+            )}
+          </div>
+        </div>
       )}
 
       {loading && messages == null && <div className="repo-loading">Loading inbox…</div>}
@@ -191,19 +245,83 @@ export default function EmailPage({ onOpenIntegrationsSettings }: Props) {
   );
 }
 
-function EmailRow({ message }: { message: EmailMessageMetaDto }) {
+type DetailProps = {
+  account: string;
+  meta: EmailMessageMetaDto;
+  onArchive: () => void;
+  onToggleRead: () => void;
+};
+
+function EmailDetailPane({ account, meta, onArchive, onToggleRead }: DetailProps) {
+  const [detail, setDetail] = useState<EmailMessageDetailDto | null>(null);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    setError(null);
+    setDetail(null);
+    void (async () => {
+      try {
+        const d = await window.bridge.getEmailMessage(account, meta.id);
+        if (cancelled) return;
+        setDetail(d);
+      }
+      catch (e) {
+        if (cancelled) return;
+        setError(e instanceof Error ? e.message : String(e));
+      }
+      finally {
+        if (!cancelled) setLoading(false);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [account, meta.id]);
+
   return (
-    <li className={`email-row${message.unread ? ' email-row--unread' : ''}`}>
-      <div className="email-row__rail" aria-hidden="true" />
-      <div className="email-row__body">
-        <div className="email-row__line1">
-          <span className="email-row__from">{shortenFrom(message.from)}</span>
-          <span className="email-row__time">{formatRelative(message.receivedAt)}</span>
-        </div>
-        <div className="email-row__subject">{message.subject || '(no subject)'}</div>
-        <div className="email-row__snippet">{message.snippet}</div>
+    <div className="email-detail">
+      <div className="email-detail__actions">
+        <button className="button button--primary" type="button" onClick={onArchive}>
+          📥 Archive
+        </button>
+        <button className="button button--secondary" type="button" onClick={onToggleRead}>
+          {meta.unread ? '✓ Mark as read' : '◌ Mark as unread'}
+        </button>
       </div>
-    </li>
+      <div className="email-detail__head">
+        <div className="email-detail__subject">{meta.subject || '(no subject)'}</div>
+        <div className="email-detail__from">{meta.from}</div>
+        {detail?.to && <div className="email-detail__to">to {detail.to}</div>}
+      </div>
+      {loading && <div className="repo-loading">Loading message…</div>}
+      {error && <div className="repo-error">{error}</div>}
+      {detail && (
+        <div className="email-detail__body">
+          {detail.bodyHtml
+            ? <SanitizedHtml html={detail.bodyHtml} />
+            : <pre className="email-detail__plain">{detail.bodyText ?? '(empty body)'}</pre>}
+        </div>
+      )}
+    </div>
+  );
+}
+
+/** Renders Gmail HTML inside an iframe sandbox — no JS, no remote-image
+ *  auto-loading, no parent-document access. The iframe srcdoc carves the
+ *  HTML off into its own document so styles in the email don't bleed
+ *  into ByteQuay's UI. */
+function SanitizedHtml({ html }: { html: string }) {
+  // Strip <script> tags as a belt-and-suspenders measure even though
+  // sandbox="" already disables JS.
+  const safeHtml = html.replace(/<script[\s\S]*?<\/script>/gi, '');
+  return (
+    <iframe
+      title="Email body"
+      className="email-detail__iframe"
+      sandbox=""
+      srcDoc={safeHtml}
+    />
   );
 }
 
@@ -220,8 +338,7 @@ function shortenFrom(raw: string): string {
   return raw;
 }
 
-/** Light-weight relative-time formatter — minutes/hours/days from now,
- *  no external dep. */
+/** Light-weight relative-time formatter. */
 function formatRelative(iso: string): string {
   const t = new Date(iso).getTime();
   if (Number.isNaN(t)) return '';

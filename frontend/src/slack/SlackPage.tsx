@@ -14,6 +14,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { SlackChannelRowDto, SlackConnectionDto } from '../types';
 import SlackChannelPicker from './SlackChannelPicker';
+import SlackInbox from './SlackInbox';
 
 /**
  * Slack tab — Slice 2b. Pre-connect surface from Slice 1 plus:
@@ -162,7 +163,12 @@ function SlackPage({ onOpenIntegrationsSettings }: SlackPageProps) {
       <main className="slack-main">
         {phase.kind === 'loading' && <div className="slack-status">Loading…</div>}
         {phase.kind === 'error' && <ErrorCard message={phase.message} onRetry={refreshConnection} />}
-        {phase.kind === 'connected' && <ConnectedCard team={phase.team} />}
+        {phase.kind === 'connected' && (
+          <SlackInbox
+            followedChannels={phase.followed}
+            authedUserId={phase.team.authedUserId}
+          />
+        )}
         {phase.kind === 'pick-channels' && (
           <SlackChannelPicker
             mode={phase.mode}
@@ -369,27 +375,6 @@ function NotConfiguredCard({ onOpenSettings }: { onOpenSettings: () => void }) {
       >
         Open Settings → Integrations
       </button>
-    </div>
-  );
-}
-
-function ConnectedCard({ team }: { team: SlackConnectionDto }) {
-  return (
-    <div className="slack-connect-card">
-      <div className="slack-connect-icon" aria-hidden="true">✓</div>
-      <h1 className="slack-connect-title">{team.teamName ?? 'Workspace'} linked</h1>
-      <p className="slack-connect-desc">
-        Your Slack workspace is connected. The inbox, followed-channel feed,
-        and DM views ship in upcoming slices — for now this just confirms
-        the OAuth handshake completed and the user token is stored locally.
-      </p>
-      <div className="slack-local-first">
-        <span className="slack-local-first-lock" aria-hidden="true">🔒</span>
-        <span>
-          <strong>Local-first.</strong> Tokens stay on your machine,
-          messages cache locally. Nothing leaves without a click.
-        </span>
-      </div>
     </div>
   );
 }

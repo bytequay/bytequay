@@ -385,10 +385,37 @@ const createWindow = async () => {
       return null;
     }
   })();
+  // Internal-link scheme used by enriched email bodies — see
+  // EmailHtmlEnricher. The iframe's <base target="_top"> turns the
+  // anchor click into a top-frame navigation that we intercept and
+  // forward to the renderer over IPC instead of letting it actually
+  // navigate.
+  const handleBytequayNav = (raw: string) => {
+    let parsed: URL;
+    try {
+      parsed = new URL(raw);
+    }
+    catch {
+      return;
+    }
+    // host = action (URL.host lowercases). The action is
+    // "pr-diff" today; new actions go on the same channel.
+    const action = parsed.host;
+    const params: Record<string, string> = {};
+    parsed.searchParams.forEach((value, key) => { params[key] = value; });
+    if (mainWindow && !mainWindow.isDestroyed()) {
+      mainWindow.webContents.send('app:nav-request', { action, params });
+    }
+  };
   // Belt-and-braces for same-window navigation: a plain <a href> click
   // (or middle-click that bypasses target=_blank) used to navigate the
   // main window itself off to the external page, replacing the React UI.
   mainWindow.webContents.on('will-navigate', (event, url) => {
+    if (url.startsWith('bytequay://')) {
+      event.preventDefault();
+      handleBytequayNav(url);
+      return;
+    }
     if (!/^https?:/i.test(url)) return;
     // Skip navigations back to the app's own origin (Vite HMR reload,
     // dev-server reconnect after sleep, etc.). Otherwise we'd hijack
@@ -2023,6 +2050,63 @@ const url = new URL(`${BACKEND_BASE}/api/search/repos`);
     if (!res.ok) {
       const body = await res.text().catch(() => '');
       throw new Error(`backend /api/slack/channels/followed returned ${res.status}: ${body}`);
+    }
+    return res.json();
+  });
+
+  // ── Slack inbox (slice 5) ───────────────────────────────────────────────
+  ipcMain.handle('slack:listInbox', async (_event, filter: string | undefined) => {
+    const url = filter && filter !== 'all'
+      ? `${BACKEND_BASE}/api/slack/inbox?filter=${encodeURIComponent(filter)}`
+      : `${BACKEND_BASE}/api/slack/inbox`;
+    const res = await fetch(url);
+    if (!res.ok) {
+      const body = await res.text().catch(() => '');
+      throw new Error(`backend /api/slack/inbox returned ${res.status}: ${body}`);
+    }
+    return res.json();
+  });
+
+  ipcMain.handle('slack:getInboxThread', async (_event, channelId: string, ts: string) => {
+    const url = `${BACKEND_BASE}/api/slack/inbox/${encodeURIComponent(channelId)}/${encodeURIComponent(ts)}/thread`;
+    const res = await fetch(url);
+    if (!res.ok) {
+      const body = await res.text().catch(() => '');
+      throw new Error(`backend ${url} returned ${res.status}: ${body}`);
+    }
+    return res.json();
+  });
+
+  ipcMain.handle('slack:expandInboxItem', async (_event, channelId: string, ts: string) => {
+    const url = `${BACKEND_BASE}/api/slack/inbox/${encodeURIComponent(channelId)}/${encodeURIComponent(ts)}/expand`;
+    const res = await fetch(url, { method: 'POST' });
+    if (!res.ok) {
+      const body = await res.text().catch(() => '');
+      throw new Error(`backend ${url} returned ${res.status}: ${body}`);
+    }
+    return res.json();
+  });
+
+  ipcMain.handle('slack:replyInboxItem', async (_event, channelId: string, ts: string, text: string) => {
+    const url = `${BACKEND_BASE}/api/slack/inbox/${encodeURIComponent(channelId)}/${encodeURIComponent(ts)}/reply`;
+    const res = await fetch(url, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ text }),
+    });
+    if (!res.ok) {
+      const body = await res.text().catch(() => '');
+      throw new Error(`backend ${url} returned ${res.status}: ${body}`);
+    }
+    return res.json();
+  });
+
+  ipcMain.handle('slack:archiveInboxItem', async (_event, channelId: string, ts: string) => {
+    const url = `${BACKEND_BASE}/api/slack/inbox/${encodeURIComponent(channelId)}/${encodeURIComponent(ts)}/archive`;
+    const res = await fetch(url, { method: 'POST' });
+    if (!res.ok) {
+      const body = await res.text().catch(() => '');
+      throw new Error(`backend ${url} returned ${res.status}: ${body}`);
     }
     return res.json();
   });

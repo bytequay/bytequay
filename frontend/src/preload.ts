@@ -39,6 +39,9 @@ import type {
   ReviewSkillDto,
   SlackChannelRowDto,
   SlackConnectionDto,
+  SlackInboxFilter,
+  SlackInboxItemDto,
+  SlackInboxThreadDto,
   SuggestedReviewerDto,
   SyncSettingsDto,
   TeamDto,
@@ -363,6 +366,11 @@ const bridge: Bridge = {
     ipcRenderer.on('inapp:open-request', listener);
     return () => ipcRenderer.removeListener('inapp:open-request', listener);
   },
+  onAppNavRequest: (callback: (payload: { action: string; params: Record<string, string> }) => void) => {
+    const listener = (_event: unknown, payload: { action: string; params: Record<string, string> }) => callback(payload);
+    ipcRenderer.on('app:nav-request', listener);
+    return () => ipcRenderer.removeListener('app:nav-request', listener);
+  },
   onInAppNavState: (callback: (s: InAppNavState) => void) => {
     const listener = (_event: unknown, s: InAppNavState) => callback(s);
     ipcRenderer.on('inapp:nav-state', listener);
@@ -388,6 +396,16 @@ const bridge: Bridge = {
     ipcRenderer.invoke('slack:listChannels'),
   replaceFollowedSlackChannels: (channelIds: string[]): Promise<SlackChannelRowDto[]> =>
     ipcRenderer.invoke('slack:replaceFollowedChannels', channelIds),
+  listSlackInbox: (filter?: SlackInboxFilter): Promise<SlackInboxItemDto[]> =>
+    ipcRenderer.invoke('slack:listInbox', filter),
+  getSlackInboxThread: (channelId: string, ts: string): Promise<SlackInboxThreadDto> =>
+    ipcRenderer.invoke('slack:getInboxThread', channelId, ts),
+  expandSlackInboxItem: (channelId: string, ts: string): Promise<{ result: string }> =>
+    ipcRenderer.invoke('slack:expandInboxItem', channelId, ts),
+  replySlackInboxItem: (channelId: string, ts: string, text: string): Promise<{ result: string; postedTs?: string }> =>
+    ipcRenderer.invoke('slack:replyInboxItem', channelId, ts, text),
+  archiveSlackInboxItem: (channelId: string, ts: string): Promise<{ result: string }> =>
+    ipcRenderer.invoke('slack:archiveInboxItem', channelId, ts),
   getGitHubOAuthAuthorizeUrl: (): Promise<{ configured: boolean; url?: string }> =>
     ipcRenderer.invoke('githubOAuth:authorizeUrl'),
   getGitHubOAuthConnection: (): Promise<{ connected: boolean; login?: string }> =>

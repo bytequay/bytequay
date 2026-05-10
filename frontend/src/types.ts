@@ -528,6 +528,44 @@ export type SlackConnectionDto = {
   authedUserId?: string;
 };
 
+/** Inbox view DTOs (slice 5). Backed by /api/slack/inbox + /thread. */
+export type SlackInboxFilter = 'all' | 'mentions' | 'dms';
+
+export type SlackInboxItemState = 'unread' | 'expanded' | 'responded' | 'bumped';
+export type SlackInboxKind = 'mention' | 'dm' | 'channel';
+
+export type SlackInboxItemDto = {
+  channelId: string;
+  ts: string;
+  state: SlackInboxItemState;
+  /** ISO-8601 instants; null when the row hasn't reached that transition yet. */
+  archivedAt: string | null;
+  bumpedAt: string | null;
+  respondedAt: string | null;
+  expandedAt: string | null;
+  userId: string | null;
+  text: string | null;
+  threadTs: string | null;
+  hasAtYou: boolean;
+  /** 'channel' is unreachable in the inbox (filtered upstream) but kept on the wire to mirror the DB column. */
+  inboxKind: SlackInboxKind;
+  /** Drives the BUMPED "N NEW" pill. Always 0 for UNREAD/EXPANDED rows. */
+  newReplyCount: number;
+};
+
+export type SlackInboxThreadMessageDto = {
+  ts: string;
+  userId: string | null;
+  text: string | null;
+  hasAtYou: boolean;
+};
+
+export type SlackInboxThreadDto = {
+  channelId: string;
+  threadTs: string;
+  messages: SlackInboxThreadMessageDto[];
+};
+
 /** One row of the channel-picker payload (slice 3). Mirrors
  *  com.bytequay.app.service.slack.SlackChannelService.ChannelRow. */
 export type SlackChannelRowDto = {
@@ -1252,6 +1290,18 @@ export type Bridge = {
    *  Returns the refreshed picker payload (smart-default flags drop
    *  off after the first save). */
   replaceFollowedSlackChannels: (channelIds: string[]) => Promise<SlackChannelRowDto[]>;
+  /** Inbox view rows for the inbox.png surface (slice 5). Filter
+   *  defaults to 'all' (mentions + DMs); 'mentions' or 'dms' narrows
+   *  the result to one kind. */
+  listSlackInbox: (filter?: SlackInboxFilter) => Promise<SlackInboxItemDto[]>;
+  /** Full thread (parent + every reply) for an expanded MENTION item. */
+  getSlackInboxThread: (channelId: string, ts: string) => Promise<SlackInboxThreadDto>;
+  /** Flips the local row's state to EXPANDED — no Slack call. Idempotent. */
+  expandSlackInboxItem: (channelId: string, ts: string) => Promise<{ result: string }>;
+  /** Posts a reply to Slack and marks the local row RESPONDED on success. */
+  replySlackInboxItem: (channelId: string, ts: string, text: string) => Promise<{ result: string; postedTs?: string }>;
+  /** Manual archive-now ("Archive now" link in the responded countdown bar). */
+  archiveSlackInboxItem: (channelId: string, ts: string) => Promise<{ result: string }>;
   /** Issues an authorize URL for the GitHub OAuth + PKCE flow. The renderer
    *  opens it in the system browser. {@code configured} is false when the
    *  backend hasn't been given GITHUB_CLIENT_ID / GITHUB_CLIENT_SECRET — in
@@ -1446,6 +1496,12 @@ export type Bridge = {
    *  browser overlay — triggered by setWindowOpenHandler / will-navigate
    *  on the main window. */
   onInAppOpenRequest: (callback: (payload: { url: string }) => void) => () => void;
+  /** Fires when main intercepts a {@code bytequay://} link (currently
+   *  only used by enriched email bodies — see EmailHtmlEnricher) and
+   *  asks the renderer to navigate inside the app. {@code action} maps
+   *  to a route ("pr-diff"); {@code params} carries the query-string
+   *  arguments. */
+  onAppNavRequest: (callback: (payload: { action: string; params: Record<string, string> }) => void) => () => void;
   /** Push of the in-app browser's current nav state (URL + title +
    *  back/forward + loading) for the toolbar to render against. */
   onInAppNavState: (callback: (s: InAppNavState) => void) => () => void;

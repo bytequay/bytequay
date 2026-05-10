@@ -515,3 +515,359 @@
   border-color: #4a154b;
 }
 .slack-picker__btn--primary:hover:not(:disabled) { background: #350d36; }
+
+/* ── Inbox view (mockup: docs/mockups/design/slack/inbox.png) ──────────
+   Lives inside .slack-main but takes the full pane (no max-width
+   centering — the inbox is a stream, not a card). */
+.slack-main:has(.slack-inbox) {
+  display: block;
+  align-items: stretch;
+  justify-content: stretch;
+  padding: 0;
+}
+
+.slack-inbox {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  height: 100%;
+  padding: 24px 28px 40px;
+  overflow-y: auto;
+}
+
+.slack-inbox__loading,
+.slack-inbox--error {
+  padding: 48px;
+  text-align: center;
+  color: var(--text-3);
+}
+.slack-inbox--error { color: var(--danger, #b3261e); }
+.slack-inbox-error-retry {
+  appearance: none;
+  display: inline-block;
+  margin-left: 12px;
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  padding: 4px 10px;
+  font: inherit;
+  font-size: 12.5px;
+  color: var(--text-1);
+  cursor: pointer;
+}
+
+.slack-inbox__head {
+  display: flex;
+  align-items: baseline;
+  gap: 14px;
+  margin-bottom: 14px;
+}
+.slack-inbox__title {
+  margin: 0;
+  font-size: 22px;
+  font-weight: 700;
+  letter-spacing: -0.015em;
+  color: var(--text-1);
+}
+.slack-inbox__counts {
+  font-size: 12.5px;
+  color: var(--text-3);
+}
+.slack-inbox__counts strong { color: var(--text-1); font-weight: 600; }
+
+.slack-inbox__filter-tabs {
+  display: flex;
+  gap: 6px;
+  margin-bottom: 18px;
+}
+.slack-inbox__filter-pill {
+  appearance: none;
+  background: transparent;
+  border: 1px solid var(--border);
+  border-radius: 999px;
+  padding: 5px 14px;
+  font: inherit;
+  font-size: 12.5px;
+  font-weight: 500;
+  color: var(--text-2);
+  cursor: pointer;
+  transition: background-color 100ms ease, border-color 100ms ease;
+}
+.slack-inbox__filter-pill:hover { background: var(--bg-card); }
+.slack-inbox__filter-pill--active {
+  background: #4a154b;
+  border-color: #4a154b;
+  color: #fff;
+}
+
+.slack-inbox__empty {
+  padding: 40px;
+  text-align: center;
+  color: var(--text-3);
+  font-size: 13px;
+}
+
+.slack-inbox__stream {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.slack-inbox__day-group {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.slack-inbox__day-label {
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  color: var(--text-4);
+  padding: 8px 4px 4px;
+}
+
+/* ── Item card ────────────────────────────────────────────────────────
+   The card has a 3px left rim that encodes the state — purple for
+   unread, transparent for expanded/responded, red for bumped. */
+.slack-inbox-item {
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-light);
+  border-left-width: 3px;
+  border-radius: 8px;
+  overflow: hidden;
+  transition: background-color 100ms ease, border-color 100ms ease;
+}
+.slack-inbox-item--unread {
+  border-left-color: #4a154b;
+}
+.slack-inbox-item--expanded {
+  border-left-color: #4a154b;
+  box-shadow: 0 1px 3px rgba(74, 21, 75, 0.08);
+}
+.slack-inbox-item--responded {
+  background: var(--bg-base);
+  border-left-color: var(--border);
+  opacity: 0.85;
+}
+.slack-inbox-item--bumped {
+  border-left-color: #d92d20;
+  background: var(--bg-elevated);
+}
+
+.slack-inbox-item__header {
+  appearance: none;
+  background: transparent;
+  border: 0;
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  width: 100%;
+  display: grid;
+  grid-template-columns: auto auto auto 1fr auto auto auto;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 16px;
+}
+.slack-inbox-item--responded .slack-inbox-item__header { padding-bottom: 6px; }
+
+.slack-inbox-pill {
+  display: inline-block;
+  font-size: 9.5px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  padding: 3px 7px;
+  border-radius: 4px;
+}
+.slack-inbox-pill--mention {
+  background: rgba(255, 196, 0, 0.18);
+  color: #c79100;
+}
+.slack-inbox-pill--dm {
+  background: rgba(0, 122, 255, 0.16);
+  color: #0064d1;
+}
+
+.slack-inbox-item__source {
+  font-size: 12.5px;
+  color: var(--text-2);
+  white-space: nowrap;
+}
+.slack-inbox-item__source strong { color: var(--text-1); font-weight: 600; }
+
+.slack-inbox-item__sender {
+  font-size: 12.5px;
+  color: var(--text-2);
+  white-space: nowrap;
+}
+.slack-inbox-item__sender strong { color: var(--text-1); font-weight: 600; }
+
+.slack-inbox-item__snippet {
+  font-size: 13px;
+  color: var(--text-2);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+.slack-inbox-item--unread .slack-inbox-item__snippet,
+.slack-inbox-item--bumped .slack-inbox-item__snippet {
+  color: var(--text-1);
+  font-weight: 500;
+}
+
+.slack-inbox-item__bumped-pill {
+  font-size: 9.5px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  color: #fff;
+  background: #d92d20;
+  border-radius: 4px;
+  padding: 3px 7px;
+}
+
+.slack-inbox-item__time {
+  font-size: 11.5px;
+  color: var(--text-4);
+  white-space: nowrap;
+}
+.slack-inbox-item__dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #1d6cff;
+}
+
+/* Responded countdown bar — sits below the header in the dimmed state. */
+.slack-inbox-item__responded-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 4px 16px 12px;
+  font-size: 11.5px;
+  color: rgba(199, 145, 0, 0.95);
+  background: rgba(255, 196, 0, 0.08);
+  border-top: 1px solid rgba(255, 196, 0, 0.18);
+}
+.slack-inbox-item__archive-eta strong { color: #a06c00; font-weight: 600; }
+.slack-inbox-item__archive-link {
+  appearance: none;
+  background: transparent;
+  border: 0;
+  font: inherit;
+  font-size: 11.5px;
+  color: var(--accent);
+  cursor: pointer;
+  padding: 0;
+}
+.slack-inbox-item__archive-link:hover { text-decoration: underline; }
+
+/* Expanded section — thread context + reply box. */
+.slack-inbox-item__expanded {
+  padding: 0 16px 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.slack-inbox-thread {
+  border-left: 2px solid var(--border);
+  padding: 4px 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.slack-inbox-thread--loading { color: var(--text-3); font-size: 12.5px; }
+.slack-inbox-thread__label {
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  color: var(--text-4);
+  margin-bottom: 4px;
+}
+.slack-inbox-thread__msg {
+  display: flex;
+  gap: 8px;
+  align-items: baseline;
+  font-size: 12.5px;
+}
+.slack-inbox-thread__author {
+  flex-shrink: 0;
+  font-weight: 600;
+  color: var(--text-1);
+  font-size: 12px;
+}
+.slack-inbox-thread__text {
+  color: var(--text-2);
+  line-height: 1.5;
+  flex: 1;
+  min-width: 0;
+}
+.slack-inbox-thread__msg--mention {
+  background: rgba(255, 196, 0, 0.12);
+  border-radius: 4px;
+  padding: 4px 8px;
+  margin: 0 -8px;
+}
+
+/* Inline reply box — stays compact in the expanded card. */
+.slack-inbox-reply {
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-base);
+  padding: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.slack-inbox-reply__textarea {
+  appearance: none;
+  background: transparent;
+  border: 0;
+  resize: vertical;
+  font: inherit;
+  font-size: 13px;
+  color: var(--text-1);
+  width: 100%;
+  padding: 4px 6px;
+  outline: none;
+}
+.slack-inbox-reply__footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+  font-size: 11.5px;
+  color: var(--text-3);
+}
+.slack-inbox-reply__hint strong { color: var(--text-2); font-weight: 600; }
+.slack-inbox-reply__error { color: var(--danger, #b3261e); }
+.slack-inbox-reply__actions {
+  display: flex;
+  gap: 6px;
+  margin-left: auto;
+}
+.slack-inbox-reply__btn {
+  appearance: none;
+  border: 1px solid transparent;
+  border-radius: 6px;
+  padding: 5px 12px;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+}
+.slack-inbox-reply__btn:disabled { cursor: default; opacity: 0.6; }
+.slack-inbox-reply__btn--ghost {
+  background: transparent;
+  border-color: var(--border);
+  color: var(--text-2);
+}
+.slack-inbox-reply__btn--ghost:hover:not(:disabled) { background: var(--bg-card); }
+.slack-inbox-reply__btn--primary {
+  background: #4a154b;
+  color: #fff;
+  border-color: #4a154b;
+}
+.slack-inbox-reply__btn--primary:hover:not(:disabled) { background: #350d36; }

@@ -27,6 +27,13 @@ type BridgeStub = {
   onSlackOauthComplete: ReturnType<typeof vi.fn>;
   listSlackChannels: ReturnType<typeof vi.fn>;
   replaceFollowedSlackChannels: ReturnType<typeof vi.fn>;
+  // Slice 5 — inbox view. Defaults to empty so the connected sidebar
+  // resolves into the empty-inbox state for tests that don't seed rows.
+  listSlackInbox: ReturnType<typeof vi.fn>;
+  getSlackInboxThread: ReturnType<typeof vi.fn>;
+  expandSlackInboxItem: ReturnType<typeof vi.fn>;
+  replySlackInboxItem: ReturnType<typeof vi.fn>;
+  archiveSlackInboxItem: ReturnType<typeof vi.fn>;
 };
 
 function installBridge(overrides: Partial<BridgeStub> = {}): BridgeStub {
@@ -38,9 +45,14 @@ function installBridge(overrides: Partial<BridgeStub> = {}): BridgeStub {
     // Returns a teardown the component must call on unmount.
     onSlackOauthComplete: vi.fn().mockReturnValue((): void => undefined),
     // Slice 3 — channel picker. Default to "no channels, no smart-default
-    // flags" so the connected card path renders by default.
+    // flags" so the connected inbox path renders by default.
     listSlackChannels: vi.fn().mockResolvedValue([]),
     replaceFollowedSlackChannels: vi.fn().mockResolvedValue([]),
+    listSlackInbox: vi.fn().mockResolvedValue([]),
+    getSlackInboxThread: vi.fn().mockResolvedValue({ channelId: '', threadTs: '', messages: [] }),
+    expandSlackInboxItem: vi.fn().mockResolvedValue({ result: 'expanded' }),
+    replySlackInboxItem: vi.fn().mockResolvedValue({ result: 'responded' }),
+    archiveSlackInboxItem: vi.fn().mockResolvedValue({ result: 'archived' }),
   };
   const stub = { ...base, ...overrides };
   (window as unknown as { bridge: unknown }).bridge = stub;
@@ -95,7 +107,7 @@ describe('SlackPage (Slice 2b)', () => {
     });
   });
 
-  it('renders the connected sidebar when /connection reports a workspace', async () => {
+  it('renders the inbox surface and connected sidebar when /connection reports a workspace', async () => {
     installBridge({
       getSlackConnection: vi.fn().mockResolvedValue({
         connected: true,
@@ -105,8 +117,10 @@ describe('SlackPage (Slice 2b)', () => {
       }),
     });
     render(<SlackPage onOpenIntegrationsSettings={() => undefined} />);
+    // Inbox heading replaces the placeholder "{workspace} linked" card
+    // once we're connected with no smart-default channels in flight.
     await waitFor(() => {
-      expect(screen.getByRole('heading', { name: /acme corp linked/i })).toBeDefined();
+      expect(screen.getByRole('heading', { name: /^inbox$/i })).toBeDefined();
     });
     expect(screen.getByRole('button', { name: /disconnect workspace/i })).toBeDefined();
   });

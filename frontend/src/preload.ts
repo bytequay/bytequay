@@ -449,6 +449,8 @@ const bridge: Bridge = {
     ipcRenderer.invoke('email:readAndArchiveThread', { account, id }),
   keepEmailThreadInInbox: (account: string, id: string): Promise<void> =>
     ipcRenderer.invoke('email:keepThreadInInbox', { account, id }),
+  replyToEmailThread: (account: string, id: string, body: string): Promise<void> =>
+    ipcRenderer.invoke('email:replyThread', { account, id, body }),
 };
 
 contextBridge.exposeInMainWorld('bridge', bridge);

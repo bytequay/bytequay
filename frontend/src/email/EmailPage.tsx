@@ -452,6 +452,48 @@ function ThreadDetailPane({ account, meta, archived, onKeepInInbox, onOpenLinked
   const [detail, setDetail] = useState<EmailThreadDetailDto | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  // Inline reply composer — collapsed by default, opens below the
+  // last message. v1 is plain-text body only; To/Subject are derived
+  // server-side from the latest message in the thread.
+  const [composerOpen, setComposerOpen] = useState(false);
+  const [replyBody, setReplyBody] = useState('');
+  const [sendState, setSendState] = useState<'idle' | 'sending'>('idle');
+  const [sendError, setSendError] = useState<string | null>(null);
+
+  // Reset the composer when the user picks a different thread —
+  // half-typed text in one thread shouldn't bleed into another.
+  useEffect(() => {
+    setComposerOpen(false);
+    setReplyBody('');
+    setSendState('idle');
+    setSendError(null);
+  }, [meta.id]);
+
+  const handleSend = async () => {
+    if (sendState === 'sending') return;
+    const trimmed = replyBody.trim();
+    if (!trimmed) return;
+    setSendState('sending');
+    setSendError(null);
+    try {
+      await window.bridge.replyToEmailThread(account, meta.id, trimmed);
+      setReplyBody('');
+      setComposerOpen(false);
+      setSendState('idle');
+      // Pull the sent message into view. The 30s inbox poll would
+      // catch it eventually; this just tightens the loop so the user
+      // sees their reply land at the bottom of the thread immediately.
+      try {
+        const fresh = await window.bridge.getEmailThread(account, meta.id);
+        setDetail(fresh);
+      }
+      catch { /* best-effort — inbox poll will catch up */ }
+    }
+    catch (e) {
+      setSendError(e instanceof Error ? e.message : String(e));
+      setSendState('idle');
+    }
+  };
 
   // Re-fetch when:
   //  - the user picks a different thread (meta.id changes), OR
@@ -545,6 +587,50 @@ function ThreadDetailPane({ account, meta, archived, onKeepInInbox, onOpenLinked
           {detail.messages.map((m, i) => (
             <ThreadMessage key={m.id} message={m} isLast={i === detail.messages.length - 1} />
           ))}
+        </div>
+      )}
+      {detail && (
+        <div className="email-reply">
+          {composerOpen ? (
+            <>
+              <textarea
+                className="email-reply__textarea"
+                placeholder={`Reply to ${shortenFrom(detail.messages[detail.messages.length - 1]?.from ?? '')}…`}
+                value={replyBody}
+                onChange={e => setReplyBody(e.target.value)}
+                rows={6}
+                autoFocus
+                disabled={sendState === 'sending'}
+              />
+              {sendError && <div className="repo-error">{sendError}</div>}
+              <div className="email-reply__buttons">
+                <button
+                  type="button"
+                  className="button button--primary"
+                  onClick={() => void handleSend()}
+                  disabled={sendState === 'sending' || !replyBody.trim()}
+                >
+                  {sendState === 'sending' ? 'Sending…' : 'Send'}
+                </button>
+                <button
+                  type="button"
+                  className="button button--secondary"
+                  onClick={() => { setComposerOpen(false); setSendError(null); }}
+                  disabled={sendState === 'sending'}
+                >
+                  Cancel
+                </button>
+              </div>
+            </>
+          ) : (
+            <button
+              type="button"
+              className="button button--secondary email-reply__open"
+              onClick={() => setComposerOpen(true)}
+            >
+              ↩ Reply
+            </button>
+          )}
         </div>
       )}
     </div>

@@ -2351,6 +2351,24 @@ const url = new URL(`${BACKEND_BASE}/api/search/repos`);
     if (!account || !id) throw new Error('account and id are required');
     return threadAction('keep-in-inbox', account, id);
   });
+  ipcMain.handle('email:replyThread', async (_event, payload: unknown) => {
+    const { account, id, body } = (payload ?? {}) as { account?: string; id?: string; body?: string };
+    if (!account || !id) throw new Error('account and id are required');
+    if (!body || !body.trim()) throw new Error('body is required');
+    const params = new URLSearchParams({ account });
+    const res = await fetch(
+      `${BACKEND_BASE}/api/email/threads/${encodeURIComponent(id)}/reply?${params.toString()}`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ body }),
+      });
+    if (!res.ok) {
+      const text = await res.text().catch(() => '');
+      throw new Error(`backend /api/email/threads/${id}/reply returned ${res.status}: ${text}`);
+    }
+    return res.json();
+  });
 
   // ── Credentials ─────────────────────────────────────────────────────────
   // Credentials are uniquely identified by the pair (type, name). The backend

@@ -1419,6 +1419,11 @@ export type Bridge = {
   /** Re-adds INBOX (and clears UNREAD) — reverses an auto-archive.
    *  Driven by the "Keep in inbox" button on the detail pane. */
   keepEmailThreadInInbox: (account: string, id: string) => Promise<void>;
+  /** Sends a plain-text reply to the latest message in the thread.
+   *  Backend handles MIME assembly, threading headers, and the
+   *  post-send incremental sync that pulls the sent message into
+   *  the local mirror. */
+  replyToEmailThread: (account: string, id: string, body: string) => Promise<void>;
   // Credentials vault
   listCredentials: (type?: CredentialType) => Promise<CredentialDto[]>;
   upsertCredential: (req: UpsertCredentialRequest) => Promise<CredentialDto>;

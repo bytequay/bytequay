@@ -36,7 +36,9 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Base64;
 import java.util.Comparator;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 /**
  * Thin REST wrapper around Gmail's HTTP API. Stateless — every method
@@ -197,6 +199,55 @@ public class GmailApiClient
                 + "}";
         URI uri = URI.create(API_BASE + "/threads/" + url(threadId) + "/modify");
         doPostJson(accessToken, uri, json);
+    }
+
+    /**
+     * Returns the requested raw RFC822 headers for a single message.
+     * Cheap — Gmail's {@code format=metadata} skips the body and
+     * {@code metadataHeaders} restricts to just the names we care
+     * about. Used by the reply path to pull {@code Message-ID} +
+     * {@code References} so the outgoing reply threads correctly.
+     */
+    public Map<String, String> getMessageHeaders(
+            String accessToken, String messageId, List<String> headerNames)
+    {
+        StringBuilder uri = new StringBuilder(API_BASE)
+                .append("/messages/").append(url(messageId))
+                .append("?format=metadata");
+        for (String h : headerNames) {
+            uri.append("&metadataHeaders=").append(url(h));
+        }
+        JsonNode body = doGet(accessToken, URI.create(uri.toString()));
+        Map<String, String> result = new HashMap<>();
+        JsonNode headersNode = body.path("payload").path("headers");
+        if (headersNode.isArray()) {
+            for (JsonNode h : headersNode) {
+                String name = h.path("name").asText("");
+                String value = h.path("value").asText("");
+                if (!name.isEmpty()) {
+                    result.put(name, value);
+                }
+            }
+        }
+        return result;
+    }
+
+    /**
+     * Posts an RFC5322 message to Gmail's send endpoint. The caller
+     * is responsible for building the MIME (headers + body) and
+     * base64url-encoding it. Passing {@code threadId} threads the
+     * sent message into the existing conversation — without it Gmail
+     * starts a new thread even if In-Reply-To matches.
+     */
+    public void sendMessage(String accessToken, String threadId, String rawBase64Url)
+    {
+        StringBuilder json = new StringBuilder("{\"raw\":\"").append(rawBase64Url).append("\"");
+        if (threadId != null && !threadId.isBlank()) {
+            json.append(",\"threadId\":\"").append(threadId).append("\"");
+        }
+        json.append("}");
+        URI uri = URI.create(API_BASE + "/messages/send");
+        doPostJson(accessToken, uri, json.toString());
     }
 
     /* ── Profile + history (sync support) ───────────────────────── */

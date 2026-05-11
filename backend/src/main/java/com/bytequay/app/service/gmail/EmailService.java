@@ -27,10 +27,16 @@ import org.springframework.http.HttpStatusCode;
 import org.springframework.stereotype.Service;
 import org.springframework.web.server.ResponseStatusException;
 
+import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.time.Instant;
+import java.time.ZoneId;
+import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
+import java.util.Base64;
 import java.util.List;
+import java.util.Locale;
+import java.util.Map;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
@@ -259,6 +265,106 @@ public class EmailService
             return null;
         });
         sync.onThreadModified(email, threadId, false, false);
+    }
+
+    /**
+     * Sends a plain-text reply to the latest message in a thread.
+     * Pulls the original {@code Message-ID} + {@code References} so
+     * Gmail (and every other RFC-compliant client) keeps the reply
+     * threaded with the conversation. Subject gets a {@code Re:}
+     * prefix only when not already present.
+     *
+     * <p>v1: no Reply-All, no rich text, no attachments. The original
+     * message body is appended {@code >}-quoted so the recipient has
+     * context without us needing a real rich-text composer.
+     */
+    public void sendReply(String email, String threadId, String body)
+    {
+        requireNonBlank(email, "email");
+        requireNonBlank(threadId, "threadId");
+        if (body == null || body.isBlank()) {
+            throw new ResponseStatusException(HttpStatusCode.valueOf(400), "body must not be blank");
+        }
+        runWithToken(email, accessToken -> {
+            EmailThreadDetail thread = gmail.getThreadFull(accessToken, threadId);
+            if (thread.messages().isEmpty()) {
+                throw new ResponseStatusException(HttpStatusCode.valueOf(404),
+                        "thread is empty");
+            }
+            EmailMessageDetail last = thread.messages().get(thread.messages().size() - 1);
+            Map<String, String> headers = gmail.getMessageHeaders(accessToken, last.id(),
+                    List.of("Message-ID", "References", "Subject", "From"));
+            String origMessageId = headers.get("Message-ID");
+            String origReferences = headers.get("References");
+            String origSubject = headers.getOrDefault("Subject",
+                    thread.subject() == null ? "" : thread.subject());
+            String origFrom = headers.getOrDefault("From", last.from());
+
+            String replySubject = origSubject.toLowerCase(Locale.ROOT).startsWith("re:")
+                    ? origSubject
+                    : "Re: " + origSubject;
+            String references = origReferences != null && !origReferences.isBlank()
+                    ? origReferences + " " + (origMessageId != null ? origMessageId : "")
+                    : (origMessageId != null ? origMessageId : "");
+
+            String quoted = quoteForReply(last);
+            String fullBody = quoted.isEmpty() ? body : body + "\n\n" + quoted;
+            String mime = buildPlainTextMime(origFrom, replySubject, origMessageId, references, fullBody);
+            String b64 = Base64.getUrlEncoder().withoutPadding()
+                    .encodeToString(mime.getBytes(StandardCharsets.UTF_8));
+            gmail.sendMessage(accessToken, threadId, b64);
+            return null;
+        });
+        // Pull the sent message into the local mirror so the new
+        // bottom message shows up the next time the user opens the
+        // thread (or via the inbox poll).
+        try {
+            sync.incrementalSync(email);
+        }
+        catch (Exception e) {
+            log.debug("Post-reply sync skipped: {}", e.getMessage());
+        }
+    }
+
+    private static String quoteForReply(EmailMessageDetail msg)
+    {
+        String src = msg.bodyText();
+        if (src == null || src.isBlank()) {
+            return "";
+        }
+        String when = msg.receivedAt() == null ? "earlier"
+                : DateTimeFormatter.ofPattern("EEE, d MMM yyyy HH:mm")
+                        .format(msg.receivedAt().atZone(ZoneId.systemDefault()));
+        String header = "On " + when + ", " + msg.from() + " wrote:";
+        StringBuilder out = new StringBuilder(header).append("\n");
+        for (String line : src.split("\\R", -1)) {
+            out.append("> ").append(line).append("\n");
+        }
+        return out.toString();
+    }
+
+    /** Builds an RFC5322 text/plain MIME message. CRLF throughout per
+     *  spec — anything else gets normalized at the boundary. */
+    private static String buildPlainTextMime(
+            String to, String subject, String inReplyTo, String references, String body)
+    {
+        StringBuilder sb = new StringBuilder();
+        sb.append("To: ").append(to).append("\r\n");
+        sb.append("Subject: ").append(subject).append("\r\n");
+        if (inReplyTo != null && !inReplyTo.isBlank()) {
+            sb.append("In-Reply-To: ").append(inReplyTo).append("\r\n");
+        }
+        if (references != null && !references.isBlank()) {
+            sb.append("References: ").append(references).append("\r\n");
+        }
+        sb.append("MIME-Version: 1.0\r\n");
+        sb.append("Content-Type: text/plain; charset=UTF-8\r\n");
+        sb.append("Content-Transfer-Encoding: 8bit\r\n");
+        sb.append("\r\n");
+        // Normalize bare LFs to CRLF so the on-the-wire message is
+        // strictly RFC-compliant. Bare CRs (rare) get CRLF too.
+        sb.append(body.replace("\r\n", "\n").replace("\r", "\n").replace("\n", "\r\n"));
+        return sb.toString();
     }
 
     /** Reverses the auto-archive: re-adds INBOX (and clears UNREAD if

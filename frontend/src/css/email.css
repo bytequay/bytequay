@@ -74,6 +74,42 @@
 .email-undo-toast__btn:hover {
   background: rgba(255, 255, 255, 0.06);
 }
+
+/* Inline reply composer at the bottom of an open thread. Collapsed
+   state is just the "↩ Reply" button; expanded shows a textarea +
+   Send/Cancel. */
+.email-reply {
+  padding: 14px 18px 18px;
+  border-top: 1px solid var(--border);
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+.email-reply__open {
+  align-self: flex-start;
+}
+.email-reply__textarea {
+  width: 100%;
+  resize: vertical;
+  min-height: 120px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  font-family: inherit;
+  font-size: 13px;
+  line-height: 1.5;
+  background: var(--bg-card, var(--bg-elevated));
+  color: var(--text-1);
+}
+.email-reply__textarea:focus {
+  outline: none;
+  border-color: var(--accent, #7c3aed);
+  box-shadow: 0 0 0 2px var(--accent-a20, rgba(124, 58, 237, 0.18));
+}
+.email-reply__buttons {
+  display: flex;
+  gap: 8px;
+}
 .email-page--empty {
   text-align: center;
   padding-top: 80px;

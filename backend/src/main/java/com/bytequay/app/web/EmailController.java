@@ -20,6 +20,7 @@ import com.google.common.collect.ImmutableMap;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
@@ -131,4 +132,21 @@ public class EmailController
         emailService.keepThreadInInbox(account, id);
         return ImmutableMap.of("result", "kept-in-inbox", "id", id);
     }
+
+    /** POST /api/email/threads/{id}/reply?account={email} body=
+     *  {@code {"body": "..."}} — sends a plain-text reply to the
+     *  latest message in the thread. */
+    @PostMapping("/threads/{id}/reply")
+    public Map<String, String> reply(
+            @PathVariable String id,
+            @RequestParam String account,
+            @RequestBody ReplyRequest payload)
+    {
+        emailService.sendReply(account, id, payload.body());
+        return ImmutableMap.of("result", "sent", "id", id);
+    }
+
+    /** Body shape for {@link #reply}. Only the message body for now;
+     *  Reply-All / custom To / attachments come later. */
+    public record ReplyRequest(String body) {}
 }

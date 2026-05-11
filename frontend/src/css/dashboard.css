@@ -1535,11 +1535,12 @@
   cursor: default;
 }
 
-/* Amber "Conflict with base" pill — same pill shape as CI passed/failing
-   so the row reads as a list of merge blockers. Anchored to github.com's
-   conflict editor since we don't yet enumerate the conflict file list
-   locally (planned: git merge-tree --name-only once the local clone
-   reliably has the PR head + base fetched). */
+/* Amber "Conflict (N files)" pill — same pill shape as CI passed/failing
+   so the row reads as a list of merge blockers. Two forms:
+     - Expandable button when the local-clone probe gave us a file list
+       (clicks toggle the panel below the bar).
+     - Plain anchor to github.com's conflict editor when the probe
+       couldn't run (no local clone, fetch failed). */
 .merge-bar__conflict {
   display: inline-flex;
   align-items: center;
@@ -1553,10 +1554,69 @@
   font-weight: 600;
   flex-shrink: 0;
   text-decoration: none;
+  appearance: none;
+  cursor: pointer;
+  font-family: inherit;
 }
 .merge-bar__conflict:hover {
   background: #c2410c;
   border-color: #9a3412;
+}
+.merge-bar__conflict--open {
+  background: #c2410c;
+}
+.merge-bar__conflict-chevron {
+  font-size: 11px;
+  opacity: 0.85;
+}
+
+/* Expanded file list — mirrors .merge-bar__failures placement (a
+   block below the inline pill row). */
+.merge-bar__conflict-files {
+  border-top: 1px solid var(--border-light);
+  padding: 10px 16px 12px;
+  background: #fff7ed;
+}
+.merge-bar__conflict-files-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  font-size: 12px;
+  color: #7c2d12;
+  margin-bottom: 6px;
+}
+.merge-bar__conflict-files-head code {
+  background: rgba(194, 65, 12, 0.15);
+  padding: 1px 5px;
+  border-radius: 3px;
+  font-size: 11.5px;
+}
+.merge-bar__conflict-files-link {
+  color: #7c2d12;
+  text-decoration: none;
+  font-weight: 600;
+}
+.merge-bar__conflict-files-link:hover {
+  text-decoration: underline;
+}
+.merge-bar__conflict-files-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  max-height: 240px;
+  overflow-y: auto;
+}
+.merge-bar__conflict-files-list li {
+  padding: 2px 0;
+  font-size: 12.5px;
+  color: #431407;
+}
+.merge-bar__conflict-files-list code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
 }
 
 /* Refresh CI button — sits flush against the CI status pill so users

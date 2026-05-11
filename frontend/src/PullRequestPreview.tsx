@@ -13,7 +13,7 @@
  */
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { renderMarkdown } from './markdown';
-import type { ActivityItemDto, CheckRunDto, PullRequestDetailDto, PullRequestDto, ReviewMessageDto, ReviewThreadDto, UserProfileDto } from './types';
+import type { ActivityItemDto, CheckRunDto, MergeConflictPathsDto, PullRequestDetailDto, PullRequestDto, ReviewMessageDto, ReviewThreadDto, UserProfileDto } from './types';
 import { getCached, putCache } from './detailCache';
 import { getCached as getCachedValue } from './dataCache';
 import { EditableMarkdownBody } from './pr/EditableMarkdownBody';
@@ -370,6 +370,32 @@ function MergeBar({ pr, detail, mergeState, mergeError, onMerge, onRefreshCi, ci
   // 'behind') aren't file conflicts — surfacing those here would
   // wrongly imply the author needs to resolve text.
   const hasConflict = (detail.mergeableState ?? pr.mergeableState) === 'dirty';
+  // Conflict-path probe — runs `git merge-tree --name-only` in the
+  // local clone so we can show "Conflict (N files)" + an expandable
+  // file list. When unavailable (no local clone, fetch failed) the
+  // pill stays as a plain link to github.com's editor.
+  const [conflictPaths, setConflictPaths] = useState<MergeConflictPathsDto | null>(null);
+  const [conflictExpanded, setConflictExpanded] = useState(false);
+  useEffect(() => {
+    if (!hasConflict) {
+      setConflictPaths(null);
+      return;
+    }
+    const baseRef = detail.baseRef ?? null;
+    const [owner, repoName] = pr.repo.split('/');
+    if (!baseRef || !owner || !repoName) {
+      return;
+    }
+    let cancelled = false;
+    void window.bridge.fetchPrConflictPaths(owner, repoName, pr.number, baseRef)
+      .then((res) => { if (!cancelled) setConflictPaths(res); })
+      .catch(() => {
+        // Network / IPC error — keep the pill in its
+        // unavailable state. The github.com link still works.
+        if (!cancelled) setConflictPaths({ available: false, reason: 'fetch_error', paths: [] });
+      });
+    return () => { cancelled = true; };
+  }, [hasConflict, detail.baseRef, pr.repo, pr.number]);
   const enabled = !closed && ciPassing && detail.viewerCanWrite && mergeState !== 'running' && !hasConflict;
   // CI-failing is intentionally NOT in the disabled-reason text anymore —
   // the red "CI failing" pill in the middle of the bar carries that
@@ -517,24 +543,41 @@ function MergeBar({ pr, detail, mergeState, mergeError, onMerge, onRefreshCi, ci
             <span>CI passed</span>
           </span>
         ) : null}
-        {hasConflict && (
-          // File-conflict button — sits to the right of the CI pill so
-          // a "CI passed ✓  Conflict ⚠" row reads as the two blockers
-          // at a glance. Clicks open github.com's conflict editor in
-          // the system browser; a future iteration can fetch the
-          // file list via `git merge-tree --name-only` once the
-          // local clone has the head + base SHAs fetched.
-          <a
-            className="merge-bar__conflict"
-            href={`${pr.htmlUrl}/conflicts`}
-            target="_blank"
-            rel="noreferrer"
-            title="Open the conflict editor on github.com"
-          >
-            <span aria-hidden="true">⚠</span>
-            <span>Conflict with {detail.baseRef ?? 'base'}</span>
-          </a>
-        )}
+        {hasConflict && (() => {
+          // File-conflict pill — sibling to the CI passed/failing one
+          // so the row reads as a list of merge blockers. When the
+          // local-clone probe succeeded we show "Conflict (N files)"
+          // and expand to the file list on click; otherwise we fall
+          // back to a plain link out to github.com's conflict editor.
+          const haveList = conflictPaths?.available === true && conflictPaths.paths.length > 0;
+          if (haveList) {
+            return (
+              <button
+                type="button"
+                className={`merge-bar__conflict merge-bar__conflict--expandable${conflictExpanded ? ' merge-bar__conflict--open' : ''}`}
+                onClick={() => setConflictExpanded(v => !v)}
+                aria-expanded={conflictExpanded}
+                title={conflictExpanded ? 'Hide conflicting files' : 'Show conflicting files'}
+              >
+                <span aria-hidden="true">⚠</span>
+                <span>Conflict ({conflictPaths.paths.length} file{conflictPaths.paths.length === 1 ? '' : 's'})</span>
+                <span className="merge-bar__conflict-chevron" aria-hidden="true">{conflictExpanded ? '▾' : '▸'}</span>
+              </button>
+            );
+          }
+          return (
+            <a
+              className="merge-bar__conflict"
+              href={`${pr.htmlUrl}/conflicts`}
+              target="_blank"
+              rel="noreferrer"
+              title="Open the conflict editor on github.com"
+            >
+              <span aria-hidden="true">⚠</span>
+              <span>Conflict with {detail.baseRef ?? 'base'}</span>
+            </a>
+          );
+        })()}
         <button
           type="button"
           className="merge-bar__ci-refresh"
@@ -583,6 +626,29 @@ function MergeBar({ pr, detail, mergeState, mergeError, onMerge, onRefreshCi, ci
             <FailingCheckCard key={`${c.name ?? 'unnamed'}-${i}`} check={c} repo={pr.repo} />
           ))}
         </ul>
+      )}
+      {conflictExpanded && conflictPaths?.available && conflictPaths.paths.length > 0 && (
+        <div className="merge-bar__conflict-files">
+          <div className="merge-bar__conflict-files-head">
+            {conflictPaths.paths.length} file{conflictPaths.paths.length === 1 ? '' : 's'} in conflict with{' '}
+            <code>{detail.baseRef}</code>
+            <a
+              className="merge-bar__conflict-files-link"
+              href={`${pr.htmlUrl}/conflicts`}
+              target="_blank"
+              rel="noreferrer"
+            >
+              Resolve on GitHub →
+            </a>
+          </div>
+          <ul className="merge-bar__conflict-files-list">
+            {conflictPaths.paths.map((p) => (
+              <li key={p}>
+                <code>{p}</code>
+              </li>
+            ))}
+          </ul>
+        </div>
       )}
       {confirmOpen && (
         <div

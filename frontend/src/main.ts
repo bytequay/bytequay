@@ -606,6 +606,23 @@ function registerIpc(): void {
     return res.json();
   });
 
+  ipcMain.handle('backend:prConflictPaths', async (_event, owner: string, repo: string, prNumber: number, baseRef: string) => {
+    // Lives under /api/repos/local/{owner}/{repo} rather than /prs/...
+    // because conflict-path enumeration is a local-clone git operation
+    // (merge-tree) — it has no GitHub-API call path.
+    const url = new URL(
+      `${BACKEND_BASE}/api/repos/local/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/conflict-paths`,
+    );
+    url.searchParams.set('prNumber', String(prNumber));
+    url.searchParams.set('baseRef', baseRef);
+    const res = await fetch(url);
+    if (!res.ok) {
+      const body = await res.text().catch(() => '');
+      throw new Error(`backend /api/repos/local/.../conflict-paths returned ${res.status}: ${body}`);
+    }
+    return res.json();
+  });
+
   ipcMain.handle('backend:prCheckLog', async (_event, repo: string, checkRunId: number) => {
     const url = new URL(`${BACKEND_BASE}/prs/checkLog`);
     url.searchParams.set('repo', repo);

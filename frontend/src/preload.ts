@@ -68,6 +68,8 @@ const bridge: Bridge = {
     ipcRenderer.invoke('backend:refreshPullRequestDetail', repo, number),
   fetchPrCi: (repo: string, number: number) =>
     ipcRenderer.invoke('backend:prCi', repo, number),
+  fetchPrConflictPaths: (owner: string, repo: string, prNumber: number, baseRef: string) =>
+    ipcRenderer.invoke('backend:prConflictPaths', owner, repo, prNumber, baseRef),
   fetchCheckLog: (repo: string, checkRunId: number) =>
     ipcRenderer.invoke('backend:prCheckLog', repo, checkRunId),
   setPrDraft: (repo: string, number: number, draft: boolean) =>

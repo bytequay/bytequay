@@ -438,6 +438,103 @@ public class GitRunner
         };
     }
 
+    /**
+     * Enumerates the file paths that would conflict if {@code head} was
+     * merged onto {@code base}. Same {@code merge-tree --write-tree}
+     * machinery as {@link #rebasePreview}, but with {@code --name-only}
+     * so the conflict-info section is a flat list of paths instead of
+     * the verbose {@code (mode, oid, stage, name)} tuples.
+     *
+     * <p>Output format from git:
+     * <pre>
+     *   &lt;merged-tree-OID&gt;
+     *   path/with/conflict.txt
+     *   another/conflicting/path.java
+     * </pre>
+     * The first line is always the OID; we drop it and return what's
+     * left. Returns an empty list when the merge is clean (exit 0).
+     * Returns an empty list on {@code merge-tree}-unsupported git
+     * versions or unresolvable refs too — the caller should rely on
+     * {@code mergeableState} from GitHub for the "does a conflict
+     * exist at all" question; this method only enumerates names when
+     * one already does.
+     */
+    public List<String> listMergeConflictPaths(Path workingDir, String head, String base)
+            throws IOException, InterruptedException
+    {
+        requireNonNull(head, "head is null");
+        requireNonNull(base, "base is null");
+        GitResult result = run(
+                List.of("git", "merge-tree", "--write-tree", "--name-only", "--no-messages", base, head),
+                workingDir,
+                30);
+        if (result.exitCode() == 0 || result.exitCode() == 1) {
+            String stdout = result.stdout();
+            if (stdout == null || stdout.isEmpty()) {
+                return ImmutableList.of();
+            }
+            String[] lines = stdout.split("\n", -1);
+            // First line is the merged-tree OID; rest are paths. Filter
+            // blanks (trailing newline → empty tail) so a clean tree
+            // (one OID line, no paths) returns [] cleanly.
+            ImmutableList.Builder<String> out = ImmutableList.builder();
+            for (int i = 1; i < lines.length; i++) {
+                String line = lines[i].trim();
+                if (!line.isEmpty()) {
+                    out.add(line);
+                }
+            }
+            return out.build();
+        }
+        return ImmutableList.of();
+    }
+
+    /**
+     * Fetches the GitHub-magic {@code pull/{N}/head} ref + the PR's
+     * base branch into a non-user-visible refs namespace
+     * ({@code refs/bytequay/pr/{N}/{head,base}}) so the merge-tree call
+     * has both tips locally without disturbing the user's branches or
+     * tracking refs. Single {@code git fetch} so we pay one network
+     * round-trip per PR.
+     *
+     * <p>{@code pull/N/head} is published by GitHub on the upstream
+     * repo for both same-repo and cross-fork PRs — no fork-handling
+     * needed here.
+     *
+     * <p>Throws on fetch failure (network down, auth missing, PR
+     * deleted, etc.). The caller is expected to {@code try/catch} and
+     * surface a graceful no-data state to the UI.
+     */
+    public void fetchPrRefs(Path workingDir, int prNumber, String baseRef)
+            throws IOException, InterruptedException
+    {
+        requireNonNull(baseRef, "baseRef is null");
+        if (prNumber <= 0) {
+            throw new IllegalArgumentException("prNumber must be positive, got " + prNumber);
+        }
+        String headRefspec = "pull/" + prNumber + "/head:refs/bytequay/pr/" + prNumber + "/head";
+        String baseRefspec = baseRef + ":refs/bytequay/pr/" + prNumber + "/base";
+        run(
+                List.of("git", "fetch", "--no-tags", "--quiet", "origin", headRefspec, baseRefspec),
+                workingDir,
+                120)
+                .requireSuccess();
+    }
+
+    /** Refspec namespace ref for the head side of a fetched PR. Mirror
+     *  this constant on the caller so it doesn't drift if we ever move
+     *  off the {@code refs/bytequay/pr/} prefix. */
+    public static String headRef(int prNumber)
+    {
+        return "refs/bytequay/pr/" + prNumber + "/head";
+    }
+
+    /** See {@link #headRef}. */
+    public static String baseRef(int prNumber)
+    {
+        return "refs/bytequay/pr/" + prNumber + "/base";
+    }
+
     public enum RebaseOutcome
     {
         CLEAN,

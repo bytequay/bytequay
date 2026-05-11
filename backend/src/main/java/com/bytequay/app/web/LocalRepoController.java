@@ -196,6 +196,28 @@ public class LocalRepoController
     }
 
     /**
+     * GET /api/repos/local/{owner}/{repo}/conflict-paths?prNumber=N&baseRef=main
+     * — enumerates the file paths in conflict between a PR's head and
+     * its base, using {@code git merge-tree --name-only}. Drives the
+     * "⚠ Conflict (N files)" pill on the PR detail page; gracefully
+     * degrades (returns {@code available: false} + a reason token)
+     * when the repo isn't locally cloned or the fetch fails, so the
+     * pill can stay as a plain "open on GitHub" link in that case.
+     *
+     * <p>Always 200 so the frontend has a single non-error path to
+     * branch on; failure modes are encoded in the response body.
+     */
+    @GetMapping("/{owner}/{repo}/conflict-paths")
+    public LocalRepoService.MergeConflictPaths conflictPaths(
+            @PathVariable("owner") String owner,
+            @PathVariable("repo") String repo,
+            @RequestParam("prNumber") int prNumber,
+            @RequestParam("baseRef") String baseRef)
+    {
+        return localRepoService.listMergeConflictPaths(owner, repo, prNumber, baseRef);
+    }
+
+    /**
      * GET /api/repos/local/{owner}/{repo}/commits — recent commits on
      * {@code revision} (default HEAD). {@code limit} is capped server-
      * side so a runaway request can't ask {@code git log} for the

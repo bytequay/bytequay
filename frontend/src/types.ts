@@ -293,6 +293,18 @@ export type PrCiSnapshotDto = {
   viewerCanWrite: boolean;
 };
 
+/** Result envelope for the conflict-paths enumeration. `available:false`
+ *  means the local-clone path couldn't produce a definitive list — the
+ *  pill should fall back to the github.com link without rendering a
+ *  count or expandable file list. */
+export type MergeConflictPathsDto = {
+  available: boolean;
+  /** Stable token when !available: 'no_local_clone' | 'no_base_ref' |
+   *  'invalid_pr_number' | 'fetch_failed' | 'merge_tree_failed' */
+  reason: string | null;
+  paths: string[];
+};
+
 export type SyncSettingsDto = {
   intervalSeconds: number;
 };
@@ -1052,6 +1064,17 @@ export type Bridge = {
   refreshPullRequestDetail: (repo: string, number: number) => Promise<PullRequestDetailDto>;
   /** Lightweight CI snapshot for the focus-driven detail-page poll. */
   fetchPrCi: (repo: string, number: number) => Promise<PrCiSnapshotDto>;
+  /** Enumerates the file paths that would conflict between a PR's
+   *  head and its base. Routes through the local clone (git merge-tree)
+   *  — `available: false` means we couldn't compute the list (no local
+   *  clone, fetch failed, etc.) and the renderer should fall back to
+   *  the github.com conflict-editor link. */
+  fetchPrConflictPaths: (
+    owner: string,
+    repo: string,
+    prNumber: number,
+    baseRef: string,
+  ) => Promise<MergeConflictPathsDto>;
   /** Raw Actions log text for one check-run. Empty string when GitHub
    *  doesn't expose a log (external CI / expired / scope). Lazy-loaded
    *  by the merge bar's failure cards on user click. */

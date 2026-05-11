@@ -490,6 +490,78 @@ public class LocalRepoService
     }
 
     /**
+     * Enumerates the file paths that conflict between the PR's head
+     * and its base branch. Uses the local clone as a virtual workbench:
+     *
+     * <ol>
+     *   <li>Fetch {@code pull/{N}/head} + the base branch into a
+     *       non-user-visible refs namespace
+     *       ({@code refs/bytequay/pr/{N}/{head,base}}).</li>
+     *   <li>Run {@code git merge-tree --write-tree --name-only --no-messages}
+     *       against the two tips; the path lines after the merged-tree
+     *       OID are exactly the files in conflict.</li>
+     * </ol>
+     *
+     * <p>Returns a {@link MergeConflictPaths} carrying both the list +
+     * an {@code available} flag so the renderer can distinguish "PR
+     * has no conflicts" from "we can't tell because the repo isn't
+     * cloned locally yet". The unavailable case is not an error — the
+     * top-level conflict pill still links out to github.com's editor
+     * regardless.
+     */
+    public MergeConflictPaths listMergeConflictPaths(String owner, String repo, int prNumber, String baseRef)
+    {
+        WatchedRepo watched = refreshWatchedRepo(owner, repo);
+        if (watched.localClonePath() == null) {
+            return new MergeConflictPaths(false, "no_local_clone", ImmutableList.of());
+        }
+        if (baseRef == null || baseRef.isBlank()) {
+            return new MergeConflictPaths(false, "no_base_ref", ImmutableList.of());
+        }
+        if (prNumber <= 0) {
+            return new MergeConflictPaths(false, "invalid_pr_number", ImmutableList.of());
+        }
+        Path path = Path.of(watched.localClonePath());
+        try {
+            gitRunner.fetchPrRefs(path, prNumber, baseRef);
+        }
+        catch (GitRunner.GitCommandException | IOException | InterruptedException e) {
+            if (e instanceof InterruptedException) {
+                Thread.currentThread().interrupt();
+            }
+            log.warn("Could not fetch PR refs for {}/{}#{}: {}", owner, repo, prNumber, e.getMessage());
+            return new MergeConflictPaths(false, "fetch_failed", ImmutableList.of());
+        }
+        try {
+            List<String> paths = gitRunner.listMergeConflictPaths(
+                    path,
+                    GitRunner.headRef(prNumber),
+                    GitRunner.baseRef(prNumber));
+            return new MergeConflictPaths(true, null, paths);
+        }
+        catch (IOException | InterruptedException e) {
+            if (e instanceof InterruptedException) {
+                Thread.currentThread().interrupt();
+            }
+            log.warn("merge-tree failed for {}/{}#{}: {}", owner, repo, prNumber, e.getMessage());
+            return new MergeConflictPaths(false, "merge_tree_failed", ImmutableList.of());
+        }
+    }
+
+    /**
+     * Result envelope for {@link #listMergeConflictPaths}.
+     *
+     * @param available true when the merge-tree probe ran successfully — the
+     *                  paths list is then definitive (empty = no conflicts).
+     * @param reason    when {@code !available}, a stable token the
+     *                  renderer can localise: {@code no_local_clone},
+     *                  {@code no_base_ref}, {@code invalid_pr_number},
+     *                  {@code fetch_failed}, or {@code merge_tree_failed}.
+     * @param paths     file paths reported as conflicting by git.
+     */
+    public record MergeConflictPaths(boolean available, String reason, List<String> paths) {}
+
+    /**
      * Returns the branches of a watched repo's local clone, mapped
      * into LocalBranch records ready for the kanban renderer. Throws
      * IllegalStateException when the repo isn't mapped — the caller

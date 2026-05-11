@@ -676,6 +676,13 @@ describe('PullRequestPreview render smoke', () => {
     expect(bridge.setReviewThreadResolved).toHaveBeenCalledWith('trinodb/trino', 1, 5001, true);
     expect(bridge.fetchPullRequestDetail).toHaveBeenCalledTimes(1);
     expect(bridge.refreshPullRequestDetail).not.toHaveBeenCalled();
-    expect(container.innerHTML).toContain('Unresolve conversation');
+    // The thread auto-folds once it flips to resolved (matches
+    // github.com), which hides the Unresolve button. Assert the
+    // optimistic flip via the always-visible resolved pill in the
+    // header instead — that's what proves the local-state patch landed
+    // without waiting on a backend refetch.
+    const resolvedThread = container.querySelector('.prc-review-thread--resolved');
+    expect(resolvedThread).toBeTruthy();
+    expect(resolvedThread!.querySelector('.prc-review-thread__resolved-pill')).toBeTruthy();
   });
 });

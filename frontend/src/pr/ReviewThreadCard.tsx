@@ -66,7 +66,15 @@ export function ReviewThreadCard({
   // Resolved threads default to folded — same behaviour as github.com.
   // The chevron stays available either way so the user can pop them
   // open / re-collapse mid-review.
-  const [folded, setFolded] = useState<boolean>(thread.resolved === true);
+  //
+  // Derived from props (not a frozen useState initializer) so a late
+  // GraphQL refresh — REST alone doesn't carry `resolved`, the value
+  // arrives on the next detail fetch — still auto-folds the thread.
+  // The override pins the user's manual choice once they touch the
+  // chevron, so subsequent refreshes don't re-fold a thread they
+  // explicitly expanded.
+  const [foldOverride, setFoldOverride] = useState<boolean | null>(null);
+  const folded = foldOverride ?? (thread.resolved === true);
 
   const submit = async () => {
     const trimmed = body.trim();
@@ -100,7 +108,7 @@ export function ReviewThreadCard({
         <button
           type="button"
           className="prc-review-thread__fold"
-          onClick={() => setFolded(v => !v)}
+          onClick={() => setFoldOverride(!folded)}
           aria-expanded={!folded}
           title={folded ? 'Expand thread' : 'Collapse thread'}
         >

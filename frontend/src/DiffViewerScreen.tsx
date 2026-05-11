@@ -633,7 +633,13 @@ function InlineExistingThread({
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
   // Collapse resolved threads up-front; the user can toggle them open.
-  const [folded, setFolded] = useState<boolean>(thread.resolved === true);
+  // Derived from props (not a frozen useState initializer) so a late
+  // GraphQL refresh that flips `resolved` from null to true still
+  // auto-folds the thread. The override pins the user's manual choice
+  // once they touch the chevron, so later refreshes don't re-fold a
+  // thread they explicitly expanded.
+  const [foldOverride, setFoldOverride] = useState<boolean | null>(null);
+  const folded = foldOverride ?? (thread.resolved === true);
   // Local optimistic mirror so the pill + button text flip immediately
   // on click. Falls back to the prop when GraphQL hasn't given us a
   // value yet. Sync with thread.resolved on every render so a fresh
@@ -693,7 +699,7 @@ function InlineExistingThread({
         <button
           type="button"
           className="diff-thread__fold"
-          onClick={() => setFolded(f => !f)}
+          onClick={() => setFoldOverride(!folded)}
           aria-expanded={!folded}
           title={folded ? 'Expand thread' : 'Collapse thread'}
         >

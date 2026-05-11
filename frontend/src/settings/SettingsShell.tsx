@@ -17,6 +17,7 @@ import type { SettingsSection } from './types';
 import AccountPage from './pages/AccountPage';
 import AppearancePage from './pages/AppearancePage';
 import AiReviewPage from './pages/AiReviewPage';
+import EmailSettingsPage from './pages/EmailPage';
 import GitHubTokenPage from './pages/GitHubTokenPage';
 import HelpPage from './pages/HelpPage';
 import IntegrationsPage from './pages/IntegrationsPage';
@@ -45,6 +46,7 @@ function SettingsShell({ section, onSelectSection, onClearPat, onOpenTeam }: Pro
           {section === 'ai-review' && <AiReviewPage />}
           {section === 'watched-repos' && <WatchedReposPage />}
           {section === 'integrations' && <IntegrationsPage />}
+          {section === 'email' && <EmailSettingsPage />}
           {section === 'help' && <HelpPage />}
         </div>
       </div>

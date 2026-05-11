@@ -112,6 +112,65 @@
   display: flex;
   gap: 8px;
 }
+
+/* ── Settings → Email mute list ────────────────────────────────────── */
+.email-mute-account {
+  padding: 12px 0;
+  border-bottom: 1px solid var(--border);
+}
+.email-mute-account:last-child {
+  border-bottom: 0;
+}
+.email-mute-account__header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-1);
+  margin-bottom: 8px;
+}
+.email-mute-account__count {
+  font-size: 11px;
+  font-weight: 400;
+  color: var(--text-3);
+}
+.email-mute-account__empty {
+  margin: 0;
+  font-size: 12px;
+  color: var(--text-3);
+}
+.email-mute-list {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.email-mute-list__row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 6px 10px;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+}
+.email-mute-list__addr {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, monospace;
+  font-size: 12px;
+  color: var(--text-1);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+  flex: 1;
+}
+.email-mute-list__btn {
+  flex-shrink: 0;
+}
 .email-page--empty {
   text-align: center;
   padding-top: 80px;

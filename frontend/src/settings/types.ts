@@ -19,4 +19,5 @@ export type SettingsSection =
   | 'ai-review'
   | 'watched-repos'
   | 'integrations'
+  | 'email'
   | 'help';

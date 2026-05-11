@@ -40,6 +40,7 @@ const GROUPS: GroupDef[] = [
     label: 'System',
     links: [
       { id: 'integrations', label: 'Integrations', icon: '🔗' },
+      { id: 'email', label: 'Email', icon: '✉️' },
       { id: 'help', label: 'Help & feedback', icon: '🛟' },
     ],
   },

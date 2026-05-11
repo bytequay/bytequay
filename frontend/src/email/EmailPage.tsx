@@ -101,6 +101,45 @@ export default function EmailPage({ onOpenIntegrationsSettings, onOpenLinkedRef 
     }
   }, []);
 
+  // Background poll of the inbox list — focus-gated so it pauses
+  // when the user tabs away. Cheap because listEmailThreads reads
+  // from the local SQLite mirror; the heavy GmailPollingJob refresh
+  // runs server-side every 60s. Effect: new arrivals appear in the
+  // list within ~30s without a manual refresh, and the detail-pane
+  // poll below picks up new messages in the open thread.
+  useEffect(() => {
+    if (!selectedAccount) return;
+    const acc = accounts?.find(a => a.email === selectedAccount);
+    if (acc?.authMode !== 'OAUTH') return;
+    let interval: ReturnType<typeof setInterval> | null = null;
+    const isVisible = () => document.visibilityState === 'visible' && document.hasFocus();
+    const tick = async () => {
+      try {
+        const list = await window.bridge.listEmailThreads(selectedAccount);
+        setThreads(list);
+      }
+      catch { /* best-effort: skip this tick */ }
+    };
+    const start = () => {
+      if (interval != null) return;
+      interval = setInterval(() => { void tick(); }, 30_000);
+    };
+    const stop = () => {
+      if (interval != null) { clearInterval(interval); interval = null; }
+    };
+    const onVisibility = () => { isVisible() ? start() : stop(); };
+    if (isVisible()) start();
+    document.addEventListener('visibilitychange', onVisibility);
+    window.addEventListener('focus', onVisibility);
+    window.addEventListener('blur', onVisibility);
+    return () => {
+      stop();
+      document.removeEventListener('visibilitychange', onVisibility);
+      window.removeEventListener('focus', onVisibility);
+      window.removeEventListener('blur', onVisibility);
+    };
+  }, [selectedAccount, accounts]);
+
   // Load threads whenever the selected account changes.
   useEffect(() => {
     if (selectedAccount == null) {
@@ -414,11 +453,20 @@ function ThreadDetailPane({ account, meta, archived, onKeepInInbox, onOpenLinked
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
+  // Re-fetch when:
+  //  - the user picks a different thread (meta.id changes), OR
+  //  - the inbox poll above shows the open thread now has more messages
+  //    than we have on screen (meta.messageCount changes). Loading state
+  //    only flips for the first case so the silent-refresh path doesn't
+  //    flash a spinner over content the user is already reading.
   useEffect(() => {
     let cancelled = false;
-    setLoading(true);
-    setError(null);
-    setDetail(null);
+    const isInitialLoad = detail === null || detail.id !== meta.id;
+    if (isInitialLoad) {
+      setLoading(true);
+      setError(null);
+      setDetail(null);
+    }
     void (async () => {
       try {
         const d = await window.bridge.getEmailThread(account, meta.id);
@@ -427,14 +475,16 @@ function ThreadDetailPane({ account, meta, archived, onKeepInInbox, onOpenLinked
       }
       catch (e) {
         if (cancelled) return;
-        setError(e instanceof Error ? e.message : String(e));
+        if (isInitialLoad) setError(e instanceof Error ? e.message : String(e));
+        // Silent-refresh errors are swallowed — keep the existing detail.
       }
       finally {
-        if (!cancelled) setLoading(false);
+        if (!cancelled && isInitialLoad) setLoading(false);
       }
     })();
     return () => { cancelled = true; };
-  }, [account, meta.id]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [account, meta.id, meta.messageCount]);
 
   return (
     <div className="email-detail">

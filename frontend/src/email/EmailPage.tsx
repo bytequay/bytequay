@@ -25,6 +25,12 @@ type Props = {
   onOpenLinkedRef: (ref: LinkedRefDto) => void;
 };
 
+/** Window during which an auto-archive can be one-clicked back to
+ *  the inbox via the toast at the bottom of the page. Long enough
+ *  to register a misclick, short enough not to clutter the screen.
+ *  Mirrors Gmail's own "Undo" timing. */
+const UNDO_GRACE_MS = 5_000;
+
 /**
  * Master-detail inbox, thread-based. One row per Gmail conversation
  * (matches Gmail's web UI), with a (N) badge for multi-message
@@ -51,6 +57,12 @@ export default function EmailPage({ onOpenIntegrationsSettings, onOpenLinkedRef 
   // Tracks thread IDs we've already auto-acted on (mark-read + archive)
   // so re-selecting after "Keep in inbox" doesn't immediately re-archive.
   const autoActedRef = useRef<Set<string>>(new Set());
+  // Most-recent auto-archive that's still inside the undo grace window.
+  // Set right after readAndArchive resolves; cleared by the timer (see
+  // UNDO_GRACE_MS) or by a manual undo click. Replaced — not stacked —
+  // when the user opens another thread before the previous toast expires.
+  const [undoTarget, setUndoTarget] = useState<{ id: string; subject: string } | null>(null);
+  const undoTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Load accounts on mount; auto-select the first OAuth account.
   useEffect(() => {
@@ -109,10 +121,27 @@ export default function EmailPage({ onOpenIntegrationsSettings, onOpenLinkedRef 
   // stays in `threads` so the detail pane keeps rendering it; the
   // visible-list filter (autoArchivedIds) hides the row. "Keep in
   // inbox" undoes both.
+  /** Replace any in-flight undo toast with a new one (or clear). The
+   *  ref-based timer survives renders so we can cancel cleanly. */
+  const queueUndoToast = (target: { id: string; subject: string } | null) => {
+    if (undoTimerRef.current) {
+      clearTimeout(undoTimerRef.current);
+      undoTimerRef.current = null;
+    }
+    setUndoTarget(target);
+    if (target) {
+      undoTimerRef.current = setTimeout(() => {
+        setUndoTarget(curr => (curr && curr.id === target.id ? null : curr));
+        undoTimerRef.current = null;
+      }, UNDO_GRACE_MS);
+    }
+  };
+
   const readAndArchive = async (id: string) => {
     if (!selectedAccount) return;
     const prev = threads;
     if (!prev) return;
+    const target = prev.find(t => t.id === id);
     setThreads(prev.map(t => t.id === id ? { ...t, unread: false } : t));
     setAutoArchivedIds(s => {
       const next = new Set(s);
@@ -121,6 +150,7 @@ export default function EmailPage({ onOpenIntegrationsSettings, onOpenLinkedRef 
     });
     try {
       await window.bridge.readAndArchiveEmailThread(selectedAccount, id);
+      queueUndoToast({ id, subject: target?.subject ?? '(no subject)' });
     }
     catch (e) {
       setThreads(prev);
@@ -144,6 +174,8 @@ export default function EmailPage({ onOpenIntegrationsSettings, onOpenLinkedRef 
       return next;
     });
     setThreads(prev.map(t => t.id === id ? { ...t, unread: false } : t));
+    // Manual unarchive — toast is irrelevant now.
+    if (undoTarget && undoTarget.id === id) queueUndoToast(null);
     try {
       await window.bridge.keepEmailThreadInInbox(selectedAccount, id);
     }
@@ -153,6 +185,13 @@ export default function EmailPage({ onOpenIntegrationsSettings, onOpenLinkedRef 
       setError(e instanceof Error ? e.message : String(e));
     }
   };
+
+  // Cancel any pending undo timer when the page unmounts.
+  useEffect(() => {
+    return () => {
+      if (undoTimerRef.current) clearTimeout(undoTimerRef.current);
+    };
+  }, []);
 
   // Auto-action on opening any inbox thread (read or unread): mark-
   // read + archive in a single round trip. Per-thread dedup via
@@ -340,6 +379,21 @@ export default function EmailPage({ onOpenIntegrationsSettings, onOpenLinkedRef 
       })()}
 
       {loading && threads == null && <div className="repo-loading">Loading inbox…</div>}
+
+      {undoTarget && (
+        <div className="email-undo-toast" role="status" aria-live="polite">
+          <span className="email-undo-toast__msg">
+            Archived <span className="email-undo-toast__subject">{undoTarget.subject || '(no subject)'}</span>
+          </span>
+          <button
+            type="button"
+            className="email-undo-toast__btn"
+            onClick={() => { void keepInInbox(undoTarget.id); }}
+          >
+            Undo
+          </button>
+        </div>
+      )}
     </div>
   );
 }

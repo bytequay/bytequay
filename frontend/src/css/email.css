@@ -26,6 +26,54 @@
   flex-direction: column;
   gap: 14px;
 }
+
+/* Undo toast — sits over the bottom-center of the email tab for ~5s
+   after an auto-archive. Fixed-position so it stays visible regardless
+   of pane scroll. Only rendered inside .email-page, so it disappears
+   automatically when the user navigates away. */
+.email-undo-toast {
+  position: fixed;
+  left: 50%;
+  bottom: 24px;
+  transform: translateX(-50%);
+  z-index: 50;
+  display: inline-flex;
+  align-items: center;
+  gap: 14px;
+  padding: 10px 14px 10px 16px;
+  background: var(--bg-elevated, #2a2438);
+  color: var(--text-1, #f3f0fa);
+  border: 1px solid var(--border, rgba(255, 255, 255, 0.08));
+  border-radius: 8px;
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.20);
+  font-size: 13px;
+  max-width: min(560px, calc(100vw - 48px));
+}
+.email-undo-toast__msg {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+.email-undo-toast__subject {
+  font-weight: 600;
+  margin-left: 4px;
+}
+.email-undo-toast__btn {
+  appearance: none;
+  background: transparent;
+  border: 0;
+  color: var(--accent, #9b7cff);
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+  padding: 4px 6px;
+  border-radius: 4px;
+  flex-shrink: 0;
+}
+.email-undo-toast__btn:hover {
+  background: rgba(255, 255, 255, 0.06);
+}
 .email-page--empty {
   text-align: center;
   padding-top: 80px;

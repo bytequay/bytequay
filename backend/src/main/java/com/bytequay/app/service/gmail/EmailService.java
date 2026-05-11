@@ -37,6 +37,7 @@ import java.util.Base64;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
@@ -78,6 +79,7 @@ public class EmailService
     private final EmailHtmlEnricher htmlEnricher;
     private final EmailMessageStore store;
     private final EmailSyncService sync;
+    private final EmailMuteService muteService;
     private final PullRequestService pullRequestService;
     private final PatResolver patResolver;
     /** "owner/repo#number" → last-refresh-time, dedup for the email
@@ -91,6 +93,7 @@ public class EmailService
             EmailHtmlEnricher htmlEnricher,
             EmailMessageStore store,
             EmailSyncService sync,
+            EmailMuteService muteService,
             PullRequestService pullRequestService,
             PatResolver patResolver)
     {
@@ -100,6 +103,7 @@ public class EmailService
         this.htmlEnricher = requireNonNull(htmlEnricher, "htmlEnricher is null");
         this.store = requireNonNull(store, "store is null");
         this.sync = requireNonNull(sync, "sync is null");
+        this.muteService = requireNonNull(muteService, "muteService is null");
         this.pullRequestService = requireNonNull(pullRequestService, "pullRequestService is null");
         this.patResolver = requireNonNull(patResolver, "patResolver is null");
     }
@@ -126,7 +130,7 @@ public class EmailService
             log.info("Cold cache for {} — running initial Gmail sync", email);
             sync.fullSync(email);
         }
-        return store.listInboxThreads(email, pageSize);
+        return applyMuteFilter(email, store.listInboxThreads(email, pageSize));
     }
 
     /** Force-refresh handler — runs an incremental sync (or full
@@ -136,7 +140,22 @@ public class EmailService
     {
         requireNonBlank(email, "email");
         sync.incrementalSync(email);
-        return store.listInboxThreads(email, pageSize);
+        return applyMuteFilter(email, store.listInboxThreads(email, pageSize));
+    }
+
+    /** Drops any thread whose latest-message sender is in the mute set
+     *  for this account. Done in-memory after the SQL list query — the
+     *  mute set is typically tiny so the extra round trip vs a JOIN is
+     *  not worth the query complexity. */
+    private List<EmailThreadMeta> applyMuteFilter(String accountEmail, List<EmailThreadMeta> threads)
+    {
+        Set<String> muted = muteService.mutedSet(accountEmail);
+        if (muted.isEmpty()) {
+            return threads;
+        }
+        return threads.stream()
+                .filter(t -> !muted.contains(EmailMuteService.normaliseSender(t.from())))
+                .toList();
     }
 
     /** Full thread including every message, parsed body, and any

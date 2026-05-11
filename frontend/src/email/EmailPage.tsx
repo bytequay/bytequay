@@ -202,6 +202,25 @@ export default function EmailPage({ onOpenIntegrationsSettings, onOpenLinkedRef 
     }
   };
 
+  /** Mute the thread's sender + archive the open thread in one click —
+   *  the user's intent here is "never show this person again, including
+   *  the one I'm looking at". The archive piece reuses the existing
+   *  read-and-archive flow so the row vanishes from the visible list
+   *  the same way an auto-archive would. */
+  const muteSender = async (thread: EmailThreadMetaDto) => {
+    if (!selectedAccount) return;
+    try {
+      await window.bridge.muteEmailSender(selectedAccount, thread.from);
+    }
+    catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+      return;
+    }
+    if (!autoArchivedIds.has(thread.id)) {
+      void readAndArchive(thread.id);
+    }
+  };
+
   const keepInInbox = async (id: string) => {
     if (!selectedAccount) return;
     const prevArchived = autoArchivedIds;
@@ -407,6 +426,7 @@ export default function EmailPage({ onOpenIntegrationsSettings, onOpenLinkedRef 
                   meta={selectedThread}
                   archived={autoArchivedIds.has(selectedThread.id)}
                   onKeepInInbox={() => void keepInInbox(selectedThread.id)}
+                  onMuteSender={() => void muteSender(selectedThread)}
                   onOpenLinkedRef={onOpenLinkedRef}
                 />
               ) : (
@@ -445,10 +465,14 @@ type DetailProps = {
    *  button disables (the thread is already in the inbox). */
   archived: boolean;
   onKeepInInbox: () => void;
+  /** Adds the thread's sender to the per-account mute list and
+   *  archives the open thread in one click. Future inbox listings
+   *  will filter out the sender's threads. */
+  onMuteSender: () => void;
   onOpenLinkedRef: (ref: LinkedRefDto) => void;
 };
 
-function ThreadDetailPane({ account, meta, archived, onKeepInInbox, onOpenLinkedRef }: DetailProps) {
+function ThreadDetailPane({ account, meta, archived, onKeepInInbox, onMuteSender, onOpenLinkedRef }: DetailProps) {
   const [detail, setDetail] = useState<EmailThreadDetailDto | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -547,6 +571,14 @@ function ThreadDetailPane({ account, meta, archived, onKeepInInbox, onOpenLinked
             : 'Already in inbox'}
         >
           📥 Keep in inbox
+        </button>
+        <button
+          className="button button--secondary"
+          type="button"
+          onClick={onMuteSender}
+          title={`Hide future emails from ${shortenFrom(meta.from)} from your inbox (local-only — does not affect gmail.com)`}
+        >
+          🔕 Mute sender
         </button>
         {detail && detail.messages.length > 1 && (
           <span className="email-detail__count">

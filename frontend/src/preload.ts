@@ -453,6 +453,12 @@ const bridge: Bridge = {
     ipcRenderer.invoke('email:keepThreadInInbox', { account, id }),
   replyToEmailThread: (account: string, id: string, body: string): Promise<void> =>
     ipcRenderer.invoke('email:replyThread', { account, id, body }),
+  muteEmailSender: (account: string, sender: string): Promise<void> =>
+    ipcRenderer.invoke('email:muteSender', { account, sender }),
+  unmuteEmailSender: (account: string, sender: string): Promise<void> =>
+    ipcRenderer.invoke('email:unmuteSender', { account, sender }),
+  listMutedEmailSenders: (account: string): Promise<string[]> =>
+    ipcRenderer.invoke('email:listMutedSenders', { account }),
 };
 
 contextBridge.exposeInMainWorld('bridge', bridge);

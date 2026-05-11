@@ -34,7 +34,9 @@
 .email-undo-toast {
   position: fixed;
   left: 50%;
-  bottom: 24px;
+  /* Sits just below the global topbar (44px tall) — high enough to
+     read on first glance without overlapping the topbar's content. */
+  top: 60px;
   transform: translateX(-50%);
   z-index: 50;
   display: inline-flex;

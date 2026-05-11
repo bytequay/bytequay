@@ -15,8 +15,10 @@ package com.bytequay.app.web;
 
 import com.bytequay.app.domain.EmailThreadDetail;
 import com.bytequay.app.domain.EmailThreadMeta;
+import com.bytequay.app.service.gmail.EmailMuteService;
 import com.bytequay.app.service.gmail.EmailService;
 import com.google.common.collect.ImmutableMap;
+import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -46,10 +48,12 @@ public class EmailController
     private static final int DEFAULT_PAGE_SIZE = 50;
 
     private final EmailService emailService;
+    private final EmailMuteService muteService;
 
-    public EmailController(EmailService emailService)
+    public EmailController(EmailService emailService, EmailMuteService muteService)
     {
         this.emailService = requireNonNull(emailService, "emailService is null");
+        this.muteService = requireNonNull(muteService, "muteService is null");
     }
 
     /**
@@ -149,4 +153,38 @@ public class EmailController
     /** Body shape for {@link #reply}. Only the message body for now;
      *  Reply-All / custom To / attachments come later. */
     public record ReplyRequest(String body) {}
+
+    /** GET /api/email/muted-senders?account={email} — returns the
+     *  currently-muted sender addresses for an account, sorted. */
+    @GetMapping("/muted-senders")
+    public Map<String, List<String>> listMuted(@RequestParam String account)
+    {
+        return ImmutableMap.of("senders", muteService.listMuted(account));
+    }
+
+    /** POST /api/email/muted-senders?account={email} body=
+     *  {@code {"sender": "..."}} — adds a sender to the mute list.
+     *  Accepts both raw addresses and {@code "Name <addr>"} headers. */
+    @PostMapping("/muted-senders")
+    public Map<String, String> mute(
+            @RequestParam String account,
+            @RequestBody MuteRequest payload)
+    {
+        muteService.mute(account, payload.sender());
+        return ImmutableMap.of("result", "muted");
+    }
+
+    /** DELETE /api/email/muted-senders/{sender}?account={email} —
+     *  removes a sender from the mute list. */
+    @DeleteMapping("/muted-senders/{sender}")
+    public Map<String, String> unmute(
+            @PathVariable String sender,
+            @RequestParam String account)
+    {
+        muteService.unmute(account, sender);
+        return ImmutableMap.of("result", "unmuted");
+    }
+
+    /** Body shape for {@link #mute}. */
+    public record MuteRequest(String sender) {}
 }

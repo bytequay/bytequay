@@ -2386,6 +2386,48 @@ const url = new URL(`${BACKEND_BASE}/api/search/repos`);
     }
     return res.json();
   });
+  ipcMain.handle('email:muteSender', async (_event, payload: unknown) => {
+    const { account, sender } = (payload ?? {}) as { account?: string; sender?: string };
+    if (!account || !sender) throw new Error('account and sender are required');
+    const params = new URLSearchParams({ account });
+    const res = await fetch(
+      `${BACKEND_BASE}/api/email/muted-senders?${params.toString()}`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ sender }),
+      });
+    if (!res.ok) {
+      const text = await res.text().catch(() => '');
+      throw new Error(`backend /api/email/muted-senders returned ${res.status}: ${text}`);
+    }
+    return res.json();
+  });
+  ipcMain.handle('email:unmuteSender', async (_event, payload: unknown) => {
+    const { account, sender } = (payload ?? {}) as { account?: string; sender?: string };
+    if (!account || !sender) throw new Error('account and sender are required');
+    const params = new URLSearchParams({ account });
+    const res = await fetch(
+      `${BACKEND_BASE}/api/email/muted-senders/${encodeURIComponent(sender)}?${params.toString()}`,
+      { method: 'DELETE' });
+    if (!res.ok) {
+      const text = await res.text().catch(() => '');
+      throw new Error(`backend DELETE /api/email/muted-senders returned ${res.status}: ${text}`);
+    }
+    return res.json();
+  });
+  ipcMain.handle('email:listMutedSenders', async (_event, payload: unknown) => {
+    const { account } = (payload ?? {}) as { account?: string };
+    if (!account) throw new Error('account is required');
+    const params = new URLSearchParams({ account });
+    const res = await fetch(`${BACKEND_BASE}/api/email/muted-senders?${params.toString()}`);
+    if (!res.ok) {
+      const text = await res.text().catch(() => '');
+      throw new Error(`backend /api/email/muted-senders returned ${res.status}: ${text}`);
+    }
+    const json = await res.json();
+    return (json && Array.isArray(json.senders)) ? json.senders as string[] : [];
+  });
 
   // ── Credentials ─────────────────────────────────────────────────────────
   // Credentials are uniquely identified by the pair (type, name). The backend

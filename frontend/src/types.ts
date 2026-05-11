@@ -1447,6 +1447,13 @@ export type Bridge = {
    *  post-send incremental sync that pulls the sent message into
    *  the local mirror. */
   replyToEmailThread: (account: string, id: string, body: string) => Promise<void>;
+  /** Adds the sender's address to the per-account mute list — future
+   *  inbox listings filter the sender's threads out. Local-only; does
+   *  not propagate to gmail.com. Accepts either a raw address or a
+   *  full {@code "Name <addr>"} header; the backend normalises. */
+  muteEmailSender: (account: string, sender: string) => Promise<void>;
+  unmuteEmailSender: (account: string, sender: string) => Promise<void>;
+  listMutedEmailSenders: (account: string) => Promise<string[]>;
   // Credentials vault
   listCredentials: (type?: CredentialType) => Promise<CredentialDto[]>;
   upsertCredential: (req: UpsertCredentialRequest) => Promise<CredentialDto>;

@@ -154,15 +154,17 @@ export default function EmailPage({ onOpenIntegrationsSettings, onOpenLinkedRef 
     }
   };
 
-  // Auto-action on selecting an unread thread: mark-read + archive in
-  // a single round trip. Per-thread dedup via autoActedRef so re-
-  // selecting after "Keep in inbox" doesn't bounce the user's choice.
-  // Gating on `t.unread` covers the post-refresh case (autoActedRef
-  // is in-memory only) — already-read threads are left alone.
+  // Auto-action on opening any inbox thread (read or unread): mark-
+  // read + archive in a single round trip. Per-thread dedup via
+  // autoActedRef so re-selecting after "Keep in inbox" doesn't bounce
+  // the user's choice within the same session. After a page refresh
+  // the dedup is empty, so a kept-in-inbox thread will re-archive on
+  // next click — that's the intentional "in inbox = needs action;
+  // opening = dealt with" model.
   useEffect(() => {
     if (!selectedAccount || !selectedThreadId || !threads) return;
     const t = threads.find(th => th.id === selectedThreadId);
-    if (!t || !t.unread) return;
+    if (!t) return;
     if (autoActedRef.current.has(selectedThreadId)) return;
     autoActedRef.current.add(selectedThreadId);
     void readAndArchive(selectedThreadId);

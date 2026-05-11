@@ -1318,6 +1318,19 @@
   white-space: nowrap;
   max-width: 320px;
 }
+/* Inline notice shown when the user clicks the queue-style button —
+   ByteQuay's heuristic detected this repo requires GitHub's merge
+   queue, but native enqueue isn't wired up yet. Distinct from the
+   error tint so the user reads it as "not implemented" rather than
+   "your merge failed". */
+.merge-bar__queue-notice {
+  font-size: 11px;
+  color: var(--text-2);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 480px;
+}
 .merge-bar__btn {
   appearance: none;
   border: 1px solid #1a7f37;

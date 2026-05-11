@@ -394,6 +394,24 @@ function MergeBar({ pr, detail, mergeState, mergeError, onMerge, onRefreshCi, ci
   const changesSummary = detail.changesRequestedCount > 0
     ? `${detail.changesRequestedCount} change${detail.changesRequestedCount === 1 ? '' : 's'} requested`
     : null;
+  // Heuristic merge-queue detection: every client-side signal says
+  // this PR is ready to merge (CI green, ≥1 approval, no requested
+  // changes), but GitHub still reports mergeable_state="blocked".
+  // On repos without a merge queue, "blocked" almost always means a
+  // required reviewer hasn't approved yet — so we gate on approvals
+  // being present. False positives are possible (codeowners /
+  // protected-files rules), but the case we want to catch right now
+  // is Trino-style "queue is the required path"; proper detection
+  // lands with the GraphQL pass (see PR detail design doc §2.5).
+  const requiresMergeQueue = !closed
+      && pr.mergeableState === 'blocked'
+      && ciPassing
+      && detail.changesRequestedCount === 0
+      && approverLogins.length > 0;
+  // Inline notice when the user clicks the queue-style button —
+  // ByteQuay can't enqueue natively yet, so this is the honest path
+  // until the GraphQL enqueuePullRequest mutation lands.
+  const [queueNotice, setQueueNotice] = useState<string | null>(null);
   return (
     <div className={`merge-bar${enabled ? ' merge-bar--ready' : ' merge-bar--blocked'}`}>
       <div className="merge-bar__row">
@@ -401,25 +419,42 @@ function MergeBar({ pr, detail, mergeState, mergeError, onMerge, onRefreshCi, ci
           <button
             type="button"
             className="merge-bar__btn merge-bar__btn--split-main"
-            onClick={() => setConfirmOpen(true)}
-            disabled={!enabled}
-            title={enabled
-              ? `${MERGE_STRATEGY_LABEL[strategy]} this PR on GitHub`
-              : (disabledReason ?? 'Not ready to merge')}
+            onClick={() => {
+              if (requiresMergeQueue) {
+                setQueueNotice(
+                  'This repo requires the GitHub merge queue. ByteQuay can\'t enqueue natively yet — open the PR on github.com and click "Add to merge queue" there. Native support is coming with the GraphQL pass.',
+                );
+                return;
+              }
+              setConfirmOpen(true);
+            }}
+            disabled={!enabled && !requiresMergeQueue}
+            title={requiresMergeQueue
+              ? 'This repo requires the merge queue. ByteQuay\'s native enqueue is coming with the GraphQL pass — click for details.'
+              : (enabled
+                ? `${MERGE_STRATEGY_LABEL[strategy]} this PR on GitHub`
+                : (disabledReason ?? 'Not ready to merge'))}
           >
-            {mergeState === 'running' ? 'Merging…' : MERGE_STRATEGY_LABEL[strategy]}
+            {mergeState === 'running'
+              ? 'Merging…'
+              : (requiresMergeQueue ? 'Add to merge queue' : MERGE_STRATEGY_LABEL[strategy])}
           </button>
-          <button
-            type="button"
-            className="merge-bar__btn merge-bar__btn--split-caret"
-            onClick={() => setStrategyMenuOpen(v => !v)}
-            disabled={!enabled}
-            aria-haspopup="menu"
-            aria-expanded={strategyMenuOpen}
-            title="Pick a different merge strategy"
-          >
-            <span aria-hidden="true">▾</span>
-          </button>
+          {/* Hide the strategy picker in queue mode — GitHub's merge
+              queue chooses the strategy server-side from branch
+              protection, so a per-merge override is meaningless. */}
+          {!requiresMergeQueue && (
+            <button
+              type="button"
+              className="merge-bar__btn merge-bar__btn--split-caret"
+              onClick={() => setStrategyMenuOpen(v => !v)}
+              disabled={!enabled}
+              aria-haspopup="menu"
+              aria-expanded={strategyMenuOpen}
+              title="Pick a different merge strategy"
+            >
+              <span aria-hidden="true">▾</span>
+            </button>
+          )}
           {strategyMenuOpen && (
             <>
               {/* Click-away catcher so clicking elsewhere on the page
@@ -512,6 +547,7 @@ function MergeBar({ pr, detail, mergeState, mergeError, onMerge, onRefreshCi, ci
           </div>
           {disabledReason && <span className="merge-bar__reason">{disabledReason}</span>}
           {mergeError && <span className="merge-bar__error" title={mergeError}>{mergeError}</span>}
+          {queueNotice && <span className="merge-bar__queue-notice" title={queueNotice}>{queueNotice}</span>}
         </div>
       </div>
       {failuresOpen && failingChecks.length > 0 && (
@@ -781,8 +817,14 @@ function PullRequestPreview({ pr, onOpenReview, onInspectDiffs, onMarkHandled, o
       setLoading(false);
       if (cached.stale) {
         setRefreshing(true);
+        // refresh* (not fetch*) on the stale path: fetch* would just
+        // hand back the backend's own cached snapshot, which doesn't
+        // refill until the 60s syncFromGitHub picks up an updatedAt
+        // bump. Force-refresh bypasses the backend cache so navigate-
+        // away-and-back shows new comments / reviews / timeline events
+        // posted on github.com in the meantime.
         window.bridge
-          .fetchPullRequestDetail(pr.repo, pr.number)
+          .refreshPullRequestDetail(pr.repo, pr.number)
           .then((d) => { putCache(pr.id, d); setDetail(d); })
           .catch(() => { /* silently keep stale data */ })
           .finally(() => setRefreshing(false));

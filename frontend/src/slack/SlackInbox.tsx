@@ -264,27 +264,43 @@ function InboxItemCard({
     : item.channelId;
   return (
     <article className={`slack-inbox-item ${stateClass}`}>
-      <button type="button" className="slack-inbox-item__header" onClick={onExpand}>
-        <span className={`slack-inbox-pill slack-inbox-pill--${item.inboxKind}`}>
-          {item.inboxKind === 'mention' ? 'MENTION' : 'DM'}
-        </span>
-        <span className="slack-inbox-item__source">
-          {item.inboxKind === 'mention' ? <>in <strong>{channelLabel}</strong></> : <>{channelLabel}</>}
-        </span>
-        <span className="slack-inbox-item__sender">
-          from <strong>{displayUser(item.userId)}</strong>
-        </span>
-        <span className="slack-inbox-item__snippet">
-          {summarize(item.text)}
-        </span>
-        {item.state === 'bumped' && item.newReplyCount > 0 && (
-          <span className="slack-inbox-item__bumped-pill">{item.newReplyCount} NEW</span>
-        )}
-        <span className="slack-inbox-item__time">{relativeTime(item.ts)}</span>
-        {(item.state === 'unread' || item.state === 'bumped') && (
-          <span className="slack-inbox-item__dot" aria-hidden="true" />
-        )}
-      </button>
+      <div className="slack-inbox-item__top-row">
+        <button type="button" className="slack-inbox-item__header" onClick={onExpand}>
+          <span className={`slack-inbox-pill slack-inbox-pill--${item.inboxKind}`}>
+            {item.inboxKind === 'mention' ? 'MENTION' : 'DM'}
+          </span>
+          <span className="slack-inbox-item__source">
+            {item.inboxKind === 'mention' ? <>in <strong>{channelLabel}</strong></> : <>{channelLabel}</>}
+          </span>
+          <span className="slack-inbox-item__sender">
+            from <strong>{displayUser(item.userId)}</strong>
+          </span>
+          <span className="slack-inbox-item__snippet">
+            {summarize(item.text)}
+          </span>
+          {item.state === 'bumped' && item.newReplyCount > 0 && (
+            <span className="slack-inbox-item__bumped-pill">{item.newReplyCount} NEW</span>
+          )}
+          <span className="slack-inbox-item__time">{relativeTime(item.ts)}</span>
+          {(item.state === 'unread' || item.state === 'bumped') && (
+            <span className="slack-inbox-item__dot" aria-hidden="true" />
+          )}
+        </button>
+        {/* Sibling button — sits outside the expand-toggle so a click
+            doesn't also pop the card open. Available in every state so
+            the user can dismiss without having to reply first; for
+            RESPONDED items the footer still carries an "Archive now"
+            link next to the auto-archive countdown. */}
+        <button
+          type="button"
+          className="slack-inbox-item__close"
+          onClick={onArchive}
+          title="Close — archive this item"
+          aria-label="Close this inbox item"
+        >
+          ×
+        </button>
+      </div>
 
       {item.state === 'responded' && !expanded && (
         <RespondedFooter respondedAt={item.respondedAt} onArchive={onArchive} />

@@ -654,6 +654,11 @@
   background: var(--bg-elevated);
 }
 
+.slack-inbox-item__top-row {
+  display: flex;
+  align-items: stretch;
+}
+
 .slack-inbox-item__header {
   appearance: none;
   background: transparent;
@@ -661,7 +666,8 @@
   font: inherit;
   text-align: left;
   cursor: pointer;
-  width: 100%;
+  flex: 1;
+  min-width: 0;
   display: grid;
   grid-template-columns: auto auto auto 1fr auto auto auto;
   align-items: center;
@@ -669,6 +675,28 @@
   padding: 12px 16px;
 }
 .slack-inbox-item--responded .slack-inbox-item__header { padding-bottom: 6px; }
+
+.slack-inbox-item__close {
+  appearance: none;
+  background: transparent;
+  border: 0;
+  border-left: 1px solid transparent;
+  cursor: pointer;
+  padding: 0 14px;
+  color: var(--text-4);
+  font-size: 18px;
+  line-height: 1;
+  transition: color 100ms ease, background-color 100ms ease, border-color 100ms ease;
+}
+.slack-inbox-item__close:hover {
+  color: var(--text-1);
+  background: var(--bg-base);
+  border-left-color: var(--border-light);
+}
+.slack-inbox-item__close:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
 
 .slack-inbox-pill {
   display: inline-block;

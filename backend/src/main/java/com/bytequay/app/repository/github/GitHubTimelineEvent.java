@@ -44,7 +44,17 @@ public record GitHubTimelineEvent(
         @JsonProperty("requested_reviewer") User requestedReviewer,
         /** Author's relationship to the repo for "commented" / "reviewed"
          *  timeline events: MEMBER / CONTRIBUTOR / OWNER / NONE / …. */
-        @JsonProperty("author_association") String authorAssociation)
+        @JsonProperty("author_association") String authorAssociation,
+        /** "labeled" / "unlabeled" events carry the label here. */
+        Label label,
+        /** "assigned" / "unassigned" events carry the assignee here. */
+        User assignee,
+        /** "milestoned" / "demilestoned" events carry the milestone here. */
+        Milestone milestone,
+        /** "renamed" events carry the title diff here. */
+        Rename rename,
+        /** "cross-referenced" events carry the referencing issue / PR here. */
+        Source source)
 {
     @JsonIgnoreProperties(ignoreUnknown = true)
     public record Actor(String login) {}
@@ -57,4 +67,36 @@ public record GitHubTimelineEvent(
 
     @JsonIgnoreProperties(ignoreUnknown = true)
     public record Commit(String sha) {}
+
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    public record Label(String name, String color) {}
+
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    public record Milestone(String title) {}
+
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    public record Rename(String from, String to) {}
+
+    /** "cross-referenced" payload. {@code issue} can carry either a
+     *  plain issue or a PR — the {@code pullRequest} sub-object on it
+     *  is what discriminates the two in GitHub's REST API. */
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    public record Source(String type, SourceIssue issue) {}
+
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    public record SourceIssue(
+            int number,
+            String title,
+            String state,
+            @JsonProperty("html_url") String htmlUrl,
+            @JsonProperty("pull_request") PullRequestStub pullRequest,
+            Repository repository) {}
+
+    /** Presence on a {@link SourceIssue} tells us the row is a PR
+     *  rather than an issue; the contents aren't useful in v1. */
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    public record PullRequestStub() {}
+
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    public record Repository(@JsonProperty("full_name") String fullName) {}
 }

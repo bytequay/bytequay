@@ -19,6 +19,7 @@ import com.bytequay.app.domain.CreateReviewCommand;
 import com.bytequay.app.domain.DiffFile;
 import com.bytequay.app.domain.GitHubUserMatch;
 import com.bytequay.app.domain.IssueDetail;
+import com.bytequay.app.domain.IssueTimelineEvent;
 import com.bytequay.app.domain.ListPullRequestsQuery;
 import com.bytequay.app.domain.MergePullRequestCommand;
 import com.bytequay.app.domain.MergeResult;
@@ -520,6 +521,19 @@ public interface PullRequestRepository
     default List<IssueDetail.Comment> fetchIssueDetailComments(String pat, RepoRef repo, int number)
     {
         throw new UnsupportedOperationException("fetchIssueDetailComments not implemented");
+    }
+
+    /**
+     * Loads the structural events on one issue — labeled, assigned,
+     * milestoned, closed, reopened, renamed, mentioned, cross-referenced,
+     * etc. {@code commented} events are intentionally filtered out by
+     * the implementation since they're surfaced via
+     * {@link #fetchIssueDetailComments} instead.
+     * Maps to: GET /repos/{owner}/{repo}/issues/{number}/timeline
+     */
+    default List<IssueTimelineEvent> fetchIssueTimeline(String pat, RepoRef repo, int number)
+    {
+        throw new UnsupportedOperationException("fetchIssueTimeline not implemented");
     }
 
     /**

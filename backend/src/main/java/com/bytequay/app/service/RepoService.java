@@ -16,6 +16,7 @@ package com.bytequay.app.service;
 import com.bytequay.app.domain.ContributionCalendar;
 import com.bytequay.app.domain.GitHubUserMatch;
 import com.bytequay.app.domain.IssueDetail;
+import com.bytequay.app.domain.IssueTimelineEvent;
 import com.bytequay.app.domain.ListPullRequestsQuery;
 import com.bytequay.app.domain.PrViewState;
 import com.bytequay.app.domain.PullRequest;
@@ -264,17 +265,19 @@ public class RepoService
 
     /**
      * Loads one issue's detail payload — body, labels, assignees,
-     * milestone, comments — for the in-app detail page. Two upstream
-     * calls (issue + comments) fired sequentially; could parallelise
-     * later if the latency shows up in profiling. Not cached: detail
-     * pages are visited one at a time, so a per-page TTL would just
-     * mask staleness on revisit.
+     * milestone, comments, and the structural timeline — for the
+     * in-app detail page. Three upstream calls (issue + comments +
+     * timeline) fired sequentially; could parallelise later if the
+     * latency shows up in profiling. Not cached: detail pages are
+     * visited one at a time, so a per-page TTL would just mask
+     * staleness on revisit.
      */
     public IssueDetail getIssueDetail(String pat, String owner, String repo, int number)
     {
         RepoRef ref = RepoRef.of(owner, repo);
         IssueDetail base = gitHub.fetchIssueDetail(pat, ref, number);
         List<IssueDetail.Comment> comments = gitHub.fetchIssueDetailComments(pat, ref, number);
+        List<IssueTimelineEvent> timeline = gitHub.fetchIssueTimeline(pat, ref, number);
         return new IssueDetail(
                 base.id(),
                 base.number(),
@@ -290,7 +293,8 @@ public class RepoService
                 base.labels(),
                 base.assignees(),
                 base.milestone(),
-                comments);
+                comments,
+                timeline);
     }
 
     /**
@@ -322,10 +326,11 @@ public class RepoService
         }
         RepoRef ref = RepoRef.of(owner, repo);
         IssueDetail flipped = gitHub.setIssueState(pat, ref, number, state);
-        // Re-fetch comments so closedAt timestamps in any new
-        // status-change comment-style events show up. Cheap follow-up,
-        // and avoids forcing the frontend to do a second round-trip.
+        // Re-fetch comments + timeline so the close/reopen event GitHub
+        // emits and any closedAt timestamps surface without a second
+        // round-trip from the frontend.
         List<IssueDetail.Comment> comments = gitHub.fetchIssueDetailComments(pat, ref, number);
+        List<IssueTimelineEvent> timeline = gitHub.fetchIssueTimeline(pat, ref, number);
         return new IssueDetail(
                 flipped.id(),
                 flipped.number(),
@@ -341,7 +346,8 @@ public class RepoService
                 flipped.labels(),
                 flipped.assignees(),
                 flipped.milestone(),
-                comments);
+                comments,
+                timeline);
     }
 
     /**

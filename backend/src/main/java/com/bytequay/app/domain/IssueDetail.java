@@ -44,7 +44,11 @@ public record IssueDetail(
         List<Assignee> assignees,
         /** Null when the issue isn't milestoned. */
         Milestone milestone,
-        List<Comment> comments)
+        List<Comment> comments,
+        /** Structural timeline events — labeled, assigned, closed,
+         *  cross-referenced, … — feeding the Activity + Linked tabs.
+         *  Always non-null; empty for issues with no structural history. */
+        List<IssueTimelineEvent> timeline)
 {
     public record Label(String name, String color) {}
 

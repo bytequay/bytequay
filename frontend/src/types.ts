@@ -490,6 +490,33 @@ export type IssueDetailDto = {
   assignees: IssueAssigneeDto[];
   milestone: IssueMilestoneDto | null;
   comments: IssueCommentDto[];
+  /** Structural timeline events backing the Activity + Linked tabs.
+   *  Commented events live on {@link comments} — the timeline carries
+   *  everything else (labeled, assigned, milestoned, closed, reopened,
+   *  renamed, mentioned, cross-referenced, …). */
+  timeline: IssueTimelineEventDto[];
+};
+
+/** One row of the issue timeline. Most fields are populated only for
+ *  matching event types — {@code label} fills in for {@code labeled}
+ *  / {@code unlabeled}, {@code assignee} for assignment events, etc.
+ *  The renderer dispatches on {@link event}. */
+export type IssueTimelineEventDto = {
+  event: string;
+  actor: string | null;
+  timestamp: string | null;
+  label: { name: string; color: string } | null;
+  assignee: string | null;
+  milestone: string | null;
+  rename: { from: string; to: string } | null;
+  crossReference: {
+    number: number;
+    title: string;
+    state: string;
+    isPullRequest: boolean;
+    repoFullName: string | null;
+    htmlUrl: string | null;
+  } | null;
 };
 
 export type UserRepoDto = {

@@ -334,3 +334,136 @@
   margin: 0;
   color: var(--text-1);
 }
+
+/* ── Tabs strip (I3b — Activity / Linked PRs) ─────────────────────── */
+.issue-detail__tabs {
+  display: flex;
+  gap: 4px;
+  padding: 0 4px 12px;
+  border-bottom: 1px solid var(--border-light);
+  margin-bottom: 14px;
+}
+.issue-detail__tab {
+  appearance: none;
+  background: transparent;
+  border: 0;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-2);
+  padding: 8px 12px;
+  border-radius: 6px 6px 0 0;
+  cursor: pointer;
+  border-bottom: 2px solid transparent;
+  margin-bottom: -13px;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+.issue-detail__tab:hover { color: var(--text-1); }
+.issue-detail__tab--active {
+  color: var(--text-1);
+  border-bottom-color: var(--accent);
+  font-weight: 600;
+}
+.issue-detail__tab-count {
+  display: inline-block;
+  min-width: 18px;
+  text-align: center;
+  background: var(--bg-card);
+  color: var(--text-2);
+  font-size: 11px;
+  font-weight: 600;
+  padding: 1px 6px;
+  border-radius: 999px;
+}
+.issue-detail__tab--active .issue-detail__tab-count {
+  background: var(--accent-a7);
+  color: var(--accent);
+}
+
+/* ── Activity list ────────────────────────────────────────────────── */
+.issue-detail__activity-empty {
+  padding: 40px 0;
+  text-align: center;
+  color: var(--text-3);
+  font-size: 13px;
+}
+.issue-detail__activity-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.issue-detail__activity-row {
+  display: grid;
+  grid-template-columns: 24px 1fr auto;
+  gap: 10px;
+  align-items: center;
+  padding: 6px 8px;
+  border-radius: 6px;
+  font-size: 12.5px;
+  color: var(--text-2);
+}
+.issue-detail__activity-row:hover { background: var(--bg-card); }
+.issue-detail__activity-glyph {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  border-radius: 50%;
+  background: var(--bg-card);
+  color: var(--text-3);
+  font-size: 11.5px;
+}
+.issue-detail__activity-text strong { color: var(--text-1); font-weight: 600; }
+.issue-detail__activity-text em { color: var(--text-1); font-style: normal; font-weight: 500; }
+.issue-detail__activity-time {
+  font-size: 11.5px;
+  color: var(--text-4);
+  white-space: nowrap;
+}
+
+/* ── Linked PRs list ──────────────────────────────────────────────── */
+.issue-detail__linked-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.issue-detail__linked-row {
+  display: grid;
+  grid-template-columns: auto auto 1fr auto auto auto;
+  gap: 10px;
+  align-items: center;
+  padding: 10px 12px;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border-light);
+  border-radius: 6px;
+  font-size: 13px;
+}
+.issue-detail__linked-num {
+  font-weight: 600;
+  color: var(--text-3);
+}
+.issue-detail__linked-title {
+  color: var(--text-1);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  min-width: 0;
+}
+.issue-detail__linked-repo {
+  font-size: 11.5px;
+  color: var(--text-4);
+}
+.issue-detail__linked-link {
+  color: var(--accent);
+  text-decoration: none;
+}
+.issue-detail__linked-link:hover { text-decoration: underline; }

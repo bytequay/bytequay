@@ -19,6 +19,7 @@ import com.bytequay.app.domain.CreateReviewCommand;
 import com.bytequay.app.domain.DiffFile;
 import com.bytequay.app.domain.GitHubUserMatch;
 import com.bytequay.app.domain.IssueDetail;
+import com.bytequay.app.domain.IssueTimelineEvent;
 import com.bytequay.app.domain.ListPullRequestsQuery;
 import com.bytequay.app.domain.MergePullRequestCommand;
 import com.bytequay.app.domain.MergeResult;
@@ -1529,6 +1530,57 @@ public class GitHubClient
     }
 
     @Override
+    public List<IssueTimelineEvent> fetchIssueTimeline(String pat, RepoRef repo, int number)
+    {
+        try {
+            List<GitHubTimelineEvent> raw = paginate(pat,
+                    "/repos/{owner}/{repo}/issues/{number}/timeline",
+                    u -> u.build(repo.owner(), repo.repo(), number),
+                    new ParameterizedTypeReference<List<GitHubTimelineEvent>>() {},
+                    null);
+            return raw.stream()
+                    // Skip "commented" rows — those ride on the comments
+                    // endpoint already (and carry richer reaction data
+                    // there). Activity tab renders structural events only.
+                    .filter(e -> !"commented".equals(e.event()))
+                    .map(GitHubClient::toIssueTimelineEvent)
+                    .filter(Objects::nonNull)
+                    .collect(toImmutableList());
+        }
+        catch (RestClientResponseException e) {
+            throw toReadableException(e);
+        }
+    }
+
+    private static IssueTimelineEvent toIssueTimelineEvent(GitHubTimelineEvent e)
+    {
+        Instant when = e.createdAt() != null ? e.createdAt() : e.submittedAt();
+        String actor = Optional.ofNullable(e.actor()).map(GitHubTimelineEvent.Actor::login)
+                .orElseGet(() -> Optional.ofNullable(e.user()).map(GitHubTimelineEvent.User::login).orElse(null));
+        IssueTimelineEvent.Label label = e.label() == null
+                ? null
+                : new IssueTimelineEvent.Label(e.label().name(), e.label().color());
+        String assignee = e.assignee() == null ? null : e.assignee().login();
+        String milestone = e.milestone() == null ? null : e.milestone().title();
+        IssueTimelineEvent.Rename rename = e.rename() == null
+                ? null
+                : new IssueTimelineEvent.Rename(e.rename().from(), e.rename().to());
+        IssueTimelineEvent.CrossReference crossRef = null;
+        if (e.source() != null && e.source().issue() != null) {
+            GitHubTimelineEvent.SourceIssue src = e.source().issue();
+            String repoFullName = src.repository() == null ? null : src.repository().fullName();
+            crossRef = new IssueTimelineEvent.CrossReference(
+                    src.number(),
+                    src.title(),
+                    src.state(),
+                    src.pullRequest() != null,
+                    repoFullName,
+                    src.htmlUrl());
+        }
+        return new IssueTimelineEvent(e.event(), actor, when, label, assignee, milestone, rename, crossRef);
+    }
+
+    @Override
     public IssueDetail setIssueState(String pat, RepoRef repo, int number, String state)
     {
         try {
@@ -1608,7 +1660,11 @@ public class GitHubClient
                 labels,
                 assignees,
                 milestone,
-                comments);
+                comments,
+                // Timeline is fetched separately on the service-side
+                // hot path so this client-internal helper just returns
+                // empty here; the service splices the timeline in.
+                ImmutableList.of());
     }
 
     private static IssueDetail.Comment toIssueDetailComment(GitHubIssueComment c)

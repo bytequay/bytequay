@@ -11,8 +11,8 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import { useCallback, useEffect, useState } from 'react';
-import type { IssueCommentDto, IssueDetailDto, ReactionsDto } from './types';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import type { IssueCommentDto, IssueDetailDto, IssueTimelineEventDto, ReactionsDto } from './types';
 import Avatar from './Avatar';
 import LogoLoading from './LogoLoading';
 import PolishButtons from './ai/PolishButtons';
@@ -20,6 +20,8 @@ import { renderMarkdown } from './markdown';
 import { formatRelative } from './prBuckets';
 import { ReactionChips } from './pr/Reactions';
 import { REACTION_FIELD, type ReactionContent } from './pr/utils';
+
+type Tab = 'conversation' | 'activity' | 'linked';
 
 type Props = {
   owner: string;
@@ -45,6 +47,10 @@ type Props = {
 function IssueDetailScreen({ owner, repo, number, onBack, embedded }: Props) {
   const [detail, setDetail] = useState<IssueDetailDto | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [tab, setTab] = useState<Tab>('conversation');
+  // Reset to the conversation tab whenever the user navigates to a
+  // different issue — sticky tabs across issues would surprise users.
+  useEffect(() => { setTab('conversation'); }, [owner, repo, number]);
 
   useEffect(() => {
     let cancelled = false;
@@ -141,37 +147,44 @@ function IssueDetailScreen({ owner, repo, number, onBack, embedded }: Props) {
 
       <div className="issue-detail__body">
         <div className="issue-detail__main">
-          {/* Top comment — the issue body itself rendered as a comment
-              card, matching GitHub's convention (the author's opening
-              post is the first row in the conversation). */}
-          <CommentCard
-            author={detail.author}
-            avatarUrl={detail.authorAvatarUrl}
-            createdAt={detail.createdAt}
-            body={detail.body}
-            isAuthor
-          />
-          {detail.comments.map(c => (
-            <CommentCard
-              key={c.id}
-              commentId={c.id}
-              author={c.author}
-              avatarUrl={c.authorAvatarUrl}
-              createdAt={c.createdAt}
-              body={c.body}
-              reactions={c.reactions}
-              onAddReaction={addReaction}
-            />
-          ))}
-          <ReplyComposer
-            owner={owner}
-            repo={repo}
-            number={detail.number}
-            onPosted={(newComment) =>
-              setDetail((prev) => prev
-                ? { ...prev, comments: [...prev.comments, newComment] }
-                : prev)}
-          />
+          <IssueTabStrip tab={tab} detail={detail} onSelect={setTab} />
+          {tab === 'conversation' && (
+            <>
+              {/* Top comment — the issue body itself rendered as a comment
+                  card, matching GitHub's convention (the author's opening
+                  post is the first row in the conversation). */}
+              <CommentCard
+                author={detail.author}
+                avatarUrl={detail.authorAvatarUrl}
+                createdAt={detail.createdAt}
+                body={detail.body}
+                isAuthor
+              />
+              {detail.comments.map(c => (
+                <CommentCard
+                  key={c.id}
+                  commentId={c.id}
+                  author={c.author}
+                  avatarUrl={c.authorAvatarUrl}
+                  createdAt={c.createdAt}
+                  body={c.body}
+                  reactions={c.reactions}
+                  onAddReaction={addReaction}
+                />
+              ))}
+              <ReplyComposer
+                owner={owner}
+                repo={repo}
+                number={detail.number}
+                onPosted={(newComment) =>
+                  setDetail((prev) => prev
+                    ? { ...prev, comments: [...prev.comments, newComment] }
+                    : prev)}
+              />
+            </>
+          )}
+          {tab === 'activity' && <ActivityPanel events={detail.timeline} />}
+          {tab === 'linked' && <LinkedPanel events={detail.timeline} />}
         </div>
 
         <aside className="issue-detail__rail">
@@ -481,6 +494,180 @@ function labelStyle(hex: string): React.CSSProperties {
     background: bg,
     color: yiq >= 160 ? '#1f2328' : '#ffffff',
   };
+}
+
+function IssueTabStrip({
+  tab,
+  detail,
+  onSelect,
+}: {
+  tab: Tab;
+  detail: IssueDetailDto;
+  onSelect: (next: Tab) => void;
+}) {
+  // Counts shown on each pill — for conversation we count the body +
+  // user comments; for activity we count everything else; for linked
+  // we count cross-references that point to PRs.
+  const activityCount = useMemo(
+    () => detail.timeline.filter(e => e.event !== 'cross-referenced').length
+        + detail.timeline.filter(e => e.event === 'cross-referenced' && !(e.crossReference?.isPullRequest)).length,
+    [detail.timeline]);
+  const linkedCount = useMemo(
+    () => detail.timeline.filter(e => e.event === 'cross-referenced' && e.crossReference?.isPullRequest).length,
+    [detail.timeline]);
+  return (
+    <div className="issue-detail__tabs" role="tablist">
+      <TabPill label="Conversation" count={detail.comments.length} active={tab === 'conversation'} onClick={() => onSelect('conversation')} />
+      <TabPill label="Activity" count={activityCount} active={tab === 'activity'} onClick={() => onSelect('activity')} />
+      <TabPill label="Linked PRs" count={linkedCount} active={tab === 'linked'} onClick={() => onSelect('linked')} />
+    </div>
+  );
+}
+
+function TabPill({ label, count, active, onClick }: { label: string; count: number; active: boolean; onClick: () => void }) {
+  return (
+    <button
+      type="button"
+      role="tab"
+      aria-selected={active}
+      className={`issue-detail__tab${active ? ' issue-detail__tab--active' : ''}`}
+      onClick={onClick}
+    >
+      {label}
+      <span className="issue-detail__tab-count">{count}</span>
+    </button>
+  );
+}
+
+function ActivityPanel({ events }: { events: IssueTimelineEventDto[] }) {
+  if (events.length === 0) {
+    return <div className="issue-detail__activity-empty">No activity beyond the conversation yet.</div>;
+  }
+  return (
+    <ol className="issue-detail__activity-list">
+      {events.map((e, i) => (
+        <li key={`${e.event}-${e.timestamp ?? i}-${i}`} className="issue-detail__activity-row">
+          <span className="issue-detail__activity-glyph" aria-hidden="true">{glyphFor(e.event)}</span>
+          <span className="issue-detail__activity-text">{renderActivity(e)}</span>
+          {e.timestamp && (
+            <span className="issue-detail__activity-time">{formatRelative(e.timestamp)}</span>
+          )}
+        </li>
+      ))}
+    </ol>
+  );
+}
+
+function LinkedPanel({ events }: { events: IssueTimelineEventDto[] }) {
+  // Linked tab shows cross-references that point to PRs — exactly the
+  // bit that's most often asked of an issue surface ("what PRs touch
+  // this one?"). Same-repo refs come without a repoFullName from the
+  // backend, so we treat the absence as "in this repo".
+  const linked = events.filter(e => e.event === 'cross-referenced' && e.crossReference?.isPullRequest);
+  if (linked.length === 0) {
+    return <div className="issue-detail__activity-empty">No PRs link to this issue yet.</div>;
+  }
+  return (
+    <ul className="issue-detail__linked-list">
+      {linked.map((e, i) => {
+        const cr = e.crossReference!;
+        return (
+          <li key={`linked-${cr.number}-${i}`} className="issue-detail__linked-row">
+            <span className={`issue-row__status issue-row__status--${cr.state === 'closed' ? 'closed' : 'open'}`} aria-hidden="true" />
+            <span className="issue-detail__linked-num">#{cr.number}</span>
+            <span className="issue-detail__linked-title">{cr.title}</span>
+            <span className="issue-detail__linked-repo">{cr.repoFullName ?? 'this repo'}</span>
+            {e.timestamp && (
+              <span className="issue-detail__activity-time">{formatRelative(e.timestamp)}</span>
+            )}
+            {cr.htmlUrl && (
+              <a className="issue-detail__linked-link" href={cr.htmlUrl} target="_blank" rel="noreferrer">↗</a>
+            )}
+          </li>
+        );
+      })}
+    </ul>
+  );
+}
+
+/** One-glyph affordance for an event row. Picked to read at a glance
+ *  rather than be literal — the {@link renderActivity} text carries
+ *  the precise meaning. */
+function glyphFor(event: string): string {
+  switch (event) {
+    case 'labeled':
+    case 'unlabeled': return '🏷';
+    case 'assigned':
+    case 'unassigned': return '👤';
+    case 'milestoned':
+    case 'demilestoned': return '🎯';
+    case 'closed': return '✓';
+    case 'reopened': return '↻';
+    case 'renamed': return '✎';
+    case 'mentioned': return '@';
+    case 'cross-referenced': return '↗';
+    case 'locked': return '🔒';
+    case 'unlocked': return '🔓';
+    case 'pinned':
+    case 'unpinned': return '📌';
+    default: return '·';
+  }
+}
+
+function renderActivity(e: IssueTimelineEventDto): React.ReactNode {
+  const actor = e.actor ? <strong>@{e.actor}</strong> : <em>someone</em>;
+  switch (e.event) {
+    case 'labeled':
+      return <>{actor} added <LabelChip label={e.label} /></>;
+    case 'unlabeled':
+      return <>{actor} removed <LabelChip label={e.label} /></>;
+    case 'assigned':
+      return <>{actor} assigned <strong>@{e.assignee ?? 'someone'}</strong></>;
+    case 'unassigned':
+      return <>{actor} unassigned <strong>@{e.assignee ?? 'someone'}</strong></>;
+    case 'milestoned':
+      return <>{actor} added to milestone <em>{e.milestone}</em></>;
+    case 'demilestoned':
+      return <>{actor} removed from milestone <em>{e.milestone}</em></>;
+    case 'closed':
+      return <>{actor} closed this</>;
+    case 'reopened':
+      return <>{actor} reopened this</>;
+    case 'renamed':
+      return e.rename
+        ? <>{actor} renamed from <em>{e.rename.from}</em> to <em>{e.rename.to}</em></>
+        : <>{actor} renamed this</>;
+    case 'mentioned':
+      return <>{actor} was mentioned</>;
+    case 'cross-referenced':
+      if (!e.crossReference) return <>{actor} referenced this</>;
+      return (
+        <>{actor} referenced from{' '}
+          {e.crossReference.isPullRequest ? 'PR' : 'issue'} #{e.crossReference.number}
+          {e.crossReference.title && <> — <em>{e.crossReference.title}</em></>}
+        </>
+      );
+    case 'locked':
+      return <>{actor} locked the conversation</>;
+    case 'unlocked':
+      return <>{actor} unlocked the conversation</>;
+    case 'pinned':
+      return <>{actor} pinned this</>;
+    case 'unpinned':
+      return <>{actor} unpinned this</>;
+    default:
+      // GitHub's timeline endpoint can return a long tail of obscure
+      // event types we don't render specifically. Show the verb so
+      // the user knows something happened rather than an empty row.
+      return <>{actor} {e.event.replace(/_/g, ' ')}</>;
+  }
+}
+
+function LabelChip({ label }: { label: { name: string; color: string } | null }) {
+  if (!label) return <em>a label</em>;
+  return (
+    <span className="issue-detail__label" style={labelStyle(label.color)}>{label.name}</span>
+  );
 }
 
 export default IssueDetailScreen;

@@ -50,6 +50,7 @@ function detail(over: Partial<IssueDetailDto> = {}): IssueDetailDto {
         reactions: { ...ZERO_REACTIONS, plusOne: 2 },
       },
     ],
+    timeline: [],
     ...over,
   };
 }
@@ -135,5 +136,118 @@ describe('IssueDetailScreen — reactions (I3b)', () => {
     await waitFor(() => {
       expect(screen.getByRole('button', { name: /add a reaction/i })).toBeDefined();
     });
+  });
+});
+
+describe('IssueDetailScreen — Activity / Linked tabs (I3b)', () => {
+  afterEach(() => {
+    cleanup();
+    delete (window as unknown as { bridge?: unknown }).bridge;
+  });
+
+  it('renders activity rows for structural events on the Activity tab', async () => {
+    installBridge({
+      getIssueDetail: vi.fn().mockResolvedValue(detail({
+        timeline: [
+          {
+            event: 'labeled', actor: 'maria', timestamp: '2026-05-09T10:00:00Z',
+            label: { name: 'bug', color: 'd73a4a' },
+            assignee: null, milestone: null, rename: null, crossReference: null,
+          },
+          {
+            event: 'assigned', actor: 'jack', timestamp: '2026-05-09T11:00:00Z',
+            label: null, assignee: 'jack', milestone: null, rename: null, crossReference: null,
+          },
+          {
+            event: 'closed', actor: 'maria', timestamp: '2026-05-09T12:00:00Z',
+            label: null, assignee: null, milestone: null, rename: null, crossReference: null,
+          },
+        ],
+      })),
+    });
+    render(<IssueDetailScreen owner="o" repo="r" number={42} />);
+    const activityTab = await screen.findByRole('tab', { name: /Activity/i });
+    await act(async () => { fireEvent.click(activityTab); });
+
+    // Two activity rows are by @maria (labeled + closed); use getAllByText.
+    expect(screen.getAllByText('@maria').length).toBeGreaterThanOrEqual(2);
+    // The label chip carries the label name.
+    expect(screen.getByText('bug')).toBeDefined();
+    // The 'assigned' row mentions the assignee. Actor + assignee both
+    // happen to be @jack in this fixture so there can be multiple
+    // matches — getAllByText is sufficient to assert presence.
+    expect(screen.getAllByText('@jack').length).toBeGreaterThanOrEqual(1);
+    expect(screen.getByText(/closed this/)).toBeDefined();
+  });
+
+  it('Linked tab surfaces PR cross-references and skips plain issue refs', async () => {
+    installBridge({
+      getIssueDetail: vi.fn().mockResolvedValue(detail({
+        timeline: [
+          {
+            event: 'cross-referenced', actor: 'maria', timestamp: '2026-05-09T10:00:00Z',
+            label: null, assignee: null, milestone: null, rename: null,
+            crossReference: {
+              number: 123, title: 'Fix the planner regression',
+              state: 'open', isPullRequest: true,
+              repoFullName: 'o/r', htmlUrl: 'https://github.com/o/r/pull/123',
+            },
+          },
+          {
+            event: 'cross-referenced', actor: 'jack', timestamp: '2026-05-09T11:00:00Z',
+            label: null, assignee: null, milestone: null, rename: null,
+            crossReference: {
+              number: 456, title: 'Related plan',
+              state: 'open', isPullRequest: false,
+              repoFullName: 'o/r', htmlUrl: null,
+            },
+          },
+        ],
+      })),
+    });
+    render(<IssueDetailScreen owner="o" repo="r" number={42} />);
+    const linkedTab = await screen.findByRole('tab', { name: /Linked PRs/i });
+    await act(async () => { fireEvent.click(linkedTab); });
+
+    // PR row shows up …
+    expect(screen.getByText(/Fix the planner regression/i)).toBeDefined();
+    expect(screen.getByText('#123')).toBeDefined();
+    // … but the plain-issue cross-ref does not.
+    expect(screen.queryByText(/Related plan/i)).toBeNull();
+  });
+
+  it('Linked tab shows an empty state when no PRs reference the issue', async () => {
+    installBridge({
+      getIssueDetail: vi.fn().mockResolvedValue(detail({ timeline: [] })),
+    });
+    render(<IssueDetailScreen owner="o" repo="r" number={42} />);
+    const linkedTab = await screen.findByRole('tab', { name: /Linked PRs/i });
+    await act(async () => { fireEvent.click(linkedTab); });
+
+    expect(screen.getByText(/No PRs link to this issue yet/i)).toBeDefined();
+  });
+
+  it('Tab counts reflect the contents of each tab', async () => {
+    installBridge({
+      getIssueDetail: vi.fn().mockResolvedValue(detail({
+        timeline: [
+          { event: 'labeled', actor: 'a', timestamp: '2026-05-09T10:00:00Z',
+            label: { name: 'bug', color: 'red' }, assignee: null, milestone: null, rename: null, crossReference: null },
+          { event: 'cross-referenced', actor: 'b', timestamp: '2026-05-09T11:00:00Z',
+            label: null, assignee: null, milestone: null, rename: null,
+            crossReference: { number: 12, title: 't', state: 'open', isPullRequest: true, repoFullName: 'o/r', htmlUrl: null } },
+        ],
+      })),
+    });
+    render(<IssueDetailScreen owner="o" repo="r" number={42} />);
+    const linkedTab = await screen.findByRole('tab', { name: /Linked PRs/i });
+    const activityTab = screen.getByRole('tab', { name: /Activity/i });
+    const conversationTab = screen.getByRole('tab', { name: /Conversation/i });
+    // Conversation count = number of comments (1 in the fixture detail()).
+    expect(conversationTab.textContent).toMatch(/1$/);
+    // Activity count = non-cross-ref events + non-PR cross-refs = 1.
+    expect(activityTab.textContent).toMatch(/1$/);
+    // Linked count = PR cross-refs = 1.
+    expect(linkedTab.textContent).toMatch(/1$/);
   });
 });

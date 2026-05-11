@@ -266,6 +266,12 @@ button.prc-branches__ref--clickable:hover {
 }
 .prc-error { color: #b91c1c; }
 
+/* Sidebar status row variant — matches the existing red-dot rows for
+   "N changes requested" / approvals, in the same red tone. */
+.prc-status-row--conflict {
+  color: #b91c1c;
+}
+
 .prc-body {
   flex: 1;
   display: grid;

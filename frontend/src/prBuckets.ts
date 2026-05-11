@@ -464,6 +464,16 @@ export function categorizeMyPr(pr: PullRequestDto, now: number = Date.now()): My
   // a readability signal that human feedback is the primary trigger.
   if (pr.ciStatus === 'FAILING') return 'needs_changes';
 
+  // File-conflicts state — mergeableState === 'dirty' is GitHub's
+  // canonical "head conflicts with base" signal. The author has to
+  // rebase / merge / resolve before anyone can merge this PR, so it
+  // belongs in Needs your changes alongside CI failures and
+  // CHANGES_REQUESTED. We deliberately don't trip on `mergeable ===
+  // false` more broadly — that also fires on 'blocked' (branch-
+  // protection rules aren't satisfied) and 'behind' (head is behind
+  // base but otherwise clean), neither of which is a file conflict.
+  if (pr.mergeableState === 'dirty') return 'needs_changes';
+
   // No reviewer has weighed in yet → still waiting on review.
   return 'waiting_on_review';
 }

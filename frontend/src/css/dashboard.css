@@ -1535,6 +1535,30 @@
   cursor: default;
 }
 
+/* Amber "Conflict with base" pill — same pill shape as CI passed/failing
+   so the row reads as a list of merge blockers. Anchored to github.com's
+   conflict editor since we don't yet enumerate the conflict file list
+   locally (planned: git merge-tree --name-only once the local clone
+   reliably has the PR head + base fetched). */
+.merge-bar__conflict {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 10px;
+  border-radius: 6px;
+  border: 1px solid #c2410c;
+  background: #ea580c;
+  color: #fff;
+  font-size: 13px;
+  font-weight: 600;
+  flex-shrink: 0;
+  text-decoration: none;
+}
+.merge-bar__conflict:hover {
+  background: #c2410c;
+  border-color: #9a3412;
+}
+
 /* Refresh CI button — sits flush against the CI status pill so users
    can force a fresh fetch when local data has fallen behind GitHub.
    Same circular-icon styling as the bottom CiSummary refresh so the

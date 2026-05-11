@@ -365,7 +365,12 @@ function MergeBar({ pr, detail, mergeState, mergeError, onMerge, onRefreshCi, ci
   const ciPassing = detail.ciStatus === 'PASSING' || detail.ciStatus === 'NONE';
   const ciPending = detail.ciStatus === 'PENDING';
   const closed = pr.state === 'closed';
-  const enabled = !closed && ciPassing && detail.viewerCanWrite && mergeState !== 'running';
+  // GitHub's mergeable_state="dirty" is the canonical "head and base
+  // conflict at the file level" signal. Other false-values ('blocked',
+  // 'behind') aren't file conflicts — surfacing those here would
+  // wrongly imply the author needs to resolve text.
+  const hasConflict = (detail.mergeableState ?? pr.mergeableState) === 'dirty';
+  const enabled = !closed && ciPassing && detail.viewerCanWrite && mergeState !== 'running' && !hasConflict;
   // CI-failing is intentionally NOT in the disabled-reason text anymore —
   // the red "CI failing" pill in the middle of the bar carries that
   // signal, and expanding it shows per-check details. Keeping both would
@@ -375,6 +380,10 @@ function MergeBar({ pr, detail, mergeState, mergeError, onMerge, onRefreshCi, ci
     disabledReason = 'This PR is closed.';
   } else if (!detail.viewerCanWrite) {
     disabledReason = 'You don’t have write access to this repository.';
+  } else if (hasConflict) {
+    // Take precedence over the CI-pending message — the author can't
+    // do anything useful until conflicts are resolved.
+    disabledReason = 'This PR has file conflicts — resolve them on github.com first.';
   } else if (ciPending && failingChecks.length === 0) {
     disabledReason = 'CI is still running — wait for it to finish.';
   }
@@ -508,6 +517,24 @@ function MergeBar({ pr, detail, mergeState, mergeError, onMerge, onRefreshCi, ci
             <span>CI passed</span>
           </span>
         ) : null}
+        {hasConflict && (
+          // File-conflict button — sits to the right of the CI pill so
+          // a "CI passed ✓  Conflict ⚠" row reads as the two blockers
+          // at a glance. Clicks open github.com's conflict editor in
+          // the system browser; a future iteration can fetch the
+          // file list via `git merge-tree --name-only` once the
+          // local clone has the head + base SHAs fetched.
+          <a
+            className="merge-bar__conflict"
+            href={`${pr.htmlUrl}/conflicts`}
+            target="_blank"
+            rel="noreferrer"
+            title="Open the conflict editor on github.com"
+          >
+            <span aria-hidden="true">⚠</span>
+            <span>Conflict with {detail.baseRef ?? 'base'}</span>
+          </a>
+        )}
         <button
           type="button"
           className="merge-bar__ci-refresh"
@@ -1240,6 +1267,7 @@ function PullRequestPreview({ pr, onOpenReview, onInspectDiffs, onMarkHandled, o
                             onSetResolved={handleSetThreadResolved}
                             currentUserLogin={currentUserLogin}
                             onEditMessage={handleEditReviewComment}
+                            repoContext={repoContext}
                           />
                         ))}
                       </div>
@@ -1743,6 +1771,16 @@ function PullRequestPreview({ pr, onOpenReview, onInspectDiffs, onMarkHandled, o
               {detail.ciStatus && detail.ciStatus !== 'NONE' && (
                 <CiChecksRow ciStatus={detail.ciStatus} checkRuns={detail.checkRuns} />
               )}
+              {(detail.mergeableState ?? pr.mergeableState) === 'dirty' && (
+                // Sibling row to the CI status line. Same shape, red
+                // dot — the eye scans them as a list. The full advice
+                // (+ link to github.com's conflict editor) lives in
+                // the top-of-page banner so this row stays compact.
+                <div className="prc-status-row prc-status-row--conflict">
+                  <span className="prc-status-dot" style={{ background: '#dc2626' }} />
+                  <span><b>Merge conflict</b> — resolve before merging</span>
+                </div>
+              )}
               {detail.approvalCount > 0 && (
                 <div className="prc-status-row">
                   <span className="prc-status-dot" style={{ background: '#16a34a' }} />
@@ -1755,7 +1793,10 @@ function PullRequestPreview({ pr, onOpenReview, onInspectDiffs, onMarkHandled, o
                   <span><b>{detail.changesRequestedCount} changes requested</b></span>
                 </div>
               )}
-              {(detail.ciStatus === 'NONE' || !detail.ciStatus) && detail.approvalCount === 0 && detail.changesRequestedCount === 0 && (
+              {(detail.ciStatus === 'NONE' || !detail.ciStatus)
+                && detail.approvalCount === 0
+                && detail.changesRequestedCount === 0
+                && (detail.mergeableState ?? pr.mergeableState) !== 'dirty' && (
                 <div className="prc-meta-empty">No checks or reviews yet.</div>
               )}
             </section>
@@ -1974,6 +2015,7 @@ function PullRequestPreview({ pr, onOpenReview, onInspectDiffs, onMarkHandled, o
                   onSetResolved={handleSetThreadResolved}
                   currentUserLogin={currentUserLogin}
                   onEditMessage={handleEditReviewComment}
+                  repoContext={repoContext}
                 />
               ))}
             </div>
@@ -2112,6 +2154,7 @@ function PullRequestPreview({ pr, onOpenReview, onInspectDiffs, onMarkHandled, o
                   onSetResolved={handleSetThreadResolved}
                   currentUserLogin={currentUserLogin}
                   onEditMessage={handleEditReviewComment}
+                  repoContext={repoContext}
                 />
               ))}
             </div>
@@ -2201,6 +2244,7 @@ function PullRequestPreview({ pr, onOpenReview, onInspectDiffs, onMarkHandled, o
         onSetResolved={handleSetThreadResolved}
         currentUserLogin={currentUserLogin}
         onEditMessage={handleEditReviewComment}
+        repoContext={repoContext}
       />
     );
   }

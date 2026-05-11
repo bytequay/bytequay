@@ -515,6 +515,27 @@ describe('categorizeMyPr', () => {
     }), NOW)).toBe('needs_changes');
   });
 
+  it('mergeableState=dirty → needs_changes even with passing CI and no verdicts', () => {
+    // File-conflict state: the author has to rebase/resolve before
+    // anyone can merge, so it belongs in Needs your changes.
+    expect(categorizeMyPr(pr({
+      ciStatus: 'PASSING',
+      mergeable: false,
+      mergeableState: 'dirty',
+    }), NOW)).toBe('needs_changes');
+  });
+
+  it('mergeableState=blocked (branch protection) does NOT route to needs_changes', () => {
+    // 'blocked' isn't a file conflict — it's a required-review /
+    // protected-branch signal. The author isn't expected to "fix"
+    // anything; the review path will unblock it.
+    expect(categorizeMyPr(pr({
+      ciStatus: 'PASSING',
+      mergeable: false,
+      mergeableState: 'blocked',
+    }), NOW)).toBe('waiting_on_review');
+  });
+
   it('merged within 7 days → recently_merged', () => {
     const fiveDaysAgo = new Date(NOW - 5 * 24 * 60 * 60 * 1000).toISOString();
     expect(categorizeMyPr(pr({

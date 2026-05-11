@@ -124,4 +124,18 @@ public interface PullRequestStore
             Instant headPushedAt,
             Map<String, String> reviewerVerdicts,
             String headRef);
+
+    /**
+     * Narrow writeback for the cached aggregate ciStatus only. Used by
+     * the user-driven detail / CI-snapshot paths so the kanban
+     * categorizer (prBuckets.ts categorizeMyPr / categorizeToReview)
+     * picks up a fresh failing-CI state without waiting for the next
+     * full bulk sync to run. No-op if {@code prId} isn't in the store.
+     *
+     * <p>Deliberately doesn't touch attentionReason or the rest of
+     * the enrichment block — those depend on per-user state
+     * (currentLogin / viewedAt) that isn't always in scope on these
+     * paths. The next bulk sync recomputes them in lockstep.
+     */
+    void updateCiStatus(long prId, PullRequestDetail.CiStatus ciStatus);
 }

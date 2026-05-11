@@ -254,7 +254,14 @@ public class PullRequestService
 
         // Cache miss — fetch live, store for next time
         StoredPrDetail fetched = fetchDetailFromGitHub(pat, ref);
-        prId.ifPresent(id -> detailStore.save(id, fetched));
+        prId.ifPresent(id -> {
+            detailStore.save(id, fetched);
+            // Propagate the aggregate CI status onto the PR row so the
+            // kanban categorizer (prBuckets.ts) picks up a fresh
+            // FAILING state without waiting for the next bulk sync.
+            // The detail blob has it; the row didn't until this line.
+            store.updateCiStatus(id, PrAttention.aggregateCiStatus(fetched));
+        });
         return assemblePullRequestDetail(repo, number, fetched, viewerCanWrite);
     }
 
@@ -368,8 +375,15 @@ public class PullRequestService
                 pat,
                 repoRef,
                 () -> gitHub.fetchViewerCanWrite(pat, repoRef));
+        PullRequestDetail.CiStatus aggregate = aggregateCiStatus(runs);
+        // Propagate the freshly-computed aggregate onto the PR row so
+        // a click on the merge bar's ↻ refresh also re-routes the
+        // kanban card (categorizeMyPr / categorizeToReview both read
+        // ciStatus from the row, not the detail blob).
+        store.findIdByRepoAndNumber(repo, number).ifPresent(id ->
+                store.updateCiStatus(id, aggregate));
         return new PrCiSnapshot(
-                aggregateCiStatus(runs),
+                aggregate,
                 toCheckRuns(runs),
                 viewerCanWrite);
     }

@@ -235,6 +235,16 @@ public class SqlitePullRequestStore
         });
     }
 
+    @Override
+    @Transactional
+    public void updateCiStatus(long prId, PullRequestDetail.CiStatus ciStatus)
+    {
+        jpaRepository.findById(prId).ifPresent(entity -> {
+            entity.setCiStatus(ciStatus);
+            jpaRepository.save(entity);
+        });
+    }
+
     private static PullRequestEntity toEntity(PullRequest pr, Instant syncedAt)
     {
         PullRequestEntity entity = new PullRequestEntity();

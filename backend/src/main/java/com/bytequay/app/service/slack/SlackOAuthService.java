@@ -127,7 +127,15 @@ public class SlackOAuthService
 
     /** User-token scopes pinned in scopes.md. Order is preserved when
      *  serialised into the {@code user_scope} query parameter so logs
-     *  read in a stable order. */
+     *  read in a stable order.
+     *
+     *  <p>{@code search:read} powers the per-tick {@code search.messages}
+     *  sweep that catches mentions in channels the user hasn't followed
+     *  — without it the polling loop only ingests history for the
+     *  followed-channel set + open DMs. Tokens minted before this scope
+     *  landed will return {@code missing_scope} on the sweep; the
+     *  polling job logs once and falls through, and the user has to
+     *  disconnect + reconnect to pick up the new grant. */
     static final List<String> USER_SCOPES = ImmutableList.of(
             "users:read",
             "channels:history",
@@ -138,7 +146,8 @@ public class SlackOAuthService
             "groups:read",
             "im:read",
             "mpim:read",
-            "chat:write");
+            "chat:write",
+            "search:read");
 
     /** Issued state tokens older than this are considered expired. */
     private static final Duration STATE_TTL = Duration.ofMinutes(10);

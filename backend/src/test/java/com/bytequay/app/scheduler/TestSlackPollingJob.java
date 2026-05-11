@@ -30,6 +30,8 @@ import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
+import org.springframework.http.HttpStatusCode;
+import org.springframework.web.server.ResponseStatusException;
 
 import java.time.Clock;
 import java.time.Instant;
@@ -47,6 +49,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -218,6 +221,123 @@ class TestSlackPollingJob
     }
 
     @Test
+    void testSearchSweepIngestsMentionInUnfollowedChannel()
+            throws Exception
+    {
+        Fixture f = new Fixture();
+        f.connected();
+        // Watermark seeded so search hits register as fresh and bootstrap
+        // doesn't push them below the cutoff.
+        f.watermarks.upsert(new SlackChannelWatermark(
+                WS, SlackPollingJob.MENTION_SWEEP_SENTINEL, "1700000000.000000", NOW.minusSeconds(60)));
+        when(f.api.listImAndMpimConversations("xoxp", WS)).thenReturn(List.of());
+        when(f.api.searchMessages(eq("xoxp"), eq("<@U123>")))
+                .thenReturn(List.of(searchMatch("C99", "1700000050.000100", "U999", "Hey <@U123> heads up")));
+
+        f.job().tick();
+
+        // The unfollowed-channel mention lands as a MENTION row with the
+        // channel id Slack reported in the search match.
+        assertThat(f.messageStore.inserted).hasSize(1);
+        SlackMessage row = f.messageStore.inserted.get(0);
+        assertThat(row.channelId()).isEqualTo("C99");
+        assertThat(row.inboxKind()).isEqualTo(SlackInboxKind.MENTION);
+        assertThat(row.hasAtYou()).isTrue();
+        // Sentinel watermark advances so the next tick doesn't re-ingest.
+        assertThat(f.watermarks.find(WS, SlackPollingJob.MENTION_SWEEP_SENTINEL))
+                .map(SlackChannelWatermark::lastTs)
+                .contains("1700000050.000100");
+    }
+
+    @Test
+    void testSearchSweepSkipsFollowedChannelsAndDms()
+            throws Exception
+    {
+        Fixture f = new Fixture();
+        f.connected();
+        f.followed.add(new FollowedChannel(WS, "C1", "general", false, NOW));
+        SlackDmConversation dm = new SlackDmConversation(WS, "D55", false, List.of("U999"), null, NOW);
+        when(f.api.listImAndMpimConversations("xoxp", WS)).thenReturn(List.of(dm));
+        // History pass returns nothing — keeps the test focused on the
+        // sweep's dedup behaviour against an already-covered channel.
+        when(f.api.getConversationsHistory(eq("xoxp"), any(), any())).thenReturn(List.of());
+        f.watermarks.upsert(new SlackChannelWatermark(
+                WS, SlackPollingJob.MENTION_SWEEP_SENTINEL, "1700000000.000000", NOW.minusSeconds(60)));
+        when(f.api.searchMessages(eq("xoxp"), eq("<@U123>")))
+                .thenReturn(List.of(
+                        // In a followed channel — the history poll above
+                        // owns this one; sweep must not double-record.
+                        searchMatch("C1", "1700000010.000100", "U999", "ping <@U123>"),
+                        // In an open DM — same story, owned by the DM pass.
+                        searchMatch("D55", "1700000020.000200", "U999", "<@U123> got a sec?"),
+                        // Genuinely unfollowed — this is the only row the
+                        // sweep should ingest.
+                        searchMatch("C99", "1700000030.000300", "U999", "<@U123> in random?")));
+
+        f.job().tick();
+
+        assertThat(f.messageStore.inserted)
+                .extracting(SlackMessage::channelId)
+                .containsExactly("C99");
+        // Watermark advances past ALL scanned matches, including the
+        // skipped ones — otherwise the sweep would keep re-walking them.
+        assertThat(f.watermarks.find(WS, SlackPollingJob.MENTION_SWEEP_SENTINEL))
+                .map(SlackChannelWatermark::lastTs)
+                .contains("1700000030.000300");
+    }
+
+    @Test
+    void testSearchSweepRespectsExistingWatermark()
+            throws Exception
+    {
+        Fixture f = new Fixture();
+        f.connected();
+        when(f.api.listImAndMpimConversations("xoxp", WS)).thenReturn(List.of());
+        f.watermarks.upsert(new SlackChannelWatermark(
+                WS, SlackPollingJob.MENTION_SWEEP_SENTINEL, "1700000020.000200", NOW.minusSeconds(60)));
+        when(f.api.searchMessages(eq("xoxp"), eq("<@U123>")))
+                .thenReturn(List.of(
+                        // Older than the watermark — already ingested on
+                        // a prior tick, skip silently.
+                        searchMatch("C99", "1700000010.000100", "U999", "<@U123> old"),
+                        // Newer — fresh, ingest.
+                        searchMatch("C88", "1700000030.000300", "U999", "<@U123> new")));
+
+        f.job().tick();
+
+        assertThat(f.messageStore.inserted)
+                .extracting(SlackMessage::ts)
+                .containsExactly("1700000030.000300");
+    }
+
+    @Test
+    void testSearchSweepMissingScopeIsSilentAcrossTicks()
+            throws Exception
+    {
+        Fixture f = new Fixture();
+        f.connected();
+        when(f.api.listImAndMpimConversations("xoxp", WS)).thenReturn(List.of());
+        // Mirror the shape SlackApiClient.slackGet throws on a non-ok
+        // response — the polling job sniffs the reason for missing_scope.
+        when(f.api.searchMessages(any(), any())).thenThrow(new ResponseStatusException(
+                HttpStatusCode.valueOf(502), "Slack rejected search.messages: missing_scope"));
+
+        SlackPollingJob job = f.job();
+        // Two ticks in a row — the swallow has to survive past the
+        // first-tick warn so the rest of the inbox keeps working.
+        job.tick();
+        job.tick();
+
+        // The sweep is called every tick (no caching) but never
+        // explodes the scheduler thread, and never ingests anything.
+        verify(f.api, times(2)).searchMessages(any(), any());
+        assertThat(f.messageStore.inserted).isEmpty();
+        // Watermark stays untouched — once the user grants the scope,
+        // the next tick picks up from the same bootstrap point.
+        assertThat(f.watermarks.find(WS, SlackPollingJob.MENTION_SWEEP_SENTINEL)).isEmpty();
+    }
+
+    @Test
     void testCompareTsIsNumeric()
     {
         // Sanity check the helper used to advance the watermark.
@@ -244,6 +364,22 @@ class TestSlackPollingJob
         o.put("ts", ts);
         o.put("subtype", subtype);
         return MAPPER.readTree(o.toJson());
+    }
+
+    /** Builds a fixture in the shape Slack's {@code search.messages}
+     *  returns — a message body with an inline {@code channel.id} the
+     *  sweep code reads to route into the right channel row. */
+    private static JsonNode searchMatch(String channelId, String ts, String userId, String text)
+            throws Exception
+    {
+        String escapedText = text.replace("\"", "\\\"");
+        String json = "{"
+                + "\"ts\":\"" + ts + "\","
+                + "\"user\":\"" + userId + "\","
+                + "\"text\":\"" + escapedText + "\","
+                + "\"channel\":{\"id\":\"" + channelId + "\"}"
+                + "}";
+        return MAPPER.readTree(json);
     }
 
     /** Tiny JSON builder — avoids pulling jackson-databind's mutable

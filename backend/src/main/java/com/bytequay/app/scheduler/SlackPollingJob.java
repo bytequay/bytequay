@@ -35,12 +35,15 @@ import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
+import org.springframework.web.server.ResponseStatusException;
 
 import java.time.Clock;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 import java.util.concurrent.atomic.AtomicBoolean;
 
 import static java.util.Objects.requireNonNull;
@@ -73,6 +76,12 @@ public class SlackPollingJob
 
     private static final Duration BOOTSTRAP_WINDOW = Duration.ofHours(24);
 
+    /** Sentinel "channel id" used to persist the mention-sweep
+     *  watermark via the same {@link SlackChannelWatermarkStore}. Real
+     *  Slack channel ids never start with an underscore, so this can't
+     *  collide. */
+    static final String MENTION_SWEEP_SENTINEL = "__mention_search__";
+
     private final SlackOAuthService oauthService;
     private final SlackApiClient apiClient;
     private final FollowedChannelStore followedChannelStore;
@@ -83,6 +92,14 @@ public class SlackPollingJob
     private final Clock clock;
 
     private final AtomicBoolean running = new AtomicBoolean(false);
+
+    /** One-shot guard for the {@code missing_scope} warn on
+     *  {@code search.messages}. PKCE tokens minted before
+     *  {@code search:read} was added to {@code USER_SCOPES} hit this
+     *  every tick; logging once per JVM restart is enough to nudge the
+     *  user to reconnect without flooding stderr. Resets across restart
+     *  — intentional, so a fresh launch surfaces the warning again. */
+    private final AtomicBoolean searchMissingScopeLogged = new AtomicBoolean(false);
 
     @Autowired
     public SlackPollingJob(
@@ -170,14 +187,119 @@ public class SlackPollingJob
         }
 
         // 2. Followed channels.
+        Set<String> followedIds = new HashSet<>();
         for (FollowedChannel followed : followedChannelStore.findByWorkspace(workspaceId)) {
+            followedIds.add(followed.channelId());
             pollConversation(token, workspaceId, followed.channelId(), authedUserId, /* isDm */ false);
         }
 
         // 3. DM/MPIM conversations.
+        Set<String> dmIds = new HashSet<>();
         for (SlackDmConversation dm : dms) {
+            dmIds.add(dm.conversationId());
             pollConversation(token, workspaceId, dm.conversationId(), authedUserId, /* isDm */ true);
         }
+
+        // 4. Mention-sweep across the workspace — catches `<@you>` in
+        //    channels the user hasn't followed (and therefore the
+        //    history poll above doesn't visit). One Tier-2 search call
+        //    per tick, well inside the 20/min budget.
+        sweepMentions(token, workspaceId, authedUserId, followedIds, dmIds);
+    }
+
+    /**
+     * Issues one {@code search.messages?query=<@USERID>} request per
+     * tick and ingests any new hits that the followed-channel / DM
+     * passes didn't already catch. Watermarked separately via
+     * {@link #MENTION_SWEEP_SENTINEL} so the channel-history watermarks
+     * stay independent.
+     *
+     * <p>Hits in already-followed channels or open DMs are skipped —
+     * those threads have a state row from the per-conversation pass
+     * already, and re-running the inbox state machine on a duplicate
+     * batch would create a second UNREAD row.
+     */
+    private void sweepMentions(
+            String token, String workspaceId, String authedUserId, Set<String> followedIds, Set<String> dmIds)
+    {
+        if (authedUserId == null || authedUserId.isBlank()) {
+            return;
+        }
+        String oldest = watermarkStore.find(workspaceId, MENTION_SWEEP_SENTINEL)
+                .map(SlackChannelWatermark::lastTs)
+                .orElseGet(() -> bootstrapOldestTs(clock.instant()));
+        List<JsonNode> matches;
+        try {
+            matches = apiClient.searchMessages(token, "<@" + authedUserId + ">");
+        }
+        catch (ResponseStatusException e) {
+            String reason = e.getReason();
+            if (reason != null && reason.contains("missing_scope")) {
+                if (searchMissingScopeLogged.compareAndSet(false, true)) {
+                    log.warn("Slack search.messages returned missing_scope — reconnect to grant search:read; "
+                            + "mention sweep for unfollowed channels is disabled until then");
+                }
+                return;
+            }
+            log.warn("Slack mention sweep failed: {}", reason);
+            return;
+        }
+        catch (Exception e) {
+            log.warn("Slack mention sweep failed: {}", e.getMessage());
+            return;
+        }
+        if (matches.isEmpty()) {
+            return;
+        }
+        Instant now = clock.instant();
+        String maxTs = oldest;
+        ImmutableList.Builder<SlackMessage> batch = ImmutableList.builder();
+        for (JsonNode match : matches) {
+            String ts = match.path("ts").asText("");
+            if (ts.isEmpty()) {
+                continue;
+            }
+            if (SlackTs.compare(ts, oldest) <= 0) {
+                // Older than (or equal to) the watermark — already seen
+                // on a prior tick, or pre-bootstrap. Skip.
+                continue;
+            }
+            if (SlackTs.compare(ts, maxTs) > 0) {
+                maxTs = ts;
+            }
+            String channelId = match.path("channel").path("id").asText("");
+            if (channelId.isEmpty()) {
+                continue;
+            }
+            if (followedIds.contains(channelId) || dmIds.contains(channelId)) {
+                // The per-conversation poll above already ingested any
+                // new history for this channel — don't double-record.
+                continue;
+            }
+            boolean isDm = SlackInboxCategorizer.isDmConversation(channelId);
+            SlackMessage parsed = parseMessage(match, workspaceId, channelId, authedUserId, isDm, now);
+            if (parsed == null) {
+                continue;
+            }
+            // The search query is the `<@USERID>` token, so every
+            // surviving result is a real mention (or a DM, defensively).
+            // Drop anything else — a Slack search relevance match on a
+            // string-quoted user id shouldn't pop into the inbox.
+            if (parsed.inboxKind() != SlackInboxKind.MENTION && parsed.inboxKind() != SlackInboxKind.DM) {
+                continue;
+            }
+            batch.add(parsed);
+        }
+        List<SlackMessage> built = batch.build();
+        if (!built.isEmpty()) {
+            messageStore.insertIfAbsent(built);
+            inboxService.recordNewMessages(workspaceId, built);
+        }
+        // Advance the watermark from ALL matches scanned, including
+        // those we skipped for being already-covered channels — that's
+        // the only way to stop re-walking the same hit list every tick.
+        String newWatermark = maxTs.isEmpty() ? oldest : maxTs;
+        watermarkStore.upsert(new SlackChannelWatermark(workspaceId, MENTION_SWEEP_SENTINEL, newWatermark, now));
     }
 
     private void pollConversation(String token, String workspaceId, String channelId, String authedUserId, boolean isDm)

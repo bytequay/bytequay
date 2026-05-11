@@ -247,6 +247,49 @@ public class SlackApiClient
         return root.path("ts").asText(null);
     }
 
+    /**
+     * Sweeps {@code search.messages} for the supplied query (typically
+     * the user-mention token {@code <@USERID>}). Returns the raw match
+     * nodes Slack reports — each carries {@code channel.id} +
+     * {@code text} + {@code ts} alongside the usual message shape, so
+     * the caller can decide whether to ingest it or skip (e.g. already
+     * covered by the followed-channel poll).
+     *
+     * <p>Pinned to {@code sort=timestamp&sort_dir=desc} so the watermark
+     * filter on the calling side sees the freshest matches first, and
+     * {@code count=100} — one Tier-2 call per 30-second tick stays
+     * comfortably under the 20/min search budget. We do not paginate;
+     * if a user accumulates more than 100 fresh mentions in 30 s we
+     * accept the head and let the next tick catch the rest.
+     *
+     * <p>Surfaces the verbatim Slack error on a non-{@code ok} response
+     * via {@link ResponseStatusException} like the other endpoints —
+     * callers (the polling job) detect {@code missing_scope} from the
+     * exception message so users on pre-{@code search:read} tokens get
+     * a one-shot warn instead of a per-tick spam.
+     */
+    public List<JsonNode> searchMessages(String userToken, String query)
+    {
+        // search.messages caps page size at 100 — narrower than other
+        // Slack endpoints' 1000 ceiling, so we use a dedicated literal
+        // rather than PAGE_LIMIT.
+        String q = "query=" + URLEncoder.encode(query, StandardCharsets.UTF_8)
+                + "&count=100"
+                + "&sort=timestamp"
+                + "&sort_dir=desc";
+        URI uri = URI.create("https://slack.com/api/search.messages?" + q);
+        JsonNode root = slackGet(uri, userToken, "search.messages");
+        JsonNode matches = root.path("messages").path("matches");
+        if (!matches.isArray()) {
+            return ImmutableList.of();
+        }
+        ImmutableList.Builder<JsonNode> out = ImmutableList.builder();
+        for (JsonNode m : matches) {
+            out.add(m);
+        }
+        return out.build();
+    }
+
     private JsonNode fetchRepliesPage(String userToken, String channelId, String threadTs, String cursor)
     {
         StringBuilder query = new StringBuilder()

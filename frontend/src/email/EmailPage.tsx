@@ -43,9 +43,14 @@ export default function EmailPage({ onOpenIntegrationsSettings, onOpenLinkedRef 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [selectedThreadId, setSelectedThreadId] = useState<string | null>(null);
-  // Tracks thread IDs we've already auto-marked-read so re-rendering or
-  // toggling back to unread + reselecting doesn't loop.
-  const autoMarkedRef = useRef<Set<string>>(new Set());
+  // Threads the user opened in this session that auto-archived. They're
+  // still in `threads` so the detail pane can render the open one, but
+  // filtered out of the visible inbox list. "Keep in inbox" removes the
+  // ID and the row pops back into the list.
+  const [autoArchivedIds, setAutoArchivedIds] = useState<Set<string>>(() => new Set());
+  // Tracks thread IDs we've already auto-acted on (mark-read + archive)
+  // so re-selecting after "Keep in inbox" doesn't immediately re-archive.
+  const autoActedRef = useRef<Set<string>>(new Set());
 
   // Load accounts on mount; auto-select the first OAuth account.
   useEffect(() => {
@@ -99,75 +104,92 @@ export default function EmailPage({ onOpenIntegrationsSettings, onOpenLinkedRef 
     setSelectedThreadId(null);
   }, [selectedAccount, accounts, loadInbox]);
 
-  const archive = async (id: string) => {
+  // Auto-fired when the user opens an unread thread: flip it to read
+  // and remove from the visible inbox in one Gmail call. The thread
+  // stays in `threads` so the detail pane keeps rendering it; the
+  // visible-list filter (autoArchivedIds) hides the row. "Keep in
+  // inbox" undoes both.
+  const readAndArchive = async (id: string) => {
     if (!selectedAccount) return;
-    // Optimistic: remove the thread, advance selection to next row.
     const prev = threads;
     if (!prev) return;
-    const idx = prev.findIndex(t => t.id === id);
-    const next = prev.filter(t => t.id !== id);
-    setThreads(next);
-    if (selectedThreadId === id) {
-      setSelectedThreadId(idx < next.length ? next[idx]?.id ?? null : next[next.length - 1]?.id ?? null);
-    }
+    setThreads(prev.map(t => t.id === id ? { ...t, unread: false } : t));
+    setAutoArchivedIds(s => {
+      const next = new Set(s);
+      next.add(id);
+      return next;
+    });
     try {
-      await window.bridge.archiveEmailThread(selectedAccount, id);
+      await window.bridge.readAndArchiveEmailThread(selectedAccount, id);
     }
     catch (e) {
       setThreads(prev);
-      setSelectedThreadId(id);
+      setAutoArchivedIds(s => {
+        const next = new Set(s);
+        next.delete(id);
+        return next;
+      });
       setError(e instanceof Error ? e.message : String(e));
     }
   };
 
-  const toggleRead = async (id: string, currentlyUnread: boolean) => {
+  const keepInInbox = async (id: string) => {
     if (!selectedAccount) return;
+    const prevArchived = autoArchivedIds;
     const prev = threads;
     if (!prev) return;
-    setThreads(prev.map(t => t.id === id ? { ...t, unread: !currentlyUnread } : t));
+    setAutoArchivedIds(s => {
+      const next = new Set(s);
+      next.delete(id);
+      return next;
+    });
+    setThreads(prev.map(t => t.id === id ? { ...t, unread: false } : t));
     try {
-      if (currentlyUnread) {
-        await window.bridge.markEmailThreadRead(selectedAccount, id);
-      }
-      else {
-        await window.bridge.markEmailThreadUnread(selectedAccount, id);
-      }
+      await window.bridge.keepEmailThreadInInbox(selectedAccount, id);
     }
     catch (e) {
+      setAutoArchivedIds(prevArchived);
       setThreads(prev);
       setError(e instanceof Error ? e.message : String(e));
     }
   };
 
-  // Auto-mark-as-read on selection, matching Gmail's web UI: opening
-  // an unread thread immediately flips it to read locally and fires a
-  // background mark-read call to Google. Per-thread dedup via
-  // autoMarkedRef so toggling back to unread + reselecting doesn't
-  // loop the API call.
+  // Auto-action on selecting an unread thread: mark-read + archive in
+  // a single round trip. Per-thread dedup via autoActedRef so re-
+  // selecting after "Keep in inbox" doesn't bounce the user's choice.
+  // Gating on `t.unread` covers the post-refresh case (autoActedRef
+  // is in-memory only) — already-read threads are left alone.
   useEffect(() => {
     if (!selectedAccount || !selectedThreadId || !threads) return;
     const t = threads.find(th => th.id === selectedThreadId);
     if (!t || !t.unread) return;
-    if (autoMarkedRef.current.has(selectedThreadId)) return;
-    autoMarkedRef.current.add(selectedThreadId);
-    void toggleRead(selectedThreadId, true);
-    // toggleRead is intentionally not in deps — capturing it as a closure
-    // is fine, we only want to re-run when selectedThreadId changes.
+    if (autoActedRef.current.has(selectedThreadId)) return;
+    autoActedRef.current.add(selectedThreadId);
+    void readAndArchive(selectedThreadId);
+    // readAndArchive is captured as a closure; we only want to re-run
+    // when the selection changes, not on every render.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [selectedThreadId, selectedAccount]);
 
-  // Reset the auto-mark dedup when the account changes — per-account
+  // Reset the auto-act dedup when the account changes — per-account
   // threads are a fresh universe.
   useEffect(() => {
-    autoMarkedRef.current = new Set();
+    autoActedRef.current = new Set();
+    setAutoArchivedIds(new Set());
   }, [selectedAccount]);
 
-  // Keyboard shortcuts: j/k or arrow keys to walk the list, e to
-  // archive, u to toggle read. Suppressed when focus is in an input
-  // or contenteditable so it doesn't fight typing.
+  // Keyboard shortcuts: j/k or arrow keys to walk the visible list.
+  // Archive/mark-read are no longer manual — opening already does both
+  // — so e/u are gone. Walking still uses the unfiltered threads array
+  // so j/k after auto-archiving the current row jumps to the next
+  // visible row rather than getting stuck on the now-hidden one.
+  // Suppressed when focus is in an input or contenteditable so it
+  // doesn't fight typing.
   useEffect(() => {
     const acc = accounts?.find(a => a.email === selectedAccount);
     if (acc?.authMode !== 'OAUTH' || !threads || threads.length === 0) return;
+    const visible = threads.filter(t => !autoArchivedIds.has(t.id) || t.id === selectedThreadId);
+    if (visible.length === 0) return;
     const onKey = (e: KeyboardEvent) => {
       const target = e.target as HTMLElement | null;
       if (target) {
@@ -175,34 +197,22 @@ export default function EmailPage({ onOpenIntegrationsSettings, onOpenLinkedRef 
         if (tag === 'INPUT' || tag === 'TEXTAREA' || target.isContentEditable) return;
       }
       const idx = selectedThreadId
-        ? threads.findIndex(t => t.id === selectedThreadId)
+        ? visible.findIndex(t => t.id === selectedThreadId)
         : -1;
       if (e.key === 'j' || e.key === 'ArrowDown') {
         e.preventDefault();
-        const next = idx < 0 ? 0 : Math.min(idx + 1, threads.length - 1);
-        setSelectedThreadId(threads[next].id);
+        const next = idx < 0 ? 0 : Math.min(idx + 1, visible.length - 1);
+        setSelectedThreadId(visible[next].id);
       }
       else if (e.key === 'k' || e.key === 'ArrowUp') {
         e.preventDefault();
         const next = idx < 0 ? 0 : Math.max(idx - 1, 0);
-        setSelectedThreadId(threads[next].id);
-      }
-      else if (e.key === 'e' && selectedThreadId) {
-        e.preventDefault();
-        void archive(selectedThreadId);
-      }
-      else if ((e.key === 'u' || e.key === 'U') && selectedThreadId) {
-        e.preventDefault();
-        const t = threads.find(th => th.id === selectedThreadId);
-        if (t) void toggleRead(selectedThreadId, t.unread);
+        setSelectedThreadId(visible[next].id);
       }
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-    // archive / toggleRead are stable enough; we re-bind when threads
-    // or selection change so the closure sees the latest state.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [threads, selectedThreadId, selectedAccount, accounts]);
+  }, [threads, selectedThreadId, selectedAccount, accounts, autoArchivedIds]);
 
   if (accountsError) {
     return (
@@ -271,53 +281,61 @@ export default function EmailPage({ onOpenIntegrationsSettings, onOpenLinkedRef 
 
       {error && <div className="repo-error">{error}</div>}
 
-      {account?.authMode === 'OAUTH' && threads != null && (
-        <div className="email-pane">
-          <div className="email-pane__list">
-            {threads.length === 0 && <div className="email-page__hint">Inbox is empty.</div>}
-            <ul className="email-list email-list--inset">
-              {threads.map(t => (
-                <li
-                  key={t.id}
-                  className={`email-row${t.unread ? ' email-row--unread' : ''}${t.id === selectedThreadId ? ' email-row--selected' : ''}`}
-                  onClick={() => setSelectedThreadId(t.id)}
-                >
-                  <div className="email-row__rail" aria-hidden="true" />
-                  <div className="email-row__body">
-                    <div className="email-row__line1">
-                      <span className="email-row__from">
-                        {shortenFrom(t.from)}
-                        {t.messageCount > 1 && (
-                          <span className="email-row__count" title={`${t.messageCount} messages in this thread`}>
-                            {' '}({t.messageCount})
-                          </span>
-                        )}
-                      </span>
-                      <span className="email-row__time">{formatRelative(t.receivedAt)}</span>
+      {account?.authMode === 'OAUTH' && threads != null && (() => {
+        // Visible list excludes auto-archived threads but keeps the
+        // currently-selected one even if it was just auto-archived,
+        // so the highlight in the inbox doesn't vanish out from under
+        // the user while they're reading.
+        const visibleThreads = threads.filter(t =>
+          !autoArchivedIds.has(t.id) || t.id === selectedThreadId);
+        return (
+          <div className="email-pane">
+            <div className="email-pane__list">
+              {visibleThreads.length === 0 && <div className="email-page__hint">Inbox is empty.</div>}
+              <ul className="email-list email-list--inset">
+                {visibleThreads.map(t => (
+                  <li
+                    key={t.id}
+                    className={`email-row${t.unread ? ' email-row--unread' : ''}${t.id === selectedThreadId ? ' email-row--selected' : ''}${autoArchivedIds.has(t.id) ? ' email-row--archived' : ''}`}
+                    onClick={() => setSelectedThreadId(t.id)}
+                  >
+                    <div className="email-row__rail" aria-hidden="true" />
+                    <div className="email-row__body">
+                      <div className="email-row__line1">
+                        <span className="email-row__from">
+                          {shortenFrom(t.from)}
+                          {t.messageCount > 1 && (
+                            <span className="email-row__count" title={`${t.messageCount} messages in this thread`}>
+                              {' '}({t.messageCount})
+                            </span>
+                          )}
+                        </span>
+                        <span className="email-row__time">{formatRelative(t.receivedAt)}</span>
+                      </div>
+                      <div className="email-row__subject">{t.subject || '(no subject)'}</div>
+                      <div className="email-row__snippet">{t.snippet}</div>
                     </div>
-                    <div className="email-row__subject">{t.subject || '(no subject)'}</div>
-                    <div className="email-row__snippet">{t.snippet}</div>
-                  </div>
-                </li>
-              ))}
-            </ul>
+                  </li>
+                ))}
+              </ul>
+            </div>
+            <div className="email-pane__detail">
+              {selectedThread ? (
+                <ThreadDetailPane
+                  key={selectedThread.id}
+                  account={selectedAccount!}
+                  meta={selectedThread}
+                  archived={autoArchivedIds.has(selectedThread.id)}
+                  onKeepInInbox={() => void keepInInbox(selectedThread.id)}
+                  onOpenLinkedRef={onOpenLinkedRef}
+                />
+              ) : (
+                <div className="email-page__hint">Pick a thread on the left.</div>
+              )}
+            </div>
           </div>
-          <div className="email-pane__detail">
-            {selectedThread ? (
-              <ThreadDetailPane
-                key={selectedThread.id}
-                account={selectedAccount!}
-                meta={selectedThread}
-                onArchive={() => void archive(selectedThread.id)}
-                onToggleRead={() => void toggleRead(selectedThread.id, selectedThread.unread)}
-                onOpenLinkedRef={onOpenLinkedRef}
-              />
-            ) : (
-              <div className="email-page__hint">Pick a thread on the left.</div>
-            )}
-          </div>
-        </div>
-      )}
+        );
+      })()}
 
       {loading && threads == null && <div className="repo-loading">Loading inbox…</div>}
     </div>
@@ -327,12 +345,15 @@ export default function EmailPage({ onOpenIntegrationsSettings, onOpenLinkedRef 
 type DetailProps = {
   account: string;
   meta: EmailThreadMetaDto;
-  onArchive: () => void;
-  onToggleRead: () => void;
+  /** True when the thread was auto-archived in this session — drives
+   *  the "Keep in inbox" button's enabled state. Once cleared, the
+   *  button disables (the thread is already in the inbox). */
+  archived: boolean;
+  onKeepInInbox: () => void;
   onOpenLinkedRef: (ref: LinkedRefDto) => void;
 };
 
-function ThreadDetailPane({ account, meta, onArchive, onToggleRead, onOpenLinkedRef }: DetailProps) {
+function ThreadDetailPane({ account, meta, archived, onKeepInInbox, onOpenLinkedRef }: DetailProps) {
   const [detail, setDetail] = useState<EmailThreadDetailDto | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -362,11 +383,22 @@ function ThreadDetailPane({ account, meta, onArchive, onToggleRead, onOpenLinked
   return (
     <div className="email-detail">
       <div className="email-detail__actions">
-        <button className="button button--primary" type="button" onClick={onArchive}>
-          📥 Archive
-        </button>
-        <button className="button button--secondary" type="button" onClick={onToggleRead}>
-          {meta.unread ? '✓ Mark as read' : '◌ Mark as unread'}
+        {/* Opening an unread thread already marks-read + archives it
+            in one Gmail call. The only manual action left is undoing
+            that — putting the thread back in the inbox while keeping
+            it read. Disabled when the thread is already in the inbox
+            (i.e. user opened a previously-read thread, or already
+            clicked "Keep in inbox"). */}
+        <button
+          className="button button--primary"
+          type="button"
+          onClick={onKeepInInbox}
+          disabled={!archived}
+          title={archived
+            ? 'Re-add this thread to your inbox (stays marked as read)'
+            : 'Already in inbox'}
+        >
+          📥 Keep in inbox
         </button>
         {detail && detail.messages.length > 1 && (
           <span className="email-detail__count">
@@ -430,24 +462,61 @@ function ThreadMessage({ message, isLast }: { message: EmailMessageDetailDto; is
   );
 }
 
-/** Renders Gmail HTML inside an iframe sandbox — no JS, no
- *  parent-document access. {@code <base target="_top">} routes
- *  every link click as a top-frame navigation, which the main
- *  process's {@code will-navigate} handler intercepts and opens in
- *  the in-app browser overlay (with ←/→/× chrome). The popup-window
- *  path lacks a back-to-app affordance, so we explicitly avoid it
- *  here. {@code allow-top-navigation-by-user-activation} restricts
- *  top navigation to genuine clicks — phishy emails can't auto-redirect
- *  via meta refresh. */
+/** Renders Gmail HTML inside an iframe sandbox.
+ *
+ *  <p>Sandbox tokens:
+ *  <ul>
+ *    <li>{@code allow-top-navigation-by-user-activation} — link clicks
+ *        navigate the top frame so {@code main.ts}'s will-navigate
+ *        handler routes them into the in-app overlay (with ←/→/×
+ *        chrome).</li>
+ *    <li>{@code allow-same-origin} — lets the parent measure
+ *        {@code contentDocument.body.scrollHeight} on load so we can
+ *        size the iframe to its content. Safe without allow-scripts:
+ *        the email can't execute JS, can't access localStorage, can't
+ *        submit forms — it's a read-only document tree.</li>
+ *  </ul>
+ *  Without auto-sizing the iframe held a fixed slab regardless of
+ *  content, so the "boundary" between the email and the empty space
+ *  below sat in the middle of the pane. */
 function SanitizedHtml({ html }: { html: string }) {
   const safeHtml = html.replace(/<script[\s\S]*?<\/script>/gi, '');
   const wrapped = '<base target="_top">' + safeHtml;
+  const iframeRef = useRef<HTMLIFrameElement | null>(null);
+  // Resize the iframe to fit its content. Runs on each load (srcDoc
+  // change triggers a load) and once more on resize after a small
+  // debounce-like delay since some emails embed images that load
+  // after the document fires its initial load event.
+  const fit = () => {
+    const iframe = iframeRef.current;
+    if (!iframe) return;
+    let doc: Document | null = null;
+    try {
+      doc = iframe.contentDocument;
+    }
+    catch {
+      return;
+    }
+    if (!doc?.body || !doc.documentElement) return;
+    const height = Math.max(doc.body.scrollHeight, doc.documentElement.scrollHeight);
+    // +4 buys a tiny margin so the last line never sits flush against
+    // the iframe's bottom edge (which causes a phantom scrollbar).
+    iframe.style.height = `${height + 4}px`;
+  };
   return (
     <iframe
+      ref={iframeRef}
       title="Email body"
       className="email-detail__iframe"
-      sandbox="allow-top-navigation-by-user-activation"
+      sandbox="allow-top-navigation-by-user-activation allow-same-origin"
       srcDoc={wrapped}
+      onLoad={() => {
+        fit();
+        // Re-measure after images settle. 200ms covers most inline
+        // images cached by Gmail's CDN; for slow loads the user can
+        // scroll the outer pane in the meantime.
+        setTimeout(fit, 200);
+      }}
     />
   );
 }

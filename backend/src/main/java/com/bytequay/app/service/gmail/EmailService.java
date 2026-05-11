@@ -244,6 +244,39 @@ public class EmailService
         sync.onThreadModified(email, threadId, true, true);
     }
 
+    /** Combined "open and dismiss" — removes both INBOX and UNREAD in
+     *  a single Gmail call. Wired to the auto-action that fires when
+     *  the user opens an unread thread, so reading is the same gesture
+     *  as archiving. Saves a round trip versus calling
+     *  {@link #archiveThread} + {@link #markThreadRead} separately. */
+    public void readAndArchiveThread(String email, String threadId)
+    {
+        requireNonBlank(email, "email");
+        requireNonBlank(threadId, "threadId");
+        runWithToken(email, accessToken -> {
+            gmail.modifyThread(accessToken, threadId,
+                    ImmutableList.of(), ImmutableList.of("INBOX", "UNREAD"));
+            return null;
+        });
+        sync.onThreadModified(email, threadId, false, false);
+    }
+
+    /** Reverses the auto-archive: re-adds INBOX (and clears UNREAD if
+     *  set, since the typical entry point is "I just opened this and
+     *  want to keep it visible"). The "Keep in inbox" button on the
+     *  detail pane drives this. */
+    public void keepThreadInInbox(String email, String threadId)
+    {
+        requireNonBlank(email, "email");
+        requireNonBlank(threadId, "threadId");
+        runWithToken(email, accessToken -> {
+            gmail.modifyThread(accessToken, threadId,
+                    ImmutableList.of("INBOX"), ImmutableList.of("UNREAD"));
+            return null;
+        });
+        sync.onThreadModified(email, threadId, true, false);
+    }
+
     /**
      * Resolves an access token, runs {@code call}, and on a 401 from
      * Gmail invalidates the cached token so the next attempt refreshes.

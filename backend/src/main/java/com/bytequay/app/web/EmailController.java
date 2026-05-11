@@ -112,4 +112,23 @@ public class EmailController
         emailService.markThreadUnread(account, id);
         return ImmutableMap.of("result", "unread", "id", id);
     }
+
+    /** POST /api/email/threads/{id}/read-and-archive?account={email} —
+     *  removes both INBOX and UNREAD in one Gmail call. Drives the
+     *  open-an-unread-thread auto action. */
+    @PostMapping("/threads/{id}/read-and-archive")
+    public Map<String, String> readAndArchive(@PathVariable String id, @RequestParam String account)
+    {
+        emailService.readAndArchiveThread(account, id);
+        return ImmutableMap.of("result", "read-and-archived", "id", id);
+    }
+
+    /** POST /api/email/threads/{id}/keep-in-inbox?account={email} —
+     *  re-adds INBOX (and clears UNREAD), reversing an auto-archive. */
+    @PostMapping("/threads/{id}/keep-in-inbox")
+    public Map<String, String> keepInInbox(@PathVariable String id, @RequestParam String account)
+    {
+        emailService.keepThreadInInbox(account, id);
+        return ImmutableMap.of("result", "kept-in-inbox", "id", id);
+    }
 }

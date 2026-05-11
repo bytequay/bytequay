@@ -2341,6 +2341,16 @@ const url = new URL(`${BACKEND_BASE}/api/search/repos`);
     if (!account || !id) throw new Error('account and id are required');
     return threadAction('mark-unread', account, id);
   });
+  ipcMain.handle('email:readAndArchiveThread', async (_event, payload: unknown) => {
+    const { account, id } = (payload ?? {}) as { account?: string; id?: string };
+    if (!account || !id) throw new Error('account and id are required');
+    return threadAction('read-and-archive', account, id);
+  });
+  ipcMain.handle('email:keepThreadInInbox', async (_event, payload: unknown) => {
+    const { account, id } = (payload ?? {}) as { account?: string; id?: string };
+    if (!account || !id) throw new Error('account and id are required');
+    return threadAction('keep-in-inbox', account, id);
+  });
 
   // ── Credentials ─────────────────────────────────────────────────────────
   // Credentials are uniquely identified by the pair (type, name). The backend

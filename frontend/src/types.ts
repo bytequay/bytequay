@@ -1412,6 +1412,13 @@ export type Bridge = {
   archiveEmailThread: (account: string, id: string) => Promise<void>;
   markEmailThreadRead: (account: string, id: string) => Promise<void>;
   markEmailThreadUnread: (account: string, id: string) => Promise<void>;
+  /** Combined "open and dismiss" — removes both INBOX and UNREAD in
+   *  one Gmail call. Fires automatically when the user opens an
+   *  unread thread, matching the "reading is archiving" gesture. */
+  readAndArchiveEmailThread: (account: string, id: string) => Promise<void>;
+  /** Re-adds INBOX (and clears UNREAD) — reverses an auto-archive.
+   *  Driven by the "Keep in inbox" button on the detail pane. */
+  keepEmailThreadInInbox: (account: string, id: string) => Promise<void>;
   // Credentials vault
   listCredentials: (type?: CredentialType) => Promise<CredentialDto[]>;
   upsertCredential: (req: UpsertCredentialRequest) => Promise<CredentialDto>;

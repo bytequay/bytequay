@@ -15,6 +15,7 @@ package com.bytequay.app.web;
 
 import com.bytequay.app.domain.PullRequest;
 import com.bytequay.app.domain.PullRequestDetail;
+import com.bytequay.app.service.pr.PrAnalyticsService;
 import com.bytequay.app.service.pr.PullRequestService;
 import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.Test;
@@ -43,6 +44,9 @@ class TestPullRequestController
 
     @MockitoBean
     private PullRequestService pullRequestService;
+
+    @MockitoBean
+    private PrAnalyticsService prAnalyticsService;
 
     @MockitoBean
     private PatResolver patResolver;

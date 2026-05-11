@@ -104,6 +104,42 @@ export type PullRequestHistoryPageDto = {
   hasMore: boolean;
 };
 
+export type PrAnalyticsScope = '7d' | '30d' | '90d' | 'all';
+
+export type PrAnalyticsKpiCardDto = {
+  /** Raw scalar — null when the card is in a pending / placeholder state. */
+  value: number | null;
+  /** Rendered string the page shows when {@link pendingNote} is null. */
+  displayValue: string;
+  /** True for KPIs whose underlying data lives only in the cached
+   *  PR-detail blob and may therefore under-count. The card renders
+   *  a ¹ marker and the footer card explains it. */
+  partial: boolean;
+  /** When non-null, the card renders this copy in an empty state
+   *  instead of {@link displayValue}. */
+  pendingNote: string | null;
+};
+
+export type PrAnalyticsStaleAuthoredPrDto = {
+  id: number;
+  repo: string;
+  number: number;
+  title: string;
+  createdAt: string;
+  ageDays: number;
+};
+
+export type PrAnalyticsSummaryDto = {
+  scope: PrAnalyticsScope;
+  watchedRepoCount: number;
+  currentLogin: string | null;
+  prsReviewed: PrAnalyticsKpiCardDto;
+  approvalRate: PrAnalyticsKpiCardDto;
+  linesReviewed: PrAnalyticsKpiCardDto;
+  responseToReviewRequest: PrAnalyticsKpiCardDto;
+  staleAuthoredPrs: PrAnalyticsStaleAuthoredPrDto[];
+};
+
 export type CiStatus = 'PASSING' | 'FAILING' | 'PENDING' | 'NONE';
 
 export type ChangedFileDto = {
@@ -1057,6 +1093,10 @@ export type Bridge = {
    *  + closed-without-merge). Used by the merge-history page — pages
    *  through GitHub's `is:closed author:@me sort:closed-desc` results. */
   fetchPrHistory: (page: number, perPage?: number) => Promise<PullRequestHistoryPageDto>;
+  /** Aggregated KPIs for the PR-review Analytics page. Pure local read
+   *  — no PAT, no GitHub call. Partial-data KPIs surface a {@code
+   *  partial: true} flag the page renders honestly. */
+  fetchPrAnalytics: (scope: PrAnalyticsScope) => Promise<PrAnalyticsSummaryDto>;
   fetchPullRequestDetail: (repo: string, number: number) => Promise<PullRequestDetailDto>;
   /** Force-refresh one PR's detail. Drops the backend's cached snapshot
    *  and re-fetches live from GitHub. Wired to the manual ↻ refresh

@@ -543,6 +543,17 @@ function registerIpc(): void {
     return res.json();
   });
 
+  ipcMain.handle('backend:prAnalytics', async (_event, scope: string) => {
+    const url = new URL(`${BACKEND_BASE}/prs/analytics`);
+    url.searchParams.set('scope', scope);
+    const res = await fetch(url);
+    if (!res.ok) {
+      const body = await res.text().catch(() => '');
+      throw new Error(`backend /prs/analytics returned ${res.status}: ${body}`);
+    }
+    return res.json();
+  });
+
   ipcMain.handle('backend:snoozePr', async (_event, prId: number, untilIso: string) => {
     const url = new URL(`${BACKEND_BASE}/prs/snooze`);
     url.searchParams.set('id', String(prId));

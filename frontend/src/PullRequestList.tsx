@@ -45,6 +45,7 @@ import {
 import { CategorizedList, HandledTimeline, SnoozedList } from './PrBucketViews';
 import KanbanBoard, { LANE_KEY, loadLane, type Lane } from './kanban/KanbanBoard';
 import MergeHistoryPage from './MergeHistoryPage';
+import PrAnalyticsPage from './PrAnalyticsPage';
 
 const PRS_CACHE_KEY = 'prs:list';
 const SIDEBAR_COLLAPSED_KEY = 'settings:pr-sidebar-collapsed';
@@ -80,7 +81,7 @@ function PullRequestList({ onGoToTeams, onOpenLocalBranch }: Props) {
   // whenever the viewer closes or the user navigates away.
   const [diffViewerCommitSha, setDiffViewerCommitSha] = useState<string | null>(null);
   const [filter, setFilter] = useState('');
-  const [activeTab, setActiveTab] = useState<'inbox' | 'snoozed' | 'handled'>('inbox');
+  const [activeTab, setActiveTab] = useState<'inbox' | 'snoozed' | 'handled' | 'analytics'>('inbox');
   // Full closed-PR history page (merged + closed-without-merge). Opened
   // from the kanban's "View full merge history →" footer CTA on the
   // Recently Merged column. Replaces the kanban view while open.
@@ -223,7 +224,8 @@ function PullRequestList({ onGoToTeams, onOpenLocalBranch }: Props) {
   const snoozedSorted = useMemo(() => sortSnoozed(snoozed), [snoozed]);
   const tabPrs = activeTab === 'inbox' ? inbox
     : activeTab === 'snoozed' ? snoozedSorted
-    : handledSorted;
+    : activeTab === 'handled' ? handledSorted
+    : [];
   // Briefing drives the red-dot alert on the My PRs scope tab. The
   // kanban renders its own copy too — we recompute here so the page
   // header doesn't have to reach into the child for state.
@@ -348,7 +350,7 @@ function PullRequestList({ onGoToTeams, onOpenLocalBranch }: Props) {
     [],
   );
 
-  const switchTab = (tab: 'inbox' | 'snoozed' | 'handled') => {
+  const switchTab = (tab: 'inbox' | 'snoozed' | 'handled' | 'analytics') => {
     setActiveTab(tab);
     setSelected(null);
     clearActiveScreen();
@@ -446,6 +448,16 @@ function PullRequestList({ onGoToTeams, onOpenLocalBranch }: Props) {
         onClick={() => switchTab('handled')}
       >
         Handled
+      </button>
+      <button
+        type="button"
+        role="tab"
+        aria-selected={activeTab === 'analytics'}
+        className={`pr-list-tab${activeTab === 'analytics' ? ' pr-list-tab--active' : ''}`}
+        onClick={() => switchTab('analytics')}
+        title="Personal review stats. Local data only."
+      >
+        Analytics
       </button>
       {/* Scope tabs (My PRs / To review / Teams). Only relevant on
           the Inbox tab — the Handled tab shows a flat timeline. */}
@@ -738,6 +750,14 @@ function PullRequestList({ onGoToTeams, onOpenLocalBranch }: Props) {
             />
           </div>
         )
+      )}
+      {activeTab === 'analytics' && (
+        <PrAnalyticsPage
+          onOpenPr={(repo, number) => {
+            const target = (prs ?? []).find(p => p.repo === repo && p.number === number);
+            if (target) handleSelect(target);
+          }}
+        />
       )}
     </div>
   );

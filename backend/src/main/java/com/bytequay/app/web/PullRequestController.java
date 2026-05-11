@@ -16,12 +16,14 @@ package com.bytequay.app.web;
 import com.bytequay.app.domain.DiffFile;
 import com.bytequay.app.domain.HandledAction;
 import com.bytequay.app.domain.MergeResult;
+import com.bytequay.app.domain.PrAnalyticsSummary;
 import com.bytequay.app.domain.PrCiSnapshot;
 import com.bytequay.app.domain.PullRequest;
 import com.bytequay.app.domain.PullRequestCommit;
 import com.bytequay.app.domain.PullRequestDetail;
 import com.bytequay.app.domain.PullRequestHistoryPage;
 import com.bytequay.app.domain.SuggestedReviewer;
+import com.bytequay.app.service.pr.PrAnalyticsService;
 import com.bytequay.app.service.pr.PullRequestService;
 import com.google.common.collect.ImmutableMap;
 import org.springframework.http.HttpStatusCode;
@@ -45,11 +47,16 @@ import static java.util.Objects.requireNonNull;
 public class PullRequestController
 {
     private final PullRequestService pullRequestService;
+    private final PrAnalyticsService prAnalyticsService;
     private final PatResolver patResolver;
 
-    public PullRequestController(PullRequestService pullRequestService, PatResolver patResolver)
+    public PullRequestController(
+            PullRequestService pullRequestService,
+            PrAnalyticsService prAnalyticsService,
+            PatResolver patResolver)
     {
         this.pullRequestService = requireNonNull(pullRequestService, "pullRequestService is null");
+        this.prAnalyticsService = requireNonNull(prAnalyticsService, "prAnalyticsService is null");
         this.patResolver = requireNonNull(patResolver, "patResolver is null");
     }
 
@@ -62,6 +69,20 @@ public class PullRequestController
     public List<PullRequest> list()
     {
         return pullRequestService.listPullRequests();
+    }
+
+    /**
+     * Aggregated KPIs for the PR review Analytics page. Local-only,
+     * no PAT — reads the cached PR rows and detail blobs. KPIs that
+     * depend on the (not-yet-built) review mirror surface as
+     * placeholders rather than wrong numbers.
+     * GET /prs/analytics?scope=7d|30d|90d|all
+     */
+    @GetMapping("/prs/analytics")
+    public PrAnalyticsSummary analytics(
+            @RequestParam(value = "scope", defaultValue = "30d") String scope)
+    {
+        return prAnalyticsService.summarize(scope);
     }
 
     /**

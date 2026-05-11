@@ -69,6 +69,8 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentMap;
 import java.util.concurrent.Executor;
 import java.util.function.Supplier;
 import java.util.regex.Matcher;
@@ -106,6 +108,12 @@ public class PullRequestService
     private final RepoListCache repoListCache;
     private final Executor executor;
     private final Executor ioExecutor;
+    /** prId → last ETag returned by GitHub for {@code GET /pulls/{n}}.
+     *  Populated by {@link #refreshPullRequestDetail}'s probe path
+     *  and consulted on the next probe to short-circuit unchanged
+     *  PRs (304 → no rate-limit cost). In-memory only — a backend
+     *  restart just means the next probe pays for one full fetch. */
+    private final ConcurrentMap<Long, String> detailEtags = new ConcurrentHashMap<>();
 
     public PullRequestService(
             PullRequestRepository gitHub,
@@ -251,13 +259,44 @@ public class PullRequestService
     }
 
     /**
-     * Force-refreshes one PR's detail by dropping the cached snapshot and
-     * re-fetching live from GitHub. Wired to the manual refresh button on
-     * the detail page — the user has seen new comments/reviews on
-     * github.com that aren't in our local cache yet.
+     * Refreshes one PR's detail. Tries a cheap conditional GET first
+     * ({@code If-None-Match} on the cached ETag); when GitHub answers
+     * 304 we skip the full multi-call refetch and return the cached
+     * snapshot — that 304 doesn't count against the rate limit, so
+     * the navigate-back-to-PR flow is essentially free for quiet PRs.
+     *
+     * <p>On a miss (no prior ETag, 200, or any probe error) we fall
+     * back to the original invalidate-then-refetch path so the caller
+     * always gets the freshest data we can produce.
      */
     public PullRequestDetail refreshPullRequestDetail(String pat, String repo, int number)
     {
+        Optional<Long> prId = store.findIdByRepoAndNumber(repo, number);
+        if (prId.isPresent()) {
+            try {
+                PullRequestRef ref = parseRef(repo, number);
+                String cachedEtag = detailEtags.get(prId.get());
+                PullRequestRepository.ProbeResult probe =
+                        gitHub.probeChangedSinceEtag(pat, ref, cachedEtag);
+                // Always capture the latest ETag — including the
+                // first-ever probe (no cached ETag → 200 response,
+                // body discarded, ETag captured for the next call).
+                if (probe.newEtag() != null) {
+                    detailEtags.put(prId.get(), probe.newEtag());
+                }
+                if (cachedEtag != null && !probe.changed()) {
+                    // 304: nothing's changed since we last fetched.
+                    // Skip the multi-call refetch and serve cached.
+                    log.debug("ETag probe 304 for {}#{} — serving cached", repo, number);
+                    return getPullRequestDetail(pat, repo, number);
+                }
+            }
+            catch (Exception e) {
+                // Probe is best-effort. Fall through to the full
+                // refetch — never gate correctness on the probe.
+                log.debug("ETag probe failed for {}#{}: {}", repo, number, e.getMessage());
+            }
+        }
         invalidatePullRequestDetail(repo, number);
         return getPullRequestDetail(pat, repo, number);
     }

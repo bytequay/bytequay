@@ -458,6 +458,12 @@ export function categorizeMyPr(pr: PullRequestDto, now: number = Date.now()): My
   // "unanswered review feedback" beyond an explicit CHANGES_REQUESTED.
   if (hasChangesRequested) return 'needs_changes';
 
+  // Failing CI is the author's problem too — same column. Sits below
+  // hasChangesRequested only because the order doesn't matter (both
+  // routes return the same value); keeping CHANGES_REQUESTED first is
+  // a readability signal that human feedback is the primary trigger.
+  if (pr.ciStatus === 'FAILING') return 'needs_changes';
+
   // No reviewer has weighed in yet → still waiting on review.
   return 'waiting_on_review';
 }
@@ -486,6 +492,11 @@ export function categorizeToReview(pr: PullRequestDto, now: number = Date.now())
   if (pr.handledAction === 'CHANGES_REQUESTED' || pr.handledAction === 'COMMENTED') {
     return 'awaiting_author';
   }
+
+  // Failing CI flips the ball to the author too — even when the user
+  // hasn't reviewed yet. Sits after the attention/handled checks so
+  // explicit signals (mention, ping, prior feedback) still win.
+  if (pr.ciStatus === 'FAILING') return 'awaiting_author';
 
   // User has peeked but not reviewed → still in progress for them.
   if (pr.viewedAt !== null && pr.reviewedAt === null) return 'in_progress';

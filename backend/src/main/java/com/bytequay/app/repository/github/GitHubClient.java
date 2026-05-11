@@ -59,6 +59,7 @@ import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.http.HttpMethod;
 import org.springframework.http.HttpStatusCode;
 import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
 import org.springframework.stereotype.Component;
 import org.springframework.web.client.RestClient;
 import org.springframework.web.client.RestClientResponseException;
@@ -172,6 +173,34 @@ public class GitHubClient
     }
 
     // ── Pull request detail ───────────────────────────────────────────────────
+
+    @Override
+    public ProbeResult probeChangedSinceEtag(String pat, PullRequestRef pr, String etag)
+    {
+        try {
+            ResponseEntity<Void> resp = gitHubRestClient.get()
+                    .uri("/repos/{owner}/{repo}/pulls/{number}", pr.owner(), pr.repo(), pr.number())
+                    .header("Authorization", "Bearer " + pat)
+                    .headers(h -> {
+                        if (etag != null && !etag.isBlank()) {
+                            h.set("If-None-Match", etag);
+                        }
+                    })
+                    // toBodilessEntity() lets us read headers (and the
+                    // 304 status) without paying for body deserialization.
+                    .retrieve()
+                    .onStatus(s -> s.value() == 304, (req, res) -> { /* expected */ })
+                    .toBodilessEntity();
+            String newEtag = resp.getHeaders().getETag();
+            // 304 → unchanged, echo the caller's etag (still valid).
+            // 200 → new content, return the freshly-issued etag.
+            boolean changed = resp.getStatusCode().value() != 304;
+            return new ProbeResult(changed, newEtag != null ? newEtag : etag);
+        }
+        catch (RestClientResponseException e) {
+            throw toReadableException(e);
+        }
+    }
 
     @Override
     public PrRawDetail fetchPrDetail(String pat, PullRequestRef pr)

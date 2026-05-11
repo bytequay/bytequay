@@ -659,6 +659,13 @@ type ActionState = 'idle' | 'confirming' | 'running' | 'done' | 'error';
 
 
 function PullRequestPreview({ pr, onOpenReview, onInspectDiffs, onMarkHandled, onMerge, onBack, backLabel, onOpenLocalBranch }: Props) {
+  // {owner, repo} for renderMarkdown — pr.repo is GitHub's "owner/repo"
+  // form. Used so `#N` references in the PR body / comments become
+  // clickable in-app via App.tsx's global click delegate.
+  const repoContext = (() => {
+    const [o, r] = pr.repo.split('/');
+    return o && r ? { owner: o, repo: r } : undefined;
+  })();
   const [detail, setDetail] = useState<PullRequestDetailDto | null>(null);
   const [loading, setLoading] = useState(false);
   const [refreshing, setRefreshing] = useState(false);
@@ -1211,6 +1218,7 @@ function PullRequestPreview({ pr, onOpenReview, onInspectDiffs, onMarkHandled, o
                                     canEdit={!!(currentUserLogin && currentUserLogin === item.actor && item.githubId != null)}
                                     onSave={(b) => handleEditIssueComment(item.githubId!, b)}
                                     className="activity-item__body"
+                                    repoContext={repoContext}
                                   />
                                 )}
                               </div>
@@ -1951,6 +1959,7 @@ function PullRequestPreview({ pr, onOpenReview, onInspectDiffs, onMarkHandled, o
               body={item.body!}
               canEdit={!!(currentUserLogin && currentUserLogin === item.actor && item.githubId != null)}
               onSave={(b) => handleEditIssueComment(item.githubId!, b)}
+              repoContext={repoContext}
             />
           )}
           {hasThreads && (
@@ -2073,6 +2082,7 @@ function PullRequestPreview({ pr, onOpenReview, onInspectDiffs, onMarkHandled, o
               body={item.body!}
               canEdit={!!(currentUserLogin && currentUserLogin === item.actor && item.githubId != null)}
               onSave={(b) => handleEditIssueComment(item.githubId!, b)}
+              repoContext={repoContext}
             />
           )}
           {/* Reactions row + emoji-add button. Only renders when we

@@ -100,6 +100,12 @@ final class TeamPullCategorizer
             return MyPrColumn.NEEDS_CHANGES;
         }
 
+        // Failing CI is the author's problem too — mirror of the
+        // frontend's prBuckets.ts categorizeMyPr.
+        if (pr.ciStatus() == PullRequestDetail.CiStatus.FAILING) {
+            return MyPrColumn.NEEDS_CHANGES;
+        }
+
         return MyPrColumn.WAITING_ON_REVIEW;
     }
 

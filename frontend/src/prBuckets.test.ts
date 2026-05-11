@@ -501,12 +501,18 @@ describe('categorizeMyPr', () => {
     }), NOW)).toBe('waiting_on_review');
   });
 
-  it('approval but CI failing → still in waiting_on_review (not ready)', () => {
+  it('approval but CI failing → needs_changes (CI break is author work)', () => {
     expect(categorizeMyPr(pr({
       reviewerVerdicts: { alice: 'APPROVED' },
       ciStatus: 'FAILING',
       mergeable: true,
-    }), NOW)).toBe('waiting_on_review');
+    }), NOW)).toBe('needs_changes');
+  });
+
+  it('failing CI without any verdict → needs_changes', () => {
+    expect(categorizeMyPr(pr({
+      ciStatus: 'FAILING',
+    }), NOW)).toBe('needs_changes');
   });
 
   it('merged within 7 days → recently_merged', () => {
@@ -573,6 +579,29 @@ describe('categorizeToReview', () => {
 
   it('brand-new review request → needs_attention', () => {
     expect(categorizeToReview(pr({ origin: 'REVIEW_REQUESTED' }), NOW)).toBe('needs_attention');
+  });
+
+  it('failing CI on a PR I haven\'t reviewed → awaiting_author', () => {
+    expect(categorizeToReview(pr({
+      origin: 'REVIEW_REQUESTED',
+      ciStatus: 'FAILING',
+    }), NOW)).toBe('awaiting_author');
+  });
+
+  it('failing CI but I was already mentioned → still needs_attention (mention wins)', () => {
+    expect(categorizeToReview(pr({
+      origin: 'REVIEW_REQUESTED',
+      attentionReason: 'MENTIONED',
+      ciStatus: 'FAILING',
+    }), NOW)).toBe('needs_attention');
+  });
+
+  it('failing CI overrides in_progress (peeked but not reviewed)', () => {
+    expect(categorizeToReview(pr({
+      origin: 'REVIEW_REQUESTED',
+      viewedAt: '2026-04-23T10:00:00Z',
+      ciStatus: 'FAILING',
+    }), NOW)).toBe('awaiting_author');
   });
 });
 

@@ -99,6 +99,30 @@ public interface PullRequestRepository
     }
 
     /**
+     * Cheap "is anything new?" probe via HTTP conditional GET. Sends
+     * {@code If-None-Match: <etag>} to {@code /pulls/{number}}; GitHub
+     * answers 304 (no body) when the resource hasn't changed since
+     * that ETag was issued. <strong>304 responses don't count against
+     * the rate limit</strong>, so repeated probes on quiet PRs are
+     * effectively free.
+     *
+     * <p>Detects the major timeline signals (new comments, reviews,
+     * pushes, title/body/draft changes) since GitHub bumps the PR's
+     * {@code updated_at} for those. Misses reactions and review-thread
+     * resolution toggles (those use GraphQL or sub-resources that
+     * don't bump the parent's ETag) — manual refresh handles those.
+     */
+    default ProbeResult probeChangedSinceEtag(String pat, PullRequestRef pr, String etag)
+    {
+        throw new UnsupportedOperationException("probeChangedSinceEtag not implemented");
+    }
+
+    /** {@link #probeChangedSinceEtag} return value. {@code newEtag}
+     *  carries the freshly-issued ETag on a 200, or echoes the input
+     *  ETag on a 304 (so callers don't need to special-case). */
+    record ProbeResult(boolean changed, String newEtag) {}
+
+    /**
      * Fetches all submitted reviews for a pull request.
      * Maps to: GET /repos/{owner}/{repo}/pulls/{number}/reviews
      */

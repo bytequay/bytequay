@@ -230,6 +230,29 @@ public class RepoController
     public record IssueReactionRequest(String content) {}
 
     /**
+     * Toggles the viewer's subscription to an issue. {@code subscribed=true}
+     * subscribes (PUT) and {@code subscribed=false} returns the row to
+     * its default state (DELETE). Returns {@code result: subscribed}
+     * or {@code result: unsubscribed} so the frontend can log the
+     * action without re-parsing the request.
+     * POST /api/repos/{owner}/{repo}/issues/{number}/subscription
+     */
+    @PostMapping("/repos/{owner}/{repo}/issues/{number}/subscription")
+    public Map<String, String> setIssueSubscription(
+            @PathVariable String owner,
+            @PathVariable String repo,
+            @PathVariable int number,
+            @RequestBody IssueSubscriptionRequest request)
+    {
+        repoService.setIssueSubscription(
+                patResolver.resolve(owner + "/" + repo), owner, repo, number, request.subscribed());
+        return ImmutableMap.of("result", request.subscribed() ? "subscribed" : "unsubscribed");
+    }
+
+    /** POST body shape for {@link #setIssueSubscription}. */
+    public record IssueSubscriptionRequest(boolean subscribed) {}
+
+    /**
      * Repo-level metadata: description, stars, forks, watchers, license,
      * topics, languages map. Powers the right-pane hero / About /
      * language bar on the repo detail page.

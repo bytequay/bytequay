@@ -537,6 +537,27 @@ public interface PullRequestRepository
     }
 
     /**
+     * Returns the viewer's subscription state on one issue. True iff
+     * GitHub returns 200 with {@code subscribed=true}; false on 404
+     * (default state) or on an explicit ignore.
+     * Maps to: GET /repos/{owner}/{repo}/issues/{number}/subscription
+     */
+    default boolean fetchIssueSubscription(String pat, RepoRef repo, int number)
+    {
+        throw new UnsupportedOperationException("fetchIssueSubscription not implemented");
+    }
+
+    /**
+     * Toggles the viewer's subscription on one issue.
+     * {@code subscribe=true} PUTs {@code {subscribed: true}};
+     * {@code subscribe=false} DELETEs to return to the default state.
+     */
+    default void setIssueSubscription(String pat, RepoRef repo, int number, boolean subscribe)
+    {
+        throw new UnsupportedOperationException("setIssueSubscription not implemented");
+    }
+
+    /**
      * Posts a new comment on an issue and returns the GitHub-side
      * payload as a normalised {@link IssueDetail.Comment} so the
      * caller can append it directly to its rendered timeline.

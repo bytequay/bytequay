@@ -51,6 +51,7 @@ function detail(over: Partial<IssueDetailDto> = {}): IssueDetailDto {
       },
     ],
     timeline: [],
+    subscribed: false,
     ...over,
   };
 }
@@ -59,6 +60,7 @@ type BridgeStub = {
   getIssueDetail: ReturnType<typeof vi.fn>;
   addIssueDetailCommentReaction: ReturnType<typeof vi.fn>;
   createIssueComment: ReturnType<typeof vi.fn>;
+  setIssueSubscription: ReturnType<typeof vi.fn>;
 };
 
 function installBridge(overrides: Partial<BridgeStub> = {}): BridgeStub {
@@ -66,6 +68,7 @@ function installBridge(overrides: Partial<BridgeStub> = {}): BridgeStub {
     getIssueDetail: vi.fn().mockResolvedValue(detail()),
     addIssueDetailCommentReaction: vi.fn().mockResolvedValue({ result: 'reacted' }),
     createIssueComment: vi.fn().mockResolvedValue(null),
+    setIssueSubscription: vi.fn().mockResolvedValue({ result: 'subscribed' }),
     ...overrides,
   };
   (window as unknown as { bridge: unknown }).bridge = stub;
@@ -225,6 +228,35 @@ describe('IssueDetailScreen — Activity / Linked tabs (I3b)', () => {
     await act(async () => { fireEvent.click(linkedTab); });
 
     expect(screen.getByText(/No PRs link to this issue yet/i)).toBeDefined();
+  });
+
+  it('Subscribe button toggles to Unsubscribe optimistically and posts subscribed:true', async () => {
+    const stub = installBridge();
+    render(<IssueDetailScreen owner="o" repo="r" number={42} />);
+    const button = await screen.findByRole('button', { name: /^Subscribe$/ });
+
+    await act(async () => { fireEvent.click(button); });
+
+    // Optimistic flip — button label is now "Unsubscribe".
+    expect(screen.getByRole('button', { name: /^Unsubscribe$/ })).toBeDefined();
+    // Bridge call carries subscribed=true (PUT on the GitHub side).
+    expect(stub.setIssueSubscription).toHaveBeenCalledWith('o', 'r', 42, true);
+  });
+
+  it('Unsubscribe rolls back when the bridge rejects', async () => {
+    installBridge({
+      getIssueDetail: vi.fn().mockResolvedValue(detail({ subscribed: true })),
+      setIssueSubscription: vi.fn().mockRejectedValue(new Error('rate limited')),
+    });
+    render(<IssueDetailScreen owner="o" repo="r" number={42} />);
+    const button = await screen.findByRole('button', { name: /^Unsubscribe$/ });
+
+    await act(async () => { fireEvent.click(button); });
+
+    // Failure path returns the button to Unsubscribe (still subscribed).
+    await waitFor(() => {
+      expect(screen.getByRole('button', { name: /^Unsubscribe$/ })).toBeDefined();
+    });
   });
 
   it('Tab counts reflect the contents of each tab', async () => {

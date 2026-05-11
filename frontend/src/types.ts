@@ -495,6 +495,9 @@ export type IssueDetailDto = {
    *  everything else (labeled, assigned, milestoned, closed, reopened,
    *  renamed, mentioned, cross-referenced, …). */
   timeline: IssueTimelineEventDto[];
+  /** True iff the viewer has explicitly subscribed to the issue. Drives
+   *  the Subscribe / Unsubscribe button in the header. */
+  subscribed: boolean;
 };
 
 /** One row of the issue timeline. Most fields are populated only for
@@ -1135,6 +1138,10 @@ export type Bridge = {
    *  endpoint (the PR side uses {@code /api/prs/issue-comments/...}).
    *  {@code content} is one of the eight allowlisted GitHub strings. */
   addIssueDetailCommentReaction: (owner: string, repo: string, commentId: number, content: string) => Promise<{ result: string }>;
+  /** Flips the viewer's subscription on the issue. {@code subscribed=true}
+   *  subscribes (PUT); {@code false} returns to GitHub's default state
+   *  (DELETE). */
+  setIssueSubscription: (owner: string, repo: string, number: number, subscribed: boolean) => Promise<{ result: string }>;
   /** Repo-level metadata for the right-pane hero card. */
   getRepoMeta: (owner: string, repo: string) => Promise<RepoMetaDto>;
   /** ~30 most recent events on a repo for the right-pane activity feed. */

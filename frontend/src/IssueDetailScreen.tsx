@@ -135,6 +135,13 @@ function IssueDetailScreen({ owner, repo, number, onBack, embedded }: Props) {
           >
             View on GitHub ↗
           </a>
+          <SubscribeButton
+            owner={owner}
+            repo={repo}
+            number={detail.number}
+            subscribed={detail.subscribed}
+            onChanged={(next) => setDetail(prev => prev ? { ...prev, subscribed: next } : prev)}
+          />
           <StateToggleButton
             owner={owner}
             repo={repo}
@@ -378,6 +385,62 @@ function StateToggleButton({
       <button
         type="button"
         className={`button button--sm ${isClosed ? 'button--secondary' : 'button--primary'}`}
+        onClick={() => { void submit(); }}
+        disabled={busy}
+      >
+        {label}
+      </button>
+      {error && <span className="issue-detail__state-error" title={error}>Failed: {error.slice(0, 60)}…</span>}
+    </span>
+  );
+}
+
+/** Toggles the viewer's subscription on the issue. Mirrors
+ *  {@code StateToggleButton}'s shape — busy + error states inline,
+ *  the parent reconciles the new flag back into {@code detail}. */
+function SubscribeButton({
+  owner,
+  repo,
+  number,
+  subscribed,
+  onChanged,
+}: {
+  owner: string;
+  repo: string;
+  number: number;
+  subscribed: boolean;
+  onChanged: (next: boolean) => void;
+}) {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const label = busy
+    ? (subscribed ? 'Unsubscribing…' : 'Subscribing…')
+    : (subscribed ? 'Unsubscribe' : 'Subscribe');
+  const submit = async (): Promise<void> => {
+    if (busy) return;
+    setBusy(true);
+    setError(null);
+    const next = !subscribed;
+    // Optimistically flip — backend call confirms or rolls back. Same
+    // pattern as the comment-reaction path; the response carries no
+    // additional state we need to merge.
+    onChanged(next);
+    try {
+      await window.bridge.setIssueSubscription(owner, repo, number, next);
+    }
+    catch (e) {
+      onChanged(subscribed);
+      setError(e instanceof Error ? e.message : String(e));
+    }
+    finally {
+      setBusy(false);
+    }
+  };
+  return (
+    <span className="issue-detail__state-action">
+      <button
+        type="button"
+        className="button button--sm button--secondary"
         onClick={() => { void submit(); }}
         disabled={busy}
       >

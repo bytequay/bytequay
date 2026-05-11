@@ -278,6 +278,7 @@ public class RepoService
         IssueDetail base = gitHub.fetchIssueDetail(pat, ref, number);
         List<IssueDetail.Comment> comments = gitHub.fetchIssueDetailComments(pat, ref, number);
         List<IssueTimelineEvent> timeline = gitHub.fetchIssueTimeline(pat, ref, number);
+        boolean subscribed = gitHub.fetchIssueSubscription(pat, ref, number);
         return new IssueDetail(
                 base.id(),
                 base.number(),
@@ -294,7 +295,8 @@ public class RepoService
                 base.assignees(),
                 base.milestone(),
                 comments,
-                timeline);
+                timeline,
+                subscribed);
     }
 
     /**
@@ -331,6 +333,7 @@ public class RepoService
         // round-trip from the frontend.
         List<IssueDetail.Comment> comments = gitHub.fetchIssueDetailComments(pat, ref, number);
         List<IssueTimelineEvent> timeline = gitHub.fetchIssueTimeline(pat, ref, number);
+        boolean subscribed = gitHub.fetchIssueSubscription(pat, ref, number);
         return new IssueDetail(
                 flipped.id(),
                 flipped.number(),
@@ -347,7 +350,18 @@ public class RepoService
                 flipped.assignees(),
                 flipped.milestone(),
                 comments,
-                timeline);
+                timeline,
+                subscribed);
+    }
+
+    /**
+     * Flips the viewer's subscription on one issue. No new fetch on
+     * return — the frontend patches its in-memory detail
+     * optimistically, mirroring the reactions path.
+     */
+    public void setIssueSubscription(String pat, String owner, String repo, int number, boolean subscribe)
+    {
+        gitHub.setIssueSubscription(pat, RepoRef.of(owner, repo), number, subscribe);
     }
 
     /**

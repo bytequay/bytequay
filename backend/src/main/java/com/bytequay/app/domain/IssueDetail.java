@@ -48,7 +48,13 @@ public record IssueDetail(
         /** Structural timeline events — labeled, assigned, closed,
          *  cross-referenced, … — feeding the Activity + Linked tabs.
          *  Always non-null; empty for issues with no structural history. */
-        List<IssueTimelineEvent> timeline)
+        List<IssueTimelineEvent> timeline,
+        /** True iff the viewer has explicitly subscribed to the issue
+         *  via {@code PUT /issues/{n}/subscription}. False covers both
+         *  "never subscribed" and "explicitly muted" (GitHub's
+         *  {@code ignored=true} state) — we don't surface the ignore
+         *  distinction in v1. */
+        boolean subscribed)
 {
     public record Label(String name, String color) {}
 

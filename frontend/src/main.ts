@@ -1051,6 +1051,22 @@ const url = new URL(`${BACKEND_BASE}/prs/comment`);
     return res.json();
   });
 
+  ipcMain.handle('repos:setIssueSubscription', async (_event, owner: string, repo: string, number: number, subscribed: boolean) => {
+    const res = await fetch(
+      `${BACKEND_BASE}/api/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/issues/${number}/subscription`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ subscribed }),
+      },
+    );
+    if (!res.ok) {
+      const text = await res.text().catch(() => '');
+      throw new Error(`backend setIssueSubscription returned ${res.status}: ${text}`);
+    }
+    return res.json();
+  });
+
   ipcMain.handle('repos:meta', async (_event, owner: string, repo: string) => {
     const res = await fetch(
       `${BACKEND_BASE}/api/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/meta`,

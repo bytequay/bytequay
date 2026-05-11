@@ -1581,6 +1581,63 @@ public class GitHubClient
     }
 
     @Override
+    public boolean fetchIssueSubscription(String pat, RepoRef repo, int number)
+    {
+        try {
+            SubscriptionResponse resp = gitHubRestClient.get()
+                    .uri("/repos/{owner}/{repo}/issues/{number}/subscription",
+                            repo.owner(), repo.repo(), number)
+                    .header("Authorization", "Bearer " + pat)
+                    .retrieve()
+                    .body(SubscriptionResponse.class);
+            // GitHub returns 200 with {subscribed: true|false, ignored: …}
+            // when the viewer has an explicit choice on file; we treat
+            // only an explicit subscribed=true as "subscribed". An
+            // ignore (subscribed=false, ignored=true) reads as not
+            // subscribed in v1.
+            return resp != null && Boolean.TRUE.equals(resp.subscribed());
+        }
+        catch (RestClientResponseException e) {
+            // 404 = default state, viewer has no explicit subscription.
+            if (e.getStatusCode().value() == 404) {
+                return false;
+            }
+            throw toReadableException(e);
+        }
+    }
+
+    @Override
+    public void setIssueSubscription(String pat, RepoRef repo, int number, boolean subscribe)
+    {
+        try {
+            if (subscribe) {
+                gitHubRestClient.put()
+                        .uri("/repos/{owner}/{repo}/issues/{number}/subscription",
+                                repo.owner(), repo.repo(), number)
+                        .header("Authorization", "Bearer " + pat)
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .body(ImmutableMap.of("subscribed", true))
+                        .retrieve()
+                        .toBodilessEntity();
+            }
+            else {
+                gitHubRestClient.delete()
+                        .uri("/repos/{owner}/{repo}/issues/{number}/subscription",
+                                repo.owner(), repo.repo(), number)
+                        .header("Authorization", "Bearer " + pat)
+                        .retrieve()
+                        .toBodilessEntity();
+            }
+        }
+        catch (RestClientResponseException e) {
+            throw toReadableException(e);
+        }
+    }
+
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    private record SubscriptionResponse(Boolean subscribed, Boolean ignored) {}
+
+    @Override
     public IssueDetail setIssueState(String pat, RepoRef repo, int number, String state)
     {
         try {
@@ -1664,7 +1721,11 @@ public class GitHubClient
                 // Timeline is fetched separately on the service-side
                 // hot path so this client-internal helper just returns
                 // empty here; the service splices the timeline in.
-                ImmutableList.of());
+                ImmutableList.of(),
+                // Subscription state is also fetched separately by the
+                // service so this helper defaults to false; the service
+                // overwrites with the real GET /subscription result.
+                false);
     }
 
     private static IssueDetail.Comment toIssueDetailComment(GitHubIssueComment c)

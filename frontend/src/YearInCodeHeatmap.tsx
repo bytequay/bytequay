@@ -12,7 +12,7 @@
  * limitations under the License.
  */
 import { useEffect, useState } from 'react';
-import type { ContributionCalendarDto } from './types';
+import type { ContributionCalendarDto, ContributionDayDto } from './types';
 import { getCached, setCached } from './dataCache';
 
 const CELL = 12;
@@ -30,6 +30,19 @@ function cacheKey(login: string) {
   return `home:contribution-graph:${login}`;
 }
 
+/** Pretty-prints an ISO yyyy-MM-dd as "Mon, Jan 1, 2026" for the
+ *  hover tooltip — shorter than spelling out the weekday in full but
+ *  still unambiguous when you're glancing at a specific cell. */
+function formatTipDate(iso: string): string {
+  const d = new Date(iso + 'T00:00:00');
+  return d.toLocaleDateString(undefined, {
+    weekday: 'short',
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric',
+  });
+}
+
 /**
  * Native, GitHub-GraphQL-backed contribution heatmap rendered as an inline
  * SVG. The viewBox + percentage width keep it crisp at any zoom — no
@@ -44,6 +57,10 @@ export default function YearInCodeHeatmap({ login }: { login: string }) {
   const [data, setData] = useState<ContributionCalendarDto | null>(
     () => getCached<ContributionCalendarDto>(cacheKey(login)) ?? null,
   );
+  // Hovered cell + cursor position for the custom tooltip. clientX/Y
+  // pair with position:fixed CSS so we don't have to map SVG coords
+  // back into DOM space when the heatmap is laid out fluidly.
+  const [hover, setHover] = useState<{ day: ContributionDayDto; clientX: number; clientY: number } | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -139,13 +156,39 @@ export default function YearInCodeHeatmap({ login }: { login: string }) {
                 ry={2}
                 fill={day.color || '#ebedf0'}
                 className="home-heatmap__cell"
+                onMouseEnter={(e) => setHover({ day, clientX: e.clientX, clientY: e.clientY })}
+                onMouseMove={(e) => setHover({ day, clientX: e.clientX, clientY: e.clientY })}
+                onMouseLeave={() => setHover(null)}
               >
+                {/* Kept for screen-readers + a graceful fallback if
+                    the React state-driven tooltip misses an event
+                    (rapid scroll-out, etc.). The custom div below
+                    is the primary affordance for sighted users. */}
                 <title>{`${day.contributionCount} contribution${day.contributionCount === 1 ? '' : 's'} on ${day.date}`}</title>
               </rect>
             );
           }),
         )}
       </svg>
+
+      {hover && (
+        <div
+          className="home-heatmap__tip"
+          // Offset above and slightly right of the cursor so the cell
+          // is still visible while the tip floats. position:fixed
+          // matches clientX/Y so the tip tracks the viewport on scroll.
+          style={{ left: hover.clientX + 10, top: hover.clientY - 40 }}
+          role="tooltip"
+        >
+          <strong className="home-heatmap__tip-count">
+            {hover.day.contributionCount}
+          </strong>{' '}
+          contribution{hover.day.contributionCount === 1 ? '' : 's'}
+          <span className="home-heatmap__tip-date">
+            {formatTipDate(hover.day.date)}
+          </span>
+        </div>
+      )}
 
       <div className="home-heatmap__footer">
         <span className="home-heatmap__total">{totalLabel}</span>

@@ -539,10 +539,14 @@ function SanitizedHtml({ html }: { html: string }) {
   const safeHtml = html.replace(/<script[\s\S]*?<\/script>/gi, '');
   const wrapped = '<base target="_top">' + safeHtml;
   const iframeRef = useRef<HTMLIFrameElement | null>(null);
+  // Tracks the ResizeObserver attached to the iframe's body. Disconnected
+  // on each new load (srcDoc change) and on unmount.
+  const observerRef = useRef<ResizeObserver | null>(null);
   // Resize the iframe to fit its content. Runs on each load (srcDoc
-  // change triggers a load) and once more on resize after a small
-  // debounce-like delay since some emails embed images that load
-  // after the document fires its initial load event.
+  // change triggers a load), once more after a small delay for inline
+  // images to settle, and again whenever the ResizeObserver fires —
+  // covers window resize, dragging the inbox/detail split, and any
+  // late content reflow inside the email itself.
   const fit = () => {
     const iframe = iframeRef.current;
     if (!iframe) return;
@@ -559,6 +563,19 @@ function SanitizedHtml({ html }: { html: string }) {
     // the iframe's bottom edge (which causes a phantom scrollbar).
     iframe.style.height = `${height + 4}px`;
   };
+
+  // Disconnect the observer on unmount. The per-load disconnect lives
+  // inside onLoad below — that path swaps observers as the document is
+  // replaced, this one cleans up the final outstanding observer.
+  useEffect(() => {
+    return () => {
+      if (observerRef.current) {
+        observerRef.current.disconnect();
+        observerRef.current = null;
+      }
+    };
+  }, []);
+
   return (
     <iframe
       ref={iframeRef}
@@ -569,9 +586,20 @@ function SanitizedHtml({ html }: { html: string }) {
       onLoad={() => {
         fit();
         // Re-measure after images settle. 200ms covers most inline
-        // images cached by Gmail's CDN; for slow loads the user can
-        // scroll the outer pane in the meantime.
+        // images cached by Gmail's CDN; for slow loads the ResizeObserver
+        // below will catch later reflows.
         setTimeout(fit, 200);
+        // Watch the iframe's body for size changes — fires when the
+        // user resizes the window, drags the pane split, or when an
+        // image loads later than our 200ms timer. Each load swaps the
+        // observer (the previous document is being torn down).
+        if (observerRef.current) observerRef.current.disconnect();
+        const doc = (() => { try { return iframeRef.current?.contentDocument; } catch { return null; } })();
+        if (doc?.body && typeof ResizeObserver !== 'undefined') {
+          const ro = new ResizeObserver(() => fit());
+          ro.observe(doc.body);
+          observerRef.current = ro;
+        }
       }}
     />
   );

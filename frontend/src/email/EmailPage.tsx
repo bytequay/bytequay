@@ -57,11 +57,14 @@ export default function EmailPage({ onOpenIntegrationsSettings, onOpenLinkedRef 
   // Tracks thread IDs we've already auto-acted on (mark-read + archive)
   // so re-selecting after "Keep in inbox" doesn't immediately re-archive.
   const autoActedRef = useRef<Set<string>>(new Set());
-  // Most-recent auto-archive that's still inside the undo grace window.
-  // Set right after readAndArchive resolves; cleared by the timer (see
-  // UNDO_GRACE_MS) or by a manual undo click. Replaced — not stacked —
-  // when the user opens another thread before the previous toast expires.
-  const [undoTarget, setUndoTarget] = useState<{ id: string; subject: string } | null>(null);
+  // Most-recent action that's still inside the undo grace window.
+  // Two kinds share the same toast slot — only the latest is undoable,
+  // so muting then opening another thread cancels the mute toast.
+  // Cleared by the timer (UNDO_GRACE_MS) or by a manual undo click.
+  type UndoTarget =
+    | { kind: 'archive'; id: string; subject: string }
+    | { kind: 'mute'; id: string; subject: string; sender: string };
+  const [undoTarget, setUndoTarget] = useState<UndoTarget | null>(null);
   const undoTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Load accounts on mount; auto-select the first OAuth account.
@@ -162,7 +165,7 @@ export default function EmailPage({ onOpenIntegrationsSettings, onOpenLinkedRef 
   // inbox" undoes both.
   /** Replace any in-flight undo toast with a new one (or clear). The
    *  ref-based timer survives renders so we can cancel cleanly. */
-  const queueUndoToast = (target: { id: string; subject: string } | null) => {
+  const queueUndoToast = (target: UndoTarget | null) => {
     if (undoTimerRef.current) {
       clearTimeout(undoTimerRef.current);
       undoTimerRef.current = null;
@@ -170,7 +173,7 @@ export default function EmailPage({ onOpenIntegrationsSettings, onOpenLinkedRef 
     setUndoTarget(target);
     if (target) {
       undoTimerRef.current = setTimeout(() => {
-        setUndoTarget(curr => (curr && curr.id === target.id ? null : curr));
+        setUndoTarget(curr => (curr && curr.id === target.id && curr.kind === target.kind ? null : curr));
         undoTimerRef.current = null;
       }, UNDO_GRACE_MS);
     }
@@ -189,7 +192,7 @@ export default function EmailPage({ onOpenIntegrationsSettings, onOpenLinkedRef 
     });
     try {
       await window.bridge.readAndArchiveEmailThread(selectedAccount, id);
-      queueUndoToast({ id, subject: target?.subject ?? '(no subject)' });
+      queueUndoToast({ kind: 'archive', id, subject: target?.subject ?? '(no subject)' });
     }
     catch (e) {
       setThreads(prev);
@@ -206,7 +209,11 @@ export default function EmailPage({ onOpenIntegrationsSettings, onOpenLinkedRef 
    *  the user's intent here is "never show this person again, including
    *  the one I'm looking at". The archive piece reuses the existing
    *  read-and-archive flow so the row vanishes from the visible list
-   *  the same way an auto-archive would. */
+   *  the same way an auto-archive would.
+   *
+   *  Replaces any in-flight archive toast with a mute toast — the latter
+   *  is the more interesting action to undo (it's a sticky preference,
+   *  not just a one-row hide). */
   const muteSender = async (thread: EmailThreadMetaDto) => {
     if (!selectedAccount) return;
     try {
@@ -218,6 +225,29 @@ export default function EmailPage({ onOpenIntegrationsSettings, onOpenLinkedRef 
     }
     if (!autoArchivedIds.has(thread.id)) {
       void readAndArchive(thread.id);
+    }
+    queueUndoToast({
+      kind: 'mute',
+      id: thread.id,
+      subject: thread.subject || '(no subject)',
+      sender: thread.from,
+    });
+  };
+
+  /** Reverse a mute: drop the sender from the local mute list and put
+   *  the thread back in the inbox. Errors surface but don't roll back —
+   *  this is itself an undo action. */
+  const undoMute = async (target: { id: string; sender: string }) => {
+    if (!selectedAccount) return;
+    queueUndoToast(null);
+    try {
+      await window.bridge.unmuteEmailSender(selectedAccount, target.sender);
+    }
+    catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    }
+    if (autoArchivedIds.has(target.id)) {
+      void keepInInbox(target.id);
     }
   };
 
@@ -232,8 +262,10 @@ export default function EmailPage({ onOpenIntegrationsSettings, onOpenLinkedRef 
       return next;
     });
     setThreads(prev.map(t => t.id === id ? { ...t, unread: false } : t));
-    // Manual unarchive — toast is irrelevant now.
-    if (undoTarget && undoTarget.id === id) queueUndoToast(null);
+    // Manual unarchive supersedes the archive toast for the same thread.
+    // A mute toast for the same id is a different intent — leave it be
+    // (the user can still click Undo on the mute to lift the mute).
+    if (undoTarget && undoTarget.kind === 'archive' && undoTarget.id === id) queueUndoToast(null);
     try {
       await window.bridge.keepEmailThreadInInbox(selectedAccount, id);
     }
@@ -442,12 +474,19 @@ export default function EmailPage({ onOpenIntegrationsSettings, onOpenLinkedRef 
       {undoTarget && (
         <div className="email-undo-toast" role="status" aria-live="polite">
           <span className="email-undo-toast__msg">
-            Archived <span className="email-undo-toast__subject">{undoTarget.subject || '(no subject)'}</span>
+            {undoTarget.kind === 'archive' ? (
+              <>Archived <span className="email-undo-toast__subject">{undoTarget.subject || '(no subject)'}</span></>
+            ) : (
+              <>Muted <span className="email-undo-toast__subject">{shortenFrom(undoTarget.sender)}</span></>
+            )}
           </span>
           <button
             type="button"
             className="email-undo-toast__btn"
-            onClick={() => { void keepInInbox(undoTarget.id); }}
+            onClick={() => {
+              if (undoTarget.kind === 'archive') void keepInInbox(undoTarget.id);
+              else void undoMute({ id: undoTarget.id, sender: undoTarget.sender });
+            }}
           >
             Undo
           </button>

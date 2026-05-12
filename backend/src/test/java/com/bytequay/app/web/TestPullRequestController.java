@@ -15,6 +15,7 @@ package com.bytequay.app.web;
 
 import com.bytequay.app.domain.PullRequest;
 import com.bytequay.app.domain.PullRequestDetail;
+import com.bytequay.app.service.pr.MyActivityService;
 import com.bytequay.app.service.pr.PrAnalyticsService;
 import com.bytequay.app.service.pr.PullRequestService;
 import com.google.common.collect.ImmutableList;
@@ -47,6 +48,9 @@ class TestPullRequestController
 
     @MockitoBean
     private PrAnalyticsService prAnalyticsService;
+
+    @MockitoBean
+    private MyActivityService myActivityService;
 
     @MockitoBean
     private PatResolver patResolver;

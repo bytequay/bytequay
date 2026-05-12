@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
+import MyActivityView from './MyActivityView';
 import type {
   PrAnalyticsCoReviewerDto,
   PrAnalyticsDailyActivityDto,
@@ -19,6 +20,8 @@ const SCOPE_OPTIONS: { value: PrAnalyticsScope; label: string }[] = [
   { value: 'all', label: 'All' },
 ];
 
+type AnalyticsView = 'reviews' | 'activity';
+
 type Props = {
   /** Allows the parent to open a PR detail page from a stale-PR row.
    *  When omitted, rows are still clickable but route nowhere. */
@@ -26,6 +29,19 @@ type Props = {
 };
 
 function PrAnalyticsPage({ onOpenPr }: Props) {
+  const [view, setView] = useState<AnalyticsView>('reviews');
+  if (view === 'activity') {
+    return <MyActivityView view={view} onChangeView={setView} />;
+  }
+  return <ReviewsAnalyticsView view={view} onChangeView={setView} onOpenPr={onOpenPr} />;
+}
+
+type ReviewsProps = Props & {
+  view: AnalyticsView;
+  onChangeView: (v: AnalyticsView) => void;
+};
+
+function ReviewsAnalyticsView({ onOpenPr, view, onChangeView }: ReviewsProps) {
   const [scope, setScope] = useState<PrAnalyticsScope>('30d');
   const [data, setData] = useState<PrAnalyticsSummaryDto | null>(null);
   const [loading, setLoading] = useState(true);
@@ -110,6 +126,7 @@ function PrAnalyticsPage({ onOpenPr }: Props) {
           <span className="analytics-page__crumb-sep" aria-hidden="true">›</span>
           <span className="analytics-page__crumb-current">Analytics</span>
         </div>
+        <ViewToggle view={view} onChange={onChangeView} />
         <div className="analytics-page__controls">
           <span className="analytics-page__privacy-pill" title="All numbers are computed from data on your Mac only.">
             🔒 Local only — never leaves your computer
@@ -193,7 +210,7 @@ function KpiRow({ data }: { data: PrAnalyticsSummaryDto }) {
   );
 }
 
-function KpiCardView({ title, card }: { title: string; card: PrAnalyticsKpiCardDto }) {
+export function KpiCardView({ title, card }: { title: string; card: PrAnalyticsKpiCardDto }) {
   const isPending = card.pendingNote !== null && card.pendingNote !== undefined;
   return (
     <div className={`analytics-kpi${isPending ? ' analytics-kpi--pending' : ''}`}>
@@ -597,7 +614,40 @@ function ReviewNetworkCard({ rows }: { rows: PrAnalyticsCoReviewerDto[] }) {
   );
 }
 
-function freshnessLabel(loadedAt: number | null): string {
+export function ViewToggle({
+  view,
+  onChange,
+}: {
+  view: AnalyticsView;
+  onChange: (v: AnalyticsView) => void;
+}) {
+  return (
+    <div className="analytics-page__view-toggle" role="tablist" aria-label="Analytics view">
+      <button
+        type="button"
+        role="tab"
+        aria-selected={view === 'reviews'}
+        className={`analytics-page__view-btn${view === 'reviews' ? ' analytics-page__view-btn--active' : ''}`}
+        onClick={() => onChange('reviews')}
+      >
+        Reviews
+      </button>
+      <button
+        type="button"
+        role="tab"
+        aria-selected={view === 'activity'}
+        className={`analytics-page__view-btn${view === 'activity' ? ' analytics-page__view-btn--active' : ''}`}
+        onClick={() => onChange('activity')}
+      >
+        My activity
+      </button>
+    </div>
+  );
+}
+
+export type AnalyticsViewName = AnalyticsView;
+
+export function freshnessLabel(loadedAt: number | null): string {
   if (loadedAt == null) return '';
   const elapsedMs = Date.now() - loadedAt;
   if (elapsedMs < 30_000) return 'Up to date';
@@ -609,10 +659,12 @@ function freshnessLabel(loadedAt: number | null): string {
   return `Updated ${Math.floor(hours / 24)}d ago`;
 }
 
-function freshnessTitle(loadedAt: number | null): string {
+export function freshnessTitle(loadedAt: number | null): string {
   if (loadedAt == null) return '';
   return `Last computed: ${new Date(loadedAt).toLocaleString()}`;
 }
+
+export const ANALYTICS_SCOPE_OPTIONS = SCOPE_OPTIONS;
 
 function downloadCsv(data: PrAnalyticsSummaryDto) {
   const csv = buildCsv(data);
@@ -724,7 +776,7 @@ function csvEscape(value: string): string {
   return value;
 }
 
-function PartialMarker() {
+export function PartialMarker() {
   return (
     <sup
       className="analytics-kpi__partial-marker"

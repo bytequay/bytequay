@@ -555,6 +555,18 @@ function registerIpc(): void {
     return res.json();
   });
 
+  ipcMain.handle('backend:myActivity', async (_event, scope: string, tz?: string) => {
+    const url = new URL(`${BACKEND_BASE}/prs/my-activity`);
+    url.searchParams.set('scope', scope);
+    if (tz) url.searchParams.set('tz', tz);
+    const res = await fetch(url);
+    if (!res.ok) {
+      const body = await res.text().catch(() => '');
+      throw new Error(`backend /prs/my-activity returned ${res.status}: ${body}`);
+    }
+    return res.json();
+  });
+
   ipcMain.handle('backend:snoozePr', async (_event, prId: number, untilIso: string) => {
     const url = new URL(`${BACKEND_BASE}/prs/snooze`);
     url.searchParams.set('id', String(prId));

@@ -168,6 +168,30 @@ export type PrAnalyticsCoReviewerDto = {
   count: number;
 };
 
+export type MyActivityDailyAuthoredDto = {
+  date: string;
+  opened: number;
+  merged: number;
+};
+
+export type MyActivityRepoActivityCountDto = {
+  repo: string;
+  prsOpened: number;
+  prsMerged: number;
+};
+
+export type MyActivitySummaryDto = {
+  scope: PrAnalyticsScope;
+  watchedRepoCount: number;
+  currentLogin: string | null;
+  prsOpened: PrAnalyticsKpiCardDto;
+  prsMerged: PrAnalyticsKpiCardDto;
+  commitsMade: PrAnalyticsKpiCardDto;
+  commentsPosted: PrAnalyticsKpiCardDto;
+  dailyAuthored: MyActivityDailyAuthoredDto[];
+  reposByActivity: MyActivityRepoActivityCountDto[];
+};
+
 export type PrAnalyticsSummaryDto = {
   scope: PrAnalyticsScope;
   watchedRepoCount: number;
@@ -1143,6 +1167,10 @@ export type Bridge = {
    *  renderer passes its own so the daily-bars and heatmap bucket in
    *  the user's local time. */
   fetchPrAnalytics: (scope: PrAnalyticsScope, tz?: string) => Promise<PrAnalyticsSummaryDto>;
+  /** "What did I author" companion of {@link fetchPrAnalytics}.
+   *  Same local-only contract, separate endpoint so the page can
+   *  switch views without refetching the heavy reviews aggregation. */
+  fetchMyActivity: (scope: PrAnalyticsScope, tz?: string) => Promise<MyActivitySummaryDto>;
   fetchPullRequestDetail: (repo: string, number: number) => Promise<PullRequestDetailDto>;
   /** Force-refresh one PR's detail. Drops the backend's cached snapshot
    *  and re-fetches live from GitHub. Wired to the manual ↻ refresh

@@ -16,6 +16,7 @@ package com.bytequay.app.web;
 import com.bytequay.app.domain.DiffFile;
 import com.bytequay.app.domain.HandledAction;
 import com.bytequay.app.domain.MergeResult;
+import com.bytequay.app.domain.MyActivitySummary;
 import com.bytequay.app.domain.PrAnalyticsSummary;
 import com.bytequay.app.domain.PrCiSnapshot;
 import com.bytequay.app.domain.PullRequest;
@@ -23,6 +24,7 @@ import com.bytequay.app.domain.PullRequestCommit;
 import com.bytequay.app.domain.PullRequestDetail;
 import com.bytequay.app.domain.PullRequestHistoryPage;
 import com.bytequay.app.domain.SuggestedReviewer;
+import com.bytequay.app.service.pr.MyActivityService;
 import com.bytequay.app.service.pr.PrAnalyticsService;
 import com.bytequay.app.service.pr.PullRequestService;
 import com.google.common.collect.ImmutableMap;
@@ -48,15 +50,18 @@ public class PullRequestController
 {
     private final PullRequestService pullRequestService;
     private final PrAnalyticsService prAnalyticsService;
+    private final MyActivityService myActivityService;
     private final PatResolver patResolver;
 
     public PullRequestController(
             PullRequestService pullRequestService,
             PrAnalyticsService prAnalyticsService,
+            MyActivityService myActivityService,
             PatResolver patResolver)
     {
         this.pullRequestService = requireNonNull(pullRequestService, "pullRequestService is null");
         this.prAnalyticsService = requireNonNull(prAnalyticsService, "prAnalyticsService is null");
+        this.myActivityService = requireNonNull(myActivityService, "myActivityService is null");
         this.patResolver = requireNonNull(patResolver, "patResolver is null");
     }
 
@@ -88,6 +93,21 @@ public class PullRequestController
             @RequestParam(value = "tz", required = false) String timezone)
     {
         return prAnalyticsService.summarize(scope, timezone);
+    }
+
+    /**
+     * Aggregated KPIs for the "My activity" companion page — what the
+     * current user has authored (PRs opened / merged). Same query
+     * shape as {@code /prs/analytics}; lives behind a separate
+     * endpoint so the renderers stay decoupled.
+     * GET /prs/my-activity?scope=7d|30d|90d|all&tz=America/Los_Angeles
+     */
+    @GetMapping("/prs/my-activity")
+    public MyActivitySummary myActivity(
+            @RequestParam(value = "scope", defaultValue = "30d") String scope,
+            @RequestParam(value = "tz", required = false) String timezone)
+    {
+        return myActivityService.summarize(scope, timezone);
     }
 
     /**

@@ -94,6 +94,8 @@ const bridge: Bridge = {
     ipcRenderer.invoke('backend:prHistory', page, perPage),
   fetchPrAnalytics: (scope: string, tz?: string) =>
     ipcRenderer.invoke('backend:prAnalytics', scope, tz),
+  fetchMyActivity: (scope: string, tz?: string) =>
+    ipcRenderer.invoke('backend:myActivity', scope, tz),
   snoozePr: (prId: number, untilIso: string): Promise<void> =>
     ipcRenderer.invoke('backend:snoozePr', prId, untilIso),
   unsnoozePr: (prId: number): Promise<void> => ipcRenderer.invoke('backend:unsnoozePr', prId),

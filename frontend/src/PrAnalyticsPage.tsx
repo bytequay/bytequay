@@ -568,6 +568,11 @@ function WhatsMeasuredHereCard() {
               <strong>Lines reviewed ¹</strong> — total additions + deletions across those PRs.
             </li>
             <li>
+              <strong>Response to review request ¹</strong> — median elapsed time between a
+              review being requested from you and your next review on that PR. Capped at 8 hours
+              per pair so overnight pauses don't dominate the median.
+            </li>
+            <li>
               <strong>Wait-times you experience</strong> — open PRs you authored that haven't moved for
               more than 7 days. Computed from the local PR list — complete for the watched set.
             </li>

@@ -23,6 +23,7 @@ import com.bytequay.app.domain.PrAnalyticsSummary.RepoReviewCount;
 import com.bytequay.app.domain.PrAnalyticsSummary.SizeBucket;
 import com.bytequay.app.domain.PrAnalyticsSummary.StaleAuthoredPr;
 import com.bytequay.app.domain.PrReviewState;
+import com.bytequay.app.domain.PrTimelineEvent;
 import com.bytequay.app.domain.PullRequest;
 import com.bytequay.app.domain.StoredPrDetail;
 import com.bytequay.app.repository.AppSettingsStore;
@@ -38,6 +39,8 @@ import java.time.LocalDate;
 import java.time.ZoneId;
 import java.time.ZonedDateTime;
 import java.time.format.DateTimeFormatter;
+import java.util.ArrayList;
+import java.util.Collections;
 import java.util.Comparator;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -66,6 +69,14 @@ public class PrAnalyticsService
     private static final int STALE_MAX_ROWS = 20;
     private static final int REPOS_MAX_ROWS = 8;
     private static final int NETWORK_MAX_ROWS = 8;
+    // Per the activity-design doc: cap each request→response interval
+    // at 8h so the median proxies "active focus time" rather than
+    // overnight / weekend wall-clock pauses.
+    private static final Duration RESPONSE_CAP = Duration.ofHours(8);
+    // Below this many samples the response-time card stays in its
+    // "not enough data" empty state — one or two reviews don't
+    // make a median.
+    private static final int RESPONSE_MIN_SAMPLES = 3;
     // Cap daily-bar history for "all" scope so the chart doesn't try to
     // render 5 years of one-pixel columns.
     private static final int DAILY_MAX_DAYS_ALL = 90;
@@ -129,10 +140,7 @@ public class PrAnalyticsService
                 formatCount(reviewAggregate.linesReviewed),
                 true,
                 null);
-        // No review-event timestamps in the local store yet — placeholder
-        // until the review mirror lands; see Phase 3 backend section in
-        // docs/mockups/activity-design.md.
-        KpiCard responseToReviewRequest = new KpiCard(null, "—", true, "Pending review mirror");
+        KpiCard responseToReviewRequest = buildResponseTimeCard(reviewAggregate.responseSeconds());
 
         List<StaleAuthoredPr> stale = staleAuthoredPrs(all, currentLogin);
 
@@ -191,6 +199,10 @@ public class PrAnalyticsService
         Map<LocalDate, int[]> dailyCounts = new HashMap<>();
         int[][] heatmap = new int[7][24];
         Map<String, Integer> coReviewerCounts = new HashMap<>();
+        // Each element is a single review_requested → review_submitted
+        // interval in seconds, capped at RESPONSE_CAP. Aggregated as a
+        // median once the loop ends.
+        List<Long> responseSeconds = new ArrayList<>();
         for (PullRequest pr : all) {
             Optional<StoredPrDetail> detailOpt = detailStore.find(pr.id());
             if (detailOpt.isEmpty()) {
@@ -253,6 +265,40 @@ public class PrAnalyticsService
                 heatmap[dow][local.getHour()]++;
             }
 
+            // Response time: pair each of my timestamped reviews with
+            // the most recent review_requested-targeting-me event that
+            // preceded it. Capped per-pair so overnight pauses don't
+            // dominate the median.
+            List<Instant> requestTimes = requestedTimestamps(detail.timeline(), currentLogin);
+            if (!requestTimes.isEmpty()) {
+                for (PrReviewState review : detail.reviews()) {
+                    if (review.login() == null || !review.login().equalsIgnoreCase(currentLogin)) {
+                        continue;
+                    }
+                    Instant submitted = review.submittedAt();
+                    if (submitted == null) {
+                        continue;
+                    }
+                    if (cutoff != Instant.EPOCH && submitted.isBefore(cutoff)) {
+                        continue;
+                    }
+                    Instant request = mostRecentBefore(requestTimes, submitted);
+                    if (request == null) {
+                        continue;
+                    }
+                    long elapsed = Math.min(
+                            RESPONSE_CAP.getSeconds(),
+                            Duration.between(request, submitted).getSeconds());
+                    if (elapsed < 0) {
+                        // Should not happen given mostRecentBefore semantics,
+                        // but defend anyway — a clock-skewed event ordering
+                        // shouldn't poison the median.
+                        continue;
+                    }
+                    responseSeconds.add(elapsed);
+                }
+            }
+
             // Network: distinct other-reviewer logins on PRs you touched.
             // Use a per-PR Set so two reviews by the same person don't
             // double-count one PR. Bounded to the active scope by the
@@ -280,7 +326,82 @@ public class PrAnalyticsService
                 topRepos(repoCounts),
                 buildDailyActivity(dailyCounts, cutoff, zone),
                 buildHeatmap(heatmap),
-                topCoReviewers(coReviewerCounts));
+                topCoReviewers(coReviewerCounts),
+                ImmutableList.copyOf(responseSeconds));
+    }
+
+    private static List<Instant> requestedTimestamps(List<PrTimelineEvent> timeline, String login)
+    {
+        if (timeline == null || timeline.isEmpty()) {
+            return ImmutableList.of();
+        }
+        ImmutableList.Builder<Instant> out = ImmutableList.builder();
+        for (PrTimelineEvent ev : timeline) {
+            if (!"review_requested".equalsIgnoreCase(ev.event())) {
+                continue;
+            }
+            if (ev.requestedReviewer() == null || !ev.requestedReviewer().equalsIgnoreCase(login)) {
+                continue;
+            }
+            if (ev.timestamp() == null) {
+                continue;
+            }
+            out.add(ev.timestamp());
+        }
+        // GitHub returns timeline in chronological order, but be defensive —
+        // a downstream change in the sync path could break that invariant
+        // and silently invert the pairing.
+        List<Instant> list = new ArrayList<>(out.build());
+        list.sort(Comparator.naturalOrder());
+        return list;
+    }
+
+    private static Instant mostRecentBefore(List<Instant> requests, Instant submitted)
+    {
+        Instant winner = null;
+        for (Instant request : requests) {
+            if (request.isAfter(submitted)) {
+                break;
+            }
+            winner = request;
+        }
+        return winner;
+    }
+
+    private static KpiCard buildResponseTimeCard(List<Long> samples)
+    {
+        if (samples.size() < RESPONSE_MIN_SAMPLES) {
+            return new KpiCard(null, "—", true, "Need more samples");
+        }
+        long medianSeconds = median(samples);
+        return new KpiCard((double) medianSeconds, formatElapsed(medianSeconds), true, null);
+    }
+
+    private static long median(List<Long> values)
+    {
+        List<Long> sorted = new ArrayList<>(values);
+        Collections.sort(sorted);
+        int n = sorted.size();
+        if ((n & 1) == 1) {
+            return sorted.get(n / 2);
+        }
+        return (sorted.get(n / 2 - 1) + sorted.get(n / 2)) / 2;
+    }
+
+    private static String formatElapsed(long seconds)
+    {
+        if (seconds < 60) {
+            return seconds + "s";
+        }
+        if (seconds < 3600) {
+            return (seconds / 60) + "m";
+        }
+        long hours = seconds / 3600;
+        long mins = (seconds % 3600) / 60;
+        if (mins == 0) {
+            return hours + "h";
+        }
+        return hours + "h " + mins + "m";
     }
 
     private static int dailyStateIndex(String state)
@@ -472,7 +593,8 @@ public class PrAnalyticsService
             List<RepoReviewCount> reposByReview,
             List<DailyActivity> dailyActivity,
             List<HeatmapCell> reviewHeatmap,
-            List<CoReviewer> reviewNetwork)
+            List<CoReviewer> reviewNetwork,
+            List<Long> responseSeconds)
     {
         static ReviewAggregate empty()
         {
@@ -482,6 +604,7 @@ public class PrAnalyticsService
                     0L,
                     outcomeSlices(new HashMap<>()),
                     sizeBuckets(new int[SIZE_BUCKETS.size()]),
+                    ImmutableList.of(),
                     ImmutableList.of(),
                     ImmutableList.of(),
                     ImmutableList.of(),

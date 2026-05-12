@@ -290,8 +290,14 @@ export default function EmailPage({ onOpenIntegrationsSettings, onOpenLinkedRef 
   // the dedup is empty, so a kept-in-inbox thread will re-archive on
   // next click — that's the intentional "in inbox = needs action;
   // opening = dealt with" model.
+  //
+  // Skipped for IMAP accounts until the IMAP mutation slice lands —
+  // the backend would 501 every call and the toast/error noise would
+  // make the page unusable.
   useEffect(() => {
     if (!selectedAccount || !selectedThreadId || !threads) return;
+    const acc = accounts?.find(a => a.email === selectedAccount);
+    if (acc?.authMode !== 'OAUTH') return;
     const t = threads.find(th => th.id === selectedThreadId);
     if (!t) return;
     if (autoActedRef.current.has(selectedThreadId)) return;

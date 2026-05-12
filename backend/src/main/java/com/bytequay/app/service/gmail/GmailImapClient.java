@@ -13,7 +13,10 @@
  */
 package com.bytequay.app.service.gmail;
 
+import com.bytequay.app.domain.EmailMessageDetail;
+import com.bytequay.app.domain.EmailThreadDetail;
 import com.bytequay.app.domain.EmailThreadMeta;
+import jakarta.mail.Address;
 import jakarta.mail.AuthenticationFailedException;
 import jakarta.mail.FetchProfile;
 import jakarta.mail.Flags;
@@ -21,19 +24,25 @@ import jakarta.mail.Folder;
 import jakarta.mail.Message;
 import jakarta.mail.MessagingException;
 import jakarta.mail.NoSuchProviderException;
+import jakarta.mail.Part;
 import jakarta.mail.Session;
 import jakarta.mail.Store;
 import jakarta.mail.internet.InternetAddress;
+import jakarta.mail.internet.MimeBodyPart;
+import jakarta.mail.internet.MimeMultipart;
 import org.eclipse.angus.mail.gimap.GmailFolder;
 import org.eclipse.angus.mail.gimap.GmailMessage;
+import org.eclipse.angus.mail.gimap.GmailThrIdTerm;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatusCode;
 import org.springframework.stereotype.Component;
 import org.springframework.web.server.ResponseStatusException;
 
+import java.io.IOException;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -68,6 +77,17 @@ public class GmailImapClient
     private static final int PORT = 993;
     private static final int CONNECT_TIMEOUT_MS = 10_000;
     private static final int READ_TIMEOUT_MS = 30_000;
+
+    /** Where {@link #getThreadFull} searches for messages by thread ID.
+     *  All Mail contains every message regardless of label, so a thread
+     *  the user has just archived (or that lives in a custom label) is
+     *  still findable by X-GM-THRID. The path is fixed for English-locale
+     *  Gmail accounts; localized accounts will need an LSUB-based
+     *  resolver later (RFC 6154 \All flag).
+     *
+     *  <p>For purely-inbox lookups {@link #listInboxThreads} sticks to
+     *  INBOX since it's much smaller and the search is cheaper. */
+    private static final String ALL_MAIL_FOLDER = "[Gmail]/All Mail";
 
     private static final Logger log = LoggerFactory.getLogger(GmailImapClient.class);
 
@@ -174,6 +194,184 @@ public class GmailImapClient
             return List.copyOf(threads.subList(0, limit));
         }
         return List.copyOf(threads);
+    }
+
+    /**
+     * Loads a single conversation by Gmail thread ID, oldest-first,
+     * with bodies parsed into text + HTML. Searches {@link #ALL_MAIL_FOLDER}
+     * so threads remain findable after archive (no INBOX label).
+     *
+     * <p>The {@code threadId} parameter is the unsigned-decimal string
+     * produced by {@link #listInboxThreads}; we parse it back to a long
+     * for the {@link GmailThrIdTerm} search. Returns 404 if no messages
+     * carry that thread ID — most likely a stale ID after the user
+     * permanently deleted the thread on gmail.com.
+     */
+    public EmailThreadDetail getThreadFull(String email, String appPassword, String threadId)
+    {
+        long thrId;
+        try {
+            thrId = Long.parseUnsignedLong(threadId);
+        }
+        catch (NumberFormatException e) {
+            throw new ResponseStatusException(HttpStatusCode.valueOf(400),
+                    "threadId is not a Gmail thread id: " + threadId);
+        }
+        Session session = Session.getInstance(properties());
+        try (Store store = session.getStore(STORE_PROTOCOL)) {
+            connect(store, email, appPassword);
+            Folder allMail = store.getFolder(ALL_MAIL_FOLDER);
+            allMail.open(Folder.READ_ONLY);
+            try {
+                Message[] hits = allMail.search(new GmailThrIdTerm(thrId));
+                if (hits.length == 0) {
+                    throw new ResponseStatusException(HttpStatusCode.valueOf(404),
+                            "thread " + threadId + " not found in " + ALL_MAIL_FOLDER);
+                }
+                FetchProfile fp = new FetchProfile();
+                fp.add(FetchProfile.Item.ENVELOPE);
+                fp.add(FetchProfile.Item.FLAGS);
+                fp.add(FetchProfile.Item.CONTENT_INFO);
+                fp.add(GmailFolder.FetchProfileItem.MSGID);
+                fp.add(GmailFolder.FetchProfileItem.THRID);
+                fp.add(GmailFolder.FetchProfileItem.LABELS);
+                allMail.fetch(hits, fp);
+                List<EmailMessageDetail> details = new ArrayList<>(hits.length);
+                String subject = null;
+                for (Message raw : hits) {
+                    if (raw instanceof GmailMessage gm) {
+                        EmailMessageDetail d = toMessageDetail(gm);
+                        details.add(d);
+                        if (subject == null && d.subject() != null && !d.subject().isBlank()) {
+                            subject = d.subject();
+                        }
+                    }
+                }
+                details.sort(Comparator.comparing(EmailMessageDetail::receivedAt,
+                        Comparator.nullsLast(Comparator.naturalOrder())));
+                // linkedRefs computed by EmailService via LinkDetector after
+                // this returns — keeping that single source of truth means
+                // the IMAP path doesn't need its own copy of the regex.
+                return new EmailThreadDetail(threadId, subject == null ? "" : subject,
+                        List.copyOf(details), List.of());
+            }
+            finally {
+                allMail.close(false);
+            }
+        }
+        catch (NoSuchProviderException e) {
+            throw new ResponseStatusException(HttpStatusCode.valueOf(500),
+                    "Gmail IMAP provider missing from classpath", e);
+        }
+        catch (AuthenticationFailedException e) {
+            throw new ResponseStatusException(HttpStatusCode.valueOf(401),
+                    "Google rejected the login (check app password)", e);
+        }
+        catch (MessagingException | IOException e) {
+            throw new ResponseStatusException(HttpStatusCode.valueOf(502),
+                    "Gmail IMAP error: " + e.getMessage(), e);
+        }
+    }
+
+    private static EmailMessageDetail toMessageDetail(GmailMessage m)
+            throws MessagingException, IOException
+    {
+        BodyAccumulator body = new BodyAccumulator();
+        collectBody(m, body);
+        Instant received = m.getReceivedDate() == null
+                ? (m.getSentDate() == null ? null : m.getSentDate().toInstant())
+                : m.getReceivedDate().toInstant();
+        boolean unread = !m.isSet(Flags.Flag.SEEN);
+        // Mirror the OAuth path: include "UNREAD" as a synthetic label
+        // so downstream code (EmailHtmlEnricher etc.) doesn't have to
+        // care which backend filled the row.
+        List<String> labels = new ArrayList<>();
+        String[] gmailLabels = m.getLabels();
+        if (gmailLabels != null) {
+            labels.addAll(Arrays.asList(gmailLabels));
+        }
+        if (unread) {
+            labels.add("UNREAD");
+        }
+        return new EmailMessageDetail(
+                Long.toUnsignedString(m.getMsgId()),
+                Long.toUnsignedString(m.getThrId()),
+                formatFrom(m),
+                joinAddresses(m.getRecipients(Message.RecipientType.TO)),
+                joinAddresses(m.getRecipients(Message.RecipientType.CC)),
+                m.getSubject() == null ? "" : m.getSubject(),
+                received,
+                unread,
+                List.copyOf(labels),
+                body.text,
+                body.html);
+    }
+
+    /**
+     * Walks the MIME tree depth-first, collecting the first text/plain
+     * and the first text/html. Mirrors {@code GmailApiClient.collectBody}
+     * so multipart/alternative emails come out the same regardless of
+     * which backend fetched them. Stops walking once both are filled.
+     */
+    private static void collectBody(Part part, BodyAccumulator acc)
+            throws MessagingException, IOException
+    {
+        if (acc.text != null && acc.html != null) {
+            return;
+        }
+        Object content;
+        try {
+            content = part.getContent();
+        }
+        catch (IOException e) {
+            // Malformed MIME parts surface as IOException out of getContent;
+            // treat as empty rather than failing the whole thread fetch.
+            return;
+        }
+        if (part.isMimeType("text/plain") && acc.text == null) {
+            acc.text = stringify(content);
+        }
+        else if (part.isMimeType("text/html") && acc.html == null) {
+            acc.html = stringify(content);
+        }
+        else if (content instanceof MimeMultipart mp) {
+            for (int i = 0; i < mp.getCount(); i++) {
+                if (mp.getBodyPart(i) instanceof MimeBodyPart bp) {
+                    collectBody(bp, acc);
+                }
+            }
+        }
+    }
+
+    private static String stringify(Object content)
+    {
+        if (content instanceof String s) {
+            return s;
+        }
+        // Some servers return InputStream for text/* despite the
+        // Content-Type — Angus normally handles this, but guard anyway.
+        return content == null ? "" : content.toString();
+    }
+
+    private static String joinAddresses(Address[] addrs)
+    {
+        if (addrs == null || addrs.length == 0) {
+            return "";
+        }
+        StringBuilder sb = new StringBuilder();
+        for (int i = 0; i < addrs.length; i++) {
+            if (i > 0) {
+                sb.append(", ");
+            }
+            sb.append(addrs[i].toString());
+        }
+        return sb.toString();
+    }
+
+    private static final class BodyAccumulator
+    {
+        String text;
+        String html;
     }
 
     private static MessageRow toRow(GmailMessage m)

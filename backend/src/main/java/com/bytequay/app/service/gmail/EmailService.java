@@ -191,9 +191,9 @@ public class EmailService
     {
         requireNonBlank(email, "email");
         requireNonBlank(threadId, "threadId");
-        rejectIfImap(email, "open thread");
-        EmailThreadDetail raw = runWithToken(email,
-                accessToken -> gmail.getThreadFull(accessToken, threadId));
+        EmailThreadDetail raw = imapAuth.isConnected(email)
+                ? imapClient.getThreadFull(email, imapAuth.getAppPassword(email), threadId)
+                : runWithToken(email, accessToken -> gmail.getThreadFull(accessToken, threadId));
         List<LinkedRef> refs = linkDetector.detect(raw);
         for (LinkedRef ref : refs) {
             if (ref.kind() == LinkedRef.Kind.PR) {

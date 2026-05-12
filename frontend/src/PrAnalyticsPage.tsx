@@ -85,8 +85,9 @@ function PrAnalyticsPage({ onOpenPr }: Props) {
           <button
             type="button"
             className="analytics-page__export-btn"
-            title="CSV export — coming with the review-mirror milestone."
-            disabled
+            title="Download this page's numbers as CSV. Local only — no upload."
+            disabled={!data}
+            onClick={() => data && downloadCsv(data)}
           >
             Export CSV
           </button>
@@ -535,6 +536,116 @@ function ReviewNetworkCard({ rows }: { rows: PrAnalyticsCoReviewerDto[] }) {
       )}
     </section>
   );
+}
+
+function downloadCsv(data: PrAnalyticsSummaryDto) {
+  const csv = buildCsv(data);
+  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const today = new Date().toISOString().slice(0, 10);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `bytequay-pr-review-analytics-${data.scope}-${today}.csv`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
+function buildCsv(data: PrAnalyticsSummaryDto): string {
+  const lines: string[] = [];
+  const exportedAt = new Date().toISOString();
+  lines.push(csvRow(['# ByteQuay PR review analytics']));
+  lines.push(csvRow([`# scope: ${data.scope}`]));
+  lines.push(csvRow([`# watched_repos: ${data.watchedRepoCount}`]));
+  lines.push(csvRow([`# login: ${data.currentLogin ?? ''}`]));
+  lines.push(csvRow([`# exported_at: ${exportedAt}`]));
+
+  lines.push('');
+  lines.push(csvRow(['## KPIs']));
+  lines.push(csvRow(['metric', 'value', 'partial', 'note']));
+  const kpiRows: [string, PrAnalyticsKpiCardDto][] = [
+    ['PRs reviewed', data.prsReviewed],
+    ['Approval rate', data.approvalRate],
+    ['Lines reviewed', data.linesReviewed],
+    ['Response to review request (median)', data.responseToReviewRequest],
+  ];
+  for (const [label, kpi] of kpiRows) {
+    lines.push(csvRow([
+      label,
+      kpi.pendingNote ? '' : kpi.displayValue,
+      kpi.partial ? 'true' : 'false',
+      kpi.pendingNote ?? '',
+    ]));
+  }
+
+  lines.push('');
+  lines.push(csvRow(['## Daily activity']));
+  lines.push(csvRow(['date', 'approved', 'changes_requested', 'commented', 'dismissed']));
+  for (const d of data.dailyActivity) {
+    lines.push(csvRow([
+      d.date,
+      String(d.approved),
+      String(d.changesRequested),
+      String(d.commented),
+      String(d.dismissed),
+    ]));
+  }
+
+  lines.push('');
+  lines.push(csvRow(['## Review outcomes']));
+  lines.push(csvRow(['state', 'count']));
+  for (const s of data.reviewOutcomes) {
+    lines.push(csvRow([s.state, String(s.count)]));
+  }
+
+  lines.push('');
+  lines.push(csvRow(['## PR size distribution']));
+  lines.push(csvRow(['bucket', 'count']));
+  for (const b of data.sizeDistribution) {
+    lines.push(csvRow([b.label, String(b.count)]));
+  }
+
+  lines.push('');
+  lines.push(csvRow(['## Repos by review activity']));
+  lines.push(csvRow(['repo', 'count']));
+  for (const r of data.reposByReview) {
+    lines.push(csvRow([r.repo, String(r.count)]));
+  }
+
+  lines.push('');
+  lines.push(csvRow(['## Heatmap (day-of-week × hour, local time, non-zero cells)']));
+  lines.push(csvRow(['day_of_week', 'hour', 'count']));
+  for (const c of data.reviewHeatmap) {
+    lines.push(csvRow([String(c.dayOfWeek), String(c.hour), String(c.count)]));
+  }
+
+  lines.push('');
+  lines.push(csvRow(['## Review network']));
+  lines.push(csvRow(['login', 'count']));
+  for (const r of data.reviewNetwork) {
+    lines.push(csvRow([r.login, String(r.count)]));
+  }
+
+  lines.push('');
+  lines.push(csvRow(['## Stale authored PRs (> 7 days, open)']));
+  lines.push(csvRow(['repo', 'number', 'age_days', 'created_at', 'title']));
+  for (const p of data.staleAuthoredPrs) {
+    lines.push(csvRow([p.repo, String(p.number), String(p.ageDays), p.createdAt, p.title]));
+  }
+
+  return lines.join('\r\n') + '\r\n';
+}
+
+function csvRow(fields: string[]): string {
+  return fields.map(csvEscape).join(',');
+}
+
+function csvEscape(value: string): string {
+  if (/[",\r\n]/.test(value)) {
+    return `"${value.replace(/"/g, '""')}"`;
+  }
+  return value;
 }
 
 function PartialMarker() {

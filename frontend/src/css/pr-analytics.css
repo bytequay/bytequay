@@ -116,10 +116,21 @@
   border: 1px solid var(--border);
   border-radius: 6px;
   background: var(--bg-base);
-  color: var(--text-3);
+  color: var(--text-2);
   font: inherit;
   font-size: 11px;
+  cursor: pointer;
+}
+
+.analytics-page__export-btn:hover:not(:disabled) {
+  background: var(--accent-a7);
+  color: var(--text-1);
+  border-color: var(--accent-a40);
+}
+
+.analytics-page__export-btn:disabled {
   cursor: not-allowed;
+  color: var(--text-3);
 }
 
 .analytics-page__loading,

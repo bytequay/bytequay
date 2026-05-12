@@ -151,10 +151,7 @@ function MyActivityView({ view, onChangeView }: Props) {
 
           <div className="analytics-page__grid analytics-page__grid--two">
             <ReposByActivityCard rows={data.reposByActivity} />
-            <section className="analytics-page__panel analytics-page__panel--pending">
-              <h2 className="analytics-page__panel-title">Contribution streak</h2>
-              <p className="analytics-page__panel-empty">Pending activity mirror.</p>
-            </section>
+            <StreakCard current={data.currentStreakDays} longest={data.longestStreakDays} />
           </div>
 
           <WhatsMeasuredHereActivityCard />
@@ -263,6 +260,47 @@ function ReposByActivityCard({ rows }: { rows: MyActivityRepoActivityCountDto[] 
   );
 }
 
+function StreakCard({
+  current,
+  longest,
+}: {
+  current: number | null;
+  longest: number | null;
+}) {
+  if (current == null && longest == null) {
+    return (
+      <section className="analytics-page__panel">
+        <h2 className="analytics-page__panel-title">Contribution streak</h2>
+        <p className="analytics-page__panel-empty">
+          PAT required to read GitHub's contribution graph.
+        </p>
+      </section>
+    );
+  }
+  return (
+    <section className="analytics-page__panel">
+      <h2 className="analytics-page__panel-title">Contribution streak</h2>
+      <p className="analytics-page__panel-subtitle">
+        From GitHub's contribution graph — covers everything you've committed to.
+      </p>
+      <div className="analytics-streak__row">
+        <div className="analytics-streak__cell">
+          <div className="analytics-streak__label">Current</div>
+          <div className="analytics-streak__value">
+            {current ?? 0} <span className="analytics-streak__unit">day{current === 1 ? '' : 's'}</span>
+          </div>
+        </div>
+        <div className="analytics-streak__cell">
+          <div className="analytics-streak__label">Longest (year)</div>
+          <div className="analytics-streak__value">
+            {longest ?? 0} <span className="analytics-streak__unit">day{longest === 1 ? '' : 's'}</span>
+          </div>
+        </div>
+      </div>
+    </section>
+  );
+}
+
 function WhatsMeasuredHereActivityCard() {
   return (
     <section className="analytics-page__panel analytics-page__panel--measured">
@@ -289,9 +327,10 @@ function WhatsMeasuredHereActivityCard() {
               number under-counts comments on PRs ByteQuay has never fetched detail for.
             </li>
             <li>
-              <strong>Commits made</strong> — pulled live from GitHub's contribution graph
-              (cached for 5 minutes in this app process). Covers commits across all repos
-              you have access to — not just the watched set — and reaches back about a year.
+              <strong>Commits made</strong> and <strong>contribution streak</strong> — pulled
+              live from GitHub's contribution graph (cached for 5 minutes in this app
+              process). Covers commits across all repos you have access to — not just the
+              watched set — and reaches back about a year.
             </li>
           </ul>
         </div>
@@ -299,9 +338,9 @@ function WhatsMeasuredHereActivityCard() {
           <h3 className="analytics-measured__col-title">What we deliberately don't measure</h3>
           <ul>
             <li>
-              <strong>Contribution streaks</strong> and finer-grained activity events —
-              pending the activity-events mirror. We don't approximate from cached data
-              because the gaps would be misleading.
+              <strong>Finer-grained activity events</strong> (reactions, mentions,
+              cross-references) — pending the activity-events mirror. We don't approximate
+              from cached data because the gaps would be misleading.
             </li>
             <li>
               <strong>Activity on unwatched repos</strong> — the local store only carries PRs

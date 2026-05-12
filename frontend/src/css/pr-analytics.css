@@ -577,6 +577,40 @@
   display: block;
 }
 
+.analytics-streak__row {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+  margin-top: 12px;
+}
+
+.analytics-streak__cell {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.analytics-streak__label {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-3);
+  font-weight: 600;
+}
+
+.analytics-streak__value {
+  font-size: 26px;
+  font-weight: 700;
+  color: var(--text-1);
+  line-height: 1.1;
+}
+
+.analytics-streak__unit {
+  font-size: 14px;
+  font-weight: 500;
+  color: var(--text-3);
+}
+
 .analytics-page__panel--measured {
   background: var(--bg-elevated);
 }

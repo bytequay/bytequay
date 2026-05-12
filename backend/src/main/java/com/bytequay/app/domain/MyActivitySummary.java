@@ -41,7 +41,14 @@ public record MyActivitySummary(
         List<DailyAuthored> dailyAuthored,
         /** Top repos by your PR-authoring activity, sorted by total
          *  (opened + merged) desc. */
-        List<RepoActivityCount> reposByActivity)
+        List<RepoActivityCount> reposByActivity,
+        /** Run of consecutive days ending today (or yesterday if today
+         *  is still zero) with at least one contribution. Null when
+         *  the contribution calendar isn't available. */
+        Integer currentStreakDays,
+        /** Longest consecutive-day run anywhere in the calendar window
+         *  (~1 year). Null when unavailable. */
+        Integer longestStreakDays)
 {
     public record DailyAuthored(String date, int opened, int merged) {}
 

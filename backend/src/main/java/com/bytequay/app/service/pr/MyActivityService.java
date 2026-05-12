@@ -115,7 +115,12 @@ public class MyActivityService
                 formatCount(agg.merged),
                 false,
                 null);
-        KpiCard commitsMade = buildCommitsCard(currentLogin, cutoff, zone);
+        Optional<ContributionCalendar> calendar = currentLogin == null
+                ? Optional.empty()
+                : loadCalendar(currentLogin);
+        KpiCard commitsMade = buildCommitsCard(calendar, cutoff, zone);
+        Integer currentStreak = calendar.map(c -> currentStreak(c, zone)).orElse(null);
+        Integer longestStreak = calendar.map(MyActivityService::longestStreak).orElse(null);
         KpiCard commentsPosted = new KpiCard(
                 (double) agg.comments,
                 formatCount(agg.comments),
@@ -131,7 +136,9 @@ public class MyActivityService
                 commitsMade,
                 commentsPosted,
                 buildDailyAuthored(agg.dailyOpened, agg.dailyMerged, cutoff, zone),
-                buildReposByActivity(agg.repoOpened, agg.repoMerged));
+                buildReposByActivity(agg.repoOpened, agg.repoMerged),
+                currentStreak,
+                longestStreak);
     }
 
     private static String normalizeScope(String raw)
@@ -299,12 +306,8 @@ public class MyActivityService
                 .collect(toImmutableList());
     }
 
-    private KpiCard buildCommitsCard(String currentLogin, Instant cutoff, ZoneId zone)
+    private static KpiCard buildCommitsCard(Optional<ContributionCalendar> calendar, Instant cutoff, ZoneId zone)
     {
-        if (currentLogin == null) {
-            return new KpiCard(null, "—", false, "Profile not yet cached");
-        }
-        Optional<ContributionCalendar> calendar = loadCalendar(currentLogin);
         if (calendar.isEmpty()) {
             return new KpiCard(null, "—", false, "PAT required");
         }
@@ -327,6 +330,58 @@ public class MyActivityService
         // also means the number isn't constrained to the local
         // store's "watched set" the way the rest of the page is.
         return new KpiCard((double) total, formatCount(total), false, null);
+    }
+
+    private static int currentStreak(ContributionCalendar calendar, ZoneId zone)
+    {
+        Map<LocalDate, Integer> byDay = flattenCalendar(calendar);
+        LocalDate today = LocalDate.now(zone);
+        // If today is still zero, start counting from yesterday — the
+        // day isn't over yet, so a missing commit today shouldn't
+        // break a streak that ran through yesterday.
+        LocalDate cursor = byDay.getOrDefault(today, 0) > 0 ? today : today.minusDays(1);
+        int streak = 0;
+        while (byDay.getOrDefault(cursor, 0) > 0) {
+            streak++;
+            cursor = cursor.minusDays(1);
+        }
+        return streak;
+    }
+
+    private static int longestStreak(ContributionCalendar calendar)
+    {
+        int longest = 0;
+        int run = 0;
+        // Walk weeks in order; within each week, days are Sun → Sat.
+        // The day-of-week ordering is consistent so we can treat the
+        // sequence as a chronological run with no gaps.
+        for (ContributionCalendar.Week week : calendar.weeks()) {
+            for (ContributionCalendar.Day day : week.days()) {
+                if (day.contributionCount() > 0) {
+                    run++;
+                    if (run > longest) {
+                        longest = run;
+                    }
+                }
+                else {
+                    run = 0;
+                }
+            }
+        }
+        return longest;
+    }
+
+    private static Map<LocalDate, Integer> flattenCalendar(ContributionCalendar calendar)
+    {
+        Map<LocalDate, Integer> out = new HashMap<>();
+        for (ContributionCalendar.Week week : calendar.weeks()) {
+            for (ContributionCalendar.Day day : week.days()) {
+                if (day.date() != null) {
+                    out.put(day.date(), day.contributionCount());
+                }
+            }
+        }
+        return out;
     }
 
     private Optional<ContributionCalendar> loadCalendar(String login)

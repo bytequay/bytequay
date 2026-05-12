@@ -190,6 +190,8 @@ export type MyActivitySummaryDto = {
   commentsPosted: PrAnalyticsKpiCardDto;
   dailyAuthored: MyActivityDailyAuthoredDto[];
   reposByActivity: MyActivityRepoActivityCountDto[];
+  currentStreakDays: number | null;
+  longestStreakDays: number | null;
 };
 
 export type PrAnalyticsSummaryDto = {

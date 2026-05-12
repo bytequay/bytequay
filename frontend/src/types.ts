@@ -146,6 +146,28 @@ export type PrAnalyticsRepoReviewCountDto = {
   count: number;
 };
 
+export type PrAnalyticsDailyActivityDto = {
+  /** ISO yyyy-MM-dd in the user's local timezone. */
+  date: string;
+  approved: number;
+  changesRequested: number;
+  commented: number;
+  dismissed: number;
+};
+
+export type PrAnalyticsHeatmapCellDto = {
+  /** 0 = Sunday, 6 = Saturday. */
+  dayOfWeek: number;
+  /** 0 = midnight, 23 = 11pm — local time. */
+  hour: number;
+  count: number;
+};
+
+export type PrAnalyticsCoReviewerDto = {
+  login: string;
+  count: number;
+};
+
 export type PrAnalyticsSummaryDto = {
   scope: PrAnalyticsScope;
   watchedRepoCount: number;
@@ -157,6 +179,9 @@ export type PrAnalyticsSummaryDto = {
   reviewOutcomes: PrAnalyticsOutcomeSliceDto[];
   sizeDistribution: PrAnalyticsSizeBucketDto[];
   reposByReview: PrAnalyticsRepoReviewCountDto[];
+  dailyActivity: PrAnalyticsDailyActivityDto[];
+  reviewHeatmap: PrAnalyticsHeatmapCellDto[];
+  reviewNetwork: PrAnalyticsCoReviewerDto[];
   staleAuthoredPrs: PrAnalyticsStaleAuthoredPrDto[];
 };
 

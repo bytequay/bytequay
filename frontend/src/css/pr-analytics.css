@@ -393,6 +393,112 @@
   text-align: right;
 }
 
+.analytics-daily {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 8px;
+}
+
+.analytics-daily__bars {
+  display: flex;
+  gap: 2px;
+  align-items: flex-end;
+  height: 120px;
+  padding: 4px 0;
+  border-bottom: 1px solid var(--border);
+  overflow-x: auto;
+}
+
+.analytics-daily__col {
+  flex: 1 1 0;
+  min-width: 4px;
+  height: 100%;
+  display: flex;
+  align-items: flex-end;
+}
+
+.analytics-daily__stack {
+  width: 100%;
+  display: flex;
+  flex-direction: column-reverse;
+  border-radius: 2px;
+  overflow: hidden;
+  min-height: 2px;
+}
+
+.analytics-daily__seg {
+  flex: 0 0 auto;
+}
+
+.analytics-daily__seg--approved { background: #2f9e6e; }
+.analytics-daily__seg--changes { background: #b3261e; }
+.analytics-daily__seg--commented { background: #7a705d; }
+.analytics-daily__seg--dismissed { background: #9aa0a6; }
+
+.analytics-daily__legend {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  gap: 14px;
+  flex-wrap: wrap;
+  font-size: 11px;
+  color: var(--text-2);
+}
+
+.analytics-daily__legend li {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.analytics-daily__legend-swatch {
+  width: 10px;
+  height: 10px;
+  border-radius: 2px;
+  display: inline-block;
+}
+
+.analytics-heatmap {
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  margin-top: 8px;
+  font-variant-numeric: tabular-nums;
+}
+
+.analytics-heatmap__hour-labels {
+  display: grid;
+  grid-template-columns: 32px repeat(24, 1fr);
+  gap: 2px;
+  font-size: 10px;
+  color: var(--text-3);
+}
+
+.analytics-heatmap__hour-label {
+  text-align: center;
+}
+
+.analytics-heatmap__row {
+  display: grid;
+  grid-template-columns: 32px repeat(24, 1fr);
+  gap: 2px;
+  align-items: center;
+}
+
+.analytics-heatmap__day-label {
+  font-size: 11px;
+  color: var(--text-2);
+}
+
+.analytics-heatmap__cell {
+  height: 14px;
+  border-radius: 2px;
+  background: var(--accent-a4);
+  display: block;
+}
+
 .analytics-page__panel--measured {
   background: var(--bg-elevated);
 }

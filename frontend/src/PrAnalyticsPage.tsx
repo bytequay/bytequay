@@ -1,5 +1,8 @@
 import { useEffect, useMemo, useState } from 'react';
 import type {
+  PrAnalyticsCoReviewerDto,
+  PrAnalyticsDailyActivityDto,
+  PrAnalyticsHeatmapCellDto,
   PrAnalyticsKpiCardDto,
   PrAnalyticsOutcomeSliceDto,
   PrAnalyticsRepoReviewCountDto,
@@ -97,31 +100,18 @@ function PrAnalyticsPage({ onOpenPr }: Props) {
         <div className="analytics-page__body">
           <KpiRow data={data} />
 
-          <section className="analytics-page__panel analytics-page__panel--pending">
-            <h2 className="analytics-page__panel-title">Daily review activity</h2>
-            <p className="analytics-page__panel-empty">
-              Stacked-bar chart — pending review mirror.
-            </p>
-          </section>
+          <DailyActivityCard days={data.dailyActivity} />
 
           <div className="analytics-page__grid analytics-page__grid--two">
             <ReviewOutcomesCard slices={data.reviewOutcomes} />
             <SizeDistributionCard buckets={data.sizeDistribution} />
           </div>
 
-          <section className="analytics-page__panel analytics-page__panel--pending">
-            <h2 className="analytics-page__panel-title">When you review</h2>
-            <p className="analytics-page__panel-empty">
-              Day-of-week × hour-of-day heatmap — pending review mirror.
-            </p>
-          </section>
+          <HeatmapCard cells={data.reviewHeatmap} />
 
           <div className="analytics-page__grid analytics-page__grid--three">
             <ReposByReviewCard rows={data.reposByReview} />
-            <section className="analytics-page__panel analytics-page__panel--pending">
-              <h2 className="analytics-page__panel-title">Review network</h2>
-              <p className="analytics-page__panel-empty">Pending review mirror.</p>
-            </section>
+            <ReviewNetworkCard rows={data.reviewNetwork} />
             <StaleAuthoredCard prs={data.staleAuthoredPrs} onOpenPr={onOpenPr} />
           </div>
 
@@ -357,6 +347,180 @@ function ReposByReviewCard({ rows }: { rows: PrAnalyticsRepoReviewCountDto[] }) 
             <li key={r.repo} className="analytics-bars__row">
               <span className="analytics-bars__label analytics-bars__label--repo" title={r.repo}>
                 {r.repo}
+              </span>
+              <div className="analytics-bars__track">
+                <div
+                  className="analytics-bars__fill"
+                  style={{ width: `${(r.count / max) * 100}%` }}
+                />
+              </div>
+              <span className="analytics-bars__count">{r.count}</span>
+            </li>
+          ))}
+        </ul>
+      )}
+    </section>
+  );
+}
+
+function DailyActivityCard({ days }: { days: PrAnalyticsDailyActivityDto[] }) {
+  const max = useMemo(
+    () => Math.max(
+      1,
+      ...days.map(d => d.approved + d.changesRequested + d.commented + d.dismissed),
+    ),
+    [days],
+  );
+  const hasAny = useMemo(
+    () => days.some(d => (d.approved + d.changesRequested + d.commented + d.dismissed) > 0),
+    [days],
+  );
+  return (
+    <section className="analytics-page__panel">
+      <h2 className="analytics-page__panel-title">
+        Daily review activity
+        <PartialMarker />
+      </h2>
+      <p className="analytics-page__panel-subtitle">
+        Each bar is one day; segments stack by review state.
+      </p>
+      {!hasAny ? (
+        <p className="analytics-page__panel-empty">
+          No timestamped reviews in this window yet — the mirror fills in as PRs re-sync.
+        </p>
+      ) : (
+        <div className="analytics-daily">
+          <div className="analytics-daily__bars" role="img" aria-label="Daily review activity">
+            {days.map(d => {
+              const total = d.approved + d.changesRequested + d.commented + d.dismissed;
+              const heightPct = total === 0 ? 0 : (total / max) * 100;
+              return (
+                <div
+                  key={d.date}
+                  className="analytics-daily__col"
+                  title={`${d.date}: ${total} review${total === 1 ? '' : 's'}`}
+                >
+                  <div className="analytics-daily__stack" style={{ height: `${heightPct}%` }}>
+                    {d.approved > 0 && (
+                      <div
+                        className="analytics-daily__seg analytics-daily__seg--approved"
+                        style={{ flexBasis: `${(d.approved / total) * 100}%` }}
+                      />
+                    )}
+                    {d.changesRequested > 0 && (
+                      <div
+                        className="analytics-daily__seg analytics-daily__seg--changes"
+                        style={{ flexBasis: `${(d.changesRequested / total) * 100}%` }}
+                      />
+                    )}
+                    {d.commented > 0 && (
+                      <div
+                        className="analytics-daily__seg analytics-daily__seg--commented"
+                        style={{ flexBasis: `${(d.commented / total) * 100}%` }}
+                      />
+                    )}
+                    {d.dismissed > 0 && (
+                      <div
+                        className="analytics-daily__seg analytics-daily__seg--dismissed"
+                        style={{ flexBasis: `${(d.dismissed / total) * 100}%` }}
+                      />
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+          <DailyLegend />
+        </div>
+      )}
+    </section>
+  );
+}
+
+function DailyLegend() {
+  return (
+    <ul className="analytics-daily__legend">
+      <li><span className="analytics-daily__legend-swatch analytics-daily__seg--approved" />Approved</li>
+      <li><span className="analytics-daily__legend-swatch analytics-daily__seg--changes" />Changes</li>
+      <li><span className="analytics-daily__legend-swatch analytics-daily__seg--commented" />Commented</li>
+      <li><span className="analytics-daily__legend-swatch analytics-daily__seg--dismissed" />Dismissed</li>
+    </ul>
+  );
+}
+
+const DAY_LABELS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+
+function HeatmapCard({ cells }: { cells: PrAnalyticsHeatmapCellDto[] }) {
+  const max = useMemo(() => Math.max(1, ...cells.map(c => c.count)), [cells]);
+  const grid = useMemo(() => {
+    const g: number[][] = Array.from({ length: 7 }, () => new Array(24).fill(0));
+    for (const c of cells) g[c.dayOfWeek][c.hour] = c.count;
+    return g;
+  }, [cells]);
+  return (
+    <section className="analytics-page__panel">
+      <h2 className="analytics-page__panel-title">
+        When you review
+        <PartialMarker />
+      </h2>
+      <p className="analytics-page__panel-subtitle">
+        Day-of-week × hour-of-day (your local time).
+      </p>
+      {cells.length === 0 ? (
+        <p className="analytics-page__panel-empty">
+          No timestamped reviews yet — the mirror fills in as PRs re-sync.
+        </p>
+      ) : (
+        <div className="analytics-heatmap">
+          <div className="analytics-heatmap__hour-labels">
+            <span />
+            {Array.from({ length: 24 }, (_, h) => (
+              <span key={h} className="analytics-heatmap__hour-label">
+                {h % 6 === 0 ? `${h}` : ''}
+              </span>
+            ))}
+          </div>
+          {grid.map((row, day) => (
+            <div key={day} className="analytics-heatmap__row">
+              <span className="analytics-heatmap__day-label">{DAY_LABELS[day]}</span>
+              {row.map((count, hour) => {
+                const intensity = count === 0 ? 0 : Math.max(0.15, count / max);
+                return (
+                  <span
+                    key={hour}
+                    className="analytics-heatmap__cell"
+                    style={{ background: count === 0 ? undefined : `rgba(31, 106, 87, ${intensity})` }}
+                    title={count > 0 ? `${DAY_LABELS[day]} ${hour}:00 — ${count} review${count === 1 ? '' : 's'}` : undefined}
+                  />
+                );
+              })}
+            </div>
+          ))}
+        </div>
+      )}
+    </section>
+  );
+}
+
+function ReviewNetworkCard({ rows }: { rows: PrAnalyticsCoReviewerDto[] }) {
+  const max = Math.max(1, ...rows.map(r => r.count));
+  return (
+    <section className="analytics-page__panel">
+      <h2 className="analytics-page__panel-title">
+        Review network
+        <PartialMarker />
+      </h2>
+      <p className="analytics-page__panel-subtitle">
+        Reviewers whose work overlaps yours — PRs you both touched.
+      </p>
+      {rows.length === 0 ? (
+        <p className="analytics-page__panel-empty">No co-reviewers in this window yet.</p>
+      ) : (
+        <ul className="analytics-bars">
+          {rows.map(r => (
+            <li key={r.login} className="analytics-bars__row">
+              <span className="analytics-bars__label analytics-bars__label--repo" title={r.login}>
+                @{r.login}
               </span>
               <div className="analytics-bars__track">
                 <div

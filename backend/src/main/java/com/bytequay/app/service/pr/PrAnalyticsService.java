@@ -14,6 +14,9 @@
 package com.bytequay.app.service.pr;
 
 import com.bytequay.app.domain.PrAnalyticsSummary;
+import com.bytequay.app.domain.PrAnalyticsSummary.CoReviewer;
+import com.bytequay.app.domain.PrAnalyticsSummary.DailyActivity;
+import com.bytequay.app.domain.PrAnalyticsSummary.HeatmapCell;
 import com.bytequay.app.domain.PrAnalyticsSummary.KpiCard;
 import com.bytequay.app.domain.PrAnalyticsSummary.OutcomeSlice;
 import com.bytequay.app.domain.PrAnalyticsSummary.RepoReviewCount;
@@ -31,12 +34,18 @@ import org.springframework.stereotype.Service;
 
 import java.time.Duration;
 import java.time.Instant;
+import java.time.LocalDate;
+import java.time.ZoneId;
+import java.time.ZonedDateTime;
+import java.time.format.DateTimeFormatter;
 import java.util.Comparator;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 
 import static com.google.common.collect.ImmutableList.toImmutableList;
 import static java.util.Objects.requireNonNull;
@@ -56,6 +65,11 @@ public class PrAnalyticsService
     private static final int STALE_THRESHOLD_DAYS = 7;
     private static final int STALE_MAX_ROWS = 20;
     private static final int REPOS_MAX_ROWS = 8;
+    private static final int NETWORK_MAX_ROWS = 8;
+    // Cap daily-bar history for "all" scope so the chart doesn't try to
+    // render 5 years of one-pixel columns.
+    private static final int DAILY_MAX_DAYS_ALL = 90;
+    private static final DateTimeFormatter ISO_DATE = DateTimeFormatter.ISO_LOCAL_DATE;
     private static final List<String> OUTCOME_ORDER = ImmutableList.of(
             "APPROVED", "CHANGES_REQUESTED", "COMMENTED", "DISMISSED");
     // Tuned to land most everyday changes in Small / Medium and reserve
@@ -133,6 +147,9 @@ public class PrAnalyticsService
                 reviewAggregate.outcomes(),
                 reviewAggregate.sizeDistribution(),
                 reviewAggregate.reposByReview(),
+                reviewAggregate.dailyActivity(),
+                reviewAggregate.reviewHeatmap(),
+                reviewAggregate.reviewNetwork(),
                 stale);
     }
 
@@ -161,12 +178,19 @@ public class PrAnalyticsService
 
     private ReviewAggregate aggregateReviews(List<PullRequest> all, String currentLogin, Instant cutoff)
     {
+        ZoneId zone = ZoneId.systemDefault();
         int prCount = 0;
         int approved = 0;
         long lines = 0L;
         Map<String, Integer> outcomeCounts = new HashMap<>();
         int[] sizeCounts = new int[SIZE_BUCKETS.size()];
         Map<String, Integer> repoCounts = new HashMap<>();
+        // Daily buckets and heatmap are sparse — we only know about
+        // reviews whose detail blob already carried submitted_at. The
+        // map fills in naturally as new syncs land.
+        Map<LocalDate, int[]> dailyCounts = new HashMap<>();
+        int[][] heatmap = new int[7][24];
+        Map<String, Integer> coReviewerCounts = new HashMap<>();
         for (PullRequest pr : all) {
             Optional<StoredPrDetail> detailOpt = detailStore.find(pr.id());
             if (detailOpt.isEmpty()) {
@@ -204,6 +228,48 @@ public class PrAnalyticsService
             if (pr.repo() != null) {
                 repoCounts.merge(pr.repo(), 1, Integer::sum);
             }
+
+            // Daily-bars and heatmap need per-review timestamps. Walk
+            // every review by the current user on this PR (not just the
+            // latest verdict) and bucket each into the day/hour grid.
+            for (PrReviewState review : detail.reviews()) {
+                if (review.login() == null || !review.login().equalsIgnoreCase(currentLogin)) {
+                    continue;
+                }
+                Instant submitted = review.submittedAt();
+                if (submitted == null) {
+                    continue;
+                }
+                if (cutoff != Instant.EPOCH && submitted.isBefore(cutoff)) {
+                    continue;
+                }
+                ZonedDateTime local = submitted.atZone(zone);
+                LocalDate day = local.toLocalDate();
+                int stateIdx = dailyStateIndex(review.state());
+                if (stateIdx >= 0) {
+                    dailyCounts.computeIfAbsent(day, k -> new int[4])[stateIdx]++;
+                }
+                int dow = local.getDayOfWeek().getValue() % 7;
+                heatmap[dow][local.getHour()]++;
+            }
+
+            // Network: distinct other-reviewer logins on PRs you touched.
+            // Use a per-PR Set so two reviews by the same person don't
+            // double-count one PR. Bounded to the active scope by the
+            // outer `when` check above.
+            Set<String> coReviewers = new HashSet<>();
+            for (PrReviewState review : detail.reviews()) {
+                if (review.login() == null) {
+                    continue;
+                }
+                if (review.login().equalsIgnoreCase(currentLogin)) {
+                    continue;
+                }
+                coReviewers.add(review.login().toLowerCase(Locale.ROOT));
+            }
+            for (String coReviewer : coReviewers) {
+                coReviewerCounts.merge(coReviewer, 1, Integer::sum);
+            }
         }
         return new ReviewAggregate(
                 prCount,
@@ -211,7 +277,79 @@ public class PrAnalyticsService
                 lines,
                 outcomeSlices(outcomeCounts),
                 sizeBuckets(sizeCounts),
-                topRepos(repoCounts));
+                topRepos(repoCounts),
+                buildDailyActivity(dailyCounts, cutoff, zone),
+                buildHeatmap(heatmap),
+                topCoReviewers(coReviewerCounts));
+    }
+
+    private static int dailyStateIndex(String state)
+    {
+        if (state == null) {
+            return -1;
+        }
+        return switch (state.toUpperCase(Locale.ROOT)) {
+            case "APPROVED" -> 0;
+            case "CHANGES_REQUESTED" -> 1;
+            case "COMMENTED" -> 2;
+            case "DISMISSED" -> 3;
+            default -> -1;
+        };
+    }
+
+    private static List<DailyActivity> buildDailyActivity(
+            Map<LocalDate, int[]> counts,
+            Instant cutoff,
+            ZoneId zone)
+    {
+        if (counts.isEmpty()) {
+            return ImmutableList.of();
+        }
+        LocalDate today = LocalDate.now(zone);
+        LocalDate from;
+        if (cutoff == Instant.EPOCH) {
+            // "all" — cap to a manageable window so the renderer doesn't
+            // try to lay out years of empty days.
+            from = today.minusDays(DAILY_MAX_DAYS_ALL - 1L);
+        }
+        else {
+            from = cutoff.atZone(zone).toLocalDate();
+        }
+        ImmutableList.Builder<DailyActivity> out = ImmutableList.builder();
+        for (LocalDate day = from; !day.isAfter(today); day = day.plusDays(1)) {
+            int[] cell = counts.getOrDefault(day, new int[4]);
+            out.add(new DailyActivity(day.format(ISO_DATE), cell[0], cell[1], cell[2], cell[3]));
+        }
+        return out.build();
+    }
+
+    private static List<HeatmapCell> buildHeatmap(int[][] grid)
+    {
+        ImmutableList.Builder<HeatmapCell> out = ImmutableList.builder();
+        int total = 0;
+        for (int d = 0; d < 7; d++) {
+            for (int h = 0; h < 24; h++) {
+                int count = grid[d][h];
+                total += count;
+                if (count > 0) {
+                    out.add(new HeatmapCell(d, h, count));
+                }
+            }
+        }
+        // Empty grid → return empty so the renderer shows its empty
+        // state. We don't ship 168 zero cells just to make the JSON
+        // shape uniform.
+        return total == 0 ? ImmutableList.of() : out.build();
+    }
+
+    private static List<CoReviewer> topCoReviewers(Map<String, Integer> counts)
+    {
+        return counts.entrySet().stream()
+                .sorted(Map.Entry.<String, Integer>comparingByValue().reversed()
+                        .thenComparing(Map.Entry.comparingByKey()))
+                .limit(NETWORK_MAX_ROWS)
+                .map(e -> new CoReviewer(e.getKey(), e.getValue()))
+                .collect(toImmutableList());
     }
 
     private static int bucketIndex(int lines)
@@ -331,7 +469,10 @@ public class PrAnalyticsService
             long linesReviewed,
             List<OutcomeSlice> outcomes,
             List<SizeBucket> sizeDistribution,
-            List<RepoReviewCount> reposByReview)
+            List<RepoReviewCount> reposByReview,
+            List<DailyActivity> dailyActivity,
+            List<HeatmapCell> reviewHeatmap,
+            List<CoReviewer> reviewNetwork)
     {
         static ReviewAggregate empty()
         {
@@ -341,6 +482,9 @@ public class PrAnalyticsService
                     0L,
                     outcomeSlices(new HashMap<>()),
                     sizeBuckets(new int[SIZE_BUCKETS.size()]),
+                    ImmutableList.of(),
+                    ImmutableList.of(),
+                    ImmutableList.of(),
                     ImmutableList.of());
         }
 

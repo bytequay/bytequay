@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import type {
   PrAnalyticsCoReviewerDto,
   PrAnalyticsDailyActivityDto,
@@ -29,20 +29,27 @@ function PrAnalyticsPage({ onOpenPr }: Props) {
   const [scope, setScope] = useState<PrAnalyticsScope>('30d');
   const [data, setData] = useState<PrAnalyticsSummaryDto | null>(null);
   const [loading, setLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [lastLoadedAt, setLastLoadedAt] = useState<number | null>(null);
+
+  const fetchAnalytics = useCallback(async (currentScope: PrAnalyticsScope) => {
+    const tz = (() => {
+      try { return Intl.DateTimeFormat().resolvedOptions().timeZone; }
+      catch { return undefined; }
+    })();
+    return window.bridge.fetchPrAnalytics(currentScope, tz);
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
     setError(null);
-    const tz = (() => {
-      try { return Intl.DateTimeFormat().resolvedOptions().timeZone; }
-      catch { return undefined; }
-    })();
-    window.bridge.fetchPrAnalytics(scope, tz)
+    fetchAnalytics(scope)
       .then(result => {
         if (cancelled) return;
         setData(result);
+        setLastLoadedAt(Date.now());
       })
       .catch(e => {
         if (cancelled) return;
@@ -52,7 +59,43 @@ function PrAnalyticsPage({ onOpenPr }: Props) {
         if (!cancelled) setLoading(false);
       });
     return () => { cancelled = true; };
-  }, [scope]);
+  }, [scope, fetchAnalytics]);
+
+  // Background-refresh path: when the window regains focus we
+  // quietly re-fetch so the page tracks sync ticks that landed while
+  // the user was elsewhere. Doesn't flip `loading` — that would yank
+  // the panels mid-glance. Errors are swallowed; the next refresh
+  // will retry.
+  useEffect(() => {
+    const refresh = () => {
+      if (document.visibilityState !== 'visible') return;
+      setRefreshing(true);
+      fetchAnalytics(scope)
+        .then(result => {
+          setData(result);
+          setLastLoadedAt(Date.now());
+        })
+        .catch(() => { /* best-effort */ })
+        .finally(() => setRefreshing(false));
+    };
+    document.addEventListener('visibilitychange', refresh);
+    window.addEventListener('focus', refresh);
+    return () => {
+      document.removeEventListener('visibilitychange', refresh);
+      window.removeEventListener('focus', refresh);
+    };
+  }, [scope, fetchAnalytics]);
+
+  const handleManualRefresh = () => {
+    setRefreshing(true);
+    fetchAnalytics(scope)
+      .then(result => {
+        setData(result);
+        setLastLoadedAt(Date.now());
+      })
+      .catch(e => setError(e?.message ?? 'Failed to refresh'))
+      .finally(() => setRefreshing(false));
+  };
 
   const scopeChipLabel = useMemo(() => {
     const n = data?.watchedRepoCount ?? 0;
@@ -86,6 +129,18 @@ function PrAnalyticsPage({ onOpenPr }: Props) {
               </button>
             ))}
           </div>
+          <span className="analytics-page__freshness" title={freshnessTitle(lastLoadedAt)}>
+            {refreshing ? 'Refreshing…' : freshnessLabel(lastLoadedAt)}
+          </span>
+          <button
+            type="button"
+            className="analytics-page__refresh-btn"
+            title="Re-run the aggregation against the local store right now."
+            onClick={handleManualRefresh}
+            disabled={refreshing || loading}
+          >
+            ↻
+          </button>
           <button
             type="button"
             className="analytics-page__export-btn"
@@ -540,6 +595,23 @@ function ReviewNetworkCard({ rows }: { rows: PrAnalyticsCoReviewerDto[] }) {
       )}
     </section>
   );
+}
+
+function freshnessLabel(loadedAt: number | null): string {
+  if (loadedAt == null) return '';
+  const elapsedMs = Date.now() - loadedAt;
+  if (elapsedMs < 30_000) return 'Up to date';
+  const minutes = Math.floor(elapsedMs / 60_000);
+  if (minutes < 1) return 'Updated just now';
+  if (minutes < 60) return `Updated ${minutes}m ago`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `Updated ${hours}h ago`;
+  return `Updated ${Math.floor(hours / 24)}d ago`;
+}
+
+function freshnessTitle(loadedAt: number | null): string {
+  if (loadedAt == null) return '';
+  return `Last computed: ${new Date(loadedAt).toLocaleString()}`;
 }
 
 function downloadCsv(data: PrAnalyticsSummaryDto) {

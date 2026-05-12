@@ -111,6 +111,35 @@
   color: #fff;
 }
 
+.analytics-page__freshness {
+  font-size: 11px;
+  color: var(--text-3);
+  white-space: nowrap;
+}
+
+.analytics-page__refresh-btn {
+  padding: 4px 8px;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--bg-base);
+  color: var(--text-2);
+  font: inherit;
+  font-size: 13px;
+  cursor: pointer;
+  line-height: 1;
+}
+
+.analytics-page__refresh-btn:hover:not(:disabled) {
+  background: var(--accent-a7);
+  color: var(--text-1);
+  border-color: var(--accent-a40);
+}
+
+.analytics-page__refresh-btn:disabled {
+  cursor: not-allowed;
+  color: var(--text-3);
+}
+
 .analytics-page__export-btn {
   padding: 4px 10px;
   border: 1px solid var(--border);

@@ -12,6 +12,7 @@ import type {
   MyActivityDailyAuthoredDto,
   MyActivityRepoActivityCountDto,
   MyActivitySummaryDto,
+  PrAnalyticsKpiCardDto,
   PrAnalyticsScope,
 } from './types';
 
@@ -131,6 +132,15 @@ function MyActivityView({ view, onChangeView }: Props) {
             disabled={refreshing || loading}
           >
             ↻
+          </button>
+          <button
+            type="button"
+            className="analytics-page__export-btn"
+            title="Download this page's numbers as CSV. Local only — no upload."
+            disabled={!data}
+            onClick={() => data && downloadActivityCsv(data)}
+          >
+            Export CSV
           </button>
         </div>
       </header>
@@ -356,6 +366,77 @@ function WhatsMeasuredHereActivityCard() {
       </div>
     </section>
   );
+}
+
+function downloadActivityCsv(data: MyActivitySummaryDto) {
+  const csv = buildActivityCsv(data);
+  const blob = new Blob([csv], { type: 'text/csv;charset=utf-8' });
+  const url = URL.createObjectURL(blob);
+  const today = new Date().toISOString().slice(0, 10);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `bytequay-my-activity-${data.scope}-${today}.csv`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
+function buildActivityCsv(data: MyActivitySummaryDto): string {
+  const lines: string[] = [];
+  const exportedAt = new Date().toISOString();
+  lines.push(csvRow(['# ByteQuay my activity']));
+  lines.push(csvRow([`# scope: ${data.scope}`]));
+  lines.push(csvRow([`# watched_repos: ${data.watchedRepoCount}`]));
+  lines.push(csvRow([`# login: ${data.currentLogin ?? ''}`]));
+  lines.push(csvRow([`# exported_at: ${exportedAt}`]));
+
+  lines.push('');
+  lines.push(csvRow(['## KPIs']));
+  lines.push(csvRow(['metric', 'value', 'partial', 'note']));
+  const kpis: [string, PrAnalyticsKpiCardDto][] = [
+    ['PRs opened', data.prsOpened],
+    ['PRs merged', data.prsMerged],
+    ['Commits made', data.commitsMade],
+    ['Comments posted', data.commentsPosted],
+  ];
+  for (const [label, kpi] of kpis) {
+    lines.push(csvRow([
+      label,
+      kpi.pendingNote ? '' : kpi.displayValue,
+      kpi.partial ? 'true' : 'false',
+      kpi.pendingNote ?? '',
+    ]));
+  }
+  lines.push(csvRow(['Current streak (days)', String(data.currentStreakDays ?? ''), 'false', '']));
+  lines.push(csvRow(['Longest streak (days, year)', String(data.longestStreakDays ?? ''), 'false', '']));
+
+  lines.push('');
+  lines.push(csvRow(['## Daily authoring activity']));
+  lines.push(csvRow(['date', 'opened', 'merged']));
+  for (const d of data.dailyAuthored) {
+    lines.push(csvRow([d.date, String(d.opened), String(d.merged)]));
+  }
+
+  lines.push('');
+  lines.push(csvRow(['## Repos by your activity']));
+  lines.push(csvRow(['repo', 'prs_opened', 'prs_merged']));
+  for (const r of data.reposByActivity) {
+    lines.push(csvRow([r.repo, String(r.prsOpened), String(r.prsMerged)]));
+  }
+
+  return lines.join('\r\n') + '\r\n';
+}
+
+function csvRow(fields: string[]): string {
+  return fields.map(csvEscape).join(',');
+}
+
+function csvEscape(value: string): string {
+  if (/[",\r\n]/.test(value)) {
+    return `"${value.replace(/"/g, '""')}"`;
+  }
+  return value;
 }
 
 export default MyActivityView;

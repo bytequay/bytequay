@@ -31,7 +31,7 @@ type Props = {
 function PrAnalyticsPage({ onOpenPr }: Props) {
   const [view, setView] = useState<AnalyticsView>('reviews');
   if (view === 'activity') {
-    return <MyActivityView view={view} onChangeView={setView} />;
+    return <MyActivityView view={view} onChangeView={setView} onOpenPr={onOpenPr} />;
   }
   return <ReviewsAnalyticsView view={view} onChangeView={setView} onOpenPr={onOpenPr} />;
 }

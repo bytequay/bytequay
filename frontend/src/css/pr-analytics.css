@@ -494,6 +494,128 @@
   align-items: flex-end;
 }
 
+.analytics-daily__col--button {
+  border: none;
+  background: transparent;
+  padding: 0;
+  cursor: pointer;
+  border-bottom: 2px solid transparent;
+  box-sizing: border-box;
+}
+
+.analytics-daily__col--button:disabled {
+  cursor: default;
+}
+
+.analytics-daily__col--button:hover:not(:disabled) {
+  background: var(--accent-a7);
+}
+
+.analytics-daily__col--active {
+  border-bottom-color: var(--accent);
+  background: var(--accent-a10);
+}
+
+.analytics-daily__drilldown {
+  margin-top: 12px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-base);
+}
+
+.analytics-daily__drilldown-head {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  font-size: 12px;
+  color: var(--text-2);
+  margin-bottom: 8px;
+}
+
+.analytics-daily__drilldown-date {
+  font-weight: 700;
+  color: var(--text-1);
+}
+
+.analytics-daily__drilldown-count {
+  color: var(--text-3);
+}
+
+.analytics-daily__drilldown-close {
+  margin-left: auto;
+  border: none;
+  background: transparent;
+  font: inherit;
+  font-size: 18px;
+  line-height: 1;
+  cursor: pointer;
+  color: var(--text-3);
+}
+
+.analytics-daily__drilldown-close:hover {
+  color: var(--text-1);
+}
+
+.analytics-daily__drilldown-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.analytics-daily__drilldown-link {
+  width: 100%;
+  display: grid;
+  grid-template-columns: 64px 1fr auto;
+  gap: 10px;
+  align-items: center;
+  padding: 6px 10px;
+  border: 1px solid var(--border-hairline);
+  border-radius: 6px;
+  background: var(--bg-elevated);
+  font: inherit;
+  text-align: left;
+  cursor: pointer;
+  color: var(--text-1);
+}
+
+.analytics-daily__drilldown-link:disabled {
+  cursor: default;
+}
+
+.analytics-daily__drilldown-link:hover:not(:disabled) {
+  border-color: var(--accent-a40);
+  background: var(--accent-a7);
+}
+
+.analytics-daily__drilldown-badge {
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: #fff;
+  padding: 2px 6px;
+  border-radius: 3px;
+  text-align: center;
+}
+
+.analytics-daily__drilldown-title {
+  font-size: 12px;
+  color: var(--text-1);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.analytics-daily__drilldown-repo {
+  font-size: 11px;
+  color: var(--text-3);
+  font-variant-numeric: tabular-nums;
+}
+
 .analytics-daily__stack {
   width: 100%;
   display: flex;

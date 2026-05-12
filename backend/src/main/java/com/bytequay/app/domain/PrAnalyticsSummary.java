@@ -38,6 +38,18 @@ public record PrAnalyticsSummary(
         KpiCard approvalRate,
         KpiCard linesReviewed,
         KpiCard responseToReviewRequest,
+        /** Latest-verdict distribution across PRs you reviewed, ordered
+         *  by the canonical slice order (APPROVED, CHANGES_REQUESTED,
+         *  COMMENTED, DISMISSED). Partial — same caveat as the KPI
+         *  cards. */
+        List<OutcomeSlice> reviewOutcomes,
+        /** Count of PRs you reviewed bucketed by total line change,
+         *  ordered from Tiny → Huge. Partial. */
+        List<SizeBucket> sizeDistribution,
+        /** Top repos by number of PRs you reviewed, sorted desc.
+         *  Capped to the most active handful so the list stays
+         *  scannable. Partial. */
+        List<RepoReviewCount> reposByReview,
         /** Open PRs you authored that haven't been touched in > 7 days.
          *  Sourced from the {@code pull_requests} row only, so this list
          *  is complete for the local store (not partial). */
@@ -58,6 +70,28 @@ public record PrAnalyticsSummary(
              *  review request" placeholder until the review mirror
              *  lands. */
             String pendingNote) {}
+
+    /**
+     * One slice of the review-outcomes donut. {@code state} is the
+     * canonical GitHub review state ("APPROVED", "CHANGES_REQUESTED",
+     * "COMMENTED", "DISMISSED"); {@code count} is the number of PRs
+     * whose latest verdict from the current user was this state.
+     */
+    public record OutcomeSlice(String state, int count) {}
+
+    /**
+     * One bar in the size-distribution chart. {@code label} is a
+     * human-readable bucket name ("Tiny", "Small", ...); {@code count}
+     * is the number of PRs you reviewed that fell in the bucket.
+     */
+    public record SizeBucket(String label, int count) {}
+
+    /**
+     * One row in the "Repos by review activity" panel. {@code repo}
+     * is the {@code owner/name} pair; {@code count} is the number of
+     * PRs you reviewed in that repo within the active scope.
+     */
+    public record RepoReviewCount(String repo, int count) {}
 
     /**
      * One row in the stale-PRs card. {@code ageDays} is the integer

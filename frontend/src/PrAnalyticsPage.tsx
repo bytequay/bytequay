@@ -1,7 +1,10 @@
 import { useEffect, useMemo, useState } from 'react';
 import type {
   PrAnalyticsKpiCardDto,
+  PrAnalyticsOutcomeSliceDto,
+  PrAnalyticsRepoReviewCountDto,
   PrAnalyticsScope,
+  PrAnalyticsSizeBucketDto,
   PrAnalyticsStaleAuthoredPrDto,
   PrAnalyticsSummaryDto,
 } from './types';
@@ -102,18 +105,8 @@ function PrAnalyticsPage({ onOpenPr }: Props) {
           </section>
 
           <div className="analytics-page__grid analytics-page__grid--two">
-            <section className="analytics-page__panel analytics-page__panel--pending">
-              <h2 className="analytics-page__panel-title">Review outcomes</h2>
-              <p className="analytics-page__panel-empty">
-                Donut breakdown (approved / changes / commented) — pending review mirror.
-              </p>
-            </section>
-            <section className="analytics-page__panel analytics-page__panel--pending">
-              <h2 className="analytics-page__panel-title">PR size distribution</h2>
-              <p className="analytics-page__panel-empty">
-                Tiny / small / medium / large / huge buckets with median time-to-review — pending review mirror.
-              </p>
-            </section>
+            <ReviewOutcomesCard slices={data.reviewOutcomes} />
+            <SizeDistributionCard buckets={data.sizeDistribution} />
           </div>
 
           <section className="analytics-page__panel analytics-page__panel--pending">
@@ -124,10 +117,7 @@ function PrAnalyticsPage({ onOpenPr }: Props) {
           </section>
 
           <div className="analytics-page__grid analytics-page__grid--three">
-            <section className="analytics-page__panel analytics-page__panel--pending">
-              <h2 className="analytics-page__panel-title">Repos by review activity</h2>
-              <p className="analytics-page__panel-empty">Pending review mirror.</p>
-            </section>
+            <ReposByReviewCard rows={data.reposByReview} />
             <section className="analytics-page__panel analytics-page__panel--pending">
               <h2 className="analytics-page__panel-title">Review network</h2>
               <p className="analytics-page__panel-empty">Pending review mirror.</p>
@@ -211,6 +201,186 @@ function StaleAuthoredCard({
         </ul>
       )}
     </section>
+  );
+}
+
+const OUTCOME_LABELS: Record<string, string> = {
+  APPROVED: 'Approved',
+  CHANGES_REQUESTED: 'Changes requested',
+  COMMENTED: 'Commented',
+  DISMISSED: 'Dismissed',
+};
+
+const OUTCOME_COLORS: Record<string, string> = {
+  APPROVED: '#2f9e6e',
+  CHANGES_REQUESTED: '#b3261e',
+  COMMENTED: '#7a705d',
+  DISMISSED: '#9aa0a6',
+};
+
+function ReviewOutcomesCard({ slices }: { slices: PrAnalyticsOutcomeSliceDto[] }) {
+  const total = useMemo(() => slices.reduce((acc, s) => acc + s.count, 0), [slices]);
+  if (total === 0) {
+    return (
+      <section className="analytics-page__panel">
+        <h2 className="analytics-page__panel-title">
+          Review outcomes
+          <PartialMarker />
+        </h2>
+        <p className="analytics-page__panel-empty">No reviews in this window yet.</p>
+      </section>
+    );
+  }
+  const cumulative: { state: string; from: number; to: number; count: number }[] = [];
+  let running = 0;
+  for (const slice of slices) {
+    if (slice.count === 0) continue;
+    cumulative.push({
+      state: slice.state,
+      from: running / total,
+      to: (running + slice.count) / total,
+      count: slice.count,
+    });
+    running += slice.count;
+  }
+  const radius = 48;
+  const inner = 30;
+  const circumference = 2 * Math.PI * radius;
+  return (
+    <section className="analytics-page__panel">
+      <h2 className="analytics-page__panel-title">
+        Review outcomes
+        <PartialMarker />
+      </h2>
+      <p className="analytics-page__panel-subtitle">
+        Latest verdict per PR you reviewed.
+      </p>
+      <div className="analytics-donut">
+        <svg viewBox="-60 -60 120 120" aria-label="Review outcomes donut">
+          {cumulative.map(seg => {
+            const offset = -seg.from * circumference;
+            const dash = (seg.to - seg.from) * circumference;
+            return (
+              <circle
+                key={seg.state}
+                r={radius}
+                cx={0}
+                cy={0}
+                fill="none"
+                stroke={OUTCOME_COLORS[seg.state] ?? '#7a705d'}
+                strokeWidth={radius - inner}
+                strokeDasharray={`${dash} ${circumference - dash}`}
+                strokeDashoffset={offset}
+                transform="rotate(-90)"
+              />
+            );
+          })}
+          <text x={0} y={4} textAnchor="middle" className="analytics-donut__total">
+            {total}
+          </text>
+        </svg>
+        <ul className="analytics-donut__legend">
+          {slices.filter(s => s.count > 0).map(slice => {
+            const pct = Math.round((slice.count / total) * 100);
+            return (
+              <li key={slice.state} className="analytics-donut__legend-row">
+                <span
+                  className="analytics-donut__legend-swatch"
+                  style={{ background: OUTCOME_COLORS[slice.state] ?? '#7a705d' }}
+                  aria-hidden="true"
+                />
+                <span className="analytics-donut__legend-label">
+                  {OUTCOME_LABELS[slice.state] ?? slice.state}
+                </span>
+                <span className="analytics-donut__legend-count">
+                  {slice.count} <span className="analytics-donut__legend-pct">({pct}%)</span>
+                </span>
+              </li>
+            );
+          })}
+        </ul>
+      </div>
+    </section>
+  );
+}
+
+function SizeDistributionCard({ buckets }: { buckets: PrAnalyticsSizeBucketDto[] }) {
+  const max = Math.max(1, ...buckets.map(b => b.count));
+  const total = buckets.reduce((acc, b) => acc + b.count, 0);
+  return (
+    <section className="analytics-page__panel">
+      <h2 className="analytics-page__panel-title">
+        PR size distribution
+        <PartialMarker />
+      </h2>
+      <p className="analytics-page__panel-subtitle">
+        Of PRs you reviewed, total lines changed (additions + deletions).
+      </p>
+      {total === 0 ? (
+        <p className="analytics-page__panel-empty">No reviews in this window yet.</p>
+      ) : (
+        <ul className="analytics-bars">
+          {buckets.map(b => (
+            <li key={b.label} className="analytics-bars__row">
+              <span className="analytics-bars__label">{b.label}</span>
+              <div className="analytics-bars__track">
+                <div
+                  className="analytics-bars__fill"
+                  style={{ width: `${(b.count / max) * 100}%` }}
+                />
+              </div>
+              <span className="analytics-bars__count">{b.count}</span>
+            </li>
+          ))}
+        </ul>
+      )}
+    </section>
+  );
+}
+
+function ReposByReviewCard({ rows }: { rows: PrAnalyticsRepoReviewCountDto[] }) {
+  const max = Math.max(1, ...rows.map(r => r.count));
+  return (
+    <section className="analytics-page__panel">
+      <h2 className="analytics-page__panel-title">
+        Repos by review activity
+        <PartialMarker />
+      </h2>
+      <p className="analytics-page__panel-subtitle">
+        Where your reviews land — top {rows.length || 'repos'}.
+      </p>
+      {rows.length === 0 ? (
+        <p className="analytics-page__panel-empty">No reviews in this window yet.</p>
+      ) : (
+        <ul className="analytics-bars">
+          {rows.map(r => (
+            <li key={r.repo} className="analytics-bars__row">
+              <span className="analytics-bars__label analytics-bars__label--repo" title={r.repo}>
+                {r.repo}
+              </span>
+              <div className="analytics-bars__track">
+                <div
+                  className="analytics-bars__fill"
+                  style={{ width: `${(r.count / max) * 100}%` }}
+                />
+              </div>
+              <span className="analytics-bars__count">{r.count}</span>
+            </li>
+          ))}
+        </ul>
+      )}
+    </section>
+  );
+}
+
+function PartialMarker() {
+  return (
+    <sup
+      className="analytics-kpi__partial-marker"
+      title="Computed from PRs with cached detail only. See 'What's measured here' below."
+    >
+      ¹
+    </sup>
   );
 }
 

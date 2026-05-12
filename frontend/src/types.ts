@@ -129,6 +129,23 @@ export type PrAnalyticsStaleAuthoredPrDto = {
   ageDays: number;
 };
 
+export type PrAnalyticsOutcomeSliceDto = {
+  /** Canonical GitHub review state — "APPROVED", "CHANGES_REQUESTED",
+   *  "COMMENTED", "DISMISSED", or rare states pass-through. */
+  state: string;
+  count: number;
+};
+
+export type PrAnalyticsSizeBucketDto = {
+  label: string;
+  count: number;
+};
+
+export type PrAnalyticsRepoReviewCountDto = {
+  repo: string;
+  count: number;
+};
+
 export type PrAnalyticsSummaryDto = {
   scope: PrAnalyticsScope;
   watchedRepoCount: number;
@@ -137,6 +154,9 @@ export type PrAnalyticsSummaryDto = {
   approvalRate: PrAnalyticsKpiCardDto;
   linesReviewed: PrAnalyticsKpiCardDto;
   responseToReviewRequest: PrAnalyticsKpiCardDto;
+  reviewOutcomes: PrAnalyticsOutcomeSliceDto[];
+  sizeDistribution: PrAnalyticsSizeBucketDto[];
+  reposByReview: PrAnalyticsRepoReviewCountDto[];
   staleAuthoredPrs: PrAnalyticsStaleAuthoredPrDto[];
 };
 

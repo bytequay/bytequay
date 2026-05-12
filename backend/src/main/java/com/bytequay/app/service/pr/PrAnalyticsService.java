@@ -15,6 +15,9 @@ package com.bytequay.app.service.pr;
 
 import com.bytequay.app.domain.PrAnalyticsSummary;
 import com.bytequay.app.domain.PrAnalyticsSummary.KpiCard;
+import com.bytequay.app.domain.PrAnalyticsSummary.OutcomeSlice;
+import com.bytequay.app.domain.PrAnalyticsSummary.RepoReviewCount;
+import com.bytequay.app.domain.PrAnalyticsSummary.SizeBucket;
 import com.bytequay.app.domain.PrAnalyticsSummary.StaleAuthoredPr;
 import com.bytequay.app.domain.PrReviewState;
 import com.bytequay.app.domain.PullRequest;
@@ -29,10 +32,13 @@ import org.springframework.stereotype.Service;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.Comparator;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Optional;
 
+import static com.google.common.collect.ImmutableList.toImmutableList;
 import static java.util.Objects.requireNonNull;
 
 /**
@@ -49,6 +55,18 @@ public class PrAnalyticsService
 {
     private static final int STALE_THRESHOLD_DAYS = 7;
     private static final int STALE_MAX_ROWS = 20;
+    private static final int REPOS_MAX_ROWS = 8;
+    private static final List<String> OUTCOME_ORDER = ImmutableList.of(
+            "APPROVED", "CHANGES_REQUESTED", "COMMENTED", "DISMISSED");
+    // Tuned to land most everyday changes in Small / Medium and reserve
+    // the tail buckets for "this PR needs a meeting" outliers. Edges
+    // inclusive on the upper bound — a 99-line PR lands in Small.
+    private static final List<SizeBucketDef> SIZE_BUCKETS = ImmutableList.of(
+            new SizeBucketDef("Tiny", 0, 9),
+            new SizeBucketDef("Small", 10, 99),
+            new SizeBucketDef("Medium", 100, 499),
+            new SizeBucketDef("Large", 500, 999),
+            new SizeBucketDef("Huge", 1000, Integer.MAX_VALUE));
 
     private final PullRequestStore pullRequestStore;
     private final PrDetailStore detailStore;
@@ -112,6 +130,9 @@ public class PrAnalyticsService
                 approvalRate,
                 linesReviewed,
                 responseToReviewRequest,
+                reviewAggregate.outcomes(),
+                reviewAggregate.sizeDistribution(),
+                reviewAggregate.reposByReview(),
                 stale);
     }
 
@@ -143,6 +164,9 @@ public class PrAnalyticsService
         int prCount = 0;
         int approved = 0;
         long lines = 0L;
+        Map<String, Integer> outcomeCounts = new HashMap<>();
+        int[] sizeCounts = new int[SIZE_BUCKETS.size()];
+        Map<String, Integer> repoCounts = new HashMap<>();
         for (PullRequest pr : all) {
             // PrReviewState has no submitted_at — use the PR row's
             // updatedAt as a proxy so the scope filter still constrains
@@ -166,11 +190,73 @@ public class PrAnalyticsService
             if ("APPROVED".equalsIgnoreCase(latestVerdict)) {
                 approved++;
             }
+            outcomeCounts.merge(latestVerdict.toUpperCase(Locale.ROOT), 1, Integer::sum);
+            int prLines = 0;
             if (detail.raw() != null) {
-                lines += (long) Math.max(0, detail.raw().additions()) + (long) Math.max(0, detail.raw().deletions());
+                prLines = Math.max(0, detail.raw().additions()) + Math.max(0, detail.raw().deletions());
+                lines += prLines;
+            }
+            sizeCounts[bucketIndex(prLines)]++;
+            if (pr.repo() != null) {
+                repoCounts.merge(pr.repo(), 1, Integer::sum);
             }
         }
-        return new ReviewAggregate(prCount, approved, lines);
+        return new ReviewAggregate(
+                prCount,
+                approved,
+                lines,
+                outcomeSlices(outcomeCounts),
+                sizeBuckets(sizeCounts),
+                topRepos(repoCounts));
+    }
+
+    private static int bucketIndex(int lines)
+    {
+        for (int i = 0; i < SIZE_BUCKETS.size(); i++) {
+            SizeBucketDef bucket = SIZE_BUCKETS.get(i);
+            if (lines >= bucket.lo && lines <= bucket.hi) {
+                return i;
+            }
+        }
+        // Defensive: negative numbers (shouldn't occur — additions /
+        // deletions are clamped to >= 0 above) fall into Tiny.
+        return 0;
+    }
+
+    private static List<OutcomeSlice> outcomeSlices(Map<String, Integer> counts)
+    {
+        ImmutableList.Builder<OutcomeSlice> out = ImmutableList.builder();
+        for (String state : OUTCOME_ORDER) {
+            out.add(new OutcomeSlice(state, counts.getOrDefault(state, 0)));
+        }
+        // Any unusual states (e.g. PENDING) get a trailing slice so
+        // they don't disappear silently; the renderer can fold them
+        // into an "Other" wedge.
+        counts.forEach((state, count) -> {
+            if (!OUTCOME_ORDER.contains(state)) {
+                out.add(new OutcomeSlice(state, count));
+            }
+        });
+        return out.build();
+    }
+
+    private static List<SizeBucket> sizeBuckets(int[] counts)
+    {
+        ImmutableList.Builder<SizeBucket> out = ImmutableList.builder();
+        for (int i = 0; i < SIZE_BUCKETS.size(); i++) {
+            out.add(new SizeBucket(SIZE_BUCKETS.get(i).label, counts[i]));
+        }
+        return out.build();
+    }
+
+    private static List<RepoReviewCount> topRepos(Map<String, Integer> counts)
+    {
+        return counts.entrySet().stream()
+                .sorted(Map.Entry.<String, Integer>comparingByValue().reversed()
+                        .thenComparing(Map.Entry.comparingByKey()))
+                .limit(REPOS_MAX_ROWS)
+                .map(e -> new RepoReviewCount(e.getKey(), e.getValue()))
+                .collect(toImmutableList());
     }
 
     private static String latestVerdictBy(List<PrReviewState> reviews, String login)
@@ -235,11 +321,23 @@ public class PrAnalyticsService
         return Math.round(fraction * 100) + "%";
     }
 
-    private record ReviewAggregate(int prCount, int approved, long linesReviewed)
+    private record ReviewAggregate(
+            int prCount,
+            int approved,
+            long linesReviewed,
+            List<OutcomeSlice> outcomes,
+            List<SizeBucket> sizeDistribution,
+            List<RepoReviewCount> reposByReview)
     {
         static ReviewAggregate empty()
         {
-            return new ReviewAggregate(0, 0, 0L);
+            return new ReviewAggregate(
+                    0,
+                    0,
+                    0L,
+                    outcomeSlices(new HashMap<>()),
+                    sizeBuckets(new int[SIZE_BUCKETS.size()]),
+                    ImmutableList.of());
         }
 
         double approvalRate()
@@ -247,4 +345,6 @@ public class PrAnalyticsService
             return prCount == 0 ? 0.0 : (double) approved / (double) prCount;
         }
     }
+
+    private record SizeBucketDef(String label, int lo, int hi) {}
 }

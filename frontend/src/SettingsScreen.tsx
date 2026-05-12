@@ -14,7 +14,6 @@
 import React, { useEffect, useState } from 'react';
 import CredentialsTab from './CredentialsTab';
 import ReviewSkillsTab from './ReviewSkillsTab';
-import { getTtlSeconds, setTtlSeconds } from './detailCache';
 import { THEMES, applyTheme, loadTheme, type ThemeId } from './themes';
 
 const THEME_DOT_COLORS: Record<ThemeId, React.CSSProperties> = {
@@ -34,8 +33,6 @@ type Props = {
 };
 
 function GeneralTab() {
-  const [ttl, setTtl] = useState<number>(getTtlSeconds());
-  const [ttlError, setTtlError] = useState<string | null>(null);
   const [theme, setTheme] = useState<ThemeId>(loadTheme());
   const [syncInterval, setSyncInterval] = useState<number>(60);
   const [syncIntervalError, setSyncIntervalError] = useState<string | null>(null);
@@ -47,17 +44,6 @@ function GeneralTab() {
       .then(s => setSyncInterval(s.intervalSeconds))
       .catch(() => { /* non-fatal */ });
   }, []);
-
-  const handleTtlChange = (raw: string) => {
-    const n = parseInt(raw, 10);
-    setTtl(isNaN(n) ? 0 : n);
-    if (!Number.isFinite(n) || n < 5 || n > 3600) {
-      setTtlError('Must be between 5 and 3600 seconds.');
-    } else {
-      setTtlError(null);
-      setTtlSeconds(n);
-    }
-  };
 
   const handleSyncIntervalChange = async (raw: string) => {
     const n = parseInt(raw, 10);
@@ -113,27 +99,6 @@ function GeneralTab() {
         </button>
       </div>
       {syncMessage && <p className="section-copy">{syncMessage}</p>}
-
-      <div className="settings-divider" />
-
-      <h3>Detail cache</h3>
-      <p className="section-copy">
-        Fetched PR details are kept in memory and reused until they expire.
-        This avoids redundant network calls when switching between PRs.
-      </p>
-      <div className="settings-field">
-        <label className="settings-label" htmlFor="cache-ttl">Cache TTL (seconds)</label>
-        <input
-          id="cache-ttl"
-          className="settings-input-number"
-          type="number"
-          min={5}
-          max={3600}
-          value={ttl}
-          onChange={(e) => handleTtlChange(e.target.value)}
-        />
-      </div>
-      {ttlError && <p className="error-text">{ttlError}</p>}
 
       <div className="settings-divider" />
 

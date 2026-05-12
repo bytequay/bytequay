@@ -64,8 +64,8 @@ const bridge: Bridge = {
   fetchPrs: (): Promise<PullRequestDto[]> => ipcRenderer.invoke('backend:listPrs'),
   fetchPullRequestDetail: (repo: string, number: number): Promise<PullRequestDetailDto> =>
     ipcRenderer.invoke('backend:pullRequestDetail', repo, number),
-  refreshPullRequestDetail: (repo: string, number: number): Promise<PullRequestDetailDto> =>
-    ipcRenderer.invoke('backend:refreshPullRequestDetail', repo, number),
+  refreshPullRequestDetail: (repo: string, number: number, maxAgeSeconds?: number): Promise<PullRequestDetailDto> =>
+    ipcRenderer.invoke('backend:refreshPullRequestDetail', repo, number, maxAgeSeconds),
   fetchPrCi: (repo: string, number: number) =>
     ipcRenderer.invoke('backend:prCi', repo, number),
   fetchPrConflictPaths: (owner: string, repo: string, prNumber: number, baseRef: string) =>

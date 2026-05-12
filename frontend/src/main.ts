@@ -606,10 +606,13 @@ function registerIpc(): void {
     return res.json();
   });
 
-  ipcMain.handle('backend:refreshPullRequestDetail', async (_event, repo: string, number: number) => {
+  ipcMain.handle('backend:refreshPullRequestDetail', async (_event, repo: string, number: number, maxAgeSeconds?: number) => {
     const url = new URL(`${BACKEND_BASE}/prs/detail/refresh`);
     url.searchParams.set('repo', repo);
     url.searchParams.set('number', String(number));
+    if (typeof maxAgeSeconds === 'number' && maxAgeSeconds > 0) {
+      url.searchParams.set('maxAgeSeconds', String(maxAgeSeconds));
+    }
     const res = await fetch(url, { method: 'POST' });
     if (!res.ok) {
       const body = await res.text().catch(() => '');

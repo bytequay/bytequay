@@ -88,7 +88,7 @@ public class PullRequestSyncJob
         executor.execute(this::doSync);
     }
 
-    @Scheduled(fixedDelay = 10_000)
+    @Scheduled(fixedDelay = 60_000)
     public void tick()
     {
         if (!isIntervalElapsed()) {

@@ -16,7 +16,6 @@ import { act, type ComponentProps } from 'react';
 import { createRoot, type Root } from 'react-dom/client';
 import PullRequestPreview from './PullRequestPreview';
 import { invalidate, setCached } from './dataCache';
-import { clearCache } from './detailCache';
 import type {
   ActivityItemDto,
   PullRequestDetailDto,
@@ -259,7 +258,6 @@ let container: HTMLDivElement;
 let root: Root;
 
 beforeEach(() => {
-  clearCache();
   invalidate('home:profile');
   container = document.createElement('div');
   document.body.appendChild(container);
@@ -370,7 +368,7 @@ describe('PullRequestPreview render smoke', () => {
 
     expect(bridge.setPrDraft).toHaveBeenCalledWith('trinodb/trino', 42, true);
     expect(bridge.refreshPullRequestDetail).toHaveBeenCalledWith('trinodb/trino', 42);
-    expect(bridge.fetchPullRequestDetail).toHaveBeenCalledTimes(1);
+    expect(bridge.fetchPullRequestDetail).not.toHaveBeenCalled();
     expect(container.innerHTML).toContain('Mark as ready');
   });
 
@@ -401,7 +399,7 @@ describe('PullRequestPreview render smoke', () => {
 
     expect(bridge.updatePrBody).toHaveBeenCalledWith('trinodb/trino', 42, 'updated PR body');
     expect(bridge.refreshPullRequestDetail).toHaveBeenCalledWith('trinodb/trino', 42);
-    expect(bridge.fetchPullRequestDetail).toHaveBeenCalledTimes(1);
+    expect(bridge.fetchPullRequestDetail).not.toHaveBeenCalled();
     expect(container.innerHTML).toContain('fresh body from GitHub');
   });
 
@@ -422,7 +420,7 @@ describe('PullRequestPreview render smoke', () => {
 
     expect(bridge.removeRequestedReviewer).toHaveBeenCalledWith('trinodb/trino', 42, 'alice');
     expect(bridge.refreshPullRequestDetail).toHaveBeenCalledWith('trinodb/trino', 42);
-    expect(bridge.fetchPullRequestDetail).toHaveBeenCalledTimes(1);
+    expect(bridge.fetchPullRequestDetail).not.toHaveBeenCalled();
     expect(container.querySelector('[aria-label="Remove alice"]')).toBeNull();
   });
 
@@ -451,7 +449,7 @@ describe('PullRequestPreview render smoke', () => {
 
     expect(bridge.addRequestedReviewer).toHaveBeenCalledWith('trinodb/trino', 42, 'dana');
     expect(bridge.refreshPullRequestDetail).toHaveBeenCalledWith('trinodb/trino', 42);
-    expect(bridge.fetchPullRequestDetail).toHaveBeenCalledTimes(1);
+    expect(bridge.fetchPullRequestDetail).not.toHaveBeenCalled();
     expect(container.querySelector('[aria-label="Remove dana"]')).toBeTruthy();
   });
 
@@ -469,7 +467,7 @@ describe('PullRequestPreview render smoke', () => {
 
     expect(bridge.addRequestedReviewer).toHaveBeenCalledWith('trinodb/trino', 42, 'critic');
     expect(bridge.refreshPullRequestDetail).toHaveBeenCalledWith('trinodb/trino', 42);
-    expect(bridge.fetchPullRequestDetail).toHaveBeenCalledTimes(1);
+    expect(bridge.fetchPullRequestDetail).not.toHaveBeenCalled();
     expect(container.querySelector('[aria-label="Remove critic"]')).toBeTruthy();
   });
 
@@ -488,7 +486,7 @@ describe('PullRequestPreview render smoke', () => {
 
     expect(bridge.commentPr).toHaveBeenCalledWith(1, 'trinodb/trino', 42, '', true);
     expect(bridge.refreshPullRequestDetail).toHaveBeenCalledWith('trinodb/trino', 42);
-    expect(bridge.fetchPullRequestDetail).toHaveBeenCalledTimes(1);
+    expect(bridge.fetchPullRequestDetail).not.toHaveBeenCalled();
   });
 
   it('keeps plain PR comments optimistic without fetching stale detail', async () => {
@@ -510,8 +508,11 @@ describe('PullRequestPreview render smoke', () => {
     await act(async () => { await Promise.resolve(); });
 
     expect(bridge.commentPr).toHaveBeenCalledWith(1, 'trinodb/trino', 42, 'plain comment', false);
-    expect(bridge.refreshPullRequestDetail).not.toHaveBeenCalled();
-    expect(bridge.fetchPullRequestDetail).toHaveBeenCalledTimes(1);
+    // Polling refactor: mount calls refresh(repo, n, 10); we assert
+    // the user action above didn't add an EXTRA refresh on top.
+    expect(bridge.refreshPullRequestDetail).toHaveBeenCalledTimes(1);
+    expect(bridge.refreshPullRequestDetail).toHaveBeenCalledWith('trinodb/trino', 42, 10);
+    expect(bridge.fetchPullRequestDetail).not.toHaveBeenCalled();
   });
 
   it('uses force-refresh reconciliation after merging a pull request', async () => {
@@ -538,7 +539,7 @@ describe('PullRequestPreview render smoke', () => {
 
     expect(onMerge).toHaveBeenCalledWith(1, 'trinodb/trino', 42, 'rebase');
     expect(bridge.refreshPullRequestDetail).toHaveBeenCalledWith('trinodb/trino', 42);
-    expect(bridge.fetchPullRequestDetail).toHaveBeenCalledTimes(1);
+    expect(bridge.fetchPullRequestDetail).not.toHaveBeenCalled();
   });
 
   it('keeps issue reactions optimistic without fetching stale detail', async () => {
@@ -552,8 +553,13 @@ describe('PullRequestPreview render smoke', () => {
     await act(async () => { await Promise.resolve(); });
 
     expect(bridge.addIssueCommentReaction).toHaveBeenCalledWith('trinodb/trino', 9001, 'heart');
-    expect(bridge.fetchPullRequestDetail).toHaveBeenCalledTimes(1);
-    expect(bridge.refreshPullRequestDetail).not.toHaveBeenCalled();
+    // No L1 cache after the polling refactor — every mount calls
+    // refreshPullRequestDetail (with maxAgeSeconds=10), so we assert
+    // that the action itself didn't pile on an extra refresh beyond
+    // the natural mount call.
+    expect(bridge.refreshPullRequestDetail).toHaveBeenCalledTimes(1);
+    expect(bridge.refreshPullRequestDetail).toHaveBeenCalledWith('trinodb/trino', 42, 10);
+    expect(bridge.fetchPullRequestDetail).not.toHaveBeenCalled();
     expect(container.querySelector('.prc-comment-card .reaction-chip__count')?.textContent).toBe('2');
   });
 
@@ -568,8 +574,13 @@ describe('PullRequestPreview render smoke', () => {
     await act(async () => { await Promise.resolve(); });
 
     expect(bridge.addReviewCommentReaction).toHaveBeenCalledWith('trinodb/trino', 1001, '+1');
-    expect(bridge.fetchPullRequestDetail).toHaveBeenCalledTimes(1);
-    expect(bridge.refreshPullRequestDetail).not.toHaveBeenCalled();
+    // No L1 cache after the polling refactor — every mount calls
+    // refreshPullRequestDetail (with maxAgeSeconds=10), so we assert
+    // that the action itself didn't pile on an extra refresh beyond
+    // the natural mount call.
+    expect(bridge.refreshPullRequestDetail).toHaveBeenCalledTimes(1);
+    expect(bridge.refreshPullRequestDetail).toHaveBeenCalledWith('trinodb/trino', 42, 10);
+    expect(bridge.fetchPullRequestDetail).not.toHaveBeenCalled();
     expect(container.querySelector('.prc-review-thread .reaction-chip__count')?.textContent).toBe('3');
   });
 
@@ -597,8 +608,13 @@ describe('PullRequestPreview render smoke', () => {
     await act(async () => { await Promise.resolve(); });
 
     expect(bridge.replyToReviewThread).toHaveBeenCalledWith('trinodb/trino', 42, 5001, 'thanks for the fix');
-    expect(bridge.fetchPullRequestDetail).toHaveBeenCalledTimes(1);
-    expect(bridge.refreshPullRequestDetail).not.toHaveBeenCalled();
+    // No L1 cache after the polling refactor — every mount calls
+    // refreshPullRequestDetail (with maxAgeSeconds=10), so we assert
+    // that the action itself didn't pile on an extra refresh beyond
+    // the natural mount call.
+    expect(bridge.refreshPullRequestDetail).toHaveBeenCalledTimes(1);
+    expect(bridge.refreshPullRequestDetail).toHaveBeenCalledWith('trinodb/trino', 42, 10);
+    expect(bridge.fetchPullRequestDetail).not.toHaveBeenCalled();
     expect(container.innerHTML).toContain('thanks for the fix');
   });
 
@@ -627,8 +643,13 @@ describe('PullRequestPreview render smoke', () => {
     await act(async () => { await Promise.resolve(); });
 
     expect(bridge.editIssueComment).toHaveBeenCalledWith('trinodb/trino', 9001, 'updated top-level comment');
-    expect(bridge.fetchPullRequestDetail).toHaveBeenCalledTimes(1);
-    expect(bridge.refreshPullRequestDetail).not.toHaveBeenCalled();
+    // No L1 cache after the polling refactor — every mount calls
+    // refreshPullRequestDetail (with maxAgeSeconds=10), so we assert
+    // that the action itself didn't pile on an extra refresh beyond
+    // the natural mount call.
+    expect(bridge.refreshPullRequestDetail).toHaveBeenCalledTimes(1);
+    expect(bridge.refreshPullRequestDetail).toHaveBeenCalledWith('trinodb/trino', 42, 10);
+    expect(bridge.fetchPullRequestDetail).not.toHaveBeenCalled();
     expect(container.innerHTML).toContain('updated top-level comment');
   });
 
@@ -657,8 +678,13 @@ describe('PullRequestPreview render smoke', () => {
     await act(async () => { await Promise.resolve(); });
 
     expect(bridge.editReviewComment).toHaveBeenCalledWith('trinodb/trino', 1001, 'updated review-thread comment');
-    expect(bridge.fetchPullRequestDetail).toHaveBeenCalledTimes(1);
-    expect(bridge.refreshPullRequestDetail).not.toHaveBeenCalled();
+    // No L1 cache after the polling refactor — every mount calls
+    // refreshPullRequestDetail (with maxAgeSeconds=10), so we assert
+    // that the action itself didn't pile on an extra refresh beyond
+    // the natural mount call.
+    expect(bridge.refreshPullRequestDetail).toHaveBeenCalledTimes(1);
+    expect(bridge.refreshPullRequestDetail).toHaveBeenCalledWith('trinodb/trino', 42, 10);
+    expect(bridge.fetchPullRequestDetail).not.toHaveBeenCalled();
     expect(container.innerHTML).toContain('updated review-thread comment');
   });
 
@@ -674,8 +700,13 @@ describe('PullRequestPreview render smoke', () => {
     await act(async () => { await Promise.resolve(); });
 
     expect(bridge.setReviewThreadResolved).toHaveBeenCalledWith('trinodb/trino', 1, 5001, true);
-    expect(bridge.fetchPullRequestDetail).toHaveBeenCalledTimes(1);
-    expect(bridge.refreshPullRequestDetail).not.toHaveBeenCalled();
+    // No L1 cache after the polling refactor — every mount calls
+    // refreshPullRequestDetail (with maxAgeSeconds=10), so we assert
+    // that the action itself didn't pile on an extra refresh beyond
+    // the natural mount call.
+    expect(bridge.refreshPullRequestDetail).toHaveBeenCalledTimes(1);
+    expect(bridge.refreshPullRequestDetail).toHaveBeenCalledWith('trinodb/trino', 42, 10);
+    expect(bridge.fetchPullRequestDetail).not.toHaveBeenCalled();
     // The thread auto-folds once it flips to resolved (matches
     // github.com), which hides the Unresolve button. Assert the
     // optimistic flip via the always-visible resolved pill in the

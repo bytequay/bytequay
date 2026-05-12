@@ -14,7 +14,6 @@
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { renderMarkdown } from './markdown';
 import type { ActivityItemDto, CheckRunDto, MergeConflictPathsDto, PullRequestDetailDto, PullRequestDto, ReviewMessageDto, ReviewThreadDto, UserProfileDto } from './types';
-import { getCached, putCache } from './detailCache';
 import { getCached as getCachedValue } from './dataCache';
 import { EditableMarkdownBody } from './pr/EditableMarkdownBody';
 import Avatar from './Avatar';
@@ -785,8 +784,9 @@ function PullRequestPreview({ pr, onOpenReview, onInspectDiffs, onMarkHandled, o
   const [draftToggleError, setDraftToggleError] = useState<string | null>(null);
 
   const refreshDetailFromGitHub = async (): Promise<PullRequestDetailDto> => {
+    // No maxAgeSeconds → always-probe semantics. Used by the manual
+    // ↻ button and by post-mutation paths (description save, etc.).
     const fresh = await window.bridge.refreshPullRequestDetail(pr.repo, pr.number);
-    putCache(pr.id, fresh);
     setDetail(fresh);
     return fresh;
   };
@@ -905,46 +905,48 @@ function PullRequestPreview({ pr, onOpenReview, onInspectDiffs, onMarkHandled, o
     }
   };
 
+  // Detail load + 10s polling tick. No client-side cache: every mount
+  // calls refreshPullRequestDetail with maxAgeSeconds=10, which lets
+  // the backend short-circuit to its L2 (SQLite) snapshot when our
+  // last ETag probe is younger than 10s — and ETag-probe-then-304
+  // when it isn't. So in the steady state we probe GitHub at most
+  // once per 10s while the page is open, regardless of how many
+  // tabs / sessions are viewing the same PR.
+  //
+  // Nothing fires when the detail page isn't mounted; this useEffect
+  // tears the interval down on pr.id change or unmount.
   useEffect(() => {
     setHandledState('idle');
     setHandledError(null);
     setError(null);
     setDetail(null); // clear immediately so old PR's detail never shows during load
-
-    const cached = getCached(pr.id);
-    if (cached) {
-      setDetail(cached.data);
-      setLoading(false);
-      if (cached.stale) {
-        setRefreshing(true);
-        // refresh* (not fetch*) on the stale path: fetch* would just
-        // hand back the backend's own cached snapshot, which doesn't
-        // refill until the 60s syncFromGitHub picks up an updatedAt
-        // bump. Force-refresh bypasses the backend cache so navigate-
-        // away-and-back shows new comments / reviews / timeline events
-        // posted on github.com in the meantime.
-        window.bridge
-          .refreshPullRequestDetail(pr.repo, pr.number)
-          .then((d) => { putCache(pr.id, d); setDetail(d); })
-          .catch(() => { /* silently keep stale data */ })
-          .finally(() => setRefreshing(false));
-      }
-      return;
-    }
-
     setLoading(true);
-    window.bridge
-      .fetchPullRequestDetail(pr.repo, pr.number)
+
+    let cancelled = false;
+    const tick = (initial: boolean) => window.bridge
+      .refreshPullRequestDetail(pr.repo, pr.number, 10)
       .then((d) => {
-        putCache(pr.id, d);
+        if (cancelled) return;
         setDetail(d);
-        setLoading(false);
+        if (initial) setLoading(false);
       })
       .catch((e: unknown) => {
-        setError(e instanceof Error ? e.message : String(e));
-        setLoading(false);
+        if (cancelled) return;
+        // First load can surface the error; subsequent ticks are
+        // best-effort — silently keep the last good detail on screen.
+        if (initial) {
+          setError(e instanceof Error ? e.message : String(e));
+          setLoading(false);
+        }
       });
-  }, [pr.id]);
+
+    void tick(true);
+    const interval = setInterval(() => { void tick(false); }, 10_000);
+    return () => {
+      cancelled = true;
+      clearInterval(interval);
+    };
+  }, [pr.id, pr.repo, pr.number]);
 
   // Focus-driven CI poll. Active only when the OS window AND the document
   // are visible — leaves the poll dormant when the user tabs away so we

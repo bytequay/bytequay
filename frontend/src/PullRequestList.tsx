@@ -19,7 +19,6 @@ import ReviewScreen from './ReviewScreen';
 import DiffViewerScreen from './DiffViewerScreen';
 import ResizeHandle from './ResizeHandle';
 import { getCached, setCached } from './dataCache';
-import { clearCache } from './detailCache';
 import {
   clampSidebarWidth,
   getNextKeyboardSelection,
@@ -150,7 +149,6 @@ function PullRequestList({ onGoToTeams, onOpenLocalBranch }: Props) {
   };
 
   const reload = async (isManualRefresh = false) => {
-    if (isManualRefresh) clearCache();
     stopPolling();
     if (prs === null) setLoading(true);
     setError(null);

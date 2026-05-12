@@ -1174,10 +1174,14 @@ export type Bridge = {
    *  switch views without refetching the heavy reviews aggregation. */
   fetchMyActivity: (scope: PrAnalyticsScope, tz?: string) => Promise<MyActivitySummaryDto>;
   fetchPullRequestDetail: (repo: string, number: number) => Promise<PullRequestDetailDto>;
-  /** Force-refresh one PR's detail. Drops the backend's cached snapshot
-   *  and re-fetches live from GitHub. Wired to the manual ↻ refresh
-   *  button on the PR detail page. */
-  refreshPullRequestDetail: (repo: string, number: number) => Promise<PullRequestDetailDto>;
+  /** Force-refresh one PR's detail. Probes GitHub with the cached
+   *  ETag; on 304 returns the backend's L2 snapshot, on 200 refetches
+   *  the full detail. Passing {@code maxAgeSeconds > 0} skips the
+   *  ETag probe entirely when our last probe is younger than that —
+   *  used by the 10s polling tick so cross-tab opens at most one
+   *  probe per cap. The manual ↻ button passes 0 (or omits) to
+   *  always probe. */
+  refreshPullRequestDetail: (repo: string, number: number, maxAgeSeconds?: number) => Promise<PullRequestDetailDto>;
   /** Lightweight CI snapshot for the focus-driven detail-page poll. */
   fetchPrCi: (repo: string, number: number) => Promise<PrCiSnapshotDto>;
   /** Enumerates the file paths that would conflict between a PR's

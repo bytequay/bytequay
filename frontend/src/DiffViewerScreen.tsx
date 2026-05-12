@@ -15,7 +15,6 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { renderMarkdown } from './markdown';
 import type { AiReviewCommentDto, AiReviewDraftDto, DiffFileDto, PullRequestCommitDto, PullRequestDetailDto, PullRequestDto, ReviewMessageDto, ReviewThreadDto, UserProfileDto } from './types';
 import { getCached } from './dataCache';
-import { putCache } from './detailCache';
 import Avatar from './Avatar';
 import { parseUnifiedDiff } from './diffParse';
 import {
@@ -764,12 +763,19 @@ function InlineExistingThread({
                     <span className="diff-thread__msg-time">{formatRelative(msg.createdAt)}</span>
                   )}
                 </header>
-                {msg.body && (
-                  <div
-                    className="diff-thread__msg-text"
-                    dangerouslySetInnerHTML={{ __html: renderMarkdown(msg.body) }}
-                  />
-                )}
+                {msg.body && (() => {
+                  // `repo` here is GitHub's "owner/repo" form (see prop
+                  // declaration). Split so renderMarkdown can produce
+                  // clickable #N refs back into this repo's PR list.
+                  const [refOwner, refRepo] = repo.split('/');
+                  const ctx = refOwner && refRepo ? { owner: refOwner, repo: refRepo } : undefined;
+                  return (
+                    <div
+                      className="diff-thread__msg-text"
+                      dangerouslySetInnerHTML={{ __html: renderMarkdown(msg.body, ctx) }}
+                    />
+                  );
+                })()}
                 <ThreadReactions reactions={msg.reactions} />
               </div>
             </article>
@@ -1867,9 +1873,7 @@ function DiffViewerScreen({ pr, onBack, onApprove, initialCommitSha }: Props) {
   // from the diff/commits load so a slow detail call doesn't block the
   // main view.
   const refreshDetailFromGitHub = async (): Promise<PullRequestDetailDto> => {
-    const detail = await window.bridge.refreshPullRequestDetail(pr.repo, pr.number);
-    putCache(pr.id, detail);
-    return detail;
+    return await window.bridge.refreshPullRequestDetail(pr.repo, pr.number);
   };
 
   const refreshReviewThreads = async (force = false) => {
@@ -1877,7 +1881,6 @@ function DiffViewerScreen({ pr, onBack, onApprove, initialCommitSha }: Props) {
       const detail = force
         ? await refreshDetailFromGitHub()
         : await window.bridge.fetchPullRequestDetail(pr.repo, pr.number);
-      putCache(pr.id, detail);
       setReviewThreads(detail.reviewThreads ?? []);
     } catch {
       // Best-effort: an empty list just means no inline-comment markers,

@@ -112,12 +112,20 @@ public class PullRequestService
     private final RepoListCache repoListCache;
     private final Executor executor;
     private final Executor ioExecutor;
-    /** prId → last ETag returned by GitHub for {@code GET /pulls/{n}}.
+    /** prId → last ETag + the timestamp it was returned by GitHub.
      *  Populated by {@link #refreshPullRequestDetail}'s probe path
      *  and consulted on the next probe to short-circuit unchanged
-     *  PRs (304 → no rate-limit cost). In-memory only — a backend
-     *  restart just means the next probe pays for one full fetch. */
-    private final ConcurrentMap<Long, String> detailEtags = new ConcurrentHashMap<>();
+     *  PRs (304 → no rate-limit cost). The {@code lastProbedAt}
+     *  field powers the {@code maxAgeSeconds} short-circuit — when
+     *  a caller (e.g. the detail-page 10s polling tick) probes more
+     *  often than necessary, we serve cached without even hitting
+     *  GitHub's {@code If-None-Match} endpoint. In-memory only —
+     *  a backend restart just means the next probe pays for one
+     *  full fetch. */
+    private final ConcurrentMap<Long, EtagEntry> detailEtags = new ConcurrentHashMap<>();
+
+    /** Snapshot of "last ETag and when we got it" for one PR. */
+    private record EtagEntry(String etag, Instant lastProbedAt) {}
 
     public PullRequestService(
             PullRequestRepository gitHub,
@@ -293,18 +301,58 @@ public class PullRequestService
      */
     public PullRequestDetail refreshPullRequestDetail(String pat, String repo, int number)
     {
+        return refreshPullRequestDetail(pat, repo, number, 0);
+    }
+
+    /**
+     * Same as {@link #refreshPullRequestDetail(String, String, int)},
+     * with a {@code maxAgeSeconds} short-circuit. When we've already
+     * probed GitHub for this PR within the last {@code maxAgeSeconds}
+     * the response is served from the local detail store with no
+     * network call at all — neither full refetch nor ETag probe.
+     *
+     * <p>Powers the detail-page 10s polling tick (frontend ticks every
+     * 10s, passes {@code maxAgeSeconds=10}, so concurrent tabs probe
+     * GitHub at most once per 10s on average). The manual ↻ refresh
+     * button still passes {@code 0} so it always probes.
+     */
+    public PullRequestDetail refreshPullRequestDetail(String pat, String repo, int number, int maxAgeSeconds)
+    {
         Optional<Long> prId = store.findIdByRepoAndNumber(repo, number);
         if (prId.isPresent()) {
+            // Fast path: a recent probe already established that the
+            // cached snapshot is current. Skip even the ETag round-trip.
+            if (maxAgeSeconds > 0) {
+                EtagEntry entry = detailEtags.get(prId.get());
+                if (entry != null
+                        && entry.lastProbedAt() != null
+                        && entry.lastProbedAt().isAfter(Instant.now().minusSeconds(maxAgeSeconds))) {
+                    log.debug("ETag fresh for {}#{} ({}s ago, <= {}s cap) — serving cached without probe",
+                            repo, number,
+                            Instant.now().getEpochSecond() - entry.lastProbedAt().getEpochSecond(),
+                            maxAgeSeconds);
+                    return getPullRequestDetail(pat, repo, number);
+                }
+            }
             try {
                 PullRequestRef ref = parseRef(repo, number);
-                String cachedEtag = detailEtags.get(prId.get());
+                EtagEntry cachedEntry = detailEtags.get(prId.get());
+                String cachedEtag = cachedEntry != null ? cachedEntry.etag() : null;
                 PullRequestRepository.ProbeResult probe =
                         gitHub.probeChangedSinceEtag(pat, ref, cachedEtag);
+                Instant now = Instant.now();
                 // Always capture the latest ETag — including the
                 // first-ever probe (no cached ETag → 200 response,
                 // body discarded, ETag captured for the next call).
                 if (probe.newEtag() != null) {
-                    detailEtags.put(prId.get(), probe.newEtag());
+                    detailEtags.put(prId.get(), new EtagEntry(probe.newEtag(), now));
+                }
+                else if (cachedEntry != null) {
+                    // GitHub didn't issue a new ETag (rare — happens on
+                    // some 304 responses). Bump the probe timestamp
+                    // anyway so the maxAge short-circuit sees the
+                    // probe just happened.
+                    detailEtags.put(prId.get(), new EtagEntry(cachedEntry.etag(), now));
                 }
                 if (cachedEtag != null && !probe.changed()) {
                     // 304: nothing's changed since we last fetched.

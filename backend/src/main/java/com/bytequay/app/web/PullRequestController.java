@@ -133,10 +133,11 @@ public class PullRequestController
     @PostMapping("/prs/detail/refresh")
     public PullRequestDetail refreshDetail(
             @RequestParam("repo") String repo,
-            @RequestParam("number") int number)
+            @RequestParam("number") int number,
+            @RequestParam(value = "maxAgeSeconds", required = false, defaultValue = "0") int maxAgeSeconds)
     {
         String pat = patResolver.resolve(repo);
-        return pullRequestService.refreshPullRequestDetail(pat, repo, number);
+        return pullRequestService.refreshPullRequestDetail(pat, repo, number, maxAgeSeconds);
     }
 
     /**

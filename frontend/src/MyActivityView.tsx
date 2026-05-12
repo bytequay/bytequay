@@ -283,15 +283,20 @@ function WhatsMeasuredHereActivityCard() {
               <strong>Repos by your activity</strong> — top repos ranked by combined opened +
               merged count.
             </li>
+            <li>
+              <strong>Comments posted ¹</strong> — top-level PR comments + per-line review
+              comments authored by you, across PRs we have cached detail for. Partial; the
+              number under-counts comments on PRs ByteQuay has never fetched detail for.
+            </li>
           </ul>
         </div>
         <div className="analytics-measured__col">
           <h3 className="analytics-measured__col-title">What we deliberately don't measure</h3>
           <ul>
             <li>
-              <strong>Commits made</strong>, <strong>Comments posted</strong>, contribution
-              streaks — pending the activity-events mirror. We don't approximate from cached
-              data because the gaps would be misleading.
+              <strong>Commits made</strong> and contribution streaks — pending the
+              activity-events mirror. We don't approximate from cached data because the gaps
+              would be misleading.
             </li>
             <li>
               <strong>Activity on unwatched repos</strong> — the local store only carries PRs

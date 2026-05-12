@@ -17,8 +17,12 @@ import com.bytequay.app.domain.MyActivitySummary;
 import com.bytequay.app.domain.MyActivitySummary.DailyAuthored;
 import com.bytequay.app.domain.MyActivitySummary.RepoActivityCount;
 import com.bytequay.app.domain.PrAnalyticsSummary.KpiCard;
+import com.bytequay.app.domain.PrReviewThreadMessage;
+import com.bytequay.app.domain.PrTimelineEvent;
 import com.bytequay.app.domain.PullRequest;
+import com.bytequay.app.domain.StoredPrDetail;
 import com.bytequay.app.repository.AppSettingsStore;
+import com.bytequay.app.repository.PrDetailStore;
 import com.bytequay.app.repository.PullRequestStore;
 import com.bytequay.app.repository.WatchedRepoStore;
 import com.google.common.collect.ImmutableList;
@@ -52,15 +56,18 @@ public class MyActivityService
     private static final DateTimeFormatter ISO_DATE = DateTimeFormatter.ISO_LOCAL_DATE;
 
     private final PullRequestStore pullRequestStore;
+    private final PrDetailStore detailStore;
     private final WatchedRepoStore watchedRepoStore;
     private final AppSettingsStore settingsStore;
 
     public MyActivityService(
             PullRequestStore pullRequestStore,
+            PrDetailStore detailStore,
             WatchedRepoStore watchedRepoStore,
             AppSettingsStore settingsStore)
     {
         this.pullRequestStore = requireNonNull(pullRequestStore, "pullRequestStore is null");
+        this.detailStore = requireNonNull(detailStore, "detailStore is null");
         this.watchedRepoStore = requireNonNull(watchedRepoStore, "watchedRepoStore is null");
         this.settingsStore = requireNonNull(settingsStore, "settingsStore is null");
     }
@@ -88,7 +95,11 @@ public class MyActivityService
                 false,
                 null);
         KpiCard commitsMade = new KpiCard(null, "—", true, "Pending activity mirror");
-        KpiCard commentsPosted = new KpiCard(null, "—", true, "Pending activity mirror");
+        KpiCard commentsPosted = new KpiCard(
+                (double) agg.comments,
+                formatCount(agg.comments),
+                true,
+                null);
 
         return new MyActivitySummary(
                 scope,
@@ -142,11 +153,17 @@ public class MyActivityService
     {
         int opened = 0;
         int merged = 0;
+        int comments = 0;
         Map<LocalDate, Integer> dailyOpened = new HashMap<>();
         Map<LocalDate, Integer> dailyMerged = new HashMap<>();
         Map<String, Integer> repoOpened = new HashMap<>();
         Map<String, Integer> repoMerged = new HashMap<>();
         for (PullRequest pr : all) {
+            // Comments KPI scans EVERY PR's cached detail — not just
+            // PRs you authored. A comment you left on someone else's
+            // PR still counts toward "Comments posted".
+            comments += countCommentsBy(pr.id(), currentLogin, cutoff);
+
             if (pr.author() == null || !pr.author().equalsIgnoreCase(currentLogin)) {
                 continue;
             }
@@ -173,7 +190,49 @@ public class MyActivityService
                 }
             }
         }
-        return new Aggregate(opened, merged, dailyOpened, dailyMerged, repoOpened, repoMerged);
+        return new Aggregate(opened, merged, comments, dailyOpened, dailyMerged, repoOpened, repoMerged);
+    }
+
+    private int countCommentsBy(long prId, String login, Instant cutoff)
+    {
+        StoredPrDetail detail = detailStore.find(prId).orElse(null);
+        if (detail == null) {
+            return 0;
+        }
+        int count = 0;
+        // Top-level PR / issue comments come through the timeline as
+        // event = "commented". Bot accounts on most repos don't share
+        // a login with the user, so a simple author equality is fine.
+        for (PrTimelineEvent ev : detail.timeline()) {
+            if (!"commented".equalsIgnoreCase(ev.event())) {
+                continue;
+            }
+            if (ev.actor() == null || !ev.actor().equalsIgnoreCase(login)) {
+                continue;
+            }
+            if (ev.timestamp() == null) {
+                continue;
+            }
+            if (cutoff != Instant.EPOCH && ev.timestamp().isBefore(cutoff)) {
+                continue;
+            }
+            count++;
+        }
+        // Per-line review comments. Each message in a thread counts —
+        // a long back-and-forth is many comments, not one.
+        for (PrReviewThreadMessage msg : detail.reviewComments()) {
+            if (msg.author() == null || !msg.author().equalsIgnoreCase(login)) {
+                continue;
+            }
+            if (msg.createdAt() == null) {
+                continue;
+            }
+            if (cutoff != Instant.EPOCH && msg.createdAt().isBefore(cutoff)) {
+                continue;
+            }
+            count++;
+        }
+        return count;
     }
 
     private static List<DailyAuthored> buildDailyAuthored(
@@ -230,6 +289,7 @@ public class MyActivityService
     private record Aggregate(
             int opened,
             int merged,
+            int comments,
             Map<LocalDate, Integer> dailyOpened,
             Map<LocalDate, Integer> dailyMerged,
             Map<String, Integer> repoOpened,
@@ -237,7 +297,7 @@ public class MyActivityService
     {
         static Aggregate empty()
         {
-            return new Aggregate(0, 0, new HashMap<>(), new HashMap<>(), new HashMap<>(), new HashMap<>());
+            return new Aggregate(0, 0, 0, new HashMap<>(), new HashMap<>(), new HashMap<>(), new HashMap<>());
         }
     }
 }

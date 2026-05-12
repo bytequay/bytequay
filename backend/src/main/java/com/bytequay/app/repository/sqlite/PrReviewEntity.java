@@ -20,6 +20,8 @@ import jakarta.persistence.GenerationType;
 import jakarta.persistence.Id;
 import jakarta.persistence.Table;
 
+import java.time.Instant;
+
 @Entity
 @Table(name = "pr_reviews")
 class PrReviewEntity
@@ -37,6 +39,9 @@ class PrReviewEntity
     @Column(nullable = false)
     private String state;
 
+    @Column(name = "submitted_at")
+    private Instant submittedAt;
+
     protected PrReviewEntity() {}
 
     Long getId() { return id; }
@@ -49,4 +54,7 @@ class PrReviewEntity
 
     String getState() { return state; }
     void setState(String state) { this.state = state; }
+
+    Instant getSubmittedAt() { return submittedAt; }
+    void setSubmittedAt(Instant submittedAt) { this.submittedAt = submittedAt; }
 }

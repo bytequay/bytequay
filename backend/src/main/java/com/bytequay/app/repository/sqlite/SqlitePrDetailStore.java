@@ -103,7 +103,7 @@ public class SqlitePrDetailStore
                 d.getBaseRepo());
 
         List<PrReviewState> reviews = reviewRepo.findByPrId(prId).stream()
-                .map(r -> new PrReviewState(r.getLogin(), r.getState()))
+                .map(r -> new PrReviewState(r.getLogin(), r.getState(), r.getSubmittedAt()))
                 .collect(toImmutableList());
 
         List<PullRequestDetail.ChangedFile> files = fileRepo.findByPrId(prId).stream()
@@ -335,6 +335,7 @@ public class SqlitePrDetailStore
         e.setPrId(prId);
         e.setLogin(r.login());
         e.setState(r.state());
+        e.setSubmittedAt(r.submittedAt());
         return e;
     }
 

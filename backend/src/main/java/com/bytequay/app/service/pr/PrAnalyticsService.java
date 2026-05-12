@@ -168,21 +168,25 @@ public class PrAnalyticsService
         int[] sizeCounts = new int[SIZE_BUCKETS.size()];
         Map<String, Integer> repoCounts = new HashMap<>();
         for (PullRequest pr : all) {
-            // PrReviewState has no submitted_at — use the PR row's
-            // updatedAt as a proxy so the scope filter still constrains
-            // the count. Honest under-count for old reviews on PRs that
-            // got re-touched recently; the "What's measured here" card
-            // calls that out.
-            Instant when = pr.updatedAt();
-            if (cutoff != Instant.EPOCH && (when == null || when.isBefore(cutoff))) {
-                continue;
-            }
             Optional<StoredPrDetail> detailOpt = detailStore.find(pr.id());
             if (detailOpt.isEmpty()) {
                 continue;
             }
             StoredPrDetail detail = detailOpt.get();
-            String latestVerdict = latestVerdictBy(detail.reviews(), currentLogin);
+            PrReviewState latestReview = latestReviewBy(detail.reviews(), currentLogin);
+            if (latestReview == null) {
+                continue;
+            }
+            // Use the review's own timestamp when V53+ captured it; fall
+            // back to the PR's updatedAt for legacy rows so the time-
+            // scope filter still constrains them. Skipping those rows
+            // entirely would silently shrink the cards every time the
+            // user picks a narrower scope.
+            Instant when = latestReview.submittedAt() != null ? latestReview.submittedAt() : pr.updatedAt();
+            if (cutoff != Instant.EPOCH && (when == null || when.isBefore(cutoff))) {
+                continue;
+            }
+            String latestVerdict = latestReview.state();
             if (latestVerdict == null) {
                 continue;
             }
@@ -259,7 +263,7 @@ public class PrAnalyticsService
                 .collect(toImmutableList());
     }
 
-    private static String latestVerdictBy(List<PrReviewState> reviews, String login)
+    private static PrReviewState latestReviewBy(List<PrReviewState> reviews, String login)
     {
         if (reviews == null || reviews.isEmpty()) {
             return null;
@@ -268,10 +272,10 @@ public class PrAnalyticsService
         // {@code login} is the most recent verdict. Pure-comment
         // reviews (state = "COMMENTED") still count as "I reviewed
         // this PR" but never as an approval.
-        String latest = null;
+        PrReviewState latest = null;
         for (PrReviewState review : reviews) {
             if (review.login() != null && review.login().equalsIgnoreCase(login)) {
-                latest = review.state();
+                latest = review;
             }
         }
         return latest;

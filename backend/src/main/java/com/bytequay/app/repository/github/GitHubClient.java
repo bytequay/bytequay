@@ -270,7 +270,7 @@ public class GitHubClient
             }
             return reviews.stream()
                     .filter(r -> r.user() != null)
-                    .map(r -> new PrReviewState(r.user().login(), r.state()))
+                    .map(r -> new PrReviewState(r.user().login(), r.state(), r.submittedAt()))
                     .collect(toImmutableList());
         }
         catch (RestClientResponseException e) {

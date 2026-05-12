@@ -73,16 +73,21 @@ public class PullRequestController
 
     /**
      * Aggregated KPIs for the PR review Analytics page. Local-only,
-     * no PAT — reads the cached PR rows and detail blobs. KPIs that
-     * depend on the (not-yet-built) review mirror surface as
-     * placeholders rather than wrong numbers.
-     * GET /prs/analytics?scope=7d|30d|90d|all
+     * no PAT — reads the cached PR rows and detail blobs.
+     * GET /prs/analytics?scope=7d|30d|90d|all&tz=America/Los_Angeles
+     *
+     * <p>{@code tz} is an IANA zone id; the renderer passes its own
+     * {@code Intl.DateTimeFormat().resolvedOptions().timeZone} so the
+     * daily-bars and heatmap bucket in the user's local time rather
+     * than the JVM default. Falls back to the JVM default if missing
+     * or unparseable.
      */
     @GetMapping("/prs/analytics")
     public PrAnalyticsSummary analytics(
-            @RequestParam(value = "scope", defaultValue = "30d") String scope)
+            @RequestParam(value = "scope", defaultValue = "30d") String scope,
+            @RequestParam(value = "tz", required = false) String timezone)
     {
-        return prAnalyticsService.summarize(scope);
+        return prAnalyticsService.summarize(scope, timezone);
     }
 
     /**

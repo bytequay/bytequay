@@ -35,7 +35,11 @@ function PrAnalyticsPage({ onOpenPr }: Props) {
     let cancelled = false;
     setLoading(true);
     setError(null);
-    window.bridge.fetchPrAnalytics(scope)
+    const tz = (() => {
+      try { return Intl.DateTimeFormat().resolvedOptions().timeZone; }
+      catch { return undefined; }
+    })();
+    window.bridge.fetchPrAnalytics(scope, tz)
       .then(result => {
         if (cancelled) return;
         setData(result);

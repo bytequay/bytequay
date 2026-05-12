@@ -1139,9 +1139,10 @@ export type Bridge = {
    *  through GitHub's `is:closed author:@me sort:closed-desc` results. */
   fetchPrHistory: (page: number, perPage?: number) => Promise<PullRequestHistoryPageDto>;
   /** Aggregated KPIs for the PR-review Analytics page. Pure local read
-   *  — no PAT, no GitHub call. Partial-data KPIs surface a {@code
-   *  partial: true} flag the page renders honestly. */
-  fetchPrAnalytics: (scope: PrAnalyticsScope) => Promise<PrAnalyticsSummaryDto>;
+   *  — no PAT, no GitHub call. {@code tz} is an IANA zone id; the
+   *  renderer passes its own so the daily-bars and heatmap bucket in
+   *  the user's local time. */
+  fetchPrAnalytics: (scope: PrAnalyticsScope, tz?: string) => Promise<PrAnalyticsSummaryDto>;
   fetchPullRequestDetail: (repo: string, number: number) => Promise<PullRequestDetailDto>;
   /** Force-refresh one PR's detail. Drops the backend's cached snapshot
    *  and re-fetches live from GitHub. Wired to the manual ↻ refresh

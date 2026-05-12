@@ -543,9 +543,10 @@ function registerIpc(): void {
     return res.json();
   });
 
-  ipcMain.handle('backend:prAnalytics', async (_event, scope: string) => {
+  ipcMain.handle('backend:prAnalytics', async (_event, scope: string, tz?: string) => {
     const url = new URL(`${BACKEND_BASE}/prs/analytics`);
     url.searchParams.set('scope', scope);
+    if (tz) url.searchParams.set('tz', tz);
     const res = await fetch(url);
     if (!res.ok) {
       const body = await res.text().catch(() => '');

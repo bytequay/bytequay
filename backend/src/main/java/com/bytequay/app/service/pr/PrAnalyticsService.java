@@ -110,10 +110,11 @@ public class PrAnalyticsService
         this.settingsStore = requireNonNull(settingsStore, "settingsStore is null");
     }
 
-    public PrAnalyticsSummary summarize(String rawScope)
+    public PrAnalyticsSummary summarize(String rawScope, String requestedZone)
     {
         String scope = normalizeScope(rawScope);
         Instant cutoff = cutoffFor(scope);
+        ZoneId zone = resolveZone(requestedZone);
         int watchedCount = watchedRepoStore.findAll().size();
         String currentLogin = settingsStore.get(AppSettingsStore.Key.GITHUB_LOGIN).orElse(null);
 
@@ -121,7 +122,7 @@ public class PrAnalyticsService
 
         ReviewAggregate reviewAggregate = currentLogin == null
                 ? ReviewAggregate.empty()
-                : aggregateReviews(all, currentLogin, cutoff);
+                : aggregateReviews(all, currentLogin, cutoff, zone);
 
         KpiCard prsReviewed = new KpiCard(
                 (double) reviewAggregate.prCount,
@@ -173,6 +174,23 @@ public class PrAnalyticsService
         };
     }
 
+    private static ZoneId resolveZone(String requested)
+    {
+        if (requested == null || requested.isBlank()) {
+            return ZoneId.systemDefault();
+        }
+        try {
+            return ZoneId.of(requested);
+        }
+        catch (Exception e) {
+            // Unknown zone id (e.g. an obsolete alias or a typo) —
+            // silently fall back to the JVM default rather than 4xx
+            // the caller. The renderer's "your local time" copy is
+            // already best-effort.
+            return ZoneId.systemDefault();
+        }
+    }
+
     private static Instant cutoffFor(String scope)
     {
         Instant now = Instant.now();
@@ -184,9 +202,8 @@ public class PrAnalyticsService
         };
     }
 
-    private ReviewAggregate aggregateReviews(List<PullRequest> all, String currentLogin, Instant cutoff)
+    private ReviewAggregate aggregateReviews(List<PullRequest> all, String currentLogin, Instant cutoff, ZoneId zone)
     {
-        ZoneId zone = ZoneId.systemDefault();
         int prCount = 0;
         int approved = 0;
         long lines = 0L;

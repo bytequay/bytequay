@@ -75,6 +75,8 @@ public class EmailService
 
     private final GoogleAccessTokenService tokens;
     private final GmailApiClient gmail;
+    private final GmailImapAuthService imapAuth;
+    private final GmailImapClient imapClient;
     private final LinkDetector linkDetector;
     private final EmailHtmlEnricher htmlEnricher;
     private final EmailMessageStore store;
@@ -89,6 +91,8 @@ public class EmailService
     public EmailService(
             GoogleAccessTokenService tokens,
             GmailApiClient gmail,
+            GmailImapAuthService imapAuth,
+            GmailImapClient imapClient,
             LinkDetector linkDetector,
             EmailHtmlEnricher htmlEnricher,
             EmailMessageStore store,
@@ -99,6 +103,8 @@ public class EmailService
     {
         this.tokens = requireNonNull(tokens, "tokens is null");
         this.gmail = requireNonNull(gmail, "gmail is null");
+        this.imapAuth = requireNonNull(imapAuth, "imapAuth is null");
+        this.imapClient = requireNonNull(imapClient, "imapClient is null");
         this.linkDetector = requireNonNull(linkDetector, "linkDetector is null");
         this.htmlEnricher = requireNonNull(htmlEnricher, "htmlEnricher is null");
         this.store = requireNonNull(store, "store is null");
@@ -109,11 +115,17 @@ public class EmailService
     }
 
     /**
-     * Returns the inbox grouped by thread from the local SQLite
-     * mirror, newest first. If the cache is empty (first connect),
-     * triggers a synchronous full sync first. Otherwise returns
-     * whatever's cached — fresh data lands via the background poll
-     * tick or an explicit {@link #refresh(String)} call.
+     * Returns the inbox grouped by thread, newest first.
+     *
+     * <p>OAuth path: served from the local SQLite mirror. Cold accounts
+     * trigger a synchronous initial sync; subsequent calls hit cached
+     * data, with fresh rows flowing in via the background poll tick or
+     * an explicit {@link #refresh refresh}.
+     *
+     * <p>IMAP path: live fetch from {@code imap.gmail.com} on every
+     * call — no SQLite mirror yet. Tolerable while the page poll only
+     * fires every 30s; we'll add an IMAP cache layer once the read/
+     * archive mutations land and the poll cost actually matters.
      */
     public List<EmailThreadMeta> listInboxThreads(String email, int pageSize)
     {
@@ -125,6 +137,10 @@ public class EmailService
             throw new ResponseStatusException(HttpStatusCode.valueOf(400),
                     "pageSize must be in [1, 500]");
         }
+        if (imapAuth.isConnected(email)) {
+            return applyMuteFilter(email,
+                    imapClient.listInboxThreads(email, imapAuth.getAppPassword(email), pageSize));
+        }
         // Cold-start the cache for accounts we've never synced.
         if (store.getSyncState(email).isEmpty()) {
             log.info("Cold cache for {} — running initial Gmail sync", email);
@@ -133,12 +149,16 @@ public class EmailService
         return applyMuteFilter(email, store.listInboxThreads(email, pageSize));
     }
 
-    /** Force-refresh handler — runs an incremental sync (or full
-     *  if the watermark is missing/stale) and returns the resulting
-     *  cached inbox. */
+    /** Force-refresh handler — for OAuth runs an incremental sync and
+     *  returns the resulting cached inbox; for IMAP this is the same
+     *  as {@link #listInboxThreads} since there's no cache to bust yet. */
     public List<EmailThreadMeta> refresh(String email, int pageSize)
     {
         requireNonBlank(email, "email");
+        if (imapAuth.isConnected(email)) {
+            return applyMuteFilter(email,
+                    imapClient.listInboxThreads(email, imapAuth.getAppPassword(email), pageSize));
+        }
         sync.incrementalSync(email);
         return applyMuteFilter(email, store.listInboxThreads(email, pageSize));
     }
@@ -171,6 +191,7 @@ public class EmailService
     {
         requireNonBlank(email, "email");
         requireNonBlank(threadId, "threadId");
+        rejectIfImap(email, "open thread");
         EmailThreadDetail raw = runWithToken(email,
                 accessToken -> gmail.getThreadFull(accessToken, threadId));
         List<LinkedRef> refs = linkDetector.detect(raw);
@@ -236,6 +257,7 @@ public class EmailService
     {
         requireNonBlank(email, "email");
         requireNonBlank(threadId, "threadId");
+        rejectIfImap(email, "archive thread");
         runWithToken(email, accessToken -> {
             gmail.modifyThread(accessToken, threadId, ImmutableList.of(), ImmutableList.of("INBOX"));
             return null;
@@ -250,6 +272,7 @@ public class EmailService
     {
         requireNonBlank(email, "email");
         requireNonBlank(threadId, "threadId");
+        rejectIfImap(email, "mark thread read");
         runWithToken(email, accessToken -> {
             gmail.modifyThread(accessToken, threadId, ImmutableList.of(), ImmutableList.of("UNREAD"));
             return null;
@@ -262,6 +285,7 @@ public class EmailService
     {
         requireNonBlank(email, "email");
         requireNonBlank(threadId, "threadId");
+        rejectIfImap(email, "mark thread unread");
         runWithToken(email, accessToken -> {
             gmail.modifyThread(accessToken, threadId, ImmutableList.of("UNREAD"), ImmutableList.of());
             return null;
@@ -278,6 +302,7 @@ public class EmailService
     {
         requireNonBlank(email, "email");
         requireNonBlank(threadId, "threadId");
+        rejectIfImap(email, "read+archive thread");
         runWithToken(email, accessToken -> {
             gmail.modifyThread(accessToken, threadId,
                     ImmutableList.of(), ImmutableList.of("INBOX", "UNREAD"));
@@ -304,6 +329,7 @@ public class EmailService
         if (body == null || body.isBlank()) {
             throw new ResponseStatusException(HttpStatusCode.valueOf(400), "body must not be blank");
         }
+        rejectIfImap(email, "reply to thread");
         runWithToken(email, accessToken -> {
             EmailThreadDetail thread = gmail.getThreadFull(accessToken, threadId);
             if (thread.messages().isEmpty()) {
@@ -394,6 +420,7 @@ public class EmailService
     {
         requireNonBlank(email, "email");
         requireNonBlank(threadId, "threadId");
+        rejectIfImap(email, "keep thread in inbox");
         runWithToken(email, accessToken -> {
             gmail.modifyThread(accessToken, threadId,
                     ImmutableList.of("INBOX"), ImmutableList.of("UNREAD"));
@@ -427,6 +454,18 @@ public class EmailService
         if (value == null || value.isBlank()) {
             throw new ResponseStatusException(HttpStatusCode.valueOf(400),
                     fieldName + " must not be blank");
+        }
+    }
+
+    /** IMAP backend currently only supports listing the inbox. Every
+     *  other operation (open thread, archive, mark read/unread, reply,
+     *  keep-in-inbox) lands here until the matching IMAP slice ships,
+     *  so the UI gets a clear 501 instead of a confusing OAuth error. */
+    private void rejectIfImap(String email, String operation)
+    {
+        if (imapAuth.isConnected(email)) {
+            throw new ResponseStatusException(HttpStatusCode.valueOf(501),
+                    "IMAP backend doesn't support " + operation + " yet — coming in a later slice");
         }
     }
 }

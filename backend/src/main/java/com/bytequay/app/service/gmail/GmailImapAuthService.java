@@ -139,6 +139,33 @@ public class GmailImapAuthService
         credentialService.delete(CredentialType.ACCOUNT, GMAIL_IMAP_ACCOUNT_NAME, email);
     }
 
+    /** True iff there's an IMAP credential row for {@code email}. Used
+     *  by EmailService to pick the right backend (OAuth vs IMAP) per
+     *  request without each call site reaching into CredentialService
+     *  with the magic name string. */
+    public boolean isConnected(String email)
+    {
+        if (email == null || email.isBlank()) {
+            return false;
+        }
+        return credentialService.get(CredentialType.ACCOUNT, GMAIL_IMAP_ACCOUNT_NAME, email).isPresent();
+    }
+
+    /** Decrypted app password for {@code email}. Throws 401 if the row
+     *  is missing — by then the caller has decided this is an IMAP
+     *  account so a missing secret means the credential row was deleted
+     *  out from under them (other Claude thread, manual DB edit, etc.). */
+    public String getAppPassword(String email)
+    {
+        if (email == null || email.isBlank()) {
+            throw new ResponseStatusException(HttpStatusCode.valueOf(400),
+                    "email must not be blank");
+        }
+        return credentialService.getSecret(CredentialType.ACCOUNT, GMAIL_IMAP_ACCOUNT_NAME, email)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatusCode.valueOf(401),
+                        "No IMAP credential stored for " + email + " — reconnect under Settings → Integrations"));
+    }
+
     public record ConnectionInfo(String email) {}
 
     /** Test seam — extracted so unit tests don't need a live IMAP server. */

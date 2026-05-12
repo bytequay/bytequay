@@ -113,6 +113,9 @@ export default function EmailPage({ onOpenIntegrationsSettings, onOpenLinkedRef 
   useEffect(() => {
     if (!selectedAccount) return;
     const acc = accounts?.find(a => a.email === selectedAccount);
+    // OAuth only — the IMAP backend opens a fresh connection per
+    // listing call, so polling every 30s would burn login attempts.
+    // IMAP users still get the manual Refresh button.
     if (acc?.authMode !== 'OAUTH') return;
     let interval: ReturnType<typeof setInterval> | null = null;
     const isVisible = () => document.visibilityState === 'visible' && document.hasFocus();
@@ -143,14 +146,11 @@ export default function EmailPage({ onOpenIntegrationsSettings, onOpenLinkedRef 
     };
   }, [selectedAccount, accounts]);
 
-  // Load threads whenever the selected account changes.
+  // Load threads whenever the selected account changes. Both auth
+  // modes go through the same backend listing endpoint — EmailService
+  // dispatches OAuth → SQLite mirror, IMAP → live imap.gmail.com fetch.
   useEffect(() => {
     if (selectedAccount == null) {
-      setThreads(null);
-      return;
-    }
-    const account = accounts?.find(a => a.email === selectedAccount);
-    if (account?.authMode !== 'OAUTH') {
       setThreads(null);
       return;
     }
@@ -396,7 +396,7 @@ export default function EmailPage({ onOpenIntegrationsSettings, onOpenLinkedRef 
             className="button button--secondary"
             type="button"
             onClick={() => selectedAccount && void loadInbox(selectedAccount, true)}
-            disabled={loading || account?.authMode !== 'OAUTH'}
+            disabled={loading || !account}
           >
             {loading ? 'Refreshing…' : 'Refresh'}
           </button>
@@ -405,14 +405,15 @@ export default function EmailPage({ onOpenIntegrationsSettings, onOpenLinkedRef 
 
       {account?.authMode === 'IMAP' && (
         <div className="email-page__hint">
-          IMAP inbox loading isn't wired up yet — only OAuth-connected accounts can
-          be browsed. Switch to an OAuth account or check back in the next slice.
+          IMAP backend: inbox listing works, but opening, archiving, and replying
+          land in later slices. Click a thread to confirm it loads, expect a 501
+          on actions for now.
         </div>
       )}
 
       {error && <div className="repo-error">{error}</div>}
 
-      {account?.authMode === 'OAUTH' && threads != null && (() => {
+      {account && threads != null && (() => {
         // Visible list excludes auto-archived threads but keeps the
         // currently-selected one even if it was just auto-archived,
         // so the highlight in the inbox doesn't vanish out from under

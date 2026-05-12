@@ -92,6 +92,10 @@ public class PullRequestService
 {
     private static final Logger log = LoggerFactory.getLogger(PullRequestService.class);
     private static final String RIGHT = "RIGHT";
+    // How many V53-backfill PRs to re-fetch per sync tick. A bounded
+    // batch keeps the rate-limit cost predictable — once the table is
+    // backfilled the query returns 0 and this loop is free.
+    private static final int REVIEW_TIMESTAMP_BACKFILL_BATCH = 25;
 
     private static final Set<String> INTERESTING_EVENTS = ImmutableSet.of(
             "committed", "reviewed", "review_requested", "commented", "merged", "closed", "reopened",
@@ -176,6 +180,14 @@ public class PullRequestService
         // categorization started reading reviewer_verdicts; without
         // this backfill those rows render as "Opened" forever.
         Set<Long> missingEnrichment = store.findIdsMissingEnrichment();
+        // Same idea for the V53 review-timestamp backfill: pull a
+        // capped batch of PRs whose cached reviews still have null
+        // submitted_at and queue them alongside missing-enrichment so
+        // the analytics page's time-bucketed cards (daily bars,
+        // heatmap, response time) light up without waiting for the PR
+        // itself to be touched again on GitHub.
+        Set<Long> missingReviewTimestamps = ImmutableSet.copyOf(
+                detailStore.findPrIdsMissingReviewTimestamps(REVIEW_TIMESTAMP_BACKFILL_BATCH));
 
         // Pull the current user's login once per sync so we can reconcile
         // `handledAction` against reviews submitted outside the app (e.g. via
@@ -201,7 +213,10 @@ public class PullRequestService
                     if (existing == null || !existing.equals(pr.updatedAt())) {
                         return true;
                     }
-                    return missingEnrichment.contains(pr.id());
+                    if (missingEnrichment.contains(pr.id())) {
+                        return true;
+                    }
+                    return missingReviewTimestamps.contains(pr.id());
                 })
                 .map(pr -> CompletableFuture.runAsync(() -> syncDetailQuietly(pat, pr, currentLogin), executor))
                 .collect(toImmutableList());

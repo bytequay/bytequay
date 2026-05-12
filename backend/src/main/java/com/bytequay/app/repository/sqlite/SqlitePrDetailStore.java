@@ -23,6 +23,7 @@ import com.bytequay.app.domain.Reactions;
 import com.bytequay.app.domain.StoredPrDetail;
 import com.bytequay.app.repository.PrDetailStore;
 import com.google.common.collect.ImmutableList;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Repository;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -479,5 +480,14 @@ public class SqlitePrDetailStore
     public Optional<Long> findPrIdByReviewCommentId(long commentId)
     {
         return reviewCommentRepo.findPrIdsByGithubId(commentId).stream().findFirst();
+    }
+
+    @Override
+    public List<Long> findPrIdsMissingReviewTimestamps(int limit)
+    {
+        if (limit <= 0) {
+            return List.of();
+        }
+        return reviewRepo.findDistinctPrIdsWithNullSubmittedAt(PageRequest.of(0, limit));
     }
 }

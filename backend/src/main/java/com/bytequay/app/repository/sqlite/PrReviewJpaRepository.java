@@ -13,6 +13,7 @@
  */
 package com.bytequay.app.repository.sqlite;
 
+import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
@@ -28,4 +29,13 @@ interface PrReviewJpaRepository
     @Modifying
     @Query("DELETE FROM PrReviewEntity e WHERE e.prId = :prId")
     void deleteByPrId(@Param("prId") Long prId);
+
+    /**
+     * Returns distinct PR ids whose review rows include a null
+     * {@code submitted_at} column. Bounded by the caller via
+     * {@link Pageable} to keep the per-sync rate-limit cost
+     * predictable.
+     */
+    @Query("SELECT DISTINCT e.prId FROM PrReviewEntity e WHERE e.submittedAt IS NULL")
+    List<Long> findDistinctPrIdsWithNullSubmittedAt(Pageable pageable);
 }

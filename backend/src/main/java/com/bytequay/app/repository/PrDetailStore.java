@@ -16,6 +16,7 @@ package com.bytequay.app.repository;
 import com.bytequay.app.domain.StoredPrDetail;
 
 import java.time.Instant;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
@@ -106,5 +107,18 @@ public interface PrDetailStore
     default Map<String, Integer> openPrNumbersByHeadRef(String repo)
     {
         return Map.of();
+    }
+
+    /**
+     * Returns up to {@code limit} PR ids whose cached reviews include
+     * at least one row with a null {@code submitted_at} column. Used by
+     * the sync job to backfill the V53 timestamp on PRs whose detail
+     * blob predates that migration — without forcing a re-fetch of
+     * every PR in the store. Order is unspecified; callers cap the
+     * batch to keep the per-tick rate-limit cost bounded.
+     */
+    default List<Long> findPrIdsMissingReviewTimestamps(int limit)
+    {
+        return List.of();
     }
 }

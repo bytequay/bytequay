@@ -288,15 +288,20 @@ function WhatsMeasuredHereActivityCard() {
               comments authored by you, across PRs we have cached detail for. Partial; the
               number under-counts comments on PRs ByteQuay has never fetched detail for.
             </li>
+            <li>
+              <strong>Commits made</strong> — pulled live from GitHub's contribution graph
+              (cached for 5 minutes in this app process). Covers commits across all repos
+              you have access to — not just the watched set — and reaches back about a year.
+            </li>
           </ul>
         </div>
         <div className="analytics-measured__col">
           <h3 className="analytics-measured__col-title">What we deliberately don't measure</h3>
           <ul>
             <li>
-              <strong>Commits made</strong> and contribution streaks — pending the
-              activity-events mirror. We don't approximate from cached data because the gaps
-              would be misleading.
+              <strong>Contribution streaks</strong> and finer-grained activity events —
+              pending the activity-events mirror. We don't approximate from cached data
+              because the gaps would be misleading.
             </li>
             <li>
               <strong>Activity on unwatched repos</strong> — the local store only carries PRs

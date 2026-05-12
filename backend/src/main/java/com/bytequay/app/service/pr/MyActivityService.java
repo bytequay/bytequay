@@ -13,6 +13,8 @@
  */
 package com.bytequay.app.service.pr;
 
+import com.bytequay.app.domain.ContributionCalendar;
+import com.bytequay.app.domain.CredentialType;
 import com.bytequay.app.domain.MyActivitySummary;
 import com.bytequay.app.domain.MyActivitySummary.DailyAuthored;
 import com.bytequay.app.domain.MyActivitySummary.RepoActivityCount;
@@ -23,9 +25,13 @@ import com.bytequay.app.domain.PullRequest;
 import com.bytequay.app.domain.StoredPrDetail;
 import com.bytequay.app.repository.AppSettingsStore;
 import com.bytequay.app.repository.PrDetailStore;
+import com.bytequay.app.repository.PullRequestRepository;
 import com.bytequay.app.repository.PullRequestStore;
 import com.bytequay.app.repository.WatchedRepoStore;
+import com.bytequay.app.service.CredentialService;
 import com.google.common.collect.ImmutableList;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
 import java.time.Duration;
@@ -37,6 +43,9 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Optional;
+import java.util.concurrent.ConcurrentHashMap;
+import java.util.concurrent.ConcurrentMap;
 
 import static com.google.common.collect.ImmutableList.toImmutableList;
 import static java.util.Objects.requireNonNull;
@@ -51,25 +60,37 @@ import static java.util.Objects.requireNonNull;
 @Service
 public class MyActivityService
 {
+    private static final Logger log = LoggerFactory.getLogger(MyActivityService.class);
     private static final int REPOS_MAX_ROWS = 8;
     private static final int DAILY_MAX_DAYS_ALL = 90;
     private static final DateTimeFormatter ISO_DATE = DateTimeFormatter.ISO_LOCAL_DATE;
+    // The calendar GraphQL call is uncached upstream, so we hold the
+    // last fetch per login in-process for a short TTL. Cheap to keep
+    // (≤366 days of small day records); refreshes silently on miss.
+    private static final Duration CALENDAR_TTL = Duration.ofMinutes(5);
 
     private final PullRequestStore pullRequestStore;
     private final PrDetailStore detailStore;
     private final WatchedRepoStore watchedRepoStore;
     private final AppSettingsStore settingsStore;
+    private final PullRequestRepository gitHub;
+    private final CredentialService credentialService;
+    private final ConcurrentMap<String, CachedCalendar> calendarCache = new ConcurrentHashMap<>();
 
     public MyActivityService(
             PullRequestStore pullRequestStore,
             PrDetailStore detailStore,
             WatchedRepoStore watchedRepoStore,
-            AppSettingsStore settingsStore)
+            AppSettingsStore settingsStore,
+            PullRequestRepository gitHub,
+            CredentialService credentialService)
     {
         this.pullRequestStore = requireNonNull(pullRequestStore, "pullRequestStore is null");
         this.detailStore = requireNonNull(detailStore, "detailStore is null");
         this.watchedRepoStore = requireNonNull(watchedRepoStore, "watchedRepoStore is null");
         this.settingsStore = requireNonNull(settingsStore, "settingsStore is null");
+        this.gitHub = requireNonNull(gitHub, "gitHub is null");
+        this.credentialService = requireNonNull(credentialService, "credentialService is null");
     }
 
     public MyActivitySummary summarize(String rawScope, String requestedZone)
@@ -94,7 +115,7 @@ public class MyActivityService
                 formatCount(agg.merged),
                 false,
                 null);
-        KpiCard commitsMade = new KpiCard(null, "—", true, "Pending activity mirror");
+        KpiCard commitsMade = buildCommitsCard(currentLogin, cutoff, zone);
         KpiCard commentsPosted = new KpiCard(
                 (double) agg.comments,
                 formatCount(agg.comments),
@@ -277,6 +298,60 @@ public class MyActivityService
                 .map(e -> new RepoActivityCount(e.getKey(), e.getValue()[0], e.getValue()[1]))
                 .collect(toImmutableList());
     }
+
+    private KpiCard buildCommitsCard(String currentLogin, Instant cutoff, ZoneId zone)
+    {
+        if (currentLogin == null) {
+            return new KpiCard(null, "—", false, "Profile not yet cached");
+        }
+        Optional<ContributionCalendar> calendar = loadCalendar(currentLogin);
+        if (calendar.isEmpty()) {
+            return new KpiCard(null, "—", false, "PAT required");
+        }
+        long total = 0;
+        LocalDate from = cutoff == Instant.EPOCH ? null : cutoff.atZone(zone).toLocalDate();
+        for (ContributionCalendar.Week week : calendar.get().weeks()) {
+            for (ContributionCalendar.Day day : week.days()) {
+                if (day.date() == null) {
+                    continue;
+                }
+                if (from != null && day.date().isBefore(from)) {
+                    continue;
+                }
+                total += day.contributionCount();
+            }
+        }
+        // GitHub's contribution calendar covers commits across all
+        // public + private repos the user has access to — including
+        // ones we don't watch. That's a feature, not a bug, but it
+        // also means the number isn't constrained to the local
+        // store's "watched set" the way the rest of the page is.
+        return new KpiCard((double) total, formatCount(total), false, null);
+    }
+
+    private Optional<ContributionCalendar> loadCalendar(String login)
+    {
+        CachedCalendar cached = calendarCache.get(login);
+        if (cached != null && Duration.between(cached.fetchedAt(), Instant.now()).compareTo(CALENDAR_TTL) < 0) {
+            return Optional.of(cached.value());
+        }
+        Optional<String> pat = credentialService.getSecret(CredentialType.ACCOUNT, CredentialService.GITHUB_ACCOUNT_NAME)
+                .filter(s -> !s.isBlank());
+        if (pat.isEmpty()) {
+            return Optional.empty();
+        }
+        try {
+            ContributionCalendar fresh = gitHub.fetchContributionCalendar(pat.get(), login);
+            calendarCache.put(login, new CachedCalendar(fresh, Instant.now()));
+            return Optional.of(fresh);
+        }
+        catch (Exception e) {
+            log.debug("contribution calendar fetch failed for {}: {}", login, e.getMessage());
+            return Optional.empty();
+        }
+    }
+
+    private record CachedCalendar(ContributionCalendar value, Instant fetchedAt) {}
 
     private static String formatCount(long n)
     {

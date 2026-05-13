@@ -41,8 +41,8 @@
   --cta-shadow: rgba(22, 163, 74, 0.25);
   --cta-shadow-hover: rgba(22, 163, 74, 0.4);
 
-  --font-body: "Iowan Old Style", "Palatino Linotype", "Book Antiqua", Palatino,
-    Georgia, serif;
+  --font-body: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica,
+    Arial, sans-serif;
 
   color-scheme: light;
 }
@@ -83,7 +83,7 @@
   --cta-shadow: rgba(31, 136, 61, 0.20);
   --cta-shadow-hover: rgba(31, 136, 61, 0.35);
 
-  --font-body: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial,
+  --font-body: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial,
     sans-serif;
 
   color-scheme: light;
@@ -141,7 +141,7 @@
   --cta-shadow: rgba(40, 100, 75, 0.45);
   --cta-shadow-hover: rgba(40, 100, 75, 0.60);
 
-  --font-body: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial,
+  --font-body: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial,
     sans-serif;
 
   color-scheme: dark;
@@ -190,7 +190,7 @@
   --cta-shadow: rgba(31, 136, 61, 0.20);
   --cta-shadow-hover: rgba(31, 136, 61, 0.35);
 
-  --font-body: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial,
+  --font-body: "Inter", -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial,
     sans-serif;
 
   color-scheme: light;

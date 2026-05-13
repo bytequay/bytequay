@@ -110,7 +110,9 @@ public class EmailSyncService
         String startHistoryId = gmail.getCurrentHistoryId(accessToken);
         List<String> messageIds = gmail.listInboxIds(accessToken, 100);
         log.info("Gmail full sync for {}: {} messages", accountEmail, messageIds.size());
-        List<EmailMessageMeta> all = fetchMessageMetas(accessToken, messageIds);
+        // Full-sync 404s are silently dropped: we're rewriting the whole
+        // cache below anyway, so a missing message just doesn't make it in.
+        List<EmailMessageMeta> all = fetchMessageMetas(accessToken, messageIds).ok();
         store.deleteAllForAccount(accountEmail);
         store.upsertAll(accountEmail, all);
         if (startHistoryId != null) {
@@ -188,17 +190,27 @@ public class EmailSyncService
             store.deleteMessage(accountEmail, id);
             toFetch.remove(id);
         }
+        int notFoundCount = 0;
         if (!toFetch.isEmpty()) {
-            List<EmailMessageMeta> fresh = fetchMessageMetas(accessToken, new ArrayList<>(toFetch));
+            FetchMetasResult fresh = fetchMessageMetas(accessToken, new ArrayList<>(toFetch));
             // upsertAll always sets in_inbox=true. INBOX-label-removed
             // events for messages we already had won't flip the row
             // off-inbox here; the UI mutation write-through and the
             // next full sync handle that. Acceptable drift for v1.
-            store.upsertAll(accountEmail, fresh);
+            store.upsertAll(accountEmail, fresh.ok());
+            // Race window: Gmail emitted a messages-added event, then the
+            // user permanently deleted the message before our metadata
+            // fetch landed. Purge locally so the row doesn't ghost-survive
+            // and so subsequent polls can advance the watermark cleanly.
+            for (String id : fresh.notFoundIds()) {
+                store.deleteMessage(accountEmail, id);
+            }
+            notFoundCount = fresh.notFoundIds().size();
         }
         store.setSyncState(accountEmail, result.latestHistoryId(), System.currentTimeMillis());
-        log.debug("Gmail incremental sync for {}: +{} -{} → {}",
-                accountEmail, toFetch.size(), toDelete.size(), result.latestHistoryId());
+        log.debug("Gmail incremental sync for {}: +{} -{} (404 {}) → {}",
+                accountEmail, toFetch.size() - notFoundCount, toDelete.size(),
+                notFoundCount, result.latestHistoryId());
     }
 
     /** Mutation write-through. The UI calls Gmail directly to apply
@@ -235,14 +247,33 @@ public class EmailSyncService
         return store.listMessageIdsInThread(accountEmail, threadId);
     }
 
-    private List<EmailMessageMeta> fetchMessageMetas(String accessToken, List<String> messageIds)
+    /**
+     * Fans out per-message metadata fetches in parallel. Per-message
+     * 404s are swallowed and reported via {@link FetchMetasResult#notFoundIds}
+     * — Gmail emits messages-added history events even for items the
+     * user permanently deletes seconds later, and a single missing
+     * message shouldn't take down a 50-message batch (and with it the
+     * sync watermark, leading to an infinite re-poll loop on the same
+     * dead id). Other failures still bubble up.
+     */
+    private FetchMetasResult fetchMessageMetas(String accessToken, List<String> messageIds)
     {
         if (messageIds.isEmpty()) {
-            return List.of();
+            return new FetchMetasResult(List.of(), List.of());
         }
-        List<CompletableFuture<EmailMessageMeta>> futures = messageIds.stream()
-                .map(id -> CompletableFuture.supplyAsync(
-                        () -> gmail.getMessageMetadata(accessToken, id), executor))
+        List<CompletableFuture<MetaOrMissing>> futures = messageIds.stream()
+                .map(id -> CompletableFuture.supplyAsync(() -> {
+                    try {
+                        return new MetaOrMissing(gmail.getMessageMetadata(accessToken, id), null);
+                    }
+                    catch (ResponseStatusException e) {
+                        if (e.getStatusCode().value() == 404) {
+                            log.debug("Gmail metadata 404 for {} — message gone, skipping", id);
+                            return new MetaOrMissing(null, id);
+                        }
+                        throw e;
+                    }
+                }, executor))
                 .collect(Collectors.toUnmodifiableList());
         try {
             CompletableFuture.allOf(futures.toArray(new CompletableFuture[0])).join();
@@ -255,10 +286,26 @@ public class EmailSyncService
             throw new ResponseStatusException(HttpStatusCode.valueOf(502),
                     "Gmail metadata fetch failed: " + e.getMessage(), e);
         }
-        return futures.stream()
-                .map(CompletableFuture::join)
-                .collect(Collectors.toUnmodifiableList());
+        List<EmailMessageMeta> ok = new ArrayList<>(futures.size());
+        List<String> missing = new ArrayList<>();
+        for (CompletableFuture<MetaOrMissing> f : futures) {
+            MetaOrMissing r = f.join();
+            if (r.meta() != null) {
+                ok.add(r.meta());
+            }
+            else if (r.missingId() != null) {
+                missing.add(r.missingId());
+            }
+        }
+        return new FetchMetasResult(List.copyOf(ok), List.copyOf(missing));
     }
+
+    /** Result of {@link #fetchMessageMetas}: successfully fetched metas
+     *  plus the IDs Gmail returned 404 for (so the caller can purge them
+     *  from the local cache rather than treating their absence as a bug). */
+    private record FetchMetasResult(List<EmailMessageMeta> ok, List<String> notFoundIds) {}
+
+    private record MetaOrMissing(EmailMessageMeta meta, String missingId) {}
 
     /** Cheap snippet fallback — first ~200 chars of plain text or
      *  stripped HTML. The full-detail view replaces this when the

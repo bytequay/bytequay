@@ -242,6 +242,48 @@
      code spans/blocks. Tune here to rebalance against comment-body text
      across the PR detail surfaces. */
   --pr-code-font-size: 12.5px;
+
+  /* ── Design tokens ──────────────────────────────────────────────────
+     Geometric + typographic scales shared across every theme.  Add new
+     CSS one-off values here first; reach for raw px only when the scale
+     genuinely doesn't fit.
+
+     The scales were derived from an audit of all per-surface CSS files —
+     they collapse 18 distinct font sizes, 14 radii, and 14 gap values
+     into the canonical set below.  Subsequent sweeps replace raw values
+     with these tokens one stylesheet at a time. */
+
+  /* Type scale */
+  --font-size-xs:  11px; /* meta, captions, badges */
+  --font-size-sm:  12px; /* default body */
+  --font-size-md:  13px; /* dense lists, secondary headings */
+  --font-size-lg:  14px; /* section headings */
+  --font-size-xl:  18px; /* page titles */
+  --font-size-2xl: 24px; /* hero numbers (KPI cards) */
+
+  /* Spacing scale — 4 px grid */
+  --space-0: 0;
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 20px;
+  --space-6: 24px;
+  --space-8: 32px;
+
+  /* Radius scale */
+  --radius-sm:   4px;
+  --radius-md:   6px;
+  --radius-lg:   10px;
+  --radius-pill: 999px;
+
+  /* Subtle elevation — used sparingly per the Linear playbook. */
+  --shadow-sm: 0 1px 2px rgba(0, 0, 0, 0.04);
+  --shadow-md: 0 2px 8px rgba(0, 0, 0, 0.06);
+
+  /* Motion */
+  --motion-fast: 80ms ease-out;
+  --motion-base: 140ms ease-out;
 }
 
 html {

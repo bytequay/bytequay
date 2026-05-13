@@ -22,12 +22,10 @@ const GMAIL_NAME = 'gmail-oauth-app';
 const GMAIL_REDIRECT = 'bytequay://gmail-oauth-callback';
 
 /**
- * BYO OAuth app configuration for the third-party providers ByteQuay
- * talks to. Each provider gets its own card: the user pastes their
- * own {@code client_id} / {@code client_secret} from the provider's
- * developer console, then connects accounts through the resulting
- * OAuth dance. Both pieces of state live in the local credentials
- * vault and never leave this machine.
+ * Connect-account hub. Slack uses one-click PKCE; Gmail leads with an
+ * app password (works on every account, no Google verification) and
+ * keeps the BYO-OAuth path under an Advanced disclosure for users
+ * who prefer it. Anything saved here stays encrypted on this machine.
  */
 function IntegrationsPage() {
   return (
@@ -36,9 +34,10 @@ function IntegrationsPage() {
         <div>
           <h2 className="settings-shell-page__title">Integrations</h2>
           <div className="settings-shell-page__subtitle">
-            Slack ships with one-click connect via PKCE. Gmail still uses
-            bring-your-own credentials. Anything saved here stays encrypted
-            on this machine.
+            Slack connects with one click via PKCE. Gmail connects with an
+            app password by default — OAuth is available under Advanced for
+            anyone who prefers it. Anything saved here stays encrypted on
+            this machine.
           </div>
         </div>
       </div>
@@ -336,7 +335,11 @@ function GmailSection() {
   const [clientSecret, setClientSecret] = useState('');
   const [saving, setSaving] = useState(false);
 
-  const [authMode, setAuthMode] = useState<AuthMode>('oauth');
+  // Default to the app-password path because it works on every Google
+  // account without going through the OAuth-app verification dance.
+  // Existing OAuth users still find their flow under Advanced (auto-open
+  // when a saved client is detected).
+  const [authMode, setAuthMode] = useState<AuthMode>('imap');
 
   const [connectStatus, setConnectStatus] = useState<GmailConnectStatus>('idle');
   const [connectError, setConnectError] = useState<string | null>(null);
@@ -461,140 +464,45 @@ function GmailSection() {
     }
   };
 
+  // Auto-expand the Advanced disclosure when the user already has an
+  // OAuth client saved or is mid-edit — same pattern Slack uses for its
+  // BYO section. Keeps power users one click away from their existing
+  // flow without forcing newcomers through the seven-step Cloud Console
+  // setup before they can connect anything.
+  const advancedOpen = credential != null || editing || authMode === 'oauth';
+
   return (
     <>
       <SettingCard
-        title="Gmail — bring your own OAuth client"
+        title="Gmail"
         hint={
           <>
-            Same model as Slack: register a personal OAuth client on Google Cloud Console
-            and paste its <code>client_id</code> + <code>client_secret</code> here. Once
-            saved, you can connect one or more Gmail accounts; each lands a separate
-            refresh token in your local keychain.
+            Connect one or more Gmail accounts so the <b>Email</b> tab shows
+            their inbox alongside your PR review queue. The recommended path
+            is an app password — works on every Google account, no
+            verification required. Prefer OAuth? Use the Advanced section
+            at the bottom.
           </>
         }
       />
 
-      <GmailSetupGuide />
-
       {loading && <div className="repo-loading">Loading…</div>}
       {error && <div className="repo-error">{error}</div>}
-
-      {!loading && !editing && credential && (
-        <SettingCard
-          title="Saved Gmail OAuth client"
-          action={
-            <a
-              className="button button--secondary"
-              href="https://console.cloud.google.com/apis/credentials"
-              target="_blank"
-              rel="noreferrer"
-            >
-              Open Cloud Console ↗
-            </a>
-          }
-        >
-          <SettingRow
-            title="Client ID"
-            description={<code>{credential.label ?? '—'}</code>}
-            control={<></>}
-          />
-          <SettingRow
-            title="Client Secret"
-            description={<code>{credential.preview}</code>}
-            control={
-              <>
-                <button className="button button--secondary" type="button" onClick={startEdit}>Replace</button>
-                <button className="button button--danger" type="button" onClick={() => void remove()} disabled={saving}>Delete</button>
-              </>
-            }
-          />
-        </SettingCard>
-      )}
-
-      {!loading && !editing && !credential && (
-        <SettingCard title="Add Gmail OAuth client">
-          <SettingRow
-            title="No Gmail OAuth client saved"
-            description="Without it, you can't connect Gmail accounts."
-            control={
-              <button className="button button--primary" type="button" onClick={startEdit}>
-                + Add Gmail OAuth client
-              </button>
-            }
-          />
-        </SettingCard>
-      )}
-
-      {!loading && editing && (
-        <SettingCard title={credential ? 'Replace Gmail OAuth client' : 'Add Gmail OAuth client'}>
-          <SettingRow
-            title="Client ID"
-            description={<>From the Cloud Console under <b>APIs &amp; Services → Credentials → OAuth 2.0 Client IDs</b>. Public — fine to paste.</>}
-            control={
-              <input
-                className="settings-input-number"
-                style={{ width: 280 }}
-                type="text"
-                value={clientId}
-                onChange={e => setClientId(e.target.value)}
-                placeholder="1234567890-xxxxxxxxxx.apps.googleusercontent.com"
-                autoFocus
-              />
-            }
-          />
-          <SettingRow
-            title="Client Secret"
-            description="Right below Client ID. Stored encrypted on this machine."
-            control={
-              <input
-                className="settings-input-number"
-                style={{ width: 280 }}
-                type="password"
-                value={clientSecret}
-                onChange={e => setClientSecret(e.target.value)}
-                placeholder="••••••••••••••••••••••••••••••••"
-              />
-            }
-          />
-          <SettingRow
-            title=""
-            control={
-              <>
-                <button className="button button--primary" type="button" onClick={() => void save()} disabled={saving}>
-                  {saving ? 'Saving…' : credential ? 'Replace' : 'Save'}
-                </button>
-                <button className="button button--secondary" type="button" onClick={cancelEdit} disabled={saving}>Cancel</button>
-              </>
-            }
-          />
-        </SettingCard>
-      )}
 
       {!loading && (
         <SettingCard
           title="Connected Gmail accounts"
           hint={accounts.length === 0
-            ? 'No accounts connected yet. Pick an auth method below.'
+            ? 'No accounts connected yet. Use the form below to add one.'
             : `${accounts.length} account${accounts.length === 1 ? '' : 's'} connected.`}
         >
           <SettingRow
             title="Auth method"
-            description={authMode === 'oauth'
-              ? 'OAuth — one-click consent in the browser. Limited to 100 test users until verified.'
-              : 'IMAP app password — works for any account without Google verification, but uglier setup.'}
+            description={authMode === 'imap'
+              ? 'App password — recommended. Works for any Google account that has 2FA enabled.'
+              : 'OAuth — needs a personal Cloud Console client (set up under Advanced below).'}
             control={
               <span className="auth-mode-picker">
-                <label className={`auth-mode-pill ${authMode === 'oauth' ? 'auth-mode-pill--active' : ''}`}>
-                  <input
-                    type="radio"
-                    name="gmail-auth-mode"
-                    value="oauth"
-                    checked={authMode === 'oauth'}
-                    onChange={() => setAuthMode('oauth')}
-                  />
-                  OAuth
-                </label>
                 <label className={`auth-mode-pill ${authMode === 'imap' ? 'auth-mode-pill--active' : ''}`}>
                   <input
                     type="radio"
@@ -605,6 +513,16 @@ function GmailSection() {
                   />
                   App password
                 </label>
+                <label className={`auth-mode-pill ${authMode === 'oauth' ? 'auth-mode-pill--active' : ''}`}>
+                  <input
+                    type="radio"
+                    name="gmail-auth-mode"
+                    value="oauth"
+                    checked={authMode === 'oauth'}
+                    onChange={() => setAuthMode('oauth')}
+                  />
+                  OAuth
+                </label>
               </span>
             }
           />
@@ -612,7 +530,7 @@ function GmailSection() {
           {authMode === 'oauth' && !credential && (
             <SettingRow
               title="OAuth client missing"
-              description="Save a client_id + client_secret above before connecting via OAuth, or pick App password instead."
+              description="Open the Advanced section below to register a Gmail OAuth client first — or switch to App password to skip that step entirely."
               control={<></>}
             />
           )}
@@ -725,6 +643,116 @@ function GmailSection() {
           ))}
         </SettingCard>
       )}
+
+      <details className="settings-advanced-details" open={advancedOpen}>
+        <summary>Advanced — bring your own Gmail OAuth client</summary>
+        <SettingCard
+          title="Gmail OAuth client (BYO)"
+          hint={
+            <>
+              Optional. Register a personal OAuth client on Google Cloud Console
+              and paste its <code>client_id</code> + <code>client_secret</code> here
+              to connect Gmail accounts via OAuth instead of an app password. The
+              setup is heavier (Cloud Console, scopes, test users) but lands you
+              a refresh token in your local keychain — useful if your Workspace
+              admin has disabled app passwords.
+            </>
+          }
+        />
+
+        <GmailSetupGuide />
+
+        {!editing && credential && (
+          <SettingCard
+            title="Saved Gmail OAuth client"
+            action={
+              <a
+                className="button button--secondary"
+                href="https://console.cloud.google.com/apis/credentials"
+                target="_blank"
+                rel="noreferrer"
+              >
+                Open Cloud Console ↗
+              </a>
+            }
+          >
+            <SettingRow
+              title="Client ID"
+              description={<code>{credential.label ?? '—'}</code>}
+              control={<></>}
+            />
+            <SettingRow
+              title="Client Secret"
+              description={<code>{credential.preview}</code>}
+              control={
+                <>
+                  <button className="button button--secondary" type="button" onClick={startEdit}>Replace</button>
+                  <button className="button button--danger" type="button" onClick={() => void remove()} disabled={saving}>Delete</button>
+                </>
+              }
+            />
+          </SettingCard>
+        )}
+
+        {!editing && !credential && (
+          <SettingCard title="Add Gmail OAuth client">
+            <SettingRow
+              title="No Gmail OAuth client saved"
+              description="Optional — only needed if you want to connect Gmail via OAuth instead of an app password."
+              control={
+                <button className="button button--primary" type="button" onClick={startEdit}>
+                  + Add Gmail OAuth client
+                </button>
+              }
+            />
+          </SettingCard>
+        )}
+
+        {editing && (
+          <SettingCard title={credential ? 'Replace Gmail OAuth client' : 'Add Gmail OAuth client'}>
+            <SettingRow
+              title="Client ID"
+              description={<>From the Cloud Console under <b>APIs &amp; Services → Credentials → OAuth 2.0 Client IDs</b>. Public — fine to paste.</>}
+              control={
+                <input
+                  className="settings-input-number"
+                  style={{ width: 280 }}
+                  type="text"
+                  value={clientId}
+                  onChange={e => setClientId(e.target.value)}
+                  placeholder="1234567890-xxxxxxxxxx.apps.googleusercontent.com"
+                  autoFocus
+                />
+              }
+            />
+            <SettingRow
+              title="Client Secret"
+              description="Right below Client ID. Stored encrypted on this machine."
+              control={
+                <input
+                  className="settings-input-number"
+                  style={{ width: 280 }}
+                  type="password"
+                  value={clientSecret}
+                  onChange={e => setClientSecret(e.target.value)}
+                  placeholder="••••••••••••••••••••••••••••••••"
+                />
+              }
+            />
+            <SettingRow
+              title=""
+              control={
+                <>
+                  <button className="button button--primary" type="button" onClick={() => void save()} disabled={saving}>
+                    {saving ? 'Saving…' : credential ? 'Replace' : 'Save'}
+                  </button>
+                  <button className="button button--secondary" type="button" onClick={cancelEdit} disabled={saving}>Cancel</button>
+                </>
+              }
+            />
+          </SettingCard>
+        )}
+      </details>
     </>
   );
 }

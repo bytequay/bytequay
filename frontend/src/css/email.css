@@ -48,7 +48,7 @@
   border: 1px solid var(--border, rgba(255, 255, 255, 0.08));
   border-radius: 8px;
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.20);
-  font-size: 13px;
+  font-size: var(--font-size-md);
   max-width: min(560px, calc(100vw - 48px));
 }
 .email-undo-toast__msg {
@@ -70,7 +70,7 @@
   font-weight: 600;
   cursor: pointer;
   padding: 4px 6px;
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
   flex-shrink: 0;
 }
 .email-undo-toast__btn:hover {
@@ -96,9 +96,9 @@
   min-height: 120px;
   padding: 10px 12px;
   border: 1px solid var(--border);
-  border-radius: 6px;
+  border-radius: var(--radius-md);
   font-family: inherit;
-  font-size: 13px;
+  font-size: var(--font-size-md);
   line-height: 1.5;
   background: var(--bg-card, var(--bg-elevated));
   color: var(--text-1);
@@ -110,7 +110,7 @@
 }
 .email-reply__buttons {
   display: flex;
-  gap: 8px;
+  gap: var(--space-2);
 }
 
 /* ── Settings → Email mute list ────────────────────────────────────── */
@@ -125,19 +125,19 @@
   display: flex;
   justify-content: space-between;
   align-items: center;
-  font-size: 13px;
+  font-size: var(--font-size-md);
   font-weight: 600;
   color: var(--text-1);
   margin-bottom: 8px;
 }
 .email-mute-account__count {
-  font-size: 11px;
+  font-size: var(--font-size-xs);
   font-weight: 400;
   color: var(--text-3);
 }
 .email-mute-account__empty {
   margin: 0;
-  font-size: 12px;
+  font-size: var(--font-size-sm);
   color: var(--text-3);
 }
 .email-mute-list {
@@ -152,15 +152,15 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 12px;
+  gap: var(--space-3);
   padding: 6px 10px;
   background: var(--bg-card);
   border: 1px solid var(--border);
-  border-radius: 6px;
+  border-radius: var(--radius-md);
 }
 .email-mute-list__addr {
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, monospace;
-  font-size: 12px;
+  font-size: var(--font-size-sm);
   color: var(--text-1);
   overflow: hidden;
   text-overflow: ellipsis;
@@ -177,42 +177,42 @@
 }
 .email-page--empty h2 {
   margin: 0 0 8px;
-  font-size: 18px;
+  font-size: var(--font-size-xl);
 }
 .email-page--empty p {
   margin: 0 0 18px;
   color: var(--text-3);
-  font-size: 13px;
+  font-size: var(--font-size-md);
 }
 
 .email-page__header {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  gap: 12px;
+  gap: var(--space-3);
   flex-wrap: wrap;
 }
 .email-page__accounts {
   display: flex;
-  gap: 8px;
+  gap: var(--space-2);
   flex-wrap: wrap;
 }
 .email-page__actions {
   display: flex;
-  gap: 8px;
+  gap: var(--space-2);
 }
 
 .email-account-chip {
   appearance: none;
   display: inline-flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--space-2);
   padding: 6px 10px;
   border: 1px solid var(--border);
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   background: var(--bg-card);
   cursor: pointer;
-  font-size: 13px;
+  font-size: var(--font-size-md);
   color: var(--text-1);
 }
 .email-account-chip:hover {
@@ -232,7 +232,7 @@
   border: 1px solid var(--border);
   border-radius: 8px;
   color: var(--text-2);
-  font-size: 13px;
+  font-size: var(--font-size-md);
   line-height: 1.5;
 }
 
@@ -244,7 +244,7 @@
   flex-direction: column;
   gap: 0;
   border: 1px solid var(--border);
-  border-radius: 10px;
+  border-radius: var(--radius-lg);
   overflow: hidden;
   background: var(--bg-card);
 }
@@ -279,8 +279,8 @@
 .email-row__line1 {
   display: flex;
   justify-content: space-between;
-  gap: 12px;
-  font-size: 13px;
+  gap: var(--space-3);
+  font-size: var(--font-size-md);
   color: var(--text-2);
 }
 .email-row__from {
@@ -293,10 +293,10 @@
 .email-row__time {
   flex-shrink: 0;
   color: var(--text-3);
-  font-size: 12px;
+  font-size: var(--font-size-sm);
 }
 .email-row__subject {
-  font-size: 14px;
+  font-size: var(--font-size-lg);
   color: var(--text-1);
   overflow: hidden;
   text-overflow: ellipsis;
@@ -306,7 +306,7 @@
   font-weight: 600;
 }
 .email-row__snippet {
-  font-size: 12px;
+  font-size: var(--font-size-sm);
   color: var(--text-3);
   overflow: hidden;
   text-overflow: ellipsis;
@@ -318,7 +318,7 @@
 .email-pane {
   display: grid;
   grid-template-columns: 460px 1fr;
-  gap: 16px;
+  gap: var(--space-4);
   align-items: stretch;
   min-height: 0;
 }
@@ -330,7 +330,7 @@
 .email-pane__detail {
   min-width: 0;
   border: 1px solid var(--border);
-  border-radius: 10px;
+  border-radius: var(--radius-lg);
   background: var(--bg-card);
   overflow: hidden;
   display: flex;
@@ -338,7 +338,7 @@
   max-height: calc(100vh - 180px);
 }
 .email-list--inset {
-  border-radius: 10px;
+  border-radius: var(--radius-lg);
 }
 .email-row {
   cursor: pointer;
@@ -375,7 +375,7 @@
 }
 .email-detail__actions {
   display: flex;
-  gap: 8px;
+  gap: var(--space-2);
   padding: 12px 16px;
   border-bottom: 1px solid var(--border);
   background: var(--bg-card);
@@ -386,7 +386,7 @@
   border-bottom: 1px solid var(--border);
   display: flex;
   flex-direction: column;
-  gap: 4px;
+  gap: var(--space-1);
   flex-shrink: 0;
 }
 .email-detail__subject {
@@ -395,11 +395,11 @@
   color: var(--text-1);
 }
 .email-detail__from {
-  font-size: 13px;
+  font-size: var(--font-size-md);
   color: var(--text-2);
 }
 .email-detail__to {
-  font-size: 12px;
+  font-size: var(--font-size-sm);
   color: var(--text-3);
 }
 .email-detail__body {
@@ -412,7 +412,7 @@
   margin: 0;
   padding: 16px 18px;
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, monospace;
-  font-size: 13px;
+  font-size: var(--font-size-md);
   white-space: pre-wrap;
   color: var(--text-1);
 }
@@ -429,7 +429,7 @@
 .email-detail__count {
   margin-left: auto;
   align-self: center;
-  font-size: 12px;
+  font-size: var(--font-size-sm);
   color: var(--text-3);
 }
 .email-detail__messages {
@@ -450,7 +450,7 @@
   display: flex;
   justify-content: space-between;
   padding: 12px 18px 4px;
-  font-size: 13px;
+  font-size: var(--font-size-md);
 }
 .thread-message__from {
   color: var(--text-1);
@@ -458,12 +458,12 @@
 }
 .thread-message__time {
   color: var(--text-3);
-  font-size: 12px;
+  font-size: var(--font-size-sm);
 }
 .thread-message__to {
   padding: 0 18px 8px;
   color: var(--text-3);
-  font-size: 12px;
+  font-size: var(--font-size-sm);
 }
 .thread-message__body {
   flex: 1;
@@ -472,7 +472,7 @@
   margin: 0;
   padding: 12px 18px 18px;
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, monospace;
-  font-size: 13px;
+  font-size: var(--font-size-md);
   white-space: pre-wrap;
   color: var(--text-1);
 }
@@ -482,7 +482,7 @@
 .email-row__count {
   color: var(--text-3);
   font-weight: 400;
-  font-size: 12px;
+  font-size: var(--font-size-sm);
 }
 .email-linked-refs {
   flex-shrink: 0;
@@ -510,10 +510,10 @@
   gap: 6px;
   padding: 6px 10px;
   border: 1px solid var(--accent);
-  border-radius: 6px;
+  border-radius: var(--radius-md);
   background: var(--bg-card);
   color: var(--text-1);
-  font-size: 12px;
+  font-size: var(--font-size-sm);
   cursor: pointer;
 }
 .email-linked-refs__item:hover {

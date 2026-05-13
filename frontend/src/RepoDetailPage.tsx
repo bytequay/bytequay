@@ -459,7 +459,17 @@ function RepoDetailPage({ owner, repo, initialPrNumber, initialTab, initialDiffC
     setSelectedPr(prev => (prev && prev.id === prId ? { ...prev, ...patch } : prev));
     syncCachesAfterPrChange(prId, patch, prRepo);
     try {
-      await window.bridge.mergePr(prId, prRepo, number, strategy);
+      const result = await window.bridge.mergePr(prId, prRepo, number, strategy);
+      if (result?.queued) {
+        // Queue accepted the PR but the merge hasn't happened yet —
+        // undo the optimistic "merged" patch so the row reflects
+        // reality. MergeBar reads queued state from the same result.
+        const rollback = unmergedPatch(previousState, previousMergedAt);
+        setPulls(prev => patchPr(prev, prId, rollback));
+        setSelectedPr(prev => (prev && prev.id === prId ? { ...prev, ...rollback } : prev));
+        syncCachesAfterPrChange(prId, rollback, prRepo);
+      }
+      return result;
     } catch (e) {
       const rollback = unmergedPatch(previousState, previousMergedAt);
       setPulls(prev => patchPr(prev, prId, rollback));

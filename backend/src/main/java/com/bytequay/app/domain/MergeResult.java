@@ -13,16 +13,41 @@
  */
 package com.bytequay.app.domain;
 
+import com.fasterxml.jackson.annotation.JsonCreator;
+import com.fasterxml.jackson.annotation.JsonProperty;
+
 /**
- * Result of a successful pull request merge.
- * Corresponds to the response from PUT /repos/{owner}/{repo}/pulls/{pull_number}/merge.
+ * Outcome of an attempted pull request merge. Two shapes share the
+ * type: an immediate merge (REST {@code PUT .../merge} returned 200,
+ * {@code sha} populated, {@code queued=false}) and an enqueue when
+ * the target branch has merge queue enabled ({@code sha=null},
+ * {@code merged=false}, {@code queued=true}, {@code message} carries
+ * the queue-entry hint).
  *
- * @param sha     SHA of the merge commit
- * @param merged  true when the merge succeeded
- * @param message human-readable status message from GitHub
+ * <p>The 3-arg constructor is the Jackson entry point for the REST
+ * merge response (which has no {@code queued} field) — it defaults
+ * the flag to {@code false} so existing code paths stay green.
  */
 public record MergeResult(
         String sha,
         boolean merged,
-        String message)
-{}
+        String message,
+        boolean queued)
+{
+    @JsonCreator
+    public MergeResult(
+            @JsonProperty("sha") String sha,
+            @JsonProperty("merged") boolean merged,
+            @JsonProperty("message") String message)
+    {
+        this(sha, merged, message, false);
+    }
+
+    /** Build the success record returned after an {@code enqueuePullRequest}
+     *  GraphQL mutation. The PR isn't merged yet — it joined the queue
+     *  and will merge whenever its slot reaches the head. */
+    public static MergeResult enqueued(String message)
+    {
+        return new MergeResult(null, false, message, true);
+    }
+}

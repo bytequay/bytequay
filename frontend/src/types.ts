@@ -1224,8 +1224,13 @@ export type Bridge = {
   clearSnoozeWakeReason: (prId: number) => Promise<void>;
   approvePr: (prId: number, repo: string, number: number) => Promise<void>;
   /** Merge with the given strategy. Omitting {@code strategy} keeps the
-   *  historical "rebase" default for compatibility. */
-  mergePr: (prId: number, repo: string, number: number, strategy?: 'rebase' | 'squash' | 'merge') => Promise<{ merged: boolean; message: string }>;
+   *  historical "rebase" default for compatibility. When the target
+   *  branch has merge queue enabled the backend dispatches to
+   *  GraphQL {@code enqueuePullRequest} instead; the resolved value
+   *  carries {@code queued: true} (and {@code merged: false}) so the
+   *  caller can roll back any optimistic "merged" state and show a
+   *  queue indicator. */
+  mergePr: (prId: number, repo: string, number: number, strategy?: 'rebase' | 'squash' | 'merge') => Promise<{ merged: boolean; message: string; queued: boolean }>;
   commentPr: (prId: number, repo: string, number: number, body: string, close: boolean) => Promise<void>;
   /** Adds a single user to the PR's requested reviewers. */
   addRequestedReviewer: (repo: string, number: number, reviewer: string) => Promise<void>;

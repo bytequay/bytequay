@@ -329,8 +329,13 @@ function loadMergeStrategy(): MergeStrategy {
 type MergeBarProps = {
   pr: PullRequestDto;
   detail: PullRequestDetailDto;
-  mergeState: 'idle' | 'running' | 'error';
+  mergeState: 'idle' | 'running' | 'error' | 'queued';
   mergeError: string | null;
+  /** Message returned by the backend when the merge was accepted into
+   *  a merge queue ({@code mergeState === 'queued'}). Drives the success
+   *  banner so the user sees "Added to merge queue (position 3, awaiting
+   *  checks)" instead of a generic "merged" affordance. */
+  mergeQueuedMessage: string | null;
   onMerge: (strategy: MergeStrategy) => void;
   /** Force-refresh the CI snapshot (status + per-check + viewerCanWrite)
    *  from GitHub. Wired through from the parent's refreshCi so the
@@ -345,7 +350,7 @@ type MergeBarProps = {
  *  button to read why. Mirrors the merge-bar GitHub puts on its
  *  Conversation page. Clicking the button opens a confirm dialog —
  *  Yes fires the merge, No closes the dialog with no side effects. */
-function MergeBar({ pr, detail, mergeState, mergeError, onMerge, onRefreshCi, ciRefreshing }: MergeBarProps) {
+function MergeBar({ pr, detail, mergeState, mergeError, mergeQueuedMessage, onMerge, onRefreshCi, ciRefreshing }: MergeBarProps) {
   // Failing-check list is folded by default — the red "CI failing"
   // pill in the middle of the bar is the affordance to expand it.
   const [failuresOpen, setFailuresOpen] = useState(false);
@@ -435,17 +440,16 @@ function MergeBar({ pr, detail, mergeState, mergeError, onMerge, onRefreshCi, ci
   // required reviewer hasn't approved yet — so we gate on approvals
   // being present. False positives are possible (codeowners /
   // protected-files rules), but the case we want to catch right now
-  // is Trino-style "queue is the required path"; proper detection
-  // lands with the GraphQL pass (see PR detail design doc §2.5).
+  // is Trino-style "queue is the required path". The button label
+  // and strategy-picker visibility follow this heuristic; the *actual*
+  // merge-vs-enqueue dispatch happens in the backend via a GraphQL
+  // probe, so a wrong heuristic just shows the wrong button text — the
+  // merge still routes correctly.
   const requiresMergeQueue = !closed
       && pr.mergeableState === 'blocked'
       && ciPassing
       && detail.changesRequestedCount === 0
       && approverLogins.length > 0;
-  // Inline notice when the user clicks the queue-style button —
-  // ByteQuay can't enqueue natively yet, so this is the honest path
-  // until the GraphQL enqueuePullRequest mutation lands.
-  const [queueNotice, setQueueNotice] = useState<string | null>(null);
   return (
     <div className={`merge-bar${enabled ? ' merge-bar--ready' : ' merge-bar--blocked'}`}>
       <div className="merge-bar__row">
@@ -453,24 +457,16 @@ function MergeBar({ pr, detail, mergeState, mergeError, onMerge, onRefreshCi, ci
           <button
             type="button"
             className="merge-bar__btn merge-bar__btn--split-main"
-            onClick={() => {
-              if (requiresMergeQueue) {
-                setQueueNotice(
-                  'This repo requires the GitHub merge queue. ByteQuay can\'t enqueue natively yet — open the PR on github.com and click "Add to merge queue" there. Native support is coming with the GraphQL pass.',
-                );
-                return;
-              }
-              setConfirmOpen(true);
-            }}
-            disabled={!enabled && !requiresMergeQueue}
-            title={requiresMergeQueue
-              ? 'This repo requires the merge queue. ByteQuay\'s native enqueue is coming with the GraphQL pass — click for details.'
-              : (enabled
-                ? `${MERGE_STRATEGY_LABEL[strategy]} this PR on GitHub`
-                : (disabledReason ?? 'Not ready to merge'))}
+            onClick={() => setConfirmOpen(true)}
+            disabled={!enabled}
+            title={enabled
+              ? (requiresMergeQueue
+                ? 'Add this PR to the merge queue'
+                : `${MERGE_STRATEGY_LABEL[strategy]} this PR on GitHub`)
+              : (disabledReason ?? 'Not ready to merge')}
           >
             {mergeState === 'running'
-              ? 'Merging…'
+              ? (requiresMergeQueue ? 'Enqueuing…' : 'Merging…')
               : (requiresMergeQueue ? 'Add to merge queue' : MERGE_STRATEGY_LABEL[strategy])}
           </button>
           {/* Hide the strategy picker in queue mode — GitHub's merge
@@ -616,7 +612,11 @@ function MergeBar({ pr, detail, mergeState, mergeError, onMerge, onRefreshCi, ci
           </div>
           {disabledReason && <span className="merge-bar__reason">{disabledReason}</span>}
           {mergeError && <span className="merge-bar__error" title={mergeError}>{mergeError}</span>}
-          {queueNotice && <span className="merge-bar__queue-notice" title={queueNotice}>{queueNotice}</span>}
+          {mergeState === 'queued' && mergeQueuedMessage && (
+            <span className="merge-bar__queue-notice" title={mergeQueuedMessage}>
+              ✓ {mergeQueuedMessage}
+            </span>
+          )}
         </div>
       </div>
       {failuresOpen && failingChecks.length > 0 && (
@@ -691,7 +691,9 @@ function MergeBar({ pr, detail, mergeState, mergeError, onMerge, onRefreshCi, ci
                 }}
                 disabled={mergeState === 'running'}
               >
-                {mergeState === 'running' ? 'Merging…' : 'Yes, merge'}
+                {mergeState === 'running'
+                  ? (requiresMergeQueue ? 'Enqueuing…' : 'Merging…')
+                  : (requiresMergeQueue ? 'Yes, add to queue' : 'Yes, merge')}
               </button>
             </div>
           </div>
@@ -724,7 +726,8 @@ type Props = {
   // bar above the comment box is hidden — pages that don't want merge from
   // the preview (e.g. archived PRs) just skip the prop. Return value is
   // ignored; the preview re-fetches detail itself once the call resolves.
-  onMerge?: (prId: number, repo: string, number: number, strategy?: MergeStrategy) => Promise<unknown>;
+  onMerge?: (prId: number, repo: string, number: number, strategy?: MergeStrategy) =>
+    Promise<{ merged: boolean; message: string; queued: boolean } | undefined | void>;
   // Optional "← Back" affordance shown in the page header. When provided
   // (e.g. from the team detail page) the button returns the user to the
   // referring screen. Inbox usage doesn't pass this — the sidebar list
@@ -772,8 +775,12 @@ function PullRequestPreview({ pr, onOpenReview, onInspectDiffs, onMarkHandled, o
   // Merge bar state. `confirming` is the two-click safety net (one click
   // arms, second click actually merges) so a stray pointer doesn't ship
   // an unintended PR. `error` carries GitHub's reason if the call fails.
-  const [mergeState, setMergeState] = useState<'idle' | 'running' | 'error'>('idle');
+  // `queued` is the merge-queue success path — onMerge resolves with
+  // {queued: true} when the target branch is queue-protected and the
+  // PR was accepted into the queue rather than merged immediately.
+  const [mergeState, setMergeState] = useState<'idle' | 'running' | 'error' | 'queued'>('idle');
   const [mergeError, setMergeError] = useState<string | null>(null);
+  const [mergeQueuedMessage, setMergeQueuedMessage] = useState<string | null>(null);
   // Manual-refresh / focus-poll spinner state for the CI summary.
   const [ciRefreshing, setCiRefreshing] = useState(false);
 
@@ -985,12 +992,19 @@ function PullRequestPreview({ pr, onOpenReview, onInspectDiffs, onMarkHandled, o
     if (!onMerge || mergeState === 'running') return;
     setMergeState('running');
     setMergeError(null);
+    setMergeQueuedMessage(null);
     try {
-      await onMerge(pr.id, pr.repo, pr.number, strategy);
+      const result = await onMerge(pr.id, pr.repo, pr.number, strategy);
       // Drop the cached detail and refetch so the merged status, timeline
       // event, and disabled merge button all update in one pass.
       await refreshDetailFromGitHub();
-      setMergeState('idle');
+      if (result && typeof result === 'object' && 'queued' in result && result.queued) {
+        setMergeQueuedMessage(typeof result.message === 'string' ? result.message : 'Added to merge queue');
+        setMergeState('queued');
+      }
+      else {
+        setMergeState('idle');
+      }
     }
     catch (e) {
       setMergeError(e instanceof Error ? e.message : String(e));
@@ -1243,6 +1257,7 @@ function PullRequestPreview({ pr, onOpenReview, onInspectDiffs, onMarkHandled, o
                     detail={detail}
                     mergeState={mergeState}
                     mergeError={mergeError}
+                    mergeQueuedMessage={mergeQueuedMessage}
                     onMerge={(strategy) => { void handleMerge(strategy); }}
                     onRefreshCi={refreshCi}
                     ciRefreshing={ciRefreshing}
@@ -1750,6 +1765,7 @@ function PullRequestPreview({ pr, onOpenReview, onInspectDiffs, onMarkHandled, o
                 detail={detail}
                 mergeState={mergeState}
                 mergeError={mergeError}
+                mergeQueuedMessage={mergeQueuedMessage}
                 onMerge={(strategy) => { void handleMerge(strategy); }}
                 onRefreshCi={refreshCi}
                 ciRefreshing={ciRefreshing}

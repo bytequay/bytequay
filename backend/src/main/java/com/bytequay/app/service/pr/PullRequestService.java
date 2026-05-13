@@ -964,11 +964,47 @@ public class PullRequestService
      * {@code "rebase"}, {@code "squash"}, or {@code "merge"}; null /
      * unknown values fall back to {@code "rebase"} (the historical
      * default).
+     *
+     * <p>Dispatches based on whether the target branch has merge queue
+     * enabled (one GraphQL probe per call):
+     * <ul>
+     *   <li>Queue absent → REST {@code PUT .../merge} as before.</li>
+     *   <li>Queue present → GraphQL {@code enqueuePullRequest}. The
+     *       caller's strategy is ignored — the queue's configured method
+     *       wins. The PR isn't merged yet, so we don't mark it reviewed
+     *       (a queue entry can still fail required checks and bounce);
+     *       the next background sync will pick up the actual merge when
+     *       it lands.</li>
+     * </ul>
+     *
+     * <p>If the probe itself fails (network blip, GraphQL outage) we
+     * fall through to the direct REST merge — that's the historical
+     * behavior and worst-case the user just gets the underlying error
+     * back instead of an unrelated probe-failure error.
      */
     public MergeResult mergePullRequest(String pat, String repo, int number, long prId, String strategy)
     {
+        PullRequestRef ref = parseRef(repo, number);
+        Optional<PullRequestRepository.MergeQueueProbe> probe;
+        try {
+            probe = gitHub.probeMergeQueue(pat, ref);
+        }
+        catch (Exception e) {
+            log.debug("Merge queue probe failed for {}#{}, falling back to direct merge: {}",
+                    repo, number, e.getMessage());
+            probe = Optional.empty();
+        }
+        if (probe.isPresent()) {
+            MergeResult queued = gitHub.enqueuePullRequest(pat, probe.get().pullRequestNodeId());
+            // Drop the cached detail so the next /prs/detail call reflects
+            // the new "queued" state without waiting for the background
+            // sync. Don't markReviewed — the merge hasn't actually happened.
+            invalidatePullRequestDetail(repo, number);
+            repoListCache.invalidatePulls(parseRepoRef(repo));
+            return queued;
+        }
         MergePullRequestCommand command = strategyCommand(strategy);
-        MergeResult result = gitHub.mergePullRequest(pat, parseRef(repo, number), command);
+        MergeResult result = gitHub.mergePullRequest(pat, ref, command);
         viewStateStore.markReviewed(prId, HandledAction.MERGED);
         // Drop the cached detail so the next /prs/detail call re-pulls the
         // timeline and the new "merged" / "closed" events surface

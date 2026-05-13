@@ -103,7 +103,7 @@ const bridge: Bridge = {
     ipcRenderer.invoke('backend:clearSnoozeWakeReason', prId),
   approvePr: (prId: number, repo: string, number: number): Promise<void> =>
     ipcRenderer.invoke('backend:approvePr', prId, repo, number),
-  mergePr: (prId: number, repo: string, number: number, strategy?: 'rebase' | 'squash' | 'merge'): Promise<{ merged: boolean; message: string }> =>
+  mergePr: (prId: number, repo: string, number: number, strategy?: 'rebase' | 'squash' | 'merge'): Promise<{ merged: boolean; message: string; queued: boolean }> =>
     ipcRenderer.invoke('backend:mergePr', prId, repo, number, strategy),
   commentPr: (prId: number, repo: string, number: number, body: string, close: boolean): Promise<void> =>
     ipcRenderer.invoke('backend:commentPr', prId, repo, number, body, close),

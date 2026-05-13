@@ -73,6 +73,7 @@ import java.time.LocalDate;
 import java.util.Base64;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Optional;
@@ -1355,6 +1356,123 @@ public class GitHubClient
 
     @JsonIgnoreProperties(ignoreUnknown = true)
     record PullRequestIdGqlPr(String id) {}
+
+    // ── GraphQL: merge queue probe + enqueue ─────────────────────────────
+
+    @Override
+    public Optional<MergeQueueProbe> probeMergeQueue(String pat, PullRequestRef pr)
+    {
+        String query = "query($owner: String!, $name: String!, $number: Int!) {"
+                + " repository(owner: $owner, name: $name) {"
+                + "   pullRequest(number: $number) { id mergeQueue { id } }"
+                + " } }";
+        Map<String, Object> body = ImmutableMap.of(
+                "query", query,
+                "variables", ImmutableMap.of(
+                        "owner", pr.owner(),
+                        "name", pr.repo(),
+                        "number", pr.number()));
+        try {
+            MergeQueueProbeGqlResponse response = graphqlRestClient.post()
+                    .header("Authorization", "Bearer " + pat)
+                    .body(body)
+                    .retrieve()
+                    .body(MergeQueueProbeGqlResponse.class);
+            if (response == null
+                    || response.data() == null
+                    || response.data().repository() == null
+                    || response.data().repository().pullRequest() == null) {
+                return Optional.empty();
+            }
+            MergeQueueProbeGqlPr probe = response.data().repository().pullRequest();
+            // mergeQueue is non-null iff the PR's base branch has merge
+            // queue enabled. We don't care about queue.id beyond presence —
+            // the mutation takes the PR's node id, not the queue's.
+            if (probe.mergeQueue() == null || probe.mergeQueue().id() == null) {
+                return Optional.empty();
+            }
+            if (probe.id() == null) {
+                return Optional.empty();
+            }
+            return Optional.of(new MergeQueueProbe(probe.id()));
+        }
+        catch (RestClientResponseException e) {
+            throw toReadableException(e);
+        }
+    }
+
+    @Override
+    public MergeResult enqueuePullRequest(String pat, String pullRequestNodeId)
+    {
+        // enqueuePullRequest takes only the PR id — the queue's
+        // configured merge method overrides any caller preference. Reading
+        // back state lets us build a useful message ("queued at position
+        // 3, awaiting checks") rather than a bare success.
+        String mutation = "mutation($id: ID!) {"
+                + " enqueuePullRequest(input: { pullRequestId: $id }) {"
+                + "   mergeQueueEntry { id position state }"
+                + " } }";
+        Map<String, Object> body = ImmutableMap.of(
+                "query", mutation,
+                "variables", ImmutableMap.of("id", pullRequestNodeId));
+        try {
+            EnqueueGqlResponse response = graphqlRestClient.post()
+                    .header("Authorization", "Bearer " + pat)
+                    .body(body)
+                    .retrieve()
+                    .body(EnqueueGqlResponse.class);
+            EnqueueGqlEntry entry = response == null
+                    || response.data() == null
+                    || response.data().enqueuePullRequest() == null
+                            ? null
+                            : response.data().enqueuePullRequest().mergeQueueEntry();
+            String message;
+            if (entry == null) {
+                message = "Added to merge queue";
+            }
+            else if (entry.position() != null && entry.state() != null) {
+                message = "Added to merge queue (position " + entry.position()
+                        + ", " + entry.state().toLowerCase(Locale.ROOT).replace('_', ' ') + ")";
+            }
+            else if (entry.state() != null) {
+                message = "Added to merge queue (" + entry.state().toLowerCase(Locale.ROOT).replace('_', ' ') + ")";
+            }
+            else {
+                message = "Added to merge queue";
+            }
+            return MergeResult.enqueued(message);
+        }
+        catch (RestClientResponseException e) {
+            throw toReadableException(e);
+        }
+    }
+
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    record MergeQueueProbeGqlResponse(MergeQueueProbeGqlData data) {}
+
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    record MergeQueueProbeGqlData(MergeQueueProbeGqlRepo repository) {}
+
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    record MergeQueueProbeGqlRepo(MergeQueueProbeGqlPr pullRequest) {}
+
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    record MergeQueueProbeGqlPr(String id, MergeQueueProbeGqlQueue mergeQueue) {}
+
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    record MergeQueueProbeGqlQueue(String id) {}
+
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    record EnqueueGqlResponse(EnqueueGqlData data) {}
+
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    record EnqueueGqlData(EnqueueGqlPayload enqueuePullRequest) {}
+
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    record EnqueueGqlPayload(EnqueueGqlEntry mergeQueueEntry) {}
+
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    record EnqueueGqlEntry(String id, Integer position, String state) {}
 
     @Override
     public List<SuggestedReviewer> fetchSuggestedReviewers(String pat, PullRequestRef pr)

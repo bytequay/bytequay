@@ -315,7 +315,9 @@ function TeamDetailPage({ teamId, onBack, onOpenLocalBranch }: Props) {
   };
 
   /** Optimistic Merge: same shape as handleApprove but the PR also
-   *  moves to the Handled column on the next refresh. */
+   *  moves to the Handled column on the next refresh. When the backend
+   *  reports queued=true (merge queue accepted but didn't merge yet),
+   *  we roll the optimistic patch back so the row still reads as open. */
   const handleMerge = async (prId: number, repo: string, number: number, strategy?: 'rebase' | 'squash' | 'merge') => {
     const prev = selectedPr;
     if (selectedPr?.id === prId) {
@@ -328,8 +330,12 @@ function TeamDetailPage({ teamId, onBack, onOpenLocalBranch }: Props) {
       });
     }
     try {
-      await window.bridge.mergePr(prId, repo, number, strategy);
+      const result = await window.bridge.mergePr(prId, repo, number, strategy);
+      if (result?.queued && prev && prev.id === prId) {
+        setSelectedPr(prev);
+      }
       await load(true);
+      return result;
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
       if (prev && prev.id === prId) setSelectedPr(prev);

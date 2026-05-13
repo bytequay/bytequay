@@ -439,6 +439,38 @@ public interface PullRequestRepository
     }
 
     /**
+     * Asks GitHub whether the PR's target branch has merge queue enabled,
+     * and if so returns the PR's GraphQL node id so the caller can hand
+     * it to {@link #enqueuePullRequest}. {@code Optional.empty()} means
+     * "no queue on this branch — use the direct merge endpoint".
+     *
+     * <p>Single GraphQL round trip. Failures (network, auth) bubble as
+     * exceptions; callers that prefer to fall back to direct merge can
+     * catch and retry.
+     */
+    default Optional<MergeQueueProbe> probeMergeQueue(String pat, PullRequestRef pr)
+    {
+        throw new UnsupportedOperationException("probeMergeQueue not implemented");
+    }
+
+    /**
+     * Adds a pull request to the merge queue via the GraphQL
+     * {@code enqueuePullRequest} mutation. {@code pullRequestNodeId} is
+     * the GraphQL ID returned by {@link #probeMergeQueue}; REST integer
+     * ids do <strong>not</strong> work here. The queue's configured
+     * merge method overrides anything the caller might have picked, so
+     * there's no strategy parameter.
+     */
+    default MergeResult enqueuePullRequest(String pat, String pullRequestNodeId)
+    {
+        throw new UnsupportedOperationException("enqueuePullRequest not implemented");
+    }
+
+    /** Result of {@link #probeMergeQueue}. The PR's GraphQL node id is
+     *  what {@link #enqueuePullRequest} needs as input. */
+    record MergeQueueProbe(String pullRequestNodeId) {}
+
+    /**
      * Checks if a pull request has been merged.
      * Maps to: GET /repos/{owner}/{repo}/pulls/{pull_number}/merge
      */

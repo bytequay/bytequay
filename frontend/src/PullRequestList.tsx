@@ -320,7 +320,15 @@ function PullRequestList({ onGoToTeams, onOpenLocalBranch }: Props) {
     const previousMergedAt = previous?.mergedAt ?? null;
     updatePrState(prId, repo, mergedPatch());
     try {
-      await window.bridge.mergePr(prId, repo, number, strategy);
+      const result = await window.bridge.mergePr(prId, repo, number, strategy);
+      if (result?.queued) {
+        // Merge queue picked it up — PR is still open until its slot
+        // drains. Roll back the optimistic "merged" patch so the row
+        // doesn't lie; the MergeBar in the preview pane surfaces the
+        // queued state from the same result.
+        updatePrState(prId, repo, unmergedPatch(previousState, previousMergedAt));
+      }
+      return result;
     } catch (e) {
       updatePrState(prId, repo, unmergedPatch(previousState, previousMergedAt));
       throw e;

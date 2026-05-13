@@ -62,7 +62,7 @@
   min-width: 18px;
   height: 18px;
   padding: 0 5px;
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   font-size: 0.68rem;
   font-weight: 700;
   font-family: "SFMono-Regular", "SF Mono", "Cascadia Code", "Roboto Mono",
@@ -85,7 +85,7 @@
 .filter-input {
   width: 100%;
   border: 1px solid var(--border-input);
-  border-radius: 10px;
+  border-radius: var(--radius-lg);
   padding: 8px 12px;
   font: inherit;
   font-size: 0.88rem;
@@ -108,7 +108,7 @@
 .list-pane__footer {
   display: flex;
   justify-content: flex-end;
-  gap: 16px;
+  gap: var(--space-4);
   padding: 8px 14px;
   border-top: 1px solid var(--border-light);
   flex-shrink: 0;
@@ -176,7 +176,7 @@
   margin: 3px 8px;
   text-align: left;
   border: 1px solid var(--border-light);
-  border-radius: 10px;
+  border-radius: var(--radius-lg);
   padding: 9px 12px;
   background: var(--bg-card);
   font: inherit;
@@ -222,7 +222,7 @@
   display: flex;
   justify-content: space-between;
   align-items: baseline;
-  gap: 8px;
+  gap: var(--space-2);
   margin-bottom: 2px;
 }
 
@@ -282,7 +282,7 @@
   font-size: 0.68rem;
   font-weight: 600;
   padding: 1px 6px;
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   letter-spacing: 0.04em;
   text-transform: uppercase;
 }
@@ -357,7 +357,7 @@
    to single column. */
 .preview__grid {
   display: flex;
-  gap: 16px;
+  gap: var(--space-4);
   align-items: stretch;
   flex: 1 1 0;
   min-height: 0;
@@ -371,7 +371,7 @@
   display: flex;
   flex-direction: column;
   overflow: hidden;
-  gap: 8px;
+  gap: var(--space-2);
 }
 
 /* Description gets a visible card boundary so its area is clear even when
@@ -391,7 +391,7 @@
   overflow-y: auto;
   padding: 12px 14px;
   border: 1px solid var(--border);
-  border-radius: 6px;
+  border-radius: var(--radius-md);
   background: var(--bg-elevated);
 }
 
@@ -407,7 +407,7 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 8px;
+  gap: var(--space-2);
   margin-bottom: 4px;
 }
 
@@ -420,10 +420,10 @@
   border: 1px solid transparent;
   color: var(--text-3);
   font: inherit;
-  font-size: 11px;
+  font-size: var(--font-size-xs);
   letter-spacing: 0.03em;
   padding: 1px 8px;
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
   cursor: pointer;
   transition: color 0.1s, background 0.1s, border-color 0.1s;
 }
@@ -438,7 +438,7 @@
   padding: 8px;
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: var(--space-2);
   /* override the default description-card padding/scroll — while editing we
      let the textarea do its own sizing and don't render markdown. */
   overflow: visible;
@@ -455,11 +455,11 @@
   resize: vertical;
   padding: 10px 12px;
   border: 1px solid var(--border);
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
   background: var(--bg-base);
   color: var(--text-1);
   font: inherit;
-  font-size: 13px;
+  font-size: var(--font-size-md);
   line-height: 1.5;
   box-sizing: border-box;
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, monospace;
@@ -473,13 +473,13 @@
 
 .description-card__actions {
   display: flex;
-  gap: 8px;
+  gap: var(--space-2);
   align-items: center;
 }
 
 .description-card__error {
   color: #cf222e;
-  font-size: 12px;
+  font-size: var(--font-size-sm);
   white-space: pre-wrap;
 }
 
@@ -494,11 +494,11 @@
   border: 1px solid transparent;
   color: var(--text-3);
   font: inherit;
-  font-size: 11px;
+  font-size: var(--font-size-xs);
   letter-spacing: 0.03em;
   padding: 1px 8px;
   margin-top: 4px;
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
   cursor: pointer;
   transition: color 0.1s, background 0.1s, border-color 0.1s;
 }
@@ -511,7 +511,7 @@
 .editable-comment-body--editing {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: var(--space-2);
 }
 
 .editable-comment-body__textarea {
@@ -519,11 +519,11 @@
   resize: vertical;
   padding: 10px 12px;
   border: 1px solid var(--border);
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
   background: var(--bg-base);
   color: var(--text-1);
   font: inherit;
-  font-size: 13px;
+  font-size: var(--font-size-md);
   line-height: 1.5;
   box-sizing: border-box;
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, monospace;
@@ -536,13 +536,13 @@
 
 .editable-comment-body__actions {
   display: flex;
-  gap: 8px;
+  gap: var(--space-2);
   align-items: center;
 }
 
 .editable-comment-body__error {
   color: #cf222e;
-  font-size: 12px;
+  font-size: var(--font-size-sm);
   white-space: pre-wrap;
 }
 
@@ -570,7 +570,7 @@
   overflow-y: auto;
   padding: 0;
   border: 1px solid var(--border);
-  border-radius: 6px;
+  border-radius: var(--radius-md);
   background: var(--bg-elevated);
 }
 
@@ -579,7 +579,7 @@
   align-items: center;
   justify-content: space-between;
   padding: 8px 12px;
-  font-size: 11px;
+  font-size: var(--font-size-xs);
   font-weight: 600;
   letter-spacing: 0.05em;
   text-transform: uppercase;
@@ -594,7 +594,7 @@
   color: var(--text-2);
   background: var(--accent-a7);
   padding: 1px 7px;
-  border-radius: 10px;
+  border-radius: var(--radius-lg);
 }
 
 .preview__side .activity-list {
@@ -661,7 +661,7 @@
   border: 0;
   padding: 0;
   margin-bottom: 8px;
-  font-size: 12px;
+  font-size: var(--font-size-sm);
   color: var(--text-3);
   cursor: pointer;
   display: inline-block;
@@ -810,7 +810,7 @@
 .reviewers-list {
   display: flex;
   flex-wrap: wrap;
-  gap: 8px;
+  gap: var(--space-2);
   align-items: center;
 }
 
@@ -820,10 +820,10 @@
   gap: 6px;
   padding: 3px 10px 3px 4px;
   border: 1px solid var(--border);
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   background: var(--bg-elevated);
   color: var(--text-1);
-  font-size: 12px;
+  font-size: var(--font-size-sm);
   text-decoration: none;
   transition: background 0.1s, border-color 0.1s;
 }
@@ -841,8 +841,8 @@
   display: inline-flex;
   align-items: center;
   padding: 2px 10px;
-  border-radius: 999px;
-  font-size: 12px;
+  border-radius: var(--radius-pill);
+  font-size: var(--font-size-sm);
   font-weight: 500;
 }
 
@@ -879,7 +879,7 @@
 .pr-comment-box--collapsed {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--space-2);
   width: 100%;
   text-align: left;
   /* Sized for an obvious click target: 15px text + 18px vertical
@@ -889,7 +889,7 @@
   background: var(--bg-elevated);
   border: 1px solid var(--border);
   border-left: 3px solid var(--accent);
-  border-radius: 6px;
+  border-radius: var(--radius-md);
   color: var(--text-2);
   cursor: text;
   font: inherit;
@@ -912,7 +912,7 @@
   content: '✎';
   margin-right: 8px;
   color: var(--accent);
-  font-size: 14px;
+  font-size: var(--font-size-lg);
 }
 
 /* Expanded state gets an accent border too so the two states feel part of
@@ -927,10 +927,10 @@
   background: transparent;
   color: var(--text-3);
   font: inherit;
-  font-size: 12px;
+  font-size: var(--font-size-sm);
   cursor: pointer;
   padding: 4px 8px;
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
 }
 
 .pr-comment-box__cancel:hover {
@@ -953,7 +953,7 @@
   border-radius: 3px 3px 0 0;
   padding: 2px 10px;
   font: inherit;
-  font-size: 11px;
+  font-size: var(--font-size-xs);
   color: var(--text-2);
   cursor: pointer;
 }
@@ -989,7 +989,7 @@
   /* Match github.com's review-comment input: 14px is the same size
      they use, larger than our previous 12.5px which made quoted
      blocks hard to read at a glance. */
-  font-size: 14px;
+  font-size: var(--font-size-lg);
   line-height: 1.5;
   box-sizing: border-box;
 }
@@ -1017,7 +1017,7 @@
 
 .pr-comment-box__actions .button {
   padding: 4px 10px;
-  font-size: 12px;
+  font-size: var(--font-size-sm);
 }
 
 .pr-comment-box__error {
@@ -1033,7 +1033,7 @@
 
 .ci-summary {
   border: 1px solid var(--border);
-  border-radius: 6px;
+  border-radius: var(--radius-md);
   padding: 6px 12px;
   background: var(--bg-elevated);
 }
@@ -1056,8 +1056,8 @@
 .ci-summary__row {
   display: flex;
   align-items: center;
-  gap: 8px;
-  font-size: 13px;
+  gap: var(--space-2);
+  font-size: var(--font-size-md);
   width: 100%;
   background: transparent;
   border: none;
@@ -1079,7 +1079,7 @@
 .ci-summary__chevron {
   margin-left: auto;
   color: var(--text-3);
-  font-size: 11px;
+  font-size: var(--font-size-xs);
   user-select: none;
   transition: color 0.12s;
 }
@@ -1091,7 +1091,7 @@
 
 .ci-summary__count {
   color: var(--text-3);
-  font-size: 12px;
+  font-size: var(--font-size-sm);
 }
 
 .ci-failing-list {
@@ -1105,19 +1105,19 @@
 .ci-failing-row {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--space-2);
   padding: 4px 10px;
   background: var(--bg-base);
   border: 1px solid rgba(207, 34, 46, 0.25);
-  border-radius: 4px;
-  font-size: 12px;
+  border-radius: var(--radius-sm);
+  font-size: var(--font-size-sm);
 }
 
 .ci-failing-row__icon {
   flex: 0 0 auto;
   color: #cf222e;
   font-weight: 700;
-  font-size: 11px;
+  font-size: var(--font-size-xs);
 }
 
 .ci-failing-row__name {
@@ -1132,7 +1132,7 @@
 
 .ci-failing-row__reason {
   color: #cf222e;
-  font-size: 11px;
+  font-size: var(--font-size-xs);
   font-weight: 500;
   flex: 0 0 auto;
 }
@@ -1140,7 +1140,7 @@
 .ci-failing-row__link {
   color: var(--accent);
   text-decoration: none;
-  font-size: 12px;
+  font-size: var(--font-size-sm);
   flex: 0 0 auto;
 }
 
@@ -1155,8 +1155,8 @@
   flex: 1;
   display: flex;
   align-items: center;
-  gap: 8px;
-  font-size: 13px;
+  gap: var(--space-2);
+  font-size: var(--font-size-md);
   background: transparent;
   border: none;
   padding: 0;
@@ -1184,8 +1184,8 @@
   color: var(--text-3);
   cursor: pointer;
   padding: 2px 6px;
-  border-radius: 4px;
-  font-size: 14px;
+  border-radius: var(--radius-sm);
+  font-size: var(--font-size-lg);
   line-height: 1;
 }
 .ci-summary__refresh:hover:not(:disabled) {
@@ -1216,7 +1216,7 @@
   flex-direction: column;
   gap: 10px;
   padding: 8px 12px;
-  border-radius: 6px;
+  border-radius: var(--radius-md);
   border: 1px solid var(--border);
   background: var(--bg-elevated);
   margin-bottom: 8px;
@@ -1267,11 +1267,11 @@
   flex: 1;
 }
 .merge-bar__approvals {
-  font-size: 13px;
+  font-size: var(--font-size-md);
   color: var(--text-1);
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--space-2);
 }
 .merge-bar__approvals-empty {
   font-weight: 600;
@@ -1307,11 +1307,11 @@
   font-weight: 500;
 }
 .merge-bar__reason {
-  font-size: 11px;
+  font-size: var(--font-size-xs);
   color: var(--text-3);
 }
 .merge-bar__error {
-  font-size: 11px;
+  font-size: var(--font-size-xs);
   color: #cf222e;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -1324,7 +1324,7 @@
    error tint so the user reads it as "not implemented" rather than
    "your merge failed". */
 .merge-bar__queue-notice {
-  font-size: 11px;
+  font-size: var(--font-size-xs);
   color: var(--text-2);
   overflow: hidden;
   text-overflow: ellipsis;
@@ -1337,9 +1337,9 @@
   background: #2da44e;
   color: #fff;
   padding: 6px 14px;
-  font-size: 13px;
+  font-size: var(--font-size-md);
   font-weight: 600;
-  border-radius: 6px;
+  border-radius: var(--radius-md);
   cursor: pointer;
   flex-shrink: 0;
 }
@@ -1370,7 +1370,7 @@
   border-top-left-radius: 0;
   border-bottom-left-radius: 0;
   padding: 6px 9px;
-  font-size: 11px;
+  font-size: var(--font-size-xs);
 }
 
 /* Strategy menu — drops below the caret button. Wide enough that the
@@ -1411,7 +1411,7 @@
   background: transparent;
   width: 100%;
   text-align: left;
-  border-radius: 6px;
+  border-radius: var(--radius-md);
   cursor: pointer;
   color: var(--text-1);
   font: inherit;
@@ -1424,14 +1424,14 @@
 }
 .merge-bar__strategy-option-label {
   font-weight: 600;
-  font-size: 13px;
+  font-size: var(--font-size-md);
 }
 .merge-bar__strategy-option--active .merge-bar__strategy-option-label::before {
   content: '✓ ';
   color: var(--accent);
 }
 .merge-bar__strategy-option-hint {
-  font-size: 11px;
+  font-size: var(--font-size-xs);
   color: var(--text-3);
   white-space: normal;
   line-height: 1.35;
@@ -1442,8 +1442,8 @@
   background: var(--bg-card);
   color: var(--text-2);
   padding: 6px 12px;
-  font-size: 13px;
-  border-radius: 6px;
+  font-size: var(--font-size-md);
+  border-radius: var(--radius-md);
   cursor: pointer;
 }
 .merge-bar__cancel:hover:not(:disabled) {
@@ -1463,7 +1463,7 @@
 }
 .merge-confirm__body {
   padding: 4px 18px 12px;
-  font-size: 13px;
+  font-size: var(--font-size-md);
   color: var(--text-1);
 }
 .merge-confirm__body p {
@@ -1471,7 +1471,7 @@
 }
 .merge-confirm__sub {
   color: var(--text-3);
-  font-size: 12px;
+  font-size: var(--font-size-sm);
   overflow: hidden;
   text-overflow: ellipsis;
   display: -webkit-box;
@@ -1481,7 +1481,7 @@
 .merge-confirm__actions {
   display: flex;
   justify-content: flex-end;
-  gap: 8px;
+  gap: var(--space-2);
   padding: 10px 18px 16px;
 }
 
@@ -1495,11 +1495,11 @@
   align-items: center;
   gap: 6px;
   padding: 5px 10px;
-  border-radius: 6px;
+  border-radius: var(--radius-md);
   border: 1px solid #cf222e;
   background: #cf222e;
   color: #fff;
-  font-size: 13px;
+  font-size: var(--font-size-md);
   font-weight: 600;
   cursor: pointer;
   flex-shrink: 0;
@@ -1512,7 +1512,7 @@
   background: #b1212c;
 }
 .merge-bar__ci-fail-chevron {
-  font-size: 11px;
+  font-size: var(--font-size-xs);
   opacity: 0.85;
 }
 
@@ -1525,11 +1525,11 @@
   align-items: center;
   gap: 6px;
   padding: 5px 10px;
-  border-radius: 6px;
+  border-radius: var(--radius-md);
   border: 1px solid #1a7f37;
   background: #2da44e;
   color: #fff;
-  font-size: 13px;
+  font-size: var(--font-size-md);
   font-weight: 600;
   flex-shrink: 0;
   cursor: default;
@@ -1546,11 +1546,11 @@
   align-items: center;
   gap: 6px;
   padding: 5px 10px;
-  border-radius: 6px;
+  border-radius: var(--radius-md);
   border: 1px solid #c2410c;
   background: #ea580c;
   color: #fff;
-  font-size: 13px;
+  font-size: var(--font-size-md);
   font-weight: 600;
   flex-shrink: 0;
   text-decoration: none;
@@ -1566,7 +1566,7 @@
   background: #c2410c;
 }
 .merge-bar__conflict-chevron {
-  font-size: 11px;
+  font-size: var(--font-size-xs);
   opacity: 0.85;
 }
 
@@ -1581,8 +1581,8 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  gap: 12px;
-  font-size: 12px;
+  gap: var(--space-3);
+  font-size: var(--font-size-sm);
   color: #7c2d12;
   margin-bottom: 6px;
 }
@@ -1630,8 +1630,8 @@
   color: var(--text-3);
   cursor: pointer;
   padding: 4px 6px;
-  border-radius: 4px;
-  font-size: 14px;
+  border-radius: var(--radius-sm);
+  font-size: var(--font-size-lg);
   line-height: 1;
   flex-shrink: 0;
 }
@@ -1665,8 +1665,8 @@
   flex-direction: column;
   border: 1px solid rgba(207, 34, 46, 0.35);
   background: rgba(207, 34, 46, 0.06);
-  border-radius: 6px;
-  font-size: 12px;
+  border-radius: var(--radius-md);
+  font-size: var(--font-size-sm);
   overflow: hidden;
 }
 /* Header row of a failure card. Acts as the click target that toggles
@@ -1713,13 +1713,13 @@
 }
 .merge-bar__failure-reason {
   color: #cf222e;
-  font-size: 11px;
+  font-size: var(--font-size-xs);
 }
 .merge-bar__failure-link {
   flex-shrink: 0;
   color: var(--accent);
   text-decoration: none;
-  font-size: 12px;
+  font-size: var(--font-size-sm);
 }
 .merge-bar__failure-link:hover {
   text-decoration: underline;
@@ -1727,7 +1727,7 @@
 .merge-bar__failure-chevron {
   flex-shrink: 0;
   color: #cf222e;
-  font-size: 11px;
+  font-size: var(--font-size-xs);
   opacity: 0.85;
 }
 
@@ -1743,12 +1743,12 @@
   padding: 10px 12px;
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: var(--space-2);
 }
 .merge-bar__failure-pre {
   margin: 0;
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, monospace;
-  font-size: 11px;
+  font-size: var(--font-size-xs);
   line-height: 1.45;
   /* Use --text-2 (not --text-1) for monospace blocks. On the dark
      theme this picks Atom One Dark's authentic editor foreground
@@ -1766,7 +1766,7 @@
   border: none;
   background: transparent;
   color: var(--accent);
-  font-size: 11px;
+  font-size: var(--font-size-xs);
   cursor: pointer;
   padding: 0;
 }
@@ -1792,7 +1792,7 @@
   display: flex;
 }
 .merge-bar__failure-log-status {
-  font-size: 11px;
+  font-size: var(--font-size-xs);
   color: var(--text-3);
   font-style: italic;
 }
@@ -1807,7 +1807,7 @@
   max-height: 480px;
   background: var(--bg-base);
   border: 1px solid var(--border);
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
   padding: 8px 10px;
 }
 /* Inline highlight for [ERROR] / [FAILURE] / Caused by / Exception
@@ -1830,10 +1830,10 @@
   border: 1px solid var(--accent-a40, rgba(99, 102, 241, 0.3));
   background: var(--accent-a7, rgba(99, 102, 241, 0.08));
   color: var(--accent, #4f46e5);
-  font-size: 11px;
+  font-size: var(--font-size-xs);
   font-weight: 600;
   padding: 3px 10px;
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
   cursor: pointer;
 }
 .merge-bar__failure-ai-btn:hover:not(:disabled) {
@@ -1846,7 +1846,7 @@
 .merge-bar__failure-log-bar {
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--space-2);
 }
 
 /* AI response card — appears below the log when the user asks for a
@@ -1856,7 +1856,7 @@
 .merge-bar__failure-ai {
   border: 1px solid var(--accent-a40, rgba(99, 102, 241, 0.3));
   background: var(--accent-a7, rgba(99, 102, 241, 0.05));
-  border-radius: 6px;
+  border-radius: var(--radius-md);
   overflow: hidden;
 }
 .merge-bar__failure-ai-head {
@@ -1865,22 +1865,22 @@
   gap: 6px;
   padding: 6px 10px;
   background: var(--accent-a20, rgba(99, 102, 241, 0.12));
-  font-size: 11px;
+  font-size: var(--font-size-xs);
   font-weight: 600;
   color: var(--accent, #4f46e5);
 }
 .merge-bar__failure-ai-body {
   padding: 8px 12px 10px;
-  font-size: 12px;
+  font-size: var(--font-size-sm);
   color: var(--text-1);
 }
 .merge-bar__failure-ai-body p { margin: 4px 0; }
 .merge-bar__failure-ai-body pre {
   background: var(--bg-base);
   border: 1px solid var(--border);
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
   padding: 6px 8px;
-  font-size: 11px;
+  font-size: var(--font-size-xs);
   overflow-x: auto;
 }
 .merge-bar__failure-ai-body code {
@@ -1888,7 +1888,7 @@
   padding: 1px 4px;
   border-radius: 3px;
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, monospace;
-  font-size: 11px;
+  font-size: var(--font-size-xs);
 }
 .merge-bar__failure-ai-body pre code {
   background: transparent;
@@ -1921,7 +1921,7 @@
 .md-ref-issue {
   display: inline-block;
   padding: 0 5px;
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
   background: var(--accent-a10);
   color: var(--accent);
   font-weight: 500;
@@ -1988,7 +1988,7 @@
   font-size: 0.82em;
   background: var(--accent-a7);
   border: 1px solid var(--border-light);
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
   padding: 1px 5px;
   color: var(--text-2);
 }
@@ -2049,7 +2049,7 @@
 
 .md-body img {
   max-width: 100%;
-  border-radius: 6px;
+  border-radius: var(--radius-md);
 }
 
 /* File list */
@@ -2070,7 +2070,7 @@
   padding: 8px 14px;
   background: var(--bg-card);
   border-top: 1px solid var(--border-hairline);
-  gap: 12px;
+  gap: var(--space-3);
 }
 
 .file-row:first-child {
@@ -2133,7 +2133,7 @@
 .activity-item {
   display: grid;
   grid-template-columns: 24px minmax(0, 1fr);
-  gap: 8px;
+  gap: var(--space-2);
   padding: 10px 0;
   align-items: flex-start;
   border-bottom: 1px solid var(--border);
@@ -2188,7 +2188,7 @@
 .activity-item__body pre {
   background: var(--bg-elevated);
   border: 1px solid var(--border);
-  border-radius: 6px;
+  border-radius: var(--radius-md);
   padding: 8px 10px;
   margin: 6px 0;
   font-size: 11.5px;
@@ -2217,7 +2217,7 @@
 .review-threads {
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: var(--space-3);
   padding: 0 12px 12px;
 }
 .review-threads__divider {
@@ -2241,11 +2241,11 @@
   border-bottom: 1px solid var(--border);
   display: flex;
   align-items: center;
-  gap: 8px;
+  gap: var(--space-2);
 }
 .review-thread__loc {
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, monospace;
-  font-size: 11px;
+  font-size: var(--font-size-xs);
   color: var(--text-1);
   font-weight: 500;
 }
@@ -2282,7 +2282,7 @@
 }
 .review-thread__msg {
   display: flex;
-  gap: 8px;
+  gap: var(--space-2);
   align-items: flex-start;
 }
 .review-thread__avatar { flex-shrink: 0; margin-top: 2px; }
@@ -2302,7 +2302,7 @@
 .review-thread__author:hover { text-decoration: underline; }
 .review-thread__time { color: var(--text-3); font-size: 10.5px; }
 .review-thread__msg-text {
-  font-size: 12px;
+  font-size: var(--font-size-sm);
   color: var(--text-1);
   line-height: 1.55;
   overflow-wrap: break-word;
@@ -2314,7 +2314,7 @@
   background: var(--bg-elevated);
   padding: 1px 4px;
   border-radius: 3px;
-  font-size: 11px;
+  font-size: var(--font-size-xs);
 }
 .review-thread__msg-text pre {
   background: var(--bg-elevated);
@@ -2323,7 +2323,7 @@
   padding: 6px 8px;
   margin: 4px 0;
   overflow-x: auto;
-  font-size: 11px;
+  font-size: var(--font-size-xs);
 }
 .review-thread__msg-text pre code { background: transparent; padding: 0; }
 .review-thread__msg-text a { color: var(--accent); }
@@ -2390,7 +2390,7 @@
 
 .activity-item__time {
   color: var(--text-4);
-  font-size: 11px;
+  font-size: var(--font-size-xs);
   margin-left: 4px;
   white-space: nowrap;
 }

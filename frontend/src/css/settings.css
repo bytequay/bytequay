@@ -2,7 +2,7 @@
 
 .settings-tabs {
   display: flex;
-  gap: 4px;
+  gap: var(--space-1);
   border-bottom: 1px solid var(--border);
   margin: -8px -4px 20px;
   padding: 0 4px;
@@ -14,7 +14,7 @@
   background: transparent;
   padding: 10px 14px;
   font: inherit;
-  font-size: 14px;
+  font-size: var(--font-size-lg);
   font-weight: 500;
   color: var(--text-3);
   cursor: pointer;
@@ -39,19 +39,19 @@
   display: flex;
   align-items: flex-start;
   justify-content: space-between;
-  gap: 16px;
+  gap: var(--space-4);
   margin-bottom: 12px;
 }
 
 .credentials-tab__title {
   margin: 0 0 4px;
-  font-size: 14px;
+  font-size: var(--font-size-lg);
   font-weight: 600;
 }
 
 .credentials-tab__subtitle {
   margin: 0;
-  font-size: 12px;
+  font-size: var(--font-size-sm);
   color: var(--text-3);
   line-height: 1.5;
   max-width: 480px;
@@ -59,7 +59,7 @@
 
 .credentials-tab__state,
 .credentials-tab__error {
-  font-size: 13px;
+  font-size: var(--font-size-md);
   color: var(--text-3);
   padding: 12px 0;
 }
@@ -72,7 +72,7 @@
   padding: 20px;
   text-align: center;
   color: var(--text-3);
-  font-size: 13px;
+  font-size: var(--font-size-md);
   line-height: 1.6;
 }
 
@@ -92,7 +92,7 @@
 
 .credentials-row {
   display: flex;
-  gap: 16px;
+  gap: var(--space-4);
   border: 1px solid var(--border);
   background: var(--bg-elevated);
   border-radius: 8px;
@@ -109,11 +109,11 @@
 }
 
 .credentials-row__kind {
-  font-size: 11px;
+  font-size: var(--font-size-xs);
   font-weight: 700;
   letter-spacing: 0.4px;
   padding: 2px 7px;
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
   background: var(--accent-a10);
   color: var(--accent);
   text-transform: uppercase;
@@ -125,7 +125,7 @@
 .credentials-row__kind--local_llm_endpoint { background: rgba(97, 175, 239, 0.18); color: #3e6bb1; }
 
 .credentials-row__label {
-  font-size: 12px;
+  font-size: var(--font-size-sm);
   color: var(--text-2);
   font-weight: 500;
 }
@@ -134,7 +134,7 @@
    for the same provider (e.g. two DeepSeek keys named "personal" and
    "work"). Always present; defaults to "default api". */
 .credentials-row__instance {
-  font-size: 11px;
+  font-size: var(--font-size-xs);
   color: var(--text-3);
   font-family: var(--font-mono, ui-monospace, SFMono-Regular, monospace);
   background: var(--bg-card);
@@ -145,7 +145,7 @@
 
 .credentials-row__preview {
   font-family: var(--font-mono, ui-monospace, SFMono-Regular, monospace);
-  font-size: 13px;
+  font-size: var(--font-size-md);
   color: var(--text-1);
   margin-bottom: 4px;
 }
@@ -153,12 +153,12 @@
 .credentials-row__preview code {
   background: rgba(0, 0, 0, 0.04);
   padding: 2px 6px;
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
 }
 
 .credentials-row__usage,
 .credentials-row__notes {
-  font-size: 12px;
+  font-size: var(--font-size-sm);
   color: var(--text-3);
   line-height: 1.5;
   margin-bottom: 2px;
@@ -167,7 +167,7 @@
 .credentials-row__notes { font-style: italic; }
 
 .credentials-row__timestamps {
-  font-size: 11px;
+  font-size: var(--font-size-xs);
   color: var(--text-3);
   margin-top: 4px;
 }
@@ -181,7 +181,7 @@
 
 .button--small {
   padding: 4px 10px;
-  font-size: 12px;
+  font-size: var(--font-size-sm);
 }
 
 /* Credential editor form */
@@ -206,7 +206,7 @@
 }
 
 .credentials-editor__label {
-  font-size: 12px;
+  font-size: var(--font-size-sm);
   font-weight: 600;
   color: var(--text-2);
 }
@@ -218,28 +218,28 @@
   background: var(--bg-input);
   color: var(--text-1);
   padding: 8px 10px;
-  border-radius: 6px;
+  border-radius: var(--radius-md);
   font: inherit;
-  font-size: 13px;
+  font-size: var(--font-size-md);
 }
 
 .credentials-editor__textarea { resize: vertical; min-height: 50px; }
 
 .credentials-editor__hint {
   margin: 0;
-  font-size: 11px;
+  font-size: var(--font-size-xs);
   color: var(--text-3);
 }
 
 .credentials-editor__error {
   margin: 0;
-  font-size: 12px;
+  font-size: var(--font-size-sm);
   color: #aa4e3e;
 }
 
 .credentials-editor__actions {
   display: flex;
-  gap: 8px;
+  gap: var(--space-2);
   margin-top: 4px;
 }
 
@@ -248,7 +248,7 @@
 .credentials-provider-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
-  gap: 8px;
+  gap: var(--space-2);
   margin-bottom: 14px;
 }
 
@@ -259,9 +259,9 @@
   padding: 10px 12px;
   border: 1px solid var(--border);
   background: var(--bg-elevated);
-  border-radius: 6px;
+  border-radius: var(--radius-md);
   cursor: pointer;
-  font-size: 13px;
+  font-size: var(--font-size-md);
 }
 
 .credentials-provider--active {
@@ -277,7 +277,7 @@
 .credentials-provider__name { flex: 1; font-weight: 500; }
 
 .credentials-provider__status {
-  font-size: 11px;
+  font-size: var(--font-size-xs);
   font-weight: 600;
   color: var(--text-3);
 }
@@ -300,11 +300,11 @@
 .settings-advanced-details > summary {
   cursor: pointer;
   padding: 6px 12px;
-  font-size: 13px;
+  font-size: var(--font-size-md);
   font-weight: 500;
   color: var(--text-2);
   border: 1px dashed var(--border);
-  border-radius: 6px;
+  border-radius: var(--radius-md);
   user-select: none;
 }
 .settings-advanced-details > summary:hover {

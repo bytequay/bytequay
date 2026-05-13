@@ -278,11 +278,6 @@ button.prc-branches__ref--clickable:hover {
   grid-template-columns: minmax(0, 1fr) 320px;
   min-height: 0;
 }
-/* Collapsed-sidebar variant: rail shrinks to just the toggle's
-   footprint so the conversation column can claim the rest. */
-.prc-body--sidebar-collapsed {
-  grid-template-columns: minmax(0, 1fr) 36px;
-}
 
 /* ── Conversation timeline (left column) ───────────────────────────── */
 /* Dialog-style layout: comment-card avatars sit OUTSIDE the bubble on
@@ -1511,42 +1506,6 @@ button.prc-branches__ref--clickable:hover {
   flex-direction: column;
   gap: 18px;
   min-height: 0;
-}
-/* Collapsed: shrink to a rail with just the expand affordance. The
-   prc-body grid is what actually narrows the column to 36px; here
-   we only tighten internal padding so the toggle button is centered
-   in the rail rather than offset toward the left. */
-.prc-sidebar--collapsed {
-  padding: 12px 4px;
-  gap: 0;
-  align-items: center;
-  overflow: hidden;
-}
-.prc-sidebar__toggle {
-  appearance: none;
-  background: transparent;
-  border: 1px solid var(--border-light);
-  border-radius: var(--radius-sm);
-  cursor: pointer;
-  color: var(--text-3);
-  width: 24px;
-  height: 24px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  font-size: var(--font-size-md);
-  line-height: 1;
-  align-self: flex-end;
-  flex-shrink: 0;
-  transition: background-color 100ms ease, color 100ms ease, border-color 100ms ease;
-}
-.prc-sidebar--collapsed .prc-sidebar__toggle {
-  align-self: center;
-}
-.prc-sidebar__toggle:hover {
-  background: var(--bg-base);
-  color: var(--text-1);
-  border-color: var(--border);
 }
 .prc-meta-section { display: flex; flex-direction: column; gap: 6px; }
 .prc-meta-label {

@@ -257,7 +257,10 @@ public class EmailService
     {
         requireNonBlank(email, "email");
         requireNonBlank(threadId, "threadId");
-        rejectIfImap(email, "archive thread");
+        if (imapAuth.isConnected(email)) {
+            imapClient.archiveThread(email, imapAuth.getAppPassword(email), threadId);
+            return;
+        }
         runWithToken(email, accessToken -> {
             gmail.modifyThread(accessToken, threadId, ImmutableList.of(), ImmutableList.of("INBOX"));
             return null;
@@ -272,7 +275,10 @@ public class EmailService
     {
         requireNonBlank(email, "email");
         requireNonBlank(threadId, "threadId");
-        rejectIfImap(email, "mark thread read");
+        if (imapAuth.isConnected(email)) {
+            imapClient.markThreadRead(email, imapAuth.getAppPassword(email), threadId);
+            return;
+        }
         runWithToken(email, accessToken -> {
             gmail.modifyThread(accessToken, threadId, ImmutableList.of(), ImmutableList.of("UNREAD"));
             return null;
@@ -285,7 +291,10 @@ public class EmailService
     {
         requireNonBlank(email, "email");
         requireNonBlank(threadId, "threadId");
-        rejectIfImap(email, "mark thread unread");
+        if (imapAuth.isConnected(email)) {
+            imapClient.markThreadUnread(email, imapAuth.getAppPassword(email), threadId);
+            return;
+        }
         runWithToken(email, accessToken -> {
             gmail.modifyThread(accessToken, threadId, ImmutableList.of("UNREAD"), ImmutableList.of());
             return null;
@@ -302,7 +311,10 @@ public class EmailService
     {
         requireNonBlank(email, "email");
         requireNonBlank(threadId, "threadId");
-        rejectIfImap(email, "read+archive thread");
+        if (imapAuth.isConnected(email)) {
+            imapClient.readAndArchiveThread(email, imapAuth.getAppPassword(email), threadId);
+            return;
+        }
         runWithToken(email, accessToken -> {
             gmail.modifyThread(accessToken, threadId,
                     ImmutableList.of(), ImmutableList.of("INBOX", "UNREAD"));
@@ -420,7 +432,10 @@ public class EmailService
     {
         requireNonBlank(email, "email");
         requireNonBlank(threadId, "threadId");
-        rejectIfImap(email, "keep thread in inbox");
+        if (imapAuth.isConnected(email)) {
+            imapClient.keepThreadInInbox(email, imapAuth.getAppPassword(email), threadId);
+            return;
+        }
         runWithToken(email, accessToken -> {
             gmail.modifyThread(accessToken, threadId,
                     ImmutableList.of("INBOX"), ImmutableList.of("UNREAD"));

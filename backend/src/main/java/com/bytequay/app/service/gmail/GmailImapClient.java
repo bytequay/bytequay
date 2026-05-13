@@ -374,6 +374,124 @@ public class GmailImapClient
         String html;
     }
 
+    /** Sets the {@code \Seen} flag on every message in the thread. */
+    public void markThreadRead(String email, String appPassword, String threadId)
+    {
+        mutateThread(email, appPassword, threadId, (folder, msgs) ->
+                folder.setFlags(msgs, new Flags(Flags.Flag.SEEN), true));
+    }
+
+    /** Clears {@code \Seen} on every message in the thread. */
+    public void markThreadUnread(String email, String appPassword, String threadId)
+    {
+        mutateThread(email, appPassword, threadId, (folder, msgs) ->
+                folder.setFlags(msgs, new Flags(Flags.Flag.SEEN), false));
+    }
+
+    /** Removes the Gmail INBOX label from every message — Gmail's
+     *  "archive" semantics. The messages stay in All Mail and remain
+     *  reachable by thread-id search; only the INBOX listing changes. */
+    public void archiveThread(String email, String appPassword, String threadId)
+    {
+        mutateThread(email, appPassword, threadId, (folder, msgs) ->
+                folder.setLabels(msgs, INBOX_LABEL, false));
+    }
+
+    /** Single-round-trip "open and dismiss" — sets {@code \Seen} and
+     *  drops INBOX in one STORE batch per message. Mirrors the OAuth
+     *  path's {@code modifyThread(addInbox=[], remove=[INBOX, UNREAD])}. */
+    public void readAndArchiveThread(String email, String appPassword, String threadId)
+    {
+        mutateThread(email, appPassword, threadId, (folder, msgs) -> {
+            folder.setFlags(msgs, new Flags(Flags.Flag.SEEN), true);
+            folder.setLabels(msgs, INBOX_LABEL, false);
+        });
+    }
+
+    /** Inverse of archive: re-adds the INBOX label and clears unread,
+     *  matching the OAuth "Keep in inbox" semantics (re-adds INBOX,
+     *  removes UNREAD — the user just opened it, so leave it read). */
+    public void keepThreadInInbox(String email, String appPassword, String threadId)
+    {
+        mutateThread(email, appPassword, threadId, (folder, msgs) -> {
+            folder.setLabels(msgs, INBOX_LABEL, true);
+            folder.setFlags(msgs, new Flags(Flags.Flag.SEEN), true);
+        });
+    }
+
+    /** Gmail's INBOX is a system label exposed over IMAP X-GM-LABELS as
+     *  {@code \Inbox} (note the leading backslash — that's how the
+     *  protocol distinguishes built-in labels from user-defined ones).
+     *  Defined once so the call sites read cleanly and we don't fight
+     *  Java string-escape noise inline. */
+    private static final String[] INBOX_LABEL = {"\\Inbox"};
+
+    /**
+     * Connects, opens All Mail read-write, runs an X-GM-THRID search,
+     * and hands the resulting GmailFolder + Message[] to the caller.
+     * All Mail is the right folder regardless of the operation: it
+     * contains every message in the account so already-archived threads
+     * are reachable for "Keep in inbox", and adding/removing labels
+     * applies whether the thread is currently in INBOX or not.
+     *
+     * <p>Closes the folder with {@code expunge=false} — none of these
+     * mutations set {@code \Deleted}, so an expunge would only flush
+     * unrelated pending deletes that other clients might have queued.
+     */
+    private void mutateThread(String email, String appPassword, String threadId, ThreadMutator mutator)
+    {
+        long thrId;
+        try {
+            thrId = Long.parseUnsignedLong(threadId);
+        }
+        catch (NumberFormatException e) {
+            throw new ResponseStatusException(HttpStatusCode.valueOf(400),
+                    "threadId is not a Gmail thread id: " + threadId);
+        }
+        Session session = Session.getInstance(properties());
+        try (Store store = session.getStore(STORE_PROTOCOL)) {
+            connect(store, email, appPassword);
+            Folder allMail = store.getFolder(ALL_MAIL_FOLDER);
+            allMail.open(Folder.READ_WRITE);
+            try {
+                Message[] hits = allMail.search(new GmailThrIdTerm(thrId));
+                if (hits.length == 0) {
+                    throw new ResponseStatusException(HttpStatusCode.valueOf(404),
+                            "thread " + threadId + " not found in " + ALL_MAIL_FOLDER);
+                }
+                if (!(allMail instanceof GmailFolder gf)) {
+                    // Defensive: gimaps always returns a GmailFolder, but cast
+                    // safely so a provider misconfig surfaces as 500 not CCE.
+                    throw new ResponseStatusException(HttpStatusCode.valueOf(500),
+                            "Expected GmailFolder for All Mail, got " + allMail.getClass().getName());
+                }
+                mutator.apply(gf, hits);
+            }
+            finally {
+                allMail.close(false);
+            }
+        }
+        catch (NoSuchProviderException e) {
+            throw new ResponseStatusException(HttpStatusCode.valueOf(500),
+                    "Gmail IMAP provider missing from classpath", e);
+        }
+        catch (AuthenticationFailedException e) {
+            throw new ResponseStatusException(HttpStatusCode.valueOf(401),
+                    "Google rejected the login (check app password)", e);
+        }
+        catch (MessagingException e) {
+            throw new ResponseStatusException(HttpStatusCode.valueOf(502),
+                    "Gmail IMAP error: " + e.getMessage(), e);
+        }
+    }
+
+    @FunctionalInterface
+    private interface ThreadMutator
+    {
+        void apply(GmailFolder folder, Message[] messages)
+                throws MessagingException;
+    }
+
     private static MessageRow toRow(GmailMessage m)
             throws MessagingException
     {

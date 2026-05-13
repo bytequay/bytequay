@@ -403,13 +403,6 @@ export default function EmailPage({ onOpenIntegrationsSettings, onOpenLinkedRef 
         </div>
       </header>
 
-      {account?.authMode === 'IMAP' && (
-        <div className="email-page__hint">
-          IMAP backend: read, archive, and Keep-in-inbox all work. Reply isn't
-          wired yet — it lands with the SMTP slice.
-        </div>
-      )}
-
       {error && <div className="repo-error">{error}</div>}
 
       {account && threads != null && (() => {

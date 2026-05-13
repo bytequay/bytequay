@@ -32,6 +32,7 @@ import jakarta.mail.internet.MimeBodyPart;
 import jakarta.mail.internet.MimeMultipart;
 import org.eclipse.angus.mail.gimap.GmailFolder;
 import org.eclipse.angus.mail.gimap.GmailMessage;
+import org.eclipse.angus.mail.gimap.GmailMsgIdTerm;
 import org.eclipse.angus.mail.gimap.GmailThrIdTerm;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -372,6 +373,70 @@ public class GmailImapClient
     {
         String text;
         String html;
+    }
+
+    /**
+     * Reads the named RFC 822 headers from a single message identified
+     * by its X-GM-MSGID. Used by {@code EmailService.sendReply} to grab
+     * the original {@code Message-ID} + {@code References} so the
+     * outgoing reply threads correctly.
+     *
+     * <p>Returns the first value per header (RFC 822 allows duplicates;
+     * Gmail rarely emits them and the caller only cares about the first).
+     * Missing headers are simply absent from the map — callers default
+     * via {@link Map#getOrDefault}.
+     */
+    public Map<String, String> getMessageHeaders(
+            String email, String appPassword, String messageId, List<String> headerNames)
+    {
+        if (headerNames == null || headerNames.isEmpty()) {
+            return Map.of();
+        }
+        long msgId;
+        try {
+            msgId = Long.parseUnsignedLong(messageId);
+        }
+        catch (NumberFormatException e) {
+            throw new ResponseStatusException(HttpStatusCode.valueOf(400),
+                    "messageId is not a Gmail message id: " + messageId);
+        }
+        Session session = Session.getInstance(properties());
+        try (Store store = session.getStore(STORE_PROTOCOL)) {
+            connect(store, email, appPassword);
+            Folder allMail = store.getFolder(ALL_MAIL_FOLDER);
+            allMail.open(Folder.READ_ONLY);
+            try {
+                Message[] hits = allMail.search(new GmailMsgIdTerm(msgId));
+                if (hits.length == 0) {
+                    throw new ResponseStatusException(HttpStatusCode.valueOf(404),
+                            "message " + messageId + " not found in " + ALL_MAIL_FOLDER);
+                }
+                Message m = hits[0];
+                Map<String, String> out = new LinkedHashMap<>();
+                for (String name : headerNames) {
+                    String[] vals = m.getHeader(name);
+                    if (vals != null && vals.length > 0 && vals[0] != null) {
+                        out.put(name, vals[0]);
+                    }
+                }
+                return out;
+            }
+            finally {
+                allMail.close(false);
+            }
+        }
+        catch (NoSuchProviderException e) {
+            throw new ResponseStatusException(HttpStatusCode.valueOf(500),
+                    "Gmail IMAP provider missing from classpath", e);
+        }
+        catch (AuthenticationFailedException e) {
+            throw new ResponseStatusException(HttpStatusCode.valueOf(401),
+                    "Google rejected the login (check app password)", e);
+        }
+        catch (MessagingException e) {
+            throw new ResponseStatusException(HttpStatusCode.valueOf(502),
+                    "Gmail IMAP error: " + e.getMessage(), e);
+        }
     }
 
     /** Sets the {@code \Seen} flag on every message in the thread. */

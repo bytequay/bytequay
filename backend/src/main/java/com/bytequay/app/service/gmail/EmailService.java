@@ -77,6 +77,7 @@ public class EmailService
     private final GmailApiClient gmail;
     private final GmailImapAuthService imapAuth;
     private final GmailImapClient imapClient;
+    private final GmailSmtpClient smtpClient;
     private final LinkDetector linkDetector;
     private final EmailHtmlEnricher htmlEnricher;
     private final EmailMessageStore store;
@@ -93,6 +94,7 @@ public class EmailService
             GmailApiClient gmail,
             GmailImapAuthService imapAuth,
             GmailImapClient imapClient,
+            GmailSmtpClient smtpClient,
             LinkDetector linkDetector,
             EmailHtmlEnricher htmlEnricher,
             EmailMessageStore store,
@@ -105,6 +107,7 @@ public class EmailService
         this.gmail = requireNonNull(gmail, "gmail is null");
         this.imapAuth = requireNonNull(imapAuth, "imapAuth is null");
         this.imapClient = requireNonNull(imapClient, "imapClient is null");
+        this.smtpClient = requireNonNull(smtpClient, "smtpClient is null");
         this.linkDetector = requireNonNull(linkDetector, "linkDetector is null");
         this.htmlEnricher = requireNonNull(htmlEnricher, "htmlEnricher is null");
         this.store = requireNonNull(store, "store is null");
@@ -341,7 +344,10 @@ public class EmailService
         if (body == null || body.isBlank()) {
             throw new ResponseStatusException(HttpStatusCode.valueOf(400), "body must not be blank");
         }
-        rejectIfImap(email, "reply to thread");
+        if (imapAuth.isConnected(email)) {
+            sendReplyViaSmtp(email, threadId, body);
+            return;
+        }
         runWithToken(email, accessToken -> {
             EmailThreadDetail thread = gmail.getThreadFull(accessToken, threadId);
             if (thread.messages().isEmpty()) {
@@ -357,13 +363,8 @@ public class EmailService
                     thread.subject() == null ? "" : thread.subject());
             String origFrom = headers.getOrDefault("From", last.from());
 
-            String replySubject = origSubject.toLowerCase(Locale.ROOT).startsWith("re:")
-                    ? origSubject
-                    : "Re: " + origSubject;
-            String references = origReferences != null && !origReferences.isBlank()
-                    ? origReferences + " " + (origMessageId != null ? origMessageId : "")
-                    : (origMessageId != null ? origMessageId : "");
-
+            String replySubject = buildReplySubject(origSubject);
+            String references = mergeReferences(origReferences, origMessageId);
             String quoted = quoteForReply(last);
             String fullBody = quoted.isEmpty() ? body : body + "\n\n" + quoted;
             String mime = buildPlainTextMime(origFrom, replySubject, origMessageId, references, fullBody);
@@ -381,6 +382,53 @@ public class EmailService
         catch (Exception e) {
             log.debug("Post-reply sync skipped: {}", e.getMessage());
         }
+    }
+
+    /** IMAP/SMTP twin of the OAuth path. Pulls headers + thread via
+     *  IMAP, hands the assembled MimeMessage to SMTP. No post-send sync
+     *  — the sent message lands in INBOX/All Mail at Google's pace and
+     *  the next inbox poll will pick it up. */
+    private void sendReplyViaSmtp(String email, String threadId, String body)
+    {
+        String appPassword = imapAuth.getAppPassword(email);
+        EmailThreadDetail thread = imapClient.getThreadFull(email, appPassword, threadId);
+        if (thread.messages().isEmpty()) {
+            throw new ResponseStatusException(HttpStatusCode.valueOf(404),
+                    "thread is empty");
+        }
+        EmailMessageDetail last = thread.messages().get(thread.messages().size() - 1);
+        Map<String, String> headers = imapClient.getMessageHeaders(email, appPassword, last.id(),
+                List.of("Message-ID", "References", "Subject", "From"));
+        String origMessageId = headers.get("Message-ID");
+        String origReferences = headers.get("References");
+        String origSubject = headers.getOrDefault("Subject",
+                thread.subject() == null ? "" : thread.subject());
+        String origFrom = headers.getOrDefault("From", last.from());
+
+        String replySubject = buildReplySubject(origSubject);
+        String references = mergeReferences(origReferences, origMessageId);
+        String quoted = quoteForReply(last);
+        String fullBody = quoted.isEmpty() ? body : body + "\n\n" + quoted;
+        smtpClient.sendReply(email, appPassword, origFrom, replySubject,
+                origMessageId, references, fullBody);
+    }
+
+    private static String buildReplySubject(String origSubject)
+    {
+        if (origSubject == null) {
+            return "Re:";
+        }
+        return origSubject.toLowerCase(Locale.ROOT).startsWith("re:")
+                ? origSubject
+                : "Re: " + origSubject;
+    }
+
+    private static String mergeReferences(String origReferences, String origMessageId)
+    {
+        if (origReferences != null && !origReferences.isBlank()) {
+            return origReferences + " " + (origMessageId != null ? origMessageId : "");
+        }
+        return origMessageId != null ? origMessageId : "";
     }
 
     private static String quoteForReply(EmailMessageDetail msg)
@@ -469,18 +517,6 @@ public class EmailService
         if (value == null || value.isBlank()) {
             throw new ResponseStatusException(HttpStatusCode.valueOf(400),
                     fieldName + " must not be blank");
-        }
-    }
-
-    /** IMAP backend currently only supports listing the inbox. Every
-     *  other operation (open thread, archive, mark read/unread, reply,
-     *  keep-in-inbox) lands here until the matching IMAP slice ships,
-     *  so the UI gets a clear 501 instead of a confusing OAuth error. */
-    private void rejectIfImap(String email, String operation)
-    {
-        if (imapAuth.isConnected(email)) {
-            throw new ResponseStatusException(HttpStatusCode.valueOf(501),
-                    "IMAP backend doesn't support " + operation + " yet — coming in a later slice");
         }
     }
 }

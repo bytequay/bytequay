@@ -29,7 +29,7 @@
 }
 
 .modal__title {
-  font-size: 14px;
+  font-size: var(--font-size-lg);
   font-weight: 600;
   color: var(--text-1);
   margin: 0;
@@ -39,10 +39,10 @@
   background: none;
   border: none;
   color: var(--text-3);
-  font-size: 14px;
+  font-size: var(--font-size-lg);
   cursor: pointer;
   padding: 2px 6px;
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
 }
 
 .modal__close:hover {
@@ -60,7 +60,7 @@
   border: 1px solid var(--border-input);
   border-radius: 8px;
   padding: 7px 12px;
-  font-size: 13px;
+  font-size: var(--font-size-md);
   color: var(--text-1);
   outline: none;
   font-family: inherit;
@@ -71,7 +71,7 @@
 }
 
 .modal__section-label {
-  font-size: 11px;
+  font-size: var(--font-size-xs);
   font-weight: 600;
   color: var(--text-3);
   text-transform: uppercase;
@@ -88,7 +88,7 @@
 .modal__loading,
 .modal__empty {
   padding: 16px;
-  font-size: 13px;
+  font-size: var(--font-size-md);
   color: var(--text-3);
   text-align: center;
 }
@@ -110,7 +110,7 @@
 .modal-repo-row__info {
   display: flex;
   align-items: flex-start;
-  gap: 8px;
+  gap: var(--space-2);
   min-width: 0;
   flex: 1;
 }
@@ -121,13 +121,13 @@
 }
 
 .modal-repo-row__name {
-  font-size: 13px;
+  font-size: var(--font-size-md);
   font-weight: 500;
   color: var(--text-1);
 }
 
 .modal-repo-row__desc {
-  font-size: 11px;
+  font-size: var(--font-size-xs);
   color: var(--text-3);
   margin-top: 2px;
   overflow: hidden;
@@ -138,8 +138,8 @@
 
 .modal-repo-row__meta {
   display: flex;
-  gap: 8px;
-  font-size: 11px;
+  gap: var(--space-2);
+  font-size: var(--font-size-xs);
   color: var(--text-4);
   margin-top: 2px;
 }
@@ -149,11 +149,11 @@
 }
 
 .modal-repo-row__badge {
-  font-size: 11px;
+  font-size: var(--font-size-xs);
   color: var(--text-3);
   background: var(--bg-card);
   border: 1px solid var(--border);
-  border-radius: 10px;
+  border-radius: var(--radius-lg);
   padding: 2px 8px;
   flex-shrink: 0;
 }
@@ -162,9 +162,9 @@
   background: var(--accent);
   color: #fff;
   border: none;
-  border-radius: 6px;
+  border-radius: var(--radius-md);
   padding: 4px 12px;
-  font-size: 12px;
+  font-size: var(--font-size-sm);
   cursor: pointer;
   flex-shrink: 0;
 }

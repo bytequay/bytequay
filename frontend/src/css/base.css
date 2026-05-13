@@ -223,7 +223,7 @@
 }
 
 .avatar--repo {
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
 }
 
 .avatar--repo-small {
@@ -342,10 +342,10 @@ pre {
 .route-error h2 { margin: 0; font-size: 16px; }
 .route-error__stack {
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: 12px;
+  font-size: var(--font-size-sm);
   background: var(--bg-elevated);
   border: 1px solid var(--border);
-  border-radius: 6px;
+  border-radius: var(--radius-md);
   padding: 10px 12px;
   white-space: pre-wrap;
   color: #b91c1c;
@@ -353,9 +353,9 @@ pre {
 }
 .route-error__btn {
   font: inherit;
-  font-size: 13px;
+  font-size: var(--font-size-md);
   padding: 6px 14px;
-  border-radius: 6px;
+  border-radius: var(--radius-md);
   border: 1px solid var(--border);
   background: var(--bg-card);
   color: var(--text-1);
@@ -411,7 +411,7 @@ pre {
   padding: 0;
   cursor: pointer;
   -webkit-app-region: no-drag;
-  border-radius: 6px;
+  border-radius: var(--radius-md);
   transition: background 120ms ease;
 }
 .global-topbar__mark:hover {
@@ -435,7 +435,7 @@ pre {
 .global-topbar__left {
   display: flex;
   align-items: center;
-  gap: 12px;
+  gap: var(--space-3);
   min-width: 0;
 }
 
@@ -452,7 +452,7 @@ pre {
   border: none;
   cursor: pointer;
   padding: 4px 8px;
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
   font-family: inherit;
   display: inline-flex;
   align-items: center;
@@ -476,11 +476,11 @@ pre {
 .global-topbar__extra > button {
   background: var(--accent-a7);
   border: 1px solid var(--accent-a10);
-  font-size: 12px;
+  font-size: var(--font-size-sm);
   color: var(--text-2);
   cursor: pointer;
   padding: 4px 10px;
-  border-radius: 999px;
+  border-radius: var(--radius-pill);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -512,10 +512,10 @@ pre {
   background: none;
   border: none;
   padding: 4px 12px;
-  font-size: 13px;
+  font-size: var(--font-size-md);
   color: var(--text-2);
   cursor: pointer;
-  border-radius: 6px;
+  border-radius: var(--radius-md);
   font-weight: 500;
 }
 
@@ -612,17 +612,17 @@ pre {
   margin: 0 auto 24px;
   max-width: 320px;
   color: var(--text-3);
-  font-size: 14px;
+  font-size: var(--font-size-lg);
   line-height: 1.55;
 }
 .onboarding__form {
   display: flex;
   flex-direction: column;
-  gap: 8px;
+  gap: var(--space-2);
   text-align: left;
 }
 .onboarding__label {
-  font-size: 12px;
+  font-size: var(--font-size-sm);
   font-weight: 600;
   color: var(--text-2);
   text-transform: uppercase;
@@ -631,7 +631,7 @@ pre {
 .onboarding__input {
   width: 100%;
   padding: 10px 12px;
-  font-size: 14px;
+  font-size: var(--font-size-lg);
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, monospace;
   background: var(--bg-input);
   border: 1px solid var(--border-input);
@@ -645,7 +645,7 @@ pre {
 }
 .onboarding__hint {
   margin: 0;
-  font-size: 12px;
+  font-size: var(--font-size-sm);
   color: var(--text-3);
   line-height: 1.45;
 }
@@ -654,16 +654,16 @@ pre {
   background: var(--bg-elevated);
   padding: 1px 5px;
   border-radius: 3px;
-  font-size: 11px;
+  font-size: var(--font-size-xs);
 }
 .onboarding__error {
   margin: 4px 0 0;
   padding: 8px 10px;
   background: rgba(207, 34, 46, 0.08);
   border: 1px solid rgba(207, 34, 46, 0.30);
-  border-radius: 6px;
+  border-radius: var(--radius-md);
   color: #cf222e;
-  font-size: 12px;
+  font-size: var(--font-size-sm);
 }
 .onboarding__cta {
   margin-top: 8px;
@@ -672,7 +672,7 @@ pre {
   background: var(--accent);
   color: #fff;
   padding: 11px 16px;
-  font-size: 14px;
+  font-size: var(--font-size-lg);
   font-weight: 600;
   border-radius: 8px;
   cursor: pointer;
@@ -703,7 +703,7 @@ pre {
   background: none;
   border: none;
   color: var(--accent);
-  font-size: 13px;
+  font-size: var(--font-size-md);
   cursor: pointer;
   padding: 4px;
   text-decoration: underline;

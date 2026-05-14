@@ -229,7 +229,7 @@
   font-size: var(--font-size-sm);
   color: var(--accent);
   cursor: pointer;
-  padding: 4px 6px;
+  padding: var(--space-1);
   border-radius: var(--radius-sm);
   font-weight: 500;
 }
@@ -265,7 +265,7 @@
   color: var(--accent);
   cursor: pointer;
   margin: 6px 4px 0;
-  padding: 6px 10px;
+  padding: var(--space-1) var(--space-2);
   text-align: left;
 }
 .slack-sb-pick:hover:not(:disabled) {
@@ -378,7 +378,7 @@
   display: flex;
   align-items: center;
   gap: var(--space-3);
-  padding: 8px 10px;
+  padding: var(--space-2);
   color: var(--text-1);
   transition: background-color 100ms ease, border-color 100ms ease;
 }
@@ -549,7 +549,7 @@
   background: transparent;
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
-  padding: 4px 10px;
+  padding: var(--space-1) var(--space-2);
   font: inherit;
   font-size: var(--font-size-sm);
   color: var(--text-1);
@@ -857,7 +857,7 @@
   font-size: var(--font-size-md);
   color: var(--text-1);
   width: 100%;
-  padding: 4px 6px;
+  padding: var(--space-1);
   outline: none;
 }
 .slack-inbox-reply__footer {
@@ -880,7 +880,7 @@
   appearance: none;
   border: 1px solid transparent;
   border-radius: var(--radius-md);
-  padding: 5px 12px;
+  padding: var(--space-1) var(--space-3);
   font: inherit;
   font-size: var(--font-size-sm);
   font-weight: 500;
@@ -1015,7 +1015,7 @@
   font-size: var(--font-size-sm);
   font-weight: 500;
   color: var(--text-2);
-  padding: 5px 12px;
+  padding: var(--space-1) var(--space-3);
   cursor: pointer;
 }
 .slack-feed__head-btn:hover { background: var(--bg-card); }
@@ -1228,7 +1228,7 @@
   display: grid;
   grid-template-columns: 36px 1fr;
   gap: var(--space-2);
-  padding: 6px 8px;
+  padding: var(--space-1) var(--space-2);
   border-radius: var(--radius-md);
 }
 .slack-dm-msg__body { min-width: 0; }
@@ -1301,7 +1301,7 @@
   background: var(--bg-elevated);
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
-  padding: 10px 12px;
+  padding: var(--space-2) var(--space-3);
   font: inherit;
   font-size: var(--font-size-md);
   color: var(--text-1);

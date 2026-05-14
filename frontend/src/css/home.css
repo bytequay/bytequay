@@ -309,7 +309,7 @@
   color: var(--text-2);
   border: 1px solid var(--border-input);
   border-radius: var(--radius-md);
-  padding: 6px 10px;
+  padding: var(--space-1) var(--space-2);
   line-height: 1.5;
   background: var(--bg-input);
 }
@@ -496,7 +496,7 @@
   display: flex;
   flex-direction: column;
   gap: var(--space-1);
-  padding: 8px 10px;
+  padding: var(--space-2);
   max-height: 280px;
   overflow-y: auto;
 }
@@ -615,7 +615,7 @@
   grid-template-columns: auto 1fr auto;
   gap: var(--space-2);
   align-items: center;
-  padding: 10px 12px;
+  padding: var(--space-2) var(--space-3);
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
   background: var(--bg-elevated);
@@ -756,7 +756,7 @@
   background: var(--bg-elevated);
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
-  padding: 6px 10px;
+  padding: var(--space-1) var(--space-2);
   font-size: var(--font-size-sm);
   color: var(--text-1);
   box-shadow: 0 4px 12px rgba(0, 0, 0, 0.12);
@@ -914,7 +914,7 @@
   display: flex;
   flex-direction: column;
   gap: 2px;
-  padding: 8px 10px;
+  padding: var(--space-2);
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
   background: var(--bg-card);
@@ -1081,7 +1081,7 @@
   color: #fff;
   border: none;
   border-radius: var(--radius-md);
-  padding: 5px 12px;
+  padding: var(--space-1) var(--space-3);
   font-size: var(--font-size-sm);
   cursor: pointer;
   font-weight: 500;
@@ -1113,7 +1113,7 @@
   background: none;
   border: none;
   border-radius: var(--radius-md);
-  padding: 8px 6px;
+  padding: var(--space-2) var(--space-1);
   cursor: pointer;
   text-align: left;
   font-family: inherit;

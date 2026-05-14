@@ -90,7 +90,7 @@
   display: inline-flex;
   align-items: center;
   gap: var(--space-1);
-  padding: 3px 10px;
+  padding: var(--space-1) var(--space-2);
   border-radius: var(--radius-pill);
   font-size: var(--font-size-sm);
   font-weight: 600;
@@ -156,7 +156,7 @@
   display: flex;
   align-items: center;
   gap: var(--space-2);
-  padding: 10px 14px;
+  padding: var(--space-2) var(--space-3);
   border-bottom: 1px solid var(--border);
 }
 .issue-detail__comment-meta {
@@ -194,7 +194,7 @@
 }
 .issue-detail__comment-body pre {
   background: var(--bg-base);
-  padding: 10px 12px;
+  padding: var(--space-2) var(--space-3);
   border-radius: var(--radius-md);
   overflow-x: auto;
   font-size: var(--font-size-sm);
@@ -208,7 +208,7 @@
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
   background: var(--bg-card);
-  padding: 12px 14px;
+  padding: var(--space-3);
   display: flex;
   flex-direction: column;
   gap: var(--space-2);
@@ -230,7 +230,7 @@
   font: inherit;
   font-size: var(--font-size-md);
   line-height: 1.5;
-  padding: 8px 10px;
+  padding: var(--space-2);
   resize: vertical;
   min-height: 80px;
 }
@@ -402,7 +402,7 @@
   grid-template-columns: 24px 1fr auto;
   gap: var(--space-2);
   align-items: center;
-  padding: 6px 8px;
+  padding: var(--space-1) var(--space-2);
   border-radius: var(--radius-md);
   font-size: var(--font-size-sm);
   color: var(--text-2);
@@ -441,7 +441,7 @@
   grid-template-columns: auto auto 1fr auto auto auto;
   gap: var(--space-2);
   align-items: center;
-  padding: 10px 12px;
+  padding: var(--space-2) var(--space-3);
   background: var(--bg-elevated);
   border: 1px solid var(--border-light);
   border-radius: var(--radius-md);

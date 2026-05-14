@@ -42,7 +42,7 @@
   background: rgba(170, 78, 62, 0.08);
   color: #8a3a2d;
   border-radius: var(--radius-md);
-  padding: 10px 12px;
+  padding: var(--space-2) var(--space-3);
   font-size: var(--font-size-md);
   line-height: 1.5;
   margin-bottom: 12px;
@@ -123,7 +123,7 @@
   border: 1px solid var(--border);
   background: var(--bg-elevated);
   border-radius: var(--radius-md);
-  padding: 12px 14px;
+  padding: var(--space-3);
   cursor: pointer;
   margin-bottom: 12px;
   transition: border-color 120ms ease, background 120ms ease;
@@ -173,7 +173,7 @@
   color: var(--text-3);
 }
 .ai-summary--folded {
-  padding: 6px 10px;
+  padding: var(--space-1) var(--space-2);
   margin-bottom: 8px;
 }
 .ai-summary--folded .ai-summary__head { margin-bottom: 0; }
@@ -195,7 +195,7 @@
   border-left-width: 4px;
   background: var(--bg-elevated);
   border-radius: var(--radius-md);
-  padding: 10px 14px;
+  padding: var(--space-2) var(--space-3);
   cursor: pointer;
   font: inherit;
   transition: border-color 120ms ease, background 120ms ease;
@@ -262,7 +262,7 @@
 
 .settings-input-number {
   width: 80px;
-  padding: 6px 10px;
+  padding: var(--space-1) var(--space-2);
   border: 1px solid var(--border-input);
   border-radius: var(--radius-md);
   background: var(--bg-input);
@@ -331,7 +331,7 @@
 }
 .skills-table th,
 .skills-table td {
-  padding: 8px 10px;
+  padding: var(--space-2);
   border-bottom: 1px solid var(--border);
   text-align: left;
   vertical-align: top;
@@ -368,7 +368,7 @@
 /* Skill editor card — sits below the table when adding or editing. */
 .skill-editor {
   margin-top: 16px;
-  padding: 14px 16px;
+  padding: var(--space-3) var(--space-4);
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
   background: var(--bg-card);
@@ -503,7 +503,7 @@
   overflow-y: auto;
 }
 .tag-input__suggestion {
-  padding: 6px 8px;
+  padding: var(--space-1) var(--space-2);
   border-radius: var(--radius-sm);
   cursor: pointer;
   font-size: var(--font-size-md);
@@ -562,7 +562,7 @@
   display: flex;
   align-items: center;
   gap: 7px;
-  padding: 6px 12px;
+  padding: var(--space-1) var(--space-3);
   border-radius: var(--radius-md);
   border: 1px solid var(--border-input);
   background: var(--bg-input);
@@ -718,7 +718,7 @@
   background: rgba(139, 92, 246, 0.08);
   border: 1px solid rgba(139, 92, 246, 0.22);
   border-radius: var(--radius-md);
-  padding: 10px 12px;
+  padding: var(--space-2) var(--space-3);
   font-size: var(--font-size-sm);
 }
 .ai-summary__head {
@@ -757,7 +757,7 @@
 
 .ai-sidebar__error {
   margin-top: 10px;
-  padding: 8px 10px;
+  padding: var(--space-2);
   background: rgba(239, 68, 68, 0.1);
   border: 1px solid rgba(239, 68, 68, 0.3);
   color: #b91c1c;
@@ -787,7 +787,7 @@
   background: var(--bg-card);
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
-  padding: 10px 12px;
+  padding: var(--space-2) var(--space-3);
   font: inherit;
   cursor: pointer;
   display: flex;
@@ -940,7 +940,7 @@
   display: inline-flex;
   align-items: center;
   gap: var(--space-1);
-  padding: 3px 10px;
+  padding: var(--space-1) var(--space-2);
   font: inherit;
   height: 26px;
 }
@@ -1038,7 +1038,7 @@
   display: flex;
   align-items: baseline;
   gap: var(--space-2);
-  padding: 6px 16px;
+  padding: var(--space-1) var(--space-4);
   cursor: pointer;
   font: inherit;
   color: var(--text-2);
@@ -1278,7 +1278,7 @@
 
 .diff-expand-error {
   margin: 6px 12px;
-  padding: 8px 10px;
+  padding: var(--space-2);
   border-radius: var(--radius-md);
   background: var(--danger-tint, #ffebe9);
   color: var(--danger, #cf222e);
@@ -1407,7 +1407,7 @@
 .md-composer__tab {
   font: inherit;
   font-size: var(--font-size-xs);
-  padding: 3px 10px;
+  padding: var(--space-1) var(--space-2);
   border-radius: 5px 5px 0 0;
   border: 1px solid transparent;
   background: transparent;
@@ -1443,7 +1443,7 @@
 }
 .md-composer__preview {
   min-height: 64px;
-  padding: 10px 12px;
+  padding: var(--space-2) var(--space-3);
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
   background: var(--bg-card);
@@ -1465,7 +1465,7 @@
   background: var(--bg-elevated);
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
-  padding: 10px 12px;
+  padding: var(--space-2) var(--space-3);
   overflow-x: auto;
 }
 .md-composer__preview pre code { background: transparent; padding: 0; }
@@ -1487,7 +1487,7 @@
   font: inherit;
   font-size: var(--font-size-sm);
   font-weight: 500;
-  padding: 5px 12px;
+  padding: var(--space-1) var(--space-3);
   border-radius: var(--radius-sm);
   border: 1px solid var(--border);
   background: var(--bg-card);
@@ -1510,7 +1510,7 @@
 .polish-undo-btn {
   font: inherit;
   font-size: var(--font-size-xs);
-  padding: 4px 10px;
+  padding: var(--space-1) var(--space-2);
   border-radius: var(--radius-sm);
   border: 1px dashed var(--border);
   background: transparent;
@@ -1643,7 +1643,7 @@
 .diff-thread__msg {
   display: flex;
   gap: var(--space-2);
-  padding: 10px 14px;
+  padding: var(--space-2) var(--space-3);
   border-bottom: 1px solid var(--border-hairline, var(--border));
 }
 .diff-thread__msg:last-of-type {
@@ -1702,7 +1702,7 @@
   background: var(--bg-elevated);
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
-  padding: 10px 12px;
+  padding: var(--space-2) var(--space-3);
   overflow-x: auto;
   font-size: var(--pr-code-font-size, 13.5px);
 }
@@ -1736,7 +1736,7 @@
   display: block;
   width: 100%;
   text-align: left;
-  padding: 8px 14px;
+  padding: var(--space-2) var(--space-3);
   background: var(--bg-elevated);
   border: 0;
   border-top: 1px solid var(--border);
@@ -1751,7 +1751,7 @@
 }
 
 .diff-thread__reply {
-  padding: 10px 14px;
+  padding: var(--space-2) var(--space-3);
   border-top: 1px solid var(--border);
   background: var(--bg-elevated);
   display: flex;
@@ -1994,7 +1994,7 @@
 .inline-finding__original-text { color: var(--text-2); }
 .inline-finding__error {
   margin-top: 6px;
-  padding: 6px 8px;
+  padding: var(--space-1) var(--space-2);
   background: rgba(239, 68, 68, 0.1);
   color: #b91c1c;
   border-radius: var(--radius-sm);
@@ -2008,7 +2008,7 @@
 }
 .inline-finding__action {
   appearance: none;
-  padding: 4px 10px;
+  padding: var(--space-1) var(--space-2);
   font-size: var(--font-size-xs);
   border: 1px solid var(--border);
   background: var(--bg-card);
@@ -2326,7 +2326,7 @@
 .settings-setup-scopes {
   display: block;
   margin: 6px 0 0;
-  padding: 8px 10px;
+  padding: var(--space-2);
   font-size: var(--font-size-sm);
   line-height: 1.55;
   background: var(--bg-card);
@@ -2345,7 +2345,7 @@
 }
 .auth-method-pill {
   display: inline-block;
-  padding: 3px 10px;
+  padding: var(--space-1) var(--space-2);
   border-radius: var(--radius-pill);
   font-size: var(--font-size-xs);
   font-weight: 600;
@@ -2369,7 +2369,7 @@
   display: inline-flex;
   align-items: center;
   gap: var(--space-1);
-  padding: 6px 12px;
+  padding: var(--space-1) var(--space-3);
   border-radius: var(--radius-pill);
   font-size: var(--font-size-sm);
   font-weight: 600;

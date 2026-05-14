@@ -12,7 +12,7 @@
   appearance: none;
   border: none;
   background: transparent;
-  padding: 10px 14px;
+  padding: var(--space-2) var(--space-3);
   font: inherit;
   font-size: var(--font-size-lg);
   font-weight: 500;
@@ -96,7 +96,7 @@
   border: 1px solid var(--border);
   background: var(--bg-elevated);
   border-radius: var(--radius-md);
-  padding: 14px 16px;
+  padding: var(--space-3) var(--space-4);
 }
 
 .credentials-row__main { flex: 1; min-width: 0; }
@@ -180,7 +180,7 @@
 }
 
 .button--small {
-  padding: 4px 10px;
+  padding: var(--space-1) var(--space-2);
   font-size: var(--font-size-sm);
 }
 
@@ -217,7 +217,7 @@
   border: 1px solid var(--border-input);
   background: var(--bg-input);
   color: var(--text-1);
-  padding: 8px 10px;
+  padding: var(--space-2);
   border-radius: var(--radius-md);
   font: inherit;
   font-size: var(--font-size-md);
@@ -256,7 +256,7 @@
   display: flex;
   align-items: center;
   gap: var(--space-2);
-  padding: 10px 12px;
+  padding: var(--space-2) var(--space-3);
   border: 1px solid var(--border);
   background: var(--bg-elevated);
   border-radius: var(--radius-md);
@@ -299,7 +299,7 @@
 }
 .settings-advanced-details > summary {
   cursor: pointer;
-  padding: 6px 12px;
+  padding: var(--space-1) var(--space-3);
   font-size: var(--font-size-md);
   font-weight: 500;
   color: var(--text-2);

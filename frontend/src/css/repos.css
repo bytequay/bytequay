@@ -58,7 +58,7 @@
   color: white;
   border: 0;
   border-radius: var(--radius-md);
-  padding: 8px 14px;
+  padding: var(--space-2) var(--space-3);
   font-size: var(--font-size-sm);
   font-weight: 600;
   cursor: pointer;
@@ -155,7 +155,7 @@
   background: var(--bg-card);
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
-  padding: 14px 16px;
+  padding: var(--space-3) var(--space-4);
   box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
   transition: border-color 120ms ease, box-shadow 120ms ease, transform 120ms ease;
   cursor: pointer;
@@ -256,7 +256,7 @@
   grid-template-columns: 64px minmax(0, 1fr) auto;
   align-items: center;
   gap: var(--space-2);
-  padding: 8px 10px;
+  padding: var(--space-2);
   border-radius: var(--radius-md);
 }
 .repo-card__clone--mapped {
@@ -311,7 +311,7 @@
   color: white;
   border: 0;
   border-radius: var(--radius-sm);
-  padding: 4px 10px;
+  padding: var(--space-1) var(--space-2);
   font-size: var(--font-size-xs);
   font-weight: 600;
   cursor: pointer;
@@ -454,7 +454,7 @@
   background: var(--bg-elevated);
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
-  padding: 12px 14px;
+  padding: var(--space-3);
   cursor: pointer;
   font: inherit;
   color: var(--text-1);
@@ -499,7 +499,7 @@
 }
 .add-repo-modal__input {
   flex: 1;
-  padding: 8px 10px;
+  padding: var(--space-2);
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
   background: var(--bg-base);
@@ -531,7 +531,7 @@
   border: 1px solid rgba(207, 34, 46, 0.30);
   color: #b91c1c;
   font-size: var(--font-size-sm);
-  padding: 8px 10px;
+  padding: var(--space-2);
   border-radius: var(--radius-md);
 }
 .add-repo-modal__actions {
@@ -625,7 +625,7 @@
   grid-template-columns: 16px 1fr auto;
   align-items: center;
   gap: var(--space-2);
-  padding: 6px 10px;
+  padding: var(--space-1) var(--space-2);
   border: 0;
   background: transparent;
   border-radius: var(--radius-md);
@@ -805,7 +805,7 @@
   background: var(--bg-card);
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
-  padding: 10px 12px;
+  padding: var(--space-2) var(--space-3);
 }
 .local-repo-page__branch-form-row {
   display: grid;
@@ -821,7 +821,7 @@
   color: var(--text-3);
 }
 .local-repo-page__branch-form-row input {
-  padding: 6px 8px;
+  padding: var(--space-1) var(--space-2);
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
   background: var(--bg-base);
@@ -844,7 +844,7 @@
   border: 1px solid rgba(207, 34, 46, 0.30);
   color: #b91c1c;
   font-size: var(--font-size-md);
-  padding: 10px 14px;
+  padding: var(--space-2) var(--space-3);
   border-radius: var(--radius-md);
   margin-bottom: 16px;
 }
@@ -869,7 +869,7 @@
   font: inherit;
   font-size: var(--font-size-md);
   font-weight: 500;
-  padding: 8px 14px;
+  padding: var(--space-2) var(--space-3);
   margin-bottom: -1px;
 }
 .local-repo-page__tab:hover { color: var(--text-1); }
@@ -918,7 +918,7 @@
   display: flex;
   gap: var(--space-2);
   align-items: flex-start;
-  padding: 10px 14px;
+  padding: var(--space-2) var(--space-3);
   border-bottom: 1px solid var(--border);
 }
 .commit-row:last-child {
@@ -1008,7 +1008,7 @@
   display: flex;
   gap: var(--space-3);
   align-items: flex-start;
-  padding: 10px 14px;
+  padding: var(--space-2) var(--space-3);
   border-bottom: 1px solid var(--border);
 }
 .activity-row:last-child { border-bottom: none; }
@@ -1165,7 +1165,7 @@
   background: var(--bg-card);
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
-  padding: 8px 10px;
+  padding: var(--space-2);
   font-size: var(--font-size-sm);
   color: var(--text-2);
   max-height: 160px;
@@ -1211,7 +1211,7 @@
   color: var(--text-1);
   font-family: inherit;
   font-size: var(--font-size-md);
-  padding: 8px 10px;
+  padding: var(--space-2);
   box-sizing: border-box;
 }
 .create-pr-modal__field textarea {
@@ -1259,7 +1259,7 @@
   border: 1px solid rgba(207, 34, 46, 0.30);
   color: #b91c1c;
   font-size: var(--font-size-sm);
-  padding: 8px 10px;
+  padding: var(--space-2);
   border-radius: var(--radius-md);
   white-space: pre-wrap;
 }
@@ -1275,7 +1275,7 @@
   background: var(--bg-elevated);
   border: 1px solid var(--accent);
   border-radius: var(--radius-md);
-  padding: 10px 14px;
+  padding: var(--space-2) var(--space-3);
   display: flex;
   align-items: center;
   gap: var(--space-3);
@@ -1382,7 +1382,7 @@
   color: var(--text-2);
   font: inherit;
   font-size: var(--font-size-xs);
-  padding: 6px 8px;
+  padding: var(--space-1) var(--space-2);
   border-radius: var(--radius-md);
   margin-top: 4px;
   cursor: pointer;
@@ -1405,7 +1405,7 @@
   background: var(--bg-card);
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
-  padding: 10px 12px;
+  padding: var(--space-2) var(--space-3);
   display: flex;
   flex-direction: column;
   gap: var(--space-2);
@@ -1685,7 +1685,7 @@
   /* Tighter vertical padding than other section headers because this row
      also hosts the Tree/Flat toggle (~22px tall); 6/12 keeps the row a
      consistent height with or without the toggle. */
-  padding: 6px 12px;
+  padding: var(--space-1) var(--space-3);
   border-bottom: 1px solid var(--border);
   flex: 0 0 auto;
   display: flex;
@@ -1747,7 +1747,7 @@
   display: flex;
   align-items: center;
   gap: var(--space-2);
-  padding: 10px 12px;
+  padding: var(--space-2) var(--space-3);
   border-bottom: 1px solid var(--border);
   background: var(--bg-elevated);
 }
@@ -1839,7 +1839,7 @@
   flex: 1 1 0;
   background: transparent;
   border: 0;
-  padding: 8px 10px;
+  padding: var(--space-2);
   font-size: var(--font-size-xs);
   font-weight: 600;
   letter-spacing: 0.04em;
@@ -1864,7 +1864,7 @@
   display: flex;
   align-items: center;
   gap: var(--space-1);
-  padding: 6px 10px;
+  padding: var(--space-1) var(--space-2);
   border-bottom: 1px solid var(--border);
   background: var(--bg-elevated);
 }
@@ -1872,7 +1872,7 @@
   flex: 1 1 auto;
   font: inherit;
   font-size: var(--font-size-xs);
-  padding: 4px 6px;
+  padding: var(--space-1);
   border: 1px solid var(--border);
   border-radius: var(--radius-sm);
   background: var(--bg-card);
@@ -1908,7 +1908,7 @@
    + full message body. Per docs/mockups/design/local-repo/
    code-diff-v3.png. */
 .patch-detail-card {
-  padding: 12px 14px;
+  padding: var(--space-3);
   border-bottom: 1px solid var(--border);
   background: var(--bg-elevated);
   display: flex;
@@ -2086,7 +2086,7 @@
   background: var(--bg-elevated);
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
-  padding: 5px 10px;
+  padding: var(--space-1) var(--space-2);
   font-size: var(--font-size-sm);
   color: var(--text-1);
   cursor: pointer;
@@ -2140,7 +2140,7 @@
   background: transparent;
   border: 0;
   border-bottom: 2px solid transparent;
-  padding: 10px 14px;
+  padding: var(--space-2) var(--space-3);
   font: inherit;
   font-size: var(--font-size-md);
   color: var(--text-2);
@@ -2192,7 +2192,7 @@
   background: var(--bg-card);
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
-  padding: 14px 16px;
+  padding: var(--space-3) var(--space-4);
   box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
 }
 .repo-overview-panel__loading {
@@ -2264,7 +2264,7 @@
   background: transparent;
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
-  padding: 5px 10px;
+  padding: var(--space-1) var(--space-2);
   font-size: var(--font-size-xs);
   color: var(--text-2);
   cursor: pointer;
@@ -2285,7 +2285,7 @@
   color: white;
   border: 0;
   border-radius: var(--radius-md);
-  padding: 6px 14px;
+  padding: var(--space-1) var(--space-3);
   font-size: var(--font-size-sm);
   font-weight: 600;
   cursor: pointer;
@@ -2331,7 +2331,7 @@
   background: transparent;
   border: 0;
   border-bottom: 2px solid transparent;
-  padding: 6px 8px;
+  padding: var(--space-1) var(--space-2);
   font: inherit;
   font-size: var(--font-size-sm);
   color: var(--text-2);
@@ -2371,7 +2371,7 @@
   grid-template-columns: 56px minmax(0, 1fr) auto;
   gap: var(--space-2);
   align-items: center;
-  padding: 8px 10px;
+  padding: var(--space-2);
   border-radius: var(--radius-md);
   border-left: 3px solid transparent;
   cursor: pointer;

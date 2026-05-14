@@ -696,7 +696,7 @@
 .ai-sidebar__run {
   appearance: none;
   width: 100%;
-  padding: 8px 12px;
+  padding: var(--space-2) var(--space-3);
   font-size: var(--font-size-sm);
   font-weight: 600;
   border-radius: var(--radius-md);
@@ -777,7 +777,7 @@
 .ai-sidebar__placeholder {
   font-size: var(--font-size-sm);
   color: var(--text-3);
-  padding: 16px 8px;
+  padding: var(--space-4) var(--space-2);
   line-height: 1.55;
 }
 
@@ -985,7 +985,7 @@
 }
 
 .diff-file-empty {
-  padding: 20px 16px;
+  padding: var(--space-5) var(--space-4);
   color: var(--text-3);
   font-size: var(--font-size-md);
   font-style: italic;
@@ -2089,7 +2089,7 @@
   border: 1px solid var(--border);
   background: var(--bg-elevated);
   border-radius: var(--radius-md);
-  padding: 16px 20px;
+  padding: var(--space-4) var(--space-5);
 }
 
 .v2-help__card-title {

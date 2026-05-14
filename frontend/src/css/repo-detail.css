@@ -58,7 +58,7 @@
   flex: 1;
   background: none;
   border: none;
-  padding: 8px 12px;
+  padding: var(--space-2) var(--space-3);
   font-size: var(--font-size-sm);
   color: var(--text-3);
   cursor: pointer;

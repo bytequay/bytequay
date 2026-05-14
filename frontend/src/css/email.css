@@ -19,7 +19,7 @@
    docs/mockups/design/email/email-inbox.png lands in the next
    slice once we have view-body / archive / mark-read wired up. */
 .email-page {
-  padding: 20px 24px;
+  padding: var(--space-5) var(--space-6);
   max-width: 1280px;
   margin: 0 auto;
   display: flex;
@@ -376,7 +376,7 @@
 .email-detail__actions {
   display: flex;
   gap: var(--space-2);
-  padding: 12px 16px;
+  padding: var(--space-3) var(--space-4);
   border-bottom: 1px solid var(--border);
   background: var(--bg-card);
   flex-shrink: 0;

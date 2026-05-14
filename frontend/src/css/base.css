@@ -451,7 +451,7 @@ pre {
   background: none;
   border: none;
   cursor: pointer;
-  padding: 4px 8px;
+  padding: var(--space-1) var(--space-2);
   border-radius: var(--radius-sm);
   font-family: inherit;
   display: inline-flex;
@@ -511,7 +511,7 @@ pre {
 .global-nav-btn {
   background: none;
   border: none;
-  padding: 4px 12px;
+  padding: var(--space-1) var(--space-3);
   font-size: var(--font-size-md);
   color: var(--text-2);
   cursor: pointer;

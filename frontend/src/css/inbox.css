@@ -284,7 +284,7 @@
   display: flex;
   align-items: center;
   gap: var(--space-2);
-  padding: 8px 12px;
+  padding: var(--space-2) var(--space-3);
   font-size: var(--font-size-xs);
   font-weight: 700;
   letter-spacing: 0.08em;
@@ -955,7 +955,7 @@
    row keeps its slot above the preview/screen content. */
 .v2-main__nav {
   flex: 0 0 auto;
-  padding: 8px 12px;
+  padding: var(--space-2) var(--space-3);
   border-bottom: 1px solid var(--border-mid);
   background: var(--bg-elevated);
 }
@@ -1460,7 +1460,7 @@
 .diff-viewer__loading,
 .diff-viewer__error,
 .diff-viewer__empty {
-  padding: 12px 16px;
+  padding: var(--space-3) var(--space-4);
   color: var(--text-3);
   font-size: var(--font-size-md);
 }
@@ -1619,7 +1619,7 @@
   display: flex;
   align-items: baseline;
   gap: var(--space-2);
-  padding: 8px 16px;
+  padding: var(--space-2) var(--space-4);
   border-bottom: 1px solid var(--border);
   background: var(--bg-elevated);
   flex: 0 0 auto;
@@ -1653,7 +1653,7 @@
   display: flex;
   align-items: baseline;
   gap: var(--space-2);
-  padding: 8px 16px;
+  padding: var(--space-2) var(--space-4);
   border-bottom: 1px solid var(--border);
   background: var(--bg-elevated);
 }
@@ -1748,7 +1748,7 @@
   letter-spacing: 0.06em;
   color: var(--text-3);
   font-weight: 700;
-  padding: 4px 8px;
+  padding: var(--space-1) var(--space-2);
 }
 .submit-popover__opt {
   appearance: none;
@@ -2003,7 +2003,7 @@
   font: inherit;
   font-size: var(--font-size-sm);
   font-weight: 500;
-  padding: 4px 8px;
+  padding: var(--space-1) var(--space-2);
   border-radius: var(--radius-sm);
 }
 .button--danger-link:hover { background: rgba(207, 34, 46, 0.08); }

@@ -86,7 +86,7 @@
   width: 100%;
   border: 1px solid var(--border-input);
   border-radius: var(--radius-lg);
-  padding: 8px 12px;
+  padding: var(--space-2) var(--space-3);
   font: inherit;
   font-size: 0.88rem;
   background: var(--bg-input);
@@ -327,7 +327,7 @@
 }
 
 .preview {
-  padding: 12px 20px;
+  padding: var(--space-3) var(--space-5);
   max-width: none;
   /* Fixed viewport height. The layout is:
        ┌─────────────────────────────────┐
@@ -578,7 +578,7 @@
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 8px 12px;
+  padding: var(--space-2) var(--space-3);
   font-size: var(--font-size-xs);
   font-weight: 600;
   letter-spacing: 0.05em;
@@ -929,7 +929,7 @@
   font: inherit;
   font-size: var(--font-size-sm);
   cursor: pointer;
-  padding: 4px 8px;
+  padding: var(--space-1) var(--space-2);
   border-radius: var(--radius-sm);
 }
 
@@ -1215,7 +1215,7 @@
   display: flex;
   flex-direction: column;
   gap: var(--space-2);
-  padding: 8px 12px;
+  padding: var(--space-2) var(--space-3);
   border-radius: var(--radius-md);
   border: 1px solid var(--border);
   background: var(--bg-elevated);
@@ -1679,7 +1679,7 @@
   display: flex;
   align-items: center;
   gap: var(--space-2);
-  padding: 8px 12px;
+  padding: var(--space-2) var(--space-3);
   width: 100%;
   text-align: left;
   font-family: inherit;
@@ -2166,7 +2166,7 @@
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
   background: var(--bg-card);
-  padding: 8px 12px;
+  padding: var(--space-2) var(--space-3);
 }
 .activity-item__body {
   margin-top: 6px;

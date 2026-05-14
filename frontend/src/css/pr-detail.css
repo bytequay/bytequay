@@ -152,7 +152,7 @@
   display: inline-flex;
   align-items: center;
   font-size: var(--font-size-sm);
-  padding: 4px 12px;
+  padding: var(--space-1) var(--space-3);
   border-radius: var(--radius-pill);
   font-weight: 700;
   background: #2da44e;
@@ -1525,7 +1525,7 @@ button.prc-branches__ref--clickable:hover {
    we tighten internal padding so the toggle button reads as a
    centered chip rather than offset toward the left. */
 .prc-sidebar--collapsed {
-  padding: 12px 4px;
+  padding: var(--space-3) var(--space-1);
   gap: 0;
   align-items: center;
   overflow: hidden;

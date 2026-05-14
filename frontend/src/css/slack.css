@@ -26,7 +26,7 @@
 .slack-ws-header {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: var(--space-2);
   padding: 6px 10px 14px;
   margin-bottom: 12px;
   border-bottom: 1px solid var(--border-light);
@@ -61,7 +61,7 @@
 .slack-sb-item {
   display: flex;
   align-items: center;
-  gap: 9px;
+  gap: var(--space-2);
   padding: 7px 12px;
   border-radius: var(--radius-md);
   font-size: var(--font-size-md);
@@ -218,7 +218,7 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 14px;
+  gap: var(--space-3);
   font-size: var(--font-size-sm);
 }
 .slack-connect-help-link {
@@ -559,7 +559,7 @@
 .slack-inbox__head {
   display: flex;
   align-items: baseline;
-  gap: 14px;
+  gap: var(--space-3);
   margin-bottom: 14px;
 }
 .slack-inbox__title {
@@ -577,7 +577,7 @@
 
 .slack-inbox__filter-tabs {
   display: flex;
-  gap: 6px;
+  gap: var(--space-1);
   margin-bottom: 18px;
 }
 .slack-inbox__filter-pill {
@@ -610,13 +610,13 @@
 .slack-inbox__stream {
   display: flex;
   flex-direction: column;
-  gap: 14px;
+  gap: var(--space-3);
 }
 
 .slack-inbox__day-group {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: var(--space-1);
 }
 .slack-inbox__day-label {
   font-size: 10.5px;
@@ -671,7 +671,7 @@
   display: grid;
   grid-template-columns: auto auto auto 1fr auto auto auto;
   align-items: center;
-  gap: 10px;
+  gap: var(--space-2);
   padding: 12px 16px;
 }
 .slack-inbox-item--responded .slack-inbox-item__header { padding-bottom: 6px; }
@@ -803,7 +803,7 @@
   padding: 4px 12px;
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: var(--space-1);
 }
 .slack-inbox-thread--loading { color: var(--text-3); font-size: var(--font-size-sm); }
 .slack-inbox-thread__label {
@@ -846,7 +846,7 @@
   padding: 8px;
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: var(--space-1);
 }
 .slack-inbox-reply__textarea {
   appearance: none;
@@ -873,7 +873,7 @@
 .slack-inbox-reply__error { color: var(--danger, #b3261e); }
 .slack-inbox-reply__actions {
   display: flex;
-  gap: 6px;
+  gap: var(--space-1);
   margin-left: auto;
 }
 .slack-inbox-reply__btn {
@@ -926,7 +926,7 @@
   justify-content: center;
   text-align: center;
   padding: 80px 32px;
-  gap: 14px;
+  gap: var(--space-3);
 }
 .slack-inbox-empty__icon {
   width: 56px;
@@ -1004,7 +1004,7 @@
 .slack-feed__head-actions,
 .slack-dm__head-actions {
   display: flex;
-  gap: 6px;
+  gap: var(--space-1);
 }
 .slack-feed__head-btn {
   appearance: none;
@@ -1044,13 +1044,13 @@
 .slack-feed__stream {
   display: flex;
   flex-direction: column;
-  gap: 14px;
+  gap: var(--space-3);
 }
 
 .slack-feed-msg {
   display: grid;
   grid-template-columns: 36px 1fr;
-  gap: 10px;
+  gap: var(--space-2);
   padding: 4px 8px;
   border-radius: var(--radius-md);
 }
@@ -1149,7 +1149,7 @@
 .slack-feed-thread__reply-head {
   display: flex;
   align-items: baseline;
-  gap: 6px;
+  gap: var(--space-1);
 }
 .slack-feed-thread__reply-author {
   font-weight: 600;
@@ -1227,7 +1227,7 @@
 .slack-dm-msg {
   display: grid;
   grid-template-columns: 36px 1fr;
-  gap: 10px;
+  gap: var(--space-2);
   padding: 6px 8px;
   border-radius: var(--radius-md);
 }
@@ -1293,7 +1293,7 @@
   border-top: 1px solid var(--border-light);
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: var(--space-1);
 }
 .slack-dm__replybox-textarea {
   appearance: none;
@@ -1323,5 +1323,5 @@
 .slack-dm__replybox-error { color: var(--danger, #b3261e); }
 .slack-dm__replybox-actions {
   display: flex;
-  gap: 6px;
+  gap: var(--space-1);
 }

@@ -87,7 +87,7 @@
   margin: 0;
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: var(--space-2);
 }
 
 .credentials-row {
@@ -104,7 +104,7 @@
 .credentials-row__heading {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: var(--space-2);
   margin-bottom: 6px;
 }
 
@@ -175,7 +175,7 @@
 .credentials-row__actions {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: var(--space-1);
   align-self: flex-start;
 }
 
@@ -194,7 +194,7 @@
   margin-bottom: 20px;
   display: flex;
   flex-direction: column;
-  gap: 14px;
+  gap: var(--space-3);
 }
 
 .credentials-editor__title { margin: 0; font-size: 15px; font-weight: 600; }
@@ -202,7 +202,7 @@
 .credentials-editor__field {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: var(--space-1);
 }
 
 .credentials-editor__label {
@@ -255,7 +255,7 @@
 .credentials-provider {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: var(--space-2);
   padding: 10px 12px;
   border: 1px solid var(--border);
   background: var(--bg-elevated);
@@ -288,7 +288,7 @@
 .button--ai {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
+  gap: var(--space-1);
 }
 
 /* Disclosure for the rare BYO-OAuth setup path on Settings → Integrations.

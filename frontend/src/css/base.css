@@ -334,7 +334,7 @@ pre {
   padding: 40px 32px;
   display: flex;
   flex-direction: column;
-  gap: 14px;
+  gap: var(--space-3);
   align-items: flex-start;
   background: var(--bg-base);
   color: var(--text-1);
@@ -456,7 +456,7 @@ pre {
   font-family: inherit;
   display: inline-flex;
   align-items: center;
-  gap: 6px;
+  gap: var(--space-1);
   /* Reset for the <a> variant — without it the GithubMark sits under
      the default underline. The button variant is unaffected. */
   text-decoration: none;
@@ -695,7 +695,7 @@ pre {
 .onboarding__oauth {
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: var(--space-2);
   margin-bottom: 18px;
 }
 .onboarding__altlink {

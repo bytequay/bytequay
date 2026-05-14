@@ -66,7 +66,7 @@
 .ai-progress {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: var(--space-1);
   margin-bottom: 12px;
 }
 
@@ -212,7 +212,7 @@
 .ai-comment__header {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: var(--space-2);
   margin-bottom: 4px;
 }
 
@@ -414,7 +414,7 @@
 .tag-input {
   display: flex;
   flex-wrap: wrap;
-  gap: 5px;
+  gap: var(--space-1);
   align-items: center;
   width: 100%;
   min-height: 38px;
@@ -730,7 +730,7 @@
 .ai-summary__title {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
+  gap: var(--space-1);
   font-weight: 600;
   color: #6d28d9;
 }
@@ -939,7 +939,7 @@
   min-width: 0;
   display: inline-flex;
   align-items: center;
-  gap: 6px;
+  gap: var(--space-1);
   padding: 3px 10px;
   font: inherit;
   height: 26px;
@@ -1242,7 +1242,7 @@
   flex-direction: row;
   align-items: center;
   justify-content: center;
-  gap: 3px;
+  gap: var(--space-1);
   padding: 3px 0 2px;
 }
 .diff-expand-split__divider > span {
@@ -1642,7 +1642,7 @@
    a 28px avatar for visual weight comparable to the GitHub thread view. */
 .diff-thread__msg {
   display: flex;
-  gap: 10px;
+  gap: var(--space-2);
   padding: 10px 14px;
   border-bottom: 1px solid var(--border-hairline, var(--border));
 }
@@ -1718,7 +1718,7 @@
 .diff-thread__reaction {
   display: inline-flex;
   align-items: center;
-  gap: 3px;
+  gap: var(--space-1);
   padding: 1px 7px;
   border: 1px solid var(--border);
   border-radius: var(--radius-pill);
@@ -1794,7 +1794,7 @@
 }
 .inline-finding {
   display: flex;
-  gap: 10px;
+  gap: var(--space-2);
   padding: 10px 14px 10px 72px;
   font-family: -apple-system, BlinkMacSystemFont, "Inter", system-ui, sans-serif;
   font-size: var(--font-size-sm);
@@ -1921,7 +1921,7 @@
   cursor: pointer;
   display: inline-flex;
   align-items: center;
-  gap: 6px;
+  gap: var(--space-1);
   padding: 1px 14px 1px 72px;
   font: inherit;
   height: 22px;
@@ -2003,7 +2003,7 @@
 .inline-finding__actions {
   margin-top: 8px;
   display: flex;
-  gap: 6px;
+  gap: var(--space-1);
   align-items: center;
 }
 .inline-finding__action {
@@ -2128,7 +2128,7 @@
 .v2-help__legend li {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: var(--space-2);
 }
 
 .legend-dot {
@@ -2214,7 +2214,7 @@
 .settings-shell-sidebar__link {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: var(--space-2);
   padding: 7px 12px;
   border-radius: 7px;
   color: var(--text-2);
@@ -2363,12 +2363,12 @@
 }
 .auth-mode-picker {
   display: inline-flex;
-  gap: 6px;
+  gap: var(--space-1);
 }
 .auth-mode-pill {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
+  gap: var(--space-1);
   padding: 6px 12px;
   border-radius: var(--radius-pill);
   font-size: var(--font-size-sm);
@@ -2461,7 +2461,7 @@
 .settings-page-tabs {
   border-bottom: 1px solid var(--border);
   display: flex;
-  gap: 24px;
+  gap: var(--space-6);
   margin-bottom: 22px;
 }
 

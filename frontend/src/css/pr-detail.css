@@ -56,7 +56,7 @@
   grid-area: title;
   display: flex;
   align-items: baseline;
-  gap: 10px;
+  gap: var(--space-2);
   min-width: 0;
 }
 .prc-title {
@@ -195,7 +195,7 @@
   display: flex;
   flex-wrap: wrap;
   align-items: center;
-  gap: 6px;
+  gap: var(--space-1);
   /* margin-top dropped — the .prc-header grid's row-gap already
      provides spacing between rows; the extra 6px stacked on top
      created the "too large gap" the user reported. */
@@ -314,7 +314,7 @@ button.prc-branches__ref--clickable:hover {
   padding: 16px 22px 22px 30px;
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: var(--space-2);
   min-height: 0;
 }
 /* Inner wrapper sized to exactly the timeline entries — the rail lives
@@ -369,7 +369,7 @@ button.prc-branches__ref--clickable:hover {
 .prc-date-divider {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: var(--space-2);
   margin: 8px 0 0;
   font-size: var(--font-size-xs);
   text-transform: uppercase;
@@ -452,7 +452,7 @@ button.prc-branches__ref--clickable:hover {
 .prc-comment-head {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: var(--space-1);
   flex-wrap: wrap;
   margin: -10px -14px 10px;
   padding: 8px 14px;
@@ -1093,11 +1093,11 @@ button.prc-branches__ref--clickable:hover {
   /* Tighter gap than the old boxed layout — without per-message
      borders the eye doesn't need as much whitespace to separate
      adjacent comments. */
-  gap: 18px;
+  gap: var(--space-4);
 }
 .prc-review-thread__msg {
   display: flex;
-  gap: 10px;
+  gap: var(--space-2);
   align-items: flex-start;
 }
 .prc-review-thread__avatar { flex-shrink: 0; margin-top: 2px; }
@@ -1130,7 +1130,7 @@ button.prc-branches__ref--clickable:hover {
 .prc-review-thread__msg-head-right {
   display: inline-flex;
   align-items: center;
-  gap: 6px;
+  gap: var(--space-1);
   flex-shrink: 0;
 }
 .prc-review-thread__msg-body .prc-comment-time {
@@ -1442,7 +1442,7 @@ button.prc-branches__ref--clickable:hover {
 .prc-linked-issue {
   display: flex;
   align-items: baseline;
-  gap: 6px;
+  gap: var(--space-1);
   padding: 4px 0;
   font-size: var(--font-size-sm);
   color: var(--text-2);
@@ -1517,7 +1517,7 @@ button.prc-branches__ref--clickable:hover {
   padding: 16px 16px 22px;
   display: flex;
   flex-direction: column;
-  gap: 18px;
+  gap: var(--space-4);
   min-height: 0;
 }
 /* Collapsed: shrink to a rail with just the expand affordance. The
@@ -1563,7 +1563,7 @@ button.prc-branches__ref--clickable:hover {
   border-color: var(--accent);
   background: var(--accent-a7);
 }
-.prc-meta-section { display: flex; flex-direction: column; gap: 6px; }
+.prc-meta-section { display: flex; flex-direction: column; gap: var(--space-1); }
 .prc-meta-label {
   font-size: var(--font-size-xs);
   text-transform: uppercase;
@@ -1776,7 +1776,7 @@ button.prc-branches__ref--clickable:hover {
 
 .prc-reviewer-add-row {
   display: flex;
-  gap: 6px;
+  gap: var(--space-1);
   align-items: center;
   margin-top: 6px;
 }
@@ -1854,7 +1854,7 @@ button.prc-branches__ref--clickable:hover {
 .prc-reviewer-suggested-chip {
   display: inline-flex;
   align-items: center;
-  gap: 5px;
+  gap: var(--space-1);
   padding: 2px 8px 2px 4px;
   border: 1px solid var(--border);
   border-radius: var(--radius-pill);
@@ -1939,7 +1939,7 @@ button.prc-branches__ref--clickable:hover {
 .prc-check-row {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: var(--space-1);
   padding: 4px 6px 4px 16px;
   margin-left: -6px;
   margin-right: -6px;
@@ -2107,7 +2107,7 @@ button.prc-branches__ref--clickable:hover {
 .prc-refresh-btn {
   display: inline-flex;
   align-items: center;
-  gap: 5px;
+  gap: var(--space-1);
   padding: 4px 10px;
   font: inherit;
   font-size: var(--font-size-xs);

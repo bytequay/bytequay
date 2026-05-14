@@ -135,7 +135,7 @@
   cursor: pointer;
   display: flex;
   flex-direction: column;
-  gap: 14px;
+  gap: var(--space-3);
   position: relative;
   transition: transform 120ms ease, box-shadow 120ms ease;
   box-shadow: 0 1px 4px var(--cta-shadow);
@@ -163,7 +163,7 @@
 .home-cta-card__body {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: var(--space-1);
 }
 
 .home-cta-card__title {
@@ -195,7 +195,7 @@
 .home-cta-card__count {
   display: inline-flex;
   align-items: baseline;
-  gap: 6px;
+  gap: var(--space-1);
 }
 
 .home-cta-card__count-num {
@@ -233,7 +233,7 @@
 .home-profile-card {
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: var(--space-2);
 }
 
 .hp-profile-header {
@@ -268,7 +268,7 @@
 .hp-name-row {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: var(--space-1);
 }
 
 .hp-name {
@@ -369,7 +369,7 @@
 .hp-contact-row {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: var(--space-1);
   font-size: var(--font-size-sm);
   color: var(--text-2);
   min-width: 0;
@@ -403,7 +403,7 @@
 .hp-org-chips {
   display: flex;
   flex-wrap: wrap;
-  gap: 6px;
+  gap: var(--space-1);
   min-width: 0;
 }
 
@@ -464,7 +464,7 @@
 .mypr-panel__header {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: var(--space-2);
   padding: 8px 12px;
   background: var(--bg-card);
   border-bottom: 1px solid var(--border);
@@ -523,7 +523,7 @@
 .mypr-row__title {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: var(--space-1);
   font-size: var(--font-size-md);
   color: var(--text-1);
   font-weight: 500;
@@ -553,7 +553,7 @@
   color: var(--text-3);
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: var(--space-1);
   min-width: 0;
 }
 .mypr-row__repo {
@@ -571,7 +571,7 @@
 .mypr-row__signals {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: var(--space-2);
   flex-shrink: 0;
 }
 .mypr-row__ci {
@@ -613,7 +613,7 @@
 .home-team-item {
   display: grid;
   grid-template-columns: auto 1fr auto;
-  gap: 10px;
+  gap: var(--space-2);
   align-items: center;
   padding: 10px 12px;
   border: 1px solid var(--border);
@@ -672,7 +672,7 @@
 .home-year-card {
   display: flex;
   flex-direction: column;
-  gap: 10px;
+  gap: var(--space-2);
   /* Let the card shrink inside its grid cell; without this it grows to the
      chart's intrinsic width and overlaps the right sidebar. */
   min-width: 0;
@@ -789,7 +789,7 @@
 .home-heatmap__legend {
   display: inline-flex;
   align-items: center;
-  gap: 3px;
+  gap: var(--space-1);
 }
 
 .home-heatmap__legend-label {
@@ -818,7 +818,7 @@
   background: var(--bg-elevated);
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: var(--space-1);
   position: relative;
   overflow: hidden;
 }
@@ -931,7 +931,7 @@
 .home-year-delta__row {
   display: flex;
   align-items: baseline;
-  gap: 6px;
+  gap: var(--space-1);
 }
 
 .home-year-delta__arrow {
@@ -1108,7 +1108,7 @@
 .home-repo-item {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: var(--space-2);
   width: 100%;
   background: none;
   border: none;
@@ -1221,7 +1221,7 @@
 .home-following-item {
   display: flex;
   align-items: flex-start;
-  gap: 10px;
+  gap: var(--space-2);
 }
 
 .home-following-item__actor {

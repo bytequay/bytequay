@@ -20,7 +20,7 @@
 .repo-detail-page__topbar {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: var(--space-2);
   padding: 10px 14px;
   border-bottom: 1px solid var(--border);
   flex-shrink: 0;
@@ -66,7 +66,7 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 5px;
+  gap: var(--space-1);
 }
 
 .repo-tab-btn--active {
@@ -108,7 +108,7 @@
 .repo-pr-section__header {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: var(--space-1);
   width: 100%;
   background: var(--bg-elevated);
   border: none;
@@ -189,7 +189,7 @@
 .repo-pr-item__header {
   display: flex;
   align-items: center;
-  gap: 6px;
+  gap: var(--space-1);
   margin-bottom: 3px;
 }
 

@@ -9,7 +9,7 @@
 .team-row {
   display: grid;
   grid-template-columns: auto 1fr auto;
-  gap: 14px;
+  gap: var(--space-3);
   align-items: center;
   padding: 13px;
   border: 1px solid var(--border);
@@ -203,14 +203,14 @@
   padding: 8px 22px 22px;
   display: flex;
   flex-direction: column;
-  gap: 14px;
+  gap: var(--space-3);
 }
 
 /* Hero */
 .team-hero {
   display: flex;
   align-items: flex-start;
-  gap: 18px;
+  gap: var(--space-4);
   padding: 18px 22px;
   background: var(--bg-card);
   border: 1px solid var(--border);
@@ -244,7 +244,7 @@
 .team-hero__meta {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: var(--space-2);
   flex-wrap: wrap;
   margin-top: 10px;
   font-size: var(--font-size-sm);
@@ -319,7 +319,7 @@
 .team-home__content {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 340px;
-  gap: 14px;
+  gap: var(--space-3);
   align-items: start;
 }
 @media (max-width: 1080px) {
@@ -331,7 +331,7 @@
 .team-home__side {
   display: flex;
   flex-direction: column;
-  gap: 14px;
+  gap: var(--space-3);
   min-width: 0;
 }
 
@@ -349,7 +349,7 @@
 .team-panel__head {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: var(--space-2);
   margin-bottom: 12px;
 }
 .team-panel__head h3 {
@@ -391,7 +391,7 @@
 .team-flight {
   display: flex;
   flex-direction: column;
-  gap: 6px;
+  gap: var(--space-1);
 }
 .pr-mini {
   appearance: none;
@@ -464,7 +464,7 @@
 .team-member {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: var(--space-2);
   padding: 8px 0;
   border-bottom: 1px solid var(--border-light);
 }
@@ -493,7 +493,7 @@
 .team-repo {
   display: flex;
   align-items: center;
-  gap: 10px;
+  gap: var(--space-2);
   padding: 8px 0;
   border-bottom: 1px solid var(--border-light);
   font-size: var(--font-size-sm);
@@ -570,7 +570,7 @@
 .teams-grid {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
-  gap: 14px;
+  gap: var(--space-3);
   align-items: stretch;
 }
 
@@ -674,7 +674,7 @@
   appearance: none;
   align-items: center;
   justify-content: center;
-  gap: 6px;
+  gap: var(--space-1);
   text-align: center;
   border: 1.5px dashed var(--border);
   background: transparent;
@@ -923,7 +923,7 @@
   gap: var(--space-4);
   overflow-y: auto;
 }
-.team-modal__field { display: flex; flex-direction: column; gap: 6px; }
+.team-modal__field { display: flex; flex-direction: column; gap: var(--space-1); }
 .team-modal__label {
   font-size: var(--font-size-sm);
   font-weight: 600;
@@ -974,7 +974,7 @@
 .team-identity-row {
   display: grid;
   grid-template-columns: auto 1fr;
-  gap: 24px;
+  gap: var(--space-6);
   align-items: start;
 }
 .team-avatar-input-wrap {

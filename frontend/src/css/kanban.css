@@ -483,7 +483,7 @@
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
   gap: var(--space-3);
-  padding: 12px;
+  padding: var(--space-3);
   align-items: start;
   overflow-y: auto;
   background: var(--bg-base);
@@ -1038,19 +1038,19 @@
 .kanban-col--handled .kanban-col__body {
   background: rgba(100, 116, 139, 0.06);
   border-radius: var(--radius-md);
-  padding: 4px;
+  padding: var(--space-1);
 }
 
 /* The v2 lane columns also get a tinted body background so each column
    reads as a coloured zone in the kanban (matches the soft column tints
    in display-view.png). */
-.kanban-col--drafting .kanban-col__body { background: rgba(139, 92, 246, 0.05); border-radius: var(--radius-md); padding: 4px; }
-.kanban-col--waiting-on-review .kanban-col__body { background: rgba(245, 158, 11, 0.06); border-radius: var(--radius-md); padding: 4px; }
-.kanban-col--needs-changes .kanban-col__body { background: rgba(207, 34, 46, 0.05); border-radius: var(--radius-md); padding: 4px; }
-.kanban-col--ready-to-merge .kanban-col__body { background: rgba(46, 160, 67, 0.05); border-radius: var(--radius-md); padding: 4px; }
-.kanban-col--needs-attention .kanban-col__body { background: rgba(207, 34, 46, 0.05); border-radius: var(--radius-md); padding: 4px; }
-.kanban-col--in-progress .kanban-col__body { background: rgba(212, 160, 23, 0.05); border-radius: var(--radius-md); padding: 4px; }
-.kanban-col--awaiting-author .kanban-col__body { background: rgba(31, 111, 235, 0.05); border-radius: var(--radius-md); padding: 4px; }
+.kanban-col--drafting .kanban-col__body { background: rgba(139, 92, 246, 0.05); border-radius: var(--radius-md); padding: var(--space-1); }
+.kanban-col--waiting-on-review .kanban-col__body { background: rgba(245, 158, 11, 0.06); border-radius: var(--radius-md); padding: var(--space-1); }
+.kanban-col--needs-changes .kanban-col__body { background: rgba(207, 34, 46, 0.05); border-radius: var(--radius-md); padding: var(--space-1); }
+.kanban-col--ready-to-merge .kanban-col__body { background: rgba(46, 160, 67, 0.05); border-radius: var(--radius-md); padding: var(--space-1); }
+.kanban-col--needs-attention .kanban-col__body { background: rgba(207, 34, 46, 0.05); border-radius: var(--radius-md); padding: var(--space-1); }
+.kanban-col--in-progress .kanban-col__body { background: rgba(212, 160, 23, 0.05); border-radius: var(--radius-md); padding: var(--space-1); }
+.kanban-col--awaiting-author .kanban-col__body { background: rgba(31, 111, 235, 0.05); border-radius: var(--radius-md); padding: var(--space-1); }
 
 /* ── Rich PR card for the v2 kanban (KanbanPrCard.tsx) ──────────────────────
    Matches docs/mockups/v2/kanban/bytequay-pr-kanban-redesign.html `.card`. */
@@ -1248,7 +1248,7 @@
   min-width: 200px;
   display: flex;
   flex-direction: column;
-  padding: 4px;
+  padding: var(--space-1);
   background: var(--bg-card, #fff);
   border: 1px solid var(--border, rgba(120, 140, 200, 0.40));
   border-radius: var(--radius-md);
@@ -1715,7 +1715,7 @@
 .panel {
   border: 1px solid var(--border);
   border-radius: 24px;
-  padding: 24px;
+  padding: var(--space-6);
   background: var(--bg-panel);
   box-shadow: 0 18px 50px rgba(84, 71, 38, 0.08);
 }

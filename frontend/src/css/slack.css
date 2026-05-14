@@ -96,7 +96,7 @@
 
 .slack-sb-help {
   margin-top: auto;
-  padding: 12px;
+  padding: var(--space-3);
   background: var(--bg-card);
   border: 1px solid var(--border-light);
   border-radius: var(--radius-md);
@@ -361,7 +361,7 @@
 }
 
 .slack-picker__empty {
-  padding: 20px;
+  padding: var(--space-5);
   text-align: center;
   color: var(--text-4);
   font-size: var(--font-size-sm);
@@ -467,7 +467,7 @@
 .slack-picker__count strong { color: var(--text-1); font-weight: 600; }
 
 .slack-picker__error {
-  padding: 24px;
+  padding: var(--space-6);
   text-align: center;
   font-size: var(--font-size-md);
   color: var(--danger, #b3261e);
@@ -480,7 +480,7 @@
 }
 
 .slack-picker__loading {
-  padding: 24px;
+  padding: var(--space-6);
   text-align: center;
   color: var(--text-3);
   font-size: var(--font-size-md);
@@ -843,7 +843,7 @@
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
   background: var(--bg-base);
-  padding: 8px;
+  padding: var(--space-2);
   display: flex;
   flex-direction: column;
   gap: var(--space-1);
@@ -1035,7 +1035,7 @@
   margin: 4px 0 10px;
 }
 .slack-feed__empty {
-  padding: 32px;
+  padding: var(--space-8);
   text-align: center;
   color: var(--text-4);
   font-size: var(--font-size-sm);

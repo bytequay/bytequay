@@ -136,7 +136,7 @@
   background: var(--bg-card);
   border: 1px dashed var(--border);
   border-radius: 12px;
-  padding: 32px;
+  padding: var(--space-8);
   text-align: center;
   color: var(--text-3);
   font-size: var(--font-size-md);
@@ -615,7 +615,7 @@
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
   box-shadow: 0 8px 20px rgba(0, 0, 0, 0.12);
-  padding: 4px;
+  padding: var(--space-1);
   display: flex;
   flex-direction: column;
   gap: 2px;
@@ -1126,7 +1126,7 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  padding: 24px;
+  padding: var(--space-6);
 }
 .force-push-modal__backdrop {
   position: absolute;
@@ -1366,7 +1366,7 @@
   margin-top: 2px;
 }
 .branches-col__body {
-  padding: 8px;
+  padding: var(--space-2);
   display: flex;
   flex-direction: column;
   gap: var(--space-1);
@@ -1790,7 +1790,7 @@
   border-top: 1px solid var(--border-hairline);
 }
 .commit-diff__empty {
-  padding: 24px;
+  padding: var(--space-6);
   text-align: center;
   color: var(--text-3);
   font-size: var(--font-size-sm);
@@ -2360,7 +2360,7 @@
   gap: var(--space-1);
 }
 .repo-overview-panel__pr-empty {
-  padding: 16px;
+  padding: var(--space-4);
   font-size: var(--font-size-sm);
   color: var(--text-3);
   text-align: center;

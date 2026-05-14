@@ -57,7 +57,7 @@
   background: var(--bg-card);
   border: 1px solid var(--border);
   border-radius: 12px;
-  padding: 16px;
+  padding: var(--space-4);
 }
 
 .home-card__header {
@@ -588,7 +588,7 @@
 }
 .mypr-row__count--zero { color: var(--text-3); }
 .mypr-empty {
-  padding: 12px;
+  padding: var(--space-3);
   font-size: var(--font-size-sm);
   color: var(--text-3);
 }
@@ -1031,7 +1031,7 @@
   background: var(--bg-card);
   border: 1px solid var(--border);
   border-radius: 12px;
-  padding: 16px;
+  padding: var(--space-4);
   display: flex;
   flex-direction: column;
   gap: var(--space-1);

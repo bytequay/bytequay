@@ -1419,7 +1419,7 @@ button.prc-branches__ref--clickable:hover {
   z-index: 10;
   display: flex;
   gap: 2px;
-  padding: 4px;
+  padding: var(--space-1);
   background: var(--bg-elevated);
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
@@ -1816,7 +1816,7 @@ button.prc-branches__ref--clickable:hover {
   box-shadow: 0 6px 18px rgba(0, 0, 0, 0.08);
   max-height: 240px;
   overflow-y: auto;
-  padding: 4px;
+  padding: var(--space-1);
 }
 .prc-reviewer-suggest__row {
   display: block;

@@ -493,7 +493,7 @@
   right: 0;
   z-index: 50;
   margin: 0;
-  padding: 4px;
+  padding: var(--space-1);
   list-style: none;
   background: var(--bg-card);
   border: 1px solid var(--border);
@@ -1376,7 +1376,7 @@
   width: 100%;
   resize: vertical;
   min-height: 64px;
-  padding: 8px;
+  padding: var(--space-2);
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
   font-family: -apple-system, BlinkMacSystemFont, "Inter", system-ui, sans-serif;
@@ -1429,7 +1429,7 @@
   width: 100%;
   resize: vertical;
   min-height: 64px;
-  padding: 8px;
+  padding: var(--space-2);
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
   font: inherit;
@@ -1762,7 +1762,7 @@
   width: 100%;
   resize: vertical;
   min-height: 64px;
-  padding: 8px;
+  padding: var(--space-2);
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
   font: inherit;

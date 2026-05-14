@@ -532,7 +532,7 @@ pre {
 .settings-page {
   height: 100%;
   overflow-y: auto;
-  padding: 24px;
+  padding: var(--space-6);
   max-width: 560px;
   margin: 0 auto;
 }
@@ -705,7 +705,7 @@ pre {
   color: var(--accent);
   font-size: var(--font-size-md);
   cursor: pointer;
-  padding: 4px;
+  padding: var(--space-1);
   text-decoration: underline;
   text-underline-offset: 3px;
 }

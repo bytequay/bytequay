@@ -87,7 +87,7 @@
 
 .modal__loading,
 .modal__empty {
-  padding: 16px;
+  padding: var(--space-4);
   font-size: var(--font-size-md);
   color: var(--text-3);
   text-align: center;

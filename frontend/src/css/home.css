@@ -456,7 +456,7 @@
 .mypr-panel {
   margin: 12px 16px 0;
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: var(--radius-md);
   background: var(--bg-elevated);
   overflow: hidden;
   flex: 0 0 auto;
@@ -504,7 +504,7 @@
   appearance: none;
   background: var(--bg-card);
   border: 1px solid var(--border);
-  border-radius: 7px;
+  border-radius: var(--radius-md);
   padding: 8px 12px;
   cursor: pointer;
   font: inherit;
@@ -617,7 +617,7 @@
   align-items: center;
   padding: 10px 12px;
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: var(--radius-md);
   background: var(--bg-elevated);
   cursor: pointer;
   transition: border-color 120ms ease, transform 120ms ease, box-shadow 120ms ease;
@@ -631,7 +631,7 @@
   width: 30px;
   height: 30px;
   font-size: var(--font-size-sm);
-  border-radius: 7px;
+  border-radius: var(--radius-md);
 }
 .home-team-item__info {
   min-width: 0;
@@ -916,7 +916,7 @@
   gap: 2px;
   padding: 8px 10px;
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: var(--radius-md);
   background: var(--bg-card);
 }
 
@@ -1112,7 +1112,7 @@
   width: 100%;
   background: none;
   border: none;
-  border-radius: 8px;
+  border-radius: var(--radius-md);
   padding: 8px 6px;
   cursor: pointer;
   text-align: left;

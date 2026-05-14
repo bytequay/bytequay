@@ -861,7 +861,7 @@
    has the vertical space; one click expands into the full composer. */
 .pr-comment-box {
   border: 1px solid var(--border);
-  border-radius: 5px;
+  border-radius: var(--radius-sm);
   background: var(--bg-elevated);
   padding: 8px 10px;
   margin-bottom: 10px;
@@ -1242,7 +1242,7 @@
   padding: 10px 14px;
   border: 1px solid rgba(56, 139, 253, 0.35);
   background: rgba(56, 139, 253, 0.08);
-  border-radius: 8px;
+  border-radius: var(--radius-md);
 }
 /* Inside the timeline the bar is already its own card — suppress the
    default ready/blocked tints so the blue card shows through. */
@@ -1396,7 +1396,7 @@
   z-index: 51;
   background: var(--bg-elevated);
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: var(--radius-md);
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.18);
   padding: 4px;
   min-width: 280px;
@@ -1996,7 +1996,7 @@
 .md-body pre {
   background: var(--bg-card);
   border: 1px solid var(--border-mid);
-  border-radius: 8px;
+  border-radius: var(--radius-md);
   padding: 12px 14px;
   overflow-x: auto;
   margin: 0 0 0.7em;
@@ -2164,7 +2164,7 @@
    except threaded review comments + code snippets are deferred to V2. */
 .activity-item--with-body .activity-item__bubble {
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: var(--radius-md);
   background: var(--bg-card);
   padding: 8px 12px;
 }
@@ -2231,7 +2231,7 @@
 }
 .review-thread {
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: var(--radius-md);
   background: var(--bg-card);
   overflow: hidden;
 }
@@ -2319,7 +2319,7 @@
 .review-thread__msg-text pre {
   background: var(--bg-elevated);
   border: 1px solid var(--border);
-  border-radius: 5px;
+  border-radius: var(--radius-sm);
   padding: 6px 8px;
   margin: 4px 0;
   overflow-x: auto;

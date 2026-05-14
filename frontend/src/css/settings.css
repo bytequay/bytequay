@@ -68,7 +68,7 @@
 
 .credentials-tab__empty {
   border: 1px dashed var(--border);
-  border-radius: 8px;
+  border-radius: var(--radius-md);
   padding: 20px;
   text-align: center;
   color: var(--text-3);
@@ -95,7 +95,7 @@
   gap: var(--space-4);
   border: 1px solid var(--border);
   background: var(--bg-elevated);
-  border-radius: 8px;
+  border-radius: var(--radius-md);
   padding: 14px 16px;
 }
 
@@ -140,7 +140,7 @@
   background: var(--bg-card);
   border: 1px solid var(--border);
   padding: 1px 6px;
-  border-radius: 5px;
+  border-radius: var(--radius-sm);
 }
 
 .credentials-row__preview {
@@ -189,7 +189,7 @@
 .credentials-editor {
   border: 1px solid var(--border);
   background: var(--bg-elevated);
-  border-radius: 8px;
+  border-radius: var(--radius-md);
   padding: 18px 20px;
   margin-bottom: 20px;
   display: flex;

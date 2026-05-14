@@ -207,7 +207,7 @@
   background: var(--accent-a7);
   border: 1px solid var(--border);
   border-left: 3px solid var(--accent);
-  border-radius: 8px;
+  border-radius: var(--radius-md);
   color: var(--text-1);
   font-size: var(--font-size-sm);
   line-height: 1.5;
@@ -284,7 +284,7 @@
   padding: 10px 12px;
   background: rgba(217, 119, 6, 0.06);
   border: 1px solid rgba(217, 119, 6, 0.20);
-  border-radius: 8px;
+  border-radius: var(--radius-md);
 }
 
 .snoozed-row__info {
@@ -459,7 +459,7 @@
   min-width: 16px;
   height: 14px;
   padding: 0 4px;
-  border-radius: 7px;
+  border-radius: var(--radius-md);
   background: var(--bg-elevated);
   color: var(--text-1);
   font-size: 10px;
@@ -535,7 +535,7 @@
   background: var(--bg-card);
   border: 1px solid var(--border);
   border-top: 3px solid var(--text-3);
-  border-radius: 9px;
+  border-radius: var(--radius-lg);
   margin-bottom: 8px;
   font-size: var(--font-size-xs);
   font-weight: 700;
@@ -594,7 +594,7 @@
 .kanban-col--collapsed {
   background: var(--bg-elevated);
   border: 1px solid var(--border);
-  border-radius: 9px;
+  border-radius: var(--radius-lg);
   border-top-width: 1px !important;
   cursor: pointer;
   display: flex;
@@ -642,7 +642,7 @@
   height: 22px;
   font-size: var(--font-size-xs);
   line-height: 1;
-  border-radius: 5px;
+  border-radius: var(--radius-sm);
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -698,7 +698,7 @@
   font-size: var(--font-size-sm);
   font-weight: 600;
   padding: 9px 10px;
-  border-radius: 8px;
+  border-radius: var(--radius-md);
   margin-top: 8px;
   cursor: pointer;
   text-align: left;
@@ -843,14 +843,14 @@
   padding: 2px;
   background: var(--bg-elevated);
   border: 1px solid var(--border);
-  border-radius: 7px;
+  border-radius: var(--radius-md);
 }
 .kanban-v2__tab {
   font: inherit;
   font-size: var(--font-size-sm);
   font-weight: 500;
   padding: 5px 12px;
-  border-radius: 5px;
+  border-radius: var(--radius-sm);
   border: 0;
   background: transparent;
   color: var(--text-2);
@@ -876,7 +876,7 @@
   background: var(--accent-a7);
   color: var(--text-2);
   padding: 0 5px;
-  border-radius: 8px;
+  border-radius: var(--radius-md);
   min-width: 18px;
   text-align: center;
 }
@@ -894,14 +894,14 @@
   padding: 2px;
   background: var(--bg-elevated);
   border: 1px solid var(--border);
-  border-radius: 7px;
+  border-radius: var(--radius-md);
 }
 .kanban-v2__seg-btn {
   font: inherit;
   font-size: var(--font-size-sm);
   font-weight: 500;
   padding: 4px 10px;
-  border-radius: 5px;
+  border-radius: var(--radius-sm);
   border: 0;
   background: transparent;
   color: var(--text-2);
@@ -1037,20 +1037,20 @@
 .kanban-col--handled { opacity: 0.88; }
 .kanban-col--handled .kanban-col__body {
   background: rgba(100, 116, 139, 0.06);
-  border-radius: 8px;
+  border-radius: var(--radius-md);
   padding: 4px;
 }
 
 /* The v2 lane columns also get a tinted body background so each column
    reads as a coloured zone in the kanban (matches the soft column tints
    in display-view.png). */
-.kanban-col--drafting .kanban-col__body { background: rgba(139, 92, 246, 0.05); border-radius: 8px; padding: 4px; }
-.kanban-col--waiting-on-review .kanban-col__body { background: rgba(245, 158, 11, 0.06); border-radius: 8px; padding: 4px; }
-.kanban-col--needs-changes .kanban-col__body { background: rgba(207, 34, 46, 0.05); border-radius: 8px; padding: 4px; }
-.kanban-col--ready-to-merge .kanban-col__body { background: rgba(46, 160, 67, 0.05); border-radius: 8px; padding: 4px; }
-.kanban-col--needs-attention .kanban-col__body { background: rgba(207, 34, 46, 0.05); border-radius: 8px; padding: 4px; }
-.kanban-col--in-progress .kanban-col__body { background: rgba(212, 160, 23, 0.05); border-radius: 8px; padding: 4px; }
-.kanban-col--awaiting-author .kanban-col__body { background: rgba(31, 111, 235, 0.05); border-radius: 8px; padding: 4px; }
+.kanban-col--drafting .kanban-col__body { background: rgba(139, 92, 246, 0.05); border-radius: var(--radius-md); padding: 4px; }
+.kanban-col--waiting-on-review .kanban-col__body { background: rgba(245, 158, 11, 0.06); border-radius: var(--radius-md); padding: 4px; }
+.kanban-col--needs-changes .kanban-col__body { background: rgba(207, 34, 46, 0.05); border-radius: var(--radius-md); padding: 4px; }
+.kanban-col--ready-to-merge .kanban-col__body { background: rgba(46, 160, 67, 0.05); border-radius: var(--radius-md); padding: 4px; }
+.kanban-col--needs-attention .kanban-col__body { background: rgba(207, 34, 46, 0.05); border-radius: var(--radius-md); padding: 4px; }
+.kanban-col--in-progress .kanban-col__body { background: rgba(212, 160, 23, 0.05); border-radius: var(--radius-md); padding: 4px; }
+.kanban-col--awaiting-author .kanban-col__body { background: rgba(31, 111, 235, 0.05); border-radius: var(--radius-md); padding: 4px; }
 
 /* ── Rich PR card for the v2 kanban (KanbanPrCard.tsx) ──────────────────────
    Matches docs/mockups/v2/kanban/bytequay-pr-kanban-redesign.html `.card`. */
@@ -1061,7 +1061,7 @@
   width: 100%;
   background: var(--bg-card);
   border: 1px solid var(--border);
-  border-radius: 9px;
+  border-radius: var(--radius-lg);
   padding: 10px 12px;
   font: inherit;
   text-align: left;
@@ -1114,7 +1114,7 @@
 
 .kpr-card__banner {
   padding: 4px 8px;
-  border-radius: 5px;
+  border-radius: var(--radius-sm);
   font-size: var(--font-size-xs);
   font-weight: 500;
   display: flex;
@@ -1251,7 +1251,7 @@
   padding: 4px;
   background: var(--bg-card, #fff);
   border: 1px solid var(--border, rgba(120, 140, 200, 0.40));
-  border-radius: 8px;
+  border-radius: var(--radius-md);
   box-shadow: 0 8px 24px rgba(0, 0, 0, 0.15);
   z-index: 100;
 }
@@ -1785,7 +1785,7 @@ h3 {
   background: var(--bg-elevated);
   border: 1px solid var(--border);
   border-left: 3px solid #cf222e;
-  border-radius: 8px;
+  border-radius: var(--radius-md);
 }
 .focus-band__head {
   display: flex;
@@ -1863,7 +1863,7 @@ h3 {
   padding: 14px;
   background: transparent;
   border: 1px dashed var(--border, rgba(120, 140, 200, 0.40));
-  border-radius: 8px;
+  border-radius: var(--radius-md);
   color: var(--text-2);
   cursor: pointer;
   transition: background 0.12s, border-color 0.12s, color 0.12s;
@@ -2098,7 +2098,7 @@ h3 {
   color: var(--text-1);
   background: var(--bg-card);
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: var(--radius-md);
   cursor: pointer;
 }
 

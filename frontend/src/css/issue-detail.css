@@ -145,7 +145,7 @@
 
 .issue-detail__comment {
   border: 1px solid var(--border);
-  border-radius: 9px;
+  border-radius: var(--radius-lg);
   background: var(--bg-card);
   overflow: hidden;
 }
@@ -206,7 +206,7 @@
 
 .issue-detail__composer {
   border: 1px solid var(--border);
-  border-radius: 9px;
+  border-radius: var(--radius-lg);
   background: var(--bg-card);
   padding: 12px 14px;
   display: flex;
@@ -267,7 +267,7 @@
 }
 .issue-detail__rail-panel {
   border: 1px solid var(--border);
-  border-radius: 9px;
+  border-radius: var(--radius-lg);
   background: var(--bg-card);
   padding: 12px 14px 14px;
 }

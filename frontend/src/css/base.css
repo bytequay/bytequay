@@ -635,7 +635,7 @@ pre {
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, monospace;
   background: var(--bg-input);
   border: 1px solid var(--border-input);
-  border-radius: 8px;
+  border-radius: var(--radius-md);
   color: var(--text-1);
   outline: none;
 }
@@ -674,7 +674,7 @@ pre {
   padding: 11px 16px;
   font-size: var(--font-size-lg);
   font-weight: 600;
-  border-radius: 8px;
+  border-radius: var(--radius-md);
   cursor: pointer;
 }
 .onboarding__cta:hover:not(:disabled) {

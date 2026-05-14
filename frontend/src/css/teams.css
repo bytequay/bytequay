@@ -30,7 +30,7 @@
 .team-avatar {
   width: 36px;
   height: 36px;
-  border-radius: 9px;
+  border-radius: var(--radius-lg);
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -403,7 +403,7 @@
   padding: 9px 12px;
   background: transparent;
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: var(--radius-md);
   cursor: pointer;
   color: var(--text-1);
   min-width: 0;
@@ -877,7 +877,7 @@
 .team-card-preview__avatar {
   width: 40px;
   height: 40px;
-  border-radius: 8px;
+  border-radius: var(--radius-md);
   display: inline-flex;
   align-items: center;
   justify-content: center;
@@ -944,7 +944,7 @@
   width: 100%;
   padding: 9px 12px;
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: var(--radius-md);
   background: var(--bg-input);
   color: var(--text-1);
   font-size: var(--font-size-lg);
@@ -994,7 +994,7 @@
   appearance: none;
   font-size: 10px;
   padding: 3px 8px;
-  border-radius: 8px;
+  border-radius: var(--radius-md);
   border: 1px solid transparent;
   background: var(--accent-a7);
   color: var(--accent);
@@ -1014,7 +1014,7 @@
 .team-color-pick {
   width: 28px;
   height: 28px;
-  border-radius: 7px;
+  border-radius: var(--radius-md);
   border: 0;
   padding: 0;
   cursor: pointer;

@@ -99,7 +99,7 @@
   padding: 12px;
   background: var(--bg-card);
   border: 1px solid var(--border-light);
-  border-radius: 8px;
+  border-radius: var(--radius-md);
   font-size: var(--font-size-xs);
   color: var(--text-2);
   line-height: 1.5;
@@ -201,7 +201,7 @@
   background: #4a154b;
   color: #fff;
   border: 0;
-  border-radius: 8px;
+  border-radius: var(--radius-md);
   padding: 11px 24px;
   font: inherit;
   font-size: var(--font-size-lg);
@@ -336,7 +336,7 @@
   appearance: none;
   background: var(--bg-base);
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: var(--radius-md);
   padding: 8px 12px;
   font: inherit;
   font-size: var(--font-size-md);
@@ -355,7 +355,7 @@
   max-height: 360px;
   overflow-y: auto;
   border: 1px solid var(--border-light);
-  border-radius: 8px;
+  border-radius: var(--radius-md);
   padding: 6px;
   background: var(--bg-base);
 }
@@ -633,7 +633,7 @@
   background: var(--bg-elevated);
   border: 1px solid var(--border-light);
   border-left-width: 3px;
-  border-radius: 8px;
+  border-radius: var(--radius-md);
   overflow: hidden;
   transition: background-color 100ms ease, border-color 100ms ease;
 }
@@ -841,7 +841,7 @@
 /* Inline reply box — stays compact in the expanded card. */
 .slack-inbox-reply {
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: var(--radius-md);
   background: var(--bg-base);
   padding: 8px;
   display: flex;
@@ -1300,7 +1300,7 @@
   width: 100%;
   background: var(--bg-elevated);
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: var(--radius-md);
   padding: 10px 12px;
   font: inherit;
   font-size: var(--font-size-md);

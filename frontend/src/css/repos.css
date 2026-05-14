@@ -102,7 +102,7 @@
 }
 
 .repos-page__banner {
-  border-radius: 8px;
+  border-radius: var(--radius-md);
   padding: 12px 16px;
   margin-bottom: 16px;
   font-size: var(--font-size-md);
@@ -453,7 +453,7 @@
   text-align: left;
   background: var(--bg-elevated);
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: var(--radius-md);
   padding: 12px 14px;
   cursor: pointer;
   font: inherit;
@@ -613,7 +613,7 @@
   min-width: 260px;
   background: var(--bg-card);
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: var(--radius-md);
   box-shadow: 0 8px 20px rgba(0, 0, 0, 0.12);
   padding: 4px;
   display: flex;
@@ -804,7 +804,7 @@
   margin-top: 8px;
   background: var(--bg-card);
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: var(--radius-md);
   padding: 10px 12px;
 }
 .local-repo-page__branch-form-row {
@@ -823,7 +823,7 @@
 .local-repo-page__branch-form-row input {
   padding: 6px 8px;
   border: 1px solid var(--border);
-  border-radius: 5px;
+  border-radius: var(--radius-sm);
   background: var(--bg-base);
   color: var(--text-1);
   font: inherit;
@@ -845,7 +845,7 @@
   color: #b91c1c;
   font-size: var(--font-size-md);
   padding: 10px 14px;
-  border-radius: 8px;
+  border-radius: var(--radius-md);
   margin-bottom: 16px;
 }
 .local-repo-page__loading {
@@ -881,7 +881,7 @@
 .local-repo-tab-placeholder {
   background: var(--bg-elevated);
   border: 1px dashed var(--border);
-  border-radius: 8px;
+  border-radius: var(--radius-md);
   padding: 32px 24px;
   text-align: center;
   color: var(--text-2);
@@ -911,7 +911,7 @@
   padding: 0;
   background: var(--bg-elevated);
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: var(--radius-md);
   overflow: hidden;
 }
 .commit-row {
@@ -1001,7 +1001,7 @@
   padding: 0;
   background: var(--bg-elevated);
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: var(--radius-md);
   overflow: hidden;
 }
 .activity-row {
@@ -1274,7 +1274,7 @@
   z-index: 250;
   background: var(--bg-elevated);
   border: 1px solid var(--accent);
-  border-radius: 8px;
+  border-radius: var(--radius-md);
   padding: 10px 14px;
   display: flex;
   align-items: center;
@@ -1329,7 +1329,7 @@
   background: var(--bg-elevated);
   border: 1px solid var(--border);
   border-top-width: 3px;
-  border-radius: 8px;
+  border-radius: var(--radius-md);
   display: flex;
   flex-direction: column;
   min-height: 200px;
@@ -1552,7 +1552,7 @@
   appearance: none;
   background: var(--bg-card);
   border: 1px solid var(--border);
-  border-radius: 5px;
+  border-radius: var(--radius-sm);
   color: var(--text-2);
   font-family: inherit;
   font-size: var(--font-size-xs);
@@ -1643,7 +1643,7 @@
      are drawn by the .resize-handle children's ::before line. */
   background: var(--bg-card);
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: var(--radius-md);
   overflow: hidden;
 }
 .commits-pane__commits,

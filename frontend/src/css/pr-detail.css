@@ -409,7 +409,7 @@ button.prc-branches__ref--clickable:hover {
   flex: 1;
   min-width: 0;
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: var(--radius-md);
   background: var(--bg-card);
   padding: 10px 14px;
   position: relative;
@@ -868,7 +868,7 @@ button.prc-branches__ref--clickable:hover {
 /* Threaded review comment (per-line code review, with diff_hunk). */
 .prc-review-thread {
   border: 1px solid var(--border);
-  border-radius: 8px;
+  border-radius: var(--radius-md);
   background: var(--bg-card);
   overflow: hidden;
 }
@@ -1592,7 +1592,7 @@ button.prc-branches__ref--clickable:hover {
 .prc-yrb {
   background: rgba(99, 102, 241, 0.07);
   border: 1px solid rgba(99, 102, 241, 0.20);
-  border-radius: 8px;
+  border-radius: var(--radius-md);
   padding: 10px 12px;
 }
 .prc-yrb__title {
@@ -2115,7 +2115,7 @@ button.prc-branches__ref--clickable:hover {
   color: var(--text-2);
   background: var(--bg-card);
   border: 1px solid var(--border);
-  border-radius: 7px;
+  border-radius: var(--radius-md);
   cursor: pointer;
   margin-right: 4px;
   transition: background 0.1s, color 0.1s, border-color 0.1s;
@@ -2149,7 +2149,7 @@ button.prc-branches__ref--clickable:hover {
 .prc-style-toggle {
   display: inline-flex;
   border: 1px solid var(--border);
-  border-radius: 7px;
+  border-radius: var(--radius-md);
   background: var(--bg-card);
   padding: 1px;
   margin-right: 4px;
@@ -2164,7 +2164,7 @@ button.prc-branches__ref--clickable:hover {
   font-weight: 600;
   padding: 4px 10px;
   color: var(--text-3);
-  border-radius: 5px;
+  border-radius: var(--radius-sm);
 }
 .prc-style-toggle__btn:hover { color: var(--text-1); }
 .prc-style-toggle__btn--active {

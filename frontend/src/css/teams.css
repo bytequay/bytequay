@@ -383,7 +383,7 @@
 .team-panel__link:hover { background: var(--accent-a7); }
 .team-panel__empty {
   padding: 14px 4px;
-  font-size: 12.5px;
+  font-size: var(--font-size-sm);
   color: var(--text-3);
 }
 
@@ -423,7 +423,7 @@
 .pr-mini__banner--gray   { background: #cbd5e1; }
 .pr-mini__num {
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: 11.5px;
+  font-size: var(--font-size-xs);
   color: var(--text-3);
   font-weight: 600;
   flex-shrink: 0;
@@ -439,7 +439,7 @@
   white-space: nowrap;
 }
 .pr-mini__author {
-  font-size: 11.5px;
+  font-size: var(--font-size-xs);
   color: var(--text-3);
   flex-shrink: 0;
 }
@@ -496,7 +496,7 @@
   gap: 10px;
   padding: 8px 0;
   border-bottom: 1px solid var(--border-light);
-  font-size: 12.5px;
+  font-size: var(--font-size-sm);
 }
 .team-repo:last-child { border-bottom: 0; }
 .team-repo__name {
@@ -510,7 +510,7 @@
 }
 .team-repo__count {
   color: var(--text-3);
-  font-size: 11.5px;
+  font-size: var(--font-size-xs);
   flex-shrink: 0;
 }
 
@@ -613,7 +613,7 @@
 
 .team-card__desc {
   margin: 4px 0 0;
-  font-size: 12.5px;
+  font-size: var(--font-size-sm);
   color: var(--text-3);
   line-height: 1.45;
   /* Two-line clamp keeps card heights consistent in the grid. */

@@ -256,7 +256,7 @@
 /* Quiet metadata line — "2 of your PRs in this repo · sort: recent ▾". */
 .v2-scopebar__meta {
   margin: 8px 16px 0;
-  font-size: 11.5px;
+  font-size: var(--font-size-xs);
   color: var(--text-3);
 }
 
@@ -345,7 +345,7 @@
   color: var(--text-2);
   border-left-color: var(--border);
   background: var(--bg-elevated);
-  font-size: 11.5px;
+  font-size: var(--font-size-xs);
 }
 
 .v2-group__title { flex: 1; }
@@ -708,7 +708,7 @@
   padding: 4px 10px;
   border-radius: var(--radius-md);
   font: inherit;
-  font-size: 12.5px;
+  font-size: var(--font-size-sm);
   color: var(--text-2);
   cursor: pointer;
   display: inline-flex;
@@ -737,7 +737,7 @@
   width: 100%;
   padding: 6px 10px;
   font: inherit;
-  font-size: 12.5px;
+  font-size: var(--font-size-sm);
   border: 1px solid var(--border);
   background: var(--bg-base);
   color: var(--text-1);
@@ -833,7 +833,7 @@
   color: var(--text-3);
 }
 .issue-row__meta {
-  font-size: 11.5px;
+  font-size: var(--font-size-xs);
   color: var(--text-3);
   display: flex;
   flex-wrap: wrap;

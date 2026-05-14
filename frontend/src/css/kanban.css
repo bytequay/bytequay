@@ -209,7 +209,7 @@
   border-left: 3px solid var(--accent);
   border-radius: 8px;
   color: var(--text-1);
-  font-size: 12.5px;
+  font-size: var(--font-size-sm);
   line-height: 1.5;
 }
 
@@ -310,7 +310,7 @@
 }
 
 .snoozed-row__hint {
-  font-size: 11.5px;
+  font-size: var(--font-size-xs);
   color: var(--text-2);
   font-variant-numeric: tabular-nums;
 }
@@ -554,7 +554,7 @@
 
 .kanban-col__title {
   margin: 0;
-  font-size: 11.5px;
+  font-size: var(--font-size-xs);
   font-weight: 600;
   color: var(--text-1);
 }
@@ -1807,7 +1807,7 @@ h3 {
   color: #cf222e;
 }
 .focus-band__subtitle {
-  font-size: 11.5px;
+  font-size: var(--font-size-xs);
   color: var(--text-3);
   flex: 1 1 auto;
 }
@@ -1816,7 +1816,7 @@ h3 {
   background: transparent;
   border: 0;
   font: inherit;
-  font-size: 11.5px;
+  font-size: var(--font-size-xs);
   color: var(--text-3);
   cursor: not-allowed;
   padding: 0;

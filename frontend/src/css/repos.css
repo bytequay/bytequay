@@ -238,7 +238,7 @@
 .repo-card__stats {
   display: flex;
   gap: var(--space-3);
-  font-size: 11.5px;
+  font-size: var(--font-size-xs);
   color: var(--text-3);
 }
 .repo-card__stat {
@@ -292,7 +292,7 @@
 }
 .repo-card__clone-path {
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, monospace;
-  font-size: 11.5px;
+  font-size: var(--font-size-xs);
   color: var(--text-3);
   white-space: nowrap;
   overflow: hidden;
@@ -325,7 +325,7 @@
   display: flex;
   align-items: center;
   gap: 14px;
-  font-size: 11.5px;
+  font-size: var(--font-size-xs);
   color: var(--text-3);
 }
 .repo-card__activity-need {
@@ -362,7 +362,7 @@
   color: var(--text-2);
 }
 .repo-card__placeholder-body {
-  font-size: 11.5px;
+  font-size: var(--font-size-xs);
   color: var(--text-3);
   margin: 0;
   max-width: 240px;
@@ -476,7 +476,7 @@
 }
 .add-repo-choice__sub code {
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, monospace;
-  font-size: 11.5px;
+  font-size: var(--font-size-xs);
   background: var(--bg-card);
   padding: 0 4px;
   border-radius: 3px;
@@ -505,7 +505,7 @@
   background: var(--bg-base);
   color: var(--text-1);
   font: inherit;
-  font-size: 12.5px;
+  font-size: var(--font-size-sm);
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, monospace;
 }
 .add-repo-modal__input:focus {
@@ -516,7 +516,7 @@
 .add-repo-modal__input:disabled { background: var(--bg-elevated); color: var(--text-3); }
 .add-repo-modal__hint {
   margin: 0;
-  font-size: 11.5px;
+  font-size: var(--font-size-xs);
   color: var(--text-3);
   line-height: 1.55;
 }
@@ -706,7 +706,7 @@
 }
 .local-repo-page__path {
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, monospace;
-  font-size: 11.5px;
+  font-size: var(--font-size-xs);
   color: var(--text-3);
   max-width: 100%;
   overflow: hidden;
@@ -827,7 +827,7 @@
   background: var(--bg-base);
   color: var(--text-1);
   font: inherit;
-  font-size: 12.5px;
+  font-size: var(--font-size-sm);
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, monospace;
 }
 .local-repo-page__branch-form-row input:focus {
@@ -1216,7 +1216,7 @@
 }
 .create-pr-modal__field textarea {
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, monospace;
-  font-size: 12.5px;
+  font-size: var(--font-size-sm);
   resize: vertical;
 }
 .create-pr-modal__field input:focus,
@@ -1348,7 +1348,7 @@
   column-gap: var(--space-2);
 }
 .branches-col__label {
-  font-size: 11.5px;
+  font-size: var(--font-size-xs);
   font-weight: 700;
   text-transform: uppercase;
   letter-spacing: 0.06em;
@@ -1381,7 +1381,7 @@
   border: 1px dashed var(--border);
   color: var(--text-2);
   font: inherit;
-  font-size: 11.5px;
+  font-size: var(--font-size-xs);
   padding: 6px 8px;
   border-radius: var(--radius-md);
   margin-top: 4px;
@@ -1477,7 +1477,7 @@
   align-items: center;
   flex-wrap: wrap;
   gap: 6px;
-  font-size: 11.5px;
+  font-size: var(--font-size-xs);
   color: var(--text-3);
 }
 .branch-card__ahead {
@@ -2103,7 +2103,7 @@
 }
 .repository-hero__tagline {
   margin: 4px 0 8px;
-  font-size: 12.5px;
+  font-size: var(--font-size-sm);
   color: var(--text-3);
   line-height: 1.4;
 }
@@ -2265,7 +2265,7 @@
   border: 1px solid var(--border);
   border-radius: var(--radius-md);
   padding: 5px 10px;
-  font-size: 11.5px;
+  font-size: var(--font-size-xs);
   color: var(--text-2);
   cursor: pointer;
 }
@@ -2276,7 +2276,7 @@
 }
 .repo-overview-panel__clone-msg {
   flex: 1 1 auto;
-  font-size: 12.5px;
+  font-size: var(--font-size-sm);
   color: var(--accent);
 }
 .repo-overview-panel__clone-cta {
@@ -2316,7 +2316,7 @@
   background: transparent;
   border: 0;
   font: inherit;
-  font-size: 11.5px;
+  font-size: var(--font-size-xs);
   color: var(--accent);
   cursor: pointer;
 }
@@ -2417,7 +2417,7 @@
 
 /* About panel — description, links, languages bar. */
 .repo-overview-panel__about-desc {
-  font-size: 12.5px;
+  font-size: var(--font-size-sm);
   color: var(--text-2);
   line-height: 1.5;
   margin: 0 0 8px;
@@ -2485,5 +2485,5 @@
   margin: 0;
   color: var(--text-1);
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, monospace;
-  font-size: 11.5px;
+  font-size: var(--font-size-xs);
 }

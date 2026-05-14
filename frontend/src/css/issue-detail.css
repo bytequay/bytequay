@@ -121,7 +121,7 @@
   gap: var(--space-2);
 }
 .issue-detail__state-error {
-  font-size: 11.5px;
+  font-size: var(--font-size-xs);
   color: #cf222e;
 }
 
@@ -160,7 +160,7 @@
   border-bottom: 1px solid var(--border);
 }
 .issue-detail__comment-meta {
-  font-size: 12.5px;
+  font-size: var(--font-size-sm);
   color: var(--text-2);
   flex: 1;
   min-width: 0;
@@ -179,7 +179,7 @@
 }
 .issue-detail__comment-body {
   padding: 12px 16px 16px;
-  font-size: 13.5px;
+  font-size: var(--font-size-md);
   line-height: 1.6;
   color: var(--text-1);
 }
@@ -187,7 +187,7 @@
 .issue-detail__comment-body p:last-child { margin-bottom: 0; }
 .issue-detail__comment-body code {
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
-  font-size: 12.5px;
+  font-size: var(--font-size-sm);
   background: var(--bg-base);
   padding: 1px 5px;
   border-radius: 3px;
@@ -197,7 +197,7 @@
   padding: 10px 12px;
   border-radius: var(--radius-md);
   overflow-x: auto;
-  font-size: 12.5px;
+  font-size: var(--font-size-sm);
 }
 .issue-detail__comment-body pre code {
   background: transparent;
@@ -255,7 +255,7 @@
   gap: 6px;
 }
 .issue-detail__composer-hint {
-  font-size: 11.5px;
+  font-size: var(--font-size-xs);
   color: var(--text-3);
   margin-left: auto;
 }
@@ -280,7 +280,7 @@
   color: var(--text-3);
 }
 .issue-detail__rail-empty {
-  font-size: 12.5px;
+  font-size: var(--font-size-sm);
   color: var(--text-3);
   font-style: italic;
 }
@@ -296,7 +296,7 @@
   display: flex;
   align-items: center;
   gap: var(--space-2);
-  font-size: 12.5px;
+  font-size: var(--font-size-sm);
   color: var(--text-1);
 }
 .issue-detail__label-row {
@@ -306,7 +306,7 @@
 }
 .issue-detail__label {
   padding: 2px 9px;
-  font-size: 11.5px;
+  font-size: var(--font-size-xs);
   border-radius: var(--radius-pill);
   font-weight: 500;
   white-space: nowrap;
@@ -325,7 +325,7 @@
   display: grid;
   grid-template-columns: auto 1fr;
   gap: 4px 12px;
-  font-size: 12.5px;
+  font-size: var(--font-size-sm);
 }
 .issue-detail__notes dt {
   color: var(--text-3);
@@ -404,7 +404,7 @@
   align-items: center;
   padding: 6px 8px;
   border-radius: var(--radius-md);
-  font-size: 12.5px;
+  font-size: var(--font-size-sm);
   color: var(--text-2);
 }
 .issue-detail__activity-row:hover { background: var(--bg-card); }
@@ -417,12 +417,12 @@
   border-radius: 50%;
   background: var(--bg-card);
   color: var(--text-3);
-  font-size: 11.5px;
+  font-size: var(--font-size-xs);
 }
 .issue-detail__activity-text strong { color: var(--text-1); font-weight: 600; }
 .issue-detail__activity-text em { color: var(--text-1); font-style: normal; font-weight: 500; }
 .issue-detail__activity-time {
-  font-size: 11.5px;
+  font-size: var(--font-size-xs);
   color: var(--text-4);
   white-space: nowrap;
 }
@@ -459,7 +459,7 @@
   min-width: 0;
 }
 .issue-detail__linked-repo {
-  font-size: 11.5px;
+  font-size: var(--font-size-xs);
   color: var(--text-4);
 }
 .issue-detail__linked-link {

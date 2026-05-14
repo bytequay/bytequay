@@ -241,7 +241,7 @@
   /* Single knob for monospace code size in diff hunks and inline comment
      code spans/blocks. Tune here to rebalance against comment-body text
      across the PR detail surfaces. */
-  --pr-code-font-size: 12.5px;
+  --pr-code-font-size: var(--font-size-sm);
 
   /* ── Design tokens ──────────────────────────────────────────────────
      Geometric + typographic scales shared across every theme.  Add new

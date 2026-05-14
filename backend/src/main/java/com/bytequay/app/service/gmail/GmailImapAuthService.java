@@ -36,22 +36,20 @@ import java.util.stream.Collectors;
 import static java.util.Objects.requireNonNull;
 
 /**
- * Authenticates a Gmail account via IMAP + app-password (a.k.a. "Sign
- * in with App Password"). Sister to {@link GmailOAuthService}; lets
- * users connect mailboxes without going through the Google OAuth
- * verification process. The trade-off is uglier onboarding (the user
- * has to enable 2FA and generate a 16-character app password in
- * their Google account).
+ * Authenticates a Gmail account via IMAP + app password (Google's "Sign
+ * in with App Password" feature). The user has to enable 2FA on their
+ * account first and generate a 16-character app password in their
+ * Google security settings; then they paste email + app password here
+ * and we open an IMAP connection to validate before persisting.
  *
- * <p>Storage uses a parallel credential slot
- * {@code (ACCOUNT, "gmail-imap", instanceName=<email>)} so the auth
- * mode is unambiguous from the credential row alone — no need for a
- * notes-field discriminator.
+ * <p>Storage uses a credential row at
+ * {@code (ACCOUNT, "gmail-imap", instanceName=<email>)} so the
+ * auth-mode boundary stays explicit and matches whatever future modes
+ * may exist later (e.g. proper OAuth via a desktop-distributed client).
  *
- * <p>Validation happens at connect time: we open an IMAP connection
- * and run {@code LOGIN} before persisting, so the user gets immediate
- * feedback if they pasted the wrong password instead of failing
- * silently on the first sync.
+ * <p>Validation at connect time means the user gets immediate feedback
+ * if they pasted the wrong password (or pasted their regular Google
+ * password by mistake) instead of failing silently on the first sync.
  */
 @Service
 public class GmailImapAuthService

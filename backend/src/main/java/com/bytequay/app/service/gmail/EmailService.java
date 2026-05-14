@@ -17,23 +17,19 @@ import com.bytequay.app.domain.EmailMessageDetail;
 import com.bytequay.app.domain.EmailThreadDetail;
 import com.bytequay.app.domain.EmailThreadMeta;
 import com.bytequay.app.domain.LinkedRef;
-import com.bytequay.app.repository.EmailMessageStore;
 import com.bytequay.app.service.pr.PullRequestService;
 import com.bytequay.app.web.PatResolver;
-import com.google.common.collect.ImmutableList;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatusCode;
 import org.springframework.stereotype.Service;
 import org.springframework.web.server.ResponseStatusException;
 
-import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.time.Instant;
 import java.time.ZoneId;
 import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
-import java.util.Base64;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -41,27 +37,21 @@ import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
-import java.util.function.Function;
 
 import static java.util.Objects.requireNonNull;
 
 /**
- * Inbox-list orchestrator. Resolves an access token for the requested
- * account, asks Gmail for the inbox thread IDs, fetches metadata for
- * each in parallel, and returns the threads newest-first.
+ * Inbox-list orchestrator for Gmail accounts connected via IMAP +
+ * app password. Reads come from {@link GmailImapClient}, sends from
+ * {@link GmailSmtpClient}. The OAuth/Gmail-API path was removed — see
+ * the 2026-05-14 commit — because for a local-only desktop app the
+ * Cloud Console / verification dance was a worse experience than just
+ * pasting an app password.
  *
- * <p>One round trip costs {@code 1 + N} HTTP calls to Gmail, capped at
- * {@link #MAX_PARALLEL_FETCHES} concurrency to stay under Gmail's
- * per-user concurrent-request limit.
- *
- * <p>Operates on Gmail's <strong>thread</strong> abstraction, not
- * individual messages — matches Gmail's UI semantics where a row in
- * the inbox is a conversation, archive applies to the whole thread,
- * and the unread state is "any message in the thread is unread".
- *
- * <p>OAuth-only path. The IMAP adapter for
- * {@code (ACCOUNT, "gmail-imap", *)} accounts plugs in alongside once
- * the UI shape is settled.
+ * <p>Operates on Gmail's <strong>thread</strong> abstraction — a row
+ * in the inbox is a conversation, archive applies to the whole thread,
+ * and unread = "any message in the thread is unread". This matches
+ * what the Gmail web UI shows.
  */
 @Service
 public class EmailService
@@ -73,15 +63,11 @@ public class EmailService
      *  don't kick off a redundant refresh. */
     private static final Duration PR_REFRESH_DEDUP_TTL = Duration.ofMinutes(5);
 
-    private final GoogleAccessTokenService tokens;
-    private final GmailApiClient gmail;
     private final GmailImapAuthService imapAuth;
     private final GmailImapClient imapClient;
     private final GmailSmtpClient smtpClient;
     private final LinkDetector linkDetector;
     private final EmailHtmlEnricher htmlEnricher;
-    private final EmailMessageStore store;
-    private final EmailSyncService sync;
     private final EmailMuteService muteService;
     private final PullRequestService pullRequestService;
     private final PatResolver patResolver;
@@ -90,86 +76,57 @@ public class EmailService
     private final ConcurrentMap<String, Instant> recentPrRefreshes = new ConcurrentHashMap<>();
 
     public EmailService(
-            GoogleAccessTokenService tokens,
-            GmailApiClient gmail,
             GmailImapAuthService imapAuth,
             GmailImapClient imapClient,
             GmailSmtpClient smtpClient,
             LinkDetector linkDetector,
             EmailHtmlEnricher htmlEnricher,
-            EmailMessageStore store,
-            EmailSyncService sync,
             EmailMuteService muteService,
             PullRequestService pullRequestService,
             PatResolver patResolver)
     {
-        this.tokens = requireNonNull(tokens, "tokens is null");
-        this.gmail = requireNonNull(gmail, "gmail is null");
         this.imapAuth = requireNonNull(imapAuth, "imapAuth is null");
         this.imapClient = requireNonNull(imapClient, "imapClient is null");
         this.smtpClient = requireNonNull(smtpClient, "smtpClient is null");
         this.linkDetector = requireNonNull(linkDetector, "linkDetector is null");
         this.htmlEnricher = requireNonNull(htmlEnricher, "htmlEnricher is null");
-        this.store = requireNonNull(store, "store is null");
-        this.sync = requireNonNull(sync, "sync is null");
         this.muteService = requireNonNull(muteService, "muteService is null");
         this.pullRequestService = requireNonNull(pullRequestService, "pullRequestService is null");
         this.patResolver = requireNonNull(patResolver, "patResolver is null");
     }
 
     /**
-     * Returns the inbox grouped by thread, newest first.
-     *
-     * <p>OAuth path: served from the local SQLite mirror. Cold accounts
-     * trigger a synchronous initial sync; subsequent calls hit cached
-     * data, with fresh rows flowing in via the background poll tick or
-     * an explicit {@link #refresh refresh}.
-     *
-     * <p>IMAP path: live fetch from {@code imap.gmail.com} on every
-     * call — no SQLite mirror yet. Tolerable while the page poll only
-     * fires every 30s; we'll add an IMAP cache layer once the read/
-     * archive mutations land and the poll cost actually matters.
+     * Returns the inbox grouped by thread, newest first. Live fetch
+     * from {@code imap.gmail.com} on every call — there's no SQLite
+     * mirror layer, so the cost is one IMAP login per call. Pagination
+     * caps at {@code pageSize} threads, ordered by the head message's
+     * arrival time.
      */
     public List<EmailThreadMeta> listInboxThreads(String email, int pageSize)
     {
-        if (email == null || email.isBlank()) {
-            throw new ResponseStatusException(HttpStatusCode.valueOf(400),
-                    "email must not be blank");
-        }
+        requireNonBlank(email, "email");
         if (pageSize <= 0 || pageSize > 500) {
             throw new ResponseStatusException(HttpStatusCode.valueOf(400),
                     "pageSize must be in [1, 500]");
         }
-        if (imapAuth.isConnected(email)) {
-            return applyMuteFilter(email,
-                    imapClient.listInboxThreads(email, imapAuth.getAppPassword(email), pageSize));
-        }
-        // Cold-start the cache for accounts we've never synced.
-        if (store.getSyncState(email).isEmpty()) {
-            log.info("Cold cache for {} — running initial Gmail sync", email);
-            sync.fullSync(email);
-        }
-        return applyMuteFilter(email, store.listInboxThreads(email, pageSize));
+        return applyMuteFilter(email,
+                imapClient.listInboxThreads(email, appPasswordFor(email), pageSize));
     }
 
-    /** Force-refresh handler — for OAuth runs an incremental sync and
-     *  returns the resulting cached inbox; for IMAP this is the same
-     *  as {@link #listInboxThreads} since there's no cache to bust yet. */
+    /** Force-refresh handler. Same as {@link #listInboxThreads} —
+     *  there's no cached data to bust, every call hits IMAP live.
+     *  Kept as a separate endpoint so the UI can wire a Refresh button
+     *  to "give me the absolute latest" without opening the question
+     *  of whether listInboxThreads might be returning stale rows. */
     public List<EmailThreadMeta> refresh(String email, int pageSize)
     {
-        requireNonBlank(email, "email");
-        if (imapAuth.isConnected(email)) {
-            return applyMuteFilter(email,
-                    imapClient.listInboxThreads(email, imapAuth.getAppPassword(email), pageSize));
-        }
-        sync.incrementalSync(email);
-        return applyMuteFilter(email, store.listInboxThreads(email, pageSize));
+        return listInboxThreads(email, pageSize);
     }
 
     /** Drops any thread whose latest-message sender is in the mute set
-     *  for this account. Done in-memory after the SQL list query — the
-     *  mute set is typically tiny so the extra round trip vs a JOIN is
-     *  not worth the query complexity. */
+     *  for this account. Done in-memory after the listing call — the
+     *  mute set is typically tiny so a SQL JOIN isn't worth the
+     *  query complexity. */
     private List<EmailThreadMeta> applyMuteFilter(String accountEmail, List<EmailThreadMeta> threads)
     {
         Set<String> muted = muteService.mutedSet(accountEmail);
@@ -194,9 +151,7 @@ public class EmailService
     {
         requireNonBlank(email, "email");
         requireNonBlank(threadId, "threadId");
-        EmailThreadDetail raw = imapAuth.isConnected(email)
-                ? imapClient.getThreadFull(email, imapAuth.getAppPassword(email), threadId)
-                : runWithToken(email, accessToken -> gmail.getThreadFull(accessToken, threadId));
+        EmailThreadDetail raw = imapClient.getThreadFull(email, appPasswordFor(email), threadId);
         List<LinkedRef> refs = linkDetector.detect(raw);
         for (LinkedRef ref : refs) {
             if (ref.kind() == LinkedRef.Kind.PR) {
@@ -253,85 +208,59 @@ public class EmailService
         });
     }
 
-    /** Removes the INBOX label from every message in the thread —
-     *  Gmail's archive semantics. Cache write-through flips the local
-     *  rows off-inbox so the list view drops the row immediately. */
+    /** Removes the Gmail INBOX label from every message in the thread —
+     *  Gmail's archive semantics. */
     public void archiveThread(String email, String threadId)
     {
         requireNonBlank(email, "email");
         requireNonBlank(threadId, "threadId");
-        if (imapAuth.isConnected(email)) {
-            imapClient.archiveThread(email, imapAuth.getAppPassword(email), threadId);
-            return;
-        }
-        runWithToken(email, accessToken -> {
-            gmail.modifyThread(accessToken, threadId, ImmutableList.of(), ImmutableList.of("INBOX"));
-            return null;
-        });
-        sync.onThreadModified(email, threadId, false, false);
+        imapClient.archiveThread(email, appPasswordFor(email), threadId);
     }
 
-    /** Removes the UNREAD label from every message in the thread.
-     *  Operating on the thread (not individual messages) keeps
-     *  ByteQuay's read-state in lockstep with what Gmail's UI shows. */
+    /** Sets {@code \Seen} on every message in the thread. */
     public void markThreadRead(String email, String threadId)
     {
         requireNonBlank(email, "email");
         requireNonBlank(threadId, "threadId");
-        if (imapAuth.isConnected(email)) {
-            imapClient.markThreadRead(email, imapAuth.getAppPassword(email), threadId);
-            return;
-        }
-        runWithToken(email, accessToken -> {
-            gmail.modifyThread(accessToken, threadId, ImmutableList.of(), ImmutableList.of("UNREAD"));
-            return null;
-        });
-        sync.onThreadModified(email, threadId, true, false);
+        imapClient.markThreadRead(email, appPasswordFor(email), threadId);
     }
 
-    /** Adds the UNREAD label back to every message in the thread. */
+    /** Clears {@code \Seen} on every message in the thread. */
     public void markThreadUnread(String email, String threadId)
     {
         requireNonBlank(email, "email");
         requireNonBlank(threadId, "threadId");
-        if (imapAuth.isConnected(email)) {
-            imapClient.markThreadUnread(email, imapAuth.getAppPassword(email), threadId);
-            return;
-        }
-        runWithToken(email, accessToken -> {
-            gmail.modifyThread(accessToken, threadId, ImmutableList.of("UNREAD"), ImmutableList.of());
-            return null;
-        });
-        sync.onThreadModified(email, threadId, true, true);
+        imapClient.markThreadUnread(email, appPasswordFor(email), threadId);
     }
 
-    /** Combined "open and dismiss" — removes both INBOX and UNREAD in
-     *  a single Gmail call. Wired to the auto-action that fires when
-     *  the user opens an unread thread, so reading is the same gesture
-     *  as archiving. Saves a round trip versus calling
-     *  {@link #archiveThread} + {@link #markThreadRead} separately. */
+    /** Combined "open and dismiss" — one IMAP STORE batch sets {@code \Seen}
+     *  and removes the INBOX label. Wired to the auto-action that fires
+     *  when the user opens an unread thread, so reading is the same
+     *  gesture as archiving. */
     public void readAndArchiveThread(String email, String threadId)
     {
         requireNonBlank(email, "email");
         requireNonBlank(threadId, "threadId");
-        if (imapAuth.isConnected(email)) {
-            imapClient.readAndArchiveThread(email, imapAuth.getAppPassword(email), threadId);
-            return;
-        }
-        runWithToken(email, accessToken -> {
-            gmail.modifyThread(accessToken, threadId,
-                    ImmutableList.of(), ImmutableList.of("INBOX", "UNREAD"));
-            return null;
-        });
-        sync.onThreadModified(email, threadId, false, false);
+        imapClient.readAndArchiveThread(email, appPasswordFor(email), threadId);
+    }
+
+    /** Reverses the auto-archive: re-adds INBOX and clears UNREAD (the
+     *  typical entry point is "I just opened this and want to keep it
+     *  visible"). The "Keep in inbox" button on the detail pane drives
+     *  this. */
+    public void keepThreadInInbox(String email, String threadId)
+    {
+        requireNonBlank(email, "email");
+        requireNonBlank(threadId, "threadId");
+        imapClient.keepThreadInInbox(email, appPasswordFor(email), threadId);
     }
 
     /**
-     * Sends a plain-text reply to the latest message in a thread.
-     * Pulls the original {@code Message-ID} + {@code References} so
-     * Gmail (and every other RFC-compliant client) keeps the reply
-     * threaded with the conversation. Subject gets a {@code Re:}
-     * prefix only when not already present.
+     * Sends a plain-text reply to the latest message in a thread via
+     * SMTP. Pulls the original {@code Message-ID} + {@code References}
+     * from IMAP first so Gmail (and every other RFC-compliant client)
+     * keeps the reply threaded with the conversation. Subject gets a
+     * {@code Re:} prefix only when not already present.
      *
      * <p>v1: no Reply-All, no rich text, no attachments. The original
      * message body is appended {@code >}-quoted so the recipient has
@@ -344,53 +273,7 @@ public class EmailService
         if (body == null || body.isBlank()) {
             throw new ResponseStatusException(HttpStatusCode.valueOf(400), "body must not be blank");
         }
-        if (imapAuth.isConnected(email)) {
-            sendReplyViaSmtp(email, threadId, body);
-            return;
-        }
-        runWithToken(email, accessToken -> {
-            EmailThreadDetail thread = gmail.getThreadFull(accessToken, threadId);
-            if (thread.messages().isEmpty()) {
-                throw new ResponseStatusException(HttpStatusCode.valueOf(404),
-                        "thread is empty");
-            }
-            EmailMessageDetail last = thread.messages().get(thread.messages().size() - 1);
-            Map<String, String> headers = gmail.getMessageHeaders(accessToken, last.id(),
-                    List.of("Message-ID", "References", "Subject", "From"));
-            String origMessageId = headers.get("Message-ID");
-            String origReferences = headers.get("References");
-            String origSubject = headers.getOrDefault("Subject",
-                    thread.subject() == null ? "" : thread.subject());
-            String origFrom = headers.getOrDefault("From", last.from());
-
-            String replySubject = buildReplySubject(origSubject);
-            String references = mergeReferences(origReferences, origMessageId);
-            String quoted = quoteForReply(last);
-            String fullBody = quoted.isEmpty() ? body : body + "\n\n" + quoted;
-            String mime = buildPlainTextMime(origFrom, replySubject, origMessageId, references, fullBody);
-            String b64 = Base64.getUrlEncoder().withoutPadding()
-                    .encodeToString(mime.getBytes(StandardCharsets.UTF_8));
-            gmail.sendMessage(accessToken, threadId, b64);
-            return null;
-        });
-        // Pull the sent message into the local mirror so the new
-        // bottom message shows up the next time the user opens the
-        // thread (or via the inbox poll).
-        try {
-            sync.incrementalSync(email);
-        }
-        catch (Exception e) {
-            log.debug("Post-reply sync skipped: {}", e.getMessage());
-        }
-    }
-
-    /** IMAP/SMTP twin of the OAuth path. Pulls headers + thread via
-     *  IMAP, hands the assembled MimeMessage to SMTP. No post-send sync
-     *  — the sent message lands in INBOX/All Mail at Google's pace and
-     *  the next inbox poll will pick it up. */
-    private void sendReplyViaSmtp(String email, String threadId, String body)
-    {
-        String appPassword = imapAuth.getAppPassword(email);
+        String appPassword = appPasswordFor(email);
         EmailThreadDetail thread = imapClient.getThreadFull(email, appPassword, threadId);
         if (thread.messages().isEmpty()) {
             throw new ResponseStatusException(HttpStatusCode.valueOf(404),
@@ -411,6 +294,19 @@ public class EmailService
         String fullBody = quoted.isEmpty() ? body : body + "\n\n" + quoted;
         smtpClient.sendReply(email, appPassword, origFrom, replySubject,
                 origMessageId, references, fullBody);
+    }
+
+    /** Resolves the app password for {@code email} or throws 401 if no
+     *  IMAP credential is stored. Centralised so every operation gets
+     *  the same error shape and so the blank-email guard is the only
+     *  thing the call sites need to remember. */
+    private String appPasswordFor(String email)
+    {
+        if (!imapAuth.isConnected(email)) {
+            throw new ResponseStatusException(HttpStatusCode.valueOf(401),
+                    "No IMAP credential stored for " + email + " — connect under Settings → Integrations");
+        }
+        return imapAuth.getAppPassword(email);
     }
 
     private static String buildReplySubject(String origSubject)
@@ -446,70 +342,6 @@ public class EmailService
             out.append("> ").append(line).append("\n");
         }
         return out.toString();
-    }
-
-    /** Builds an RFC5322 text/plain MIME message. CRLF throughout per
-     *  spec — anything else gets normalized at the boundary. */
-    private static String buildPlainTextMime(
-            String to, String subject, String inReplyTo, String references, String body)
-    {
-        StringBuilder sb = new StringBuilder();
-        sb.append("To: ").append(to).append("\r\n");
-        sb.append("Subject: ").append(subject).append("\r\n");
-        if (inReplyTo != null && !inReplyTo.isBlank()) {
-            sb.append("In-Reply-To: ").append(inReplyTo).append("\r\n");
-        }
-        if (references != null && !references.isBlank()) {
-            sb.append("References: ").append(references).append("\r\n");
-        }
-        sb.append("MIME-Version: 1.0\r\n");
-        sb.append("Content-Type: text/plain; charset=UTF-8\r\n");
-        sb.append("Content-Transfer-Encoding: 8bit\r\n");
-        sb.append("\r\n");
-        // Normalize bare LFs to CRLF so the on-the-wire message is
-        // strictly RFC-compliant. Bare CRs (rare) get CRLF too.
-        sb.append(body.replace("\r\n", "\n").replace("\r", "\n").replace("\n", "\r\n"));
-        return sb.toString();
-    }
-
-    /** Reverses the auto-archive: re-adds INBOX (and clears UNREAD if
-     *  set, since the typical entry point is "I just opened this and
-     *  want to keep it visible"). The "Keep in inbox" button on the
-     *  detail pane drives this. */
-    public void keepThreadInInbox(String email, String threadId)
-    {
-        requireNonBlank(email, "email");
-        requireNonBlank(threadId, "threadId");
-        if (imapAuth.isConnected(email)) {
-            imapClient.keepThreadInInbox(email, imapAuth.getAppPassword(email), threadId);
-            return;
-        }
-        runWithToken(email, accessToken -> {
-            gmail.modifyThread(accessToken, threadId,
-                    ImmutableList.of("INBOX"), ImmutableList.of("UNREAD"));
-            return null;
-        });
-        sync.onThreadModified(email, threadId, true, false);
-    }
-
-    /**
-     * Resolves an access token, runs {@code call}, and on a 401 from
-     * Gmail invalidates the cached token so the next attempt refreshes.
-     * We don't auto-retry — a genuinely-revoked refresh token would
-     * loop forever and the user needs to reconnect anyway.
-     */
-    private <T> T runWithToken(String email, Function<String, T> call)
-    {
-        String accessToken = tokens.getAccessToken(email);
-        try {
-            return call.apply(accessToken);
-        }
-        catch (ResponseStatusException e) {
-            if (e.getStatusCode().value() == 401) {
-                tokens.invalidate(email);
-            }
-            throw e;
-        }
     }
 
     private static void requireNonBlank(String value, String fieldName)

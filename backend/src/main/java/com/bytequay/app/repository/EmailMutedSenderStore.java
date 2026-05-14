@@ -18,8 +18,8 @@ import java.util.List;
 
 /**
  * Persistence boundary for the per-account email mute list. Keeps the
- * JPA entity package-private inside {@code repository.sqlite} the same
- * way {@link EmailMessageStore} does for its rows.
+ * JPA entity package-private inside {@code repository.sqlite}; the
+ * service layer talks only to this interface.
  */
 public interface EmailMutedSenderStore
 {

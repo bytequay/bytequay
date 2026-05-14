@@ -310,9 +310,9 @@ public class GmailImapClient
 
     /**
      * Walks the MIME tree depth-first, collecting the first text/plain
-     * and the first text/html. Mirrors {@code GmailApiClient.collectBody}
-     * so multipart/alternative emails come out the same regardless of
-     * which backend fetched them. Stops walking once both are filled.
+     * and the first text/html. Stops walking once both are filled —
+     * multipart/alternative emails carry both, older plain-text emails
+     * carry just text/plain.
      */
     private static void collectBody(Part part, BodyAccumulator acc)
             throws MessagingException, IOException

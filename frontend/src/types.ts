@@ -1533,22 +1533,18 @@ export type Bridge = {
    *  to bytequay://github-oauth-callback and the backend has exchanged the
    *  code. Returns a teardown that removes the listener. */
   onGitHubOauthComplete: (callback: (payload: { success: boolean; error?: string; login?: string }) => void) => () => void;
-  /** Runs the full Gmail OAuth dance end-to-end: spins up a loopback
-   *  HTTP listener, asks the backend for an authorize URL bound to that
-   *  port, opens the system browser, captures Google's redirect, and
-   *  forwards code+state to the backend's /callback. Resolves once the
-   *  backend has stored the refresh token (or once the user gives up).
-   *  Email is set on success; error is set on failure. */
-  connectGmailAccount: () => Promise<{ success: boolean; error?: string; email?: string }>;
   /** Connects a Gmail account via IMAP + app password. Validates the
    *  credentials by opening an imaps session before persisting; throws
-   *  on auth failure. Sister to {@link connectGmailAccount}. */
+   *  on auth failure. The only Gmail-connect path now — the OAuth flow
+   *  was removed in favour of a single, predictable local-only path. */
   connectGmailImap: (email: string, appPassword: string) => Promise<{ email: string }>;
-  /** All currently connected Gmail accounts (both OAuth and IMAP),
-   *  with the auth mode badge for each row. */
-  listGmailAccounts: () => Promise<Array<{ email: string; authMode: 'OAUTH' | 'IMAP' }>>;
-  /** Drops the stored credential for a single Gmail account regardless
-   *  of auth mode. Idempotent on both sides. */
+  /** All currently connected Gmail accounts. {@code authMode} is
+   *  always {@code 'IMAP'} today; the field is kept on the wire so
+   *  whatever future modes might be added later (e.g. shipped-OAuth
+   *  client) can slot in without a breaking change. */
+  listGmailAccounts: () => Promise<Array<{ email: string; authMode: 'IMAP' }>>;
+  /** Drops the stored credential for a single Gmail account.
+   *  Idempotent. */
   disconnectGmailAccount: (email: string) => Promise<void>;
   /** Lists conversation threads in the inbox for the given account,
    *  newest first. pageSize defaults to 50 server-side; capped at

@@ -14,7 +14,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import type { EmailMessageDetailDto, EmailThreadDetailDto, EmailThreadMetaDto, LinkedRefDto } from '../types';
 
-type Account = { email: string; authMode: 'OAUTH' | 'IMAP' };
+type Account = { email: string; authMode: 'IMAP' };
 
 type Props = {
   /** Click handler for "no Gmail account connected" empty state — jumps the
@@ -67,7 +67,7 @@ export default function EmailPage({ onOpenIntegrationsSettings, onOpenLinkedRef 
   const [undoTarget, setUndoTarget] = useState<UndoTarget | null>(null);
   const undoTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // Load accounts on mount; auto-select the first OAuth account.
+  // Load accounts on mount; auto-select the first one.
   useEffect(() => {
     let cancelled = false;
     void (async () => {
@@ -75,8 +75,7 @@ export default function EmailPage({ onOpenIntegrationsSettings, onOpenLinkedRef 
         const list = await window.bridge.listGmailAccounts();
         if (cancelled) return;
         setAccounts(list);
-        const firstOauth = list.find(a => a.authMode === 'OAUTH');
-        setSelectedAccount(firstOauth?.email ?? list[0]?.email ?? null);
+        setSelectedAccount(list[0]?.email ?? null);
       }
       catch (e) {
         if (cancelled) return;
@@ -105,18 +104,13 @@ export default function EmailPage({ onOpenIntegrationsSettings, onOpenLinkedRef 
   }, []);
 
   // Background poll of the inbox list — focus-gated so it pauses
-  // when the user tabs away. Two cadences:
-  //  - OAuth (30s): cheap, hits the local SQLite mirror; the
-  //    server-side GmailPollingJob is what actually talks to Gmail.
-  //  - IMAP (5min): each tick opens a fresh imap.gmail.com connection
-  //    (~300ms login). 5 min keeps new mail visible within a coffee-
-  //    break window without burning Gmail's login budget. Manual
-  //    Refresh still gives instant pickup when the user wants it.
+  // when the user tabs away. Each tick opens a fresh imap.gmail.com
+  // connection (~300ms login), so we keep the cadence at 5 min — long
+  // enough not to burn Gmail's login budget, short enough that new
+  // mail shows up within a "checked it earlier" window. Manual Refresh
+  // still gives instant pickup.
   useEffect(() => {
     if (!selectedAccount) return;
-    const acc = accounts?.find(a => a.email === selectedAccount);
-    if (!acc) return;
-    const intervalMs = acc.authMode === 'OAUTH' ? 30_000 : 5 * 60_000;
     let interval: ReturnType<typeof setInterval> | null = null;
     const isVisible = () => document.visibilityState === 'visible' && document.hasFocus();
     const tick = async () => {
@@ -128,7 +122,7 @@ export default function EmailPage({ onOpenIntegrationsSettings, onOpenLinkedRef 
     };
     const start = () => {
       if (interval != null) return;
-      interval = setInterval(() => { void tick(); }, intervalMs);
+      interval = setInterval(() => { void tick(); }, 5 * 60_000);
     };
     const stop = () => {
       if (interval != null) { clearInterval(interval); interval = null; }
@@ -146,9 +140,8 @@ export default function EmailPage({ onOpenIntegrationsSettings, onOpenLinkedRef 
     };
   }, [selectedAccount, accounts]);
 
-  // Load threads whenever the selected account changes. Both auth
-  // modes go through the same backend listing endpoint — EmailService
-  // dispatches OAuth → SQLite mirror, IMAP → live imap.gmail.com fetch.
+  // Load threads whenever the selected account changes. The backend
+  // listing endpoint hits imap.gmail.com live every call.
   useEffect(() => {
     if (selectedAccount == null) {
       setThreads(null);
@@ -317,8 +310,7 @@ export default function EmailPage({ onOpenIntegrationsSettings, onOpenLinkedRef 
   // Suppressed when focus is in an input or contenteditable so it
   // doesn't fight typing.
   useEffect(() => {
-    const acc = accounts?.find(a => a.email === selectedAccount);
-    if (acc?.authMode !== 'OAUTH' || !threads || threads.length === 0) return;
+    if (!threads || threads.length === 0) return;
     const visible = threads.filter(t => !autoArchivedIds.has(t.id) || t.id === selectedThreadId);
     if (visible.length === 0) return;
     const onKey = (e: KeyboardEvent) => {
@@ -382,12 +374,9 @@ export default function EmailPage({ onOpenIntegrationsSettings, onOpenLinkedRef 
               type="button"
               className={`email-account-chip${acc.email === selectedAccount ? ' email-account-chip--active' : ''}`}
               onClick={() => setSelectedAccount(acc.email)}
-              title={`${acc.email} · ${acc.authMode}`}
+              title={acc.email}
             >
               <span className="email-account-chip__email">{acc.email}</span>
-              <span className={`auth-method-pill auth-method-pill--${acc.authMode === 'OAUTH' ? 'oauth' : 'pat'}`}>
-                {acc.authMode === 'OAUTH' ? 'OAuth' : 'IMAP'}
-              </span>
             </button>
           ))}
         </div>

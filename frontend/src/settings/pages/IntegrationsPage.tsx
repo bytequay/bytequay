@@ -18,14 +18,11 @@ import SettingRow from '../shared/SettingRow';
 
 const SLACK_NAME = 'slack-oauth-app';
 const SLACK_REDIRECT = 'bytequay://slack-oauth-callback';
-const GMAIL_NAME = 'gmail-oauth-app';
-const GMAIL_REDIRECT = 'bytequay://gmail-oauth-callback';
 
 /**
- * Connect-account hub. Slack uses one-click PKCE; Gmail leads with an
- * app password (works on every account, no Google verification) and
- * keeps the BYO-OAuth path under an Advanced disclosure for users
- * who prefer it. Anything saved here stays encrypted on this machine.
+ * Connect-account hub. Slack uses one-click PKCE; Gmail uses IMAP +
+ * app password — no Cloud Console setup, no OAuth verification dance.
+ * Anything saved here stays encrypted on this machine.
  */
 function IntegrationsPage() {
   return (
@@ -322,24 +319,10 @@ function SlackSetupGuide() {
 
 type GmailConnectStatus = 'idle' | 'awaiting' | 'error';
 
-type AuthMode = 'oauth' | 'imap';
-
 function GmailSection() {
-  const [credential, setCredential] = useState<CredentialDto | null>(null);
-  const [accounts, setAccounts] = useState<Array<{ email: string; authMode: 'OAUTH' | 'IMAP' }>>([]);
+  const [accounts, setAccounts] = useState<Array<{ email: string; authMode: 'IMAP' }>>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-
-  const [editing, setEditing] = useState(false);
-  const [clientId, setClientId] = useState('');
-  const [clientSecret, setClientSecret] = useState('');
-  const [saving, setSaving] = useState(false);
-
-  // Default to the app-password path because it works on every Google
-  // account without going through the OAuth-app verification dance.
-  // Existing OAuth users still find their flow under Advanced (auto-open
-  // when a saved client is detected).
-  const [authMode, setAuthMode] = useState<AuthMode>('imap');
 
   const [connectStatus, setConnectStatus] = useState<GmailConnectStatus>('idle');
   const [connectError, setConnectError] = useState<string | null>(null);
@@ -351,11 +334,8 @@ function GmailSection() {
     setLoading(true);
     setError(null);
     try {
-      const [list, accs] = await Promise.all([
-        window.bridge.listCredentials('INTEGRATION'),
-        window.bridge.listGmailAccounts().catch((): Array<{ email: string; authMode: 'OAUTH' | 'IMAP' }> => []),
-      ]);
-      setCredential(list.find(c => c.name === GMAIL_NAME) ?? null);
+      const accs = await window.bridge.listGmailAccounts()
+        .catch((): Array<{ email: string; authMode: 'IMAP' }> => []);
       setAccounts(accs);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
@@ -365,74 +345,6 @@ function GmailSection() {
   };
 
   useEffect(() => { void load(); }, []);
-
-  const startEdit = () => {
-    setEditing(true);
-    setClientId(credential?.label ?? '');
-    setClientSecret('');
-  };
-
-  const cancelEdit = () => {
-    setEditing(false);
-    setClientId('');
-    setClientSecret('');
-  };
-
-  const save = async () => {
-    if (!clientId.trim()) { setError('Client ID must not be blank.'); return; }
-    if (!clientSecret.trim()) { setError('Client Secret must not be blank.'); return; }
-    setSaving(true);
-    setError(null);
-    try {
-      await window.bridge.upsertCredential({
-        type: 'INTEGRATION',
-        name: GMAIL_NAME,
-        value: clientSecret.trim(),
-        label: clientId.trim(),
-        notes: null,
-      });
-      setEditing(false);
-      setClientSecret('');
-      await load();
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  const remove = async () => {
-    if (!confirm('Delete the saved Gmail app credentials? Connected Gmail accounts stay until disconnected individually.')) return;
-    setSaving(true);
-    setError(null);
-    try {
-      await window.bridge.deleteCredential('INTEGRATION', GMAIL_NAME);
-      await load();
-    } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  const connectOauth = async () => {
-    setConnectStatus('awaiting');
-    setConnectError(null);
-    try {
-      const res = await window.bridge.connectGmailAccount();
-      if (res.success) {
-        setConnectStatus('idle');
-        await load();
-      }
-      else {
-        setConnectStatus('error');
-        setConnectError(res.error ?? 'Gmail sign-in failed');
-      }
-    } catch (e) {
-      setConnectStatus('error');
-      setConnectError(e instanceof Error ? e.message : String(e));
-    }
-  };
 
   const connectImap = async () => {
     if (!imapEmail.trim() || !imapAppPassword.trim()) {
@@ -455,7 +367,7 @@ function GmailSection() {
   };
 
   const disconnectAccount = async (email: string) => {
-    if (!confirm(`Disconnect ${email}? You'll need to re-authorize to reconnect.`)) return;
+    if (!confirm(`Disconnect ${email}? You'll need to re-enter the app password to reconnect.`)) return;
     try {
       await window.bridge.disconnectGmailAccount(email);
       await load();
@@ -464,13 +376,6 @@ function GmailSection() {
     }
   };
 
-  // Auto-expand the Advanced disclosure when the user already has an
-  // OAuth client saved or is mid-edit — same pattern Slack uses for its
-  // BYO section. Keeps power users one click away from their existing
-  // flow without forcing newcomers through the seven-step Cloud Console
-  // setup before they can connect anything.
-  const advancedOpen = credential != null || editing || authMode === 'oauth';
-
   return (
     <>
       <SettingCard
@@ -478,10 +383,9 @@ function GmailSection() {
         hint={
           <>
             Connect one or more Gmail accounts so the <b>Email</b> tab shows
-            their inbox alongside your PR review queue. The recommended path
-            is an app password — works on every Google account, no
-            verification required. Prefer OAuth? Use the Advanced section
-            at the bottom.
+            their inbox alongside your PR review queue. ByteQuay uses IMAP
+            with a Google app password — works on every Google account that
+            has 2FA enabled, no Cloud Console setup needed.
           </>
         }
       />
@@ -497,139 +401,56 @@ function GmailSection() {
             : `${accounts.length} account${accounts.length === 1 ? '' : 's'} connected.`}
         >
           <SettingRow
-            title="Auth method"
-            description={authMode === 'imap'
-              ? 'App password — recommended. Works for any Google account that has 2FA enabled.'
-              : 'OAuth — needs a personal Cloud Console client (set up under Advanced below).'}
+            title="Email"
+            description="The Gmail address to connect."
             control={
-              <span className="auth-mode-picker">
-                <label className={`auth-mode-pill ${authMode === 'imap' ? 'auth-mode-pill--active' : ''}`}>
-                  <input
-                    type="radio"
-                    name="gmail-auth-mode"
-                    value="imap"
-                    checked={authMode === 'imap'}
-                    onChange={() => setAuthMode('imap')}
-                  />
-                  App password
-                </label>
-                <label className={`auth-mode-pill ${authMode === 'oauth' ? 'auth-mode-pill--active' : ''}`}>
-                  <input
-                    type="radio"
-                    name="gmail-auth-mode"
-                    value="oauth"
-                    checked={authMode === 'oauth'}
-                    onChange={() => setAuthMode('oauth')}
-                  />
-                  OAuth
-                </label>
-              </span>
+              <input
+                className="settings-input-number"
+                style={{ width: 280 }}
+                type="email"
+                value={imapEmail}
+                onChange={e => setImapEmail(e.target.value)}
+                placeholder="you@gmail.com"
+              />
+            }
+          />
+          <SettingRow
+            title="App password"
+            description={<>16-char string from <a href="https://myaccount.google.com/apppasswords" target="_blank" rel="noreferrer">myaccount.google.com/apppasswords</a> (requires 2FA enabled). Spaces are stripped.</>}
+            control={
+              <input
+                className="settings-input-number"
+                style={{ width: 280 }}
+                type="password"
+                value={imapAppPassword}
+                onChange={e => setImapAppPassword(e.target.value)}
+                placeholder="xxxx xxxx xxxx xxxx"
+              />
+            }
+          />
+          <SettingRow
+            title=""
+            control={
+              <button
+                className="button button--primary"
+                type="button"
+                onClick={() => void connectImap()}
+                disabled={connectStatus === 'awaiting'}
+              >
+                {connectStatus === 'awaiting' ? 'Verifying…' : '+ Connect Gmail account'}
+              </button>
             }
           />
 
-          {authMode === 'oauth' && !credential && (
-            <SettingRow
-              title="OAuth client missing"
-              description="Open the Advanced section below to register a Gmail OAuth client first — or switch to App password to skip that step entirely."
-              control={<></>}
-            />
-          )}
-
-          {authMode === 'oauth' && credential && (
-            <SettingRow
-              title="Sign in with Google"
-              description={
-                <>
-                  Opens your browser to the Google consent screen.{' '}
-                  <b>Important:</b> on the second consent page Google calls
-                  &quot;Select what ByteQuay can access&quot;, you must
-                  <b> tick the checkbox</b> next to &quot;Read, compose and
-                  send emails from your Gmail account&quot; before clicking
-                  Continue. Google&apos;s granular consent is opt-in per
-                  scope — clicking through without ticking it will
-                  silently grant a token without Gmail permissions.
-                </>
-              }
-              control={
-                <button
-                  className="button button--primary"
-                  type="button"
-                  onClick={() => void connectOauth()}
-                  disabled={connectStatus === 'awaiting'}
-                >
-                  {connectStatus === 'awaiting' ? 'Waiting for Google…' : '+ Connect via OAuth'}
-                </button>
-              }
-            />
-          )}
-
-          {authMode === 'imap' && (
-            <>
-              <SettingRow
-                title="Email"
-                description="The Gmail address to connect."
-                control={
-                  <input
-                    className="settings-input-number"
-                    style={{ width: 280 }}
-                    type="email"
-                    value={imapEmail}
-                    onChange={e => setImapEmail(e.target.value)}
-                    placeholder="you@gmail.com"
-                  />
-                }
-              />
-              <SettingRow
-                title="App password"
-                description={<>16-char string from <a href="https://myaccount.google.com/apppasswords" target="_blank" rel="noreferrer">myaccount.google.com/apppasswords</a> (requires 2FA enabled). Spaces are stripped.</>}
-                control={
-                  <input
-                    className="settings-input-number"
-                    style={{ width: 280 }}
-                    type="password"
-                    value={imapAppPassword}
-                    onChange={e => setImapAppPassword(e.target.value)}
-                    placeholder="xxxx xxxx xxxx xxxx"
-                  />
-                }
-              />
-              <SettingRow
-                title=""
-                control={
-                  <button
-                    className="button button--primary"
-                    type="button"
-                    onClick={() => void connectImap()}
-                    disabled={connectStatus === 'awaiting'}
-                  >
-                    {connectStatus === 'awaiting' ? 'Verifying…' : '+ Connect via IMAP'}
-                  </button>
-                }
-              />
-            </>
-          )}
-
-          {connectStatus === 'awaiting' && authMode === 'oauth' && (
-            <div className="repo-loading">A new tab opened in your browser — finish the consent flow there.</div>
-          )}
           {connectStatus === 'error' && connectError && (
             <div className="repo-error">{connectError}</div>
           )}
 
           {accounts.map(acc => (
             <SettingRow
-              key={`${acc.email}-${acc.authMode}`}
-              title={
-                <>
-                  {acc.email}{' '}
-                  <span className={`auth-method-pill auth-method-pill--${acc.authMode === 'OAUTH' ? 'oauth' : 'pat'}`}>
-                    {acc.authMode === 'OAUTH' ? 'OAuth' : 'IMAP'}
-                  </span>
-                </>
-              }
-              description={acc.authMode === 'OAUTH'
-                ? 'OAuth refresh token stored locally.'
-                : 'IMAP app password stored locally.'}
+              key={acc.email}
+              title={acc.email}
+              description="IMAP app password stored locally."
               control={
                 <button
                   className="button button--danger"
@@ -643,158 +464,7 @@ function GmailSection() {
           ))}
         </SettingCard>
       )}
-
-      <details className="settings-advanced-details" open={advancedOpen}>
-        <summary>Advanced — bring your own Gmail OAuth client</summary>
-        <SettingCard
-          title="Gmail OAuth client (BYO)"
-          hint={
-            <>
-              Optional. Register a personal OAuth client on Google Cloud Console
-              and paste its <code>client_id</code> + <code>client_secret</code> here
-              to connect Gmail accounts via OAuth instead of an app password. The
-              setup is heavier (Cloud Console, scopes, test users) but lands you
-              a refresh token in your local keychain — useful if your Workspace
-              admin has disabled app passwords.
-            </>
-          }
-        />
-
-        <GmailSetupGuide />
-
-        {!editing && credential && (
-          <SettingCard
-            title="Saved Gmail OAuth client"
-            action={
-              <a
-                className="button button--secondary"
-                href="https://console.cloud.google.com/apis/credentials"
-                target="_blank"
-                rel="noreferrer"
-              >
-                Open Cloud Console ↗
-              </a>
-            }
-          >
-            <SettingRow
-              title="Client ID"
-              description={<code>{credential.label ?? '—'}</code>}
-              control={<></>}
-            />
-            <SettingRow
-              title="Client Secret"
-              description={<code>{credential.preview}</code>}
-              control={
-                <>
-                  <button className="button button--secondary" type="button" onClick={startEdit}>Replace</button>
-                  <button className="button button--danger" type="button" onClick={() => void remove()} disabled={saving}>Delete</button>
-                </>
-              }
-            />
-          </SettingCard>
-        )}
-
-        {!editing && !credential && (
-          <SettingCard title="Add Gmail OAuth client">
-            <SettingRow
-              title="No Gmail OAuth client saved"
-              description="Optional — only needed if you want to connect Gmail via OAuth instead of an app password."
-              control={
-                <button className="button button--primary" type="button" onClick={startEdit}>
-                  + Add Gmail OAuth client
-                </button>
-              }
-            />
-          </SettingCard>
-        )}
-
-        {editing && (
-          <SettingCard title={credential ? 'Replace Gmail OAuth client' : 'Add Gmail OAuth client'}>
-            <SettingRow
-              title="Client ID"
-              description={<>From the Cloud Console under <b>APIs &amp; Services → Credentials → OAuth 2.0 Client IDs</b>. Public — fine to paste.</>}
-              control={
-                <input
-                  className="settings-input-number"
-                  style={{ width: 280 }}
-                  type="text"
-                  value={clientId}
-                  onChange={e => setClientId(e.target.value)}
-                  placeholder="1234567890-xxxxxxxxxx.apps.googleusercontent.com"
-                  autoFocus
-                />
-              }
-            />
-            <SettingRow
-              title="Client Secret"
-              description="Right below Client ID. Stored encrypted on this machine."
-              control={
-                <input
-                  className="settings-input-number"
-                  style={{ width: 280 }}
-                  type="password"
-                  value={clientSecret}
-                  onChange={e => setClientSecret(e.target.value)}
-                  placeholder="••••••••••••••••••••••••••••••••"
-                />
-              }
-            />
-            <SettingRow
-              title=""
-              control={
-                <>
-                  <button className="button button--primary" type="button" onClick={() => void save()} disabled={saving}>
-                    {saving ? 'Saving…' : credential ? 'Replace' : 'Save'}
-                  </button>
-                  <button className="button button--secondary" type="button" onClick={cancelEdit} disabled={saving}>Cancel</button>
-                </>
-              }
-            />
-          </SettingCard>
-        )}
-      </details>
     </>
-  );
-}
-
-function GmailSetupGuide() {
-  return (
-    <SettingCard title="How to register a Gmail OAuth client">
-      <ol className="settings-setup-steps">
-        <li>
-          Open <a href="https://console.cloud.google.com/" target="_blank" rel="noreferrer">console.cloud.google.com</a>{' '}
-          and create a new project (or pick an existing one).
-        </li>
-        <li>
-          Under <b>APIs &amp; Services → Library</b>, enable <b>Gmail API</b>.
-        </li>
-        <li>
-          Go to <b>APIs &amp; Services → OAuth consent screen</b>. Pick <b>External</b>,
-          fill in app name (<code>ByteQuay</code>), support email, and a developer
-          contact email. Add yourself under <b>Test users</b> — until the app is
-          verified, only listed test users can sign in (capped at 100). For a
-          personal tool that's fine.
-        </li>
-        <li>
-          Add the scope <code>https://www.googleapis.com/auth/gmail.modify</code>{' '}
-          on the consent-screen scopes step.
-        </li>
-        <li>
-          Go to <b>APIs &amp; Services → Credentials</b>. Click{' '}
-          <b>+ Create Credentials → OAuth client ID</b>. Pick <b>Desktop app</b>{' '}
-          as the application type and name it <code>ByteQuay</code>.
-        </li>
-        <li>
-          After creation, edit the client and add{' '}
-          <code>{GMAIL_REDIRECT}</code> under <b>Authorized redirect URIs</b>{' '}
-          (custom URI scheme is supported on Desktop app type).
-        </li>
-        <li>
-          Copy the <b>Client ID</b> and <b>Client Secret</b> from the credential
-          row and paste them into the form below.
-        </li>
-      </ol>
-    </SettingCard>
   );
 }
 

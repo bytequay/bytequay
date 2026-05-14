@@ -15,8 +15,6 @@ import { app, BrowserWindow, clipboard, dialog, ipcMain, Menu, nativeImage, sess
 import path from 'node:path';
 import fs from 'node:fs';
 import { execFile } from 'node:child_process';
-import { createServer, type Server, type IncomingMessage, type ServerResponse } from 'node:http';
-import { AddressInfo } from 'node:net';
 import { promisify } from 'node:util';
 
 const execFileAsync = promisify(execFile);
@@ -2239,23 +2237,8 @@ const url = new URL(`${BACKEND_BASE}/api/search/repos`);
     return res.json();
   });
 
-  // ── Gmail OAuth ────────────────────────────────────────────────────────
-  // Loopback flow: Google's Desktop OAuth client only accepts
-  // http://127.0.0.1:<port>/... as redirect_uri (custom URI schemes are
-  // an iOS/Android-only feature there). So we bind an ephemeral
-  // listener for the duration of one connect attempt, hand its URL to
-  // the backend as redirectUri, open the system browser, capture the
-  // ?code=…&state=… that Google sends to the listener, POST it on to
-  // the backend's existing /callback endpoint, then shut down.
-  //
-  // Multi-account: each completed dance lands a new credential row;
-  // the accounts list reflects everything the user has wired up.
-  ipcMain.handle('gmailOAuth:connect', async () => {
-    return runGmailLoopbackDance();
-  });
+  // ── Gmail (IMAP + app password) ────────────────────────────────────────
 
-  // Sister to gmailOAuth:connect — uses an app password instead of an
-  // OAuth refresh token. Same accounts list, distinguished by authMode.
   ipcMain.handle('gmailImap:connect', async (_event, payload: unknown) => {
     if (!payload || typeof payload !== 'object') {
       throw new Error('payload must be { email, appPassword }');
@@ -2279,13 +2262,13 @@ const url = new URL(`${BACKEND_BASE}/api/search/repos`);
     return res.json();
   });
 
-  ipcMain.handle('gmailOAuth:listAccounts', async () => {
+  ipcMain.handle('gmail:listAccounts', async () => {
     const res = await fetch(`${BACKEND_BASE}/api/auth/gmail/accounts`);
     if (!res.ok) throw new Error(`backend /api/auth/gmail/accounts returned ${res.status}`);
     return res.json();
   });
 
-  ipcMain.handle('gmailOAuth:disconnect', async (_event, email: string) => {
+  ipcMain.handle('gmail:disconnect', async (_event, email: string) => {
     if (typeof email !== 'string' || email.trim().length === 0) {
       throw new Error('email must be a non-empty string');
     }
@@ -2810,9 +2793,6 @@ app.on('open-url', (event, url) => {
   else if (parsed.host === 'github-oauth-callback') {
     void handleGitHubOAuthCallback(parsed);
   }
-  // Gmail intentionally omitted — Google's Desktop OAuth client doesn't
-  // support custom URI schemes, so Gmail uses a loopback HTTP listener
-  // (see runGmailLoopbackDance below) instead of going through open-url.
 });
 
 async function handleSlackOAuthCallback(parsed: URL): Promise<void> {
@@ -2873,139 +2853,6 @@ function notifySlackOauthComplete(payload: { success: boolean; error?: string })
 function notifyGitHubOauthComplete(payload: { success: boolean; error?: string; login?: string }): void {
   if (mainWindow && !mainWindow.isDestroyed()) {
     mainWindow.webContents.send('github:oauth-complete', payload);
-  }
-}
-
-type GmailDanceResult = { success: true; email?: string } | { success: false; error: string };
-
-const GMAIL_LOOPBACK_PATH = '/oauth/gmail/callback';
-const GMAIL_DANCE_TIMEOUT_MS = 5 * 60 * 1000;
-
-const SUCCESS_HTML =
-  '<!doctype html><meta charset="utf-8"><title>ByteQuay</title>' +
-  '<style>body{font:14px -apple-system,BlinkMacSystemFont,sans-serif;padding:48px;text-align:center;color:#1f2328}' +
-  'h1{font-size:18px;margin:0 0 8px}p{margin:0;color:#656d76}</style>' +
-  '<h1>Connected.</h1><p>You can close this tab and return to ByteQuay.</p>';
-
-const ERROR_HTML =
-  '<!doctype html><meta charset="utf-8"><title>ByteQuay</title>' +
-  '<style>body{font:14px -apple-system,BlinkMacSystemFont,sans-serif;padding:48px;text-align:center;color:#1f2328}' +
-  'h1{font-size:18px;margin:0 0 8px;color:#cf222e}p{margin:0;color:#656d76}</style>' +
-  '<h1>Connection failed.</h1><p>Switch back to ByteQuay for the error message.</p>';
-
-/**
- * Runs the Google OAuth dance against the Gmail OAuth client.
- * Binds an ephemeral HTTP listener on 127.0.0.1, asks the backend for
- * an authorize URL bound to that loopback URL, opens the system
- * browser, captures the redirect, hands code+state back to the
- * backend, and tears the listener down. Resolves with the connected
- * email (success) or an error string.
- */
-async function runGmailLoopbackDance(): Promise<GmailDanceResult> {
-  return new Promise<GmailDanceResult>((resolve) => {
-    let settled = false;
-    const settle = (result: GmailDanceResult, server: Server) => {
-      if (settled) return;
-      settled = true;
-      server.close();
-      resolve(result);
-    };
-
-    const server = createServer((req: IncomingMessage, res: ServerResponse) => {
-      void handleGmailLoopbackRequest(req, res, server, settle);
-    });
-
-    server.on('error', (e) => {
-      settle({ success: false, error: `Loopback listener failed: ${e.message}` }, server);
-    });
-
-    // Port 0 = let the OS pick an ephemeral free port. Bound to 127.0.0.1
-    // explicitly so we never accidentally listen on a reachable interface.
-    server.listen(0, '127.0.0.1', () => {
-      void launchGmailAuthorize(server, settle);
-    });
-
-    // Belt-and-suspenders timeout in case the user closes the browser
-    // tab without finishing — keeps a stale listener from sitting open.
-    setTimeout(() => {
-      settle({ success: false, error: 'Timed out waiting for Google callback' }, server);
-    }, GMAIL_DANCE_TIMEOUT_MS).unref();
-  });
-}
-
-async function launchGmailAuthorize(
-  server: Server,
-  settle: (r: GmailDanceResult, s: Server) => void,
-): Promise<void> {
-  const addr = server.address() as AddressInfo | string | null;
-  if (!addr || typeof addr === 'string') {
-    settle({ success: false, error: 'Failed to determine bound port' }, server);
-    return;
-  }
-  const redirectUri = `http://127.0.0.1:${addr.port}${GMAIL_LOOPBACK_PATH}`;
-  try {
-    const authRes = await fetch(
-      `${BACKEND_BASE}/api/auth/gmail/authorize-url?redirectUri=${encodeURIComponent(redirectUri)}`);
-    if (!authRes.ok) {
-      const body = await authRes.text().catch(() => '');
-      settle({ success: false, error: `backend /authorize-url ${authRes.status}: ${body}` }, server);
-      return;
-    }
-    const authJson = (await authRes.json()) as { configured: boolean; url?: string };
-    if (!authJson.configured || !authJson.url) {
-      settle({ success: false, error: 'Gmail OAuth client not configured.' }, server);
-      return;
-    }
-    await shell.openExternal(authJson.url);
-  }
-  catch (e) {
-    settle({ success: false, error: e instanceof Error ? e.message : String(e) }, server);
-  }
-}
-
-async function handleGmailLoopbackRequest(
-  req: IncomingMessage,
-  res: ServerResponse,
-  server: Server,
-  settle: (r: GmailDanceResult, s: Server) => void,
-): Promise<void> {
-  try {
-    const url = new URL(req.url ?? '/', 'http://127.0.0.1');
-    if (url.pathname !== GMAIL_LOOPBACK_PATH) {
-      res.writeHead(404).end();
-      return;
-    }
-    const errorParam = url.searchParams.get('error');
-    if (errorParam) {
-      res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' }).end(ERROR_HTML);
-      settle({ success: false, error: `Google returned: ${errorParam}` }, server);
-      return;
-    }
-    const code = url.searchParams.get('code');
-    const state = url.searchParams.get('state');
-    if (!code || !state) {
-      res.writeHead(400, { 'Content-Type': 'text/html; charset=utf-8' }).end(ERROR_HTML);
-      settle({ success: false, error: 'Missing code or state in callback URL' }, server);
-      return;
-    }
-    const backendRes = await fetch(`${BACKEND_BASE}/api/auth/gmail/callback`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ code, state }),
-    });
-    if (!backendRes.ok) {
-      const text = await backendRes.text().catch(() => '');
-      res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' }).end(ERROR_HTML);
-      settle({ success: false, error: `backend ${backendRes.status}: ${text}` }, server);
-      return;
-    }
-    const body = (await backendRes.json().catch(() => ({}))) as { email?: string };
-    res.writeHead(200, { 'Content-Type': 'text/html; charset=utf-8' }).end(SUCCESS_HTML);
-    settle({ success: true, email: body.email }, server);
-  }
-  catch (e) {
-    try { res.writeHead(500).end(); } catch { /* response already sent */ }
-    settle({ success: false, error: e instanceof Error ? e.message : String(e) }, server);
   }
 }
 

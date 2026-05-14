@@ -431,14 +431,14 @@ const bridge: Bridge = {
     ipcRenderer.on('github:oauth-complete', listener);
     return () => ipcRenderer.removeListener('github:oauth-complete', listener);
   },
-  connectGmailAccount: (): Promise<{ success: boolean; error?: string; email?: string }> =>
-    ipcRenderer.invoke('gmailOAuth:connect'),
   connectGmailImap: (email: string, appPassword: string): Promise<{ email: string }> =>
     ipcRenderer.invoke('gmailImap:connect', { email, appPassword }),
-  listGmailAccounts: (): Promise<Array<{ email: string; authMode: 'OAUTH' | 'IMAP' }>> =>
-    ipcRenderer.invoke('gmailOAuth:listAccounts'),
+  // authMode is always "IMAP" now — kept on the wire so the type union
+  // matches whatever future modes might be added later.
+  listGmailAccounts: (): Promise<Array<{ email: string; authMode: 'IMAP' }>> =>
+    ipcRenderer.invoke('gmail:listAccounts'),
   disconnectGmailAccount: (email: string): Promise<void> =>
-    ipcRenderer.invoke('gmailOAuth:disconnect', email),
+    ipcRenderer.invoke('gmail:disconnect', email),
   listEmailThreads: (account: string, pageSize?: number): Promise<EmailThreadMetaDto[]> =>
     ipcRenderer.invoke('email:listThreads', { account, pageSize }),
   refreshEmailThreads: (account: string, pageSize?: number): Promise<EmailThreadMetaDto[]> =>

@@ -691,7 +691,7 @@
    user can see which colour means open vs closed without needing a
    legend. */
 .issue-pane__filters {
-  padding: 10px 14px 8px;
+  padding: var(--space-2) var(--space-3) var(--space-2);
   display: flex;
   flex-direction: column;
   gap: var(--space-2);

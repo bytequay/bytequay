@@ -178,7 +178,7 @@
   letter-spacing: 0.04em;
 }
 .issue-detail__comment-body {
-  padding: 12px 16px 16px;
+  padding: var(--space-3) var(--space-4) var(--space-4);
   font-size: var(--font-size-md);
   line-height: 1.6;
   color: var(--text-1);

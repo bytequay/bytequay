@@ -1781,7 +1781,7 @@ h3 {
      siblings; we just need a hair of room between this band and the
      page header above. */
   margin: 4px 0 0;
-  padding: 8px 14px 10px;
+  padding: var(--space-2) var(--space-3);
   background: var(--bg-elevated);
   border: 1px solid var(--border);
   border-left: 3px solid #cf222e;

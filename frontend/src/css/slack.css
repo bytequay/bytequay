@@ -623,7 +623,7 @@
   font-weight: 700;
   letter-spacing: 0.08em;
   color: var(--text-4);
-  padding: 8px 4px 4px;
+  padding: var(--space-2) var(--space-1) var(--space-1);
 }
 
 /* ── Item card ────────────────────────────────────────────────────────
@@ -771,7 +771,7 @@
   align-items: center;
   justify-content: space-between;
   gap: var(--space-3);
-  padding: 4px 16px 12px;
+  padding: var(--space-1) var(--space-4) var(--space-3);
   font-size: var(--font-size-xs);
   color: rgba(199, 145, 0, 0.95);
   background: rgba(255, 196, 0, 0.08);

@@ -388,6 +388,12 @@ export type PullRequestDetailDto = {
   baseRef: string | null;
   /** "owner/repo" of the target side; same as the PR's repo for in-repo PRs. */
   baseRepo: string | null;
+  /** GitHub merge-queue entry state — "QUEUED", "MERGEABLE",
+   *  "UNMERGEABLE", etc. when the PR currently has an entry in the
+   *  repo's merge queue; null when no entry exists or the repo
+   *  doesn't use a merge queue. GraphQL-sourced (REST doesn't expose
+   *  this per-PR). Drives the "Queued" status pill. */
+  mergeQueueState: string | null;
 };
 
 /** Lightweight CI-only slice served by /prs/ci. Polled while the detail

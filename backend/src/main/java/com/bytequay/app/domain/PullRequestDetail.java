@@ -63,7 +63,15 @@ public record PullRequestDetail(
         String baseRef,
         /** "owner/repo" of the target side; same as the PR's repo for
          *  in-repo PRs. */
-        String baseRepo)
+        String baseRepo,
+        /** GitHub merge-queue state for this PR — "QUEUED",
+         *  "MERGEABLE", "UNMERGEABLE", etc. when the PR currently has
+         *  an entry in the repo's merge queue; null when it has none
+         *  or the repo doesn't use a merge queue. REST doesn't expose
+         *  this per-PR (github.com itself uses the GraphQL
+         *  {@code pullRequest.mergeQueueEntry} field for the same
+         *  pill in their UI). */
+        String mergeQueueState)
 {
     public enum CiStatus
     {

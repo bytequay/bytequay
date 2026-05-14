@@ -401,6 +401,22 @@ public interface PullRequestRepository
     }
 
     /**
+     * Looks up the PR's current merge-queue entry state via GraphQL —
+     * REST exposes nothing per-PR; you'd have to fetch the whole repo
+     * queue and scan. The GraphQL field returns {@code QUEUED},
+     * {@code MERGEABLE}, {@code UNMERGEABLE}, etc. when an entry exists,
+     * or {@code null}/empty when the PR isn't in the queue.
+     *
+     * <p>Empty Optional = not enqueued (or merge queue not configured
+     * on this repo). Any non-null state = "in the queue, currently
+     * showing this state".
+     */
+    default Optional<String> fetchMergeQueueState(String pat, PullRequestRef pr)
+    {
+        throw new UnsupportedOperationException("fetchMergeQueueState not implemented");
+    }
+
+    /**
      * Marks a review thread resolved on GitHub (GraphQL mutation).
      * {@code threadNodeId} is the opaque base64 id from the GraphQL
      * fetcher above — REST root comment ids do NOT work here.

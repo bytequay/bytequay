@@ -73,6 +73,11 @@ class PrDetailEntity
     @Column(name = "base_repo")
     private String baseRepo;
 
+    /** GitHub merge-queue entry state (GraphQL-sourced). Null when the
+     *  PR isn't in the queue. */
+    @Column(name = "merge_queue_state")
+    private String mergeQueueState;
+
     @Column(nullable = false)
     @Convert(converter = InstantToTextConverter.class)
     private Instant syncedAt;
@@ -126,6 +131,9 @@ class PrDetailEntity
 
     String getBaseRepo() { return baseRepo; }
     void setBaseRepo(String baseRepo) { this.baseRepo = baseRepo; }
+
+    String getMergeQueueState() { return mergeQueueState; }
+    void setMergeQueueState(String mergeQueueState) { this.mergeQueueState = mergeQueueState; }
 
     Instant getSyncedAt() { return syncedAt; }
     void setSyncedAt(Instant syncedAt) { this.syncedAt = syncedAt; }

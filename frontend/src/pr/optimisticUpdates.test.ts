@@ -106,6 +106,7 @@ function detail(overrides: Partial<PullRequestDetailDto> = {}): PullRequestDetai
     headRepo: null,
     baseRef: null,
     baseRepo: null,
+    mergeQueueState: null,
     ...overrides,
   };
 }

@@ -25,4 +25,25 @@ public record StoredPrDetail(
         List<PrTimelineEvent> timeline,
         List<PrCheckRunState> checkRuns,
         List<PrReviewThreadMessage> reviewComments,
-        List<PullRequestDetail.LinkedIssue> linkedIssues) {}
+        List<PullRequestDetail.LinkedIssue> linkedIssues,
+        /** GraphQL-sourced merge-queue entry state — "QUEUED",
+         *  "MERGEABLE", "UNMERGEABLE", etc. Null when the PR has no
+         *  queue entry. Persisted via {@code pr_detail.merge_queue_state}. */
+        String mergeQueueState)
+{
+    /** Backward-compat 7-arg constructor for callers (mostly the
+     *  copy-on-mutation paths in PullRequestService + tests) that
+     *  don't surface merge-queue state. Defaults {@code mergeQueueState}
+     *  to null. New callers should use the canonical constructor. */
+    public StoredPrDetail(
+            PrRawDetail raw,
+            List<PrReviewState> reviews,
+            List<PullRequestDetail.ChangedFile> files,
+            List<PrTimelineEvent> timeline,
+            List<PrCheckRunState> checkRuns,
+            List<PrReviewThreadMessage> reviewComments,
+            List<PullRequestDetail.LinkedIssue> linkedIssues)
+    {
+        this(raw, reviews, files, timeline, checkRuns, reviewComments, linkedIssues, null);
+    }
+}

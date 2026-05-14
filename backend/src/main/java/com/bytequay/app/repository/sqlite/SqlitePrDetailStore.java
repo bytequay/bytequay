@@ -184,7 +184,9 @@ public class SqlitePrDetailStore
                         li.getIssueNumber(), li.getTitle(), li.getState(), li.getHtmlUrl()))
                 .collect(toImmutableList());
 
-        return Optional.of(new StoredPrDetail(raw, reviews, files, timeline, checkRuns, reviewComments, linkedIssues));
+        return Optional.of(new StoredPrDetail(
+                raw, reviews, files, timeline, checkRuns, reviewComments, linkedIssues,
+                entityOpt.get().getMergeQueueState()));
     }
 
     @Override
@@ -194,7 +196,7 @@ public class SqlitePrDetailStore
         Instant now = Instant.now();
         detailRepo.save(populateDetail(
                 detailRepo.findById(prId).orElseGet(PrDetailEntity::new),
-                prId, detail.raw(), now));
+                prId, detail.raw(), detail.mergeQueueState(), now));
 
         reviewRepo.deleteByPrId(prId);
         reviewRepo.saveAll(detail.reviews().stream()
@@ -256,7 +258,7 @@ public class SqlitePrDetailStore
         Instant now = Instant.now();
         detailRepo.save(populateDetail(
                 detailRepo.findById(prId).orElseGet(PrDetailEntity::new),
-                prId, detail.raw(), now));
+                prId, detail.raw(), detail.mergeQueueState(), now));
 
         reviewRepo.deleteByPrId(prId);
         reviewRepo.saveAll(detail.reviews().stream()
@@ -308,7 +310,7 @@ public class SqlitePrDetailStore
     // write paths.
 
     private static PrDetailEntity populateDetail(
-            PrDetailEntity entity, long prId, PrRawDetail raw, Instant syncedAt)
+            PrDetailEntity entity, long prId, PrRawDetail raw, String mergeQueueState, Instant syncedAt)
     {
         entity.setPrId(prId);
         entity.setBody(raw.body());
@@ -326,6 +328,7 @@ public class SqlitePrDetailStore
         entity.setHeadRepo(raw.headRepo());
         entity.setBaseRef(raw.baseRef());
         entity.setBaseRepo(raw.baseRepo());
+        entity.setMergeQueueState(mergeQueueState);
         entity.setSyncedAt(syncedAt);
         return entity;
     }

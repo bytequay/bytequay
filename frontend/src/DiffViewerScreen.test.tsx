@@ -83,6 +83,7 @@ function makeDetail(overrides: Partial<PullRequestDetailDto> = {}): PullRequestD
     headRepo: null,
     baseRef: null,
     baseRepo: null,
+    mergeQueueState: null,
     ...overrides,
   };
 }

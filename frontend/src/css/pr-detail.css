@@ -177,6 +177,14 @@
   background: #cf222e;
   color: #fff;
 }
+/* Queued — GitHub's "in the merge queue" amber, distinct from the
+   green Open / purple Merged / red Closed so the user sees the
+   in-flight state at a glance. Same color github.com uses for the
+   queue badge on their PR detail page. */
+.prc-status-pill--queued {
+  background: #bf8700;
+  color: #fff;
+}
 
 /* GitHub-style branch sentence sitting on its own line under the meta
    strip — "AUTHOR wants to merge into BASE from HEAD". Each branch is
@@ -277,6 +285,11 @@ button.prc-branches__ref--clickable:hover {
   display: grid;
   grid-template-columns: minmax(0, 1fr) 320px;
   min-height: 0;
+}
+/* Collapsed-sidebar variant: rail shrinks to just the toggle's
+   footprint so the conversation column can claim the rest. */
+.prc-body--sidebar-collapsed {
+  grid-template-columns: minmax(0, 1fr) 36px;
 }
 
 /* ── Conversation timeline (left column) ───────────────────────────── */
@@ -1506,6 +1519,49 @@ button.prc-branches__ref--clickable:hover {
   flex-direction: column;
   gap: 18px;
   min-height: 0;
+}
+/* Collapsed: shrink to a rail with just the expand affordance. The
+   .prc-body grid is what actually narrows the column to 36px; here
+   we tighten internal padding so the toggle button reads as a
+   centered chip rather than offset toward the left. */
+.prc-sidebar--collapsed {
+  padding: 12px 4px;
+  gap: 0;
+  align-items: center;
+  overflow: hidden;
+}
+/* Mirror the .kpr-card__handle chip style (the ✓ / ↺ / ⌛ buttons on
+   the kanban PR cards): 18px circle, soft border, 10px glyph inside.
+   Keeps the meta sidebar's collapse affordance visually consistent
+   with the rest of the dashboard's small inline buttons rather than
+   inventing a new rectangular chrome here. */
+.prc-sidebar__toggle {
+  appearance: none;
+  width: 18px;
+  height: 18px;
+  border-radius: 50%;
+  border: 1px solid var(--border);
+  background: var(--bg-card);
+  color: var(--text-3);
+  font: inherit;
+  font-size: 10px;
+  line-height: 1;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  cursor: pointer;
+  align-self: flex-end;
+  flex-shrink: 0;
+  transition: color 0.1s, border-color 0.1s, background 0.1s;
+}
+.prc-sidebar--collapsed .prc-sidebar__toggle {
+  align-self: center;
+}
+.prc-sidebar__toggle:hover {
+  color: var(--text-1);
+  border-color: var(--accent);
+  background: var(--accent-a7);
 }
 .prc-meta-section { display: flex; flex-direction: column; gap: 6px; }
 .prc-meta-label {

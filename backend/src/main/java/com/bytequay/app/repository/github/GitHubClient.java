@@ -1288,6 +1288,69 @@ public class GitHubClient
     @JsonIgnoreProperties(ignoreUnknown = true)
     record GqlCommentNode(Long databaseId) {}
 
+    // ── GraphQL: merge-queue entry state ─────────────────────────────────
+
+    /** GraphQL query for the PR's current merge-queue entry, if any.
+     *  REST doesn't expose this per-PR — github.com itself uses this
+     *  same GraphQL field on its PR detail page. Tiny query so the
+     *  point-cost is negligible. */
+    private static final String MERGE_QUEUE_STATE_QUERY = """
+            query($owner: String!, $name: String!, $number: Int!) {
+              repository(owner: $owner, name: $name) {
+                pullRequest(number: $number) {
+                  mergeQueueEntry {
+                    state
+                  }
+                }
+              }
+            }
+            """;
+
+    @Override
+    public Optional<String> fetchMergeQueueState(String pat, PullRequestRef pr)
+    {
+        Map<String, Object> body = ImmutableMap.of(
+                "query", MERGE_QUEUE_STATE_QUERY,
+                "variables", ImmutableMap.of(
+                        "owner", pr.owner(),
+                        "name", pr.repo(),
+                        "number", pr.number()));
+        try {
+            MergeQueueGqlResponse response = graphqlRestClient.post()
+                    .header("Authorization", "Bearer " + pat)
+                    .body(body)
+                    .retrieve()
+                    .body(MergeQueueGqlResponse.class);
+            if (response == null
+                    || response.data() == null
+                    || response.data().repository() == null
+                    || response.data().repository().pullRequest() == null
+                    || response.data().repository().pullRequest().mergeQueueEntry() == null) {
+                return Optional.empty();
+            }
+            String state = response.data().repository().pullRequest().mergeQueueEntry().state();
+            return state == null || state.isBlank() ? Optional.empty() : Optional.of(state);
+        }
+        catch (RestClientResponseException e) {
+            throw toReadableException(e);
+        }
+    }
+
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    record MergeQueueGqlResponse(MergeQueueGqlData data) {}
+
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    record MergeQueueGqlData(MergeQueueGqlRepo repository) {}
+
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    record MergeQueueGqlRepo(MergeQueueGqlPr pullRequest) {}
+
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    record MergeQueueGqlPr(MergeQueueGqlEntry mergeQueueEntry) {}
+
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    record MergeQueueGqlEntry(String state) {}
+
     @Override
     public void setPullRequestDraft(String pat, PullRequestRef pr, boolean draft)
     {

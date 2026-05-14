@@ -562,7 +562,7 @@ public class PullRequestService
                 .build();
         return new StoredPrDetail(
                 detail.raw(), detail.reviews(), detail.files(), detail.timeline(),
-                detail.checkRuns(), patched, detail.linkedIssues());
+                detail.checkRuns(), patched, detail.linkedIssues(), detail.mergeQueueState());
     }
 
     /**
@@ -602,7 +602,7 @@ public class PullRequestService
                 .collect(toImmutableList());
         return new StoredPrDetail(
                 detail.raw(), detail.reviews(), detail.files(), patched,
-                detail.checkRuns(), detail.reviewComments(), detail.linkedIssues());
+                detail.checkRuns(), detail.reviewComments(), detail.linkedIssues(), detail.mergeQueueState());
     }
 
     /**
@@ -643,7 +643,7 @@ public class PullRequestService
                 .collect(toImmutableList());
         return new StoredPrDetail(
                 detail.raw(), detail.reviews(), detail.files(), detail.timeline(),
-                detail.checkRuns(), patched, detail.linkedIssues());
+                detail.checkRuns(), patched, detail.linkedIssues(), detail.mergeQueueState());
     }
 
     /**
@@ -701,7 +701,7 @@ public class PullRequestService
                 .collect(toImmutableList());
         return new StoredPrDetail(
                 detail.raw(), detail.reviews(), detail.files(), detail.timeline(),
-                detail.checkRuns(), patched, detail.linkedIssues());
+                detail.checkRuns(), patched, detail.linkedIssues(), detail.mergeQueueState());
     }
 
     private static final Set<String> ALLOWED_REACTION_CONTENT = Set.of(
@@ -755,7 +755,7 @@ public class PullRequestService
                 .collect(toImmutableList());
         return new StoredPrDetail(
                 detail.raw(), detail.reviews(), detail.files(), detail.timeline(),
-                detail.checkRuns(), patched, detail.linkedIssues());
+                detail.checkRuns(), patched, detail.linkedIssues(), detail.mergeQueueState());
     }
 
     /**
@@ -832,7 +832,7 @@ public class PullRequestService
                 .collect(toImmutableList());
         return new StoredPrDetail(
                 detail.raw(), detail.reviews(), detail.files(), patched,
-                detail.checkRuns(), detail.reviewComments(), detail.linkedIssues());
+                detail.checkRuns(), detail.reviewComments(), detail.linkedIssues(), detail.mergeQueueState());
     }
 
     /**
@@ -1380,6 +1380,21 @@ public class PullRequestService
                                 return ImmutableList.<PullRequestRepository.ReviewThreadMeta>of();
                             }
                         });
+        // GraphQL: merge-queue entry state. REST doesn't expose this
+        // per-PR; github.com itself uses this same GraphQL field for
+        // their "Queued" pill. Best-effort — empty Optional on any
+        // failure so the REST data still lands without it.
+        CompletableFuture<Optional<String>> mergeQueueFuture =
+                timed("fetchMergeQueueState", ref,
+                        () -> {
+                            try {
+                                return gitHub.fetchMergeQueueState(pat, ref);
+                            }
+                            catch (RuntimeException e) {
+                                log.warn("GraphQL merge-queue state fetch failed: {}", e.getMessage());
+                                return Optional.<String>empty();
+                            }
+                        });
 
         PrRawDetail raw = join(detailFuture);
         List<PrReviewState> reviews = join(reviewsFuture);
@@ -1446,6 +1461,7 @@ public class PullRequestService
                 checkRuns != null ? checkRuns.size() : 0,
                 issueComments != null ? issueComments.size() : 0);
 
+        Optional<String> mergeQueueState = join(mergeQueueFuture);
         return new StoredPrDetail(
                 raw,
                 reviews != null ? reviews : ImmutableList.of(),
@@ -1453,7 +1469,8 @@ public class PullRequestService
                 mergedTimeline,
                 checkRuns != null ? checkRuns : ImmutableList.of(),
                 reviewComments != null ? reviewComments : ImmutableList.of(),
-                linkedIssues);
+                linkedIssues,
+                mergeQueueState != null ? mergeQueueState.orElse(null) : null);
     }
 
     /**
@@ -1630,7 +1647,8 @@ public class PullRequestService
                 raw.headRef(),
                 raw.headRepo(),
                 raw.baseRef(),
-                raw.baseRepo());
+                raw.baseRepo(),
+                stored.mergeQueueState());
     }
 
     /**

@@ -51,6 +51,7 @@ const SIDE_WIDTH_KEY = 'settings:preview-conversation-width';
 const SIDE_WIDTH_MIN = 180;
 const SIDE_WIDTH_MAX = 520;
 const SIDE_WIDTH_DEFAULT = 260;
+const SIDEBAR_COLLAPSED_KEY = 'settings:pr-detail-sidebar-collapsed';
 
 /** Renders a PR title string with backtick-wrapped segments turned into
  *  inline `<code>` spans. We don't run the title through a full markdown
@@ -769,6 +770,19 @@ function PullRequestPreview({ pr, onOpenReview, onInspectDiffs, onMarkHandled, o
   const [handledState, setHandledState] = useState<ActionState>('idle');
   const [handledError, setHandledError] = useState<string | null>(null);
   const [sideWidth, setSideWidth] = useState<number>(loadSideWidth);
+  // Collapse the right meta sidebar to a thin rail with just an
+  // expand affordance. Lets the timeline column claim the full width
+  // when the user wants to focus on the conversation. Persisted in
+  // localStorage so the choice survives navigation + restart.
+  const [sidebarCollapsed, setSidebarCollapsedRaw] = useState<boolean>(() => {
+    try { return localStorage.getItem(SIDEBAR_COLLAPSED_KEY) === '1'; }
+    catch { return false; }
+  });
+  const setSidebarCollapsed = (next: boolean) => {
+    setSidebarCollapsedRaw(next);
+    try { localStorage.setItem(SIDEBAR_COLLAPSED_KEY, next ? '1' : '0'); }
+    catch { /* ignore */ }
+  };
   const gridRef = useRef<HTMLDivElement>(null);
   const commentBoxRef = useRef<PrCommentBoxHandle>(null);
 
@@ -1593,6 +1607,13 @@ function PullRequestPreview({ pr, onOpenReview, onInspectDiffs, onMarkHandled, o
               if (pr.state === 'closed') {
                 return <span className="prc-status-pill prc-status-pill--closed">Closed</span>;
               }
+              // Queued: GraphQL says the PR has a mergeQueueEntry. Sits
+              // above Draft / Open because a queued PR is in-flight —
+              // CI passing, approvals in, GitHub is actively trying to
+              // merge it. Same affordance github.com shows.
+              if (detail.mergeQueueState) {
+                return <span className="prc-status-pill prc-status-pill--queued">Queued</span>;
+              }
               if (detail.draft ?? pr.draft) {
                 return <span className="prc-status-pill prc-status-pill--draft">Draft</span>;
               }
@@ -1725,7 +1746,7 @@ function PullRequestPreview({ pr, onOpenReview, onInspectDiffs, onMarkHandled, o
       {error && <div className="prc-error">{error}</div>}
 
       {detail && (
-        <div className="prc-body" ref={gridRef}>
+        <div className={`prc-body${sidebarCollapsed ? ' prc-body--sidebar-collapsed' : ''}`} ref={gridRef}>
           {/* ── Conversation column ──────────────────────────────── */}
           <main className="prc-timeline">
             {/* Wrapper so the rail is exactly the height of the timeline
@@ -1779,7 +1800,26 @@ function PullRequestPreview({ pr, onOpenReview, onInspectDiffs, onMarkHandled, o
           </main>
 
           {/* ── Right meta sidebar ───────────────────────────────── */}
-          <aside className="prc-sidebar">
+          <aside className={`prc-sidebar${sidebarCollapsed ? ' prc-sidebar--collapsed' : ''}`}>
+            {/* Collapse/expand toggle — always rendered so the rail
+                form still carries an affordance to re-open. Single-
+                chevron glyphs (‹/›) match the visual weight of the
+                kanban PR card's circular handle chip (✓ / ↺ / ⌛);
+                the button styling mirrors .kpr-card__handle. Arrow
+                points the direction the sidebar is about to move:
+                › collapses (rolls toward the right edge), ‹ expands
+                (rolls back leftward into the conversation). */}
+            <button
+              type="button"
+              className="prc-sidebar__toggle"
+              onClick={() => setSidebarCollapsed(!sidebarCollapsed)}
+              title={sidebarCollapsed ? 'Expand the meta sidebar' : 'Collapse the meta sidebar to the right edge'}
+              aria-label={sidebarCollapsed ? 'Expand sidebar' : 'Collapse sidebar'}
+              aria-expanded={!sidebarCollapsed}
+            >
+              <span aria-hidden="true">{sidebarCollapsed ? '‹' : '›'}</span>
+            </button>
+            {!sidebarCollapsed && (<>
             {onInspectDiffs && (
               <section className="prc-meta-section prc-yrb">
                 <div className="prc-yrb__title">Your review</div>
@@ -1960,6 +2000,7 @@ function PullRequestPreview({ pr, onOpenReview, onInspectDiffs, onMarkHandled, o
                 <div className="prc-stat-line"><span>Days open</span><span className="prc-stat-num">{stats.daysOpen}</span></div>
               )}
             </section>
+            </>)}
           </aside>
         </div>
       )}

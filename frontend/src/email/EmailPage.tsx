@@ -105,18 +105,18 @@ export default function EmailPage({ onOpenIntegrationsSettings, onOpenLinkedRef 
   }, []);
 
   // Background poll of the inbox list — focus-gated so it pauses
-  // when the user tabs away. Cheap because listEmailThreads reads
-  // from the local SQLite mirror; the heavy GmailPollingJob refresh
-  // runs server-side every 60s. Effect: new arrivals appear in the
-  // list within ~30s without a manual refresh, and the detail-pane
-  // poll below picks up new messages in the open thread.
+  // when the user tabs away. Two cadences:
+  //  - OAuth (30s): cheap, hits the local SQLite mirror; the
+  //    server-side GmailPollingJob is what actually talks to Gmail.
+  //  - IMAP (5min): each tick opens a fresh imap.gmail.com connection
+  //    (~300ms login). 5 min keeps new mail visible within a coffee-
+  //    break window without burning Gmail's login budget. Manual
+  //    Refresh still gives instant pickup when the user wants it.
   useEffect(() => {
     if (!selectedAccount) return;
     const acc = accounts?.find(a => a.email === selectedAccount);
-    // OAuth only — the IMAP backend opens a fresh connection per
-    // listing call, so polling every 30s would burn login attempts.
-    // IMAP users still get the manual Refresh button.
-    if (acc?.authMode !== 'OAUTH') return;
+    if (!acc) return;
+    const intervalMs = acc.authMode === 'OAUTH' ? 30_000 : 5 * 60_000;
     let interval: ReturnType<typeof setInterval> | null = null;
     const isVisible = () => document.visibilityState === 'visible' && document.hasFocus();
     const tick = async () => {
@@ -128,7 +128,7 @@ export default function EmailPage({ onOpenIntegrationsSettings, onOpenLinkedRef 
     };
     const start = () => {
       if (interval != null) return;
-      interval = setInterval(() => { void tick(); }, 30_000);
+      interval = setInterval(() => { void tick(); }, intervalMs);
     };
     const stop = () => {
       if (interval != null) { clearInterval(interval); interval = null; }

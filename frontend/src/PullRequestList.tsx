@@ -42,7 +42,8 @@ import {
   unmergedPatch,
 } from './prBuckets';
 import { CategorizedList, HandledTimeline, SnoozedList } from './PrBucketViews';
-import KanbanBoard, { LANE_KEY, loadLane, type Lane } from './kanban/KanbanBoard';
+import KanbanBoard, { LANE_KEY, loadLane, pickFocusCards, type Lane } from './kanban/KanbanBoard';
+import KanbanPrCard from './kanban/KanbanPrCard';
 import MergeHistoryPage from './MergeHistoryPage';
 import PrAnalyticsPage from './PrAnalyticsPage';
 
@@ -84,7 +85,7 @@ function PullRequestList({ onGoToTeams, onOpenLocalBranch, onOpenSettings }: Pro
   // whenever the viewer closes or the user navigates away.
   const [diffViewerCommitSha, setDiffViewerCommitSha] = useState<string | null>(null);
   const [filter, setFilter] = useState('');
-  const [activeTab, setActiveTab] = useState<'inbox' | 'snoozed' | 'handled' | 'analytics'>('inbox');
+  const [activeTab, setActiveTab] = useState<'inbox' | 'urgent' | 'snoozed' | 'handled' | 'analytics'>('inbox');
   // Full closed-PR history page (merged + closed-without-merge). Opened
   // from the kanban's "View full merge history →" footer CTA on the
   // Recently Merged column. Replaces the kanban view while open.
@@ -224,6 +225,10 @@ function PullRequestList({ onGoToTeams, onOpenLocalBranch, onOpenSettings }: Pro
   const handledSorted = useMemo(() => sortHandled(handled), [handled]);
   const handledGroups = useMemo(() => groupHandledByTime(handledSorted), [handledSorted]);
   const snoozedSorted = useMemo(() => sortSnoozed(snoozed), [snoozed]);
+  // Urgent slice — same picker the old focus band used. Lives at the
+  // page level now so the side-nav badge can show the count without
+  // mounting the kanban board.
+  const urgentCards = useMemo(() => pickFocusCards(filtered), [filtered]);
   const tabPrs = activeTab === 'inbox' ? inbox
     : activeTab === 'snoozed' ? snoozedSorted
     : activeTab === 'handled' ? handledSorted
@@ -360,7 +365,7 @@ function PullRequestList({ onGoToTeams, onOpenLocalBranch, onOpenSettings }: Pro
     [],
   );
 
-  const switchTab = (tab: 'inbox' | 'snoozed' | 'handled' | 'analytics') => {
+  const switchTab = (tab: 'inbox' | 'urgent' | 'snoozed' | 'handled' | 'analytics') => {
     setActiveTab(tab);
     setSelected(null);
     clearActiveScreen();
@@ -541,9 +546,10 @@ function PullRequestList({ onGoToTeams, onOpenLocalBranch, onOpenSettings }: Pro
               in the side nav itself, so the page header is free to
               reflect what the user is actually looking at. */}
           {activeTab === 'inbox' ? 'Inbox'
-            : activeTab === 'snoozed' ? 'Snoozed'
-              : activeTab === 'handled' ? 'Handled'
-                : 'Analytics'}
+            : activeTab === 'urgent' ? 'Urgent'
+              : activeTab === 'snoozed' ? 'Snoozed'
+                : activeTab === 'handled' ? 'Handled'
+                  : 'Analytics'}
         </span>
         <span className="pr-list-header__subtitle">{today}</span>
       </div>
@@ -585,6 +591,18 @@ function PullRequestList({ onGoToTeams, onOpenLocalBranch, onOpenSettings }: Pro
           <span className="kanban-sidenav__item-icon" aria-hidden="true">▦</span>
           <span className="kanban-sidenav__item-label">Inbox</span>
           {inbox.length > 0 && <span className="kanban-sidenav__count">{inbox.length}</span>}
+        </button>
+        <button
+          type="button"
+          className={`kanban-sidenav__item${activeTab === 'urgent' ? ' kanban-sidenav__item--active' : ''}`}
+          onClick={() => switchTab('urgent')}
+          title="PRs that need your attention right now — blocked, failing CI, stale, or just-woke."
+        >
+          <span className="kanban-sidenav__item-icon" aria-hidden="true">🔥</span>
+          <span className="kanban-sidenav__item-label">Urgent</span>
+          {urgentCards.length > 0 && (
+            <span className="kanban-sidenav__count kanban-sidenav__count--urgent">{urgentCards.length}</span>
+          )}
         </button>
         <button
           type="button"
@@ -853,6 +871,34 @@ function PullRequestList({ onGoToTeams, onOpenLocalBranch, onOpenSettings }: Pro
             />
           )}
         </>
+      )}
+      {!loading && !error && activeTab === 'urgent' && (
+        urgentCards.length === 0 ? (
+          <div className="kanban-empty">
+            Nothing urgent right now — your inbox is in good shape.
+          </div>
+        ) : (
+          <div className="urgent-page">
+            <p className="urgent-page__subtitle">
+              {urgentCards.length} {urgentCards.length === 1 ? 'PR needs' : 'PRs need'} your attention.
+              Most blocking first — newly-failed CI, requested changes, merge conflicts, and stale reviews.
+            </p>
+            <div className="urgent-page__grid">
+              {urgentCards.map(pr => (
+                <KanbanPrCard
+                  key={pr.id}
+                  pr={pr}
+                  column="needs_attention"
+                  mode="team"
+                  selected={selectedId === pr.id}
+                  onSelect={() => handleSelect(pr)}
+                  onHandle={() => handleMarkHandled(pr.id)}
+                  onSnooze={(untilIso) => handleSnooze(pr.id, untilIso)}
+                />
+              ))}
+            </div>
+          </div>
+        )
       )}
       {!loading && !error && activeTab === 'snoozed' && (
         <div className="snoozed-page">

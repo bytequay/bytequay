@@ -140,6 +140,16 @@
   background: var(--accent);
   color: #fff;
 }
+/* Red count badge for the Urgent item — stays loud even when the
+   item isn't selected, since the whole point is to draw the eye. */
+.kanban-sidenav__count--urgent {
+  background: #cf222e;
+  color: #fff;
+}
+.kanban-sidenav__item--active .kanban-sidenav__count--urgent {
+  background: #cf222e;
+  color: #fff;
+}
 .kanban-sidenav__alert {
   width: 8px;
   height: 8px;
@@ -618,6 +628,29 @@
   color: var(--text-3);
   text-align: center;
   font-size: var(--font-size-lg);
+}
+
+/* Dedicated Urgent page reached from the side nav. Replaces the old
+   focus-band strip above the kanban — the same picker (pickFocusCards)
+   feeds a grid of full-size cards instead of a capped 5-card row. */
+.urgent-page {
+  flex: 1 1 0;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  padding: var(--space-3) var(--space-4) var(--space-4);
+  overflow-y: auto;
+}
+.urgent-page__subtitle {
+  margin: 0 0 var(--space-3);
+  font-size: var(--font-size-sm);
+  color: var(--text-3);
+}
+.urgent-page__grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
+  gap: var(--space-3);
+  align-content: start;
 }
 
 .kanban-board {

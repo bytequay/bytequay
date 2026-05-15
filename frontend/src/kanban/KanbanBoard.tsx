@@ -195,21 +195,11 @@ function KanbanBoard(props: Props) {
 
   return (
     <div className="kanban-v2">
-      {/* The morning-briefing strip ("☀ N of your PRs need changes · M
-          PRs need your review · → Start review") was removed: the
-          Focus band below it surfaces the same urgent PRs as cards,
-          and the red-dot alert on the page header's My PRs tab covers
-          the same "act here" signal — three places saying the same
-          thing was noise, not info. */}
-      {mode === 'inbox' && (
-        <FocusBand
-          prs={props.prs}
-          onSelect={props.onSelect}
-          onHandle={props.onHandle}
-          onSnooze={props.onSnooze}
-        />
-      )}
-
+      {/* The morning-briefing strip and the focus-band ("Needs your
+          urgent attention") are gone — the urgent slice now lives on
+          its own page reached from the side nav's "Urgent" item, so
+          the kanban can give every card to its column without a
+          competing strip above. */}
       {repoOptions.length > 1 && (
         <div className="kanban-v2__filters">
           <span className="kanban-v2__filters-label">Repo:</span>
@@ -529,7 +519,7 @@ function columnSize(kind: MyPrColumn | ToReviewColumn, collapsed: boolean, count
  * the user reveal the rest with "+ N more". Within each tier, oldest
  * updatedAt wins so the most-stale card surfaces first.
  */
-function pickFocusCards(prs: PullRequestDto[], now: number = Date.now()): PullRequestDto[] {
+export function pickFocusCards(prs: PullRequestDto[], now: number = Date.now()): PullRequestDto[] {
   const STALE_MS = 7 * 24 * 60 * 60 * 1000;
   const seen = new Set<number>();
   const out: PullRequestDto[] = [];

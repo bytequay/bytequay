@@ -143,18 +143,13 @@ function KanbanPrCard({ pr, column, mode = 'inbox', selected, onSelect, onHandle
       )}
       <div className="kpr-card__head">
         <div className="kpr-card__repo">
+          <span className="kpr-card__num">#{pr.number}</span>
           {showRepoAvatar && (
-            <Avatar login={repoOwner} size={14} className="kpr-card__repo-avatar" />
+            <Avatar login={repoOwner} size={12} className="kpr-card__repo-avatar" />
           )}
           <span className="kpr-card__repo-name">{repoShort}</span>
-          <span className="kpr-card__num">#{pr.number}</span>
         </div>
         <div className="kpr-card__head-right">
-          {statusPill && (
-            <span className={`kpr-card__pill kpr-card__pill--${statusPill.kind}`}>
-              {statusPill.label}
-            </span>
-          )}
           {/* Quick-dismiss "✓": drops the PR into the Handled column
               without opening it. Suppressed on already-done columns. */}
           {onHandle
@@ -195,52 +190,8 @@ function KanbanPrCard({ pr, column, mode = 'inbox', selected, onSelect, onHandle
         </div>
       </div>
       <div className="kpr-card__title">{pr.title}</div>
-      <div className="kpr-card__meta">
-        {showAuthor && pr.author && (
-          <>
-            <span className="kpr-card__author" title={pr.author}>
-              <Avatar login={pr.author} size={16} className="kpr-card__author-avatar" />
-              <span className="kpr-card__author-login">{pr.author}</span>
-            </span>
-            <span className="kpr-card__meta-sep">·</span>
-          </>
-        )}
-        <span>{openedLabel}</span>
-        {visibleReviewers.length > 0 && (
-          <>
-            <span className="kpr-card__meta-sep">·</span>
-            <span className="kpr-card__reviewers">
-              {visibleReviewers.map(({ login, verdict }) => (
-                <span
-                  key={login}
-                  className={`kpr-card__reviewer kpr-card__reviewer--${verdictClass(verdict)}`}
-                  title={`${login}${verdict ? ` · ${verdict.toLowerCase().replace(/_/g, ' ')}` : ' · pending'}`}
-                >
-                  <Avatar login={login} size={18} className="kpr-card__reviewer-avatar" />
-                </span>
-              ))}
-              {overflow > 0 && (
-                <span className="kpr-card__reviewer-overflow" title={`${overflow} more`}>
-                  +{overflow}
-                </span>
-              )}
-            </span>
-          </>
-        )}
-        {reviewerEntries.length > 0 && (
-          <span className="kpr-card__reviewer-count">
-            {reviewerEntries.length} {reviewerEntries.length === 1 ? 'reviewer' : 'reviewers'}
-          </span>
-        )}
-        {reviewerEntries.length === 0 && requested.length === 0 && (
-          <>
-            <span className="kpr-card__meta-sep">·</span>
-            <span className="kpr-card__reviewer-count kpr-card__reviewer-count--empty">no reviewers yet</span>
-          </>
-        )}
-      </div>
-      <div className="kpr-card__foot">
-        <div className="kpr-card__tags">
+      {pr.labels.length > 0 && (
+        <div className="kpr-card__labels">
           {pr.labels.slice(0, 3).map(label => (
             <span
               key={label}
@@ -255,21 +206,77 @@ function KanbanPrCard({ pr, column, mode = 'inbox', selected, onSelect, onHandle
             <span className="kpr-card__tag kpr-card__tag--more">+{pr.labels.length - 3}</span>
           )}
         </div>
-        <div className="kpr-card__signals">
-          {/* Card foot keeps only the CI dot now — the comment count and
-              +/− diff signals were noise more than info on a card-sized
-              surface; they live on the PR detail page where there's
-              room. */}
+      )}
+      <div className="kpr-card__status-row">
+        <div className="kpr-card__status-left">
+          {statusPill && (
+            <span className={`kpr-card__pill kpr-card__pill--${statusPill.kind}`}>
+              {statusPill.label}
+            </span>
+          )}
           {pr.ciStatus && pr.ciStatus !== 'NONE' && (
-            <span className="kpr-card__signal" title={`CI: ${pr.ciStatus.toLowerCase()}`}>
+            <span
+              className={`kpr-card__build kpr-card__build--${pr.ciStatus.toLowerCase()}`}
+              title={`CI: ${pr.ciStatus.toLowerCase()}`}
+            >
               <span className={`kpr-card__ci-dot kpr-card__ci-dot--${pr.ciStatus.toLowerCase()}`} />
-              CI
+              BUILD
             </span>
           )}
         </div>
+        {visibleReviewers.length > 0 && (
+          <span className="kpr-card__reviewers">
+            {visibleReviewers.map(({ login, verdict }) => (
+              <span
+                key={login}
+                className={`kpr-card__reviewer kpr-card__reviewer--${verdictClass(verdict)}`}
+                title={`${login}${verdict ? ` · ${verdict.toLowerCase().replace(/_/g, ' ')}` : ' · pending'}`}
+              >
+                <Avatar login={login} size={20} className="kpr-card__reviewer-avatar" />
+              </span>
+            ))}
+            {overflow > 0 && (
+              <span className="kpr-card__reviewer-overflow" title={`${overflow} more`}>
+                +{overflow}
+              </span>
+            )}
+          </span>
+        )}
+      </div>
+      <div className="kpr-card__foot">
+        <div className="kpr-card__author">
+          {showAuthor && pr.author ? (
+            <>
+              <Avatar login={pr.author} size={16} className="kpr-card__author-avatar" />
+              <span className="kpr-card__author-login">{pr.author}</span>
+            </>
+          ) : (
+            <span className="kpr-card__author-login kpr-card__author-login--muted">
+              {reviewerEntries.length === 0 ? 'no reviewers yet' : `${reviewerEntries.length} reviewer${reviewerEntries.length === 1 ? '' : 's'}`}
+            </span>
+          )}
+        </div>
+        <span className="kpr-card__time" title={openedLabel}>
+          <span className="kpr-card__time-icon" aria-hidden="true">🕐</span>
+          {compactRelative(pr.createdAt ?? pr.updatedAt)}
+        </span>
       </div>
     </button>
   );
+}
+
+/** Compact "Xh ago" / "Xd ago" form for the card footer. The full
+ *  "opened …" sentence lives in the title attribute. */
+function compactRelative(iso: string | null): string {
+  if (!iso) return '';
+  const ms = Date.now() - new Date(iso).getTime();
+  const hours = Math.floor(ms / (60 * 60 * 1000));
+  if (hours < 1) return 'just now';
+  if (hours < 24) return `${hours}h ago`;
+  const days = Math.floor(hours / 24);
+  if (days < 30) return `${days}d ago`;
+  const months = Math.floor(days / 30);
+  return `${months}mo ago`;
 }
 
 // ── Helpers ────────────────────────────────────────────────────────────────

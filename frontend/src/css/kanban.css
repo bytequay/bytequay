@@ -1067,9 +1067,8 @@
 .kanban-col--waiting-on-review .kanban-col__body { background: rgba(245, 158, 11, 0.06); border-radius: var(--radius-md); padding: var(--space-1); }
 .kanban-col--needs-changes .kanban-col__body { background: rgba(207, 34, 46, 0.05); border-radius: var(--radius-md); padding: var(--space-1); }
 .kanban-col--ready-to-merge .kanban-col__body { background: rgba(46, 160, 67, 0.05); border-radius: var(--radius-md); padding: var(--space-1); }
-.kanban-col--needs-attention .kanban-col__body { background: rgba(207, 34, 46, 0.05); border-radius: var(--radius-md); padding: var(--space-1); }
-.kanban-col--in-progress .kanban-col__body { background: rgba(212, 160, 23, 0.05); border-radius: var(--radius-md); padding: var(--space-1); }
-.kanban-col--awaiting-author .kanban-col__body { background: rgba(31, 111, 235, 0.05); border-radius: var(--radius-md); padding: var(--space-1); }
+/* To Review columns: clean page-background bodies to match the v2 redesign.
+   Cards carry their own elevation/shadow so column tinting just adds noise. */
 
 /* ── Rich PR card for the v2 kanban (KanbanPrCard.tsx) ──────────────────────
    Matches docs/mockups/v2/pr-dashboard/re-design/pr-kanban.png — clean white

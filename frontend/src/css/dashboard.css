@@ -871,9 +871,11 @@
    feed. Push its left edge to the same x as a comment-card body
    (rail-padding 16 + avatar 40 + gap 16 = 72px) so the textarea lines
    up with the comments above it instead of stretching flush to the
-   pane edge — see docs/mockups/v2/detail/comment-width.png. */
+   pane edge — see docs/mockups/v2/detail/comment-width.png. The 40px
+   top margin breathes the composer off the merge card above it. */
 .prc-timeline > .pr-comment-box {
   margin-left: 72px;
+  margin-top: 40px;
 }
 
 .pr-comment-box--collapsed {

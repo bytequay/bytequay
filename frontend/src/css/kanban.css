@@ -482,8 +482,8 @@
   min-height: 0;
   display: grid;
   grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: var(--space-3);
-  padding: var(--space-3);
+  gap: var(--space-4);
+  padding: var(--space-4);
   align-items: start;
   overflow-y: auto;
   background: var(--bg-base);
@@ -1309,10 +1309,14 @@
   color: var(--text-0);
 }
 
+/* Pill palette: docs/mockups/v2/pr-dashboard/re-design/pr-kanban.png maps
+   each PR lifecycle state to its own tint. APPROVED stays the lifecycle
+   green; OPEN is the neutral "open and waiting" blue tint so it doesn't
+   collide with the success colour. */
 .kpr-card__pill--draft { background: #f3e8ff; color: #7c3aed; }
-.kpr-card__pill--opened { background: rgba(46, 160, 67, 0.12); color: #1a7f37; }
+.kpr-card__pill--opened { background: rgba(31, 111, 235, 0.12); color: #1f6feb; }
 .kpr-card__pill--changes { background: rgba(207, 34, 46, 0.12); color: #cf222e; }
-.kpr-card__pill--approved { background: rgba(46, 160, 67, 0.12); color: #1a7f37; }
+.kpr-card__pill--approved { background: rgba(46, 160, 67, 0.14); color: #1a7f37; }
 .kpr-card__pill--merged { background: rgba(130, 80, 223, 0.12); color: #6b21a8; }
 .kpr-card__pill--closed { background: var(--bg-elevated); color: var(--text-3); }
 

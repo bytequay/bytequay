@@ -446,7 +446,7 @@ function MyPrsBoard({ prs, selectedId, collapsed, onToggle, onSelect, onHandle, 
   );
 }
 
-function ToReviewBoard({ prs, selectedId, collapsed, onToggle, onSelect, onHandle, onReopen, onSnooze, cardMode }: BoardProps) {
+function ToReviewBoard({ prs, selectedId, collapsed, onToggle, onSelect, onHandle, onReopen, onSnooze }: BoardProps) {
   const groups = useMemo(() => groupToReview(prs), [prs]);
   const gridTemplate = TO_REVIEW_COLUMNS.map(col => columnSize(col, collapsed[col] ?? false, groups[col].length)).join(' ');
   // Per-column urgent count — PRs with an attentionReason set. Only
@@ -477,7 +477,10 @@ function ToReviewBoard({ prs, selectedId, collapsed, onToggle, onSelect, onHandl
           onHandle={onHandle}
           onReopen={onReopen}
           onSnooze={onSnooze}
-          cardMode={cardMode}
+          /* To Review board: PRs here are always authored by other
+             people. Force team mode so each card shows the author
+             chip — see docs/mockups/v2/pr-dashboard/re-design/pr-kanban.png. */
+          cardMode="team"
         />
       ))}
     </div>

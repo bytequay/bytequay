@@ -1863,20 +1863,23 @@ function PullRequestPreview({ pr, onOpenReview, onInspectDiffs, onMarkHandled, o
                 }
                 return renderThread(e.thread, i);
               })}
+              {/* Merge card lives inside .prc-timeline__entries so the
+                  rail extends down to it and the 30px sibling gap
+                  applies above. */}
+              {onMerge && !pr.mergedAt && (
+                <MergeBar
+                  pr={pr}
+                  detail={detail}
+                  mergeState={mergeState}
+                  mergeError={mergeError}
+                  mergeQueuedMessage={mergeQueuedMessage}
+                  onMerge={(strategy) => { void handleMerge(strategy); }}
+                  onRefreshCi={refreshCi}
+                  ciRefreshing={ciRefreshing}
+                />
+              )}
             </div>
 
-            {onMerge && !pr.mergedAt && (
-              <MergeBar
-                pr={pr}
-                detail={detail}
-                mergeState={mergeState}
-                mergeError={mergeError}
-                mergeQueuedMessage={mergeQueuedMessage}
-                onMerge={(strategy) => { void handleMerge(strategy); }}
-                onRefreshCi={refreshCi}
-                ciRefreshing={ciRefreshing}
-              />
-            )}
             <PrCommentBox
               ref={commentBoxRef}
               pr={pr}

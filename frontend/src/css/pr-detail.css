@@ -362,10 +362,33 @@ button.prc-branches__ref--clickable:hover {
 .prc-timeline__entries > .prc-event-row,
 .prc-timeline__entries > .prc-approved-row,
 .prc-timeline__entries > .prc-review-thread,
-.prc-timeline__entries > .prc-event-group {
+.prc-timeline__entries > .prc-event-group,
+.prc-timeline__entries > .merge-card {
   position: relative;
   z-index: 1;
 }
+
+/* Merge card living inside the timeline — adopts the same gutter
+   geometry as .prc-comment-card so the icon avatar lines up with the
+   comment avatars and the card body lines up with comment bubbles.
+   The rail (.prc-timeline__entries::before at left:80px) extends down
+   through this entry so the timeline visually continues to the merge
+   action. The 30px sibling gap from .prc-timeline__entries already
+   gives 30px above; the comment box below sits with its own margin. */
+.prc-timeline__entries > .merge-card {
+  padding-left: 16px;
+  gap: var(--space-4);
+  margin-bottom: 0;
+}
+.prc-timeline__entries > .merge-card .merge-card__icon {
+  width: 40px;
+  height: 40px;
+  margin-top: 0;
+}
+.prc-timeline__entries > .merge-card .merge-card__rows {
+  font-size: var(--font-size-md);
+}
+
 .prc-date-divider {
   display: flex;
   align-items: center;

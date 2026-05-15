@@ -11,7 +11,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState, type ReactElement } from 'react';
 import type { TaskMessageDto } from '../types';
 
 export type PendingPermission = {
@@ -24,24 +24,59 @@ type Props = {
   messages: TaskMessageDto[];
   pendingPermission: PendingPermission | null;
   onDecide: (callId: string, decision: 'ALLOW' | 'DENY') => void;
+  /** Welcome banner inputs — model + cwd + branch the agent is
+   *  running against, so the scrollback opens with the same context
+   *  Claude Code prints in a real terminal. */
+  banner: {
+    model: string;
+    cwd: string;
+    branch: string | null;
+    sessionStartedAtIso: string;
+  };
+};
+
+/** Tools we color-code per the design legend. Anything else falls
+ *  through to the neutral default. */
+type ToolKind = 'read' | 'write' | 'edit' | 'bash' | 'grep' | 'plan' | 'other';
+
+const TOOL_KIND: Record<string, ToolKind> = {
+  Read: 'read',
+  Write: 'write',
+  Edit: 'edit',
+  MultiEdit: 'edit',
+  NotebookEdit: 'edit',
+  Bash: 'bash',
+  Grep: 'grep',
+  TodoWrite: 'plan',
+  Plan: 'plan',
+};
+
+const TOOL_COLOR: Record<ToolKind, string> = {
+  read: '#79c0ff',
+  write: '#f0883e',
+  edit: '#ffd33d',
+  bash: '#f85149',
+  grep: '#56d364',
+  plan: '#d2a8ff',
+  other: '#8b949e',
 };
 
 /**
- * Terminal-styled conversation pane — mirrors what {@code claude code}
- * draws in a real terminal. Each persisted message becomes one row,
- * prefixed with a single-glyph marker color-coded by role.
+ * GitHub-dark terminal scrollback that mirrors Claude Code's TUI
+ * output. Each persisted {@link TaskMessageDto} renders as one of a
+ * handful of block types — user, thinking, tool call, tool result,
+ * assistant prose, turn divider, error, lifecycle line — colored per
+ * the legend in {@code docs/mockups/design/tasks/SUMMARY.md}.
  *
- * <p>Auto-scrolls to the bottom on new content unless the user has
- * scrolled away — that way an active turn keeps the latest visible
- * but a paused user can still read backlog without being yanked.
+ * <p>Auto-scrolls to bottom on new content unless the user has
+ * scrolled away. The composer + status bar live in the parent
+ * (TaskDetailPage) so they can frame the scroll area without
+ * resizing it.
  */
-export function ConversationPane({ messages, pendingPermission, onDecide }: Props) {
+export function ConversationPane({ messages, pendingPermission, onDecide, banner }: Props) {
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const stickToBottomRef = useRef(true);
 
-  // Track whether the user is parked at the bottom; used to decide if
-  // a new-content arrival should scroll. 8px slop absorbs sub-pixel
-  // jitter from monospace line metrics.
   const onScroll = () => {
     const el = scrollRef.current;
     if (!el) return;
@@ -55,170 +90,271 @@ export function ConversationPane({ messages, pendingPermission, onDecide }: Prop
     if (el) el.scrollTop = el.scrollHeight;
   }, [messages.length, pendingPermission]);
 
+  // Pair tool_call with tool_result so we render the call + its
+  // outcome together, the way the mockup groups them.
+  const rendered = useMemo(() => groupToolCalls(messages), [messages]);
+
   return (
-    <div style={paneStyle} ref={scrollRef} onScroll={onScroll}>
-      {messages.length === 0 && (
+    <div style={scrollStyle} ref={scrollRef} onScroll={onScroll}>
+      <Banner banner={banner} />
+      {rendered.length === 0 && (
         <div style={emptyHintStyle}>
-          No conversation yet. Send a prompt below to kick off the first turn.
+          ⏵ waiting for the first turn — send a prompt below to kick off
         </div>
       )}
-      {messages.map(m => (
-        <MessageRow key={m.id} message={m} />
-      ))}
+      {rendered.map(item => renderItem(item))}
       {pendingPermission && (
-        <PermissionBanner
-          permission={pendingPermission}
-          onDecide={onDecide}
-        />
+        <PermissionBanner permission={pendingPermission} onDecide={onDecide} />
       )}
     </div>
   );
 }
 
-function MessageRow({ message }: { message: TaskMessageDto }) {
-  const parsed = parseContent(message.contentJson);
-  switch (message.type) {
-    case 'session_started':
-      return (
-        <Line glyph="●" color="#9CA3AF">
-          <Muted>session</Muted> {String(parsed.cwd ?? '')} ·{' '}
-          <Muted>{String(parsed.model ?? '')}</Muted>
-        </Line>
-      );
-    case 'text': {
-      const text = String(parsed.text ?? '');
-      const isUser = message.role === 'user';
-      return (
-        <Line glyph={isUser ? '>' : '●'} color={isUser ? '#7C3AED' : '#10B981'}>
-          <Pre>{text}</Pre>
-        </Line>
-      );
-    }
-    case 'thinking': {
-      const summary = String(parsed.summary ?? '');
-      return <ThinkingBlock summary={summary} />;
-    }
-    case 'tool_call': {
-      const toolName = String(parsed.toolName ?? 'tool');
-      const input = formatJsonInline(parsed.input);
-      return (
-        <Line glyph="⏵" color="#2563EB">
-          <strong>{toolName}</strong>{input && <Muted> {input}</Muted>}
-        </Line>
-      );
-    }
-    case 'tool_result': {
-      const isError = parsed.isError === true;
-      const output = formatToolOutput(parsed.output);
-      return (
-        <ToolResultBlock isError={isError} output={output} />
-      );
-    }
-    case 'turn_done': {
-      const cost = formatCost(message.costUsdMilli);
-      const dur = formatDuration(message.durationMs);
-      const tokens = `${formatNum(message.tokensIn ?? 0)} → ${formatNum(message.tokensOut ?? 0)}`;
-      return (
-        <div style={turnDividerStyle}>
-          <span style={turnDividerLabelStyle}>
-            turn done · {dur} · {tokens} tokens · {cost}
-          </span>
-        </div>
-      );
-    }
-    case 'permission_request': {
-      const tool = String(parsed.toolName ?? 'tool');
-      const summary = String(parsed.summary ?? '');
-      return (
-        <Line glyph="?" color="#D97706">
-          permission asked · <strong>{tool}</strong>
-          {summary && <Muted> — {summary}</Muted>}
-        </Line>
-      );
-    }
-    case 'permission_decision': {
-      const decision = String(parsed.decision ?? '');
-      return (
-        <Line glyph="✓" color={decision === 'ALLOW' ? '#10B981' : '#DC2626'}>
-          <Muted>permission {decision.toLowerCase()}</Muted>
-        </Line>
-      );
-    }
-    case 'error': {
-      const text = String(parsed.message ?? 'error');
-      return (
-        <Line glyph="!" color="#DC2626">
-          <Pre>{text}</Pre>
-        </Line>
-      );
-    }
-    case 'session_ended': {
-      const exit = parsed.exitCode ?? 0;
-      const note = parsed.errorMessage;
-      return (
-        <Line glyph="●" color="#6B7280">
-          <Muted>session ended · exit {String(exit)}{note ? ` · ${String(note)}` : ''}</Muted>
-        </Line>
-      );
-    }
-    default:
-      return (
-        <Line glyph="·" color="#9CA3AF">
-          <Muted>{message.role}/{message.type}</Muted>
-        </Line>
-      );
+// ────────────────────────────────────────────────────────────────────
+// Render dispatch
+// ────────────────────────────────────────────────────────────────────
+
+function renderItem(item: RenderItem): ReactElement {
+  if (item.kind === 'lifecycle') {
+    return <LifecycleLine key={item.key} message={item.message} />;
   }
+  if (item.kind === 'user') {
+    return <UserBlock key={item.key} message={item.message} />;
+  }
+  if (item.kind === 'thinking') {
+    return <ThinkingBlock key={item.key} message={item.message} />;
+  }
+  if (item.kind === 'prose') {
+    return <ProseBlock key={item.key} message={item.message} />;
+  }
+  if (item.kind === 'tool') {
+    return <ToolBlock key={item.key} call={item.call} result={item.result} />;
+  }
+  if (item.kind === 'turn') {
+    return <TurnDivider key={item.key} message={item.message} />;
+  }
+  if (item.kind === 'error') {
+    return <ErrorBlock key={item.key} message={item.message} />;
+  }
+  if (item.kind === 'permissionDecision') {
+    return <PermissionDecisionLine key={item.key} message={item.message} />;
+  }
+  return <UnknownLine key={item.key} message={item.message} />;
 }
 
-function ThinkingBlock({ summary }: { summary: string }) {
+// ────────────────────────────────────────────────────────────────────
+// Block components
+// ────────────────────────────────────────────────────────────────────
+
+function Banner({ banner }: { banner: Props['banner'] }) {
+  const startedAt = formatTime(banner.sessionStartedAtIso);
+  return (
+    <div style={bannerStyle}>
+      <span style={bannerNameStyle}>claude-code</span>{' '}
+      <span style={bannerVerStyle}>stream-json</span> · session started {startedAt} ·
+      model <span style={bannerModStyle}>{banner.model || 'unknown'}</span> · cwd{' '}
+      <span style={bannerCwdStyle}>{banner.cwd}</span>
+      {banner.branch && (
+        <> · branch <span style={bannerCwdStyle}>{banner.branch}</span></>
+      )}
+      <br />
+      <span style={dimStyle}>
+        Type your prompt below. Press <Kbd>⌘</Kbd>+<Kbd>↵</Kbd> to send,{' '}
+        <Kbd>Ctrl</Kbd>+<Kbd>C</Kbd> via the Cancel button to interrupt.
+      </span>
+    </div>
+  );
+}
+
+function UserBlock({ message }: { message: TaskMessageDto }) {
+  const text = String(parseContent(message.contentJson).text ?? '');
+  return (
+    <div style={userBlockStyle}>
+      <span style={userGlyphStyle}>⏺ </span>
+      {renderInline(text)}
+    </div>
+  );
+}
+
+function ThinkingBlock({ message }: { message: TaskMessageDto }) {
+  const summary = String(parseContent(message.contentJson).summary ?? '');
   const [expanded, setExpanded] = useState(false);
   if (!summary) {
     return (
-      <Line glyph="…" color="#9CA3AF"><Muted>thinking</Muted></Line>
+      <div style={thinkingStyle}>
+        <span style={thinkingGlyphStyle}>✦ </span>thinking…
+      </div>
     );
   }
+  const truncated = summary.length > 220 && !expanded ? summary.slice(0, 220) + '…' : summary;
   return (
-    <div style={lineStyle}>
-      <span style={{ ...glyphStyle, color: '#9CA3AF' }}>…</span>
-      <div style={{ flex: 1, minWidth: 0 }}>
+    <div style={thinkingStyle}>
+      <span style={thinkingGlyphStyle}>✦ </span>
+      {truncated}
+      {summary.length > 220 && (
         <button
           type="button"
           onClick={() => setExpanded(v => !v)}
           style={collapseBtnStyle}
         >
-          {expanded ? '▾' : '▸'} thinking
+          {expanded ? ' collapse' : ` show ${summary.length - 220} more`}
         </button>
-        {expanded && (
-          <pre style={{ ...preStyle, color: '#6B7280', marginTop: 4 }}>{summary}</pre>
-        )}
-      </div>
+      )}
     </div>
   );
 }
 
-function ToolResultBlock({ isError, output }: { isError: boolean; output: string }) {
-  const [expanded, setExpanded] = useState(false);
-  const truncated = output.length > 600 && !expanded
-    ? output.slice(0, 600) + '\n…'
-    : output;
+function ProseBlock({ message }: { message: TaskMessageDto }) {
+  const text = String(parseContent(message.contentJson).text ?? '');
+  // Split on blank lines so paragraphs render with the spacing the
+  // mockup uses; each paragraph still gets inline highlighting for
+  // backticked code, paths, and line refs.
+  const paragraphs = text.split(/\n\s*\n/);
   return (
-    <div style={lineStyle}>
-      <span style={{ ...glyphStyle, color: isError ? '#DC2626' : '#059669' }}>↳</span>
-      <div style={{ flex: 1, minWidth: 0 }}>
-        <pre style={{
-          ...preStyle,
-          color: isError ? '#991B1B' : '#374151',
-          background: isError ? '#FEF2F2' : '#F9FAFB',
-          padding: '6px 8px',
-          borderRadius: 4,
-          margin: 0,
-        }}>{truncated}</pre>
+    <div style={proseStyle}>
+      {paragraphs.map((p, i) => (
+        <p key={i} style={proseParaStyle}>
+          {renderInline(p)}
+        </p>
+      ))}
+    </div>
+  );
+}
+
+function ToolBlock({ call, result }: { call: TaskMessageDto; result: TaskMessageDto | null }) {
+  const callContent = parseContent(call.contentJson);
+  const toolName = String(callContent.toolName ?? 'tool');
+  const inputJson = callContent.input;
+  const kind = TOOL_KIND[toolName] ?? 'other';
+  const color = TOOL_COLOR[kind];
+  const argSummary = formatToolArgs(toolName, inputJson);
+  const isStreaming = result == null;
+
+  return (
+    <div style={toolBlockStyle}>
+      <div style={{
+        ...toolLineStyle,
+        borderLeftColor: color,
+        background: isStreaming
+          ? 'linear-gradient(180deg, rgba(210,168,255,0.10) 0%, rgba(210,168,255,0.04) 100%)'
+          : 'rgba(255,255,255,0.025)',
+      }}>
+        <span style={toolGlyphStyle}>{isStreaming ? '▶' : '⎿'}</span>
+        <span style={{ ...toolNameStyle, color }}>{toolName}</span>
+        {argSummary && <span style={toolArgsStyle}>({argSummary})</span>}
+        {isStreaming && <span style={cursorStyle} />}
+      </div>
+      {result && <ToolResult result={result} />}
+    </div>
+  );
+}
+
+function ToolResult({ result }: { result: TaskMessageDto }) {
+  const content = parseContent(result.contentJson);
+  const isError = content.isError === true;
+  const output = formatToolOutput(content.output);
+  const [expanded, setExpanded] = useState(false);
+  const truncated = output.length > 600 && !expanded ? output.slice(0, 600) + '\n…' : output;
+
+  // No output → just a one-line "ok" or "error" tag, like the mockup
+  // shows for write/edit successes ("Edited · +2 / −1 lines").
+  if (!output.trim()) {
+    return (
+      <div style={toolResultLineStyle}>
+        <span style={isError ? errorGlyphStyle : okGlyphStyle}>{isError ? '✕' : '✓'}</span>
+        {isError ? 'error' : 'ok'}
+      </div>
+    );
+  }
+  return (
+    <div style={toolResultBlockStyle}>
+      <div style={toolResultHeadStyle}>
+        <span style={isError ? errorGlyphStyle : okGlyphStyle}>{isError ? '✕' : '✓'}</span>
+        {isError ? 'error' : 'output'}
         {output.length > 600 && (
-          <button type="button" onClick={() => setExpanded(v => !v)} style={collapseBtnStyle}>
-            {expanded ? 'collapse' : `show ${output.length - 600} more chars`}
+          <button
+            type="button"
+            onClick={() => setExpanded(v => !v)}
+            style={collapseBtnStyle}
+          >
+            {expanded ? ' collapse' : ` · ${output.length - 600} more chars`}
           </button>
         )}
       </div>
+      <pre style={{
+        ...preStyle,
+        color: isError ? '#ffdcd7' : '#c9d1d9',
+        background: isError ? 'rgba(248,81,73,0.06)' : 'transparent',
+      }}>{truncated}</pre>
+    </div>
+  );
+}
+
+function TurnDivider({ message }: { message: TaskMessageDto }) {
+  const cost = formatCost(message.costUsdMilli);
+  const dur = formatDuration(message.durationMs);
+  const tokensIn = formatNum(message.tokensIn ?? 0);
+  const tokensOut = formatNum(message.tokensOut ?? 0);
+  return (
+    <div style={turnDividerStyle}>
+      <span style={turnDividerLabelStyle}>
+        — turn done · {dur} · {tokensIn} → {tokensOut} tokens · {cost} —
+      </span>
+    </div>
+  );
+}
+
+function ErrorBlock({ message }: { message: TaskMessageDto }) {
+  const text = String(parseContent(message.contentJson).message ?? 'error');
+  return (
+    <div style={errorBlockStyle}>
+      <span style={errorGlyphStyle}>✕ </span>
+      {text}
+    </div>
+  );
+}
+
+function LifecycleLine({ message }: { message: TaskMessageDto }) {
+  const content = parseContent(message.contentJson);
+  if (message.type === 'session_started') {
+    return null; // Banner already covers this.
+  }
+  if (message.type === 'session_ended') {
+    const exit = content.exitCode ?? 0;
+    const note = content.errorMessage;
+    return (
+      <div style={lifecycleStyle}>
+        <span style={dimStyle}>● session ended · exit {String(exit)}{note ? ` · ${String(note)}` : ''}</span>
+      </div>
+    );
+  }
+  if (message.type === 'permission_request') {
+    const tool = String(content.toolName ?? 'tool');
+    const summary = String(content.summary ?? '');
+    return (
+      <div style={lifecycleStyle}>
+        <span style={warnGlyphStyle}>? </span>
+        permission asked · <strong style={boldStyle}>{tool}</strong>
+        {summary && <span style={dimStyle}> — {summary}</span>}
+      </div>
+    );
+  }
+  return <UnknownLine message={message} />;
+}
+
+function PermissionDecisionLine({ message }: { message: TaskMessageDto }) {
+  const decision = String(parseContent(message.contentJson).decision ?? '');
+  return (
+    <div style={lifecycleStyle}>
+      <span style={dimStyle}>· permission {decision.toLowerCase()}</span>
+    </div>
+  );
+}
+
+function UnknownLine({ message }: { message: TaskMessageDto }) {
+  return (
+    <div style={lifecycleStyle}>
+      <span style={dimStyle}>· {message.role}/{message.type}</span>
     </div>
   );
 }
@@ -232,9 +368,10 @@ function PermissionBanner({
 }) {
   return (
     <div style={permissionStyle}>
-      <div>
+      <div style={{ flex: 1, minWidth: 0 }}>
         <div style={permissionTitleStyle}>
-          Permission needed for <strong>{permission.toolName}</strong>
+          <span style={warnGlyphStyle}>⚠ </span>
+          Permission needed for <strong style={boldStyle}>{permission.toolName}</strong>
         </div>
         {permission.summary && (
           <div style={permissionSummaryStyle}>{permission.summary}</div>
@@ -245,48 +382,93 @@ function PermissionBanner({
           type="button"
           onClick={() => onDecide(permission.callId, 'DENY')}
           style={denyBtnStyle}
-        >
-          Deny
-        </button>
+        >Deny</button>
         <button
           type="button"
           onClick={() => onDecide(permission.callId, 'ALLOW')}
           style={allowBtnStyle}
-        >
-          Allow
-        </button>
+        >Allow</button>
       </div>
     </div>
   );
 }
 
-function Line({
-  glyph,
-  color,
-  children,
-}: {
-  glyph: string;
-  color: string;
-  children: React.ReactNode;
-}) {
-  return (
-    <div style={lineStyle}>
-      <span style={{ ...glyphStyle, color }}>{glyph}</span>
-      <div style={{ flex: 1, minWidth: 0, whiteSpace: 'pre-wrap', wordBreak: 'break-word' }}>
-        {children}
-      </div>
-    </div>
-  );
+function Kbd({ children }: { children: React.ReactNode }) {
+  return <span style={kbdStyle}>{children}</span>;
 }
 
-function Pre({ children }: { children: React.ReactNode }) {
-  return (
-    <pre style={preStyle}>{children}</pre>
-  );
-}
+// ────────────────────────────────────────────────────────────────────
+// Helpers
+// ────────────────────────────────────────────────────────────────────
 
-function Muted({ children }: { children: React.ReactNode }) {
-  return <span style={{ color: '#9CA3AF' }}>{children}</span>;
+type RenderItem =
+  | { kind: 'lifecycle'; key: string; message: TaskMessageDto }
+  | { kind: 'user'; key: string; message: TaskMessageDto }
+  | { kind: 'thinking'; key: string; message: TaskMessageDto }
+  | { kind: 'prose'; key: string; message: TaskMessageDto }
+  | { kind: 'tool'; key: string; call: TaskMessageDto; result: TaskMessageDto | null }
+  | { kind: 'turn'; key: string; message: TaskMessageDto }
+  | { kind: 'error'; key: string; message: TaskMessageDto }
+  | { kind: 'permissionDecision'; key: string; message: TaskMessageDto }
+  | { kind: 'unknown'; key: string; message: TaskMessageDto };
+
+function groupToolCalls(messages: TaskMessageDto[]): RenderItem[] {
+  const out: RenderItem[] = [];
+  // Index tool_results by callId so when we hit the matching call we
+  // can pair them. Walk forward; each call consumes its result if
+  // present further along in the stream, otherwise renders as the
+  // streaming "in-flight" variant.
+  const resultByCall = new Map<string, TaskMessageDto>();
+  for (const m of messages) {
+    if (m.type === 'tool_result') {
+      const callId = parseContent(m.contentJson).callId;
+      if (typeof callId === 'string') resultByCall.set(callId, m);
+    }
+  }
+
+  for (const m of messages) {
+    const key = m.id;
+    if (m.type === 'session_started' || m.type === 'session_ended' || m.type === 'permission_request') {
+      out.push({ kind: 'lifecycle', key, message: m });
+      continue;
+    }
+    if (m.type === 'permission_decision') {
+      out.push({ kind: 'permissionDecision', key, message: m });
+      continue;
+    }
+    if (m.type === 'turn_done') {
+      out.push({ kind: 'turn', key, message: m });
+      continue;
+    }
+    if (m.type === 'error') {
+      out.push({ kind: 'error', key, message: m });
+      continue;
+    }
+    if (m.type === 'thinking') {
+      out.push({ kind: 'thinking', key, message: m });
+      continue;
+    }
+    if (m.type === 'tool_call') {
+      const callId = String(parseContent(m.contentJson).callId ?? '');
+      out.push({ kind: 'tool', key, call: m, result: resultByCall.get(callId) ?? null });
+      continue;
+    }
+    if (m.type === 'tool_result') {
+      // Skip — already paired with its call above.
+      continue;
+    }
+    if (m.type === 'text') {
+      if (m.role === 'user') {
+        out.push({ kind: 'user', key, message: m });
+      }
+      else {
+        out.push({ kind: 'prose', key, message: m });
+      }
+      continue;
+    }
+    out.push({ kind: 'unknown', key, message: m });
+  }
+  return out;
 }
 
 function parseContent(json: string): Record<string, unknown> {
@@ -299,15 +481,32 @@ function parseContent(json: string): Record<string, unknown> {
   }
 }
 
-function formatJsonInline(v: unknown): string {
-  if (v == null) return '';
-  try {
-    const s = JSON.stringify(v);
-    if (!s) return '';
-    return s.length > 120 ? s.slice(0, 117) + '…' : s;
-  }
-  catch {
-    return '';
+/** Best-effort one-liner summary of a tool's input. Pulls the most
+ *  identifying field for each common tool; falls back to a truncated
+ *  JSON dump for everything else. */
+function formatToolArgs(toolName: string, input: unknown): string {
+  if (input == null || typeof input !== 'object') return '';
+  const obj = input as Record<string, unknown>;
+  switch (toolName) {
+    case 'Read':
+    case 'Write':
+    case 'Edit':
+    case 'MultiEdit':
+    case 'NotebookEdit': {
+      const path = String(obj.file_path ?? obj.notebook_path ?? '');
+      const offset = obj.offset != null ? `offset: ${obj.offset}` : null;
+      const limit = obj.limit != null ? `limit: ${obj.limit}` : null;
+      const extra = [offset, limit].filter(Boolean).join(', ');
+      return extra ? `${path} · ${extra}` : path;
+    }
+    case 'Bash':
+      return truncate(String(obj.command ?? ''), 140);
+    case 'Grep':
+      return `${obj.pattern ?? ''}${obj.path ? ` · ${obj.path}` : ''}`;
+    default: {
+      const dump = JSON.stringify(obj);
+      return truncate(dump, 140);
+    }
   }
 }
 
@@ -322,15 +521,21 @@ function formatToolOutput(v: unknown): string {
   }
 }
 
+function truncate(s: string, max: number): string {
+  return s.length > max ? s.slice(0, max - 1) + '…' : s;
+}
+
 function formatCost(milli: number | null): string {
-  if (!milli) return '$0';
+  if (!milli) return '$0.00';
   return `$${(milli / 1000).toFixed(milli < 100 ? 4 : 2)}`;
 }
 
 function formatDuration(ms: number | null): string {
   if (!ms) return '0ms';
   if (ms < 1000) return `${ms}ms`;
-  return `${(ms / 1000).toFixed(1)}s`;
+  const s = ms / 1000;
+  if (s < 60) return `${s.toFixed(1)}s`;
+  return `${Math.floor(s / 60)}m ${Math.round(s % 60)}s`;
 }
 
 function formatNum(n: number): string {
@@ -339,77 +544,240 @@ function formatNum(n: number): string {
   return `${(n / 1_000_000).toFixed(1)}M`;
 }
 
-const paneStyle: React.CSSProperties = {
+function formatTime(iso: string): string {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return iso;
+  return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+}
+
+/** Inline markup pass: highlight backticked `code`, *italics*, and
+ *  paths-with-line-refs (e.g. {@code src/foo.ts:42}). Deliberately
+ *  tiny — we don't ship a markdown parser for v1. */
+function renderInline(text: string): React.ReactNode {
+  if (!text) return text;
+  const nodes: React.ReactNode[] = [];
+  const re = /(`[^`\n]+`)|(\*\*[^*\n]+\*\*)|((?:[\w./_-]+):(\d+(?:[-:]\d+)?))/g;
+  let last = 0;
+  let m: RegExpExecArray | null;
+  let key = 0;
+  while ((m = re.exec(text)) !== null) {
+    if (m.index > last) nodes.push(text.slice(last, m.index));
+    if (m[1]) {
+      nodes.push(<code key={key++} style={inlineCodeStyle}>{m[1].slice(1, -1)}</code>);
+    }
+    else if (m[2]) {
+      nodes.push(<strong key={key++} style={boldStyle}>{m[2].slice(2, -2)}</strong>);
+    }
+    else if (m[3]) {
+      const [path, line] = m[3].split(':');
+      nodes.push(
+        <span key={key++} style={pathInlineStyle}>
+          {path}<span style={lineRefStyle}>:{line}</span>
+        </span>);
+    }
+    last = m.index + m[0].length;
+  }
+  if (last < text.length) nodes.push(text.slice(last));
+  return nodes;
+}
+
+// ────────────────────────────────────────────────────────────────────
+// Styles
+// ────────────────────────────────────────────────────────────────────
+
+const monoFont = '"SF Mono", "JetBrains Mono", Menlo, Consolas, monospace';
+
+const scrollStyle: React.CSSProperties = {
   flex: 1,
   minHeight: 0,
   overflowY: 'auto',
-  padding: 16,
-  background: '#0F172A',
-  color: '#E5E7EB',
-  borderRadius: 8,
-  fontFamily: 'ui-monospace, SFMono-Regular, "SF Mono", Menlo, Consolas, monospace',
+  padding: '16px 22px 4px',
+  background: '#0d1117',
+  color: '#c9d1d9',
+  fontFamily: monoFont,
   fontSize: 13,
-  lineHeight: 1.5,
-  display: 'flex',
-  flexDirection: 'column',
-  gap: 4,
+  lineHeight: 1.65,
 };
-const emptyHintStyle: React.CSSProperties = { color: '#6B7280', textAlign: 'center', padding: '40px 0' };
-const lineStyle: React.CSSProperties = {
-  display: 'flex',
-  gap: 8,
-  alignItems: 'flex-start',
+const emptyHintStyle: React.CSSProperties = {
+  color: '#6e7681', textAlign: 'center', padding: '40px 0',
 };
-const glyphStyle: React.CSSProperties = {
-  width: 14,
-  flexShrink: 0,
-  textAlign: 'center',
-  fontWeight: 700,
+const bannerStyle: React.CSSProperties = {
+  borderBottom: '1px dashed #21262d',
+  paddingBottom: 10,
+  marginBottom: 12,
+  fontSize: 11.5,
+  color: '#6e7681',
+  lineHeight: 1.7,
 };
+const bannerNameStyle: React.CSSProperties = { color: '#f0f6fc', fontWeight: 700 };
+const bannerVerStyle: React.CSSProperties = { color: '#d2a8ff' };
+const bannerModStyle: React.CSSProperties = { color: '#ffa657' };
+const bannerCwdStyle: React.CSSProperties = { color: '#79c0ff' };
+const dimStyle: React.CSSProperties = { color: '#6e7681' };
+const boldStyle: React.CSSProperties = { color: '#f0f6fc', fontWeight: 700 };
+const kbdStyle: React.CSSProperties = {
+  background: '#1c2128', border: '1px solid #30363d',
+  padding: '0 5px', borderRadius: 3, color: '#c9d1d9',
+  fontSize: 9.5, margin: '0 1px',
+};
+
+const userBlockStyle: React.CSSProperties = {
+  background: 'rgba(183,148,244,0.06)',
+  borderLeft: '3px solid #b794f4',
+  borderRadius: '0 6px 6px 0',
+  padding: '8px 14px',
+  margin: '12px 0',
+  color: '#e6edf3',
+};
+const userGlyphStyle: React.CSSProperties = {
+  color: '#b794f4', fontWeight: 700, marginRight: 2,
+};
+
+const thinkingStyle: React.CSSProperties = {
+  color: '#6e7681',
+  fontStyle: 'italic',
+  padding: '4px 0',
+  margin: '6px 0',
+  fontSize: 12.5,
+};
+const thinkingGlyphStyle: React.CSSProperties = {
+  color: '#d2a8ff', fontStyle: 'normal', marginRight: 2,
+};
+
+const proseStyle: React.CSSProperties = {
+  color: '#c9d1d9', padding: '6px 0', margin: '10px 0',
+};
+const proseParaStyle: React.CSSProperties = {
+  margin: '0 0 10px', lineHeight: 1.7,
+};
+
+const toolBlockStyle: React.CSSProperties = { margin: '10px 0' };
+const toolLineStyle: React.CSSProperties = {
+  display: 'flex', alignItems: 'baseline', gap: 6,
+  padding: '5px 10px',
+  borderLeft: '3px solid transparent',
+  borderRadius: '0 4px 4px 0',
+};
+const toolGlyphStyle: React.CSSProperties = { color: '#6e7681', flexShrink: 0 };
+const toolNameStyle: React.CSSProperties = {
+  fontWeight: 700, textTransform: 'lowercase', fontSize: 12.5,
+};
+const toolArgsStyle: React.CSSProperties = {
+  color: '#56d364',
+  overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+  flex: 1, minWidth: 0,
+};
+const toolResultLineStyle: React.CSSProperties = {
+  color: '#8b949e',
+  padding: '3px 10px 5px 32px',
+  fontSize: 12.5,
+  display: 'flex', alignItems: 'center', gap: 6,
+};
+const toolResultBlockStyle: React.CSSProperties = {
+  margin: '4px 10px 6px 32px',
+  background: '#161b22',
+  border: '1px solid #21262d',
+  borderRadius: 6,
+  overflow: 'hidden',
+  fontSize: 11.5,
+};
+const toolResultHeadStyle: React.CSSProperties = {
+  padding: '5px 12px',
+  background: '#1c2128',
+  borderBottom: '1px solid #21262d',
+  display: 'flex', alignItems: 'center', gap: 6,
+  color: '#8b949e', fontSize: 11,
+};
+const okGlyphStyle: React.CSSProperties = { color: '#56d364', fontWeight: 700, marginRight: 4 };
+const errorGlyphStyle: React.CSSProperties = { color: '#f85149', fontWeight: 700, marginRight: 4 };
+const warnGlyphStyle: React.CSSProperties = { color: '#d29922', fontWeight: 700, marginRight: 4 };
+
 const preStyle: React.CSSProperties = {
   margin: 0,
-  fontFamily: 'inherit',
-  fontSize: 'inherit',
-  lineHeight: 'inherit',
+  padding: '8px 12px',
+  fontFamily: monoFont,
+  fontSize: 11.5,
+  lineHeight: 1.55,
   whiteSpace: 'pre-wrap',
   wordBreak: 'break-word',
-  color: '#F3F4F6',
 };
+const inlineCodeStyle: React.CSSProperties = {
+  color: '#f0883e',
+  background: 'rgba(240,136,62,0.10)',
+  border: '1px solid rgba(240,136,62,0.18)',
+  padding: '1px 5px',
+  borderRadius: 3,
+  fontSize: 12,
+  fontFamily: monoFont,
+};
+const pathInlineStyle: React.CSSProperties = {
+  color: '#56d364',
+  background: 'rgba(86,211,100,0.08)',
+  border: '1px solid rgba(86,211,100,0.18)',
+  padding: '1px 5px',
+  borderRadius: 3,
+  fontSize: 12,
+  fontFamily: monoFont,
+};
+const lineRefStyle: React.CSSProperties = { color: '#d2a8ff', fontWeight: 600 };
+
 const collapseBtnStyle: React.CSSProperties = {
   background: 'transparent',
   border: 'none',
-  color: '#9CA3AF',
-  fontFamily: 'inherit',
-  fontSize: 12,
+  color: '#6e7681',
+  fontFamily: monoFont,
+  fontSize: 11,
   cursor: 'pointer',
   padding: 0,
 };
+const cursorStyle: React.CSSProperties = {
+  display: 'inline-block',
+  width: 8,
+  height: 14,
+  background: '#f0f6fc',
+  marginLeft: 2,
+  verticalAlign: 'text-bottom',
+  animation: 'bytequay-blink 1s steps(2) infinite',
+};
+
 const turnDividerStyle: React.CSSProperties = {
-  display: 'flex',
-  alignItems: 'center',
-  gap: 8,
-  padding: '8px 0',
-  borderTop: '1px dashed #334155',
-  marginTop: 6,
+  display: 'flex', alignItems: 'center', justifyContent: 'center',
+  padding: '8px 0', margin: '14px -8px',
+  borderTop: '1px dashed #21262d',
 };
 const turnDividerLabelStyle: React.CSSProperties = {
-  fontSize: 11,
-  color: '#94A3B8',
-  fontStyle: 'italic',
+  fontSize: 11, color: '#94A3B8', fontStyle: 'italic',
+  background: '#0d1117', padding: '0 12px', marginTop: -16,
 };
+
+const errorBlockStyle: React.CSSProperties = {
+  color: '#f85149',
+  background: 'rgba(248,81,73,0.06)',
+  border: '1px solid rgba(248,81,73,0.18)',
+  borderRadius: 4,
+  padding: '6px 10px',
+  margin: '8px 0',
+};
+
+const lifecycleStyle: React.CSSProperties = {
+  color: '#8b949e', fontSize: 12, padding: '2px 0',
+};
+
 const permissionStyle: React.CSSProperties = {
   display: 'flex',
   justifyContent: 'space-between',
   alignItems: 'center',
   gap: 16,
-  marginTop: 8,
+  marginTop: 12,
   padding: '12px 14px',
   background: '#7C2D12',
   border: '1px solid #C2410C',
   borderRadius: 6,
 };
 const permissionTitleStyle: React.CSSProperties = { color: '#FED7AA', fontSize: 13 };
-const permissionSummaryStyle: React.CSSProperties = { color: '#FDBA74', fontSize: 12, marginTop: 2 };
+const permissionSummaryStyle: React.CSSProperties = {
+  color: '#FDBA74', fontSize: 12, marginTop: 2,
+};
 const allowBtnStyle: React.CSSProperties = {
   padding: '6px 14px',
   background: '#10B981',

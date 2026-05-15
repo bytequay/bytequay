@@ -748,7 +748,10 @@ const DARK_TERM = {
   borderSubtle: '#1c2228',
 
   text: '#adbac7',             // GitHub Dark Dimmed default fg
-  textBright: '#cdd9e5',       // softer than #f0f6fc, still readable
+  textBright: '#b8c4d0',       // intentionally barely-brighter than
+                               // text; emphasis comes from font-weight
+                               // rather than luminance, so bold values
+                               // never read as fluorescent white.
   textMuted: '#768390',
   textDim: '#636e7b',
 
@@ -773,7 +776,9 @@ const DARK_TERM = {
   pathBg: 'rgba(87,171,90,0.08)',
   pathBorder: 'rgba(87,171,90,0.20)',
 
-  cursor: '#cdd9e5',           // matches softened bright-text
+  cursor: '#adbac7',           // same as default text — still reads
+                               // as a blinking solid block, but
+                               // doesn't pop as a white square
   kbdBg: '#1c2128',
   kbdBorder: '#30363d',
 

@@ -328,11 +328,22 @@ function loadMergeStrategy(): MergeStrategy {
 }
 
 /** Small circular status glyph used on each merge-card row — mirrors
- *  github.com's green check / red x / yellow dot at the start of every
- *  blocker row. The glyph is purely decorative; row-level title + desc
- *  carry the actual signal. */
+ *  github.com's green check / red x / yellow spinner at the start of
+ *  every blocker row. The 'pending' state renders as an animated
+ *  arc-spinner (not a static glyph) so a running CI reads as actively
+ *  running, not parked. */
 function StatusGlyph({ state }: { state: 'approved' | 'pending' | 'changes' }) {
-  const glyph = state === 'approved' ? '✓' : state === 'changes' ? '✕' : '○';
+  if (state === 'pending') {
+    return (
+      <span
+        className="merge-card__glyph merge-card__glyph--pending"
+        aria-hidden="true"
+        role="img"
+        aria-label="Running"
+      />
+    );
+  }
+  const glyph = state === 'approved' ? '✓' : '✕';
   return (
     <span className={`merge-card__glyph merge-card__glyph--${state}`} aria-hidden="true">
       {glyph}
@@ -572,7 +583,7 @@ function MergeBar({ pr, detail, mergeState, mergeError, mergeQueuedMessage, onMe
           aria-expanded={failingChecks.length > 0 ? failuresOpen : undefined}
           disabled={failingChecks.length === 0}
         >
-          <StatusGlyph state={ciState === 'fail' ? 'changes' : ciState === 'pass' ? 'approved' : 'pending'} />
+          <StatusGlyph state={ciState === 'fail' ? 'changes' : ciState === 'pending' ? 'pending' : 'approved'} />
           <div className="merge-card__row-text">
             <div className="merge-card__row-title">{ciTitle}</div>
             <div className="merge-card__row-desc">{ciDesc}</div>

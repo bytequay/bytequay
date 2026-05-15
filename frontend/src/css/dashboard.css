@@ -1392,10 +1392,16 @@
 }
 .merge-card__glyph--approved { background: #1a7f37; }
 .merge-card__glyph--changes { background: #cf222e; }
+/* Running spinner — yellow ring with one transparent quadrant that
+   rotates continuously. Reads as "actively in progress" instead of
+   the static hollow circle we used before. Same colour github.com
+   uses for in-progress checks. */
 .merge-card__glyph--pending {
   background: transparent;
-  border: 1.5px solid var(--text-3);
-  color: var(--text-3);
+  border: 2px solid #d4a017;
+  border-top-color: transparent;
+  animation: merge-card-spin 0.9s linear infinite;
+  /* No glyph inside — the spinning border is the indicator. */
 }
 
 /* Right-aligned approver avatar strip on the review row. */

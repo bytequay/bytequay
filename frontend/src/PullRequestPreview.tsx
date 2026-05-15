@@ -327,6 +327,19 @@ function loadMergeStrategy(): MergeStrategy {
   return stored === 'squash' || stored === 'merge' ? stored : 'rebase';
 }
 
+/** Small circular status glyph used on each merge-card row — mirrors
+ *  github.com's green check / red x / yellow dot at the start of every
+ *  blocker row. The glyph is purely decorative; row-level title + desc
+ *  carry the actual signal. */
+function StatusGlyph({ state }: { state: 'approved' | 'pending' | 'changes' }) {
+  const glyph = state === 'approved' ? '✓' : state === 'changes' ? '✕' : '○';
+  return (
+    <span className={`merge-card__glyph merge-card__glyph--${state}`} aria-hidden="true">
+      {glyph}
+    </span>
+  );
+}
+
 type MergeBarProps = {
   pr: PullRequestDto;
   detail: PullRequestDetailDto;
@@ -451,205 +464,277 @@ function MergeBar({ pr, detail, mergeState, mergeError, mergeQueuedMessage, onMe
       && ciPassing
       && detail.changesRequestedCount === 0
       && approverLogins.length > 0;
+  // ── Status-row content (mirrors github.com's merge card) ──────────────
+  const totalChecks = detail.checkRuns.length;
+  const passingChecks = totalChecks - failingChecks.length;
+  // Review-row copy: combines approvals, requested changes, and pending
+  // requests into a single "what's the human signal here" line.
+  const pendingRequestCount = (detail.recentActivity ?? [])
+    .filter(a => a.eventType === 'review_requested').length
+    - (detail.recentActivity ?? []).filter(a => a.eventType === 'reviewed').length;
+  const pendingReviews = Math.max(0, pendingRequestCount);
+  const reviewState = detail.changesRequestedCount > 0
+    ? 'changes' as const
+    : approverLogins.length > 0
+      ? 'approved' as const
+      : 'pending' as const;
+  const reviewTitle = reviewState === 'approved'
+    ? `Approved by ${approverLogins.length} reviewer${approverLogins.length === 1 ? '' : 's'}`
+    : reviewState === 'changes'
+      ? `${detail.changesRequestedCount} change${detail.changesRequestedCount === 1 ? '' : 's'} requested`
+      : 'Review requested';
+  const reviewDesc = reviewState === 'approved'
+    ? `Approved by ${approverLogins.join(', ')}.`
+    : reviewState === 'changes'
+      ? 'Address the requested changes, then re-request review.'
+      : 'A review has been requested on this pull request.';
+
+  const ciState = failingChecks.length > 0
+    ? 'fail' as const
+    : detail.ciStatus === 'PASSING'
+      ? 'pass' as const
+      : ciPending
+        ? 'pending' as const
+        : 'none' as const;
+  const ciTitle = ciState === 'fail'
+    ? 'Some checks were not successful'
+    : ciState === 'pass'
+      ? 'All checks have passed'
+      : ciState === 'pending'
+        ? 'Checks in progress'
+        : 'No checks reported';
+  const ciDesc = ciState === 'fail'
+    ? `${failingChecks.length} failing, ${passingChecks} successful check${passingChecks === 1 ? '' : 's'}`
+    : ciState === 'pass'
+      ? `${totalChecks} successful check${totalChecks === 1 ? '' : 's'}`
+      : ciState === 'pending'
+        ? `${totalChecks} check${totalChecks === 1 ? '' : 's'} running`
+        : 'No CI configured for this branch.';
+
+  const conflictRow = hasConflict
+    ? {
+      state: 'fail' as const,
+      title: `Conflict with ${detail.baseRef ?? 'base branch'}`,
+      desc: 'Resolve the conflicts on github.com before merging.',
+    }
+    : {
+      state: 'pass' as const,
+      title: 'No conflicts with base branch',
+      desc: 'Merging can be performed automatically.',
+    };
+
   return (
-    <div className={`merge-bar${enabled ? ' merge-bar--ready' : ' merge-bar--blocked'}`}>
-      <div className="merge-bar__row">
-        <div className="merge-bar__split">
-          <button
-            type="button"
-            className="merge-bar__btn merge-bar__btn--split-main"
-            onClick={() => setConfirmOpen(true)}
-            disabled={!enabled}
-            title={enabled
-              ? (requiresMergeQueue
-                ? 'Add this PR to the merge queue'
-                : `${MERGE_STRATEGY_LABEL[strategy]} this PR on GitHub`)
-              : (disabledReason ?? 'Not ready to merge')}
-          >
-            {mergeState === 'running'
-              ? (requiresMergeQueue ? 'Enqueuing…' : 'Merging…')
-              : (requiresMergeQueue ? 'Add to merge queue' : MERGE_STRATEGY_LABEL[strategy])}
-          </button>
-          {/* Hide the strategy picker in queue mode — GitHub's merge
-              queue chooses the strategy server-side from branch
-              protection, so a per-merge override is meaningless. */}
-          {!requiresMergeQueue && (
-            <button
-              type="button"
-              className="merge-bar__btn merge-bar__btn--split-caret"
-              onClick={() => setStrategyMenuOpen(v => !v)}
-              disabled={!enabled}
-              aria-haspopup="menu"
-              aria-expanded={strategyMenuOpen}
-              title="Pick a different merge strategy"
-            >
-              <span aria-hidden="true">▾</span>
-            </button>
-          )}
-          {strategyMenuOpen && (
-            <>
-              {/* Click-away catcher so clicking elsewhere on the page
-                  closes the menu without each card needing its own
-                  document listener. Sits behind the menu (z-index). */}
-              <button
-                type="button"
-                className="merge-bar__strategy-backdrop"
-                aria-hidden="true"
-                tabIndex={-1}
-                onClick={() => setStrategyMenuOpen(false)}
-              />
-              <div className="merge-bar__strategy-menu" role="menu">
-                {(['rebase', 'squash', 'merge'] as MergeStrategy[]).map(opt => (
-                  <button
-                    key={opt}
-                    type="button"
-                    role="menuitemradio"
-                    aria-checked={strategy === opt}
-                    className={`merge-bar__strategy-option${strategy === opt ? ' merge-bar__strategy-option--active' : ''}`}
-                    onClick={() => { setStrategy(opt); setStrategyMenuOpen(false); }}
-                  >
-                    <span className="merge-bar__strategy-option-label">{MERGE_STRATEGY_LABEL[opt]}</span>
-                    <span className="merge-bar__strategy-option-hint">{MERGE_STRATEGY_HINT[opt]}</span>
-                  </button>
-                ))}
-              </div>
-            </>
+    <div className={`merge-card${enabled ? ' merge-card--ready' : ' merge-card--blocked'}`}>
+      <div className="merge-card__icon" aria-hidden="true">
+        <svg viewBox="0 0 16 16" width="16" height="16" fill="currentColor">
+          <path d="M5 3.25a.75.75 0 1 1-1.5 0 .75.75 0 0 1 1.5 0Zm0 9.5a.75.75 0 1 1-1.5 0 .75.75 0 0 1 1.5 0Zm8.25-6.25a.75.75 0 1 1 0-1.5.75.75 0 0 1 0 1.5Z" />
+          <path fillRule="evenodd" d="M4.25 2.5a.75.75 0 0 0-.75.75v9.5a.75.75 0 0 0 1.5 0V8.122c.71.387 1.55.628 2.5.628 1.973 0 3.69-.69 4.84-1.677a.75.75 0 1 0-.98-1.14C10.43 6.71 9.083 7.25 7.5 7.25c-.992 0-1.85-.215-2.5-.553V3.25a.75.75 0 0 0-.75-.75Z" />
+        </svg>
+      </div>
+      <div className="merge-card__rows">
+        {/* Row 1 — Review status */}
+        <div className="merge-card__row">
+          <StatusGlyph state={reviewState} />
+          <div className="merge-card__row-text">
+            <div className="merge-card__row-title">{reviewTitle}</div>
+            <div className="merge-card__row-desc">{reviewDesc}</div>
+          </div>
+          {approverLogins.length > 0 && (
+            <span className="merge-card__approvers" title={`Approved by ${approverLogins.join(', ')}`}>
+              {approverLogins.slice(0, 4).map((login) => (
+                <a
+                  key={login}
+                  href={`https://github.com/${login}`}
+                  target="_blank"
+                  rel="noreferrer"
+                  className="merge-card__approver"
+                  title={`${login} approved`}
+                >
+                  <Avatar login={login} size={20} />
+                </a>
+              ))}
+            </span>
           )}
         </div>
-        {failingChecks.length > 0 ? (
-          <button
-            type="button"
-            className={`merge-bar__ci-fail${failuresOpen ? ' merge-bar__ci-fail--open' : ''}`}
-            onClick={() => setFailuresOpen(v => !v)}
-            aria-expanded={failuresOpen}
-            title={failuresOpen
-              ? 'Hide failing-check details'
-              : `Show why ${failingChecks.length} check${failingChecks.length === 1 ? '' : 's'} failed`}
-          >
-            <span aria-hidden="true">✗</span>
-            <span>CI failing{failingChecks.length > 1 ? ` (${failingChecks.length})` : ''}</span>
-            <span className="merge-bar__ci-fail-chevron" aria-hidden="true">{failuresOpen ? '▾' : '▸'}</span>
-          </button>
-        ) : detail.ciStatus === 'PASSING' ? (
-          <span
-            className="merge-bar__ci-pass"
-            title={`All ${detail.checkRuns.length} check${detail.checkRuns.length === 1 ? '' : 's'} passing`}
-          >
-            <span aria-hidden="true">✓</span>
-            <span>CI passed</span>
+        {/* Row 1b — pending reviews sub-row */}
+        {pendingReviews > 0 && (
+          <div className="merge-card__row merge-card__row--sub">
+            <span className="merge-card__sub-icon" aria-hidden="true">👤</span>
+            <span>{pendingReviews} pending review{pendingReviews === 1 ? '' : 's'}</span>
+          </div>
+        )}
+
+        {/* Row 2 — CI checks */}
+        <button
+          type="button"
+          className={`merge-card__row merge-card__row--clickable${failuresOpen ? ' merge-card__row--open' : ''}`}
+          onClick={() => failingChecks.length > 0 && setFailuresOpen(v => !v)}
+          aria-expanded={failingChecks.length > 0 ? failuresOpen : undefined}
+          disabled={failingChecks.length === 0}
+        >
+          <StatusGlyph state={ciState === 'fail' ? 'changes' : ciState === 'pass' ? 'approved' : 'pending'} />
+          <div className="merge-card__row-text">
+            <div className="merge-card__row-title">{ciTitle}</div>
+            <div className="merge-card__row-desc">{ciDesc}</div>
+          </div>
+          <span className="merge-card__row-actions">
+            <button
+              type="button"
+              className="merge-card__refresh"
+              onClick={(e) => { e.stopPropagation(); void onRefreshCi(); }}
+              disabled={ciRefreshing}
+              title="Force-refresh CI status from GitHub"
+              aria-label="Refresh CI status"
+            >
+              <span className={ciRefreshing ? 'merge-card__refresh-icon merge-card__refresh-icon--spin' : 'merge-card__refresh-icon'} aria-hidden="true">↻</span>
+            </button>
+            {failingChecks.length > 0 && (
+              <span className="merge-card__row-chevron" aria-hidden="true">{failuresOpen ? '▴' : '▾'}</span>
+            )}
           </span>
-        ) : null}
-        {hasConflict && (() => {
-          // File-conflict pill — sibling to the CI passed/failing one
-          // so the row reads as a list of merge blockers. When the
-          // local-clone probe succeeded we show "Conflict (N files)"
-          // and expand to the file list on click; otherwise we fall
-          // back to a plain link out to github.com's conflict editor.
-          const haveList = conflictPaths?.available === true && conflictPaths.paths.length > 0;
-          if (haveList) {
-            return (
-              <button
-                type="button"
-                className={`merge-bar__conflict merge-bar__conflict--expandable${conflictExpanded ? ' merge-bar__conflict--open' : ''}`}
-                onClick={() => setConflictExpanded(v => !v)}
-                aria-expanded={conflictExpanded}
-                title={conflictExpanded ? 'Hide conflicting files' : 'Show conflicting files'}
-              >
-                <span aria-hidden="true">⚠</span>
-                <span>Conflict ({conflictPaths.paths.length} file{conflictPaths.paths.length === 1 ? '' : 's'})</span>
-                <span className="merge-bar__conflict-chevron" aria-hidden="true">{conflictExpanded ? '▾' : '▸'}</span>
-              </button>
-            );
-          }
-          return (
+        </button>
+
+        {/* Row 3 — Conflict status */}
+        <div
+          className={`merge-card__row${conflictExpanded ? ' merge-card__row--open' : ''}`}
+        >
+          <StatusGlyph state={conflictRow.state === 'fail' ? 'changes' : 'approved'} />
+          <div className="merge-card__row-text">
+            <div className="merge-card__row-title">{conflictRow.title}</div>
+            <div className="merge-card__row-desc">{conflictRow.desc}</div>
+          </div>
+          {hasConflict && (
             <a
-              className="merge-bar__conflict"
+              className="merge-card__row-action-btn"
               href={`${pr.htmlUrl}/conflicts`}
               target="_blank"
               rel="noreferrer"
-              title="Open the conflict editor on github.com"
             >
-              <span aria-hidden="true">⚠</span>
-              <span>Conflict with {detail.baseRef ?? 'base'}</span>
+              Resolve on GitHub
             </a>
-          );
-        })()}
-        <button
-          type="button"
-          className="merge-bar__ci-refresh"
-          onClick={() => { void onRefreshCi(); }}
-          disabled={ciRefreshing}
-          title="Force-refresh CI status from GitHub"
-          aria-label="Refresh CI status"
-        >
-          <span className={`merge-bar__ci-refresh-icon${ciRefreshing ? ' merge-bar__ci-refresh-icon--spin' : ''}`} aria-hidden="true">↻</span>
-        </button>
-        <div className="merge-bar__summary">
-          <div className="merge-bar__approvals">
-            {approverLogins.length === 0 ? (
-              <span className="merge-bar__approvals-empty">No approvals yet</span>
-            ) : (
-              <span className="merge-bar__approver-strip" title={`Approved by ${approverLogins.join(', ')}`}>
-                {approverLogins.map((login) => (
-                  <a
-                    key={login}
-                    href={`https://github.com/${login}`}
-                    target="_blank"
-                    rel="noreferrer"
-                    className="merge-bar__approver"
-                    title={`${login} approved`}
-                  >
-                    <Avatar login={login} size={20} />
-                  </a>
-                ))}
-                <span className="merge-bar__approvals-label">
-                  approved
-                </span>
-              </span>
+          )}
+          {hasConflict && conflictPaths?.available && conflictPaths.paths.length > 0 && (
+            <button
+              type="button"
+              className="merge-card__row-chevron-btn"
+              onClick={() => setConflictExpanded(v => !v)}
+              aria-expanded={conflictExpanded}
+              title={conflictExpanded ? 'Hide conflicting files' : 'Show conflicting files'}
+            >
+              <span aria-hidden="true">{conflictExpanded ? '▴' : '▾'}</span>
+            </button>
+          )}
+        </div>
+
+        {/* Footer — merge button + command-line link */}
+        <div className="merge-card__footer">
+          <div className="merge-card__split">
+            <button
+              type="button"
+              className="merge-card__btn merge-card__btn--split-main"
+              onClick={() => setConfirmOpen(true)}
+              disabled={!enabled}
+              title={enabled
+                ? (requiresMergeQueue
+                  ? 'Add this PR to the merge queue'
+                  : `${MERGE_STRATEGY_LABEL[strategy]} this PR on GitHub`)
+                : (disabledReason ?? 'Not ready to merge')}
+            >
+              {mergeState === 'running'
+                ? (requiresMergeQueue ? 'Enqueuing…' : 'Merging…')
+                : (requiresMergeQueue ? 'Add to merge queue' : MERGE_STRATEGY_LABEL[strategy])}
+            </button>
+            {!requiresMergeQueue && (
+              <button
+                type="button"
+                className="merge-card__btn merge-card__btn--split-caret"
+                onClick={() => setStrategyMenuOpen(v => !v)}
+                disabled={!enabled}
+                aria-haspopup="menu"
+                aria-expanded={strategyMenuOpen}
+                title="Pick a different merge strategy"
+              >
+                <span aria-hidden="true">▾</span>
+              </button>
             )}
-            {changesSummary && (
-              <span className="merge-bar__changes">· {changesSummary}</span>
+            {strategyMenuOpen && (
+              <>
+                <button
+                  type="button"
+                  className="merge-card__strategy-backdrop"
+                  aria-hidden="true"
+                  tabIndex={-1}
+                  onClick={() => setStrategyMenuOpen(false)}
+                />
+                <div className="merge-card__strategy-menu" role="menu">
+                  {(['rebase', 'squash', 'merge'] as MergeStrategy[]).map(opt => (
+                    <button
+                      key={opt}
+                      type="button"
+                      role="menuitemradio"
+                      aria-checked={strategy === opt}
+                      className={`merge-card__strategy-option${strategy === opt ? ' merge-card__strategy-option--active' : ''}`}
+                      onClick={() => { setStrategy(opt); setStrategyMenuOpen(false); }}
+                    >
+                      <span className="merge-card__strategy-option-label">{MERGE_STRATEGY_LABEL[opt]}</span>
+                      <span className="merge-card__strategy-option-hint">{MERGE_STRATEGY_HINT[opt]}</span>
+                    </button>
+                  ))}
+                </div>
+              </>
             )}
           </div>
-          {disabledReason && <span className="merge-bar__reason">{disabledReason}</span>}
-          {mergeError && <span className="merge-bar__error" title={mergeError}>{mergeError}</span>}
+          <span className="merge-card__cmdline">
+            You can also merge this with the command line.{' '}
+            <a href={`${pr.htmlUrl}#cmdline-instructions`} target="_blank" rel="noreferrer">
+              View command line instructions.
+            </a>
+          </span>
+          {disabledReason && !hasConflict && (
+            <span className="merge-card__reason" title={disabledReason}>{disabledReason}</span>
+          )}
+          {mergeError && (
+            <span className="merge-card__error" title={mergeError}>{mergeError}</span>
+          )}
           {mergeState === 'queued' && mergeQueuedMessage && (
-            <span className="merge-bar__queue-notice" title={mergeQueuedMessage}>
+            <span className="merge-card__queue-notice" title={mergeQueuedMessage}>
               ✓ {mergeQueuedMessage}
             </span>
           )}
         </div>
-      </div>
-      {failuresOpen && failingChecks.length > 0 && (
-        <ul className="merge-bar__failures">
-          {failingChecks.map((c, i) => (
-            <FailingCheckCard key={`${c.name ?? 'unnamed'}-${i}`} check={c} repo={pr.repo} />
-          ))}
-        </ul>
-      )}
-      {conflictExpanded && conflictPaths?.available && conflictPaths.paths.length > 0 && (
-        <div className="merge-bar__conflict-files">
-          <div className="merge-bar__conflict-files-head">
-            {conflictPaths.paths.length} file{conflictPaths.paths.length === 1 ? '' : 's'} in conflict with{' '}
-            <code>{detail.baseRef}</code>
-            <a
-              className="merge-bar__conflict-files-link"
-              href={`${pr.htmlUrl}/conflicts`}
-              target="_blank"
-              rel="noreferrer"
-            >
-              Resolve on GitHub →
-            </a>
-          </div>
-          <ul className="merge-bar__conflict-files-list">
-            {conflictPaths.paths.map((p) => (
-              <li key={p}>
-                <code>{p}</code>
-              </li>
+
+        {/* Expanded sub-views — same content as before, slotted below the rows */}
+        {failuresOpen && failingChecks.length > 0 && (
+          <ul className="merge-bar__failures">
+            {failingChecks.map((c, i) => (
+              <FailingCheckCard key={`${c.name ?? 'unnamed'}-${i}`} check={c} repo={pr.repo} />
             ))}
           </ul>
-        </div>
-      )}
+        )}
+        {conflictExpanded && conflictPaths?.available && conflictPaths.paths.length > 0 && (
+          <div className="merge-bar__conflict-files">
+            <div className="merge-bar__conflict-files-head">
+              {conflictPaths.paths.length} file{conflictPaths.paths.length === 1 ? '' : 's'} in conflict with{' '}
+              <code>{detail.baseRef}</code>
+              <a
+                className="merge-bar__conflict-files-link"
+                href={`${pr.htmlUrl}/conflicts`}
+                target="_blank"
+                rel="noreferrer"
+              >
+                Resolve on GitHub →
+              </a>
+            </div>
+            <ul className="merge-bar__conflict-files-list">
+              {conflictPaths.paths.map((p) => (
+                <li key={p}>
+                  <code>{p}</code>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
+      </div>
       {confirmOpen && (
         <div
           className="modal-overlay"

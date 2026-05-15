@@ -1207,6 +1207,325 @@
   to { transform: rotate(360deg); }
 }
 
+/* ── Merge card (GitHub-style stacked rows) ────────────────────────────
+   Replaces the single horizontal merge-bar row with a card carrying
+   stacked status rows, mirroring github.com's PR merge area
+   (docs/mockups/v2/detail/state-window.png). The branch-icon avatar
+   floats to the left of the card; each row inside has its own status
+   glyph + title + desc; the bottom row is the merge action. */
+.merge-card {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-3);
+  margin-bottom: var(--space-3);
+}
+.merge-card__icon {
+  flex: 0 0 auto;
+  width: 38px;
+  height: 38px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border-radius: var(--radius-md);
+  background: var(--text-2);
+  color: var(--bg-card);
+  margin-top: 6px;
+}
+.merge-card__rows {
+  flex: 1 1 0;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--bg-card);
+  overflow: hidden;
+}
+.merge-card--ready .merge-card__icon {
+  background: #1a7f37;
+}
+.merge-card--blocked .merge-card__icon {
+  background: var(--text-3);
+}
+
+.merge-card__row {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+  padding: var(--space-3) var(--space-3);
+  font-size: var(--font-size-sm);
+  color: var(--text-1);
+  border-bottom: 1px solid var(--border);
+  text-align: left;
+}
+.merge-card__row:last-child { border-bottom: 0; }
+.merge-card__row--clickable {
+  appearance: none;
+  border-left: 0;
+  border-right: 0;
+  border-top: 0;
+  background: transparent;
+  font: inherit;
+  font-size: var(--font-size-sm);
+  color: inherit;
+  cursor: pointer;
+  width: 100%;
+}
+.merge-card__row--clickable:disabled {
+  cursor: default;
+}
+.merge-card__row--clickable:not(:disabled):hover {
+  background: var(--bg-elevated);
+}
+.merge-card__row--sub {
+  padding: var(--space-2) var(--space-3) var(--space-2) calc(var(--space-3) + 30px);
+  background: var(--bg-elevated);
+  color: var(--text-2);
+  font-size: var(--font-size-xs);
+  gap: var(--space-1);
+}
+.merge-card__sub-icon {
+  font-size: 11px;
+  color: var(--text-3);
+}
+
+.merge-card__row-text {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.merge-card__row-title {
+  font-weight: 600;
+  color: var(--text-0);
+  line-height: 1.3;
+}
+.merge-card__row-desc {
+  font-size: var(--font-size-xs);
+  color: var(--text-3);
+  line-height: 1.4;
+}
+.merge-card__row-actions {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--space-2);
+  flex-shrink: 0;
+}
+.merge-card__row-chevron {
+  color: var(--text-3);
+  font-size: 12px;
+}
+.merge-card__row-action-btn {
+  flex-shrink: 0;
+  padding: 4px 10px;
+  border-radius: var(--radius-sm);
+  border: 1px solid var(--border);
+  background: var(--bg-card);
+  color: var(--text-1);
+  font-size: var(--font-size-xs);
+  font-weight: 600;
+  text-decoration: none;
+  white-space: nowrap;
+}
+.merge-card__row-action-btn:hover {
+  background: var(--bg-elevated);
+  border-color: var(--text-3);
+}
+.merge-card__row-chevron-btn {
+  appearance: none;
+  border: 1px solid var(--border);
+  background: var(--bg-card);
+  color: var(--text-2);
+  font: inherit;
+  font-size: 11px;
+  padding: 4px 8px;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+}
+.merge-card__row-chevron-btn:hover {
+  background: var(--bg-elevated);
+}
+
+.merge-card__refresh {
+  appearance: none;
+  border: 1px solid var(--border);
+  background: var(--bg-card);
+  color: var(--text-2);
+  font: inherit;
+  font-size: 12px;
+  padding: 2px 8px;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  display: inline-flex;
+  align-items: center;
+}
+.merge-card__refresh:hover:not(:disabled) {
+  background: var(--bg-elevated);
+}
+.merge-card__refresh-icon--spin {
+  animation: merge-card-spin 0.9s linear infinite;
+  display: inline-block;
+}
+@keyframes merge-card-spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+/* Small circular status glyph — green for pass, red for fail, neutral
+   for pending. Sits at the start of each row like github.com. */
+.merge-card__glyph {
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: #fff;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1;
+  flex-shrink: 0;
+}
+.merge-card__glyph--approved { background: #1a7f37; }
+.merge-card__glyph--changes { background: #cf222e; }
+.merge-card__glyph--pending {
+  background: transparent;
+  border: 1.5px solid var(--text-3);
+  color: var(--text-3);
+}
+
+/* Right-aligned approver avatar strip on the review row. */
+.merge-card__approvers {
+  display: inline-flex;
+  align-items: center;
+  gap: -4px;
+  flex-shrink: 0;
+}
+.merge-card__approver {
+  display: inline-flex;
+  margin-left: -4px;
+  border-radius: 50%;
+  text-decoration: none;
+  box-shadow: 0 0 0 2px var(--bg-card);
+}
+.merge-card__approver:first-child { margin-left: 0; }
+
+/* Footer row — slightly tinted to read as the "action" zone. */
+.merge-card__footer {
+  display: flex;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-3);
+  background: var(--bg-elevated);
+  border-top: 1px solid var(--border);
+  flex-wrap: wrap;
+}
+.merge-card__cmdline {
+  flex: 1;
+  font-size: var(--font-size-xs);
+  color: var(--text-3);
+  min-width: 200px;
+}
+.merge-card__cmdline a {
+  color: var(--accent);
+  text-decoration: underline;
+}
+.merge-card__reason,
+.merge-card__error,
+.merge-card__queue-notice {
+  flex-basis: 100%;
+  font-size: var(--font-size-xs);
+  margin-top: 4px;
+}
+.merge-card__reason { color: var(--text-3); }
+.merge-card__error { color: #cf222e; }
+.merge-card__queue-notice { color: #1a7f37; font-weight: 600; }
+
+/* Split button — main merge action + caret for strategy picker. */
+.merge-card__split {
+  position: relative;
+  display: inline-flex;
+  flex-shrink: 0;
+}
+.merge-card__btn {
+  appearance: none;
+  border: 1px solid var(--border);
+  background: var(--bg-card);
+  color: var(--text-1);
+  font: inherit;
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  padding: 6px 12px;
+  cursor: pointer;
+}
+.merge-card__btn:hover:not(:disabled) {
+  background: var(--bg-base);
+}
+.merge-card__btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+.merge-card__btn--split-main {
+  border-radius: var(--radius-sm) 0 0 var(--radius-sm);
+  border-right: 0;
+}
+.merge-card__btn--split-caret {
+  border-radius: 0 var(--radius-sm) var(--radius-sm) 0;
+  padding: 6px 8px;
+}
+.merge-card__strategy-backdrop {
+  position: fixed;
+  inset: 0;
+  background: transparent;
+  border: 0;
+  z-index: 30;
+}
+.merge-card__strategy-menu {
+  position: absolute;
+  top: calc(100% + 4px);
+  left: 0;
+  min-width: 280px;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  background: var(--bg-card);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.12);
+  z-index: 40;
+  padding: var(--space-1);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.merge-card__strategy-option {
+  appearance: none;
+  border: 0;
+  background: transparent;
+  text-align: left;
+  font: inherit;
+  cursor: pointer;
+  padding: var(--space-2);
+  border-radius: var(--radius-sm);
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+.merge-card__strategy-option:hover { background: var(--bg-elevated); }
+.merge-card__strategy-option--active { background: var(--accent-a10); }
+.merge-card__strategy-option-label {
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  color: var(--text-1);
+}
+.merge-card__strategy-option--active .merge-card__strategy-option-label::before {
+  content: '✓ ';
+  color: var(--accent);
+}
+.merge-card__strategy-option-hint {
+  font-size: var(--font-size-xs);
+  color: var(--text-3);
+  line-height: 1.4;
+}
+
 /* Merge bar — approval count + "Rebase and merge" button. Sits above the
    PrCommentBox on the PR detail page. Green when ready, muted when not.
    The disabled-but-visible button matches GitHub's own merge-bar

@@ -535,7 +535,16 @@ function PullRequestList({ onGoToTeams, onOpenLocalBranch, onOpenSettings }: Pro
   const renderHeader = (withTabs: boolean) => (
     <div className="pr-list-header">
       <div className="pr-list-header__title">
-        <span className="pr-list-header__brand">Today's review</span>
+        <span className="pr-list-header__brand">
+          {/* Page title tracks the active side-nav item rather than the
+              old "Today's review" brand. The brand identity now lives
+              in the side nav itself, so the page header is free to
+              reflect what the user is actually looking at. */}
+          {activeTab === 'inbox' ? 'Inbox'
+            : activeTab === 'snoozed' ? 'Snoozed'
+              : activeTab === 'handled' ? 'Handled'
+                : 'Analytics'}
+        </span>
         <span className="pr-list-header__subtitle">{today}</span>
       </div>
       {withTabs && tabsStrip}

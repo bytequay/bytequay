@@ -28,7 +28,7 @@ import java.util.Optional;
  *
  * <p>Operates on plain domain records — callers don't see entities
  * and aren't bound to JPA's lifecycle semantics. Same shape as
- * {@code EmailMutedSenderStore} / {@code SlackInboxStore} / etc.
+ * {@code EmailMutedSenderStore} / etc.
  */
 public interface TaskStore
 {

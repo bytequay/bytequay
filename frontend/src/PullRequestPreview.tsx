@@ -1028,11 +1028,11 @@ function PullRequestPreview({ pr, onOpenReview, onInspectDiffs, onMarkHandled, o
   };
 
   // Detail load + 10s polling tick. No client-side cache: every mount
-  // calls refreshPullRequestDetail with maxAgeSeconds=10, which lets
+  // calls refreshPullRequestDetail with maxAgeSeconds=20, which lets
   // the backend short-circuit to its L2 (SQLite) snapshot when our
-  // last ETag probe is younger than 10s — and ETag-probe-then-304
+  // last ETag probe is younger than 20s — and ETag-probe-then-304
   // when it isn't. So in the steady state we probe GitHub at most
-  // once per 10s while the page is open, regardless of how many
+  // once per 20s while the page is open, regardless of how many
   // tabs / sessions are viewing the same PR.
   //
   // Nothing fires when the detail page isn't mounted; this useEffect
@@ -1046,7 +1046,7 @@ function PullRequestPreview({ pr, onOpenReview, onInspectDiffs, onMarkHandled, o
 
     let cancelled = false;
     const tick = (initial: boolean) => window.bridge
-      .refreshPullRequestDetail(pr.repo, pr.number, 10)
+      .refreshPullRequestDetail(pr.repo, pr.number, 20)
       .then((d) => {
         if (cancelled) return;
         setDetail(d);

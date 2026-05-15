@@ -26,8 +26,7 @@ package com.bytequay.app.domain;
  *   <li>{@link #AI}          — name is the provider id ({@code "anthropic"},
  *       {@code "openai"}, {@code "local"}).</li>
  *   <li>{@link #INTEGRATION} — name is the integration id
- *       ({@code "slack"} for the user token, {@code "slack-app"} for the
- *       Socket Mode app-level token, etc.).</li>
+ *       (e.g., {@code "github-oauth-app"} for the OAuth app credentials).</li>
  * </ul>
  */
 public enum CredentialType

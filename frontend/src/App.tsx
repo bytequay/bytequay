@@ -17,7 +17,6 @@ import NotificationsScreen from './NotificationsScreen';
 import TeamDetailPage from './teams/TeamDetailPage';
 import TeamHomePage from './teams/TeamHomePage';
 import TeamsManagePage from './teams/TeamsManagePage';
-import SlackPage from './slack/SlackPage';
 import EmailPage from './email/EmailPage';
 import TasksPage from './tasks/TasksPage';
 import TaskDetailPage from './tasks/TaskDetailPage';
@@ -44,7 +43,6 @@ type Nav =
   | { view: 'teams' }
   | { view: 'team'; teamId: number }
   | { view: 'team-kanban'; teamId: number }
-  | { view: 'slack' }
   | { view: 'email' }
   | { view: 'tasks' }
   | { view: 'task-detail'; taskId: string }
@@ -123,7 +121,6 @@ function breadcrumbLabel(back: Nav | undefined): string | null {
   switch (back.view) {
     case 'email': return 'Email';
     case 'tasks': return 'Tasks';
-    case 'slack': return 'Slack';
     case 'home': return 'Home';
     case 'my-prs': return 'My PRs';
     case 'notifications': return 'Notifications';
@@ -193,13 +190,6 @@ function GlobalTopbar({ nav, onNav, fullScreen }: GlobalTopbarProps) {
           title="Local repos"
         >
           Repos
-        </button>
-        <button
-          className={`global-nav-btn${nav.view === 'slack' ? ' global-nav-btn--active' : ''}`}
-          onClick={() => onNav({ view: 'slack' })}
-          title="Slack"
-        >
-          Slack
         </button>
         <button
           className={`global-nav-btn${nav.view === 'email' ? ' global-nav-btn--active' : ''}`}
@@ -425,11 +415,6 @@ function App() {
             initialDiffCommitSha={nav.diffCommitSha}
             onOpenLocalBranch={(owner, repo, branch) =>
               setNav({ view: 'local-repo', owner, repo, initialBranch: branch })}
-          />
-        )}
-        {nav.view === 'slack' && (
-          <SlackPage
-            onOpenIntegrationsSettings={() => setNav({ view: 'settings', section: 'integrations' })}
           />
         )}
         {nav.view === 'email' && (

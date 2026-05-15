@@ -677,89 +677,6 @@ export type SuggestedReviewerDto = {
   isCommenter: boolean;
 };
 
-/** Slack workspace connection status returned by GET /api/slack/connection.
- *  When {@code connected} is false, every other field is absent. */
-export type SlackConnectionDto = {
-  connected: boolean;
-  teamId?: string;
-  teamName?: string;
-  authedUserId?: string;
-};
-
-/** Inbox view DTOs (slice 5). Backed by /api/slack/inbox + /thread. */
-export type SlackInboxFilter = 'all' | 'mentions' | 'dms';
-
-export type SlackInboxItemState = 'unread' | 'expanded' | 'responded' | 'bumped';
-export type SlackInboxKind = 'mention' | 'dm' | 'channel';
-
-export type SlackInboxItemDto = {
-  channelId: string;
-  ts: string;
-  state: SlackInboxItemState;
-  /** ISO-8601 instants; null when the row hasn't reached that transition yet. */
-  archivedAt: string | null;
-  bumpedAt: string | null;
-  respondedAt: string | null;
-  expandedAt: string | null;
-  userId: string | null;
-  text: string | null;
-  threadTs: string | null;
-  hasAtYou: boolean;
-  /** 'channel' is unreachable in the inbox (filtered upstream) but kept on the wire to mirror the DB column. */
-  inboxKind: SlackInboxKind;
-  /** Drives the BUMPED "N NEW" pill. Always 0 for UNREAD/EXPANDED rows. */
-  newReplyCount: number;
-};
-
-export type SlackInboxThreadMessageDto = {
-  ts: string;
-  userId: string | null;
-  text: string | null;
-  hasAtYou: boolean;
-};
-
-export type SlackInboxThreadDto = {
-  channelId: string;
-  threadTs: string;
-  messages: SlackInboxThreadMessageDto[];
-};
-
-/** Channel-feed and DM-view payload (slice 6). One row per cached
- *  message in the channel; the renderer groups by threadTs to fold
- *  thread replies under their parent. */
-export type SlackFeedMessageDto = {
-  ts: string;
-  userId: string | null;
-  text: string | null;
-  threadTs: string | null;
-  hasAtYou: boolean;
-};
-
-export type SlackChannelFeedDto = {
-  channelId: string;
-  messages: SlackFeedMessageDto[];
-};
-
-/** One row of the channel-picker payload (slice 3). Mirrors
- *  com.bytequay.app.service.slack.SlackChannelService.ChannelRow. */
-export type SlackChannelRowDto = {
-  channel: {
-    id: string;
-    name: string;
-    isPrivate: boolean;
-    /** Slack omits this on the rare row that's missing num_members. */
-    memberCount: number | null;
-    /** ISO-8601 instant; null when Slack supplies neither latest.ts nor updated. */
-    latestActivityAt: string | null;
-  };
-  /** True when the user has saved this channel as followed. */
-  isFollowed: boolean;
-  /** True only on first-run (no rows in followed_channels yet) for the top
-   *  three by latestActivityAt. The picker pre-toggles these and shows a
-   *  "SMART DEFAULT" badge. Always false after the first save. */
-  isSmartDefault: boolean;
-};
-
 /** Mirror of backend EmailMessageDetail. Includes the parsed body
  *  (text and/or HTML) plus full headers — used inside an
  *  EmailThreadDetailDto. Either bodyText or bodyHtml may be null; the
@@ -883,7 +800,7 @@ export type UserStatsDto = {
 //   ACCOUNT     — singleton; name is always "github"
 //   REPO        — name is the repo full slug "owner/repo"
 //   AI          — name is the provider id ("anthropic", "openai", "local", ...)
-//   INTEGRATION — name is the integration id ("slack-oauth-app", etc.)
+//   INTEGRATION — name is the integration id ("github-oauth-app", etc.)
 export type CredentialType = 'ACCOUNT' | 'REPO' | 'AI' | 'INTEGRATION';
 
 export type CredentialDto = {
@@ -1547,46 +1464,6 @@ export type Bridge = {
    *  Powers the "Merged this week" stat on the team home page; the
    *  renderer is expected to wrap calls in a ~10-minute TTL cache. */
   countTeamMergedRecently: (id: number, days: number) => Promise<number>;
-  // Slack integration
-  /** Returns the Slack authorize URL the renderer should open in the
-   *  system browser. {@code configured} is false when the backend hasn't
-   *  been given SLACK_CLIENT_ID / SLACK_CLIENT_SECRET — in that case
-   *  {@code url} is omitted and the renderer should show a hint. */
-  getSlackAuthorizeUrl: () => Promise<{ configured: boolean; url?: string }>;
-  /** Connection-state snapshot. Cheap; backed by a credential lookup. */
-  getSlackConnection: () => Promise<SlackConnectionDto>;
-  disconnectSlack: () => Promise<void>;
-  /** Subscribes to OAuth-callback completions. Fires after Slack
-   *  redirects to bytequay://slack-oauth-callback and the backend has
-   *  exchanged the code. {@code success} is false when the exchange
-   *  errored (state mismatch, Slack-side rejection, network).
-   *  Returns a teardown that removes the listener. */
-  onSlackOauthComplete: (callback: (payload: { success: boolean; error?: string }) => void) => () => void;
-  /** Lists the user's joined Slack channels with isFollowed +
-   *  isSmartDefault flags for the channel-picker. */
-  listSlackChannels: () => Promise<SlackChannelRowDto[]>;
-  /** Replaces the followed-channel set for the connected workspace.
-   *  Returns the refreshed picker payload (smart-default flags drop
-   *  off after the first save). */
-  replaceFollowedSlackChannels: (channelIds: string[]) => Promise<SlackChannelRowDto[]>;
-  /** Inbox view rows for the inbox.png surface (slice 5). Filter
-   *  defaults to 'all' (mentions + DMs); 'mentions' or 'dms' narrows
-   *  the result to one kind. */
-  listSlackInbox: (filter?: SlackInboxFilter) => Promise<SlackInboxItemDto[]>;
-  /** Full thread (parent + every reply) for an expanded MENTION item. */
-  getSlackInboxThread: (channelId: string, ts: string) => Promise<SlackInboxThreadDto>;
-  /** Flips the local row's state to EXPANDED — no Slack call. Idempotent. */
-  expandSlackInboxItem: (channelId: string, ts: string) => Promise<{ result: string }>;
-  /** Posts a reply to Slack and marks the local row RESPONDED on success. */
-  replySlackInboxItem: (channelId: string, ts: string, text: string) => Promise<{ result: string; postedTs?: string }>;
-  /** Manual archive-now ("Archive now" link in the responded countdown bar). */
-  archiveSlackInboxItem: (channelId: string, ts: string) => Promise<{ result: string }>;
-  /** Channel-feed payload (slice 6) — oldest-first stream of cached messages. */
-  getSlackChannelFeed: (channelId: string) => Promise<SlackChannelFeedDto>;
-  /** Posts to a channel/DM without touching the inbox state machine.
-   *  threadTs is null for top-level posts (DM compose box) and the
-   *  thread root for thread replies (channel-feed thread expand). */
-  postSlackFeedMessage: (channelId: string, text: string, threadTs: string | null) => Promise<{ result: string; postedTs?: string }>;
   /** Issues an authorize URL for the GitHub OAuth + PKCE flow. The renderer
    *  opens it in the system browser. {@code configured} is false when the
    *  backend hasn't been given GITHUB_CLIENT_ID / GITHUB_CLIENT_SECRET — in

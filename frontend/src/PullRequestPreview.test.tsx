@@ -512,7 +512,7 @@ describe('PullRequestPreview render smoke', () => {
     // Polling refactor: mount calls refresh(repo, n, 10); we assert
     // the user action above didn't add an EXTRA refresh on top.
     expect(bridge.refreshPullRequestDetail).toHaveBeenCalledTimes(1);
-    expect(bridge.refreshPullRequestDetail).toHaveBeenCalledWith('trinodb/trino', 42, 10);
+    expect(bridge.refreshPullRequestDetail).toHaveBeenCalledWith('trinodb/trino', 42, 20);
     expect(bridge.fetchPullRequestDetail).not.toHaveBeenCalled();
   });
 
@@ -559,7 +559,7 @@ describe('PullRequestPreview render smoke', () => {
     // that the action itself didn't pile on an extra refresh beyond
     // the natural mount call.
     expect(bridge.refreshPullRequestDetail).toHaveBeenCalledTimes(1);
-    expect(bridge.refreshPullRequestDetail).toHaveBeenCalledWith('trinodb/trino', 42, 10);
+    expect(bridge.refreshPullRequestDetail).toHaveBeenCalledWith('trinodb/trino', 42, 20);
     expect(bridge.fetchPullRequestDetail).not.toHaveBeenCalled();
     expect(container.querySelector('.prc-comment-card .reaction-chip__count')?.textContent).toBe('2');
   });
@@ -580,7 +580,7 @@ describe('PullRequestPreview render smoke', () => {
     // that the action itself didn't pile on an extra refresh beyond
     // the natural mount call.
     expect(bridge.refreshPullRequestDetail).toHaveBeenCalledTimes(1);
-    expect(bridge.refreshPullRequestDetail).toHaveBeenCalledWith('trinodb/trino', 42, 10);
+    expect(bridge.refreshPullRequestDetail).toHaveBeenCalledWith('trinodb/trino', 42, 20);
     expect(bridge.fetchPullRequestDetail).not.toHaveBeenCalled();
     expect(container.querySelector('.prc-review-thread .reaction-chip__count')?.textContent).toBe('3');
   });
@@ -614,7 +614,7 @@ describe('PullRequestPreview render smoke', () => {
     // that the action itself didn't pile on an extra refresh beyond
     // the natural mount call.
     expect(bridge.refreshPullRequestDetail).toHaveBeenCalledTimes(1);
-    expect(bridge.refreshPullRequestDetail).toHaveBeenCalledWith('trinodb/trino', 42, 10);
+    expect(bridge.refreshPullRequestDetail).toHaveBeenCalledWith('trinodb/trino', 42, 20);
     expect(bridge.fetchPullRequestDetail).not.toHaveBeenCalled();
     expect(container.innerHTML).toContain('thanks for the fix');
   });
@@ -649,7 +649,7 @@ describe('PullRequestPreview render smoke', () => {
     // that the action itself didn't pile on an extra refresh beyond
     // the natural mount call.
     expect(bridge.refreshPullRequestDetail).toHaveBeenCalledTimes(1);
-    expect(bridge.refreshPullRequestDetail).toHaveBeenCalledWith('trinodb/trino', 42, 10);
+    expect(bridge.refreshPullRequestDetail).toHaveBeenCalledWith('trinodb/trino', 42, 20);
     expect(bridge.fetchPullRequestDetail).not.toHaveBeenCalled();
     expect(container.innerHTML).toContain('updated top-level comment');
   });
@@ -684,7 +684,7 @@ describe('PullRequestPreview render smoke', () => {
     // that the action itself didn't pile on an extra refresh beyond
     // the natural mount call.
     expect(bridge.refreshPullRequestDetail).toHaveBeenCalledTimes(1);
-    expect(bridge.refreshPullRequestDetail).toHaveBeenCalledWith('trinodb/trino', 42, 10);
+    expect(bridge.refreshPullRequestDetail).toHaveBeenCalledWith('trinodb/trino', 42, 20);
     expect(bridge.fetchPullRequestDetail).not.toHaveBeenCalled();
     expect(container.innerHTML).toContain('updated review-thread comment');
   });
@@ -706,7 +706,7 @@ describe('PullRequestPreview render smoke', () => {
     // that the action itself didn't pile on an extra refresh beyond
     // the natural mount call.
     expect(bridge.refreshPullRequestDetail).toHaveBeenCalledTimes(1);
-    expect(bridge.refreshPullRequestDetail).toHaveBeenCalledWith('trinodb/trino', 42, 10);
+    expect(bridge.refreshPullRequestDetail).toHaveBeenCalledWith('trinodb/trino', 42, 20);
     expect(bridge.fetchPullRequestDetail).not.toHaveBeenCalled();
     // The thread auto-folds once it flips to resolved (matches
     // github.com), which hides the Unresolve button. Assert the

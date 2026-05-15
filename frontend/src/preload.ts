@@ -37,12 +37,6 @@ import type {
   PullRequestDto,
   RecentEventDto,
   ReviewSkillDto,
-  SlackChannelFeedDto,
-  SlackChannelRowDto,
-  SlackConnectionDto,
-  SlackInboxFilter,
-  SlackInboxItemDto,
-  SlackInboxThreadDto,
   SuggestedReviewerDto,
   NewTaskRequestDto,
   SyncSettingsDto,
@@ -396,34 +390,6 @@ const bridge: Bridge = {
     return () => ipcRenderer.removeListener('window:fullscreen-state', listener);
   },
   getFullScreenState: (): Promise<boolean> => ipcRenderer.invoke('window:get-fullscreen'),
-  getSlackAuthorizeUrl: (): Promise<{ configured: boolean; url?: string }> =>
-    ipcRenderer.invoke('slack:authorizeUrl'),
-  getSlackConnection: (): Promise<SlackConnectionDto> =>
-    ipcRenderer.invoke('slack:connection'),
-  disconnectSlack: (): Promise<void> => ipcRenderer.invoke('slack:disconnect'),
-  onSlackOauthComplete: (callback: (payload: { success: boolean; error?: string }) => void) => {
-    const listener = (_event: unknown, payload: { success: boolean; error?: string }) => callback(payload);
-    ipcRenderer.on('slack:oauth-complete', listener);
-    return () => ipcRenderer.removeListener('slack:oauth-complete', listener);
-  },
-  listSlackChannels: (): Promise<SlackChannelRowDto[]> =>
-    ipcRenderer.invoke('slack:listChannels'),
-  replaceFollowedSlackChannels: (channelIds: string[]): Promise<SlackChannelRowDto[]> =>
-    ipcRenderer.invoke('slack:replaceFollowedChannels', channelIds),
-  listSlackInbox: (filter?: SlackInboxFilter): Promise<SlackInboxItemDto[]> =>
-    ipcRenderer.invoke('slack:listInbox', filter),
-  getSlackInboxThread: (channelId: string, ts: string): Promise<SlackInboxThreadDto> =>
-    ipcRenderer.invoke('slack:getInboxThread', channelId, ts),
-  expandSlackInboxItem: (channelId: string, ts: string): Promise<{ result: string }> =>
-    ipcRenderer.invoke('slack:expandInboxItem', channelId, ts),
-  replySlackInboxItem: (channelId: string, ts: string, text: string): Promise<{ result: string; postedTs?: string }> =>
-    ipcRenderer.invoke('slack:replyInboxItem', channelId, ts, text),
-  archiveSlackInboxItem: (channelId: string, ts: string): Promise<{ result: string }> =>
-    ipcRenderer.invoke('slack:archiveInboxItem', channelId, ts),
-  getSlackChannelFeed: (channelId: string): Promise<SlackChannelFeedDto> =>
-    ipcRenderer.invoke('slack:getChannelFeed', channelId),
-  postSlackFeedMessage: (channelId: string, text: string, threadTs: string | null): Promise<{ result: string; postedTs?: string }> =>
-    ipcRenderer.invoke('slack:postFeedMessage', channelId, text, threadTs),
   getGitHubOAuthAuthorizeUrl: (): Promise<{ configured: boolean; url?: string }> =>
     ipcRenderer.invoke('githubOAuth:authorizeUrl'),
   getGitHubOAuthConnection: (): Promise<{ connected: boolean; login?: string }> =>

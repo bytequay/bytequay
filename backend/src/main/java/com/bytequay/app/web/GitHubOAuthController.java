@@ -28,9 +28,9 @@ import java.util.Optional;
 import static java.util.Objects.requireNonNull;
 
 /**
- * REST surface for the GitHub OAuth flow. Mirrors {@link SlackController}'s
- * shape — start by issuing an authorize URL, finish via a callback POST
- * once the renderer's {@code open-url} handler hands the code back.
+ * REST surface for the GitHub OAuth flow. The renderer starts by
+ * issuing an authorize URL, then finishes via a callback POST once
+ * the {@code open-url} handler hands the code back.
  */
 @RestController
 @RequestMapping("/api/auth/github")

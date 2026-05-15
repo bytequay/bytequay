@@ -27,7 +27,7 @@ import { BACKEND_BASE, killBackend, spawnBackend, waitForBackendReady } from './
 app.setName('ByteQuay');
 
 // Register the bytequay:// custom URL scheme so the OS sends OAuth
-// redirects (Slack, future integrations) back to our running app.
+// redirects (GitHub, future integrations) back to our running app.
 // `open-url` (macOS) / second-instance args (Win/Linux) carry the
 // inbound URL once registered. The packaged build also declares this
 // in Info.plist; the runtime call covers the dev workflow where the
@@ -2081,141 +2081,13 @@ const url = new URL(`${BACKEND_BASE}/api/search/repos`);
     return body.count as number;
   });
 
-  // ── Slack integration ───────────────────────────────────────────────────
-  // Renderer-driven OAuth handshake: getAuthorizeUrl() → openExternal in
-  // the system browser → Slack redirects to bytequay://slack-oauth-callback
-  // → the open-url handler above forwards the code/state to the backend
-  // and emits slack:oauth-complete here. The renderer subscribes to that
-  // event and re-fetches /connection to pick up the new state.
-  ipcMain.handle('slack:authorizeUrl', async () => {
-    const res = await fetch(`${BACKEND_BASE}/api/slack/oauth/authorize-url`);
-    if (!res.ok) throw new Error(`backend /api/slack/oauth/authorize-url returned ${res.status}`);
-    return res.json();
-  });
-
-  ipcMain.handle('slack:connection', async () => {
-    const res = await fetch(`${BACKEND_BASE}/api/slack/connection`);
-    if (!res.ok) throw new Error(`backend /api/slack/connection returned ${res.status}`);
-    return res.json();
-  });
-
-  ipcMain.handle('slack:disconnect', async () => {
-    const res = await fetch(`${BACKEND_BASE}/api/slack/disconnect`, { method: 'POST' });
-    if (!res.ok) throw new Error(`backend /api/slack/disconnect returned ${res.status}`);
-    return res.json();
-  });
-
-  // ── Slack channel selection (slice 3) ───────────────────────────────────
-  ipcMain.handle('slack:listChannels', async () => {
-    const res = await fetch(`${BACKEND_BASE}/api/slack/channels`);
-    if (!res.ok) {
-      const body = await res.text().catch(() => '');
-      throw new Error(`backend /api/slack/channels returned ${res.status}: ${body}`);
-    }
-    return res.json();
-  });
-
-  ipcMain.handle('slack:replaceFollowedChannels', async (_event, channelIds: string[]) => {
-    const res = await fetch(`${BACKEND_BASE}/api/slack/channels/followed`, {
-      method: 'PUT',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ channelIds }),
-    });
-    if (!res.ok) {
-      const body = await res.text().catch(() => '');
-      throw new Error(`backend /api/slack/channels/followed returned ${res.status}: ${body}`);
-    }
-    return res.json();
-  });
-
-  // ── Slack inbox (slice 5) ───────────────────────────────────────────────
-  ipcMain.handle('slack:listInbox', async (_event, filter: string | undefined) => {
-    const url = filter && filter !== 'all'
-      ? `${BACKEND_BASE}/api/slack/inbox?filter=${encodeURIComponent(filter)}`
-      : `${BACKEND_BASE}/api/slack/inbox`;
-    const res = await fetch(url);
-    if (!res.ok) {
-      const body = await res.text().catch(() => '');
-      throw new Error(`backend /api/slack/inbox returned ${res.status}: ${body}`);
-    }
-    return res.json();
-  });
-
-  ipcMain.handle('slack:getInboxThread', async (_event, channelId: string, ts: string) => {
-    const url = `${BACKEND_BASE}/api/slack/inbox/${encodeURIComponent(channelId)}/${encodeURIComponent(ts)}/thread`;
-    const res = await fetch(url);
-    if (!res.ok) {
-      const body = await res.text().catch(() => '');
-      throw new Error(`backend ${url} returned ${res.status}: ${body}`);
-    }
-    return res.json();
-  });
-
-  ipcMain.handle('slack:expandInboxItem', async (_event, channelId: string, ts: string) => {
-    const url = `${BACKEND_BASE}/api/slack/inbox/${encodeURIComponent(channelId)}/${encodeURIComponent(ts)}/expand`;
-    const res = await fetch(url, { method: 'POST' });
-    if (!res.ok) {
-      const body = await res.text().catch(() => '');
-      throw new Error(`backend ${url} returned ${res.status}: ${body}`);
-    }
-    return res.json();
-  });
-
-  ipcMain.handle('slack:replyInboxItem', async (_event, channelId: string, ts: string, text: string) => {
-    const url = `${BACKEND_BASE}/api/slack/inbox/${encodeURIComponent(channelId)}/${encodeURIComponent(ts)}/reply`;
-    const res = await fetch(url, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ text }),
-    });
-    if (!res.ok) {
-      const body = await res.text().catch(() => '');
-      throw new Error(`backend ${url} returned ${res.status}: ${body}`);
-    }
-    return res.json();
-  });
-
-  ipcMain.handle('slack:archiveInboxItem', async (_event, channelId: string, ts: string) => {
-    const url = `${BACKEND_BASE}/api/slack/inbox/${encodeURIComponent(channelId)}/${encodeURIComponent(ts)}/archive`;
-    const res = await fetch(url, { method: 'POST' });
-    if (!res.ok) {
-      const body = await res.text().catch(() => '');
-      throw new Error(`backend ${url} returned ${res.status}: ${body}`);
-    }
-    return res.json();
-  });
-
-  // ── Slack channel-feed / DM-view (slice 6) ──────────────────────────────
-  ipcMain.handle('slack:getChannelFeed', async (_event, channelId: string) => {
-    const url = `${BACKEND_BASE}/api/slack/feed/${encodeURIComponent(channelId)}`;
-    const res = await fetch(url);
-    if (!res.ok) {
-      const body = await res.text().catch(() => '');
-      throw new Error(`backend ${url} returned ${res.status}: ${body}`);
-    }
-    return res.json();
-  });
-
-  ipcMain.handle('slack:postFeedMessage', async (_event, channelId: string, text: string, threadTs: string | null) => {
-    const url = `${BACKEND_BASE}/api/slack/feed/${encodeURIComponent(channelId)}/reply`;
-    const res = await fetch(url, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ text, threadTs }),
-    });
-    if (!res.ok) {
-      const body = await res.text().catch(() => '');
-      throw new Error(`backend ${url} returned ${res.status}: ${body}`);
-    }
-    return res.json();
-  });
-
   // ── GitHub OAuth ────────────────────────────────────────────────────────
-  // Same shape as Slack: getAuthorizeUrl → openExternal → GitHub redirects
-  // to bytequay://github-oauth-callback → open-url handler below forwards
-  // code/state to the backend → emits github:oauth-complete. The token
-  // lands in the same Keychain slot the PAT path uses, so the rest of the
-  // app sees no difference between OAuth and PAT auth.
+  // Renderer-driven handshake: getAuthorizeUrl → openExternal → GitHub
+  // redirects to bytequay://github-oauth-callback → open-url handler
+  // below forwards code/state to the backend → emits
+  // github:oauth-complete. The token lands in the same Keychain slot
+  // the PAT path uses, so the rest of the app sees no difference
+  // between OAuth and PAT auth.
   ipcMain.handle('githubOAuth:authorizeUrl', async () => {
     const res = await fetch(`${BACKEND_BASE}/api/auth/github/authorize-url`);
     if (!res.ok) {
@@ -2876,9 +2748,9 @@ app.on('ready', async () => {
   }
 });
 
-// Slack (and future integration) OAuth callback: Slack's browser tab
-// redirects to bytequay://slack-oauth-callback?code=…&state=… and the
-// OS hands the URL to our running app via this event. We forward the
+// OAuth callback: the integration's browser tab redirects to
+// bytequay://<integration>-oauth-callback?code=…&state=… and the OS
+// hands the URL to our running app via this event. We forward the
 // code+state to the backend's exchange endpoint and tell the renderer
 // the result so it can flip from pre-connect to connected.
 app.on('open-url', (event, url) => {
@@ -2890,37 +2762,10 @@ app.on('open-url', (event, url) => {
   } catch {
     return;
   }
-  if (parsed.host === 'slack-oauth-callback') {
-    void handleSlackOAuthCallback(parsed);
-  }
-  else if (parsed.host === 'github-oauth-callback') {
+  if (parsed.host === 'github-oauth-callback') {
     void handleGitHubOAuthCallback(parsed);
   }
 });
-
-async function handleSlackOAuthCallback(parsed: URL): Promise<void> {
-  const code = parsed.searchParams.get('code');
-  const state = parsed.searchParams.get('state');
-  if (!code || !state) {
-    notifySlackOauthComplete({ success: false, error: 'Missing code or state in callback URL' });
-    return;
-  }
-  try {
-    const res = await fetch(`${BACKEND_BASE}/api/slack/oauth/callback`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ code, state }),
-    });
-    if (!res.ok) {
-      const text = await res.text().catch(() => '');
-      notifySlackOauthComplete({ success: false, error: `backend ${res.status}: ${text}` });
-      return;
-    }
-    notifySlackOauthComplete({ success: true });
-  } catch (e) {
-    notifySlackOauthComplete({ success: false, error: e instanceof Error ? e.message : String(e) });
-  }
-}
 
 async function handleGitHubOAuthCallback(parsed: URL): Promise<void> {
   const code = parsed.searchParams.get('code');
@@ -2944,12 +2789,6 @@ async function handleGitHubOAuthCallback(parsed: URL): Promise<void> {
     notifyGitHubOauthComplete({ success: true, login: body.login });
   } catch (e) {
     notifyGitHubOauthComplete({ success: false, error: e instanceof Error ? e.message : String(e) });
-  }
-}
-
-function notifySlackOauthComplete(payload: { success: boolean; error?: string }): void {
-  if (mainWindow && !mainWindow.isDestroyed()) {
-    mainWindow.webContents.send('slack:oauth-complete', payload);
   }
 }
 

@@ -56,7 +56,7 @@ import static java.util.Objects.requireNonNull;
  * rest of the app) doesn't care whether the bearer came from a PAT
  * paste or an OAuth dance.
  *
- * <p>Lifecycle mirrors {@code SlackOAuthService}:
+ * <p>Lifecycle:
  * <ol>
  *   <li>Renderer calls {@link #issueAuthorizeUrl()} which mints a
  *       state + PKCE pair, stashes the verifier under that state, and

@@ -271,8 +271,16 @@ public class PullRequestService
         if (prId.isPresent()) {
             Optional<StoredPrDetail> stored = detailStore.find(prId.get());
             if (stored.isPresent()) {
+                log.info("[cache-diag] getPullRequestDetail {}#{}: SQLite snapshot HIT — returning cached body",
+                        repo, number);
                 return assemblePullRequestDetail(repo, number, stored.get(), viewerCanWrite);
             }
+            log.info("[cache-diag] getPullRequestDetail {}#{}: SQLite snapshot MISS — calling fetchDetailFromGitHub",
+                    repo, number);
+        }
+        else {
+            log.info("[cache-diag] getPullRequestDetail {}#{}: no prId in store — calling fetchDetailFromGitHub",
+                    repo, number);
         }
 
         // Cache miss — fetch live, store for next time
@@ -312,12 +320,14 @@ public class PullRequestService
      * network call at all — neither full refetch nor ETag probe.
      *
      * <p>Powers the detail-page 10s polling tick (frontend ticks every
-     * 10s, passes {@code maxAgeSeconds=10}, so concurrent tabs probe
-     * GitHub at most once per 10s on average). The manual ↻ refresh
-     * button still passes {@code 0} so it always probes.
+     * 10s, passes {@code maxAgeSeconds=20}, so concurrent tabs probe
+     * GitHub at most once per 20s on average — every other tick hits
+     * the fast path). The manual ↻ refresh button still passes
+     * {@code 0} so it always probes.
      */
     public PullRequestDetail refreshPullRequestDetail(String pat, String repo, int number, int maxAgeSeconds)
     {
+        log.info("[cache-diag] refreshPullRequestDetail entry: {}#{} maxAge={}s", repo, number, maxAgeSeconds);
         Optional<Long> prId = store.findIdByRepoAndNumber(repo, number);
         if (prId.isPresent()) {
             // Fast path: a recent probe already established that the
@@ -327,11 +337,18 @@ public class PullRequestService
                 if (entry != null
                         && entry.lastProbedAt() != null
                         && entry.lastProbedAt().isAfter(Instant.now().minusSeconds(maxAgeSeconds))) {
-                    log.debug("ETag fresh for {}#{} ({}s ago, <= {}s cap) — serving cached without probe",
+                    log.info("[cache-diag] maxAge FAST-PATH fired for {}#{}: lastProbed {}s ago (<= {}s)",
                             repo, number,
                             Instant.now().getEpochSecond() - entry.lastProbedAt().getEpochSecond(),
                             maxAgeSeconds);
                     return getPullRequestDetail(pat, repo, number);
+                }
+                else {
+                    log.info("[cache-diag] maxAge fast-path SKIPPED for {}#{}: entry={} lastProbedAt={}",
+                            repo, number,
+                            entry == null ? "NULL" : "present",
+                            entry == null ? "n/a" : (entry.lastProbedAt() == null ? "null"
+                                    : (Instant.now().getEpochSecond() - entry.lastProbedAt().getEpochSecond()) + "s ago"));
                 }
             }
             try {
@@ -357,14 +374,17 @@ public class PullRequestService
                 if (cachedEtag != null && !probe.changed()) {
                     // 304: nothing's changed since we last fetched.
                     // Skip the multi-call refetch and serve cached.
-                    log.debug("ETag probe 304 for {}#{} — serving cached", repo, number);
+                    log.info("[cache-diag] ETag probe 304 for {}#{} — serving cached (no refetch)", repo, number);
                     return getPullRequestDetail(pat, repo, number);
                 }
+                log.info("[cache-diag] ETag probe for {}#{}: hadCachedEtag={} changed={} → invalidate + refetch",
+                        repo, number, cachedEtag != null, probe.changed());
             }
             catch (Exception e) {
                 // Probe is best-effort. Fall through to the full
                 // refetch — never gate correctness on the probe.
-                log.debug("ETag probe failed for {}#{}: {}", repo, number, e.getMessage());
+                log.info("[cache-diag] ETag probe failed for {}#{}: {} → invalidate + refetch",
+                        repo, number, e.getMessage());
             }
         }
         invalidatePullRequestDetail(repo, number);

@@ -401,6 +401,7 @@ function App() {
             onGoToTeams={() => setNav({ view: 'teams' })}
             onOpenLocalBranch={(owner, repo, branch) =>
               setNav({ view: 'local-repo', owner, repo, initialBranch: branch })}
+            onOpenSettings={() => setNav({ view: 'settings' })}
           />
         )}
         {nav.view === 'repo' && (

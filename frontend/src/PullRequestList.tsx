@@ -58,9 +58,13 @@ type Props = {
    *  from the dashboard preview to the local-repo Commits tab. App
    *  wires this to setNav({view:'local-repo', initialBranch}). */
   onOpenLocalBranch?: (owner: string, repo: string, branch: string) => void;
+  /** Side nav's "Settings" item routes here. App wires this to
+   *  setNav({view:'settings'}). When not provided, the side nav's
+   *  Settings button is hidden. */
+  onOpenSettings?: () => void;
 };
 
-function PullRequestList({ onGoToTeams, onOpenLocalBranch }: Props) {
+function PullRequestList({ onGoToTeams, onOpenLocalBranch, onOpenSettings }: Props) {
   const cachedPrs = getCached<PullRequestDto[]>(PRS_CACHE_KEY);
   const [prs, setPrs] = useState<PullRequestDto[] | null>(cachedPrs ?? null);
   const [error, setError] = useState<string | null>(null);
@@ -525,7 +529,9 @@ function PullRequestList({ onGoToTeams, onOpenLocalBranch }: Props) {
 
   /** Shared header. `withTabs=false` (sidebar mode) hides the
    *  Inbox/Handled + scope tab strip — the user has drilled into a
-   *  PR and the tabs would just crowd the narrow column. */
+   *  PR and the tabs would just crowd the narrow column. The full-
+   *  screen kanban mode also passes false because the v2 side nav
+   *  carries those controls now. */
   const renderHeader = (withTabs: boolean) => (
     <div className="pr-list-header">
       <div className="pr-list-header__title">
@@ -544,6 +550,112 @@ function PullRequestList({ onGoToTeams, onOpenLocalBranch }: Props) {
         Refresh
       </button>
     </div>
+  );
+
+  /** Persistent left side nav for the full-screen kanban view. Carries
+   *  the Inbox/Snoozed/Handled/Analytics switch and the My PRs / Team
+   *  Review lane toggle, matching the visual structure of
+   *  docs/mockups/v2/pr-dashboard/re-design/pr-kanban.png. Settings
+   *  pins to the bottom and routes out via the App callback. */
+  const sideNav = (
+    <aside className="kanban-sidenav">
+      <div className="kanban-sidenav__brand">
+        <span className="kanban-sidenav__logo" aria-hidden="true">◆</span>
+        <span className="kanban-sidenav__brand-text">
+          <span className="kanban-sidenav__brand-name">BYTEQUAY</span>
+          <span className="kanban-sidenav__brand-sub">Dashboard</span>
+        </span>
+      </div>
+      <nav className="kanban-sidenav__nav">
+        <span className="kanban-sidenav__section">Overview</span>
+        <button
+          type="button"
+          className={`kanban-sidenav__item${activeTab === 'inbox' ? ' kanban-sidenav__item--active' : ''}`}
+          onClick={() => switchTab('inbox')}
+        >
+          <span className="kanban-sidenav__item-icon" aria-hidden="true">▦</span>
+          <span className="kanban-sidenav__item-label">Inbox</span>
+          {inbox.length > 0 && <span className="kanban-sidenav__count">{inbox.length}</span>}
+        </button>
+        <button
+          type="button"
+          className={`kanban-sidenav__item${activeTab === 'snoozed' ? ' kanban-sidenav__item--active' : ''}`}
+          onClick={() => switchTab('snoozed')}
+          title="PRs you've parked until a later time."
+        >
+          <span className="kanban-sidenav__item-icon" aria-hidden="true">◐</span>
+          <span className="kanban-sidenav__item-label">Snoozed</span>
+          {snoozedSorted.length > 0 && <span className="kanban-sidenav__count">{snoozedSorted.length}</span>}
+        </button>
+        <button
+          type="button"
+          className={`kanban-sidenav__item${activeTab === 'handled' ? ' kanban-sidenav__item--active' : ''}`}
+          onClick={() => switchTab('handled')}
+        >
+          <span className="kanban-sidenav__item-icon" aria-hidden="true">✓</span>
+          <span className="kanban-sidenav__item-label">Handled</span>
+          {handledSorted.length > 0 && <span className="kanban-sidenav__count">{handledSorted.length}</span>}
+        </button>
+        <button
+          type="button"
+          className={`kanban-sidenav__item${activeTab === 'analytics' ? ' kanban-sidenav__item--active' : ''}`}
+          onClick={() => switchTab('analytics')}
+          title="Personal review stats. Local data only."
+        >
+          <span className="kanban-sidenav__item-icon" aria-hidden="true">▥</span>
+          <span className="kanban-sidenav__item-label">Analytics</span>
+        </button>
+
+        <span className="kanban-sidenav__section">Workflow</span>
+        <button
+          type="button"
+          className={`kanban-sidenav__item${activeTab === 'inbox' && lane === 'mine' ? ' kanban-sidenav__item--active' : ''}`}
+          onClick={() => { switchTab('inbox'); setLane('mine'); }}
+          title="Your authored PRs, grouped by lifecycle state."
+        >
+          <span className="kanban-sidenav__item-icon" aria-hidden="true">⎇</span>
+          <span className="kanban-sidenav__item-label">My PRs</span>
+          {briefing.mineNeedsAction > 0 && (
+            <span
+              className="kanban-sidenav__alert"
+              title={`${briefing.mineNeedsAction} need you`}
+              aria-label={`${briefing.mineNeedsAction} need you`}
+            />
+          )}
+        </button>
+        <button
+          type="button"
+          className={`kanban-sidenav__item${activeTab === 'inbox' && lane === 'to_review' ? ' kanban-sidenav__item--active' : ''}`}
+          onClick={() => { switchTab('inbox'); setLane('to_review'); }}
+          title="PRs awaiting your review."
+        >
+          <span className="kanban-sidenav__item-icon" aria-hidden="true">⊙</span>
+          <span className="kanban-sidenav__item-label">Team Review</span>
+        </button>
+        {onGoToTeams && (
+          <button
+            type="button"
+            className="kanban-sidenav__item"
+            onClick={onGoToTeams}
+            title="Open the Teams page."
+          >
+            <span className="kanban-sidenav__item-icon" aria-hidden="true">⌬</span>
+            <span className="kanban-sidenav__item-label">Teams</span>
+          </button>
+        )}
+      </nav>
+      <div className="kanban-sidenav__spacer" />
+      {onOpenSettings && (
+        <button
+          type="button"
+          className="kanban-sidenav__item kanban-sidenav__item--footer"
+          onClick={onOpenSettings}
+        >
+          <span className="kanban-sidenav__item-icon" aria-hidden="true">⚙</span>
+          <span className="kanban-sidenav__item-label">Settings</span>
+        </button>
+      )}
+    </aside>
   );
 
   const screen = reviewingPr ? (
@@ -697,8 +809,10 @@ function PullRequestList({ onGoToTeams, onOpenLocalBranch }: Props) {
 
   // No selection: full-width view. Inbox → kanban. Handled → timeline.
   return (
-    <div className="kanban-page" ref={pageRef}>
-      {renderHeader(true)}
+    <div className="kanban-page kanban-page--with-sidenav" ref={pageRef}>
+      {sideNav}
+      <div className="kanban-page__content">
+      {renderHeader(false)}
       {loading && <div className="repo-loading">Loading…</div>}
       {error && <div className="repo-error">{error}</div>}
       {!loading && !error && activeTab === 'inbox' && (
@@ -765,6 +879,7 @@ function PullRequestList({ onGoToTeams, onOpenLocalBranch }: Props) {
           }}
         />
       )}
+      </div>
     </div>
   );
 }

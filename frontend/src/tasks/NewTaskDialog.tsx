@@ -11,12 +11,20 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import { useState } from 'react';
-import type { TaskKindDto } from '../types';
+import { useEffect, useMemo, useState } from 'react';
+import type { LocalRepoStatusDto, TaskKindDto } from '../types';
 
 type Props = {
   onClose: () => void;
   onCreated: () => void | Promise<void>;
+};
+
+/** Shape of the work the dialog plans to do on submit. {@code workingDir}
+ *  is filled in either from the existing local clone or — for unmapped
+ *  rows — only after we clone into the app's default path. */
+type Plan = {
+  repo: LocalRepoStatusDto;
+  needsClone: boolean;
 };
 
 /**
@@ -25,40 +33,96 @@ type Props = {
  * the first turn synchronously on the backend, so a successful submit
  * returns a row that's already RUNNING.
  *
- * <p>{@code logic_loop} is shown disabled — the kind exists in the
- * backend schema but the runner lands in a later slice.
+ * <p>Working directory is picked from the user's tracked repos rather
+ * than typed by hand. Repos that haven't been cloned yet show a
+ * "Clone on start" hint and trigger {@code cloneRepo} into the app's
+ * default path before the task is created.
  */
 export default function NewTaskDialog({ onClose, onCreated }: Props) {
   const [kind] = useState<TaskKindDto>('CLI_AGENT');
   const [title, setTitle] = useState('');
-  const [workingDir, setWorkingDir] = useState('');
   const [model, setModel] = useState('claude-sonnet-4.6');
   const [initialPrompt, setInitialPrompt] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  const [repos, setRepos] = useState<LocalRepoStatusDto[] | null>(null);
+  const [reposError, setReposError] = useState<string | null>(null);
+  const [selectedKey, setSelectedKey] = useState<string>('');
+  const [cloneStatus, setCloneStatus] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      try {
+        const list = await window.bridge.listLocalRepos();
+        if (cancelled) return;
+        setRepos(list);
+        // Default-select the first usable repo so the form is one click
+        // away from a working submit. Prefer mapped over unmapped — the
+        // user is more likely to want a repo they've already cloned.
+        const firstMapped = list.find(r => r.localClonePath != null);
+        const fallback = list[0];
+        const initial = firstMapped ?? fallback;
+        if (initial) {
+          setSelectedKey(repoKey(initial));
+        }
+      }
+      catch (e) {
+        if (cancelled) return;
+        setReposError(e instanceof Error ? e.message : String(e));
+      }
+    })();
+    return () => { cancelled = true; };
+  }, []);
+
+  const plan = useMemo<Plan | null>(() => {
+    if (!repos || !selectedKey) return null;
+    const repo = repos.find(r => repoKey(r) === selectedKey);
+    if (!repo) return null;
+    return { repo, needsClone: repo.localClonePath == null };
+  }, [repos, selectedKey]);
+
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
     if (submitting) return;
-    if (!title.trim() || !workingDir.trim()) {
-      setError('Title and working directory are required.');
+    if (!title.trim()) {
+      setError('Title is required.');
+      return;
+    }
+    if (!plan) {
+      setError('Pick a repository to work in.');
       return;
     }
     setSubmitting(true);
     setError(null);
     try {
+      let workingDir = plan.repo.localClonePath;
+      if (plan.needsClone) {
+        setCloneStatus(`Cloning ${plan.repo.owner}/${plan.repo.repo}…`);
+        const destination = await window.bridge.defaultClonePath(
+          plan.repo.owner, plan.repo.repo);
+        const cloned = await window.bridge.cloneRepo(
+          plan.repo.owner, plan.repo.repo, destination);
+        workingDir = cloned.localClonePath;
+        setCloneStatus(null);
+      }
+      if (!workingDir) {
+        throw new Error('Repo has no local path even after cloning.');
+      }
       await window.bridge.createTask({
         kind,
         provider: 'claude-code',
         model: model.trim() || 'claude-sonnet-4.6',
         title: title.trim(),
-        workingDir: workingDir.trim(),
+        workingDir,
         initialPrompt: initialPrompt.trim() || undefined,
       });
       await onCreated();
     }
     catch (err) {
       setError(err instanceof Error ? err.message : String(err));
+      setCloneStatus(null);
       setSubmitting(false);
     }
   };
@@ -83,14 +147,37 @@ export default function NewTaskDialog({ onClose, onCreated }: Props) {
             />
           </Field>
 
-          <Field label="Working directory" hint="Absolute path; the agent runs git operations from here.">
-            <input
-              type="text"
-              value={workingDir}
-              onChange={e => setWorkingDir(e.target.value)}
-              placeholder="/Users/you/code/some-repo"
-              style={inputStyle}
-            />
+          <Field
+            label="Repository"
+            hint={plan?.needsClone
+              ? 'Not cloned yet — we will clone into the app default path before starting.'
+              : 'Pick a tracked repo. Manage the list in the Repos tab.'}
+          >
+            {reposError && (
+              <div style={errorBoxStyle}>Couldn't load repos: {reposError}</div>
+            )}
+            {repos === null && !reposError && (
+              <div style={mutedHintStyle}>Loading repos…</div>
+            )}
+            {repos !== null && repos.length === 0 && (
+              <div style={mutedHintStyle}>
+                No tracked repos yet. Add one in the Repos tab, then come back here.
+              </div>
+            )}
+            {repos !== null && repos.length > 0 && (
+              <select
+                value={selectedKey}
+                onChange={e => setSelectedKey(e.target.value)}
+                style={inputStyle}
+              >
+                {repos.map(r => (
+                  <option key={repoKey(r)} value={repoKey(r)}>
+                    {r.owner}/{r.repo}
+                    {r.localClonePath ? ` — ${r.localClonePath}` : ' (not cloned)'}
+                  </option>
+                ))}
+              </select>
+            )}
           </Field>
 
           <Field label="Model">
@@ -119,6 +206,9 @@ export default function NewTaskDialog({ onClose, onCreated }: Props) {
             />
           </Field>
 
+          {cloneStatus && (
+            <div style={infoBoxStyle}>{cloneStatus}</div>
+          )}
           {error && (
             <div style={errorBoxStyle}>{error}</div>
           )}
@@ -127,14 +217,25 @@ export default function NewTaskDialog({ onClose, onCreated }: Props) {
             <button type="button" onClick={onClose} style={cancelBtnStyle} disabled={submitting}>
               Cancel
             </button>
-            <button type="submit" style={submitBtnStyle} disabled={submitting}>
-              {submitting ? 'Starting…' : 'Start task'}
+            <button
+              type="submit"
+              style={submitBtnStyle}
+              disabled={submitting || !plan}
+              title={!plan ? 'Pick a repository first' : undefined}
+            >
+              {submitting
+                ? (plan?.needsClone ? 'Cloning…' : 'Starting…')
+                : (plan?.needsClone ? 'Clone & start' : 'Start task')}
             </button>
           </footer>
         </form>
       </div>
     </div>
   );
+}
+
+function repoKey(r: LocalRepoStatusDto): string {
+  return `${r.owner}/${r.repo}`;
 }
 
 function Field({ label, hint, children }: { label: string; hint?: string; children: React.ReactNode }) {
@@ -185,6 +286,7 @@ const formStyle: React.CSSProperties = { padding: 20, display: 'flex', flexDirec
 const fieldStyle: React.CSSProperties = { display: 'flex', flexDirection: 'column', gap: 4 };
 const fieldLabelStyle: React.CSSProperties = { fontSize: 12, fontWeight: 600, color: '#374151' };
 const fieldHintStyle: React.CSSProperties = { fontSize: 11, color: '#6B7280' };
+const mutedHintStyle: React.CSSProperties = { fontSize: 12, color: '#6B7280', padding: '6px 0' };
 const inputStyle: React.CSSProperties = {
   padding: '8px 10px',
   border: '1px solid #D1D5DB',
@@ -198,6 +300,14 @@ const errorBoxStyle: React.CSSProperties = {
   background: '#FEF2F2',
   color: '#991B1B',
   border: '1px solid #FCA5A5',
+  borderRadius: 6,
+  fontSize: 13,
+};
+const infoBoxStyle: React.CSSProperties = {
+  padding: '8px 12px',
+  background: '#EFF6FF',
+  color: '#1E40AF',
+  border: '1px solid #BFDBFE',
   borderRadius: 6,
   fontSize: 13,
 };

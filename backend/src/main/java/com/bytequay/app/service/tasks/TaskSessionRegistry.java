@@ -44,20 +44,27 @@ public class TaskSessionRegistry
     private final TaskStore store;
     private final StreamJsonParser parser;
     private final ObjectMapper mapper;
+    private final McpPermissionGate gate;
     private final ExecutorService executor;
     private final ConcurrentHashMap<String, AgentSession> sessions = new ConcurrentHashMap<>();
 
     @Autowired
-    public TaskSessionRegistry(TaskStore store, ObjectMapper mapper)
+    public TaskSessionRegistry(TaskStore store, ObjectMapper mapper, McpPermissionGate gate)
     {
-        this(store, new StreamJsonParser(mapper), mapper, ClaudeCodeCliSession.defaultExecutor());
+        this(store, new StreamJsonParser(mapper), mapper, gate, ClaudeCodeCliSession.defaultExecutor());
     }
 
-    TaskSessionRegistry(TaskStore store, StreamJsonParser parser, ObjectMapper mapper, ExecutorService executor)
+    TaskSessionRegistry(
+            TaskStore store,
+            StreamJsonParser parser,
+            ObjectMapper mapper,
+            McpPermissionGate gate,
+            ExecutorService executor)
     {
         this.store = requireNonNull(store, "store is null");
         this.parser = requireNonNull(parser, "parser is null");
         this.mapper = requireNonNull(mapper, "mapper is null");
+        this.gate = requireNonNull(gate, "gate is null");
         this.executor = requireNonNull(executor, "executor is null");
     }
 
@@ -88,7 +95,7 @@ public class TaskSessionRegistry
     private AgentSession build(Task task)
     {
         return switch (task.kind()) {
-            case CLI_AGENT -> new ClaudeCodeCliSession(task, store, parser, mapper, executor);
+            case CLI_AGENT -> new ClaudeCodeCliSession(task, store, parser, mapper, gate, executor);
             case LOGIC_LOOP -> throw new UnsupportedOperationException(
                     "LOGIC_LOOP sessions land in a later slice");
         };

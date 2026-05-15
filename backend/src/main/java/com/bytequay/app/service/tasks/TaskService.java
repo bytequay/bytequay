@@ -125,6 +125,14 @@ public class TaskService
         registry.evict(taskId);
     }
 
+    /** Surface a permission prompt in the conversation pane. Called
+     *  by the MCP controller when Claude's {@code approval_prompt}
+     *  tool fires. */
+    public void notifyPermissionRequested(String taskId, String callId, String toolName, String summary)
+    {
+        sessionOrThrow(taskId).notifyPermissionRequested(callId, toolName, summary);
+    }
+
     public void decide(String taskId, String callId, PermissionDecision decision)
     {
         sessionOrThrow(taskId).decide(callId, decision);

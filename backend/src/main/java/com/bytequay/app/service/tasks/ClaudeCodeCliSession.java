@@ -32,13 +32,13 @@ import java.io.IOException;
 import java.io.InputStreamReader;
 import java.io.OutputStream;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Instant;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
-import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -82,15 +82,14 @@ public class ClaudeCodeCliSession
     private final TaskStore store;
     private final StreamJsonParser parser;
     private final ToolFileOps fileOps;
+    private final McpPermissionGate gate;
     private final ExecutorService executor;
     private final CopyOnWriteArrayList<Consumer<StreamEvent>> listeners = new CopyOnWriteArrayList<>();
 
-    /** Pending permission decisions, keyed by the source tool's
-     *  {@code call_id}. Populated by {@link #decide}; consumed by the
-     *  permission-prompt MCP shim once we wire that up in a later
-     *  slice. Kept here so callers can already exercise the API. */
-    private final ConcurrentHashMap<String, PermissionDecision> pendingDecisions =
-            new ConcurrentHashMap<>();
+    /** Lazily-written MCP config file Claude reads via
+     *  {@code --mcp-config}. Same path for the lifetime of one
+     *  session; cleaned up on {@link #stop}. */
+    private final AtomicReference<Path> mcpConfigPath = new AtomicReference<>();
 
     private final AtomicReference<TaskStatus> status = new AtomicReference<>();
     private final AtomicReference<String> agentSessionId = new AtomicReference<>();
@@ -108,9 +107,10 @@ public class ClaudeCodeCliSession
             TaskStore store,
             StreamJsonParser parser,
             ObjectMapper mapper,
+            McpPermissionGate gate,
             ExecutorService executor)
     {
-        this(task, store, parser, mapper, executor, DEFAULT_BINARY);
+        this(task, store, parser, mapper, gate, executor, DEFAULT_BINARY);
     }
 
     ClaudeCodeCliSession(
@@ -118,6 +118,7 @@ public class ClaudeCodeCliSession
             TaskStore store,
             StreamJsonParser parser,
             ObjectMapper mapper,
+            McpPermissionGate gate,
             ExecutorService executor,
             String binary)
     {
@@ -134,6 +135,7 @@ public class ClaudeCodeCliSession
         this.store = requireNonNull(store, "store is null");
         this.parser = requireNonNull(parser, "parser is null");
         this.fileOps = new ToolFileOps(requireNonNull(mapper, "mapper is null"));
+        this.gate = requireNonNull(gate, "gate is null");
         this.executor = requireNonNull(executor, "executor is null");
         this.binary = requireNonNull(binary, "binary is null");
         this.status.set(task.status());
@@ -270,6 +272,18 @@ public class ClaudeCodeCliSession
             persistTaskSnapshot(Instant.now());
             publish(new StreamEvent.SessionEnded(Instant.now(), 0, null));
         }
+        cleanupMcpConfig();
+    }
+
+    @Override
+    public void notifyPermissionRequested(String callId, String toolName, String summary)
+    {
+        requireNonNull(callId, "callId is null");
+        publish(new StreamEvent.PermissionRequested(
+                Instant.now(),
+                callId,
+                toolName == null ? "tool" : toolName,
+                summary == null ? "" : summary));
     }
 
     @Override
@@ -277,8 +291,10 @@ public class ClaudeCodeCliSession
     {
         requireNonNull(callId, "callId is null");
         requireNonNull(decision, "decision is null");
-        // Idempotent: only the first decision for a callId wins.
-        pendingDecisions.putIfAbsent(callId, decision);
+        // Hand the decision to the MCP gate first — that unblocks the
+        // subprocess waiting on its tools/call response. Then publish
+        // the event for the conversation pane.
+        gate.decide(callId, decision);
         publish(new StreamEvent.PermissionDecided(Instant.now(), callId, decision));
     }
 
@@ -341,18 +357,13 @@ public class ClaudeCodeCliSession
 
     private ProcessBuilder buildCommand()
     {
-        // --dangerously-skip-permissions is needed because headless
-        // {@code -p} mode otherwise hangs the moment the agent wants
-        // to call a tool that requires a permission prompt. We accept
-        // the trade-off for v1: the user delegated the task on
-        // purpose. MCP-based gating wired through our Allow / Deny
-        // banner is the follow-up that earns this flag back.
         ImmutableList.Builder<String> argv = ImmutableList.<String>builder()
                 .add(binary)
                 .add("-p")
                 .add("--output-format", "stream-json")
                 .add("--verbose")
-                .add("--dangerously-skip-permissions");
+                .add("--mcp-config", ensureMcpConfig().toString())
+                .add("--permission-prompt-tool", "mcp__bytequay__approval_prompt");
         String resume = agentSessionId.get();
         if (resume != null && !resume.isBlank()) {
             argv.add("--resume", resume);
@@ -361,6 +372,44 @@ public class ClaudeCodeCliSession
         pb.directory(Path.of(workingDir).toFile());
         pb.redirectErrorStream(false);
         return pb;
+    }
+
+    /** Lazily writes the per-task MCP config to a temp file Claude
+     *  reads. Same path for the lifetime of the session — we only
+     *  rewrite if the temp file got nuked between turns. */
+    private Path ensureMcpConfig()
+    {
+        Path existing = mcpConfigPath.get();
+        if (existing != null && Files.isRegularFile(existing)) {
+            return existing;
+        }
+        try {
+            Path tmp = Files.createTempFile("bytequay-mcp-" + taskId + "-", ".json");
+            String json = "{\"mcpServers\":{\"bytequay\":{"
+                    + "\"type\":\"http\","
+                    + "\"url\":\"http://127.0.0.1:53123/api/tasks/" + taskId + "/mcp\""
+                    + "}}}";
+            Files.writeString(tmp, json, StandardCharsets.UTF_8);
+            tmp.toFile().deleteOnExit();
+            mcpConfigPath.set(tmp);
+            return tmp;
+        }
+        catch (IOException e) {
+            throw new IllegalStateException("Failed to write MCP config for task " + taskId, e);
+        }
+    }
+
+    private void cleanupMcpConfig()
+    {
+        Path p = mcpConfigPath.getAndSet(null);
+        if (p != null) {
+            try {
+                Files.deleteIfExists(p);
+            }
+            catch (IOException ignored) {
+                // Best-effort — temp file gets cleaned on JVM exit anyway.
+            }
+        }
     }
 
     private void consumeStdout(Process process)

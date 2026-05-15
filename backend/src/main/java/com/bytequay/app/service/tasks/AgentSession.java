@@ -100,6 +100,12 @@ public interface AgentSession
      *  {@link TaskStatus#ERRORED} if a failure prompted the stop). */
     void stop();
 
+    /** Inject a permission prompt — called by the MCP controller when
+     *  Claude's {@code approval_prompt} tool fires. Surfaces a
+     *  {@link StreamEvent.PermissionRequested} in the conversation
+     *  pane and persists a row so the prompt survives a refresh. */
+    void notifyPermissionRequested(String callId, String toolName, String summary);
+
     /** User's response to a {@link StreamEvent.PermissionRequested}.
      *  Idempotent for the same {@code callId}; later calls are
      *  ignored. */

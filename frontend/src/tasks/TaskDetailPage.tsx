@@ -731,98 +731,108 @@ const monoFont = '"SF Mono", "JetBrains Mono", Menlo, Consolas, monospace';
 // only this top-level component knows the theme.
 // ────────────────────────────────────────────────────────────────────
 
+// Dark palette tuned toward GitHub "Dark Dimmed" — softer foreground
+// values so long sessions don't fatigue the eye. The user explicitly
+// asked for less-bright text and accents; the previous values
+// (#f0f6fc text, #b794f4 / #79c0ff / #56d364 / #ffd33d accents) were
+// fluorescent against the near-black background.
 const DARK_TERM = {
   bg: '#0d1117',
   bgElev1: '#13181f',          // gradient end (toolbar/status bar)
   bgElev2: '#161b22',          // gradient start
   bgResult: '#161b22',         // tool result body
   bgResultHead: '#1c2128',
+  bgInput: '#11161e',          // subtle elevation so the input field
+                               // reads as its own zone but doesn't pop
   border: '#21262d',
   borderSubtle: '#1c2228',
 
-  text: '#c9d1d9',
-  textBright: '#f0f6fc',
-  textMuted: '#8b949e',
-  textDim: '#6e7681',
+  text: '#adbac7',             // GitHub Dark Dimmed default fg
+  textBright: '#cdd9e5',       // softer than #f0f6fc, still readable
+  textMuted: '#768390',
+  textDim: '#636e7b',
 
-  user: '#b794f4',
-  read: '#79c0ff',
-  write: '#f0883e',
-  edit: '#ffd33d',
-  bash: '#f85149',
-  ok: '#56d364',
-  err: '#f85149',
-  warn: '#d29922',
-  pathFg: '#56d364',
-  bannerCwd: '#79c0ff',
-  bannerMod: '#ffa657',
+  user: '#986ee2',             // softer than #b794f4
+  read: '#539bf5',             // softer than #79c0ff
+  write: '#e0823d',            // less neon than #f0883e
+  edit: '#daaa3f',             // way softer than #ffd33d (was painful)
+  bash: '#e5534b',
+  ok: '#57ab5a',               // softer than #56d364
+  err: '#e5534b',              // softer than #f85149
+  warn: '#c69026',
+  pathFg: '#57ab5a',
+  bannerCwd: '#539bf5',
+  bannerMod: '#e0823d',
 
-  userBg: 'rgba(183,148,244,0.06)',
-  errorBg: 'rgba(248,81,73,0.06)',
-  toolBg: 'rgba(255,255,255,0.025)',
-  pillFg: '#f0883e',
-  pillBg: 'rgba(240,136,62,0.10)',
-  pillBorder: 'rgba(240,136,62,0.18)',
-  pathBg: 'rgba(86,211,100,0.08)',
-  pathBorder: 'rgba(86,211,100,0.18)',
+  userBg: 'rgba(152,110,226,0.07)',
+  errorBg: 'rgba(229,83,75,0.06)',
+  toolBg: 'rgba(255,255,255,0.022)',
+  pillFg: '#e0823d',
+  pillBg: 'rgba(224,130,61,0.09)',
+  pillBorder: 'rgba(224,130,61,0.20)',
+  pathBg: 'rgba(87,171,90,0.08)',
+  pathBorder: 'rgba(87,171,90,0.20)',
 
-  cursor: '#f0f6fc',
+  cursor: '#cdd9e5',           // matches softened bright-text
   kbdBg: '#1c2128',
   kbdBorder: '#30363d',
 
-  permissionBg: '#7C2D12',
-  permissionBorder: '#C2410C',
-  permissionText: '#FDBA74',
-  permissionTextStrong: '#FED7AA',
+  permissionBg: '#5c2510',
+  permissionBorder: '#a3461d',
+  permissionText: '#f4b78f',
+  permissionTextStrong: '#fcd9b6',
 
-  sendBgStart: '#b794f4',
-  sendBgEnd: '#7c5cff',
+  sendBgStart: '#986ee2',
+  sendBgEnd: '#6f56c2',
   sendText: '#0d1117',
 
   toggleBg: 'rgba(255,255,255,0.06)',
   toggleHoverBg: 'rgba(255,255,255,0.12)',
-  toggleColor: '#c9d1d9',
+  toggleColor: '#adbac7',
 
   shadow: '0 4px 14px rgba(13,17,23,0.18), 0 1px 3px rgba(13,17,23,0.10)',
   divider: 'rgba(255,255,255,0.04)',
 } as const;
 
+// Light palette mirrors the GitHub Primer light tokens used in
+// docs/mockups/v2/tasks/_src/task-detail-terminal-light.html.
 const LIGHT_TERM = {
   bg: '#ffffff',
-  bgElev1: '#f6f8fa',
-  bgElev2: '#fafbfc',
+  bgElev1: '#eaeef2',          // status bar gradient end
+  bgElev2: '#f6f8fa',          // status bar gradient start
   bgResult: '#f6f8fa',
   bgResultHead: '#eaeef2',
+  bgInput: '#fbfcfd',          // very subtle off-white field
   border: '#d0d7de',
   borderSubtle: '#eaeef2',
 
-  text: '#24292f',
+  text: '#1f2328',
   textBright: '#0e1116',
   textMuted: '#57606a',
   textDim: '#6e7781',
 
   user: '#8250df',
   read: '#0969da',
-  write: '#bc4c00',
-  edit: '#9a6700',
+  write: '#9a6700',
+  edit: '#bf8700',
   bash: '#cf222e',
   ok: '#1a7f37',
   err: '#cf222e',
   warn: '#9a6700',
   pathFg: '#1a7f37',
   bannerCwd: '#0969da',
-  bannerMod: '#bc4c00',
+  bannerMod: '#9a6700',
 
-  userBg: 'rgba(130,80,223,0.06)',
-  errorBg: 'rgba(207,34,46,0.06)',
-  toolBg: 'rgba(0,0,0,0.025)',
-  pillFg: '#bc4c00',
-  pillBg: 'rgba(188,76,0,0.06)',
-  pillBorder: 'rgba(188,76,0,0.20)',
-  pathBg: 'rgba(26,127,55,0.06)',
-  pathBorder: 'rgba(26,127,55,0.20)',
+  userBg: '#fbf7ff',
+  errorBg: '#ffebe9',
+  toolBg: '#f6f8fa',
+  pillFg: '#cf222e',
+  pillBg: '#fff',
+  pillBorder: '#d0d7de',
+  pathBg: '#dafbe1',
+  pathBorder: '#1a7f37',
 
-  cursor: '#24292f',
+  cursor: '#1f2328',
   kbdBg: '#f6f8fa',
   kbdBorder: '#d0d7de',
 
@@ -832,7 +842,7 @@ const LIGHT_TERM = {
   permissionTextStrong: '#7c2d12',
 
   sendBgStart: '#8250df',
-  sendBgEnd: '#6639ba',
+  sendBgEnd: '#6f42c1',
   sendText: '#ffffff',
 
   toggleBg: 'rgba(0,0,0,0.04)',
@@ -852,6 +862,7 @@ function termCssVars(theme: TermTheme): React.CSSProperties {
     '--term-bg-elev2': p.bgElev2,
     '--term-bg-result': p.bgResult,
     '--term-bg-result-head': p.bgResultHead,
+    '--term-bg-input': p.bgInput,
     '--term-border': p.border,
     '--term-border-subtle': p.borderSubtle,
 
@@ -1052,12 +1063,19 @@ const runningDotStyle: React.CSSProperties = {
 
 const termInputStyle: React.CSSProperties = {
   padding: '12px 18px 14px',
-  background: 'var(--term-bg)',
+  // Subtle elevation against the scrollback so the field reads as
+  // its own zone — the user asked for "a little bit obvious, not
+  // too much", so a single near-invisible step.
+  background: 'var(--term-bg-input)',
   borderTop: '1px solid var(--term-border)',
   flexShrink: 0,
 };
 const termInputRowStyle: React.CSSProperties = {
   display: 'flex', alignItems: 'flex-start', gap: 10,
+  padding: '8px 12px',
+  background: 'var(--term-bg)',
+  border: '1px solid var(--term-border)',
+  borderRadius: 8,
   fontFamily: monoFont, fontSize: 13.5,
 };
 const termPromptStyle: React.CSSProperties = {

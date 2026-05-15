@@ -52,13 +52,13 @@ const TOOL_KIND: Record<string, ToolKind> = {
 };
 
 const TOOL_COLOR: Record<ToolKind, string> = {
-  read: '#79c0ff',
-  write: '#f0883e',
-  edit: '#ffd33d',
-  bash: '#f85149',
-  grep: '#56d364',
-  plan: '#d2a8ff',
-  other: '#8b949e',
+  read: 'var(--term-read)',
+  write: 'var(--term-write)',
+  edit: 'var(--term-edit)',
+  bash: 'var(--term-bash)',
+  grep: 'var(--term-ok)',
+  plan: 'var(--term-user)',
+  other: 'var(--term-text-muted)',
 };
 
 /**
@@ -235,9 +235,7 @@ function ToolBlock({ call, result }: { call: TaskMessageDto; result: TaskMessage
       <div style={{
         ...toolLineStyle,
         borderLeftColor: color,
-        background: isStreaming
-          ? 'linear-gradient(180deg, rgba(210,168,255,0.10) 0%, rgba(210,168,255,0.04) 100%)'
-          : 'rgba(255,255,255,0.025)',
+        background: isStreaming ? 'var(--term-user-bg)' : 'var(--term-tool-bg)',
       }}>
         <span style={toolGlyphStyle}>{isStreaming ? '▶' : '⎿'}</span>
         <span style={{ ...toolNameStyle, color }}>{toolName}</span>
@@ -283,8 +281,8 @@ function ToolResult({ result }: { result: TaskMessageDto }) {
       </div>
       <pre style={{
         ...preStyle,
-        color: isError ? '#ffdcd7' : '#c9d1d9',
-        background: isError ? 'rgba(248,81,73,0.06)' : 'transparent',
+        color: isError ? 'var(--term-err)' : 'var(--term-text)',
+        background: isError ? 'var(--term-error-bg)' : 'transparent',
       }}>{truncated}</pre>
     </div>
   );
@@ -587,65 +585,69 @@ function renderInline(text: string): React.ReactNode {
 
 const monoFont = '"SF Mono", "JetBrains Mono", Menlo, Consolas, monospace';
 
+// All theme-sensitive colors are CSS custom properties set on the
+// terminal-wrap div in TaskDetailPage. ConversationPane just reads
+// them via var(--term-*) — see DARK_TERM / LIGHT_TERM there.
+
 const scrollStyle: React.CSSProperties = {
   flex: 1,
   minHeight: 0,
   overflowY: 'auto',
   padding: '16px 22px 4px',
-  background: '#0d1117',
-  color: '#c9d1d9',
+  background: 'var(--term-bg)',
+  color: 'var(--term-text)',
   fontFamily: monoFont,
   fontSize: 13,
   lineHeight: 1.65,
 };
 const emptyHintStyle: React.CSSProperties = {
-  color: '#6e7681', textAlign: 'center', padding: '40px 0',
+  color: 'var(--term-text-dim)', textAlign: 'center', padding: '40px 0',
 };
 const bannerStyle: React.CSSProperties = {
-  borderBottom: '1px dashed #21262d',
+  borderBottom: '1px dashed var(--term-border)',
   paddingBottom: 10,
   marginBottom: 12,
   fontSize: 11.5,
-  color: '#6e7681',
+  color: 'var(--term-text-dim)',
   lineHeight: 1.7,
 };
-const bannerNameStyle: React.CSSProperties = { color: '#f0f6fc', fontWeight: 700 };
-const bannerVerStyle: React.CSSProperties = { color: '#d2a8ff' };
-const bannerModStyle: React.CSSProperties = { color: '#ffa657' };
-const bannerCwdStyle: React.CSSProperties = { color: '#79c0ff' };
-const dimStyle: React.CSSProperties = { color: '#6e7681' };
-const boldStyle: React.CSSProperties = { color: '#f0f6fc', fontWeight: 700 };
+const bannerNameStyle: React.CSSProperties = { color: 'var(--term-text-bright)', fontWeight: 700 };
+const bannerVerStyle: React.CSSProperties = { color: 'var(--term-user)' };
+const bannerModStyle: React.CSSProperties = { color: 'var(--term-banner-mod)' };
+const bannerCwdStyle: React.CSSProperties = { color: 'var(--term-banner-cwd)' };
+const dimStyle: React.CSSProperties = { color: 'var(--term-text-dim)' };
+const boldStyle: React.CSSProperties = { color: 'var(--term-text-bright)', fontWeight: 700 };
 const kbdStyle: React.CSSProperties = {
-  background: '#1c2128', border: '1px solid #30363d',
-  padding: '0 5px', borderRadius: 3, color: '#c9d1d9',
+  background: 'var(--term-kbd-bg)', border: '1px solid var(--term-kbd-border)',
+  padding: '0 5px', borderRadius: 3, color: 'var(--term-text)',
   fontSize: 9.5, margin: '0 1px',
 };
 
 const userBlockStyle: React.CSSProperties = {
-  background: 'rgba(183,148,244,0.06)',
-  borderLeft: '3px solid #b794f4',
+  background: 'var(--term-user-bg)',
+  borderLeft: '3px solid var(--term-user)',
   borderRadius: '0 6px 6px 0',
   padding: '8px 14px',
   margin: '12px 0',
-  color: '#e6edf3',
+  color: 'var(--term-text-bright)',
 };
 const userGlyphStyle: React.CSSProperties = {
-  color: '#b794f4', fontWeight: 700, marginRight: 2,
+  color: 'var(--term-user)', fontWeight: 700, marginRight: 2,
 };
 
 const thinkingStyle: React.CSSProperties = {
-  color: '#6e7681',
+  color: 'var(--term-text-dim)',
   fontStyle: 'italic',
   padding: '4px 0',
   margin: '6px 0',
   fontSize: 12.5,
 };
 const thinkingGlyphStyle: React.CSSProperties = {
-  color: '#d2a8ff', fontStyle: 'normal', marginRight: 2,
+  color: 'var(--term-user)', fontStyle: 'normal', marginRight: 2,
 };
 
 const proseStyle: React.CSSProperties = {
-  color: '#c9d1d9', padding: '6px 0', margin: '10px 0',
+  color: 'var(--term-text)', padding: '6px 0', margin: '10px 0',
 };
 const proseParaStyle: React.CSSProperties = {
   margin: '0 0 10px', lineHeight: 1.7,
@@ -658,39 +660,39 @@ const toolLineStyle: React.CSSProperties = {
   borderLeft: '3px solid transparent',
   borderRadius: '0 4px 4px 0',
 };
-const toolGlyphStyle: React.CSSProperties = { color: '#6e7681', flexShrink: 0 };
+const toolGlyphStyle: React.CSSProperties = { color: 'var(--term-text-dim)', flexShrink: 0 };
 const toolNameStyle: React.CSSProperties = {
   fontWeight: 700, textTransform: 'lowercase', fontSize: 12.5,
 };
 const toolArgsStyle: React.CSSProperties = {
-  color: '#56d364',
+  color: 'var(--term-path)',
   overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
   flex: 1, minWidth: 0,
 };
 const toolResultLineStyle: React.CSSProperties = {
-  color: '#8b949e',
+  color: 'var(--term-text-muted)',
   padding: '3px 10px 5px 32px',
   fontSize: 12.5,
   display: 'flex', alignItems: 'center', gap: 6,
 };
 const toolResultBlockStyle: React.CSSProperties = {
   margin: '4px 10px 6px 32px',
-  background: '#161b22',
-  border: '1px solid #21262d',
+  background: 'var(--term-bg-result)',
+  border: '1px solid var(--term-border)',
   borderRadius: 6,
   overflow: 'hidden',
   fontSize: 11.5,
 };
 const toolResultHeadStyle: React.CSSProperties = {
   padding: '5px 12px',
-  background: '#1c2128',
-  borderBottom: '1px solid #21262d',
+  background: 'var(--term-bg-result-head)',
+  borderBottom: '1px solid var(--term-border)',
   display: 'flex', alignItems: 'center', gap: 6,
-  color: '#8b949e', fontSize: 11,
+  color: 'var(--term-text-muted)', fontSize: 11,
 };
-const okGlyphStyle: React.CSSProperties = { color: '#56d364', fontWeight: 700, marginRight: 4 };
-const errorGlyphStyle: React.CSSProperties = { color: '#f85149', fontWeight: 700, marginRight: 4 };
-const warnGlyphStyle: React.CSSProperties = { color: '#d29922', fontWeight: 700, marginRight: 4 };
+const okGlyphStyle: React.CSSProperties = { color: 'var(--term-ok)', fontWeight: 700, marginRight: 4 };
+const errorGlyphStyle: React.CSSProperties = { color: 'var(--term-err)', fontWeight: 700, marginRight: 4 };
+const warnGlyphStyle: React.CSSProperties = { color: 'var(--term-warn)', fontWeight: 700, marginRight: 4 };
 
 const preStyle: React.CSSProperties = {
   margin: 0,
@@ -702,29 +704,29 @@ const preStyle: React.CSSProperties = {
   wordBreak: 'break-word',
 };
 const inlineCodeStyle: React.CSSProperties = {
-  color: '#f0883e',
-  background: 'rgba(240,136,62,0.10)',
-  border: '1px solid rgba(240,136,62,0.18)',
+  color: 'var(--term-pill-fg)',
+  background: 'var(--term-pill-bg)',
+  border: '1px solid var(--term-pill-border)',
   padding: '1px 5px',
   borderRadius: 3,
   fontSize: 12,
   fontFamily: monoFont,
 };
 const pathInlineStyle: React.CSSProperties = {
-  color: '#56d364',
-  background: 'rgba(86,211,100,0.08)',
-  border: '1px solid rgba(86,211,100,0.18)',
+  color: 'var(--term-path)',
+  background: 'var(--term-path-bg)',
+  border: '1px solid var(--term-path-border)',
   padding: '1px 5px',
   borderRadius: 3,
   fontSize: 12,
   fontFamily: monoFont,
 };
-const lineRefStyle: React.CSSProperties = { color: '#d2a8ff', fontWeight: 600 };
+const lineRefStyle: React.CSSProperties = { color: 'var(--term-user)', fontWeight: 600 };
 
 const collapseBtnStyle: React.CSSProperties = {
   background: 'transparent',
   border: 'none',
-  color: '#6e7681',
+  color: 'var(--term-text-dim)',
   fontFamily: monoFont,
   fontSize: 11,
   cursor: 'pointer',
@@ -734,7 +736,7 @@ const cursorStyle: React.CSSProperties = {
   display: 'inline-block',
   width: 8,
   height: 14,
-  background: '#f0f6fc',
+  background: 'var(--term-cursor)',
   marginLeft: 2,
   verticalAlign: 'text-bottom',
   animation: 'bytequay-blink 1s steps(2) infinite',
@@ -743,24 +745,24 @@ const cursorStyle: React.CSSProperties = {
 const turnDividerStyle: React.CSSProperties = {
   display: 'flex', alignItems: 'center', justifyContent: 'center',
   padding: '8px 0', margin: '14px -8px',
-  borderTop: '1px dashed #21262d',
+  borderTop: '1px dashed var(--term-border)',
 };
 const turnDividerLabelStyle: React.CSSProperties = {
-  fontSize: 11, color: '#94A3B8', fontStyle: 'italic',
-  background: '#0d1117', padding: '0 12px', marginTop: -16,
+  fontSize: 11, color: 'var(--term-text-dim)', fontStyle: 'italic',
+  background: 'var(--term-bg)', padding: '0 12px', marginTop: -16,
 };
 
 const errorBlockStyle: React.CSSProperties = {
-  color: '#f85149',
-  background: 'rgba(248,81,73,0.06)',
-  border: '1px solid rgba(248,81,73,0.18)',
+  color: 'var(--term-err)',
+  background: 'var(--term-error-bg)',
+  border: '1px solid var(--term-permission-border)',
   borderRadius: 4,
   padding: '6px 10px',
   margin: '8px 0',
 };
 
 const lifecycleStyle: React.CSSProperties = {
-  color: '#8b949e', fontSize: 12, padding: '2px 0',
+  color: 'var(--term-text-muted)', fontSize: 12, padding: '2px 0',
 };
 
 const permissionStyle: React.CSSProperties = {
@@ -770,15 +772,17 @@ const permissionStyle: React.CSSProperties = {
   gap: 16,
   marginTop: 12,
   padding: '12px 14px',
-  background: '#7C2D12',
-  border: '1px solid #C2410C',
+  background: 'var(--term-permission-bg)',
+  border: '1px solid var(--term-permission-border)',
   borderRadius: 6,
 };
-const permissionTitleStyle: React.CSSProperties = { color: '#FED7AA', fontSize: 13 };
+const permissionTitleStyle: React.CSSProperties = { color: 'var(--term-permission-text-strong)', fontSize: 13 };
 const permissionSummaryStyle: React.CSSProperties = {
-  color: '#FDBA74', fontSize: 12, marginTop: 2,
+  color: 'var(--term-permission-text)', fontSize: 12, marginTop: 2,
 };
 const allowBtnStyle: React.CSSProperties = {
+  // Allow stays vivid green in both themes — it's the high-confidence
+  // affirmative action and shouldn't recede in light mode.
   padding: '6px 14px',
   background: '#10B981',
   color: '#fff',
@@ -790,8 +794,8 @@ const allowBtnStyle: React.CSSProperties = {
 const denyBtnStyle: React.CSSProperties = {
   padding: '6px 14px',
   background: 'transparent',
-  color: '#FED7AA',
-  border: '1px solid #C2410C',
+  color: 'var(--term-permission-text-strong)',
+  border: '1px solid var(--term-permission-border)',
   borderRadius: 4,
   cursor: 'pointer',
 };

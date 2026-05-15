@@ -33,12 +33,32 @@ const POLL_MS_TERMINAL = 0;
  * <p>SSE through Electron is deferred; we poll on a status-aware
  * cadence (1s while RUNNING, 5s otherwise, off when terminal).
  */
+type TermTheme = 'dark' | 'light';
+
+const THEME_STORAGE_KEY = 'bytequay.tasks.terminalTheme';
+
+function loadTheme(): TermTheme {
+  try {
+    const v = window.localStorage.getItem(THEME_STORAGE_KEY);
+    return v === 'light' ? 'light' : 'dark';
+  }
+  catch {
+    return 'dark';
+  }
+}
+
 export default function TaskDetailPage({ taskId, onBack }: Props) {
   const [task, setTask] = useState<TaskDto | null>(null);
   const [messages, setMessages] = useState<TaskMessageDto[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [draft, setDraft] = useState('');
   const [sending, setSending] = useState(false);
+  const [theme, setTheme] = useState<TermTheme>(loadTheme);
+
+  useEffect(() => {
+    try { window.localStorage.setItem(THEME_STORAGE_KEY, theme); }
+    catch { /* private browsing — fine to skip */ }
+  }, [theme]);
 
   const refresh = useCallback(async () => {
     try {
@@ -148,7 +168,7 @@ export default function TaskDetailPage({ taskId, onBack }: Props) {
         canStop={!isTerminal}
       />
 
-      <div style={bodyGridStyle}>
+      <div style={{ ...bodyGridStyle, ...termCssVars(theme) }}>
         <TerminalWrap
           task={task}
           messages={messages}
@@ -161,6 +181,8 @@ export default function TaskDetailPage({ taskId, onBack }: Props) {
           onInterrupt={onInterrupt}
           sending={sending}
           isTerminal={isTerminal}
+          theme={theme}
+          onToggleTheme={() => setTheme(t => t === 'dark' ? 'light' : 'dark')}
         />
 
         <Sidebar task={task} stage={stage} />
@@ -257,6 +279,8 @@ function TerminalWrap({
   onInterrupt,
   sending,
   isTerminal,
+  theme,
+  onToggleTheme,
 }: {
   task: TaskDto;
   messages: TaskMessageDto[];
@@ -269,6 +293,8 @@ function TerminalWrap({
   onInterrupt: () => void;
   sending: boolean;
   isTerminal: boolean;
+  theme: TermTheme;
+  onToggleTheme: () => void;
 }) {
   return (
     <div style={terminalWrapStyle}>
@@ -280,11 +306,19 @@ function TerminalWrap({
         </div>
         <span style={termNameStyle}>
           claude-code <span style={termBadgeStyle}>stream-json</span>
-          <span style={sessionIdStyle}> {shortenPath(task.workingDir)}</span>
+          <span style={sessionIdStyleTerminal}> {shortenPath(task.workingDir)}</span>
           {task.branchName && (
-            <span style={sessionIdStyle}> · {task.branchName}</span>
+            <span style={sessionIdStyleTerminal}> · {task.branchName}</span>
           )}
         </span>
+        <button
+          type="button"
+          onClick={onToggleTheme}
+          style={themeToggleStyle}
+          title={theme === 'dark' ? 'Switch to light theme' : 'Switch to dark theme'}
+        >
+          {theme === 'dark' ? '☀' : '☾'}
+        </button>
       </div>
 
       <ConversationPane
@@ -672,15 +706,17 @@ function shortenPath(path: string): string {
   return path.startsWith(home) ? '~' + path.slice(home.length) : path;
 }
 
+// Legend swatches read the same vars the terminal uses, so light /
+// dark mode matches the actual rendering one-for-one.
 const LEGEND: Array<{ color: string; label: string }> = [
-  { color: '#b794f4', label: 'User input' },
-  { color: '#6e7681', label: 'Thinking · dim' },
-  { color: '#79c0ff', label: 'Read · classes' },
-  { color: '#f0883e', label: 'Write · `inline`' },
-  { color: '#ffd33d', label: 'Edit' },
-  { color: '#f85149', label: 'Bash · errors' },
-  { color: '#56d364', label: 'Paths · success' },
-  { color: '#d2a8ff', label: 'Line refs' },
+  { color: 'var(--term-user)', label: 'User input' },
+  { color: 'var(--term-text-dim)', label: 'Thinking · dim' },
+  { color: 'var(--term-read)', label: 'Read · classes' },
+  { color: 'var(--term-write)', label: 'Write · `inline`' },
+  { color: 'var(--term-edit)', label: 'Edit' },
+  { color: 'var(--term-bash)', label: 'Bash · errors' },
+  { color: 'var(--term-path)', label: 'Paths · success' },
+  { color: 'var(--term-user)', label: 'Line refs' },
 ];
 
 // ────────────────────────────────────────────────────────────────────
@@ -688,6 +724,183 @@ const LEGEND: Array<{ color: string; label: string }> = [
 // ────────────────────────────────────────────────────────────────────
 
 const monoFont = '"SF Mono", "JetBrains Mono", Menlo, Consolas, monospace';
+
+// ────────────────────────────────────────────────────────────────────
+// Terminal palette — applied as CSS custom properties on the
+// terminal-wrap div. ConversationPane reads via var(--term-*) so
+// only this top-level component knows the theme.
+// ────────────────────────────────────────────────────────────────────
+
+const DARK_TERM = {
+  bg: '#0d1117',
+  bgElev1: '#13181f',          // gradient end (toolbar/status bar)
+  bgElev2: '#161b22',          // gradient start
+  bgResult: '#161b22',         // tool result body
+  bgResultHead: '#1c2128',
+  border: '#21262d',
+  borderSubtle: '#1c2228',
+
+  text: '#c9d1d9',
+  textBright: '#f0f6fc',
+  textMuted: '#8b949e',
+  textDim: '#6e7681',
+
+  user: '#b794f4',
+  read: '#79c0ff',
+  write: '#f0883e',
+  edit: '#ffd33d',
+  bash: '#f85149',
+  ok: '#56d364',
+  err: '#f85149',
+  warn: '#d29922',
+  pathFg: '#56d364',
+  bannerCwd: '#79c0ff',
+  bannerMod: '#ffa657',
+
+  userBg: 'rgba(183,148,244,0.06)',
+  errorBg: 'rgba(248,81,73,0.06)',
+  toolBg: 'rgba(255,255,255,0.025)',
+  pillFg: '#f0883e',
+  pillBg: 'rgba(240,136,62,0.10)',
+  pillBorder: 'rgba(240,136,62,0.18)',
+  pathBg: 'rgba(86,211,100,0.08)',
+  pathBorder: 'rgba(86,211,100,0.18)',
+
+  cursor: '#f0f6fc',
+  kbdBg: '#1c2128',
+  kbdBorder: '#30363d',
+
+  permissionBg: '#7C2D12',
+  permissionBorder: '#C2410C',
+  permissionText: '#FDBA74',
+  permissionTextStrong: '#FED7AA',
+
+  sendBgStart: '#b794f4',
+  sendBgEnd: '#7c5cff',
+  sendText: '#0d1117',
+
+  toggleBg: 'rgba(255,255,255,0.06)',
+  toggleHoverBg: 'rgba(255,255,255,0.12)',
+  toggleColor: '#c9d1d9',
+
+  shadow: '0 4px 14px rgba(13,17,23,0.18), 0 1px 3px rgba(13,17,23,0.10)',
+  divider: 'rgba(255,255,255,0.04)',
+} as const;
+
+const LIGHT_TERM = {
+  bg: '#ffffff',
+  bgElev1: '#f6f8fa',
+  bgElev2: '#fafbfc',
+  bgResult: '#f6f8fa',
+  bgResultHead: '#eaeef2',
+  border: '#d0d7de',
+  borderSubtle: '#eaeef2',
+
+  text: '#24292f',
+  textBright: '#0e1116',
+  textMuted: '#57606a',
+  textDim: '#6e7781',
+
+  user: '#8250df',
+  read: '#0969da',
+  write: '#bc4c00',
+  edit: '#9a6700',
+  bash: '#cf222e',
+  ok: '#1a7f37',
+  err: '#cf222e',
+  warn: '#9a6700',
+  pathFg: '#1a7f37',
+  bannerCwd: '#0969da',
+  bannerMod: '#bc4c00',
+
+  userBg: 'rgba(130,80,223,0.06)',
+  errorBg: 'rgba(207,34,46,0.06)',
+  toolBg: 'rgba(0,0,0,0.025)',
+  pillFg: '#bc4c00',
+  pillBg: 'rgba(188,76,0,0.06)',
+  pillBorder: 'rgba(188,76,0,0.20)',
+  pathBg: 'rgba(26,127,55,0.06)',
+  pathBorder: 'rgba(26,127,55,0.20)',
+
+  cursor: '#24292f',
+  kbdBg: '#f6f8fa',
+  kbdBorder: '#d0d7de',
+
+  permissionBg: '#fff7ed',
+  permissionBorder: '#fed7aa',
+  permissionText: '#9a3412',
+  permissionTextStrong: '#7c2d12',
+
+  sendBgStart: '#8250df',
+  sendBgEnd: '#6639ba',
+  sendText: '#ffffff',
+
+  toggleBg: 'rgba(0,0,0,0.04)',
+  toggleHoverBg: 'rgba(0,0,0,0.08)',
+  toggleColor: '#57606a',
+
+  shadow: '0 1px 3px rgba(0,0,0,0.06), 0 0 0 1px rgba(0,0,0,0.02)',
+  divider: 'rgba(0,0,0,0.04)',
+} as const;
+
+function termCssVars(theme: TermTheme): React.CSSProperties {
+  const p = theme === 'dark' ? DARK_TERM : LIGHT_TERM;
+  // Cast — React.CSSProperties doesn't enumerate custom properties.
+  return {
+    '--term-bg': p.bg,
+    '--term-bg-elev1': p.bgElev1,
+    '--term-bg-elev2': p.bgElev2,
+    '--term-bg-result': p.bgResult,
+    '--term-bg-result-head': p.bgResultHead,
+    '--term-border': p.border,
+    '--term-border-subtle': p.borderSubtle,
+
+    '--term-text': p.text,
+    '--term-text-bright': p.textBright,
+    '--term-text-muted': p.textMuted,
+    '--term-text-dim': p.textDim,
+
+    '--term-user': p.user,
+    '--term-read': p.read,
+    '--term-write': p.write,
+    '--term-edit': p.edit,
+    '--term-bash': p.bash,
+    '--term-ok': p.ok,
+    '--term-err': p.err,
+    '--term-warn': p.warn,
+    '--term-path': p.pathFg,
+    '--term-banner-cwd': p.bannerCwd,
+    '--term-banner-mod': p.bannerMod,
+
+    '--term-user-bg': p.userBg,
+    '--term-error-bg': p.errorBg,
+    '--term-tool-bg': p.toolBg,
+    '--term-pill-fg': p.pillFg,
+    '--term-pill-bg': p.pillBg,
+    '--term-pill-border': p.pillBorder,
+    '--term-path-bg': p.pathBg,
+    '--term-path-border': p.pathBorder,
+
+    '--term-cursor': p.cursor,
+    '--term-kbd-bg': p.kbdBg,
+    '--term-kbd-border': p.kbdBorder,
+
+    '--term-permission-bg': p.permissionBg,
+    '--term-permission-border': p.permissionBorder,
+    '--term-permission-text': p.permissionText,
+    '--term-permission-text-strong': p.permissionTextStrong,
+
+    '--term-send-bg-start': p.sendBgStart,
+    '--term-send-bg-end': p.sendBgEnd,
+    '--term-send-text': p.sendText,
+
+    '--term-toggle-bg': p.toggleBg,
+    '--term-toggle-color': p.toggleColor,
+
+    '--term-shadow': p.shadow,
+    '--term-divider': p.divider,
+  } as React.CSSProperties;
+}
 
 const pageStyle: React.CSSProperties = {
   display: 'flex',
@@ -771,10 +984,10 @@ const bodyGridStyle: React.CSSProperties = {
 };
 
 const terminalWrapStyle: React.CSSProperties = {
-  background: '#0d1117',
-  border: '1px solid #21262d',
+  background: 'var(--term-bg)',
+  border: '1px solid var(--term-border)',
   borderRadius: 12,
-  boxShadow: '0 4px 14px rgba(13,17,23,0.18), 0 1px 3px rgba(13,17,23,0.10)',
+  boxShadow: 'var(--term-shadow)',
   overflow: 'hidden',
   display: 'flex', flexDirection: 'column',
   height: 'calc(100vh - 220px)',
@@ -783,9 +996,9 @@ const terminalWrapStyle: React.CSSProperties = {
 const termToolbarStyle: React.CSSProperties = {
   display: 'flex', alignItems: 'center', gap: 12,
   padding: '9px 18px',
-  background: 'linear-gradient(180deg, #161b22 0%, #13181f 100%)',
-  borderBottom: '1px solid #21262d',
-  fontSize: 12, color: '#8b949e',
+  background: 'linear-gradient(180deg, var(--term-bg-elev2) 0%, var(--term-bg-elev1) 100%)',
+  borderBottom: '1px solid var(--term-border)',
+  fontSize: 12, color: 'var(--term-text-muted)',
   flexShrink: 0,
 };
 const trafficStyle: React.CSSProperties = { display: 'flex', gap: 5, marginRight: 6 };
@@ -794,37 +1007,53 @@ const trafficDotStyle: React.CSSProperties = {
   boxShadow: 'inset 0 0 0 0.5px rgba(0,0,0,0.18)',
 };
 const termNameStyle: React.CSSProperties = {
-  color: '#c9d1d9', fontFamily: monoFont, fontSize: 11.5,
+  color: 'var(--term-text)', fontFamily: monoFont, fontSize: 11.5,
 };
 const termBadgeStyle: React.CSSProperties = {
   background: 'rgba(124,92,255,0.16)',
-  color: '#b794f4',
+  color: 'var(--term-user)',
   padding: '1px 7px', borderRadius: 999,
   fontSize: 10, fontWeight: 700, letterSpacing: '0.04em',
   marginLeft: 6,
   fontFamily: 'system-ui, sans-serif',
 };
+// Used inside the terminal toolbar — themed (separate from the
+// page-header sessionIdStyle which stays light-page-chrome gray).
+const sessionIdStyleTerminal: React.CSSProperties = {
+  color: 'var(--term-text-dim)', fontFamily: monoFont, fontSize: 11.5, marginLeft: 6,
+};
+const themeToggleStyle: React.CSSProperties = {
+  marginLeft: 'auto',
+  padding: '3px 9px',
+  background: 'var(--term-toggle-bg)',
+  color: 'var(--term-toggle-color)',
+  border: '1px solid var(--term-border)',
+  borderRadius: 999,
+  fontSize: 13,
+  cursor: 'pointer',
+  lineHeight: 1,
+};
 
 const statusBarStyle: React.CSSProperties = {
   padding: '8px 18px',
-  background: 'linear-gradient(180deg, #161b22 0%, #13181f 100%)',
-  borderTop: '1px solid #21262d',
-  fontFamily: monoFont, fontSize: 11.5, color: '#8b949e',
+  background: 'linear-gradient(180deg, var(--term-bg-elev2) 0%, var(--term-bg-elev1) 100%)',
+  borderTop: '1px solid var(--term-border)',
+  fontFamily: monoFont, fontSize: 11.5, color: 'var(--term-text-muted)',
   display: 'flex', alignItems: 'center', gap: 16,
   flexShrink: 0,
 };
 const statStyle: React.CSSProperties = { display: 'inline-flex', alignItems: 'center', gap: 4 };
-const statStrongStyle: React.CSSProperties = { color: '#f0f6fc', fontWeight: 600 };
-const statRightStyle: React.CSSProperties = { marginLeft: 'auto', color: '#6e7681', fontStyle: 'italic' };
+const statStrongStyle: React.CSSProperties = { color: 'var(--term-text-bright)', fontWeight: 600 };
+const statRightStyle: React.CSSProperties = { marginLeft: 'auto', color: 'var(--term-text-dim)', fontStyle: 'italic' };
 const runningDotStyle: React.CSSProperties = {
   width: 7, height: 7, borderRadius: '50%',
-  background: '#56d364', display: 'inline-block',
+  background: 'var(--term-ok)', display: 'inline-block',
 };
 
 const termInputStyle: React.CSSProperties = {
   padding: '12px 18px 14px',
-  background: '#0d1117',
-  borderTop: '1px solid #21262d',
+  background: 'var(--term-bg)',
+  borderTop: '1px solid var(--term-border)',
   flexShrink: 0,
 };
 const termInputRowStyle: React.CSSProperties = {
@@ -832,13 +1061,13 @@ const termInputRowStyle: React.CSSProperties = {
   fontFamily: monoFont, fontSize: 13.5,
 };
 const termPromptStyle: React.CSSProperties = {
-  color: '#d2a8ff', fontWeight: 700,
+  color: 'var(--term-user)', fontWeight: 700,
   flexShrink: 0, lineHeight: 1.55, userSelect: 'none', fontSize: 15,
 };
 const termTextareaStyle: React.CSSProperties = {
   flex: 1, minWidth: 0,
   background: 'transparent',
-  color: '#c9d1d9',
+  color: 'var(--term-text)',
   border: 'none',
   outline: 'none',
   resize: 'none',
@@ -850,28 +1079,28 @@ const termTextareaStyle: React.CSSProperties = {
 const termInputFooterStyle: React.CSSProperties = {
   marginTop: 10,
   paddingTop: 8,
-  borderTop: '1px solid #1c2228',
+  borderTop: '1px solid var(--term-border-subtle)',
   display: 'flex', alignItems: 'center', gap: 10,
-  fontFamily: monoFont, fontSize: 10.5, color: '#6e7681',
+  fontFamily: monoFont, fontSize: 10.5, color: 'var(--term-text-dim)',
 };
 const kbdStyle: React.CSSProperties = {
-  background: '#1c2128', border: '1px solid #30363d',
-  padding: '1px 5px', borderRadius: 3, color: '#c9d1d9',
+  background: 'var(--term-kbd-bg)', border: '1px solid var(--term-kbd-border)',
+  padding: '1px 5px', borderRadius: 3, color: 'var(--term-text)',
   fontSize: 9.5,
 };
 const cancelChipStyle: React.CSSProperties = {
   padding: '2px 9px',
   background: 'transparent',
-  border: '1px solid #C2410C',
+  border: '1px solid var(--term-permission-border)',
   borderRadius: 999,
-  fontSize: 10.5, color: '#FED7AA',
+  fontSize: 10.5, color: 'var(--term-permission-text-strong)',
   cursor: 'pointer',
   fontFamily: 'inherit',
 };
 const sendBtnStyle: React.CSSProperties = {
   padding: '4px 12px',
-  background: 'linear-gradient(135deg, #b794f4, #7c5cff)',
-  color: '#0d1117',
+  background: 'linear-gradient(135deg, var(--term-send-bg-start), var(--term-send-bg-end))',
+  color: 'var(--term-send-text)',
   border: 'none',
   borderRadius: 999,
   fontSize: 11, fontWeight: 700,

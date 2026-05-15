@@ -805,19 +805,20 @@
   margin-top: auto;
 }
 
-/* Chevron in the column header to collapse the column. Sized as a real
-   button (not a faint glyph) so it reads as an affordance — every column
-   should look foldable at a glance. */
+/* Soft chevron in the column header — matches the bare `>` glyph on
+   each column in docs/mockups/v2/pr-dashboard/re-design/pr-kanban.png.
+   Sits flush with the title text, no chrome at rest; gains a hover
+   pill so the affordance is discoverable. */
 .kanban-col__collapse-btn {
   appearance: none;
-  background: var(--bg-card);
-  border: 1px solid var(--border);
-  color: var(--text-2);
+  background: transparent;
+  border: 0;
+  color: var(--text-3);
   cursor: pointer;
   padding: 0;
-  width: 22px;
-  height: 22px;
-  font-size: var(--font-size-xs);
+  width: 20px;
+  height: 20px;
+  font-size: 16px;
   line-height: 1;
   border-radius: var(--radius-sm);
   display: inline-flex;
@@ -826,9 +827,8 @@
   flex-shrink: 0;
 }
 .kanban-col__collapse-btn:hover {
-  color: var(--accent);
-  background: var(--accent-a7);
-  border-color: var(--accent-a40);
+  color: var(--text-0);
+  background: var(--bg-elevated);
 }
 
 /* "+ N more" expander shown at the bottom of a long column. */
@@ -1527,6 +1527,25 @@
   text-transform: uppercase;
   color: var(--text-2);
 }
+/* Small filled circle carrying a centred glyph — passes show a white
+   check on a green disk, failures show a white × on a red disk. Matches
+   docs/mockups/v2/pr-dashboard/re-design/pr-kanban.png "✓ BUILD". */
+.kpr-card__build-badge {
+  width: 14px;
+  height: 14px;
+  border-radius: 50%;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 9px;
+  font-weight: 700;
+  line-height: 1;
+  color: #fff;
+  background: var(--text-4);
+}
+.kpr-card__build-badge--passing { background: #1a7f37; }
+.kpr-card__build-badge--failing { background: #cf222e; }
+.kpr-card__build-badge--pending { background: #d4a017; }
 
 .kpr-card__reviewers {
   display: inline-flex;

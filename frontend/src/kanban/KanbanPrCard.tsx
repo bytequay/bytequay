@@ -219,7 +219,12 @@ function KanbanPrCard({ pr, column, mode = 'inbox', selected, onSelect, onHandle
               className={`kpr-card__build kpr-card__build--${pr.ciStatus.toLowerCase()}`}
               title={`CI: ${pr.ciStatus.toLowerCase()}`}
             >
-              <span className={`kpr-card__ci-dot kpr-card__ci-dot--${pr.ciStatus.toLowerCase()}`} />
+              <span
+                className={`kpr-card__build-badge kpr-card__build-badge--${pr.ciStatus.toLowerCase()}`}
+                aria-hidden="true"
+              >
+                {pr.ciStatus === 'PASSING' ? '✓' : pr.ciStatus === 'FAILING' ? '✕' : '·'}
+              </span>
               BUILD
             </span>
           )}

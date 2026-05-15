@@ -234,7 +234,7 @@ function KanbanColumn({
           title="Collapse column"
           aria-label="Collapse column"
         >
-          ◀
+          ›
         </button>
       </header>
       <div className="kanban-col__body">

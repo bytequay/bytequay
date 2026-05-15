@@ -62,6 +62,8 @@ public class GmailImapAuthService
     static final String GMAIL_IMAP_HOST = "imap.gmail.com";
     static final int GMAIL_IMAP_PORT = 993;
     static final int CONNECT_TIMEOUT_MS = 10_000;
+    /** Google app passwords are 16 lowercase letters with no separators. */
+    private static final int GMAIL_APP_PASSWORD_LENGTH = 16;
 
     private static final Logger log = LoggerFactory.getLogger(GmailImapAuthService.class);
 
@@ -108,6 +110,19 @@ public class GmailImapAuthService
         // character so the LOGIN actually matches Google's expectation —
         // the legitimate password contains none.
         String normalisedPassword = appPassword.replaceAll("\\s", "");
+        // Hard length check before the network round-trip. Google's app
+        // passwords are exactly 16 lowercase a-z chars; anything else is
+        // either the regular Google password (longer) or a partial paste
+        // (shorter), and Google's IMAP rejects both with the same opaque
+        // "wrong credentials" message — failing fast here is much clearer.
+        if (normalisedPassword.length() != GMAIL_APP_PASSWORD_LENGTH) {
+            throw new ResponseStatusException(HttpStatusCode.valueOf(400),
+                    "App password should be 16 characters (got " + normalisedPassword.length()
+                            + "). Generate one at https://myaccount.google.com/apppasswords"
+                            + " — your regular Google password won't work.");
+        }
+        log.info("Validating Gmail IMAP login for email={}, passwordLength={}",
+                email, normalisedPassword.length());
         validator.validate(email, normalisedPassword);
         credentialService.upsert(
                 CredentialType.ACCOUNT,

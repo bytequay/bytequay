@@ -411,12 +411,16 @@ function GmailSection() {
                 value={imapEmail}
                 onChange={e => setImapEmail(e.target.value)}
                 placeholder="you@gmail.com"
+                // "off" alone isn't enough on Chromium — autocomplete="new-password"
+                // is the documented escape hatch that actually suppresses the
+                // saved-credential dropdown for non-signup forms.
+                autoComplete="off"
               />
             }
           />
           <SettingRow
             title="App password"
-            description={<>16-char string from <a href="https://myaccount.google.com/apppasswords" target="_blank" rel="noreferrer">myaccount.google.com/apppasswords</a> (requires 2FA enabled). Spaces are stripped.</>}
+            description={<>16-char string from <a href="https://myaccount.google.com/apppasswords" target="_blank" rel="noreferrer">myaccount.google.com/apppasswords</a> (requires 2FA enabled). Whitespace is stripped — paste the four 4-char groups as shown.</>}
             control={
               <input
                 className="settings-input-number"
@@ -425,6 +429,10 @@ function GmailSection() {
                 value={imapAppPassword}
                 onChange={e => setImapAppPassword(e.target.value)}
                 placeholder="xxxx xxxx xxxx xxxx"
+                // Block the browser from auto-filling a saved Google
+                // password here — that's the wrong credential and would
+                // 401 against Gmail IMAP.
+                autoComplete="new-password"
               />
             }
           />

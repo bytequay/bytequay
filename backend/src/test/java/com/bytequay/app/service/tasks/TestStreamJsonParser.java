@@ -55,14 +55,14 @@ class TestStreamJsonParser
     }
 
     @Test
-    void parsesUserStringContentIntoOneMessage()
+    void skipsPlainTextUserEchoesToAvoidDoubleCounting()
     {
+        // Claude echoes the user's text in stream-json; the session
+        // persists user text at send-time so re-emitting here would
+        // make every prompt appear twice in the conversation pane.
         String line = "{\"type\":\"user\",\"message\":{\"role\":\"user\",\"content\":\"fix the bug\"}}";
 
-        List<StreamEvent> events = parser.parse(line, NOW);
-
-        assertThat(events).hasSize(1);
-        assertThat(((StreamEvent.UserMessage) events.get(0)).text()).isEqualTo("fix the bug");
+        assertThat(parser.parse(line, NOW)).isEmpty();
     }
 
     @Test

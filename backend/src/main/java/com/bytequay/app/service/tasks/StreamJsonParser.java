@@ -94,21 +94,21 @@ public class StreamJsonParser
 
     private static List<StreamEvent> parseUserMessage(JsonNode root, Instant now)
     {
+        // Claude echoes the user's text back in stream-json. We
+        // persist user text on send() so the conversation pane shows
+        // it instantly — re-emitting from the parser would double up
+        // every prompt. So skip plain-text user messages and only
+        // surface tool_result blocks (which the agent emits to feed
+        // tool output back into the loop).
         JsonNode message = root.path("message");
         JsonNode content = message.path("content");
-        if (content.isTextual()) {
-            return ImmutableList.of(new StreamEvent.UserMessage(now, content.asText()));
-        }
         if (!content.isArray()) {
             return ImmutableList.of();
         }
         ImmutableList.Builder<StreamEvent> out = ImmutableList.builder();
         for (JsonNode block : content) {
             String blockType = textOrEmpty(block, "type");
-            if ("text".equals(blockType)) {
-                out.add(new StreamEvent.UserMessage(now, textOrEmpty(block, "text")));
-            }
-            else if ("tool_result".equals(blockType)) {
+            if ("tool_result".equals(blockType)) {
                 String callId = textOrEmpty(block, "tool_use_id");
                 JsonNode result = block.path("content");
                 String outputJson = result.isMissingNode() ? "" : result.toString();

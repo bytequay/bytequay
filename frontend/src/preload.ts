@@ -443,6 +443,7 @@ const bridge: Bridge = {
     ipcRenderer.invoke('tasks:send', { id, input }),
   decideTaskPermission: (id: string, callId: string, decision: 'ALLOW' | 'DENY'): Promise<void> =>
     ipcRenderer.invoke('tasks:decide', { id, callId, decision }),
+  interruptTask: (id: string): Promise<void> => ipcRenderer.invoke('tasks:interrupt', id),
   stopTask: (id: string): Promise<void> => ipcRenderer.invoke('tasks:stop', id),
 };
 

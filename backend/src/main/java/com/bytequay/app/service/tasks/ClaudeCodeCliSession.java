@@ -228,9 +228,11 @@ public class ClaudeCodeCliSession
         }
         transition(TaskStatus.RUNNING);
         // Echo the user input so subscribers see the full conversation
-        // even though the source CLI doesn't replay it for us.
+        // and the row lands in task_messages — polling readers (i.e.
+        // the detail page) work off the persisted log, not the
+        // listener fan-out, so publish() alone wouldn't show it.
         Instant now = Instant.now();
-        publish(new StreamEvent.UserMessage(now, userInput));
+        handle(new StreamEvent.UserMessage(now, userInput));
         executor.submit(() -> runTurn(userInput));
     }
 
@@ -270,7 +272,7 @@ public class ClaudeCodeCliSession
         interrupt();
         if (status.getAndSet(TaskStatus.COMPLETED) != TaskStatus.COMPLETED) {
             persistTaskSnapshot(Instant.now());
-            publish(new StreamEvent.SessionEnded(Instant.now(), 0, null));
+            handle(new StreamEvent.SessionEnded(Instant.now(), 0, null));
         }
         cleanupMcpConfig();
     }
@@ -279,7 +281,7 @@ public class ClaudeCodeCliSession
     public void notifyPermissionRequested(String callId, String toolName, String summary)
     {
         requireNonNull(callId, "callId is null");
-        publish(new StreamEvent.PermissionRequested(
+        handle(new StreamEvent.PermissionRequested(
                 Instant.now(),
                 callId,
                 toolName == null ? "tool" : toolName,
@@ -292,10 +294,10 @@ public class ClaudeCodeCliSession
         requireNonNull(callId, "callId is null");
         requireNonNull(decision, "decision is null");
         // Hand the decision to the MCP gate first — that unblocks the
-        // subprocess waiting on its tools/call response. Then publish
-        // the event for the conversation pane.
+        // subprocess waiting on its tools/call response. Then route
+        // the event through handle() so it persists for replay.
         gate.decide(callId, decision);
-        publish(new StreamEvent.PermissionDecided(Instant.now(), callId, decision));
+        handle(new StreamEvent.PermissionDecided(Instant.now(), callId, decision));
     }
 
     @Override

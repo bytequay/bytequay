@@ -110,6 +110,16 @@ export default function TaskDetailPage({ taskId, onBack }: Props) {
     }
   }, [taskId, refresh]);
 
+  const onInterrupt = useCallback(async () => {
+    try {
+      await window.bridge.interruptTask(taskId);
+      await refresh();
+    }
+    catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    }
+  }, [taskId, refresh]);
+
   if (task === null && error) {
     return (
       <section style={pageStyle}>
@@ -131,6 +141,7 @@ export default function TaskDetailPage({ taskId, onBack }: Props) {
 
   return (
     <section style={pageStyle}>
+      <PulseStyles />
       <header style={headerStyle}>
         <div style={headerLeftStyle}>
           <button type="button" onClick={onBack} style={backBtnStyle}>← Tasks</button>
@@ -138,6 +149,7 @@ export default function TaskDetailPage({ taskId, onBack }: Props) {
             <h1 style={titleStyle}>{task.title}</h1>
             <div style={metaRowStyle}>
               <StatusPill status={task.status} />
+              {task.status === 'RUNNING' && <RunningIndicator />}
               <span style={mutedTextStyle}>{task.model}</span>
               <span style={mutedTextStyle}>{task.workingDir}</span>
               {task.branchName && <span style={branchPillStyle}>{task.branchName}</span>}
@@ -147,6 +159,16 @@ export default function TaskDetailPage({ taskId, onBack }: Props) {
         <div style={headerRightStyle}>
           <Metric label="Cost" value={formatCost(task.costUsdMilli)} />
           <Metric label="Tokens" value={`${formatNum(task.tokensIn)} → ${formatNum(task.tokensOut)}`} />
+          {task.status === 'RUNNING' && (
+            <button
+              type="button"
+              onClick={() => void onInterrupt()}
+              style={cancelBtnStyle}
+              title="Cancel the current turn (the session stays alive)"
+            >
+              Cancel
+            </button>
+          )}
           {!isTerminal && (
             <button type="button" onClick={() => void onStop()} style={dangerBtnStyle}>
               Stop
@@ -268,6 +290,33 @@ function StatusPill({ status }: { status: TaskStatusDto }) {
   );
 }
 
+/** Pulses while a turn is in flight — a thinking-cursor analogue
+ *  for the header. Mirrors what {@code claude code} draws in its
+ *  terminal so the user can tell the agent is alive vs. wedged. */
+function RunningIndicator() {
+  return (
+    <span style={runningIndicatorStyle}>
+      <span className="bytequay-pulse" style={runningDotStyle} />
+      <span style={runningLabelStyle}>working…</span>
+    </span>
+  );
+}
+
+/** Injects the keyframes the {@code RunningIndicator} relies on.
+ *  Inlined here rather than added to a global stylesheet so the
+ *  Tasks surface stays self-contained. */
+function PulseStyles() {
+  return (
+    <style>{`
+      @keyframes bytequay-pulse {
+        0%, 100% { opacity: 1; transform: scale(1); }
+        50% { opacity: 0.4; transform: scale(0.85); }
+      }
+      .bytequay-pulse { animation: bytequay-pulse 1.2s ease-in-out infinite; }
+    `}</style>
+  );
+}
+
 function Metric({ label, value }: { label: string; value: string }) {
   return (
     <div style={metricStyle}>
@@ -338,6 +387,33 @@ const dangerBtnStyle: React.CSSProperties = {
   borderRadius: 4,
   fontSize: 13,
   cursor: 'pointer',
+};
+const cancelBtnStyle: React.CSSProperties = {
+  padding: '6px 12px',
+  background: 'transparent',
+  color: '#D97706',
+  border: '1px solid #FDBA74',
+  borderRadius: 4,
+  fontSize: 13,
+  cursor: 'pointer',
+};
+const runningIndicatorStyle: React.CSSProperties = {
+  display: 'inline-flex',
+  alignItems: 'center',
+  gap: 6,
+  color: '#7C3AED',
+  fontSize: 12,
+  fontWeight: 500,
+};
+const runningDotStyle: React.CSSProperties = {
+  width: 8,
+  height: 8,
+  borderRadius: '50%',
+  background: '#7C3AED',
+  display: 'inline-block',
+};
+const runningLabelStyle: React.CSSProperties = {
+  fontStyle: 'italic',
 };
 const errorBannerStyle: React.CSSProperties = {
   padding: '12px 16px',

@@ -1709,6 +1709,9 @@ export type Bridge = {
     callId: string,
     decision: 'ALLOW' | 'DENY',
   ) => Promise<void>;
+  /** Cancel the in-flight turn (Ctrl+C semantics). The session
+   *  itself stays alive — the user can send another turn. */
+  interruptTask: (id: string) => Promise<void>;
   /** Terminal — releases the underlying agent loop and removes the
    *  task from the live registry. */
   stopTask: (id: string) => Promise<void>;

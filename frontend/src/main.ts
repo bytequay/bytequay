@@ -2351,6 +2351,19 @@ const url = new URL(`${BACKEND_BASE}/api/search/repos`);
     }
   });
 
+  ipcMain.handle('tasks:interrupt', async (_event, id: unknown) => {
+    if (typeof id !== 'string' || id.trim().length === 0) {
+      throw new Error('id must be a non-empty string');
+    }
+    const res = await fetch(
+      `${BACKEND_BASE}/api/tasks/${encodeURIComponent(id)}/interrupt`,
+      { method: 'POST' });
+    if (!res.ok) {
+      const text = await res.text().catch(() => '');
+      throw new Error(`backend POST /api/tasks/${id}/interrupt returned ${res.status}: ${text}`);
+    }
+  });
+
   ipcMain.handle('tasks:get', async (_event, id: unknown) => {
     if (typeof id !== 'string' || id.trim().length === 0) {
       throw new Error('id must be a non-empty string');

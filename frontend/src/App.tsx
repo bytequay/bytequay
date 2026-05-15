@@ -19,6 +19,7 @@ import TeamHomePage from './teams/TeamHomePage';
 import TeamsManagePage from './teams/TeamsManagePage';
 import SlackPage from './slack/SlackPage';
 import EmailPage from './email/EmailPage';
+import TasksPage from './tasks/TasksPage';
 import type { SettingsSection } from './settings/types';
 import PullRequestList from './PullRequestList';
 import HomePage from './HomePage';
@@ -44,6 +45,7 @@ type Nav =
   | { view: 'team-kanban'; teamId: number }
   | { view: 'slack' }
   | { view: 'email' }
+  | { view: 'tasks' }
   | { view: 'notifications' }
   | { view: 'repos' }
   | { view: 'repository'; owner: string; repo: string }
@@ -118,6 +120,7 @@ function breadcrumbLabel(back: Nav | undefined): string | null {
   if (!back) return null;
   switch (back.view) {
     case 'email': return 'Email';
+    case 'tasks': return 'Tasks';
     case 'slack': return 'Slack';
     case 'home': return 'Home';
     case 'my-prs': return 'My PRs';
@@ -202,6 +205,13 @@ function GlobalTopbar({ nav, onNav, fullScreen }: GlobalTopbarProps) {
           title="Email"
         >
           Email
+        </button>
+        <button
+          className={`global-nav-btn${nav.view === 'tasks' ? ' global-nav-btn--active' : ''}`}
+          onClick={() => onNav({ view: 'tasks' })}
+          title="AI coding tasks"
+        >
+          Tasks
         </button>
         <button
           className={`global-nav-btn${nav.view === 'notifications' ? ' global-nav-btn--active' : ''}`}
@@ -441,6 +451,9 @@ function App() {
               });
             }}
           />
+        )}
+        {nav.view === 'tasks' && (
+          <TasksPage />
         )}
         {nav.view === 'notifications' && (
           <NotificationsScreen />

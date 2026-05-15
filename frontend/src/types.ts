@@ -1160,6 +1160,49 @@ export type LocalActivityEntryDto = {
   at: string | null;
 };
 
+export type TaskKindDto = 'CLI_AGENT' | 'LOGIC_LOOP';
+
+export type TaskStatusDto =
+  | 'PENDING'
+  | 'RUNNING'
+  | 'AWAITING'
+  | 'IDLE'
+  | 'COMPLETED'
+  | 'ERRORED';
+
+export type TaskDto = {
+  id: string;
+  kind: TaskKindDto;
+  provider: string;
+  agentSessionId: string | null;
+  title: string;
+  status: TaskStatusDto;
+  workingDir: string;
+  branchName: string | null;
+  model: string;
+  costUsdMilli: number;
+  tokensIn: number;
+  tokensOut: number;
+  processPid: number | null;
+  logPath: string | null;
+  createdAt: string;
+  updatedAt: string;
+  endedAt: string | null;
+  errorMessage: string | null;
+  metadataJson: string;
+};
+
+export type NewTaskRequestDto = {
+  kind: TaskKindDto;
+  provider?: string;
+  model: string;
+  title: string;
+  workingDir: string;
+  branchName?: string | null;
+  initialPrompt?: string;
+  metadataJson?: string;
+};
+
 export type Bridge = {
   savePat: (pat: string) => Promise<boolean>;
   hasPat: () => Promise<boolean>;
@@ -1747,6 +1790,15 @@ export type Bridge = {
    *  queries this on mount to recover the initial state if the main
    *  process's did-finish-load push raced React's listener registration. */
   getFullScreenState: () => Promise<boolean>;
+  /** All tasks across every status, newest-updated first; the page
+   *  groups by status itself. */
+  listTasks: () => Promise<TaskDto[]>;
+  /** Create + start one task. Returns the persisted row with the
+   *  agent's session id if the first turn already populated it. */
+  createTask: (request: NewTaskRequestDto) => Promise<TaskDto>;
+  /** Terminal — releases the underlying agent loop and removes the
+   *  task from the live registry. */
+  stopTask: (id: string) => Promise<void>;
 };
 
 export type InAppNavState = {

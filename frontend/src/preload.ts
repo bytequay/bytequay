@@ -44,7 +44,9 @@ import type {
   SlackInboxItemDto,
   SlackInboxThreadDto,
   SuggestedReviewerDto,
+  NewTaskRequestDto,
   SyncSettingsDto,
+  TaskDto,
   TeamDto,
   TeamSummaryDto,
   UpdateTeamRequest,
@@ -463,6 +465,10 @@ const bridge: Bridge = {
     ipcRenderer.invoke('email:unmuteSender', { account, sender }),
   listMutedEmailSenders: (account: string): Promise<string[]> =>
     ipcRenderer.invoke('email:listMutedSenders', { account }),
+  listTasks: (): Promise<TaskDto[]> => ipcRenderer.invoke('tasks:list'),
+  createTask: (request: NewTaskRequestDto): Promise<TaskDto> =>
+    ipcRenderer.invoke('tasks:create', request),
+  stopTask: (id: string): Promise<void> => ipcRenderer.invoke('tasks:stop', id),
 };
 
 contextBridge.exposeInMainWorld('bridge', bridge);

@@ -2439,6 +2439,46 @@ const url = new URL(`${BACKEND_BASE}/api/search/repos`);
     return (json && Array.isArray(json.senders)) ? json.senders as string[] : [];
   });
 
+  // ── Tasks ───────────────────────────────────────────────────────────────
+  // Local AI coding tasks. The list endpoint returns rows across all
+  // statuses; the page does its own grouping. Create kicks off the first
+  // turn synchronously so the returned row already carries the agent
+  // session id where available.
+  ipcMain.handle('tasks:list', async () => {
+    const res = await fetch(`${BACKEND_BASE}/api/tasks`);
+    if (!res.ok) {
+      const text = await res.text().catch(() => '');
+      throw new Error(`backend /api/tasks returned ${res.status}: ${text}`);
+    }
+    return res.json();
+  });
+
+  ipcMain.handle('tasks:create', async (_event, request: unknown) => {
+    const res = await fetch(`${BACKEND_BASE}/api/tasks`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(request ?? {}),
+    });
+    if (!res.ok) {
+      const text = await res.text().catch(() => '');
+      throw new Error(`backend POST /api/tasks returned ${res.status}: ${text}`);
+    }
+    return res.json();
+  });
+
+  ipcMain.handle('tasks:stop', async (_event, id: unknown) => {
+    if (typeof id !== 'string' || id.trim().length === 0) {
+      throw new Error('id must be a non-empty string');
+    }
+    const res = await fetch(
+      `${BACKEND_BASE}/api/tasks/${encodeURIComponent(id)}`,
+      { method: 'DELETE' });
+    if (!res.ok) {
+      const text = await res.text().catch(() => '');
+      throw new Error(`backend DELETE /api/tasks/${id} returned ${res.status}: ${text}`);
+    }
+  });
+
   // ── Credentials ─────────────────────────────────────────────────────────
   // Credentials are uniquely identified by the pair (type, name). The backend
   // exposes them at /api/credentials with optional ?type= filter; per-row

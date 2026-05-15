@@ -14,9 +14,12 @@
   display: flex;
   align-items: center;
   gap: var(--space-3);
-  padding: var(--space-2) var(--space-4);
-  border-bottom: 1px solid var(--border);
-  background: var(--bg-elevated);
+  /* v2 redesign: header sits on the page background, no elevated tier,
+     no bottom rule. Matches docs/mockups/v2/pr-dashboard/re-design/pr-kanban.png
+     where "Overview" reads as a page title above the columns, not a
+     separated toolbar. */
+  padding: var(--space-4) var(--space-4) var(--space-2);
+  background: var(--bg-base);
   flex: 0 0 auto;
 }
 
@@ -28,15 +31,15 @@
 }
 
 .pr-list-header__brand {
-  font-size: var(--font-size-lg);
-  font-weight: 600;
-  color: var(--text-1);
-  letter-spacing: -0.01em;
+  font-size: var(--font-size-xl);
+  font-weight: 700;
+  color: var(--text-0);
+  letter-spacing: -0.02em;
   white-space: nowrap;
 }
 
 .pr-list-header__subtitle {
-  font-size: var(--font-size-xs);
+  font-size: var(--font-size-sm);
   color: var(--text-3);
   white-space: nowrap;
   overflow: hidden;

@@ -17,10 +17,12 @@ import com.bytequay.app.domain.AgentMetrics;
 import com.bytequay.app.domain.PermissionDecision;
 import com.bytequay.app.domain.StreamEvent;
 import com.bytequay.app.domain.Task;
+import com.bytequay.app.domain.TaskFile;
 import com.bytequay.app.domain.TaskKind;
 import com.bytequay.app.domain.TaskMessage;
 import com.bytequay.app.domain.TaskStatus;
 import com.bytequay.app.repository.TaskStore;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.collect.ImmutableList;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -32,7 +34,9 @@ import java.io.OutputStream;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.time.Instant;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
@@ -77,6 +81,7 @@ public class ClaudeCodeCliSession
     private final String binary;
     private final TaskStore store;
     private final StreamJsonParser parser;
+    private final ToolFileOps fileOps;
     private final ExecutorService executor;
     private final CopyOnWriteArrayList<Consumer<StreamEvent>> listeners = new CopyOnWriteArrayList<>();
 
@@ -102,15 +107,17 @@ public class ClaudeCodeCliSession
             Task task,
             TaskStore store,
             StreamJsonParser parser,
+            ObjectMapper mapper,
             ExecutorService executor)
     {
-        this(task, store, parser, executor, DEFAULT_BINARY);
+        this(task, store, parser, mapper, executor, DEFAULT_BINARY);
     }
 
     ClaudeCodeCliSession(
             Task task,
             TaskStore store,
             StreamJsonParser parser,
+            ObjectMapper mapper,
             ExecutorService executor,
             String binary)
     {
@@ -126,6 +133,7 @@ public class ClaudeCodeCliSession
         this.branchName = task.branchName();
         this.store = requireNonNull(store, "store is null");
         this.parser = requireNonNull(parser, "parser is null");
+        this.fileOps = new ToolFileOps(requireNonNull(mapper, "mapper is null"));
         this.executor = requireNonNull(executor, "executor is null");
         this.binary = requireNonNull(binary, "binary is null");
         this.status.set(task.status());
@@ -386,8 +394,9 @@ public class ClaudeCodeCliSession
         if (event instanceof StreamEvent.SessionStarted s && agentSessionId.get() == null) {
             agentSessionId.set(s.sessionId());
         }
-        if (event instanceof StreamEvent.ToolCallStarted) {
+        if (event instanceof StreamEvent.ToolCallStarted call) {
             runningToolCallCount.incrementAndGet();
+            recordFileOps(call);
         }
         if (event instanceof StreamEvent.TurnDone t) {
             runningCostUsdMilli.addAndGet(t.costUsdMilli());
@@ -396,6 +405,35 @@ public class ClaudeCodeCliSession
         }
         persistMessage(event);
         publish(event);
+    }
+
+    /** Pull any file ops out of a tool call's input and upsert them
+     *  into {@code task_files}. {@code count} accumulates so the
+     *  Files tab can render "touched 3 times" without a join. */
+    private void recordFileOps(StreamEvent.ToolCallStarted call)
+    {
+        List<ToolFileOps.FileOp> parsed = fileOps.parse(call.toolName(), call.inputJson());
+        if (parsed.isEmpty()) {
+            return;
+        }
+        Map<String, TaskFile> existing = new HashMap<>();
+        for (TaskFile f : store.listFiles(taskId)) {
+            existing.put(f.path(), f);
+        }
+        for (ToolFileOps.FileOp op : parsed) {
+            TaskFile prior = existing.get(op.path());
+            int count = (prior == null ? 0 : prior.count()) + 1;
+            int linesAdded = (prior == null ? 0 : prior.linesAdded()) + op.linesAdded();
+            int linesRemoved = (prior == null ? 0 : prior.linesRemoved()) + op.linesRemoved();
+            try {
+                store.recordFile(new TaskFile(
+                        taskId, op.path(), op.operation(),
+                        count, linesAdded, linesRemoved, call.timestamp()));
+            }
+            catch (RuntimeException e) {
+                log.warn("Failed to record file op for task {}: {}", taskId, e.getMessage());
+            }
+        }
     }
 
     private void persistMessage(StreamEvent event)

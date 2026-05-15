@@ -341,11 +341,18 @@ public class ClaudeCodeCliSession
 
     private ProcessBuilder buildCommand()
     {
+        // --dangerously-skip-permissions is needed because headless
+        // {@code -p} mode otherwise hangs the moment the agent wants
+        // to call a tool that requires a permission prompt. We accept
+        // the trade-off for v1: the user delegated the task on
+        // purpose. MCP-based gating wired through our Allow / Deny
+        // banner is the follow-up that earns this flag back.
         ImmutableList.Builder<String> argv = ImmutableList.<String>builder()
                 .add(binary)
                 .add("-p")
                 .add("--output-format", "stream-json")
-                .add("--verbose");
+                .add("--verbose")
+                .add("--dangerously-skip-permissions");
         String resume = agentSessionId.get();
         if (resume != null && !resume.isBlank()) {
             argv.add("--resume", resume);

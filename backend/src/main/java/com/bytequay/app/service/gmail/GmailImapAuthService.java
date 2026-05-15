@@ -103,9 +103,11 @@ public class GmailImapAuthService
                     "appPassword must not be blank");
         }
         // Google app passwords are 16 chars displayed in groups of 4.
-        // Users often copy them with the spaces — strip those before
-        // sending so the LOGIN actually matches Google's expectation.
-        String normalisedPassword = appPassword.replace(" ", "");
+        // Users often paste them with the inter-group spaces, and clipboard
+        // copies sometimes carry a trailing newline. Strip every whitespace
+        // character so the LOGIN actually matches Google's expectation —
+        // the legitimate password contains none.
+        String normalisedPassword = appPassword.replaceAll("\\s", "");
         validator.validate(email, normalisedPassword);
         credentialService.upsert(
                 CredentialType.ACCOUNT,
@@ -137,10 +139,9 @@ public class GmailImapAuthService
         credentialService.delete(CredentialType.ACCOUNT, GMAIL_IMAP_ACCOUNT_NAME, email);
     }
 
-    /** True iff there's an IMAP credential row for {@code email}. Used
-     *  by EmailService to pick the right backend (OAuth vs IMAP) per
-     *  request without each call site reaching into CredentialService
-     *  with the magic name string. */
+    /** True iff there's an IMAP credential row for {@code email}. Lets
+     *  callers gate operations on "is this account connected" without
+     *  reaching into CredentialService with the magic name string. */
     public boolean isConnected(String email)
     {
         if (email == null || email.isBlank()) {
@@ -150,9 +151,10 @@ public class GmailImapAuthService
     }
 
     /** Decrypted app password for {@code email}. Throws 401 if the row
-     *  is missing — by then the caller has decided this is an IMAP
-     *  account so a missing secret means the credential row was deleted
-     *  out from under them (other Claude thread, manual DB edit, etc.). */
+     *  is missing — by then the caller has decided this account is
+     *  connected, so a missing secret means the credential row was
+     *  deleted out from under them (parallel UI session, manual DB
+     *  edit, etc.). */
     public String getAppPassword(String email)
     {
         if (email == null || email.isBlank()) {
@@ -198,10 +200,19 @@ public class GmailImapAuthService
                         "IMAP provider missing from classpath", e);
             }
             catch (AuthenticationFailedException e) {
+                // Google's IMAP LOGIN gives the same opaque rejection for
+                // every cause — list the common ones so the user knows
+                // where to look without having to ask.
                 throw new ResponseStatusException(HttpStatusCode.valueOf(401),
-                        "Google rejected the login. Make sure 2FA is on and you "
-                                + "pasted the 16-character app password (not your "
-                                + "regular Google password).", e);
+                        "Google rejected the login. Check that:"
+                                + " (1) 2FA is enabled on the account,"
+                                + " (2) you pasted a 16-character app password from"
+                                + " https://myaccount.google.com/apppasswords"
+                                + " (not the regular Google password),"
+                                + " (3) IMAP is enabled at"
+                                + " https://mail.google.com/mail/u/0/#settings/fwdandpop,"
+                                + " (4) for Workspace accounts, your admin hasn't"
+                                + " disabled IMAP or app passwords for the org.", e);
             }
             catch (MessagingException e) {
                 throw new ResponseStatusException(HttpStatusCode.valueOf(502),

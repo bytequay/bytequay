@@ -48,6 +48,7 @@ import com.bytequay.app.domain.UserProfile;
 import com.bytequay.app.domain.UserRepo;
 import com.bytequay.app.repository.PullRequestRepository;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
+import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.collect.ImmutableList;
@@ -79,6 +80,8 @@ import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.function.Function;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 import static com.bytequay.app.domain.PullRequest.Origin.AUTHORED;
 import static com.bytequay.app.domain.PullRequest.Origin.REVIEW_REQUESTED;
@@ -2414,27 +2417,82 @@ public class GitHubClient
     @JsonIgnoreProperties(ignoreUnknown = true)
     record GitHubRepoPermissions(Boolean admin, Boolean maintain, Boolean push, Boolean triage, Boolean pull) {}
 
+    /** Matches the job_id at the end of an Actions check_run's
+     *  details_url, e.g. {@code https://github.com/o/r/actions/runs/123/job/456}.
+     *  Used by {@link #fetchCheckRunLog} to bridge check_run.id →
+     *  actions/jobs.id — the two are different resources and only the
+     *  job_id is accepted by /actions/jobs/{id}/logs. */
+    private static final Pattern ACTIONS_JOB_URL =
+            Pattern.compile("/actions/runs/\\d+/job/(\\d+)(?:[/?#]|$)");
+
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    private record GitHubCheckRunDetail(
+            @JsonProperty("id") long id,
+            @JsonProperty("details_url") String detailsUrl,
+            @JsonProperty("html_url") String htmlUrl) {}
+
     @Override
     public Optional<String> fetchCheckRunLog(String pat, RepoRef repo, long checkRunId)
     {
-        // /repos/{owner}/{repo}/actions/jobs/{job_id}/logs replies with
-        // a 302 → presigned blob URL whose body is the raw text log.
-        // Spring's RestClient follows redirects by default, so a single
-        // GET retrieves the final text.
+        // check_run.id is NOT the actions/jobs.id — they're separate
+        // resources that happen to share names. /actions/jobs/{id}/logs
+        // only accepts the job_id, so we resolve check_run → job_id by
+        // looking up the check run's details_url (which for Actions
+        // check_runs is a github.com/.../actions/runs/{run}/job/{job}
+        // URL) and extracting the trailing job_id.
         //
-        // Status handling:
-        //   • 200 → log text returned
-        //   • 404 → external CI (not an Actions job); empty so the merge
-        //           card can show "no log available"
-        //   • 410 → Actions purges logs after ~90 days; same fallback
-        //   • 403 → PAT lacks the workflow / actions:read scope. Throw
-        //           with a specific message so the frontend can tell
-        //           the user to update their token instead of guessing
-        //           "external CI?".
+        // External CI (Circle/Jenkins/etc.) sets details_url to its own
+        // hosted UI — that won't match ACTIONS_JOB_URL, and we return
+        // empty so the merge card shows "no log available".
+        long jobId;
+        try {
+            GitHubCheckRunDetail detail = gitHubRestClient.get()
+                    .uri(u -> u.path("/repos/{owner}/{repo}/check-runs/{id}")
+                            .build(repo.owner(), repo.repo(), checkRunId))
+                    .header("Authorization", "Bearer " + pat)
+                    .retrieve()
+                    .body(GitHubCheckRunDetail.class);
+            if (detail == null) {
+                return Optional.empty();
+            }
+            Long parsed = extractActionsJobId(detail.detailsUrl());
+            if (parsed == null) {
+                // Fall back to html_url — some Actions-backed check runs
+                // populate the job ID there instead of details_url.
+                parsed = extractActionsJobId(detail.htmlUrl());
+            }
+            if (parsed == null) {
+                // External CI — details_url + html_url both point at a
+                // non-Actions UI. Nothing we can fetch.
+                return Optional.empty();
+            }
+            jobId = parsed;
+        }
+        catch (RestClientResponseException e) {
+            int status = e.getStatusCode().value();
+            if (status == 404) {
+                // Check run vanished (rerun rotation?) — nothing to fetch.
+                return Optional.empty();
+            }
+            if (status == 403) {
+                throw new ResponseStatusException(
+                        HttpStatusCode.valueOf(403),
+                        "GitHub denied access to this check run (403). Your PAT may be missing "
+                                + "`repo` (classic) or `Checks: Read` (fine-grained) scope.",
+                        e);
+            }
+            throw toReadableException(e);
+        }
+
+        // Step 2: fetch the actual log text for the resolved job_id.
+        // /repos/{owner}/{repo}/actions/jobs/{job_id}/logs replies with
+        // a 302 → presigned blob URL whose body is the raw text log;
+        // Spring's RestClient follows redirects by default so one GET
+        // retrieves the final text.
         try {
             String body = gitHubRestClient.get()
                     .uri(u -> u.path("/repos/{owner}/{repo}/actions/jobs/{id}/logs")
-                            .build(repo.owner(), repo.repo(), checkRunId))
+                            .build(repo.owner(), repo.repo(), jobId))
                     .header("Authorization", "Bearer " + pat)
                     .header("Accept", "text/plain, */*")
                     .retrieve()
@@ -2447,8 +2505,8 @@ public class GitHubClient
         catch (RestClientResponseException e) {
             int status = e.getStatusCode().value();
             if (status == 404 || status == 410) {
-                // External CI (not an Actions job) or expired log — silent
-                // fallback so the UI can show the "no log available" hint.
+                // Job log expired (>90 days) or job already cleaned up —
+                // silent fallback so the UI can show the empty hint.
                 return Optional.empty();
             }
             if (status == 403) {
@@ -2459,6 +2517,23 @@ public class GitHubClient
                         e);
             }
             throw toReadableException(e);
+        }
+    }
+
+    private static Long extractActionsJobId(String url)
+    {
+        if (url == null || url.isEmpty()) {
+            return null;
+        }
+        Matcher m = ACTIONS_JOB_URL.matcher(url);
+        if (!m.find()) {
+            return null;
+        }
+        try {
+            return Long.parseLong(m.group(1));
+        }
+        catch (NumberFormatException e) {
+            return null;
         }
     }
 

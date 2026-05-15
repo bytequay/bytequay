@@ -386,7 +386,7 @@ button.prc-branches__ref--clickable:hover {
   margin-top: 0;
 }
 .prc-timeline__entries > .merge-card .merge-card__rows {
-  font-size: var(--font-size-md);
+  font-size: var(--font-size-lg);
 }
 
 .prc-date-divider {

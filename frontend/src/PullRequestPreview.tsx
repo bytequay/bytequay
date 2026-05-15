@@ -594,6 +594,16 @@ function MergeBar({ pr, detail, mergeState, mergeError, mergeQueuedMessage, onMe
           </span>
         </button>
 
+        {/* Failing-check details slot between CI row and Conflict row so
+            the expansion reads as "drill-down on the row above". */}
+        {failuresOpen && failingChecks.length > 0 && (
+          <ul className="merge-bar__failures merge-card__failures">
+            {failingChecks.map((c, i) => (
+              <FailingCheckCard key={`${c.name ?? 'unnamed'}-${i}`} check={c} repo={pr.repo} />
+            ))}
+          </ul>
+        )}
+
         {/* Row 3 — Conflict status */}
         <div
           className={`merge-card__row${conflictExpanded ? ' merge-card__row--open' : ''}`}
@@ -703,14 +713,9 @@ function MergeBar({ pr, detail, mergeState, mergeError, mergeQueuedMessage, onMe
           )}
         </div>
 
-        {/* Expanded sub-views — same content as before, slotted below the rows */}
-        {failuresOpen && failingChecks.length > 0 && (
-          <ul className="merge-bar__failures">
-            {failingChecks.map((c, i) => (
-              <FailingCheckCard key={`${c.name ?? 'unnamed'}-${i}`} check={c} repo={pr.repo} />
-            ))}
-          </ul>
-        )}
+        {/* Conflict-files expansion — slotted just under the Conflict
+            row (the failing-checks list now lives between rows 2 and 3
+            instead of at the bottom). */}
         {conflictExpanded && conflictPaths?.available && conflictPaths.paths.length > 0 && (
           <div className="merge-bar__conflict-files">
             <div className="merge-bar__conflict-files-head">

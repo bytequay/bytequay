@@ -2420,11 +2420,17 @@ public class GitHubClient
         // /repos/{owner}/{repo}/actions/jobs/{job_id}/logs replies with
         // a 302 → presigned blob URL whose body is the raw text log.
         // Spring's RestClient follows redirects by default, so a single
-        // GET retrieves the final text. Returns empty on 404 (external
-        // CI / not an Actions job), 410 (Actions purges logs after
-        // ~90 days), 403 (insufficient PAT scope), or any I/O failure —
-        // the merge bar gracefully degrades to a "log unavailable"
-        // message rather than failing the whole detail load.
+        // GET retrieves the final text.
+        //
+        // Status handling:
+        //   • 200 → log text returned
+        //   • 404 → external CI (not an Actions job); empty so the merge
+        //           card can show "no log available"
+        //   • 410 → Actions purges logs after ~90 days; same fallback
+        //   • 403 → PAT lacks the workflow / actions:read scope. Throw
+        //           with a specific message so the frontend can tell
+        //           the user to update their token instead of guessing
+        //           "external CI?".
         try {
             String body = gitHubRestClient.get()
                     .uri(u -> u.path("/repos/{owner}/{repo}/actions/jobs/{id}/logs")
@@ -2439,10 +2445,20 @@ public class GitHubClient
             return Optional.of(body);
         }
         catch (RestClientResponseException e) {
-            return Optional.empty();
-        }
-        catch (Exception e) {
-            return Optional.empty();
+            int status = e.getStatusCode().value();
+            if (status == 404 || status == 410) {
+                // External CI (not an Actions job) or expired log — silent
+                // fallback so the UI can show the "no log available" hint.
+                return Optional.empty();
+            }
+            if (status == 403) {
+                throw new ResponseStatusException(
+                        HttpStatusCode.valueOf(403),
+                        "GitHub denied the log fetch (403). Your PAT likely needs the `workflow` scope "
+                                + "(classic PAT) or `Actions: Read` permission (fine-grained PAT).",
+                        e);
+            }
+            throw toReadableException(e);
         }
     }
 

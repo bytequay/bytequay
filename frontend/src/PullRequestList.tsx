@@ -778,6 +778,26 @@ function PullRequestList({ onGoToTeams, onOpenLocalBranch, onOpenSettings }: Pro
                   onSnooze={handleSnooze}
                 />
               )}
+              {!loading && !error && activeTab === 'urgent' && (
+                urgentCards.length === 0 ? (
+                  <div className="v2-empty">No urgent PRs.</div>
+                ) : (
+                  <div className="urgent-sidebar-list">
+                    {urgentCards.map(pr => (
+                      <KanbanPrCard
+                        key={pr.id}
+                        pr={pr}
+                        column="needs_attention"
+                        mode="team"
+                        selected={selectedId === pr.id}
+                        onSelect={() => handleSelect(pr)}
+                        onHandle={() => handleMarkHandled(pr.id)}
+                        onSnooze={(untilIso) => handleSnooze(pr.id, untilIso)}
+                      />
+                    ))}
+                  </div>
+                )
+              )}
               {!loading && !error && activeTab === 'snoozed' && (
                 <SnoozedList
                   prs={snoozedSorted}

@@ -531,12 +531,8 @@
   display: flex;
   align-items: center;
   gap: var(--space-2);
-  padding: var(--space-2) var(--space-3);
-  background: var(--bg-card);
-  border: 1px solid var(--border);
-  border-top: 3px solid var(--text-3);
-  border-radius: var(--radius-lg);
-  margin-bottom: 8px;
+  padding: var(--space-2) var(--space-1);
+  margin-bottom: var(--space-3);
   font-size: var(--font-size-xs);
   font-weight: 700;
   letter-spacing: 0.06em;
@@ -555,18 +551,34 @@
 .kanban-col__title {
   margin: 0;
   font-size: var(--font-size-xs);
-  font-weight: 600;
+  font-weight: 700;
   color: var(--text-1);
 }
 
 .kanban-col__count {
-  margin-left: auto;
   font-variant-numeric: tabular-nums;
-  color: var(--text-2);
-  background: var(--accent-a7);
-  padding: 1px 8px;
-  border-radius: var(--radius-lg);
+  color: var(--text-3);
   font-size: var(--font-size-xs);
+  font-weight: 600;
+}
+
+/* Red URGENT badge — surfaces the count of attentionReason!=null PRs
+   in the needs_attention column. Inline with the count so the badge
+   sits flush with the rest of the header content; the collapse
+   chevron is pushed to the far right by its own margin rule below. */
+.kanban-col__urgent {
+  padding: 2px var(--space-2);
+  background: #cf222e;
+  color: #fff;
+  border-radius: var(--radius-sm);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  font-variant-numeric: tabular-nums;
+}
+
+.kanban-col__header .kanban-col__collapse-btn {
+  margin-left: auto;
 }
 
 .kanban-col__body {
@@ -581,10 +593,32 @@
 }
 
 .kanban-col__empty {
-  padding: var(--space-3) var(--space-2);
-  text-align: center;
+  flex: 1 1 auto;
+  min-height: 140px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--space-2);
+  padding: var(--space-6) var(--space-3);
+  border: 1px dashed var(--border-light);
+  border-radius: var(--radius-md);
+  background: var(--bg-card);
+}
+
+.kanban-col__empty-text {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
   color: var(--text-4);
-  font-size: var(--font-size-sm);
+}
+
+.kanban-col__empty-rule {
+  width: 32px;
+  height: 1px;
+  background: var(--border);
+  display: block;
 }
 
 /* Category accent colors — applied to the top-border of the column and the
@@ -725,16 +759,9 @@
    target the header, not the bare .kanban-col. Each column also gets a
    tinted card-area background so the columns visually separate even
    when sparsely populated. */
-.kanban-col--needs-attention .kanban-col__header { border-top-color: #cf222e; }
 .kanban-col--needs-attention .kanban-col__dot { background: #cf222e; }
-
-.kanban-col--in-progress .kanban-col__header { border-top-color: #d4a017; }
 .kanban-col--in-progress .kanban-col__dot { background: #d4a017; }
-
-.kanban-col--awaiting-author .kanban-col__header { border-top-color: #1f6feb; }
 .kanban-col--awaiting-author .kanban-col__dot { background: #1f6feb; }
-
-.kanban-col--cleared .kanban-col__header { border-top-color: #2ea043; }
 .kanban-col--cleared .kanban-col__dot { background: #2ea043; }
 
 /* ── Phase 3 kanban refactor ──────────────────────────────────────────────
@@ -1010,29 +1037,21 @@
    docs/mockups/v2/kanban/bytequay-pr-kanban-redesign.html: drafting=
    purple, waiting=amber, changes=red, ready=green, attention=red,
    in_progress=indigo, awaiting=teal, recently/cleared=muted gray. */
-.kanban-col--drafting .kanban-col__header { border-top-color: #8b5cf6; }
 .kanban-col--drafting .kanban-col__dot { background: #8b5cf6; }
-
-.kanban-col--waiting-on-review .kanban-col__header { border-top-color: #f59e0b; }
 .kanban-col--waiting-on-review .kanban-col__dot { background: #f59e0b; }
-
-.kanban-col--needs-changes .kanban-col__header { border-top-color: #cf222e; }
 .kanban-col--needs-changes .kanban-col__dot { background: #cf222e; }
-
-.kanban-col--ready-to-merge .kanban-col__header { border-top-color: #2ea043; }
 .kanban-col--ready-to-merge .kanban-col__dot { background: #2ea043; }
 
-.kanban-col--recently-merged .kanban-col__header { border-top-color: var(--text-3); }
 .kanban-col--recently-merged .kanban-col__dot { background: var(--text-3); }
 .kanban-col--recently-merged { opacity: 0.85; }
 
-.kanban-col--cleared-today .kanban-col__header { border-top-color: var(--text-3); }
-.kanban-col--cleared-today .kanban-col__dot { background: var(--text-3); }
-.kanban-col--cleared-today { opacity: 0.85; }
+/* Cleared-today is a green-positive state per the mockup — the dot
+   reads as "done", not as "muted". */
+.kanban-col--cleared-today .kanban-col__dot { background: #2ea043; }
+.kanban-col--cleared-today { opacity: 0.9; }
 
 /* Handled column — soft slate accent so dismissed cards visually
    recede behind the active columns. */
-.kanban-col--handled .kanban-col__header { border-top-color: #64748b; }
 .kanban-col--handled .kanban-col__dot { background: #64748b; }
 .kanban-col--handled { opacity: 0.88; }
 .kanban-col--handled .kanban-col__body {

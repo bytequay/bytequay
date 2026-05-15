@@ -449,6 +449,17 @@ function MyPrsBoard({ prs, selectedId, collapsed, onToggle, onSelect, onHandle, 
 function ToReviewBoard({ prs, selectedId, collapsed, onToggle, onSelect, onHandle, onReopen, onSnooze, cardMode }: BoardProps) {
   const groups = useMemo(() => groupToReview(prs), [prs]);
   const gridTemplate = TO_REVIEW_COLUMNS.map(col => columnSize(col, collapsed[col] ?? false, groups[col].length)).join(' ');
+  // Per-column urgent count — PRs with an attentionReason set. Only
+  // emitted today by the categorizer in the needs_attention bucket,
+  // but the count is computed generically so future categorization
+  // tweaks don't silently bypass the badge.
+  const urgentCounts = useMemo(() => {
+    const out = {} as Record<typeof TO_REVIEW_COLUMNS[number], number>;
+    for (const col of TO_REVIEW_COLUMNS) {
+      out[col] = groups[col].filter(pr => pr.attentionReason !== null && pr.attentionReason !== undefined).length;
+    }
+    return out;
+  }, [groups]);
 
   return (
     <div className="kanban-board kanban-board--to-review" style={{ gridTemplateColumns: gridTemplate }}>
@@ -460,7 +471,7 @@ function ToReviewBoard({ prs, selectedId, collapsed, onToggle, onSelect, onHandl
           prs={groups[col]}
           selectedId={selectedId}
           collapsed={collapsed[col] ?? false}
-          yourMove={col === 'needs_attention' && groups[col].length > 0 ? 'caution' : undefined}
+          urgentCount={urgentCounts[col]}
           onToggle={() => onToggle(col)}
           onSelect={onSelect}
           onHandle={onHandle}

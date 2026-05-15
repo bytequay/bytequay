@@ -49,6 +49,10 @@ type Props = {
   /** Optional "your move" hint shown next to the column title — mockup
    *  uses this to draw the eye to action-required columns. */
   yourMove?: 'go' | 'caution';
+  /** Count of urgent items in this column (PRs with attentionReason
+   *  set). Drives the red "N URGENT" badge in the column header. Only
+   *  rendered when greater than zero. */
+  urgentCount?: number;
   onToggle: () => void;
   onSelect: (pr: PullRequestDto) => void;
   onHandle: (prId: number) => void;
@@ -84,7 +88,7 @@ type Props = {
 };
 
 function KanbanColumn({
-  kind, label, prs, selectedId, collapsed, yourMove,
+  kind, label, prs, selectedId, collapsed, yourMove, urgentCount,
   onToggle, onSelect, onHandle, onReopen, onSnooze,
   draggable, acceptDropFrom, onCardDrop,
   cardMode,
@@ -214,11 +218,15 @@ function KanbanColumn({
         <span className="kanban-col__dot" aria-hidden="true" />
         <h3 className="kanban-col__title">{label}</h3>
         <span className="kanban-col__count">{total}</span>
-        {yourMove && (
+        {urgentCount && urgentCount > 0 ? (
+          <span className="kanban-col__urgent">
+            {urgentCount} URGENT
+          </span>
+        ) : (yourMove ? (
           <span className={`kanban-col__hint kanban-col__hint--${yourMove}`}>
             {yourMove === 'go' ? 'your move' : 'urgent'}
           </span>
-        )}
+        ) : null)}
         <button
           type="button"
           className="kanban-col__collapse-btn"
@@ -231,7 +239,10 @@ function KanbanColumn({
       </header>
       <div className="kanban-col__body">
         {prs.length === 0 ? (
-          <div className="kanban-col__empty">—</div>
+          <div className="kanban-col__empty">
+            <span className="kanban-col__empty-text">NOTHING HERE</span>
+            <span className="kanban-col__empty-rule" aria-hidden="true" />
+          </div>
         ) : (
           <>
             {visiblePrs.map(pr => (

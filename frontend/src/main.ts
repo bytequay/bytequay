@@ -2479,6 +2479,69 @@ const url = new URL(`${BACKEND_BASE}/api/search/repos`);
     }
   });
 
+  ipcMain.handle('tasks:get', async (_event, id: unknown) => {
+    if (typeof id !== 'string' || id.trim().length === 0) {
+      throw new Error('id must be a non-empty string');
+    }
+    const res = await fetch(`${BACKEND_BASE}/api/tasks/${encodeURIComponent(id)}`);
+    if (res.status === 404) return null;
+    if (!res.ok) {
+      const text = await res.text().catch(() => '');
+      throw new Error(`backend GET /api/tasks/${id} returned ${res.status}: ${text}`);
+    }
+    return res.json();
+  });
+
+  ipcMain.handle('tasks:messages', async (_event, id: unknown) => {
+    if (typeof id !== 'string' || id.trim().length === 0) {
+      throw new Error('id must be a non-empty string');
+    }
+    const res = await fetch(
+      `${BACKEND_BASE}/api/tasks/${encodeURIComponent(id)}/messages`);
+    if (!res.ok) {
+      const text = await res.text().catch(() => '');
+      throw new Error(`backend GET /api/tasks/${id}/messages returned ${res.status}: ${text}`);
+    }
+    return res.json();
+  });
+
+  ipcMain.handle('tasks:send', async (_event, payload: unknown) => {
+    const { id, input } = (payload ?? {}) as { id?: string; input?: string };
+    if (!id || typeof input !== 'string' || input.trim().length === 0) {
+      throw new Error('id and non-empty input are required');
+    }
+    const res = await fetch(
+      `${BACKEND_BASE}/api/tasks/${encodeURIComponent(id)}/messages`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ input }),
+      });
+    if (!res.ok) {
+      const text = await res.text().catch(() => '');
+      throw new Error(`backend POST /api/tasks/${id}/messages returned ${res.status}: ${text}`);
+    }
+  });
+
+  ipcMain.handle('tasks:decide', async (_event, payload: unknown) => {
+    const { id, callId, decision } =
+      (payload ?? {}) as { id?: string; callId?: string; decision?: string };
+    if (!id || !callId || !decision) {
+      throw new Error('id, callId, and decision are required');
+    }
+    const res = await fetch(
+      `${BACKEND_BASE}/api/tasks/${encodeURIComponent(id)}/decisions`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ callId, decision }),
+      });
+    if (!res.ok) {
+      const text = await res.text().catch(() => '');
+      throw new Error(`backend POST /api/tasks/${id}/decisions returned ${res.status}: ${text}`);
+    }
+  });
+
   // ── Credentials ─────────────────────────────────────────────────────────
   // Credentials are uniquely identified by the pair (type, name). The backend
   // exposes them at /api/credentials with optional ?type= filter; per-row

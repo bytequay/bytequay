@@ -20,6 +20,7 @@ import TeamsManagePage from './teams/TeamsManagePage';
 import SlackPage from './slack/SlackPage';
 import EmailPage from './email/EmailPage';
 import TasksPage from './tasks/TasksPage';
+import TaskDetailPage from './tasks/TaskDetailPage';
 import type { SettingsSection } from './settings/types';
 import PullRequestList from './PullRequestList';
 import HomePage from './HomePage';
@@ -46,6 +47,7 @@ type Nav =
   | { view: 'slack' }
   | { view: 'email' }
   | { view: 'tasks' }
+  | { view: 'task-detail'; taskId: string }
   | { view: 'notifications' }
   | { view: 'repos' }
   | { view: 'repository'; owner: string; repo: string }
@@ -453,7 +455,13 @@ function App() {
           />
         )}
         {nav.view === 'tasks' && (
-          <TasksPage />
+          <TasksPage onSelectTask={taskId => setNav({ view: 'task-detail', taskId })} />
+        )}
+        {nav.view === 'task-detail' && (
+          <TaskDetailPage
+            taskId={nav.taskId}
+            onBack={() => setNav({ view: 'tasks' })}
+          />
         )}
         {nav.view === 'notifications' && (
           <NotificationsScreen />

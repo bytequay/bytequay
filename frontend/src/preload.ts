@@ -47,6 +47,7 @@ import type {
   NewTaskRequestDto,
   SyncSettingsDto,
   TaskDto,
+  TaskMessageDto,
   TeamDto,
   TeamSummaryDto,
   UpdateTeamRequest,
@@ -468,6 +469,14 @@ const bridge: Bridge = {
   listTasks: (): Promise<TaskDto[]> => ipcRenderer.invoke('tasks:list'),
   createTask: (request: NewTaskRequestDto): Promise<TaskDto> =>
     ipcRenderer.invoke('tasks:create', request),
+  getTask: (id: string): Promise<TaskDto | null> =>
+    ipcRenderer.invoke('tasks:get', id),
+  getTaskMessages: (id: string): Promise<TaskMessageDto[]> =>
+    ipcRenderer.invoke('tasks:messages', id),
+  sendTaskMessage: (id: string, input: string): Promise<void> =>
+    ipcRenderer.invoke('tasks:send', { id, input }),
+  decideTaskPermission: (id: string, callId: string, decision: 'ALLOW' | 'DENY'): Promise<void> =>
+    ipcRenderer.invoke('tasks:decide', { id, callId, decision }),
   stopTask: (id: string): Promise<void> => ipcRenderer.invoke('tasks:stop', id),
 };
 

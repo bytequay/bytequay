@@ -1192,6 +1192,29 @@ export type TaskDto = {
   metadataJson: string;
 };
 
+export type TaskMessageDto = {
+  id: string;
+  taskId: string;
+  seq: number;
+  /** {@code user} | {@code assistant} | {@code tool} | {@code system} */
+  role: string;
+  /** Free-form, evolves with new event shapes — see the SQL migration
+   *  for the documented set ({@code text}, {@code thinking},
+   *  {@code tool_call}, {@code tool_result}, {@code turn_done},
+   *  {@code error}, {@code session_started}, {@code session_ended},
+   *  {@code permission_request}, {@code permission_decision}). */
+  type: string;
+  /** JSON envelope; shape depends on {@code type}. The renderer parses
+   *  on demand. */
+  contentJson: string;
+  /** Per-turn cost / token snapshot — only set on {@code turn_done}. */
+  durationMs: number | null;
+  tokensIn: number | null;
+  tokensOut: number | null;
+  costUsdMilli: number | null;
+  ts: string;
+};
+
 export type NewTaskRequestDto = {
   kind: TaskKindDto;
   provider?: string;
@@ -1796,6 +1819,19 @@ export type Bridge = {
   /** Create + start one task. Returns the persisted row with the
    *  agent's session id if the first turn already populated it. */
   createTask: (request: NewTaskRequestDto) => Promise<TaskDto>;
+  /** Single task by id; null when no row matches. */
+  getTask: (id: string) => Promise<TaskDto | null>;
+  /** Persisted conversation log, oldest first by {@code seq}. The
+   *  detail page polls this while the task is live. */
+  getTaskMessages: (id: string) => Promise<TaskMessageDto[]>;
+  /** Send a follow-up turn to a non-terminal task. */
+  sendTaskMessage: (id: string, input: string) => Promise<void>;
+  /** Reply to a {@code permission_request}. */
+  decideTaskPermission: (
+    id: string,
+    callId: string,
+    decision: 'ALLOW' | 'DENY',
+  ) => Promise<void>;
   /** Terminal — releases the underlying agent loop and removes the
    *  task from the live registry. */
   stopTask: (id: string) => Promise<void>;

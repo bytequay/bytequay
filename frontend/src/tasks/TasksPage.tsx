@@ -26,13 +26,17 @@ const STATUS_GROUPS: Array<{ key: 'active' | 'queued' | 'idle' | 'done'; label: 
   { key: 'done', label: 'Completed', statuses: ['COMPLETED', 'ERRORED'] },
 ];
 
+type Props = {
+  /** Routes the user to the task detail / live conversation page. */
+  onSelectTask: (taskId: string) => void;
+};
+
 /**
  * AI coding tasks — list + create. Each row is one delegated agent
- * run (Claude Code today; logic-loop in a later slice). The detail
- * page that renders the live conversation lands in slice 6; for now
- * clicking a row is a no-op and the user only sees lifecycle state.
+ * run (Claude Code today; logic-loop in a later slice). Clicking a
+ * row opens the live conversation pane.
  */
-export default function TasksPage() {
+export default function TasksPage({ onSelectTask }: Props) {
   const [tasks, setTasks] = useState<TaskDto[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [showCreate, setShowCreate] = useState(false);
@@ -145,6 +149,7 @@ export default function TasksPage() {
                     key={t.id}
                     task={t}
                     busy={busyId === t.id}
+                    onOpen={() => onSelectTask(t.id)}
                     onStop={() => void onStop(t.id)}
                   />
                 ))}
@@ -167,10 +172,21 @@ export default function TasksPage() {
   );
 }
 
-function TaskRow({ task, busy, onStop }: { task: TaskDto; busy: boolean; onStop: () => void }) {
+function TaskRow({ task, busy, onOpen, onStop }: {
+  task: TaskDto;
+  busy: boolean;
+  onOpen: () => void;
+  onStop: () => void;
+}) {
   const isTerminal = task.status === 'COMPLETED' || task.status === 'ERRORED';
   return (
-    <div style={rowStyle}>
+    <div
+      style={rowStyle}
+      onClick={onOpen}
+      role="button"
+      tabIndex={0}
+      onKeyDown={e => { if (e.key === 'Enter') onOpen(); }}
+    >
       <div style={rowMainStyle}>
         <div style={rowTitleStyle}>{task.title}</div>
         <div style={rowMetaStyle}>
@@ -188,7 +204,7 @@ function TaskRow({ task, busy, onStop }: { task: TaskDto; busy: boolean; onStop:
         {!isTerminal && (
           <button
             type="button"
-            onClick={onStop}
+            onClick={e => { e.stopPropagation(); onStop(); }}
             disabled={busy}
             style={dangerBtnStyle}
             title="Stop and release the agent"
@@ -331,6 +347,7 @@ const rowStyle: React.CSSProperties = {
   background: '#fff',
   border: '1px solid #E5E7EB',
   borderRadius: 8,
+  cursor: 'pointer',
 };
 const rowMainStyle: React.CSSProperties = { display: 'flex', flexDirection: 'column', gap: 4, minWidth: 0, flex: 1 };
 const rowTitleStyle: React.CSSProperties = {

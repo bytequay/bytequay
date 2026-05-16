@@ -152,6 +152,16 @@ public class McpController
             return;
         }
 
+        // AskUserQuestion isn't a side-effecting tool — it's Claude
+        // asking the user something. Auto-allow so the question surfaces
+        // in the conversation stream; the user replies via the normal
+        // chat input. (Phase 2: an off-page notification queue so users
+        // don't miss questions when on another page.)
+        if ("AskUserQuestion".equals(toolName)) {
+            deferred.setResult(toolResponse(id, allow(toolInput)));
+            return;
+        }
+
         // If the user has pre-approved this tool ("Allow next 5",
         // "Always for this tool"), drain one slot and resolve without
         // ever showing a prompt. The user-facing history will still see

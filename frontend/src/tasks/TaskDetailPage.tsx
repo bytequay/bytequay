@@ -12,7 +12,7 @@
  * limitations under the License.
  */
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import type { TaskDto, TaskGroupDto, TaskMessageDto, TaskStatusDto } from '../types';
+import type { TaskDto, TaskFileDto, TaskGroupDto, TaskMessageDto, TaskStatusDto } from '../types';
 import { ConversationPane, type PendingPermission } from './ConversationPane';
 import TasksLeftRail, { type GroupFilter, type StatusFilter, type ProviderFilter } from './TasksLeftRail';
 import NewTaskDialog from './NewTaskDialog';
@@ -62,12 +62,29 @@ function loadTheme(): TermTheme {
   }
 }
 
+/** Toggles between the new structured detail (three zones) and the
+ *  power-user terminal mirror. Persisted across sessions because
+ *  users settle on one or the other; the toggle in the toolbar is
+ *  the only way to flip without losing your place. */
+type DetailView = 'structured' | 'terminal';
+const VIEW_STORAGE_KEY = 'bytequay.tasks.detailView';
+function loadView(): DetailView {
+  try {
+    const v = window.localStorage.getItem(VIEW_STORAGE_KEY);
+    return v === 'terminal' ? 'terminal' : 'structured';
+  }
+  catch {
+    return 'structured';
+  }
+}
+
 export default function TaskDetailPage({
   taskId, onBack, onFilterChange, onProviderChange, onGroupChange,
   onSelectTask, onOpenSettings,
 }: Props) {
   const [task, setTask] = useState<TaskDto | null>(null);
   const [messages, setMessages] = useState<TaskMessageDto[]>([]);
+  const [files, setFiles] = useState<TaskFileDto[]>([]);
   const [allTasks, setAllTasks] = useState<TaskDto[]>([]);
   const [groups, setGroups] = useState<TaskGroupDto[]>([]);
   const [error, setError] = useState<string | null>(null);
@@ -75,22 +92,30 @@ export default function TaskDetailPage({
   const [sending, setSending] = useState(false);
   const [showCreate, setShowCreate] = useState(false);
   const [theme, setTheme] = useState<TermTheme>(loadTheme);
+  const [view, setView] = useState<DetailView>(loadView);
 
   useEffect(() => {
     try { window.localStorage.setItem(THEME_STORAGE_KEY, theme); }
     catch { /* private browsing — fine to skip */ }
   }, [theme]);
 
+  useEffect(() => {
+    try { window.localStorage.setItem(VIEW_STORAGE_KEY, view); }
+    catch { /* private browsing — fine to skip */ }
+  }, [view]);
+
   const refresh = useCallback(async () => {
     try {
-      const [t, m, list, gs] = await Promise.all([
+      const [t, m, fs, list, gs] = await Promise.all([
         window.bridge.getTask(taskId),
         window.bridge.getTaskMessages(taskId),
+        window.bridge.getTaskFiles(taskId).catch(() => [] as TaskFileDto[]),
         window.bridge.listTasks(),
         window.bridge.listTaskGroups().catch(() => [] as TaskGroupDto[]),
       ]);
       setTask(t);
       setMessages(m);
+      setFiles(fs);
       setAllTasks(list);
       setGroups(gs);
       setError(null);
@@ -222,31 +247,53 @@ export default function TaskDetailPage({
 
         <TaskHeader
           task={task}
+          view={view}
+          onChangeView={setView}
           onPause={undefined /* pause not wired through MCP yet */}
           onStop={onStop}
           canStop={!isTerminal}
         />
 
-        <div style={{ ...bodyGridStyle, ...termCssVars(theme) }}>
-          <TerminalWrap
-            task={task}
-            messages={messages}
-            pendingPermission={pendingPermission}
-            onDecide={onDecide}
-            stage={stage}
-            draft={draft}
-            onDraft={setDraft}
-            onSend={onSend}
-            onInterrupt={onInterrupt}
-            sending={sending}
-            isTerminal={isTerminal}
-            theme={theme}
-            onToggleTheme={() => setTheme(t => t === 'dark' ? 'light' : 'dark')}
-          />
+        <div style={view === 'terminal'
+          ? { ...bodyGridStyle, ...termCssVars(theme) }
+          : bodyGridStyle}
+        >
+          {view === 'terminal' ? (
+            <TerminalWrap
+              task={task}
+              messages={messages}
+              pendingPermission={pendingPermission}
+              onDecide={onDecide}
+              stage={stage}
+              draft={draft}
+              onDraft={setDraft}
+              onSend={onSend}
+              onInterrupt={onInterrupt}
+              sending={sending}
+              isTerminal={isTerminal}
+              theme={theme}
+              onToggleTheme={() => setTheme(t => t === 'dark' ? 'light' : 'dark')}
+            />
+          ) : (
+            <StructuredView
+              task={task}
+              messages={messages}
+              pendingPermission={pendingPermission}
+              onDecide={onDecide}
+              draft={draft}
+              onDraft={setDraft}
+              onSend={onSend}
+              onInterrupt={onInterrupt}
+              sending={sending}
+              isTerminal={isTerminal}
+            />
+          )}
 
           <Sidebar
             task={task}
             stage={stage}
+            files={files}
+            messages={messages}
             groups={groups}
             onChangeGroup={onChangeGroup}
           />
@@ -290,11 +337,15 @@ function BreadcrumbRow({ onBack, title }: { onBack: () => void; title: string })
 
 function TaskHeader({
   task,
+  view,
+  onChangeView,
   onPause,
   onStop,
   canStop,
 }: {
   task: TaskDto;
+  view: DetailView;
+  onChangeView: (next: DetailView) => void;
   onPause: (() => void) | undefined;
   onStop: () => void;
   canStop: boolean;
@@ -330,6 +381,7 @@ function TaskHeader({
       </div>
       <StatusPill status={task.status} />
       <div style={thActionsStyle}>
+        <ViewToggle value={view} onChange={onChangeView} />
         {onPause && (
           <button type="button" onClick={onPause} style={aBtnStyle}>⏸ Pause</button>
         )}
@@ -339,6 +391,43 @@ function TaskHeader({
           </button>
         )}
       </div>
+    </div>
+  );
+}
+
+/** Tiny segmented control that flips between the structured detail
+ *  view and the terminal mirror. Renders both labels at once so the
+ *  active state is obvious. */
+function ViewToggle({ value, onChange }: {
+  value: DetailView;
+  onChange: (next: DetailView) => void;
+}) {
+  return (
+    <div style={viewToggleStyle} role="tablist" aria-label="Detail view">
+      <button
+        type="button"
+        role="tab"
+        aria-selected={value === 'structured'}
+        onClick={() => onChange('structured')}
+        style={{
+          ...viewToggleBtnStyle,
+          ...(value === 'structured' ? viewToggleActiveStyle : null),
+        }}
+      >
+        ▤ Structured
+      </button>
+      <button
+        type="button"
+        role="tab"
+        aria-selected={value === 'terminal'}
+        onClick={() => onChange('terminal')}
+        style={{
+          ...viewToggleBtnStyle,
+          ...(value === 'terminal' ? viewToggleActiveStyle : null),
+        }}
+      >
+        ⌨ Terminal
+      </button>
     </div>
   );
 }
@@ -509,12 +598,145 @@ function TermInput({
   );
 }
 
-function Sidebar({ task, stage, groups, onChangeGroup }: {
+/**
+ * Structured detail view — three deliberately distinct zones:
+ *
+ *  • HISTORY: scrollable recessed pane that hosts the full
+ *    {@link ConversationPane}. Past exchanges read as "below" the
+ *    active work.
+ *  • LIVE: callout strip that appears above the History scroll when
+ *    the task is RUNNING, surfacing the streaming-in indicator and
+ *    an Interrupt button so the user can jump in.
+ *  • REPLY: sticky bottom input with mode chips and a Send / Queue
+ *    button (label changes mid-stream).
+ *
+ * Follows {@code docs/mockups/design/tasks/task-detail.png}. Reuses
+ * the existing {@code ConversationPane} renderer rather than
+ * physically splitting the message stream — the visual zones convey
+ * the past/live/your-turn distinction without re-parsing turns.
+ */
+function StructuredView({
+  task,
+  messages,
+  pendingPermission,
+  onDecide,
+  draft,
+  onDraft,
+  onSend,
+  onInterrupt,
+  sending,
+  isTerminal,
+}: {
+  task: TaskDto;
+  messages: TaskMessageDto[];
+  pendingPermission: PendingPermission | null;
+  onDecide: (callId: string, decision: 'ALLOW' | 'DENY') => void;
+  draft: string;
+  onDraft: (s: string) => void;
+  onSend: () => void;
+  onInterrupt: () => void;
+  sending: boolean;
+  isTerminal: boolean;
+}) {
+  const turns = useMemo(
+    () => messages.filter(m => m.type === 'turn_done').length,
+    [messages]);
+  const isRunning = task.status === 'RUNNING';
+
+  return (
+    <div style={structuredWrapStyle}>
+      <div style={historyZoneStyle}>
+        <div style={zoneHeaderStyle}>
+          <span style={zoneIconStyle}>📜</span>
+          <span style={zoneLabelStyle}>HISTORY</span>
+          <span style={zoneMetaStyle}>
+            · {messages.length} message{messages.length === 1 ? '' : 's'}
+            · {turns} turn{turns === 1 ? '' : 's'} completed
+          </span>
+        </div>
+        <div style={historyScrollStyle}>
+          <ConversationPane
+            messages={messages}
+            pendingPermission={pendingPermission}
+            onDecide={onDecide}
+            banner={{
+              model: task.model,
+              cwd: task.workingDir,
+              branch: task.branchName,
+              sessionStartedAtIso: task.createdAt,
+            }}
+          />
+        </div>
+      </div>
+
+      {isRunning && (
+        <div style={liveZoneStyle}>
+          <span style={livePulseStyle} className="bytequay-pulse" />
+          <span style={liveLabelStyle}>✦ LIVE</span>
+          <span style={liveMetaStyle}>· Claude is responding</span>
+          <span style={{ flex: 1 }} />
+          <button type="button" onClick={onInterrupt} style={interruptBtnStyle}>
+            ⏵ Interrupt
+          </button>
+        </div>
+      )}
+
+      {!isTerminal && (
+        <div style={replyZoneStyle}>
+          <div style={replyHeaderStyle}>
+            <span style={replyIconStyle}>⌨</span>
+            <span style={replyLabelStyle}>REPLY</span>
+            <span style={replyMetaStyle}>
+              · {isRunning
+                ? 'queue while Claude finishes, or interrupt to jump in'
+                : 'send a follow-up turn'}
+            </span>
+          </div>
+          <textarea
+            value={draft}
+            onChange={e => onDraft(e.target.value)}
+            placeholder={isRunning
+              ? 'message will be queued for after current turn…'
+              : 'send a follow-up turn…'}
+            disabled={sending}
+            rows={Math.min(8, Math.max(2, draft.split('\n').length))}
+            onKeyDown={e => {
+              if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
+                e.preventDefault();
+                onSend();
+              }
+            }}
+            style={replyTextareaStyle}
+          />
+          <div style={replyFooterStyle}>
+            <span style={replyHintStyle}>
+              <Kbd>⌘</Kbd>+<Kbd>↵</Kbd> send · <Kbd>⇧</Kbd>+<Kbd>↵</Kbd> newline
+            </span>
+            <span style={{ flex: 1 }} />
+            <button
+              type="button"
+              onClick={onSend}
+              disabled={!draft.trim() || sending}
+              style={replySendBtnStyle}
+            >
+              {sending ? 'sending…' : (isRunning ? 'Queue →' : 'Send →')}
+            </button>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function Sidebar({ task, stage, files, messages, groups, onChangeGroup }: {
   task: TaskDto;
   stage: Stage;
+  files: TaskFileDto[];
+  messages: TaskMessageDto[];
   groups: TaskGroupDto[];
   onChangeGroup: (groupId: string | null) => void | Promise<void>;
 }) {
+  const toolUsage = useMemo(() => deriveToolUsage(messages), [messages]);
   return (
     <div style={sidebarStyle}>
       <SideCard>
@@ -536,11 +758,25 @@ function Sidebar({ task, stage, groups, onChangeGroup }: {
           <Metric label="Runtime" value={formatRuntime(task)} live={task.status === 'RUNNING'} />
           <Metric label="Cost so far" value={formatCost(task.costUsdMilli)} sub="CLI-reported" />
           <Metric label="Tokens in → out" value={`${formatNum(task.tokensIn)} → ${formatNum(task.tokensOut)}`} />
+          <Metric label="Tool calls" value={formatNum(toolUsage.total)} />
+          <Metric label="Files touched" value={formatNum(files.length)} />
           <Metric label="Model" value={task.model} mono />
           {task.branchName && <Metric label="Branch" value={task.branchName} mono />}
           {task.agentSessionId && <Metric label="Session" value={shortId(task.agentSessionId)} mono />}
           <Metric label="Status" value={task.status} />
         </div>
+      </SideCard>
+
+      <SideCard>
+        <h4 style={sideCardHeadingStyle}>
+          Files touched <span style={cardCountStyle}>· {files.length}</span>
+        </h4>
+        <FilesList files={files} />
+      </SideCard>
+
+      <SideCard>
+        <h4 style={sideCardHeadingStyle}>Tools used</h4>
+        <ToolsUsed usage={toolUsage} />
       </SideCard>
 
       <SideCard>
@@ -566,6 +802,97 @@ function Sidebar({ task, stage, groups, onChangeGroup }: {
       </SideCard>
     </div>
   );
+}
+
+function FilesList({ files }: { files: TaskFileDto[] }) {
+  if (files.length === 0) {
+    return (
+      <div style={cardEmptyStyle}>
+        No files touched yet.
+      </div>
+    );
+  }
+  return (
+    <div style={filesListStyle}>
+      {files.map(f => (
+        <div key={f.path} style={fileRowStyle}>
+          <span style={{ ...fileOpTagStyle, ...fileOpPalette(f.operation) }}>
+            {fileOpLabel(f.operation)}
+          </span>
+          <span style={filePathStyle} title={f.path}>{f.path}</span>
+          <span style={fileStatsStyle}>
+            {f.linesAdded > 0 && <span style={{ color: '#16a34a' }}>+{f.linesAdded}</span>}
+            {f.linesAdded > 0 && f.linesRemoved > 0 && ' '}
+            {f.linesRemoved > 0 && <span style={{ color: '#dc2626' }}>-{f.linesRemoved}</span>}
+          </span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function ToolsUsed({ usage }: { usage: ToolUsage }) {
+  if (usage.total === 0) {
+    return <div style={cardEmptyStyle}>No tools called yet.</div>;
+  }
+  return (
+    <div style={toolsUsedStyle}>
+      {usage.entries.map(([tool, count]) => (
+        <span key={tool} style={toolPillStyle}>
+          {tool}
+          <span style={toolPillCountStyle}>{count}</span>
+        </span>
+      ))}
+    </div>
+  );
+}
+
+type ToolUsage = {
+  total: number;
+  entries: Array<readonly [string, number]>;
+};
+
+function deriveToolUsage(messages: TaskMessageDto[]): ToolUsage {
+  const counts = new Map<string, number>();
+  let total = 0;
+  for (const m of messages) {
+    if (m.type !== 'tool_call') continue;
+    let tool = 'tool';
+    try {
+      const parsed = JSON.parse(m.contentJson) as { toolName?: string };
+      if (parsed.toolName) tool = parsed.toolName;
+    }
+    catch {
+      // ignore — the renderer treats malformed payloads as generic
+    }
+    counts.set(tool, (counts.get(tool) ?? 0) + 1);
+    total++;
+  }
+  return {
+    total,
+    entries: Array.from(counts.entries())
+      .sort((a, b) => b[1] - a[1]),
+  };
+}
+
+function fileOpLabel(op: string): string {
+  switch (op.toLowerCase()) {
+    case 'write':  return 'NEW';
+    case 'edit':   return 'EDIT';
+    case 'read':   return 'READ';
+    case 'delete': return 'DEL';
+    default:       return op.toUpperCase();
+  }
+}
+
+function fileOpPalette(op: string): React.CSSProperties {
+  switch (op.toLowerCase()) {
+    case 'write':  return { background: '#dcfce7', color: '#166534' };
+    case 'edit':   return { background: '#ede9fe', color: '#5b21b6' };
+    case 'read':   return { background: '#dbeafe', color: '#1e3a8a' };
+    case 'delete': return { background: '#fee2e2', color: '#991b1b' };
+    default:       return { background: '#f1f5f9', color: '#475569' };
+  }
 }
 
 function SideCard({ children }: { children: React.ReactNode }) {
@@ -1350,4 +1677,241 @@ const errorBannerStyle: React.CSSProperties = {
   padding: '12px 16px', margin: '0 36px 24px',
   background: '#FEF2F2', color: '#991B1B',
   border: '1px solid #FCA5A5', borderRadius: 6,
+};
+
+// ── View toggle (Structured | Terminal) ─────────────────────────────────
+const viewToggleStyle: React.CSSProperties = {
+  display: 'inline-flex',
+  padding: 2,
+  background: '#F3F4F6',
+  borderRadius: 8,
+  border: '1px solid #E5E7EB',
+};
+const viewToggleBtnStyle: React.CSSProperties = {
+  padding: '4px 12px',
+  background: 'transparent',
+  color: '#4B5563',
+  border: 'none',
+  borderRadius: 6,
+  fontSize: 12,
+  fontWeight: 600,
+  cursor: 'pointer',
+};
+const viewToggleActiveStyle: React.CSSProperties = {
+  background: '#fff',
+  color: '#111827',
+  boxShadow: '0 1px 2px rgba(15, 23, 42, 0.1)',
+};
+
+// ── Sidebar additions: Files touched / Tools used ───────────────────────
+const cardCountStyle: React.CSSProperties = { color: '#9ca3af', fontWeight: 500 };
+const cardEmptyStyle: React.CSSProperties = {
+  padding: '0 18px 16px',
+  color: '#9CA3AF',
+  fontSize: 12,
+  fontStyle: 'italic',
+};
+const filesListStyle: React.CSSProperties = {
+  padding: '0 14px 14px',
+  display: 'flex',
+  flexDirection: 'column',
+  gap: 4,
+  maxHeight: 220,
+  overflowY: 'auto',
+};
+const fileRowStyle: React.CSSProperties = {
+  display: 'flex',
+  alignItems: 'center',
+  gap: 8,
+  padding: '4px 4px',
+  fontSize: 12,
+};
+const fileOpTagStyle: React.CSSProperties = {
+  padding: '1px 6px',
+  borderRadius: 3,
+  fontSize: 10,
+  fontWeight: 700,
+  letterSpacing: 0.4,
+  flexShrink: 0,
+};
+const filePathStyle: React.CSSProperties = {
+  flex: 1,
+  minWidth: 0,
+  overflow: 'hidden',
+  textOverflow: 'ellipsis',
+  whiteSpace: 'nowrap',
+  fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
+  color: '#374151',
+};
+const fileStatsStyle: React.CSSProperties = {
+  fontSize: 11,
+  fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
+  fontVariantNumeric: 'tabular-nums',
+  flexShrink: 0,
+};
+const toolsUsedStyle: React.CSSProperties = {
+  padding: '0 14px 14px',
+  display: 'flex',
+  flexWrap: 'wrap',
+  gap: 6,
+};
+const toolPillStyle: React.CSSProperties = {
+  display: 'inline-flex',
+  alignItems: 'center',
+  gap: 6,
+  padding: '3px 8px',
+  background: '#F3F4F6',
+  border: '1px solid #E5E7EB',
+  borderRadius: 999,
+  fontSize: 12,
+  fontWeight: 500,
+  color: '#374151',
+};
+const toolPillCountStyle: React.CSSProperties = {
+  padding: '0 6px',
+  background: '#fff',
+  borderRadius: 999,
+  fontSize: 11,
+  fontWeight: 600,
+  color: '#6B7280',
+  fontVariantNumeric: 'tabular-nums',
+};
+
+// ── Structured view ─────────────────────────────────────────────────────
+const structuredWrapStyle: React.CSSProperties = {
+  display: 'flex',
+  flexDirection: 'column',
+  gap: 12,
+  background: '#fff',
+  border: '1px solid #E5E7EB',
+  borderRadius: 12,
+  padding: 12,
+  minHeight: 0,
+  minWidth: 0,
+  maxHeight: 'calc(100vh - 220px)',
+};
+const historyZoneStyle: React.CSSProperties = {
+  display: 'flex',
+  flexDirection: 'column',
+  flex: 1,
+  minHeight: 0,
+  background: '#F8FAFC',
+  border: '1px solid #E5E7EB',
+  borderRadius: 8,
+  overflow: 'hidden',
+};
+const zoneHeaderStyle: React.CSSProperties = {
+  display: 'flex',
+  alignItems: 'center',
+  gap: 6,
+  padding: '8px 14px',
+  borderBottom: '1px solid #E5E7EB',
+  background: '#fff',
+  fontSize: 11,
+  fontWeight: 700,
+  letterSpacing: '0.06em',
+  textTransform: 'uppercase',
+  color: '#475569',
+};
+const zoneIconStyle: React.CSSProperties = { fontSize: 13 };
+const zoneLabelStyle: React.CSSProperties = { color: '#475569' };
+const zoneMetaStyle: React.CSSProperties = {
+  color: '#94A3B8',
+  fontWeight: 500,
+  textTransform: 'none',
+  letterSpacing: 0,
+};
+const historyScrollStyle: React.CSSProperties = {
+  flex: 1,
+  minHeight: 0,
+  overflowY: 'auto',
+};
+const liveZoneStyle: React.CSSProperties = {
+  display: 'flex',
+  alignItems: 'center',
+  gap: 8,
+  padding: '8px 14px',
+  background: '#F5F3FF',
+  border: '1px solid #DDD6FE',
+  borderLeft: '3px solid #7C3AED',
+  borderRadius: 6,
+};
+const livePulseStyle: React.CSSProperties = {
+  width: 8,
+  height: 8,
+  borderRadius: '50%',
+  background: '#7C3AED',
+};
+const liveLabelStyle: React.CSSProperties = {
+  fontSize: 11,
+  fontWeight: 700,
+  letterSpacing: '0.06em',
+  color: '#5B21B6',
+};
+const liveMetaStyle: React.CSSProperties = { fontSize: 12, color: '#6D28D9' };
+const interruptBtnStyle: React.CSSProperties = {
+  padding: '4px 10px',
+  background: '#fff',
+  border: '1px solid #C4B5FD',
+  borderRadius: 6,
+  fontSize: 11.5,
+  fontWeight: 600,
+  color: '#5B21B6',
+  cursor: 'pointer',
+};
+const replyZoneStyle: React.CSSProperties = {
+  display: 'flex',
+  flexDirection: 'column',
+  gap: 6,
+  padding: 12,
+  background: '#F9FAFB',
+  border: '1px solid #E5E7EB',
+  borderRadius: 8,
+};
+const replyHeaderStyle: React.CSSProperties = {
+  display: 'flex',
+  alignItems: 'center',
+  gap: 6,
+};
+const replyIconStyle: React.CSSProperties = { fontSize: 13, color: '#6B7280' };
+const replyLabelStyle: React.CSSProperties = {
+  fontSize: 11,
+  fontWeight: 700,
+  letterSpacing: '0.06em',
+  color: '#6B7280',
+};
+const replyMetaStyle: React.CSSProperties = {
+  fontSize: 11.5,
+  color: '#9CA3AF',
+};
+const replyTextareaStyle: React.CSSProperties = {
+  width: '100%',
+  resize: 'vertical',
+  padding: '10px 12px',
+  fontFamily: 'inherit',
+  fontSize: 13,
+  background: '#fff',
+  border: '1px solid #D1D5DB',
+  borderRadius: 6,
+  outline: 'none',
+  boxSizing: 'border-box',
+};
+const replyFooterStyle: React.CSSProperties = {
+  display: 'flex',
+  alignItems: 'center',
+  gap: 8,
+};
+const replyHintStyle: React.CSSProperties = {
+  fontSize: 11,
+  color: '#9CA3AF',
+};
+const replySendBtnStyle: React.CSSProperties = {
+  padding: '6px 14px',
+  background: '#7C3AED',
+  color: '#fff',
+  border: 'none',
+  borderRadius: 6,
+  fontWeight: 600,
+  fontSize: 12.5,
+  cursor: 'pointer',
 };

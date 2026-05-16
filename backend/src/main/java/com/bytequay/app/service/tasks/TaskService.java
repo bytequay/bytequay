@@ -16,6 +16,7 @@ package com.bytequay.app.service.tasks;
 import com.bytequay.app.domain.PermissionDecision;
 import com.bytequay.app.domain.StreamEvent;
 import com.bytequay.app.domain.Task;
+import com.bytequay.app.domain.TaskFile;
 import com.bytequay.app.domain.TaskGroup;
 import com.bytequay.app.domain.TaskKind;
 import com.bytequay.app.domain.TaskMessage;
@@ -179,6 +180,11 @@ public class TaskService
     public Optional<Task> find(String taskId)
     {
         return store.findTaskById(taskId);
+    }
+
+    public List<TaskFile> files(String taskId)
+    {
+        return store.listFiles(taskId);
     }
 
     public List<TaskMessage> history(String taskId)

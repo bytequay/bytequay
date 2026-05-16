@@ -42,6 +42,7 @@ import type {
   NewTaskRequestDto,
   SyncSettingsDto,
   TaskDto,
+  TaskFileDto,
   TaskGroupDto,
   TaskGroupPatchDto,
   TaskMessageDto,
@@ -449,6 +450,8 @@ const bridge: Bridge = {
     ipcRenderer.invoke('tasks:get', id),
   getTaskMessages: (id: string): Promise<TaskMessageDto[]> =>
     ipcRenderer.invoke('tasks:messages', id),
+  getTaskFiles: (id: string): Promise<TaskFileDto[]> =>
+    ipcRenderer.invoke('tasks:files', id),
   setTaskGroup: (id: string, groupId: string | null): Promise<TaskDto> =>
     ipcRenderer.invoke('tasks:setGroup', { id, groupId }),
   sendTaskMessage: (id: string, input: string): Promise<void> =>

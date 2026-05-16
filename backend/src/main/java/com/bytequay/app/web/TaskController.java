@@ -15,6 +15,7 @@ package com.bytequay.app.web;
 
 import com.bytequay.app.domain.PermissionDecision;
 import com.bytequay.app.domain.Task;
+import com.bytequay.app.domain.TaskFile;
 import com.bytequay.app.domain.TaskKind;
 import com.bytequay.app.domain.TaskMessage;
 import com.bytequay.app.domain.TaskStatus;
@@ -147,6 +148,14 @@ public class TaskController
     public List<TaskMessage> messages(@PathVariable String id)
     {
         return tasks.history(id);
+    }
+
+    /** GET /api/tasks/{id}/files — per-file rollup, most-recently
+     *  touched first. Powers the sidebar's Files touched card. */
+    @GetMapping("/{id}/files")
+    public List<TaskFile> files(@PathVariable String id)
+    {
+        return tasks.files(id);
     }
 
     /** POST /api/tasks/{id}/messages — send a follow-up turn. */

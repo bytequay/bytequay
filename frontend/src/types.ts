@@ -1139,6 +1139,20 @@ export type TaskGroupPatchDto = {
   color?: string;
 };
 
+/** Per-(task, path) rollup row. Powers the Files touched sidebar
+ *  card on the detail page. */
+export type TaskFileDto = {
+  taskId: string;
+  path: string;
+  /** {@code read} | {@code write} | {@code edit} | {@code delete} */
+  operation: string;
+  /** How many times this file was touched. */
+  count: number;
+  linesAdded: number;
+  linesRemoved: number;
+  lastTouchedAt: string;
+};
+
 export type TaskMessageDto = {
   id: string;
   taskId: string;
@@ -1743,6 +1757,8 @@ export type Bridge = {
   /** Persisted conversation log, oldest first by {@code seq}. The
    *  detail page polls this while the task is live. */
   getTaskMessages: (id: string) => Promise<TaskMessageDto[]>;
+  /** Per-(task, path) rollup rows for the detail-page sidebar. */
+  getTaskFiles: (id: string) => Promise<TaskFileDto[]>;
   /** Reassign the task to a different group, or unpin it
    *  ({@code groupId: null}). Returns the updated row. */
   setTaskGroup: (id: string, groupId: string | null) => Promise<TaskDto>;

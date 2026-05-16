@@ -13,6 +13,7 @@
  */
 import { useEffect, useMemo, useRef, useState, type ReactElement } from 'react';
 import type { TaskMessageDto } from '../types';
+import { PermissionCard } from './PermissionCard';
 
 export type PendingPermission = {
   callId: string;
@@ -112,7 +113,7 @@ export function ConversationPane({ messages, pendingPermission, onDecide, banner
       )}
       {rendered.map(item => renderItem(item))}
       {pendingPermission && (
-        <PermissionBanner permission={pendingPermission} onDecide={onDecide} />
+        <PermissionCard permission={pendingPermission} onDecide={onDecide} />
       )}
     </div>
   );
@@ -361,44 +362,6 @@ function UnknownLine({ message }: { message: TaskMessageDto }) {
   return (
     <div style={lifecycleStyle}>
       <span style={dimStyle}>· {message.role}/{message.type}</span>
-    </div>
-  );
-}
-
-function PermissionBanner({
-  permission,
-  onDecide,
-}: {
-  permission: PendingPermission;
-  onDecide: (
-    callId: string,
-    decision: 'ALLOW' | 'DENY',
-    preApprove?: { toolName: string; count: number },
-  ) => void;
-}) {
-  return (
-    <div style={permissionStyle}>
-      <div style={{ flex: 1, minWidth: 0 }}>
-        <div style={permissionTitleStyle}>
-          <span style={warnGlyphStyle}>⚠ </span>
-          Permission needed for <strong style={boldStyle}>{permission.toolName}</strong>
-        </div>
-        {permission.summary && (
-          <div style={permissionSummaryStyle}>{permission.summary}</div>
-        )}
-      </div>
-      <div style={{ display: 'flex', gap: 8 }}>
-        <button
-          type="button"
-          onClick={() => onDecide(permission.callId, 'DENY')}
-          style={denyBtnStyle}
-        >Deny</button>
-        <button
-          type="button"
-          onClick={() => onDecide(permission.callId, 'ALLOW')}
-          style={allowBtnStyle}
-        >Allow</button>
-      </div>
     </div>
   );
 }
@@ -777,37 +740,3 @@ const lifecycleStyle: React.CSSProperties = {
   color: 'var(--term-text-muted)', fontSize: 12, padding: '2px 0',
 };
 
-const permissionStyle: React.CSSProperties = {
-  display: 'flex',
-  justifyContent: 'space-between',
-  alignItems: 'center',
-  gap: 16,
-  marginTop: 12,
-  padding: '12px 14px',
-  background: 'var(--term-permission-bg)',
-  border: '1px solid var(--term-permission-border)',
-  borderRadius: 6,
-};
-const permissionTitleStyle: React.CSSProperties = { color: 'var(--term-permission-text-strong)', fontSize: 13 };
-const permissionSummaryStyle: React.CSSProperties = {
-  color: 'var(--term-permission-text)', fontSize: 12, marginTop: 2,
-};
-const allowBtnStyle: React.CSSProperties = {
-  // Allow stays vivid green in both themes — it's the high-confidence
-  // affirmative action and shouldn't recede in light mode.
-  padding: '6px 14px',
-  background: '#10B981',
-  color: '#fff',
-  border: 'none',
-  borderRadius: 4,
-  fontWeight: 600,
-  cursor: 'pointer',
-};
-const denyBtnStyle: React.CSSProperties = {
-  padding: '6px 14px',
-  background: 'transparent',
-  color: 'var(--term-permission-text-strong)',
-  border: '1px solid var(--term-permission-border)',
-  borderRadius: 4,
-  cursor: 'pointer',
-};

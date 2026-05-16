@@ -267,9 +267,14 @@ export default function TasksPage({
     }
   }, []);
   const onTileDecide = useCallback(
-    async (taskId: string, callId: string, decision: 'ALLOW' | 'DENY') => {
+    async (
+      taskId: string,
+      callId: string,
+      decision: 'ALLOW' | 'DENY',
+      preApprove?: { toolName: string; count: number },
+    ) => {
       try {
-        await window.bridge.decideTaskPermission(taskId, callId, decision);
+        await window.bridge.decideTaskPermission(taskId, callId, decision, preApprove);
       }
       catch (e) {
         setError(e instanceof Error ? e.message : String(e));

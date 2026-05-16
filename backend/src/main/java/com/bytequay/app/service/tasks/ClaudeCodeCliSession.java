@@ -39,6 +39,7 @@ import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.UUID;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -101,6 +102,14 @@ public class ClaudeCodeCliSession
     private final AtomicLong runningTokensOut = new AtomicLong();
     private final AtomicLong runningToolCallCount = new AtomicLong();
     private final long sessionStartedMs;
+
+    /** Per-tool auto-approval budget the user granted via "Allow next
+     *  N". The value counts remaining auto-allows; {@link #BUDGET_ALWAYS}
+     *  is the sentinel for "always for this tool". Lives only for the
+     *  session; a stopped or failed task drops the map. */
+    private final Map<String, Integer> toolBudget = new ConcurrentHashMap<>();
+
+    private static final int BUDGET_ALWAYS = -1;
 
     public ClaudeCodeCliSession(
             Task task,
@@ -298,6 +307,45 @@ public class ClaudeCodeCliSession
         // the event through handle() so it persists for replay.
         gate.decide(callId, decision);
         handle(new StreamEvent.PermissionDecided(Instant.now(), callId, decision));
+    }
+
+    @Override
+    public void grantToolBudget(String toolName, int count)
+    {
+        requireNonNull(toolName, "toolName is null");
+        if (count == BUDGET_ALWAYS) {
+            toolBudget.put(toolName, BUDGET_ALWAYS);
+            return;
+        }
+        if (count <= 0) {
+            return;
+        }
+        // Finite grants accumulate, but "always" wins and stays sticky.
+        toolBudget.merge(toolName, count, (prev, add) ->
+                prev == BUDGET_ALWAYS ? BUDGET_ALWAYS : prev + add);
+    }
+
+    @Override
+    public boolean tryConsumeToolBudget(String toolName)
+    {
+        if (toolName == null) {
+            return false;
+        }
+        // Atomic decrement with floor 0 — concurrent MCP requests for
+        // the same tool can race, but the remapping function makes sure
+        // only the remaining slots are handed out. The boolean[] is the
+        // out-channel because computeIfPresent only returns the new
+        // mapped value, which can't distinguish "removed because we
+        // consumed the last slot" from "absent".
+        boolean[] consumed = {false};
+        toolBudget.computeIfPresent(toolName, (k, v) -> {
+            consumed[0] = true;
+            if (v == BUDGET_ALWAYS) {
+                return BUDGET_ALWAYS;
+            }
+            return v > 1 ? v - 1 : null;
+        });
+        return consumed[0];
     }
 
     @Override

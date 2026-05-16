@@ -19,6 +19,7 @@ import com.bytequay.app.domain.TaskFile;
 import com.bytequay.app.domain.TaskKind;
 import com.bytequay.app.domain.TaskMessage;
 import com.bytequay.app.domain.TaskStatus;
+import com.bytequay.app.service.local.GitRunner;
 import com.bytequay.app.service.tasks.TaskService;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
@@ -173,6 +174,55 @@ public class TaskController
         return tasks.files(id);
     }
 
+    // ── Tabs: Files (uncommitted) + Commits (since task started) ─────
+
+    /** GET /api/tasks/{id}/working-changes — paths the AI session has
+     *  modified but not yet committed. Drives the Files tab. */
+    @GetMapping("/{id}/working-changes")
+    public List<GitRunner.WorkingTreeFile> workingChanges(@PathVariable String id)
+    {
+        return tasks.listWorkingChanges(id);
+    }
+
+    /** GET /api/tasks/{id}/working-diff?path=... — unified diff for
+     *  one uncommitted file. Capped at 256 KB. */
+    @GetMapping("/{id}/working-diff")
+    public Map<String, String> workingDiff(
+            @PathVariable String id,
+            @RequestParam String path)
+    {
+        return ImmutableMap.of("diff", tasks.getWorkingDiff(id, path));
+    }
+
+    /** GET /api/tasks/{id}/commits — commits authored since the task
+     *  was created. Drives the Commits tab. */
+    @GetMapping("/{id}/commits")
+    public List<GitRunner.CommitEntry> commits(@PathVariable String id)
+    {
+        return tasks.listTaskCommits(id);
+    }
+
+    /** GET /api/tasks/{id}/commits/{sha}/files — per-file rollup for
+     *  one of the task's commits. */
+    @GetMapping("/{id}/commits/{sha}/files")
+    public List<GitRunner.CommitFileChange> commitFiles(
+            @PathVariable String id,
+            @PathVariable String sha)
+    {
+        return tasks.listCommitFiles(id, sha);
+    }
+
+    /** GET /api/tasks/{id}/commits/{sha}/diff?path=... — unified diff
+     *  for one file at one commit. */
+    @GetMapping("/{id}/commits/{sha}/diff")
+    public Map<String, String> commitDiff(
+            @PathVariable String id,
+            @PathVariable String sha,
+            @RequestParam String path)
+    {
+        return ImmutableMap.of("diff", tasks.getCommitDiff(id, sha, path));
+    }
+
     /** POST /api/tasks/{id}/messages — send a follow-up turn. */
     @PostMapping("/{id}/messages")
     public Map<String, String> send(@PathVariable String id, @RequestBody SendBody body)
@@ -231,6 +281,16 @@ public class TaskController
             throw new IllegalArgumentException("decision is required");
         }
         tasks.decide(id, body.callId(), body.decision());
+        // Optional pre-approval rider — when the user clicks "Allow next
+        // 5 / 10 / 50 / Always" we record the current decision first,
+        // then grant the budget so subsequent calls of the same tool
+        // skip the prompt. -1 is the "always" sentinel.
+        if (body.preApproveToolName() != null
+                && !body.preApproveToolName().isBlank()
+                && body.preApproveCount() != null
+                && body.preApproveCount() != 0) {
+            tasks.grantToolBudget(id, body.preApproveToolName(), body.preApproveCount());
+        }
         return ImmutableMap.of("status", "recorded");
     }
 
@@ -282,7 +342,11 @@ public class TaskController
 
     public record SendBody(String input) {}
 
-    public record DecisionBody(String callId, PermissionDecision decision) {}
+    public record DecisionBody(
+            String callId,
+            PermissionDecision decision,
+            String preApproveToolName,
+            Integer preApproveCount) {}
 
     public record PatchTaskBody(String title, boolean setGroup, String groupId) {}
 }

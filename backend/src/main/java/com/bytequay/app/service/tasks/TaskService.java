@@ -23,8 +23,11 @@ import com.bytequay.app.domain.TaskMessage;
 import com.bytequay.app.domain.TaskStatus;
 import com.bytequay.app.repository.TaskGroupStore;
 import com.bytequay.app.repository.TaskStore;
+import com.bytequay.app.service.local.GitRunner;
 import org.springframework.stereotype.Service;
 
+import java.io.IOException;
+import java.nio.file.Path;
 import java.time.Instant;
 import java.util.List;
 import java.util.NoSuchElementException;
@@ -42,15 +45,30 @@ import static java.util.Objects.requireNonNull;
 @Service
 public class TaskService
 {
+    /** Cap on any single diff payload — 256 KB lets a couple-thousand-
+     *  line file through, and stops a misclick on a generated artifact
+     *  from blowing up the IPC channel. Matches the spirit of caps used
+     *  elsewhere (check-run logs at 200 KB tail). */
+    private static final int DIFF_MAX_BYTES = 256 * 1024;
+    /** Hard cap on commits returned to the Commits tab. The view is a
+     *  fast switcher, not a full git history — 100 is more than enough. */
+    private static final int COMMITS_LIMIT = 100;
+
     private final TaskStore store;
     private final TaskGroupStore groupStore;
     private final TaskSessionRegistry registry;
+    private final GitRunner git;
 
-    public TaskService(TaskStore store, TaskGroupStore groupStore, TaskSessionRegistry registry)
+    public TaskService(
+            TaskStore store,
+            TaskGroupStore groupStore,
+            TaskSessionRegistry registry,
+            GitRunner git)
     {
         this.store = requireNonNull(store, "store is null");
         this.groupStore = requireNonNull(groupStore, "groupStore is null");
         this.registry = requireNonNull(registry, "registry is null");
+        this.git = requireNonNull(git, "git is null");
     }
 
     public List<Task> listByStatus(TaskStatus status, int limit)
@@ -261,6 +279,107 @@ public class TaskService
         store.deleteTask(taskId);
     }
 
+    // ── Working-tree + commit views for the Tasks UI tabs ────────────
+    // Each call resolves the task to its workingDir, then delegates
+    // to GitRunner. We don't cache — these views are opened on demand
+    // and the underlying tree mutates as the AI session writes files.
+    // Wrap the checked IO/Interrupted exceptions so callers stay clean.
+
+    /** Files the AI session has modified but not yet committed —
+     *  feeds the "Files" tab. Mirrors {@code git status --porcelain}. */
+    public List<GitRunner.WorkingTreeFile> listWorkingChanges(String taskId)
+    {
+        Task task = requireTask(taskId);
+        try {
+            return git.workingTreeFiles(Path.of(task.workingDir()));
+        }
+        catch (IOException e) {
+            throw new RuntimeException("Failed to list working-tree changes for " + taskId, e);
+        }
+        catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new RuntimeException("Interrupted listing working-tree changes for " + taskId, e);
+        }
+    }
+
+    /** Unified diff for one uncommitted file. */
+    public String getWorkingDiff(String taskId, String path)
+    {
+        requireNonNull(path, "path is null");
+        Task task = requireTask(taskId);
+        try {
+            return git.workingTreeFileDiff(Path.of(task.workingDir()), path, DIFF_MAX_BYTES);
+        }
+        catch (IOException e) {
+            throw new RuntimeException("Failed to diff " + path + " for " + taskId, e);
+        }
+        catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new RuntimeException("Interrupted diffing " + path + " for " + taskId, e);
+        }
+    }
+
+    /** Commits authored during the task's lifetime. Time-based filter
+     *  on the task's {@code createdAt} — works for single-user repos
+     *  where anything new since the AI session started is the AI's. */
+    public List<GitRunner.CommitEntry> listTaskCommits(String taskId)
+    {
+        Task task = requireTask(taskId);
+        try {
+            return git.listCommitsSince(Path.of(task.workingDir()), task.createdAt(), COMMITS_LIMIT);
+        }
+        catch (IOException e) {
+            throw new RuntimeException("Failed to list commits for " + taskId, e);
+        }
+        catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new RuntimeException("Interrupted listing commits for " + taskId, e);
+        }
+    }
+
+    /** Per-file rollup for one commit (path + status + +/-) so the
+     *  Commits tab can render a sub-list inside an expanded commit. */
+    public List<GitRunner.CommitFileChange> listCommitFiles(String taskId, String sha)
+    {
+        requireNonNull(sha, "sha is null");
+        Task task = requireTask(taskId);
+        try {
+            return git.commitFiles(Path.of(task.workingDir()), sha);
+        }
+        catch (IOException e) {
+            throw new RuntimeException("Failed to list files for commit " + sha + " (task " + taskId + ")", e);
+        }
+        catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new RuntimeException("Interrupted listing files for commit " + sha, e);
+        }
+    }
+
+    /** Unified diff for one file at one commit. */
+    public String getCommitDiff(String taskId, String sha, String path)
+    {
+        requireNonNull(sha, "sha is null");
+        requireNonNull(path, "path is null");
+        Task task = requireTask(taskId);
+        try {
+            return git.commitFileDiff(Path.of(task.workingDir()), sha, path, DIFF_MAX_BYTES);
+        }
+        catch (IOException e) {
+            throw new RuntimeException("Failed to diff " + path + " at " + sha + " (task " + taskId + ")", e);
+        }
+        catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new RuntimeException("Interrupted diffing " + path + " at " + sha, e);
+        }
+    }
+
+    private Task requireTask(String taskId)
+    {
+        requireNonNull(taskId, "taskId is null");
+        return store.findTaskById(taskId)
+                .orElseThrow(() -> new NoSuchElementException("no task: " + taskId));
+    }
+
     /** Surface a permission prompt in the conversation pane. Called
      *  by the MCP controller when Claude's {@code approval_prompt}
      *  tool fires. */
@@ -272,6 +391,28 @@ public class TaskService
     public void decide(String taskId, String callId, PermissionDecision decision)
     {
         sessionOrThrow(taskId).decide(callId, decision);
+    }
+
+    /** Pre-authorise the next {@code count} invocations of {@code toolName}
+     *  for the given task. {@code count == -1} means "always". The MCP
+     *  controller calls {@link #tryConsumeToolBudget} to drain this budget
+     *  before surfacing a prompt to the user. */
+    public void grantToolBudget(String taskId, String toolName, int count)
+    {
+        sessionOrThrow(taskId).grantToolBudget(toolName, count);
+    }
+
+    /** Called from the MCP hot path — quiet (returns {@code false}) if
+     *  the session is gone instead of throwing, since a stale prompt
+     *  shouldn't take down the controller. */
+    public boolean tryConsumeToolBudget(String taskId, String toolName)
+    {
+        try {
+            return sessionOrThrow(taskId).tryConsumeToolBudget(toolName);
+        }
+        catch (NoSuchElementException ignored) {
+            return false;
+        }
     }
 
     /** Subscribe to live events. The returned {@link Runnable}

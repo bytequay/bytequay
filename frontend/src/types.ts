@@ -1767,11 +1767,16 @@ export type Bridge = {
   renameTask: (id: string, title: string) => Promise<TaskDto>;
   /** Send a follow-up turn to a non-terminal task. */
   sendTaskMessage: (id: string, input: string) => Promise<void>;
-  /** Reply to a {@code permission_request}. */
+  /** Reply to a {@code permission_request}. When {@code preApprove}
+   *  is supplied, the backend records the per-call decision and then
+   *  grants an auto-approval budget for future invocations of the same
+   *  tool — {@code count} positive sets a finite quota, {@code -1}
+   *  means "always for this tool" until the session ends. */
   decideTaskPermission: (
     id: string,
     callId: string,
     decision: 'ALLOW' | 'DENY',
+    preApprove?: { toolName: string; count: number },
   ) => Promise<void>;
   /** Cancel the in-flight turn (Ctrl+C semantics). The session
    *  itself stays alive — the user can send another turn. */
@@ -1784,6 +1789,48 @@ export type Bridge = {
    *  Rejects with an error from the backend if the task is still
    *  live. */
   deleteTask: (id: string) => Promise<void>;
+
+  // ── Task tabs: working-tree changes + commits ────────────────────
+  /** Files modified by the AI session but not yet committed. Returns
+   *  paths + single-char status (M, A, D, R, ...). Empty when nothing
+   *  has changed or the workingDir isn't a git repo. */
+  listTaskWorkingChanges: (id: string) => Promise<TaskWorkingFileDto[]>;
+  /** Unified diff for one uncommitted file. Truncated at 256 KB. */
+  getTaskWorkingDiff: (id: string, path: string) => Promise<string>;
+  /** Commits authored in the task's workingDir since task.createdAt,
+   *  most-recent first. Limited to 100. */
+  listTaskCommits: (id: string) => Promise<TaskCommitDto[]>;
+  /** Per-file rollup (path + status + +/-) for one of the task's commits. */
+  listTaskCommitFiles: (id: string, sha: string) => Promise<TaskCommitFileDto[]>;
+  /** Unified diff for one file at one of the task's commits. */
+  getTaskCommitDiff: (id: string, sha: string, path: string) => Promise<string>;
+};
+
+/** Mirror of GitRunner.WorkingTreeFile — uncommitted change in a
+ *  task's workingDir. {@code status} is a single git porcelain char
+ *  (M = modified, A = added/untracked, D = deleted, R = renamed). */
+export type TaskWorkingFileDto = {
+  path: string;
+  status: string;
+};
+
+/** Mirror of GitRunner.CommitEntry — one commit in the task's history. */
+export type TaskCommitDto = {
+  sha: string;
+  shortSha: string;
+  authorName: string;
+  authorEmail: string;
+  authoredAt: string;
+  subject: string;
+};
+
+/** Mirror of GitRunner.CommitFileChange — per-file rollup inside a
+ *  commit, with status char and line counts. */
+export type TaskCommitFileDto = {
+  path: string;
+  status: string;
+  additions: number;
+  deletions: number;
 };
 
 export type InAppNavState = {

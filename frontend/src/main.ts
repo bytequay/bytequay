@@ -2430,6 +2430,83 @@ const url = new URL(`${BACKEND_BASE}/api/search/repos`);
     }
   });
 
+  ipcMain.handle('tasks:workingChanges', async (_event, id: unknown) => {
+    if (typeof id !== 'string' || id.trim().length === 0) {
+      throw new Error('id must be a non-empty string');
+    }
+    const res = await fetch(`${BACKEND_BASE}/api/tasks/${encodeURIComponent(id)}/working-changes`);
+    if (!res.ok) {
+      const text = await res.text().catch(() => '');
+      throw new Error(`backend GET /api/tasks/${id}/working-changes returned ${res.status}: ${text}`);
+    }
+    return res.json();
+  });
+
+  ipcMain.handle('tasks:workingDiff', async (_event, id: unknown, path: unknown) => {
+    if (typeof id !== 'string' || id.trim().length === 0) {
+      throw new Error('id must be a non-empty string');
+    }
+    if (typeof path !== 'string' || path.length === 0) {
+      throw new Error('path must be a non-empty string');
+    }
+    const url = `${BACKEND_BASE}/api/tasks/${encodeURIComponent(id)}/working-diff?path=${encodeURIComponent(path)}`;
+    const res = await fetch(url);
+    if (!res.ok) {
+      const text = await res.text().catch(() => '');
+      throw new Error(`backend GET ${url} returned ${res.status}: ${text}`);
+    }
+    const body = await res.json() as { diff?: string };
+    return body.diff ?? '';
+  });
+
+  ipcMain.handle('tasks:listCommits', async (_event, id: unknown) => {
+    if (typeof id !== 'string' || id.trim().length === 0) {
+      throw new Error('id must be a non-empty string');
+    }
+    const res = await fetch(`${BACKEND_BASE}/api/tasks/${encodeURIComponent(id)}/commits`);
+    if (!res.ok) {
+      const text = await res.text().catch(() => '');
+      throw new Error(`backend GET /api/tasks/${id}/commits returned ${res.status}: ${text}`);
+    }
+    return res.json();
+  });
+
+  ipcMain.handle('tasks:commitFiles', async (_event, id: unknown, sha: unknown) => {
+    if (typeof id !== 'string' || id.trim().length === 0) {
+      throw new Error('id must be a non-empty string');
+    }
+    if (typeof sha !== 'string' || sha.trim().length === 0) {
+      throw new Error('sha must be a non-empty string');
+    }
+    const url = `${BACKEND_BASE}/api/tasks/${encodeURIComponent(id)}/commits/${encodeURIComponent(sha)}/files`;
+    const res = await fetch(url);
+    if (!res.ok) {
+      const text = await res.text().catch(() => '');
+      throw new Error(`backend GET ${url} returned ${res.status}: ${text}`);
+    }
+    return res.json();
+  });
+
+  ipcMain.handle('tasks:commitDiff', async (_event, id: unknown, sha: unknown, path: unknown) => {
+    if (typeof id !== 'string' || id.trim().length === 0) {
+      throw new Error('id must be a non-empty string');
+    }
+    if (typeof sha !== 'string' || sha.trim().length === 0) {
+      throw new Error('sha must be a non-empty string');
+    }
+    if (typeof path !== 'string' || path.length === 0) {
+      throw new Error('path must be a non-empty string');
+    }
+    const url = `${BACKEND_BASE}/api/tasks/${encodeURIComponent(id)}/commits/${encodeURIComponent(sha)}/diff?path=${encodeURIComponent(path)}`;
+    const res = await fetch(url);
+    if (!res.ok) {
+      const text = await res.text().catch(() => '');
+      throw new Error(`backend GET ${url} returned ${res.status}: ${text}`);
+    }
+    const body = await res.json() as { diff?: string };
+    return body.diff ?? '';
+  });
+
   ipcMain.handle('tasks:interrupt', async (_event, id: unknown) => {
     if (typeof id !== 'string' || id.trim().length === 0) {
       throw new Error('id must be a non-empty string');
@@ -2545,17 +2622,27 @@ const url = new URL(`${BACKEND_BASE}/api/search/repos`);
   });
 
   ipcMain.handle('tasks:decide', async (_event, payload: unknown) => {
-    const { id, callId, decision } =
-      (payload ?? {}) as { id?: string; callId?: string; decision?: string };
+    const { id, callId, decision, preApprove } =
+      (payload ?? {}) as {
+        id?: string;
+        callId?: string;
+        decision?: string;
+        preApprove?: { toolName?: string; count?: number };
+      };
     if (!id || !callId || !decision) {
       throw new Error('id, callId, and decision are required');
+    }
+    const body: Record<string, unknown> = { callId, decision };
+    if (preApprove && preApprove.toolName && preApprove.count) {
+      body.preApproveToolName = preApprove.toolName;
+      body.preApproveCount = preApprove.count;
     }
     const res = await fetch(
       `${BACKEND_BASE}/api/tasks/${encodeURIComponent(id)}/decisions`,
       {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ callId, decision }),
+        body: JSON.stringify(body),
       });
     if (!res.ok) {
       const text = await res.text().catch(() => '');

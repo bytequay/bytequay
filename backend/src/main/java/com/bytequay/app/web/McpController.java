@@ -152,6 +152,15 @@ public class McpController
             return;
         }
 
+        // If the user has pre-approved this tool ("Allow next 5",
+        // "Always for this tool"), drain one slot and resolve without
+        // ever showing a prompt. The user-facing history will still see
+        // the resulting tool call message once Claude runs it.
+        if (tasks.tryConsumeToolBudget(taskId, toolName)) {
+            deferred.setResult(toolResponse(id, allow(toolInput)));
+            return;
+        }
+
         // Surface the prompt in the conversation pane and register a
         // future the user's decide() will complete.
         try {

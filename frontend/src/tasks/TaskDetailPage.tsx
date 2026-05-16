@@ -24,6 +24,7 @@ import TasksLeftRail, {
 } from './TasksLeftRail';
 import NewTaskDialog from './NewTaskDialog';
 import RepoAvatar from './RepoAvatar';
+import TaskChangesTab from './TaskChangesTab';
 
 type Props = {
   taskId: string;
@@ -73,19 +74,28 @@ function loadTheme(): TermTheme {
   }
 }
 
-/** Toggles between the new structured detail (three zones) and the
- *  power-user terminal mirror. Persisted across sessions because
- *  users settle on one or the other; the toggle in the toolbar is
- *  the only way to flip without losing your place. */
-type DetailView = 'structured' | 'terminal';
+/** Four tabs in the detail toolbar. Conversation = the structured
+ *  three-zone view; Terminal = the power-user stdout mirror; Files
+ *  = uncommitted working-tree changes the AI session has made;
+ *  Commits = commits authored in the workingDir since the task
+ *  started. Persisted across sessions because users settle on one
+ *  or two and don't want to keep re-picking. The Conversation/
+ *  Terminal split was the original toggle; Files/Commits land on
+ *  top of that as new tabs. */
+type DetailView = 'conversation' | 'terminal' | 'files' | 'commits';
 const VIEW_STORAGE_KEY = 'bytequay.tasks.detailView';
 function loadView(): DetailView {
   try {
     const v = window.localStorage.getItem(VIEW_STORAGE_KEY);
-    return v === 'terminal' ? 'terminal' : 'structured';
+    // Migrate the legacy 'structured' value to 'conversation' so the
+    // user's stored preference survives the rename.
+    if (v === 'terminal') return 'terminal';
+    if (v === 'files') return 'files';
+    if (v === 'commits') return 'commits';
+    return 'conversation';
   }
   catch {
-    return 'structured';
+    return 'conversation';
   }
 }
 
@@ -190,9 +200,13 @@ export default function TaskDetailPage({
     }
   }, [taskId, draft, sending, refresh]);
 
-  const onDecide = useCallback(async (callId: string, decision: 'ALLOW' | 'DENY') => {
+  const onDecide = useCallback(async (
+    callId: string,
+    decision: 'ALLOW' | 'DENY',
+    preApprove?: { toolName: string; count: number },
+  ) => {
     try {
-      await window.bridge.decideTaskPermission(taskId, callId, decision);
+      await window.bridge.decideTaskPermission(taskId, callId, decision, preApprove);
       await refresh();
     }
     catch (e) {
@@ -303,7 +317,7 @@ export default function TaskDetailPage({
           ? { ...bodyGridStyle, ...termCssVars(theme) }
           : bodyGridStyle}
         >
-          {view === 'terminal' ? (
+          {view === 'terminal' && (
             <TerminalWrap
               task={task}
               messages={messages}
@@ -319,7 +333,8 @@ export default function TaskDetailPage({
               theme={theme}
               onToggleTheme={() => setTheme(t => t === 'dark' ? 'light' : 'dark')}
             />
-          ) : (
+          )}
+          {view === 'conversation' && (
             <StructuredView
               task={task}
               messages={messages}
@@ -333,15 +348,20 @@ export default function TaskDetailPage({
               isTerminal={isTerminal}
             />
           )}
+          {(view === 'files' || view === 'commits') && (
+            <TaskChangesTab taskId={taskId} mode={view} />
+          )}
 
-          <Sidebar
-            task={task}
-            stage={stage}
-            files={files}
-            messages={messages}
-            groups={groups}
-            onChangeGroup={onChangeGroup}
-          />
+          {view !== 'files' && view !== 'commits' && (
+            <Sidebar
+              task={task}
+              stage={stage}
+              files={files}
+              messages={messages}
+              groups={groups}
+              onChangeGroup={onChangeGroup}
+            />
+          )}
         </div>
       </div>
 
@@ -522,32 +542,33 @@ function ViewToggle({ value, onChange }: {
   value: DetailView;
   onChange: (next: DetailView) => void;
 }) {
+  // Four-tab strip in the detail toolbar. Conversation/Terminal are
+  // the two render modes for the live chat; Files/Commits surface
+  // git activity inside the task's workingDir so the user can see
+  // what the AI session changed without leaving the page.
+  const tabs: Array<{ key: DetailView; label: string }> = [
+    { key: 'conversation', label: '▤ Conversation' },
+    { key: 'terminal',     label: '⌨ Terminal' },
+    { key: 'files',        label: '📄 Files' },
+    { key: 'commits',      label: '⎇ Commits' },
+  ];
   return (
     <div style={viewToggleStyle} role="tablist" aria-label="Detail view">
-      <button
-        type="button"
-        role="tab"
-        aria-selected={value === 'structured'}
-        onClick={() => onChange('structured')}
-        style={{
-          ...viewToggleBtnStyle,
-          ...(value === 'structured' ? viewToggleActiveStyle : null),
-        }}
-      >
-        ▤ Structured
-      </button>
-      <button
-        type="button"
-        role="tab"
-        aria-selected={value === 'terminal'}
-        onClick={() => onChange('terminal')}
-        style={{
-          ...viewToggleBtnStyle,
-          ...(value === 'terminal' ? viewToggleActiveStyle : null),
-        }}
-      >
-        ⌨ Terminal
-      </button>
+      {tabs.map(t => (
+        <button
+          key={t.key}
+          type="button"
+          role="tab"
+          aria-selected={value === t.key}
+          onClick={() => onChange(t.key)}
+          style={{
+            ...viewToggleBtnStyle,
+            ...(value === t.key ? viewToggleActiveStyle : null),
+          }}
+        >
+          {t.label}
+        </button>
+      ))}
     </div>
   );
 }
@@ -570,7 +591,11 @@ function TerminalWrap({
   task: TaskDto;
   messages: TaskMessageDto[];
   pendingPermission: PendingPermission | null;
-  onDecide: (callId: string, decision: 'ALLOW' | 'DENY') => void;
+  onDecide: (
+    callId: string,
+    decision: 'ALLOW' | 'DENY',
+    preApprove?: { toolName: string; count: number },
+  ) => void;
   stage: Stage;
   draft: string;
   onDraft: (s: string) => void;
@@ -750,7 +775,11 @@ function StructuredView({
   task: TaskDto;
   messages: TaskMessageDto[];
   pendingPermission: PendingPermission | null;
-  onDecide: (callId: string, decision: 'ALLOW' | 'DENY') => void;
+  onDecide: (
+    callId: string,
+    decision: 'ALLOW' | 'DENY',
+    preApprove?: { toolName: string; count: number },
+  ) => void;
   draft: string;
   onDraft: (s: string) => void;
   onSend: () => void;

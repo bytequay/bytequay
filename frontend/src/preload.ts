@@ -458,11 +458,21 @@ const bridge: Bridge = {
     ipcRenderer.invoke('tasks:rename', { id, title }),
   sendTaskMessage: (id: string, input: string): Promise<void> =>
     ipcRenderer.invoke('tasks:send', { id, input }),
-  decideTaskPermission: (id: string, callId: string, decision: 'ALLOW' | 'DENY'): Promise<void> =>
-    ipcRenderer.invoke('tasks:decide', { id, callId, decision }),
+  decideTaskPermission: (
+    id: string,
+    callId: string,
+    decision: 'ALLOW' | 'DENY',
+    preApprove?: { toolName: string; count: number },
+  ): Promise<void> =>
+    ipcRenderer.invoke('tasks:decide', { id, callId, decision, preApprove }),
   interruptTask: (id: string): Promise<void> => ipcRenderer.invoke('tasks:interrupt', id),
   stopTask: (id: string): Promise<void> => ipcRenderer.invoke('tasks:stop', id),
   deleteTask: (id: string): Promise<void> => ipcRenderer.invoke('tasks:delete', id),
+  listTaskWorkingChanges: (id: string) => ipcRenderer.invoke('tasks:workingChanges', id),
+  getTaskWorkingDiff: (id: string, path: string) => ipcRenderer.invoke('tasks:workingDiff', id, path),
+  listTaskCommits: (id: string) => ipcRenderer.invoke('tasks:listCommits', id),
+  listTaskCommitFiles: (id: string, sha: string) => ipcRenderer.invoke('tasks:commitFiles', id, sha),
+  getTaskCommitDiff: (id: string, sha: string, path: string) => ipcRenderer.invoke('tasks:commitDiff', id, sha, path),
 };
 
 contextBridge.exposeInMainWorld('bridge', bridge);

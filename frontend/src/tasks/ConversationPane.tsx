@@ -23,7 +23,15 @@ export type PendingPermission = {
 type Props = {
   messages: TaskMessageDto[];
   pendingPermission: PendingPermission | null;
-  onDecide: (callId: string, decision: 'ALLOW' | 'DENY') => void;
+  /** Decide the current call, optionally granting an auto-approval
+   *  budget for the same tool name. Raw view ignores the
+   *  {@code preApprove} argument and only ever sends Allow/Deny —
+   *  pre-approval lives in the Structured view. */
+  onDecide: (
+    callId: string,
+    decision: 'ALLOW' | 'DENY',
+    preApprove?: { toolName: string; count: number },
+  ) => void;
   /** Welcome banner inputs — model + cwd + branch the agent is
    *  running against, so the scrollback opens with the same context
    *  Claude Code prints in a real terminal. */
@@ -362,7 +370,11 @@ function PermissionBanner({
   onDecide,
 }: {
   permission: PendingPermission;
-  onDecide: (callId: string, decision: 'ALLOW' | 'DENY') => void;
+  onDecide: (
+    callId: string,
+    decision: 'ALLOW' | 'DENY',
+    preApprove?: { toolName: string; count: number },
+  ) => void;
 }) {
   return (
     <div style={permissionStyle}>

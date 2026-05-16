@@ -37,8 +37,15 @@ type Props = {
   onSend: (taskId: string, input: string) => void | Promise<void>;
   /** Cancel the in-flight turn on one of the tiles' tasks. */
   onInterrupt: (taskId: string) => void | Promise<void>;
-  /** Reply to a pending permission_request surfaced in a tile. */
-  onDecide: (taskId: string, callId: string, decision: 'ALLOW' | 'DENY') => void | Promise<void>;
+  /** Reply to a pending permission_request surfaced in a tile.
+   *  Optional {@code preApprove} grants an auto-allow budget for the
+   *  same tool — used by the "Allow next 5/10/50/Always" buttons. */
+  onDecide: (
+    taskId: string,
+    callId: string,
+    decision: 'ALLOW' | 'DENY',
+    preApprove?: { toolName: string; count: number },
+  ) => void | Promise<void>;
   /** ID of the task whose Stop is currently in flight, so the tile
    *  can render a busy state and disable the button. */
   busyId: string | null;
@@ -180,7 +187,8 @@ export default function GroupTaskGrid({
               onStop={() => onStop(t.id)}
               onSend={input => onSend(t.id, input)}
               onInterrupt={() => onInterrupt(t.id)}
-              onDecide={(callId, decision) => onDecide(t.id, callId, decision)}
+              onDecide={(callId, decision, preApprove) =>
+                onDecide(t.id, callId, decision, preApprove)}
               onDragStart={() => setDragFrom(idx)}
               onDragEnter={() => setDragOver(idx)}
               onDragEnd={() => { setDragFrom(null); setDragOver(null); }}
@@ -220,7 +228,11 @@ function TaskTile({
   onStop: () => void | Promise<void>;
   onSend: (input: string) => void | Promise<void>;
   onInterrupt: () => void | Promise<void>;
-  onDecide: (callId: string, decision: 'ALLOW' | 'DENY') => void | Promise<void>;
+  onDecide: (
+    callId: string,
+    decision: 'ALLOW' | 'DENY',
+    preApprove?: { toolName: string; count: number },
+  ) => void | Promise<void>;
   onDragStart: () => void;
   onDragEnter: () => void;
   onDragEnd: () => void;

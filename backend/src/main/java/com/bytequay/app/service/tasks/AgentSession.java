@@ -111,6 +111,20 @@ public interface AgentSession
      *  ignored. */
     void decide(String callId, PermissionDecision decision);
 
+    /** Pre-authorise the next {@code count} invocations of
+     *  {@code toolName} so the MCP gate auto-allows them without
+     *  prompting the user. {@code count == -1} means "always for this
+     *  tool" until the session ends. Budgets accumulate: granting 5
+     *  twice gives 10. Bound to the session lifetime — a stopped or
+     *  failed task drops the map. */
+    void grantToolBudget(String toolName, int count);
+
+    /** Consume one slot of the budget for {@code toolName}. Returns
+     *  {@code true} if a slot was available (and decremented, unless
+     *  it was the sentinel "always"). The MCP controller calls this
+     *  before surfacing an approval prompt to the user. */
+    boolean tryConsumeToolBudget(String toolName);
+
     /** Subscribe to the live event stream. The returned {@link Runnable}
      *  unsubscribes when invoked. Library-neutral on purpose — the
      *  REST/WebSocket layer decides whether to wrap this in Reactor,

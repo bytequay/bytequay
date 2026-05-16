@@ -41,6 +41,12 @@ public interface TaskStore
     /** Single-row lookup by id. Empty when no such task exists. */
     Optional<Task> findTaskById(String id);
 
+    /** Permanent removal — drops the task row plus its child messages
+     *  and per-file rollups. Callers must already have stopped any
+     *  live session attached to the task; this method touches only
+     *  durable state. No-op when the id doesn't exist. */
+    void deleteTask(String id);
+
     /**
      * Tasks in the given status, newest-{@code updated_at_ms} first.
      * Drives the left-rail status sections; {@code limit} caps page

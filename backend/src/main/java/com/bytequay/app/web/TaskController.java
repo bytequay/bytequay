@@ -206,11 +206,18 @@ public class TaskController
         return ImmutableMap.of("status", "resumed");
     }
 
-    @DeleteMapping("/{id}")
+    @PostMapping("/{id}/stop")
     public Map<String, String> stop(@PathVariable String id)
     {
         tasks.stop(id);
         return ImmutableMap.of("status", "stopped");
+    }
+
+    @DeleteMapping("/{id}")
+    public Map<String, String> delete(@PathVariable String id)
+    {
+        tasks.delete(id);
+        return ImmutableMap.of("status", "deleted");
     }
 
     @PostMapping("/{id}/decisions")

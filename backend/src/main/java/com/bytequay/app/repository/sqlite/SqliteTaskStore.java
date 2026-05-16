@@ -82,6 +82,18 @@ class SqliteTaskStore
     }
 
     @Override
+    @Transactional
+    public void deleteTask(String id)
+    {
+        if (!tasks.existsById(id)) {
+            return;
+        }
+        messages.deleteByTaskId(id);
+        files.deleteByIdTaskId(id);
+        tasks.deleteById(id);
+    }
+
+    @Override
     public List<Task> listTasksByStatus(TaskStatus status, int limit)
     {
         return tasks.findByStatusOrderByUpdatedAtMsDesc(status.name(), PageRequest.of(0, limit))

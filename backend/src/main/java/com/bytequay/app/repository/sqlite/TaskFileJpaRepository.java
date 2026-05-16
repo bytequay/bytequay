@@ -22,4 +22,9 @@ interface TaskFileJpaRepository
 {
     /** Sidebar order — most-recently-touched first. */
     List<TaskFileEntity> findByIdTaskIdOrderByLastTouchedMsDesc(String taskId);
+
+    /** Cascade delete when the parent task is removed. The composite
+     *  key path needs the {@code IdTaskId} traversal that JPA derives
+     *  from the {@code @EmbeddedId} field on the entity. */
+    void deleteByIdTaskId(String taskId);
 }

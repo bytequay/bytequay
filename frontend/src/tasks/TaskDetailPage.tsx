@@ -219,6 +219,23 @@ export default function TaskDetailPage({
     }
   }, [taskId, refresh]);
 
+  const onDelete = useCallback(async () => {
+    // Destructive — confirm before we drop the row + its conversation
+    // log. Native confirm() is fine here; the dialog gets dismissed
+    // on cancel and we just no-op.
+    if (!confirm(
+      `Delete this task permanently?\n\nThe conversation log and per-file rollup will be removed and can't be recovered.`)) {
+      return;
+    }
+    try {
+      await window.bridge.deleteTask(taskId);
+      onBack();
+    }
+    catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    }
+  }, [taskId, onBack]);
+
   const rail = (
     <TasksLeftRail
       tasks={allTasks}
@@ -277,6 +294,8 @@ export default function TaskDetailPage({
           onPause={undefined /* pause not wired through MCP yet */}
           onStop={onStop}
           canStop={!isTerminal}
+          onDelete={onDelete}
+          canDelete={isTerminal}
         />
 
         <div style={view === 'terminal'
@@ -368,6 +387,8 @@ function TaskHeader({
   onPause,
   onStop,
   canStop,
+  onDelete,
+  canDelete,
 }: {
   task: TaskDto;
   view: DetailView;
@@ -376,6 +397,8 @@ function TaskHeader({
   onPause: (() => void) | undefined;
   onStop: () => void;
   canStop: boolean;
+  onDelete: () => void;
+  canDelete: boolean;
 }) {
   const provider = task.provider || '';
   const glyph = provider.toLowerCase().startsWith('codex') ? 'X' : 'C';
@@ -415,6 +438,16 @@ function TaskHeader({
         {canStop && (
           <button type="button" onClick={onStop} style={{ ...aBtnStyle, color: '#b91c1c' }}>
             ⏹ Stop
+          </button>
+        )}
+        {canDelete && (
+          <button
+            type="button"
+            onClick={onDelete}
+            style={{ ...aBtnStyle, color: '#b91c1c' }}
+            title="Permanently remove this task and its conversation log"
+          >
+            🗑 Delete
           </button>
         )}
       </div>

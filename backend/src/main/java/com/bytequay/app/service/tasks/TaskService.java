@@ -234,6 +234,33 @@ public class TaskService
         registry.evict(taskId);
     }
 
+    /**
+     * Permanently removes a task and its conversation / file history.
+     * Only terminal tasks ({@code COMPLETED} / {@code ERRORED}) are
+     * eligible — live sessions must be {@link #stop stopped} first
+     * so we never delete a row that has an in-flight subprocess
+     * holding a session id. Idempotent on missing ids: a delete-then-
+     * delete from a racing tab just returns silently.
+     */
+    public void delete(String taskId)
+    {
+        requireNonNull(taskId, "taskId is null");
+        Optional<Task> existing = store.findTaskById(taskId);
+        if (existing.isEmpty()) {
+            return;
+        }
+        TaskStatus status = existing.get().status();
+        if (status != TaskStatus.COMPLETED && status != TaskStatus.ERRORED) {
+            throw new IllegalStateException(
+                    "Task " + taskId + " is " + status + "; only COMPLETED or ERRORED tasks can be deleted");
+        }
+        // Defensive — if a session got registered post-completion
+        // (e.g. resumed and re-terminated), evict it before removing
+        // the row. No-op when nothing's cached.
+        registry.evict(taskId);
+        store.deleteTask(taskId);
+    }
+
     /** Surface a permission prompt in the conversation pane. Called
      *  by the MCP controller when Claude's {@code approval_prompt}
      *  tool fires. */

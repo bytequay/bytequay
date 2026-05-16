@@ -1779,6 +1779,11 @@ export type Bridge = {
   /** Terminal — releases the underlying agent loop and removes the
    *  task from the live registry. */
   stopTask: (id: string) => Promise<void>;
+  /** Permanent removal — only allowed for COMPLETED / ERRORED tasks.
+   *  Drops the task row, its conversation log, and per-file rollups.
+   *  Rejects with an error from the backend if the task is still
+   *  live. */
+  deleteTask: (id: string) => Promise<void>;
 };
 
 export type InAppNavState = {

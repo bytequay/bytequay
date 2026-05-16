@@ -22,4 +22,7 @@ interface TaskMessageJpaRepository
 {
     /** Conversation order — oldest-first by seq. */
     List<TaskMessageEntity> findByTaskIdOrderBySeqAsc(String taskId);
+
+    /** Cascade delete when the parent task is removed. */
+    void deleteByTaskId(String taskId);
 }

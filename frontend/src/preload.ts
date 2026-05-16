@@ -462,6 +462,7 @@ const bridge: Bridge = {
     ipcRenderer.invoke('tasks:decide', { id, callId, decision }),
   interruptTask: (id: string): Promise<void> => ipcRenderer.invoke('tasks:interrupt', id),
   stopTask: (id: string): Promise<void> => ipcRenderer.invoke('tasks:stop', id),
+  deleteTask: (id: string): Promise<void> => ipcRenderer.invoke('tasks:delete', id),
 };
 
 contextBridge.exposeInMainWorld('bridge', bridge);

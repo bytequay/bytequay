@@ -14,6 +14,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { TaskMessageDto } from '../types';
 import type { PendingPermission } from './ConversationPane';
+import { MarkdownProse } from './MarkdownProse';
 import { PermissionCard, type PermissionDecideHandler } from './PermissionCard';
 
 type Props = {
@@ -330,9 +331,7 @@ function ProseRow({ message }: { message: TaskMessageDto }) {
   const text = String(parseContent(message.contentJson).text ?? '');
   return (
     <div style={proseRowStyle}>
-      {paragraphs(text).map((p, i) => (
-        <p key={i} style={paraStyle}>{renderInline(p)}</p>
-      ))}
+      <MarkdownProse text={text} variant="card" />
     </div>
   );
 }

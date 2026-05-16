@@ -13,6 +13,7 @@
  */
 import { useEffect, useMemo, useRef, useState, type ReactElement } from 'react';
 import type { TaskMessageDto } from '../types';
+import { MarkdownProse } from './MarkdownProse';
 import { PermissionCard } from './PermissionCard';
 
 export type PendingPermission = {
@@ -215,17 +216,9 @@ function ThinkingBlock({ message }: { message: TaskMessageDto }) {
 
 function ProseBlock({ message }: { message: TaskMessageDto }) {
   const text = String(parseContent(message.contentJson).text ?? '');
-  // Split on blank lines so paragraphs render with the spacing the
-  // mockup uses; each paragraph still gets inline highlighting for
-  // backticked code, paths, and line refs.
-  const paragraphs = text.split(/\n\s*\n/);
   return (
     <div style={proseStyle}>
-      {paragraphs.map((p, i) => (
-        <p key={i} style={proseParaStyle}>
-          {renderInline(p)}
-        </p>
-      ))}
+      <MarkdownProse text={text} variant="terminal" />
     </div>
   );
 }

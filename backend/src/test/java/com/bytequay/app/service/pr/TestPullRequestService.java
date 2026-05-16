@@ -216,20 +216,20 @@ class TestPullRequestService
     @Test
     void testCountApprovalsEmpty()
     {
-        assertThat(PullRequestService.countApprovals(ImmutableList.of())).isZero();
+        assertThat(PullRequestDetailMapper.countApprovals(ImmutableList.of())).isZero();
     }
 
     @Test
     void testCountApprovalsSingleApproval()
     {
-        assertThat(PullRequestService.countApprovals(ImmutableList.of(
+        assertThat(PullRequestDetailMapper.countApprovals(ImmutableList.of(
                 new PrReviewState("alice", "APPROVED")))).isEqualTo(1);
     }
 
     @Test
     void testCountApprovalsTwoApprovals()
     {
-        assertThat(PullRequestService.countApprovals(ImmutableList.of(
+        assertThat(PullRequestDetailMapper.countApprovals(ImmutableList.of(
                 new PrReviewState("alice", "APPROVED"),
                 new PrReviewState("bob", "APPROVED")))).isEqualTo(2);
     }
@@ -237,7 +237,7 @@ class TestPullRequestService
     @Test
     void testCountApprovalsIgnoresOtherStates()
     {
-        assertThat(PullRequestService.countApprovals(ImmutableList.of(
+        assertThat(PullRequestDetailMapper.countApprovals(ImmutableList.of(
                 new PrReviewState("alice", "APPROVED"),
                 new PrReviewState("bob", "CHANGES_REQUESTED"),
                 new PrReviewState("carol", "COMMENTED")))).isEqualTo(1);
@@ -248,20 +248,20 @@ class TestPullRequestService
     @Test
     void testCountChangesRequestedEmpty()
     {
-        assertThat(PullRequestService.countChangesRequested(ImmutableList.of())).isZero();
+        assertThat(PullRequestDetailMapper.countChangesRequested(ImmutableList.of())).isZero();
     }
 
     @Test
     void testCountChangesRequestedSingle()
     {
-        assertThat(PullRequestService.countChangesRequested(ImmutableList.of(
+        assertThat(PullRequestDetailMapper.countChangesRequested(ImmutableList.of(
                 new PrReviewState("alice", "CHANGES_REQUESTED")))).isEqualTo(1);
     }
 
     @Test
     void testCountChangesRequestedTwoDistinct()
     {
-        assertThat(PullRequestService.countChangesRequested(ImmutableList.of(
+        assertThat(PullRequestDetailMapper.countChangesRequested(ImmutableList.of(
                 new PrReviewState("alice", "CHANGES_REQUESTED"),
                 new PrReviewState("bob", "CHANGES_REQUESTED")))).isEqualTo(2);
     }
@@ -269,7 +269,7 @@ class TestPullRequestService
     @Test
     void testCountChangesRequestedIgnoresApproved()
     {
-        assertThat(PullRequestService.countChangesRequested(ImmutableList.of(
+        assertThat(PullRequestDetailMapper.countChangesRequested(ImmutableList.of(
                 new PrReviewState("alice", "APPROVED"),
                 new PrReviewState("bob", "CHANGES_REQUESTED")))).isEqualTo(1);
     }
@@ -279,13 +279,13 @@ class TestPullRequestService
     @Test
     void testAggregateCiStatusEmptyReturnsNone()
     {
-        assertThat(PullRequestService.aggregateCiStatus(ImmutableList.of())).isEqualTo(NONE);
+        assertThat(PullRequestDetailMapper.aggregateCiStatus(ImmutableList.of())).isEqualTo(NONE);
     }
 
     @Test
     void testAggregateCiStatusAllSuccessReturnsPassing()
     {
-        assertThat(PullRequestService.aggregateCiStatus(ImmutableList.of(
+        assertThat(PullRequestDetailMapper.aggregateCiStatus(ImmutableList.of(
                 new PrCheckRunState(null, null, "completed", "success", null, null, null),
                 new PrCheckRunState(null, null, "completed", "success", null, null, null)))).isEqualTo(PASSING);
     }
@@ -293,7 +293,7 @@ class TestPullRequestService
     @Test
     void testAggregateCiStatusAnyFailureReturnsFailing()
     {
-        assertThat(PullRequestService.aggregateCiStatus(ImmutableList.of(
+        assertThat(PullRequestDetailMapper.aggregateCiStatus(ImmutableList.of(
                 new PrCheckRunState(null, null, "completed", "success", null, null, null),
                 new PrCheckRunState(null, null, "completed", "failure", null, null, null)))).isEqualTo(FAILING);
     }
@@ -301,28 +301,28 @@ class TestPullRequestService
     @Test
     void testAggregateCiStatusCancelledReturnsFailing()
     {
-        assertThat(PullRequestService.aggregateCiStatus(ImmutableList.of(
+        assertThat(PullRequestDetailMapper.aggregateCiStatus(ImmutableList.of(
                 new PrCheckRunState(null, null, "completed", "cancelled", null, null, null)))).isEqualTo(FAILING);
     }
 
     @Test
     void testAggregateCiStatusInProgressReturnsPending()
     {
-        assertThat(PullRequestService.aggregateCiStatus(ImmutableList.of(
+        assertThat(PullRequestDetailMapper.aggregateCiStatus(ImmutableList.of(
                 new PrCheckRunState(null, null, "in_progress", null, null, null, null)))).isEqualTo(PENDING);
     }
 
     @Test
     void testAggregateCiStatusQueuedReturnsPending()
     {
-        assertThat(PullRequestService.aggregateCiStatus(ImmutableList.of(
+        assertThat(PullRequestDetailMapper.aggregateCiStatus(ImmutableList.of(
                 new PrCheckRunState(null, null, "queued", null, null, null, null)))).isEqualTo(PENDING);
     }
 
     @Test
     void testAggregateCiStatusFailureTakesPriorityOverPending()
     {
-        assertThat(PullRequestService.aggregateCiStatus(ImmutableList.of(
+        assertThat(PullRequestDetailMapper.aggregateCiStatus(ImmutableList.of(
                 new PrCheckRunState(null, null, "in_progress", null, null, null, null),
                 new PrCheckRunState(null, null, "completed", "failure", null, null, null)))).isEqualTo(FAILING);
     }
@@ -332,14 +332,14 @@ class TestPullRequestService
     @Test
     void testToActivityItemsEmpty()
     {
-        assertThat(PullRequestService.toActivityItems(ImmutableList.of())).isEmpty();
+        assertThat(PullRequestDetailMapper.toActivityItems(ImmutableList.of())).isEmpty();
     }
 
     @Test
     void testToActivityItemsUninterestingEventsFiltered()
     {
         PrTimelineEvent event = new PrTimelineEvent(null, "labeled", "alice", null, Instant.now(), null, null, null, null, null, null, Reactions.EMPTY);
-        assertThat(PullRequestService.toActivityItems(ImmutableList.of(event))).isEmpty();
+        assertThat(PullRequestDetailMapper.toActivityItems(ImmutableList.of(event))).isEmpty();
     }
 
     @Test
@@ -349,7 +349,7 @@ class TestPullRequestService
         PrTimelineEvent reviewed = new PrTimelineEvent(null, "reviewed", "alice", "APPROVED", now, null, null, null, null, null, null, Reactions.EMPTY);
         PrTimelineEvent commented = new PrTimelineEvent(null, "commented", "bob", null, now, null, null, null, null, null, null, Reactions.EMPTY);
         List<PullRequestDetail.ActivityItem> items =
-                PullRequestService.toActivityItems(ImmutableList.of(reviewed, commented));
+                PullRequestDetailMapper.toActivityItems(ImmutableList.of(reviewed, commented));
         assertThat(items).hasSize(2);
     }
 
@@ -360,7 +360,7 @@ class TestPullRequestService
         PrTimelineEvent first = new PrTimelineEvent(null, "commented", "first", null, now, null, null, null, null, null, null, Reactions.EMPTY);
         PrTimelineEvent second = new PrTimelineEvent(null, "commented", "second", null, now.plusSeconds(60), null, null, null, null, null, null, Reactions.EMPTY);
         List<PullRequestDetail.ActivityItem> items =
-                PullRequestService.toActivityItems(ImmutableList.of(first, second));
+                PullRequestDetailMapper.toActivityItems(ImmutableList.of(first, second));
         assertThat(items.get(0).actor()).isEqualTo("second");
         assertThat(items.get(1).actor()).isEqualTo("first");
     }
@@ -377,7 +377,7 @@ class TestPullRequestService
             events.add(new PrTimelineEvent(null, "commented", "user" + i, null,
                     base.plusSeconds(i), null, null, null, null, null, null, Reactions.EMPTY));
         }
-        List<PullRequestDetail.ActivityItem> items = PullRequestService.toActivityItems(events);
+        List<PullRequestDetail.ActivityItem> items = PullRequestDetailMapper.toActivityItems(events);
         assertThat(items).hasSize(500);
         assertThat(items.get(0).actor()).isEqualTo("user499");
         assertThat(items.get(499).actor()).isEqualTo("user0");
@@ -388,7 +388,7 @@ class TestPullRequestService
     {
         PrTimelineEvent event = new PrTimelineEvent(null, "merged", "alice", null, Instant.now(), null, null, null, null, null, null, Reactions.EMPTY);
         List<PullRequestDetail.ActivityItem> items =
-                PullRequestService.toActivityItems(ImmutableList.of(event));
+                PullRequestDetailMapper.toActivityItems(ImmutableList.of(event));
         assertThat(items).hasSize(1);
         assertThat(items.get(0).eventType()).isEqualTo("merged");
         assertThat(items.get(0).actor()).isEqualTo("alice");
@@ -802,7 +802,7 @@ class TestPullRequestService
     {
         String body = "Closes #1 and fixes #2.\nResolved #3 yesterday — also closed #4.\n"
                 + "Fix: #5 plus FIXES #6.";
-        assertThat(PullRequestService.extractClosingReferences(body, "trinodb", "trino"))
+        assertThat(PullRequestTimelineUtil.extractClosingReferences(body, "trinodb", "trino"))
                 .containsExactlyInAnyOrder(1, 2, 3, 4, 6);
     }
 
@@ -810,15 +810,15 @@ class TestPullRequestService
     void testExtractClosingReferencesIgnoresBareHashRefs()
     {
         String body = "Reverts #1\nDiscussed in #99\nSee also #100";
-        assertThat(PullRequestService.extractClosingReferences(body, "trinodb", "trino")).isEmpty();
+        assertThat(PullRequestTimelineUtil.extractClosingReferences(body, "trinodb", "trino")).isEmpty();
     }
 
     @Test
     void testExtractClosingReferencesHandlesNullAndBlank()
     {
-        assertThat(PullRequestService.extractClosingReferences(null, "trinodb", "trino")).isEmpty();
-        assertThat(PullRequestService.extractClosingReferences("", "trinodb", "trino")).isEmpty();
-        assertThat(PullRequestService.extractClosingReferences("   ", "trinodb", "trino")).isEmpty();
+        assertThat(PullRequestTimelineUtil.extractClosingReferences(null, "trinodb", "trino")).isEmpty();
+        assertThat(PullRequestTimelineUtil.extractClosingReferences("", "trinodb", "trino")).isEmpty();
+        assertThat(PullRequestTimelineUtil.extractClosingReferences("   ", "trinodb", "trino")).isEmpty();
     }
 
     @Test
@@ -826,7 +826,7 @@ class TestPullRequestService
     {
         String body = "Fixes https://github.com/trinodb/trino/issues/1234\n"
                 + "Also closes http://github.com/trinodb/trino/issues/5678.";
-        assertThat(PullRequestService.extractClosingReferences(body, "trinodb", "trino"))
+        assertThat(PullRequestTimelineUtil.extractClosingReferences(body, "trinodb", "trino"))
                 .containsExactlyInAnyOrder(1234, 5678);
     }
 
@@ -837,7 +837,7 @@ class TestPullRequestService
         // it — fetching that number against the PR's repo would silently
         // return the wrong issue or 404.
         String body = "Fixes https://github.com/other/repo/issues/9";
-        assertThat(PullRequestService.extractClosingReferences(body, "trinodb", "trino")).isEmpty();
+        assertThat(PullRequestTimelineUtil.extractClosingReferences(body, "trinodb", "trino")).isEmpty();
     }
 
     @Test
@@ -845,7 +845,7 @@ class TestPullRequestService
     {
         String body = "Closes #1, fixes https://github.com/trinodb/trino/issues/2, "
                 + "resolves #3.";
-        assertThat(PullRequestService.extractClosingReferences(body, "trinodb", "trino"))
+        assertThat(PullRequestTimelineUtil.extractClosingReferences(body, "trinodb", "trino"))
                 .containsExactlyInAnyOrder(1, 2, 3);
     }
 

@@ -177,27 +177,13 @@ public final class PrAttention
         return labels.stream().anyMatch(label -> label != null && label.toLowerCase(Locale.ROOT).contains("block"));
     }
 
-    /**
-     * Reduces the per-check-run states into one PASSING / FAILING / PENDING / NONE
-     * marker. Mirrors {@code PullRequestService.aggregateCiStatus} so we don't
-     * pull internal helpers out of that class.
-     */
+    /** Reduces the per-check-run states into one PASSING / FAILING / PENDING / NONE marker. */
     static PullRequestDetail.CiStatus aggregateCiStatus(StoredPrDetail detail)
     {
-        if (detail.checkRuns() == null || detail.checkRuns().isEmpty()) {
+        if (detail == null || detail.checkRuns() == null) {
             return PullRequestDetail.CiStatus.NONE;
         }
-        boolean anyFailed = detail.checkRuns().stream()
-                .anyMatch(runState -> "failure".equals(runState.conclusion()) || "cancelled".equals(runState.conclusion()));
-        if (anyFailed) {
-            return PullRequestDetail.CiStatus.FAILING;
-        }
-        boolean anyPending = detail.checkRuns().stream()
-                .anyMatch(runState -> "in_progress".equals(runState.status()) || "queued".equals(runState.status()));
-        if (anyPending) {
-            return PullRequestDetail.CiStatus.PENDING;
-        }
-        return PullRequestDetail.CiStatus.PASSING;
+        return PullRequestDetailMapper.aggregateCiStatus(detail.checkRuns());
     }
 
     /** Approximation: count "commented" events in the stored timeline window. */

@@ -20,6 +20,7 @@ import TeamsManagePage from './teams/TeamsManagePage';
 import EmailPage from './email/EmailPage';
 import TasksPage from './tasks/TasksPage';
 import TaskDetailPage from './tasks/TaskDetailPage';
+import type { StatusFilter as TasksStatusFilter } from './tasks/TasksLeftRail';
 import type { SettingsSection } from './settings/types';
 import PullRequestList from './PullRequestList';
 import HomePage from './HomePage';
@@ -44,7 +45,7 @@ type Nav =
   | { view: 'team'; teamId: number }
   | { view: 'team-kanban'; teamId: number }
   | { view: 'email' }
-  | { view: 'tasks' }
+  | { view: 'tasks'; filter?: TasksStatusFilter }
   | { view: 'task-detail'; taskId: string }
   | { view: 'notifications' }
   | { view: 'repos' }
@@ -440,12 +441,20 @@ function App() {
           />
         )}
         {nav.view === 'tasks' && (
-          <TasksPage onSelectTask={taskId => setNav({ view: 'task-detail', taskId })} />
+          <TasksPage
+            filter={nav.filter ?? 'ALL'}
+            onFilterChange={filter => setNav({ view: 'tasks', filter })}
+            onSelectTask={taskId => setNav({ view: 'task-detail', taskId })}
+            onOpenSettings={() => setNav({ view: 'settings', section: 'integrations' })}
+          />
         )}
         {nav.view === 'task-detail' && (
           <TaskDetailPage
             taskId={nav.taskId}
             onBack={() => setNav({ view: 'tasks' })}
+            onFilterChange={filter => setNav({ view: 'tasks', filter })}
+            onSelectTask={id => setNav({ view: 'task-detail', taskId: id })}
+            onOpenSettings={() => setNav({ view: 'settings', section: 'integrations' })}
           />
         )}
         {nav.view === 'notifications' && (

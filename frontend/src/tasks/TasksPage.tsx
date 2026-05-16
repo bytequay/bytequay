@@ -14,6 +14,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { TaskDto, TaskStatusDto } from '../types';
 import NewTaskDialog from './NewTaskDialog';
+import TasksLeftRail, { type StatusFilter } from './TasksLeftRail';
 
 /** Order in which the four buckets are rendered. Active sessions
  *  (RUNNING / AWAITING) at the top so the user can resume them with
@@ -27,16 +28,24 @@ const STATUS_GROUPS: Array<{ key: 'active' | 'queued' | 'idle' | 'done'; label: 
 ];
 
 type Props = {
+  /** Status filter the left rail is highlighting; drives which tasks
+   *  appear in the main pane. */
+  filter: StatusFilter;
+  onFilterChange: (filter: StatusFilter) => void;
   /** Routes the user to the task detail / live conversation page. */
   onSelectTask: (taskId: string) => void;
+  /** Routes to Settings → Integrations from the rail's footer row. */
+  onOpenSettings: () => void;
 };
 
 /**
- * AI coding tasks — list + create. Each row is one delegated agent
- * run (Claude Code today; logic-loop in a later slice). Clicking a
- * row opens the live conversation pane.
+ * AI coding tasks — left rail (status / provider / recent), main
+ * pane with filtered, status-grouped cards. Layout mirrors
+ * {@code docs/mockups/design/tasks/tasks-list.png}.
  */
-export default function TasksPage({ onSelectTask }: Props) {
+export default function TasksPage({
+  filter, onFilterChange, onSelectTask, onOpenSettings,
+}: Props) {
   const [tasks, setTasks] = useState<TaskDto[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [showCreate, setShowCreate] = useState(false);
@@ -57,9 +66,15 @@ export default function TasksPage({ onSelectTask }: Props) {
     void refresh();
   }, [refresh]);
 
+  const filtered = useMemo(() => {
+    if (!tasks) return [];
+    if (filter === 'ALL') return tasks;
+    return tasks.filter(t => t.status === filter);
+  }, [tasks, filter]);
+
   const grouped = useMemo(() => {
     const map = new Map<TaskStatusDto, TaskDto[]>();
-    for (const t of tasks ?? []) {
+    for (const t of filtered) {
       const arr = map.get(t.status) ?? [];
       arr.push(t);
       map.set(t.status, arr);
@@ -68,9 +83,10 @@ export default function TasksPage({ onSelectTask }: Props) {
       ...group,
       rows: group.statuses.flatMap(s => map.get(s) ?? []),
     }));
-  }, [tasks]);
+  }, [filtered]);
 
   const totalCount = tasks?.length ?? 0;
+  const filteredCount = filtered.length;
 
   const onStop = useCallback(async (id: string) => {
     setBusyId(id);
@@ -87,77 +103,92 @@ export default function TasksPage({ onSelectTask }: Props) {
   }, [refresh]);
 
   return (
-    <section style={pageStyle}>
-      <header style={headerStyle}>
-        <div>
-          <h1 style={titleStyle}>Tasks</h1>
-          <p style={subtitleStyle}>
-            Delegated AI coding runs. Click <strong>New task</strong> to spin up
-            a fresh Claude Code session against a repo on disk.
-          </p>
-        </div>
-        <div style={headerActionsStyle}>
-          <button
-            type="button"
-            onClick={() => void refresh()}
-            style={secondaryBtnStyle}
-            title="Refresh list"
-          >
-            Refresh
-          </button>
-          <button
-            type="button"
-            onClick={() => setShowCreate(true)}
-            style={primaryBtnStyle}
-          >
-            New task
-          </button>
-        </div>
-      </header>
+    <section style={layoutStyle}>
+      <TasksLeftRail
+        tasks={tasks ?? []}
+        statusFilter={filter}
+        onStatusFilter={onFilterChange}
+        onSelectTask={onSelectTask}
+        onNewTask={() => setShowCreate(true)}
+        onOpenSettings={onOpenSettings}
+      />
 
-      {error && (
-        <div style={errorBannerStyle}>
-          <strong>Couldn't load tasks.</strong> {error}
-        </div>
-      )}
-
-      {tasks === null && !error && (
-        <div style={mutedTextStyle}>Loading…</div>
-      )}
-
-      {tasks !== null && totalCount === 0 && (
-        <div style={emptyStateStyle}>
-          <div style={emptyTitleStyle}>No tasks yet</div>
-          <div style={mutedTextStyle}>
-            Tasks are short or long-lived agent runs you delegate from the app.
-            Use <strong>New task</strong> above to start one.
+      <div style={mainStyle}>
+        <header style={headerStyle}>
+          <div>
+            <h1 style={titleStyle}>{filterLabel(filter)}</h1>
+            <p style={subtitleStyle}>
+              {filter === 'ALL'
+                ? 'Delegated AI coding runs. Pick a status on the left to focus.'
+                : `Tasks in ${filter.toLowerCase()} state.`}
+            </p>
           </div>
-        </div>
-      )}
+          <div style={headerActionsStyle}>
+            <button
+              type="button"
+              onClick={() => void refresh()}
+              style={secondaryBtnStyle}
+              title="Refresh list"
+            >
+              Refresh
+            </button>
+          </div>
+        </header>
 
-      {tasks !== null && totalCount > 0 && (
-        <div style={listStyle}>
-          {grouped.filter(g => g.rows.length > 0).map(group => (
-            <div key={group.key} style={groupStyle}>
-              <div style={groupHeaderStyle}>
-                <span>{group.label}</span>
-                <span style={groupCountStyle}>{group.rows.length}</span>
-              </div>
-              <div style={groupRowsStyle}>
-                {group.rows.map(t => (
-                  <TaskRow
-                    key={t.id}
-                    task={t}
-                    busy={busyId === t.id}
-                    onOpen={() => onSelectTask(t.id)}
-                    onStop={() => void onStop(t.id)}
-                  />
-                ))}
-              </div>
+        {error && (
+          <div style={errorBannerStyle}>
+            <strong>Couldn't load tasks.</strong> {error}
+          </div>
+        )}
+
+        {tasks === null && !error && (
+          <div style={mutedTextStyle}>Loading…</div>
+        )}
+
+        {tasks !== null && totalCount === 0 && (
+          <div style={emptyStateStyle}>
+            <div style={emptyTitleStyle}>No tasks yet</div>
+            <div style={mutedTextStyle}>
+              Tasks are agent runs you delegate from the app. Use{' '}
+              <strong>+ New task</strong> on the left to start one.
             </div>
-          ))}
-        </div>
-      )}
+          </div>
+        )}
+
+        {tasks !== null && totalCount > 0 && filteredCount === 0 && (
+          <div style={emptyStateStyle}>
+            <div style={emptyTitleStyle}>Nothing in {filter.toLowerCase()}</div>
+            <div style={mutedTextStyle}>
+              Switch to <strong>All tasks</strong> on the left, or pick
+              another status.
+            </div>
+          </div>
+        )}
+
+        {filteredCount > 0 && (
+          <div style={listStyle}>
+            {grouped.filter(g => g.rows.length > 0).map(group => (
+              <div key={group.key} style={groupStyle}>
+                <div style={groupHeaderStyle}>
+                  <span>{group.label}</span>
+                  <span style={groupCountStyle}>{group.rows.length}</span>
+                </div>
+                <div style={groupRowsStyle}>
+                  {group.rows.map(t => (
+                    <TaskRow
+                      key={t.id}
+                      task={t}
+                      busy={busyId === t.id}
+                      onOpen={() => onSelectTask(t.id)}
+                      onStop={() => void onStop(t.id)}
+                    />
+                  ))}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+      </div>
 
       {showCreate && (
         <NewTaskDialog
@@ -170,6 +201,11 @@ export default function TasksPage({ onSelectTask }: Props) {
       )}
     </section>
   );
+}
+
+function filterLabel(filter: StatusFilter): string {
+  if (filter === 'ALL') return 'Tasks';
+  return filter.charAt(0) + filter.slice(1).toLowerCase();
 }
 
 function TaskRow({ task, busy, onOpen, onStop }: {
@@ -260,10 +296,15 @@ function formatTime(iso: string): string {
   return d.toLocaleString();
 }
 
-const pageStyle: React.CSSProperties = {
+const layoutStyle: React.CSSProperties = {
+  display: 'flex',
+  alignItems: 'stretch',
+  minHeight: 'calc(100vh - 56px)',
+};
+const mainStyle: React.CSSProperties = {
+  flex: 1,
+  minWidth: 0,
   padding: '24px 32px 64px',
-  maxWidth: 1100,
-  margin: '0 auto',
 };
 const headerStyle: React.CSSProperties = {
   display: 'flex',

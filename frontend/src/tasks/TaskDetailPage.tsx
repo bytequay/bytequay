@@ -14,10 +14,19 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { TaskDto, TaskMessageDto, TaskStatusDto } from '../types';
 import { ConversationPane, type PendingPermission } from './ConversationPane';
+import TasksLeftRail, { type StatusFilter } from './TasksLeftRail';
+import NewTaskDialog from './NewTaskDialog';
 
 type Props = {
   taskId: string;
   onBack: () => void;
+  /** Clicking a status row on the rail jumps to the list page,
+   *  pre-filtered. */
+  onFilterChange: (filter: StatusFilter) => void;
+  /** Swap to another task's detail page from the rail's Recent list. */
+  onSelectTask: (taskId: string) => void;
+  /** Footer "Defaults & integrations" row. */
+  onOpenSettings: () => void;
 };
 
 const POLL_MS_RUNNING = 1_000;
@@ -47,12 +56,16 @@ function loadTheme(): TermTheme {
   }
 }
 
-export default function TaskDetailPage({ taskId, onBack }: Props) {
+export default function TaskDetailPage({
+  taskId, onBack, onFilterChange, onSelectTask, onOpenSettings,
+}: Props) {
   const [task, setTask] = useState<TaskDto | null>(null);
   const [messages, setMessages] = useState<TaskMessageDto[]>([]);
+  const [allTasks, setAllTasks] = useState<TaskDto[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [draft, setDraft] = useState('');
   const [sending, setSending] = useState(false);
+  const [showCreate, setShowCreate] = useState(false);
   const [theme, setTheme] = useState<TermTheme>(loadTheme);
 
   useEffect(() => {
@@ -62,12 +75,14 @@ export default function TaskDetailPage({ taskId, onBack }: Props) {
 
   const refresh = useCallback(async () => {
     try {
-      const [t, m] = await Promise.all([
+      const [t, m, list] = await Promise.all([
         window.bridge.getTask(taskId),
         window.bridge.getTaskMessages(taskId),
+        window.bridge.listTasks(),
       ]);
       setTask(t);
       setMessages(m);
+      setAllTasks(list);
       setError(null);
     }
     catch (e) {
@@ -137,18 +152,36 @@ export default function TaskDetailPage({ taskId, onBack }: Props) {
     }
   }, [taskId, refresh]);
 
+  const rail = (
+    <TasksLeftRail
+      tasks={allTasks}
+      currentTaskId={taskId}
+      statusFilter={'ALL'}
+      onStatusFilter={onFilterChange}
+      onSelectTask={onSelectTask}
+      onNewTask={() => setShowCreate(true)}
+      onOpenSettings={onOpenSettings}
+    />
+  );
+
   if (task === null && error) {
     return (
-      <section style={pageStyle}>
-        <BackBar onBack={onBack} title="(failed to load)" />
-        <div style={errorBannerStyle}>{error}</div>
+      <section style={layoutStyle}>
+        {rail}
+        <div style={mainColumnStyle}>
+          <BackBar onBack={onBack} title="(failed to load)" />
+          <div style={errorBannerStyle}>{error}</div>
+        </div>
       </section>
     );
   }
   if (task === null) {
     return (
-      <section style={pageStyle}>
-        <BackBar onBack={onBack} title="loading…" />
+      <section style={layoutStyle}>
+        {rail}
+        <div style={mainColumnStyle}>
+          <BackBar onBack={onBack} title="loading…" />
+        </div>
       </section>
     );
   }
@@ -156,37 +189,50 @@ export default function TaskDetailPage({ taskId, onBack }: Props) {
   const isTerminal = task.status === 'COMPLETED' || task.status === 'ERRORED';
 
   return (
-    <section style={pageStyle}>
-      <KeyframesStyles />
+    <section style={layoutStyle}>
+      {rail}
+      <div style={mainColumnStyle}>
+        <KeyframesStyles />
 
-      <BreadcrumbRow title={task.title} onBack={onBack} />
+        <BreadcrumbRow title={task.title} onBack={onBack} />
 
-      <TaskHeader
-        task={task}
-        onPause={undefined /* pause not wired through MCP yet */}
-        onStop={onStop}
-        canStop={!isTerminal}
-      />
-
-      <div style={{ ...bodyGridStyle, ...termCssVars(theme) }}>
-        <TerminalWrap
+        <TaskHeader
           task={task}
-          messages={messages}
-          pendingPermission={pendingPermission}
-          onDecide={onDecide}
-          stage={stage}
-          draft={draft}
-          onDraft={setDraft}
-          onSend={onSend}
-          onInterrupt={onInterrupt}
-          sending={sending}
-          isTerminal={isTerminal}
-          theme={theme}
-          onToggleTheme={() => setTheme(t => t === 'dark' ? 'light' : 'dark')}
+          onPause={undefined /* pause not wired through MCP yet */}
+          onStop={onStop}
+          canStop={!isTerminal}
         />
 
-        <Sidebar task={task} stage={stage} />
+        <div style={{ ...bodyGridStyle, ...termCssVars(theme) }}>
+          <TerminalWrap
+            task={task}
+            messages={messages}
+            pendingPermission={pendingPermission}
+            onDecide={onDecide}
+            stage={stage}
+            draft={draft}
+            onDraft={setDraft}
+            onSend={onSend}
+            onInterrupt={onInterrupt}
+            sending={sending}
+            isTerminal={isTerminal}
+            theme={theme}
+            onToggleTheme={() => setTheme(t => t === 'dark' ? 'light' : 'dark')}
+          />
+
+          <Sidebar task={task} stage={stage} />
+        </div>
       </div>
+
+      {showCreate && (
+        <NewTaskDialog
+          onClose={() => setShowCreate(false)}
+          onCreated={async () => {
+            setShowCreate(false);
+            await refresh();
+          }}
+        />
+      )}
 
       {error && <div style={errorBannerStyle}>{error}</div>}
     </section>
@@ -918,12 +964,18 @@ function termCssVars(theme: TermTheme): React.CSSProperties {
   } as React.CSSProperties;
 }
 
-const pageStyle: React.CSSProperties = {
+const layoutStyle: React.CSSProperties = {
   display: 'flex',
-  flexDirection: 'column',
+  alignItems: 'stretch',
   minHeight: 'calc(100vh - 56px)',
   boxSizing: 'border-box',
   background: '#fafbfc',
+};
+const mainColumnStyle: React.CSSProperties = {
+  flex: 1,
+  minWidth: 0,
+  display: 'flex',
+  flexDirection: 'column',
 };
 
 const breadcrumbRowStyle: React.CSSProperties = {

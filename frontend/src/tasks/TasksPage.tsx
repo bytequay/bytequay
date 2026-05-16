@@ -13,6 +13,7 @@
  */
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { TaskDto, TaskGroupDto, TaskStatusDto } from '../types';
+import GroupMenu from './GroupMenu';
 import GroupSettingsDialog from './GroupSettingsDialog';
 import GroupTaskGrid from './GroupTaskGrid';
 import NewTaskDialog from './NewTaskDialog';
@@ -59,6 +60,7 @@ export default function TasksPage({
   onSelectTask, onOpenSettings,
 }: Props) {
   const [tasks, setTasks] = useState<TaskDto[] | null>(null);
+  const [groups, setGroups] = useState<TaskGroupDto[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [showCreate, setShowCreate] = useState(false);
   const [busyId, setBusyId] = useState<string | null>(null);
@@ -67,14 +69,29 @@ export default function TasksPage({
 
   const refresh = useCallback(async () => {
     try {
-      const list = await window.bridge.listTasks();
+      const [list, gs] = await Promise.all([
+        window.bridge.listTasks(),
+        window.bridge.listTaskGroups().catch(() => [] as TaskGroupDto[]),
+      ]);
       setTasks(list);
+      setGroups(gs);
       setError(null);
     }
     catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     }
   }, []);
+
+  const moveTaskToGroup = useCallback(
+    async (taskId: string, nextGroupId: string | null) => {
+      try {
+        await window.bridge.setTaskGroup(taskId, nextGroupId);
+        await refresh();
+      }
+      catch (e) {
+        setError(e instanceof Error ? e.message : String(e));
+      }
+    }, [refresh]);
 
   useEffect(() => {
     void refresh();
@@ -331,7 +348,9 @@ export default function TasksPage({
         {activeGroup && tasks !== null && (
           <GroupTaskGrid
             tasks={tilesOrdered}
+            groups={groups}
             onOpen={onSelectTask}
+            onMoveGroup={moveTaskToGroup}
           />
         )}
 
@@ -348,9 +367,11 @@ export default function TasksPage({
                     <TaskRow
                       key={t.id}
                       task={t}
+                      groups={groups}
                       busy={busyId === t.id}
                       onOpen={() => onSelectTask(t.id)}
                       onStop={() => void onStop(t.id)}
+                      onMoveGroup={moveTaskToGroup}
                     />
                   ))}
                 </div>
@@ -411,11 +432,13 @@ function groupColorBg(color: string): string {
   }
 }
 
-function TaskRow({ task, busy, onOpen, onStop }: {
+function TaskRow({ task, groups, busy, onOpen, onStop, onMoveGroup }: {
   task: TaskDto;
+  groups: TaskGroupDto[];
   busy: boolean;
   onOpen: () => void;
   onStop: () => void;
+  onMoveGroup: (taskId: string, groupId: string | null) => void | Promise<void>;
 }) {
   const isTerminal = task.status === 'COMPLETED' || task.status === 'ERRORED';
   return (
@@ -451,6 +474,7 @@ function TaskRow({ task, busy, onOpen, onStop }: {
             {busy ? 'Stopping…' : 'Stop'}
           </button>
         )}
+        <GroupMenu task={task} groups={groups} onChange={onMoveGroup} />
       </div>
     </div>
   );

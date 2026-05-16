@@ -12,14 +12,19 @@
  * limitations under the License.
  */
 import { useEffect, useMemo, useState } from 'react';
-import type { TaskDto, TaskMessageDto, TaskStatusDto } from '../types';
+import type { TaskDto, TaskGroupDto, TaskMessageDto, TaskStatusDto } from '../types';
+import GroupMenu from './GroupMenu';
 
 type Props = {
   tasks: TaskDto[];
+  groups: TaskGroupDto[];
   /** Click a tile → open the full detail page. The tile preview is
    *  read-only; per-tile send boxes are deferred until we have a good
    *  story for managing N independent conversations on one screen. */
   onOpen: (taskId: string) => void;
+  /** Reassign a task to another group (or null to unpin). The page
+   *  parent persists the change and refreshes. */
+  onMoveGroup: (taskId: string, groupId: string | null) => void | Promise<void>;
 };
 
 const TILE_PREVIEW_LIMIT = 8;
@@ -35,7 +40,7 @@ const POLL_MS = 4000;
  * minus the per-tile send box, which would require running N
  * conversations in parallel and is out of scope for this slice.
  */
-export default function GroupTaskGrid({ tasks, onOpen }: Props) {
+export default function GroupTaskGrid({ tasks, groups, onOpen, onMoveGroup }: Props) {
   const [previews, setPreviews] = useState<Record<string, TaskMessageDto[]>>({});
 
   // Fan-out: pull recent messages for each tile in parallel. The
@@ -82,18 +87,22 @@ export default function GroupTaskGrid({ tasks, onOpen }: Props) {
         <TaskTile
           key={t.id}
           task={t}
+          groups={groups}
           messages={previews[t.id] ?? []}
           onOpen={() => onOpen(t.id)}
+          onMoveGroup={onMoveGroup}
         />
       ))}
     </div>
   );
 }
 
-function TaskTile({ task, messages, onOpen }: {
+function TaskTile({ task, groups, messages, onOpen, onMoveGroup }: {
   task: TaskDto;
+  groups: TaskGroupDto[];
   messages: TaskMessageDto[];
   onOpen: () => void;
+  onMoveGroup: (taskId: string, groupId: string | null) => void | Promise<void>;
 }) {
   const recent = useMemo(
     () => messages.slice(-TILE_PREVIEW_LIMIT).filter(visibleInTile),
@@ -111,7 +120,10 @@ function TaskTile({ task, messages, onOpen }: {
           <span style={{ ...tileStripeStyle, background: stripeColor(task.status) }} />
           <div style={tileTitleStyle}>{task.title}</div>
         </div>
-        <StatusBadge status={task.status} />
+        <div style={tileHeaderRightStyle}>
+          <StatusBadge status={task.status} />
+          <GroupMenu task={task} groups={groups} onChange={onMoveGroup} />
+        </div>
       </header>
       <div style={tileBodyStyle}>
         {recent.length === 0 && (
@@ -340,6 +352,12 @@ const tileHeaderStyle: React.CSSProperties = {
   gap: 12,
   padding: '12px 14px',
   borderBottom: '1px solid #f1f5f9',
+};
+const tileHeaderRightStyle: React.CSSProperties = {
+  display: 'flex',
+  alignItems: 'center',
+  gap: 4,
+  flexShrink: 0,
 };
 const tileTitleWrapStyle: React.CSSProperties = {
   display: 'flex',

@@ -45,7 +45,7 @@ type Nav =
   | { view: 'team'; teamId: number }
   | { view: 'team-kanban'; teamId: number }
   | { view: 'email' }
-  | { view: 'tasks'; filter?: TasksStatusFilter; provider?: TasksProviderFilter }
+  | { view: 'tasks'; filter?: TasksStatusFilter; provider?: TasksProviderFilter; groupId?: string }
   | { view: 'task-detail'; taskId: string }
   | { view: 'notifications' }
   | { view: 'repos' }
@@ -444,11 +444,13 @@ function App() {
           <TasksPage
             filter={nav.filter ?? 'ALL'}
             provider={nav.provider ?? null}
-            onFilterChange={filter => setNav({ view: 'tasks', filter, provider: nav.provider })}
+            groupId={nav.groupId ?? null}
+            onFilterChange={filter => setNav({ view: 'tasks', filter, provider: nav.provider, groupId: nav.groupId })}
             // Picking a provider drops the status filter back to ALL —
             // provider is a coarse focus reset, not a compound filter
             // on top of whatever status was active.
-            onProviderChange={provider => setNav({ view: 'tasks', provider })}
+            onProviderChange={provider => setNav({ view: 'tasks', provider, groupId: nav.groupId })}
+            onGroupChange={groupId => setNav({ view: 'tasks', groupId: groupId ?? undefined })}
             onSelectTask={taskId => setNav({ view: 'task-detail', taskId })}
             onOpenSettings={() => setNav({ view: 'settings', section: 'integrations' })}
           />
@@ -459,6 +461,7 @@ function App() {
             onBack={() => setNav({ view: 'tasks' })}
             onFilterChange={filter => setNav({ view: 'tasks', filter })}
             onProviderChange={provider => setNav({ view: 'tasks', provider })}
+            onGroupChange={groupId => setNav({ view: 'tasks', groupId: groupId ?? undefined })}
             onSelectTask={id => setNav({ view: 'task-detail', taskId: id })}
             onOpenSettings={() => setNav({ view: 'settings', section: 'integrations' })}
           />

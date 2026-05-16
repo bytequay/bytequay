@@ -332,14 +332,12 @@ const createWindow = async () => {
   mainWindow.webContents.on('did-finish-load', () => {
     if (mainWindow) sendFullScreenState(mainWindow.isFullScreen());
   });
-  // The did-finish-load push above can race the renderer registering its
-  // onFullScreenChange listener — when it does, the renderer misses the
-  // initial state and the topbar's brand mark stays hidden even though
-  // the window is fullscreen. Pair the push with a synchronous pull the
-  // renderer can query once on mount to recover the truth.
-  ipcMain.handle('window:get-fullscreen', () => {
-    return mainWindow ? mainWindow.isFullScreen() : false;
-  });
+  // The `window:get-fullscreen` IPC handler that pairs with the
+  // did-finish-load push above (renderer pulls the truth on mount to
+  // recover from the race) is registered once in `registerIpc()` — it
+  // can't live here because `createWindow` runs again on macOS
+  // `activate` after the window is closed, and `ipcMain.handle`
+  // throws on a second registration of the same channel.
 
   // Route every external link into the in-app browser overlay rather
   // than letting Electron spawn a child window or replace the main
@@ -446,6 +444,16 @@ const createWindow = async () => {
 };
 
 function registerIpc(): void {
+  // Synchronous pull of the current window's fullscreen state — the
+  // renderer queries this on mount to recover from a race with the
+  // did-finish-load push from `createWindow`. Registered here (not
+  // inside `createWindow`) because `createWindow` runs again on the
+  // macOS `activate` event after the window is closed, and
+  // `ipcMain.handle` throws on a second registration.
+  ipcMain.handle('window:get-fullscreen', () => {
+    return mainWindow ? mainWindow.isFullScreen() : false;
+  });
+
   // Backend is the single source of truth for the GitHub PAT. These handlers
   // proxy to /api/credentials with the singleton (ACCOUNT, "github") slot.
   // App.tsx caches the existence check via its `status` state; it explicitly
@@ -2316,13 +2324,71 @@ const url = new URL(`${BACKEND_BASE}/api/search/repos`);
   // statuses; the page does its own grouping. Create kicks off the first
   // turn synchronously so the returned row already carries the agent
   // session id where available.
-  ipcMain.handle('tasks:list', async () => {
-    const res = await fetch(`${BACKEND_BASE}/api/tasks`);
+  ipcMain.handle('tasks:list', async (_event, groupId: unknown) => {
+    let url = `${BACKEND_BASE}/api/tasks`;
+    if (typeof groupId === 'string' && groupId.trim().length > 0) {
+      url += `?groupId=${encodeURIComponent(groupId)}`;
+    }
+    const res = await fetch(url);
     if (!res.ok) {
       const text = await res.text().catch(() => '');
       throw new Error(`backend /api/tasks returned ${res.status}: ${text}`);
     }
     return res.json();
+  });
+
+  ipcMain.handle('taskGroups:list', async () => {
+    const res = await fetch(`${BACKEND_BASE}/api/task-groups`);
+    if (!res.ok) {
+      const text = await res.text().catch(() => '');
+      throw new Error(`backend /api/task-groups returned ${res.status}: ${text}`);
+    }
+    return res.json();
+  });
+
+  ipcMain.handle('taskGroups:create', async (_event, request: unknown) => {
+    const res = await fetch(`${BACKEND_BASE}/api/task-groups`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(request ?? {}),
+    });
+    if (!res.ok) {
+      const text = await res.text().catch(() => '');
+      throw new Error(`backend POST /api/task-groups returned ${res.status}: ${text}`);
+    }
+    return res.json();
+  });
+
+  ipcMain.handle('taskGroups:update', async (_event, payload: unknown) => {
+    const { id, patch } = (payload ?? {}) as { id?: string; patch?: unknown };
+    if (!id || typeof id !== 'string' || id.trim().length === 0) {
+      throw new Error('id must be a non-empty string');
+    }
+    const res = await fetch(
+      `${BACKEND_BASE}/api/task-groups/${encodeURIComponent(id)}`,
+      {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(patch ?? {}),
+      });
+    if (!res.ok) {
+      const text = await res.text().catch(() => '');
+      throw new Error(`backend PATCH /api/task-groups/${id} returned ${res.status}: ${text}`);
+    }
+    return res.json();
+  });
+
+  ipcMain.handle('taskGroups:delete', async (_event, id: unknown) => {
+    if (typeof id !== 'string' || id.trim().length === 0) {
+      throw new Error('id must be a non-empty string');
+    }
+    const res = await fetch(
+      `${BACKEND_BASE}/api/task-groups/${encodeURIComponent(id)}`,
+      { method: 'DELETE' });
+    if (!res.ok) {
+      const text = await res.text().catch(() => '');
+      throw new Error(`backend DELETE /api/task-groups/${id} returned ${res.status}: ${text}`);
+    }
   });
 
   ipcMain.handle('tasks:create', async (_event, request: unknown) => {

@@ -49,6 +49,17 @@ public interface TaskStore
      */
     List<Task> listTasksByStatus(TaskStatus status, int limit);
 
+    /**
+     * Tasks pinned to the given group, newest-{@code updated_at_ms}
+     * first. Drives the group detail view.
+     */
+    List<Task> listTasksByGroup(String groupId, int limit);
+
+    /** Clears the {@code group_id} on every task currently pointing
+     *  at {@code groupId}. Called when a group is deleted so the
+     *  tasks survive — they just become ungrouped. */
+    void unsetGroupOnTasks(String groupId);
+
     // ── messages ─────────────────────────────────────────────────────
 
     /**

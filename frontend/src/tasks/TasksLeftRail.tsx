@@ -11,13 +11,16 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import { useMemo } from 'react';
-import type { TaskDto, TaskStatusDto } from '../types';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import type { TaskDto, TaskGroupDto, TaskStatusDto } from '../types';
+import NewTaskGroupDialog from './NewTaskGroupDialog';
 
 export type StatusFilter = TaskStatusDto | 'ALL';
 /** {@code null} = no provider filter active; otherwise the
  *  lowercased provider key (e.g. {@code "claude-code"}). */
 export type ProviderFilter = string | null;
+/** {@code null} = no group filter; otherwise the group id. */
+export type GroupFilter = string | null;
 
 type Props = {
   tasks: TaskDto[];
@@ -28,6 +31,8 @@ type Props = {
   onStatusFilter: (filter: StatusFilter) => void;
   providerFilter: ProviderFilter;
   onProviderFilter: (provider: ProviderFilter) => void;
+  groupFilter: GroupFilter;
+  onGroupFilter: (group: GroupFilter) => void;
   onSelectTask: (taskId: string) => void;
   onNewTask: () => void;
   onOpenSettings: () => void;
@@ -103,6 +108,8 @@ export default function TasksLeftRail({
   onStatusFilter,
   providerFilter,
   onProviderFilter,
+  groupFilter,
+  onGroupFilter,
   onSelectTask,
   onNewTask,
   onOpenSettings,
@@ -111,6 +118,19 @@ export default function TasksLeftRail({
   const providers = useMemo(() => buildProviderList(tasks), [tasks]);
   const awaitingCount = counts.AWAITING ?? 0;
   const recent = useMemo(() => sortByUpdatedDesc(tasks).slice(0, 5), [tasks]);
+
+  const [groups, setGroups] = useState<TaskGroupDto[]>([]);
+  const [showCreateGroup, setShowCreateGroup] = useState(false);
+
+  const refreshGroups = useCallback(async () => {
+    try {
+      setGroups(await window.bridge.listTaskGroups());
+    }
+    catch {
+      // The rail still renders without groups — non-fatal.
+    }
+  }, []);
+  useEffect(() => { void refreshGroups(); }, [refreshGroups]);
 
   return (
     <aside style={railStyle}>
@@ -159,6 +179,39 @@ export default function TasksLeftRail({
       )}
 
       <Section>
+        <SectionHeader
+          label="Groups"
+          count={groups.length}
+          action={
+            <button
+              type="button"
+              onClick={() => setShowCreateGroup(true)}
+              style={addBtnStyle}
+              title="New group"
+            >
+              + new
+            </button>
+          }
+        />
+        {groups.length === 0 && (
+          <div style={emptyHintStyle}>No groups yet</div>
+        )}
+        {groups.map(g => (
+          <RailRow
+            key={g.id}
+            active={groupFilter === g.id}
+            onClick={() => onGroupFilter(groupFilter === g.id ? null : g.id)}
+          >
+            <span style={{ ...glyphStyle, background: groupColorBg(g.color) }}>
+              {g.glyph || '•'}
+            </span>
+            <span style={labelStyle}>{g.name}</span>
+            <span style={countStyle}>{countTasksInGroup(tasks, g.id)}</span>
+          </RailRow>
+        ))}
+      </Section>
+
+      <Section>
         <SectionHeader label="Recent" />
         {recent.length === 0 && (
           <div style={emptyHintStyle}>No tasks yet</div>
@@ -184,6 +237,17 @@ export default function TasksLeftRail({
           <span style={labelStyle}>Defaults &amp; integrations</span>
         </RailRow>
       </Section>
+
+      {showCreateGroup && (
+        <NewTaskGroupDialog
+          onClose={() => setShowCreateGroup(false)}
+          onCreated={group => {
+            setShowCreateGroup(false);
+            setGroups(prev => [...prev, group]);
+            onGroupFilter(group.id);
+          }}
+        />
+      )}
     </aside>
   );
 }
@@ -192,11 +256,16 @@ function Section({ children }: { children: React.ReactNode }) {
   return <div style={sectionStyle}>{children}</div>;
 }
 
-function SectionHeader({ label, count }: { label: string; count?: number }) {
+function SectionHeader({ label, count, action }: {
+  label: string;
+  count?: number;
+  action?: React.ReactNode;
+}) {
   return (
     <div style={sectionHeaderStyle}>
       <span>{label}</span>
       {count != null && <span style={sectionCountStyle}>{count}</span>}
+      {action && <span style={{ marginLeft: 'auto' }}>{action}</span>}
     </div>
   );
 }
@@ -260,6 +329,28 @@ function buildProviderList(tasks: TaskDto[]): Array<{ meta: ProviderMeta; count:
 
 function sortByUpdatedDesc(tasks: TaskDto[]): TaskDto[] {
   return [...tasks].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
+}
+
+function countTasksInGroup(tasks: TaskDto[], groupId: string): number {
+  let n = 0;
+  for (const t of tasks) {
+    if (t.groupId === groupId) n++;
+  }
+  return n;
+}
+
+/** Maps the small named-swatch set the create dialog uses to a CSS
+ *  gradient. Unknown values fall back to {@code slate} so a future
+ *  free-form color string still renders. */
+function groupColorBg(color: string): string {
+  switch ((color || '').toLowerCase()) {
+    case 'violet': return 'linear-gradient(135deg, #7c3aed, #4c1d95)';
+    case 'amber':  return 'linear-gradient(135deg, #d97706, #92400e)';
+    case 'green':  return 'linear-gradient(135deg, #10b981, #047857)';
+    case 'blue':   return 'linear-gradient(135deg, #2563eb, #1e3a8a)';
+    case 'rose':   return 'linear-gradient(135deg, #e11d48, #9f1239)';
+    default:       return 'linear-gradient(135deg, #64748b, #334155)';
+  }
 }
 
 function statusDot(s: TaskStatusDto): string {
@@ -447,4 +538,17 @@ const emptyHintStyle: React.CSSProperties = {
   fontSize: 12,
   color: '#9ca3af',
   fontStyle: 'italic',
+};
+const addBtnStyle: React.CSSProperties = {
+  background: 'transparent',
+  border: '1px solid #d1d5db',
+  borderRadius: 4,
+  padding: '0 6px',
+  fontSize: 10,
+  fontWeight: 600,
+  color: '#7c3aed',
+  cursor: 'pointer',
+  lineHeight: '16px',
+  textTransform: 'none',
+  letterSpacing: 0,
 };

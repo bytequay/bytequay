@@ -613,7 +613,8 @@ public class ClaudeCodeCliSession
                 current.processPid(), current.logPath(),
                 current.createdAt(), Instant.now(),
                 endedAt != null ? endedAt : current.endedAt(),
-                current.errorMessage(), current.metadataJson());
+                current.errorMessage(), current.metadataJson(),
+                current.groupId());
         store.saveTask(next);
     }
 

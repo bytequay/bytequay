@@ -80,6 +80,9 @@ class TaskEntity
     @Column(name = "metadata_json", nullable = false)
     private String metadataJson;
 
+    @Column(name = "group_id")
+    private String groupId;
+
     String getId() { return id; }
     void setId(String id) { this.id = id; }
 
@@ -136,4 +139,7 @@ class TaskEntity
 
     String getMetadataJson() { return metadataJson; }
     void setMetadataJson(String metadataJson) { this.metadataJson = metadataJson; }
+
+    String getGroupId() { return groupId; }
+    void setGroupId(String groupId) { this.groupId = groupId; }
 }

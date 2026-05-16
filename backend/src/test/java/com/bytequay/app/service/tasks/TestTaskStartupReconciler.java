@@ -84,6 +84,7 @@ class TestTaskStartupReconciler
                 now,
                 /* endedAt */ status == TaskStatus.COMPLETED ? now : null,
                 /* errorMessage */ null,
-                "{}");
+                "{}",
+                /* groupId */ null);
     }
 }

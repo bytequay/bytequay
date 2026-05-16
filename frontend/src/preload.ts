@@ -38,9 +38,12 @@ import type {
   RecentEventDto,
   ReviewSkillDto,
   SuggestedReviewerDto,
+  NewTaskGroupRequestDto,
   NewTaskRequestDto,
   SyncSettingsDto,
   TaskDto,
+  TaskGroupDto,
+  TaskGroupPatchDto,
   TaskMessageDto,
   TeamDto,
   TeamSummaryDto,
@@ -432,9 +435,16 @@ const bridge: Bridge = {
     ipcRenderer.invoke('email:unmuteSender', { account, sender }),
   listMutedEmailSenders: (account: string): Promise<string[]> =>
     ipcRenderer.invoke('email:listMutedSenders', { account }),
-  listTasks: (): Promise<TaskDto[]> => ipcRenderer.invoke('tasks:list'),
+  listTasks: (groupId?: string): Promise<TaskDto[]> =>
+    ipcRenderer.invoke('tasks:list', groupId ?? null),
   createTask: (request: NewTaskRequestDto): Promise<TaskDto> =>
     ipcRenderer.invoke('tasks:create', request),
+  listTaskGroups: (): Promise<TaskGroupDto[]> => ipcRenderer.invoke('taskGroups:list'),
+  createTaskGroup: (request: NewTaskGroupRequestDto): Promise<TaskGroupDto> =>
+    ipcRenderer.invoke('taskGroups:create', request),
+  updateTaskGroup: (id: string, patch: TaskGroupPatchDto): Promise<TaskGroupDto> =>
+    ipcRenderer.invoke('taskGroups:update', { id, patch }),
+  deleteTaskGroup: (id: string): Promise<void> => ipcRenderer.invoke('taskGroups:delete', id),
   getTask: (id: string): Promise<TaskDto | null> =>
     ipcRenderer.invoke('tasks:get', id),
   getTaskMessages: (id: string): Promise<TaskMessageDto[]> =>

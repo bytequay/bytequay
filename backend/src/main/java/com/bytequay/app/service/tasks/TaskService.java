@@ -16,9 +16,11 @@ package com.bytequay.app.service.tasks;
 import com.bytequay.app.domain.PermissionDecision;
 import com.bytequay.app.domain.StreamEvent;
 import com.bytequay.app.domain.Task;
+import com.bytequay.app.domain.TaskGroup;
 import com.bytequay.app.domain.TaskKind;
 import com.bytequay.app.domain.TaskMessage;
 import com.bytequay.app.domain.TaskStatus;
+import com.bytequay.app.repository.TaskGroupStore;
 import com.bytequay.app.repository.TaskStore;
 import org.springframework.stereotype.Service;
 
@@ -40,17 +42,74 @@ import static java.util.Objects.requireNonNull;
 public class TaskService
 {
     private final TaskStore store;
+    private final TaskGroupStore groupStore;
     private final TaskSessionRegistry registry;
 
-    public TaskService(TaskStore store, TaskSessionRegistry registry)
+    public TaskService(TaskStore store, TaskGroupStore groupStore, TaskSessionRegistry registry)
     {
         this.store = requireNonNull(store, "store is null");
+        this.groupStore = requireNonNull(groupStore, "groupStore is null");
         this.registry = requireNonNull(registry, "registry is null");
     }
 
     public List<Task> listByStatus(TaskStatus status, int limit)
     {
         return store.listTasksByStatus(status, limit);
+    }
+
+    public List<Task> listByGroup(String groupId, int limit)
+    {
+        return store.listTasksByGroup(groupId, limit);
+    }
+
+    public List<TaskGroup> listGroups()
+    {
+        return groupStore.listGroups();
+    }
+
+    public TaskGroup createGroup(NewGroupRequest request)
+    {
+        requireNonNull(request, "request is null");
+        Instant now = Instant.now();
+        TaskGroup group = new TaskGroup(
+                UUID.randomUUID().toString(),
+                request.name(),
+                request.glyph() == null || request.glyph().isBlank() ? "•" : request.glyph(),
+                request.color() == null || request.color().isBlank() ? "slate" : request.color(),
+                request.sortOrder(),
+                now,
+                now);
+        groupStore.saveGroup(group);
+        return groupStore.findGroupById(group.id()).orElse(group);
+    }
+
+    /** Partial update — only non-null fields on {@code patch} change.
+     *  Mirrors the Group settings panel: edit any of name/glyph/color
+     *  independently. */
+    public TaskGroup updateGroup(String groupId, GroupPatch patch)
+    {
+        requireNonNull(groupId, "groupId is null");
+        requireNonNull(patch, "patch is null");
+        TaskGroup current = groupStore.findGroupById(groupId)
+                .orElseThrow(() -> new NoSuchElementException("no group: " + groupId));
+        TaskGroup next = new TaskGroup(
+                current.id(),
+                patch.name() != null && !patch.name().isBlank() ? patch.name() : current.name(),
+                patch.glyph() != null && !patch.glyph().isBlank() ? patch.glyph() : current.glyph(),
+                patch.color() != null && !patch.color().isBlank() ? patch.color() : current.color(),
+                current.sortOrder(),
+                current.createdAt(),
+                Instant.now());
+        groupStore.saveGroup(next);
+        return next;
+    }
+
+    /** Tasks pointing at this group keep existing — their
+     *  {@code group_id} is cleared so they survive the deletion. */
+    public void deleteGroup(String groupId)
+    {
+        store.unsetGroupOnTasks(groupId);
+        groupStore.deleteGroup(groupId);
     }
 
     public Task create(NewTaskRequest request)
@@ -76,7 +135,8 @@ public class TaskService
                 now,
                 /* endedAt */ null,
                 /* errorMessage */ null,
-                request.metadataJson() == null ? "{}" : request.metadataJson());
+                request.metadataJson() == null ? "{}" : request.metadataJson(),
+                request.groupId());
         store.saveTask(task);
         // Spin up the session synchronously so the first send() call
         // inside this request can dispatch on it.
@@ -164,5 +224,21 @@ public class TaskService
             String workingDir,
             String branchName,
             String initialPrompt,
-            String metadataJson) {}
+            String metadataJson,
+            /** Optional — pre-assigns the new task to a group. */
+            String groupId) {}
+
+    /** Inputs from the create-group dialog. */
+    public record NewGroupRequest(
+            String name,
+            String glyph,
+            String color,
+            int sortOrder) {}
+
+    /** Partial-update inputs from the Group settings dialog. {@code null}
+     *  or blank fields preserve the current value. */
+    public record GroupPatch(
+            String name,
+            String glyph,
+            String color) {}
 }

@@ -12,9 +12,11 @@
  * limitations under the License.
  */
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import type { TaskDto, TaskStatusDto } from '../types';
+import type { TaskDto, TaskGroupDto, TaskStatusDto } from '../types';
+import GroupSettingsDialog from './GroupSettingsDialog';
+import GroupTaskGrid from './GroupTaskGrid';
 import NewTaskDialog from './NewTaskDialog';
-import TasksLeftRail, { type StatusFilter, type ProviderFilter } from './TasksLeftRail';
+import TasksLeftRail, { type GroupFilter, type StatusFilter, type ProviderFilter } from './TasksLeftRail';
 
 /** Order in which the four buckets are rendered. Active sessions
  *  (RUNNING / AWAITING) at the top so the user can resume them with
@@ -36,6 +38,10 @@ type Props = {
    *  (e.g. {@code "claude-code"}). {@code null} means no filter. */
   provider: ProviderFilter;
   onProviderChange: (provider: ProviderFilter) => void;
+  /** Group filter — narrows the list to a single user-defined group.
+   *  {@code null} means show every task across every group. */
+  groupId: GroupFilter;
+  onGroupChange: (group: GroupFilter) => void;
   /** Routes the user to the task detail / live conversation page. */
   onSelectTask: (taskId: string) => void;
   /** Routes to Settings → Integrations from the rail's footer row. */
@@ -49,12 +55,15 @@ type Props = {
  */
 export default function TasksPage({
   filter, onFilterChange, provider, onProviderChange,
+  groupId, onGroupChange,
   onSelectTask, onOpenSettings,
 }: Props) {
   const [tasks, setTasks] = useState<TaskDto[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [showCreate, setShowCreate] = useState(false);
   const [busyId, setBusyId] = useState<string | null>(null);
+  const [activeGroup, setActiveGroup] = useState<TaskGroupDto | null>(null);
+  const [showGroupSettings, setShowGroupSettings] = useState(false);
 
   const refresh = useCallback(async () => {
     try {
@@ -71,14 +80,36 @@ export default function TasksPage({
     void refresh();
   }, [refresh]);
 
+  // Pull the selected group's metadata so the header can render its
+  // glyph + name. The rail keeps its own copy for the listing.
+  useEffect(() => {
+    if (!groupId) {
+      setActiveGroup(null);
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      try {
+        const all = await window.bridge.listTaskGroups();
+        if (cancelled) return;
+        setActiveGroup(all.find(g => g.id === groupId) ?? null);
+      }
+      catch {
+        if (!cancelled) setActiveGroup(null);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [groupId]);
+
   const filtered = useMemo(() => {
     if (!tasks) return [];
     return tasks.filter(t => {
       if (filter !== 'ALL' && t.status !== filter) return false;
       if (provider && (t.provider || '').toLowerCase() !== provider) return false;
+      if (groupId && t.groupId !== groupId) return false;
       return true;
     });
-  }, [tasks, filter, provider]);
+  }, [tasks, filter, provider, groupId]);
 
   const grouped = useMemo(() => {
     const map = new Map<TaskStatusDto, TaskDto[]>();
@@ -95,6 +126,44 @@ export default function TasksPage({
 
   const totalCount = tasks?.length ?? 0;
   const filteredCount = filtered.length;
+
+  /** Tile order: active first (RUNNING / AWAITING), then PENDING /
+   *  IDLE, terminal last — so the operator scans live work first. */
+  const tilesOrdered = useMemo(() => {
+    const rank: Record<TaskStatusDto, number> = {
+      RUNNING:   0,
+      AWAITING:  1,
+      PENDING:   2,
+      IDLE:      3,
+      COMPLETED: 4,
+      ERRORED:   5,
+    };
+    return [...filtered].sort((a, b) => {
+      const r = rank[a.status] - rank[b.status];
+      return r !== 0 ? r : b.updatedAt.localeCompare(a.updatedAt);
+    });
+  }, [filtered]);
+
+  const groupMetrics = useMemo(() => {
+    if (!activeGroup) return null;
+    let running = 0;
+    let awaiting = 0;
+    let idle = 0;
+    let done = 0;
+    let costMilli = 0;
+    for (const t of filtered) {
+      costMilli += t.costUsdMilli;
+      switch (t.status) {
+        case 'RUNNING':   running++; break;
+        case 'AWAITING':  awaiting++; break;
+        case 'IDLE':
+        case 'PENDING':   idle++; break;
+        case 'COMPLETED':
+        case 'ERRORED':   done++; break;
+      }
+    }
+    return { running, awaiting, idle, done, costMilli };
+  }, [activeGroup, filtered]);
 
   const onStop = useCallback(async (id: string) => {
     setBusyId(id);
@@ -118,6 +187,8 @@ export default function TasksPage({
         onStatusFilter={onFilterChange}
         providerFilter={provider}
         onProviderFilter={onProviderChange}
+        groupFilter={groupId}
+        onGroupFilter={onGroupChange}
         onSelectTask={onSelectTask}
         onNewTask={() => setShowCreate(true)}
         onOpenSettings={onOpenSettings}
@@ -126,14 +197,96 @@ export default function TasksPage({
       <div style={mainStyle}>
         <header style={headerStyle}>
           <div>
-            <h1 style={titleStyle}>{filterLabel(filter)}</h1>
+            {activeGroup && (
+              <div style={breadcrumbStyle}>
+                Tasks
+                <span style={breadcrumbSepStyle}>/</span>
+                <button
+                  type="button"
+                  onClick={() => onGroupChange(null)}
+                  style={breadcrumbLinkStyle}
+                >
+                  Groups
+                </button>
+                <span style={breadcrumbSepStyle}>/</span>
+                <span>{activeGroup.name}</span>
+              </div>
+            )}
+            <h1 style={titleStyle}>
+              {activeGroup ? (
+                <>
+                  <span style={{ ...headerGlyphStyle, background: groupColorBg(activeGroup.color) }}>
+                    {activeGroup.glyph || '•'}
+                  </span>
+                  {activeGroup.name}
+                </>
+              ) : (
+                filterLabel(filter)
+              )}
+            </h1>
             <p style={subtitleStyle}>
-              {filter === 'ALL'
+              {activeGroup && groupMetrics ? (
+                <span style={metricsLineStyle}>
+                  <span>
+                    {filteredCount} task{filteredCount === 1 ? '' : 's'}
+                  </span>
+                  {groupMetrics.running > 0 && (
+                    <>
+                      <span style={metricsSepStyle}>·</span>
+                      <span style={{ color: '#047857' }}>
+                        {groupMetrics.running} running
+                      </span>
+                    </>
+                  )}
+                  {groupMetrics.awaiting > 0 && (
+                    <>
+                      <span style={metricsSepStyle}>·</span>
+                      <span style={{ color: '#b45309' }}>
+                        {groupMetrics.awaiting} awaiting
+                      </span>
+                    </>
+                  )}
+                  {groupMetrics.idle > 0 && (
+                    <>
+                      <span style={metricsSepStyle}>·</span>
+                      <span>{groupMetrics.idle} idle</span>
+                    </>
+                  )}
+                  {groupMetrics.done > 0 && (
+                    <>
+                      <span style={metricsSepStyle}>·</span>
+                      <span>{groupMetrics.done} done</span>
+                    </>
+                  )}
+                  <span style={metricsSepStyle}>·</span>
+                  <span>runtime cost {formatCost(groupMetrics.costMilli)}</span>
+                </span>
+              ) : filter === 'ALL'
                 ? 'Delegated AI coding runs. Pick a status on the left to focus.'
                 : `Tasks in ${filter.toLowerCase()} state.`}
             </p>
           </div>
           <div style={headerActionsStyle}>
+            {activeGroup && (
+              <>
+                <button
+                  type="button"
+                  onClick={() => setShowCreate(true)}
+                  style={primaryBtnStyle}
+                  title="Start a new task pinned to this group"
+                >
+                  + Add task
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setShowGroupSettings(true)}
+                  style={secondaryBtnStyle}
+                  title="Rename, recolor, or delete this group"
+                >
+                  Group settings
+                </button>
+              </>
+            )}
             <button
               type="button"
               onClick={() => void refresh()}
@@ -165,7 +318,7 @@ export default function TasksPage({
           </div>
         )}
 
-        {tasks !== null && totalCount > 0 && filteredCount === 0 && (
+        {tasks !== null && totalCount > 0 && filteredCount === 0 && !activeGroup && (
           <div style={emptyStateStyle}>
             <div style={emptyTitleStyle}>Nothing in {filter.toLowerCase()}</div>
             <div style={mutedTextStyle}>
@@ -175,7 +328,14 @@ export default function TasksPage({
           </div>
         )}
 
-        {filteredCount > 0 && (
+        {activeGroup && tasks !== null && (
+          <GroupTaskGrid
+            tasks={tilesOrdered}
+            onOpen={onSelectTask}
+          />
+        )}
+
+        {!activeGroup && filteredCount > 0 && (
           <div style={listStyle}>
             {grouped.filter(g => g.rows.length > 0).map(group => (
               <div key={group.key} style={groupStyle}>
@@ -203,9 +363,29 @@ export default function TasksPage({
       {showCreate && (
         <NewTaskDialog
           onClose={() => setShowCreate(false)}
+          initialGroupId={groupId}
           onCreated={async () => {
             setShowCreate(false);
             await refresh();
+          }}
+        />
+      )}
+
+      {showGroupSettings && activeGroup && (
+        <GroupSettingsDialog
+          group={activeGroup}
+          pinnedTaskCount={filteredCount}
+          onClose={() => setShowGroupSettings(false)}
+          onSaved={next => {
+            setActiveGroup(next);
+            setShowGroupSettings(false);
+          }}
+          onDeleted={() => {
+            setShowGroupSettings(false);
+            // Pop back to the all-tasks view — the group is gone, the
+            // tasks are now ungrouped.
+            onGroupChange(null);
+            void refresh();
           }}
         />
       )}
@@ -216,6 +396,19 @@ export default function TasksPage({
 function filterLabel(filter: StatusFilter): string {
   if (filter === 'ALL') return 'Tasks';
   return filter.charAt(0) + filter.slice(1).toLowerCase();
+}
+
+/** Mirrors the rail helper. Kept inline to avoid wiring a shared
+ *  module for one tiny lookup. */
+function groupColorBg(color: string): string {
+  switch ((color || '').toLowerCase()) {
+    case 'violet': return 'linear-gradient(135deg, #7c3aed, #4c1d95)';
+    case 'amber':  return 'linear-gradient(135deg, #d97706, #92400e)';
+    case 'green':  return 'linear-gradient(135deg, #10b981, #047857)';
+    case 'blue':   return 'linear-gradient(135deg, #2563eb, #1e3a8a)';
+    case 'rose':   return 'linear-gradient(135deg, #e11d48, #9f1239)';
+    default:       return 'linear-gradient(135deg, #64748b, #334155)';
+  }
 }
 
 function TaskRow({ task, busy, onOpen, onStop }: {
@@ -326,6 +519,43 @@ const headerStyle: React.CSSProperties = {
 const titleStyle: React.CSSProperties = { margin: 0, fontSize: 24, fontWeight: 700 };
 const subtitleStyle: React.CSSProperties = { margin: '4px 0 0', color: '#6B7280', maxWidth: 600 };
 const headerActionsStyle: React.CSSProperties = { display: 'flex', gap: 8, alignItems: 'center' };
+const breadcrumbStyle: React.CSSProperties = {
+  display: 'flex',
+  alignItems: 'center',
+  gap: 6,
+  fontSize: 12,
+  color: '#6B7280',
+  marginBottom: 4,
+};
+const breadcrumbLinkStyle: React.CSSProperties = {
+  background: 'transparent',
+  border: 'none',
+  padding: 0,
+  cursor: 'pointer',
+  color: '#7c3aed',
+  fontSize: 12,
+};
+const breadcrumbSepStyle: React.CSSProperties = { color: '#d1d5db' };
+const headerGlyphStyle: React.CSSProperties = {
+  display: 'inline-flex',
+  alignItems: 'center',
+  justifyContent: 'center',
+  width: 28,
+  height: 28,
+  borderRadius: 6,
+  color: '#fff',
+  fontSize: 14,
+  fontWeight: 700,
+  marginRight: 10,
+  verticalAlign: 'middle',
+};
+const metricsLineStyle: React.CSSProperties = {
+  display: 'inline-flex',
+  flexWrap: 'wrap',
+  alignItems: 'center',
+  gap: 6,
+};
+const metricsSepStyle: React.CSSProperties = { color: '#d1d5db' };
 const primaryBtnStyle: React.CSSProperties = {
   padding: '8px 14px',
   background: '#7C3AED',

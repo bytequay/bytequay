@@ -12,11 +12,14 @@
  * limitations under the License.
  */
 import { useEffect, useMemo, useState } from 'react';
-import type { LocalRepoStatusDto, TaskKindDto } from '../types';
+import type { LocalRepoStatusDto, TaskGroupDto, TaskKindDto } from '../types';
 
 type Props = {
   onClose: () => void;
   onCreated: () => void | Promise<void>;
+  /** Pre-selects the group dropdown — used when the dialog is opened
+   *  from a group view so the new task lands in that group by default. */
+  initialGroupId?: string | null;
 };
 
 /** Shape of the work the dialog plans to do on submit. {@code workingDir}
@@ -38,7 +41,7 @@ type Plan = {
  * "Clone on start" hint and trigger {@code cloneRepo} into the app's
  * default path before the task is created.
  */
-export default function NewTaskDialog({ onClose, onCreated }: Props) {
+export default function NewTaskDialog({ onClose, onCreated, initialGroupId }: Props) {
   const [kind] = useState<TaskKindDto>('CLI_AGENT');
   const [title, setTitle] = useState('');
   const [model, setModel] = useState('claude-sonnet-4.6');
@@ -50,6 +53,9 @@ export default function NewTaskDialog({ onClose, onCreated }: Props) {
   const [reposError, setReposError] = useState<string | null>(null);
   const [selectedKey, setSelectedKey] = useState<string>('');
   const [cloneStatus, setCloneStatus] = useState<string | null>(null);
+
+  const [groups, setGroups] = useState<TaskGroupDto[]>([]);
+  const [groupId, setGroupId] = useState<string>(initialGroupId ?? '');
 
   useEffect(() => {
     let cancelled = false;
@@ -71,6 +77,20 @@ export default function NewTaskDialog({ onClose, onCreated }: Props) {
       catch (e) {
         if (cancelled) return;
         setReposError(e instanceof Error ? e.message : String(e));
+      }
+    })();
+    return () => { cancelled = true; };
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      try {
+        const gs = await window.bridge.listTaskGroups();
+        if (!cancelled) setGroups(gs);
+      }
+      catch {
+        // Groups are optional — silently leave the dropdown empty.
       }
     })();
     return () => { cancelled = true; };
@@ -117,6 +137,7 @@ export default function NewTaskDialog({ onClose, onCreated }: Props) {
         title: title.trim(),
         workingDir,
         initialPrompt: initialPrompt.trim() || undefined,
+        groupId: groupId || null,
       });
       await onCreated();
     }
@@ -193,6 +214,24 @@ export default function NewTaskDialog({ onClose, onCreated }: Props) {
             <select value={kind} disabled style={inputStyle}>
               <option value="CLI_AGENT">Claude Code (CLI)</option>
               <option value="LOGIC_LOOP" disabled>Logic loop (coming soon)</option>
+            </select>
+          </Field>
+
+          <Field
+            label="Group"
+            hint="Optional. Pins this task to one of your task groups."
+          >
+            <select
+              value={groupId}
+              onChange={e => setGroupId(e.target.value)}
+              style={inputStyle}
+            >
+              <option value="">— None —</option>
+              {groups.map(g => (
+                <option key={g.id} value={g.id}>
+                  {g.glyph ? `${g.glyph}  ` : ''}{g.name}
+                </option>
+              ))}
             </select>
           </Field>
 

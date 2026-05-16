@@ -1107,6 +1107,36 @@ export type TaskDto = {
   endedAt: string | null;
   errorMessage: string | null;
   metadataJson: string;
+  /** Optional {@link TaskGroupDto#id} — null when the task isn't
+   *  pinned to any user-defined group. */
+  groupId: string | null;
+};
+
+export type TaskGroupDto = {
+  id: string;
+  name: string;
+  /** Single character (or short emoji) shown in the rail badge. */
+  glyph: string;
+  /** Free-form CSS-compatible color string; the renderer maps a small
+   *  set of named swatches and falls back to {@code slate}. */
+  color: string;
+  sortOrder: number;
+  createdAt: string;
+  updatedAt: string;
+};
+
+export type NewTaskGroupRequestDto = {
+  name: string;
+  glyph?: string;
+  color?: string;
+  sortOrder?: number;
+};
+
+/** Patch payload — only non-null/blank fields update on the backend. */
+export type TaskGroupPatchDto = {
+  name?: string;
+  glyph?: string;
+  color?: string;
 };
 
 export type TaskMessageDto = {
@@ -1141,6 +1171,8 @@ export type NewTaskRequestDto = {
   branchName?: string | null;
   initialPrompt?: string;
   metadataJson?: string;
+  /** Optional — pre-assigns the new task to a group. */
+  groupId?: string | null;
 };
 
 export type Bridge = {
@@ -1691,11 +1723,21 @@ export type Bridge = {
    *  process's did-finish-load push raced React's listener registration. */
   getFullScreenState: () => Promise<boolean>;
   /** All tasks across every status, newest-updated first; the page
-   *  groups by status itself. */
-  listTasks: () => Promise<TaskDto[]>;
+   *  groups by status itself. Pass {@code groupId} to restrict to a
+   *  single group (drives the group detail view). */
+  listTasks: (groupId?: string) => Promise<TaskDto[]>;
   /** Create + start one task. Returns the persisted row with the
    *  agent's session id if the first turn already populated it. */
   createTask: (request: NewTaskRequestDto) => Promise<TaskDto>;
+  /** User-defined groups in display order. */
+  listTaskGroups: () => Promise<TaskGroupDto[]>;
+  /** Insert one group. */
+  createTaskGroup: (request: NewTaskGroupRequestDto) => Promise<TaskGroupDto>;
+  /** Partial update — null/blank fields keep the current value. */
+  updateTaskGroup: (id: string, patch: TaskGroupPatchDto) => Promise<TaskGroupDto>;
+  /** Drop a group. Tasks pointing at it are not deleted — their
+   *  {@code groupId} is cleared so they become ungrouped. */
+  deleteTaskGroup: (id: string) => Promise<void>;
   /** Single task by id; null when no row matches. */
   getTask: (id: string) => Promise<TaskDto | null>;
   /** Persisted conversation log, oldest first by {@code seq}. The

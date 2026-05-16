@@ -71,20 +71,29 @@ public class TaskController
         this.tasks = requireNonNull(tasks, "tasks is null");
     }
 
-    /** GET /api/tasks?status=RUNNING&limit=50 */
+    /** GET /api/tasks?status=RUNNING&limit=50&groupId=... */
     @GetMapping
     public List<Task> list(
             @RequestParam(required = false) TaskStatus status,
+            @RequestParam(required = false) String groupId,
             @RequestParam(required = false, defaultValue = "" + DEFAULT_LIMIT) int limit)
     {
+        int cap = Math.min(limit, DEFAULT_LIMIT);
+        if (groupId != null && !groupId.isBlank()) {
+            List<Task> page = tasks.listByGroup(groupId, cap);
+            if (status == null) {
+                return page;
+            }
+            return page.stream().filter(t -> t.status() == status).toList();
+        }
         if (status == null) {
             ImmutableList.Builder<Task> all = ImmutableList.builder();
             for (TaskStatus s : TaskStatus.values()) {
-                all.addAll(tasks.listByStatus(s, Math.min(limit, DEFAULT_LIMIT)));
+                all.addAll(tasks.listByStatus(s, cap));
             }
             return all.build();
         }
-        return tasks.listByStatus(status, Math.min(limit, DEFAULT_LIMIT));
+        return tasks.listByStatus(status, cap);
     }
 
     /** POST /api/tasks — create + start. Returns the persisted row. */
@@ -109,7 +118,8 @@ public class TaskController
                 body.workingDir(),
                 body.branchName(),
                 body.initialPrompt(),
-                body.metadataJson()));
+                body.metadataJson(),
+                body.groupId()));
     }
 
     /** GET /api/tasks/{id} */
@@ -224,7 +234,9 @@ public class TaskController
             String workingDir,
             String branchName,
             String initialPrompt,
-            String metadataJson) {}
+            String metadataJson,
+            /** Optional — pre-assigns the new task to a group. */
+            String groupId) {}
 
     public record SendBody(String input) {}
 

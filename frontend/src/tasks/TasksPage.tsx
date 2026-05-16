@@ -349,8 +349,10 @@ export default function TasksPage({
           <GroupTaskGrid
             tasks={tilesOrdered}
             groups={groups}
+            busyId={busyId}
             onOpen={onSelectTask}
             onMoveGroup={moveTaskToGroup}
+            onStop={onStop}
           />
         )}
 

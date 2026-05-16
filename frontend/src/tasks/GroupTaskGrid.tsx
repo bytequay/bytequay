@@ -25,6 +25,12 @@ type Props = {
   /** Reassign a task to another group (or null to unpin). The page
    *  parent persists the change and refreshes. */
   onMoveGroup: (taskId: string, groupId: string | null) => void | Promise<void>;
+  /** Stop an active task from its tile. The page parent serialises
+   *  the call and refreshes once the row flips to a terminal state. */
+  onStop: (taskId: string) => void | Promise<void>;
+  /** ID of the task whose Stop is currently in flight, so the tile
+   *  can render a busy state and disable the button. */
+  busyId: string | null;
 };
 
 const TILE_PREVIEW_LIMIT = 8;
@@ -40,7 +46,7 @@ const POLL_MS = 4000;
  * minus the per-tile send box, which would require running N
  * conversations in parallel and is out of scope for this slice.
  */
-export default function GroupTaskGrid({ tasks, groups, onOpen, onMoveGroup }: Props) {
+export default function GroupTaskGrid({ tasks, groups, onOpen, onMoveGroup, onStop, busyId }: Props) {
   const [previews, setPreviews] = useState<Record<string, TaskMessageDto[]>>({});
 
   // Fan-out: pull recent messages for each tile in parallel. The
@@ -89,21 +95,26 @@ export default function GroupTaskGrid({ tasks, groups, onOpen, onMoveGroup }: Pr
           task={t}
           groups={groups}
           messages={previews[t.id] ?? []}
+          busy={busyId === t.id}
           onOpen={() => onOpen(t.id)}
           onMoveGroup={onMoveGroup}
+          onStop={() => onStop(t.id)}
         />
       ))}
     </div>
   );
 }
 
-function TaskTile({ task, groups, messages, onOpen, onMoveGroup }: {
+function TaskTile({ task, groups, messages, busy, onOpen, onMoveGroup, onStop }: {
   task: TaskDto;
   groups: TaskGroupDto[];
   messages: TaskMessageDto[];
+  busy: boolean;
   onOpen: () => void;
   onMoveGroup: (taskId: string, groupId: string | null) => void | Promise<void>;
+  onStop: () => void | Promise<void>;
 }) {
+  const isTerminal = task.status === 'COMPLETED' || task.status === 'ERRORED';
   const recent = useMemo(
     () => messages.slice(-TILE_PREVIEW_LIMIT).filter(visibleInTile),
     [messages]);
@@ -145,6 +156,17 @@ function TaskTile({ task, groups, messages, onOpen, onMoveGroup }: {
         <span style={footerMetricStyle}>
           {formatTokens(task.tokensIn + task.tokensOut)} tok
         </span>
+        {!isTerminal && (
+          <button
+            type="button"
+            onClick={e => { e.stopPropagation(); void onStop(); }}
+            disabled={busy}
+            style={stopBtnStyle}
+            title="Stop and release the agent"
+          >
+            {busy ? 'Stopping…' : 'Stop'}
+          </button>
+        )}
       </footer>
     </article>
   );
@@ -438,6 +460,17 @@ const footerMetricStyle: React.CSSProperties = {
   color: '#374151',
   fontWeight: 600,
   fontVariantNumeric: 'tabular-nums',
+};
+const stopBtnStyle: React.CSSProperties = {
+  marginLeft: 8,
+  padding: '3px 10px',
+  background: 'transparent',
+  color: '#dc2626',
+  border: '1px solid #fca5a5',
+  borderRadius: 4,
+  fontSize: 11,
+  fontWeight: 600,
+  cursor: 'pointer',
 };
 const pulseDotStyle: React.CSSProperties = {
   width: 6,

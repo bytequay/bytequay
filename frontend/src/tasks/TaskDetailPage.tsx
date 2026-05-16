@@ -12,7 +12,7 @@
  * limitations under the License.
  */
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import type { TaskDto, TaskMessageDto, TaskStatusDto } from '../types';
+import type { TaskDto, TaskGroupDto, TaskMessageDto, TaskStatusDto } from '../types';
 import { ConversationPane, type PendingPermission } from './ConversationPane';
 import TasksLeftRail, { type GroupFilter, type StatusFilter, type ProviderFilter } from './TasksLeftRail';
 import NewTaskDialog from './NewTaskDialog';
@@ -69,6 +69,7 @@ export default function TaskDetailPage({
   const [task, setTask] = useState<TaskDto | null>(null);
   const [messages, setMessages] = useState<TaskMessageDto[]>([]);
   const [allTasks, setAllTasks] = useState<TaskDto[]>([]);
+  const [groups, setGroups] = useState<TaskGroupDto[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [draft, setDraft] = useState('');
   const [sending, setSending] = useState(false);
@@ -82,15 +83,27 @@ export default function TaskDetailPage({
 
   const refresh = useCallback(async () => {
     try {
-      const [t, m, list] = await Promise.all([
+      const [t, m, list, gs] = await Promise.all([
         window.bridge.getTask(taskId),
         window.bridge.getTaskMessages(taskId),
         window.bridge.listTasks(),
+        window.bridge.listTaskGroups().catch(() => [] as TaskGroupDto[]),
       ]);
       setTask(t);
       setMessages(m);
       setAllTasks(list);
+      setGroups(gs);
       setError(null);
+    }
+    catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    }
+  }, [taskId]);
+
+  const onChangeGroup = useCallback(async (nextGroupId: string | null) => {
+    try {
+      const updated = await window.bridge.setTaskGroup(taskId, nextGroupId);
+      setTask(updated);
     }
     catch (e) {
       setError(e instanceof Error ? e.message : String(e));
@@ -231,7 +244,12 @@ export default function TaskDetailPage({
             onToggleTheme={() => setTheme(t => t === 'dark' ? 'light' : 'dark')}
           />
 
-          <Sidebar task={task} stage={stage} />
+          <Sidebar
+            task={task}
+            stage={stage}
+            groups={groups}
+            onChangeGroup={onChangeGroup}
+          />
         </div>
       </div>
 
@@ -491,11 +509,25 @@ function TermInput({
   );
 }
 
-function Sidebar({ task, stage }: { task: TaskDto; stage: Stage }) {
+function Sidebar({ task, stage, groups, onChangeGroup }: {
+  task: TaskDto;
+  stage: Stage;
+  groups: TaskGroupDto[];
+  onChangeGroup: (groupId: string | null) => void | Promise<void>;
+}) {
   return (
     <div style={sidebarStyle}>
       <SideCard>
         <StageCard task={task} stage={stage} />
+      </SideCard>
+
+      <SideCard>
+        <h4 style={sideCardHeadingStyle}>Group</h4>
+        <GroupPicker
+          task={task}
+          groups={groups}
+          onChange={onChangeGroup}
+        />
       </SideCard>
 
       <SideCard>
@@ -538,6 +570,34 @@ function Sidebar({ task, stage }: { task: TaskDto; stage: Stage }) {
 
 function SideCard({ children }: { children: React.ReactNode }) {
   return <div style={sideCardStyle}>{children}</div>;
+}
+
+/** Reassigns the task's group inline. Optimistically reflects the
+ *  pick — the parent's setTaskGroup pushes through the new row. */
+function GroupPicker({ task, groups, onChange }: {
+  task: TaskDto;
+  groups: TaskGroupDto[];
+  onChange: (groupId: string | null) => void | Promise<void>;
+}) {
+  return (
+    <div style={groupPickerWrapStyle}>
+      <select
+        value={task.groupId ?? ''}
+        onChange={e => {
+          const next = e.target.value;
+          void onChange(next === '' ? null : next);
+        }}
+        style={groupPickerStyle}
+      >
+        <option value="">— Ungrouped —</option>
+        {groups.map(g => (
+          <option key={g.id} value={g.id}>
+            {g.glyph ? `${g.glyph}  ` : ''}{g.name}
+          </option>
+        ))}
+      </select>
+    </div>
+  );
 }
 
 function StageCard({ task, stage }: { task: TaskDto; stage: Stage }) {
@@ -1207,6 +1267,17 @@ const sideCardStyle: React.CSSProperties = {
   boxShadow: '0 1px 2px rgba(0,0,0,0.04)',
   marginBottom: 14,
   overflow: 'hidden',
+};
+const groupPickerWrapStyle: React.CSSProperties = { padding: '0 18px 16px' };
+const groupPickerStyle: React.CSSProperties = {
+  width: '100%',
+  padding: '8px 10px',
+  fontSize: 13,
+  fontFamily: 'inherit',
+  background: '#fff',
+  border: '1px solid #D1D5DB',
+  borderRadius: 6,
+  cursor: 'pointer',
 };
 const sideCardHeadingStyle: React.CSSProperties = {
   fontSize: 11, fontWeight: 700, letterSpacing: '0.06em',

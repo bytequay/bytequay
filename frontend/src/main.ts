@@ -2456,6 +2456,25 @@ const url = new URL(`${BACKEND_BASE}/api/search/repos`);
     return res.json();
   });
 
+  ipcMain.handle('tasks:setGroup', async (_event, payload: unknown) => {
+    const { id, groupId } = (payload ?? {}) as { id?: string; groupId?: string | null };
+    if (!id || typeof id !== 'string' || id.trim().length === 0) {
+      throw new Error('id must be a non-empty string');
+    }
+    const res = await fetch(
+      `${BACKEND_BASE}/api/tasks/${encodeURIComponent(id)}`,
+      {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ groupId: groupId ?? null }),
+      });
+    if (!res.ok) {
+      const text = await res.text().catch(() => '');
+      throw new Error(`backend PATCH /api/tasks/${id} returned ${res.status}: ${text}`);
+    }
+    return res.json();
+  });
+
   ipcMain.handle('tasks:send', async (_event, payload: unknown) => {
     const { id, input } = (payload ?? {}) as { id?: string; input?: string };
     if (!id || typeof input !== 'string' || input.trim().length === 0) {

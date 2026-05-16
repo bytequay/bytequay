@@ -27,6 +27,7 @@ import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -129,6 +130,16 @@ public class TaskController
         return tasks.find(id)
                 .map(ResponseEntity::ok)
                 .orElseGet(() -> ResponseEntity.notFound().build());
+    }
+
+    /** PATCH /api/tasks/{id} — partial update. Today only
+     *  {@code groupId} is supported; the body's group field may be
+     *  null to unpin the task. */
+    @PatchMapping("/{id}")
+    public Task patch(@PathVariable String id, @RequestBody PatchTaskBody body)
+    {
+        requireNonNull(body, "body is required");
+        return tasks.setTaskGroup(id, body.groupId());
     }
 
     /** GET /api/tasks/{id}/messages — full conversation, oldest first. */
@@ -241,4 +252,6 @@ public class TaskController
     public record SendBody(String input) {}
 
     public record DecisionBody(String callId, PermissionDecision decision) {}
+
+    public record PatchTaskBody(String groupId) {}
 }

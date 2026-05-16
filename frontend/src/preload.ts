@@ -449,6 +449,8 @@ const bridge: Bridge = {
     ipcRenderer.invoke('tasks:get', id),
   getTaskMessages: (id: string): Promise<TaskMessageDto[]> =>
     ipcRenderer.invoke('tasks:messages', id),
+  setTaskGroup: (id: string, groupId: string | null): Promise<TaskDto> =>
+    ipcRenderer.invoke('tasks:setGroup', { id, groupId }),
   sendTaskMessage: (id: string, input: string): Promise<void> =>
     ipcRenderer.invoke('tasks:send', { id, input }),
   decideTaskPermission: (id: string, callId: string, decision: 'ALLOW' | 'DENY'): Promise<void> =>

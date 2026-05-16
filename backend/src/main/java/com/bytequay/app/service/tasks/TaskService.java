@@ -112,6 +112,35 @@ public class TaskService
         groupStore.deleteGroup(groupId);
     }
 
+    /**
+     * Reassigns the task's group. {@code groupId} may be {@code null}
+     * to unpin. Throws {@link NoSuchElementException} when the task
+     * doesn't exist.
+     *
+     * <p>Validates that the new group exists (when non-null) so the
+     * UI can't strand a task on a stale dropdown selection.
+     */
+    public Task setTaskGroup(String taskId, String groupId)
+    {
+        requireNonNull(taskId, "taskId is null");
+        if (groupId != null && groupStore.findGroupById(groupId).isEmpty()) {
+            throw new NoSuchElementException("no group: " + groupId);
+        }
+        Task current = store.findTaskById(taskId)
+                .orElseThrow(() -> new NoSuchElementException("no task: " + taskId));
+        Task next = new Task(
+                current.id(), current.kind(), current.provider(), current.agentSessionId(),
+                current.title(), current.status(), current.workingDir(), current.branchName(),
+                current.model(),
+                current.costUsdMilli(), current.tokensIn(), current.tokensOut(),
+                current.processPid(), current.logPath(),
+                current.createdAt(), Instant.now(),
+                current.endedAt(), current.errorMessage(), current.metadataJson(),
+                groupId);
+        store.saveTask(next);
+        return store.findTaskById(taskId).orElse(next);
+    }
+
     public Task create(NewTaskRequest request)
     {
         requireNonNull(request, "request is null");

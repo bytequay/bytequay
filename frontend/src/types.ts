@@ -1743,6 +1743,9 @@ export type Bridge = {
   /** Persisted conversation log, oldest first by {@code seq}. The
    *  detail page polls this while the task is live. */
   getTaskMessages: (id: string) => Promise<TaskMessageDto[]>;
+  /** Reassign the task to a different group, or unpin it
+   *  ({@code groupId: null}). Returns the updated row. */
+  setTaskGroup: (id: string, groupId: string | null) => Promise<TaskDto>;
   /** Send a follow-up turn to a non-terminal task. */
   sendTaskMessage: (id: string, input: string) => Promise<void>;
   /** Reply to a {@code permission_request}. */

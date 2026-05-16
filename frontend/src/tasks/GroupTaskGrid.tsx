@@ -14,15 +14,18 @@
 import { useEffect, useMemo, useState } from 'react';
 import type { TaskDto, TaskGroupDto, TaskMessageDto, TaskStatusDto } from '../types';
 import GroupMenu from './GroupMenu';
+import { type PendingPermission } from './ConversationPane';
+import { StructuredConversation } from './StructuredConversation';
+import RepoAvatar from './RepoAvatar';
 
 export type GroupLayout = 1 | 2 | 3 | 4;
 
 type Props = {
   tasks: TaskDto[];
   groups: TaskGroupDto[];
-  /** Click a tile → open the full detail page. The tile preview is
-   *  read-only; per-tile send boxes are deferred until we have a good
-   *  story for managing N independent conversations on one screen. */
+  /** Open the full detail page for a task. The tile title
+   *  becomes the click target so clicks inside the tile body
+   *  (typing a reply, scrolling the history) don't navigate. */
   onOpen: (taskId: string) => void;
   /** Reassign a task to another group (or null to unpin). The page
    *  parent persists the change and refreshes. */
@@ -30,6 +33,12 @@ type Props = {
   /** Stop an active task from its tile. The page parent serialises
    *  the call and refreshes once the row flips to a terminal state. */
   onStop: (taskId: string) => void | Promise<void>;
+  /** Send a follow-up turn to one of the tiles' tasks. */
+  onSend: (taskId: string, input: string) => void | Promise<void>;
+  /** Cancel the in-flight turn on one of the tiles' tasks. */
+  onInterrupt: (taskId: string) => void | Promise<void>;
+  /** Reply to a pending permission_request surfaced in a tile. */
+  onDecide: (taskId: string, callId: string, decision: 'ALLOW' | 'DENY') => void | Promise<void>;
   /** ID of the task whose Stop is currently in flight, so the tile
    *  can render a busy state and disable the button. */
   busyId: string | null;
@@ -40,7 +49,6 @@ type Props = {
   layout: GroupLayout;
 };
 
-const TILE_PREVIEW_LIMIT = 8;
 const POLL_MS = 4000;
 
 /**
@@ -61,7 +69,8 @@ const POLL_MS = 4000;
  * conversations in parallel and is out of scope for this slice.
  */
 export default function GroupTaskGrid({
-  tasks, groups, onOpen, onMoveGroup, onStop, busyId, layout,
+  tasks, groups, onOpen, onMoveGroup, onStop, onSend, onInterrupt, onDecide,
+  busyId, layout,
 }: Props) {
   const [previews, setPreviews] = useState<Record<string, TaskMessageDto[]>>({});
 
@@ -169,6 +178,9 @@ export default function GroupTaskGrid({
               onOpen={() => onOpen(t.id)}
               onMoveGroup={onMoveGroup}
               onStop={() => onStop(t.id)}
+              onSend={input => onSend(t.id, input)}
+              onInterrupt={() => onInterrupt(t.id)}
+              onDecide={(callId, decision) => onDecide(t.id, callId, decision)}
               onDragStart={() => setDragFrom(idx)}
               onDragEnter={() => setDragOver(idx)}
               onDragEnd={() => { setDragFrom(null); setDragOver(null); }}
@@ -195,6 +207,7 @@ export default function GroupTaskGrid({
 function TaskTile({
   task, groups, messages, busy, dragging,
   onOpen, onMoveGroup, onStop,
+  onSend, onInterrupt, onDecide,
   onDragStart, onDragEnter, onDragEnd, onDrop,
 }: {
   task: TaskDto;
@@ -205,62 +218,127 @@ function TaskTile({
   onOpen: () => void;
   onMoveGroup: (taskId: string, groupId: string | null) => void | Promise<void>;
   onStop: () => void | Promise<void>;
+  onSend: (input: string) => void | Promise<void>;
+  onInterrupt: () => void | Promise<void>;
+  onDecide: (callId: string, decision: 'ALLOW' | 'DENY') => void | Promise<void>;
   onDragStart: () => void;
   onDragEnter: () => void;
   onDragEnd: () => void;
   onDrop: () => void;
 }) {
   const isTerminal = task.status === 'COMPLETED' || task.status === 'ERRORED';
-  const recent = useMemo(
-    () => messages.slice(-TILE_PREVIEW_LIMIT).filter(visibleInTile),
-    [messages]);
+  const isRunning = task.status === 'RUNNING';
+  const [draft, setDraft] = useState('');
+  const [sending, setSending] = useState(false);
+  const pendingPermission = useMemo(() => findPendingPermission(messages), [messages]);
+
+  async function submit() {
+    const text = draft.trim();
+    if (!text || sending) return;
+    setSending(true);
+    try {
+      await onSend(text);
+      setDraft('');
+    }
+    finally {
+      setSending(false);
+    }
+  }
+
   return (
     <article
       style={{
         ...tileStyle,
         ...(dragging ? tileDraggingStyle : null),
       }}
-      onClick={onOpen}
-      role="button"
-      tabIndex={0}
-      onKeyDown={e => { if (e.key === 'Enter') onOpen(); }}
-      draggable
-      onDragStart={e => {
-        // text/plain payload satisfies browsers that refuse to start a
-        // drag without one; the actual swap is driven by the parent's
-        // dragFrom/dragOver state, not the payload.
-        e.dataTransfer.effectAllowed = 'move';
-        e.dataTransfer.setData('text/plain', task.id);
-        onDragStart();
-      }}
       onDragEnter={onDragEnter}
       onDragOver={e => { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; }}
       onDrop={e => { e.preventDefault(); onDrop(); }}
       onDragEnd={onDragEnd}
     >
-      <header style={tileHeaderStyle}>
-        <span style={dragHandleStyle} aria-hidden title="Drag to reorder">⋮⋮</span>
+      <header
+        style={tileHeaderStyle}
+        draggable
+        onDragStart={e => {
+          // text/plain payload satisfies browsers that refuse to
+          // start a drag without one; the actual swap is driven by
+          // the parent's dragFrom/dragOver state, not the payload.
+          e.dataTransfer.effectAllowed = 'move';
+          e.dataTransfer.setData('text/plain', task.id);
+          onDragStart();
+        }}
+      >
+        <span style={dragHandleStyle} aria-hidden title="Drag header to reorder">⋮⋮</span>
         <div style={tileTitleWrapStyle}>
           <span style={{ ...tileStripeStyle, background: stripeColor(task.status) }} />
-          <div style={tileTitleStyle}>{task.title}</div>
+          <RepoAvatar workingDir={task.workingDir} size={18} />
+          <button
+            type="button"
+            onClick={onOpen}
+            style={tileTitleBtnStyle}
+            title="Open in full detail view"
+          >
+            <span style={tileTitleStyle}>{task.title}</span>
+          </button>
         </div>
         <div style={tileHeaderRightStyle}>
           <StatusBadge status={task.status} />
           <GroupMenu task={task} groups={groups} onChange={onMoveGroup} />
         </div>
       </header>
-      <div style={tileBodyStyle}>
-        {recent.length === 0 && (
-          <div style={emptyPreviewStyle}>
-            Waiting for the first turn…
-          </div>
-        )}
-        {recent.map(m => (
-          <MessageLine key={m.id} message={m} />
-        ))}
+
+      <div style={tileConversationStyle}>
+        <StructuredConversation
+          messages={messages}
+          pendingPermission={pendingPermission}
+          onDecide={onDecide}
+          modelName={task.model}
+        />
       </div>
+
+      {!isTerminal && (
+        <div style={tileReplyStyle}>
+          <textarea
+            value={draft}
+            onChange={e => setDraft(e.target.value)}
+            placeholder={isRunning
+              ? 'message — will queue for after current turn…'
+              : 'send a follow-up turn…'}
+            disabled={sending}
+            rows={1}
+            onKeyDown={e => {
+              if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
+                e.preventDefault();
+                void submit();
+              }
+            }}
+            style={tileReplyTextareaStyle}
+          />
+          <div style={tileReplyActionsStyle}>
+            {isRunning && (
+              <button
+                type="button"
+                onClick={() => void onInterrupt()}
+                style={tileInterruptBtnStyle}
+                title="Cancel the current turn"
+              >
+                ⏵ Interrupt
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={() => void submit()}
+              disabled={!draft.trim() || sending}
+              style={tileSendBtnStyle}
+            >
+              {sending ? 'sending…' : (isRunning ? 'Queue →' : 'Send →')}
+            </button>
+          </div>
+        </div>
+      )}
+
       <footer style={tileFooterStyle}>
-        <span style={footerMetaStyle}>{task.model}</span>
+        <span style={footerMetaStyle}>{task.model || 'unknown'}</span>
         <span style={footerSepStyle}>·</span>
         <span style={footerMetaStyle}>{formatAge(task.updatedAt)}</span>
         <div style={{ flex: 1 }} />
@@ -272,7 +350,7 @@ function TaskTile({
         {!isTerminal && (
           <button
             type="button"
-            onClick={e => { e.stopPropagation(); void onStop(); }}
+            onClick={() => void onStop()}
             disabled={busy}
             style={stopBtnStyle}
             title="Stop and release the agent"
@@ -285,57 +363,30 @@ function TaskTile({
   );
 }
 
-function MessageLine({ message }: { message: TaskMessageDto }) {
-  const parsed = useMemo(() => safeParseContent(message), [message]);
-  if (message.type === 'tool_call') {
-    const tool = String(parsed?.toolName ?? 'tool');
-    const summary = summariseToolInput(tool, parsed?.input);
-    return (
-      <div style={lineStyle}>
-        <span style={{ ...lineGlyphStyle, color: toolColor(tool) }}>{tool}</span>
-        <span style={lineBodyStyle}>{summary}</span>
-      </div>
-    );
-  }
-  if (message.type === 'tool_result') {
-    const ok = parsed?.isError !== true;
-    return (
-      <div style={lineStyle}>
-        <span style={{ ...lineGlyphStyle, color: ok ? '#047857' : '#b91c1c' }}>
-          {ok ? '✓' : '✗'}
-        </span>
-        <span style={lineBodyStyle}>{summariseResult(parsed)}</span>
-      </div>
-    );
-  }
-  if (message.type === 'text' && message.role === 'assistant') {
-    const text = String(parsed?.text ?? '');
-    return (
-      <div style={lineStyle}>
-        <span style={{ ...lineGlyphStyle, color: 'var(--text-3)' }}>›</span>
-        <span style={{ ...lineBodyStyle, color: 'var(--text-1)' }}>{truncate(text, 160)}</span>
-      </div>
-    );
-  }
-  if (message.type === 'text' && message.role === 'user') {
-    const text = String(parsed?.text ?? '');
-    return (
-      <div style={lineStyle}>
-        <span style={{ ...lineGlyphStyle, color: 'var(--accent)' }}>you</span>
-        <span style={{ ...lineBodyStyle, color: 'var(--text-2)' }}>{truncate(text, 160)}</span>
-      </div>
-    );
-  }
-  if (message.type === 'permission_request') {
-    const tool = String(parsed?.toolName ?? 'tool');
-    return (
-      <div style={lineStyle}>
-        <span style={{ ...lineGlyphStyle, color: '#d97706' }}>?</span>
-        <span style={lineBodyStyle}>
-          awaiting approval for <strong>{tool}</strong>
-        </span>
-      </div>
-    );
+/** Walk the message log backwards to find the most recent
+ *  permission_request whose callId hasn't yet been answered by a
+ *  permission_decision. Mirrors the detail-page helper so a tile
+ *  surfaces approval prompts the same way the full page does. */
+function findPendingPermission(messages: TaskMessageDto[]): PendingPermission | null {
+  const decided = new Set<string>();
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const m = messages[i];
+    if (m.type === 'permission_decision') {
+      try {
+        const cid = (JSON.parse(m.contentJson) as { callId?: string }).callId;
+        if (cid) decided.add(cid);
+      }
+      catch { /* ignore */ }
+    }
+    if (m.type === 'permission_request') {
+      try {
+        const p = JSON.parse(m.contentJson) as { callId?: string; toolName?: string; summary?: string };
+        if (p.callId && !decided.has(p.callId)) {
+          return { callId: p.callId, toolName: p.toolName ?? 'tool', summary: p.summary ?? '' };
+        }
+      }
+      catch { /* ignore */ }
+    }
   }
   return null;
 }
@@ -346,7 +397,7 @@ function StatusBadge({ status }: { status: TaskStatusDto }) {
     AWAITING:  { fg: '#fff', bg: '#d97706', label: 'WAIT' },
     PENDING:   { fg: '#374151', bg: '#e5e7eb', label: 'QUEUED' },
     IDLE:      { fg: '#374151', bg: '#e5e7eb', label: 'IDLE' },
-    COMPLETED: { fg: '#fff', bg: '#047857', label: 'DONE' },
+    COMPLETED: { fg: '#fff', bg: '#64748b', label: 'DONE' },
     ERRORED:   { fg: '#fff', bg: '#dc2626', label: 'ERR' },
   };
   const p = palette[status];
@@ -373,69 +424,15 @@ function StatusBadge({ status }: { status: TaskStatusDto }) {
 // Helpers
 // ────────────────────────────────────────────────────────────────────
 
-/** Keep the tile preview to entries that carry signal — drop the
- *  bookkeeping events that bloat the message log but don't help a
- *  reader skim what's happening. */
-function visibleInTile(m: TaskMessageDto): boolean {
-  return m.type === 'tool_call'
-      || m.type === 'tool_result'
-      || m.type === 'text'
-      || m.type === 'permission_request';
-}
-
-function safeParseContent(m: TaskMessageDto): Record<string, unknown> | null {
-  try {
-    return JSON.parse(m.contentJson) as Record<string, unknown>;
-  }
-  catch {
-    return null;
-  }
-}
-
-function summariseToolInput(tool: string, input: unknown): string {
-  if (!input || typeof input !== 'object') return '';
-  const obj = input as Record<string, unknown>;
-  // Best-effort prettifier covering the most common Claude Code tools.
-  if (typeof obj.file_path === 'string') return obj.file_path;
-  if (typeof obj.path === 'string') return obj.path;
-  if (typeof obj.pattern === 'string') return obj.pattern;
-  if (typeof obj.command === 'string') return truncate(obj.command, 120);
-  if (typeof obj.description === 'string') return truncate(obj.description, 120);
-  return '';
-}
-
-function summariseResult(parsed: Record<string, unknown> | null): string {
-  if (!parsed) return '';
-  if (typeof parsed.summary === 'string') return truncate(parsed.summary, 140);
-  if (typeof parsed.output === 'string') return truncate(parsed.output, 140);
-  return '';
-}
-
-function toolColor(tool: string): string {
-  switch (tool.toLowerCase()) {
-    case 'read':  return '#2563eb';
-    case 'write': return '#7c3aed';
-    case 'edit':  return '#9333ea';
-    case 'bash':  return '#0f766e';
-    case 'grep':  return '#0891b2';
-    case 'glob':  return '#0891b2';
-    default:      return '#374151';
-  }
-}
-
 function stripeColor(s: TaskStatusDto): string {
   switch (s) {
     case 'RUNNING':   return '#10b981';
     case 'AWAITING':  return '#d97706';
     case 'IDLE':      return '#9ca3af';
     case 'PENDING':   return '#9ca3af';
-    case 'COMPLETED': return '#047857';
+    case 'COMPLETED': return '#64748b';
     case 'ERRORED':   return '#dc2626';
   }
-}
-
-function truncate(s: string, n: number): string {
-  return s.length > n ? `${s.slice(0, n - 1)}…` : s;
 }
 
 function formatAge(iso: string): string {
@@ -588,45 +585,70 @@ const tileTitleStyle: React.CSSProperties = {
   WebkitLineClamp: 2,
   WebkitBoxOrient: 'vertical',
 };
-const tileBodyStyle: React.CSSProperties = {
-  flex: 1,
-  padding: '10px 14px',
-  display: 'flex',
-  flexDirection: 'column',
-  gap: 6,
-  overflowY: 'auto',
-  fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
-  fontSize: 12,
-  background: 'var(--bg-elevated)',
-};
-const emptyPreviewStyle: React.CSSProperties = {
-  fontFamily: 'inherit',
-  fontSize: 12,
-  color: 'var(--text-4)',
-  fontStyle: 'italic',
-  padding: '20px 0',
-  textAlign: 'center',
-};
-const lineStyle: React.CSSProperties = {
-  display: 'flex',
-  gap: 8,
-  alignItems: 'baseline',
-  lineHeight: 1.4,
-};
-const lineGlyphStyle: React.CSSProperties = {
-  fontSize: 11,
-  fontWeight: 700,
-  textTransform: 'uppercase',
-  flexShrink: 0,
-  minWidth: 36,
-};
-const lineBodyStyle: React.CSSProperties = {
-  color: 'var(--text-2)',
-  overflow: 'hidden',
-  textOverflow: 'ellipsis',
-  whiteSpace: 'nowrap',
+const tileTitleBtnStyle: React.CSSProperties = {
   flex: 1,
   minWidth: 0,
+  textAlign: 'left',
+  background: 'transparent',
+  border: 'none',
+  padding: 0,
+  cursor: 'pointer',
+  color: 'inherit',
+  font: 'inherit',
+};
+const tileConversationStyle: React.CSSProperties = {
+  flex: 1,
+  minHeight: 0,
+  display: 'flex',
+  flexDirection: 'column',
+};
+const tileReplyStyle: React.CSSProperties = {
+  display: 'flex',
+  alignItems: 'flex-end',
+  gap: 6,
+  padding: '8px 10px',
+  borderTop: '1px solid var(--border-light)',
+  background: 'var(--bg-elevated)',
+  flexShrink: 0,
+};
+const tileReplyTextareaStyle: React.CSSProperties = {
+  flex: 1,
+  minHeight: 28,
+  maxHeight: 120,
+  resize: 'none',
+  padding: '6px 8px',
+  fontFamily: 'inherit',
+  fontSize: 12,
+  background: 'var(--bg-input)',
+  color: 'var(--text-1)',
+  border: '1px solid var(--border-input)',
+  borderRadius: 6,
+  outline: 'none',
+};
+const tileReplyActionsStyle: React.CSSProperties = {
+  display: 'flex',
+  gap: 4,
+  flexShrink: 0,
+};
+const tileInterruptBtnStyle: React.CSSProperties = {
+  padding: '4px 8px',
+  background: 'transparent',
+  color: 'var(--accent-dark)',
+  border: '1px solid var(--accent-a40)',
+  borderRadius: 5,
+  fontSize: 11,
+  fontWeight: 600,
+  cursor: 'pointer',
+};
+const tileSendBtnStyle: React.CSSProperties = {
+  padding: '4px 12px',
+  background: 'var(--accent)',
+  color: '#fff',
+  border: 'none',
+  borderRadius: 5,
+  fontSize: 11.5,
+  fontWeight: 600,
+  cursor: 'pointer',
 };
 const tileFooterStyle: React.CSSProperties = {
   display: 'flex',

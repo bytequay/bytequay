@@ -23,6 +23,7 @@ import TasksLeftRail, {
   type StatusFilter,
 } from './TasksLeftRail';
 import NewTaskDialog from './NewTaskDialog';
+import RepoAvatar from './RepoAvatar';
 
 type Props = {
   taskId: string;
@@ -414,6 +415,7 @@ function TaskHeader({
         <div style={thMetaStyle}>
           {task.workingDir && (
             <>
+              <RepoAvatar workingDir={task.workingDir} size={16} />
               <span style={repoStyle}>{shortenPath(task.workingDir)}</span>
               <span style={metaSepStyle}>·</span>
             </>
@@ -1219,7 +1221,7 @@ function statusPillPalette(status: TaskStatusDto): React.CSSProperties {
     case 'AWAITING':  return { background: '#fef3c7', color: '#92400e' };
     case 'PENDING':   return { background: '#e5e7eb', color: '#1f2937' };
     case 'IDLE':      return { background: '#fef9c3', color: '#854d0e' };
-    case 'COMPLETED': return { background: '#d1fae5', color: '#047857' };
+    case 'COMPLETED': return { background: '#e2e8f0', color: '#475569' };
     case 'ERRORED':   return { background: '#fee2e2', color: '#b91c1c' };
   }
 }

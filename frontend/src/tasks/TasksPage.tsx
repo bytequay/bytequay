@@ -245,6 +245,37 @@ export default function TasksPage({
     }
   }, [refresh]);
 
+  // Per-tile interactions for the group view — pure pass-throughs to
+  // the bridge so each tile can act like a mini detail page without
+  // owning its own polling logic. The grid already refreshes message
+  // previews on a 4s cadence, so a successful send / decide will
+  // surface in the tile within that window.
+  const onTileSend = useCallback(async (taskId: string, input: string) => {
+    try {
+      await window.bridge.sendTaskMessage(taskId, input);
+    }
+    catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    }
+  }, []);
+  const onTileInterrupt = useCallback(async (taskId: string) => {
+    try {
+      await window.bridge.interruptTask(taskId);
+    }
+    catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    }
+  }, []);
+  const onTileDecide = useCallback(
+    async (taskId: string, callId: string, decision: 'ALLOW' | 'DENY') => {
+      try {
+        await window.bridge.decideTaskPermission(taskId, callId, decision);
+      }
+      catch (e) {
+        setError(e instanceof Error ? e.message : String(e));
+      }
+    }, []);
+
   return (
     <section style={layoutStyle}>
       <TasksLeftRail
@@ -406,6 +437,9 @@ export default function TasksPage({
             onOpen={onSelectTask}
             onMoveGroup={moveTaskToGroup}
             onStop={onStop}
+            onSend={onTileSend}
+            onInterrupt={onTileInterrupt}
+            onDecide={onTileDecide}
           />
         )}
 
@@ -604,7 +638,7 @@ function StatusPill({ status }: { status: TaskStatusDto }) {
     AWAITING:  { fg: '#ffffff', bg: '#D97706' },
     PENDING:   { fg: '#1F2937', bg: '#E5E7EB' },
     IDLE:      { fg: '#374151', bg: '#F3F4F6' },
-    COMPLETED: { fg: '#ffffff', bg: '#10B981' },
+    COMPLETED: { fg: '#ffffff', bg: '#64748b' },
     ERRORED:   { fg: '#ffffff', bg: '#DC2626' },
   };
   const { fg, bg } = palette[status];

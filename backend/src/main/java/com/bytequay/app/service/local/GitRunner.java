@@ -21,6 +21,7 @@ import java.io.InputStream;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -796,6 +797,51 @@ public class GitRunner
             String authorEmail,
             String authoredAt,
             String subject) {}
+
+    /**
+     * Like {@link #listCommits} but scoped to commits authored after
+     * {@code since}. Drives the Tasks "Commits" tab so we only surface
+     * what the AI session produced during its lifetime — anything older
+     * is unrelated history. Uses {@code --since} in ISO-8601 form;
+     * git interprets it as author date, which matches what we want
+     * (we care about when the commit was made, not when an old commit
+     * was rewritten).
+     */
+    public List<CommitEntry> listCommitsSince(Path workingDir, Instant since, int limit)
+            throws IOException, InterruptedException
+    {
+        if (limit <= 0) {
+            return List.of();
+        }
+        requireNonNull(since, "since is null");
+        String fmt = "%H" + US_SEP + "%h" + US_SEP + "%an" + US_SEP
+                + "%ae" + US_SEP + "%aI" + US_SEP + "%s";
+        List<String> args = new ArrayList<>(List.of(
+                "git", "log",
+                "--max-count=" + limit,
+                "--since=" + since.toString(),
+                "-z",
+                "--pretty=format:" + fmt));
+        GitResult result = run(args, workingDir);
+        result.requireSuccess();
+        String stdout = result.stdout();
+        if (stdout.isEmpty()) {
+            return List.of();
+        }
+        List<CommitEntry> entries = new ArrayList<>();
+        for (String record : stdout.split(NUL_SEP, -1)) {
+            if (record.isEmpty()) {
+                continue;
+            }
+            String[] parts = record.split(US_SEP, -1);
+            if (parts.length < 6) {
+                continue;
+            }
+            entries.add(new CommitEntry(
+                    parts[0], parts[1], parts[2], parts[3], parts[4], parts[5]));
+        }
+        return List.copyOf(entries);
+    }
 
     /**
      * Lists every file touched by a single commit, with status and

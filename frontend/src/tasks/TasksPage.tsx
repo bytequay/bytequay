@@ -14,7 +14,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { TaskDto, TaskStatusDto } from '../types';
 import NewTaskDialog from './NewTaskDialog';
-import TasksLeftRail, { type StatusFilter } from './TasksLeftRail';
+import TasksLeftRail, { type StatusFilter, type ProviderFilter } from './TasksLeftRail';
 
 /** Order in which the four buckets are rendered. Active sessions
  *  (RUNNING / AWAITING) at the top so the user can resume them with
@@ -32,6 +32,10 @@ type Props = {
    *  appear in the main pane. */
   filter: StatusFilter;
   onFilterChange: (filter: StatusFilter) => void;
+  /** Provider filter — narrows the list to a single agent provider
+   *  (e.g. {@code "claude-code"}). {@code null} means no filter. */
+  provider: ProviderFilter;
+  onProviderChange: (provider: ProviderFilter) => void;
   /** Routes the user to the task detail / live conversation page. */
   onSelectTask: (taskId: string) => void;
   /** Routes to Settings → Integrations from the rail's footer row. */
@@ -44,7 +48,8 @@ type Props = {
  * {@code docs/mockups/design/tasks/tasks-list.png}.
  */
 export default function TasksPage({
-  filter, onFilterChange, onSelectTask, onOpenSettings,
+  filter, onFilterChange, provider, onProviderChange,
+  onSelectTask, onOpenSettings,
 }: Props) {
   const [tasks, setTasks] = useState<TaskDto[] | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -68,9 +73,12 @@ export default function TasksPage({
 
   const filtered = useMemo(() => {
     if (!tasks) return [];
-    if (filter === 'ALL') return tasks;
-    return tasks.filter(t => t.status === filter);
-  }, [tasks, filter]);
+    return tasks.filter(t => {
+      if (filter !== 'ALL' && t.status !== filter) return false;
+      if (provider && (t.provider || '').toLowerCase() !== provider) return false;
+      return true;
+    });
+  }, [tasks, filter, provider]);
 
   const grouped = useMemo(() => {
     const map = new Map<TaskStatusDto, TaskDto[]>();
@@ -108,6 +116,8 @@ export default function TasksPage({
         tasks={tasks ?? []}
         statusFilter={filter}
         onStatusFilter={onFilterChange}
+        providerFilter={provider}
+        onProviderFilter={onProviderChange}
         onSelectTask={onSelectTask}
         onNewTask={() => setShowCreate(true)}
         onOpenSettings={onOpenSettings}

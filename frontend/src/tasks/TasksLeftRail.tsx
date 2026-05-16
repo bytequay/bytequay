@@ -15,6 +15,9 @@ import { useMemo } from 'react';
 import type { TaskDto, TaskStatusDto } from '../types';
 
 export type StatusFilter = TaskStatusDto | 'ALL';
+/** {@code null} = no provider filter active; otherwise the
+ *  lowercased provider key (e.g. {@code "claude-code"}). */
+export type ProviderFilter = string | null;
 
 type Props = {
   tasks: TaskDto[];
@@ -23,10 +26,54 @@ type Props = {
   currentTaskId?: string;
   statusFilter: StatusFilter;
   onStatusFilter: (filter: StatusFilter) => void;
+  providerFilter: ProviderFilter;
+  onProviderFilter: (provider: ProviderFilter) => void;
   onSelectTask: (taskId: string) => void;
   onNewTask: () => void;
   onOpenSettings: () => void;
 };
+
+type ProviderMeta = {
+  key: string;
+  label: string;
+  glyph: string;
+  bg: string;
+};
+
+/** Known providers get a designed label + glyph; anything else falls
+ *  back to a derived label and a neutral slate glyph. */
+function providerMeta(rawKey: string): ProviderMeta {
+  const key = rawKey.toLowerCase();
+  if (key === 'claude-code' || key.startsWith('claude')) {
+    return { key, label: 'Claude Code', glyph: 'C',
+      bg: 'linear-gradient(135deg, #d97706, #92400e)' };
+  }
+  if (key === 'codex' || key.startsWith('codex')) {
+    return { key, label: 'Codex', glyph: 'X',
+      bg: 'linear-gradient(135deg, #1f2937, #4b5563)' };
+  }
+  if (key.startsWith('deepseek')) {
+    return { key, label: 'DeepSeek', glyph: 'D',
+      bg: 'linear-gradient(135deg, #2563eb, #1e3a8a)' };
+  }
+  if (key === 'openai' || key.startsWith('gpt')) {
+    return { key, label: 'OpenAI', glyph: 'G',
+      bg: 'linear-gradient(135deg, #10b981, #047857)' };
+  }
+  if (key.startsWith('anthropic')) {
+    return { key, label: 'Anthropic', glyph: 'A',
+      bg: 'linear-gradient(135deg, #d97706, #92400e)' };
+  }
+  // Generic fallback — first char + title-case the key
+  const glyph = (key.charAt(0) || '?').toUpperCase();
+  const label = key
+    .split(/[-_\s]/)
+    .filter(Boolean)
+    .map(w => w.charAt(0).toUpperCase() + w.slice(1))
+    .join(' ') || 'Unknown';
+  return { key, label, glyph,
+    bg: 'linear-gradient(135deg, #64748b, #334155)' };
+}
 
 /** Status rows in the order the mockup lists them. */
 const STATUS_ROWS: Array<{ filter: StatusFilter; label: string; dot: string }> = [
@@ -36,13 +83,6 @@ const STATUS_ROWS: Array<{ filter: StatusFilter; label: string; dot: string }> =
   { filter: 'IDLE',      label: 'Idle',          dot: '#9ca3af' },
   { filter: 'COMPLETED', label: 'Completed',     dot: '#047857' },
   { filter: 'ERRORED',   label: 'Errored',       dot: '#b91c4f' },
-];
-
-const PROVIDER_ROWS: Array<{ key: string; label: string; glyph: string; bg: string }> = [
-  { key: 'claude-code', label: 'Claude Code', glyph: 'C',
-    bg: 'linear-gradient(135deg, #d97706, #92400e)' },
-  { key: 'codex',       label: 'Codex',       glyph: 'X',
-    bg: 'linear-gradient(135deg, #1f2937, #4b5563)' },
 ];
 
 /**
@@ -61,12 +101,14 @@ export default function TasksLeftRail({
   currentTaskId,
   statusFilter,
   onStatusFilter,
+  providerFilter,
+  onProviderFilter,
   onSelectTask,
   onNewTask,
   onOpenSettings,
 }: Props) {
   const counts = useMemo(() => buildCounts(tasks), [tasks]);
-  const providerCounts = useMemo(() => buildProviderCounts(tasks), [tasks]);
+  const providers = useMemo(() => buildProviderList(tasks), [tasks]);
   const awaitingCount = counts.AWAITING ?? 0;
   const recent = useMemo(() => sortByUpdatedDesc(tasks).slice(0, 5), [tasks]);
 
@@ -98,16 +140,23 @@ export default function TasksLeftRail({
         ))}
       </Section>
 
-      <Section>
-        <SectionHeader label="Provider" />
-        {PROVIDER_ROWS.map(row => (
-          <RailRow key={row.key} disabled>
-            <span style={{ ...glyphStyle, background: row.bg }}>{row.glyph}</span>
-            <span style={labelStyle}>{row.label}</span>
-            <span style={countStyle}>{providerCounts[row.key] ?? 0}</span>
-          </RailRow>
-        ))}
-      </Section>
+      {providers.length > 0 && (
+        <Section>
+          <SectionHeader label="Provider" />
+          {providers.map(p => (
+            <RailRow
+              key={p.meta.key}
+              active={providerFilter === p.meta.key}
+              onClick={() =>
+                onProviderFilter(providerFilter === p.meta.key ? null : p.meta.key)}
+            >
+              <span style={{ ...glyphStyle, background: p.meta.bg }}>{p.meta.glyph}</span>
+              <span style={labelStyle}>{p.meta.label}</span>
+              <span style={countStyle}>{p.count}</span>
+            </RailRow>
+          ))}
+        </Section>
+      )}
 
       <Section>
         <SectionHeader label="Recent" />
@@ -194,13 +243,19 @@ function buildCounts(tasks: TaskDto[]): Partial<Record<TaskStatusDto, number>> {
   return out;
 }
 
-function buildProviderCounts(tasks: TaskDto[]): Record<string, number> {
-  const out: Record<string, number> = {};
+/** Distinct providers across the task list, each with its metadata
+ *  and a count. Sorted by descending count so the most-used provider
+ *  surfaces first; empty providers are skipped. */
+function buildProviderList(tasks: TaskDto[]): Array<{ meta: ProviderMeta; count: number }> {
+  const counts = new Map<string, number>();
   for (const t of tasks) {
     const k = (t.provider || '').toLowerCase();
-    out[k] = (out[k] ?? 0) + 1;
+    if (!k) continue;
+    counts.set(k, (counts.get(k) ?? 0) + 1);
   }
-  return out;
+  return Array.from(counts.entries())
+    .sort((a, b) => b[1] - a[1])
+    .map(([key, count]) => ({ meta: providerMeta(key), count }));
 }
 
 function sortByUpdatedDesc(tasks: TaskDto[]): TaskDto[] {

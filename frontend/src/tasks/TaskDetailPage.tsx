@@ -14,7 +14,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { TaskDto, TaskMessageDto, TaskStatusDto } from '../types';
 import { ConversationPane, type PendingPermission } from './ConversationPane';
-import TasksLeftRail, { type StatusFilter } from './TasksLeftRail';
+import TasksLeftRail, { type StatusFilter, type ProviderFilter } from './TasksLeftRail';
 import NewTaskDialog from './NewTaskDialog';
 
 type Props = {
@@ -23,6 +23,9 @@ type Props = {
   /** Clicking a status row on the rail jumps to the list page,
    *  pre-filtered. */
   onFilterChange: (filter: StatusFilter) => void;
+  /** Clicking a provider row jumps to the list page filtered by
+   *  that provider. */
+  onProviderChange: (provider: ProviderFilter) => void;
   /** Swap to another task's detail page from the rail's Recent list. */
   onSelectTask: (taskId: string) => void;
   /** Footer "Defaults & integrations" row. */
@@ -57,7 +60,8 @@ function loadTheme(): TermTheme {
 }
 
 export default function TaskDetailPage({
-  taskId, onBack, onFilterChange, onSelectTask, onOpenSettings,
+  taskId, onBack, onFilterChange, onProviderChange,
+  onSelectTask, onOpenSettings,
 }: Props) {
   const [task, setTask] = useState<TaskDto | null>(null);
   const [messages, setMessages] = useState<TaskMessageDto[]>([]);
@@ -158,6 +162,8 @@ export default function TaskDetailPage({
       currentTaskId={taskId}
       statusFilter={'ALL'}
       onStatusFilter={onFilterChange}
+      providerFilter={null}
+      onProviderFilter={onProviderChange}
       onSelectTask={onSelectTask}
       onNewTask={() => setShowCreate(true)}
       onOpenSettings={onOpenSettings}

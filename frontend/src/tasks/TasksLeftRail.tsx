@@ -355,11 +355,11 @@ function groupColorBg(color: string): string {
 
 function statusDot(s: TaskStatusDto): string {
   switch (s) {
-    case 'RUNNING':   return '#047857';
+    case 'RUNNING':   return '#10b981';
     case 'AWAITING':  return '#d97706';
-    case 'IDLE':      return '#9ca3af';
+    case 'IDLE':      return '#eab308';
     case 'PENDING':   return '#9ca3af';
-    case 'COMPLETED': return '#047857';
+    case 'COMPLETED': return '#9ca3af';
     case 'ERRORED':   return '#b91c4f';
   }
 }

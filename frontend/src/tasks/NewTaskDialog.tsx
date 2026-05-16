@@ -56,6 +56,22 @@ export default function NewTaskDialog({ onClose, onCreated, initialGroupId }: Pr
   const [groups, setGroups] = useState<TaskGroupDto[]>([]);
   const [groupId, setGroupId] = useState<string>(initialGroupId ?? '');
 
+  // Esc dismisses the dialog the same way overlay-click does. We skip
+  // while a submit is in-flight so the user can't strand a half-created
+  // task by stabbing Escape mid-clone — the submit button is already
+  // disabled in that window, and the dialog will close on its own when
+  // onCreated() fires.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== 'Escape') return;
+      if (submitting) return;
+      e.preventDefault();
+      onClose();
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [onClose, submitting]);
+
   useEffect(() => {
     let cancelled = false;
     void (async () => {

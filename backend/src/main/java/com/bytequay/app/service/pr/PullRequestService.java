@@ -1346,159 +1346,272 @@ public class PullRequestService
 
     private StoredPrDetail fetchDetailFromGitHub(String pat, PullRequestRef ref)
     {
-        // The sub-fetches run on `ioExecutor` (virtual threads) — NOT
-        // on `executor`. The previous code used the same bounded
-        // applicationExecutor for both the parent (sync job per-PR
-        // task) and its 6 children (timeline, reviews, files, …),
-        // which deadlocked when 4 parents filled the pool and their
-        // own children couldn't acquire a thread to run. Virtual
-        // threads have no fixed pool size, so the fan-out is safe.
         long t0 = System.nanoTime();
-        log.info("fetchDetailFromGitHub start: {}#{}", ref.owner() + "/" + ref.repo(), ref.number());
+        String repoFull = repoFullName(ref);
+        log.info("fetchDetailFromGitHub start: {}#{}", repoFull, ref.number());
 
-        // Watermark for incremental sync — the timestamp of our last
-        // successful detail fetch. Endpoints that support `since=`
-        // (timeline, issue-comments, pulls/comments) only return rows
-        // updated after this point, so a quiet PR settles for an empty
-        // single-page response per cycle. New PRs (no prior detail)
-        // get a null watermark and the original full-fetch path.
-        // 30-second safety margin guards against GitHub indexing a
-        // freshly-created comment just after our previous wall-clock read.
-        String repoFull = ref.owner() + "/" + ref.repo();
-        Instant watermark = detailStore.findSyncedAt(repoFull, ref.number())
-                .map(t -> t.minusSeconds(30))
-                .orElse(null);
+        Instant watermark = detailFetchWatermark(repoFull, ref);
         if (watermark != null) {
             log.info("fetchDetailFromGitHub incremental: {}#{} since={}", repoFull, ref.number(), watermark);
         }
 
-        CompletableFuture<PrRawDetail> detailFuture =
-                timed("fetchPrDetail", ref, () -> gitHub.fetchPrDetail(pat, ref));
-        CompletableFuture<List<PrReviewState>> reviewsFuture =
-                timed("fetchPrReviews", ref, () -> gitHub.fetchPrReviews(pat, ref));
-        CompletableFuture<List<PullRequestDetail.ChangedFile>> filesFuture =
-                timed("fetchPrFiles", ref, () -> gitHub.fetchPrFiles(pat, ref));
-        CompletableFuture<List<PrTimelineEvent>> timelineFuture =
-                timed("fetchPrTimeline", ref, () -> gitHub.fetchPrTimeline(pat, ref, watermark));
-        CompletableFuture<List<PrReviewThreadMessage>> reviewCommentsFuture =
-                timed("fetchPrReviewComments", ref, () -> gitHub.fetchPrReviewComments(pat, ref, watermark));
-        CompletableFuture<List<PrTimelineEvent>> issueCommentsFuture =
-                timed("fetchPrIssueComments", ref, () -> gitHub.fetchPrIssueComments(pat, ref, watermark));
+        PrDetailFetchResult result = awaitDetailFetches(startDetailFetches(pat, ref, watermark));
+        PrRawDetail raw = requireRawDetail(result.raw());
+        List<PrReviewState> reviews = emptyIfNull(result.reviews());
+        List<PullRequestDetail.ChangedFile> files = emptyIfNull(result.files());
+        List<PrTimelineEvent> timeline = emptyIfNull(result.timeline());
+        List<PrTimelineEvent> issueComments = emptyIfNull(result.issueComments());
+        List<PrCheckRunState> checkRuns = emptyIfNull(result.checkRuns());
+        List<PrReviewThreadMessage> reviewComments = attachReviewThreadResolution(
+                emptyIfNull(result.reviewComments()),
+                emptyIfNull(result.threadResolution()));
+        List<PullRequestDetail.LinkedIssue> linkedIssues = emptyIfNull(result.linkedIssues());
+
+        List<PrTimelineEvent> mergedTimeline = mergeIssueComments(
+                timeline,
+                issueComments);
+        Optional<String> mergeQueueState = result.mergeQueueState();
+        if (mergeQueueState == null) {
+            mergeQueueState = Optional.empty();
+        }
+        logDetailFetchDone(ref, t0, timeline, reviewComments, files, checkRuns, issueComments);
+
+        return new StoredPrDetail(
+                raw,
+                reviews,
+                files,
+                mergedTimeline,
+                checkRuns,
+                reviewComments,
+                linkedIssues,
+                mergeQueueState.orElse(null));
+    }
+
+    private String repoFullName(PullRequestRef ref)
+    {
+        return ref.owner() + "/" + ref.repo();
+    }
+
+    private Instant detailFetchWatermark(String repoFull, PullRequestRef ref)
+    {
+        // Timestamp of the last successful detail fetch. Endpoints that
+        // support `since=` (timeline, issue comments, review comments)
+        // only return rows updated after this point, so a quiet PR settles
+        // for an empty single-page response per cycle. New PRs get null
+        // and use the full-fetch path. The 30-second safety margin guards
+        // against GitHub indexing a freshly-created comment just after our
+        // previous wall-clock read.
+        return detailStore.findSyncedAt(repoFull, ref.number())
+                .map(t -> t.minusSeconds(30))
+                .orElse(null);
+    }
+
+    private PrDetailFetches startDetailFetches(String pat, PullRequestRef ref, Instant watermark)
+    {
+        // The sub-fetches run on `ioExecutor` (virtual threads), not on
+        // `executor`. Parent sync jobs use the bounded application
+        // executor; their GitHub children must not compete for the same
+        // fixed pool, or four parent tasks can fill the pool while their
+        // own children wait forever for worker threads.
+        CompletableFuture<PrRawDetail> raw = timed("fetchPrDetail", ref, () -> gitHub.fetchPrDetail(pat, ref));
+
+        return new PrDetailFetches(
+                raw,
+                timed("fetchPrReviews", ref, () -> gitHub.fetchPrReviews(pat, ref)),
+                timed("fetchPrFiles", ref, () -> gitHub.fetchPrFiles(pat, ref)),
+                timed("fetchPrTimeline", ref, () -> gitHub.fetchPrTimeline(pat, ref, watermark)),
+                timed("fetchPrReviewComments", ref, () -> gitHub.fetchPrReviewComments(pat, ref, watermark)),
+                timed("fetchPrIssueComments", ref, () -> gitHub.fetchPrIssueComments(pat, ref, watermark)),
+                timed("fetchReviewThreadResolution", ref, () -> fetchReviewThreadResolutionBestEffort(pat, ref)),
+                timed("fetchMergeQueueState", ref, () -> fetchMergeQueueStateBestEffort(pat, ref)),
+                fetchCheckRunsAfterRawDetail(pat, ref, raw),
+                fetchLinkedIssuesAfterRawDetail(pat, ref, raw));
+    }
+
+    private CompletableFuture<List<PrCheckRunState>> fetchCheckRunsAfterRawDetail(
+            String pat,
+            PullRequestRef ref,
+            CompletableFuture<PrRawDetail> raw)
+    {
+        return raw.thenCompose(detail -> {
+            if (detail == null || detail.headSha() == null) {
+                return CompletableFuture.completedFuture(ImmutableList.of());
+            }
+            return timed("fetchPrCheckRuns", ref, () -> gitHub.fetchPrCheckRuns(pat, ref.owner(), ref.repo(), detail.headSha()));
+        });
+    }
+
+    private CompletableFuture<List<PullRequestDetail.LinkedIssue>> fetchLinkedIssuesAfterRawDetail(
+            String pat,
+            PullRequestRef ref,
+            CompletableFuture<PrRawDetail> raw)
+    {
+        return raw.thenCompose(detail -> {
+            if (detail == null) {
+                return CompletableFuture.completedFuture(ImmutableList.of());
+            }
+            Set<Integer> issueNumbers = extractClosingReferences(detail.body(), ref.owner(), ref.repo());
+            if (issueNumbers.isEmpty()) {
+                return CompletableFuture.completedFuture(ImmutableList.of());
+            }
+            return timed("resolveLinkedIssues", ref, () -> resolveLinkedIssues(pat, ref, issueNumbers));
+        });
+    }
+
+    private List<PullRequestRepository.ReviewThreadMeta> fetchReviewThreadResolutionBestEffort(
+            String pat,
+            PullRequestRef ref)
+    {
         // GraphQL fetch — review-thread resolution state. REST doesn't
         // expose it. Best-effort: if the GraphQL call fails (rate limit,
         // permission, etc.) we still return the REST data without the
-        // resolved flag. Per-thread metadata is joined back via the
-        // root comment's databaseId.
-        CompletableFuture<List<PullRequestRepository.ReviewThreadMeta>> threadResolutionFuture =
-                timed("fetchReviewThreadResolution", ref,
-                        () -> {
-                            try {
-                                return gitHub.fetchReviewThreadResolution(pat, ref);
-                            }
-                            catch (RuntimeException e) {
-                                log.warn("GraphQL review-thread resolution fetch failed: {}", e.getMessage());
-                                return ImmutableList.<PullRequestRepository.ReviewThreadMeta>of();
-                            }
-                        });
+        // resolved flag.
+        try {
+            return gitHub.fetchReviewThreadResolution(pat, ref);
+        }
+        catch (RuntimeException e) {
+            log.warn("GraphQL review-thread resolution fetch failed: {}", e.getMessage());
+            return ImmutableList.of();
+        }
+    }
+
+    private Optional<String> fetchMergeQueueStateBestEffort(String pat, PullRequestRef ref)
+    {
         // GraphQL: merge-queue entry state. REST doesn't expose this
         // per-PR; github.com itself uses this same GraphQL field for
-        // their "Queued" pill. Best-effort — empty Optional on any
-        // failure so the REST data still lands without it.
-        CompletableFuture<Optional<String>> mergeQueueFuture =
-                timed("fetchMergeQueueState", ref,
-                        () -> {
-                            try {
-                                return gitHub.fetchMergeQueueState(pat, ref);
-                            }
-                            catch (RuntimeException e) {
-                                log.warn("GraphQL merge-queue state fetch failed: {}", e.getMessage());
-                                return Optional.<String>empty();
-                            }
-                        });
+        // their "Queued" pill.
+        try {
+            return gitHub.fetchMergeQueueState(pat, ref);
+        }
+        catch (RuntimeException e) {
+            log.warn("GraphQL merge-queue state fetch failed: {}", e.getMessage());
+            return Optional.empty();
+        }
+    }
 
-        PrRawDetail raw = join(detailFuture);
-        List<PrReviewState> reviews = join(reviewsFuture);
+    private PrDetailFetchResult awaitDetailFetches(PrDetailFetches fetches)
+    {
+        return new PrDetailFetchResult(
+                join(fetches.raw()),
+                join(fetches.reviews()),
+                join(fetches.files()),
+                join(fetches.timeline()),
+                join(fetches.reviewComments()),
+                join(fetches.issueComments()),
+                join(fetches.threadResolution()),
+                join(fetches.mergeQueueState()),
+                join(fetches.checkRuns()),
+                join(fetches.linkedIssues()));
+    }
 
-        CompletableFuture<List<PrCheckRunState>> checkRunsFuture = raw != null && raw.headSha() != null
-                ? timed("fetchPrCheckRuns", ref, () -> gitHub.fetchPrCheckRuns(pat, ref.owner(), ref.repo(), raw.headSha()))
-                : CompletableFuture.completedFuture(ImmutableList.of());
+    private PrRawDetail requireRawDetail(PrRawDetail raw)
+    {
+        if (raw == null) {
+            throw new ResponseStatusException(HttpStatusCode.valueOf(502), "Empty response from GitHub PR detail");
+        }
+        return raw;
+    }
 
-        List<PrCheckRunState> checkRuns = join(checkRunsFuture);
-        List<PullRequestDetail.ChangedFile> files = join(filesFuture);
-        List<PrTimelineEvent> timeline = join(timelineFuture);
-        List<PrReviewThreadMessage> reviewComments = join(reviewCommentsFuture);
-        List<PrTimelineEvent> issueComments = join(issueCommentsFuture);
-        List<PullRequestRepository.ReviewThreadMeta> threadResolution = join(threadResolutionFuture);
+    private List<PrReviewThreadMessage> attachReviewThreadResolution(
+            List<PrReviewThreadMessage> reviewComments,
+            List<PullRequestRepository.ReviewThreadMeta> threadResolution)
+    {
         // Stitch the GraphQL metadata onto the REST messages. Only the
         // thread root (inReplyTo == null) carries graphqlNodeId +
         // resolved; replies stay null on those fields. The lookup is
         // O(N) by databaseId == githubId.
-        if (reviewComments != null && threadResolution != null && !threadResolution.isEmpty()) {
-            Map<Long, PullRequestRepository.ReviewThreadMeta> metaByRootId = new HashMap<>();
-            for (PullRequestRepository.ReviewThreadMeta m : threadResolution) {
-                metaByRootId.put(m.rootCommentDatabaseId(), m);
-            }
-            reviewComments = reviewComments.stream()
-                    .map(m -> {
-                        if (m.inReplyTo() != null) {
-                            return m;
-                        }
-                        PullRequestRepository.ReviewThreadMeta meta = metaByRootId.get(m.githubId());
-                        if (meta == null) {
-                            return m;
-                        }
-                        return new PrReviewThreadMessage(
-                                m.githubId(), m.inReplyTo(), m.reviewId(), m.author(),
-                                m.body(), m.filePath(), m.lineNumber(), m.side(),
-                                m.diffHunk(), m.commitId(), m.createdAt(), m.reactions(),
-                                m.outdated(), m.startLine(), m.startSide(),
-                                m.originalLine(), m.originalStartLine(),
-                                m.authorAssociation(),
-                                meta.graphqlNodeId(),
-                                meta.resolved());
-                    })
-                    .collect(toImmutableList());
+        if (reviewComments.isEmpty() || threadResolution.isEmpty()) {
+            return reviewComments;
         }
 
-        if (raw == null) {
-            throw new ResponseStatusException(HttpStatusCode.valueOf(502), "Empty response from GitHub PR detail");
+        Map<Long, PullRequestRepository.ReviewThreadMeta> metaByRootId = new HashMap<>();
+        for (PullRequestRepository.ReviewThreadMeta meta : threadResolution) {
+            metaByRootId.put(meta.rootCommentDatabaseId(), meta);
         }
-        List<PrTimelineEvent> mergedTimeline = mergeIssueComments(
-                timeline != null ? timeline : ImmutableList.of(),
-                issueComments != null ? issueComments : ImmutableList.of());
-        long tLinkedStart = System.nanoTime();
-        List<PullRequestDetail.LinkedIssue> linkedIssues = resolveLinkedIssues(pat, ref, raw.body());
-        log.info("resolveLinkedIssues({}#{}) {} issues in {}ms",
-                ref.owner() + "/" + ref.repo(), ref.number(),
-                linkedIssues.size(), (System.nanoTime() - tLinkedStart) / 1_000_000);
+        return reviewComments.stream()
+                .map(message -> attachReviewThreadResolution(message, metaByRootId))
+                .collect(toImmutableList());
+    }
 
-        long elapsedMs = (System.nanoTime() - t0) / 1_000_000;
+    private PrReviewThreadMessage attachReviewThreadResolution(
+            PrReviewThreadMessage message,
+            Map<Long, PullRequestRepository.ReviewThreadMeta> metaByRootId)
+    {
+        if (message.inReplyTo() != null) {
+            return message;
+        }
+        PullRequestRepository.ReviewThreadMeta meta = metaByRootId.get(message.githubId());
+        if (meta == null) {
+            return message;
+        }
+        return new PrReviewThreadMessage(
+                message.githubId(), message.inReplyTo(), message.reviewId(), message.author(),
+                message.body(), message.filePath(), message.lineNumber(), message.side(),
+                message.diffHunk(), message.commitId(), message.createdAt(), message.reactions(),
+                message.outdated(), message.startLine(), message.startSide(),
+                message.originalLine(), message.originalStartLine(),
+                message.authorAssociation(),
+                meta.graphqlNodeId(),
+                meta.resolved());
+    }
+
+    private void logDetailFetchDone(
+            PullRequestRef ref,
+            long startNanos,
+            List<PrTimelineEvent> timeline,
+            List<PrReviewThreadMessage> reviewComments,
+            List<PullRequestDetail.ChangedFile> files,
+            List<PrCheckRunState> checkRuns,
+            List<PrTimelineEvent> issueComments)
+    {
+        long elapsedMs = (System.nanoTime() - startNanos) / 1_000_000;
         log.info("fetchDetailFromGitHub done: {}#{} in {}ms — timeline={} threadMsgs={} files={} checks={} issueComments={}",
-                ref.owner() + "/" + ref.repo(), ref.number(), elapsedMs,
-                timeline != null ? timeline.size() : 0,
-                reviewComments != null ? reviewComments.size() : 0,
-                files != null ? files.size() : 0,
-                checkRuns != null ? checkRuns.size() : 0,
-                issueComments != null ? issueComments.size() : 0);
+                repoFullName(ref), ref.number(), elapsedMs,
+                timeline.size(),
+                reviewComments.size(),
+                files.size(),
+                checkRuns.size(),
+                issueComments.size());
+    }
 
-        Optional<String> mergeQueueState = join(mergeQueueFuture);
-        return new StoredPrDetail(
-                raw,
-                reviews != null ? reviews : ImmutableList.of(),
-                files != null ? files : ImmutableList.of(),
-                mergedTimeline,
-                checkRuns != null ? checkRuns : ImmutableList.of(),
-                reviewComments != null ? reviewComments : ImmutableList.of(),
-                linkedIssues,
-                mergeQueueState != null ? mergeQueueState.orElse(null) : null);
+    private static <T> List<T> emptyIfNull(List<T> values)
+    {
+        return values != null ? values : ImmutableList.of();
+    }
+
+    private record PrDetailFetches(
+            CompletableFuture<PrRawDetail> raw,
+            CompletableFuture<List<PrReviewState>> reviews,
+            CompletableFuture<List<PullRequestDetail.ChangedFile>> files,
+            CompletableFuture<List<PrTimelineEvent>> timeline,
+            CompletableFuture<List<PrReviewThreadMessage>> reviewComments,
+            CompletableFuture<List<PrTimelineEvent>> issueComments,
+            CompletableFuture<List<PullRequestRepository.ReviewThreadMeta>> threadResolution,
+            CompletableFuture<Optional<String>> mergeQueueState,
+            CompletableFuture<List<PrCheckRunState>> checkRuns,
+            CompletableFuture<List<PullRequestDetail.LinkedIssue>> linkedIssues)
+    {
+    }
+
+    private record PrDetailFetchResult(
+            PrRawDetail raw,
+            List<PrReviewState> reviews,
+            List<PullRequestDetail.ChangedFile> files,
+            List<PrTimelineEvent> timeline,
+            List<PrReviewThreadMessage> reviewComments,
+            List<PrTimelineEvent> issueComments,
+            List<PullRequestRepository.ReviewThreadMeta> threadResolution,
+            Optional<String> mergeQueueState,
+            List<PrCheckRunState> checkRuns,
+            List<PullRequestDetail.LinkedIssue> linkedIssues)
+    {
     }
 
     /**
      * Wraps a fan-out fetch with start/elapsed logs so a stuck endpoint
      * makes the slow sub-fetch obvious in the backend log. Submitted on
      * {@link AsyncConfig#IO_EXECUTOR} (virtual threads) so parents and
-     * children don't share a fixed pool — see {@link #fetchDetailFromGitHub}
-     * for the deadlock background.
+     * children don't share a fixed pool.
      */
     private <T> CompletableFuture<T> timed(String name, PullRequestRef ref, Supplier<T> task)
     {
@@ -1570,9 +1683,8 @@ public class PullRequestService
      * parallel. Cross-repo refs ({@code closes owner/repo#N}) are not yet
      * matched — same-repo only — see Phase 2.5 GraphQL follow-up.
      */
-    private List<PullRequestDetail.LinkedIssue> resolveLinkedIssues(String pat, PullRequestRef ref, String body)
+    private List<PullRequestDetail.LinkedIssue> resolveLinkedIssues(String pat, PullRequestRef ref, Set<Integer> numbers)
     {
-        Set<Integer> numbers = extractClosingReferences(body, ref.owner(), ref.repo());
         if (numbers.isEmpty()) {
             return ImmutableList.of();
         }

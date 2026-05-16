@@ -627,7 +627,15 @@ function formatTime(iso: string): string {
 }
 
 function paragraphs(text: string): string[] {
-  return text.split(/\n\s*\n/);
+  // Blank lines are the canonical paragraph break, but the model often
+  // emits numbered/bullet lists either with single newlines (collapsed
+  // to a space inside <p>) or fully inline. Treat a list marker that
+  // follows a sentence terminator as its own paragraph so "1. … 2. …
+  // 3. …" lays out vertically instead of running together.
+  return text
+    .split(/\n\s*\n|\n(?=\s*(?:\d+\.|[-*•])\s)|(?<=[.!?])[ \t]+(?=\d+\.\s)|(?<=[.!?])[ \t]+(?=[-*•]\s)/g)
+    .map(s => s.trim())
+    .filter(s => s.length > 0);
 }
 
 /** Inline markup pass: backticked `code`, **bold**, and path:line refs. */

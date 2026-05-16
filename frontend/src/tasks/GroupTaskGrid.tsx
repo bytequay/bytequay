@@ -17,7 +17,7 @@ import GroupMenu from './GroupMenu';
 import { type PendingPermission } from './ConversationPane';
 import { StructuredConversation } from './StructuredConversation';
 import RepoAvatar from './RepoAvatar';
-import { usePersistentDraft } from './draftStore';
+import { useAutoGrowTextarea, usePersistentDraft } from './draftStore';
 
 export type GroupLayout = 1 | 2 | 3 | 4;
 
@@ -245,6 +245,9 @@ function TaskTile({
   // is also visible if the user pops the same task into full detail
   // view, since both render the same logical "reply to this task" input.
   const [draft, setDraft] = usePersistentDraft(`reply:${task.id}`);
+  // Tiles have tight vertical space — cap at ~120px (≈ 6 lines) so a
+  // long draft doesn't crowd out the conversation. Overflow scrolls.
+  const replyRef = useAutoGrowTextarea(draft, 120);
   const [sending, setSending] = useState(false);
   const pendingPermission = useMemo(() => findPendingPermission(messages), [messages]);
 
@@ -315,13 +318,13 @@ function TaskTile({
       {!isTerminal && (
         <div style={tileReplyStyle}>
           <textarea
+            ref={replyRef}
             value={draft}
             onChange={e => setDraft(e.target.value)}
             placeholder={isRunning
               ? 'message — will queue for after current turn…'
               : 'send a follow-up turn…'}
             disabled={sending}
-            rows={1}
             onKeyDown={e => {
               if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
                 e.preventDefault();
@@ -632,6 +635,7 @@ const tileReplyTextareaStyle: React.CSSProperties = {
   minHeight: 28,
   maxHeight: 120,
   resize: 'none',
+  overflowY: 'auto',
   padding: '6px 8px',
   fontFamily: 'inherit',
   fontSize: 12,

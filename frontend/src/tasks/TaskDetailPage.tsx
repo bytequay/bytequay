@@ -24,7 +24,7 @@ import TasksLeftRail, {
 } from './TasksLeftRail';
 import NewTaskDialog from './NewTaskDialog';
 import RepoAvatar from './RepoAvatar';
-import { usePersistentDraft } from './draftStore';
+import { useAutoGrowTextarea, usePersistentDraft } from './draftStore';
 import TaskChangesTab from './TaskChangesTab';
 
 type Props = {
@@ -702,11 +702,13 @@ function TermInput({
   status: TaskStatusDto;
 }) {
   const isRunning = status === 'RUNNING';
+  const textareaRef = useAutoGrowTextarea(draft, 180);
   return (
     <div style={termInputStyle}>
       <div style={termInputRowStyle}>
         <span style={termPromptStyle}>›</span>
         <textarea
+          ref={textareaRef}
           value={draft}
           onChange={e => onDraft(e.target.value)}
           placeholder={
@@ -715,7 +717,6 @@ function TermInput({
               : 'send a follow-up turn…'
           }
           disabled={sending}
-          rows={Math.min(6, Math.max(1, draft.split('\n').length))}
           onKeyDown={e => {
             if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
               e.preventDefault();
@@ -795,6 +796,7 @@ function StructuredView({
     () => messages.filter(m => m.type === 'turn_done').length,
     [messages]);
   const isRunning = task.status === 'RUNNING';
+  const replyRef = useAutoGrowTextarea(draft, 220);
 
   return (
     <div style={structuredWrapStyle}>
@@ -841,13 +843,13 @@ function StructuredView({
             </span>
           </div>
           <textarea
+            ref={replyRef}
             value={draft}
             onChange={e => onDraft(e.target.value)}
             placeholder={isRunning
               ? 'message will be queued for after current turn…'
               : 'send a follow-up turn…'}
             disabled={sending}
-            rows={Math.min(8, Math.max(2, draft.split('\n').length))}
             onKeyDown={e => {
               if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
                 e.preventDefault();
@@ -1727,6 +1729,7 @@ const termTextareaStyle: React.CSSProperties = {
   border: 'none',
   outline: 'none',
   resize: 'none',
+  overflowY: 'auto',
   fontFamily: monoFont,
   fontSize: 13.5,
   lineHeight: 1.55,
@@ -2077,7 +2080,12 @@ const replyMetaStyle: React.CSSProperties = {
 };
 const replyTextareaStyle: React.CSSProperties = {
   width: '100%',
-  resize: 'vertical',
+  // Height is driven by useAutoGrowTextarea; vertical resize handles
+  // would fight the hook so they're disabled. minHeight sets the
+  // floor (~2 lines), maxHeight cap is enforced in the hook.
+  resize: 'none',
+  overflowY: 'auto',
+  minHeight: 44,
   padding: '10px 12px',
   fontFamily: 'inherit',
   fontSize: 13,

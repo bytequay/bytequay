@@ -11,7 +11,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 
 /**
  * In-memory draft store scoped to the renderer process lifetime —
@@ -53,4 +53,30 @@ export function usePersistentDraft(key: string): [string, (next: string) => void
     setValue(next);
   }, [key]);
   return [value, update];
+}
+
+/**
+ * Returns a ref to attach to a {@code <textarea>} so the element
+ * auto-grows with its content — soft-wrapped lines bump the height
+ * too, not just explicit newlines. Capped at {@code maxHeight} px
+ * (the browser's natural overflow-y kicks in once exceeded).
+ *
+ * Pair with {@code style={{ resize: 'none', overflowY: 'auto' }}} on
+ * the textarea and drop the {@code rows} prop — it would just fight
+ * the measured height. {@code minHeight} (in CSS) sets the floor.
+ */
+export function useAutoGrowTextarea(
+  value: string,
+  maxHeight: number,
+): React.RefObject<HTMLTextAreaElement | null> {
+  const ref = useRef<HTMLTextAreaElement>(null);
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return;
+    // Reset first so scrollHeight reflects the new content, not the
+    // previously-set inline height.
+    el.style.height = 'auto';
+    el.style.height = `${Math.min(el.scrollHeight, maxHeight)}px`;
+  }, [value, maxHeight]);
+  return ref;
 }

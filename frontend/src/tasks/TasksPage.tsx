@@ -97,6 +97,26 @@ export default function TasksPage({
     void refresh();
   }, [refresh]);
 
+  // ⌘N / Ctrl+N opens the New task dialog. Skip while a text field
+  // has focus so a literal "n" keystroke inside the search box / a
+  // task title still types a character. The left-rail button shows
+  // a "⌘N" hint, so this binding is the contract.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (!(e.metaKey || e.ctrlKey)) return;
+      if (e.shiftKey || e.altKey) return;
+      if (e.key !== 'n' && e.key !== 'N') return;
+      const target = e.target as HTMLElement | null;
+      const tag = target?.tagName;
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || target?.isContentEditable) return;
+      if (showCreate) return;
+      e.preventDefault();
+      setShowCreate(true);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [showCreate]);
+
   // Pull the selected group's metadata so the header can render its
   // glyph + name. The rail keeps its own copy for the listing.
   useEffect(() => {

@@ -445,7 +445,10 @@ function App() {
             filter={nav.filter ?? 'ALL'}
             provider={nav.provider ?? null}
             onFilterChange={filter => setNav({ view: 'tasks', filter, provider: nav.provider })}
-            onProviderChange={provider => setNav({ view: 'tasks', filter: nav.filter, provider })}
+            // Picking a provider drops the status filter back to ALL —
+            // provider is a coarse focus reset, not a compound filter
+            // on top of whatever status was active.
+            onProviderChange={provider => setNav({ view: 'tasks', provider })}
             onSelectTask={taskId => setNav({ view: 'task-detail', taskId })}
             onOpenSettings={() => setNav({ view: 'settings', section: 'integrations' })}
           />

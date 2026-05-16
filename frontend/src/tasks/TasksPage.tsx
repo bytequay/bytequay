@@ -15,9 +15,15 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { TaskDto, TaskGroupDto, TaskStatusDto } from '../types';
 import GroupMenu from './GroupMenu';
 import GroupSettingsDialog from './GroupSettingsDialog';
-import GroupTaskGrid from './GroupTaskGrid';
+import GroupTaskGrid, { type GroupLayout } from './GroupTaskGrid';
 import NewTaskDialog from './NewTaskDialog';
-import TasksLeftRail, { type GroupFilter, type StatusFilter, type ProviderFilter } from './TasksLeftRail';
+import TasksLeftRail, {
+  repoKey,
+  type GroupFilter,
+  type ProviderFilter,
+  type RepoFilter,
+  type StatusFilter,
+} from './TasksLeftRail';
 
 /** Order in which the four buckets are rendered. Active sessions
  *  (RUNNING / AWAITING) at the top so the user can resume them with
@@ -29,6 +35,17 @@ const STATUS_GROUPS: Array<{ key: 'active' | 'queued' | 'idle' | 'done'; label: 
   { key: 'idle', label: 'Idle', statuses: ['IDLE'] },
   { key: 'done', label: 'Completed', statuses: ['COMPLETED', 'ERRORED'] },
 ];
+
+const GROUP_LAYOUT_KEY = 'bytequay.tasks.groupLayout';
+function loadGroupLayout(): GroupLayout {
+  try {
+    const v = Number(window.localStorage.getItem(GROUP_LAYOUT_KEY));
+    return v === 1 || v === 2 || v === 3 || v === 4 ? v : 2;
+  }
+  catch {
+    return 2;
+  }
+}
 
 type Props = {
   /** Status filter the left rail is highlighting; drives which tasks
@@ -43,6 +60,10 @@ type Props = {
    *  {@code null} means show every task across every group. */
   groupId: GroupFilter;
   onGroupChange: (group: GroupFilter) => void;
+  /** Repo filter — narrows the list to tasks whose working directory's
+   *  last segment matches this canonical key. */
+  repo: RepoFilter;
+  onRepoChange: (repo: RepoFilter) => void;
   /** Routes the user to the task detail / live conversation page. */
   onSelectTask: (taskId: string) => void;
   /** Routes to Settings → Integrations from the rail's footer row. */
@@ -57,6 +78,7 @@ type Props = {
 export default function TasksPage({
   filter, onFilterChange, provider, onProviderChange,
   groupId, onGroupChange,
+  repo, onRepoChange,
   onSelectTask, onOpenSettings,
 }: Props) {
   const [tasks, setTasks] = useState<TaskDto[] | null>(null);
@@ -66,6 +88,12 @@ export default function TasksPage({
   const [busyId, setBusyId] = useState<string | null>(null);
   const [activeGroup, setActiveGroup] = useState<TaskGroupDto | null>(null);
   const [showGroupSettings, setShowGroupSettings] = useState(false);
+  const [groupLayout, setGroupLayout] = useState<GroupLayout>(loadGroupLayout);
+
+  useEffect(() => {
+    try { window.localStorage.setItem(GROUP_LAYOUT_KEY, String(groupLayout)); }
+    catch { /* private browsing — fine to skip */ }
+  }, [groupLayout]);
 
   const refresh = useCallback(async () => {
     try {
@@ -144,9 +172,10 @@ export default function TasksPage({
       if (filter !== 'ALL' && t.status !== filter) return false;
       if (provider && (t.provider || '').toLowerCase() !== provider) return false;
       if (groupId && t.groupId !== groupId) return false;
+      if (repo && repoKey(t.workingDir) !== repo) return false;
       return true;
     });
-  }, [tasks, filter, provider, groupId]);
+  }, [tasks, filter, provider, groupId, repo]);
 
   const grouped = useMemo(() => {
     const map = new Map<TaskStatusDto, TaskDto[]>();
@@ -226,6 +255,8 @@ export default function TasksPage({
         onProviderFilter={onProviderChange}
         groupFilter={groupId}
         onGroupFilter={onGroupChange}
+        repoFilter={repo}
+        onRepoFilter={onRepoChange}
         onSelectTask={onSelectTask}
         onNewTask={() => setShowCreate(true)}
         onOpenSettings={onOpenSettings}
@@ -306,6 +337,7 @@ export default function TasksPage({
           <div style={headerActionsStyle}>
             {activeGroup && (
               <>
+                <LayoutSelector value={groupLayout} onChange={setGroupLayout} />
                 <button
                   type="button"
                   onClick={() => setShowCreate(true)}
@@ -370,6 +402,7 @@ export default function TasksPage({
             tasks={tilesOrdered}
             groups={groups}
             busyId={busyId}
+            layout={groupLayout}
             onOpen={onSelectTask}
             onMoveGroup={moveTaskToGroup}
             onStop={onStop}
@@ -433,6 +466,69 @@ export default function TasksPage({
         />
       )}
     </section>
+  );
+}
+
+/** Segmented control for picking how many tiles the group view
+ *  shows at once. Each button renders a tiny schematic of the
+ *  resulting layout so the choice is unambiguous without a label. */
+function LayoutSelector({ value, onChange }: {
+  value: GroupLayout;
+  onChange: (next: GroupLayout) => void;
+}) {
+  const opts: Array<{ v: GroupLayout; render: () => React.ReactNode }> = [
+    { v: 1, render: () => <span style={schemaCellStyle} /> },
+    {
+      v: 2, render: () => (
+        <span style={schemaRowStyle}>
+          <span style={schemaCellStyle} /><span style={schemaCellStyle} />
+        </span>
+      ),
+    },
+    {
+      v: 3, render: () => (
+        <span style={schemaColStyle}>
+          <span style={schemaRowStyle}>
+            <span style={schemaCellStyle} /><span style={schemaCellStyle} />
+          </span>
+          <span style={{ ...schemaRowStyle, justifyContent: 'center' }}>
+            <span style={{ ...schemaCellStyle, width: 7 }} />
+          </span>
+        </span>
+      ),
+    },
+    {
+      v: 4, render: () => (
+        <span style={schemaColStyle}>
+          <span style={schemaRowStyle}>
+            <span style={schemaCellStyle} /><span style={schemaCellStyle} />
+          </span>
+          <span style={schemaRowStyle}>
+            <span style={schemaCellStyle} /><span style={schemaCellStyle} />
+          </span>
+        </span>
+      ),
+    },
+  ];
+  return (
+    <div style={layoutSelectorStyle} role="tablist" aria-label="Group layout">
+      {opts.map(o => (
+        <button
+          key={o.v}
+          type="button"
+          role="tab"
+          aria-selected={value === o.v}
+          onClick={() => onChange(o.v)}
+          title={`${o.v} ${o.v === 1 ? 'tile' : 'tiles'}`}
+          style={{
+            ...layoutBtnStyle,
+            ...(value === o.v ? layoutBtnActiveStyle : null),
+          }}
+        >
+          {o.render()}
+        </button>
+      ))}
+    </div>
   );
 }
 
@@ -606,6 +702,46 @@ const metricsLineStyle: React.CSSProperties = {
   gap: 6,
 };
 const metricsSepStyle: React.CSSProperties = { color: 'var(--text-4)' };
+
+// ── Group layout selector ───────────────────────────────────────────────
+const layoutSelectorStyle: React.CSSProperties = {
+  display: 'inline-flex',
+  padding: 2,
+  background: 'var(--bg-elevated)',
+  borderRadius: 8,
+  border: '1px solid var(--border)',
+};
+const layoutBtnStyle: React.CSSProperties = {
+  padding: '4px 8px',
+  background: 'transparent',
+  color: 'var(--text-3)',
+  border: 'none',
+  borderRadius: 6,
+  cursor: 'pointer',
+  display: 'inline-flex',
+  alignItems: 'center',
+  justifyContent: 'center',
+  minWidth: 28,
+  minHeight: 24,
+};
+const layoutBtnActiveStyle: React.CSSProperties = {
+  background: 'var(--bg-card)',
+  color: 'var(--text-1)',
+  boxShadow: '0 1px 2px rgba(15, 23, 42, 0.08)',
+};
+// Tiny schematic glyphs for each layout option — drawn from the
+// theme's text color so they read against both light and dark
+// pickers without bespoke palettes.
+const schemaColStyle: React.CSSProperties = {
+  display: 'inline-flex', flexDirection: 'column', gap: 2,
+};
+const schemaRowStyle: React.CSSProperties = {
+  display: 'inline-flex', gap: 2,
+};
+const schemaCellStyle: React.CSSProperties = {
+  width: 7, height: 5, borderRadius: 1,
+  background: 'currentColor', opacity: 0.85,
+};
 const primaryBtnStyle: React.CSSProperties = {
   padding: '8px 14px',
   background: 'var(--accent)',

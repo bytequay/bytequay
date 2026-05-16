@@ -114,30 +114,44 @@ public class TaskService
     }
 
     /**
-     * Reassigns the task's group. {@code groupId} may be {@code null}
-     * to unpin. Throws {@link NoSuchElementException} when the task
-     * doesn't exist.
+     * Partial update — only fields the caller wants to change. Title
+     * accepts a trimmed non-blank string; group accepts the sentinel
+     * {@link TaskPatch#clearGroup} via the {@code group} carrier to
+     * unset a pin (a plain {@code null} field means "don't change").
      *
-     * <p>Validates that the new group exists (when non-null) so the
-     * UI can't strand a task on a stale dropdown selection.
+     * <p>Validates the target group exists when set so the UI can't
+     * strand a task on a stale dropdown selection.
      */
-    public Task setTaskGroup(String taskId, String groupId)
+    public Task patchTask(String taskId, TaskPatch patch)
     {
         requireNonNull(taskId, "taskId is null");
-        if (groupId != null && groupStore.findGroupById(groupId).isEmpty()) {
-            throw new NoSuchElementException("no group: " + groupId);
-        }
+        requireNonNull(patch, "patch is null");
         Task current = store.findTaskById(taskId)
                 .orElseThrow(() -> new NoSuchElementException("no task: " + taskId));
+
+        String nextTitle = current.title();
+        if (patch.title() != null && !patch.title().isBlank()) {
+            nextTitle = patch.title().trim();
+        }
+
+        String nextGroupId = current.groupId();
+        if (patch.group() != null) {
+            String pick = patch.group().value();
+            if (pick != null && groupStore.findGroupById(pick).isEmpty()) {
+                throw new NoSuchElementException("no group: " + pick);
+            }
+            nextGroupId = pick;
+        }
+
         Task next = new Task(
                 current.id(), current.kind(), current.provider(), current.agentSessionId(),
-                current.title(), current.status(), current.workingDir(), current.branchName(),
+                nextTitle, current.status(), current.workingDir(), current.branchName(),
                 current.model(),
                 current.costUsdMilli(), current.tokensIn(), current.tokensOut(),
                 current.processPid(), current.logPath(),
                 current.createdAt(), Instant.now(),
                 current.endedAt(), current.errorMessage(), current.metadataJson(),
-                groupId);
+                nextGroupId);
         store.saveTask(next);
         return store.findTaskById(taskId).orElse(next);
     }
@@ -276,4 +290,29 @@ public class TaskService
             String name,
             String glyph,
             String color) {}
+
+    /**
+     * Partial-update inputs for one task. Fields:
+     * <ul>
+     *   <li>{@code title} — when non-null and non-blank, replaces the
+     *       current title (trimmed); otherwise no change.</li>
+     *   <li>{@code group} — present means change the pin to this
+     *       value (use {@link GroupRef#clear()} to unpin); absent
+     *       (null) means leave the existing groupId alone.</li>
+     * </ul>
+     * The {@code group} carrier exists because plain {@code null}
+     * can't distinguish "don't change" from "unset" — the wrapper
+     * surfaces the intent explicitly.
+     */
+    public record TaskPatch(String title, GroupRef group) {}
+
+    /** Three-state pin update: {@code value() == null} clears the
+     *  pin, a non-null value sets it. The carrier is absent (the
+     *  patch's {@code group} field is null) when the caller doesn't
+     *  want to touch the pin at all. */
+    public record GroupRef(String value)
+    {
+        public static GroupRef of(String groupId) { return new GroupRef(groupId); }
+        public static GroupRef clear() { return new GroupRef(null); }
+    }
 }

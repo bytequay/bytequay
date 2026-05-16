@@ -133,14 +133,29 @@ public class TaskController
                 .orElseGet(() -> ResponseEntity.notFound().build());
     }
 
-    /** PATCH /api/tasks/{id} — partial update. Today only
-     *  {@code groupId} is supported; the body's group field may be
-     *  null to unpin the task. */
+    /**
+     * PATCH /api/tasks/{id} — partial update.
+     *
+     * <p>Currently editable fields:
+     * <ul>
+     *   <li>{@code title} — non-null, non-blank string. Omitting or
+     *       sending null leaves the title alone.</li>
+     *   <li>{@code groupId} — pin under {@code setGroup: true}. The
+     *       boolean is the discriminator: {@code true} with a string
+     *       sets the pin, {@code true} with null clears it,
+     *       {@code false} (or omitted) leaves it untouched. Done this
+     *       way because JSON null can't distinguish "clear" from
+     *       "don't change".</li>
+     * </ul>
+     */
     @PatchMapping("/{id}")
     public Task patch(@PathVariable String id, @RequestBody PatchTaskBody body)
     {
         requireNonNull(body, "body is required");
-        return tasks.setTaskGroup(id, body.groupId());
+        TaskService.GroupRef group = body.setGroup()
+                ? new TaskService.GroupRef(body.groupId())
+                : null;
+        return tasks.patchTask(id, new TaskService.TaskPatch(body.title(), group));
     }
 
     /** GET /api/tasks/{id}/messages — full conversation, oldest first. */
@@ -262,5 +277,5 @@ public class TaskController
 
     public record DecisionBody(String callId, PermissionDecision decision) {}
 
-    public record PatchTaskBody(String groupId) {}
+    public record PatchTaskBody(String title, boolean setGroup, String groupId) {}
 }

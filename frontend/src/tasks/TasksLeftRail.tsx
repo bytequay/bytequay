@@ -21,6 +21,9 @@ export type StatusFilter = TaskStatusDto | 'ALL';
 export type ProviderFilter = string | null;
 /** {@code null} = no group filter; otherwise the group id. */
 export type GroupFilter = string | null;
+/** {@code null} = no repo filter; otherwise the canonical repo
+ *  key derived from {@code workingDir} (last path segment, lowercased). */
+export type RepoFilter = string | null;
 
 type Props = {
   tasks: TaskDto[];
@@ -33,6 +36,8 @@ type Props = {
   onProviderFilter: (provider: ProviderFilter) => void;
   groupFilter: GroupFilter;
   onGroupFilter: (group: GroupFilter) => void;
+  repoFilter: RepoFilter;
+  onRepoFilter: (repo: RepoFilter) => void;
   onSelectTask: (taskId: string) => void;
   onNewTask: () => void;
   onOpenSettings: () => void;
@@ -108,12 +113,15 @@ export default function TasksLeftRail({
   onProviderFilter,
   groupFilter,
   onGroupFilter,
+  repoFilter,
+  onRepoFilter,
   onSelectTask,
   onNewTask,
   onOpenSettings,
 }: Props) {
   const counts = useMemo(() => buildCounts(tasks), [tasks]);
   const providers = useMemo(() => buildProviderList(tasks), [tasks]);
+  const repos = useMemo(() => buildRepoList(tasks), [tasks]);
   const recent = useMemo(() => sortByUpdatedDesc(tasks).slice(0, 5), [tasks]);
 
   const [groups, setGroups] = useState<TaskGroupDto[]>([]);
@@ -167,6 +175,25 @@ export default function TasksLeftRail({
               <span style={{ ...glyphStyle, background: p.meta.bg }}>{p.meta.glyph}</span>
               <span style={labelStyle}>{p.meta.label}</span>
               <span style={countStyle}>{p.count}</span>
+            </RailRow>
+          ))}
+        </Section>
+      )}
+
+      {repos.length > 0 && (
+        <Section>
+          <SectionHeader label="Repo" />
+          {repos.map(r => (
+            <RailRow
+              key={r.key}
+              active={repoFilter === r.key}
+              onClick={() => onRepoFilter(repoFilter === r.key ? null : r.key)}
+            >
+              <span style={{ ...glyphStyle, background: repoGlyphBg(r.key) }}>
+                {r.glyph}
+              </span>
+              <span style={labelStyle} title={r.fullPath}>{r.label}</span>
+              <span style={countStyle}>{r.count}</span>
             </RailRow>
           ))}
         </Section>
@@ -319,6 +346,80 @@ function buildProviderList(tasks: TaskDto[]): Array<{ meta: ProviderMeta; count:
   return Array.from(counts.entries())
     .sort((a, b) => b[1] - a[1])
     .map(([key, count]) => ({ meta: providerMeta(key), count }));
+}
+
+/** Canonical id for a task's repo — the last meaningful segment of
+ *  the working directory, lowercased. Trailing slashes are tolerated
+ *  so {@code /tmp/foo/} and {@code /tmp/foo} fold together. */
+export function repoKey(workingDir: string | null | undefined): string {
+  if (!workingDir) return '';
+  const trimmed = workingDir.replace(/\/+$/, '');
+  const idx = trimmed.lastIndexOf('/');
+  const last = idx < 0 ? trimmed : trimmed.slice(idx + 1);
+  return last.toLowerCase();
+}
+
+type RepoMeta = {
+  /** Canonical key — what {@link RepoFilter} stores. */
+  key: string;
+  /** Cased display label (original last-segment). */
+  label: string;
+  /** Single-letter avatar — uppercased first non-symbol char. */
+  glyph: string;
+  /** Full working directory, for tooltips. */
+  fullPath: string;
+  count: number;
+};
+
+/** Distinct repos across the task list, sorted by descending count
+ *  so the most-worked repo surfaces first. Empty / unknown working
+ *  directories are skipped. */
+function buildRepoList(tasks: TaskDto[]): RepoMeta[] {
+  const acc = new Map<string, { label: string; fullPath: string; count: number }>();
+  for (const t of tasks) {
+    const k = repoKey(t.workingDir);
+    if (!k) continue;
+    const trimmed = (t.workingDir ?? '').replace(/\/+$/, '');
+    const idx = trimmed.lastIndexOf('/');
+    const display = idx < 0 ? trimmed : trimmed.slice(idx + 1);
+    const existing = acc.get(k);
+    if (existing) {
+      existing.count++;
+    }
+    else {
+      acc.set(k, { label: display, fullPath: trimmed, count: 1 });
+    }
+  }
+  return Array.from(acc.entries())
+    .sort((a, b) => b[1].count - a[1].count)
+    .map(([key, v]) => ({
+      key,
+      label: v.label,
+      glyph: (v.label.match(/[A-Za-z0-9]/)?.[0] ?? '?').toUpperCase(),
+      fullPath: v.fullPath,
+      count: v.count,
+    }));
+}
+
+/** Deterministic colour swatch for a repo glyph — picked from a
+ *  curated palette of the project's accent tones so distinct repos
+ *  read as distinct without being garish. */
+function repoGlyphBg(key: string): string {
+  const palette = [
+    'linear-gradient(135deg, #0ea5e9, #075985)',
+    'linear-gradient(135deg, #14b8a6, #0f766e)',
+    'linear-gradient(135deg, #6366f1, #3730a3)',
+    'linear-gradient(135deg, #f97316, #c2410c)',
+    'linear-gradient(135deg, #ec4899, #9d174d)',
+    'linear-gradient(135deg, #84cc16, #4d7c0f)',
+  ];
+  // Cheap stable hash so the same repo key always picks the same
+  // colour; no need for cryptographic strength.
+  let h = 0;
+  for (let i = 0; i < key.length; i++) {
+    h = ((h << 5) - h + key.charCodeAt(i)) | 0;
+  }
+  return palette[Math.abs(h) % palette.length];
 }
 
 function sortByUpdatedDesc(tasks: TaskDto[]): TaskDto[] {

@@ -1762,6 +1762,9 @@ export type Bridge = {
   /** Reassign the task to a different group, or unpin it
    *  ({@code groupId: null}). Returns the updated row. */
   setTaskGroup: (id: string, groupId: string | null) => Promise<TaskDto>;
+  /** Rename a task. Trimmed and non-blank — empty / whitespace
+   *  values are rejected on the backend. Returns the updated row. */
+  renameTask: (id: string, title: string) => Promise<TaskDto>;
   /** Send a follow-up turn to a non-terminal task. */
   sendTaskMessage: (id: string, input: string) => Promise<void>;
   /** Reply to a {@code permission_request}. */

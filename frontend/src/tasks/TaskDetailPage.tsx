@@ -11,11 +11,17 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { TaskDto, TaskFileDto, TaskGroupDto, TaskMessageDto, TaskStatusDto } from '../types';
 import { ConversationPane, type PendingPermission } from './ConversationPane';
 import { StructuredConversation } from './StructuredConversation';
-import TasksLeftRail, { type GroupFilter, type StatusFilter, type ProviderFilter } from './TasksLeftRail';
+import TasksLeftRail, {
+  repoKey,
+  type GroupFilter,
+  type ProviderFilter,
+  type RepoFilter,
+  type StatusFilter,
+} from './TasksLeftRail';
 import NewTaskDialog from './NewTaskDialog';
 
 type Props = {
@@ -30,6 +36,9 @@ type Props = {
   /** Clicking a group row jumps to the list page filtered by that
    *  group. */
   onGroupChange: (group: GroupFilter) => void;
+  /** Clicking a repo row jumps to the list page filtered by that
+   *  repo. */
+  onRepoChange: (repo: RepoFilter) => void;
   /** Swap to another task's detail page from the rail's Recent list. */
   onSelectTask: (taskId: string) => void;
   /** Footer "Defaults & integrations" row. */
@@ -80,7 +89,7 @@ function loadView(): DetailView {
 }
 
 export default function TaskDetailPage({
-  taskId, onBack, onFilterChange, onProviderChange, onGroupChange,
+  taskId, onBack, onFilterChange, onProviderChange, onGroupChange, onRepoChange,
   onSelectTask, onOpenSettings,
 }: Props) {
   const [task, setTask] = useState<TaskDto | null>(null);
@@ -125,6 +134,18 @@ export default function TaskDetailPage({
       setError(e instanceof Error ? e.message : String(e));
     }
   }, [taskId]);
+
+  const onRename = useCallback(async (nextTitle: string) => {
+    const trimmed = nextTitle.trim();
+    if (!trimmed || trimmed === task?.title) return;
+    try {
+      const updated = await window.bridge.renameTask(taskId, trimmed);
+      setTask(updated);
+    }
+    catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    }
+  }, [taskId, task?.title]);
 
   const onChangeGroup = useCallback(async (nextGroupId: string | null) => {
     try {
@@ -208,6 +229,8 @@ export default function TaskDetailPage({
       onProviderFilter={onProviderChange}
       groupFilter={task?.groupId ?? null}
       onGroupFilter={onGroupChange}
+      repoFilter={task ? repoKey(task.workingDir) : null}
+      onRepoFilter={onRepoChange}
       onSelectTask={onSelectTask}
       onNewTask={() => setShowCreate(true)}
       onOpenSettings={onOpenSettings}
@@ -250,6 +273,7 @@ export default function TaskDetailPage({
           task={task}
           view={view}
           onChangeView={setView}
+          onRename={onRename}
           onPause={undefined /* pause not wired through MCP yet */}
           onStop={onStop}
           canStop={!isTerminal}
@@ -340,6 +364,7 @@ function TaskHeader({
   task,
   view,
   onChangeView,
+  onRename,
   onPause,
   onStop,
   canStop,
@@ -347,6 +372,7 @@ function TaskHeader({
   task: TaskDto;
   view: DetailView;
   onChangeView: (next: DetailView) => void;
+  onRename: (title: string) => void | Promise<void>;
   onPause: (() => void) | undefined;
   onStop: () => void;
   canStop: boolean;
@@ -361,7 +387,7 @@ function TaskHeader({
     <div style={taskHeaderStyle}>
       <div style={{ ...thProviderStyle, background: glyphBg }}>{glyph}</div>
       <div style={thTitleBlockStyle}>
-        <div style={thTitleStyle}>{task.title}</div>
+        <EditableTitle title={task.title} onRename={onRename} />
         <div style={thMetaStyle}>
           {task.workingDir && (
             <>
@@ -399,6 +425,64 @@ function TaskHeader({
 /** Tiny segmented control that flips between the structured detail
  *  view and the terminal mirror. Renders both labels at once so the
  *  active state is obvious. */
+/** Click-to-edit task title. Renders as a plain heading by default;
+ *  clicking flips to an inline input. Enter / blur saves, Escape
+ *  reverts. The pencil glyph is decorative — the whole heading is
+ *  the click target so the affordance is generous without crowding
+ *  the layout. */
+function EditableTitle({ title, onRename }: {
+  title: string;
+  onRename: (next: string) => void | Promise<void>;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(title);
+  const inputRef = useRef<HTMLInputElement | null>(null);
+
+  useEffect(() => { if (!editing) setDraft(title); }, [title, editing]);
+  useEffect(() => {
+    if (editing && inputRef.current) {
+      inputRef.current.focus();
+      inputRef.current.select();
+    }
+  }, [editing]);
+
+  function commit() {
+    const trimmed = draft.trim();
+    if (trimmed && trimmed !== title) {
+      void onRename(trimmed);
+    }
+    setEditing(false);
+  }
+
+  if (editing) {
+    return (
+      <input
+        ref={inputRef}
+        type="text"
+        value={draft}
+        onChange={e => setDraft(e.target.value)}
+        onBlur={commit}
+        onKeyDown={e => {
+          if (e.key === 'Enter') { e.preventDefault(); commit(); }
+          else if (e.key === 'Escape') { e.preventDefault(); setDraft(title); setEditing(false); }
+        }}
+        style={titleEditInputStyle}
+      />
+    );
+  }
+  return (
+    <button
+      type="button"
+      onClick={() => setEditing(true)}
+      style={titleEditTriggerStyle}
+      title="Click to rename — Enter to save, Esc to cancel"
+    >
+      <span style={thTitleStyle}>{title}</span>
+      <span style={titleEditPencilStyle} aria-hidden>✎</span>
+    </button>
+  );
+}
+
 function ViewToggle({ value, onChange }: {
   value: DetailView;
   onChange: (next: DetailView) => void;
@@ -1413,6 +1497,36 @@ const thTitleStyle: React.CSSProperties = {
   fontSize: 17, fontWeight: 700, color: 'var(--text-1)',
   letterSpacing: '-0.012em',
   overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+};
+const titleEditTriggerStyle: React.CSSProperties = {
+  display: 'inline-flex', alignItems: 'center', gap: 8,
+  background: 'transparent', border: '1px dashed transparent',
+  padding: '2px 6px',
+  margin: '-2px -6px',
+  borderRadius: 6,
+  cursor: 'text',
+  color: 'var(--text-1)',
+  maxWidth: '100%',
+  textAlign: 'left',
+};
+const titleEditPencilStyle: React.CSSProperties = {
+  fontSize: 12,
+  color: 'var(--text-4)',
+  opacity: 0.6,
+  flexShrink: 0,
+};
+const titleEditInputStyle: React.CSSProperties = {
+  fontSize: 17, fontWeight: 700,
+  letterSpacing: '-0.012em',
+  color: 'var(--text-1)',
+  background: 'var(--bg-input)',
+  border: '1px solid var(--accent-a40)',
+  borderRadius: 6,
+  padding: '2px 6px',
+  margin: '-3px -7px',
+  outline: 'none',
+  width: '100%',
+  fontFamily: 'inherit',
 };
 const thMetaStyle: React.CSSProperties = {
   fontSize: 12, color: 'var(--text-3)', marginTop: 2,

@@ -454,6 +454,8 @@ const bridge: Bridge = {
     ipcRenderer.invoke('tasks:files', id),
   setTaskGroup: (id: string, groupId: string | null): Promise<TaskDto> =>
     ipcRenderer.invoke('tasks:setGroup', { id, groupId }),
+  renameTask: (id: string, title: string): Promise<TaskDto> =>
+    ipcRenderer.invoke('tasks:rename', { id, title }),
   sendTaskMessage: (id: string, input: string): Promise<void> =>
     ipcRenderer.invoke('tasks:send', { id, input }),
   decideTaskPermission: (id: string, callId: string, decision: 'ALLOW' | 'DENY'): Promise<void> =>

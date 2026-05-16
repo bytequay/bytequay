@@ -2474,12 +2474,37 @@ const url = new URL(`${BACKEND_BASE}/api/search/repos`);
     if (!id || typeof id !== 'string' || id.trim().length === 0) {
       throw new Error('id must be a non-empty string');
     }
+    // setGroup:true is the discriminator that says "change the pin";
+    // a plain { groupId: null } body would be ambiguous since the
+    // backend can't tell "absent" from "explicit null".
     const res = await fetch(
       `${BACKEND_BASE}/api/tasks/${encodeURIComponent(id)}`,
       {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ groupId: groupId ?? null }),
+        body: JSON.stringify({ setGroup: true, groupId: groupId ?? null }),
+      });
+    if (!res.ok) {
+      const text = await res.text().catch(() => '');
+      throw new Error(`backend PATCH /api/tasks/${id} returned ${res.status}: ${text}`);
+    }
+    return res.json();
+  });
+
+  ipcMain.handle('tasks:rename', async (_event, payload: unknown) => {
+    const { id, title } = (payload ?? {}) as { id?: string; title?: string };
+    if (!id || typeof id !== 'string' || id.trim().length === 0) {
+      throw new Error('id must be a non-empty string');
+    }
+    if (typeof title !== 'string' || title.trim().length === 0) {
+      throw new Error('title must be a non-empty string');
+    }
+    const res = await fetch(
+      `${BACKEND_BASE}/api/tasks/${encodeURIComponent(id)}`,
+      {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ title }),
       });
     if (!res.ok) {
       const text = await res.text().catch(() => '');

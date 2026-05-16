@@ -20,7 +20,11 @@ import TeamsManagePage from './teams/TeamsManagePage';
 import EmailPage from './email/EmailPage';
 import TasksPage from './tasks/TasksPage';
 import TaskDetailPage from './tasks/TaskDetailPage';
-import type { StatusFilter as TasksStatusFilter, ProviderFilter as TasksProviderFilter } from './tasks/TasksLeftRail';
+import type {
+  StatusFilter as TasksStatusFilter,
+  ProviderFilter as TasksProviderFilter,
+  RepoFilter as TasksRepoFilter,
+} from './tasks/TasksLeftRail';
 import type { SettingsSection } from './settings/types';
 import PullRequestList from './PullRequestList';
 import HomePage from './HomePage';
@@ -45,7 +49,7 @@ type Nav =
   | { view: 'team'; teamId: number }
   | { view: 'team-kanban'; teamId: number }
   | { view: 'email' }
-  | { view: 'tasks'; filter?: TasksStatusFilter; provider?: TasksProviderFilter; groupId?: string }
+  | { view: 'tasks'; filter?: TasksStatusFilter; provider?: TasksProviderFilter; groupId?: string; repo?: TasksRepoFilter }
   | { view: 'task-detail'; taskId: string }
   | { view: 'notifications' }
   | { view: 'repos' }
@@ -445,12 +449,14 @@ function App() {
             filter={nav.filter ?? 'ALL'}
             provider={nav.provider ?? null}
             groupId={nav.groupId ?? null}
-            onFilterChange={filter => setNav({ view: 'tasks', filter, provider: nav.provider, groupId: nav.groupId })}
+            repo={nav.repo ?? null}
+            onFilterChange={filter => setNav({ view: 'tasks', filter, provider: nav.provider, groupId: nav.groupId, repo: nav.repo })}
             // Picking a provider drops the status filter back to ALL —
             // provider is a coarse focus reset, not a compound filter
             // on top of whatever status was active.
-            onProviderChange={provider => setNav({ view: 'tasks', provider, groupId: nav.groupId })}
-            onGroupChange={groupId => setNav({ view: 'tasks', groupId: groupId ?? undefined })}
+            onProviderChange={provider => setNav({ view: 'tasks', provider, groupId: nav.groupId, repo: nav.repo })}
+            onGroupChange={groupId => setNav({ view: 'tasks', groupId: groupId ?? undefined, repo: nav.repo })}
+            onRepoChange={repo => setNav({ view: 'tasks', repo: repo ?? undefined })}
             onSelectTask={taskId => setNav({ view: 'task-detail', taskId })}
             onOpenSettings={() => setNav({ view: 'settings', section: 'integrations' })}
           />
@@ -462,6 +468,7 @@ function App() {
             onFilterChange={filter => setNav({ view: 'tasks', filter })}
             onProviderChange={provider => setNav({ view: 'tasks', provider })}
             onGroupChange={groupId => setNav({ view: 'tasks', groupId: groupId ?? undefined })}
+            onRepoChange={repo => setNav({ view: 'tasks', repo: repo ?? undefined })}
             onSelectTask={id => setNav({ view: 'task-detail', taskId: id })}
             onOpenSettings={() => setNav({ view: 'settings', section: 'integrations' })}
           />

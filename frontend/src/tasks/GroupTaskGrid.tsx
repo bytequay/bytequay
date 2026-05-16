@@ -15,6 +15,8 @@ import { useEffect, useMemo, useState } from 'react';
 import type { TaskDto, TaskGroupDto, TaskMessageDto, TaskStatusDto } from '../types';
 import GroupMenu from './GroupMenu';
 
+export type GroupLayout = 1 | 2 | 3 | 4;
+
 type Props = {
   tasks: TaskDto[];
   groups: TaskGroupDto[];
@@ -31,30 +33,77 @@ type Props = {
   /** ID of the task whose Stop is currently in flight, so the tile
    *  can render a busy state and disable the button. */
   busyId: string | null;
+  /** Number of fixed slots to show — 1 (full), 2 (left|right),
+   *  3 (two on top, one centred below), 4 (2x2). Tasks past the
+   *  visible slot count are hidden until the user reorders them
+   *  into a visible slot via drag-and-drop. */
+  layout: GroupLayout;
 };
 
 const TILE_PREVIEW_LIMIT = 8;
 const POLL_MS = 4000;
 
 /**
- * Two-column grid of large task tiles, one per group member.
+ * Fixed-slot grid of large task tiles, one per group member.
  * Each tile mirrors the structured-detail layout in miniature:
  * status header, scrollable recent-activity bullets, footer with
  * runtime/cost. Click anywhere to jump to the full detail page.
+ *
+ * <p>The {@code layout} prop picks how many tiles are visible:
+ * 1 (full pane), 2 (left | right), 3 (two on top + one centred
+ * below), or 4 (2×2). Tiles can be dragged onto another slot to
+ * swap positions — useful for re-arranging which task gets the
+ * larger / more central slot. Tasks past the visible slot count
+ * are hidden until the user swaps one in.
  *
  * <p>Faithfully follows {@code docs/mockups/design/tasks/tasks-group.png}
  * minus the per-tile send box, which would require running N
  * conversations in parallel and is out of scope for this slice.
  */
-export default function GroupTaskGrid({ tasks, groups, onOpen, onMoveGroup, onStop, busyId }: Props) {
+export default function GroupTaskGrid({
+  tasks, groups, onOpen, onMoveGroup, onStop, busyId, layout,
+}: Props) {
   const [previews, setPreviews] = useState<Record<string, TaskMessageDto[]>>({});
 
-  // Fan-out: pull recent messages for each tile in parallel. The
-  // backend is local so the latency cost is small even for the
-  // largest groups users are likely to assemble.
+  // User-overridden slot order — sticky across renders so a drag swap
+  // doesn't get undone by the next status poll. Stored as a list of
+  // task ids whose position in the array IS the slot index. Tasks not
+  // listed here fall through to the natural ordering.
+  const [order, setOrder] = useState<string[]>([]);
+  const [dragFrom, setDragFrom] = useState<number | null>(null);
+  const [dragOver, setDragOver] = useState<number | null>(null);
+
+  // Garbage-collect order entries pointing at tasks that left the
+  // group (deleted / un-grouped / moved). Stops the slot from going
+  // blank or pointing at a stale row.
+  useEffect(() => {
+    setOrder(prev => prev.filter(id => tasks.some(t => t.id === id)));
+  }, [tasks]);
+
+  // Final visible order: user-pinned ids first (preserving their
+  // chosen slot), then unpinned tasks fill remaining slots in the
+  // parent's already-sorted order (active-first).
+  const ordered = useMemo(() => {
+    const pinned = order
+      .map(id => tasks.find(t => t.id === id))
+      .filter((t): t is TaskDto => t != null);
+    const rest = tasks.filter(t => !order.includes(t.id));
+    return [...pinned, ...rest];
+  }, [tasks, order]);
+
+  // Fan-out: pull recent messages for each visible tile in parallel.
+  // Hidden tasks (past the layout cap) don't get their previews
+  // refreshed — saves polling work and they're invisible anyway.
+  const visible = ordered.slice(0, layout);
+  const hiddenCount = Math.max(0, ordered.length - layout);
+  // Cache key for the polling effect: a stable join of visible task
+  // ids so re-renders (status polls, hover state, etc.) don't tear
+  // down the interval just because the array identity changed.
+  const visibleIdsKey = visible.map(t => t.id).join('|');
+
   useEffect(() => {
     let cancelled = false;
-    const ids = tasks.map(t => t.id);
+    const ids = visibleIdsKey ? visibleIdsKey.split('|') : [];
     async function refresh() {
       const results = await Promise.all(ids.map(async id => {
         try {
@@ -73,7 +122,7 @@ export default function GroupTaskGrid({ tasks, groups, onOpen, onMoveGroup, onSt
     void refresh();
     const handle = window.setInterval(() => { void refresh(); }, POLL_MS);
     return () => { cancelled = true; window.clearInterval(handle); };
-  }, [tasks]);
+  }, [visibleIdsKey]);
 
   if (tasks.length === 0) {
     return (
@@ -87,32 +136,79 @@ export default function GroupTaskGrid({ tasks, groups, onOpen, onMoveGroup, onSt
     );
   }
 
+  function performSwap(fromIdx: number, toIdx: number) {
+    if (fromIdx === toIdx) return;
+    const next = [...ordered];
+    const tmp = next[fromIdx];
+    next[fromIdx] = next[toIdx];
+    next[toIdx] = tmp;
+    // Persist the swap by writing the new ids in slot order. Only the
+    // visible slots matter — tasks past the layout cap stay hidden,
+    // but we keep their ids in the trailing positions so re-expanding
+    // the layout preserves their existing order.
+    setOrder(next.map(t => t.id));
+  }
+
   return (
-    <div style={gridStyle}>
-      {tasks.map(t => (
-        <TaskTile
-          key={t.id}
-          task={t}
-          groups={groups}
-          messages={previews[t.id] ?? []}
-          busy={busyId === t.id}
-          onOpen={() => onOpen(t.id)}
-          onMoveGroup={onMoveGroup}
-          onStop={() => onStop(t.id)}
-        />
-      ))}
-    </div>
+    <>
+      <div style={layoutGridStyle(layout)}>
+        {visible.map((t, idx) => (
+          <div
+            key={t.id}
+            style={{
+              ...slotStyle(layout, idx),
+              ...(dragOver === idx && dragFrom !== idx ? slotDropTargetStyle : null),
+            }}
+          >
+            <TaskTile
+              task={t}
+              groups={groups}
+              messages={previews[t.id] ?? []}
+              busy={busyId === t.id}
+              dragging={dragFrom === idx}
+              onOpen={() => onOpen(t.id)}
+              onMoveGroup={onMoveGroup}
+              onStop={() => onStop(t.id)}
+              onDragStart={() => setDragFrom(idx)}
+              onDragEnter={() => setDragOver(idx)}
+              onDragEnd={() => { setDragFrom(null); setDragOver(null); }}
+              onDrop={() => {
+                if (dragFrom != null) performSwap(dragFrom, idx);
+                setDragFrom(null);
+                setDragOver(null);
+              }}
+            />
+          </div>
+        ))}
+      </div>
+      {hiddenCount > 0 && (
+        <div style={hiddenHintStyle}>
+          +{hiddenCount} more task{hiddenCount === 1 ? '' : 's'} hidden —
+          bump the layout above or drag one of the visible tiles to
+          rearrange.
+        </div>
+      )}
+    </>
   );
 }
 
-function TaskTile({ task, groups, messages, busy, onOpen, onMoveGroup, onStop }: {
+function TaskTile({
+  task, groups, messages, busy, dragging,
+  onOpen, onMoveGroup, onStop,
+  onDragStart, onDragEnter, onDragEnd, onDrop,
+}: {
   task: TaskDto;
   groups: TaskGroupDto[];
   messages: TaskMessageDto[];
   busy: boolean;
+  dragging: boolean;
   onOpen: () => void;
   onMoveGroup: (taskId: string, groupId: string | null) => void | Promise<void>;
   onStop: () => void | Promise<void>;
+  onDragStart: () => void;
+  onDragEnter: () => void;
+  onDragEnd: () => void;
+  onDrop: () => void;
 }) {
   const isTerminal = task.status === 'COMPLETED' || task.status === 'ERRORED';
   const recent = useMemo(
@@ -120,13 +216,30 @@ function TaskTile({ task, groups, messages, busy, onOpen, onMoveGroup, onStop }:
     [messages]);
   return (
     <article
-      style={tileStyle}
+      style={{
+        ...tileStyle,
+        ...(dragging ? tileDraggingStyle : null),
+      }}
       onClick={onOpen}
       role="button"
       tabIndex={0}
       onKeyDown={e => { if (e.key === 'Enter') onOpen(); }}
+      draggable
+      onDragStart={e => {
+        // text/plain payload satisfies browsers that refuse to start a
+        // drag without one; the actual swap is driven by the parent's
+        // dragFrom/dragOver state, not the payload.
+        e.dataTransfer.effectAllowed = 'move';
+        e.dataTransfer.setData('text/plain', task.id);
+        onDragStart();
+      }}
+      onDragEnter={onDragEnter}
+      onDragOver={e => { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; }}
+      onDrop={e => { e.preventDefault(); onDrop(); }}
+      onDragEnd={onDragEnd}
     >
       <header style={tileHeaderStyle}>
+        <span style={dragHandleStyle} aria-hidden title="Drag to reorder">⋮⋮</span>
         <div style={tileTitleWrapStyle}>
           <span style={{ ...tileStripeStyle, background: stripeColor(task.status) }} />
           <div style={tileTitleStyle}>{task.title}</div>
@@ -351,10 +464,55 @@ function formatTokens(n: number): string {
 // Styles
 // ────────────────────────────────────────────────────────────────────
 
-const gridStyle: React.CSSProperties = {
-  display: 'grid',
-  gridTemplateColumns: 'repeat(auto-fill, minmax(420px, 1fr))',
-  gap: 16,
+/** Tall, viewport-anchored grid for the group view. Heights are
+ *  computed so the tiles fill the same vertical slot the conversation
+ *  pane occupies on the detail page, regardless of how many slots
+ *  the user picks. The {@code minmax(0, ...)} on the row tracks lets
+ *  tiles shrink inside their slot instead of pushing the grid taller
+ *  than the viewport. */
+function layoutGridStyle(layout: GroupLayout): React.CSSProperties {
+  const base: React.CSSProperties = {
+    display: 'grid',
+    gap: 16,
+    height: 'calc(100vh - 240px)',
+    minHeight: 320,
+  };
+  switch (layout) {
+    case 1:
+      return { ...base, gridTemplateColumns: '1fr', gridTemplateRows: '1fr' };
+    case 2:
+      return { ...base, gridTemplateColumns: '1fr 1fr', gridTemplateRows: '1fr' };
+    case 3:
+      // 4 col × 2 row scaffold so the bottom tile (col 2-3) sits
+      // centred between the two top tiles (col 1-2 and 3-4). All
+      // three render at the same effective width since each
+      // visible slot spans two of the four columns.
+      return { ...base,
+        gridTemplateColumns: 'repeat(4, 1fr)',
+        gridTemplateRows: 'minmax(0, 1fr) minmax(0, 1fr)' };
+    case 4:
+      return { ...base,
+        gridTemplateColumns: '1fr 1fr',
+        gridTemplateRows: 'minmax(0, 1fr) minmax(0, 1fr)' };
+  }
+}
+
+function slotStyle(layout: GroupLayout, idx: number): React.CSSProperties {
+  // 3-slot layout's bottom tile centres on the 4-col scaffold.
+  if (layout === 3) {
+    if (idx === 0) return { gridColumn: '1 / span 2', gridRow: '1' };
+    if (idx === 1) return { gridColumn: '3 / span 2', gridRow: '1' };
+    if (idx === 2) return { gridColumn: '2 / span 2', gridRow: '2' };
+  }
+  // 1/2/4 layouts: tiles flow naturally — the grid template handles
+  // the placement, so each slot is just a plain container.
+  return { display: 'flex', minHeight: 0, minWidth: 0 };
+}
+
+const slotDropTargetStyle: React.CSSProperties = {
+  outline: '2px dashed var(--accent)',
+  outlineOffset: -2,
+  borderRadius: 10,
 };
 
 const tileStyle: React.CSSProperties = {
@@ -365,8 +523,33 @@ const tileStyle: React.CSSProperties = {
   borderRadius: 10,
   overflow: 'hidden',
   cursor: 'pointer',
-  transition: 'border-color 0.12s ease, box-shadow 0.12s ease',
-  minHeight: 280,
+  transition: 'border-color 0.12s ease, box-shadow 0.12s ease, opacity 0.12s ease',
+  width: '100%',
+  height: '100%',
+  minHeight: 0,
+  minWidth: 0,
+};
+const tileDraggingStyle: React.CSSProperties = {
+  opacity: 0.5,
+};
+const dragHandleStyle: React.CSSProperties = {
+  color: 'var(--text-4)',
+  fontSize: 14,
+  cursor: 'grab',
+  userSelect: 'none',
+  flexShrink: 0,
+  lineHeight: 1,
+  letterSpacing: -2,
+};
+const hiddenHintStyle: React.CSSProperties = {
+  marginTop: 12,
+  padding: '8px 12px',
+  background: 'var(--bg-elevated)',
+  border: '1px dashed var(--border)',
+  borderRadius: 6,
+  fontSize: 12,
+  color: 'var(--text-3)',
+  textAlign: 'center',
 };
 const tileHeaderStyle: React.CSSProperties = {
   display: 'flex',

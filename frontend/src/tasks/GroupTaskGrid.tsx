@@ -17,6 +17,7 @@ import GroupMenu from './GroupMenu';
 import { type PendingPermission } from './ConversationPane';
 import { StructuredConversation } from './StructuredConversation';
 import RepoAvatar from './RepoAvatar';
+import { usePersistentDraft } from './draftStore';
 
 export type GroupLayout = 1 | 2 | 3 | 4;
 
@@ -240,7 +241,10 @@ function TaskTile({
 }) {
   const isTerminal = task.status === 'COMPLETED' || task.status === 'ERRORED';
   const isRunning = task.status === 'RUNNING';
-  const [draft, setDraft] = useState('');
+  // Shared key with TaskDetailPage's reply box — text typed in a tile
+  // is also visible if the user pops the same task into full detail
+  // view, since both render the same logical "reply to this task" input.
+  const [draft, setDraft] = usePersistentDraft(`reply:${task.id}`);
   const [sending, setSending] = useState(false);
   const pendingPermission = useMemo(() => findPendingPermission(messages), [messages]);
 

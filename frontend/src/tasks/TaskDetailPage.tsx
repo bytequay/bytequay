@@ -24,6 +24,7 @@ import TasksLeftRail, {
 } from './TasksLeftRail';
 import NewTaskDialog from './NewTaskDialog';
 import RepoAvatar from './RepoAvatar';
+import { usePersistentDraft } from './draftStore';
 import TaskChangesTab from './TaskChangesTab';
 
 type Props = {
@@ -109,7 +110,10 @@ export default function TaskDetailPage({
   const [allTasks, setAllTasks] = useState<TaskDto[]>([]);
   const [groups, setGroups] = useState<TaskGroupDto[]>([]);
   const [error, setError] = useState<string | null>(null);
-  const [draft, setDraft] = useState('');
+  // Reply draft persists across navigation for the lifetime of the
+  // renderer — leave the page mid-sentence, come back, the text is
+  // still here. Keyed by taskId so per-task drafts stay separate.
+  const [draft, setDraft] = usePersistentDraft(`reply:${taskId}`);
   const [sending, setSending] = useState(false);
   const [showCreate, setShowCreate] = useState(false);
   const [theme, setTheme] = useState<TermTheme>(loadTheme);

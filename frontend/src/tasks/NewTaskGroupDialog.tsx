@@ -151,7 +151,8 @@ const overlayStyle: React.CSSProperties = {
 const dialogStyle: React.CSSProperties = {
   width: 420,
   maxWidth: '92vw',
-  background: '#fff',
+  background: 'var(--bg-panel)',
+  color: 'var(--text-1)',
   borderRadius: 10,
   padding: 24,
   boxShadow: '0 24px 56px rgba(15, 23, 42, 0.2)',
@@ -159,9 +160,11 @@ const dialogStyle: React.CSSProperties = {
   flexDirection: 'column',
   gap: 14,
 };
-const titleStyle: React.CSSProperties = { margin: 0, fontSize: 18, fontWeight: 700 };
+const titleStyle: React.CSSProperties = {
+  margin: 0, fontSize: 18, fontWeight: 700, color: 'var(--text-1)',
+};
 const subtitleStyle: React.CSSProperties = {
-  margin: 0, color: '#6b7280', fontSize: 13,
+  margin: 0, color: 'var(--text-3)', fontSize: 13,
 };
 const labelStyle: React.CSSProperties = {
   display: 'flex',
@@ -169,11 +172,13 @@ const labelStyle: React.CSSProperties = {
   gap: 6,
   fontSize: 12,
   fontWeight: 600,
-  color: '#374151',
+  color: 'var(--text-2)',
 };
 const inputStyle: React.CSSProperties = {
   padding: '8px 10px',
-  border: '1px solid #d1d5db',
+  background: 'var(--bg-input)',
+  color: 'var(--text-1)',
+  border: '1px solid var(--border-input)',
   borderRadius: 6,
   fontSize: 13,
   fontFamily: 'inherit',
@@ -210,15 +215,15 @@ const actionsStyle: React.CSSProperties = {
 };
 const secondaryBtnStyle: React.CSSProperties = {
   padding: '8px 14px',
-  background: 'transparent',
-  color: '#374151',
-  border: '1px solid #d1d5db',
+  background: 'var(--bg-btn-secondary)',
+  color: 'var(--text-2)',
+  border: '1px solid var(--border-input)',
   borderRadius: 6,
   cursor: 'pointer',
 };
 const primaryBtnStyle: React.CSSProperties = {
   padding: '8px 14px',
-  background: '#7c3aed',
+  background: 'var(--accent)',
   color: '#fff',
   border: 'none',
   borderRadius: 6,

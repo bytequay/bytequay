@@ -14,6 +14,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { TaskDto, TaskFileDto, TaskGroupDto, TaskMessageDto, TaskStatusDto } from '../types';
 import { ConversationPane, type PendingPermission } from './ConversationPane';
+import { StructuredConversation } from './StructuredConversation';
 import TasksLeftRail, { type GroupFilter, type StatusFilter, type ProviderFilter } from './TasksLeftRail';
 import NewTaskDialog from './NewTaskDialog';
 
@@ -655,16 +656,11 @@ function StructuredView({
           </span>
         </div>
         <div style={historyScrollStyle}>
-          <ConversationPane
+          <StructuredConversation
             messages={messages}
             pendingPermission={pendingPermission}
             onDecide={onDecide}
-            banner={{
-              model: task.model,
-              cwd: task.workingDir,
-              branch: task.branchName,
-              sessionStartedAtIso: task.createdAt,
-            }}
+            modelName={task.model}
           />
         </div>
       </div>
@@ -955,12 +951,16 @@ function StageCard({ task, stage }: { task: TaskDto; stage: Stage }) {
 function Metric({
   label, value, sub, mono, live,
 }: { label: string; value: string; sub?: string; mono?: boolean; live?: boolean }) {
+  // `live` keeps a literal positive-green — it's the running indicator,
+  // semantic and shouldn't recede in dark mode. Everything else reads
+  // from --text-1 via metricValueStyle so the metric values stay legible
+  // across themes.
   return (
     <div style={metricRowStyle}>
       <span style={metricLabelStyle}>{label}</span>
       <span style={{
         ...metricValueStyle,
-        color: live ? '#047857' : '#1F2937',
+        ...(live ? { color: '#10b981' } : null),
         fontFamily: mono ? '"SF Mono", Menlo, monospace' : 'inherit',
         fontSize: mono ? 11.5 : 13,
       }}>
@@ -1101,7 +1101,7 @@ function statusPillPalette(status: TaskStatusDto): React.CSSProperties {
     case 'RUNNING':   return { background: '#d1fae5', color: '#047857' };
     case 'AWAITING':  return { background: '#fef3c7', color: '#92400e' };
     case 'PENDING':   return { background: '#e5e7eb', color: '#1f2937' };
-    case 'IDLE':      return { background: '#f3f4f6', color: '#374151' };
+    case 'IDLE':      return { background: '#fef9c3', color: '#854d0e' };
     case 'COMPLETED': return { background: '#d1fae5', color: '#047857' };
     case 'ERRORED':   return { background: '#fee2e2', color: '#b91c1c' };
   }
@@ -1368,7 +1368,7 @@ const layoutStyle: React.CSSProperties = {
   alignItems: 'stretch',
   minHeight: 'calc(100vh - 56px)',
   boxSizing: 'border-box',
-  background: '#fafbfc',
+  background: 'var(--bg-base)',
 };
 const mainColumnStyle: React.CSSProperties = {
   flex: 1,
@@ -1381,20 +1381,20 @@ const breadcrumbRowStyle: React.CSSProperties = {
   display: 'flex', alignItems: 'center', gap: 8,
   padding: '14px 36px 0',
   fontSize: 13,
-  color: '#6B7280',
+  color: 'var(--text-3)',
   marginBottom: 12,
 };
 const crumbBackStyle: React.CSSProperties = {
   background: 'transparent', border: 'none', padding: 0,
-  color: '#7C3AED', fontWeight: 500, fontSize: 14, cursor: 'pointer',
+  color: 'var(--accent)', fontWeight: 500, fontSize: 14, cursor: 'pointer',
 };
 const crumbLinkStyle: React.CSSProperties = {
   background: 'transparent', border: 'none', padding: 0,
-  color: '#7C3AED', cursor: 'pointer', fontSize: 13,
+  color: 'var(--accent)', cursor: 'pointer', fontSize: 13,
 };
-const crumbSepStyle: React.CSSProperties = { color: '#D1D5DB' };
+const crumbSepStyle: React.CSSProperties = { color: 'var(--text-4)' };
 const crumbCurrentStyle: React.CSSProperties = {
-  color: '#111827', fontWeight: 600,
+  color: 'var(--text-1)', fontWeight: 600,
   overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
   maxWidth: 600,
 };
@@ -1410,21 +1410,21 @@ const thProviderStyle: React.CSSProperties = {
 };
 const thTitleBlockStyle: React.CSSProperties = { flex: 1, minWidth: 0 };
 const thTitleStyle: React.CSSProperties = {
-  fontSize: 17, fontWeight: 700, color: '#111827',
+  fontSize: 17, fontWeight: 700, color: 'var(--text-1)',
   letterSpacing: '-0.012em',
   overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
 };
 const thMetaStyle: React.CSSProperties = {
-  fontSize: 12, color: '#6B7280', marginTop: 2,
+  fontSize: 12, color: 'var(--text-3)', marginTop: 2,
   display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap',
 };
-const repoStyle: React.CSSProperties = { fontFamily: monoFont, color: '#374151', fontWeight: 500 };
-const metaSepStyle: React.CSSProperties = { color: '#D1D5DB' };
+const repoStyle: React.CSSProperties = { fontFamily: monoFont, color: 'var(--text-2)', fontWeight: 500 };
+const metaSepStyle: React.CSSProperties = { color: 'var(--text-4)' };
 const modelChipStyle: React.CSSProperties = {
-  fontSize: 10.5, background: '#F3F4F6', border: '1px solid #E5E7EB',
-  padding: '1px 7px', borderRadius: 999, color: '#374151',
+  fontSize: 10.5, background: 'var(--bg-elevated)', border: '1px solid var(--border)',
+  padding: '1px 7px', borderRadius: 999, color: 'var(--text-2)',
 };
-const sessionIdStyle: React.CSSProperties = { color: '#6e7681', fontFamily: monoFont, fontSize: 11.5 };
+const sessionIdStyle: React.CSSProperties = { color: 'var(--text-3)', fontFamily: monoFont, fontSize: 11.5 };
 const thStatusStyle: React.CSSProperties = {
   display: 'inline-flex', alignItems: 'center', gap: 5,
   padding: '5px 12px',
@@ -1436,9 +1436,9 @@ const thActionsStyle: React.CSSProperties = { display: 'flex', gap: 6, flexShrin
 const aBtnStyle: React.CSSProperties = {
   display: 'inline-flex', alignItems: 'center', gap: 5,
   padding: '6px 13px',
-  background: '#fff', border: '1px solid #E5E7EB',
+  background: 'var(--bg-card)', border: '1px solid var(--border)',
   borderRadius: 999,
-  fontSize: 12.5, color: '#111827', fontWeight: 500,
+  fontSize: 12.5, color: 'var(--text-1)', fontWeight: 500,
   cursor: 'pointer', lineHeight: 1,
 };
 
@@ -1584,12 +1584,20 @@ const sendBtnStyle: React.CSSProperties = {
 
 const sidebarStyle: React.CSSProperties = {
   alignSelf: 'start',
-  position: 'sticky',
-  top: 14,
+  // Match the conversation pane's height (terminalWrapStyle /
+  // structuredWrapStyle both use 100vh - 220px) so the sidebar
+  // sits inside the same vertical slot and its overflow scrolls
+  // *inside* — without this the sidebar's natural height bleeds
+  // below the viewport and the bottom cards (Quick actions, Tools
+  // used) get clipped because the page itself doesn't scroll.
+  maxHeight: 'calc(100vh - 220px)',
+  overflowY: 'auto',
+  scrollbarWidth: 'thin',
+  paddingRight: 4,
 };
 const sideCardStyle: React.CSSProperties = {
-  background: '#fff',
-  border: '1px solid #E5E7EB',
+  background: 'var(--bg-card)',
+  border: '1px solid var(--border)',
   borderRadius: 12,
   boxShadow: '0 1px 2px rgba(0,0,0,0.04)',
   marginBottom: 14,
@@ -1601,14 +1609,15 @@ const groupPickerStyle: React.CSSProperties = {
   padding: '8px 10px',
   fontSize: 13,
   fontFamily: 'inherit',
-  background: '#fff',
-  border: '1px solid #D1D5DB',
+  background: 'var(--bg-input)',
+  color: 'var(--text-1)',
+  border: '1px solid var(--border-input)',
   borderRadius: 6,
   cursor: 'pointer',
 };
 const sideCardHeadingStyle: React.CSSProperties = {
   fontSize: 11, fontWeight: 700, letterSpacing: '0.06em',
-  textTransform: 'uppercase', color: '#6B7280',
+  textTransform: 'uppercase', color: 'var(--text-3)',
   padding: '12px 18px 8px', margin: 0,
 };
 const stageCardStyle: React.CSSProperties = { padding: '14px 18px 16px' };
@@ -1619,12 +1628,12 @@ const stageStatusStyle: React.CSSProperties = {
   marginBottom: 10,
 };
 const stageCurrentStyle: React.CSSProperties = {
-  background: '#F9FAFB', border: '1px solid #E5E7EB',
+  background: 'var(--bg-elevated)', border: '1px solid var(--border)',
   borderRadius: 6, padding: '10px 12px',
   fontFamily: monoFont, fontSize: 11.5,
-  color: '#374151', lineHeight: 1.55,
+  color: 'var(--text-2)', lineHeight: 1.55,
 };
-const stageArrowStyle: React.CSSProperties = { color: '#7C3AED' };
+const stageArrowStyle: React.CSSProperties = { color: 'var(--accent)' };
 const stageToolTagStyle: React.CSSProperties = {
   background: '#fef3c7', color: '#92400e',
   fontFamily: 'system-ui, sans-serif',
@@ -1636,17 +1645,17 @@ const stageToolTagStyle: React.CSSProperties = {
 const metricListStyle: React.CSSProperties = { padding: '0 18px 16px', fontSize: 13 };
 const metricRowStyle: React.CSSProperties = {
   display: 'flex', alignItems: 'baseline',
-  padding: '6px 0', borderBottom: '1px solid #F3F4F6',
+  padding: '6px 0', borderBottom: '1px solid var(--border-hairline)',
 };
 const metricLabelStyle: React.CSSProperties = {
-  color: '#6B7280', fontSize: 12, width: 110, flexShrink: 0,
+  color: 'var(--text-3)', fontSize: 12, width: 110, flexShrink: 0,
 };
 const metricValueStyle: React.CSSProperties = {
-  fontWeight: 500, fontVariantNumeric: 'tabular-nums',
+  fontWeight: 500, fontVariantNumeric: 'tabular-nums', color: 'var(--text-1)',
   flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
 };
 const metricSubStyle: React.CSSProperties = {
-  fontSize: 11, color: '#6B7280', marginLeft: 4, fontWeight: 400,
+  fontSize: 11, color: 'var(--text-3)', marginLeft: 4, fontWeight: 400,
 };
 
 const legendStyle: React.CSSProperties = {
@@ -1658,20 +1667,20 @@ const legendItemStyle: React.CSSProperties = { display: 'flex', alignItems: 'cen
 const legendSwatchStyle: React.CSSProperties = {
   width: 10, height: 10, borderRadius: 2, flexShrink: 0,
 };
-const legendLabelStyle: React.CSSProperties = { color: '#374151' };
+const legendLabelStyle: React.CSSProperties = { color: 'var(--text-2)' };
 
 const quickActionsStyle: React.CSSProperties = {
   padding: '12px 18px 16px', display: 'flex', flexDirection: 'column', gap: 6,
 };
 const qaBtnStyle: React.CSSProperties = {
   width: '100%', padding: '7px 12px',
-  background: '#fff', border: '1px solid #E5E7EB',
-  borderRadius: 6, color: '#111827',
+  background: 'var(--bg-card)', border: '1px solid var(--border)',
+  borderRadius: 6, color: 'var(--text-1)',
   fontSize: 12.5, fontWeight: 500,
   textAlign: 'left',
   display: 'flex', alignItems: 'center', gap: 8,
 };
-const qaBtnIconStyle: React.CSSProperties = { color: '#6B7280', fontSize: 13 };
+const qaBtnIconStyle: React.CSSProperties = { color: 'var(--text-3)', fontSize: 13 };
 
 const errorBannerStyle: React.CSSProperties = {
   padding: '12px 16px', margin: '0 36px 24px',
@@ -1683,14 +1692,14 @@ const errorBannerStyle: React.CSSProperties = {
 const viewToggleStyle: React.CSSProperties = {
   display: 'inline-flex',
   padding: 2,
-  background: '#F3F4F6',
+  background: 'var(--bg-elevated)',
   borderRadius: 8,
-  border: '1px solid #E5E7EB',
+  border: '1px solid var(--border)',
 };
 const viewToggleBtnStyle: React.CSSProperties = {
   padding: '4px 12px',
   background: 'transparent',
-  color: '#4B5563',
+  color: 'var(--text-2)',
   border: 'none',
   borderRadius: 6,
   fontSize: 12,
@@ -1698,16 +1707,16 @@ const viewToggleBtnStyle: React.CSSProperties = {
   cursor: 'pointer',
 };
 const viewToggleActiveStyle: React.CSSProperties = {
-  background: '#fff',
-  color: '#111827',
+  background: 'var(--bg-card)',
+  color: 'var(--text-1)',
   boxShadow: '0 1px 2px rgba(15, 23, 42, 0.1)',
 };
 
 // ── Sidebar additions: Files touched / Tools used ───────────────────────
-const cardCountStyle: React.CSSProperties = { color: '#9ca3af', fontWeight: 500 };
+const cardCountStyle: React.CSSProperties = { color: 'var(--text-4)', fontWeight: 500 };
 const cardEmptyStyle: React.CSSProperties = {
   padding: '0 18px 16px',
-  color: '#9CA3AF',
+  color: 'var(--text-4)',
   fontSize: 12,
   fontStyle: 'italic',
 };
@@ -1741,7 +1750,7 @@ const filePathStyle: React.CSSProperties = {
   textOverflow: 'ellipsis',
   whiteSpace: 'nowrap',
   fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
-  color: '#374151',
+  color: 'var(--text-2)',
 };
 const fileStatsStyle: React.CSSProperties = {
   fontSize: 11,
@@ -1760,20 +1769,20 @@ const toolPillStyle: React.CSSProperties = {
   alignItems: 'center',
   gap: 6,
   padding: '3px 8px',
-  background: '#F3F4F6',
-  border: '1px solid #E5E7EB',
+  background: 'var(--bg-elevated)',
+  border: '1px solid var(--border)',
   borderRadius: 999,
   fontSize: 12,
   fontWeight: 500,
-  color: '#374151',
+  color: 'var(--text-2)',
 };
 const toolPillCountStyle: React.CSSProperties = {
   padding: '0 6px',
-  background: '#fff',
+  background: 'var(--bg-card)',
   borderRadius: 999,
   fontSize: 11,
   fontWeight: 600,
-  color: '#6B7280',
+  color: 'var(--text-3)',
   fontVariantNumeric: 'tabular-nums',
 };
 
@@ -1782,8 +1791,8 @@ const structuredWrapStyle: React.CSSProperties = {
   display: 'flex',
   flexDirection: 'column',
   gap: 12,
-  background: '#fff',
-  border: '1px solid #E5E7EB',
+  background: 'var(--bg-card)',
+  border: '1px solid var(--border)',
   borderRadius: 12,
   padding: 12,
   minHeight: 0,
@@ -1795,8 +1804,8 @@ const historyZoneStyle: React.CSSProperties = {
   flexDirection: 'column',
   flex: 1,
   minHeight: 0,
-  background: '#F8FAFC',
-  border: '1px solid #E5E7EB',
+  background: 'var(--bg-elevated)',
+  border: '1px solid var(--border)',
   borderRadius: 8,
   overflow: 'hidden',
 };
@@ -1805,18 +1814,18 @@ const zoneHeaderStyle: React.CSSProperties = {
   alignItems: 'center',
   gap: 6,
   padding: '8px 14px',
-  borderBottom: '1px solid #E5E7EB',
-  background: '#fff',
+  borderBottom: '1px solid var(--border)',
+  background: 'var(--bg-card)',
   fontSize: 11,
   fontWeight: 700,
   letterSpacing: '0.06em',
   textTransform: 'uppercase',
-  color: '#475569',
+  color: 'var(--text-2)',
 };
 const zoneIconStyle: React.CSSProperties = { fontSize: 13 };
-const zoneLabelStyle: React.CSSProperties = { color: '#475569' };
+const zoneLabelStyle: React.CSSProperties = { color: 'var(--text-2)' };
 const zoneMetaStyle: React.CSSProperties = {
-  color: '#94A3B8',
+  color: 'var(--text-4)',
   fontWeight: 500,
   textTransform: 'none',
   letterSpacing: 0,
@@ -1831,32 +1840,32 @@ const liveZoneStyle: React.CSSProperties = {
   alignItems: 'center',
   gap: 8,
   padding: '8px 14px',
-  background: '#F5F3FF',
-  border: '1px solid #DDD6FE',
-  borderLeft: '3px solid #7C3AED',
+  background: 'var(--accent-a7)',
+  border: '1px solid var(--accent-a40)',
+  borderLeft: '3px solid var(--accent)',
   borderRadius: 6,
 };
 const livePulseStyle: React.CSSProperties = {
   width: 8,
   height: 8,
   borderRadius: '50%',
-  background: '#7C3AED',
+  background: 'var(--accent)',
 };
 const liveLabelStyle: React.CSSProperties = {
   fontSize: 11,
   fontWeight: 700,
   letterSpacing: '0.06em',
-  color: '#5B21B6',
+  color: 'var(--accent-dark)',
 };
-const liveMetaStyle: React.CSSProperties = { fontSize: 12, color: '#6D28D9' };
+const liveMetaStyle: React.CSSProperties = { fontSize: 12, color: 'var(--accent-dark)' };
 const interruptBtnStyle: React.CSSProperties = {
   padding: '4px 10px',
-  background: '#fff',
-  border: '1px solid #C4B5FD',
+  background: 'var(--bg-card)',
+  border: '1px solid var(--accent-a40)',
   borderRadius: 6,
   fontSize: 11.5,
   fontWeight: 600,
-  color: '#5B21B6',
+  color: 'var(--accent-dark)',
   cursor: 'pointer',
 };
 const replyZoneStyle: React.CSSProperties = {
@@ -1864,8 +1873,8 @@ const replyZoneStyle: React.CSSProperties = {
   flexDirection: 'column',
   gap: 6,
   padding: 12,
-  background: '#F9FAFB',
-  border: '1px solid #E5E7EB',
+  background: 'var(--bg-elevated)',
+  border: '1px solid var(--border)',
   borderRadius: 8,
 };
 const replyHeaderStyle: React.CSSProperties = {
@@ -1873,16 +1882,16 @@ const replyHeaderStyle: React.CSSProperties = {
   alignItems: 'center',
   gap: 6,
 };
-const replyIconStyle: React.CSSProperties = { fontSize: 13, color: '#6B7280' };
+const replyIconStyle: React.CSSProperties = { fontSize: 13, color: 'var(--text-3)' };
 const replyLabelStyle: React.CSSProperties = {
   fontSize: 11,
   fontWeight: 700,
   letterSpacing: '0.06em',
-  color: '#6B7280',
+  color: 'var(--text-3)',
 };
 const replyMetaStyle: React.CSSProperties = {
   fontSize: 11.5,
-  color: '#9CA3AF',
+  color: 'var(--text-4)',
 };
 const replyTextareaStyle: React.CSSProperties = {
   width: '100%',
@@ -1890,8 +1899,9 @@ const replyTextareaStyle: React.CSSProperties = {
   padding: '10px 12px',
   fontFamily: 'inherit',
   fontSize: 13,
-  background: '#fff',
-  border: '1px solid #D1D5DB',
+  background: 'var(--bg-input)',
+  color: 'var(--text-1)',
+  border: '1px solid var(--border-input)',
   borderRadius: 6,
   outline: 'none',
   boxSizing: 'border-box',
@@ -1903,11 +1913,11 @@ const replyFooterStyle: React.CSSProperties = {
 };
 const replyHintStyle: React.CSSProperties = {
   fontSize: 11,
-  color: '#9CA3AF',
+  color: 'var(--text-4)',
 };
 const replySendBtnStyle: React.CSSProperties = {
   padding: '6px 14px',
-  background: '#7C3AED',
+  background: 'var(--accent)',
   color: '#fff',
   border: 'none',
   borderRadius: 6,

@@ -116,8 +116,8 @@ function MenuRow({ glyph, color, label, active, onClick }: {
       onClick={onClick}
       style={{
         ...rowStyle,
-        background: active ? '#ede9fe' : 'transparent',
-        color: active ? '#5b21b6' : '#1f2937',
+        background: active ? 'var(--accent-a10)' : 'transparent',
+        color: active ? 'var(--accent-dark)' : 'var(--text-1)',
         fontWeight: active ? 600 : 500,
       }}
     >
@@ -152,7 +152,7 @@ const triggerStyle: React.CSSProperties = {
   border: '1px solid transparent',
   borderRadius: 4,
   padding: '2px 8px',
-  color: '#6B7280',
+  color: 'var(--text-3)',
   fontSize: 18,
   lineHeight: 1,
   cursor: 'pointer',
@@ -165,8 +165,8 @@ const menuStyle: React.CSSProperties = {
   minWidth: 200,
   maxHeight: 320,
   overflowY: 'auto',
-  background: '#fff',
-  border: '1px solid #E5E7EB',
+  background: 'var(--bg-card)',
+  border: '1px solid var(--border)',
   borderRadius: 8,
   boxShadow: '0 12px 32px rgba(15, 23, 42, 0.15)',
   padding: 4,
@@ -178,7 +178,7 @@ const menuHeaderStyle: React.CSSProperties = {
   fontWeight: 700,
   letterSpacing: '0.06em',
   textTransform: 'uppercase',
-  color: '#6B7280',
+  color: 'var(--text-3)',
 };
 const rowStyle: React.CSSProperties = {
   width: '100%',
@@ -212,10 +212,10 @@ const labelStyle: React.CSSProperties = {
   textOverflow: 'ellipsis',
   whiteSpace: 'nowrap',
 };
-const checkStyle: React.CSSProperties = { color: '#7c3aed', fontSize: 12 };
+const checkStyle: React.CSSProperties = { color: 'var(--accent)', fontSize: 12 };
 const emptyStyle: React.CSSProperties = {
   padding: '8px 10px',
   fontSize: 12,
-  color: '#9ca3af',
+  color: 'var(--text-4)',
   fontStyle: 'italic',
 };

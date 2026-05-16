@@ -562,15 +562,19 @@ const headerStyle: React.CSSProperties = {
   gap: 16,
   marginBottom: 24,
 };
-const titleStyle: React.CSSProperties = { margin: 0, fontSize: 24, fontWeight: 700 };
-const subtitleStyle: React.CSSProperties = { margin: '4px 0 0', color: '#6B7280', maxWidth: 600 };
+const titleStyle: React.CSSProperties = {
+  margin: 0, fontSize: 24, fontWeight: 700, color: 'var(--text-1)',
+};
+const subtitleStyle: React.CSSProperties = {
+  margin: '4px 0 0', color: 'var(--text-3)', maxWidth: 600,
+};
 const headerActionsStyle: React.CSSProperties = { display: 'flex', gap: 8, alignItems: 'center' };
 const breadcrumbStyle: React.CSSProperties = {
   display: 'flex',
   alignItems: 'center',
   gap: 6,
   fontSize: 12,
-  color: '#6B7280',
+  color: 'var(--text-3)',
   marginBottom: 4,
 };
 const breadcrumbLinkStyle: React.CSSProperties = {
@@ -578,10 +582,10 @@ const breadcrumbLinkStyle: React.CSSProperties = {
   border: 'none',
   padding: 0,
   cursor: 'pointer',
-  color: '#7c3aed',
+  color: 'var(--accent)',
   fontSize: 12,
 };
-const breadcrumbSepStyle: React.CSSProperties = { color: '#d1d5db' };
+const breadcrumbSepStyle: React.CSSProperties = { color: 'var(--text-4)' };
 const headerGlyphStyle: React.CSSProperties = {
   display: 'inline-flex',
   alignItems: 'center',
@@ -601,10 +605,10 @@ const metricsLineStyle: React.CSSProperties = {
   alignItems: 'center',
   gap: 6,
 };
-const metricsSepStyle: React.CSSProperties = { color: '#d1d5db' };
+const metricsSepStyle: React.CSSProperties = { color: 'var(--text-4)' };
 const primaryBtnStyle: React.CSSProperties = {
   padding: '8px 14px',
-  background: '#7C3AED',
+  background: 'var(--accent)',
   color: '#fff',
   border: 'none',
   borderRadius: 6,
@@ -613,9 +617,9 @@ const primaryBtnStyle: React.CSSProperties = {
 };
 const secondaryBtnStyle: React.CSSProperties = {
   padding: '8px 14px',
-  background: 'transparent',
-  color: '#374151',
-  border: '1px solid #D1D5DB',
+  background: 'var(--bg-btn-secondary)',
+  color: 'var(--text-2)',
+  border: '1px solid var(--border-input)',
   borderRadius: 6,
   cursor: 'pointer',
 };
@@ -639,11 +643,12 @@ const errorBannerStyle: React.CSSProperties = {
 const emptyStateStyle: React.CSSProperties = {
   padding: '40px 24px',
   textAlign: 'center',
-  border: '1px dashed #D1D5DB',
+  border: '1px dashed var(--border)',
   borderRadius: 8,
+  color: 'var(--text-2)',
 };
-const emptyTitleStyle: React.CSSProperties = { fontSize: 16, fontWeight: 600, marginBottom: 4 };
-const mutedTextStyle: React.CSSProperties = { color: '#6B7280', fontSize: 13 };
+const emptyTitleStyle: React.CSSProperties = { fontSize: 16, fontWeight: 600, marginBottom: 4, color: 'var(--text-1)' };
+const mutedTextStyle: React.CSSProperties = { color: 'var(--text-3)', fontSize: 13 };
 const listStyle: React.CSSProperties = { display: 'flex', flexDirection: 'column', gap: 24 };
 const groupStyle: React.CSSProperties = { display: 'flex', flexDirection: 'column', gap: 8 };
 const groupHeaderStyle: React.CSSProperties = {
@@ -655,11 +660,11 @@ const groupHeaderStyle: React.CSSProperties = {
   fontWeight: 700,
   textTransform: 'uppercase',
   letterSpacing: 0.6,
-  color: '#6B7280',
+  color: 'var(--text-3)',
 };
 const groupCountStyle: React.CSSProperties = {
-  background: '#F3F4F6',
-  color: '#374151',
+  background: 'var(--bg-elevated)',
+  color: 'var(--text-2)',
   padding: '2px 8px',
   borderRadius: 999,
   fontSize: 11,
@@ -671,10 +676,11 @@ const rowStyle: React.CSSProperties = {
   justifyContent: 'space-between',
   gap: 16,
   padding: '12px 16px',
-  background: '#fff',
-  border: '1px solid #E5E7EB',
+  background: 'var(--bg-card)',
+  border: '1px solid var(--border)',
   borderRadius: 8,
   cursor: 'pointer',
+  color: 'var(--text-1)',
 };
 const rowMainStyle: React.CSSProperties = { display: 'flex', flexDirection: 'column', gap: 4, minWidth: 0, flex: 1 };
 const rowTitleStyle: React.CSSProperties = {
@@ -683,14 +689,15 @@ const rowTitleStyle: React.CSSProperties = {
   whiteSpace: 'nowrap',
   overflow: 'hidden',
   textOverflow: 'ellipsis',
+  color: 'var(--text-1)',
 };
 const rowMetaStyle: React.CSSProperties = { display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap' };
 const rowSideStyle: React.CSSProperties = { display: 'flex', gap: 12, alignItems: 'center', flexShrink: 0 };
 const branchPillStyle: React.CSSProperties = {
   padding: '2px 8px',
-  background: '#EFF6FF',
-  color: '#1E40AF',
-  border: '1px solid #BFDBFE',
+  background: 'var(--accent-a10)',
+  color: 'var(--accent-dark)',
+  border: '1px solid var(--accent-a40)',
   borderRadius: 4,
   fontSize: 11,
   fontFamily: 'ui-monospace, SFMono-Regular, monospace',

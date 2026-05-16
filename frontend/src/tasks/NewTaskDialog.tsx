@@ -44,7 +44,6 @@ type Plan = {
 export default function NewTaskDialog({ onClose, onCreated, initialGroupId }: Props) {
   const [kind] = useState<TaskKindDto>('CLI_AGENT');
   const [title, setTitle] = useState('');
-  const [model, setModel] = useState('claude-sonnet-4.6');
   const [initialPrompt, setInitialPrompt] = useState('');
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -130,10 +129,13 @@ export default function NewTaskDialog({ onClose, onCreated, initialGroupId }: Pr
       if (!workingDir) {
         throw new Error('Repo has no local path even after cloning.');
       }
+      // Model is intentionally blank — Claude Code picks its own model
+      // and reports it back through the stream; the task-detail page
+      // surfaces that real value once the session emits its first event.
       await window.bridge.createTask({
         kind,
         provider: 'claude-code',
-        model: model.trim() || 'claude-sonnet-4.6',
+        model: '',
         title: title.trim(),
         workingDir,
         initialPrompt: initialPrompt.trim() || undefined,
@@ -199,15 +201,6 @@ export default function NewTaskDialog({ onClose, onCreated, initialGroupId }: Pr
                 ))}
               </select>
             )}
-          </Field>
-
-          <Field label="Model">
-            <input
-              type="text"
-              value={model}
-              onChange={e => setModel(e.target.value)}
-              style={inputStyle}
-            />
           </Field>
 
           <Field label="Kind">
@@ -299,7 +292,8 @@ const overlayStyle: React.CSSProperties = {
 };
 const dialogStyle: React.CSSProperties = {
   width: 'min(560px, 92vw)',
-  background: '#fff',
+  background: 'var(--bg-panel)',
+  color: 'var(--text-1)',
   borderRadius: 10,
   boxShadow: '0 20px 60px rgba(0, 0, 0, 0.25)',
   overflow: 'hidden',
@@ -309,26 +303,30 @@ const dialogHeaderStyle: React.CSSProperties = {
   justifyContent: 'space-between',
   alignItems: 'center',
   padding: '16px 20px',
-  borderBottom: '1px solid #E5E7EB',
+  borderBottom: '1px solid var(--border)',
 };
-const dialogTitleStyle: React.CSSProperties = { margin: 0, fontSize: 18, fontWeight: 600 };
+const dialogTitleStyle: React.CSSProperties = {
+  margin: 0, fontSize: 18, fontWeight: 600, color: 'var(--text-1)',
+};
 const closeBtnStyle: React.CSSProperties = {
   background: 'transparent',
   border: 'none',
   fontSize: 28,
   lineHeight: 1,
-  color: '#6B7280',
+  color: 'var(--text-3)',
   cursor: 'pointer',
   padding: 0,
 };
 const formStyle: React.CSSProperties = { padding: 20, display: 'flex', flexDirection: 'column', gap: 14 };
 const fieldStyle: React.CSSProperties = { display: 'flex', flexDirection: 'column', gap: 4 };
-const fieldLabelStyle: React.CSSProperties = { fontSize: 12, fontWeight: 600, color: '#374151' };
-const fieldHintStyle: React.CSSProperties = { fontSize: 11, color: '#6B7280' };
-const mutedHintStyle: React.CSSProperties = { fontSize: 12, color: '#6B7280', padding: '6px 0' };
+const fieldLabelStyle: React.CSSProperties = { fontSize: 12, fontWeight: 600, color: 'var(--text-2)' };
+const fieldHintStyle: React.CSSProperties = { fontSize: 11, color: 'var(--text-3)' };
+const mutedHintStyle: React.CSSProperties = { fontSize: 12, color: 'var(--text-3)', padding: '6px 0' };
 const inputStyle: React.CSSProperties = {
   padding: '8px 10px',
-  border: '1px solid #D1D5DB',
+  background: 'var(--bg-input)',
+  color: 'var(--text-1)',
+  border: '1px solid var(--border-input)',
   borderRadius: 6,
   fontSize: 14,
   width: '100%',
@@ -358,15 +356,15 @@ const footerStyle: React.CSSProperties = {
 };
 const cancelBtnStyle: React.CSSProperties = {
   padding: '8px 14px',
-  background: 'transparent',
-  color: '#374151',
-  border: '1px solid #D1D5DB',
+  background: 'var(--bg-btn-secondary)',
+  color: 'var(--text-2)',
+  border: '1px solid var(--border-input)',
   borderRadius: 6,
   cursor: 'pointer',
 };
 const submitBtnStyle: React.CSSProperties = {
   padding: '8px 14px',
-  background: '#7C3AED',
+  background: 'var(--accent)',
   color: '#fff',
   border: 'none',
   borderRadius: 6,

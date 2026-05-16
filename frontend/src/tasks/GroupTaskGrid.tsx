@@ -199,8 +199,8 @@ function MessageLine({ message }: { message: TaskMessageDto }) {
     const text = String(parsed?.text ?? '');
     return (
       <div style={lineStyle}>
-        <span style={{ ...lineGlyphStyle, color: '#6b7280' }}>›</span>
-        <span style={{ ...lineBodyStyle, color: '#1f2937' }}>{truncate(text, 160)}</span>
+        <span style={{ ...lineGlyphStyle, color: 'var(--text-3)' }}>›</span>
+        <span style={{ ...lineBodyStyle, color: 'var(--text-1)' }}>{truncate(text, 160)}</span>
       </div>
     );
   }
@@ -208,8 +208,8 @@ function MessageLine({ message }: { message: TaskMessageDto }) {
     const text = String(parsed?.text ?? '');
     return (
       <div style={lineStyle}>
-        <span style={{ ...lineGlyphStyle, color: '#7c3aed' }}>you</span>
-        <span style={{ ...lineBodyStyle, color: '#374151' }}>{truncate(text, 160)}</span>
+        <span style={{ ...lineGlyphStyle, color: 'var(--accent)' }}>you</span>
+        <span style={{ ...lineBodyStyle, color: 'var(--text-2)' }}>{truncate(text, 160)}</span>
       </div>
     );
   }
@@ -360,8 +360,8 @@ const gridStyle: React.CSSProperties = {
 const tileStyle: React.CSSProperties = {
   display: 'flex',
   flexDirection: 'column',
-  background: '#fff',
-  border: '1px solid #e5e7eb',
+  background: 'var(--bg-card)',
+  border: '1px solid var(--border)',
   borderRadius: 10,
   overflow: 'hidden',
   cursor: 'pointer',
@@ -373,7 +373,7 @@ const tileHeaderStyle: React.CSSProperties = {
   alignItems: 'flex-start',
   gap: 12,
   padding: '12px 14px',
-  borderBottom: '1px solid #f1f5f9',
+  borderBottom: '1px solid var(--border-light)',
 };
 const tileHeaderRightStyle: React.CSSProperties = {
   display: 'flex',
@@ -397,7 +397,7 @@ const tileStripeStyle: React.CSSProperties = {
 const tileTitleStyle: React.CSSProperties = {
   fontSize: 14,
   fontWeight: 600,
-  color: '#0f172a',
+  color: 'var(--text-1)',
   lineHeight: 1.35,
   overflow: 'hidden',
   textOverflow: 'ellipsis',
@@ -414,12 +414,12 @@ const tileBodyStyle: React.CSSProperties = {
   overflowY: 'auto',
   fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
   fontSize: 12,
-  background: '#fafafa',
+  background: 'var(--bg-elevated)',
 };
 const emptyPreviewStyle: React.CSSProperties = {
   fontFamily: 'inherit',
   fontSize: 12,
-  color: '#9ca3af',
+  color: 'var(--text-4)',
   fontStyle: 'italic',
   padding: '20px 0',
   textAlign: 'center',
@@ -438,7 +438,7 @@ const lineGlyphStyle: React.CSSProperties = {
   minWidth: 36,
 };
 const lineBodyStyle: React.CSSProperties = {
-  color: '#4b5563',
+  color: 'var(--text-2)',
   overflow: 'hidden',
   textOverflow: 'ellipsis',
   whiteSpace: 'nowrap',
@@ -450,14 +450,14 @@ const tileFooterStyle: React.CSSProperties = {
   alignItems: 'center',
   gap: 6,
   padding: '8px 14px',
-  borderTop: '1px solid #f1f5f9',
-  background: '#fff',
+  borderTop: '1px solid var(--border-light)',
+  background: 'var(--bg-card)',
   fontSize: 11,
 };
-const footerMetaStyle: React.CSSProperties = { color: '#6b7280' };
-const footerSepStyle: React.CSSProperties = { color: '#d1d5db' };
+const footerMetaStyle: React.CSSProperties = { color: 'var(--text-3)' };
+const footerSepStyle: React.CSSProperties = { color: 'var(--text-4)' };
 const footerMetricStyle: React.CSSProperties = {
-  color: '#374151',
+  color: 'var(--text-2)',
   fontWeight: 600,
   fontVariantNumeric: 'tabular-nums',
 };

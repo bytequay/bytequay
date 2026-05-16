@@ -84,10 +84,8 @@ function providerMeta(rawKey: string): ProviderMeta {
 const STATUS_ROWS: Array<{ filter: StatusFilter; label: string; dot: string }> = [
   { filter: 'ALL',       label: 'All tasks',     dot: '#cbd5e0' },
   { filter: 'RUNNING',   label: 'Running',       dot: '#047857' },
-  { filter: 'AWAITING',  label: 'Awaiting input', dot: '#d97706' },
-  { filter: 'IDLE',      label: 'Idle',          dot: '#9ca3af' },
-  { filter: 'COMPLETED', label: 'Completed',     dot: '#047857' },
-  { filter: 'ERRORED',   label: 'Errored',       dot: '#b91c4f' },
+  { filter: 'IDLE',      label: 'Idle',          dot: '#d97706' },
+  { filter: 'COMPLETED', label: 'Completed',     dot: '#9ca3af' },
 ];
 
 /**
@@ -116,7 +114,6 @@ export default function TasksLeftRail({
 }: Props) {
   const counts = useMemo(() => buildCounts(tasks), [tasks]);
   const providers = useMemo(() => buildProviderList(tasks), [tasks]);
-  const awaitingCount = counts.AWAITING ?? 0;
   const recent = useMemo(() => sortByUpdatedDesc(tasks).slice(0, 5), [tasks]);
 
   const [groups, setGroups] = useState<TaskGroupDto[]>([]);
@@ -153,9 +150,6 @@ export default function TasksLeftRail({
             <span style={countStyle}>
               {row.filter === 'ALL' ? tasks.length : (counts[row.filter] ?? 0)}
             </span>
-            {row.filter === 'AWAITING' && awaitingCount > 0 && (
-              <span style={urgentBadgeStyle}>!</span>
-            )}
           </RailRow>
         ))}
       </Section>
@@ -383,8 +377,8 @@ const railStyle: React.CSSProperties = {
   width: 232,
   flexShrink: 0,
   padding: '14px 12px 12px',
-  background: '#f7f8fa',
-  borderRight: '1px solid #e5e7eb',
+  background: 'var(--bg-elevated)',
+  borderRight: '1px solid var(--border)',
   display: 'flex',
   flexDirection: 'column',
   gap: 14,
@@ -396,7 +390,7 @@ const newTaskBtnStyle: React.CSSProperties = {
   alignItems: 'center',
   gap: 8,
   padding: '8px 12px',
-  background: '#7c3aed',
+  background: 'var(--accent)',
   color: '#fff',
   border: 'none',
   borderRadius: 6,
@@ -429,12 +423,12 @@ const sectionHeaderStyle: React.CSSProperties = {
   fontWeight: 700,
   letterSpacing: '0.06em',
   textTransform: 'uppercase',
-  color: '#6b7280',
+  color: 'var(--text-3)',
 };
 const sectionCountStyle: React.CSSProperties = {
   marginLeft: 'auto',
   fontSize: 11,
-  color: '#9ca3af',
+  color: 'var(--text-4)',
   fontWeight: 500,
   textTransform: 'none',
   letterSpacing: 0,
@@ -447,14 +441,14 @@ const rowStyle: React.CSSProperties = {
   gap: 8,
   padding: '5px 8px',
   borderRadius: 4,
-  color: '#374151',
+  color: 'var(--text-2)',
   fontSize: 13,
   lineHeight: 1.3,
   userSelect: 'none',
 };
 const rowActiveStyle: React.CSSProperties = {
-  background: '#ede9fe',
-  color: '#5b21b6',
+  background: 'var(--accent-a10)',
+  color: 'var(--accent-dark)',
   fontWeight: 600,
 };
 const rowDisabledStyle: React.CSSProperties = { opacity: 0.8 };
@@ -465,7 +459,7 @@ const rowActiveBarStyle: React.CSSProperties = {
   bottom: 6,
   width: 3,
   borderRadius: 2,
-  background: '#7c3aed',
+  background: 'var(--accent)',
 };
 const dotStyle: React.CSSProperties = {
   width: 8,
@@ -482,18 +476,8 @@ const labelStyle: React.CSSProperties = {
 };
 const countStyle: React.CSSProperties = {
   fontSize: 11,
-  color: '#6b7280',
+  color: 'var(--text-3)',
   fontVariantNumeric: 'tabular-nums',
-};
-const urgentBadgeStyle: React.CSSProperties = {
-  marginLeft: 4,
-  background: '#dc2626',
-  color: '#fff',
-  borderRadius: 10,
-  padding: '0 6px',
-  fontSize: 10,
-  fontWeight: 700,
-  lineHeight: '14px',
 };
 const glyphStyle: React.CSSProperties = {
   width: 18,
@@ -523,30 +507,30 @@ const recentTitleStyle: React.CSSProperties = {
 };
 const recentTimeStyle: React.CSSProperties = {
   fontSize: 10.5,
-  color: '#9ca3af',
+  color: 'var(--text-4)',
   fontVariantNumeric: 'tabular-nums',
 };
 const cogStyle: React.CSSProperties = {
   width: 8,
   textAlign: 'center',
   fontSize: 13,
-  color: '#6b7280',
+  color: 'var(--text-3)',
 };
 const spacerStyle: React.CSSProperties = { flex: 1, minHeight: 8 };
 const emptyHintStyle: React.CSSProperties = {
   padding: '6px 8px',
   fontSize: 12,
-  color: '#9ca3af',
+  color: 'var(--text-4)',
   fontStyle: 'italic',
 };
 const addBtnStyle: React.CSSProperties = {
   background: 'transparent',
-  border: '1px solid #d1d5db',
+  border: '1px solid var(--border-input)',
   borderRadius: 4,
   padding: '0 6px',
   fontSize: 10,
   fontWeight: 600,
-  color: '#7c3aed',
+  color: 'var(--accent)',
   cursor: 'pointer',
   lineHeight: '16px',
   textTransform: 'none',

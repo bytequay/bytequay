@@ -134,8 +134,16 @@ public class WebConfig
         // instead of SimpleClientHttpRequestFactory because the latter is
         // backed by HttpURLConnection, whose setRequestMethod rejects PATCH —
         // breaking GitHub PR edits (PATCH /repos/{o}/{r}/pulls/{n}).
+        //
+        // followRedirects(NORMAL) is required for GitHub Actions log fetch:
+        // /actions/jobs/{id}/logs always returns 302 → presigned blob URL,
+        // and the JDK HttpClient default is NEVER (don't follow). Without
+        // this the log endpoint silently returns an empty body and the
+        // merge card permanently shows "No log available". NORMAL also
+        // blocks HTTPS → HTTP downgrades, which is what we want.
         HttpClient client = HttpClient.newBuilder()
                 .connectTimeout(connect)
+                .followRedirects(HttpClient.Redirect.NORMAL)
                 .build();
         JdkClientHttpRequestFactory factory = new JdkClientHttpRequestFactory(client);
         factory.setReadTimeout(read);

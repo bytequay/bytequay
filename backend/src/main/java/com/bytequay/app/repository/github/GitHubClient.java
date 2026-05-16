@@ -55,6 +55,8 @@ import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.Lists;
 import com.google.common.collect.Maps;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.core.ParameterizedTypeReference;
 import org.springframework.http.HttpMethod;
@@ -93,6 +95,8 @@ import static java.util.Objects.requireNonNull;
 public class GitHubClient
         implements PullRequestRepository
 {
+    private static final Logger log = LoggerFactory.getLogger(GitHubClient.class);
+
     private static final int PER_PAGE = 50;
     private static final String REPOS_SEGMENT = "/repos/";
 
@@ -2453,17 +2457,31 @@ public class GitHubClient
                     .retrieve()
                     .body(GitHubCheckRunDetail.class);
             if (detail == null) {
+                log.info("[log-diag] check-run {} of {}/{}: GitHub returned null body",
+                        checkRunId, repo.owner(), repo.repo());
                 return Optional.empty();
             }
+            log.info("[log-diag] check-run {} of {}/{}: details_url={} html_url={}",
+                    checkRunId, repo.owner(), repo.repo(), detail.detailsUrl(), detail.htmlUrl());
             Long parsed = extractActionsJobId(detail.detailsUrl());
             if (parsed == null) {
                 // Fall back to html_url — some Actions-backed check runs
                 // populate the job ID there instead of details_url.
                 parsed = extractActionsJobId(detail.htmlUrl());
+                if (parsed != null) {
+                    log.info("[log-diag] check-run {}: job_id={} extracted from html_url (details_url did not match)",
+                            checkRunId, parsed);
+                }
+            }
+            else {
+                log.info("[log-diag] check-run {}: job_id={} extracted from details_url",
+                        checkRunId, parsed);
             }
             if (parsed == null) {
                 // External CI — details_url + html_url both point at a
                 // non-Actions UI. Nothing we can fetch.
+                log.info("[log-diag] check-run {}: neither URL matches ACTIONS_JOB_URL pattern — treating as external CI",
+                        checkRunId);
                 return Optional.empty();
             }
             jobId = parsed;
@@ -2472,6 +2490,8 @@ public class GitHubClient
             int status = e.getStatusCode().value();
             if (status == 404) {
                 // Check run vanished (rerun rotation?) — nothing to fetch.
+                log.info("[log-diag] check-run {} of {}/{}: 404 on check-run lookup — gone (rerun rotation?)",
+                        checkRunId, repo.owner(), repo.repo());
                 return Optional.empty();
             }
             if (status == 403) {
@@ -2498,8 +2518,12 @@ public class GitHubClient
                     .retrieve()
                     .body(String.class);
             if (body == null || body.isEmpty()) {
+                log.info("[log-diag] check-run {} (job_id={}): /actions/jobs/{}/logs returned {} body",
+                        checkRunId, jobId, jobId, body == null ? "null" : "empty");
                 return Optional.empty();
             }
+            log.info("[log-diag] check-run {} (job_id={}): log fetched, {} bytes",
+                    checkRunId, jobId, body.length());
             return Optional.of(body);
         }
         catch (RestClientResponseException e) {
@@ -2507,6 +2531,8 @@ public class GitHubClient
             if (status == 404 || status == 410) {
                 // Job log expired (>90 days) or job already cleaned up —
                 // silent fallback so the UI can show the empty hint.
+                log.info("[log-diag] check-run {} (job_id={}): {} on /actions/jobs/{}/logs — expired or cleaned up",
+                        checkRunId, jobId, status, jobId);
                 return Optional.empty();
             }
             if (status == 403) {

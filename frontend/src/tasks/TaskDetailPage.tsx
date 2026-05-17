@@ -2312,6 +2312,18 @@ const taskTitleBadgeTermStyle: React.CSSProperties = {
   flexShrink: 0,
   width: 'max-content',
 };
+
+/** Override for the title span when used inside the terminal toolbar
+ *  — turns off the shared `thTitleStyle` ellipsis rules. Those rules
+ *  were causing the badge to collapse to "Let's …" even when the
+ *  full title was only 11 chars long. With overflow:visible + nowrap
+ *  the title renders in full and the badge's `width: max-content`
+ *  sizes around it. */
+const termTitleSpanStyle: React.CSSProperties = {
+  overflow: 'visible',
+  textOverflow: 'clip',
+  whiteSpace: 'nowrap',
+};
 const zoneMetaStyle: React.CSSProperties = {
   color: 'var(--text-4)',
   fontWeight: 500,

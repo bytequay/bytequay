@@ -24,6 +24,7 @@ import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 
@@ -71,7 +72,6 @@ class SqliteTaskStore
         entity.setEndedAtMs(task.endedAt() == null ? null : task.endedAt().toEpochMilli());
         entity.setErrorMessage(task.errorMessage());
         entity.setMetadataJson(task.metadataJson());
-        entity.setGroupId(task.groupId());
         tasks.save(entity);
     }
 
@@ -103,19 +103,14 @@ class SqliteTaskStore
     }
 
     @Override
-    public List<Task> listTasksByGroup(String groupId, int limit)
+    public List<Task> listTasksByIds(Collection<String> ids)
     {
-        return tasks.findByGroupIdOrderByUpdatedAtMsDesc(groupId, PageRequest.of(0, limit))
-                .stream()
+        if (ids.isEmpty()) {
+            return List.of();
+        }
+        return tasks.findByIdInOrderByUpdatedAtMsDesc(ids).stream()
                 .map(SqliteTaskStore::toTask)
                 .toList();
-    }
-
-    @Override
-    @Transactional
-    public void unsetGroupOnTasks(String groupId)
-    {
-        tasks.clearGroupId(groupId);
     }
 
     @Override
@@ -190,8 +185,7 @@ class SqliteTaskStore
                 Instant.ofEpochMilli(e.getUpdatedAtMs()),
                 e.getEndedAtMs() == null ? null : Instant.ofEpochMilli(e.getEndedAtMs()),
                 e.getErrorMessage(),
-                e.getMetadataJson(),
-                e.getGroupId());
+                e.getMetadataJson());
     }
 
     private static TaskMessage toMessage(TaskMessageEntity e)

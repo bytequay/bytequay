@@ -14,16 +14,20 @@
 package com.bytequay.app.repository;
 
 import com.bytequay.app.domain.TaskGroup;
+import com.bytequay.app.domain.TaskGroupMembership;
 
 import java.util.List;
 import java.util.Optional;
 
 /**
- * Persistence boundary for the small {@code task_groups} table that
- * backs the rail's Groups section.
+ * Persistence boundary for the {@code task_groups} table and its
+ * {@code task_group_members} join table that backs the rail's Groups
+ * section.
  */
 public interface TaskGroupStore
 {
+    // ── group rows ────────────────────────────────────────────────────
+
     /** Insert or update by primary key. */
     void saveGroup(TaskGroup group);
 
@@ -32,7 +36,32 @@ public interface TaskGroupStore
     /** All groups, sorted by {@code sortOrder} then {@code createdAt}. */
     List<TaskGroup> listGroups();
 
-    /** Drop a group. Tasks pointing at it are NOT deleted — their
-     *  {@code group_id} is cleared via the unset path in the service. */
+    /** Drop a group and cascade its membership rows. Tasks themselves
+     *  are NOT deleted — they simply leave the group. */
     void deleteGroup(String id);
+
+    // ── group ↔ task membership ───────────────────────────────────────
+
+    /** Insert a (taskId, groupId) row. Idempotent — re-adding an
+     *  existing pair is a no-op. Cap enforcement (4 per group) lives
+     *  in the service layer so the caller can return a typed error. */
+    void addMember(String taskId, String groupId);
+
+    /** Remove a (taskId, groupId) row. No-op when the pair doesn't
+     *  exist. The non-empty-group invariant is enforced in the
+     *  service layer so this method stays composable. */
+    void removeMember(String taskId, String groupId);
+
+    /** Members of one group, oldest-added first. */
+    List<TaskGroupMembership> listMembers(String groupId);
+
+    /** Groups containing one task, oldest-added first. */
+    List<TaskGroupMembership> listMemberships(String taskId);
+
+    /** Full membership snapshot, used to feed the frontend's
+     *  task↔group index in a single round-trip. */
+    List<TaskGroupMembership> listAllMemberships();
+
+    /** Member count for invariant checks (cap-at-4 and non-empty). */
+    long countMembers(String groupId);
 }

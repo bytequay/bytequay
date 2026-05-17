@@ -14,6 +14,7 @@
 package com.bytequay.app.repository.sqlite;
 
 import com.bytequay.app.domain.TaskGroup;
+import com.bytequay.app.domain.TaskGroupMembership;
 import com.bytequay.app.repository.TaskGroupStore;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
@@ -29,10 +30,14 @@ class SqliteTaskGroupStore
         implements TaskGroupStore
 {
     private final TaskGroupJpaRepository groups;
+    private final TaskGroupMembershipJpaRepository memberships;
 
-    SqliteTaskGroupStore(TaskGroupJpaRepository groups)
+    SqliteTaskGroupStore(
+            TaskGroupJpaRepository groups,
+            TaskGroupMembershipJpaRepository memberships)
     {
         this.groups = requireNonNull(groups, "groups is null");
+        this.memberships = requireNonNull(memberships, "memberships is null");
     }
 
     @Override
@@ -68,7 +73,70 @@ class SqliteTaskGroupStore
     @Transactional
     public void deleteGroup(String id)
     {
+        memberships.deleteByGroupId(id);
         groups.deleteById(id);
+    }
+
+    @Override
+    @Transactional
+    public void addMember(String taskId, String groupId)
+    {
+        requireNonNull(taskId, "taskId is null");
+        requireNonNull(groupId, "groupId is null");
+        TaskGroupMembershipEntity.MembershipKey key =
+                new TaskGroupMembershipEntity.MembershipKey(taskId, groupId);
+        // Idempotent: skip when the pair already exists so retries
+        // from a flaky bridge don't blow up on the PK constraint.
+        if (memberships.existsById(key)) {
+            return;
+        }
+        TaskGroupMembershipEntity row = new TaskGroupMembershipEntity();
+        row.setId(key);
+        row.setAddedAtMs(Instant.now().toEpochMilli());
+        memberships.save(row);
+    }
+
+    @Override
+    @Transactional
+    public void removeMember(String taskId, String groupId)
+    {
+        requireNonNull(taskId, "taskId is null");
+        requireNonNull(groupId, "groupId is null");
+        TaskGroupMembershipEntity.MembershipKey key =
+                new TaskGroupMembershipEntity.MembershipKey(taskId, groupId);
+        if (memberships.existsById(key)) {
+            memberships.deleteById(key);
+        }
+    }
+
+    @Override
+    public List<TaskGroupMembership> listMembers(String groupId)
+    {
+        return memberships.findByIdGroupIdOrderByAddedAtMsAsc(groupId).stream()
+                .map(SqliteTaskGroupStore::toMembership)
+                .toList();
+    }
+
+    @Override
+    public List<TaskGroupMembership> listMemberships(String taskId)
+    {
+        return memberships.findByIdTaskIdOrderByAddedAtMsAsc(taskId).stream()
+                .map(SqliteTaskGroupStore::toMembership)
+                .toList();
+    }
+
+    @Override
+    public List<TaskGroupMembership> listAllMemberships()
+    {
+        return memberships.findAllByOrderByIdGroupIdAscAddedAtMsAsc().stream()
+                .map(SqliteTaskGroupStore::toMembership)
+                .toList();
+    }
+
+    @Override
+    public long countMembers(String groupId)
+    {
+        return memberships.countByIdGroupId(groupId);
     }
 
     private static TaskGroup toGroup(TaskGroupEntity e)
@@ -81,5 +149,13 @@ class SqliteTaskGroupStore
                 e.getSortOrder(),
                 Instant.ofEpochMilli(e.getCreatedAtMs()),
                 Instant.ofEpochMilli(e.getUpdatedAtMs()));
+    }
+
+    private static TaskGroupMembership toMembership(TaskGroupMembershipEntity e)
+    {
+        return new TaskGroupMembership(
+                e.getId().getTaskId(),
+                e.getId().getGroupId(),
+                Instant.ofEpochMilli(e.getAddedAtMs()));
     }
 }

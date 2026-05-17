@@ -72,8 +72,7 @@ public class TaskStartupReconciler
                     task.costUsdMilli(), task.tokensIn(), task.tokensOut(),
                     /* processPid */ null, task.logPath(),
                     task.createdAt(), now,
-                    task.endedAt(), task.errorMessage(), task.metadataJson(),
-                    task.groupId()));
+                    task.endedAt(), task.errorMessage(), task.metadataJson()));
         }
     }
 }

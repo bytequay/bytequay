@@ -55,9 +55,6 @@ public record Task(
         Instant updatedAt,
         Instant endedAt,
         String errorMessage,
-        String metadataJson,
-        /** Optional {@link TaskGroup#id} — null when the task isn't
-         *  pinned to any user-defined group. */
-        String groupId)
+        String metadataJson)
 {
 }

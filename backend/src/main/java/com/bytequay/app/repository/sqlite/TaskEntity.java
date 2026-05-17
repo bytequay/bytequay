@@ -80,8 +80,11 @@ class TaskEntity
     @Column(name = "metadata_json", nullable = false)
     private String metadataJson;
 
-    @Column(name = "group_id")
-    private String groupId;
+    // The legacy `tasks.group_id` column still exists in the schema
+    // (V57) but is no longer mapped — membership moved to the
+    // `task_group_members` join table in V59. The column is left
+    // in place because SQLite can't DROP a column that's the source
+    // of a REFERENCES clause without a full table rebuild.
 
     String getId() { return id; }
     void setId(String id) { this.id = id; }
@@ -139,7 +142,4 @@ class TaskEntity
 
     String getMetadataJson() { return metadataJson; }
     void setMetadataJson(String metadataJson) { this.metadataJson = metadataJson; }
-
-    String getGroupId() { return groupId; }
-    void setGroupId(String groupId) { this.groupId = groupId; }
 }

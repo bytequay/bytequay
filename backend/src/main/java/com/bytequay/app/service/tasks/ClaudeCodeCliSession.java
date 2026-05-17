@@ -431,6 +431,13 @@ public class ClaudeCodeCliSession
                 .add("-p")
                 .add("--output-format", "stream-json")
                 .add("--verbose")
+                // Surface the upstream Anthropic stream events (text
+                // deltas, content_block_start/stop, message_delta) so
+                // the parser can emit AssistantTextDelta events for
+                // the in-flight assistant card. The fully assembled
+                // assistant message still lands at message_stop and
+                // takes precedence for persistence.
+                .add("--include-partial-messages")
                 .add("--mcp-config", ensureMcpConfig().toString())
                 .add("--permission-prompt-tool", "mcp__bytequay__approval_prompt");
         String resume = agentSessionId.get();
@@ -594,6 +601,11 @@ public class ClaudeCodeCliSession
                     id, taskId, seq, "assistant", "text",
                     "{\"text\":\"" + jsonEscape(e.text()) + "\"}",
                     null, null, null, null, ts);
+            // Live-only — deltas reach SSE subscribers and feed the
+            // in-flight assistant card; the assembled AssistantText
+            // is the durable form. Persisting deltas would inflate
+            // the conversation table by ~1 row per token.
+            case StreamEvent.AssistantTextDelta ignored -> null;
             case StreamEvent.ThinkingStarted e -> new TaskMessage(
                     id, taskId, seq, "assistant", "thinking",
                     "{\"summary\":\"" + jsonEscape(e.summary()) + "\"}",
@@ -687,8 +699,7 @@ public class ClaudeCodeCliSession
                 current.processPid(), current.logPath(),
                 current.createdAt(), Instant.now(),
                 endedAt != null ? endedAt : current.endedAt(),
-                current.errorMessage(), current.metadataJson(),
-                current.groupId());
+                current.errorMessage(), current.metadataJson());
         store.saveTask(next);
     }
 

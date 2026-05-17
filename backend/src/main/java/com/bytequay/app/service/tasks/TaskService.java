@@ -18,6 +18,7 @@ import com.bytequay.app.domain.StreamEvent;
 import com.bytequay.app.domain.Task;
 import com.bytequay.app.domain.TaskFile;
 import com.bytequay.app.domain.TaskGroup;
+import com.bytequay.app.domain.TaskGroupMembership;
 import com.bytequay.app.domain.TaskKind;
 import com.bytequay.app.domain.TaskMessage;
 import com.bytequay.app.domain.TaskStatus;
@@ -25,6 +26,7 @@ import com.bytequay.app.repository.TaskGroupStore;
 import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.service.local.GitRunner;
 import org.springframework.stereotype.Service;
+import org.springframework.transaction.annotation.Transactional;
 
 import java.io.IOException;
 import java.nio.file.Path;
@@ -54,6 +56,10 @@ public class TaskService
     /** Hard cap on commits returned to the Commits tab. The view is a
      *  fast switcher, not a full git history — 100 is more than enough. */
     private static final int COMMITS_LIMIT = 100;
+    /** Cap on tasks per group, matching the tile grid in
+     *  {@code docs/mockups/design/tasks/tasks-group.png} which lays out
+     *  1 / 2 / 3 / 4 tiles by count and has no scroll / overflow path. */
+    public static final int GROUP_MAX_MEMBERS = 4;
 
     private final TaskStore store;
     private final TaskGroupStore groupStore;
@@ -79,7 +85,14 @@ public class TaskService
 
     public List<Task> listByGroup(String groupId, int limit)
     {
-        return store.listTasksByGroup(groupId, limit);
+        List<String> memberIds = groupStore.listMembers(groupId).stream()
+                .map(TaskGroupMembership::taskId)
+                .toList();
+        if (memberIds.isEmpty()) {
+            return List.of();
+        }
+        List<Task> rows = store.listTasksByIds(memberIds);
+        return rows.size() <= limit ? rows : rows.subList(0, limit);
     }
 
     public List<TaskGroup> listGroups()
@@ -87,9 +100,43 @@ public class TaskService
         return groupStore.listGroups();
     }
 
+    /** Full membership snapshot — drives the frontend's task↔group
+     *  index without an N+1 trip per task. */
+    public List<TaskGroupMembership> listAllMemberships()
+    {
+        return groupStore.listAllMemberships();
+    }
+
+    /**
+     * Create a group with its initial membership in one transaction.
+     *
+     * <p>Enforces both invariants from the redesign:
+     * <ul>
+     *   <li>At least one initial member ({@code initialTaskIds} must
+     *       not be empty) — there is no path to an empty group.</li>
+     *   <li>At most {@link #GROUP_MAX_MEMBERS} initial members so the
+     *       new group fits the tile grid without overflow.</li>
+     * </ul>
+     */
+    @Transactional
     public TaskGroup createGroup(NewGroupRequest request)
     {
         requireNonNull(request, "request is null");
+        List<String> initialTaskIds = request.initialTaskIds() == null
+                ? List.of()
+                : List.copyOf(request.initialTaskIds());
+        if (initialTaskIds.isEmpty()) {
+            throw new IllegalArgumentException("A group must be created with at least one task.");
+        }
+        if (initialTaskIds.size() > GROUP_MAX_MEMBERS) {
+            throw new IllegalArgumentException(
+                    "A group caps at " + GROUP_MAX_MEMBERS + " tasks; got " + initialTaskIds.size() + ".");
+        }
+        for (String taskId : initialTaskIds) {
+            if (store.findTaskById(taskId).isEmpty()) {
+                throw new NoSuchElementException("no task: " + taskId);
+            }
+        }
         Instant now = Instant.now();
         TaskGroup group = new TaskGroup(
                 UUID.randomUUID().toString(),
@@ -100,7 +147,66 @@ public class TaskService
                 now,
                 now);
         groupStore.saveGroup(group);
+        for (String taskId : initialTaskIds) {
+            groupStore.addMember(taskId, group.id());
+        }
         return groupStore.findGroupById(group.id()).orElse(group);
+    }
+
+    /**
+     * Add one task to an existing group. Validates both rows exist
+     * and that the group has room (cap = {@link #GROUP_MAX_MEMBERS}).
+     * Adding an existing member is a no-op (the store dedupes via the
+     * composite PK).
+     */
+    @Transactional
+    public void addTaskToGroup(String taskId, String groupId)
+    {
+        requireNonNull(taskId, "taskId is null");
+        requireNonNull(groupId, "groupId is null");
+        if (groupStore.findGroupById(groupId).isEmpty()) {
+            throw new NoSuchElementException("no group: " + groupId);
+        }
+        if (store.findTaskById(taskId).isEmpty()) {
+            throw new NoSuchElementException("no task: " + taskId);
+        }
+        long existing = groupStore.countMembers(groupId);
+        // Re-adding an existing member shouldn't trip the cap: the
+        // store's addMember is idempotent so the count won't change.
+        boolean alreadyMember = groupStore.listMembers(groupId).stream()
+                .anyMatch(m -> m.taskId().equals(taskId));
+        if (!alreadyMember && existing >= GROUP_MAX_MEMBERS) {
+            throw new IllegalStateException(
+                    "Group " + groupId + " is full (" + GROUP_MAX_MEMBERS + " tasks); "
+                            + "remove one before adding another.");
+        }
+        groupStore.addMember(taskId, groupId);
+    }
+
+    /**
+     * Remove one task from a group. The last member can't be removed
+     * — callers must {@link #deleteGroup} the group instead. Removing
+     * a task that isn't a member is a no-op.
+     */
+    @Transactional
+    public void removeTaskFromGroup(String taskId, String groupId)
+    {
+        requireNonNull(taskId, "taskId is null");
+        requireNonNull(groupId, "groupId is null");
+        if (groupStore.findGroupById(groupId).isEmpty()) {
+            throw new NoSuchElementException("no group: " + groupId);
+        }
+        boolean isMember = groupStore.listMembers(groupId).stream()
+                .anyMatch(m -> m.taskId().equals(taskId));
+        if (!isMember) {
+            return;
+        }
+        if (groupStore.countMembers(groupId) <= 1) {
+            throw new IllegalStateException(
+                    "Group " + groupId + " has only one task left; "
+                            + "delete the group instead of emptying it.");
+        }
+        groupStore.removeMember(taskId, groupId);
     }
 
     /** Partial update — only non-null fields on {@code patch} change.
@@ -124,22 +230,21 @@ public class TaskService
         return next;
     }
 
-    /** Tasks pointing at this group keep existing — their
-     *  {@code group_id} is cleared so they survive the deletion. */
+    /** Delete a group. The {@code task_group_members} cascade in the
+     *  schema (V59) drops the membership rows; the tasks themselves
+     *  survive — they simply leave the group. */
     public void deleteGroup(String groupId)
     {
-        store.unsetGroupOnTasks(groupId);
         groupStore.deleteGroup(groupId);
     }
 
     /**
-     * Partial update — only fields the caller wants to change. Title
-     * accepts a trimmed non-blank string; group accepts the sentinel
-     * {@link TaskPatch#clearGroup} via the {@code group} carrier to
-     * unset a pin (a plain {@code null} field means "don't change").
-     *
-     * <p>Validates the target group exists when set so the UI can't
-     * strand a task on a stale dropdown selection.
+     * Partial update for one task. {@code title} is the only editable
+     * field; pass a non-null non-blank string to rename, or omit /
+     * pass null to leave the title alone. Group membership lives in
+     * its own endpoints ({@link #addTaskToGroup} /
+     * {@link #removeTaskFromGroup}) since one task can belong to
+     * several groups.
      */
     public Task patchTask(String taskId, TaskPatch patch)
     {
@@ -153,15 +258,6 @@ public class TaskService
             nextTitle = patch.title().trim();
         }
 
-        String nextGroupId = current.groupId();
-        if (patch.group() != null) {
-            String pick = patch.group().value();
-            if (pick != null && groupStore.findGroupById(pick).isEmpty()) {
-                throw new NoSuchElementException("no group: " + pick);
-            }
-            nextGroupId = pick;
-        }
-
         Task next = new Task(
                 current.id(), current.kind(), current.provider(), current.agentSessionId(),
                 nextTitle, current.status(), current.workingDir(), current.branchName(),
@@ -169,15 +265,36 @@ public class TaskService
                 current.costUsdMilli(), current.tokensIn(), current.tokensOut(),
                 current.processPid(), current.logPath(),
                 current.createdAt(), Instant.now(),
-                current.endedAt(), current.errorMessage(), current.metadataJson(),
-                nextGroupId);
+                current.endedAt(), current.errorMessage(), current.metadataJson());
         store.saveTask(next);
         return store.findTaskById(taskId).orElse(next);
     }
 
+    /**
+     * Create + start a task. Optionally pin it into one or more
+     * existing groups via {@link NewTaskRequest#initialGroupIds}; each
+     * referenced group must exist and have room (the
+     * {@link #GROUP_MAX_MEMBERS} cap). The persistence of the task
+     * and its memberships happens in one transaction so a half-pinned
+     * task can't survive a mid-flight failure.
+     */
+    @Transactional
     public Task create(NewTaskRequest request)
     {
         requireNonNull(request, "request is null");
+        List<String> initialGroupIds = request.initialGroupIds() == null
+                ? List.of()
+                : List.copyOf(request.initialGroupIds());
+        for (String groupId : initialGroupIds) {
+            if (groupStore.findGroupById(groupId).isEmpty()) {
+                throw new NoSuchElementException("no group: " + groupId);
+            }
+            if (groupStore.countMembers(groupId) >= GROUP_MAX_MEMBERS) {
+                throw new IllegalStateException(
+                        "Group " + groupId + " is full (" + GROUP_MAX_MEMBERS + " tasks); "
+                                + "remove one before adding another.");
+            }
+        }
         Instant now = Instant.now();
         Task task = new Task(
                 UUID.randomUUID().toString(),
@@ -198,9 +315,11 @@ public class TaskService
                 now,
                 /* endedAt */ null,
                 /* errorMessage */ null,
-                request.metadataJson() == null ? "{}" : request.metadataJson(),
-                request.groupId());
+                request.metadataJson() == null ? "{}" : request.metadataJson());
         store.saveTask(task);
+        for (String groupId : initialGroupIds) {
+            groupStore.addMember(task.id(), groupId);
+        }
         // Spin up the session synchronously so the first send() call
         // inside this request can dispatch on it.
         AgentSession session = registry.getOrCreate(task);
@@ -460,15 +579,22 @@ public class TaskService
             String branchName,
             String initialPrompt,
             String metadataJson,
-            /** Optional — pre-assigns the new task to a group. */
-            String groupId) {}
+            /** Optional — pre-assigns the new task to one or more
+             *  existing groups. Each group must have room (cap =
+             *  {@link #GROUP_MAX_MEMBERS}); the whole create is
+             *  transactional so the task and its memberships either
+             *  all land or none do. */
+            List<String> initialGroupIds) {}
 
-    /** Inputs from the create-group dialog. */
+    /** Inputs from the create-group dialog. The redesign requires
+     *  a non-empty group, so {@code initialTaskIds} is required (≥1
+     *  task) and bounded by {@link #GROUP_MAX_MEMBERS}. */
     public record NewGroupRequest(
             String name,
             String glyph,
             String color,
-            int sortOrder) {}
+            int sortOrder,
+            List<String> initialTaskIds) {}
 
     /** Partial-update inputs from the Group settings dialog. {@code null}
      *  or blank fields preserve the current value. */
@@ -478,27 +604,11 @@ public class TaskService
             String color) {}
 
     /**
-     * Partial-update inputs for one task. Fields:
-     * <ul>
-     *   <li>{@code title} — when non-null and non-blank, replaces the
-     *       current title (trimmed); otherwise no change.</li>
-     *   <li>{@code group} — present means change the pin to this
-     *       value (use {@link GroupRef#clear()} to unpin); absent
-     *       (null) means leave the existing groupId alone.</li>
-     * </ul>
-     * The {@code group} carrier exists because plain {@code null}
-     * can't distinguish "don't change" from "unset" — the wrapper
-     * surfaces the intent explicitly.
+     * Partial-update inputs for one task. Only {@code title} is
+     * editable; pass a non-null, non-blank string to rename. Group
+     * membership lives in {@link TaskService#addTaskToGroup} /
+     * {@link TaskService#removeTaskFromGroup} since one task can
+     * belong to several groups.
      */
-    public record TaskPatch(String title, GroupRef group) {}
-
-    /** Three-state pin update: {@code value() == null} clears the
-     *  pin, a non-null value sets it. The carrier is absent (the
-     *  patch's {@code group} field is null) when the caller doesn't
-     *  want to touch the pin at all. */
-    public record GroupRef(String value)
-    {
-        public static GroupRef of(String groupId) { return new GroupRef(groupId); }
-        public static GroupRef clear() { return new GroupRef(null); }
-    }
+    public record TaskPatch(String title) {}
 }

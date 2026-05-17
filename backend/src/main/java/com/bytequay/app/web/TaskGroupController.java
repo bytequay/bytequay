@@ -14,6 +14,7 @@
 package com.bytequay.app.web;
 
 import com.bytequay.app.domain.TaskGroup;
+import com.bytequay.app.domain.TaskGroupMembership;
 import com.bytequay.app.service.tasks.TaskService;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -29,9 +30,12 @@ import java.util.List;
 import static java.util.Objects.requireNonNull;
 
 /**
- * REST surface for the rail's Groups section: list, create, delete.
- * Renaming / reordering land in a follow-up once the create flow is
- * proven out.
+ * REST surface for the Groups rail and the new tasks-group page:
+ * list / create / rename / delete groups, plus add/remove members.
+ *
+ * <p>Group ↔ task membership is many-to-many — one task can sit in
+ * several groups. The frontend pulls the full membership snapshot
+ * once via {@link #memberships()} and joins it in memory.
  */
 @RestController
 @RequestMapping("/api/task-groups")
@@ -50,6 +54,20 @@ public class TaskGroupController
         return tasks.listGroups();
     }
 
+    /** Single flat list of (taskId, groupId, addedAt) — the frontend
+     *  derives task→groups and group→tasks indexes in memory. */
+    @GetMapping("/memberships")
+    public List<TaskGroupMembership> memberships()
+    {
+        return tasks.listAllMemberships();
+    }
+
+    /**
+     * Create a group with an initial set of members. {@code
+     * initialTaskIds} must contain at least one existing task and no
+     * more than {@link TaskService#GROUP_MAX_MEMBERS}; the whole
+     * create is transactional in {@link TaskService#createGroup}.
+     */
     @PostMapping
     public TaskGroup create(@RequestBody NewGroupBody body)
     {
@@ -61,7 +79,8 @@ public class TaskGroupController
                 body.name(),
                 body.glyph(),
                 body.color(),
-                body.sortOrder()));
+                body.sortOrder(),
+                body.initialTaskIds() == null ? List.of() : body.initialTaskIds()));
     }
 
     @PatchMapping("/{id}")
@@ -78,7 +97,32 @@ public class TaskGroupController
         tasks.deleteGroup(id);
     }
 
-    public record NewGroupBody(String name, String glyph, String color, int sortOrder) {}
+    /** Add a task to a group. Rejects when the group is already at
+     *  the {@link TaskService#GROUP_MAX_MEMBERS} cap. Idempotent on
+     *  existing members. */
+    @PostMapping("/{groupId}/members/{taskId}")
+    public void addMember(@PathVariable String groupId, @PathVariable String taskId)
+    {
+        tasks.addTaskToGroup(taskId, groupId);
+    }
+
+    /** Remove a task from a group. Rejects when the task is the
+     *  group's only remaining member — callers must delete the group
+     *  itself instead. */
+    @DeleteMapping("/{groupId}/members/{taskId}")
+    public void removeMember(@PathVariable String groupId, @PathVariable String taskId)
+    {
+        tasks.removeTaskFromGroup(taskId, groupId);
+    }
+
+    public record NewGroupBody(
+            String name,
+            String glyph,
+            String color,
+            int sortOrder,
+            /** Required — at least one existing task id. The group
+             *  invariant is enforced server-side. */
+            List<String> initialTaskIds) {}
 
     public record PatchGroupBody(String name, String glyph, String color) {}
 }

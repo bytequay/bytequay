@@ -15,10 +15,8 @@ package com.bytequay.app.repository.sqlite;
 
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
-import org.springframework.data.jpa.repository.Modifying;
-import org.springframework.data.jpa.repository.Query;
-import org.springframework.data.repository.query.Param;
 
+import java.util.Collection;
 import java.util.List;
 
 interface TaskJpaRepository
@@ -28,9 +26,8 @@ interface TaskJpaRepository
      *  page size for the list view. */
     List<TaskEntity> findByStatusOrderByUpdatedAtMsDesc(String status, Pageable pageable);
 
-    List<TaskEntity> findByGroupIdOrderByUpdatedAtMsDesc(String groupId, Pageable pageable);
-
-    @Modifying
-    @Query("update TaskEntity t set t.groupId = null where t.groupId = :groupId")
-    void clearGroupId(@Param("groupId") String groupId);
+    /** Batched id lookup used by group membership reads — turns a
+     *  list of task ids returned from {@code task_group_members} into
+     *  the actual rows in one query, newest-first by updated_at_ms. */
+    List<TaskEntity> findByIdInOrderByUpdatedAtMsDesc(Collection<String> ids);
 }

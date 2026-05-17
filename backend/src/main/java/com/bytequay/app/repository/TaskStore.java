@@ -18,6 +18,7 @@ import com.bytequay.app.domain.TaskFile;
 import com.bytequay.app.domain.TaskMessage;
 import com.bytequay.app.domain.TaskStatus;
 
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 
@@ -56,15 +57,12 @@ public interface TaskStore
     List<Task> listTasksByStatus(TaskStatus status, int limit);
 
     /**
-     * Tasks pinned to the given group, newest-{@code updated_at_ms}
-     * first. Drives the group detail view.
+     * Fetch a batch of tasks by id, newest-{@code updated_at_ms}
+     * first. Used by the group membership read path
+     * ({@code TaskGroupStore#listMembers} returns ids, then this
+     * resolves the rows in one round-trip).
      */
-    List<Task> listTasksByGroup(String groupId, int limit);
-
-    /** Clears the {@code group_id} on every task currently pointing
-     *  at {@code groupId}. Called when a group is deleted so the
-     *  tasks survive — they just become ungrouped. */
-    void unsetGroupOnTasks(String groupId);
+    List<Task> listTasksByIds(Collection<String> ids);
 
     // ── messages ─────────────────────────────────────────────────────
 

@@ -122,7 +122,7 @@ public class TaskController
                 body.branchName(),
                 body.initialPrompt(),
                 body.metadataJson(),
-                body.groupId()));
+                body.initialGroupIds() == null ? List.of() : body.initialGroupIds()));
     }
 
     /** GET /api/tasks/{id} */
@@ -135,28 +135,17 @@ public class TaskController
     }
 
     /**
-     * PATCH /api/tasks/{id} — partial update.
-     *
-     * <p>Currently editable fields:
-     * <ul>
-     *   <li>{@code title} — non-null, non-blank string. Omitting or
-     *       sending null leaves the title alone.</li>
-     *   <li>{@code groupId} — pin under {@code setGroup: true}. The
-     *       boolean is the discriminator: {@code true} with a string
-     *       sets the pin, {@code true} with null clears it,
-     *       {@code false} (or omitted) leaves it untouched. Done this
-     *       way because JSON null can't distinguish "clear" from
-     *       "don't change".</li>
-     * </ul>
+     * PATCH /api/tasks/{id} — partial update. Only {@code title} is
+     * editable; pass a non-null, non-blank string to rename. Group
+     * membership moved to its own endpoints under
+     * {@code /api/task-groups/{id}/members/{taskId}} since one task
+     * can belong to many groups.
      */
     @PatchMapping("/{id}")
     public Task patch(@PathVariable String id, @RequestBody PatchTaskBody body)
     {
         requireNonNull(body, "body is required");
-        TaskService.GroupRef group = body.setGroup()
-                ? new TaskService.GroupRef(body.groupId())
-                : null;
-        return tasks.patchTask(id, new TaskService.TaskPatch(body.title(), group));
+        return tasks.patchTask(id, new TaskService.TaskPatch(body.title()));
     }
 
     /** GET /api/tasks/{id}/messages — full conversation, oldest first. */
@@ -337,8 +326,9 @@ public class TaskController
             String branchName,
             String initialPrompt,
             String metadataJson,
-            /** Optional — pre-assigns the new task to a group. */
-            String groupId) {}
+            /** Optional — pre-pin the new task into one or more existing
+             *  groups. Each must have room (cap is enforced server-side). */
+            List<String> initialGroupIds) {}
 
     public record SendBody(String input) {}
 
@@ -348,5 +338,5 @@ public class TaskController
             String preApproveToolName,
             Integer preApproveCount) {}
 
-    public record PatchTaskBody(String title, boolean setGroup, String groupId) {}
+    public record PatchTaskBody(String title) {}
 }

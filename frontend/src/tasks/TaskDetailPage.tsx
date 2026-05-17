@@ -482,9 +482,15 @@ function BackBar({ onBack, title }: { onBack: () => void; title: string }) {
  *  reverts. The pencil glyph is decorative — the whole heading is
  *  the click target so the affordance is generous without crowding
  *  the layout. */
-function EditableTitle({ title, onRename }: {
+function EditableTitle({ title, onRename, maxDisplayChars }: {
   title: string;
   onRename: (next: string) => void | Promise<void>;
+  /** Optional cap on how many characters of the title are rendered in
+   *  the resting state. Anything past the cap is replaced with `…`.
+   *  The editor still operates on the full title — the cap only
+   *  affects the display chip. Used by the terminal toolbar where
+   *  the badge is content-sized; longer names would balloon it. */
+  maxDisplayChars?: number;
 }) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(title);
@@ -522,14 +528,19 @@ function EditableTitle({ title, onRename }: {
       />
     );
   }
+  const displayTitle = maxDisplayChars && title.length > maxDisplayChars
+    ? `${title.slice(0, maxDisplayChars - 1)}…`
+    : title;
   return (
     <button
       type="button"
       onClick={() => setEditing(true)}
       style={titleEditTriggerStyle}
-      title="Click to rename — Enter to save, Esc to cancel"
+      title={title.length > displayTitle.length
+        ? `${title} — click to rename (Enter saves, Esc cancels)`
+        : 'Click to rename — Enter to save, Esc to cancel'}
     >
-      <span style={thTitleStyle}>{title}</span>
+      <span style={thTitleStyle}>{displayTitle}</span>
       <span style={titleEditPencilStyle} aria-hidden>✎</span>
     </button>
   );
@@ -1042,7 +1053,7 @@ function TerminalWrap({
             they were pure decoration that ate ~50px of toolbar width
             the title needed for itself. */}
         <div style={taskTitleBadgeTermStyle}>
-          <EditableTitle title={task.title} onRename={onRename} />
+          <EditableTitle title={task.title} onRename={onRename} maxDisplayChars={20} />
         </div>
         <span style={termNameStyle}>
           <span style={sessionIdStyleTerminal}>{shortenPath(task.workingDir)}</span>
@@ -1053,6 +1064,7 @@ function TerminalWrap({
             <span style={sessionIdStyleTerminal}> · {task.model}</span>
           )}
         </span>
+        <span style={{ flex: 1 }} />
         <ViewToggle view={view} onChangeView={onChangeView} />
         <div style={twHeaderActionsStyle}>
           {canStop && (
@@ -2203,12 +2215,10 @@ const taskTitleBadgeTermStyle: React.CSSProperties = {
   background: 'var(--term-bg-elev1)',
   border: '1px solid var(--term-border)',
   borderRadius: 6,
-  // Title takes whatever toolbar width the other items don't claim.
-  // Replaces the explicit flex:1 spacer that used to push the buttons
-  // to the right — the title is the spacer now, so a long name shows
-  // as much as possible before ellipsizing.
-  flex: '1 1 auto',
-  minWidth: 0,
+  // Content-sized — width follows the (truncated) title length. The
+  // 20-char cap on the title text keeps the badge from ever stealing
+  // toolbar space from the meta + buttons.
+  flexShrink: 0,
 };
 const zoneMetaStyle: React.CSSProperties = {
   color: 'var(--text-4)',

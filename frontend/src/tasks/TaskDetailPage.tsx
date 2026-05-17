@@ -536,15 +536,16 @@ function BackBar({ onBack, title }: { onBack: () => void; title: string }) {
  *  reverts. The pencil glyph is decorative — the whole heading is
  *  the click target so the affordance is generous without crowding
  *  the layout. */
-function EditableTitle({ title, onRename, maxDisplayChars, titleStyleOverride }: {
+function EditableTitle({ title, onRename, maxDisplayWords, titleStyleOverride }: {
   title: string;
   onRename: (next: string) => void | Promise<void>;
-  /** Optional cap on how many characters of the title are rendered in
-   *  the resting state. Anything past the cap is replaced with `…`.
-   *  The editor still operates on the full title — the cap only
-   *  affects the display chip. Used by the terminal toolbar where
-   *  the badge is content-sized; longer names would balloon it. */
-  maxDisplayChars?: number;
+  /** Optional cap on how many whitespace-separated words of the title
+   *  are rendered in the resting state. Anything past the cap is
+   *  replaced with `…`. The editor still operates on the full title —
+   *  the cap only affects the display chip. Used by the terminal
+   *  toolbar where the badge is content-sized; a 25-word essay-style
+   *  title would balloon it. */
+  maxDisplayWords?: number;
   /** Style merged into the inner title span. The shared default
    *  (`thTitleStyle`) carries `overflow:hidden + ellipsis + nowrap`,
    *  which interacts badly with the terminal-mode badge that wants
@@ -588,9 +589,12 @@ function EditableTitle({ title, onRename, maxDisplayChars, titleStyleOverride }:
       />
     );
   }
-  const displayTitle = maxDisplayChars && title.length > maxDisplayChars
-    ? `${title.slice(0, maxDisplayChars - 1)}…`
-    : title;
+  const displayTitle = (() => {
+    if (!maxDisplayWords) return title;
+    const words = title.trim().split(/\s+/).filter(Boolean);
+    if (words.length <= maxDisplayWords) return title;
+    return `${words.slice(0, maxDisplayWords).join(' ')}…`;
+  })();
   return (
     <button
       type="button"
@@ -1122,6 +1126,7 @@ function TerminalWrap({
           <EditableTitle
             title={task.title}
             onRename={onRename}
+            maxDisplayWords={20}
             titleStyleOverride={termTitleSpanStyle}
           />
         </div>

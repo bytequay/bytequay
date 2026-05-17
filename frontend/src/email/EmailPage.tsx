@@ -11,7 +11,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import { useCallback, useEffect, useRef, useState } from 'react';
+import { useCallback, useEffect, useRef, useState, type Ref } from 'react';
 import type {
   EmailMessageDetailDto,
   EmailTagArchiveEntryDto,
@@ -68,6 +68,17 @@ export default function EmailPage({ onOpenIntegrationsSettings, onOpenLinkedRef 
   const [archiveLoaded, setArchiveLoaded] = useState(false);
   const [activeView, setActiveView] = useState<EmailActiveView>({ kind: 'inbox' });
   const [rulesModalOpen, setRulesModalOpen] = useState(false);
+
+  // Session-scope cache of thread details so re-opening a thread (or
+  // walking it again with j/k) doesn't pay the IMAP round-trip twice.
+  // Keyed by Gmail thread id. Cleared on account switch and on explicit
+  // inbox Refresh; the existing meta.messageCount-driven silent refresh
+  // in ThreadDetailPane still picks up new replies inside an open thread.
+  const detailsCacheRef = useRef<Map<string, EmailThreadDetailDto>>(new Map());
+  // Stamp bumped whenever the cache is invalidated; ThreadDetailPane
+  // watches it so a Refresh forces a re-fetch even when meta.id and
+  // messageCount haven't changed.
+  const [cacheVersion, setCacheVersion] = useState(0);
   // Threads the user opened in this session that auto-archived. They're
   // still in `threads` so the detail pane can render the open one, but
   // filtered out of the visible inbox list. "Keep in inbox" removes the
@@ -107,6 +118,12 @@ export default function EmailPage({ onOpenIntegrationsSettings, onOpenLinkedRef 
   const loadInbox = useCallback(async (account: string, force = false) => {
     setLoading(true);
     setError(null);
+    if (force) {
+      // Explicit Refresh: bust the per-thread detail cache too so the
+      // user gets fresh bodies, not just a fresh inbox list.
+      detailsCacheRef.current = new Map();
+      setCacheVersion(v => v + 1);
+    }
     try {
       const list = force
         ? await window.bridge.refreshEmailThreads(account)
@@ -184,6 +201,10 @@ export default function EmailPage({ onOpenIntegrationsSettings, onOpenLinkedRef 
   // archive log is loaded lazily on first navigation to the Archived
   // bucket — most sessions won't need it.
   useEffect(() => {
+    // Drop the in-session detail cache when the account changes — the
+    // entries are scoped to the previous account and have no use here.
+    detailsCacheRef.current = new Map();
+    setCacheVersion(v => v + 1);
     if (selectedAccount == null) {
       setThreads(null);
       setTags([]);
@@ -538,6 +559,11 @@ export default function EmailPage({ onOpenIntegrationsSettings, onOpenLinkedRef 
                 onKeepInInbox={() => void keepInInbox(selectedThread.id)}
                 onMuteSender={() => void muteSender(selectedThread)}
                 onOpenLinkedRef={onOpenLinkedRef}
+                cachedDetail={detailsCacheRef.current.get(selectedThread.id) ?? null}
+                cacheVersion={cacheVersion}
+                onDetailFetched={(d) => {
+                  detailsCacheRef.current.set(d.id, d);
+                }}
               />
             ) : (
               <div className="email-page__hint">Pick a thread on the left.</div>
@@ -600,12 +626,33 @@ type DetailProps = {
    *  will filter out the sender's threads. */
   onMuteSender: () => void;
   onOpenLinkedRef: (ref: LinkedRefDto) => void;
+  /** Pre-fetched detail from the EmailPage-scoped session cache.
+   *  When present and {@code messageCount} matches, skips the
+   *  IMAP round-trip entirely so re-opening a thread is instant. */
+  cachedDetail: EmailThreadDetailDto | null;
+  /** Bumped by EmailPage when the cache is invalidated (Refresh
+   *  button, account switch). Watched here as an effect dep so
+   *  the same thread re-fetches after a Refresh. */
+  cacheVersion: number;
+  /** Called with the freshly-fetched detail so EmailPage can
+   *  populate its cache for the next open. */
+  onDetailFetched: (detail: EmailThreadDetailDto) => void;
 };
 
-function ThreadDetailPane({ account, meta, archived, onKeepInInbox, onMuteSender, onOpenLinkedRef }: DetailProps) {
-  const [detail, setDetail] = useState<EmailThreadDetailDto | null>(null);
-  const [loading, setLoading] = useState(true);
+function ThreadDetailPane({
+  account, meta, archived, onKeepInInbox, onMuteSender, onOpenLinkedRef,
+  cachedDetail, cacheVersion, onDetailFetched,
+}: DetailProps) {
+  // Seed from cache when available so the first paint already shows
+  // content — no spinner flash on re-opens.
+  const initial = cachedDetail && cachedDetail.id === meta.id ? cachedDetail : null;
+  const [detail, setDetail] = useState<EmailThreadDetailDto | null>(initial);
+  const [loading, setLoading] = useState(initial == null);
   const [error, setError] = useState<string | null>(null);
+  // Scroll target for the "jump to the latest message on open" behavior.
+  // Refs the wrapper of the most-recent message; scrolled into view via
+  // an effect once detail is populated.
+  const lastMessageRef = useRef<HTMLDivElement | null>(null);
   // Inline reply composer — collapsed by default, opens below the
   // last message. v1 is plain-text body only; To/Subject are derived
   // server-side from the latest message in the thread.
@@ -651,12 +698,23 @@ function ThreadDetailPane({ account, meta, archived, onKeepInInbox, onMuteSender
 
   // Re-fetch when:
   //  - the user picks a different thread (meta.id changes), OR
-  //  - the inbox poll above shows the open thread now has more messages
-  //    than we have on screen (meta.messageCount changes). Loading state
-  //    only flips for the first case so the silent-refresh path doesn't
-  //    flash a spinner over content the user is already reading.
+  //  - the inbox poll shows the open thread now has more messages than
+  //    we have on screen (meta.messageCount changes), OR
+  //  - the cache was busted by a Refresh (cacheVersion changes).
+  //
+  // If the cache already has a detail whose messageCount matches the
+  // inbox row, we skip the fetch entirely — that's the fast path that
+  // makes re-opens instant. Loading state only flips for the first
+  // case so the silent-refresh path doesn't flash a spinner over
+  // content the user is already reading.
   useEffect(() => {
     let cancelled = false;
+    const haveFreshCache = detail !== null
+            && detail.id === meta.id
+            && detail.messages.length >= meta.messageCount;
+    if (haveFreshCache) {
+      return;
+    }
     const isInitialLoad = detail === null || detail.id !== meta.id;
     if (isInitialLoad) {
       setLoading(true);
@@ -668,6 +726,7 @@ function ThreadDetailPane({ account, meta, archived, onKeepInInbox, onMuteSender
         const d = await window.bridge.getEmailThread(account, meta.id);
         if (cancelled) return;
         setDetail(d);
+        onDetailFetched(d);
       }
       catch (e) {
         if (cancelled) return;
@@ -680,7 +739,22 @@ function ThreadDetailPane({ account, meta, archived, onKeepInInbox, onMuteSender
     })();
     return () => { cancelled = true; };
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [account, meta.id, meta.messageCount]);
+  }, [account, meta.id, meta.messageCount, cacheVersion]);
+
+  // Jump to the bottom (most-recent reply) whenever a fresh detail
+  // lands — both on initial open and after a reply is sent. We defer
+  // by ~350ms so embedded HTML iframes have had a chance to measure
+  // their content height; without that, the offsetTop of the last
+  // message is still stale and the scroll lands too high.
+  useEffect(() => {
+    if (!detail || detail.messages.length === 0) return;
+    const target = lastMessageRef.current;
+    if (!target) return;
+    const timer = setTimeout(() => {
+      target.scrollIntoView({ block: 'start', behavior: 'auto' });
+    }, 350);
+    return () => clearTimeout(timer);
+  }, [detail?.id, detail?.messages.length]);
 
   return (
     <div className="email-detail">
@@ -746,9 +820,17 @@ function ThreadDetailPane({ account, meta, archived, onKeepInInbox, onMuteSender
       )}
       {detail && (
         <div className="email-detail__messages">
-          {detail.messages.map((m, i) => (
-            <ThreadMessage key={m.id} message={m} isLast={i === detail.messages.length - 1} />
-          ))}
+          {detail.messages.map((m, i) => {
+            const isLast = i === detail.messages.length - 1;
+            return (
+              <ThreadMessage
+                key={m.id}
+                message={m}
+                isLast={isLast}
+                wrapperRef={isLast ? lastMessageRef : undefined}
+              />
+            );
+          })}
         </div>
       )}
       {detail && (
@@ -799,9 +881,16 @@ function ThreadDetailPane({ account, meta, archived, onKeepInInbox, onMuteSender
   );
 }
 
-function ThreadMessage({ message, isLast }: { message: EmailMessageDetailDto; isLast: boolean }) {
+function ThreadMessage({ message, isLast, wrapperRef }: {
+  message: EmailMessageDetailDto;
+  isLast: boolean;
+  wrapperRef?: Ref<HTMLDivElement>;
+}) {
   return (
-    <div className={`thread-message${isLast ? ' thread-message--latest' : ''}`}>
+    <div
+      ref={wrapperRef}
+      className={`thread-message${isLast ? ' thread-message--latest' : ''}`}
+    >
       <div className="thread-message__head">
         <div className="thread-message__from">{message.from}</div>
         <div className="thread-message__time">{new Date(message.receivedAt).toLocaleString()}</div>

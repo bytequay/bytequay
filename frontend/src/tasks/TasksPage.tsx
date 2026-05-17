@@ -15,8 +15,9 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { TaskDto, TaskGroupDto, TaskGroupMembershipDto, TaskStatusDto } from '../types';
 import GroupMenu from './GroupMenu';
 import GroupSettingsDialog from './GroupSettingsDialog';
-import GroupTaskGrid, { type GroupLayout } from './GroupTaskGrid';
+import GroupTaskGrid from './GroupTaskGrid';
 import NewTaskDialog from './NewTaskDialog';
+import TasksGroupPage from './TasksGroupPage';
 import TasksLeftRail, {
   repoKey,
   type GroupFilter,
@@ -36,15 +37,10 @@ const STATUS_GROUPS: Array<{ key: 'active' | 'queued' | 'idle' | 'done'; label: 
   { key: 'done', label: 'Completed', statuses: ['COMPLETED', 'ERRORED'] },
 ];
 
-const GROUP_LAYOUT_KEY = 'bytequay.tasks.groupLayout';
-function loadGroupLayout(): GroupLayout {
-  try {
-    const v = Number(window.localStorage.getItem(GROUP_LAYOUT_KEY));
-    return v === 1 || v === 2 || v === 3 || v === 4 ? v : 2;
-  }
-  catch {
-    return 2;
-  }
+const IMMERSIVE_KEY = 'bytequay.tasks.groupImmersive';
+function loadImmersive(): boolean {
+  try { return window.localStorage.getItem(IMMERSIVE_KEY) === '1'; }
+  catch { return false; }
 }
 
 type Props = {
@@ -89,12 +85,19 @@ export default function TasksPage({
   const [busyId, setBusyId] = useState<string | null>(null);
   const [activeGroup, setActiveGroup] = useState<TaskGroupDto | null>(null);
   const [showGroupSettings, setShowGroupSettings] = useState(false);
-  const [groupLayout, setGroupLayout] = useState<GroupLayout>(loadGroupLayout);
+  const [immersive, setImmersive] = useState<boolean>(loadImmersive);
 
   useEffect(() => {
-    try { window.localStorage.setItem(GROUP_LAYOUT_KEY, String(groupLayout)); }
+    try { window.localStorage.setItem(IMMERSIVE_KEY, immersive ? '1' : '0'); }
     catch { /* private browsing — fine to skip */ }
-  }, [groupLayout]);
+  }, [immersive]);
+
+  // Falling out of group view (back to All Tasks etc.) drops the
+  // immersive flag so the wider page chrome shows up again. The user
+  // keeps the bit only while inside the group page.
+  useEffect(() => {
+    if (groupId === null && immersive) setImmersive(false);
+  }, [groupId, immersive]);
 
   const refresh = useCallback(async () => {
     try {
@@ -234,27 +237,6 @@ export default function TasksPage({
     });
   }, [filtered]);
 
-  const groupMetrics = useMemo(() => {
-    if (!activeGroup) return null;
-    let running = 0;
-    let awaiting = 0;
-    let idle = 0;
-    let done = 0;
-    let costMilli = 0;
-    for (const t of filtered) {
-      costMilli += t.costUsdMilli;
-      switch (t.status) {
-        case 'RUNNING':   running++; break;
-        case 'AWAITING':  awaiting++; break;
-        case 'IDLE':
-        case 'PENDING':   idle++; break;
-        case 'COMPLETED':
-        case 'ERRORED':   done++; break;
-      }
-    }
-    return { running, awaiting, idle, done, costMilli };
-  }, [activeGroup, filtered]);
-
   const onStop = useCallback(async (id: string) => {
     setBusyId(id);
     try {
@@ -305,6 +287,70 @@ export default function TasksPage({
       }
     }, []);
 
+  // Inside a group → render the redesigned group page (compact
+  // sidebar + tmux-style tile grid). Falls through to the default
+  // list view when no group is selected or while the initial fetch
+  // is still in flight.
+  if (activeGroup && tasks !== null) {
+    return (
+      <>
+        <TasksGroupPage
+          group={activeGroup}
+          groups={groups}
+          tasks={tilesOrdered}
+          groupIdsByTaskId={groupIdsByTaskId}
+          busyId={busyId}
+          onSelectTask={onSelectTask}
+          onToggleGroup={toggleTaskInGroup}
+          onStop={onStop}
+          onSend={onTileSend}
+          onInterrupt={onTileInterrupt}
+          onDecide={onTileDecide}
+          onAddTask={() => setShowCreate(true)}
+          onOpenGroupSettings={() => setShowGroupSettings(true)}
+          onRefresh={refresh}
+          immersive={immersive}
+          onChangeImmersive={setImmersive}
+        />
+
+        {error && (
+          <div style={errorBannerStyle}>
+            <strong>Couldn't load tasks.</strong> {error}
+          </div>
+        )}
+
+        {showCreate && (
+          <NewTaskDialog
+            onClose={() => setShowCreate(false)}
+            initialGroupId={groupId}
+            onCreated={async () => {
+              setShowCreate(false);
+              await refresh();
+            }}
+          />
+        )}
+
+        {showGroupSettings && activeGroup && (
+          <GroupSettingsDialog
+            group={activeGroup}
+            pinnedTaskCount={filteredCount}
+            onClose={() => setShowGroupSettings(false)}
+            onSaved={updated => {
+              setShowGroupSettings(false);
+              setActiveGroup(updated);
+              void refresh();
+            }}
+            onDeleted={() => {
+              setShowGroupSettings(false);
+              onGroupChange(null);
+              void refresh();
+            }}
+          />
+        )}
+      </>
+    );
+  }
+
   return (
     <section style={layoutStyle}>
       <TasksLeftRail
@@ -326,97 +372,14 @@ export default function TasksPage({
       <div style={mainStyle}>
         <header style={headerStyle}>
           <div>
-            {activeGroup && (
-              <div style={breadcrumbStyle}>
-                Tasks
-                <span style={breadcrumbSepStyle}>/</span>
-                <button
-                  type="button"
-                  onClick={() => onGroupChange(null)}
-                  style={breadcrumbLinkStyle}
-                >
-                  Groups
-                </button>
-                <span style={breadcrumbSepStyle}>/</span>
-                <span>{activeGroup.name}</span>
-              </div>
-            )}
-            <h1 style={titleStyle}>
-              {activeGroup ? (
-                <>
-                  <span style={{ ...headerGlyphStyle, background: groupColorBg(activeGroup.color) }}>
-                    {activeGroup.glyph || '•'}
-                  </span>
-                  {activeGroup.name}
-                </>
-              ) : (
-                filterLabel(filter)
-              )}
-            </h1>
+            <h1 style={titleStyle}>{filterLabel(filter)}</h1>
             <p style={subtitleStyle}>
-              {activeGroup && groupMetrics ? (
-                <span style={metricsLineStyle}>
-                  <span>
-                    {filteredCount} task{filteredCount === 1 ? '' : 's'}
-                  </span>
-                  {groupMetrics.running > 0 && (
-                    <>
-                      <span style={metricsSepStyle}>·</span>
-                      <span style={{ color: '#047857' }}>
-                        {groupMetrics.running} running
-                      </span>
-                    </>
-                  )}
-                  {groupMetrics.awaiting > 0 && (
-                    <>
-                      <span style={metricsSepStyle}>·</span>
-                      <span style={{ color: '#b45309' }}>
-                        {groupMetrics.awaiting} awaiting
-                      </span>
-                    </>
-                  )}
-                  {groupMetrics.idle > 0 && (
-                    <>
-                      <span style={metricsSepStyle}>·</span>
-                      <span>{groupMetrics.idle} idle</span>
-                    </>
-                  )}
-                  {groupMetrics.done > 0 && (
-                    <>
-                      <span style={metricsSepStyle}>·</span>
-                      <span>{groupMetrics.done} done</span>
-                    </>
-                  )}
-                  <span style={metricsSepStyle}>·</span>
-                  <span>runtime cost {formatCost(groupMetrics.costMilli)}</span>
-                </span>
-              ) : filter === 'ALL'
+              {filter === 'ALL'
                 ? 'Delegated AI coding runs. Pick a status on the left to focus.'
                 : `Tasks in ${filter.toLowerCase()} state.`}
             </p>
           </div>
           <div style={headerActionsStyle}>
-            {activeGroup && (
-              <>
-                <LayoutSelector value={groupLayout} onChange={setGroupLayout} />
-                <button
-                  type="button"
-                  onClick={() => setShowCreate(true)}
-                  style={primaryBtnStyle}
-                  title="Start a new task pinned to this group"
-                >
-                  + Add task
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setShowGroupSettings(true)}
-                  style={secondaryBtnStyle}
-                  title="Rename, recolor, or delete this group"
-                >
-                  Group settings
-                </button>
-              </>
-            )}
             <button
               type="button"
               onClick={() => void refresh()}
@@ -448,7 +411,7 @@ export default function TasksPage({
           </div>
         )}
 
-        {tasks !== null && totalCount > 0 && filteredCount === 0 && !activeGroup && (
+        {tasks !== null && totalCount > 0 && filteredCount === 0 && (
           <div style={emptyStateStyle}>
             <div style={emptyTitleStyle}>Nothing in {filter.toLowerCase()}</div>
             <div style={mutedTextStyle}>
@@ -458,23 +421,7 @@ export default function TasksPage({
           </div>
         )}
 
-        {activeGroup && tasks !== null && (
-          <GroupTaskGrid
-            tasks={tilesOrdered}
-            groups={groups}
-            groupIdsByTaskId={groupIdsByTaskId}
-            busyId={busyId}
-            layout={groupLayout}
-            onOpen={onSelectTask}
-            onToggleGroup={toggleTaskInGroup}
-            onStop={onStop}
-            onSend={onTileSend}
-            onInterrupt={onTileInterrupt}
-            onDecide={onTileDecide}
-          />
-        )}
-
-        {!activeGroup && filteredCount > 0 && (
+        {filteredCount > 0 && (
           <div style={listStyle}>
             {grouped.filter(g => g.rows.length > 0).map(group => (
               <div key={group.key} style={groupStyle}>
@@ -535,85 +482,9 @@ export default function TasksPage({
   );
 }
 
-/** Segmented control for picking how many tiles the group view
- *  shows at once. Each button renders a tiny schematic of the
- *  resulting layout so the choice is unambiguous without a label. */
-function LayoutSelector({ value, onChange }: {
-  value: GroupLayout;
-  onChange: (next: GroupLayout) => void;
-}) {
-  const opts: Array<{ v: GroupLayout; render: () => React.ReactNode }> = [
-    { v: 1, render: () => <span style={schemaCellStyle} /> },
-    {
-      v: 2, render: () => (
-        <span style={schemaRowStyle}>
-          <span style={schemaCellStyle} /><span style={schemaCellStyle} />
-        </span>
-      ),
-    },
-    {
-      v: 3, render: () => (
-        <span style={schemaColStyle}>
-          <span style={schemaRowStyle}>
-            <span style={schemaCellStyle} /><span style={schemaCellStyle} />
-          </span>
-          <span style={{ ...schemaRowStyle, justifyContent: 'center' }}>
-            <span style={{ ...schemaCellStyle, width: 7 }} />
-          </span>
-        </span>
-      ),
-    },
-    {
-      v: 4, render: () => (
-        <span style={schemaColStyle}>
-          <span style={schemaRowStyle}>
-            <span style={schemaCellStyle} /><span style={schemaCellStyle} />
-          </span>
-          <span style={schemaRowStyle}>
-            <span style={schemaCellStyle} /><span style={schemaCellStyle} />
-          </span>
-        </span>
-      ),
-    },
-  ];
-  return (
-    <div style={layoutSelectorStyle} role="tablist" aria-label="Group layout">
-      {opts.map(o => (
-        <button
-          key={o.v}
-          type="button"
-          role="tab"
-          aria-selected={value === o.v}
-          onClick={() => onChange(o.v)}
-          title={`${o.v} ${o.v === 1 ? 'tile' : 'tiles'}`}
-          style={{
-            ...layoutBtnStyle,
-            ...(value === o.v ? layoutBtnActiveStyle : null),
-          }}
-        >
-          {o.render()}
-        </button>
-      ))}
-    </div>
-  );
-}
-
 function filterLabel(filter: StatusFilter): string {
   if (filter === 'ALL') return 'Tasks';
   return filter.charAt(0) + filter.slice(1).toLowerCase();
-}
-
-/** Mirrors the rail helper. Kept inline to avoid wiring a shared
- *  module for one tiny lookup. */
-function groupColorBg(color: string): string {
-  switch ((color || '').toLowerCase()) {
-    case 'violet': return 'linear-gradient(135deg, #7c3aed, #4c1d95)';
-    case 'amber':  return 'linear-gradient(135deg, #d97706, #92400e)';
-    case 'green':  return 'linear-gradient(135deg, #10b981, #047857)';
-    case 'blue':   return 'linear-gradient(135deg, #2563eb, #1e3a8a)';
-    case 'rose':   return 'linear-gradient(135deg, #e11d48, #9f1239)';
-    default:       return 'linear-gradient(135deg, #64748b, #334155)';
-  }
 }
 
 function TaskRow({ task, groups, currentGroupIds, busy, onOpen, onStop, onToggleGroup }: {
@@ -732,92 +603,6 @@ const subtitleStyle: React.CSSProperties = {
   margin: '4px 0 0', color: 'var(--text-3)', maxWidth: 600,
 };
 const headerActionsStyle: React.CSSProperties = { display: 'flex', gap: 8, alignItems: 'center' };
-const breadcrumbStyle: React.CSSProperties = {
-  display: 'flex',
-  alignItems: 'center',
-  gap: 6,
-  fontSize: 12,
-  color: 'var(--text-3)',
-  marginBottom: 4,
-};
-const breadcrumbLinkStyle: React.CSSProperties = {
-  background: 'transparent',
-  border: 'none',
-  padding: 0,
-  cursor: 'pointer',
-  color: 'var(--accent)',
-  fontSize: 12,
-};
-const breadcrumbSepStyle: React.CSSProperties = { color: 'var(--text-4)' };
-const headerGlyphStyle: React.CSSProperties = {
-  display: 'inline-flex',
-  alignItems: 'center',
-  justifyContent: 'center',
-  width: 28,
-  height: 28,
-  borderRadius: 6,
-  color: '#fff',
-  fontSize: 14,
-  fontWeight: 700,
-  marginRight: 10,
-  verticalAlign: 'middle',
-};
-const metricsLineStyle: React.CSSProperties = {
-  display: 'inline-flex',
-  flexWrap: 'wrap',
-  alignItems: 'center',
-  gap: 6,
-};
-const metricsSepStyle: React.CSSProperties = { color: 'var(--text-4)' };
-
-// ── Group layout selector ───────────────────────────────────────────────
-const layoutSelectorStyle: React.CSSProperties = {
-  display: 'inline-flex',
-  padding: 2,
-  background: 'var(--bg-elevated)',
-  borderRadius: 8,
-  border: '1px solid var(--border)',
-};
-const layoutBtnStyle: React.CSSProperties = {
-  padding: '4px 8px',
-  background: 'transparent',
-  color: 'var(--text-3)',
-  border: 'none',
-  borderRadius: 6,
-  cursor: 'pointer',
-  display: 'inline-flex',
-  alignItems: 'center',
-  justifyContent: 'center',
-  minWidth: 28,
-  minHeight: 24,
-};
-const layoutBtnActiveStyle: React.CSSProperties = {
-  background: 'var(--bg-card)',
-  color: 'var(--text-1)',
-  boxShadow: '0 1px 2px rgba(15, 23, 42, 0.08)',
-};
-// Tiny schematic glyphs for each layout option — drawn from the
-// theme's text color so they read against both light and dark
-// pickers without bespoke palettes.
-const schemaColStyle: React.CSSProperties = {
-  display: 'inline-flex', flexDirection: 'column', gap: 2,
-};
-const schemaRowStyle: React.CSSProperties = {
-  display: 'inline-flex', gap: 2,
-};
-const schemaCellStyle: React.CSSProperties = {
-  width: 7, height: 5, borderRadius: 1,
-  background: 'currentColor', opacity: 0.85,
-};
-const primaryBtnStyle: React.CSSProperties = {
-  padding: '8px 14px',
-  background: 'var(--accent)',
-  color: '#fff',
-  border: 'none',
-  borderRadius: 6,
-  fontWeight: 600,
-  cursor: 'pointer',
-};
 const secondaryBtnStyle: React.CSSProperties = {
   padding: '8px 14px',
   background: 'var(--bg-btn-secondary)',

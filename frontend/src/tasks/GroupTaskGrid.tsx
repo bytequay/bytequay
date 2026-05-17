@@ -58,11 +58,6 @@ type Props = {
   /** ID of the task whose Stop is currently in flight, so the tile
    *  can render a busy state and disable the button. */
   busyId: string | null;
-  /** Number of fixed slots to show — 1 (full), 2 (left|right),
-   *  3 (two on top, one centred below), 4 (2x2). Tasks past the
-   *  visible slot count are hidden until the user reorders them
-   *  into a visible slot via drag-and-drop. */
-  layout: GroupLayout;
 };
 
 const POLL_MS = 4000;
@@ -86,8 +81,14 @@ const POLL_MS = 4000;
  */
 export default function GroupTaskGrid({
   tasks, groups, onOpen, onToggleGroup, groupIdsByTaskId, onStop, onSend, onInterrupt, onDecide,
-  busyId, layout,
+  busyId,
 }: Props) {
+  // Auto-derive the tile layout from the task count — the server
+  // caps a group at 4 members so the grid is bounded. Earlier the
+  // user could pick 1/2/3/4 via a header switcher; the redesign
+  // dropped the switcher in favour of an unambiguous layout per
+  // count.
+  const layout = (Math.max(1, Math.min(4, tasks.length)) as GroupLayout);
   const [previews, setPreviews] = useState<Record<string, TaskMessageDto[]>>({});
 
   // User-overridden slot order — sticky across renders so a drag swap
@@ -117,10 +118,8 @@ export default function GroupTaskGrid({
   }, [tasks, order]);
 
   // Fan-out: pull recent messages for each visible tile in parallel.
-  // Hidden tasks (past the layout cap) don't get their previews
-  // refreshed — saves polling work and they're invisible anyway.
+  // The server caps the group at 4, so every task is always visible.
   const visible = ordered.slice(0, layout);
-  const hiddenCount = Math.max(0, ordered.length - layout);
   // Cache key for the polling effect: a stable join of visible task
   // ids so re-renders (status polls, hover state, etc.) don't tear
   // down the interval just because the array identity changed.
@@ -211,13 +210,6 @@ export default function GroupTaskGrid({
           </div>
         ))}
       </div>
-      {hiddenCount > 0 && (
-        <div style={hiddenHintStyle}>
-          +{hiddenCount} more task{hiddenCount === 1 ? '' : 's'} hidden —
-          bump the layout above or drag one of the visible tiles to
-          rearrange.
-        </div>
-      )}
     </>
   );
 }
@@ -566,16 +558,6 @@ const dragHandleStyle: React.CSSProperties = {
   flexShrink: 0,
   lineHeight: 1,
   letterSpacing: -2,
-};
-const hiddenHintStyle: React.CSSProperties = {
-  marginTop: 12,
-  padding: '8px 12px',
-  background: 'var(--bg-elevated)',
-  border: '1px dashed var(--border)',
-  borderRadius: 6,
-  fontSize: 12,
-  color: 'var(--text-3)',
-  textAlign: 'center',
 };
 const tileHeaderStyle: React.CSSProperties = {
   display: 'flex',

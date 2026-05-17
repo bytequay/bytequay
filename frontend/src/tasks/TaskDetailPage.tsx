@@ -718,7 +718,11 @@ function TermInput({
           }
           disabled={sending}
           onKeyDown={e => {
-            if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
+            // Chat-app convention: Enter sends, Shift+Enter inserts a
+            // newline. ⌘/Ctrl+Enter still sends as a no-shift muscle-
+            // memory alias. isComposing guards against IME confirmation
+            // (CJK input) accidentally firing send.
+            if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
               e.preventDefault();
               onSend();
             }
@@ -727,7 +731,7 @@ function TermInput({
         />
       </div>
       <div style={termInputFooterStyle}>
-        <span><Kbd>⌘</Kbd>+<Kbd>↵</Kbd> send · <Kbd>⇧</Kbd>+<Kbd>↵</Kbd> newline</span>
+        <span><Kbd>↵</Kbd> send · <Kbd>⇧</Kbd>+<Kbd>↵</Kbd> newline</span>
         {isRunning && (
           <button type="button" onClick={onInterrupt} style={cancelChipStyle}>
             ⏵ Cancel current turn
@@ -851,7 +855,7 @@ function StructuredView({
               : 'send a follow-up turn…'}
             disabled={sending}
             onKeyDown={e => {
-              if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
+              if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
                 e.preventDefault();
                 onSend();
               }
@@ -860,7 +864,7 @@ function StructuredView({
           />
           <div style={replyFooterStyle}>
             <span style={replyHintStyle}>
-              <Kbd>⌘</Kbd>+<Kbd>↵</Kbd> send · <Kbd>⇧</Kbd>+<Kbd>↵</Kbd> newline
+              <Kbd>↵</Kbd> send · <Kbd>⇧</Kbd>+<Kbd>↵</Kbd> newline
             </span>
             <span style={{ flex: 1 }} />
             <button

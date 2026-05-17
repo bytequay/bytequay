@@ -326,7 +326,7 @@ function TaskTile({
               : 'send a follow-up turn…'}
             disabled={sending}
             onKeyDown={e => {
-              if (e.key === 'Enter' && (e.metaKey || e.ctrlKey)) {
+              if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
                 e.preventDefault();
                 void submit();
               }

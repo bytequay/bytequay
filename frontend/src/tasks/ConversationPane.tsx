@@ -170,8 +170,8 @@ function Banner({ banner }: { banner: Props['banner'] }) {
       )}
       <br />
       <span style={dimStyle}>
-        Type your prompt below. Press <Kbd>⌘</Kbd>+<Kbd>↵</Kbd> to send,{' '}
-        <Kbd>Ctrl</Kbd>+<Kbd>C</Kbd> via the Cancel button to interrupt.
+        Type your prompt below. Press <Kbd>↵</Kbd> to send (<Kbd>⇧</Kbd>+<Kbd>↵</Kbd>{' '}
+        for a newline), <Kbd>Ctrl</Kbd>+<Kbd>C</Kbd> via the Cancel button to interrupt.
       </span>
     </div>
   );

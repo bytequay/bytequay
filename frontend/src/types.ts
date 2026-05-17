@@ -1198,6 +1198,18 @@ export type TaskFileDto = {
   lastTouchedAt: string;
 };
 
+/** One event delivered over the {@code /api/tasks/:id/stream} SSE
+ *  channel. {@code name} is the Java class's simple name (e.g.
+ *  {@code AssistantText}, {@code ToolCallStarted}, {@code TurnDone},
+ *  {@code PermissionRequested}, {@code PermissionAutoAllowed},
+ *  {@code ErrorOccurred}, {@code SessionEnded}). {@code data} is the
+ *  parsed JSON payload — the exact shape mirrors the corresponding
+ *  Java record. */
+export type TaskStreamEvent = {
+  name: string;
+  data: Record<string, unknown>;
+};
+
 export type TaskMessageDto = {
   id: string;
   taskId: string;
@@ -1852,6 +1864,25 @@ export type Bridge = {
    *  Rejects with an error from the backend if the task is still
    *  live. */
   deleteTask: (id: string) => Promise<void>;
+
+  /** Open a Server-Sent Events subscription to the backend for one
+   *  task. Each {@link StreamEvent} the session emits is delivered
+   *  through {@code onEvent}; lifecycle / error conditions fire
+   *  {@code onClose}. The returned function tears down both the
+   *  backend connection (when the last subscriber for that task
+   *  unsubscribes) and the renderer-side listener.
+   *
+   *  The renderer should treat this as a "wake me up" signal —
+   *  call {@code refresh()} on each event to pull the canonical
+   *  state from {@code /messages}, /{@code tasks/{id}}, etc. The
+   *  event payload is included in case finer-grained handling
+   *  becomes useful later (e.g., appending streamed text deltas
+   *  to an in-flight assistant card). */
+  subscribeTaskStream: (
+    taskId: string,
+    onEvent: (event: TaskStreamEvent) => void,
+    onClose?: (reason: string) => void,
+  ) => () => void;
 
   // ── Task tabs: working-tree changes + commits ────────────────────
   /** Files modified by the AI session but not yet committed. Returns

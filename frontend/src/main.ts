@@ -20,6 +20,7 @@ import { promisify } from 'node:util';
 const execFileAsync = promisify(execFile);
 import started from 'electron-squirrel-startup';
 import { BACKEND_BASE, killBackend, spawnBackend, waitForBackendReady } from './backendProcess';
+import { registerTaskStreamIpc } from './taskStreamBridge';
 
 // Override the menu-bar / About-box / dock display name. Without this
 // Electron uses its own name in dev mode (the packaged build picks
@@ -453,6 +454,12 @@ function registerIpc(): void {
   ipcMain.handle('window:get-fullscreen', () => {
     return mainWindow ? mainWindow.isFullScreen() : false;
   });
+
+  // SSE broker for per-task live event streams. Renderer subscribes via
+  // window.bridge.subscribeTaskStream(); main opens the upstream SSE
+  // connection and forwards parsed events. Replaces the 1s poll while
+  // the page is RUNNING.
+  registerTaskStreamIpc(() => mainWindow);
 
   // Backend is the single source of truth for the GitHub PAT. These handlers
   // proxy to /api/credentials with the singleton (ACCOUNT, "github") slot.

@@ -48,9 +48,17 @@ type Props = {
   onOpenSettings: () => void;
 };
 
-const POLL_MS_RUNNING = 1_000;
+// Stream-fed refresh cadence. SSE delivers per-event pings near
+// real-time (see subscribeTaskStream + the debounced refresh in
+// useEffect), so the poll only needs to act as a safety net in case
+// the stream disconnects. Picking 5s for RUNNING (was 1s, but the
+// stream eats the gap) and 5s for idle.
+const POLL_MS_RUNNING = 5_000;
 const POLL_MS_IDLE = 5_000;
 const POLL_MS_TERMINAL = 0;
+// Coalesce bursts of SSE events into a single refresh — 5 deltas
+// inside a 120ms window collapse into one /messages roundtrip.
+const STREAM_REFRESH_DEBOUNCE_MS = 120;
 
 /**
  * Two-column task detail surface — terminal pane + sticky sidebar
@@ -231,6 +239,35 @@ export default function TaskDetailPage({
     const id = setInterval(() => { void refresh(); }, interval);
     return () => clearInterval(id);
   }, [task?.status, refresh]);
+
+  // Live SSE subscription — fires a debounced refresh on every event
+  // the backend publishes for this task (text, tool call, tool
+  // result, turn done, permission events, …). Replaces what the
+  // 1-second poll used to do without putting GET /messages on a hot
+  // timer. Only opens while the task is still live; terminal-status
+  // sessions don't emit anything new. Re-runs only when the task
+  // *status* flips, not on every refresh tick, so the SSE channel
+  // stays open across polls.
+  const status = task?.status;
+  useEffect(() => {
+    if (!status) return;
+    if (status === 'COMPLETED' || status === 'ERRORED') return;
+    let timer: ReturnType<typeof setTimeout> | null = null;
+    let disposed = false;
+    const ping = () => {
+      if (timer || disposed) return;
+      timer = setTimeout(() => {
+        timer = null;
+        void refresh();
+      }, STREAM_REFRESH_DEBOUNCE_MS);
+    };
+    const unsubscribe = window.bridge.subscribeTaskStream(taskId, ping);
+    return () => {
+      disposed = true;
+      if (timer) clearTimeout(timer);
+      unsubscribe();
+    };
+  }, [taskId, status, refresh]);
 
   const pendingPermission = useMemo<PendingPermission | null>(
     () => findPendingPermission(messages),

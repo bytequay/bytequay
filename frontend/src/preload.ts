@@ -49,6 +49,7 @@ import type {
   TaskGroupDto,
   TaskGroupPatchDto,
   TaskMessageDto,
+  TaskStreamEvent,
   TeamDto,
   TeamSummaryDto,
   UpdateTeamRequest,
@@ -492,6 +493,41 @@ const bridge: Bridge = {
   listTaskCommits: (id: string) => ipcRenderer.invoke('tasks:listCommits', id),
   listTaskCommitFiles: (id: string, sha: string) => ipcRenderer.invoke('tasks:commitFiles', id, sha),
   getTaskCommitDiff: (id: string, sha: string, path: string) => ipcRenderer.invoke('tasks:commitDiff', id, sha, path),
+
+  /** Wire the renderer to the per-task SSE stream brokered by the
+   *  main process. The contract: ask main to open (or join) a
+   *  subscription for {@code taskId}; register listeners that filter
+   *  by {@code taskId}; on cleanup, drop the listeners and ask main
+   *  to release the subscription. Main process ref-counts the
+   *  underlying SSE connection so multiple renderers/components can
+   *  share one. */
+  subscribeTaskStream: (
+    taskId: string,
+    onEvent: (event: TaskStreamEvent) => void,
+    onClose?: (reason: string) => void,
+  ) => {
+    const eventListener = (
+      _e: unknown,
+      payload: { taskId: string; event: TaskStreamEvent },
+    ) => {
+      if (payload.taskId === taskId) onEvent(payload.event);
+    };
+    const closeListener = (
+      _e: unknown,
+      payload: { taskId: string; reason: string },
+    ) => {
+      if (payload.taskId === taskId) onClose?.(payload.reason);
+    };
+    ipcRenderer.on('tasks:stream:event', eventListener);
+    ipcRenderer.on('tasks:stream:close', closeListener);
+    // Fire-and-forget: main handles the actual SSE lifecycle.
+    void ipcRenderer.invoke('tasks:stream:start', taskId);
+    return () => {
+      ipcRenderer.removeListener('tasks:stream:event', eventListener);
+      ipcRenderer.removeListener('tasks:stream:close', closeListener);
+      void ipcRenderer.invoke('tasks:stream:stop', taskId);
+    };
+  },
 };
 
 contextBridge.exposeInMainWorld('bridge', bridge);

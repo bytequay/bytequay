@@ -94,6 +94,12 @@ function loadTheme(): TermTheme {
   }
 }
 
+const SIDEBAR_COLLAPSED_STORAGE_KEY = 'bytequay.tasks.detailSidebarCollapsed';
+function loadSidebarCollapsed(): boolean {
+  try { return window.localStorage.getItem(SIDEBAR_COLLAPSED_STORAGE_KEY) === '1'; }
+  catch { return false; }
+}
+
 /** Context-window size (in tokens) per model family. Used by the
  *  sidebar's CONTEXT WINDOW bar to compute "% used = latest turn's
  *  input_tokens / limit". Approximate today — see followups/
@@ -157,6 +163,7 @@ export default function TaskDetailPage({
   const [showCreate, setShowCreate] = useState(false);
   const [theme, setTheme] = useState<TermTheme>(loadTheme);
   const [view, setView] = useState<DetailView>(loadView);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState<boolean>(loadSidebarCollapsed);
 
   useEffect(() => {
     try { window.localStorage.setItem(THEME_STORAGE_KEY, theme); }
@@ -167,6 +174,11 @@ export default function TaskDetailPage({
     try { window.localStorage.setItem(VIEW_STORAGE_KEY, view); }
     catch { /* private browsing — fine to skip */ }
   }, [view]);
+
+  useEffect(() => {
+    try { window.localStorage.setItem(SIDEBAR_COLLAPSED_STORAGE_KEY, sidebarCollapsed ? '1' : '0'); }
+    catch { /* private browsing — fine to skip */ }
+  }, [sidebarCollapsed]);
 
   const refresh = useCallback(async () => {
     try {
@@ -332,15 +344,23 @@ export default function TaskDetailPage({
   return (
     <section style={layoutStyle}>
       <KeyframesStyles />
-      <TaskWindowSidebar
-        task={task}
-        stage={stage}
-        messages={messages}
-        files={files}
-        groups={groups}
-        onChangeGroup={onChangeGroup}
-        onBack={onBack}
-      />
+      {sidebarCollapsed ? (
+        <SidebarCollapsedRail
+          onBack={onBack}
+          onExpand={() => setSidebarCollapsed(false)}
+        />
+      ) : (
+        <TaskWindowSidebar
+          task={task}
+          stage={stage}
+          messages={messages}
+          files={files}
+          groups={groups}
+          onChangeGroup={onChangeGroup}
+          onBack={onBack}
+          onCollapse={() => setSidebarCollapsed(true)}
+        />
+      )}
       <div style={taskWindowStyle}>
         <div style={taskWindowBodyStyle}>
           <div style={diffOpen ? splitLeftStyle : flexFillStyle}>
@@ -393,6 +413,9 @@ export default function TaskDetailPage({
                   canStop={!isTerminal}
                   onDelete={onDelete}
                   canDelete={isTerminal}
+                  changeStats={changeStats}
+                  diffOpen={diffOpen}
+                  onReview={onReview}
                 />
               </div>
             )}
@@ -721,7 +744,7 @@ function StructuredView({
  *    captured in followups/tasks-checkpoints-and-context.md
  */
 function TaskWindowSidebar({
-  task, stage, messages, files, onBack,
+  task, stage, messages, files, onBack, onCollapse,
 }: {
   task: TaskDto;
   stage: Stage;
@@ -730,6 +753,7 @@ function TaskWindowSidebar({
   groups: TaskGroupDto[];
   onChangeGroup: (groupId: string | null) => void | Promise<void>;
   onBack: () => void;
+  onCollapse: () => void;
 }) {
   const toolUsage = useMemo(() => deriveToolUsage(messages), [messages]);
   const ctx = useMemo(() => computeContextUsage(messages, task.model), [messages, task.model]);
@@ -738,6 +762,15 @@ function TaskWindowSidebar({
       <div style={twSidebarBackRowStyle}>
         <button type="button" onClick={onBack} style={twBackBtnStyle}>
           ← Back to all tasks
+        </button>
+        <button
+          type="button"
+          onClick={onCollapse}
+          style={twSidebarCollapseBtnStyle}
+          title="Collapse sidebar"
+          aria-label="Collapse sidebar"
+        >
+          ‹
         </button>
       </div>
 
@@ -768,6 +801,41 @@ function TaskWindowSidebar({
       <SidebarSection label="Checkpoints">
         <CheckpointsStub />
       </SidebarSection>
+    </aside>
+  );
+}
+
+/** Thin vertical rail shown in place of the full sidebar when the
+ *  user collapses it. Surfaces just the back-button and an expand
+ *  chevron — everything else (metrics, context window, stage,
+ *  checkpoints) returns when the user expands again. */
+function SidebarCollapsedRail({
+  onBack, onExpand,
+}: {
+  onBack: () => void;
+  onExpand: () => void;
+}) {
+  return (
+    <aside style={twSidebarRailStyle}>
+      <button
+        type="button"
+        onClick={onBack}
+        style={twSidebarRailBtnStyle}
+        title="Back to all tasks"
+        aria-label="Back to all tasks"
+      >
+        ←
+      </button>
+      <button
+        type="button"
+        onClick={onExpand}
+        style={twSidebarRailBtnStyle}
+        title="Expand sidebar"
+        aria-label="Expand sidebar"
+      >
+        ›
+      </button>
+      <span style={twSidebarRailLabelStyle}>Sidebar</span>
     </aside>
   );
 }
@@ -937,6 +1005,7 @@ function TerminalWrap({
   draft, onDraft, onSend, onInterrupt, sending, isTerminal,
   theme, onToggleTheme,
   view, onChangeView, onRename, onStop, canStop, onDelete, canDelete,
+  changeStats, diffOpen, onReview,
 }: {
   task: TaskDto;
   messages: TaskMessageDto[];
@@ -962,15 +1031,16 @@ function TerminalWrap({
   canStop: boolean;
   onDelete: () => void;
   canDelete: boolean;
+  changeStats: ChangeStats;
+  diffOpen: boolean;
+  onReview: () => void;
 }) {
   return (
     <div style={terminalWrapStyle}>
       <div style={termToolbarStyle}>
-        <div style={trafficStyle}>
-          <span style={{ ...trafficDotStyle, background: '#ff5f57' }} />
-          <span style={{ ...trafficDotStyle, background: '#febc2e' }} />
-          <span style={{ ...trafficDotStyle, background: '#28c840' }} />
-        </div>
+        {/* macOS-style traffic-light dots used to live here. Removed —
+            they were pure decoration that ate ~50px of toolbar width
+            the title needed for itself. */}
         <div style={taskTitleBadgeTermStyle}>
           <EditableTitle title={task.title} onRename={onRename} />
         </div>
@@ -983,7 +1053,6 @@ function TerminalWrap({
             <span style={sessionIdStyleTerminal}> · {task.model}</span>
           )}
         </span>
-        <span style={{ flex: 1 }} />
         <ViewToggle view={view} onChangeView={onChangeView} />
         <div style={twHeaderActionsStyle}>
           {canStop && (
@@ -1020,6 +1089,10 @@ function TerminalWrap({
       />
 
       <TerminalStatusBar task={task} stage={stage} />
+
+      {changeStats.files > 0 && (
+        <ReviewStrip stats={changeStats} diffOpen={diffOpen} onReview={onReview} />
+      )}
 
       {!isTerminal && (
         <TermInput
@@ -1653,11 +1726,42 @@ const twSidebarStyle: React.CSSProperties = {
 };
 const twSidebarBackRowStyle: React.CSSProperties = {
   marginBottom: 2,
+  display: 'flex', alignItems: 'center', gap: 8,
 };
 const twBackBtnStyle: React.CSSProperties = {
   background: 'transparent', border: 'none', padding: '4px 0',
   color: 'var(--accent)', fontSize: 13, fontWeight: 500,
   cursor: 'pointer',
+  flex: 1, textAlign: 'left',
+};
+const twSidebarCollapseBtnStyle: React.CSSProperties = {
+  background: 'transparent', border: '1px solid var(--border-hairline)',
+  borderRadius: 4,
+  padding: '0 6px', height: 22, lineHeight: '20px',
+  color: 'var(--text-3)', fontSize: 14,
+  cursor: 'pointer',
+};
+const twSidebarRailStyle: React.CSSProperties = {
+  flex: '0 0 28px', width: 28,
+  display: 'flex', flexDirection: 'column',
+  alignItems: 'center', gap: 10,
+  padding: '10px 0',
+  background: 'var(--bg-elevated)',
+  borderRight: '1px solid var(--border)',
+  maxHeight: 'calc(100vh - 56px)',
+};
+const twSidebarRailBtnStyle: React.CSSProperties = {
+  background: 'transparent', border: 'none', padding: '4px 0',
+  color: 'var(--text-2)', fontSize: 14, cursor: 'pointer',
+  width: '100%',
+};
+const twSidebarRailLabelStyle: React.CSSProperties = {
+  writingMode: 'vertical-rl',
+  transform: 'rotate(180deg)',
+  letterSpacing: '0.08em',
+  textTransform: 'uppercase',
+  fontSize: 10,
+  color: 'var(--text-3)',
 };
 const twStatusRowStyle: React.CSSProperties = {
   padding: '4px 0 6px',
@@ -2099,7 +2203,12 @@ const taskTitleBadgeTermStyle: React.CSSProperties = {
   background: 'var(--term-bg-elev1)',
   border: '1px solid var(--term-border)',
   borderRadius: 6,
-  flexShrink: 0,
+  // Title takes whatever toolbar width the other items don't claim.
+  // Replaces the explicit flex:1 spacer that used to push the buttons
+  // to the right — the title is the spacer now, so a long name shows
+  // as much as possible before ellipsizing.
+  flex: '1 1 auto',
+  minWidth: 0,
 };
 const zoneMetaStyle: React.CSSProperties = {
   color: 'var(--text-4)',

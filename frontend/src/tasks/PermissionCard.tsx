@@ -72,7 +72,7 @@ export function PermissionCard({ permission, onDecide }: {
 
   return (
     <article style={cardStyle}>
-      <div style={{ flex: 1, minWidth: 0 }}>
+      <div style={textColStyle}>
         <div style={titleStyle}>
           ⚠ Approval needed for <strong>{permission.toolName}</strong>
         </div>
@@ -143,18 +143,38 @@ export function PermissionCard({ permission, onDecide }: {
 // ────────────────────────────────────────────────────────────────────
 
 const cardStyle: React.CSSProperties = {
-  display: 'flex', alignItems: 'center', gap: 14,
+  display: 'flex',
+  // Bottom-align the buttons so they hug the lower edge of the card
+  // when the summary wraps to several lines, instead of riding next
+  // to the title.
+  alignItems: 'flex-end',
+  gap: 14,
   padding: '12px 14px',
   background: '#FFFBEB',
   border: '1px solid #FCD34D',
   borderRadius: 8,
   flexWrap: 'wrap',
 };
+const textColStyle: React.CSSProperties = {
+  flex: 1,
+  minWidth: 0,
+  // Without this the summary (often a long JSON path with no spaces)
+  // overflows its computed flex width and visually bleeds underneath
+  // the action buttons. Clip + word-break together keep it contained.
+  overflow: 'hidden',
+};
 const titleStyle: React.CSSProperties = {
   color: '#92400E', fontSize: 13, fontWeight: 600,
 };
 const summaryStyle: React.CSSProperties = {
   color: '#78350F', fontSize: 12, marginTop: 2,
+  overflowWrap: 'anywhere',
+  wordBreak: 'break-word',
+  // Some tools (Write/Edit) pass the file contents in `input`, which
+  // can be huge. Cap the visible height and let users scroll within
+  // the summary so the card itself stays compact.
+  maxHeight: 90,
+  overflowY: 'auto',
 };
 const actionsStyle: React.CSSProperties = {
   display: 'flex', gap: 8, alignItems: 'center', flexShrink: 0,
@@ -186,12 +206,15 @@ const allowNextCaretStyle: React.CSSProperties = {
   cursor: 'pointer', fontSize: 11,
 };
 const menuStyle: React.CSSProperties = {
-  position: 'absolute', top: 'calc(100% + 4px)', right: 0,
+  // Anchor to the button's top edge so the menu opens upward — the
+  // card lives near the reply box and a downward menu used to fall
+  // behind / off the visible region.
+  position: 'absolute', bottom: 'calc(100% + 4px)', right: 0,
   minWidth: 180,
   background: 'var(--bg-card)',
   border: '1px solid var(--border)',
   borderRadius: 6,
-  boxShadow: '0 6px 18px rgba(0,0,0,0.12)',
+  boxShadow: '0 -6px 18px rgba(0,0,0,0.12)',
   padding: 4,
   zIndex: 30,
   display: 'flex', flexDirection: 'column',

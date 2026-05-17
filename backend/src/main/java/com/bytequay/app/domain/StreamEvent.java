@@ -47,6 +47,7 @@ public sealed interface StreamEvent
                 StreamEvent.PermissionRequested,
                 StreamEvent.PermissionDecided,
                 StreamEvent.PermissionAutoAllowed,
+                StreamEvent.UsageUpdated,
                 StreamEvent.TurnDone,
                 StreamEvent.ErrorOccurred,
                 StreamEvent.SessionEnded
@@ -159,6 +160,18 @@ public sealed interface StreamEvent
             String callId,
             String toolName,
             int remaining)
+            implements StreamEvent {}
+
+    /** In-flight token accounting for the current assistant turn. The CLI
+     *  emits {@code message_delta} envelopes with a running {@code usage}
+     *  object as the model streams; we forward those as this event so the
+     *  metrics panel can climb live instead of jumping at turn boundary.
+     *  Never persisted — {@link TurnDone} is still the source of truth
+     *  for the row written to {@link AgentMetrics}. */
+    record UsageUpdated(
+            Instant timestamp,
+            long tokensIn,
+            long tokensOut)
             implements StreamEvent {}
 
     /** End of one assistant turn — model has finished and is waiting

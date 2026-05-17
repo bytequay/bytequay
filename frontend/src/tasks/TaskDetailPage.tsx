@@ -237,14 +237,23 @@ export default function TaskDetailPage({
   const [liveText, setLiveText] = useState('');
   const liveTextRef = useRef('');
 
+  // Running in-flight usage overlay fed by UsageUpdated SSE events.
+  // The metrics panel adds these on top of the persisted per-turn
+  // totals so token counts climb visibly as the model streams; they
+  // clear once the next refresh pulls in the closing TurnDone row.
+  const [liveUsage, setLiveUsage] = useState<{ tokensIn: number; tokensOut: number } | null>(null);
+  const liveUsageRef = useRef<{ tokensIn: number; tokensOut: number } | null>(null);
+
   // Live SSE subscription — split into two paths by event kind:
   //  • AssistantTextDelta: append the chunk to the live buffer, no
   //    refresh (deltas aren't persisted; /messages wouldn't change).
+  //  • UsageUpdated: replace the live usage overlay, no refresh
+  //    (deltas aren't persisted; turn boundary writes the row).
   //  • Everything else: debounced refresh to pull the canonical
-  //    state. Once the refresh lands the live buffer is cleared on
-  //    the assumption that the assembled AssistantText is now in the
-  //    messages array. Same pattern Phase A used; deltas are
-  //    additive on top.
+  //    state. Once the refresh lands the live buffers are cleared on
+  //    the assumption that the assembled AssistantText / TurnDone
+  //    rows are now in the messages array. Same pattern Phase A
+  //    used; deltas are additive on top.
   // Only opens while the task is still live; terminal-status
   // sessions don't emit anything new. Re-runs only when the task
   // *status* flips, not on every refresh tick, so the SSE channel
@@ -258,6 +267,8 @@ export default function TaskDetailPage({
     const flushBuffer = () => {
       liveTextRef.current = '';
       setLiveText('');
+      liveUsageRef.current = null;
+      setLiveUsage(null);
     };
     const schedulePing = () => {
       if (timer || disposed) return;
@@ -274,6 +285,13 @@ export default function TaskDetailPage({
         if (chunk.length === 0) return;
         liveTextRef.current += chunk;
         setLiveText(liveTextRef.current);
+        return;
+      }
+      if (event.name === 'UsageUpdated') {
+        const tIn = typeof event.data.tokensIn === 'number' ? event.data.tokensIn : 0;
+        const tOut = typeof event.data.tokensOut === 'number' ? event.data.tokensOut : 0;
+        liveUsageRef.current = { tokensIn: tIn, tokensOut: tOut };
+        setLiveUsage(liveUsageRef.current);
         return;
       }
       schedulePing();
@@ -410,6 +428,7 @@ export default function TaskDetailPage({
           stage={stage}
           messages={messages}
           files={files}
+          liveUsage={liveUsage}
           onBack={onBack}
           onCollapse={() => setSidebarCollapsed(true)}
         />
@@ -471,6 +490,7 @@ export default function TaskDetailPage({
                   diffOpen={diffOpen}
                   onReview={onReview}
                   liveText={liveText}
+                  liveUsage={liveUsage}
                 />
               </div>
             )}
@@ -826,17 +846,22 @@ function StructuredView({
  *    captured in followups/tasks-checkpoints-and-context.md
  */
 function TaskWindowSidebar({
-  task, stage, messages, files, onBack, onCollapse,
+  task, stage, messages, files, liveUsage, onBack, onCollapse,
 }: {
   task: TaskDto;
   stage: Stage;
   messages: TaskMessageDto[];
   files: TaskFileDto[];
+  liveUsage: { tokensIn: number; tokensOut: number } | null;
   onBack: () => void;
   onCollapse: () => void;
 }) {
   const toolUsage = useMemo(() => deriveToolUsage(messages), [messages]);
   const ctx = useMemo(() => computeContextUsage(messages, task.model), [messages, task.model]);
+  // Overlay running deltas while a turn is in flight; falls back to
+  // the persisted totals once liveUsage clears at the next refresh.
+  const tokensInDisplay = (task.tokensIn ?? 0) + (liveUsage?.tokensIn ?? 0);
+  const tokensOutDisplay = (task.tokensOut ?? 0) + (liveUsage?.tokensOut ?? 0);
   return (
     <aside style={twSidebarStyle}>
       <div style={twSidebarBackRowStyle}>
@@ -862,8 +887,16 @@ function TaskWindowSidebar({
         <div style={metricListStyle}>
           <Metric label="Runtime" value={formatRuntime(task)} live={task.status === 'RUNNING'} />
           <Metric label="Cost" value={formatCost(task.costUsdMilli)} />
-          <Metric label="Tokens in" value={formatNum(task.tokensIn)} />
-          <Metric label="Tokens out" value={formatNum(task.tokensOut)} />
+          <Metric
+            label="Tokens in"
+            value={formatNum(tokensInDisplay)}
+            live={liveUsage !== null}
+          />
+          <Metric
+            label="Tokens out"
+            value={formatNum(tokensOutDisplay)}
+            live={liveUsage !== null}
+          />
           <Metric label="Tool calls" value={formatNum(toolUsage.total)} />
           <Metric label="Files touched" value={formatNum(files.length)} />
           <Metric label="Model" value={task.model || 'unknown'} mono />
@@ -1085,7 +1118,7 @@ function TerminalWrap({
   draft, onDraft, onSend, onInterrupt, sending, isTerminal,
   theme, onToggleTheme,
   view, onChangeView, onRename, onStop, canStop, onDelete, canDelete,
-  changeStats, diffOpen, onReview, liveText,
+  changeStats, diffOpen, onReview, liveText, liveUsage,
 }: {
   task: TaskDto;
   messages: TaskMessageDto[];
@@ -1115,6 +1148,7 @@ function TerminalWrap({
   diffOpen: boolean;
   onReview: () => void;
   liveText: string;
+  liveUsage: { tokensIn: number; tokensOut: number } | null;
 }) {
   return (
     <div style={terminalWrapStyle}>
@@ -1176,7 +1210,7 @@ function TerminalWrap({
         liveText={liveText}
       />
 
-      <TerminalStatusBar task={task} stage={stage} />
+      <TerminalStatusBar task={task} stage={stage} liveUsage={liveUsage} />
 
       {changeStats.files > 0 && (
         <ReviewStrip stats={changeStats} diffOpen={diffOpen} onReview={onReview} />
@@ -1196,8 +1230,16 @@ function TerminalWrap({
   );
 }
 
-function TerminalStatusBar({ task, stage }: { task: TaskDto; stage: Stage }) {
+function TerminalStatusBar({
+  task, stage, liveUsage,
+}: {
+  task: TaskDto;
+  stage: Stage;
+  liveUsage: { tokensIn: number; tokensOut: number } | null;
+}) {
   const isRunning = task.status === 'RUNNING';
+  const tokensTotal = (task.tokensIn ?? 0) + (task.tokensOut ?? 0)
+      + (liveUsage ? liveUsage.tokensIn + liveUsage.tokensOut : 0);
   return (
     <div style={termStatusBarStyle}>
       <span style={termStatStyle}>
@@ -1210,7 +1252,7 @@ function TerminalStatusBar({ task, stage }: { task: TaskDto; stage: Stage }) {
       <span style={termStatGroupRightStyle}>
         <span style={termStatStyle}>⏱ <strong style={termStatStrongStyle}>{formatRuntime(task)}</strong></span>
         <span style={termStatStyle}>💰 <strong style={termStatStrongStyle}>{formatCost(task.costUsdMilli)}</strong></span>
-        <span style={termStatStyle}>tokens <strong style={termStatStrongStyle}>{formatNum(task.tokensIn + task.tokensOut)}</strong></span>
+        <span style={termStatStyle}>tokens <strong style={termStatStrongStyle}>{formatNum(tokensTotal)}</strong></span>
         {stage.toolName && (
           <span style={termStatStyle}>
             {stage.glyph} <strong style={termStatStrongStyle}>{stage.toolName}</strong>

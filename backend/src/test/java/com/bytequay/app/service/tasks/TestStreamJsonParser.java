@@ -174,10 +174,11 @@ class TestStreamJsonParser
     @Test
     void ignoresStreamEventEnvelopesOtherThanTextDelta()
     {
-        // message_start / content_block_start / message_delta / ping
-        // / content_block_stop / message_stop all flow past silently —
-        // the final assembled assistant envelope still arrives and
-        // feeds the canonical AssistantText path.
+        // message_start / content_block_start / ping / content_block_stop
+        // / message_stop all flow past silently — the final assembled
+        // assistant envelope still arrives and feeds the canonical
+        // AssistantText path. (message_delta with usage is handled
+        // separately — see parsesMessageDeltaUsageAsUsageUpdated.)
         assertThat(parser.parse(
                 "{\"type\":\"stream_event\",\"event\":{\"type\":\"message_start\","
                         + "\"message\":{\"id\":\"msg_x\"}}}",
@@ -191,10 +192,35 @@ class TestStreamJsonParser
                         + "\"index\":0,\"delta\":{\"type\":\"input_json_delta\","
                         + "\"partial_json\":\"{\\\"a\\\":1}\"}}}",
                 NOW)).isEmpty();
+    }
+
+    @Test
+    void parsesMessageDeltaUsageAsUsageUpdated()
+    {
+        // message_delta envelopes carry the running per-turn usage as
+        // the model streams. Surfacing them lets the metrics panel
+        // climb live instead of jumping only at TurnDone.
+        List<StreamEvent> events = parser.parse(
+                "{\"type\":\"stream_event\",\"event\":{\"type\":\"message_delta\","
+                        + "\"delta\":{\"stop_reason\":\"end_turn\"},"
+                        + "\"usage\":{\"input_tokens\":1234,\"output_tokens\":42}}}",
+                NOW);
+        assertThat(events).hasSize(1);
+        StreamEvent.UsageUpdated usage = (StreamEvent.UsageUpdated) events.get(0);
+        assertThat(usage.tokensIn()).isEqualTo(1234L);
+        assertThat(usage.tokensOut()).isEqualTo(42L);
+    }
+
+    @Test
+    void dropsMessageDeltaWithZeroUsage()
+    {
+        // Some envelopes carry an empty usage object before the model
+        // has produced any output; suppress those so the live counter
+        // doesn't flicker through a transient zero state.
         assertThat(parser.parse(
                 "{\"type\":\"stream_event\",\"event\":{\"type\":\"message_delta\","
                         + "\"delta\":{\"stop_reason\":\"end_turn\"},"
-                        + "\"usage\":{\"output_tokens\":42}}}",
+                        + "\"usage\":{\"input_tokens\":0,\"output_tokens\":0}}}",
                 NOW)).isEmpty();
     }
 

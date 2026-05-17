@@ -84,31 +84,52 @@ public class StreamJsonParser
     /**
      * Per-token partial event the CLI emits when launched with
      * {@code --include-partial-messages}. Wraps the upstream Anthropic
-     * SSE event verbatim; we only care about {@code content_block_delta}
-     * with a {@code text_delta} — that's the chunk-by-chunk text growth
-     * we want to stream into the UI's in-flight assistant card. Other
-     * subtypes (message_start/stop, content_block_start/stop, ping,
-     * message_delta with usage) are ignored here — the full
-     * {@code assistant} envelope still arrives at message_stop and
-     * feeds {@link #parseAssistantMessage}, and turn-level cost /
-     * tokens still come in via the trailing {@code result} envelope.
+     * SSE event verbatim. Two subtypes interest us:
+     *
+     * <ul>
+     *   <li>{@code content_block_delta} with a {@code text_delta} —
+     *       the chunk-by-chunk text growth we stream into the UI's
+     *       in-flight assistant card.</li>
+     *   <li>{@code message_delta} carrying a running {@code usage}
+     *       object — surfaces in-flight token counts so the metrics
+     *       panel climbs live instead of jumping at turn boundary.</li>
+     * </ul>
+     *
+     * <p>Other subtypes (message_start/stop, content_block_start/stop,
+     * ping) are ignored here — the full {@code assistant} envelope still
+     * arrives at message_stop and feeds {@link #parseAssistantMessage},
+     * and turn-level cost / tokens still come in via the trailing
+     * {@code result} envelope.
      */
     private static List<StreamEvent> parseStreamEvent(JsonNode root, Instant now)
     {
         JsonNode event = root.path("event");
-        if (!"content_block_delta".equals(textOrEmpty(event, "type"))) {
-            return ImmutableList.of();
+        String eventType = textOrEmpty(event, "type");
+        if ("content_block_delta".equals(eventType)) {
+            JsonNode delta = event.path("delta");
+            if (!"text_delta".equals(textOrEmpty(delta, "type"))) {
+                return ImmutableList.of();
+            }
+            String chunk = textOrEmpty(delta, "text");
+            if (chunk.isEmpty()) {
+                return ImmutableList.of();
+            }
+            int index = event.path("index").asInt(0);
+            return ImmutableList.of(new StreamEvent.AssistantTextDelta(now, index, chunk));
         }
-        JsonNode delta = event.path("delta");
-        if (!"text_delta".equals(textOrEmpty(delta, "type"))) {
-            return ImmutableList.of();
+        if ("message_delta".equals(eventType)) {
+            JsonNode usage = event.path("usage");
+            if (usage.isMissingNode() || !usage.isObject()) {
+                return ImmutableList.of();
+            }
+            long tokensIn = usage.path("input_tokens").asLong(0L);
+            long tokensOut = usage.path("output_tokens").asLong(0L);
+            if (tokensIn == 0L && tokensOut == 0L) {
+                return ImmutableList.of();
+            }
+            return ImmutableList.of(new StreamEvent.UsageUpdated(now, tokensIn, tokensOut));
         }
-        String chunk = textOrEmpty(delta, "text");
-        if (chunk.isEmpty()) {
-            return ImmutableList.of();
-        }
-        int index = event.path("index").asInt(0);
-        return ImmutableList.of(new StreamEvent.AssistantTextDelta(now, index, chunk));
+        return ImmutableList.of();
     }
 
     private static List<StreamEvent> parseSystem(JsonNode root, Instant now)

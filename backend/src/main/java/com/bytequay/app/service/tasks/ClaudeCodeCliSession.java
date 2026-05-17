@@ -644,6 +644,10 @@ public class ClaudeCodeCliSession
                             jsonEscape(e.toolName()),
                             e.remaining()),
                     null, null, null, null, ts);
+            // Live-only — in-flight token counters reach SSE subscribers
+            // and overlay the metrics panel; TurnDone is still the
+            // durable accounting row.
+            case StreamEvent.UsageUpdated ignored -> null;
             case StreamEvent.TurnDone e -> new TaskMessage(
                     id, taskId, seq, "system", "turn_done", "{}",
                     e.durationMs(), e.tokensIn(), e.tokensOut(), e.costUsdMilli(), ts);

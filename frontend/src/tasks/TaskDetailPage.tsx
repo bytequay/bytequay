@@ -61,12 +61,22 @@ const POLL_MS_TERMINAL = 0;
  * <p>SSE through Electron is deferred; we poll on a status-aware
  * cadence (1s while RUNNING, 5s otherwise, off when terminal).
  */
-/** Bottom-tab views inside the task window. Diff/Files open the
- *  changes pane side-by-side with the conversation; Ask is the
- *  default full-width conversation; Terminal is the dark-themed
- *  power-user mirror of the raw stream-json; Comments is a stub. */
-type DetailView = 'ask' | 'terminal' | 'comments' | 'diff' | 'files';
+/** Renderer for the task window body. Two modes — the structured
+ *  Conversation view (default) and the dark/light-themed Terminal
+ *  view that mirrors the raw stream-json output. Toggled from the
+ *  task-window header bar. Diff (working-tree changes) opens
+ *  side-by-side via the strip above the reply input, not a tab. */
+type DetailView = 'conversation' | 'terminal';
 const VIEW_STORAGE_KEY = 'bytequay.tasks.detailView';
+
+/** Whether the working-tree diff pane is currently open beside the
+ *  conversation/terminal. Persisted so a user who keeps it pinned
+ *  doesn't have to re-open it after every navigation. */
+const DIFF_OPEN_STORAGE_KEY = 'bytequay.tasks.detailDiffOpen';
+function loadDiffOpen(): boolean {
+  try { return window.localStorage.getItem(DIFF_OPEN_STORAGE_KEY) === '1'; }
+  catch { return false; }
+}
 
 /** Terminal-view theme. Persisted across sessions so a user who
  *  prefers a light terminal doesn't keep re-toggling. Only the
@@ -107,19 +117,17 @@ function modelContextLimit(model: string | null | undefined): number {
 function loadView(): DetailView {
   try {
     const v = window.localStorage.getItem(VIEW_STORAGE_KEY);
-    // Migrate legacy values. 'conversation' (the old structured-view
-    // name) maps to 'ask'. 'commits' folds into 'files' since the
-    // TaskChangesTab surfaces both modes side-by-side. 'terminal'
-    // passes through — it was briefly removed during the sidebar
-    // refactor and is now restored.
+    // Two modes. 'terminal' passes through; everything else (the
+    // legacy 'ask' / 'diff' / 'files' / 'comments' tab values and
+    // the long-ago 'conversation' value) folds into the default
+    // structured Conversation view. Diff/Files are no longer tabs
+    // — Diff opens via the strip above the reply input, Files and
+    // Comments were removed.
     if (v === 'terminal') return 'terminal';
-    if (v === 'diff') return 'diff';
-    if (v === 'files' || v === 'commits') return 'files';
-    if (v === 'comments') return 'comments';
-    return 'ask';
+    return 'conversation';
   }
   catch {
-    return 'ask';
+    return 'conversation';
   }
 }
 
@@ -292,7 +300,12 @@ export default function TaskDetailPage({
   // "Rendered more hooks than during the previous render" when task
   // flipped from null → loaded between mounts).
   const changeStats = useMemoChangeStats(files);
-  const onReview = useCallback(() => setView('diff'), []);
+  const [diffOpen, setDiffOpen] = useState<boolean>(loadDiffOpen);
+  useEffect(() => {
+    try { window.localStorage.setItem(DIFF_OPEN_STORAGE_KEY, diffOpen ? '1' : '0'); }
+    catch { /* private browsing — fine to skip */ }
+  }, [diffOpen]);
+  const onReview = useCallback(() => setDiffOpen(open => !open), []);
 
   if (task === null && error) {
     return (
@@ -317,8 +330,8 @@ export default function TaskDetailPage({
   const isTerminal = task.status === 'COMPLETED' || task.status === 'ERRORED';
 
   // Pure presentation — the conversation pane (with reply input,
-  // review strip, live bar) common to every view. Diff/Files just
-  // render it side-by-side with the changes pane.
+  // review strip, live bar) common to both view modes. Rendered on
+  // the left side of the body, optionally next to the diff pane.
   const conversation = (
     <StructuredView
       task={task}
@@ -332,6 +345,7 @@ export default function TaskDetailPage({
       sending={sending}
       isTerminal={isTerminal}
       changeStats={changeStats}
+      diffOpen={diffOpen}
       onReview={onReview}
     />
   );
@@ -351,6 +365,8 @@ export default function TaskDetailPage({
       <div style={taskWindowStyle}>
         <TaskWindowHeader
           task={task}
+          view={view}
+          onChangeView={setView}
           onRename={onRename}
           onPause={undefined /* pause not wired through MCP yet */}
           onStop={onStop}
@@ -359,54 +375,36 @@ export default function TaskDetailPage({
           canDelete={isTerminal}
         />
         <div style={taskWindowBodyStyle}>
-          {view === 'ask' && conversation}
-          {view === 'terminal' && (
-            // Wrap so the palette (var(--term-*)) flows to
-            // ConversationPane + StatusBar + TermInput inside.
-            <div style={{ ...terminalScopeStyle, ...termCssVars(theme) }}>
-              <TerminalWrap
-                task={task}
-                messages={messages}
-                pendingPermission={pendingPermission}
-                onDecide={onDecide}
-                stage={stage}
-                draft={draft}
-                onDraft={setDraft}
-                onSend={onSend}
-                onInterrupt={onInterrupt}
-                sending={sending}
-                isTerminal={isTerminal}
-                theme={theme}
-                onToggleTheme={() => setTheme(t => t === 'dark' ? 'light' : 'dark')}
-              />
-            </div>
-          )}
-          {view === 'comments' && (
-            <div style={stubPanelStyle}>
-              <div style={stubPanelTitleStyle}>Comments</div>
-              <div style={stubPanelBodyStyle}>
-                Threaded comments on individual diff hunks land in a follow-up.
-                For now use the conversation in the Ask tab.
-              </div>
-            </div>
-          )}
-          {(view === 'diff' || view === 'files') && (
-            <div style={splitStyle}>
-              <div style={splitLeftStyle}>{conversation}</div>
-              <div style={splitRightStyle}>
-                <TaskChangesTab
-                  taskId={taskId}
-                  mode={view === 'diff' ? 'files' : 'commits'}
+          <div style={diffOpen ? splitLeftStyle : flexFillStyle}>
+            {view === 'conversation' && conversation}
+            {view === 'terminal' && (
+              // Wrap so the palette (var(--term-*)) flows to
+              // ConversationPane + StatusBar + TermInput inside.
+              <div style={{ ...terminalScopeStyle, ...termCssVars(theme) }}>
+                <TerminalWrap
+                  task={task}
+                  messages={messages}
+                  pendingPermission={pendingPermission}
+                  onDecide={onDecide}
+                  stage={stage}
+                  draft={draft}
+                  onDraft={setDraft}
+                  onSend={onSend}
+                  onInterrupt={onInterrupt}
+                  sending={sending}
+                  isTerminal={isTerminal}
+                  theme={theme}
+                  onToggleTheme={() => setTheme(t => t === 'dark' ? 'light' : 'dark')}
                 />
               </div>
+            )}
+          </div>
+          {diffOpen && (
+            <div style={splitRightStyle}>
+              <TaskChangesTab taskId={taskId} mode="files" />
             </div>
           )}
         </div>
-        <TaskWindowTabs
-          value={view}
-          onChange={setView}
-          changeStats={changeStats}
-        />
       </div>
 
       {showCreate && (
@@ -545,6 +543,7 @@ function StructuredView({
   sending,
   isTerminal,
   changeStats,
+  diffOpen,
   onReview,
 }: {
   task: TaskDto;
@@ -562,6 +561,7 @@ function StructuredView({
   sending: boolean;
   isTerminal: boolean;
   changeStats: ChangeStats;
+  diffOpen: boolean;
   onReview: () => void;
 }) {
   const turns = useMemo(
@@ -608,7 +608,7 @@ function StructuredView({
       )}
 
       {changeStats.files > 0 && (
-        <ReviewStrip stats={changeStats} onReview={onReview} />
+        <ReviewStrip stats={changeStats} diffOpen={diffOpen} onReview={onReview} />
       )}
 
       {!isTerminal && (
@@ -744,9 +744,11 @@ function SidebarSection({
  *  (Pause/Stop/Delete). Lives inside the themed task window so it
  *  respects light/dark unlike the prior page-level TaskHeader. */
 function TaskWindowHeader({
-  task, onRename, onPause, onStop, canStop, onDelete, canDelete,
+  task, view, onChangeView, onRename, onPause, onStop, canStop, onDelete, canDelete,
 }: {
   task: TaskDto;
+  view: DetailView;
+  onChangeView: (next: DetailView) => void;
   onRename: (title: string) => void | Promise<void>;
   onPause: (() => void) | undefined;
   onStop: () => void;
@@ -785,6 +787,26 @@ function TaskWindowHeader({
           )}
         </div>
       </div>
+      <div style={twHeaderViewToggleStyle} role="tablist" aria-label="View">
+        {(['conversation', 'terminal'] as const).map(key => {
+          const active = view === key;
+          return (
+            <button
+              key={key}
+              type="button"
+              role="tab"
+              aria-selected={active}
+              onClick={() => onChangeView(key)}
+              style={{
+                ...twHeaderViewBtnStyle,
+                ...(active ? twHeaderViewBtnActiveStyle : null),
+              }}
+            >
+              {key === 'conversation' ? '💬 Conversation' : '⌨ Terminal'}
+            </button>
+          );
+        })}
+      </div>
       <div style={twHeaderActionsStyle}>
         {onPause && (
           <button type="button" onClick={onPause} style={twHeaderBtnStyle}>
@@ -811,67 +833,18 @@ function TaskWindowHeader({
   );
 }
 
-/** Bottom tab bar inside the task window. Switches the body between
- *  the conversation (Ask), a stub Comments panel, and the side-by-
- *  side Diff / Files panes that open TaskChangesTab next to the
- *  conversation. */
-function TaskWindowTabs({
-  value, onChange, changeStats,
-}: {
-  value: DetailView;
-  onChange: (next: DetailView) => void;
-  changeStats: ChangeStats;
-}) {
-  const tabs: Array<{ key: DetailView; label: string; badge?: string }> = [
-    { key: 'ask',      label: '💬 Ask' },
-    { key: 'terminal', label: '⌨ Terminal' },
-    { key: 'comments', label: '✎ Comments' },
-    {
-      key: 'diff',
-      label: '⇄ Diff',
-      badge: changeStats.files > 0
-        ? `${changeStats.files} file${changeStats.files === 1 ? '' : 's'}`
-        : undefined,
-    },
-    { key: 'files', label: '⌧ Files' },
-  ];
-  return (
-    <div style={twTabsStyle}>
-      {tabs.map(t => {
-        const active = t.key === value;
-        return (
-          <button
-            key={t.key}
-            type="button"
-            onClick={() => onChange(t.key)}
-            style={{ ...twTabBtnStyle, ...(active ? twTabBtnActiveStyle : null) }}
-          >
-            <span>{t.label}</span>
-            {t.badge && <span style={twTabBadgeStyle}>{t.badge}</span>}
-          </button>
-        );
-      })}
-      {changeStats.files > 0 && (
-        <span style={twTabsStatsStyle}>
-          <span style={{ color: '#16a34a' }}>+{changeStats.added}</span>{' '}
-          <span style={{ color: '#dc2626' }}>−{changeStats.removed}</span>
-        </span>
-      )}
-    </div>
-  );
-}
-
-/** "N files changed · +X −Y · [Review →]" strip that sits above
- *  the reply input whenever the working tree has changes. Clicking
- *  Review flips the bottom tab to Diff so the diff opens beside the
- *  conversation. */
+/** "⇄ Diff · N files · +X −Y · [Open / Hide]" strip that sits above
+ *  the reply input whenever the working tree has changes. The button
+ *  toggles the side-by-side diff pane next to the conversation /
+ *  terminal — this strip is now the only entry point since Diff is
+ *  no longer a bottom tab. */
 function ReviewStrip({
-  stats, onReview,
-}: { stats: ChangeStats; onReview: () => void }) {
+  stats, diffOpen, onReview,
+}: { stats: ChangeStats; diffOpen: boolean; onReview: () => void }) {
   return (
     <div style={reviewStripStyle}>
       <span style={reviewStripLabelStyle}>
-        {stats.files} file{stats.files === 1 ? '' : 's'} changed
+        ⇄ Diff · {stats.files} file{stats.files === 1 ? '' : 's'}
       </span>
       <span style={reviewStripStatsStyle}>
         <span style={{ color: '#16a34a' }}>+{stats.added}</span>{' '}
@@ -879,7 +852,7 @@ function ReviewStrip({
       </span>
       <span style={{ flex: 1 }} />
       <button type="button" onClick={onReview} style={reviewStripBtnStyle}>
-        Review →
+        {diffOpen ? 'Hide diff ✕' : 'Open diff →'}
       </button>
     </div>
   );
@@ -1607,12 +1580,12 @@ const taskWindowStyle: React.CSSProperties = {
 };
 const taskWindowBodyStyle: React.CSSProperties = {
   flex: 1, minHeight: 0,
-  display: 'flex',
+  display: 'flex', gap: 12,
   padding: 12,
 };
-const splitStyle: React.CSSProperties = {
+const flexFillStyle: React.CSSProperties = {
   flex: 1, minWidth: 0, minHeight: 0,
-  display: 'flex', gap: 12,
+  display: 'flex', flexDirection: 'column',
 };
 const splitLeftStyle: React.CSSProperties = {
   flex: 1, minWidth: 0, minHeight: 0,
@@ -1723,33 +1696,28 @@ const twHeaderDeleteBtnStyle: React.CSSProperties = {
   ...twHeaderBtnStyle, color: '#b91c1c',
 };
 
-// Bottom tab bar (TaskWindowTabs) ───────────────────────────────────
-const twTabsStyle: React.CSSProperties = {
-  display: 'flex', alignItems: 'center', gap: 4,
-  padding: '6px 12px',
-  borderTop: '1px solid var(--border)',
+// In-header view toggle (Conversation | Terminal) ──────────────────
+const twHeaderViewToggleStyle: React.CSSProperties = {
+  display: 'inline-flex',
+  padding: 2,
   background: 'var(--bg-elevated)',
-};
-const twTabBtnStyle: React.CSSProperties = {
-  display: 'inline-flex', alignItems: 'center', gap: 6,
-  padding: '5px 12px',
-  background: 'transparent', border: '1px solid transparent',
-  borderRadius: 6, color: 'var(--text-2)',
-  fontSize: 12, fontWeight: 600, cursor: 'pointer',
-};
-const twTabBtnActiveStyle: React.CSSProperties = {
-  background: 'var(--bg-card)',
   border: '1px solid var(--border)',
+  borderRadius: 8,
+  flexShrink: 0,
+};
+const twHeaderViewBtnStyle: React.CSSProperties = {
+  padding: '4px 12px',
+  background: 'transparent',
+  border: 'none',
+  borderRadius: 6,
+  color: 'var(--text-2)',
+  fontSize: 12, fontWeight: 600,
+  cursor: 'pointer',
+};
+const twHeaderViewBtnActiveStyle: React.CSSProperties = {
+  background: 'var(--bg-card)',
   color: 'var(--text-1)',
-};
-const twTabBadgeStyle: React.CSSProperties = {
-  fontSize: 10.5, padding: '1px 6px',
-  background: 'var(--accent-a10)', color: 'var(--accent-dark)',
-  borderRadius: 999, fontWeight: 600,
-};
-const twTabsStatsStyle: React.CSSProperties = {
-  marginLeft: 'auto', fontSize: 11,
-  fontFamily: '"SF Mono", Menlo, monospace',
+  boxShadow: '0 1px 2px rgba(15, 23, 42, 0.1)',
 };
 
 // Review strip + context bar + checkpoints stub ─────────────────────

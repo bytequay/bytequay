@@ -13,21 +13,28 @@
  */
 package com.bytequay.app.web;
 
+import com.bytequay.app.domain.EmailTag;
+import com.bytequay.app.domain.EmailTagArchiveEntry;
 import com.bytequay.app.domain.EmailThreadDetail;
 import com.bytequay.app.domain.EmailThreadMeta;
 import com.bytequay.app.service.gmail.EmailMuteService;
 import com.bytequay.app.service.gmail.EmailService;
+import com.bytequay.app.service.gmail.EmailTagService;
 import com.google.common.collect.ImmutableMap;
+import org.springframework.http.HttpStatusCode;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.server.ResponseStatusException;
 
 import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 
 import static java.util.Objects.requireNonNull;
@@ -49,11 +56,13 @@ public class EmailController
 
     private final EmailService emailService;
     private final EmailMuteService muteService;
+    private final EmailTagService tagService;
 
-    public EmailController(EmailService emailService, EmailMuteService muteService)
+    public EmailController(EmailService emailService, EmailMuteService muteService, EmailTagService tagService)
     {
         this.emailService = requireNonNull(emailService, "emailService is null");
         this.muteService = requireNonNull(muteService, "muteService is null");
+        this.tagService = requireNonNull(tagService, "tagService is null");
     }
 
     /**
@@ -187,4 +196,72 @@ public class EmailController
 
     /** Body shape for {@link #mute}. */
     public record MuteRequest(String sender) {}
+
+    /** GET /api/email/tags?account={email} — returns the per-account
+     *  tag rules, alphabetised by name. */
+    @GetMapping("/tags")
+    public Map<String, List<EmailTag>> listTags(@RequestParam String account)
+    {
+        return ImmutableMap.of("tags", tagService.listTags(account));
+    }
+
+    /** POST /api/email/tags?account={email} body=
+     *  {@code {"name": "...", "subjectContains": "...", "action": "FOCUS"}}
+     *  — creates a new tag. */
+    @PostMapping("/tags")
+    public EmailTag createTag(
+            @RequestParam String account,
+            @RequestBody TagRequest payload)
+    {
+        return tagService.createTag(account, payload.name(), payload.subjectContains(), parseAction(payload.action()));
+    }
+
+    /** PUT /api/email/tags/{id} body=
+     *  {@code {"name": "...", "subjectContains": "...", "action": "ARCHIVE"}}
+     *  — updates a tag's name, pattern, and/or action. */
+    @PutMapping("/tags/{id}")
+    public EmailTag updateTag(
+            @PathVariable String id,
+            @RequestBody TagRequest payload)
+    {
+        return tagService.updateTag(id, payload.name(), payload.subjectContains(), parseAction(payload.action()));
+    }
+
+    /** DELETE /api/email/tags/{id} — deletes a tag. */
+    @DeleteMapping("/tags/{id}")
+    public Map<String, String> deleteTag(@PathVariable String id)
+    {
+        tagService.deleteTag(id);
+        return ImmutableMap.of("result", "deleted", "id", id);
+    }
+
+    /** GET /api/email/archived?account={email} — entries from the
+     *  tag-driven archive log, newest first. The Archived view in the
+     *  email left nav reads from this so rows render without a
+     *  round-trip to Gmail's All-Mail. */
+    @GetMapping("/archived")
+    public Map<String, List<EmailTagArchiveEntry>> listArchived(@RequestParam String account)
+    {
+        return ImmutableMap.of("entries", tagService.listArchived(account));
+    }
+
+    /** Body shape for {@link #createTag} and {@link #updateTag}. The
+     *  {@code action} field is the enum name as a string; parsed
+     *  defensively into {@link EmailTag.Action} so a typo returns a
+     *  400, not a 500. */
+    public record TagRequest(String name, String subjectContains, String action) {}
+
+    private static EmailTag.Action parseAction(String raw)
+    {
+        if (raw == null || raw.isBlank()) {
+            throw new ResponseStatusException(HttpStatusCode.valueOf(400), "action must not be blank");
+        }
+        try {
+            return EmailTag.Action.valueOf(raw.trim().toUpperCase(Locale.ROOT));
+        }
+        catch (IllegalArgumentException e) {
+            throw new ResponseStatusException(HttpStatusCode.valueOf(400),
+                    "action must be one of FOCUS, ARCHIVE, IGNORE; got: " + raw);
+        }
+    }
 }

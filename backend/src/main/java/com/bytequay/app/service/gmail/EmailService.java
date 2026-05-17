@@ -69,6 +69,7 @@ public class EmailService
     private final LinkDetector linkDetector;
     private final EmailHtmlEnricher htmlEnricher;
     private final EmailMuteService muteService;
+    private final EmailTagService tagService;
     private final PullRequestService pullRequestService;
     private final PatResolver patResolver;
     /** "owner/repo#number" → last-refresh-time, dedup for the email
@@ -82,6 +83,7 @@ public class EmailService
             LinkDetector linkDetector,
             EmailHtmlEnricher htmlEnricher,
             EmailMuteService muteService,
+            EmailTagService tagService,
             PullRequestService pullRequestService,
             PatResolver patResolver)
     {
@@ -91,6 +93,7 @@ public class EmailService
         this.linkDetector = requireNonNull(linkDetector, "linkDetector is null");
         this.htmlEnricher = requireNonNull(htmlEnricher, "htmlEnricher is null");
         this.muteService = requireNonNull(muteService, "muteService is null");
+        this.tagService = requireNonNull(tagService, "tagService is null");
         this.pullRequestService = requireNonNull(pullRequestService, "pullRequestService is null");
         this.patResolver = requireNonNull(patResolver, "patResolver is null");
     }
@@ -109,8 +112,11 @@ public class EmailService
             throw new ResponseStatusException(HttpStatusCode.valueOf(400),
                     "pageSize must be in [1, 500]");
         }
-        return applyMuteFilter(email,
-                imapClient.listInboxThreads(email, appPasswordFor(email), pageSize));
+        String appPassword = appPasswordFor(email);
+        List<EmailThreadMeta> raw = imapClient.listInboxThreads(email, appPassword, pageSize);
+        List<EmailThreadMeta> muted = applyMuteFilter(email, raw);
+        List<EmailThreadMeta> classified = tagService.classify(email, muted);
+        return archiveSweep(email, appPassword, classified);
     }
 
     /** Force-refresh handler. Same as {@link #listInboxThreads} —
@@ -136,6 +142,39 @@ public class EmailService
         return threads.stream()
                 .filter(t -> !muted.contains(EmailMuteService.normaliseSender(t.from())))
                 .toList();
+    }
+
+    /**
+     * For every thread classified as {@link EmailThreadMeta.View#ARCHIVE}:
+     * issues the Gmail-side archive, persists an audit row in the tag
+     * archive log, and drops the thread from the returned list. Other
+     * views (INBOX, FOCUS, IGNORE) pass through unchanged so the
+     * frontend can render the left-nav counts.
+     *
+     * <p>If the IMAP archive call throws for an individual thread we log
+     * and keep going — the next refresh will retry, and a single sick
+     * thread mustn't take down the whole listing.
+     */
+    private List<EmailThreadMeta> archiveSweep(String accountEmail, String appPassword, List<EmailThreadMeta> threads)
+    {
+        List<EmailThreadMeta> out = new ArrayList<>(threads.size());
+        Instant archivedAt = Instant.now();
+        for (EmailThreadMeta t : threads) {
+            if (t.view() != EmailThreadMeta.View.ARCHIVE) {
+                out.add(t);
+                continue;
+            }
+            try {
+                imapClient.archiveThread(accountEmail, appPassword, t.id());
+                tagService.logArchive(accountEmail, t, t.matchedTagId(), archivedAt);
+            }
+            catch (Exception e) {
+                log.warn("Tag-driven archive failed for thread {} on {}: {}", t.id(), accountEmail, e.getMessage());
+                // Pass it through so the user still sees it; next refresh will retry.
+                out.add(t);
+            }
+        }
+        return List.copyOf(out);
     }
 
     /** Full thread including every message, parsed body, and any
@@ -244,15 +283,18 @@ public class EmailService
         imapClient.readAndArchiveThread(email, appPasswordFor(email), threadId);
     }
 
-    /** Reverses the auto-archive: re-adds INBOX and clears UNREAD (the
-     *  typical entry point is "I just opened this and want to keep it
-     *  visible"). The "Keep in inbox" button on the detail pane drives
-     *  this. */
+    /** Reverses an archive: re-adds INBOX and clears UNREAD. Drives the
+     *  "Keep in inbox" button on the detail pane, including for threads
+     *  that landed in the Archived view because a tag's ARCHIVE action
+     *  fired. Also drops any matching audit row from the tag archive
+     *  log so the Archived view doesn't keep showing a thread the user
+     *  pulled back to Inbox. */
     public void keepThreadInInbox(String email, String threadId)
     {
         requireNonBlank(email, "email");
         requireNonBlank(threadId, "threadId");
         imapClient.keepThreadInInbox(email, appPasswordFor(email), threadId);
+        tagService.forgetArchived(email, threadId);
     }
 
     /**

@@ -698,7 +698,11 @@ export type EmailMessageDetailDto = {
 /** Mirror of backend EmailThreadMeta. The unit shown as one card in
  *  the inbox list — represents a Gmail conversation, with the latest
  *  message's sender/subject/snippet plus a count for the (N) badge
- *  on multi-message threads. */
+ *  on multi-message threads.
+ *
+ *  `matchedTagId` / `view` are stamped by the tag classification pass
+ *  on the backend. Threads with no matching rule arrive as
+ *  `matchedTagId === null` and `view === 'INBOX'`. */
 export type EmailThreadMetaDto = {
   id: string;
   latestMessageId: string | null;
@@ -708,6 +712,47 @@ export type EmailThreadMetaDto = {
   receivedAt: string;
   unread: boolean;
   messageCount: number;
+  matchedTagId: string | null;
+  view: EmailThreadView;
+};
+
+/** Mirror of backend EmailThreadMeta.View. Drives which left-nav
+ *  bucket a thread renders under. ARCHIVE-classified threads are
+ *  removed from inbox-listing responses by the backend, so the
+ *  frontend only ever sees INBOX, FOCUS, or IGNORE here. */
+export type EmailThreadView = 'INBOX' | 'FOCUS' | 'ARCHIVE' | 'IGNORE';
+
+/** Mirror of backend EmailTag. A user-defined classification rule
+ *  that case-insensitively substring-matches the email subject. */
+export type EmailTagDto = {
+  id: string;
+  accountEmail: string;
+  name: string;
+  subjectContains: string;
+  action: EmailTagAction;
+  createdAt: string;
+  updatedAt: string;
+};
+
+/** Mirror of backend EmailTag.Action.
+ *  - FOCUS: show in inbox; surfaced under the tag in the left nav.
+ *  - ARCHIVE: archived on Gmail at match time, recorded in the
+ *    archive log, browsable under "Archived" in the left nav.
+ *  - IGNORE: hidden from the app entirely; no Gmail-side change. */
+export type EmailTagAction = 'FOCUS' | 'ARCHIVE' | 'IGNORE';
+
+/** Mirror of backend EmailTagArchiveEntry. One row in the local
+ *  audit log of tag-driven archives — what the "Archived" view in
+ *  the email left nav reads from. */
+export type EmailTagArchiveEntryDto = {
+  accountEmail: string;
+  gmailThreadId: string;
+  tagId: string;
+  subject: string | null;
+  fromAddr: string | null;
+  snippet: string | null;
+  receivedAt: string;
+  archivedAt: string;
 };
 
 /** Mirror of backend LinkedRef — a PR / issue / commit auto-detected
@@ -1570,6 +1615,24 @@ export type Bridge = {
   muteEmailSender: (account: string, sender: string) => Promise<void>;
   unmuteEmailSender: (account: string, sender: string) => Promise<void>;
   listMutedEmailSenders: (account: string) => Promise<string[]>;
+  /** Per-account subject-matching tag rules. Alphabetised on return.
+   *  Tags drive the left-nav classification of inbox threads. */
+  listEmailTags: (account: string) => Promise<EmailTagDto[]>;
+  /** Create a new tag. UUID minted server-side. */
+  createEmailTag: (
+    account: string,
+    input: { name: string; subjectContains: string; action: EmailTagAction },
+  ) => Promise<EmailTagDto>;
+  /** Update an existing tag by id. */
+  updateEmailTag: (
+    id: string,
+    input: { name: string; subjectContains: string; action: EmailTagAction },
+  ) => Promise<EmailTagDto>;
+  /** Delete a tag by id. Existing archive-log entries linked to the
+   *  tag are preserved (they still describe the historical action). */
+  deleteEmailTag: (id: string) => Promise<void>;
+  /** Audit-log entries for the Archived left-nav view. Newest first. */
+  listArchivedEmailThreads: (account: string) => Promise<EmailTagArchiveEntryDto[]>;
   // Credentials vault
   listCredentials: (type?: CredentialType) => Promise<CredentialDto[]>;
   upsertCredential: (req: UpsertCredentialRequest) => Promise<CredentialDto>;

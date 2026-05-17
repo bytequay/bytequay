@@ -2318,6 +2318,77 @@ const url = new URL(`${BACKEND_BASE}/api/search/repos`);
     const json = await res.json();
     return (json && Array.isArray(json.senders)) ? json.senders as string[] : [];
   });
+  ipcMain.handle('email:listTags', async (_event, payload: unknown) => {
+    const { account } = (payload ?? {}) as { account?: string };
+    if (!account) throw new Error('account is required');
+    const params = new URLSearchParams({ account });
+    const res = await fetch(`${BACKEND_BASE}/api/email/tags?${params.toString()}`);
+    if (!res.ok) {
+      const text = await res.text().catch(() => '');
+      throw new Error(`backend /api/email/tags returned ${res.status}: ${text}`);
+    }
+    const json = await res.json();
+    return (json && Array.isArray(json.tags)) ? json.tags : [];
+  });
+  ipcMain.handle('email:createTag', async (_event, payload: unknown) => {
+    const { account, input } = (payload ?? {}) as {
+      account?: string;
+      input?: { name: string; subjectContains: string; action: string };
+    };
+    if (!account || !input) throw new Error('account and input are required');
+    const params = new URLSearchParams({ account });
+    const res = await fetch(`${BACKEND_BASE}/api/email/tags?${params.toString()}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(input),
+    });
+    if (!res.ok) {
+      const text = await res.text().catch(() => '');
+      throw new Error(`backend POST /api/email/tags returned ${res.status}: ${text}`);
+    }
+    return res.json();
+  });
+  ipcMain.handle('email:updateTag', async (_event, payload: unknown) => {
+    const { id, input } = (payload ?? {}) as {
+      id?: string;
+      input?: { name: string; subjectContains: string; action: string };
+    };
+    if (!id || !input) throw new Error('id and input are required');
+    const res = await fetch(`${BACKEND_BASE}/api/email/tags/${encodeURIComponent(id)}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(input),
+    });
+    if (!res.ok) {
+      const text = await res.text().catch(() => '');
+      throw new Error(`backend PUT /api/email/tags/${id} returned ${res.status}: ${text}`);
+    }
+    return res.json();
+  });
+  ipcMain.handle('email:deleteTag', async (_event, payload: unknown) => {
+    const { id } = (payload ?? {}) as { id?: string };
+    if (!id) throw new Error('id is required');
+    const res = await fetch(`${BACKEND_BASE}/api/email/tags/${encodeURIComponent(id)}`, {
+      method: 'DELETE',
+    });
+    if (!res.ok) {
+      const text = await res.text().catch(() => '');
+      throw new Error(`backend DELETE /api/email/tags/${id} returned ${res.status}: ${text}`);
+    }
+    return res.json();
+  });
+  ipcMain.handle('email:listArchived', async (_event, payload: unknown) => {
+    const { account } = (payload ?? {}) as { account?: string };
+    if (!account) throw new Error('account is required');
+    const params = new URLSearchParams({ account });
+    const res = await fetch(`${BACKEND_BASE}/api/email/archived?${params.toString()}`);
+    if (!res.ok) {
+      const text = await res.text().catch(() => '');
+      throw new Error(`backend /api/email/archived returned ${res.status}: ${text}`);
+    }
+    const json = await res.json();
+    return (json && Array.isArray(json.entries)) ? json.entries : [];
+  });
 
   // ── Tasks ───────────────────────────────────────────────────────────────
   // Local AI coding tasks. The list endpoint returns rows across all

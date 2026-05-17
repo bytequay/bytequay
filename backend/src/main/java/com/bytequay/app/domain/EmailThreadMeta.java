@@ -26,6 +26,10 @@ import java.time.Instant;
  * <p>{@code unread} is true if <em>any</em> message in the thread
  * carries the UNREAD label — same semantics as Gmail's bold-or-not
  * row state.
+ *
+ * <p>{@code matchedTagId} and {@code view} are filled in by the
+ * tag-classification pass in {@code EmailTagService}; the IMAP layer
+ * leaves them as {@code null} / {@link View#INBOX}.
  */
 public record EmailThreadMeta(
         String id,
@@ -35,6 +39,41 @@ public record EmailThreadMeta(
         String snippet,
         Instant receivedAt,
         boolean unread,
-        int messageCount)
+        int messageCount,
+        String matchedTagId,
+        View view)
 {
+    /** Classification of a thread after tag rules have been applied. */
+    public enum View
+    {
+        /** No tag matched, or the matched tag is informational only — render in the main Inbox view. */
+        INBOX,
+        /** Matched a FOCUS tag — render in Inbox and clickable under the tag in the left nav. */
+        FOCUS,
+        /** Matched an ARCHIVE tag — hidden from Inbox; archived on Gmail and recorded in the archive log. */
+        ARCHIVE,
+        /** Matched an IGNORE tag — hidden from the app entirely; no Gmail-side change. */
+        IGNORE
+    }
+
+    /** Convenience for the IMAP layer and tests where classification isn't relevant yet. */
+    public EmailThreadMeta(
+            String id,
+            String latestMessageId,
+            String from,
+            String subject,
+            String snippet,
+            Instant receivedAt,
+            boolean unread,
+            int messageCount)
+    {
+        this(id, latestMessageId, from, subject, snippet, receivedAt, unread, messageCount, null, View.INBOX);
+    }
+
+    /** Returns a copy with the given classification set. */
+    public EmailThreadMeta withClassification(String matchedTagId, View view)
+    {
+        return new EmailThreadMeta(id, latestMessageId, from, subject, snippet,
+                receivedAt, unread, messageCount, matchedTagId, view);
+    }
 }

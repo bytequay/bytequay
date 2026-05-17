@@ -24,6 +24,9 @@ import type {
   CredentialDto,
   CredentialType,
   DailyCardDto,
+  EmailTagAction,
+  EmailTagArchiveEntryDto,
+  EmailTagDto,
   EmailThreadDetailDto,
   EmailThreadMetaDto,
   GitHubUserMatchDto,
@@ -436,6 +439,22 @@ const bridge: Bridge = {
     ipcRenderer.invoke('email:unmuteSender', { account, sender }),
   listMutedEmailSenders: (account: string): Promise<string[]> =>
     ipcRenderer.invoke('email:listMutedSenders', { account }),
+  listEmailTags: (account: string): Promise<EmailTagDto[]> =>
+    ipcRenderer.invoke('email:listTags', { account }),
+  createEmailTag: (
+    account: string,
+    input: { name: string; subjectContains: string; action: EmailTagAction },
+  ): Promise<EmailTagDto> =>
+    ipcRenderer.invoke('email:createTag', { account, input }),
+  updateEmailTag: (
+    id: string,
+    input: { name: string; subjectContains: string; action: EmailTagAction },
+  ): Promise<EmailTagDto> =>
+    ipcRenderer.invoke('email:updateTag', { id, input }),
+  deleteEmailTag: (id: string): Promise<void> =>
+    ipcRenderer.invoke('email:deleteTag', { id }),
+  listArchivedEmailThreads: (account: string): Promise<EmailTagArchiveEntryDto[]> =>
+    ipcRenderer.invoke('email:listArchived', { account }),
   listTasks: (groupId?: string): Promise<TaskDto[]> =>
     ipcRenderer.invoke('tasks:list', groupId ?? null),
   createTask: (request: NewTaskRequestDto): Promise<TaskDto> =>

@@ -12,7 +12,16 @@
  * limitations under the License.
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
-import type { EmailMessageDetailDto, EmailThreadDetailDto, EmailThreadMetaDto, LinkedRefDto } from '../types';
+import type {
+  EmailMessageDetailDto,
+  EmailTagArchiveEntryDto,
+  EmailTagDto,
+  EmailThreadDetailDto,
+  EmailThreadMetaDto,
+  LinkedRefDto,
+} from '../types';
+import EmailLeftNav, { type EmailActiveView } from './EmailLeftNav';
+import ManageRulesModal from './ManageRulesModal';
 
 type Account = { email: string; authMode: 'IMAP' };
 
@@ -49,6 +58,16 @@ export default function EmailPage({ onOpenIntegrationsSettings, onOpenLinkedRef 
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [selectedThreadId, setSelectedThreadId] = useState<string | null>(null);
+
+  // Tag rules + the audit log of tag-driven archives. Tags are loaded
+  // on every account switch (cheap, ~handful of rows); archived entries
+  // are loaded lazily the first time the user navigates to the Archived
+  // bucket so a session that never touches it pays nothing.
+  const [tags, setTags] = useState<EmailTagDto[]>([]);
+  const [archiveEntries, setArchiveEntries] = useState<EmailTagArchiveEntryDto[]>([]);
+  const [archiveLoaded, setArchiveLoaded] = useState(false);
+  const [activeView, setActiveView] = useState<EmailActiveView>({ kind: 'inbox' });
+  const [rulesModalOpen, setRulesModalOpen] = useState(false);
   // Threads the user opened in this session that auto-archived. They're
   // still in `threads` so the detail pane can render the open one, but
   // filtered out of the visible inbox list. "Keep in inbox" removes the
@@ -103,6 +122,27 @@ export default function EmailPage({ onOpenIntegrationsSettings, onOpenLinkedRef 
     }
   }, []);
 
+  const loadTags = useCallback(async (account: string) => {
+    try {
+      const list = await window.bridge.listEmailTags(account);
+      setTags(list);
+    }
+    catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    }
+  }, []);
+
+  const loadArchived = useCallback(async (account: string) => {
+    try {
+      const list = await window.bridge.listArchivedEmailThreads(account);
+      setArchiveEntries(list);
+      setArchiveLoaded(true);
+    }
+    catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    }
+  }, []);
+
   // Background poll of the inbox list — focus-gated so it pauses
   // when the user tabs away. Each tick opens a fresh imap.gmail.com
   // connection (~300ms login), so we keep the cadence at 5 min — long
@@ -140,16 +180,40 @@ export default function EmailPage({ onOpenIntegrationsSettings, onOpenLinkedRef 
     };
   }, [selectedAccount, accounts]);
 
-  // Load threads whenever the selected account changes. The backend
-  // listing endpoint hits imap.gmail.com live every call.
+  // Load threads + tags whenever the selected account changes. The
+  // archive log is loaded lazily on first navigation to the Archived
+  // bucket — most sessions won't need it.
   useEffect(() => {
     if (selectedAccount == null) {
       setThreads(null);
+      setTags([]);
+      setArchiveEntries([]);
+      setArchiveLoaded(false);
       return;
     }
     void loadInbox(selectedAccount);
+    void loadTags(selectedAccount);
+    setArchiveEntries([]);
+    setArchiveLoaded(false);
+    setActiveView({ kind: 'inbox' });
     setSelectedThreadId(null);
-  }, [selectedAccount, accounts, loadInbox]);
+  }, [selectedAccount, accounts, loadInbox, loadTags]);
+
+  // Pull the archive log the first time the user navigates to the
+  // Archived bucket. After that, refreshes pick it up implicitly when
+  // the user re-enters the view.
+  useEffect(() => {
+    if (!selectedAccount) return;
+    if (activeView.kind !== 'archived') return;
+    if (archiveLoaded) return;
+    void loadArchived(selectedAccount);
+  }, [activeView, selectedAccount, archiveLoaded, loadArchived]);
+
+  // Switching views invalidates any thread selection — the picked
+  // thread might not be in the new view's universe.
+  useEffect(() => {
+    setSelectedThreadId(null);
+  }, [activeView]);
 
   // Auto-fired when the user opens an unread thread: flip it to read
   // and remove from the visible inbox in one Gmail call. The thread
@@ -283,17 +347,22 @@ export default function EmailPage({ onOpenIntegrationsSettings, onOpenLinkedRef 
   // the dedup is empty, so a kept-in-inbox thread will re-archive on
   // next click — that's the intentional "in inbox = needs action;
   // opening = dealt with" model.
+  //
+  // Only fires for inbox-style views. Opening a thread from Archived
+  // or Ignored is a "go look at this" gesture, not "deal with it",
+  // so it shouldn't take any action.
   useEffect(() => {
     if (!selectedAccount || !selectedThreadId || !threads) return;
+    if (activeView.kind !== 'inbox' && activeView.kind !== 'tag') return;
     const t = threads.find(th => th.id === selectedThreadId);
-    if (!t) return;
+    if (!t || t.view === 'IGNORE') return;
     if (autoActedRef.current.has(selectedThreadId)) return;
     autoActedRef.current.add(selectedThreadId);
     void readAndArchive(selectedThreadId);
     // readAndArchive is captured as a closure; we only want to re-run
     // when the selection changes, not on every render.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selectedThreadId, selectedAccount]);
+  }, [selectedThreadId, selectedAccount, activeView]);
 
   // Reset the auto-act dedup when the account changes — per-account
   // threads are a fresh universe.
@@ -310,8 +379,14 @@ export default function EmailPage({ onOpenIntegrationsSettings, onOpenLinkedRef 
   // Suppressed when focus is in an input or contenteditable so it
   // doesn't fight typing.
   useEffect(() => {
-    if (!threads || threads.length === 0) return;
-    const visible = threads.filter(t => !autoArchivedIds.has(t.id) || t.id === selectedThreadId);
+    if (!threads) return;
+    const visible = computeVisibleList({
+      activeView,
+      threads,
+      archiveEntries,
+      autoArchivedIds,
+      selectedThreadId,
+    });
     if (visible.length === 0) return;
     const onKey = (e: KeyboardEvent) => {
       const target = e.target as HTMLElement | null;
@@ -335,7 +410,7 @@ export default function EmailPage({ onOpenIntegrationsSettings, onOpenLinkedRef 
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [threads, selectedThreadId, selectedAccount, accounts, autoArchivedIds]);
+  }, [threads, selectedThreadId, selectedAccount, accounts, autoArchivedIds, activeView, archiveEntries]);
 
   if (accountsError) {
     return (
@@ -362,7 +437,14 @@ export default function EmailPage({ onOpenIntegrationsSettings, onOpenLinkedRef 
   }
 
   const account = accounts.find(a => a.email === selectedAccount);
-  const selectedThread = threads?.find(t => t.id === selectedThreadId) ?? null;
+  const visibleThreads = computeVisibleList({
+    activeView,
+    threads: threads ?? [],
+    archiveEntries,
+    autoArchivedIds,
+    selectedThreadId,
+  });
+  const selectedThread = visibleThreads.find(t => t.id === selectedThreadId) ?? null;
 
   return (
     <div className="email-page">
@@ -394,62 +476,89 @@ export default function EmailPage({ onOpenIntegrationsSettings, onOpenLinkedRef 
 
       {error && <div className="repo-error">{error}</div>}
 
-      {account && threads != null && (() => {
-        // Visible list excludes auto-archived threads but keeps the
-        // currently-selected one even if it was just auto-archived,
-        // so the highlight in the inbox doesn't vanish out from under
-        // the user while they're reading.
-        const visibleThreads = threads.filter(t =>
-          !autoArchivedIds.has(t.id) || t.id === selectedThreadId);
-        return (
-          <div className="email-pane">
-            <div className="email-pane__list">
-              {visibleThreads.length === 0 && <div className="email-page__hint">Inbox is empty.</div>}
-              <ul className="email-list email-list--inset">
-                {visibleThreads.map(t => (
-                  <li
-                    key={t.id}
-                    className={`email-row${t.unread ? ' email-row--unread' : ''}${t.id === selectedThreadId ? ' email-row--selected' : ''}${autoArchivedIds.has(t.id) ? ' email-row--archived' : ''}`}
-                    onClick={() => setSelectedThreadId(t.id)}
-                  >
-                    <div className="email-row__rail" aria-hidden="true" />
-                    <div className="email-row__body">
-                      <div className="email-row__line1">
-                        <span className="email-row__from">
-                          {shortenFrom(t.from)}
-                          {t.messageCount > 1 && (
-                            <span className="email-row__count" title={`${t.messageCount} messages in this thread`}>
-                              {' '}({t.messageCount})
-                            </span>
-                          )}
-                        </span>
-                        <span className="email-row__time">{formatRelative(t.receivedAt)}</span>
-                      </div>
-                      <div className="email-row__subject">{t.subject || '(no subject)'}</div>
-                      <div className="email-row__snippet">{t.snippet}</div>
-                    </div>
-                  </li>
-                ))}
-              </ul>
-            </div>
-            <div className="email-pane__detail">
-              {selectedThread ? (
-                <ThreadDetailPane
-                  key={selectedThread.id}
-                  account={selectedAccount!}
-                  meta={selectedThread}
-                  archived={autoArchivedIds.has(selectedThread.id)}
-                  onKeepInInbox={() => void keepInInbox(selectedThread.id)}
-                  onMuteSender={() => void muteSender(selectedThread)}
-                  onOpenLinkedRef={onOpenLinkedRef}
-                />
-              ) : (
-                <div className="email-page__hint">Pick a thread on the left.</div>
-              )}
-            </div>
+      {account && threads != null && (
+        <div className="email-pane email-pane--with-nav">
+          <div className="email-pane__nav">
+            <EmailLeftNav
+              tags={tags}
+              threads={threads}
+              archiveEntries={archiveEntries}
+              activeView={activeView}
+              onSelect={setActiveView}
+              onOpenManageRules={() => setRulesModalOpen(true)}
+            />
           </div>
-        );
-      })()}
+          <div className="email-pane__list">
+            {visibleThreads.length === 0 && (
+              <div className="email-page__hint">{emptyHintFor(activeView)}</div>
+            )}
+            <ul className="email-list email-list--inset">
+              {visibleThreads.map(t => (
+                <li
+                  key={t.id}
+                  className={`email-row${t.unread ? ' email-row--unread' : ''}${t.id === selectedThreadId ? ' email-row--selected' : ''}${autoArchivedIds.has(t.id) ? ' email-row--archived' : ''}`}
+                  onClick={() => setSelectedThreadId(t.id)}
+                >
+                  <div className="email-row__rail" aria-hidden="true" />
+                  <div className="email-row__body">
+                    <div className="email-row__line1">
+                      <span className="email-row__from">
+                        {t.view === 'FOCUS' && (
+                          <span
+                            className="email-row__tag-icon"
+                            aria-hidden="true"
+                            title={tagNameFor(t.matchedTagId, tags)}
+                          >
+                            ⭐{' '}
+                          </span>
+                        )}
+                        {shortenFrom(t.from)}
+                        {t.messageCount > 1 && (
+                          <span className="email-row__count" title={`${t.messageCount} messages in this thread`}>
+                            {' '}({t.messageCount})
+                          </span>
+                        )}
+                      </span>
+                      <span className="email-row__time">{formatRelative(t.receivedAt)}</span>
+                    </div>
+                    <div className="email-row__subject">{t.subject || '(no subject)'}</div>
+                    <div className="email-row__snippet">{t.snippet}</div>
+                  </div>
+                </li>
+              ))}
+            </ul>
+          </div>
+          <div className="email-pane__detail">
+            {selectedThread ? (
+              <ThreadDetailPane
+                key={selectedThread.id}
+                account={selectedAccount!}
+                meta={selectedThread}
+                archived={autoArchivedIds.has(selectedThread.id) || activeView.kind === 'archived'}
+                onKeepInInbox={() => void keepInInbox(selectedThread.id)}
+                onMuteSender={() => void muteSender(selectedThread)}
+                onOpenLinkedRef={onOpenLinkedRef}
+              />
+            ) : (
+              <div className="email-page__hint">Pick a thread on the left.</div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {rulesModalOpen && selectedAccount && (
+        <ManageRulesModal
+          account={selectedAccount}
+          tags={tags}
+          threads={threads ?? []}
+          onClose={() => setRulesModalOpen(false)}
+          onSaved={() => {
+            setRulesModalOpen(false);
+            void loadTags(selectedAccount);
+            void loadInbox(selectedAccount, true);
+          }}
+        />
+      )}
 
       {loading && threads == null && <div className="repo-loading">Loading inbox…</div>}
 
@@ -815,4 +924,71 @@ function formatRelative(iso: string): string {
   if (deltaSec < 86400) return Math.floor(deltaSec / 3600) + 'h ago';
   if (deltaSec < 86400 * 7) return Math.floor(deltaSec / 86400) + 'd ago';
   return new Date(t).toLocaleDateString();
+}
+
+/**
+ * Picks the list rows for the current view.
+ *
+ * <p>For inbox-style views ({@code inbox} or a focus/ignore tag), we
+ * filter the classified threads. The Archived view is special — it
+ * reads from the archive-log and maps each entry to a thread-shaped
+ * row so the existing row renderer + detail pane work without
+ * branching. Auto-archived-this-session threads are still hidden
+ * from inbox-style lists unless they're the currently-selected row,
+ * matching the pre-existing "don't yank the highlight out from under
+ * the user" behavior.
+ */
+function computeVisibleList({
+  activeView, threads, archiveEntries, autoArchivedIds, selectedThreadId,
+}: {
+  activeView: EmailActiveView;
+  threads: EmailThreadMetaDto[];
+  archiveEntries: EmailTagArchiveEntryDto[];
+  autoArchivedIds: Set<string>;
+  selectedThreadId: string | null;
+}): EmailThreadMetaDto[] {
+  if (activeView.kind === 'archived') {
+    return archiveEntries.map(archiveEntryToThreadMeta);
+  }
+  const keep = (t: EmailThreadMetaDto) => {
+    if (activeView.kind === 'inbox') {
+      return t.view === 'INBOX' || t.view === 'FOCUS';
+    }
+    if (activeView.kind === 'ignored') {
+      return t.view === 'IGNORE';
+    }
+    // tag view — match the rule that won precedence for this thread.
+    return t.matchedTagId === activeView.tagId;
+  };
+  return threads.filter(t =>
+    keep(t) && (!autoArchivedIds.has(t.id) || t.id === selectedThreadId));
+}
+
+function archiveEntryToThreadMeta(entry: EmailTagArchiveEntryDto): EmailThreadMetaDto {
+  return {
+    id: entry.gmailThreadId,
+    latestMessageId: null,
+    from: entry.fromAddr ?? '',
+    subject: entry.subject ?? '',
+    snippet: entry.snippet ?? '',
+    receivedAt: entry.receivedAt,
+    unread: false,
+    messageCount: 1,
+    matchedTagId: entry.tagId,
+    view: 'ARCHIVE',
+  };
+}
+
+function emptyHintFor(view: EmailActiveView): string {
+  switch (view.kind) {
+    case 'inbox': return 'Inbox is empty.';
+    case 'archived': return 'Nothing has been archived by a tag yet.';
+    case 'ignored': return 'No ignored threads in the current inbox window.';
+    case 'tag': return 'No threads match this tag right now.';
+  }
+}
+
+function tagNameFor(tagId: string | null, tags: EmailTagDto[]): string | undefined {
+  if (!tagId) return undefined;
+  return tags.find(t => t.id === tagId)?.name;
 }

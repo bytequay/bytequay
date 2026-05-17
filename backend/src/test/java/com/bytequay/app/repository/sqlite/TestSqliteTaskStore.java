@@ -85,7 +85,8 @@ class TestSqliteTaskStore
                 initial.processPid(), initial.logPath(),
                 initial.createdAt(), Instant.parse("2026-05-15T13:00:00Z"),
                 /* endedAt */ null, /* errorMessage */ null,
-                initial.metadataJson());
+                initial.metadataJson(),
+                initial.taskType(), initial.linkedPrNumber(), initial.linkedIssueNumber());
         store.saveTask(updated);
 
         Task got = store.findTaskById(initial.id()).orElseThrow();
@@ -178,7 +179,10 @@ class TestSqliteTaskStore
                 now,
                 /* endedAt */ null,
                 /* errorMessage */ null,
-                "{\"originPr\":\"trinodb/trino#42\"}");
+                "{\"originPr\":\"trinodb/trino#42\"}",
+                /* taskType */ "DEVELOP",
+                /* linkedPrNumber */ null,
+                /* linkedIssueNumber */ null);
     }
 
     private static Task withTimestamps(Task source, Instant created, Instant updated)
@@ -188,7 +192,8 @@ class TestSqliteTaskStore
                 source.title(), source.status(), source.workingDir(), source.branchName(),
                 source.model(), source.costUsdMilli(), source.tokensIn(), source.tokensOut(),
                 source.processPid(), source.logPath(), created, updated,
-                source.endedAt(), source.errorMessage(), source.metadataJson());
+                source.endedAt(), source.errorMessage(), source.metadataJson(),
+                source.taskType(), source.linkedPrNumber(), source.linkedIssueNumber());
     }
 
     private static TaskMessage message(String taskId, long seq, String role, String type, String contentJson)

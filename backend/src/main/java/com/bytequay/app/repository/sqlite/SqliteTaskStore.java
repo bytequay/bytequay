@@ -72,6 +72,9 @@ class SqliteTaskStore
         entity.setEndedAtMs(task.endedAt() == null ? null : task.endedAt().toEpochMilli());
         entity.setErrorMessage(task.errorMessage());
         entity.setMetadataJson(task.metadataJson());
+        entity.setTaskType(task.taskType());
+        entity.setLinkedPrNumber(task.linkedPrNumber());
+        entity.setLinkedIssueNumber(task.linkedIssueNumber());
         tasks.save(entity);
     }
 
@@ -185,7 +188,10 @@ class SqliteTaskStore
                 Instant.ofEpochMilli(e.getUpdatedAtMs()),
                 e.getEndedAtMs() == null ? null : Instant.ofEpochMilli(e.getEndedAtMs()),
                 e.getErrorMessage(),
-                e.getMetadataJson());
+                e.getMetadataJson(),
+                e.getTaskType(),
+                e.getLinkedPrNumber(),
+                e.getLinkedIssueNumber());
     }
 
     private static TaskMessage toMessage(TaskMessageEntity e)

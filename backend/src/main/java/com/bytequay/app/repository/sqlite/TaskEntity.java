@@ -80,6 +80,15 @@ class TaskEntity
     @Column(name = "metadata_json", nullable = false)
     private String metadataJson;
 
+    @Column(name = "task_type", nullable = false)
+    private String taskType;
+
+    @Column(name = "linked_pr_number")
+    private Integer linkedPrNumber;
+
+    @Column(name = "linked_issue_number")
+    private Integer linkedIssueNumber;
+
     // The legacy `tasks.group_id` column still exists in the schema
     // (V57) but is no longer mapped — membership moved to the
     // `task_group_members` join table in V59. The column is left
@@ -142,4 +151,13 @@ class TaskEntity
 
     String getMetadataJson() { return metadataJson; }
     void setMetadataJson(String metadataJson) { this.metadataJson = metadataJson; }
+
+    String getTaskType() { return taskType; }
+    void setTaskType(String taskType) { this.taskType = taskType; }
+
+    Integer getLinkedPrNumber() { return linkedPrNumber; }
+    void setLinkedPrNumber(Integer linkedPrNumber) { this.linkedPrNumber = linkedPrNumber; }
+
+    Integer getLinkedIssueNumber() { return linkedIssueNumber; }
+    void setLinkedIssueNumber(Integer linkedIssueNumber) { this.linkedIssueNumber = linkedIssueNumber; }
 }

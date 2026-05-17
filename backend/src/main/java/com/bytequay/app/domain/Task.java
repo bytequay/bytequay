@@ -55,6 +55,17 @@ public record Task(
         Instant updatedAt,
         Instant endedAt,
         String errorMessage,
-        String metadataJson)
+        String metadataJson,
+        /** Free-form task type — {@code "DEVELOP"} or {@code "FIX"}
+         *  today, more values likely later. Required (never null);
+         *  defaults to {@code "DEVELOP"} on legacy rows. */
+        String taskType,
+        /** GitHub PR number the task is associated with — scoped to
+         *  the task's own repo. {@code null} when the user picked
+         *  "No remote PR yet" on the create page. */
+        Integer linkedPrNumber,
+        /** GitHub issue number the task is associated with — scoped
+         *  to the task's own repo. Optional. */
+        Integer linkedIssueNumber)
 {
 }

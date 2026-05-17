@@ -703,7 +703,8 @@ public class ClaudeCodeCliSession
                 current.processPid(), current.logPath(),
                 current.createdAt(), Instant.now(),
                 endedAt != null ? endedAt : current.endedAt(),
-                current.errorMessage(), current.metadataJson());
+                current.errorMessage(), current.metadataJson(),
+                current.taskType(), current.linkedPrNumber(), current.linkedIssueNumber());
         store.saveTask(next);
     }
 

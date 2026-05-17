@@ -122,7 +122,10 @@ public class TaskController
                 body.branchName(),
                 body.initialPrompt(),
                 body.metadataJson(),
-                body.initialGroupIds() == null ? List.of() : body.initialGroupIds()));
+                body.initialGroupIds() == null ? List.of() : body.initialGroupIds(),
+                body.taskType(),
+                body.linkedPrNumber(),
+                body.linkedIssueNumber()));
     }
 
     /** GET /api/tasks/{id} */
@@ -328,7 +331,15 @@ public class TaskController
             String metadataJson,
             /** Optional — pre-pin the new task into one or more existing
              *  groups. Each must have room (cap is enforced server-side). */
-            List<String> initialGroupIds) {}
+            List<String> initialGroupIds,
+            /** Free-form task type — currently "DEVELOP" or "FIX",
+             *  default to "DEVELOP" server-side if blank. */
+            String taskType,
+            /** Optional GitHub PR number to link, scoped to the
+             *  task's repo. */
+            Integer linkedPrNumber,
+            /** Optional GitHub issue number, same scoping. */
+            Integer linkedIssueNumber) {}
 
     public record SendBody(String input) {}
 

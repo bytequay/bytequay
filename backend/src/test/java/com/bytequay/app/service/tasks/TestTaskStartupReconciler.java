@@ -84,6 +84,9 @@ class TestTaskStartupReconciler
                 now,
                 /* endedAt */ status == TaskStatus.COMPLETED ? now : null,
                 /* errorMessage */ null,
-                "{}");
+                "{}",
+                /* taskType */ "DEVELOP",
+                /* linkedPrNumber */ null,
+                /* linkedIssueNumber */ null);
     }
 }

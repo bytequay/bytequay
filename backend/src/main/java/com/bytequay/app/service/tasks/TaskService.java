@@ -265,7 +265,8 @@ public class TaskService
                 current.costUsdMilli(), current.tokensIn(), current.tokensOut(),
                 current.processPid(), current.logPath(),
                 current.createdAt(), Instant.now(),
-                current.endedAt(), current.errorMessage(), current.metadataJson());
+                current.endedAt(), current.errorMessage(), current.metadataJson(),
+                current.taskType(), current.linkedPrNumber(), current.linkedIssueNumber());
         store.saveTask(next);
         return store.findTaskById(taskId).orElse(next);
     }
@@ -296,6 +297,9 @@ public class TaskService
             }
         }
         Instant now = Instant.now();
+        String taskType = request.taskType() == null || request.taskType().isBlank()
+                ? "DEVELOP"
+                : request.taskType().trim();
         Task task = new Task(
                 UUID.randomUUID().toString(),
                 request.kind(),
@@ -315,7 +319,10 @@ public class TaskService
                 now,
                 /* endedAt */ null,
                 /* errorMessage */ null,
-                request.metadataJson() == null ? "{}" : request.metadataJson());
+                request.metadataJson() == null ? "{}" : request.metadataJson(),
+                taskType,
+                request.linkedPrNumber(),
+                request.linkedIssueNumber());
         store.saveTask(task);
         for (String groupId : initialGroupIds) {
             groupStore.addMember(task.id(), groupId);
@@ -584,7 +591,16 @@ public class TaskService
              *  {@link #GROUP_MAX_MEMBERS}); the whole create is
              *  transactional so the task and its memberships either
              *  all land or none do. */
-            List<String> initialGroupIds) {}
+            List<String> initialGroupIds,
+            /** Free-form task type — {@code "DEVELOP"} or
+             *  {@code "FIX"} today, more values likely later. Defaults
+             *  to {@code "DEVELOP"} when null/blank. */
+            String taskType,
+            /** Optional GitHub PR number to link the task to. Scoped
+             *  to the task's repo, so callers only pass the number. */
+            Integer linkedPrNumber,
+            /** Optional GitHub issue number, same scoping as the PR. */
+            Integer linkedIssueNumber) {}
 
     /** Inputs from the create-group dialog. The redesign requires
      *  a non-empty group, so {@code initialTaskIds} is required (≥1

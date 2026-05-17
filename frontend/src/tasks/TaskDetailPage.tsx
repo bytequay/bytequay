@@ -13,7 +13,7 @@
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { TaskDto, TaskFileDto, TaskGroupDto, TaskMessageDto, TaskStatusDto } from '../types';
-import { ConversationPane, type PendingPermission } from './ConversationPane';
+import type { PendingPermission } from './ConversationPane';
 import { StructuredConversation } from './StructuredConversation';
 import TasksLeftRail, {
   repoKey,
@@ -61,48 +61,62 @@ const POLL_MS_TERMINAL = 0;
  * <p>SSE through Electron is deferred; we poll on a status-aware
  * cadence (1s while RUNNING, 5s otherwise, off when terminal).
  */
-type TermTheme = 'dark' | 'light';
-
-const THEME_STORAGE_KEY = 'bytequay.tasks.terminalTheme';
-
-function loadTheme(): TermTheme {
-  try {
-    const v = window.localStorage.getItem(THEME_STORAGE_KEY);
-    return v === 'light' ? 'light' : 'dark';
-  }
-  catch {
-    return 'dark';
-  }
-}
-
-/** Four tabs in the detail toolbar. Conversation = the structured
- *  three-zone view; Terminal = the power-user stdout mirror; Files
- *  = uncommitted working-tree changes the AI session has made;
- *  Commits = commits authored in the workingDir since the task
- *  started. Persisted across sessions because users settle on one
- *  or two and don't want to keep re-picking. The Conversation/
- *  Terminal split was the original toggle; Files/Commits land on
- *  top of that as new tabs. */
-type DetailView = 'conversation' | 'terminal' | 'files' | 'commits';
+/** Bottom-tab views inside the task window. Diff/Files open the
+ *  changes pane side-by-side with the conversation; Ask is the
+ *  default full-width conversation; Comments is a stub for future
+ *  AI/user comment threads on changes. */
+type DetailView = 'ask' | 'comments' | 'diff' | 'files';
 const VIEW_STORAGE_KEY = 'bytequay.tasks.detailView';
+
+/** Context-window size (in tokens) per model family. Used by the
+ *  sidebar's CONTEXT WINDOW bar to compute "% used = latest turn's
+ *  input_tokens / limit". Approximate today — see followups/
+ *  tasks-checkpoints-and-context.md for the parser change that will
+ *  also count cache_read / cache_creation tokens. */
+const MODEL_CONTEXT_LIMITS: Array<{ match: RegExp; limit: number }> = [
+  { match: /opus/i,    limit: 200_000 },
+  { match: /sonnet/i,  limit: 200_000 },
+  { match: /haiku/i,   limit: 200_000 },
+  { match: /gpt-?5/i,  limit: 272_000 },
+  { match: /gpt-?4/i,  limit: 128_000 },
+  { match: /codex/i,   limit: 272_000 },
+];
+function modelContextLimit(model: string | null | undefined): number {
+  const m = (model ?? '').trim();
+  for (const { match, limit } of MODEL_CONTEXT_LIMITS) {
+    if (match.test(m)) return limit;
+  }
+  return 200_000; // safe default for any "claude-*"
+}
 function loadView(): DetailView {
   try {
     const v = window.localStorage.getItem(VIEW_STORAGE_KEY);
-    // Migrate the legacy 'structured' value to 'conversation' so the
-    // user's stored preference survives the rename.
-    if (v === 'terminal') return 'terminal';
-    if (v === 'files') return 'files';
-    if (v === 'commits') return 'commits';
-    return 'conversation';
+    // Migrate legacy values from the prior 4-tab layout. 'conversation'
+    // and the now-removed 'terminal' both map to the new 'ask' (the
+    // raw terminal renderer is gone; structured view is canonical).
+    // 'commits' is folded into 'files' since both surface the
+    // TaskChangesTab side-by-side.
+    if (v === 'diff') return 'diff';
+    if (v === 'files' || v === 'commits') return 'files';
+    if (v === 'comments') return 'comments';
+    return 'ask';
   }
   catch {
-    return 'conversation';
+    return 'ask';
   }
 }
 
 export default function TaskDetailPage({
-  taskId, onBack, onFilterChange, onProviderChange, onGroupChange, onRepoChange,
-  onSelectTask, onOpenSettings,
+  taskId, onBack,
+  // The list-view rail filters are routed through for API symmetry
+  // but the detail view replaces the rail with TaskWindowSidebar,
+  // so they're not consumed here.
+  onFilterChange: _onFilterChange,
+  onProviderChange: _onProviderChange,
+  onGroupChange: _onGroupChange,
+  onRepoChange: _onRepoChange,
+  onSelectTask: _onSelectTask,
+  onOpenSettings: _onOpenSettings,
 }: Props) {
   const [task, setTask] = useState<TaskDto | null>(null);
   const [messages, setMessages] = useState<TaskMessageDto[]>([]);
@@ -116,13 +130,7 @@ export default function TaskDetailPage({
   const [draft, setDraft] = usePersistentDraft(`reply:${taskId}`);
   const [sending, setSending] = useState(false);
   const [showCreate, setShowCreate] = useState(false);
-  const [theme, setTheme] = useState<TermTheme>(loadTheme);
   const [view, setView] = useState<DetailView>(loadView);
-
-  useEffect(() => {
-    try { window.localStorage.setItem(THEME_STORAGE_KEY, theme); }
-    catch { /* private browsing — fine to skip */ }
-  }, [theme]);
 
   useEffect(() => {
     try { window.localStorage.setItem(VIEW_STORAGE_KEY, view); }
@@ -255,29 +263,10 @@ export default function TaskDetailPage({
     }
   }, [taskId, onBack]);
 
-  const rail = (
-    <TasksLeftRail
-      tasks={allTasks}
-      currentTaskId={taskId}
-      statusFilter={'ALL'}
-      onStatusFilter={onFilterChange}
-      providerFilter={null}
-      onProviderFilter={onProviderChange}
-      groupFilter={task?.groupId ?? null}
-      onGroupFilter={onGroupChange}
-      repoFilter={task ? repoKey(task.workingDir) : null}
-      onRepoFilter={onRepoChange}
-      onSelectTask={onSelectTask}
-      onNewTask={() => setShowCreate(true)}
-      onOpenSettings={onOpenSettings}
-    />
-  );
-
   if (task === null && error) {
     return (
       <section style={layoutStyle}>
-        {rail}
-        <div style={mainColumnStyle}>
+        <div style={emptyShellStyle}>
           <BackBar onBack={onBack} title="(failed to load)" />
           <div style={errorBannerStyle}>{error}</div>
         </div>
@@ -287,8 +276,7 @@ export default function TaskDetailPage({
   if (task === null) {
     return (
       <section style={layoutStyle}>
-        {rail}
-        <div style={mainColumnStyle}>
+        <div style={emptyShellStyle}>
           <BackBar onBack={onBack} title="loading…" />
         </div>
       </section>
@@ -296,19 +284,44 @@ export default function TaskDetailPage({
   }
 
   const isTerminal = task.status === 'COMPLETED' || task.status === 'ERRORED';
+  const changeStats = useMemoChangeStats(files);
+  const onReview = useCallback(() => setView('diff'), []);
+
+  // Pure presentation — the conversation pane (with reply input,
+  // review strip, live bar) common to every view. Diff/Files just
+  // render it side-by-side with the changes pane.
+  const conversation = (
+    <StructuredView
+      task={task}
+      messages={messages}
+      pendingPermission={pendingPermission}
+      onDecide={onDecide}
+      draft={draft}
+      onDraft={setDraft}
+      onSend={onSend}
+      onInterrupt={onInterrupt}
+      sending={sending}
+      isTerminal={isTerminal}
+      changeStats={changeStats}
+      onReview={onReview}
+    />
+  );
 
   return (
     <section style={layoutStyle}>
-      {rail}
-      <div style={mainColumnStyle}>
-        <KeyframesStyles />
-
-        <BreadcrumbRow title={task.title} onBack={onBack} />
-
-        <TaskHeader
+      <KeyframesStyles />
+      <TaskWindowSidebar
+        task={task}
+        stage={stage}
+        messages={messages}
+        files={files}
+        groups={groups}
+        onChangeGroup={onChangeGroup}
+        onBack={onBack}
+      />
+      <div style={taskWindowStyle}>
+        <TaskWindowHeader
           task={task}
-          view={view}
-          onChangeView={setView}
           onRename={onRename}
           onPause={undefined /* pause not wired through MCP yet */}
           onStop={onStop}
@@ -316,57 +329,34 @@ export default function TaskDetailPage({
           onDelete={onDelete}
           canDelete={isTerminal}
         />
-
-        <div style={view === 'terminal'
-          ? { ...bodyGridStyle, ...termCssVars(theme) }
-          : bodyGridStyle}
-        >
-          {view === 'terminal' && (
-            <TerminalWrap
-              task={task}
-              messages={messages}
-              pendingPermission={pendingPermission}
-              onDecide={onDecide}
-              stage={stage}
-              draft={draft}
-              onDraft={setDraft}
-              onSend={onSend}
-              onInterrupt={onInterrupt}
-              sending={sending}
-              isTerminal={isTerminal}
-              theme={theme}
-              onToggleTheme={() => setTheme(t => t === 'dark' ? 'light' : 'dark')}
-            />
+        <div style={taskWindowBodyStyle}>
+          {view === 'ask' && conversation}
+          {view === 'comments' && (
+            <div style={stubPanelStyle}>
+              <div style={stubPanelTitleStyle}>Comments</div>
+              <div style={stubPanelBodyStyle}>
+                Threaded comments on individual diff hunks land in a follow-up.
+                For now use the conversation in the Ask tab.
+              </div>
+            </div>
           )}
-          {view === 'conversation' && (
-            <StructuredView
-              task={task}
-              messages={messages}
-              pendingPermission={pendingPermission}
-              onDecide={onDecide}
-              draft={draft}
-              onDraft={setDraft}
-              onSend={onSend}
-              onInterrupt={onInterrupt}
-              sending={sending}
-              isTerminal={isTerminal}
-            />
-          )}
-          {(view === 'files' || view === 'commits') && (
-            <TaskChangesTab taskId={taskId} mode={view} />
-          )}
-
-          {view !== 'files' && view !== 'commits' && (
-            <Sidebar
-              task={task}
-              stage={stage}
-              files={files}
-              messages={messages}
-              groups={groups}
-              onChangeGroup={onChangeGroup}
-            />
+          {(view === 'diff' || view === 'files') && (
+            <div style={splitStyle}>
+              <div style={splitLeftStyle}>{conversation}</div>
+              <div style={splitRightStyle}>
+                <TaskChangesTab
+                  taskId={taskId}
+                  mode={view === 'diff' ? 'files' : 'commits'}
+                />
+              </div>
+            </div>
           )}
         </div>
+        <TaskWindowTabs
+          value={view}
+          onChange={setView}
+          changeStats={changeStats}
+        />
       </div>
 
       {showCreate && (
@@ -385,6 +375,24 @@ export default function TaskDetailPage({
   );
 }
 
+/** Sums the per-file deltas so the bottom tab bar and the Review
+ *  strip can show a single "+X / -Y" pair. Memoised on file array
+ *  identity so every keystroke in the reply input doesn't reduce
+ *  the list. */
+function useMemoChangeStats(files: TaskFileDto[]) {
+  return useMemo(() => {
+    let added = 0;
+    let removed = 0;
+    for (const f of files) {
+      added += f.linesAdded;
+      removed += f.linesRemoved;
+    }
+    return { files: files.length, added, removed };
+  }, [files]);
+}
+
+type ChangeStats = { files: number; added: number; removed: number };
+
 // ────────────────────────────────────────────────────────────────────
 // Sub-components
 // ────────────────────────────────────────────────────────────────────
@@ -400,90 +408,6 @@ function BackBar({ onBack, title }: { onBack: () => void; title: string }) {
   );
 }
 
-function BreadcrumbRow({ onBack, title }: { onBack: () => void; title: string }) {
-  return <BackBar onBack={onBack} title={title} />;
-}
-
-function TaskHeader({
-  task,
-  view,
-  onChangeView,
-  onRename,
-  onPause,
-  onStop,
-  canStop,
-  onDelete,
-  canDelete,
-}: {
-  task: TaskDto;
-  view: DetailView;
-  onChangeView: (next: DetailView) => void;
-  onRename: (title: string) => void | Promise<void>;
-  onPause: (() => void) | undefined;
-  onStop: () => void;
-  canStop: boolean;
-  onDelete: () => void;
-  canDelete: boolean;
-}) {
-  const provider = task.provider || '';
-  const glyph = provider.toLowerCase().startsWith('codex') ? 'X' : 'C';
-  const glyphBg = glyph === 'X'
-    ? 'linear-gradient(135deg, #1e293b, #0f172a)'
-    : 'linear-gradient(135deg, #d97706, #92400e)';
-
-  return (
-    <div style={taskHeaderStyle}>
-      <div style={{ ...thProviderStyle, background: glyphBg }}>{glyph}</div>
-      <div style={thTitleBlockStyle}>
-        <EditableTitle title={task.title} onRename={onRename} />
-        <div style={thMetaStyle}>
-          {task.workingDir && (
-            <>
-              <RepoAvatar workingDir={task.workingDir} size={16} />
-              <span style={repoStyle}>{shortenPath(task.workingDir)}</span>
-              <span style={metaSepStyle}>·</span>
-            </>
-          )}
-          <span>started {ageOf(task.createdAt)}</span>
-          <span style={metaSepStyle}>·</span>
-          <span style={modelChipStyle}>{task.model || 'unknown model'}</span>
-          {task.agentSessionId && (
-            <>
-              <span style={metaSepStyle}>·</span>
-              <span style={sessionIdStyle}>{shortId(task.agentSessionId)}</span>
-            </>
-          )}
-        </div>
-      </div>
-      <StatusPill status={task.status} />
-      <div style={thActionsStyle}>
-        <ViewToggle value={view} onChange={onChangeView} />
-        {onPause && (
-          <button type="button" onClick={onPause} style={aBtnStyle}>⏸ Pause</button>
-        )}
-        {canStop && (
-          <button type="button" onClick={onStop} style={{ ...aBtnStyle, color: '#b91c1c' }}>
-            ⏹ Stop
-          </button>
-        )}
-        {canDelete && (
-          <button
-            type="button"
-            onClick={onDelete}
-            style={{ ...aBtnStyle, color: '#b91c1c' }}
-            title="Permanently remove this task and its conversation log"
-          >
-            🗑 Delete
-          </button>
-        )}
-      </div>
-    </div>
-  );
-}
-
-/** Tiny segmented control that flips between the structured detail
- *  view and the terminal mirror. Renders both labels at once so the
- *  active state is obvious. */
 /** Click-to-edit task title. Renders as a plain heading by default;
  *  clicking flips to an inline input. Enter / blur saves, Escape
  *  reverts. The pencil glyph is decorative — the whole heading is
@@ -542,228 +466,6 @@ function EditableTitle({ title, onRename }: {
   );
 }
 
-function ViewToggle({ value, onChange }: {
-  value: DetailView;
-  onChange: (next: DetailView) => void;
-}) {
-  // Four-tab strip in the detail toolbar. Conversation/Terminal are
-  // the two render modes for the live chat; Files/Commits surface
-  // git activity inside the task's workingDir so the user can see
-  // what the AI session changed without leaving the page.
-  const tabs: Array<{ key: DetailView; label: string }> = [
-    { key: 'conversation', label: '▤ Conversation' },
-    { key: 'terminal',     label: '⌨ Terminal' },
-    { key: 'files',        label: '📄 Files' },
-    { key: 'commits',      label: '⎇ Commits' },
-  ];
-  return (
-    <div style={viewToggleStyle} role="tablist" aria-label="Detail view">
-      {tabs.map(t => (
-        <button
-          key={t.key}
-          type="button"
-          role="tab"
-          aria-selected={value === t.key}
-          onClick={() => onChange(t.key)}
-          style={{
-            ...viewToggleBtnStyle,
-            ...(value === t.key ? viewToggleActiveStyle : null),
-          }}
-        >
-          {t.label}
-        </button>
-      ))}
-    </div>
-  );
-}
-
-function TerminalWrap({
-  task,
-  messages,
-  pendingPermission,
-  onDecide,
-  stage,
-  draft,
-  onDraft,
-  onSend,
-  onInterrupt,
-  sending,
-  isTerminal,
-  theme,
-  onToggleTheme,
-}: {
-  task: TaskDto;
-  messages: TaskMessageDto[];
-  pendingPermission: PendingPermission | null;
-  onDecide: (
-    callId: string,
-    decision: 'ALLOW' | 'DENY',
-    preApprove?: { toolName: string; count: number },
-  ) => void;
-  stage: Stage;
-  draft: string;
-  onDraft: (s: string) => void;
-  onSend: () => void;
-  onInterrupt: () => void;
-  sending: boolean;
-  isTerminal: boolean;
-  theme: TermTheme;
-  onToggleTheme: () => void;
-}) {
-  return (
-    <div style={terminalWrapStyle}>
-      <div style={termToolbarStyle}>
-        <div style={trafficStyle}>
-          <span style={{ ...trafficDotStyle, background: '#ff5f57' }} />
-          <span style={{ ...trafficDotStyle, background: '#febc2e' }} />
-          <span style={{ ...trafficDotStyle, background: '#28c840' }} />
-        </div>
-        <span style={termNameStyle}>
-          claude-code <span style={termBadgeStyle}>stream-json</span>
-          <span style={sessionIdStyleTerminal}> {shortenPath(task.workingDir)}</span>
-          {task.branchName && (
-            <span style={sessionIdStyleTerminal}> · {task.branchName}</span>
-          )}
-        </span>
-        <button
-          type="button"
-          onClick={onToggleTheme}
-          style={themeToggleStyle}
-          title={theme === 'dark' ? 'Switch to light theme' : 'Switch to dark theme'}
-        >
-          {theme === 'dark' ? '☀' : '☾'}
-        </button>
-      </div>
-
-      <ConversationPane
-        messages={messages}
-        pendingPermission={pendingPermission}
-        onDecide={onDecide}
-        banner={{
-          model: task.model,
-          cwd: task.workingDir,
-          branch: task.branchName,
-          sessionStartedAtIso: task.createdAt,
-        }}
-      />
-
-      <StatusBar task={task} stage={stage} />
-
-      {!isTerminal && (
-        <TermInput
-          draft={draft}
-          onDraft={onDraft}
-          onSend={onSend}
-          onInterrupt={onInterrupt}
-          sending={sending}
-          status={task.status}
-        />
-      )}
-    </div>
-  );
-}
-
-function StatusBar({ task, stage }: { task: TaskDto; stage: Stage }) {
-  const isRunning = task.status === 'RUNNING';
-  return (
-    <div style={statusBarStyle}>
-      {/* Status on the left, on its own so the running pulse stands
-          out instead of getting lost in the runtime/cost row. */}
-      <span style={statStyle}>
-        {isRunning && <span className="bytequay-pulse" style={runningDotStyle} />}
-        <strong style={statStrongStyle}>
-          {task.status}
-          {/* Animated trailing dots: ".", "..", "..." cycle. CSS-only
-              via a steps() animation that reveals more of a fixed
-              "..." string each frame, so the strong tag stays
-              copy-pasteable (no fake content). */}
-          {isRunning && <span className="bytequay-running-dots" aria-hidden />}
-        </strong>
-      </span>
-      {/* Everything else hugs the right edge. */}
-      <span style={statGroupRightStyle}>
-        <span style={statStyle}>⏱ <strong style={statStrongStyle}>{formatRuntime(task)}</strong></span>
-        <span style={statStyle}>💰 <strong style={statStrongStyle}>{formatCost(task.costUsdMilli)}</strong></span>
-        <span style={statStyle}>tokens <strong style={statStrongStyle}>{formatNum(task.tokensIn + task.tokensOut)}</strong></span>
-        {stage.toolName && (
-          <span style={statStyle}>
-            {stage.glyph} <strong style={statStrongStyle}>{stage.toolName}</strong>
-          </span>
-        )}
-        {isRunning && (
-          <span style={statHintStyle}>press Cancel to interrupt</span>
-        )}
-      </span>
-    </div>
-  );
-}
-
-function TermInput({
-  draft,
-  onDraft,
-  onSend,
-  onInterrupt,
-  sending,
-  status,
-}: {
-  draft: string;
-  onDraft: (s: string) => void;
-  onSend: () => void;
-  onInterrupt: () => void;
-  sending: boolean;
-  status: TaskStatusDto;
-}) {
-  const isRunning = status === 'RUNNING';
-  const textareaRef = useAutoGrowTextarea(draft, 180);
-  return (
-    <div style={termInputStyle}>
-      <div style={termInputRowStyle}>
-        <span style={termPromptStyle}>›</span>
-        <textarea
-          ref={textareaRef}
-          value={draft}
-          onChange={e => onDraft(e.target.value)}
-          placeholder={
-            isRunning
-              ? 'queued — sends after current turn (or press Cancel to interrupt)'
-              : 'send a follow-up turn…'
-          }
-          disabled={sending}
-          onKeyDown={e => {
-            // Chat-app convention: Enter sends, Shift+Enter inserts a
-            // newline. ⌘/Ctrl+Enter still sends as a no-shift muscle-
-            // memory alias. isComposing guards against IME confirmation
-            // (CJK input) accidentally firing send.
-            if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
-              e.preventDefault();
-              onSend();
-            }
-          }}
-          style={termTextareaStyle}
-        />
-      </div>
-      <div style={termInputFooterStyle}>
-        <span><Kbd>↵</Kbd> send · <Kbd>⇧</Kbd>+<Kbd>↵</Kbd> newline</span>
-        {isRunning && (
-          <button type="button" onClick={onInterrupt} style={cancelChipStyle}>
-            ⏵ Cancel current turn
-          </button>
-        )}
-        <span style={{ marginLeft: 'auto' }}>
-          <button
-            type="button"
-            onClick={onSend}
-            disabled={!draft.trim() || sending}
-            style={sendBtnStyle}
-          >
-            {sending ? 'sending…' : (isRunning ? 'Queue →' : 'Send →')}
-          </button>
-        </span>
-      </div>
-    </div>
-  );
-}
-
 /**
  * Structured detail view — three deliberately distinct zones:
  *
@@ -792,6 +494,8 @@ function StructuredView({
   onInterrupt,
   sending,
   isTerminal,
+  changeStats,
+  onReview,
 }: {
   task: TaskDto;
   messages: TaskMessageDto[];
@@ -807,6 +511,8 @@ function StructuredView({
   onInterrupt: () => void;
   sending: boolean;
   isTerminal: boolean;
+  changeStats: ChangeStats;
+  onReview: () => void;
 }) {
   const turns = useMemo(
     () => messages.filter(m => m.type === 'turn_done').length,
@@ -849,6 +555,10 @@ function StructuredView({
             ⏵ Interrupt
           </button>
         </div>
+      )}
+
+      {changeStats.files > 0 && (
+        <ReviewStrip stats={changeStats} onReview={onReview} />
       )}
 
       {!isTerminal && (
@@ -898,122 +608,297 @@ function StructuredView({
   );
 }
 
-function Sidebar({ task, stage, files, messages, groups, onChangeGroup }: {
+/**
+ * Left-rail sidebar for the task detail page. Replaces the global
+ * TasksLeftRail while a task is open. Layout follows
+ * docs/mockups/design/tasks/task-detail-tabs.png:
+ *
+ *  • Back button (returns to the task list)
+ *  • Status badge (● RUNNING / IDLE / COMPLETED …)
+ *  • TODAY — runtime, cost, tokens, tool calls, files touched, model
+ *  • CONTEXT WINDOW — approximate "% used" derived from the latest
+ *    turn's input_tokens vs the model's context limit
+ *  • CURRENT STAGE — the in-flight tool (if any) plus a one-line
+ *    input summary
+ *  • CHECKPOINTS — stub for now; the auto-summarisation feature is
+ *    captured in followups/tasks-checkpoints-and-context.md
+ */
+function TaskWindowSidebar({
+  task, stage, messages, files, onBack,
+}: {
   task: TaskDto;
   stage: Stage;
-  files: TaskFileDto[];
   messages: TaskMessageDto[];
+  files: TaskFileDto[];
   groups: TaskGroupDto[];
   onChangeGroup: (groupId: string | null) => void | Promise<void>;
+  onBack: () => void;
 }) {
   const toolUsage = useMemo(() => deriveToolUsage(messages), [messages]);
+  const ctx = useMemo(() => computeContextUsage(messages, task.model), [messages, task.model]);
   return (
-    <div style={sidebarStyle}>
-      <SideCard>
-        <StageCard task={task} stage={stage} />
-      </SideCard>
+    <aside style={twSidebarStyle}>
+      <div style={twSidebarBackRowStyle}>
+        <button type="button" onClick={onBack} style={twBackBtnStyle}>
+          ← Back to all tasks
+        </button>
+      </div>
 
-      <SideCard>
-        <h4 style={sideCardHeadingStyle}>Group</h4>
-        <GroupPicker
-          task={task}
-          groups={groups}
-          onChange={onChangeGroup}
-        />
-      </SideCard>
+      <div style={twStatusRowStyle}>
+        <StatusPill status={task.status} />
+      </div>
 
-      <SideCard>
-        <h4 style={sideCardHeadingStyle}>Metrics</h4>
-        {/* Sliding stripe along the top of the card — pure visual cue
-            that something's happening while RUNNING, since the
-            seconds-counter on its own is easy to miss as a static read. */}
-        {task.status === 'RUNNING' && (
-          <div style={progressTrackStyle} aria-hidden>
-            <div className="bytequay-progress-bar" style={progressBarStyle} />
-          </div>
-        )}
+      <SidebarSection label="Today">
         <div style={metricListStyle}>
           <Metric label="Runtime" value={formatRuntime(task)} live={task.status === 'RUNNING'} />
-          <Metric label="Cost so far" value={formatCost(task.costUsdMilli)} sub="CLI-reported" />
-          <Metric label="Tokens in → out" value={`${formatNum(task.tokensIn)} → ${formatNum(task.tokensOut)}`} />
+          <Metric label="Cost" value={formatCost(task.costUsdMilli)} />
+          <Metric label="Tokens in" value={formatNum(task.tokensIn)} />
+          <Metric label="Tokens out" value={formatNum(task.tokensOut)} />
           <Metric label="Tool calls" value={formatNum(toolUsage.total)} />
           <Metric label="Files touched" value={formatNum(files.length)} />
-          <Metric label="Model" value={task.model} mono />
-          {task.branchName && <Metric label="Branch" value={task.branchName} mono />}
-          {task.agentSessionId && <Metric label="Session" value={shortId(task.agentSessionId)} mono />}
-          <div style={metricRowStyle}>
-            <span style={metricLabelStyle}>Status</span>
-            <StatusPill status={task.status} />
-          </div>
+          <Metric label="Model" value={task.model || 'unknown'} mono />
         </div>
-      </SideCard>
+      </SidebarSection>
 
-      <SideCard>
-        <h4 style={sideCardHeadingStyle}>
-          Files touched <span style={cardCountStyle}>· {files.length}</span>
-        </h4>
-        <FilesList files={files} />
-      </SideCard>
+      <SidebarSection label="Context window" hint={ctx.hint}>
+        <ContextWindowBar pct={ctx.pct} used={ctx.used} limit={ctx.limit} />
+      </SidebarSection>
 
-      <SideCard>
-        <h4 style={sideCardHeadingStyle}>Tools used</h4>
-        <ToolsUsed usage={toolUsage} />
-      </SideCard>
+      <SidebarSection label="Current stage">
+        <StageCard task={task} stage={stage} />
+      </SidebarSection>
 
-      <SideCard>
-        <h4 style={sideCardHeadingStyle}>Quick actions</h4>
-        <div style={quickActionsStyle}>
-          <QaBtn icon="↗" label="Open in real Terminal" disabled />
-          <QaBtn icon="⊞" label="Open dir in IDE" disabled />
-          <QaBtn icon="↓" label="Save checkpoint" disabled />
-          <QaBtn icon="↗" label="Export transcript" disabled />
-        </div>
-      </SideCard>
-    </div>
+      <SidebarSection label="Checkpoints">
+        <CheckpointsStub />
+      </SidebarSection>
+    </aside>
   );
 }
 
-function FilesList({ files }: { files: TaskFileDto[] }) {
-  if (files.length === 0) {
-    return (
-      <div style={cardEmptyStyle}>
-        No files touched yet.
+function SidebarSection({
+  label, hint, children,
+}: { label: string; hint?: string; children: React.ReactNode }) {
+  return (
+    <div style={twSectionStyle}>
+      <div style={twSectionHeaderStyle}>
+        <span style={twSectionLabelStyle}>{label}</span>
+        {hint && <span style={twSectionHintStyle}>{hint}</span>}
       </div>
-    );
-  }
-  return (
-    <div style={filesListStyle}>
-      {files.map(f => (
-        <div key={f.path} style={fileRowStyle}>
-          <span style={{ ...fileOpTagStyle, ...fileOpPalette(f.operation) }}>
-            {fileOpLabel(f.operation)}
-          </span>
-          <span style={filePathStyle} title={f.path}>{f.path}</span>
-          <span style={fileStatsStyle}>
-            {f.linesAdded > 0 && <span style={{ color: '#16a34a' }}>+{f.linesAdded}</span>}
-            {f.linesAdded > 0 && f.linesRemoved > 0 && ' '}
-            {f.linesRemoved > 0 && <span style={{ color: '#dc2626' }}>-{f.linesRemoved}</span>}
-          </span>
-        </div>
-      ))}
+      {children}
     </div>
   );
 }
 
-function ToolsUsed({ usage }: { usage: ToolUsage }) {
-  if (usage.total === 0) {
-    return <div style={cardEmptyStyle}>No tools called yet.</div>;
-  }
+/** Header strip at the top of the task window — title (editable),
+ *  status pill, branch + model chips, and the destructive controls
+ *  (Pause/Stop/Delete). Lives inside the themed task window so it
+ *  respects light/dark unlike the prior page-level TaskHeader. */
+function TaskWindowHeader({
+  task, onRename, onPause, onStop, canStop, onDelete, canDelete,
+}: {
+  task: TaskDto;
+  onRename: (title: string) => void | Promise<void>;
+  onPause: (() => void) | undefined;
+  onStop: () => void;
+  canStop: boolean;
+  onDelete: () => void;
+  canDelete: boolean;
+}) {
+  const provider = task.provider || '';
+  const glyph = provider.toLowerCase().startsWith('codex') ? 'X' : 'C';
+  const glyphBg = glyph === 'X'
+    ? 'linear-gradient(135deg, #1e293b, #0f172a)'
+    : 'linear-gradient(135deg, #d97706, #92400e)';
   return (
-    <div style={toolsUsedStyle}>
-      {usage.entries.map(([tool, count]) => (
-        <span key={tool} style={toolPillStyle}>
-          {tool}
-          <span style={toolPillCountStyle}>{count}</span>
-        </span>
-      ))}
+    <div style={twHeaderStyle}>
+      <div style={{ ...twHeaderGlyphStyle, background: glyphBg }}>{glyph}</div>
+      <div style={twHeaderTitleColStyle}>
+        <EditableTitle title={task.title} onRename={onRename} />
+        <div style={twHeaderMetaStyle}>
+          <RepoAvatar workingDir={task.workingDir} size={14} />
+          {task.workingDir && (
+            <span style={twHeaderRepoStyle}>{shortenPath(task.workingDir)}</span>
+          )}
+          {task.branchName && (
+            <>
+              <span style={twHeaderSepStyle}>·</span>
+              <span style={twHeaderChipStyle} title={`branch ${task.branchName}`}>
+                ⎇ {task.branchName}
+              </span>
+            </>
+          )}
+          {task.model && (
+            <>
+              <span style={twHeaderSepStyle}>·</span>
+              <span style={twHeaderChipStyle}>{task.model}</span>
+            </>
+          )}
+        </div>
+      </div>
+      <div style={twHeaderActionsStyle}>
+        {onPause && (
+          <button type="button" onClick={onPause} style={twHeaderBtnStyle}>
+            ⏸ Pause
+          </button>
+        )}
+        {canStop && (
+          <button type="button" onClick={onStop} style={twHeaderStopBtnStyle}>
+            ⏹ Stop
+          </button>
+        )}
+        {canDelete && (
+          <button
+            type="button"
+            onClick={onDelete}
+            style={twHeaderDeleteBtnStyle}
+            title="Delete task and conversation log"
+          >
+            🗑 Delete
+          </button>
+        )}
+      </div>
     </div>
   );
+}
+
+/** Bottom tab bar inside the task window. Switches the body between
+ *  the conversation (Ask), a stub Comments panel, and the side-by-
+ *  side Diff / Files panes that open TaskChangesTab next to the
+ *  conversation. */
+function TaskWindowTabs({
+  value, onChange, changeStats,
+}: {
+  value: DetailView;
+  onChange: (next: DetailView) => void;
+  changeStats: ChangeStats;
+}) {
+  const tabs: Array<{ key: DetailView; label: string; badge?: string }> = [
+    { key: 'ask',      label: '💬 Ask' },
+    { key: 'comments', label: '✎ Comments' },
+    {
+      key: 'diff',
+      label: '⇄ Diff',
+      badge: changeStats.files > 0
+        ? `${changeStats.files} file${changeStats.files === 1 ? '' : 's'}`
+        : undefined,
+    },
+    { key: 'files', label: '⌧ Files' },
+  ];
+  return (
+    <div style={twTabsStyle}>
+      {tabs.map(t => {
+        const active = t.key === value;
+        return (
+          <button
+            key={t.key}
+            type="button"
+            onClick={() => onChange(t.key)}
+            style={{ ...twTabBtnStyle, ...(active ? twTabBtnActiveStyle : null) }}
+          >
+            <span>{t.label}</span>
+            {t.badge && <span style={twTabBadgeStyle}>{t.badge}</span>}
+          </button>
+        );
+      })}
+      {changeStats.files > 0 && (
+        <span style={twTabsStatsStyle}>
+          <span style={{ color: '#16a34a' }}>+{changeStats.added}</span>{' '}
+          <span style={{ color: '#dc2626' }}>−{changeStats.removed}</span>
+        </span>
+      )}
+    </div>
+  );
+}
+
+/** "N files changed · +X −Y · [Review →]" strip that sits above
+ *  the reply input whenever the working tree has changes. Clicking
+ *  Review flips the bottom tab to Diff so the diff opens beside the
+ *  conversation. */
+function ReviewStrip({
+  stats, onReview,
+}: { stats: ChangeStats; onReview: () => void }) {
+  return (
+    <div style={reviewStripStyle}>
+      <span style={reviewStripLabelStyle}>
+        {stats.files} file{stats.files === 1 ? '' : 's'} changed
+      </span>
+      <span style={reviewStripStatsStyle}>
+        <span style={{ color: '#16a34a' }}>+{stats.added}</span>{' '}
+        <span style={{ color: '#dc2626' }}>−{stats.removed}</span>
+      </span>
+      <span style={{ flex: 1 }} />
+      <button type="button" onClick={onReview} style={reviewStripBtnStyle}>
+        Review →
+      </button>
+    </div>
+  );
+}
+
+/** Horizontal "x% of N tokens" bar. Pure presentation — the math
+ *  lives in computeContextUsage(). Capped visually at 100% so a
+ *  model that overflows its window (rare; the agent will refuse
+ *  before this) still draws a sane bar. */
+function ContextWindowBar({
+  pct, used, limit,
+}: { pct: number; used: number; limit: number }) {
+  const clamped = Math.max(0, Math.min(100, pct));
+  const tone = clamped < 60 ? '#16a34a' : clamped < 85 ? '#d97706' : '#dc2626';
+  return (
+    <div style={ctxBarWrapStyle}>
+      <div style={ctxBarRowStyle}>
+        <span style={ctxBarPctStyle}>{Math.round(clamped)}%</span>
+        <span style={ctxBarRemainStyle}>
+          {formatNum(used)} / {formatNum(limit)}
+        </span>
+      </div>
+      <div style={ctxBarTrackStyle}>
+        <div style={{ ...ctxBarFillStyle, width: `${clamped}%`, background: tone }} />
+      </div>
+    </div>
+  );
+}
+
+/** Placeholder for the checkpoints feature. The model will
+ *  auto-summarise once history crosses a threshold; checkpoints
+ *  become nav anchors back to the corresponding point in the
+ *  conversation. Until that lands, render a hint so the UI doesn't
+ *  look broken. See followups/tasks-checkpoints-and-context.md. */
+function CheckpointsStub() {
+  return (
+    <div style={checkpointsStubStyle}>
+      Auto-summary checkpoints land in a follow-up. They'll show up
+      here once history grows past the summarisation threshold.
+    </div>
+  );
+}
+
+/** Approximate context-window usage. The latest persisted
+ *  turn_done message carries the input_tokens that the model
+ *  received for that turn — i.e. the full conversation it had to
+ *  process. Divided by the model's context limit, that's a decent
+ *  proxy for "how full" the window is. Cache tokens are not yet
+ *  counted (parser drops them today); the hint reflects that. */
+function computeContextUsage(messages: TaskMessageDto[], model: string | null) {
+  const limit = modelContextLimit(model);
+  let used = 0;
+  // Walk backwards for the most recent turn_done with a positive
+  // input_tokens — older turns are stale, and a 0 means the run
+  // ended before usage was reported.
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const m = messages[i];
+    if (m.type !== 'turn_done') continue;
+    if ((m.tokensIn ?? 0) > 0) {
+      used = m.tokensIn ?? 0;
+      break;
+    }
+  }
+  const pct = limit > 0 ? (used / limit) * 100 : 0;
+  return {
+    used,
+    limit,
+    pct,
+    hint: used > 0 ? 'approximate (cache excluded)' : 'no turn data yet',
+  };
 }
 
 type ToolUsage = {
@@ -1042,58 +927,6 @@ function deriveToolUsage(messages: TaskMessageDto[]): ToolUsage {
     entries: Array.from(counts.entries())
       .sort((a, b) => b[1] - a[1]),
   };
-}
-
-function fileOpLabel(op: string): string {
-  switch (op.toLowerCase()) {
-    case 'write':  return 'NEW';
-    case 'edit':   return 'EDIT';
-    case 'read':   return 'READ';
-    case 'delete': return 'DEL';
-    default:       return op.toUpperCase();
-  }
-}
-
-function fileOpPalette(op: string): React.CSSProperties {
-  switch (op.toLowerCase()) {
-    case 'write':  return { background: '#dcfce7', color: '#166534' };
-    case 'edit':   return { background: '#ede9fe', color: '#5b21b6' };
-    case 'read':   return { background: '#dbeafe', color: '#1e3a8a' };
-    case 'delete': return { background: '#fee2e2', color: '#991b1b' };
-    default:       return { background: '#f1f5f9', color: '#475569' };
-  }
-}
-
-function SideCard({ children }: { children: React.ReactNode }) {
-  return <div style={sideCardStyle}>{children}</div>;
-}
-
-/** Reassigns the task's group inline. Optimistically reflects the
- *  pick — the parent's setTaskGroup pushes through the new row. */
-function GroupPicker({ task, groups, onChange }: {
-  task: TaskDto;
-  groups: TaskGroupDto[];
-  onChange: (groupId: string | null) => void | Promise<void>;
-}) {
-  return (
-    <div style={groupPickerWrapStyle}>
-      <select
-        value={task.groupId ?? ''}
-        onChange={e => {
-          const next = e.target.value;
-          void onChange(next === '' ? null : next);
-        }}
-        style={groupPickerStyle}
-      >
-        <option value="">— Ungrouped —</option>
-        {groups.map(g => (
-          <option key={g.id} value={g.id}>
-            {g.glyph ? `${g.glyph}  ` : ''}{g.name}
-          </option>
-        ))}
-      </select>
-    </div>
-  );
 }
 
 function StageCard({ task, stage }: { task: TaskDto; stage: Stage }) {
@@ -1141,18 +974,6 @@ function Metric({
         {sub && <span style={metricSubStyle}> {sub}</span>}
       </span>
     </div>
-  );
-}
-
-function QaBtn({ icon, label, disabled }: { icon: string; label: string; disabled?: boolean }) {
-  return (
-    <button type="button" disabled={disabled} style={{
-      ...qaBtnStyle,
-      opacity: disabled ? 0.5 : 1,
-      cursor: disabled ? 'not-allowed' : 'pointer',
-    }}>
-      <span style={qaBtnIconStyle}>{icon}</span> {label}
-    </button>
   );
 }
 
@@ -1378,198 +1199,6 @@ function shortenPath(path: string): string {
 
 const monoFont = '"SF Mono", "JetBrains Mono", Menlo, Consolas, monospace';
 
-// ────────────────────────────────────────────────────────────────────
-// Terminal palette — applied as CSS custom properties on the
-// terminal-wrap div. ConversationPane reads via var(--term-*) so
-// only this top-level component knows the theme.
-// ────────────────────────────────────────────────────────────────────
-
-// Dark palette tuned toward GitHub "Dark Dimmed" — softer foreground
-// values so long sessions don't fatigue the eye. The user explicitly
-// asked for less-bright text and accents; the previous values
-// (#f0f6fc text, #b794f4 / #79c0ff / #56d364 / #ffd33d accents) were
-// fluorescent against the near-black background.
-const DARK_TERM = {
-  bg: '#0d1117',
-  bgElev1: '#13181f',          // gradient end (toolbar/status bar)
-  bgElev2: '#161b22',          // gradient start
-  bgResult: '#161b22',         // tool result body
-  bgResultHead: '#1c2128',
-  bgInput: '#11161e',          // subtle elevation so the input field
-                               // reads as its own zone but doesn't pop
-  border: '#21262d',
-  borderSubtle: '#1c2228',
-
-  text: '#adbac7',             // GitHub Dark Dimmed default fg
-  textBright: '#b8c4d0',       // intentionally barely-brighter than
-                               // text; emphasis comes from font-weight
-                               // rather than luminance, so bold values
-                               // never read as fluorescent white.
-  textMuted: '#768390',
-  textDim: '#636e7b',
-
-  user: '#986ee2',             // softer than #b794f4
-  read: '#539bf5',             // softer than #79c0ff
-  write: '#e0823d',            // less neon than #f0883e
-  edit: '#daaa3f',             // way softer than #ffd33d (was painful)
-  bash: '#e5534b',
-  ok: '#57ab5a',               // softer than #56d364
-  err: '#e5534b',              // softer than #f85149
-  warn: '#c69026',
-  pathFg: '#57ab5a',
-  bannerCwd: '#539bf5',
-  bannerMod: '#e0823d',
-
-  userBg: 'rgba(152,110,226,0.07)',
-  errorBg: 'rgba(229,83,75,0.06)',
-  toolBg: 'rgba(255,255,255,0.022)',
-  pillFg: '#e0823d',
-  pillBg: 'rgba(224,130,61,0.09)',
-  pillBorder: 'rgba(224,130,61,0.20)',
-  pathBg: 'rgba(87,171,90,0.08)',
-  pathBorder: 'rgba(87,171,90,0.20)',
-
-  cursor: '#adbac7',           // same as default text — still reads
-                               // as a blinking solid block, but
-                               // doesn't pop as a white square
-  kbdBg: '#1c2128',
-  kbdBorder: '#30363d',
-
-  permissionBg: '#5c2510',
-  permissionBorder: '#a3461d',
-  permissionText: '#f4b78f',
-  permissionTextStrong: '#fcd9b6',
-
-  sendBgStart: '#986ee2',
-  sendBgEnd: '#6f56c2',
-  sendText: '#0d1117',
-
-  toggleBg: 'rgba(255,255,255,0.06)',
-  toggleHoverBg: 'rgba(255,255,255,0.12)',
-  toggleColor: '#adbac7',
-
-  shadow: '0 4px 14px rgba(13,17,23,0.18), 0 1px 3px rgba(13,17,23,0.10)',
-  divider: 'rgba(255,255,255,0.04)',
-} as const;
-
-// Light palette mirrors the GitHub Primer light tokens used in
-// docs/mockups/v2/tasks/_src/task-detail-terminal-light.html.
-const LIGHT_TERM = {
-  bg: '#ffffff',
-  bgElev1: '#eaeef2',          // status bar gradient end
-  bgElev2: '#f6f8fa',          // status bar gradient start
-  bgResult: '#f6f8fa',
-  bgResultHead: '#eaeef2',
-  bgInput: '#fbfcfd',          // very subtle off-white field
-  border: '#d0d7de',
-  borderSubtle: '#eaeef2',
-
-  text: '#1f2328',
-  textBright: '#0e1116',
-  textMuted: '#57606a',
-  textDim: '#6e7781',
-
-  user: '#8250df',
-  read: '#0969da',
-  write: '#9a6700',
-  edit: '#bf8700',
-  bash: '#cf222e',
-  ok: '#1a7f37',
-  err: '#cf222e',
-  warn: '#9a6700',
-  pathFg: '#1a7f37',
-  bannerCwd: '#0969da',
-  bannerMod: '#9a6700',
-
-  userBg: '#fbf7ff',
-  errorBg: '#ffebe9',
-  toolBg: '#f6f8fa',
-  pillFg: '#cf222e',
-  pillBg: '#fff',
-  pillBorder: '#d0d7de',
-  pathBg: '#dafbe1',
-  pathBorder: '#1a7f37',
-
-  cursor: '#1f2328',
-  kbdBg: '#f6f8fa',
-  kbdBorder: '#d0d7de',
-
-  permissionBg: '#fff7ed',
-  permissionBorder: '#fed7aa',
-  permissionText: '#9a3412',
-  permissionTextStrong: '#7c2d12',
-
-  sendBgStart: '#8250df',
-  sendBgEnd: '#6f42c1',
-  sendText: '#ffffff',
-
-  toggleBg: 'rgba(0,0,0,0.04)',
-  toggleHoverBg: 'rgba(0,0,0,0.08)',
-  toggleColor: '#57606a',
-
-  shadow: '0 1px 3px rgba(0,0,0,0.06), 0 0 0 1px rgba(0,0,0,0.02)',
-  divider: 'rgba(0,0,0,0.04)',
-} as const;
-
-function termCssVars(theme: TermTheme): React.CSSProperties {
-  const p = theme === 'dark' ? DARK_TERM : LIGHT_TERM;
-  // Cast — React.CSSProperties doesn't enumerate custom properties.
-  return {
-    '--term-bg': p.bg,
-    '--term-bg-elev1': p.bgElev1,
-    '--term-bg-elev2': p.bgElev2,
-    '--term-bg-result': p.bgResult,
-    '--term-bg-result-head': p.bgResultHead,
-    '--term-bg-input': p.bgInput,
-    '--term-border': p.border,
-    '--term-border-subtle': p.borderSubtle,
-
-    '--term-text': p.text,
-    '--term-text-bright': p.textBright,
-    '--term-text-muted': p.textMuted,
-    '--term-text-dim': p.textDim,
-
-    '--term-user': p.user,
-    '--term-read': p.read,
-    '--term-write': p.write,
-    '--term-edit': p.edit,
-    '--term-bash': p.bash,
-    '--term-ok': p.ok,
-    '--term-err': p.err,
-    '--term-warn': p.warn,
-    '--term-path': p.pathFg,
-    '--term-banner-cwd': p.bannerCwd,
-    '--term-banner-mod': p.bannerMod,
-
-    '--term-user-bg': p.userBg,
-    '--term-error-bg': p.errorBg,
-    '--term-tool-bg': p.toolBg,
-    '--term-pill-fg': p.pillFg,
-    '--term-pill-bg': p.pillBg,
-    '--term-pill-border': p.pillBorder,
-    '--term-path-bg': p.pathBg,
-    '--term-path-border': p.pathBorder,
-
-    '--term-cursor': p.cursor,
-    '--term-kbd-bg': p.kbdBg,
-    '--term-kbd-border': p.kbdBorder,
-
-    '--term-permission-bg': p.permissionBg,
-    '--term-permission-border': p.permissionBorder,
-    '--term-permission-text': p.permissionText,
-    '--term-permission-text-strong': p.permissionTextStrong,
-
-    '--term-send-bg-start': p.sendBgStart,
-    '--term-send-bg-end': p.sendBgEnd,
-    '--term-send-text': p.sendText,
-
-    '--term-toggle-bg': p.toggleBg,
-    '--term-toggle-color': p.toggleColor,
-
-    '--term-shadow': p.shadow,
-    '--term-divider': p.divider,
-  } as React.CSSProperties;
-}
 
 const layoutStyle: React.CSSProperties = {
   display: 'flex',
@@ -1583,6 +1212,213 @@ const mainColumnStyle: React.CSSProperties = {
   minWidth: 0,
   display: 'flex',
   flexDirection: 'column',
+};
+
+// ────────────────────────────────────────────────────────────────────
+// New detail-page shell — sidebar + task window + bottom tabs.
+// Follows docs/mockups/design/tasks/task-detail-tabs.png.
+// ────────────────────────────────────────────────────────────────────
+
+const emptyShellStyle: React.CSSProperties = {
+  flex: 1, minWidth: 0, padding: '24px 36px',
+  display: 'flex', flexDirection: 'column', gap: 12,
+};
+const taskWindowStyle: React.CSSProperties = {
+  flex: 1, minWidth: 0,
+  display: 'flex', flexDirection: 'column',
+  background: 'var(--bg-card)',
+  borderLeft: '1px solid var(--border)',
+};
+const taskWindowBodyStyle: React.CSSProperties = {
+  flex: 1, minHeight: 0,
+  display: 'flex',
+  padding: 12,
+};
+const splitStyle: React.CSSProperties = {
+  flex: 1, minWidth: 0, minHeight: 0,
+  display: 'flex', gap: 12,
+};
+const splitLeftStyle: React.CSSProperties = {
+  flex: 1, minWidth: 0, minHeight: 0,
+  display: 'flex', flexDirection: 'column',
+};
+const splitRightStyle: React.CSSProperties = {
+  flex: 1, minWidth: 0, minHeight: 0,
+  display: 'flex', flexDirection: 'column',
+  border: '1px solid var(--border)', borderRadius: 8,
+  overflow: 'hidden',
+  background: 'var(--bg-elevated)',
+};
+const stubPanelStyle: React.CSSProperties = {
+  flex: 1, minWidth: 0,
+  display: 'flex', flexDirection: 'column',
+  justifyContent: 'center', alignItems: 'center',
+  padding: 24, gap: 6,
+  color: 'var(--text-3)',
+};
+const stubPanelTitleStyle: React.CSSProperties = {
+  fontSize: 16, fontWeight: 600, color: 'var(--text-2)',
+};
+const stubPanelBodyStyle: React.CSSProperties = {
+  fontSize: 13, maxWidth: 360, textAlign: 'center', lineHeight: 1.55,
+};
+
+// Left sidebar (TaskWindowSidebar) ──────────────────────────────────
+const twSidebarStyle: React.CSSProperties = {
+  width: 280, flexShrink: 0,
+  display: 'flex', flexDirection: 'column', gap: 8,
+  padding: '14px 14px 18px',
+  background: 'var(--bg-elevated)',
+  borderRight: '1px solid var(--border)',
+  overflowY: 'auto',
+  maxHeight: 'calc(100vh - 56px)',
+  scrollbarWidth: 'thin',
+};
+const twSidebarBackRowStyle: React.CSSProperties = {
+  marginBottom: 2,
+};
+const twBackBtnStyle: React.CSSProperties = {
+  background: 'transparent', border: 'none', padding: '4px 0',
+  color: 'var(--accent)', fontSize: 13, fontWeight: 500,
+  cursor: 'pointer',
+};
+const twStatusRowStyle: React.CSSProperties = {
+  padding: '4px 0 6px',
+};
+const twSectionStyle: React.CSSProperties = {
+  display: 'flex', flexDirection: 'column', gap: 6,
+  padding: '10px 0 4px',
+  borderTop: '1px solid var(--border-hairline)',
+};
+const twSectionHeaderStyle: React.CSSProperties = {
+  display: 'flex', alignItems: 'baseline', gap: 6,
+  paddingBottom: 2,
+};
+const twSectionLabelStyle: React.CSSProperties = {
+  fontSize: 10.5, fontWeight: 700, letterSpacing: '0.08em',
+  textTransform: 'uppercase', color: 'var(--text-3)',
+};
+const twSectionHintStyle: React.CSSProperties = {
+  fontSize: 10, color: 'var(--text-4)', fontStyle: 'italic',
+};
+
+// Task window header (TaskWindowHeader) ─────────────────────────────
+const twHeaderStyle: React.CSSProperties = {
+  display: 'flex', alignItems: 'center', gap: 12,
+  padding: '12px 18px',
+  borderBottom: '1px solid var(--border)',
+  background: 'var(--bg-card)',
+};
+const twHeaderGlyphStyle: React.CSSProperties = {
+  width: 32, height: 32, borderRadius: 6,
+  display: 'flex', alignItems: 'center', justifyContent: 'center',
+  color: '#fff', fontWeight: 700, fontSize: 14, flexShrink: 0,
+};
+const twHeaderTitleColStyle: React.CSSProperties = {
+  flex: 1, minWidth: 0,
+  display: 'flex', flexDirection: 'column', gap: 2,
+};
+const twHeaderMetaStyle: React.CSSProperties = {
+  display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap',
+  fontSize: 12, color: 'var(--text-3)',
+};
+const twHeaderRepoStyle: React.CSSProperties = {
+  fontFamily: '"SF Mono", Menlo, monospace',
+  color: 'var(--text-2)', fontWeight: 500,
+};
+const twHeaderSepStyle: React.CSSProperties = { color: 'var(--text-4)' };
+const twHeaderChipStyle: React.CSSProperties = {
+  fontSize: 11, padding: '1px 7px',
+  background: 'var(--bg-elevated)', border: '1px solid var(--border)',
+  borderRadius: 999, color: 'var(--text-2)',
+};
+const twHeaderActionsStyle: React.CSSProperties = {
+  display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0,
+};
+const twHeaderBtnStyle: React.CSSProperties = {
+  padding: '5px 10px', fontSize: 12,
+  background: 'var(--bg-elevated)', border: '1px solid var(--border)',
+  borderRadius: 6, color: 'var(--text-2)', cursor: 'pointer',
+};
+const twHeaderStopBtnStyle: React.CSSProperties = {
+  ...twHeaderBtnStyle, color: '#b91c1c', borderColor: '#fecaca',
+};
+const twHeaderDeleteBtnStyle: React.CSSProperties = {
+  ...twHeaderBtnStyle, color: '#b91c1c',
+};
+
+// Bottom tab bar (TaskWindowTabs) ───────────────────────────────────
+const twTabsStyle: React.CSSProperties = {
+  display: 'flex', alignItems: 'center', gap: 4,
+  padding: '6px 12px',
+  borderTop: '1px solid var(--border)',
+  background: 'var(--bg-elevated)',
+};
+const twTabBtnStyle: React.CSSProperties = {
+  display: 'inline-flex', alignItems: 'center', gap: 6,
+  padding: '5px 12px',
+  background: 'transparent', border: '1px solid transparent',
+  borderRadius: 6, color: 'var(--text-2)',
+  fontSize: 12, fontWeight: 600, cursor: 'pointer',
+};
+const twTabBtnActiveStyle: React.CSSProperties = {
+  background: 'var(--bg-card)',
+  border: '1px solid var(--border)',
+  color: 'var(--text-1)',
+};
+const twTabBadgeStyle: React.CSSProperties = {
+  fontSize: 10.5, padding: '1px 6px',
+  background: 'var(--accent-a10)', color: 'var(--accent-dark)',
+  borderRadius: 999, fontWeight: 600,
+};
+const twTabsStatsStyle: React.CSSProperties = {
+  marginLeft: 'auto', fontSize: 11,
+  fontFamily: '"SF Mono", Menlo, monospace',
+};
+
+// Review strip + context bar + checkpoints stub ─────────────────────
+const reviewStripStyle: React.CSSProperties = {
+  display: 'flex', alignItems: 'center', gap: 10,
+  padding: '8px 14px', marginTop: 8,
+  background: 'var(--bg-elevated)',
+  border: '1px solid var(--border)', borderRadius: 6,
+};
+const reviewStripLabelStyle: React.CSSProperties = {
+  fontSize: 12, color: 'var(--text-2)', fontWeight: 600,
+};
+const reviewStripStatsStyle: React.CSSProperties = {
+  fontSize: 11, fontFamily: '"SF Mono", Menlo, monospace',
+};
+const reviewStripBtnStyle: React.CSSProperties = {
+  padding: '4px 12px', fontSize: 12, fontWeight: 600,
+  background: 'var(--accent)', color: '#fff',
+  border: 'none', borderRadius: 6, cursor: 'pointer',
+};
+const ctxBarWrapStyle: React.CSSProperties = {
+  display: 'flex', flexDirection: 'column', gap: 4,
+};
+const ctxBarRowStyle: React.CSSProperties = {
+  display: 'flex', alignItems: 'baseline', gap: 6,
+};
+const ctxBarPctStyle: React.CSSProperties = {
+  fontSize: 14, fontWeight: 700, color: 'var(--text-1)',
+  fontVariantNumeric: 'tabular-nums',
+};
+const ctxBarRemainStyle: React.CSSProperties = {
+  fontSize: 11, color: 'var(--text-4)',
+  marginLeft: 'auto', fontVariantNumeric: 'tabular-nums',
+};
+const ctxBarTrackStyle: React.CSSProperties = {
+  height: 6, background: 'var(--bg-base)',
+  borderRadius: 3, overflow: 'hidden',
+};
+const ctxBarFillStyle: React.CSSProperties = {
+  height: '100%', borderRadius: 3,
+  transition: 'width 0.4s ease-out',
+};
+const checkpointsStubStyle: React.CSSProperties = {
+  fontSize: 11.5, color: 'var(--text-4)', lineHeight: 1.5,
+  fontStyle: 'italic',
 };
 
 const breadcrumbRowStyle: React.CSSProperties = {
@@ -1607,16 +1443,6 @@ const crumbCurrentStyle: React.CSSProperties = {
   maxWidth: 600,
 };
 
-const taskHeaderStyle: React.CSSProperties = {
-  display: 'flex', alignItems: 'center', gap: 14,
-  padding: '0 36px 14px',
-};
-const thProviderStyle: React.CSSProperties = {
-  width: 38, height: 38, borderRadius: 8,
-  display: 'flex', alignItems: 'center', justifyContent: 'center',
-  fontSize: 15, fontWeight: 700, color: '#fff', flexShrink: 0,
-};
-const thTitleBlockStyle: React.CSSProperties = { flex: 1, minWidth: 0 };
 const thTitleStyle: React.CSSProperties = {
   fontSize: 17, fontWeight: 700, color: 'var(--text-1)',
   letterSpacing: '-0.012em',
@@ -1652,17 +1478,6 @@ const titleEditInputStyle: React.CSSProperties = {
   width: '100%',
   fontFamily: 'inherit',
 };
-const thMetaStyle: React.CSSProperties = {
-  fontSize: 12, color: 'var(--text-3)', marginTop: 2,
-  display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap',
-};
-const repoStyle: React.CSSProperties = { fontFamily: monoFont, color: 'var(--text-2)', fontWeight: 500 };
-const metaSepStyle: React.CSSProperties = { color: 'var(--text-4)' };
-const modelChipStyle: React.CSSProperties = {
-  fontSize: 10.5, background: 'var(--bg-elevated)', border: '1px solid var(--border)',
-  padding: '1px 7px', borderRadius: 999, color: 'var(--text-2)',
-};
-const sessionIdStyle: React.CSSProperties = { color: 'var(--text-3)', fontFamily: monoFont, fontSize: 11.5 };
 const thStatusStyle: React.CSSProperties = {
   display: 'inline-flex', alignItems: 'center', gap: 5,
   padding: '5px 12px',
@@ -1670,201 +1485,21 @@ const thStatusStyle: React.CSSProperties = {
   fontSize: 11, fontWeight: 700, letterSpacing: '0.04em',
   flexShrink: 0,
 };
-const thActionsStyle: React.CSSProperties = { display: 'flex', gap: 6, flexShrink: 0 };
-const aBtnStyle: React.CSSProperties = {
-  display: 'inline-flex', alignItems: 'center', gap: 5,
-  padding: '6px 13px',
-  background: 'var(--bg-card)', border: '1px solid var(--border)',
-  borderRadius: 999,
-  fontSize: 12.5, color: 'var(--text-1)', fontWeight: 500,
-  cursor: 'pointer', lineHeight: 1,
-};
 
-const bodyGridStyle: React.CSSProperties = {
-  display: 'grid',
-  gridTemplateColumns: 'minmax(0, 1fr) 360px',
-  gap: 18,
-  padding: '0 36px 36px',
-  alignItems: 'start',
-};
 
-const terminalWrapStyle: React.CSSProperties = {
-  background: 'var(--term-bg)',
-  border: '1px solid var(--term-border)',
-  borderRadius: 12,
-  boxShadow: 'var(--term-shadow)',
-  overflow: 'hidden',
-  display: 'flex', flexDirection: 'column',
-  height: 'calc(100vh - 220px)',
-  minHeight: 480,
-};
-const termToolbarStyle: React.CSSProperties = {
-  display: 'flex', alignItems: 'center', gap: 12,
-  padding: '9px 18px',
-  background: 'linear-gradient(180deg, var(--term-bg-elev2) 0%, var(--term-bg-elev1) 100%)',
-  borderBottom: '1px solid var(--term-border)',
-  fontSize: 12, color: 'var(--term-text-muted)',
-  flexShrink: 0,
-};
-const trafficStyle: React.CSSProperties = { display: 'flex', gap: 5, marginRight: 6 };
-const trafficDotStyle: React.CSSProperties = {
-  width: 10, height: 10, borderRadius: '50%',
-  boxShadow: 'inset 0 0 0 0.5px rgba(0,0,0,0.18)',
-};
-const termNameStyle: React.CSSProperties = {
-  color: 'var(--term-text)', fontFamily: monoFont, fontSize: 11.5,
-};
-const termBadgeStyle: React.CSSProperties = {
-  background: 'rgba(124,92,255,0.16)',
-  color: 'var(--term-user)',
-  padding: '1px 7px', borderRadius: 999,
-  fontSize: 10, fontWeight: 700, letterSpacing: '0.04em',
-  marginLeft: 6,
-  fontFamily: 'system-ui, sans-serif',
-};
-// Used inside the terminal toolbar — themed (separate from the
-// page-header sessionIdStyle which stays light-page-chrome gray).
-const sessionIdStyleTerminal: React.CSSProperties = {
-  color: 'var(--term-text-dim)', fontFamily: monoFont, fontSize: 11.5, marginLeft: 6,
-};
-const themeToggleStyle: React.CSSProperties = {
-  marginLeft: 'auto',
-  padding: '3px 9px',
-  background: 'var(--term-toggle-bg)',
-  color: 'var(--term-toggle-color)',
-  border: '1px solid var(--term-border)',
-  borderRadius: 999,
-  fontSize: 13,
-  cursor: 'pointer',
-  lineHeight: 1,
-};
 
-const statusBarStyle: React.CSSProperties = {
-  padding: '8px 18px',
-  background: 'linear-gradient(180deg, var(--term-bg-elev2) 0%, var(--term-bg-elev1) 100%)',
-  borderTop: '1px solid var(--term-border)',
-  fontFamily: monoFont, fontSize: 11.5, color: 'var(--term-text-muted)',
-  display: 'flex', alignItems: 'center', gap: 16,
-  flexShrink: 0,
-};
-const statStyle: React.CSSProperties = { display: 'inline-flex', alignItems: 'center', gap: 4 };
-const statStrongStyle: React.CSSProperties = { color: 'var(--term-text-bright)', fontWeight: 600 };
-const statGroupRightStyle: React.CSSProperties = {
-  marginLeft: 'auto',
-  display: 'inline-flex', alignItems: 'center', gap: 16,
-};
-const statHintStyle: React.CSSProperties = {
-  color: 'var(--term-text-dim)', fontStyle: 'italic',
-};
 const runningDotStyle: React.CSSProperties = {
   width: 7, height: 7, borderRadius: '50%',
-  background: 'var(--term-ok)', display: 'inline-block',
+  background: '#10b981', display: 'inline-block',
 };
 
-const termInputStyle: React.CSSProperties = {
-  padding: '12px 18px 14px',
-  // Subtle elevation against the scrollback so the field reads as
-  // its own zone — the user asked for "a little bit obvious, not
-  // too much", so a single near-invisible step.
-  background: 'var(--term-bg-input)',
-  borderTop: '1px solid var(--term-border)',
-  flexShrink: 0,
-};
-const termInputRowStyle: React.CSSProperties = {
-  display: 'flex', alignItems: 'flex-start', gap: 10,
-  padding: '8px 12px',
-  background: 'var(--term-bg)',
-  border: '1px solid var(--term-border)',
-  borderRadius: 8,
-  fontFamily: monoFont, fontSize: 13.5,
-};
-const termPromptStyle: React.CSSProperties = {
-  color: 'var(--term-user)', fontWeight: 700,
-  flexShrink: 0, lineHeight: 1.55, userSelect: 'none', fontSize: 15,
-};
-const termTextareaStyle: React.CSSProperties = {
-  flex: 1, minWidth: 0,
-  background: 'transparent',
-  color: 'var(--term-text)',
-  border: 'none',
-  outline: 'none',
-  resize: 'none',
-  overflowY: 'auto',
-  fontFamily: monoFont,
-  fontSize: 13.5,
-  lineHeight: 1.55,
-  padding: 0,
-};
-const termInputFooterStyle: React.CSSProperties = {
-  marginTop: 10,
-  paddingTop: 8,
-  borderTop: '1px solid var(--term-border-subtle)',
-  display: 'flex', alignItems: 'center', gap: 10,
-  fontFamily: monoFont, fontSize: 10.5, color: 'var(--term-text-dim)',
-};
 const kbdStyle: React.CSSProperties = {
-  background: 'var(--term-kbd-bg)', border: '1px solid var(--term-kbd-border)',
-  padding: '1px 5px', borderRadius: 3, color: 'var(--term-text)',
+  background: 'var(--bg-elevated)', border: '1px solid var(--border)',
+  padding: '1px 5px', borderRadius: 3, color: 'var(--text-2)',
   fontSize: 9.5,
-};
-const cancelChipStyle: React.CSSProperties = {
-  padding: '2px 9px',
-  background: 'transparent',
-  border: '1px solid var(--term-permission-border)',
-  borderRadius: 999,
-  fontSize: 10.5, color: 'var(--term-permission-text-strong)',
-  cursor: 'pointer',
-  fontFamily: 'inherit',
-};
-const sendBtnStyle: React.CSSProperties = {
-  padding: '4px 12px',
-  background: 'linear-gradient(135deg, var(--term-send-bg-start), var(--term-send-bg-end))',
-  color: 'var(--term-send-text)',
-  border: 'none',
-  borderRadius: 999,
-  fontSize: 11, fontWeight: 700,
-  cursor: 'pointer',
-  fontFamily: 'system-ui, sans-serif',
+  fontFamily: '"SF Mono", Menlo, monospace',
 };
 
-const sidebarStyle: React.CSSProperties = {
-  alignSelf: 'start',
-  // Match the conversation pane's height (terminalWrapStyle /
-  // structuredWrapStyle both use 100vh - 220px) so the sidebar
-  // sits inside the same vertical slot and its overflow scrolls
-  // *inside* — without this the sidebar's natural height bleeds
-  // below the viewport and the bottom cards (Quick actions, Tools
-  // used) get clipped because the page itself doesn't scroll.
-  maxHeight: 'calc(100vh - 220px)',
-  overflowY: 'auto',
-  scrollbarWidth: 'thin',
-  paddingRight: 4,
-};
-const sideCardStyle: React.CSSProperties = {
-  background: 'var(--bg-card)',
-  border: '1px solid var(--border)',
-  borderRadius: 12,
-  boxShadow: '0 1px 2px rgba(0,0,0,0.04)',
-  marginBottom: 14,
-  overflow: 'hidden',
-};
-const groupPickerWrapStyle: React.CSSProperties = { padding: '0 18px 16px' };
-const groupPickerStyle: React.CSSProperties = {
-  width: '100%',
-  padding: '8px 10px',
-  fontSize: 13,
-  fontFamily: 'inherit',
-  background: 'var(--bg-input)',
-  color: 'var(--text-1)',
-  border: '1px solid var(--border-input)',
-  borderRadius: 6,
-  cursor: 'pointer',
-};
-const sideCardHeadingStyle: React.CSSProperties = {
-  fontSize: 11, fontWeight: 700, letterSpacing: '0.06em',
-  textTransform: 'uppercase', color: 'var(--text-3)',
-  padding: '12px 18px 8px', margin: 0,
-};
 const stageCardStyle: React.CSSProperties = { padding: '14px 18px 16px' };
 const stageStatusStyle: React.CSSProperties = {
   display: 'inline-flex', alignItems: 'center', gap: 6,
@@ -1888,21 +1523,6 @@ const stageToolTagStyle: React.CSSProperties = {
 };
 
 const metricListStyle: React.CSSProperties = { padding: '0 18px 16px', fontSize: 13 };
-const progressTrackStyle: React.CSSProperties = {
-  position: 'relative',
-  height: 3,
-  margin: '0 18px 10px',
-  background: 'var(--bg-elevated)',
-  borderRadius: 2,
-  overflow: 'hidden',
-};
-const progressBarStyle: React.CSSProperties = {
-  position: 'absolute',
-  top: 0, left: 0, bottom: 0,
-  width: '40%',
-  background: 'linear-gradient(90deg, transparent, #10b981, transparent)',
-  borderRadius: 2,
-};
 const metricRowStyle: React.CSSProperties = {
   display: 'flex', alignItems: 'baseline',
   padding: '6px 0', borderBottom: '1px solid var(--border-hairline)',
@@ -1918,18 +1538,6 @@ const metricSubStyle: React.CSSProperties = {
   fontSize: 11, color: 'var(--text-3)', marginLeft: 4, fontWeight: 400,
 };
 
-const quickActionsStyle: React.CSSProperties = {
-  padding: '12px 18px 16px', display: 'flex', flexDirection: 'column', gap: 6,
-};
-const qaBtnStyle: React.CSSProperties = {
-  width: '100%', padding: '7px 12px',
-  background: 'var(--bg-card)', border: '1px solid var(--border)',
-  borderRadius: 6, color: 'var(--text-1)',
-  fontSize: 12.5, fontWeight: 500,
-  textAlign: 'left',
-  display: 'flex', alignItems: 'center', gap: 8,
-};
-const qaBtnIconStyle: React.CSSProperties = { color: 'var(--text-3)', fontSize: 13 };
 
 const errorBannerStyle: React.CSSProperties = {
   padding: '12px 16px', margin: '0 36px 24px',
@@ -1937,103 +1545,7 @@ const errorBannerStyle: React.CSSProperties = {
   border: '1px solid #FCA5A5', borderRadius: 6,
 };
 
-// ── View toggle (Structured | Terminal) ─────────────────────────────────
-const viewToggleStyle: React.CSSProperties = {
-  display: 'inline-flex',
-  padding: 2,
-  background: 'var(--bg-elevated)',
-  borderRadius: 8,
-  border: '1px solid var(--border)',
-};
-const viewToggleBtnStyle: React.CSSProperties = {
-  padding: '4px 12px',
-  background: 'transparent',
-  color: 'var(--text-2)',
-  border: 'none',
-  borderRadius: 6,
-  fontSize: 12,
-  fontWeight: 600,
-  cursor: 'pointer',
-};
-const viewToggleActiveStyle: React.CSSProperties = {
-  background: 'var(--bg-card)',
-  color: 'var(--text-1)',
-  boxShadow: '0 1px 2px rgba(15, 23, 42, 0.1)',
-};
 
-// ── Sidebar additions: Files touched / Tools used ───────────────────────
-const cardCountStyle: React.CSSProperties = { color: 'var(--text-4)', fontWeight: 500 };
-const cardEmptyStyle: React.CSSProperties = {
-  padding: '0 18px 16px',
-  color: 'var(--text-4)',
-  fontSize: 12,
-  fontStyle: 'italic',
-};
-const filesListStyle: React.CSSProperties = {
-  padding: '0 14px 14px',
-  display: 'flex',
-  flexDirection: 'column',
-  gap: 4,
-  maxHeight: 220,
-  overflowY: 'auto',
-};
-const fileRowStyle: React.CSSProperties = {
-  display: 'flex',
-  alignItems: 'center',
-  gap: 8,
-  padding: '4px 4px',
-  fontSize: 12,
-};
-const fileOpTagStyle: React.CSSProperties = {
-  padding: '1px 6px',
-  borderRadius: 3,
-  fontSize: 10,
-  fontWeight: 700,
-  letterSpacing: 0.4,
-  flexShrink: 0,
-};
-const filePathStyle: React.CSSProperties = {
-  flex: 1,
-  minWidth: 0,
-  overflow: 'hidden',
-  textOverflow: 'ellipsis',
-  whiteSpace: 'nowrap',
-  fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
-  color: 'var(--text-2)',
-};
-const fileStatsStyle: React.CSSProperties = {
-  fontSize: 11,
-  fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
-  fontVariantNumeric: 'tabular-nums',
-  flexShrink: 0,
-};
-const toolsUsedStyle: React.CSSProperties = {
-  padding: '0 14px 14px',
-  display: 'flex',
-  flexWrap: 'wrap',
-  gap: 6,
-};
-const toolPillStyle: React.CSSProperties = {
-  display: 'inline-flex',
-  alignItems: 'center',
-  gap: 6,
-  padding: '3px 8px',
-  background: 'var(--bg-elevated)',
-  border: '1px solid var(--border)',
-  borderRadius: 999,
-  fontSize: 12,
-  fontWeight: 500,
-  color: 'var(--text-2)',
-};
-const toolPillCountStyle: React.CSSProperties = {
-  padding: '0 6px',
-  background: 'var(--bg-card)',
-  borderRadius: 999,
-  fontSize: 11,
-  fontWeight: 600,
-  color: 'var(--text-3)',
-  fontVariantNumeric: 'tabular-nums',
-};
 
 // ── Structured view ─────────────────────────────────────────────────────
 const structuredWrapStyle: React.CSSProperties = {

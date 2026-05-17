@@ -11,7 +11,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
 import type { TaskMessageDto } from '../types';
 import { AskQuestionCard } from './AskQuestionCard';
 import type { PendingPermission } from './ConversationPane';
@@ -57,11 +57,24 @@ export function StructuredConversation({
     const distFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
     stickRef.current = distFromBottom < 24;
   };
-  useEffect(() => {
-    if (!stickRef.current) return;
+  const scrollToBottom = useCallback(() => {
     const el = scrollRef.current;
     if (el) el.scrollTop = el.scrollHeight;
-  }, [messages.length, pendingPermission]);
+  }, []);
+  // Sync scroll before paint so a freshly-mounted Conversation tab
+  // lands on the latest content instead of flashing at the top.
+  useLayoutEffect(() => {
+    if (!stickRef.current) return;
+    scrollToBottom();
+  }, [messages.length, pendingPermission, scrollToBottom]);
+  // Re-scroll on the next frame in case async content (markdown
+  // reflow, code blocks, images) grew the scrollHeight after the
+  // layout pass settled.
+  useEffect(() => {
+    if (!stickRef.current) return;
+    const raf = requestAnimationFrame(scrollToBottom);
+    return () => cancelAnimationFrame(raf);
+  }, [messages.length, pendingPermission, scrollToBottom]);
 
   const events = useMemo(() => groupAndPair(messages), [messages]);
   const cards = useMemo(() => buildDialog(events, modelName), [events, modelName]);

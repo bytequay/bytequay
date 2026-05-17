@@ -11,7 +11,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import { useEffect, useMemo, useRef, useState, type ReactElement } from 'react';
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactElement } from 'react';
 import type { TaskMessageDto } from '../types';
 import { AskQuestionCard } from './AskQuestionCard';
 import { MarkdownProse } from './MarkdownProse';
@@ -95,11 +95,23 @@ export function ConversationPane({ messages, pendingPermission, onDecide, banner
     stickToBottomRef.current = distFromBottom < 8;
   };
 
-  useEffect(() => {
-    if (!stickToBottomRef.current) return;
+  const scrollToBottom = useCallback(() => {
     const el = scrollRef.current;
     if (el) el.scrollTop = el.scrollHeight;
-  }, [messages.length, pendingPermission]);
+  }, []);
+  // Sync scroll before paint so a freshly-mounted Terminal tab lands
+  // on the latest content instead of flashing at the top.
+  useLayoutEffect(() => {
+    if (!stickToBottomRef.current) return;
+    scrollToBottom();
+  }, [messages.length, pendingPermission, scrollToBottom]);
+  // Re-scroll on the next frame in case async content (markdown
+  // reflow, code blocks, images) grew the scrollHeight after layout.
+  useEffect(() => {
+    if (!stickToBottomRef.current) return;
+    const raf = requestAnimationFrame(scrollToBottom);
+    return () => cancelAnimationFrame(raf);
+  }, [messages.length, pendingPermission, scrollToBottom]);
 
   // Pair tool_call with tool_result so we render the call + its
   // outcome together, the way the mockup groups them.

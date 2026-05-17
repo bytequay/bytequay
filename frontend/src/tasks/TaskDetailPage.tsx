@@ -54,7 +54,7 @@ const POLL_MS_TERMINAL = 0;
 
 /**
  * Two-column task detail surface — terminal pane + sticky sidebar
- * (stage / metrics / color legend / quick actions). Faithfully
+ * (stage / metrics / quick actions). Faithfully
  * follows the layout in
  * {@code docs/mockups/design/tasks/task-detail-terminal.png}.
  *
@@ -934,18 +934,6 @@ function Sidebar({ task, stage, files, messages, groups, onChangeGroup }: {
       </SideCard>
 
       <SideCard>
-        <h4 style={sideCardHeadingStyle}>Output color legend</h4>
-        <div style={legendStyle}>
-          {LEGEND.map(({ color, label }) => (
-            <div key={label} style={legendItemStyle}>
-              <span style={{ ...legendSwatchStyle, background: color }} />
-              <span style={legendLabelStyle}>{label}</span>
-            </div>
-          ))}
-        </div>
-      </SideCard>
-
-      <SideCard>
         <h4 style={sideCardHeadingStyle}>Quick actions</h4>
         <div style={quickActionsStyle}>
           <QaBtn icon="↗" label="Open in real Terminal" disabled />
@@ -1312,19 +1300,6 @@ function shortenPath(path: string): string {
   const home = '/Users/jack.chen';
   return path.startsWith(home) ? '~' + path.slice(home.length) : path;
 }
-
-// Legend swatches read the same vars the terminal uses, so light /
-// dark mode matches the actual rendering one-for-one.
-const LEGEND: Array<{ color: string; label: string }> = [
-  { color: 'var(--term-user)', label: 'User input' },
-  { color: 'var(--term-text-dim)', label: 'Thinking · dim' },
-  { color: 'var(--term-read)', label: 'Read · classes' },
-  { color: 'var(--term-write)', label: 'Write · `inline`' },
-  { color: 'var(--term-edit)', label: 'Edit' },
-  { color: 'var(--term-bash)', label: 'Bash · errors' },
-  { color: 'var(--term-path)', label: 'Paths · success' },
-  { color: 'var(--term-user)', label: 'Line refs' },
-];
 
 // ────────────────────────────────────────────────────────────────────
 // Styles
@@ -1850,17 +1825,6 @@ const metricValueStyle: React.CSSProperties = {
 const metricSubStyle: React.CSSProperties = {
   fontSize: 11, color: 'var(--text-3)', marginLeft: 4, fontWeight: 400,
 };
-
-const legendStyle: React.CSSProperties = {
-  display: 'grid', gridTemplateColumns: '1fr 1fr',
-  gap: '6px 12px', fontSize: 11.5,
-  padding: '0 18px 14px',
-};
-const legendItemStyle: React.CSSProperties = { display: 'flex', alignItems: 'center', gap: 6 };
-const legendSwatchStyle: React.CSSProperties = {
-  width: 10, height: 10, borderRadius: 2, flexShrink: 0,
-};
-const legendLabelStyle: React.CSSProperties = { color: 'var(--text-2)' };
 
 const quickActionsStyle: React.CSSProperties = {
   padding: '12px 18px 16px', display: 'flex', flexDirection: 'column', gap: 6,

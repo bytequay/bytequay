@@ -13,7 +13,7 @@
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { TaskDto, TaskFileDto, TaskGroupDto, TaskMessageDto, TaskStatusDto } from '../types';
-import type { PendingPermission } from './ConversationPane';
+import { ConversationPane, type PendingPermission } from './ConversationPane';
 import { StructuredConversation } from './StructuredConversation';
 import TasksLeftRail, {
   repoKey,
@@ -63,10 +63,26 @@ const POLL_MS_TERMINAL = 0;
  */
 /** Bottom-tab views inside the task window. Diff/Files open the
  *  changes pane side-by-side with the conversation; Ask is the
- *  default full-width conversation; Comments is a stub for future
- *  AI/user comment threads on changes. */
-type DetailView = 'ask' | 'comments' | 'diff' | 'files';
+ *  default full-width conversation; Terminal is the dark-themed
+ *  power-user mirror of the raw stream-json; Comments is a stub. */
+type DetailView = 'ask' | 'terminal' | 'comments' | 'diff' | 'files';
 const VIEW_STORAGE_KEY = 'bytequay.tasks.detailView';
+
+/** Terminal-view theme. Persisted across sessions so a user who
+ *  prefers a light terminal doesn't keep re-toggling. Only the
+ *  Terminal tab consults this; the rest of the page reads from the
+ *  global theme tokens. */
+type TermTheme = 'dark' | 'light';
+const THEME_STORAGE_KEY = 'bytequay.tasks.terminalTheme';
+function loadTheme(): TermTheme {
+  try {
+    const v = window.localStorage.getItem(THEME_STORAGE_KEY);
+    return v === 'light' ? 'light' : 'dark';
+  }
+  catch {
+    return 'dark';
+  }
+}
 
 /** Context-window size (in tokens) per model family. Used by the
  *  sidebar's CONTEXT WINDOW bar to compute "% used = latest turn's
@@ -91,11 +107,12 @@ function modelContextLimit(model: string | null | undefined): number {
 function loadView(): DetailView {
   try {
     const v = window.localStorage.getItem(VIEW_STORAGE_KEY);
-    // Migrate legacy values from the prior 4-tab layout. 'conversation'
-    // and the now-removed 'terminal' both map to the new 'ask' (the
-    // raw terminal renderer is gone; structured view is canonical).
-    // 'commits' is folded into 'files' since both surface the
-    // TaskChangesTab side-by-side.
+    // Migrate legacy values. 'conversation' (the old structured-view
+    // name) maps to 'ask'. 'commits' folds into 'files' since the
+    // TaskChangesTab surfaces both modes side-by-side. 'terminal'
+    // passes through — it was briefly removed during the sidebar
+    // refactor and is now restored.
+    if (v === 'terminal') return 'terminal';
     if (v === 'diff') return 'diff';
     if (v === 'files' || v === 'commits') return 'files';
     if (v === 'comments') return 'comments';
@@ -130,7 +147,13 @@ export default function TaskDetailPage({
   const [draft, setDraft] = usePersistentDraft(`reply:${taskId}`);
   const [sending, setSending] = useState(false);
   const [showCreate, setShowCreate] = useState(false);
+  const [theme, setTheme] = useState<TermTheme>(loadTheme);
   const [view, setView] = useState<DetailView>(loadView);
+
+  useEffect(() => {
+    try { window.localStorage.setItem(THEME_STORAGE_KEY, theme); }
+    catch { /* private browsing — fine to skip */ }
+  }, [theme]);
 
   useEffect(() => {
     try { window.localStorage.setItem(VIEW_STORAGE_KEY, view); }
@@ -337,6 +360,27 @@ export default function TaskDetailPage({
         />
         <div style={taskWindowBodyStyle}>
           {view === 'ask' && conversation}
+          {view === 'terminal' && (
+            // Wrap so the palette (var(--term-*)) flows to
+            // ConversationPane + StatusBar + TermInput inside.
+            <div style={{ ...terminalScopeStyle, ...termCssVars(theme) }}>
+              <TerminalWrap
+                task={task}
+                messages={messages}
+                pendingPermission={pendingPermission}
+                onDecide={onDecide}
+                stage={stage}
+                draft={draft}
+                onDraft={setDraft}
+                onSend={onSend}
+                onInterrupt={onInterrupt}
+                sending={sending}
+                isTerminal={isTerminal}
+                theme={theme}
+                onToggleTheme={() => setTheme(t => t === 'dark' ? 'light' : 'dark')}
+              />
+            </div>
+          )}
           {view === 'comments' && (
             <div style={stubPanelStyle}>
               <div style={stubPanelTitleStyle}>Comments</div>
@@ -780,6 +824,7 @@ function TaskWindowTabs({
 }) {
   const tabs: Array<{ key: DetailView; label: string; badge?: string }> = [
     { key: 'ask',      label: '💬 Ask' },
+    { key: 'terminal', label: '⌨ Terminal' },
     { key: 'comments', label: '✎ Comments' },
     {
       key: 'diff',
@@ -905,6 +950,325 @@ function computeContextUsage(messages: TaskMessageDto[], model: string | null) {
     pct,
     hint: used > 0 ? 'approximate (cache excluded)' : 'no turn data yet',
   };
+}
+
+// ────────────────────────────────────────────────────────────────────
+// Terminal view — dark/light themed raw stream-json mirror. Restored
+// after the sidebar refactor so power users keep the option to see
+// the unprettified output exactly as Claude Code's TUI does.
+// ────────────────────────────────────────────────────────────────────
+
+function TerminalWrap({
+  task, messages, pendingPermission, onDecide, stage,
+  draft, onDraft, onSend, onInterrupt, sending, isTerminal,
+  theme, onToggleTheme,
+}: {
+  task: TaskDto;
+  messages: TaskMessageDto[];
+  pendingPermission: PendingPermission | null;
+  onDecide: (
+    callId: string,
+    decision: 'ALLOW' | 'DENY',
+    preApprove?: { toolName: string; count: number },
+  ) => void;
+  stage: Stage;
+  draft: string;
+  onDraft: (s: string) => void;
+  onSend: () => void;
+  onInterrupt: () => void;
+  sending: boolean;
+  isTerminal: boolean;
+  theme: TermTheme;
+  onToggleTheme: () => void;
+}) {
+  return (
+    <div style={terminalWrapStyle}>
+      <div style={termToolbarStyle}>
+        <div style={trafficStyle}>
+          <span style={{ ...trafficDotStyle, background: '#ff5f57' }} />
+          <span style={{ ...trafficDotStyle, background: '#febc2e' }} />
+          <span style={{ ...trafficDotStyle, background: '#28c840' }} />
+        </div>
+        <span style={termNameStyle}>
+          claude-code <span style={termBadgeStyle}>stream-json</span>
+          <span style={sessionIdStyleTerminal}> {shortenPath(task.workingDir)}</span>
+          {task.branchName && (
+            <span style={sessionIdStyleTerminal}> · {task.branchName}</span>
+          )}
+        </span>
+        <button
+          type="button"
+          onClick={onToggleTheme}
+          style={themeToggleStyle}
+          title={theme === 'dark' ? 'Switch to light theme' : 'Switch to dark theme'}
+        >
+          {theme === 'dark' ? '☀' : '☾'}
+        </button>
+      </div>
+
+      <ConversationPane
+        messages={messages}
+        pendingPermission={pendingPermission}
+        onDecide={onDecide}
+        banner={{
+          model: task.model,
+          cwd: task.workingDir,
+          branch: task.branchName,
+          sessionStartedAtIso: task.createdAt,
+        }}
+      />
+
+      <TerminalStatusBar task={task} stage={stage} />
+
+      {!isTerminal && (
+        <TermInput
+          draft={draft}
+          onDraft={onDraft}
+          onSend={onSend}
+          onInterrupt={onInterrupt}
+          sending={sending}
+          status={task.status}
+        />
+      )}
+    </div>
+  );
+}
+
+function TerminalStatusBar({ task, stage }: { task: TaskDto; stage: Stage }) {
+  const isRunning = task.status === 'RUNNING';
+  return (
+    <div style={termStatusBarStyle}>
+      <span style={termStatStyle}>
+        {isRunning && <span className="bytequay-pulse" style={termRunningDotStyle} />}
+        <strong style={termStatStrongStyle}>
+          {task.status}
+          {isRunning && <span className="bytequay-running-dots" aria-hidden />}
+        </strong>
+      </span>
+      <span style={termStatGroupRightStyle}>
+        <span style={termStatStyle}>⏱ <strong style={termStatStrongStyle}>{formatRuntime(task)}</strong></span>
+        <span style={termStatStyle}>💰 <strong style={termStatStrongStyle}>{formatCost(task.costUsdMilli)}</strong></span>
+        <span style={termStatStyle}>tokens <strong style={termStatStrongStyle}>{formatNum(task.tokensIn + task.tokensOut)}</strong></span>
+        {stage.toolName && (
+          <span style={termStatStyle}>
+            {stage.glyph} <strong style={termStatStrongStyle}>{stage.toolName}</strong>
+          </span>
+        )}
+        {isRunning && (
+          <span style={termStatHintStyle}>press Cancel to interrupt</span>
+        )}
+      </span>
+    </div>
+  );
+}
+
+function TermInput({
+  draft, onDraft, onSend, onInterrupt, sending, status,
+}: {
+  draft: string;
+  onDraft: (s: string) => void;
+  onSend: () => void;
+  onInterrupt: () => void;
+  sending: boolean;
+  status: TaskStatusDto;
+}) {
+  const isRunning = status === 'RUNNING';
+  const textareaRef = useAutoGrowTextarea(draft, 180);
+  return (
+    <div style={termInputStyle}>
+      <div style={termInputRowStyle}>
+        <span style={termPromptStyle}>›</span>
+        <textarea
+          ref={textareaRef}
+          value={draft}
+          onChange={e => onDraft(e.target.value)}
+          placeholder={isRunning
+            ? 'queued — sends after current turn (or press Cancel to interrupt)'
+            : 'send a follow-up turn…'}
+          disabled={sending}
+          onKeyDown={e => {
+            if (e.key === 'Enter' && !e.shiftKey && !e.nativeEvent.isComposing) {
+              e.preventDefault();
+              onSend();
+            }
+          }}
+          style={termTextareaStyle}
+        />
+      </div>
+      <div style={termInputFooterStyle}>
+        <span style={termKbdHintStyle}>
+          <span style={termKbdStyle}>↵</span> send · <span style={termKbdStyle}>⇧</span>+<span style={termKbdStyle}>↵</span> newline
+        </span>
+        {isRunning && (
+          <button type="button" onClick={onInterrupt} style={cancelChipStyle}>
+            ⏵ Cancel current turn
+          </button>
+        )}
+        <span style={{ marginLeft: 'auto' }}>
+          <button
+            type="button"
+            onClick={onSend}
+            disabled={!draft.trim() || sending}
+            style={termSendBtnStyle}
+          >
+            {sending ? 'sending…' : (isRunning ? 'Queue →' : 'Send →')}
+          </button>
+        </span>
+      </div>
+    </div>
+  );
+}
+
+// Dark/light terminal palettes. Tuned toward GitHub Dark-Dimmed
+// (dark) and GitHub Primer (light) so a long session doesn't fatigue
+// the eye. termCssVars(theme) exposes each palette as CSS custom
+// properties on the terminal-wrap div so ConversationPane (which
+// reads var(--term-*) inside) doesn't need to know the theme.
+const DARK_TERM = {
+  bg: '#0d1117',
+  bgElev1: '#13181f',
+  bgElev2: '#161b22',
+  bgResult: '#161b22',
+  bgResultHead: '#1c2128',
+  bgInput: '#11161e',
+  border: '#21262d',
+  borderSubtle: '#1c2228',
+  text: '#adbac7',
+  textBright: '#b8c4d0',
+  textMuted: '#768390',
+  textDim: '#636e7b',
+  user: '#986ee2',
+  read: '#539bf5',
+  write: '#e0823d',
+  edit: '#daaa3f',
+  bash: '#e5534b',
+  ok: '#57ab5a',
+  err: '#e5534b',
+  warn: '#c69026',
+  pathFg: '#57ab5a',
+  bannerCwd: '#539bf5',
+  bannerMod: '#e0823d',
+  userBg: 'rgba(152,110,226,0.07)',
+  errorBg: 'rgba(229,83,75,0.06)',
+  toolBg: 'rgba(255,255,255,0.022)',
+  pillFg: '#e0823d',
+  pillBg: 'rgba(224,130,61,0.09)',
+  pillBorder: 'rgba(224,130,61,0.20)',
+  pathBg: 'rgba(87,171,90,0.08)',
+  pathBorder: 'rgba(87,171,90,0.20)',
+  cursor: '#adbac7',
+  kbdBg: '#1c2128',
+  kbdBorder: '#30363d',
+  permissionBg: '#5c2510',
+  permissionBorder: '#a3461d',
+  permissionText: '#f4b78f',
+  permissionTextStrong: '#fcd9b6',
+  sendBgStart: '#986ee2',
+  sendBgEnd: '#6f56c2',
+  sendText: '#0d1117',
+  toggleBg: 'rgba(255,255,255,0.06)',
+  toggleColor: '#adbac7',
+  shadow: '0 4px 14px rgba(13,17,23,0.18), 0 1px 3px rgba(13,17,23,0.10)',
+  divider: 'rgba(255,255,255,0.04)',
+} as const;
+
+const LIGHT_TERM = {
+  bg: '#ffffff',
+  bgElev1: '#eaeef2',
+  bgElev2: '#f6f8fa',
+  bgResult: '#f6f8fa',
+  bgResultHead: '#eaeef2',
+  bgInput: '#fbfcfd',
+  border: '#d0d7de',
+  borderSubtle: '#eaeef2',
+  text: '#1f2328',
+  textBright: '#0e1116',
+  textMuted: '#57606a',
+  textDim: '#6e7781',
+  user: '#8250df',
+  read: '#0969da',
+  write: '#9a6700',
+  edit: '#bf8700',
+  bash: '#cf222e',
+  ok: '#1a7f37',
+  err: '#cf222e',
+  warn: '#9a6700',
+  pathFg: '#1a7f37',
+  bannerCwd: '#0969da',
+  bannerMod: '#9a6700',
+  userBg: '#fbf7ff',
+  errorBg: '#ffebe9',
+  toolBg: '#f6f8fa',
+  pillFg: '#cf222e',
+  pillBg: '#fff',
+  pillBorder: '#d0d7de',
+  pathBg: '#dafbe1',
+  pathBorder: '#1a7f37',
+  cursor: '#1f2328',
+  kbdBg: '#f6f8fa',
+  kbdBorder: '#d0d7de',
+  permissionBg: '#fff7ed',
+  permissionBorder: '#fed7aa',
+  permissionText: '#9a3412',
+  permissionTextStrong: '#7c2d12',
+  sendBgStart: '#8250df',
+  sendBgEnd: '#6f42c1',
+  sendText: '#ffffff',
+  toggleBg: 'rgba(0,0,0,0.04)',
+  toggleColor: '#57606a',
+  shadow: '0 1px 3px rgba(0,0,0,0.06), 0 0 0 1px rgba(0,0,0,0.02)',
+  divider: 'rgba(0,0,0,0.04)',
+} as const;
+
+function termCssVars(theme: TermTheme): React.CSSProperties {
+  const p = theme === 'dark' ? DARK_TERM : LIGHT_TERM;
+  return {
+    '--term-bg': p.bg,
+    '--term-bg-elev1': p.bgElev1,
+    '--term-bg-elev2': p.bgElev2,
+    '--term-bg-result': p.bgResult,
+    '--term-bg-result-head': p.bgResultHead,
+    '--term-bg-input': p.bgInput,
+    '--term-border': p.border,
+    '--term-border-subtle': p.borderSubtle,
+    '--term-text': p.text,
+    '--term-text-bright': p.textBright,
+    '--term-text-muted': p.textMuted,
+    '--term-text-dim': p.textDim,
+    '--term-user': p.user,
+    '--term-read': p.read,
+    '--term-write': p.write,
+    '--term-edit': p.edit,
+    '--term-bash': p.bash,
+    '--term-ok': p.ok,
+    '--term-err': p.err,
+    '--term-warn': p.warn,
+    '--term-path': p.pathFg,
+    '--term-banner-cwd': p.bannerCwd,
+    '--term-banner-mod': p.bannerMod,
+    '--term-user-bg': p.userBg,
+    '--term-error-bg': p.errorBg,
+    '--term-tool-bg': p.toolBg,
+    '--term-pill-fg': p.pillFg,
+    '--term-pill-bg': p.pillBg,
+    '--term-pill-border': p.pillBorder,
+    '--term-path-bg': p.pathBg,
+    '--term-path-border': p.pathBorder,
+    '--term-cursor': p.cursor,
+    '--term-kbd-bg': p.kbdBg,
+    '--term-kbd-border': p.kbdBorder,
+    '--term-permission-bg': p.permissionBg,
+    '--term-permission-border': p.permissionBorder,
+    '--term-permission-text': p.permissionText,
+    '--term-permission-text-strong': p.permissionTextStrong,
+    '--term-send-bg-start': p.sendBgStart,
+    '--term-send-bg-end': p.sendBgEnd,
+    '--term-send-text': p.sendText,
+    '--term-toggle-bg': p.toggleBg,
+    '--term-toggle-color': p.toggleColor,
+    '--term-shadow': p.shadow,
+    '--term-divider': p.divider,
+  } as React.CSSProperties;
 }
 
 type ToolUsage = {
@@ -1209,7 +1573,13 @@ const monoFont = '"SF Mono", "JetBrains Mono", Menlo, Consolas, monospace';
 const layoutStyle: React.CSSProperties = {
   display: 'flex',
   alignItems: 'stretch',
-  minHeight: 'calc(100vh - 56px)',
+  // Lock to viewport height (not min-height) so the inner flex chain
+  // — task window → body → terminal/structured pane → ConversationPane
+  // — has an actual upper bound to bound their internal scrollers
+  // against. Without this the body grew to the natural height of its
+  // contents, pushing the bottom tab bar below the viewport and
+  // making the whole page scroll instead of just the conversation.
+  height: 'calc(100vh - 56px)',
   boxSizing: 'border-box',
   background: 'var(--bg-base)',
 };
@@ -1425,6 +1795,149 @@ const ctxBarFillStyle: React.CSSProperties = {
 const checkpointsStubStyle: React.CSSProperties = {
   fontSize: 11.5, color: 'var(--text-4)', lineHeight: 1.5,
   fontStyle: 'italic',
+};
+
+// ── Terminal view (restored after the sidebar refactor) ─────────────
+// The terminalScopeStyle is the wrapper that publishes --term-* CSS
+// vars so the ConversationPane reads through the right palette
+// without having to know about the theme.
+const terminalScopeStyle: React.CSSProperties = {
+  flex: 1, minWidth: 0, minHeight: 0,
+  display: 'flex', flexDirection: 'column',
+};
+const terminalWrapStyle: React.CSSProperties = {
+  background: 'var(--term-bg)',
+  border: '1px solid var(--term-border)',
+  borderRadius: 12,
+  boxShadow: 'var(--term-shadow)',
+  overflow: 'hidden',
+  display: 'flex', flexDirection: 'column',
+  flex: 1, minHeight: 0,
+};
+const termToolbarStyle: React.CSSProperties = {
+  display: 'flex', alignItems: 'center', gap: 12,
+  padding: '9px 18px',
+  background: 'linear-gradient(180deg, var(--term-bg-elev2) 0%, var(--term-bg-elev1) 100%)',
+  borderBottom: '1px solid var(--term-border)',
+  fontSize: 12, color: 'var(--term-text-muted)',
+  flexShrink: 0,
+};
+const trafficStyle: React.CSSProperties = { display: 'flex', gap: 5, marginRight: 6 };
+const trafficDotStyle: React.CSSProperties = {
+  width: 10, height: 10, borderRadius: '50%',
+  boxShadow: 'inset 0 0 0 0.5px rgba(0,0,0,0.18)',
+};
+const termNameStyle: React.CSSProperties = {
+  color: 'var(--term-text)', fontFamily: monoFont, fontSize: 11.5,
+};
+const termBadgeStyle: React.CSSProperties = {
+  background: 'rgba(124,92,255,0.16)',
+  color: 'var(--term-user)',
+  padding: '1px 7px', borderRadius: 999,
+  fontSize: 10, fontWeight: 700, letterSpacing: '0.04em',
+  marginLeft: 6,
+  fontFamily: 'system-ui, sans-serif',
+};
+const sessionIdStyleTerminal: React.CSSProperties = {
+  color: 'var(--term-text-dim)', fontFamily: monoFont, fontSize: 11.5, marginLeft: 6,
+};
+const themeToggleStyle: React.CSSProperties = {
+  marginLeft: 'auto',
+  padding: '3px 9px',
+  background: 'var(--term-toggle-bg)',
+  color: 'var(--term-toggle-color)',
+  border: '1px solid var(--term-border)',
+  borderRadius: 999,
+  fontSize: 13,
+  cursor: 'pointer',
+  lineHeight: 1,
+};
+const termStatusBarStyle: React.CSSProperties = {
+  padding: '8px 18px',
+  background: 'linear-gradient(180deg, var(--term-bg-elev2) 0%, var(--term-bg-elev1) 100%)',
+  borderTop: '1px solid var(--term-border)',
+  fontFamily: monoFont, fontSize: 11.5, color: 'var(--term-text-muted)',
+  display: 'flex', alignItems: 'center', gap: 16,
+  flexShrink: 0,
+};
+const termStatStyle: React.CSSProperties = { display: 'inline-flex', alignItems: 'center', gap: 4 };
+const termStatStrongStyle: React.CSSProperties = { color: 'var(--term-text-bright)', fontWeight: 600 };
+const termStatGroupRightStyle: React.CSSProperties = {
+  marginLeft: 'auto',
+  display: 'inline-flex', alignItems: 'center', gap: 16,
+};
+const termStatHintStyle: React.CSSProperties = {
+  color: 'var(--term-text-dim)', fontStyle: 'italic',
+};
+const termRunningDotStyle: React.CSSProperties = {
+  width: 7, height: 7, borderRadius: '50%',
+  background: 'var(--term-ok)', display: 'inline-block',
+};
+const termInputStyle: React.CSSProperties = {
+  padding: '12px 18px 14px',
+  background: 'var(--term-bg-input)',
+  borderTop: '1px solid var(--term-border)',
+  flexShrink: 0,
+};
+const termInputRowStyle: React.CSSProperties = {
+  display: 'flex', alignItems: 'flex-start', gap: 10,
+  padding: '8px 12px',
+  background: 'var(--term-bg)',
+  border: '1px solid var(--term-border)',
+  borderRadius: 8,
+  fontFamily: monoFont, fontSize: 13.5,
+};
+const termPromptStyle: React.CSSProperties = {
+  color: 'var(--term-user)', fontWeight: 700,
+  flexShrink: 0, lineHeight: 1.55, userSelect: 'none', fontSize: 15,
+};
+const termTextareaStyle: React.CSSProperties = {
+  flex: 1, minWidth: 0,
+  background: 'transparent',
+  color: 'var(--term-text)',
+  border: 'none',
+  outline: 'none',
+  resize: 'none',
+  overflowY: 'auto',
+  fontFamily: monoFont,
+  fontSize: 13.5,
+  lineHeight: 1.55,
+  padding: 0,
+};
+const termInputFooterStyle: React.CSSProperties = {
+  marginTop: 10,
+  paddingTop: 8,
+  borderTop: '1px solid var(--term-border-subtle)',
+  display: 'flex', alignItems: 'center', gap: 10,
+  fontFamily: monoFont, fontSize: 10.5, color: 'var(--term-text-dim)',
+};
+const termKbdHintStyle: React.CSSProperties = {
+  display: 'inline-flex', alignItems: 'center', gap: 4,
+};
+const termKbdStyle: React.CSSProperties = {
+  background: 'var(--term-kbd-bg)', border: '1px solid var(--term-kbd-border)',
+  padding: '1px 5px', borderRadius: 3, color: 'var(--term-text)',
+  fontSize: 9.5,
+  fontFamily: monoFont,
+};
+const cancelChipStyle: React.CSSProperties = {
+  padding: '2px 9px',
+  background: 'transparent',
+  border: '1px solid var(--term-permission-border)',
+  borderRadius: 999,
+  fontSize: 10.5, color: 'var(--term-permission-text-strong)',
+  cursor: 'pointer',
+  fontFamily: 'inherit',
+};
+const termSendBtnStyle: React.CSSProperties = {
+  padding: '4px 12px',
+  background: 'linear-gradient(135deg, var(--term-send-bg-start), var(--term-send-bg-end))',
+  color: 'var(--term-send-text)',
+  border: 'none',
+  borderRadius: 999,
+  fontSize: 11, fontWeight: 700,
+  cursor: 'pointer',
+  fontFamily: 'system-ui, sans-serif',
 };
 
 const breadcrumbRowStyle: React.CSSProperties = {

@@ -582,42 +582,38 @@ function StructuredView({
   const isRunning = task.status === 'RUNNING';
   const replyRef = useAutoGrowTextarea(draft, 220);
 
-  const glyph = (task.provider || '').toLowerCase().startsWith('codex') ? 'X' : 'C';
-  const glyphBg = glyph === 'X'
-    ? 'linear-gradient(135deg, #1e293b, #0f172a)'
-    : 'linear-gradient(135deg, #d97706, #92400e)';
   return (
     <div style={structuredWrapStyle}>
       <div style={historyZoneStyle}>
         <div style={zoneHeaderStyle}>
-          <div style={{ ...twHeaderGlyphStyle, width: 26, height: 26, fontSize: 12, background: glyphBg }}>{glyph}</div>
-          <div style={twHeaderTitleColStyle}>
+          <div style={taskTitleBadgeStyle}>
             <EditableTitle title={task.title} onRename={onRename} />
-            <div style={twHeaderMetaStyle}>
-              <RepoAvatar workingDir={task.workingDir} size={14} />
-              {task.workingDir && (
-                <span style={twHeaderRepoStyle}>{shortenPath(task.workingDir)}</span>
-              )}
-              {task.branchName && (
-                <>
-                  <span style={twHeaderSepStyle}>·</span>
-                  <span style={twHeaderChipStyle} title={`branch ${task.branchName}`}>
-                    ⎇ {task.branchName}
-                  </span>
-                </>
-              )}
-              {task.model && (
-                <>
-                  <span style={twHeaderSepStyle}>·</span>
-                  <span style={twHeaderChipStyle}>{task.model}</span>
-                </>
-              )}
-              <span style={twHeaderSepStyle}>·</span>
-              <span style={zoneMetaStyle}>
-                {messages.length} message{messages.length === 1 ? '' : 's'} · {turns} turn{turns === 1 ? '' : 's'}
-              </span>
-            </div>
           </div>
+          <div style={twHeaderMetaStyle}>
+            <RepoAvatar workingDir={task.workingDir} size={14} />
+            {task.workingDir && (
+              <span style={twHeaderRepoStyle}>{shortenPath(task.workingDir)}</span>
+            )}
+            {task.branchName && (
+              <>
+                <span style={twHeaderSepStyle}>·</span>
+                <span style={twHeaderChipStyle} title={`branch ${task.branchName}`}>
+                  ⎇ {task.branchName}
+                </span>
+              </>
+            )}
+            {task.model && (
+              <>
+                <span style={twHeaderSepStyle}>·</span>
+                <span style={twHeaderChipStyle}>{task.model}</span>
+              </>
+            )}
+            <span style={twHeaderSepStyle}>·</span>
+            <span style={zoneMetaStyle}>
+              {messages.length} message{messages.length === 1 ? '' : 's'} · {turns} turn{turns === 1 ? '' : 's'}
+            </span>
+          </div>
+          <span style={{ flex: 1 }} />
           <ViewToggle view={view} onChangeView={onChangeView} />
           <div style={twHeaderActionsStyle}>
             {canStop && (
@@ -975,9 +971,11 @@ function TerminalWrap({
           <span style={{ ...trafficDotStyle, background: '#febc2e' }} />
           <span style={{ ...trafficDotStyle, background: '#28c840' }} />
         </div>
-        <span style={termNameStyle}>
+        <div style={taskTitleBadgeTermStyle}>
           <EditableTitle title={task.title} onRename={onRename} />
-          <span style={sessionIdStyleTerminal}> {shortenPath(task.workingDir)}</span>
+        </div>
+        <span style={termNameStyle}>
+          <span style={sessionIdStyleTerminal}>{shortenPath(task.workingDir)}</span>
           {task.branchName && (
             <span style={sessionIdStyleTerminal}> · {task.branchName}</span>
           )}
@@ -1681,22 +1679,7 @@ const twSectionHintStyle: React.CSSProperties = {
   fontSize: 10, color: 'var(--text-4)', fontStyle: 'italic',
 };
 
-// Task window header (TaskWindowHeader) ─────────────────────────────
-const twHeaderStyle: React.CSSProperties = {
-  display: 'flex', alignItems: 'center', gap: 12,
-  padding: '12px 18px',
-  borderBottom: '1px solid var(--border)',
-  background: 'var(--bg-card)',
-};
-const twHeaderGlyphStyle: React.CSSProperties = {
-  width: 32, height: 32, borderRadius: 6,
-  display: 'flex', alignItems: 'center', justifyContent: 'center',
-  color: '#fff', fontWeight: 700, fontSize: 14, flexShrink: 0,
-};
-const twHeaderTitleColStyle: React.CSSProperties = {
-  flex: 1, minWidth: 0,
-  display: 'flex', flexDirection: 'column', gap: 2,
-};
+// Per-view header bar bits (used in zone header + term toolbar) ─────
 const twHeaderMetaStyle: React.CSSProperties = {
   display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap',
   fontSize: 12, color: 'var(--text-3)',
@@ -1822,8 +1805,8 @@ const terminalWrapStyle: React.CSSProperties = {
   flex: 1, minHeight: 0,
 };
 const termToolbarStyle: React.CSSProperties = {
-  display: 'flex', alignItems: 'center', gap: 12,
-  padding: '9px 18px',
+  display: 'flex', alignItems: 'center', gap: 10,
+  padding: '4px 14px',
   background: 'linear-gradient(180deg, var(--term-bg-elev2) 0%, var(--term-bg-elev1) 100%)',
   borderBottom: '1px solid var(--term-border)',
   fontSize: 12, color: 'var(--term-text-muted)',
@@ -1970,8 +1953,8 @@ const crumbCurrentStyle: React.CSSProperties = {
 };
 
 const thTitleStyle: React.CSSProperties = {
-  fontSize: 17, fontWeight: 700, color: 'var(--text-1)',
-  letterSpacing: '-0.012em',
+  fontSize: 13, fontWeight: 600, color: 'var(--text-1)',
+  letterSpacing: '-0.005em',
   overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
 };
 const titleEditTriggerStyle: React.CSSProperties = {
@@ -1992,8 +1975,8 @@ const titleEditPencilStyle: React.CSSProperties = {
   flexShrink: 0,
 };
 const titleEditInputStyle: React.CSSProperties = {
-  fontSize: 17, fontWeight: 700,
-  letterSpacing: '-0.012em',
+  fontSize: 13, fontWeight: 600,
+  letterSpacing: '-0.005em',
   color: 'var(--text-1)',
   background: 'var(--bg-input)',
   border: '1px solid var(--accent-a40)',
@@ -2095,23 +2078,32 @@ const historyZoneStyle: React.CSSProperties = {
 const zoneHeaderStyle: React.CSSProperties = {
   display: 'flex',
   alignItems: 'center',
-  gap: 6,
-  padding: '8px 14px',
+  gap: 8,
+  padding: '4px 12px',
   borderBottom: '1px solid var(--border)',
   background: 'var(--bg-card)',
-  fontSize: 11,
-  fontWeight: 700,
-  letterSpacing: '0.06em',
-  textTransform: 'uppercase',
+  fontSize: 12,
   color: 'var(--text-2)',
 };
-const zoneIconStyle: React.CSSProperties = { fontSize: 13 };
-const zoneLabelStyle: React.CSSProperties = { color: 'var(--text-2)' };
+const taskTitleBadgeStyle: React.CSSProperties = {
+  display: 'inline-flex', alignItems: 'center',
+  padding: '2px 8px',
+  background: 'var(--bg-elevated)',
+  border: '1px solid var(--border)',
+  borderRadius: 6,
+  flexShrink: 0,
+};
+const taskTitleBadgeTermStyle: React.CSSProperties = {
+  display: 'inline-flex', alignItems: 'center',
+  padding: '1px 8px',
+  background: 'var(--term-bg-elev1)',
+  border: '1px solid var(--term-border)',
+  borderRadius: 6,
+  flexShrink: 0,
+};
 const zoneMetaStyle: React.CSSProperties = {
   color: 'var(--text-4)',
   fontWeight: 500,
-  textTransform: 'none',
-  letterSpacing: 0,
 };
 const historyScrollStyle: React.CSSProperties = {
   flex: 1,

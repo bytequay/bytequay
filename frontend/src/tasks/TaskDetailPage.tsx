@@ -833,16 +833,25 @@ function TaskWindowHeader({
   );
 }
 
-/** "⇄ Diff · N files · +X −Y · [Open / Hide]" strip that sits above
- *  the reply input whenever the working tree has changes. The button
- *  toggles the side-by-side diff pane next to the conversation /
- *  terminal — this strip is now the only entry point since Diff is
- *  no longer a bottom tab. */
+/** "⇄ Diff · N files · +X −Y · ›" strip that sits above the reply
+ *  input whenever the working tree has changes. The entire strip is
+ *  the click target — toggling expand felt fiddly when only the
+ *  trailing button was hot, especially since the strip itself is
+ *  what the eye treats as "the diff affordance". The trailing
+ *  chevron acts as a visual hint for the action; the label on the
+ *  left ("Open diff" / "Hide diff") tells the user which way the
+ *  click flips it. */
 function ReviewStrip({
   stats, diffOpen, onReview,
 }: { stats: ChangeStats; diffOpen: boolean; onReview: () => void }) {
   return (
-    <div style={reviewStripStyle}>
+    <button
+      type="button"
+      onClick={onReview}
+      style={reviewStripStyle}
+      title={diffOpen ? 'Hide the diff pane' : 'Open the diff pane'}
+      aria-expanded={diffOpen}
+    >
       <span style={reviewStripLabelStyle}>
         ⇄ Diff · {stats.files} file{stats.files === 1 ? '' : 's'}
       </span>
@@ -851,10 +860,13 @@ function ReviewStrip({
         <span style={{ color: '#dc2626' }}>−{stats.removed}</span>
       </span>
       <span style={{ flex: 1 }} />
-      <button type="button" onClick={onReview} style={reviewStripBtnStyle}>
-        {diffOpen ? 'Hide diff ✕' : 'Open diff →'}
-      </button>
-    </div>
+      <span style={reviewStripActionStyle}>
+        {diffOpen ? 'Hide diff' : 'Open diff'}
+      </span>
+      <span style={reviewStripChevronStyle} aria-hidden="true">
+        {diffOpen ? '✕' : '›'}
+      </span>
+    </button>
   );
 }
 
@@ -1721,11 +1733,19 @@ const twHeaderViewBtnActiveStyle: React.CSSProperties = {
 };
 
 // Review strip + context bar + checkpoints stub ─────────────────────
+// The strip itself is the <button>, so this style strips the browser's
+// default button chrome (background, focus ring inherits) and turns
+// the strip into a clickable surface. The trailing label + chevron
+// act as the action affordance.
 const reviewStripStyle: React.CSSProperties = {
   display: 'flex', alignItems: 'center', gap: 10,
   padding: '8px 14px', marginTop: 8,
   background: 'var(--bg-elevated)',
   border: '1px solid var(--border)', borderRadius: 6,
+  cursor: 'pointer',
+  textAlign: 'left',
+  font: 'inherit',
+  width: '100%',
 };
 const reviewStripLabelStyle: React.CSSProperties = {
   fontSize: 12, color: 'var(--text-2)', fontWeight: 600,
@@ -1733,10 +1753,11 @@ const reviewStripLabelStyle: React.CSSProperties = {
 const reviewStripStatsStyle: React.CSSProperties = {
   fontSize: 11, fontFamily: '"SF Mono", Menlo, monospace',
 };
-const reviewStripBtnStyle: React.CSSProperties = {
-  padding: '4px 12px', fontSize: 12, fontWeight: 600,
-  background: 'var(--accent)', color: '#fff',
-  border: 'none', borderRadius: 6, cursor: 'pointer',
+const reviewStripActionStyle: React.CSSProperties = {
+  fontSize: 12, fontWeight: 600, color: 'var(--accent)',
+};
+const reviewStripChevronStyle: React.CSSProperties = {
+  fontSize: 14, color: 'var(--accent)', lineHeight: 1,
 };
 const ctxBarWrapStyle: React.CSSProperties = {
   display: 'flex', flexDirection: 'column', gap: 4,

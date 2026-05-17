@@ -836,21 +836,18 @@ function StructuredView({
       </div>
 
       {isRunning && (
-        <div style={liveZoneStyle}>
-          {/* Full-height sweep behind the content — the entire bar
-              visibly moves, not just a 3px strip at the bottom. */}
-          <div style={liveProgressTrackStyle} aria-hidden>
-            <div className="bytequay-progress-bar" style={liveProgressBarStyle} />
-          </div>
-          <div style={liveContentStyle}>
-            <span style={livePulseStyle} className="bytequay-pulse" />
-            <span style={liveLabelStyle}>✦ LIVE</span>
-            <span style={liveMetaStyle}>· Claude is responding</span>
-            <span style={{ flex: 1 }} />
-            <button type="button" onClick={onInterrupt} style={interruptBtnStyle}>
-              ⏵ Interrupt
-            </button>
-          </div>
+        // Sweep animation lives on the bar's own background (see
+        // liveZoneStyle + bytequay-live-sweep keyframe) so the
+        // content stays in normal flex flow and isn't pushed around
+        // by an absolute overlay.
+        <div style={liveZoneStyle} className="bytequay-live-sweep">
+          <span style={livePulseStyle} className="bytequay-pulse" />
+          <span style={liveLabelStyle}>✦ LIVE</span>
+          <span style={liveMetaStyle}>· Claude is responding</span>
+          <span style={{ flex: 1 }} />
+          <button type="button" onClick={onInterrupt} style={interruptBtnStyle}>
+            ⏵ Interrupt
+          </button>
         </div>
       )}
 
@@ -1192,6 +1189,18 @@ function KeyframesStyles() {
       }
       .bytequay-progress-bar {
         animation: bytequay-progress 1.4s linear infinite;
+      }
+      /* LIVE bar sweep: animate background-position so the gradient
+         glides across the bar without an absolute overlay that
+         could displace the text. The element has two layered
+         backgrounds (sweep + solid base); only the first one's
+         x-position moves. */
+      @keyframes bytequay-live-sweep {
+        0%   { background-position: -40% 0, 0 0; }
+        100% { background-position: 140% 0, 0 0; }
+      }
+      .bytequay-live-sweep {
+        animation: bytequay-live-sweep 1.6s linear infinite;
       }
       /* Trailing "...": render the three dots in a fixed-width inline
          box and animate the visible width in four discrete steps so
@@ -2076,40 +2085,23 @@ const historyScrollStyle: React.CSSProperties = {
   overflowY: 'auto',
 };
 const liveZoneStyle: React.CSSProperties = {
-  // Anchor + clip so the sweep overlay stays within the rounded
-  // corners instead of poking past them. Layout (flex row) lives
-  // on the inner content wrapper so the absolute overlay doesn't
-  // get stretched by flex sizing.
-  position: 'relative',
-  overflow: 'hidden',
+  display: 'flex',
+  alignItems: 'center',
+  gap: 8,
   padding: '8px 14px',
-  background: 'var(--accent-a7)',
   border: '1px solid var(--accent-a40)',
   borderLeft: '3px solid var(--accent)',
   borderRadius: 6,
-};
-const liveContentStyle: React.CSSProperties = {
-  // position:relative + z-index lifts the content above the sweep
-  // overlay (which sits at z-index 0) so the text stays sharp.
-  position: 'relative', zIndex: 1,
-  display: 'flex', alignItems: 'center', gap: 8,
-};
-const liveProgressTrackStyle: React.CSSProperties = {
-  position: 'absolute',
-  inset: 0,
-  // Sit behind the text + button so the sweep tints the whole bar
-  // without intercepting clicks on Interrupt.
-  pointerEvents: 'none',
-  zIndex: 0,
-};
-const liveProgressBarStyle: React.CSSProperties = {
-  position: 'absolute',
-  top: 0, left: 0, bottom: 0,
-  width: '40%',
-  // Low-opacity full-height sweep so the entire bar visibly moves
-  // instead of just a 3px strip at the bottom, while staying soft
-  // enough to keep the text readable.
-  background: 'linear-gradient(90deg, transparent, var(--accent-a40), transparent)',
+  // Solid violet base + a moving translucent gradient on top via
+  // multiple backgrounds. background-position is animated by the
+  // .bytequay-live-sweep class so the whole bar visibly moves
+  // without an absolute overlay covering the text.
+  backgroundImage:
+    'linear-gradient(90deg, transparent 0%, var(--accent-a40) 50%, transparent 100%), '
+    + 'linear-gradient(var(--accent-a7), var(--accent-a7))',
+  backgroundRepeat: 'no-repeat, no-repeat',
+  backgroundSize: '40% 100%, 100% 100%',
+  backgroundPosition: '-40% 0, 0 0',
 };
 const livePulseStyle: React.CSSProperties = {
   width: 8,

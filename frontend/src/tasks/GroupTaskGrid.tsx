@@ -489,11 +489,17 @@ function formatTokens(n: number): string {
  *  tiles shrink inside their slot instead of pushing the grid taller
  *  than the viewport. */
 function layoutGridStyle(layout: GroupLayout): React.CSSProperties {
+  // tmux-style splits — 1px dividers via gap + background so adjacent
+  // tiles share a hairline border without any per-tile chrome. Tiles
+  // butt right up against the rail and the screen edges (no padding
+  // on the main column either), matching docs/mockups/design/tasks/
+  // tasks-group.png.
   const base: React.CSSProperties = {
     display: 'grid',
-    gap: 16,
-    height: 'calc(100vh - 240px)',
-    minHeight: 320,
+    gap: 1,
+    background: 'var(--border)',
+    flex: 1,
+    minHeight: 0,
   };
   switch (layout) {
     case 1:
@@ -528,24 +534,26 @@ function slotStyle(layout: GroupLayout, idx: number): React.CSSProperties {
 }
 
 const slotDropTargetStyle: React.CSSProperties = {
-  outline: '2px dashed var(--accent)',
-  outlineOffset: -2,
-  borderRadius: 10,
+  // tmux panes don't carry borders, so the drop target is an inset
+  // accent ring rather than a dashed outline. Matches the focused
+  // tile treatment that the redesign calls for.
+  boxShadow: 'inset 0 0 0 2px var(--accent)',
+  zIndex: 1,
 };
 
 const tileStyle: React.CSSProperties = {
   display: 'flex',
   flexDirection: 'column',
   background: 'var(--bg-card)',
-  border: '1px solid var(--border)',
-  borderRadius: 10,
-  overflow: 'hidden',
+  // No border or rounded corners — the 1px gap on the grid plus the
+  // grid's border-coloured background do the divider work.
   cursor: 'pointer',
-  transition: 'border-color 0.12s ease, box-shadow 0.12s ease, opacity 0.12s ease',
+  transition: 'box-shadow 0.12s ease, opacity 0.12s ease',
   width: '100%',
   height: '100%',
   minHeight: 0,
   minWidth: 0,
+  position: 'relative',
 };
 const tileDraggingStyle: React.CSSProperties = {
   opacity: 0.5,

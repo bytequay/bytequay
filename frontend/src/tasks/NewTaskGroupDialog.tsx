@@ -12,12 +12,23 @@
  * limitations under the License.
  */
 import { useEffect, useRef, useState } from 'react';
-import type { TaskGroupDto } from '../types';
+import type { TaskDto, TaskGroupDto } from '../types';
 
 type Props = {
   onClose: () => void;
   onCreated: (group: TaskGroupDto) => void;
+  /** Tasks the user can pin into the new group. The non-empty
+   *  invariant requires at least one selection; the 4-member cap
+   *  matches the tile-grid layout in
+   *  {@code docs/mockups/design/tasks/tasks-group.png}. */
+  availableTasks: TaskDto[];
 };
+
+/** Cap matching {@code TaskService.GROUP_MAX_MEMBERS} on the
+ *  backend. Kept here as a literal so the dialog doesn't reach
+ *  into the bridge for a constant; if the backend ever changes,
+ *  this stays in lockstep via a code-review checklist. */
+const MAX_INITIAL_MEMBERS = 4;
 
 const COLOR_SWATCHES: Array<{ value: string; bg: string }> = [
   { value: 'slate',  bg: 'linear-gradient(135deg, #64748b, #334155)' },
@@ -32,20 +43,39 @@ const COLOR_SWATCHES: Array<{ value: string; bg: string }> = [
  * Small modal for the rail's Groups section. Just name / glyph /
  * color — sort order defaults to "append last" via timestamp.
  */
-export default function NewTaskGroupDialog({ onClose, onCreated }: Props) {
+export default function NewTaskGroupDialog({ onClose, onCreated, availableTasks }: Props) {
   const [name, setName] = useState('');
   const [glyph, setGlyph] = useState('•');
   const [color, setColor] = useState('violet');
+  const [initialTaskIds, setInitialTaskIds] = useState<string[]>([]);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const nameRef = useRef<HTMLInputElement>(null);
 
   useEffect(() => { nameRef.current?.focus(); }, []);
 
+  function toggleTask(taskId: string) {
+    setInitialTaskIds(prev => {
+      if (prev.includes(taskId)) {
+        return prev.filter(id => id !== taskId);
+      }
+      if (prev.length >= MAX_INITIAL_MEMBERS) {
+        // Honor the cap silently — the disabled-checkbox cue is
+        // enough; surfacing an error every click would be noisy.
+        return prev;
+      }
+      return [...prev, taskId];
+    });
+  }
+
   async function submit(e: React.FormEvent) {
     e.preventDefault();
     if (!name.trim()) {
       setError('Name is required.');
+      return;
+    }
+    if (initialTaskIds.length === 0) {
+      setError('Pick at least one task to put in the group.');
       return;
     }
     setBusy(true);
@@ -55,6 +85,7 @@ export default function NewTaskGroupDialog({ onClose, onCreated }: Props) {
         name: name.trim(),
         glyph: glyph.trim() || '•',
         color,
+        initialTaskIds,
       });
       onCreated(group);
     }
@@ -124,13 +155,57 @@ export default function NewTaskGroupDialog({ onClose, onCreated }: Props) {
           </div>
         </div>
 
+        <div style={labelStyle}>
+          <span>
+            Tasks
+            <span style={{ color: 'var(--text-3)', fontWeight: 400, marginLeft: 6 }}>
+              {initialTaskIds.length}/{MAX_INITIAL_MEMBERS} picked
+            </span>
+          </span>
+          {availableTasks.length === 0 ? (
+            <div style={emptyTasksHintStyle}>
+              No tasks to add yet. Start one from the rail first — a
+              group has to contain at least one task.
+            </div>
+          ) : (
+            <div style={taskListStyle}>
+              {availableTasks.map(t => {
+                const picked = initialTaskIds.includes(t.id);
+                const atCap = !picked && initialTaskIds.length >= MAX_INITIAL_MEMBERS;
+                return (
+                  <label
+                    key={t.id}
+                    style={{
+                      ...taskRowStyle,
+                      opacity: atCap ? 0.5 : 1,
+                      cursor: atCap ? 'not-allowed' : 'pointer',
+                    }}
+                  >
+                    <input
+                      type="checkbox"
+                      checked={picked}
+                      disabled={atCap}
+                      onChange={() => toggleTask(t.id)}
+                    />
+                    <span style={taskRowTitleStyle}>{t.title}</span>
+                  </label>
+                );
+              })}
+            </div>
+          )}
+        </div>
+
         {error && <div style={errorStyle}>{error}</div>}
 
         <div style={actionsStyle}>
           <button type="button" onClick={onClose} style={secondaryBtnStyle}>
             Cancel
           </button>
-          <button type="submit" disabled={busy} style={primaryBtnStyle}>
+          <button
+            type="submit"
+            disabled={busy || initialTaskIds.length === 0}
+            style={primaryBtnStyle}
+          >
             {busy ? 'Creating…' : 'Create group'}
           </button>
         </div>
@@ -199,6 +274,41 @@ const swatchStyle: React.CSSProperties = {
   borderRadius: 6,
   border: 'none',
   cursor: 'pointer',
+};
+const taskListStyle: React.CSSProperties = {
+  display: 'flex',
+  flexDirection: 'column',
+  gap: 4,
+  maxHeight: 180,
+  overflowY: 'auto',
+  padding: 6,
+  border: '1px solid var(--border-input)',
+  borderRadius: 6,
+  background: 'var(--bg-input)',
+};
+const taskRowStyle: React.CSSProperties = {
+  display: 'flex',
+  alignItems: 'center',
+  gap: 8,
+  padding: '4px 6px',
+  borderRadius: 4,
+  fontSize: 13,
+  color: 'var(--text-1)',
+  fontWeight: 400,
+};
+const taskRowTitleStyle: React.CSSProperties = {
+  overflow: 'hidden',
+  textOverflow: 'ellipsis',
+  whiteSpace: 'nowrap',
+};
+const emptyTasksHintStyle: React.CSSProperties = {
+  padding: '8px 10px',
+  background: 'var(--bg-input)',
+  color: 'var(--text-3)',
+  border: '1px dashed var(--border-input)',
+  borderRadius: 6,
+  fontSize: 12,
+  fontWeight: 400,
 };
 const errorStyle: React.CSSProperties = {
   padding: '8px 10px',

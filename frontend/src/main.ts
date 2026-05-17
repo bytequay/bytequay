@@ -2424,6 +2424,15 @@ const url = new URL(`${BACKEND_BASE}/api/search/repos`);
     return res.json();
   });
 
+  ipcMain.handle('taskGroups:listMemberships', async () => {
+    const res = await fetch(`${BACKEND_BASE}/api/task-groups/memberships`);
+    if (!res.ok) {
+      const text = await res.text().catch(() => '');
+      throw new Error(`backend /api/task-groups/memberships returned ${res.status}: ${text}`);
+    }
+    return res.json();
+  });
+
   ipcMain.handle('taskGroups:create', async (_event, request: unknown) => {
     const res = await fetch(`${BACKEND_BASE}/api/task-groups`, {
       method: 'POST',
@@ -2466,6 +2475,40 @@ const url = new URL(`${BACKEND_BASE}/api/search/repos`);
     if (!res.ok) {
       const text = await res.text().catch(() => '');
       throw new Error(`backend DELETE /api/task-groups/${id} returned ${res.status}: ${text}`);
+    }
+  });
+
+  ipcMain.handle('taskGroups:addMember', async (_event, payload: unknown) => {
+    const { groupId, taskId } = (payload ?? {}) as { groupId?: string; taskId?: string };
+    if (!groupId || typeof groupId !== 'string' || groupId.trim().length === 0) {
+      throw new Error('groupId must be a non-empty string');
+    }
+    if (!taskId || typeof taskId !== 'string' || taskId.trim().length === 0) {
+      throw new Error('taskId must be a non-empty string');
+    }
+    const res = await fetch(
+      `${BACKEND_BASE}/api/task-groups/${encodeURIComponent(groupId)}/members/${encodeURIComponent(taskId)}`,
+      { method: 'POST' });
+    if (!res.ok) {
+      const text = await res.text().catch(() => '');
+      throw new Error(`backend POST /api/task-groups/${groupId}/members/${taskId} returned ${res.status}: ${text}`);
+    }
+  });
+
+  ipcMain.handle('taskGroups:removeMember', async (_event, payload: unknown) => {
+    const { groupId, taskId } = (payload ?? {}) as { groupId?: string; taskId?: string };
+    if (!groupId || typeof groupId !== 'string' || groupId.trim().length === 0) {
+      throw new Error('groupId must be a non-empty string');
+    }
+    if (!taskId || typeof taskId !== 'string' || taskId.trim().length === 0) {
+      throw new Error('taskId must be a non-empty string');
+    }
+    const res = await fetch(
+      `${BACKEND_BASE}/api/task-groups/${encodeURIComponent(groupId)}/members/${encodeURIComponent(taskId)}`,
+      { method: 'DELETE' });
+    if (!res.ok) {
+      const text = await res.text().catch(() => '');
+      throw new Error(`backend DELETE /api/task-groups/${groupId}/members/${taskId} returned ${res.status}: ${text}`);
     }
   });
 
@@ -2633,28 +2676,6 @@ const url = new URL(`${BACKEND_BASE}/api/search/repos`);
     if (!res.ok) {
       const text = await res.text().catch(() => '');
       throw new Error(`backend GET /api/tasks/${id}/files returned ${res.status}: ${text}`);
-    }
-    return res.json();
-  });
-
-  ipcMain.handle('tasks:setGroup', async (_event, payload: unknown) => {
-    const { id, groupId } = (payload ?? {}) as { id?: string; groupId?: string | null };
-    if (!id || typeof id !== 'string' || id.trim().length === 0) {
-      throw new Error('id must be a non-empty string');
-    }
-    // setGroup:true is the discriminator that says "change the pin";
-    // a plain { groupId: null } body would be ambiguous since the
-    // backend can't tell "absent" from "explicit null".
-    const res = await fetch(
-      `${BACKEND_BASE}/api/tasks/${encodeURIComponent(id)}`,
-      {
-        method: 'PATCH',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ setGroup: true, groupId: groupId ?? null }),
-      });
-    if (!res.ok) {
-      const text = await res.text().catch(() => '');
-      throw new Error(`backend PATCH /api/tasks/${id} returned ${res.status}: ${text}`);
     }
     return res.json();
   });

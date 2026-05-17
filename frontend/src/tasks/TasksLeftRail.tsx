@@ -27,6 +27,11 @@ export type RepoFilter = string | null;
 
 type Props = {
   tasks: TaskDto[];
+  /** Indexed memberships from the page-level fetch. The rail counts
+   *  per group and pre-selects the just-created group when the user
+   *  finishes the create-group dialog. Defaults to an empty map so
+   *  callers can omit it without breaking. */
+  groupIdsByTaskId?: Map<string, string[]>;
   /** Highlights the matching row in Recent. Pass when on the detail
    *  page so the user can see which task they're inside. */
   currentTaskId?: string;
@@ -106,6 +111,7 @@ const STATUS_ROWS: Array<{ filter: StatusFilter; label: string; dot: string }> =
  */
 export default function TasksLeftRail({
   tasks,
+  groupIdsByTaskId,
   currentTaskId,
   statusFilter,
   onStatusFilter,
@@ -227,7 +233,7 @@ export default function TasksLeftRail({
               {g.glyph || '•'}
             </span>
             <span style={labelStyle}>{g.name}</span>
-            <span style={countStyle}>{countTasksInGroup(tasks, g.id)}</span>
+            <span style={countStyle}>{countTasksInGroup(tasks, g.id, groupIdsByTaskId)}</span>
           </RailRow>
         ))}
       </Section>
@@ -262,6 +268,7 @@ export default function TasksLeftRail({
       {showCreateGroup && (
         <NewTaskGroupDialog
           onClose={() => setShowCreateGroup(false)}
+          availableTasks={tasks}
           onCreated={group => {
             setShowCreateGroup(false);
             setGroups(prev => [...prev, group]);
@@ -426,10 +433,16 @@ function sortByUpdatedDesc(tasks: TaskDto[]): TaskDto[] {
   return [...tasks].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt));
 }
 
-function countTasksInGroup(tasks: TaskDto[], groupId: string): number {
+function countTasksInGroup(
+    tasks: TaskDto[],
+    groupId: string,
+    groupIdsByTaskId: Map<string, string[]> | undefined): number {
+  if (groupIdsByTaskId === undefined) {
+    return 0;
+  }
   let n = 0;
   for (const t of tasks) {
-    if (t.groupId === groupId) n++;
+    if ((groupIdsByTaskId.get(t.id) ?? []).includes(groupId)) n++;
   }
   return n;
 }

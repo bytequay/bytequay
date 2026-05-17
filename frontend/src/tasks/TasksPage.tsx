@@ -12,7 +12,7 @@
  * limitations under the License.
  */
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import type { TaskDto, TaskGroupDto, TaskStatusDto } from '../types';
+import type { TaskDto, TaskGroupDto, TaskGroupMembershipDto, TaskStatusDto } from '../types';
 import GroupMenu from './GroupMenu';
 import GroupSettingsDialog from './GroupSettingsDialog';
 import GroupTaskGrid, { type GroupLayout } from './GroupTaskGrid';
@@ -83,6 +83,7 @@ export default function TasksPage({
 }: Props) {
   const [tasks, setTasks] = useState<TaskDto[] | null>(null);
   const [groups, setGroups] = useState<TaskGroupDto[]>([]);
+  const [memberships, setMemberships] = useState<TaskGroupMembershipDto[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [showCreate, setShowCreate] = useState(false);
   const [busyId, setBusyId] = useState<string | null>(null);
@@ -97,12 +98,14 @@ export default function TasksPage({
 
   const refresh = useCallback(async () => {
     try {
-      const [list, gs] = await Promise.all([
+      const [list, gs, ms] = await Promise.all([
         window.bridge.listTasks(),
         window.bridge.listTaskGroups().catch(() => [] as TaskGroupDto[]),
+        window.bridge.listTaskGroupMemberships().catch(() => [] as TaskGroupMembershipDto[]),
       ]);
       setTasks(list);
       setGroups(gs);
+      setMemberships(ms);
       setError(null);
     }
     catch (e) {
@@ -110,16 +113,37 @@ export default function TasksPage({
     }
   }, []);
 
-  const moveTaskToGroup = useCallback(
-    async (taskId: string, nextGroupId: string | null) => {
+  const toggleTaskInGroup = useCallback(
+    async (taskId: string, nextGroupId: string, present: boolean) => {
       try {
-        await window.bridge.setTaskGroup(taskId, nextGroupId);
+        if (present) {
+          await window.bridge.addTaskToGroup(nextGroupId, taskId);
+        }
+        else {
+          await window.bridge.removeTaskFromGroup(nextGroupId, taskId);
+        }
         await refresh();
       }
       catch (e) {
         setError(e instanceof Error ? e.message : String(e));
       }
     }, [refresh]);
+
+  // Index memberships by taskId so child components can ask "which
+  // groups is task X in?" in O(1) instead of scanning the flat list.
+  const groupIdsByTaskId = useMemo(() => {
+    const map = new Map<string, string[]>();
+    for (const m of memberships) {
+      const list = map.get(m.taskId);
+      if (list === undefined) {
+        map.set(m.taskId, [m.groupId]);
+      }
+      else {
+        list.push(m.groupId);
+      }
+    }
+    return map;
+  }, [memberships]);
 
   useEffect(() => {
     void refresh();
@@ -171,11 +195,11 @@ export default function TasksPage({
     return tasks.filter(t => {
       if (filter !== 'ALL' && t.status !== filter) return false;
       if (provider && (t.provider || '').toLowerCase() !== provider) return false;
-      if (groupId && t.groupId !== groupId) return false;
+      if (groupId && !(groupIdsByTaskId.get(t.id) ?? []).includes(groupId)) return false;
       if (repo && repoKey(t.workingDir) !== repo) return false;
       return true;
     });
-  }, [tasks, filter, provider, groupId, repo]);
+  }, [tasks, filter, provider, groupId, repo, groupIdsByTaskId]);
 
   const grouped = useMemo(() => {
     const map = new Map<TaskStatusDto, TaskDto[]>();
@@ -285,6 +309,7 @@ export default function TasksPage({
     <section style={layoutStyle}>
       <TasksLeftRail
         tasks={tasks ?? []}
+        groupIdsByTaskId={groupIdsByTaskId}
         statusFilter={filter}
         onStatusFilter={onFilterChange}
         providerFilter={provider}
@@ -437,10 +462,11 @@ export default function TasksPage({
           <GroupTaskGrid
             tasks={tilesOrdered}
             groups={groups}
+            groupIdsByTaskId={groupIdsByTaskId}
             busyId={busyId}
             layout={groupLayout}
             onOpen={onSelectTask}
-            onMoveGroup={moveTaskToGroup}
+            onToggleGroup={toggleTaskInGroup}
             onStop={onStop}
             onSend={onTileSend}
             onInterrupt={onTileInterrupt}
@@ -462,10 +488,11 @@ export default function TasksPage({
                       key={t.id}
                       task={t}
                       groups={groups}
+                      currentGroupIds={groupIdsByTaskId.get(t.id) ?? []}
                       busy={busyId === t.id}
                       onOpen={() => onSelectTask(t.id)}
                       onStop={() => void onStop(t.id)}
-                      onMoveGroup={moveTaskToGroup}
+                      onToggleGroup={toggleTaskInGroup}
                     />
                   ))}
                 </div>
@@ -589,13 +616,14 @@ function groupColorBg(color: string): string {
   }
 }
 
-function TaskRow({ task, groups, busy, onOpen, onStop, onMoveGroup }: {
+function TaskRow({ task, groups, currentGroupIds, busy, onOpen, onStop, onToggleGroup }: {
   task: TaskDto;
   groups: TaskGroupDto[];
+  currentGroupIds: string[];
   busy: boolean;
   onOpen: () => void;
   onStop: () => void;
-  onMoveGroup: (taskId: string, groupId: string | null) => void | Promise<void>;
+  onToggleGroup: (taskId: string, groupId: string, present: boolean) => void | Promise<void>;
 }) {
   const isTerminal = task.status === 'COMPLETED' || task.status === 'ERRORED';
   return (
@@ -631,7 +659,7 @@ function TaskRow({ task, groups, busy, onOpen, onStop, onMoveGroup }: {
             {busy ? 'Stopping…' : 'Stop'}
           </button>
         )}
-        <GroupMenu task={task} groups={groups} onChange={onMoveGroup} />
+        <GroupMenu task={task} groups={groups} currentGroupIds={currentGroupIds} onToggle={onToggleGroup} />
       </div>
     </div>
   );

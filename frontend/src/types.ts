@@ -1152,9 +1152,6 @@ export type TaskDto = {
   endedAt: string | null;
   errorMessage: string | null;
   metadataJson: string;
-  /** Optional {@link TaskGroupDto#id} — null when the task isn't
-   *  pinned to any user-defined group. */
-  groupId: string | null;
 };
 
 export type TaskGroupDto = {
@@ -1170,11 +1167,25 @@ export type TaskGroupDto = {
   updatedAt: string;
 };
 
+/** One row of the {@code task_group_members} join table. Tasks and
+ *  groups are many-to-many — one task can live in several groups, and
+ *  the new tasks-group page caps a group at 4 members. The frontend
+ *  pulls the full membership snapshot once and joins it in memory. */
+export type TaskGroupMembershipDto = {
+  taskId: string;
+  groupId: string;
+  addedAt: string;
+};
+
 export type NewTaskGroupRequestDto = {
   name: string;
   glyph?: string;
   color?: string;
   sortOrder?: number;
+  /** Required — at least one existing task id. A group can never sit
+   *  empty under the new invariant, and the cap of 4 is enforced on
+   *  the backend. */
+  initialTaskIds: string[];
 };
 
 /** Patch payload — only non-null/blank fields update on the backend. */
@@ -1242,8 +1253,9 @@ export type NewTaskRequestDto = {
   branchName?: string | null;
   initialPrompt?: string;
   metadataJson?: string;
-  /** Optional — pre-assigns the new task to a group. */
-  groupId?: string | null;
+  /** Optional — pin the new task into one or more existing groups.
+   *  Each must have room (the cap is enforced server-side). */
+  initialGroupIds?: string[];
 };
 
 export type Bridge = {
@@ -1820,13 +1832,25 @@ export type Bridge = {
   createTask: (request: NewTaskRequestDto) => Promise<TaskDto>;
   /** User-defined groups in display order. */
   listTaskGroups: () => Promise<TaskGroupDto[]>;
-  /** Insert one group. */
+  /** Full task ↔ group membership snapshot. Tasks and groups are
+   *  many-to-many — render the page once you have both lists and
+   *  this index. */
+  listTaskGroupMemberships: () => Promise<TaskGroupMembershipDto[]>;
+  /** Insert one group along with its initial members
+   *  ({@code initialTaskIds} must contain ≥ 1 and ≤ 4 ids). */
   createTaskGroup: (request: NewTaskGroupRequestDto) => Promise<TaskGroupDto>;
   /** Partial update — null/blank fields keep the current value. */
   updateTaskGroup: (id: string, patch: TaskGroupPatchDto) => Promise<TaskGroupDto>;
-  /** Drop a group. Tasks pointing at it are not deleted — their
-   *  {@code groupId} is cleared so they become ungrouped. */
+  /** Drop a group. The membership rows cascade away in the schema;
+   *  the tasks themselves survive — they simply leave the group. */
   deleteTaskGroup: (id: string) => Promise<void>;
+  /** Add an existing task to an existing group. Rejected when the
+   *  group is at the 4-member cap; idempotent on existing members. */
+  addTaskToGroup: (groupId: string, taskId: string) => Promise<void>;
+  /** Remove a task from a group. Rejected when the task is the
+   *  group's only remaining member — callers must
+   *  {@link #deleteTaskGroup deleteTaskGroup} instead. */
+  removeTaskFromGroup: (groupId: string, taskId: string) => Promise<void>;
   /** Single task by id; null when no row matches. */
   getTask: (id: string) => Promise<TaskDto | null>;
   /** Persisted conversation log, oldest first by {@code seq}. The
@@ -1834,9 +1858,6 @@ export type Bridge = {
   getTaskMessages: (id: string) => Promise<TaskMessageDto[]>;
   /** Per-(task, path) rollup rows for the detail-page sidebar. */
   getTaskFiles: (id: string) => Promise<TaskFileDto[]>;
-  /** Reassign the task to a different group, or unpin it
-   *  ({@code groupId: null}). Returns the updated row. */
-  setTaskGroup: (id: string, groupId: string | null) => Promise<TaskDto>;
   /** Rename a task. Trimmed and non-blank — empty / whitespace
    *  values are rejected on the backend. Returns the updated row. */
   renameTask: (id: string, title: string) => Promise<TaskDto>;

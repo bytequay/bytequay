@@ -13,6 +13,9 @@
  */
 import { useEffect, useMemo, useState } from 'react';
 import type { TaskDto, TaskGroupDto, TaskMessageDto, TaskStatusDto } from '../types';
+// Membership lookup is supplied by the parent — keeps the grid's
+// fetch surface zero and lets the parent fan out the bridge call
+// once per refresh instead of per tile.
 import GroupMenu from './GroupMenu';
 import { type PendingPermission } from './ConversationPane';
 import { StructuredConversation } from './StructuredConversation';
@@ -28,9 +31,14 @@ type Props = {
    *  becomes the click target so clicks inside the tile body
    *  (typing a reply, scrolling the history) don't navigate. */
   onOpen: (taskId: string) => void;
-  /** Reassign a task to another group (or null to unpin). The page
-   *  parent persists the change and refreshes. */
-  onMoveGroup: (taskId: string, groupId: string | null) => void | Promise<void>;
+  /** Toggle membership in one group. {@code present} is the desired
+   *  post-click state — {@code true} adds, {@code false} removes.
+   *  The parent persists the change and refreshes. */
+  onToggleGroup: (taskId: string, groupId: string, present: boolean) => void | Promise<void>;
+  /** Indexed memberships from the parent so the per-tile group
+   *  picker can show ticks for the groups this task already
+   *  belongs to. */
+  groupIdsByTaskId: Map<string, string[]>;
   /** Stop an active task from its tile. The page parent serialises
    *  the call and refreshes once the row flips to a terminal state. */
   onStop: (taskId: string) => void | Promise<void>;
@@ -77,7 +85,7 @@ const POLL_MS = 4000;
  * conversations in parallel and is out of scope for this slice.
  */
 export default function GroupTaskGrid({
-  tasks, groups, onOpen, onMoveGroup, onStop, onSend, onInterrupt, onDecide,
+  tasks, groups, onOpen, onToggleGroup, groupIdsByTaskId, onStop, onSend, onInterrupt, onDecide,
   busyId, layout,
 }: Props) {
   const [previews, setPreviews] = useState<Record<string, TaskMessageDto[]>>({});
@@ -180,11 +188,12 @@ export default function GroupTaskGrid({
             <TaskTile
               task={t}
               groups={groups}
+              currentGroupIds={groupIdsByTaskId.get(t.id) ?? []}
               messages={previews[t.id] ?? []}
               busy={busyId === t.id}
               dragging={dragFrom === idx}
               onOpen={() => onOpen(t.id)}
-              onMoveGroup={onMoveGroup}
+              onToggleGroup={onToggleGroup}
               onStop={() => onStop(t.id)}
               onSend={input => onSend(t.id, input)}
               onInterrupt={() => onInterrupt(t.id)}
@@ -214,18 +223,19 @@ export default function GroupTaskGrid({
 }
 
 function TaskTile({
-  task, groups, messages, busy, dragging,
-  onOpen, onMoveGroup, onStop,
+  task, groups, currentGroupIds, messages, busy, dragging,
+  onOpen, onToggleGroup, onStop,
   onSend, onInterrupt, onDecide,
   onDragStart, onDragEnter, onDragEnd, onDrop,
 }: {
   task: TaskDto;
   groups: TaskGroupDto[];
+  currentGroupIds: string[];
   messages: TaskMessageDto[];
   busy: boolean;
   dragging: boolean;
   onOpen: () => void;
-  onMoveGroup: (taskId: string, groupId: string | null) => void | Promise<void>;
+  onToggleGroup: (taskId: string, groupId: string, present: boolean) => void | Promise<void>;
   onStop: () => void | Promise<void>;
   onSend: (input: string) => void | Promise<void>;
   onInterrupt: () => void | Promise<void>;
@@ -302,7 +312,7 @@ function TaskTile({
         </div>
         <div style={tileHeaderRightStyle}>
           <StatusBadge status={task.status} />
-          <GroupMenu task={task} groups={groups} onChange={onMoveGroup} />
+          <GroupMenu task={task} groups={groups} currentGroupIds={currentGroupIds} onToggle={onToggleGroup} />
         </div>
       </header>
 

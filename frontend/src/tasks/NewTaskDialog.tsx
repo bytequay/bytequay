@@ -155,7 +155,9 @@ export default function NewTaskDialog({ onClose, onCreated, initialGroupId }: Pr
         title: title.trim(),
         workingDir,
         initialPrompt: initialPrompt.trim() || undefined,
-        groupId: groupId || null,
+        // Single-pick dropdown maps to a one-element array; the
+        // M:N picker UI lands with the tasks-group page redesign.
+        initialGroupIds: groupId ? [groupId] : undefined,
       });
       await onCreated();
     }

@@ -47,6 +47,7 @@ import type {
   TaskDto,
   TaskFileDto,
   TaskGroupDto,
+  TaskGroupMembershipDto,
   TaskGroupPatchDto,
   TaskMessageDto,
   TaskStreamEvent,
@@ -461,19 +462,23 @@ const bridge: Bridge = {
   createTask: (request: NewTaskRequestDto): Promise<TaskDto> =>
     ipcRenderer.invoke('tasks:create', request),
   listTaskGroups: (): Promise<TaskGroupDto[]> => ipcRenderer.invoke('taskGroups:list'),
+  listTaskGroupMemberships: (): Promise<TaskGroupMembershipDto[]> =>
+    ipcRenderer.invoke('taskGroups:listMemberships'),
   createTaskGroup: (request: NewTaskGroupRequestDto): Promise<TaskGroupDto> =>
     ipcRenderer.invoke('taskGroups:create', request),
   updateTaskGroup: (id: string, patch: TaskGroupPatchDto): Promise<TaskGroupDto> =>
     ipcRenderer.invoke('taskGroups:update', { id, patch }),
   deleteTaskGroup: (id: string): Promise<void> => ipcRenderer.invoke('taskGroups:delete', id),
+  addTaskToGroup: (groupId: string, taskId: string): Promise<void> =>
+    ipcRenderer.invoke('taskGroups:addMember', { groupId, taskId }),
+  removeTaskFromGroup: (groupId: string, taskId: string): Promise<void> =>
+    ipcRenderer.invoke('taskGroups:removeMember', { groupId, taskId }),
   getTask: (id: string): Promise<TaskDto | null> =>
     ipcRenderer.invoke('tasks:get', id),
   getTaskMessages: (id: string): Promise<TaskMessageDto[]> =>
     ipcRenderer.invoke('tasks:messages', id),
   getTaskFiles: (id: string): Promise<TaskFileDto[]> =>
     ipcRenderer.invoke('tasks:files', id),
-  setTaskGroup: (id: string, groupId: string | null): Promise<TaskDto> =>
-    ipcRenderer.invoke('tasks:setGroup', { id, groupId }),
   renameTask: (id: string, title: string): Promise<TaskDto> =>
     ipcRenderer.invoke('tasks:rename', { id, title }),
   sendTaskMessage: (id: string, input: string): Promise<void> =>

@@ -17,18 +17,24 @@ import type { TaskDto, TaskGroupDto } from '../types';
 type Props = {
   task: TaskDto;
   groups: TaskGroupDto[];
-  /** Called with the new group id (or {@code null} to unpin) after
-   *  the user picks a row. The parent decides how to refresh state. */
-  onChange: (taskId: string, groupId: string | null) => void | Promise<void>;
+  /** Group IDs the task currently belongs to. Tasks are many-to-many
+   *  with groups now, so a single task can have several entries. */
+  currentGroupIds: string[];
+  /** Toggle membership in one group. {@code present} indicates the
+   *  desired post-click state — {@code true} adds, {@code false}
+   *  removes. The parent runs the mutation and refreshes state. */
+  onToggle: (taskId: string, groupId: string, present: boolean) => void | Promise<void>;
 };
 
 /**
- * Compact "Move to…" popover for a single task. Rendered as a `⋯`
- * trigger button that toggles a small absolute-positioned menu next
- * to it. Used from list rows and grid tiles to organize tasks
- * without drilling into the detail page.
+ * Compact "Pin to groups…" popover for a single task. Rendered as a
+ * `⋯` trigger button that toggles a small absolute-positioned menu.
+ * Each row is a checkbox-like toggle — checking adds the task to that
+ * group, unchecking removes it. Hard-caps per-group membership at the
+ * backend; the dialog only surfaces backend errors when the toggle
+ * fails (e.g. removing the last member of a group).
  */
-export default function GroupMenu({ task, groups, onChange }: Props) {
+export default function GroupMenu({ task, groups, currentGroupIds, onToggle }: Props) {
   const [open, setOpen] = useState(false);
   const wrapRef = useRef<HTMLDivElement>(null);
 
@@ -52,18 +58,13 @@ export default function GroupMenu({ task, groups, onChange }: Props) {
     };
   }, [open]);
 
-  function pick(groupId: string | null) {
-    setOpen(false);
-    void onChange(task.id, groupId);
-  }
-
   return (
     <div ref={wrapRef} style={wrapStyle}>
       <button
         type="button"
         onClick={e => { e.stopPropagation(); setOpen(o => !o); }}
         style={triggerStyle}
-        title="Move to group…"
+        title="Pin to groups…"
         aria-haspopup="menu"
         aria-expanded={open}
       >
@@ -75,27 +76,25 @@ export default function GroupMenu({ task, groups, onChange }: Props) {
           onClick={e => e.stopPropagation()}
           role="menu"
         >
-          <div style={menuHeaderStyle}>Move to group</div>
-          <MenuRow
-            label="— Ungrouped —"
-            active={task.groupId == null}
-            onClick={() => pick(null)}
-          />
+          <div style={menuHeaderStyle}>Pin to groups</div>
           {groups.length === 0 && (
             <div style={emptyStyle}>
               No groups yet. Create one from the rail.
             </div>
           )}
-          {groups.map(g => (
-            <MenuRow
-              key={g.id}
-              glyph={g.glyph || '•'}
-              color={g.color}
-              label={g.name}
-              active={task.groupId === g.id}
-              onClick={() => pick(g.id)}
-            />
-          ))}
+          {groups.map(g => {
+            const active = currentGroupIds.includes(g.id);
+            return (
+              <MenuRow
+                key={g.id}
+                glyph={g.glyph || '•'}
+                color={g.color}
+                label={g.name}
+                active={active}
+                onClick={() => void onToggle(task.id, g.id, !active)}
+              />
+            );
+          })}
         </div>
       )}
     </div>
@@ -117,23 +116,27 @@ function MenuRow({ glyph, color, label, active, onClick }: {
       style={{
         ...rowStyle,
         background: active ? 'var(--accent-a10)' : 'transparent',
-        color: active ? 'var(--accent-dark)' : 'var(--text-1)',
-        fontWeight: active ? 600 : 500,
       }}
     >
-      {glyph != null && (
-        <span style={{ ...glyphStyle, background: groupColorBg(color || '') }}>
-          {glyph}
-        </span>
-      )}
-      <span style={labelStyle}>{label}</span>
-      {active && <span style={checkStyle}>✓</span>}
+      <span
+        aria-hidden
+        style={{
+          ...glyphStyle,
+          background: glyph ? swatchBg(color) : 'transparent',
+          color: glyph ? '#fff' : 'transparent',
+          visibility: glyph ? 'visible' : 'hidden',
+        }}
+      >
+        {glyph || ' '}
+      </span>
+      <span style={rowLabelStyle}>{label}</span>
+      <span style={rowCheckStyle}>{active ? '✓' : ''}</span>
     </button>
   );
 }
 
-function groupColorBg(color: string): string {
-  switch (color.toLowerCase()) {
+function swatchBg(color: string | undefined): string {
+  switch (color) {
     case 'violet': return 'linear-gradient(135deg, #7c3aed, #4c1d95)';
     case 'amber':  return 'linear-gradient(135deg, #d97706, #92400e)';
     case 'green':  return 'linear-gradient(135deg, #10b981, #047857)';
@@ -149,73 +152,74 @@ const wrapStyle: React.CSSProperties = {
 };
 const triggerStyle: React.CSSProperties = {
   background: 'transparent',
-  border: '1px solid transparent',
-  borderRadius: 4,
-  padding: '2px 8px',
+  border: 'none',
   color: 'var(--text-3)',
-  fontSize: 18,
-  lineHeight: 1,
+  fontSize: 14,
   cursor: 'pointer',
+  padding: '2px 6px',
+  borderRadius: 4,
 };
 const menuStyle: React.CSSProperties = {
   position: 'absolute',
   top: '100%',
   right: 0,
-  marginTop: 6,
+  marginTop: 4,
   minWidth: 200,
-  maxHeight: 320,
-  overflowY: 'auto',
   background: 'var(--bg-card)',
   border: '1px solid var(--border)',
-  borderRadius: 8,
-  boxShadow: '0 12px 32px rgba(15, 23, 42, 0.15)',
-  padding: 4,
+  borderRadius: 6,
+  boxShadow: '0 8px 20px rgba(15, 23, 42, 0.15)',
+  padding: '4px 0',
   zIndex: 30,
 };
 const menuHeaderStyle: React.CSSProperties = {
-  padding: '6px 10px 4px',
-  fontSize: 10.5,
+  padding: '4px 12px 6px',
+  fontSize: 10,
   fontWeight: 700,
-  letterSpacing: '0.06em',
-  textTransform: 'uppercase',
   color: 'var(--text-3)',
+  textTransform: 'uppercase',
+  letterSpacing: 0.06,
+  borderBottom: '1px solid var(--border-hairline)',
+  marginBottom: 2,
 };
 const rowStyle: React.CSSProperties = {
-  width: '100%',
   display: 'flex',
   alignItems: 'center',
   gap: 8,
+  width: '100%',
   padding: '6px 10px',
   border: 'none',
-  borderRadius: 5,
-  textAlign: 'left',
-  fontSize: 13,
-  fontFamily: 'inherit',
   cursor: 'pointer',
+  font: 'inherit',
+  color: 'var(--text-1)',
+  textAlign: 'left',
 };
 const glyphStyle: React.CSSProperties = {
   width: 18,
   height: 18,
   borderRadius: 4,
-  color: '#fff',
-  fontSize: 10,
-  fontWeight: 700,
-  display: 'flex',
+  display: 'inline-flex',
   alignItems: 'center',
   justifyContent: 'center',
+  fontSize: 10,
+  fontWeight: 700,
   flexShrink: 0,
 };
-const labelStyle: React.CSSProperties = {
+const rowLabelStyle: React.CSSProperties = {
   flex: 1,
-  minWidth: 0,
+  fontSize: 13,
   overflow: 'hidden',
   textOverflow: 'ellipsis',
   whiteSpace: 'nowrap',
 };
-const checkStyle: React.CSSProperties = { color: 'var(--accent)', fontSize: 12 };
-const emptyStyle: React.CSSProperties = {
-  padding: '8px 10px',
+const rowCheckStyle: React.CSSProperties = {
+  width: 14,
+  color: 'var(--accent)',
   fontSize: 12,
-  color: 'var(--text-4)',
-  fontStyle: 'italic',
+  textAlign: 'right',
+};
+const emptyStyle: React.CSSProperties = {
+  padding: '8px 12px',
+  fontSize: 12,
+  color: 'var(--text-3)',
 };

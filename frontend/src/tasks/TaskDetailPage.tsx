@@ -161,7 +161,6 @@ export default function TaskDetailPage({
   const [messages, setMessages] = useState<TaskMessageDto[]>([]);
   const [files, setFiles] = useState<TaskFileDto[]>([]);
   const [allTasks, setAllTasks] = useState<TaskDto[]>([]);
-  const [groups, setGroups] = useState<TaskGroupDto[]>([]);
   const [error, setError] = useState<string | null>(null);
   // Reply draft persists across navigation for the lifetime of the
   // renderer — leave the page mid-sentence, come back, the text is
@@ -190,18 +189,16 @@ export default function TaskDetailPage({
 
   const refresh = useCallback(async () => {
     try {
-      const [t, m, fs, list, gs] = await Promise.all([
+      const [t, m, fs, list] = await Promise.all([
         window.bridge.getTask(taskId),
         window.bridge.getTaskMessages(taskId),
         window.bridge.getTaskFiles(taskId).catch(() => [] as TaskFileDto[]),
         window.bridge.listTasks(),
-        window.bridge.listTaskGroups().catch(() => [] as TaskGroupDto[]),
       ]);
       setTask(t);
       setMessages(m);
       setFiles(fs);
       setAllTasks(list);
-      setGroups(gs);
       setError(null);
     }
     catch (e) {
@@ -220,16 +217,6 @@ export default function TaskDetailPage({
       setError(e instanceof Error ? e.message : String(e));
     }
   }, [taskId, task?.title]);
-
-  const onChangeGroup = useCallback(async (nextGroupId: string | null) => {
-    try {
-      const updated = await window.bridge.setTaskGroup(taskId, nextGroupId);
-      setTask(updated);
-    }
-    catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
-    }
-  }, [taskId]);
 
   useEffect(() => { void refresh(); }, [refresh]);
 
@@ -255,8 +242,9 @@ export default function TaskDetailPage({
   //    refresh (deltas aren't persisted; /messages wouldn't change).
   //  • Everything else: debounced refresh to pull the canonical
   //    state. Once the refresh lands the live buffer is cleared on
-  //    the assumption that the assembled AssistantText is now in
-  //    the messages array.
+  //    the assumption that the assembled AssistantText is now in the
+  //    messages array. Same pattern Phase A used; deltas are
+  //    additive on top.
   // Only opens while the task is still live; terminal-status
   // sessions don't emit anything new. Re-runs only when the task
   // *status* flips, not on every refresh tick, so the SSE channel
@@ -422,8 +410,6 @@ export default function TaskDetailPage({
           stage={stage}
           messages={messages}
           files={files}
-          groups={groups}
-          onChangeGroup={onChangeGroup}
           onBack={onBack}
           onCollapse={() => setSidebarCollapsed(true)}
         />
@@ -500,7 +486,6 @@ export default function TaskDetailPage({
       {showCreate && (
         <NewTaskDialog
           onClose={() => setShowCreate(false)}
-          initialGroupId={task?.groupId ?? null}
           onCreated={async () => {
             setShowCreate(false);
             await refresh();
@@ -551,7 +536,7 @@ function BackBar({ onBack, title }: { onBack: () => void; title: string }) {
  *  reverts. The pencil glyph is decorative — the whole heading is
  *  the click target so the affordance is generous without crowding
  *  the layout. */
-function EditableTitle({ title, onRename, maxDisplayChars }: {
+function EditableTitle({ title, onRename, maxDisplayChars, titleStyleOverride }: {
   title: string;
   onRename: (next: string) => void | Promise<void>;
   /** Optional cap on how many characters of the title are rendered in
@@ -560,6 +545,12 @@ function EditableTitle({ title, onRename, maxDisplayChars }: {
    *  affects the display chip. Used by the terminal toolbar where
    *  the badge is content-sized; longer names would balloon it. */
   maxDisplayChars?: number;
+  /** Style merged into the inner title span. The shared default
+   *  (`thTitleStyle`) carries `overflow:hidden + ellipsis + nowrap`,
+   *  which interacts badly with the terminal-mode badge that wants
+   *  to size to its full content — passing `{ overflow: 'visible',
+   *  textOverflow: 'clip' }` here suppresses that truncation. */
+  titleStyleOverride?: React.CSSProperties;
 }) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(title);
@@ -609,7 +600,7 @@ function EditableTitle({ title, onRename, maxDisplayChars }: {
         ? `${title} — click to rename (Enter saves, Esc cancels)`
         : 'Click to rename — Enter to save, Esc to cancel'}
     >
-      <span style={thTitleStyle}>{displayTitle}</span>
+      <span style={{ ...thTitleStyle, ...titleStyleOverride }}>{displayTitle}</span>
       <span style={titleEditPencilStyle} aria-hidden>✎</span>
     </button>
   );
@@ -679,8 +670,8 @@ function StructuredView({
   canStop: boolean;
   onDelete: () => void;
   canDelete: boolean;
-  /** Per-token assistant text the SSE stream has delivered but the
-   *  persisted log doesn't have yet. Empty when nothing is in
+  /** Per-token assistant text growing in the SSE stream that the
+   *  persisted log doesn't have yet. Empty when no streaming is in
    *  flight; otherwise the partial assembled text since the last
    *  assistant message envelope landed. */
   liveText: string;
@@ -837,8 +828,6 @@ function TaskWindowSidebar({
   stage: Stage;
   messages: TaskMessageDto[];
   files: TaskFileDto[];
-  groups: TaskGroupDto[];
-  onChangeGroup: (groupId: string | null) => void | Promise<void>;
   onBack: () => void;
   onCollapse: () => void;
 }) {
@@ -1130,7 +1119,11 @@ function TerminalWrap({
             they were pure decoration that ate ~50px of toolbar width
             the title needed for itself. */}
         <div style={taskTitleBadgeTermStyle}>
-          <EditableTitle title={task.title} onRename={onRename} maxDisplayChars={20} />
+          <EditableTitle
+            title={task.title}
+            onRename={onRename}
+            titleStyleOverride={termTitleSpanStyle}
+          />
         </div>
         <span style={termNameStyle}>
           <span style={sessionIdStyleTerminal}>{shortenPath(task.workingDir)}</span>
@@ -2312,11 +2305,10 @@ const taskTitleBadgeTermStyle: React.CSSProperties = {
   background: 'var(--term-bg-elev1)',
   border: '1px solid var(--term-border)',
   borderRadius: 6,
-  // Width sizes to the (≤20-char) displayed title plus the pencil.
-  // `width: max-content` overrides the implicit flex min-width that
-  // was collapsing the badge to "let's ..." (see
-  // docs/mockups/issue/tasks/name.png). The JS-side 20-char cap means
-  // this never grows wider than ~180px even on a long title.
+  // `width: max-content` sizes the badge to the full title length —
+  // no JS truncation, no CSS ellipsis. `flexShrink: 0` keeps the
+  // surrounding flex from squeezing it back to "Let's …" (see
+  // docs/mockups/issue/tasks/name.png — that was the bug being fixed).
   flexShrink: 0,
   width: 'max-content',
 };

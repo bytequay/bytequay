@@ -1053,7 +1053,7 @@ function TerminalWrap({
             they were pure decoration that ate ~50px of toolbar width
             the title needed for itself. */}
         <div style={taskTitleBadgeTermStyle}>
-          <EditableTitle title={task.title} onRename={onRename} />
+          <EditableTitle title={task.title} onRename={onRename} maxDisplayChars={20} />
         </div>
         <span style={termNameStyle}>
           <span style={sessionIdStyleTerminal}>{shortenPath(task.workingDir)}</span>
@@ -2233,12 +2233,13 @@ const taskTitleBadgeTermStyle: React.CSSProperties = {
   background: 'var(--term-bg-elev1)',
   border: '1px solid var(--term-border)',
   borderRadius: 6,
-  // Width follows the title's rendered length (no flex-grow), but
-  // bounded so a pathological 80-char title doesn't push the meta
-  // and buttons off the toolbar. The inner span's ellipsis kicks in
-  // once we hit this cap; under it, the badge is just-wide-enough.
+  // Width sizes to the (≤20-char) displayed title plus the pencil.
+  // `width: max-content` overrides the implicit flex min-width that
+  // was collapsing the badge to "let's ..." (see
+  // docs/mockups/issue/tasks/name.png). The JS-side 20-char cap means
+  // this never grows wider than ~180px even on a long title.
   flexShrink: 0,
-  maxWidth: 320,
+  width: 'max-content',
 };
 const zoneMetaStyle: React.CSSProperties = {
   color: 'var(--text-4)',

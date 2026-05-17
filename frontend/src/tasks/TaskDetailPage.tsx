@@ -263,6 +263,14 @@ export default function TaskDetailPage({
     }
   }, [taskId, onBack]);
 
+  // Hooks must run unconditionally on every render — declare these
+  // before the loading / error early-returns so React's hook ordering
+  // stays stable (the prior placement after the guards triggered
+  // "Rendered more hooks than during the previous render" when task
+  // flipped from null → loaded between mounts).
+  const changeStats = useMemoChangeStats(files);
+  const onReview = useCallback(() => setView('diff'), []);
+
   if (task === null && error) {
     return (
       <section style={layoutStyle}>
@@ -284,8 +292,6 @@ export default function TaskDetailPage({
   }
 
   const isTerminal = task.status === 'COMPLETED' || task.status === 'ERRORED';
-  const changeStats = useMemoChangeStats(files);
-  const onReview = useCallback(() => setView('diff'), []);
 
   // Pure presentation — the conversation pane (with reply input,
   // review strip, live bar) common to every view. Diff/Files just

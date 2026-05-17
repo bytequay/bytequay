@@ -671,7 +671,14 @@ function StatusBar({ task, stage }: { task: TaskDto; stage: Stage }) {
           out instead of getting lost in the runtime/cost row. */}
       <span style={statStyle}>
         {isRunning && <span className="bytequay-pulse" style={runningDotStyle} />}
-        <strong style={statStrongStyle}>{task.status}</strong>
+        <strong style={statStrongStyle}>
+          {task.status}
+          {/* Animated trailing dots: ".", "..", "..." cycle. CSS-only
+              via a steps() animation that reveals more of a fixed
+              "..." string each frame, so the strong tag stays
+              copy-pasteable (no fake content). */}
+          {isRunning && <span className="bytequay-running-dots" aria-hidden />}
+        </strong>
       </span>
       {/* Everything else hugs the right edge. */}
       <span style={statGroupRightStyle}>
@@ -830,13 +837,20 @@ function StructuredView({
 
       {isRunning && (
         <div style={liveZoneStyle}>
-          <span style={livePulseStyle} className="bytequay-pulse" />
-          <span style={liveLabelStyle}>✦ LIVE</span>
-          <span style={liveMetaStyle}>· Claude is responding</span>
-          <span style={{ flex: 1 }} />
-          <button type="button" onClick={onInterrupt} style={interruptBtnStyle}>
-            ⏵ Interrupt
-          </button>
+          {/* Full-height sweep behind the content — the entire bar
+              visibly moves, not just a 3px strip at the bottom. */}
+          <div style={liveProgressTrackStyle} aria-hidden>
+            <div className="bytequay-progress-bar" style={liveProgressBarStyle} />
+          </div>
+          <div style={liveContentStyle}>
+            <span style={livePulseStyle} className="bytequay-pulse" />
+            <span style={liveLabelStyle}>✦ LIVE</span>
+            <span style={liveMetaStyle}>· Claude is responding</span>
+            <span style={{ flex: 1 }} />
+            <button type="button" onClick={onInterrupt} style={interruptBtnStyle}>
+              ⏵ Interrupt
+            </button>
+          </div>
         </div>
       )}
 
@@ -1178,6 +1192,27 @@ function KeyframesStyles() {
       }
       .bytequay-progress-bar {
         animation: bytequay-progress 1.4s linear infinite;
+      }
+      /* Trailing "...": render the three dots in a fixed-width inline
+         box and animate the visible width in four discrete steps so
+         the dots appear one at a time, like terminal loading text. */
+      @keyframes bytequay-running-dots {
+        0%   { width: 0;    }
+        25%  { width: 0.4em; }
+        50%  { width: 0.8em; }
+        75%  { width: 1.2em; }
+        100% { width: 1.2em; }
+      }
+      .bytequay-running-dots {
+        display: inline-block;
+        overflow: hidden;
+        vertical-align: bottom;
+        white-space: nowrap;
+        width: 1.2em;
+        animation: bytequay-running-dots 1.2s steps(4, end) infinite;
+      }
+      .bytequay-running-dots::before {
+        content: '...';
       }
     `}</style>
   );
@@ -2041,14 +2076,40 @@ const historyScrollStyle: React.CSSProperties = {
   overflowY: 'auto',
 };
 const liveZoneStyle: React.CSSProperties = {
-  display: 'flex',
-  alignItems: 'center',
-  gap: 8,
+  // Anchor + clip so the sweep overlay stays within the rounded
+  // corners instead of poking past them. Layout (flex row) lives
+  // on the inner content wrapper so the absolute overlay doesn't
+  // get stretched by flex sizing.
+  position: 'relative',
+  overflow: 'hidden',
   padding: '8px 14px',
   background: 'var(--accent-a7)',
   border: '1px solid var(--accent-a40)',
   borderLeft: '3px solid var(--accent)',
   borderRadius: 6,
+};
+const liveContentStyle: React.CSSProperties = {
+  // position:relative + z-index lifts the content above the sweep
+  // overlay (which sits at z-index 0) so the text stays sharp.
+  position: 'relative', zIndex: 1,
+  display: 'flex', alignItems: 'center', gap: 8,
+};
+const liveProgressTrackStyle: React.CSSProperties = {
+  position: 'absolute',
+  inset: 0,
+  // Sit behind the text + button so the sweep tints the whole bar
+  // without intercepting clicks on Interrupt.
+  pointerEvents: 'none',
+  zIndex: 0,
+};
+const liveProgressBarStyle: React.CSSProperties = {
+  position: 'absolute',
+  top: 0, left: 0, bottom: 0,
+  width: '40%',
+  // Low-opacity full-height sweep so the entire bar visibly moves
+  // instead of just a 3px strip at the bottom, while staying soft
+  // enough to keep the text readable.
+  background: 'linear-gradient(90deg, transparent, var(--accent-a40), transparent)',
 };
 const livePulseStyle: React.CSSProperties = {
   width: 8,

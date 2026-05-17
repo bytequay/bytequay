@@ -51,16 +51,38 @@ export function StructuredConversation({
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const stickRef = useRef(true);
 
-  const onScroll = () => {
-    const el = scrollRef.current;
-    if (!el) return;
-    const distFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
-    stickRef.current = distFromBottom < 24;
-  };
-  const scrollToBottom = useCallback(() => {
-    const el = scrollRef.current;
-    if (el) el.scrollTop = el.scrollHeight;
+  // Find the nearest ancestor that actually scrolls. In the
+  // Conversation tab, StructuredConversation is wrapped by a parent
+  // <div style={historyScrollStyle}> with overflow:auto — that's the
+  // real scroller, not our own root div (which has overflow:auto in
+  // its style but no height constraint because its parent isn't a
+  // flex container, so it grows past the parent's bounds instead of
+  // scrolling internally). Walk up so the stick-to-bottom logic
+  // works in either layout.
+  const findScroller = useCallback((from: HTMLElement | null): HTMLElement | null => {
+    let n: HTMLElement | null = from;
+    while (n) {
+      if (n.scrollHeight - n.clientHeight > 1) return n;
+      n = n.parentElement;
+    }
+    return from;
   }, []);
+  const scrollToBottom = useCallback(() => {
+    const el = findScroller(scrollRef.current);
+    if (el) el.scrollTop = el.scrollHeight;
+  }, [findScroller]);
+  // Listen on the real scroller — onScroll on our own div doesn't
+  // fire when the outer ancestor is the actual overflow container.
+  useLayoutEffect(() => {
+    const el = findScroller(scrollRef.current);
+    if (!el) return;
+    const handler = () => {
+      const distFromBottom = el.scrollHeight - el.scrollTop - el.clientHeight;
+      stickRef.current = distFromBottom < 24;
+    };
+    el.addEventListener('scroll', handler, { passive: true });
+    return () => el.removeEventListener('scroll', handler);
+  }, [findScroller]);
   // Sync scroll before paint so a freshly-mounted Conversation tab
   // lands on the latest content instead of flashing at the top.
   useLayoutEffect(() => {
@@ -80,7 +102,7 @@ export function StructuredConversation({
   const cards = useMemo(() => buildDialog(events, modelName), [events, modelName]);
 
   return (
-    <div style={scrollStyle} ref={scrollRef} onScroll={onScroll}>
+    <div style={scrollStyle} ref={scrollRef}>
       {cards.length === 0 && (
         <div style={emptyHintStyle}>
           Waiting for the first turn — send a prompt below to kick off.

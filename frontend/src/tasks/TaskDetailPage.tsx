@@ -2174,12 +2174,18 @@ const errorBannerStyle: React.CSSProperties = {
 
 // ── Structured view ─────────────────────────────────────────────────────
 const structuredWrapStyle: React.CSSProperties = {
+  // flex:1 + minHeight:0 + height:100% so the wrap stretches to fill
+  // its body slot (flexFillStyle is a flex column with flex:1 itself).
+  // Without it the wrap sized to its content height and the reply
+  // input sat wherever the conversation happened to end rather than
+  // pinned to the visible bottom.
   display: 'flex',
   flexDirection: 'column',
   gap: 12,
+  flex: 1,
+  height: '100%',
   minHeight: 0,
   minWidth: 0,
-  maxHeight: 'calc(100vh - 220px)',
 };
 const historyZoneStyle: React.CSSProperties = {
   display: 'flex',

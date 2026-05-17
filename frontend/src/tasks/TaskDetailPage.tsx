@@ -924,8 +924,8 @@ function ReviewStrip({
         ⇄ Diff · {stats.files} file{stats.files === 1 ? '' : 's'}
       </span>
       <span style={reviewStripStatsStyle}>
-        <span style={{ color: '#16a34a' }}>+{stats.added}</span>{' '}
-        <span style={{ color: '#dc2626' }}>−{stats.removed}</span>
+        <span style={{ color: 'var(--term-ok, #16a34a)' }}>+{stats.added}</span>{' '}
+        <span style={{ color: 'var(--term-err, #dc2626)' }}>−{stats.removed}</span>
       </span>
       <span style={{ flex: 1 }} />
       <span style={reviewStripActionStyle}>
@@ -1053,7 +1053,7 @@ function TerminalWrap({
             they were pure decoration that ate ~50px of toolbar width
             the title needed for itself. */}
         <div style={taskTitleBadgeTermStyle}>
-          <EditableTitle title={task.title} onRename={onRename} maxDisplayChars={20} />
+          <EditableTitle title={task.title} onRename={onRename} />
         </div>
         <span style={termNameStyle}>
           <span style={sessionIdStyleTerminal}>{shortenPath(task.workingDir)}</span>
@@ -1854,27 +1854,39 @@ const twHeaderViewBtnActiveStyle: React.CSSProperties = {
 // default button chrome (background, focus ring inherits) and turns
 // the strip into a clickable surface. The trailing label + chevron
 // act as the action affordance.
+//
+// Tokens use the terminal palette (--term-*) with a fallback to the
+// app-level palette (--bg-elevated, --border, etc.). Inside the
+// terminal scope (TerminalWrap → terminalScopeStyle wraps a div that
+// publishes --term-* via termCssVars), the strip picks up the
+// theme-correct dark/light colors. Outside (structured view), the
+// fallback kicks in and the strip uses the app theme.
 const reviewStripStyle: React.CSSProperties = {
   display: 'flex', alignItems: 'center', gap: 10,
   padding: '8px 14px', marginTop: 8,
-  background: 'var(--bg-elevated)',
-  border: '1px solid var(--border)', borderRadius: 6,
+  background: 'var(--term-bg-elev1, var(--bg-elevated))',
+  border: '1px solid var(--term-border, var(--border))',
+  borderRadius: 6,
   cursor: 'pointer',
   textAlign: 'left',
   font: 'inherit',
   width: '100%',
+  color: 'var(--term-text, var(--text-1))',
 };
 const reviewStripLabelStyle: React.CSSProperties = {
-  fontSize: 12, color: 'var(--text-2)', fontWeight: 600,
+  fontSize: 12, fontWeight: 600,
+  color: 'var(--term-text-muted, var(--text-2))',
 };
 const reviewStripStatsStyle: React.CSSProperties = {
   fontSize: 11, fontFamily: '"SF Mono", Menlo, monospace',
 };
 const reviewStripActionStyle: React.CSSProperties = {
-  fontSize: 12, fontWeight: 600, color: 'var(--accent)',
+  fontSize: 12, fontWeight: 600,
+  color: 'var(--term-user, var(--accent))',
 };
 const reviewStripChevronStyle: React.CSSProperties = {
-  fontSize: 14, color: 'var(--accent)', lineHeight: 1,
+  fontSize: 14, lineHeight: 1,
+  color: 'var(--term-user, var(--accent))',
 };
 const ctxBarWrapStyle: React.CSSProperties = {
   display: 'flex', flexDirection: 'column', gap: 4,
@@ -2221,10 +2233,12 @@ const taskTitleBadgeTermStyle: React.CSSProperties = {
   background: 'var(--term-bg-elev1)',
   border: '1px solid var(--term-border)',
   borderRadius: 6,
-  // Content-sized — width follows the (truncated) title length. The
-  // 20-char cap on the title text keeps the badge from ever stealing
-  // toolbar space from the meta + buttons.
+  // Width follows the title's rendered length (no flex-grow), but
+  // bounded so a pathological 80-char title doesn't push the meta
+  // and buttons off the toolbar. The inner span's ellipsis kicks in
+  // once we hit this cap; under it, the badge is just-wide-enough.
   flexShrink: 0,
+  maxWidth: 320,
 };
 const zoneMetaStyle: React.CSSProperties = {
   color: 'var(--text-4)',

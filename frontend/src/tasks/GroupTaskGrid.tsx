@@ -288,6 +288,11 @@ function TaskTile({
           e.dataTransfer.setData('text/plain', task.id);
           onDragStart();
         }}
+        // Double-click on the header opens the zoom modal — matches
+        // the design's "double click zooms" verb. Attached to the
+        // header (not the whole tile body) so the scroll area and
+        // reply textarea don't intercept the gesture.
+        onDoubleClick={onOpen}
       >
         <span style={dragHandleStyle} aria-hidden title="Drag header to reorder">⋮⋮</span>
         <div style={tileTitleWrapStyle}>
@@ -297,13 +302,22 @@ function TaskTile({
             type="button"
             onClick={onOpen}
             style={tileTitleBtnStyle}
-            title="Open in full detail view"
+            title="Zoom in (Esc to close)"
           >
             <span style={tileTitleStyle}>{task.title}</span>
           </button>
         </div>
         <div style={tileHeaderRightStyle}>
           <StatusBadge status={task.status} />
+          <button
+            type="button"
+            onClick={onOpen}
+            style={tileMaxBtnStyle}
+            title="Zoom in (double-click the header)"
+            aria-label="Zoom in"
+          >
+            ⛶
+          </button>
           <GroupMenu task={task} groups={groups} currentGroupIds={currentGroupIds} onToggle={onToggleGroup} />
         </div>
       </header>
@@ -579,6 +593,18 @@ const tileHeaderRightStyle: React.CSSProperties = {
   alignItems: 'center',
   gap: 4,
   flexShrink: 0,
+};
+const tileMaxBtnStyle: React.CSSProperties = {
+  width: 22, height: 22,
+  display: 'inline-flex',
+  alignItems: 'center',
+  justifyContent: 'center',
+  background: 'transparent',
+  border: 'none',
+  color: 'var(--text-3)',
+  borderRadius: 4,
+  cursor: 'pointer',
+  fontSize: 12,
 };
 const tileTitleWrapStyle: React.CSSProperties = {
   display: 'flex',

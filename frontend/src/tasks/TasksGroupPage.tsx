@@ -11,9 +11,10 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import { useEffect, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import GroupTaskGrid from './GroupTaskGrid';
 import TasksGroupSidebar from './TasksGroupSidebar';
+import TaskZoomModal from './TaskZoomModal';
 import type { TaskDto, TaskGroupDto } from '../types';
 import type { PendingPermission } from './ConversationPane';
 
@@ -68,6 +69,19 @@ export default function TasksGroupPage(props: TasksGroupPageProps) {
     immersive, onChangeImmersive,
   } = props;
 
+  const [zoomedTaskId, setZoomedTaskId] = useState<string | null>(null);
+  const zoomedTask = useMemo(
+    () => zoomedTaskId === null ? null : tasks.find(t => t.id === zoomedTaskId) ?? null,
+    [zoomedTaskId, tasks]);
+
+  // Drop the zoom whenever the underlying task disappears from the
+  // group — keeps a stale modal from lingering after a stop+delete.
+  useEffect(() => {
+    if (zoomedTaskId !== null && zoomedTask === null) {
+      setZoomedTaskId(null);
+    }
+  }, [zoomedTaskId, zoomedTask]);
+
   // PermissionRequested pre-rendering — the tiles read pendingPermission
   // from the messages they fetch internally; we don't surface it at the
   // shell level.
@@ -115,7 +129,11 @@ export default function TasksGroupPage(props: TasksGroupPageProps) {
           groups={groups}
           groupIdsByTaskId={groupIdsByTaskId}
           busyId={busyId}
-          onOpen={onSelectTask}
+          // Tiles open the zoom modal — the design intentionally
+          // hides the direct path to the full detail page from the
+          // tile level. The modal's ⛶ button is the only way to
+          // navigate into /tasks/:id.
+          onOpen={taskId => setZoomedTaskId(taskId)}
           onToggleGroup={onToggleGroup}
           onStop={onStop}
           onSend={onSend}
@@ -123,6 +141,14 @@ export default function TasksGroupPage(props: TasksGroupPageProps) {
           onDecide={onDecide}
         />
       </main>
+
+      {zoomedTask !== null && (
+        <TaskZoomModal
+          task={zoomedTask}
+          onClose={() => setZoomedTaskId(null)}
+          onExpandToDetail={onSelectTask}
+        />
+      )}
     </section>
   );
 }

@@ -908,6 +908,14 @@ function Sidebar({ task, stage, files, messages, groups, onChangeGroup }: {
 
       <SideCard>
         <h4 style={sideCardHeadingStyle}>Metrics</h4>
+        {/* Sliding stripe along the top of the card — pure visual cue
+            that something's happening while RUNNING, since the
+            seconds-counter on its own is easy to miss as a static read. */}
+        {task.status === 'RUNNING' && (
+          <div style={progressTrackStyle} aria-hidden>
+            <div className="bytequay-progress-bar" style={progressBarStyle} />
+          </div>
+        )}
         <div style={metricListStyle}>
           <Metric label="Runtime" value={formatRuntime(task)} live={task.status === 'RUNNING'} />
           <Metric label="Cost so far" value={formatCost(task.costUsdMilli)} sub="CLI-reported" />
@@ -917,7 +925,10 @@ function Sidebar({ task, stage, files, messages, groups, onChangeGroup }: {
           <Metric label="Model" value={task.model} mono />
           {task.branchName && <Metric label="Branch" value={task.branchName} mono />}
           {task.agentSessionId && <Metric label="Session" value={shortId(task.agentSessionId)} mono />}
-          <Metric label="Status" value={task.status} />
+          <div style={metricRowStyle}>
+            <span style={metricLabelStyle}>Status</span>
+            <StatusPill status={task.status} />
+          </div>
         </div>
       </SideCard>
 
@@ -1152,6 +1163,17 @@ function KeyframesStyles() {
       }
       .bytequay-pulse { animation: bytequay-pulse 1.6s ease-in-out infinite; }
       @keyframes bytequay-blink { 50% { opacity: 0.2; } }
+      /* Indeterminate progress: a 40% wide bar slides left→right
+         continuously. translateX(-100%)→250% so it fully clears
+         before reappearing, giving an unambiguous "still working"
+         signal even when the metric values aren't visibly changing. */
+      @keyframes bytequay-progress {
+        0%   { transform: translateX(-100%); }
+        100% { transform: translateX(250%); }
+      }
+      .bytequay-progress-bar {
+        animation: bytequay-progress 1.4s linear infinite;
+      }
     `}</style>
   );
 }
@@ -1811,6 +1833,21 @@ const stageToolTagStyle: React.CSSProperties = {
 };
 
 const metricListStyle: React.CSSProperties = { padding: '0 18px 16px', fontSize: 13 };
+const progressTrackStyle: React.CSSProperties = {
+  position: 'relative',
+  height: 3,
+  margin: '0 18px 10px',
+  background: 'var(--bg-elevated)',
+  borderRadius: 2,
+  overflow: 'hidden',
+};
+const progressBarStyle: React.CSSProperties = {
+  position: 'absolute',
+  top: 0, left: 0, bottom: 0,
+  width: '40%',
+  background: 'linear-gradient(90deg, transparent, #10b981, transparent)',
+  borderRadius: 2,
+};
 const metricRowStyle: React.CSSProperties = {
   display: 'flex', alignItems: 'baseline',
   padding: '6px 0', borderBottom: '1px solid var(--border-hairline)',

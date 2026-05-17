@@ -11,7 +11,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import { Fragment, useCallback, useEffect, useMemo, useState } from 'react';
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { DiffFileTreePane, type FilesPaneMode } from '../diff/DiffFileTreePane';
 import { parseUnifiedDiff } from '../diffParse';
 import { statusBadgeFromLetter } from '../diffStatusBadge';
@@ -72,13 +72,17 @@ function useFilesMode(): [FilesPaneMode, (next: FilesPaneMode) => void] {
 }
 
 function FilesPaneHeader({
-  label, count, mode, onChangeMode, onRefresh,
+  label, count, mode, onChangeMode, onRefresh, onCollapse,
 }: {
   label: string;
   count: number | null;
   mode: FilesPaneMode;
   onChangeMode: (next: FilesPaneMode) => void;
   onRefresh: () => void;
+  /** Optional — when omitted, the collapse chevron isn't rendered.
+   *  Only the column-split layouts (FilesPanel, CommitsPanel) support
+   *  collapse; the row-split CommitDiffView passes nothing. */
+  onCollapse?: () => void;
 }) {
   return (
     <div className="diff-viewer__files-header">
@@ -107,7 +111,140 @@ function FilesPaneHeader({
       >
         ↻
       </button>
+      {onCollapse && (
+        <button
+          type="button"
+          className="diff-viewer__files-collapse-btn"
+          onClick={onCollapse}
+          title="Collapse panel"
+          aria-label="Collapse panel"
+        >
+          ‹
+        </button>
+      )}
     </div>
+  );
+}
+
+// ─── Resizable / collapsible list column ────────────────────────────
+// One shared hook so FilesPanel and CommitsPanel agree on width and
+// collapsed state — switching tabs (working tree ↔ commits) shouldn't
+// jump the layout.
+
+const LIST_WIDTH_STORAGE_KEY = 'bytequay.tasks.detailDiffListWidth';
+const LIST_COLLAPSED_STORAGE_KEY = 'bytequay.tasks.detailDiffListCollapsed';
+const DEFAULT_LIST_WIDTH = 280;
+const MIN_LIST_WIDTH = 160;
+const MAX_LIST_WIDTH = 720;
+
+function useResizableList(): {
+  width: number;
+  setWidth: (next: number) => void;
+  collapsed: boolean;
+  setCollapsed: (next: boolean) => void;
+} {
+  const [width, setWidth] = useState<number>(() => {
+    try {
+      const raw = window.localStorage.getItem(LIST_WIDTH_STORAGE_KEY);
+      const n = raw == null ? NaN : parseInt(raw, 10);
+      return Number.isFinite(n) && n >= MIN_LIST_WIDTH && n <= MAX_LIST_WIDTH
+        ? n
+        : DEFAULT_LIST_WIDTH;
+    }
+    catch { return DEFAULT_LIST_WIDTH; }
+  });
+  const [collapsed, setCollapsed] = useState<boolean>(() => {
+    try { return window.localStorage.getItem(LIST_COLLAPSED_STORAGE_KEY) === '1'; }
+    catch { return false; }
+  });
+  useEffect(() => {
+    try { window.localStorage.setItem(LIST_WIDTH_STORAGE_KEY, String(width)); }
+    catch { /* private browsing — fine to skip */ }
+  }, [width]);
+  useEffect(() => {
+    try { window.localStorage.setItem(LIST_COLLAPSED_STORAGE_KEY, collapsed ? '1' : '0'); }
+    catch { /* private browsing — fine to skip */ }
+  }, [collapsed]);
+  return { width, setWidth, collapsed, setCollapsed };
+}
+
+function ColumnSplitter({
+  width, onChange,
+}: {
+  width: number;
+  onChange: (next: number) => void;
+}) {
+  const [dragging, setDragging] = useState(false);
+  const startRef = useRef<{ x: number; w: number } | null>(null);
+  useEffect(() => {
+    if (!dragging) return;
+    const onMove = (e: MouseEvent) => {
+      const s = startRef.current;
+      if (s === null) return;
+      const next = Math.max(
+        MIN_LIST_WIDTH,
+        Math.min(MAX_LIST_WIDTH, s.w + (e.clientX - s.x)),
+      );
+      onChange(next);
+    };
+    const onUp = () => setDragging(false);
+    document.addEventListener('mousemove', onMove);
+    document.addEventListener('mouseup', onUp);
+    // Lock cursor + selection across the whole document while dragging
+    // so the cursor doesn't flicker when the mouse strays off the strip.
+    const prevCursor = document.body.style.cursor;
+    const prevSelect = document.body.style.userSelect;
+    document.body.style.cursor = 'col-resize';
+    document.body.style.userSelect = 'none';
+    return () => {
+      document.removeEventListener('mousemove', onMove);
+      document.removeEventListener('mouseup', onUp);
+      document.body.style.cursor = prevCursor;
+      document.body.style.userSelect = prevSelect;
+    };
+  }, [dragging, onChange]);
+  return (
+    <div
+      role="separator"
+      aria-orientation="vertical"
+      title="Drag to resize"
+      onMouseDown={(e) => {
+        e.preventDefault();
+        startRef.current = { x: e.clientX, w: width };
+        setDragging(true);
+      }}
+      style={{
+        flex: '0 0 5px',
+        cursor: 'col-resize',
+        background: dragging ? 'var(--accent)' : 'var(--border)',
+        opacity: dragging ? 1 : 0.5,
+        transition: 'opacity 100ms ease, background 100ms ease',
+      }}
+      onMouseEnter={(e) => { (e.currentTarget as HTMLDivElement).style.opacity = '1'; }}
+      onMouseLeave={(e) => {
+        if (!dragging) (e.currentTarget as HTMLDivElement).style.opacity = '0.5';
+      }}
+    />
+  );
+}
+
+function CollapsedRail({
+  label, onExpand,
+}: {
+  label: string;
+  onExpand: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onExpand}
+      title={`Expand ${label}`}
+      aria-label={`Expand ${label}`}
+      style={collapsedRailStyle}
+    >
+      <span aria-hidden style={{ fontSize: 14 }}>›</span>
+      <span style={collapsedRailLabelStyle}>{label}</span>
+    </button>
   );
 }
 
@@ -119,6 +256,7 @@ function FilesPanel({ taskId }: { taskId: string }) {
   const [selectedPath, setSelectedPath] = useState<string | null>(null);
   const [collapsedDirs, setCollapsedDirs] = useState<Set<string>>(() => new Set());
   const [filesMode, setFilesMode] = useFilesMode();
+  const { width, setWidth, collapsed, setCollapsed } = useResizableList();
 
   const refresh = useCallback(async () => {
     try {
@@ -148,26 +286,37 @@ function FilesPanel({ taskId }: { taskId: string }) {
 
   return (
     <div style={panelStyle}>
-      <div style={listColumnStyle} className="diff-viewer__files">
-        <FilesPaneHeader
-          label="Uncommitted"
-          count={files?.length ?? null}
-          mode={filesMode}
-          onChangeMode={setFilesMode}
-          onRefresh={() => void refresh()}
-        />
-        <DiffFileTreePane<TaskWorkingFileDto>
-          files={files}
-          error={error}
-          mode={filesMode}
-          pathOf={f => f.path}
-          statusBadgeOf={f => statusBadgeFromLetter(f.status)}
-          selectedPath={selectedPath}
-          onSelectPath={setSelectedPath}
-          collapsedDirs={collapsedDirs}
-          onToggleDir={onToggleDir}
-        />
-      </div>
+      {collapsed ? (
+        <CollapsedRail label="Files" onExpand={() => setCollapsed(false)} />
+      ) : (
+        <>
+          <div
+            style={{ ...listColumnStyle, width, flex: `0 0 ${width}px` }}
+            className="diff-viewer__files"
+          >
+            <FilesPaneHeader
+              label="Uncommitted"
+              count={files?.length ?? null}
+              mode={filesMode}
+              onChangeMode={setFilesMode}
+              onRefresh={() => void refresh()}
+              onCollapse={() => setCollapsed(true)}
+            />
+            <DiffFileTreePane<TaskWorkingFileDto>
+              files={files}
+              error={error}
+              mode={filesMode}
+              pathOf={f => f.path}
+              statusBadgeOf={f => statusBadgeFromLetter(f.status)}
+              selectedPath={selectedPath}
+              onSelectPath={setSelectedPath}
+              collapsedDirs={collapsedDirs}
+              onToggleDir={onToggleDir}
+            />
+          </div>
+          <ColumnSplitter width={width} onChange={setWidth} />
+        </>
+      )}
       <div style={diffColumnStyle}>
         {selectedPath ? (
           <DiffBody
@@ -189,6 +338,7 @@ function CommitsPanel({ taskId }: { taskId: string }) {
   const [commits, setCommits] = useState<TaskCommitDto[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [selectedSha, setSelectedSha] = useState<string | null>(null);
+  const { width, setWidth, collapsed, setCollapsed } = useResizableList();
 
   const refresh = useCallback(async () => {
     try {
@@ -209,44 +359,63 @@ function CommitsPanel({ taskId }: { taskId: string }) {
 
   return (
     <div style={panelStyle}>
-      <div style={commitListColumnStyle} className="diff-viewer__files">
-        <div className="diff-viewer__files-header">
-          <span>Commits</span>
-          {commits !== null && (
-            <span className="diff-viewer__files-count">{commits.length}</span>
-          )}
-          <button
-            type="button"
-            className="diff-viewer__files-collapse-btn"
-            style={{ marginLeft: 'auto' }}
-            onClick={() => void refresh()}
-            title="Refresh"
-            aria-label="Refresh"
+      {collapsed ? (
+        <CollapsedRail label="Commits" onExpand={() => setCollapsed(false)} />
+      ) : (
+        <>
+          <div
+            style={{ ...commitListColumnStyle, width, flex: `0 0 ${width}px` }}
+            className="diff-viewer__files"
           >
-            ↻
-          </button>
-        </div>
-        {error && <div className="diff-viewer__error">{error}</div>}
-        {commits === null && !error && (
-          <div className="diff-viewer__loading">Loading commits…</div>
-        )}
-        {commits !== null && commits.length === 0 && (
-          <div className="diff-viewer__empty">No commits since this task started.</div>
-        )}
-        {commits?.map(c => (
-          <button
-            key={c.sha}
-            type="button"
-            onClick={() => setSelectedSha(c.sha)}
-            style={c.sha === selectedSha ? selectedCommitRowStyle : commitRowStyle}
-            title={`${c.sha}\n${c.authorName} <${c.authorEmail}>\n${c.authoredAt}`}
-          >
-            <span style={commitShaStyle}>{c.shortSha}</span>
-            <span style={commitSubjectStyle}>{c.subject}</span>
-            <span style={commitMetaStyle}>{relativeTime(c.authoredAt)}</span>
-          </button>
-        ))}
-      </div>
+            <div className="diff-viewer__files-header">
+              <span>Commits</span>
+              {commits !== null && (
+                <span className="diff-viewer__files-count">{commits.length}</span>
+              )}
+              <button
+                type="button"
+                className="diff-viewer__files-collapse-btn"
+                style={{ marginLeft: 'auto' }}
+                onClick={() => void refresh()}
+                title="Refresh"
+                aria-label="Refresh"
+              >
+                ↻
+              </button>
+              <button
+                type="button"
+                className="diff-viewer__files-collapse-btn"
+                onClick={() => setCollapsed(true)}
+                title="Collapse panel"
+                aria-label="Collapse panel"
+              >
+                ‹
+              </button>
+            </div>
+            {error && <div className="diff-viewer__error">{error}</div>}
+            {commits === null && !error && (
+              <div className="diff-viewer__loading">Loading commits…</div>
+            )}
+            {commits !== null && commits.length === 0 && (
+              <div className="diff-viewer__empty">No commits since this task started.</div>
+            )}
+            {commits?.map(c => (
+              <button
+                key={c.sha}
+                type="button"
+                onClick={() => setSelectedSha(c.sha)}
+                style={c.sha === selectedSha ? selectedCommitRowStyle : commitRowStyle}
+                title={`${c.sha}\n${c.authorName} <${c.authorEmail}>\n${c.authoredAt}`}
+              >
+                <span style={commitShaStyle}>{c.shortSha}</span>
+                <span style={commitSubjectStyle}>{c.subject}</span>
+                <span style={commitMetaStyle}>{relativeTime(c.authoredAt)}</span>
+              </button>
+            ))}
+          </div>
+          <ColumnSplitter width={width} onChange={setWidth} />
+        </>
+      )}
       <div style={diffColumnStyle}>
         {selectedSha ? (
           <CommitDiffView taskId={taskId} sha={selectedSha} />
@@ -421,9 +590,8 @@ function relativeTime(iso: string): string {
 // ─── Styles — only the bits that aren't covered by the shared CSS ──
 
 const panelStyle: React.CSSProperties = {
-  display: 'grid',
-  gridTemplateColumns: 'minmax(220px, 320px) 1fr',
-  gap: 0,
+  display: 'flex',
+  flexDirection: 'row',
   border: '1px solid var(--border)',
   borderRadius: 8,
   overflow: 'hidden',
@@ -434,9 +602,33 @@ const panelStyle: React.CSSProperties = {
 const listColumnStyle: React.CSSProperties = {
   display: 'flex',
   flexDirection: 'column',
-  borderRight: '1px solid var(--border)',
   background: 'var(--bg-elevated)',
   minHeight: 0,
+  overflow: 'hidden',
+};
+
+const collapsedRailStyle: React.CSSProperties = {
+  flex: '0 0 24px',
+  display: 'flex',
+  flexDirection: 'column',
+  alignItems: 'center',
+  justifyContent: 'flex-start',
+  gap: 8,
+  padding: '8px 0',
+  background: 'var(--bg-elevated)',
+  border: 'none',
+  borderRight: '1px solid var(--border)',
+  cursor: 'pointer',
+  color: 'var(--text-2)',
+  font: 'inherit',
+};
+const collapsedRailLabelStyle: React.CSSProperties = {
+  writingMode: 'vertical-rl',
+  transform: 'rotate(180deg)',
+  letterSpacing: '0.06em',
+  textTransform: 'uppercase',
+  fontSize: 10,
+  color: 'var(--text-3)',
 };
 
 const commitListColumnStyle: React.CSSProperties = {
@@ -445,6 +637,8 @@ const commitListColumnStyle: React.CSSProperties = {
 };
 
 const diffColumnStyle: React.CSSProperties = {
+  flex: 1,
+  minWidth: 0,
   display: 'flex',
   flexDirection: 'column',
   overflow: 'auto',

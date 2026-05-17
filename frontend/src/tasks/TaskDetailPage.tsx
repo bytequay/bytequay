@@ -1274,7 +1274,11 @@ function formatRuntime(task: TaskDto): string {
   const m = Math.floor(s / 60);
   if (m < 60) return `${m}m ${s % 60}s`;
   const h = Math.floor(m / 60);
-  return `${h}h ${m % 60}m`;
+  // Keep the seconds column at the hour scale too so the indicator
+  // visibly ticks every second instead of pausing for ~60s between
+  // minute rollovers — the page polls /tasks/{id} every 1s while
+  // RUNNING, so the recomputed value already lands per-second.
+  return `${h}h ${m % 60}m ${s % 60}s`;
 }
 
 function ageOf(iso: string): string {

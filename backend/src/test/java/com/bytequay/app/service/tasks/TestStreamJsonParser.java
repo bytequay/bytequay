@@ -153,6 +153,64 @@ class TestStreamJsonParser
     }
 
     @Test
+    void parsesStreamEventTextDeltaIntoAssistantTextDelta()
+    {
+        // --include-partial-messages emits Anthropic-shaped stream
+        // events; we surface text_delta chunks for the in-flight card.
+        String line = """
+                {"type":"stream_event","event":{
+                  "type":"content_block_delta","index":2,
+                  "delta":{"type":"text_delta","text":"Reading "}}}
+                """;
+
+        List<StreamEvent> events = parser.parse(line, NOW);
+
+        assertThat(events).hasSize(1);
+        StreamEvent.AssistantTextDelta delta = (StreamEvent.AssistantTextDelta) events.get(0);
+        assertThat(delta.blockIndex()).isEqualTo(2);
+        assertThat(delta.textChunk()).isEqualTo("Reading ");
+    }
+
+    @Test
+    void ignoresStreamEventEnvelopesOtherThanTextDelta()
+    {
+        // message_start / content_block_start / message_delta / ping
+        // / content_block_stop / message_stop all flow past silently —
+        // the final assembled assistant envelope still arrives and
+        // feeds the canonical AssistantText path.
+        assertThat(parser.parse(
+                "{\"type\":\"stream_event\",\"event\":{\"type\":\"message_start\","
+                        + "\"message\":{\"id\":\"msg_x\"}}}",
+                NOW)).isEmpty();
+        assertThat(parser.parse(
+                "{\"type\":\"stream_event\",\"event\":{\"type\":\"content_block_start\","
+                        + "\"index\":0,\"content_block\":{\"type\":\"text\",\"text\":\"\"}}}",
+                NOW)).isEmpty();
+        assertThat(parser.parse(
+                "{\"type\":\"stream_event\",\"event\":{\"type\":\"content_block_delta\","
+                        + "\"index\":0,\"delta\":{\"type\":\"input_json_delta\","
+                        + "\"partial_json\":\"{\\\"a\\\":1}\"}}}",
+                NOW)).isEmpty();
+        assertThat(parser.parse(
+                "{\"type\":\"stream_event\",\"event\":{\"type\":\"message_delta\","
+                        + "\"delta\":{\"stop_reason\":\"end_turn\"},"
+                        + "\"usage\":{\"output_tokens\":42}}}",
+                NOW)).isEmpty();
+    }
+
+    @Test
+    void dropsEmptyTextDeltaChunks()
+    {
+        // The CLI occasionally emits zero-length deltas as part of the
+        // streaming protocol; dropping them keeps the in-flight card
+        // free of spurious activity.
+        assertThat(parser.parse(
+                "{\"type\":\"stream_event\",\"event\":{\"type\":\"content_block_delta\","
+                        + "\"index\":0,\"delta\":{\"type\":\"text_delta\",\"text\":\"\"}}}",
+                NOW)).isEmpty();
+    }
+
+    @Test
     void returnsEmptyForBlankAndMalformedInput()
     {
         assertThat(parser.parse("", NOW)).isEmpty();

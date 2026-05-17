@@ -240,11 +240,24 @@ export default function TaskDetailPage({
     return () => clearInterval(id);
   }, [task?.status, refresh]);
 
-  // Live SSE subscription — fires a debounced refresh on every event
-  // the backend publishes for this task (text, tool call, tool
-  // result, turn done, permission events, …). Replaces what the
-  // 1-second poll used to do without putting GET /messages on a hot
-  // timer. Only opens while the task is still live; terminal-status
+  // Per-turn live text buffer fed by AssistantTextDelta SSE events.
+  // The chunk-by-chunk text grows the in-flight assistant card so
+  // the user sees the answer streaming in instead of waiting for the
+  // whole message envelope to land. Cleared once the canonical
+  // AssistantText row arrives via /messages refresh (or the turn
+  // ends), so the streaming card swaps to the persisted one without
+  // a visible flicker.
+  const [liveText, setLiveText] = useState('');
+  const liveTextRef = useRef('');
+
+  // Live SSE subscription — split into two paths by event kind:
+  //  • AssistantTextDelta: append the chunk to the live buffer, no
+  //    refresh (deltas aren't persisted; /messages wouldn't change).
+  //  • Everything else: debounced refresh to pull the canonical
+  //    state. Once the refresh lands the live buffer is cleared on
+  //    the assumption that the assembled AssistantText is now in
+  //    the messages array.
+  // Only opens while the task is still live; terminal-status
   // sessions don't emit anything new. Re-runs only when the task
   // *status* flips, not on every refresh tick, so the SSE channel
   // stays open across polls.
@@ -254,17 +267,34 @@ export default function TaskDetailPage({
     if (status === 'COMPLETED' || status === 'ERRORED') return;
     let timer: ReturnType<typeof setTimeout> | null = null;
     let disposed = false;
-    const ping = () => {
+    const flushBuffer = () => {
+      liveTextRef.current = '';
+      setLiveText('');
+    };
+    const schedulePing = () => {
       if (timer || disposed) return;
       timer = setTimeout(() => {
         timer = null;
-        void refresh();
+        void refresh().then(() => {
+          if (!disposed) flushBuffer();
+        });
       }, STREAM_REFRESH_DEBOUNCE_MS);
     };
-    const unsubscribe = window.bridge.subscribeTaskStream(taskId, ping);
+    const onEvent = (event: { name: string; data: Record<string, unknown> }) => {
+      if (event.name === 'AssistantTextDelta') {
+        const chunk = typeof event.data.textChunk === 'string' ? event.data.textChunk : '';
+        if (chunk.length === 0) return;
+        liveTextRef.current += chunk;
+        setLiveText(liveTextRef.current);
+        return;
+      }
+      schedulePing();
+    };
+    const unsubscribe = window.bridge.subscribeTaskStream(taskId, onEvent);
     return () => {
       disposed = true;
       if (timer) clearTimeout(timer);
+      flushBuffer();
       unsubscribe();
     };
   }, [taskId, status, refresh]);
@@ -423,6 +453,7 @@ export default function TaskDetailPage({
                 canStop={!isTerminal}
                 onDelete={onDelete}
                 canDelete={isTerminal}
+                liveText={liveText}
               />
             )}
             {view === 'terminal' && (
@@ -453,6 +484,7 @@ export default function TaskDetailPage({
                   changeStats={changeStats}
                   diffOpen={diffOpen}
                   onReview={onReview}
+                  liveText={liveText}
                 />
               </div>
             )}
@@ -621,6 +653,7 @@ function StructuredView({
   canStop,
   onDelete,
   canDelete,
+  liveText,
 }: {
   task: TaskDto;
   messages: TaskMessageDto[];
@@ -646,6 +679,11 @@ function StructuredView({
   canStop: boolean;
   onDelete: () => void;
   canDelete: boolean;
+  /** Per-token assistant text the SSE stream has delivered but the
+   *  persisted log doesn't have yet. Empty when nothing is in
+   *  flight; otherwise the partial assembled text since the last
+   *  assistant message envelope landed. */
+  liveText: string;
 }) {
   const turns = useMemo(
     () => messages.filter(m => m.type === 'turn_done').length,
@@ -705,6 +743,7 @@ function StructuredView({
             pendingPermission={pendingPermission}
             onDecide={onDecide}
             modelName={task.model}
+            liveText={liveText}
           />
         </div>
       </div>
@@ -1053,7 +1092,7 @@ function TerminalWrap({
   draft, onDraft, onSend, onInterrupt, sending, isTerminal,
   theme, onToggleTheme,
   view, onChangeView, onRename, onStop, canStop, onDelete, canDelete,
-  changeStats, diffOpen, onReview,
+  changeStats, diffOpen, onReview, liveText,
 }: {
   task: TaskDto;
   messages: TaskMessageDto[];
@@ -1082,6 +1121,7 @@ function TerminalWrap({
   changeStats: ChangeStats;
   diffOpen: boolean;
   onReview: () => void;
+  liveText: string;
 }) {
   return (
     <div style={terminalWrapStyle}>
@@ -1135,6 +1175,7 @@ function TerminalWrap({
           branch: task.branchName,
           sessionStartedAtIso: task.createdAt,
         }}
+        liveText={liveText}
       />
 
       <TerminalStatusBar task={task} stage={stage} />
@@ -1493,6 +1534,7 @@ function KeyframesStyles() {
       }
       .bytequay-pulse { animation: bytequay-pulse 1.6s ease-in-out infinite; }
       @keyframes bytequay-blink { 50% { opacity: 0.2; } }
+      @keyframes bytequay-stream-cursor-blink { 50% { opacity: 0.25; } }
       /* Indeterminate progress: a 40% wide bar slides left→right
          continuously. translateX(-100%)→250% so it fully clears
          before reappearing, giving an unambiguous "still working"

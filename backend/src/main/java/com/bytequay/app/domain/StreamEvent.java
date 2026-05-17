@@ -39,6 +39,7 @@ public sealed interface StreamEvent
         permits StreamEvent.SessionStarted,
                 StreamEvent.UserMessage,
                 StreamEvent.AssistantText,
+                StreamEvent.AssistantTextDelta,
                 StreamEvent.ThinkingStarted,
                 StreamEvent.ThinkingDone,
                 StreamEvent.ToolCallStarted,
@@ -74,6 +75,21 @@ public sealed interface StreamEvent
     record AssistantText(
             Instant timestamp,
             String text)
+            implements StreamEvent {}
+
+    /** Incremental piece of an in-flight assistant text block, emitted
+     *  by the CLI when {@code --include-partial-messages} is on. Each
+     *  delta carries the next chunk of {@code text} for content block
+     *  {@code blockIndex}; consumers stitch them into a live preview
+     *  card and clear once the final {@link AssistantText} arrives (or
+     *  the turn ends). Never persisted as a task_message row — writing
+     *  one row per delta would inflate the conversation table by
+     *  orders of magnitude. The full assembled text still lands as
+     *  {@link AssistantText} at message_stop. */
+    record AssistantTextDelta(
+            Instant timestamp,
+            int blockIndex,
+            String textChunk)
             implements StreamEvent {}
 
     /** Begins a thinking block. {@code summary} is the model's own

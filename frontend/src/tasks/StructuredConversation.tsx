@@ -24,6 +24,12 @@ type Props = {
   pendingPermission: PendingPermission | null;
   onDecide: PermissionDecideHandler;
   modelName: string;
+  /** Per-token text the SSE stream has delivered but the persisted
+   *  log doesn't have yet. Rendered as a transient "streaming" card
+   *  at the end of the conversation so the user sees the answer
+   *  growing chunk-by-chunk; cleared by the parent once the canonical
+   *  assistant message lands. Empty string when nothing is in flight. */
+  liveText?: string;
 };
 
 /**
@@ -47,7 +53,7 @@ type Props = {
  * scrolled away, mirroring the terminal pane's stickiness.
  */
 export function StructuredConversation({
-  messages, pendingPermission, onDecide, modelName,
+  messages, pendingPermission, onDecide, modelName, liveText = '',
 }: Props) {
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const stickRef = useRef(true);
@@ -86,10 +92,12 @@ export function StructuredConversation({
   }, [findScroller]);
   // Sync scroll before paint so a freshly-mounted Conversation tab
   // lands on the latest content instead of flashing at the top.
+  // liveText.length is in the dep array so each streamed chunk pins
+  // the view to the bottom while the answer grows.
   useLayoutEffect(() => {
     if (!stickRef.current) return;
     scrollToBottom();
-  }, [messages.length, pendingPermission, scrollToBottom]);
+  }, [messages.length, pendingPermission, scrollToBottom, liveText.length]);
   // Re-scroll on the next frame in case async content (markdown
   // reflow, code blocks, images) grew the scrollHeight after the
   // layout pass settled.
@@ -97,7 +105,7 @@ export function StructuredConversation({
     if (!stickRef.current) return;
     const raf = requestAnimationFrame(scrollToBottom);
     return () => cancelAnimationFrame(raf);
-  }, [messages.length, pendingPermission, scrollToBottom]);
+  }, [messages.length, pendingPermission, scrollToBottom, liveText.length]);
 
   // Cap rendered history so a multi-hour task with thousands of
   // messages doesn't re-run the grouping pipeline and re-reconcile
@@ -128,6 +136,7 @@ export function StructuredConversation({
         </div>
       )}
       {cards.map(c => renderCard(c, onDecide))}
+      {liveText.length > 0 && <StreamingCard text={liveText} modelName={modelName} />}
       {pendingPermission && (
         <PermissionCard permission={pendingPermission} onDecide={onDecide} />
       )}
@@ -362,6 +371,32 @@ function AssistantCard({ card }: { card: Extract<Card, { kind: 'assistant' }> })
           return <ToolRow key={item.key} call={item.call} result={item.result} />;
         })}
         {card.turn && <TurnFooter turn={card.turn} />}
+      </div>
+    </article>
+  );
+}
+
+/** Live assistant card driven by AssistantTextDelta SSE events.
+ *  Distinct from the persisted AssistantCard so the streaming
+ *  affordances (purple streaming pill, blinking cursor) are obvious
+ *  and we don't have to mutate the canonical messages array. Parent
+ *  clears liveText once the assembled AssistantText lands in
+ *  /messages, at which point this card unmounts and the persisted
+ *  one takes its place. */
+function StreamingCard({ text, modelName }: { text: string; modelName: string }) {
+  return (
+    <article style={assistantCardStyle}>
+      <header style={cardHeaderStyle}>
+        <span style={claudeAvatarStyle}>C</span>
+        <span style={cardNameStyle}>Claude</span>
+        <span style={modelBadgeStyle}>{modelName || 'unknown'}</span>
+        <span style={streamingPillStyle}>· streaming</span>
+      </header>
+      <div style={cardBodyStyle}>
+        <div style={proseRowStyle}>
+          <MarkdownProse text={text} variant="card" />
+          <span style={streamCursorStyle} aria-hidden />
+        </div>
       </div>
     </article>
   );
@@ -734,6 +769,14 @@ const modelBadgeStyle: React.CSSProperties = {
 };
 const streamingPillStyle: React.CSSProperties = {
   fontSize: 10.5, color: 'var(--accent)', fontWeight: 600,
+};
+const streamCursorStyle: React.CSSProperties = {
+  display: 'inline-block',
+  width: 7, height: 14,
+  marginLeft: 2,
+  verticalAlign: 'text-bottom',
+  background: 'var(--accent)',
+  animation: 'bytequay-stream-cursor-blink 1s steps(2) infinite',
 };
 const cardTsStyle: React.CSSProperties = {
   marginLeft: 'auto', fontSize: 11, color: 'var(--text-4)',

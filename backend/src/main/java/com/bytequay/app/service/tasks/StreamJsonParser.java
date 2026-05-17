@@ -75,9 +75,40 @@ public class StreamJsonParser
             case "system" -> parseSystem(root, now);
             case "user" -> parseUserMessage(root, now);
             case "assistant" -> parseAssistantMessage(root, now);
+            case "stream_event" -> parseStreamEvent(root, now);
             case "result" -> parseResult(root, now);
             default -> ImmutableList.of();
         };
+    }
+
+    /**
+     * Per-token partial event the CLI emits when launched with
+     * {@code --include-partial-messages}. Wraps the upstream Anthropic
+     * SSE event verbatim; we only care about {@code content_block_delta}
+     * with a {@code text_delta} — that's the chunk-by-chunk text growth
+     * we want to stream into the UI's in-flight assistant card. Other
+     * subtypes (message_start/stop, content_block_start/stop, ping,
+     * message_delta with usage) are ignored here — the full
+     * {@code assistant} envelope still arrives at message_stop and
+     * feeds {@link #parseAssistantMessage}, and turn-level cost /
+     * tokens still come in via the trailing {@code result} envelope.
+     */
+    private static List<StreamEvent> parseStreamEvent(JsonNode root, Instant now)
+    {
+        JsonNode event = root.path("event");
+        if (!"content_block_delta".equals(textOrEmpty(event, "type"))) {
+            return ImmutableList.of();
+        }
+        JsonNode delta = event.path("delta");
+        if (!"text_delta".equals(textOrEmpty(delta, "type"))) {
+            return ImmutableList.of();
+        }
+        String chunk = textOrEmpty(delta, "text");
+        if (chunk.isEmpty()) {
+            return ImmutableList.of();
+        }
+        int index = event.path("index").asInt(0);
+        return ImmutableList.of(new StreamEvent.AssistantTextDelta(now, index, chunk));
     }
 
     private static List<StreamEvent> parseSystem(JsonNode root, Instant now)

@@ -45,6 +45,12 @@ type Props = {
     branch: string | null;
     sessionStartedAtIso: string;
   };
+  /** Per-token assistant text the SSE stream has delivered but
+   *  /messages doesn't have yet. Rendered as a transient line at the
+   *  bottom of the scrollback so the user sees the answer growing
+   *  chunk-by-chunk; the parent clears it once the canonical
+   *  AssistantText lands. */
+  liveText?: string;
 };
 
 /** Tools we color-code per the design legend. Anything else falls
@@ -85,7 +91,9 @@ const TOOL_COLOR: Record<ToolKind, string> = {
  * (TaskDetailPage) so they can frame the scroll area without
  * resizing it.
  */
-export function ConversationPane({ messages, pendingPermission, onDecide, banner }: Props) {
+export function ConversationPane({
+  messages, pendingPermission, onDecide, banner, liveText = '',
+}: Props) {
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const stickToBottomRef = useRef(true);
 
@@ -144,6 +152,7 @@ export function ConversationPane({ messages, pendingPermission, onDecide, banner
         </div>
       )}
       {rendered.map(item => renderItem(item))}
+      {liveText.length > 0 && <StreamingBlock text={liveText} />}
       {pendingPermission && (
         <PermissionCard permission={pendingPermission} onDecide={onDecide} />
       )}
@@ -244,6 +253,19 @@ function ThinkingBlock({ message }: { message: TaskMessageDto }) {
           {expanded ? ' collapse' : ` show ${summary.length - 220} more`}
         </button>
       )}
+    </div>
+  );
+}
+
+/** Live assistant text driven by AssistantTextDelta SSE events.
+ *  The parent clears liveText once the assembled AssistantText
+ *  lands in /messages, so this block flips to the persisted
+ *  ProseBlock without a visible flicker. */
+function StreamingBlock({ text }: { text: string }) {
+  return (
+    <div style={proseStyle}>
+      <MarkdownProse text={text} variant="terminal" />
+      <span style={streamCursorStyle} aria-hidden />
     </div>
   );
 }
@@ -689,6 +711,14 @@ const thinkingGlyphStyle: React.CSSProperties = {
 
 const proseStyle: React.CSSProperties = {
   color: 'var(--term-text)', padding: '6px 0', margin: '10px 0',
+};
+const streamCursorStyle: React.CSSProperties = {
+  display: 'inline-block',
+  width: 7, height: 14,
+  marginLeft: 2,
+  verticalAlign: 'text-bottom',
+  background: 'var(--term-user)',
+  animation: 'bytequay-stream-cursor-blink 1s steps(2) infinite',
 };
 const proseParaStyle: React.CSSProperties = {
   margin: '0 0 10px', lineHeight: 1.7,

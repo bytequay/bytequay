@@ -45,6 +45,7 @@ public sealed interface StreamEvent
                 StreamEvent.ToolCallDone,
                 StreamEvent.PermissionRequested,
                 StreamEvent.PermissionDecided,
+                StreamEvent.PermissionAutoAllowed,
                 StreamEvent.TurnDone,
                 StreamEvent.ErrorOccurred,
                 StreamEvent.SessionEnded
@@ -127,6 +128,21 @@ public sealed interface StreamEvent
             Instant timestamp,
             String callId,
             PermissionDecision decision)
+            implements StreamEvent {}
+
+    /** A tool call was automatically allowed by a previously-granted
+     *  pre-approval budget ("Allow next 5" / "Always for this tool"),
+     *  so no {@link PermissionRequested} was shown. Emitted by the
+     *  MCP gate after draining a slot, so the conversation pane can
+     *  surface "auto-approved · N left for &lt;tool&gt;" next to the
+     *  tool call. {@code remaining} is the budget left after this
+     *  consumption: {@code -1} for an ALWAYS grant, {@code 0} when
+     *  this was the last slot, otherwise the positive remainder. */
+    record PermissionAutoAllowed(
+            Instant timestamp,
+            String callId,
+            String toolName,
+            int remaining)
             implements StreamEvent {}
 
     /** End of one assistant turn — model has finished and is waiting

@@ -38,6 +38,7 @@ import java.time.Instant;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.OptionalInt;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
@@ -326,26 +327,44 @@ public class ClaudeCodeCliSession
     }
 
     @Override
-    public boolean tryConsumeToolBudget(String toolName)
+    public OptionalInt tryConsumeToolBudget(String toolName)
     {
         if (toolName == null) {
-            return false;
+            return OptionalInt.empty();
         }
         // Atomic decrement with floor 0 — concurrent MCP requests for
         // the same tool can race, but the remapping function makes sure
-        // only the remaining slots are handed out. The boolean[] is the
-        // out-channel because computeIfPresent only returns the new
-        // mapped value, which can't distinguish "removed because we
-        // consumed the last slot" from "absent".
-        boolean[] consumed = {false};
+        // only the remaining slots are handed out. We capture the
+        // pre-decrement value so we can return the post-decrement
+        // remainder (or -1 for an ALWAYS grant); computeIfPresent only
+        // hands us the new value, which can't distinguish "removed
+        // because we consumed the last slot" from "absent".
+        int[] before = {0};
         toolBudget.computeIfPresent(toolName, (k, v) -> {
-            consumed[0] = true;
+            before[0] = v;
             if (v == BUDGET_ALWAYS) {
                 return BUDGET_ALWAYS;
             }
             return v > 1 ? v - 1 : null;
         });
-        return consumed[0];
+        if (before[0] == 0) {
+            return OptionalInt.empty();
+        }
+        if (before[0] == BUDGET_ALWAYS) {
+            return OptionalInt.of(BUDGET_ALWAYS);
+        }
+        return OptionalInt.of(before[0] - 1);
+    }
+
+    @Override
+    public void notifyPermissionAutoAllowed(String callId, String toolName, int remaining)
+    {
+        requireNonNull(callId, "callId is null");
+        handle(new StreamEvent.PermissionAutoAllowed(
+                Instant.now(),
+                callId,
+                toolName == null ? "tool" : toolName,
+                remaining));
     }
 
     @Override
@@ -605,6 +624,13 @@ public class ClaudeCodeCliSession
                     id, taskId, seq, "system", "permission_decision",
                     String.format("{\"callId\":\"%s\",\"decision\":\"%s\"}",
                             jsonEscape(e.callId()), e.decision().name()),
+                    null, null, null, null, ts);
+            case StreamEvent.PermissionAutoAllowed e -> new TaskMessage(
+                    id, taskId, seq, "system", "permission_auto_allowed",
+                    String.format("{\"callId\":\"%s\",\"toolName\":\"%s\",\"remaining\":%d}",
+                            jsonEscape(e.callId()),
+                            jsonEscape(e.toolName()),
+                            e.remaining()),
                     null, null, null, null, ts);
             case StreamEvent.TurnDone e -> new TaskMessage(
                     id, taskId, seq, "system", "turn_done", "{}",

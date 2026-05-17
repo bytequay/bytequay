@@ -28,6 +28,8 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.context.request.async.DeferredResult;
 
+import java.util.OptionalInt;
+
 import static java.util.Objects.requireNonNull;
 
 /**
@@ -178,9 +180,17 @@ public class McpController
 
         // If the user has pre-approved this tool ("Allow next 5",
         // "Always for this tool"), drain one slot and resolve without
-        // ever showing a prompt. The user-facing history will still see
-        // the resulting tool call message once Claude runs it.
-        if (tasks.tryConsumeToolBudget(taskId, toolName)) {
+        // ever showing a prompt. We surface a permission_auto_allowed
+        // notice next to the tool call so the user can see which slot
+        // was burned and how many are left.
+        OptionalInt remaining = tasks.tryConsumeToolBudget(taskId, toolName);
+        if (remaining.isPresent()) {
+            try {
+                tasks.notifyPermissionAutoAllowed(taskId, callId, toolName, remaining.getAsInt());
+            }
+            catch (RuntimeException e) {
+                log.warn("Failed to record auto-approval notice for task {}: {}", taskId, e.getMessage());
+            }
             deferred.setResult(toolResponse(id, allow(toolInput)));
             return;
         }

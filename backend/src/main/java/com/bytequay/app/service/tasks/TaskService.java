@@ -32,6 +32,7 @@ import java.time.Instant;
 import java.util.List;
 import java.util.NoSuchElementException;
 import java.util.Optional;
+import java.util.OptionalInt;
 import java.util.UUID;
 import java.util.function.Consumer;
 
@@ -402,16 +403,33 @@ public class TaskService
         sessionOrThrow(taskId).grantToolBudget(toolName, count);
     }
 
-    /** Called from the MCP hot path — quiet (returns {@code false}) if
-     *  the session is gone instead of throwing, since a stale prompt
-     *  shouldn't take down the controller. */
-    public boolean tryConsumeToolBudget(String taskId, String toolName)
+    /** Called from the MCP hot path — quiet (returns
+     *  {@link OptionalInt#empty()}) if the session is gone instead of
+     *  throwing, since a stale prompt shouldn't take down the
+     *  controller. The returned int is the remaining budget after the
+     *  consumption ({@code -1} for an ALWAYS grant); empty means the
+     *  call should fall through to the normal user prompt. */
+    public OptionalInt tryConsumeToolBudget(String taskId, String toolName)
     {
         try {
             return sessionOrThrow(taskId).tryConsumeToolBudget(toolName);
         }
         catch (NoSuchElementException ignored) {
-            return false;
+            return OptionalInt.empty();
+        }
+    }
+
+    /** Persist + publish a {@code permission_auto_allowed} notice so
+     *  the conversation pane can show the user which tool was auto-
+     *  approved by their pre-approval budget, and how many slots are
+     *  left. */
+    public void notifyPermissionAutoAllowed(String taskId, String callId, String toolName, int remaining)
+    {
+        try {
+            sessionOrThrow(taskId).notifyPermissionAutoAllowed(callId, toolName, remaining);
+        }
+        catch (NoSuchElementException ignored) {
+            // session vanished — nothing to notify
         }
     }
 

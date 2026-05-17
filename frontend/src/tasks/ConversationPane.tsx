@@ -150,6 +150,9 @@ function renderItem(item: RenderItem): ReactElement {
   if (item.kind === 'permissionDecision') {
     return <PermissionDecisionLine key={item.key} message={item.message} />;
   }
+  if (item.kind === 'autoAllow') {
+    return <AutoAllowLine key={item.key} message={item.message} />;
+  }
   return <UnknownLine key={item.key} message={item.message} />;
 }
 
@@ -363,6 +366,20 @@ function UnknownLine({ message }: { message: TaskMessageDto }) {
   );
 }
 
+function AutoAllowLine({ message }: { message: TaskMessageDto }) {
+  const c = parseContent(message.contentJson);
+  const toolName = String(c.toolName ?? 'tool');
+  const remaining = typeof c.remaining === 'number' ? c.remaining : 0;
+  const label = remaining < 0
+    ? `auto-approved · always for ${toolName}`
+    : `auto-approved · ${remaining} left for ${toolName}`;
+  return (
+    <div style={autoAllowLineStyle}>
+      <span style={autoAllowGlyphStyle}>✓</span>{label}
+    </div>
+  );
+}
+
 function Kbd({ children }: { children: React.ReactNode }) {
   return <span style={kbdStyle}>{children}</span>;
 }
@@ -380,6 +397,7 @@ type RenderItem =
   | { kind: 'turn'; key: string; message: TaskMessageDto }
   | { kind: 'error'; key: string; message: TaskMessageDto }
   | { kind: 'permissionDecision'; key: string; message: TaskMessageDto }
+  | { kind: 'autoAllow'; key: string; message: TaskMessageDto }
   | { kind: 'unknown'; key: string; message: TaskMessageDto };
 
 function groupToolCalls(messages: TaskMessageDto[]): RenderItem[] {
@@ -404,6 +422,10 @@ function groupToolCalls(messages: TaskMessageDto[]): RenderItem[] {
     }
     if (m.type === 'permission_decision') {
       out.push({ kind: 'permissionDecision', key, message: m });
+      continue;
+    }
+    if (m.type === 'permission_auto_allowed') {
+      out.push({ kind: 'autoAllow', key, message: m });
       continue;
     }
     if (m.type === 'turn_done') {
@@ -735,5 +757,18 @@ const errorBlockStyle: React.CSSProperties = {
 
 const lifecycleStyle: React.CSSProperties = {
   color: 'var(--term-text-muted)', fontSize: 12, padding: '2px 0',
+};
+
+const autoAllowLineStyle: React.CSSProperties = {
+  display: 'inline-flex', alignItems: 'center', gap: 6,
+  margin: '4px 0', padding: '2px 8px',
+  background: 'rgba(16, 185, 129, 0.12)',
+  border: '1px dashed rgba(16, 185, 129, 0.55)',
+  borderRadius: 4,
+  color: 'var(--term-ok, #34d399)',
+  fontSize: 11.5, fontWeight: 600, letterSpacing: 0.2,
+};
+const autoAllowGlyphStyle: React.CSSProperties = {
+  fontWeight: 800, fontSize: 12,
 };
 

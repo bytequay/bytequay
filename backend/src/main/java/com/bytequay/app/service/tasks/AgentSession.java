@@ -21,6 +21,7 @@ import com.bytequay.app.domain.TaskMessage;
 import com.bytequay.app.domain.TaskStatus;
 
 import java.util.List;
+import java.util.OptionalInt;
 import java.util.function.Consumer;
 
 /**
@@ -120,10 +121,19 @@ public interface AgentSession
     void grantToolBudget(String toolName, int count);
 
     /** Consume one slot of the budget for {@code toolName}. Returns
-     *  {@code true} if a slot was available (and decremented, unless
-     *  it was the sentinel "always"). The MCP controller calls this
-     *  before surfacing an approval prompt to the user. */
-    boolean tryConsumeToolBudget(String toolName);
+     *  the budget left after the consumption when a slot was drained,
+     *  or {@link java.util.OptionalInt#empty()} when no budget was
+     *  available and the MCP gate should fall through to the normal
+     *  prompt. A consumed ALWAYS grant returns {@code -1}; a finite
+     *  grant returns its non-negative remainder. */
+    OptionalInt tryConsumeToolBudget(String toolName);
+
+    /** Surface a {@link StreamEvent.PermissionAutoAllowed} after the
+     *  MCP gate has drained one budget slot, so the conversation pane
+     *  can show "auto-approved · N left for &lt;tool&gt;" inline next
+     *  to the tool call. Persists a row so the notice survives a
+     *  refresh. */
+    void notifyPermissionAutoAllowed(String callId, String toolName, int remaining);
 
     /** Subscribe to the live event stream. The returned {@link Runnable}
      *  unsubscribes when invoked. Library-neutral on purpose — the

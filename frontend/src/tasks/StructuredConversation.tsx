@@ -98,7 +98,8 @@ type LeafEvent =
   | { kind: 'turn'; key: string; message: TaskMessageDto }
   | { kind: 'error'; key: string; message: TaskMessageDto }
   | { kind: 'lifecycle'; key: string; message: TaskMessageDto }
-  | { kind: 'permissionDecision'; key: string; message: TaskMessageDto };
+  | { kind: 'permissionDecision'; key: string; message: TaskMessageDto }
+  | { kind: 'autoAllow'; key: string; message: TaskMessageDto };
 type Event = LeafEvent | ToolEvent;
 
 function groupAndPair(messages: TaskMessageDto[]): Event[] {
@@ -142,6 +143,10 @@ function groupAndPair(messages: TaskMessageDto[]): Event[] {
       out.push({ kind: 'permissionDecision', key: m.id, message: m });
       continue;
     }
+    if (m.type === 'permission_auto_allowed') {
+      out.push({ kind: 'autoAllow', key: m.id, message: m });
+      continue;
+    }
     out.push({ kind: 'lifecycle', key: m.id, message: m });
   }
   return out;
@@ -162,7 +167,8 @@ type Card =
 type AssistantItem =
   | { kind: 'thinking'; key: string; message: TaskMessageDto }
   | { kind: 'prose'; key: string; message: TaskMessageDto }
-  | { kind: 'tool'; key: string; call: TaskMessageDto; result: TaskMessageDto | null };
+  | { kind: 'tool'; key: string; call: TaskMessageDto; result: TaskMessageDto | null }
+  | { kind: 'autoAllow'; key: string; message: TaskMessageDto };
 
 function buildDialog(events: Event[], modelName: string): Card[] {
   const cards: Card[] = [];
@@ -190,7 +196,7 @@ function buildDialog(events: Event[], modelName: string): Card[] {
       cards.push({ kind: 'user', key: ev.key, message: ev.message });
       continue;
     }
-    if (ev.kind === 'thinking' || ev.kind === 'prose' || ev.kind === 'tool') {
+    if (ev.kind === 'thinking' || ev.kind === 'prose' || ev.kind === 'tool' || ev.kind === 'autoAllow') {
       if (!assistant) {
         const ts = ev.kind === 'tool' ? ev.call.ts : ev.message.ts;
         maybeDay(ts);
@@ -296,6 +302,9 @@ function AssistantCard({ card }: { card: Extract<Card, { kind: 'assistant' }> })
           if (item.kind === 'prose') {
             return <ProseRow key={item.key} message={item.message} />;
           }
+          if (item.kind === 'autoAllow') {
+            return <AutoAllowRow key={item.key} message={item.message} />;
+          }
           return <ToolRow key={item.key} call={item.call} result={item.result} />;
         })}
         {card.turn && <TurnFooter turn={card.turn} />}
@@ -333,6 +342,21 @@ function ProseRow({ message }: { message: TaskMessageDto }) {
   return (
     <div style={proseRowStyle}>
       <MarkdownProse text={text} variant="card" />
+    </div>
+  );
+}
+
+function AutoAllowRow({ message }: { message: TaskMessageDto }) {
+  const c = parseContent(message.contentJson);
+  const toolName = String(c.toolName ?? 'tool');
+  const remaining = typeof c.remaining === 'number' ? c.remaining : 0;
+  const label = remaining < 0
+    ? `auto-approved · always for ${toolName}`
+    : `auto-approved · ${remaining} left for ${toolName}`;
+  return (
+    <div style={autoAllowRowStyle}>
+      <span style={autoAllowDotStyle}>✓</span>
+      <span>{label}</span>
     </div>
   );
 }
@@ -735,6 +759,17 @@ const errPillStyle: React.CSSProperties = {
   padding: '1px 7px', borderRadius: 3,
   background: '#fee2e2', color: '#991b1b',
   fontSize: 10, fontWeight: 700, letterSpacing: 0.4,
+};
+const autoAllowRowStyle: React.CSSProperties = {
+  display: 'inline-flex', alignSelf: 'flex-start',
+  alignItems: 'center', gap: 6,
+  padding: '2px 8px',
+  background: '#ecfdf5', color: '#047857',
+  border: '1px dashed #6ee7b7', borderRadius: 4,
+  fontSize: 11, fontWeight: 600, letterSpacing: 0.2,
+};
+const autoAllowDotStyle: React.CSSProperties = {
+  color: '#10b981', fontWeight: 800, fontSize: 12,
 };
 const toolOutputStyle: React.CSSProperties = {
   borderTop: '1px solid var(--border)',

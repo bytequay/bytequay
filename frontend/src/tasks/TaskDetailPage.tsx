@@ -667,20 +667,25 @@ function StatusBar({ task, stage }: { task: TaskDto; stage: Stage }) {
   const isRunning = task.status === 'RUNNING';
   return (
     <div style={statusBarStyle}>
+      {/* Status on the left, on its own so the running pulse stands
+          out instead of getting lost in the runtime/cost row. */}
       <span style={statStyle}>
         {isRunning && <span className="bytequay-pulse" style={runningDotStyle} />}
         <strong style={statStrongStyle}>{task.status}</strong>
       </span>
-      <span style={statStyle}>⏱ <strong style={statStrongStyle}>{formatRuntime(task)}</strong></span>
-      <span style={statStyle}>💰 <strong style={statStrongStyle}>{formatCost(task.costUsdMilli)}</strong></span>
-      <span style={statStyle}>tokens <strong style={statStrongStyle}>{formatNum(task.tokensIn + task.tokensOut)}</strong></span>
-      {stage.toolName && (
-        <span style={statStyle}>
-          {stage.glyph} <strong style={statStrongStyle}>{stage.toolName}</strong>
-        </span>
-      )}
-      <span style={statRightStyle}>
-        {isRunning ? 'press Cancel to interrupt' : ''}
+      {/* Everything else hugs the right edge. */}
+      <span style={statGroupRightStyle}>
+        <span style={statStyle}>⏱ <strong style={statStrongStyle}>{formatRuntime(task)}</strong></span>
+        <span style={statStyle}>💰 <strong style={statStrongStyle}>{formatCost(task.costUsdMilli)}</strong></span>
+        <span style={statStyle}>tokens <strong style={statStrongStyle}>{formatNum(task.tokensIn + task.tokensOut)}</strong></span>
+        {stage.toolName && (
+          <span style={statStyle}>
+            {stage.glyph} <strong style={statStrongStyle}>{stage.toolName}</strong>
+          </span>
+        )}
+        {isRunning && (
+          <span style={statHintStyle}>press Cancel to interrupt</span>
+        )}
       </span>
     </div>
   );
@@ -1700,7 +1705,13 @@ const statusBarStyle: React.CSSProperties = {
 };
 const statStyle: React.CSSProperties = { display: 'inline-flex', alignItems: 'center', gap: 4 };
 const statStrongStyle: React.CSSProperties = { color: 'var(--term-text-bright)', fontWeight: 600 };
-const statRightStyle: React.CSSProperties = { marginLeft: 'auto', color: 'var(--term-text-dim)', fontStyle: 'italic' };
+const statGroupRightStyle: React.CSSProperties = {
+  marginLeft: 'auto',
+  display: 'inline-flex', alignItems: 'center', gap: 16,
+};
+const statHintStyle: React.CSSProperties = {
+  color: 'var(--term-text-dim)', fontStyle: 'italic',
+};
 const runningDotStyle: React.CSSProperties = {
   width: 7, height: 7, borderRadius: '50%',
   background: 'var(--term-ok)', display: 'inline-block',

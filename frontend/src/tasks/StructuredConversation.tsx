@@ -17,6 +17,7 @@ import { AskQuestionCard } from './AskQuestionCard';
 import type { PendingPermission } from './ConversationPane';
 import { MarkdownProse } from './MarkdownProse';
 import { PermissionCard, type PermissionDecideHandler } from './PermissionCard';
+import { useMessageWindow, useScrollAnchoredLoadMore } from './useMessageWindow';
 
 type Props = {
   messages: TaskMessageDto[];
@@ -98,11 +99,29 @@ export function StructuredConversation({
     return () => cancelAnimationFrame(raf);
   }, [messages.length, pendingPermission, scrollToBottom]);
 
-  const events = useMemo(() => groupAndPair(messages), [messages]);
+  // Cap rendered history so a multi-hour task with thousands of
+  // messages doesn't re-run the grouping pipeline and re-reconcile
+  // every card on every 1s poll.
+  const window = useMessageWindow(messages);
+  const onLoadMore = useScrollAnchoredLoadMore(
+    window.loadMore,
+    useCallback(() => findScroller(scrollRef.current), [findScroller]),
+  );
+  const events = useMemo(() => groupAndPair(window.visible), [window.visible]);
   const cards = useMemo(() => buildDialog(events, modelName), [events, modelName]);
 
   return (
     <div style={scrollStyle} ref={scrollRef}>
+      {window.hasMore && (
+        <div style={loadMoreRowStyle}>
+          <button type="button" onClick={onLoadMore} style={loadMoreBtnStyle}>
+            ↑ Load {window.nextChunk} older message{window.nextChunk === 1 ? '' : 's'}
+          </button>
+          <span style={loadMoreHintStyle}>
+            showing latest {window.visible.length} of {window.total}
+          </span>
+        </div>
+      )}
       {cards.length === 0 && (
         <div style={emptyHintStyle}>
           Waiting for the first turn — send a prompt below to kick off.
@@ -669,6 +688,22 @@ const emptyHintStyle: React.CSSProperties = {
   padding: '40px 0',
   color: 'var(--text-4)',
   fontStyle: 'italic',
+};
+const loadMoreRowStyle: React.CSSProperties = {
+  display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10,
+  padding: '4px 0 10px',
+};
+const loadMoreBtnStyle: React.CSSProperties = {
+  padding: '6px 14px',
+  background: 'var(--bg-elevated)',
+  border: '1px solid var(--border)',
+  borderRadius: 999,
+  color: 'var(--text-2)',
+  fontSize: 12, fontWeight: 600,
+  cursor: 'pointer',
+};
+const loadMoreHintStyle: React.CSSProperties = {
+  fontSize: 11, color: 'var(--text-4)',
 };
 
 const daySepStyle: React.CSSProperties = {

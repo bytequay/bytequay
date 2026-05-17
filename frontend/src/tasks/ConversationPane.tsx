@@ -16,6 +16,7 @@ import type { TaskMessageDto } from '../types';
 import { AskQuestionCard } from './AskQuestionCard';
 import { MarkdownProse } from './MarkdownProse';
 import { PermissionCard } from './PermissionCard';
+import { useMessageWindow, useScrollAnchoredLoadMore } from './useMessageWindow';
 
 export type PendingPermission = {
   callId: string;
@@ -113,13 +114,30 @@ export function ConversationPane({ messages, pendingPermission, onDecide, banner
     return () => cancelAnimationFrame(raf);
   }, [messages.length, pendingPermission, scrollToBottom]);
 
+  // Cap rendered history so a long-running task doesn't re-run the
+  // grouping pipeline and reconcile every block on every poll.
+  const window = useMessageWindow(messages);
+  const onLoadMore = useScrollAnchoredLoadMore(
+    window.loadMore,
+    useCallback(() => scrollRef.current, []),
+  );
   // Pair tool_call with tool_result so we render the call + its
   // outcome together, the way the mockup groups them.
-  const rendered = useMemo(() => groupToolCalls(messages), [messages]);
+  const rendered = useMemo(() => groupToolCalls(window.visible), [window.visible]);
 
   return (
     <div style={scrollStyle} ref={scrollRef} onScroll={onScroll}>
       <Banner banner={banner} />
+      {window.hasMore && (
+        <div style={loadMoreRowStyle}>
+          <button type="button" onClick={onLoadMore} style={loadMoreBtnStyle}>
+            ↑ Load {window.nextChunk} older message{window.nextChunk === 1 ? '' : 's'}
+          </button>
+          <span style={loadMoreHintStyle}>
+            showing latest {window.visible.length} of {window.total}
+          </span>
+        </div>
+      )}
       {rendered.length === 0 && (
         <div style={emptyHintStyle}>
           ⏵ waiting for the first turn — send a prompt below to kick off
@@ -608,6 +626,23 @@ const scrollStyle: React.CSSProperties = {
 };
 const emptyHintStyle: React.CSSProperties = {
   color: 'var(--term-text-dim)', textAlign: 'center', padding: '40px 0',
+};
+const loadMoreRowStyle: React.CSSProperties = {
+  display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10,
+  padding: '4px 0 10px',
+  fontFamily: 'inherit',
+};
+const loadMoreBtnStyle: React.CSSProperties = {
+  padding: '4px 12px',
+  background: 'var(--term-bg-elev1)',
+  border: '1px solid var(--term-border)',
+  borderRadius: 999,
+  color: 'var(--term-text-bright)',
+  fontFamily: 'inherit', fontSize: 11, fontWeight: 600,
+  cursor: 'pointer',
+};
+const loadMoreHintStyle: React.CSSProperties = {
+  fontSize: 10.5, color: 'var(--term-text-dim)',
 };
 const bannerStyle: React.CSSProperties = {
   borderBottom: '1px dashed var(--term-border)',

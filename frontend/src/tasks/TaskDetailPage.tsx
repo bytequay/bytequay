@@ -329,27 +329,6 @@ export default function TaskDetailPage({
 
   const isTerminal = task.status === 'COMPLETED' || task.status === 'ERRORED';
 
-  // Pure presentation — the conversation pane (with reply input,
-  // review strip, live bar) common to both view modes. Rendered on
-  // the left side of the body, optionally next to the diff pane.
-  const conversation = (
-    <StructuredView
-      task={task}
-      messages={messages}
-      pendingPermission={pendingPermission}
-      onDecide={onDecide}
-      draft={draft}
-      onDraft={setDraft}
-      onSend={onSend}
-      onInterrupt={onInterrupt}
-      sending={sending}
-      isTerminal={isTerminal}
-      changeStats={changeStats}
-      diffOpen={diffOpen}
-      onReview={onReview}
-    />
-  );
-
   return (
     <section style={layoutStyle}>
       <KeyframesStyles />
@@ -363,20 +342,32 @@ export default function TaskDetailPage({
         onBack={onBack}
       />
       <div style={taskWindowStyle}>
-        <TaskWindowHeader
-          task={task}
-          view={view}
-          onChangeView={setView}
-          onRename={onRename}
-          onPause={undefined /* pause not wired through MCP yet */}
-          onStop={onStop}
-          canStop={!isTerminal}
-          onDelete={onDelete}
-          canDelete={isTerminal}
-        />
         <div style={taskWindowBodyStyle}>
           <div style={diffOpen ? splitLeftStyle : flexFillStyle}>
-            {view === 'conversation' && conversation}
+            {view === 'conversation' && (
+              <StructuredView
+                task={task}
+                messages={messages}
+                pendingPermission={pendingPermission}
+                onDecide={onDecide}
+                draft={draft}
+                onDraft={setDraft}
+                onSend={onSend}
+                onInterrupt={onInterrupt}
+                sending={sending}
+                isTerminal={isTerminal}
+                changeStats={changeStats}
+                diffOpen={diffOpen}
+                onReview={onReview}
+                view={view}
+                onChangeView={setView}
+                onRename={onRename}
+                onStop={onStop}
+                canStop={!isTerminal}
+                onDelete={onDelete}
+                canDelete={isTerminal}
+              />
+            )}
             {view === 'terminal' && (
               // Wrap so the palette (var(--term-*)) flows to
               // ConversationPane + StatusBar + TermInput inside.
@@ -395,6 +386,13 @@ export default function TaskDetailPage({
                   isTerminal={isTerminal}
                   theme={theme}
                   onToggleTheme={() => setTheme(t => t === 'dark' ? 'light' : 'dark')}
+                  view={view}
+                  onChangeView={setView}
+                  onRename={onRename}
+                  onStop={onStop}
+                  canStop={!isTerminal}
+                  onDelete={onDelete}
+                  canDelete={isTerminal}
                 />
               </div>
             )}
@@ -545,6 +543,13 @@ function StructuredView({
   changeStats,
   diffOpen,
   onReview,
+  view,
+  onChangeView,
+  onRename,
+  onStop,
+  canStop,
+  onDelete,
+  canDelete,
 }: {
   task: TaskDto;
   messages: TaskMessageDto[];
@@ -563,6 +568,13 @@ function StructuredView({
   changeStats: ChangeStats;
   diffOpen: boolean;
   onReview: () => void;
+  view: DetailView;
+  onChangeView: (next: DetailView) => void;
+  onRename: (title: string) => void | Promise<void>;
+  onStop: () => void;
+  canStop: boolean;
+  onDelete: () => void;
+  canDelete: boolean;
 }) {
   const turns = useMemo(
     () => messages.filter(m => m.type === 'turn_done').length,
@@ -570,16 +582,55 @@ function StructuredView({
   const isRunning = task.status === 'RUNNING';
   const replyRef = useAutoGrowTextarea(draft, 220);
 
+  const glyph = (task.provider || '').toLowerCase().startsWith('codex') ? 'X' : 'C';
+  const glyphBg = glyph === 'X'
+    ? 'linear-gradient(135deg, #1e293b, #0f172a)'
+    : 'linear-gradient(135deg, #d97706, #92400e)';
   return (
     <div style={structuredWrapStyle}>
       <div style={historyZoneStyle}>
         <div style={zoneHeaderStyle}>
-          <span style={zoneIconStyle}>📜</span>
-          <span style={zoneLabelStyle}>HISTORY</span>
-          <span style={zoneMetaStyle}>
-            · {messages.length} message{messages.length === 1 ? '' : 's'}
-            · {turns} turn{turns === 1 ? '' : 's'} completed
-          </span>
+          <div style={{ ...twHeaderGlyphStyle, width: 26, height: 26, fontSize: 12, background: glyphBg }}>{glyph}</div>
+          <div style={twHeaderTitleColStyle}>
+            <EditableTitle title={task.title} onRename={onRename} />
+            <div style={twHeaderMetaStyle}>
+              <RepoAvatar workingDir={task.workingDir} size={14} />
+              {task.workingDir && (
+                <span style={twHeaderRepoStyle}>{shortenPath(task.workingDir)}</span>
+              )}
+              {task.branchName && (
+                <>
+                  <span style={twHeaderSepStyle}>·</span>
+                  <span style={twHeaderChipStyle} title={`branch ${task.branchName}`}>
+                    ⎇ {task.branchName}
+                  </span>
+                </>
+              )}
+              {task.model && (
+                <>
+                  <span style={twHeaderSepStyle}>·</span>
+                  <span style={twHeaderChipStyle}>{task.model}</span>
+                </>
+              )}
+              <span style={twHeaderSepStyle}>·</span>
+              <span style={zoneMetaStyle}>
+                {messages.length} message{messages.length === 1 ? '' : 's'} · {turns} turn{turns === 1 ? '' : 's'}
+              </span>
+            </div>
+          </div>
+          <ViewToggle view={view} onChangeView={onChangeView} />
+          <div style={twHeaderActionsStyle}>
+            {canStop && (
+              <button type="button" onClick={onStop} style={twHeaderStopBtnStyle}>
+                ⏹ Stop
+              </button>
+            )}
+            {canDelete && (
+              <button type="button" onClick={onDelete} style={twHeaderDeleteBtnStyle}>
+                🗑 Delete
+              </button>
+            )}
+          </div>
         </div>
         <div style={historyScrollStyle}>
           <StructuredConversation
@@ -739,99 +790,41 @@ function SidebarSection({
   );
 }
 
-/** Header strip at the top of the task window — title (editable),
- *  status pill, branch + model chips, and the destructive controls
- *  (Pause/Stop/Delete). Lives inside the themed task window so it
- *  respects light/dark unlike the prior page-level TaskHeader. */
-function TaskWindowHeader({
-  task, view, onChangeView, onRename, onPause, onStop, canStop, onDelete, canDelete,
+/** Shared Conversation / Terminal pill-toggle, rendered inside each
+ *  view's own header strip (zone header in conversation mode, term
+ *  toolbar in terminal mode). The top-level TaskWindowHeader used to
+ *  hold the only copy, but the title + meta + actions now live in
+ *  the per-view headers, so this is the canonical placement. */
+function ViewToggle({
+  view, onChangeView,
 }: {
-  task: TaskDto;
   view: DetailView;
   onChangeView: (next: DetailView) => void;
-  onRename: (title: string) => void | Promise<void>;
-  onPause: (() => void) | undefined;
-  onStop: () => void;
-  canStop: boolean;
-  onDelete: () => void;
-  canDelete: boolean;
 }) {
-  const provider = task.provider || '';
-  const glyph = provider.toLowerCase().startsWith('codex') ? 'X' : 'C';
-  const glyphBg = glyph === 'X'
-    ? 'linear-gradient(135deg, #1e293b, #0f172a)'
-    : 'linear-gradient(135deg, #d97706, #92400e)';
   return (
-    <div style={twHeaderStyle}>
-      <div style={{ ...twHeaderGlyphStyle, background: glyphBg }}>{glyph}</div>
-      <div style={twHeaderTitleColStyle}>
-        <EditableTitle title={task.title} onRename={onRename} />
-        <div style={twHeaderMetaStyle}>
-          <RepoAvatar workingDir={task.workingDir} size={14} />
-          {task.workingDir && (
-            <span style={twHeaderRepoStyle}>{shortenPath(task.workingDir)}</span>
-          )}
-          {task.branchName && (
-            <>
-              <span style={twHeaderSepStyle}>·</span>
-              <span style={twHeaderChipStyle} title={`branch ${task.branchName}`}>
-                ⎇ {task.branchName}
-              </span>
-            </>
-          )}
-          {task.model && (
-            <>
-              <span style={twHeaderSepStyle}>·</span>
-              <span style={twHeaderChipStyle}>{task.model}</span>
-            </>
-          )}
-        </div>
-      </div>
-      <div style={twHeaderViewToggleStyle} role="tablist" aria-label="View">
-        {(['conversation', 'terminal'] as const).map(key => {
-          const active = view === key;
-          return (
-            <button
-              key={key}
-              type="button"
-              role="tab"
-              aria-selected={active}
-              onClick={() => onChangeView(key)}
-              style={{
-                ...twHeaderViewBtnStyle,
-                ...(active ? twHeaderViewBtnActiveStyle : null),
-              }}
-            >
-              {key === 'conversation' ? '💬 Conversation' : '⌨ Terminal'}
-            </button>
-          );
-        })}
-      </div>
-      <div style={twHeaderActionsStyle}>
-        {onPause && (
-          <button type="button" onClick={onPause} style={twHeaderBtnStyle}>
-            ⏸ Pause
-          </button>
-        )}
-        {canStop && (
-          <button type="button" onClick={onStop} style={twHeaderStopBtnStyle}>
-            ⏹ Stop
-          </button>
-        )}
-        {canDelete && (
+    <div style={twHeaderViewToggleStyle} role="tablist" aria-label="View">
+      {(['conversation', 'terminal'] as const).map(key => {
+        const active = view === key;
+        return (
           <button
+            key={key}
             type="button"
-            onClick={onDelete}
-            style={twHeaderDeleteBtnStyle}
-            title="Delete task and conversation log"
+            role="tab"
+            aria-selected={active}
+            onClick={() => onChangeView(key)}
+            style={{
+              ...twHeaderViewBtnStyle,
+              ...(active ? twHeaderViewBtnActiveStyle : null),
+            }}
           >
-            🗑 Delete
+            {key === 'conversation' ? '💬 Conversation' : '⌨ Terminal'}
           </button>
-        )}
-      </div>
+        );
+      })}
     </div>
   );
 }
+
 
 /** "⇄ Diff · N files · +X −Y · ›" strip that sits above the reply
  *  input whenever the working tree has changes. The entire strip is
@@ -947,6 +940,7 @@ function TerminalWrap({
   task, messages, pendingPermission, onDecide, stage,
   draft, onDraft, onSend, onInterrupt, sending, isTerminal,
   theme, onToggleTheme,
+  view, onChangeView, onRename, onStop, canStop, onDelete, canDelete,
 }: {
   task: TaskDto;
   messages: TaskMessageDto[];
@@ -965,6 +959,13 @@ function TerminalWrap({
   isTerminal: boolean;
   theme: TermTheme;
   onToggleTheme: () => void;
+  view: DetailView;
+  onChangeView: (next: DetailView) => void;
+  onRename: (title: string) => void | Promise<void>;
+  onStop: () => void;
+  canStop: boolean;
+  onDelete: () => void;
+  canDelete: boolean;
 }) {
   return (
     <div style={terminalWrapStyle}>
@@ -975,12 +976,29 @@ function TerminalWrap({
           <span style={{ ...trafficDotStyle, background: '#28c840' }} />
         </div>
         <span style={termNameStyle}>
-          claude-code <span style={termBadgeStyle}>stream-json</span>
+          <EditableTitle title={task.title} onRename={onRename} />
           <span style={sessionIdStyleTerminal}> {shortenPath(task.workingDir)}</span>
           {task.branchName && (
             <span style={sessionIdStyleTerminal}> · {task.branchName}</span>
           )}
+          {task.model && (
+            <span style={sessionIdStyleTerminal}> · {task.model}</span>
+          )}
         </span>
+        <span style={{ flex: 1 }} />
+        <ViewToggle view={view} onChangeView={onChangeView} />
+        <div style={twHeaderActionsStyle}>
+          {canStop && (
+            <button type="button" onClick={onStop} style={twHeaderStopBtnStyle}>
+              ⏹ Stop
+            </button>
+          )}
+          {canDelete && (
+            <button type="button" onClick={onDelete} style={twHeaderDeleteBtnStyle}>
+              🗑 Delete
+            </button>
+          )}
+        </div>
         <button
           type="button"
           onClick={onToggleTheme}

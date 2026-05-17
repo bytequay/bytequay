@@ -13,6 +13,7 @@
  */
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { TaskMessageDto } from '../types';
+import { AskQuestionCard } from './AskQuestionCard';
 import type { PendingPermission } from './ConversationPane';
 import { MarkdownProse } from './MarkdownProse';
 import { PermissionCard, type PermissionDecideHandler } from './PermissionCard';
@@ -339,6 +340,9 @@ function ProseRow({ message }: { message: TaskMessageDto }) {
 function ToolRow({ call, result }: { call: TaskMessageDto; result: TaskMessageDto | null }) {
   const callContent = parseContent(call.contentJson);
   const toolName = String(callContent.toolName ?? 'tool');
+  if (toolName === 'AskUserQuestion') {
+    return <AskQuestionCard input={callContent.input} variant="card" />;
+  }
   const argSummary = formatToolArgs(toolName, callContent.input);
   const isStreaming = result == null;
   const resContent = result ? parseContent(result.contentJson) : null;

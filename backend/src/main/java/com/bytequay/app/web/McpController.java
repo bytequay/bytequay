@@ -152,13 +152,27 @@ public class McpController
             return;
         }
 
-        // AskUserQuestion isn't a side-effecting tool — it's Claude
-        // asking the user something. Auto-allow so the question surfaces
-        // in the conversation stream; the user replies via the normal
-        // chat input. (Phase 2: an off-page notification queue so users
-        // don't miss questions when on another page.)
+        // AskUserQuestion is Claude asking the user something. The CLI
+        // runs in non-interactive mode, so the built-in tool returns
+        // an empty answer immediately. We render the question as a
+        // rich card in our conversation view (the frontend special-
+        // cases this tool name on the tool_call message), then deny
+        // here so Claude ends the turn and waits — the user's reply
+        // arrives as the next chat message. The deny message is
+        // deliberately blunt: without it Claude tends to apologize
+        // about the failure and re-ask the same question in plain
+        // prose, duplicating the card. (Phase 2 tracked as task #106:
+        // an off-page notification queue.)
         if ("AskUserQuestion".equals(toolName)) {
-            deferred.setResult(toolResponse(id, allow(toolInput)));
+            deferred.setResult(toolResponse(id, deny(
+                    "SUCCESS — your question has been rendered to the user as "
+                            + "a rich card showing every option. STOP NOW: do not "
+                            + "write any further assistant text in this turn, do not "
+                            + "re-ask the question in prose, do not explain or "
+                            + "apologize, do not summarize the options. End the turn "
+                            + "immediately. The user will type their reply into the "
+                            + "chat input and you will see it as the next user "
+                            + "message.")));
             return;
         }
 

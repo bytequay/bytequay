@@ -13,6 +13,7 @@
  */
 import { useEffect, useMemo, useRef, useState, type ReactElement } from 'react';
 import type { TaskMessageDto } from '../types';
+import { AskQuestionCard } from './AskQuestionCard';
 import { MarkdownProse } from './MarkdownProse';
 import { PermissionCard } from './PermissionCard';
 
@@ -226,6 +227,9 @@ function ProseBlock({ message }: { message: TaskMessageDto }) {
 function ToolBlock({ call, result }: { call: TaskMessageDto; result: TaskMessageDto | null }) {
   const callContent = parseContent(call.contentJson);
   const toolName = String(callContent.toolName ?? 'tool');
+  if (toolName === 'AskUserQuestion') {
+    return <AskQuestionCard input={callContent.input} variant="terminal" />;
+  }
   const inputJson = callContent.input;
   const kind = TOOL_KIND[toolName] ?? 'other';
   const color = TOOL_COLOR[kind];

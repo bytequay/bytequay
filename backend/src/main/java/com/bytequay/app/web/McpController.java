@@ -203,7 +203,10 @@ public class McpController
         catch (RuntimeException e) {
             log.warn("Failed to surface permission prompt for task {}: {}", taskId, e.getMessage());
         }
-        gate.register(callId).whenComplete((decision, ex) -> {
+        // Pass the tool name so a later `Allow next N` grant on the
+        // same tool can drain still-pending callIds in one click
+        // instead of leaving the user with a backlog of prompts.
+        gate.register(callId, toolName).whenComplete((decision, ex) -> {
             if (ex != null) {
                 deferred.setResult(toolResponse(id, deny("interrupted: " + ex.getMessage())));
             }

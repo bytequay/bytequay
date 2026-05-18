@@ -71,4 +71,33 @@ class TestMcpPermissionGate
         // happen in practice and shouldn't crash the controller.
         gate.decide("never-registered", PermissionDecision.DENY);
     }
+
+    @Test
+    void pendingCallIdsForReturnsOnlyOutstandingCallsForThatTool()
+    {
+        McpPermissionGate gate = new McpPermissionGate();
+        gate.register("c-bash-1", "Bash");
+        gate.register("c-bash-2", "Bash");
+        gate.register("c-edit-1", "Edit");
+        gate.register("c-untagged");
+
+        assertThat(gate.pendingCallIdsFor("Bash"))
+                .containsExactlyInAnyOrder("c-bash-1", "c-bash-2");
+        assertThat(gate.pendingCallIdsFor("Edit"))
+                .containsExactly("c-edit-1");
+    }
+
+    @Test
+    void pendingCallIdsForOmitsCallsAlreadyDecidedOrCancelled()
+    {
+        McpPermissionGate gate = new McpPermissionGate();
+        gate.register("c-1", "Bash");
+        gate.register("c-2", "Bash");
+        gate.register("c-3", "Bash");
+
+        gate.decide("c-1", PermissionDecision.ALLOW);
+        gate.cancel("c-3");
+
+        assertThat(gate.pendingCallIdsFor("Bash")).containsExactly("c-2");
+    }
 }

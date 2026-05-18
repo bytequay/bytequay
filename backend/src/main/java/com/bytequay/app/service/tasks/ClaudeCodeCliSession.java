@@ -316,14 +316,30 @@ public class ClaudeCodeCliSession
         requireNonNull(toolName, "toolName is null");
         if (count == BUDGET_ALWAYS) {
             toolBudget.put(toolName, BUDGET_ALWAYS);
+        }
+        else if (count > 0) {
+            // Finite grants accumulate, but "always" wins and stays
+            // sticky.
+            toolBudget.merge(toolName, count, (prev, add) ->
+                    prev == BUDGET_ALWAYS ? BUDGET_ALWAYS : prev + add);
+        }
+        else {
             return;
         }
-        if (count <= 0) {
-            return;
+        // Drain newly-granted slots against any callIds already
+        // sitting in the MCP gate for this tool. The "approve N times
+        // in a row" bug (docs/mockups/issue/tasks/approval-display.png)
+        // happened because granting a budget only helped FUTURE
+        // requests; existing pending ones still needed individual
+        // user clicks. Now one "Allow next 5" click can sweep up to
+        // five already-queued prompts.
+        for (String pendingCallId : gate.pendingCallIdsFor(toolName)) {
+            OptionalInt remaining = tryConsumeToolBudget(toolName);
+            if (remaining.isEmpty()) {
+                break;
+            }
+            decide(pendingCallId, PermissionDecision.ALLOW);
         }
-        // Finite grants accumulate, but "always" wins and stays sticky.
-        toolBudget.merge(toolName, count, (prev, add) ->
-                prev == BUDGET_ALWAYS ? BUDGET_ALWAYS : prev + add);
     }
 
     @Override

@@ -34,7 +34,24 @@ export function spawnBackend(): void {
   if (child) return;
 
   const jar = path.join(process.resourcesPath, 'bytequay-backend.jar');
-  child = spawn('java', ['-jar', jar], {
+  // App-wide RAM budget is ~8 GB; the backend gets ~2 GB of that
+  // ceiling, which is enough for Hibernate + the local-repo JGit
+  // buffers + scheduler bookkeeping even on a long-lived session, and
+  // leaves headroom alongside the 5-way CLI lane (~3 GB) and the
+  // Electron renderers (~2.5 GB with one embed open).
+  // ExitOnOutOfMemoryError flips an OOM into a clean exit so Electron
+  // can surface "backend crashed" instead of getting a wedged sidecar
+  // limping along after the heap gives up. Metaspace / code cache get
+  // their own caps so a runaway classloader can't add another 500 MB
+  // on top of -Xmx. Keep these in sync with dev.sh's MAVEN_OPTS so
+  // dev mode behaves like the packaged build.
+  const jvmArgs = [
+    '-Xmx2000m',
+    '-XX:MaxMetaspaceSize=256m',
+    '-XX:ReservedCodeCacheSize=128m',
+    '-XX:+ExitOnOutOfMemoryError',
+  ];
+  child = spawn('java', [...jvmArgs, '-jar', jar], {
     stdio: ['ignore', 'inherit', 'inherit'],
     detached: false,
   });

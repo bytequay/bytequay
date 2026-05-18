@@ -292,6 +292,31 @@ public class ClaudeCodeCliSession
     {
         if (status.compareAndSet(TaskStatus.AWAITING, TaskStatus.IDLE)) {
             persistTaskSnapshot(null);
+            return;
+        }
+        // ERRORED → IDLE: the user wants to continue the conversation
+        // after the CLI turn failed (token-quota reset, network blip,
+        // agent error). agentSessionId stays on the task row, so the
+        // next send() spawns `claude -p ... --resume <session-id>` and
+        // picks up exactly where the previous turn left off. We clear
+        // endedAt and errorMessage so the Lifetime · Runtime ticker
+        // restarts and the failure banner doesn't hover over the new
+        // conversation.
+        if (status.compareAndSet(TaskStatus.ERRORED, TaskStatus.IDLE)) {
+            Task current = store.findTaskById(taskId).orElse(null);
+            if (current == null) {
+                return;
+            }
+            store.saveTask(new Task(
+                    current.id(), current.kind(), current.provider(), agentSessionId.get(),
+                    current.title(), TaskStatus.IDLE, current.workingDir(), current.branchName(),
+                    current.model(),
+                    runningCostUsdMilli.get(), runningTokensIn.get(), runningTokensOut.get(),
+                    current.processPid(), current.logPath(),
+                    current.createdAt(), Instant.now(),
+                    /* endedAt */ null, /* errorMessage */ null,
+                    current.metadataJson(), current.taskType(),
+                    current.linkedPrNumber(), current.linkedIssueNumber()));
         }
     }
 

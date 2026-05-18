@@ -71,7 +71,13 @@ echo "[dev] starting backend (Spring Boot on :$BACKEND_PORT)..."
 # -Dspring-boot.run.fork=false keeps the JVM in the mvn process so Ctrl+C
 # cleanly terminates both. Without it, mvn forks a child JVM that can
 # outlive mvn's own shutdown.
-( cd "$ROOT/backend" && mvn -q spring-boot:run -Dspring-boot.run.fork=false ) &
+#
+# spring-boot.run.jvmArguments enforces the same ~2 GB heap ceiling
+# that frontend/src/backendProcess.ts passes in packaged mode, so a
+# leaky session can't eat the whole machine in dev either. Keep the
+# values in sync between this file and backendProcess.ts.
+JVM_ARGS="-Xmx2000m -XX:MaxMetaspaceSize=256m -XX:ReservedCodeCacheSize=128m -XX:+ExitOnOutOfMemoryError"
+( cd "$ROOT/backend" && mvn -q spring-boot:run -Dspring-boot.run.fork=false -Dspring-boot.run.jvmArguments="$JVM_ARGS" ) &
 pids+=($!)
 
 if ! wait_for_backend; then

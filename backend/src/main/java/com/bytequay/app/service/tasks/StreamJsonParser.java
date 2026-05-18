@@ -117,6 +117,24 @@ public class StreamJsonParser
             int index = event.path("index").asInt(0);
             return ImmutableList.of(new StreamEvent.AssistantTextDelta(now, index, chunk));
         }
+        // message_start carries the prompt's input_tokens (typically the
+        // dominant number for any single model invocation) under
+        // {@code event.message.usage}. Without this, the LIVE bar would
+        // sit at "0 tokens" until the trailing message_delta finally
+        // lands — Claude Code's CLI shows the input count immediately
+        // at turn start, which is what users see and expect.
+        if ("message_start".equals(eventType)) {
+            JsonNode usage = event.path("message").path("usage");
+            if (!usage.isObject()) {
+                return ImmutableList.of();
+            }
+            long tokensIn = usage.path("input_tokens").asLong(0L);
+            long tokensOut = usage.path("output_tokens").asLong(0L);
+            if (tokensIn == 0L && tokensOut == 0L) {
+                return ImmutableList.of();
+            }
+            return ImmutableList.of(new StreamEvent.UsageUpdated(now, tokensIn, tokensOut));
+        }
         if ("message_delta".equals(eventType)) {
             JsonNode usage = event.path("usage");
             if (usage.isMissingNode() || !usage.isObject()) {

@@ -12,7 +12,7 @@
  * limitations under the License.
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import type { TaskDto, TaskFileDto, TaskGroupDto, TaskGroupMembershipDto, TaskMessageDto, TaskStatusDto } from '../types';
+import type { TaskDto, TaskFileDto, TaskGroupDto, TaskGroupMembershipDto, TaskMessageDto, TaskStatusDto, WatchedRepoDto } from '../types';
 import GroupMenu from './GroupMenu';
 import { ConversationPane, type PendingPermission } from './ConversationPane';
 import { StructuredConversation } from './StructuredConversation';
@@ -44,6 +44,10 @@ type Props = {
   onRepoChange: (repo: RepoFilter) => void;
   /** Swap to another task's detail page from the rail's Recent list. */
   onSelectTask: (taskId: string) => void;
+  /** Open the linked PR in the repo detail page. The sidebar
+   *  surfaces a click target only when {@code linkedPrNumber} is
+   *  set AND the parent provides this callback. */
+  onOpenPr?: (owner: string, repo: string, prNumber: number) => void;
   /** Footer "Defaults & integrations" row. */
   onOpenSettings: () => void;
 };
@@ -155,6 +159,7 @@ export default function TaskDetailPage({
   onGroupChange: _onGroupChange,
   onRepoChange: _onRepoChange,
   onSelectTask: _onSelectTask,
+  onOpenPr,
   onOpenSettings: _onOpenSettings,
 }: Props) {
   const [task, setTask] = useState<TaskDto | null>(null);
@@ -163,6 +168,7 @@ export default function TaskDetailPage({
   const [allTasks, setAllTasks] = useState<TaskDto[]>([]);
   const [groups, setGroups] = useState<TaskGroupDto[]>([]);
   const [memberships, setMemberships] = useState<TaskGroupMembershipDto[]>([]);
+  const [watchedRepos, setWatchedRepos] = useState<WatchedRepoDto[]>([]);
   const [error, setError] = useState<string | null>(null);
   // Reply draft persists across navigation for the lifetime of the
   // renderer — leave the page mid-sentence, come back, the text is
@@ -190,13 +196,14 @@ export default function TaskDetailPage({
 
   const refresh = useCallback(async () => {
     try {
-      const [t, m, fs, list, gs, ms] = await Promise.all([
+      const [t, m, fs, list, gs, ms, wrs] = await Promise.all([
         window.bridge.getTask(taskId),
         window.bridge.getTaskMessages(taskId),
         window.bridge.getTaskFiles(taskId).catch(() => [] as TaskFileDto[]),
         window.bridge.listTasks(),
         window.bridge.listTaskGroups().catch(() => [] as TaskGroupDto[]),
         window.bridge.listTaskGroupMemberships().catch(() => [] as TaskGroupMembershipDto[]),
+        window.bridge.getWatchedRepos().catch(() => [] as WatchedRepoDto[]),
       ]);
       setTask(t);
       setMessages(m);
@@ -204,12 +211,37 @@ export default function TaskDetailPage({
       setAllTasks(list);
       setGroups(gs);
       setMemberships(ms);
+      setWatchedRepos(wrs);
       setError(null);
     }
     catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     }
   }, [taskId]);
+
+  /** Same workingDir → owner/repo resolver TasksPage uses: walk the
+   *  path segments looking for a watched-repo name match so worktrees
+   *  rooted under `<repo>/.worktrees/<branch>` resolve correctly. */
+  const resolveTaskRepo = useCallback(
+    (t: TaskDto): { owner: string; repo: string } | null => {
+      const segments = (t.workingDir ?? '').split('/').filter(Boolean).map(s => s.toLowerCase());
+      if (segments.length === 0) return null;
+      for (const wr of watchedRepos) {
+        if (segments.includes(wr.repo.toLowerCase())) {
+          return { owner: wr.owner, repo: wr.repo };
+        }
+      }
+      return null;
+    }, [watchedRepos]);
+
+  /** Click handler for the sidebar's PR chip. No-op when we can't
+   *  determine the owner — the chip itself hides in that case. */
+  const onSidebarOpenPr = useCallback((prNumber: number) => {
+    if (task === null) return;
+    const ctx = resolveTaskRepo(task);
+    if (ctx === null) return;
+    onOpenPr?.(ctx.owner, ctx.repo, prNumber);
+  }, [task, resolveTaskRepo, onOpenPr]);
 
   /** Add or remove this task from a group. Mirrors the toggle on the
    *  TasksPage so the affordance feels the same wherever you find it.
@@ -462,6 +494,7 @@ export default function TaskDetailPage({
           groups={groups}
           currentGroupIds={currentGroupIds}
           onToggleGroup={onToggleGroup}
+          onOpenPr={onOpenPr ? onSidebarOpenPr : undefined}
           onBack={onBack}
           onCollapse={() => setSidebarCollapsed(true)}
         />
@@ -734,7 +767,19 @@ function StructuredView({
       <div style={historyZoneStyle}>
         <div style={zoneHeaderStyle}>
           <div style={taskTitleBadgeStyle}>
-            <EditableTitle title={task.title} onRename={onRename} />
+            {/* Same shape the terminal toolbar uses: a 20-word JS
+                cap + a `titleStyleOverride` that turns OFF the
+                shared `thTitleStyle` ellipsis. Without the
+                override, the inner span's `overflow:hidden +
+                ellipsis + nowrap` collapses the title to "let's
+                …" the moment the surrounding flex row gets tight
+                (the bug in docs/mockups/issue/tasks/name.png). */}
+            <EditableTitle
+              title={task.title}
+              onRename={onRename}
+              maxDisplayWords={20}
+              titleStyleOverride={termTitleSpanStyle}
+            />
           </div>
           <div style={twHeaderMetaStyle}>
             <RepoAvatar workingDir={task.workingDir} size={14} />
@@ -877,6 +922,7 @@ function StructuredView({
 function TaskWindowSidebar({
   task, stage, messages, files, liveUsage,
   groups, currentGroupIds, onToggleGroup,
+  onOpenPr,
   onBack, onCollapse,
 }: {
   task: TaskDto;
@@ -887,6 +933,10 @@ function TaskWindowSidebar({
   groups: TaskGroupDto[];
   currentGroupIds: string[];
   onToggleGroup: (taskId: string, groupId: string, present: boolean) => void | Promise<void>;
+  /** Open the linked PR in the repo detail view. Hidden when
+   *  omitted (e.g. the linked PR's owner/repo can't be resolved
+   *  from the task's working dir). */
+  onOpenPr?: (prNumber: number) => void;
   onBack: () => void;
   onCollapse: () => void;
 }) {
@@ -917,7 +967,12 @@ function TaskWindowSidebar({
         <StatusPill status={task.status} />
       </div>
 
-      <SidebarSection label="Today">
+      {/* Section labelled "Lifetime" — the metrics here are
+          task-lifetime totals, not today-only. The old "Today" label
+          implied a daily roll-up the backend never does, which
+          surprised users who saw 36 files but tokens that exceeded
+          a single day. */}
+      <SidebarSection label="Lifetime">
         <div style={metricListStyle}>
           <Metric label="Runtime" value={formatRuntime(task)} live={task.status === 'RUNNING'} />
           <Metric label="Cost" value={formatCost(task.costUsdMilli)} />
@@ -934,6 +989,64 @@ function TaskWindowSidebar({
           <Metric label="Tool calls" value={formatNum(toolUsage.total)} />
           <Metric label="Files touched" value={formatNum(files.length)} />
           <Metric label="Model" value={task.model || 'unknown'} mono />
+        </div>
+      </SidebarSection>
+
+      {/* Session card — identifying metadata for the run itself.
+          Session ID gets a mono ellipsis; branch + PR show up as
+          inline chips so the user can copy / click into them. */}
+      <SidebarSection label="Session">
+        <div style={metricListStyle}>
+          {task.agentSessionId !== null && task.agentSessionId !== '' && (
+            <Metric
+              label="Session ID"
+              value={task.agentSessionId}
+              mono
+            />
+          )}
+          {task.branchName !== null && task.branchName !== '' && (
+            <Metric
+              label="Branch"
+              value={`⎇ ${task.branchName}`}
+              mono
+            />
+          )}
+          {task.linkedPrNumber !== null && (
+            <div style={metricRowStyle}>
+              <span style={metricLabelStyle}>PR</span>
+              <span style={{ ...metricValueStyle, textAlign: 'right' }}>
+                {onOpenPr ? (
+                  <button
+                    type="button"
+                    onClick={() => onOpenPr(task.linkedPrNumber as number)}
+                    style={prChipBtnStyle}
+                    title={`Open PR #${task.linkedPrNumber}`}
+                  >
+                    #{task.linkedPrNumber}
+                  </button>
+                ) : (
+                  <span style={{ fontFamily: '"SF Mono", Menlo, monospace', fontSize: 12 }}>
+                    #{task.linkedPrNumber}
+                  </span>
+                )}
+              </span>
+            </div>
+          )}
+          {task.linkedIssueNumber !== null && (
+            <Metric
+              label="Issue"
+              value={`#${task.linkedIssueNumber}`}
+              mono
+            />
+          )}
+          {/* If none of the four rows would render, show a quiet
+              fallback so the section never appears empty. */}
+          {task.agentSessionId === null
+            && task.branchName === null
+            && task.linkedPrNumber === null
+            && task.linkedIssueNumber === null && (
+            <span style={groupsEmptyStyle}>No session metadata yet</span>
+          )}
         </div>
       </SidebarSection>
 
@@ -2003,6 +2116,21 @@ const groupsRowStyle: React.CSSProperties = {
 const groupsEmptyStyle: React.CSSProperties = {
   fontSize: 12, color: 'var(--text-3)', fontStyle: 'italic',
 };
+// PR chip in the Session sidebar — pill with the accent colour so
+// it reads as a hyperlink without the underline noise.
+const prChipBtnStyle: React.CSSProperties = {
+  display: 'inline-flex', alignItems: 'center',
+  padding: '1px 8px',
+  background: 'rgba(124,92,255,0.10)',
+  color: 'var(--accent-dark, #5b21b6)',
+  border: '1px solid rgba(124,92,255,0.25)',
+  borderRadius: 999,
+  fontFamily: '"SF Mono", Menlo, monospace',
+  fontSize: 11,
+  fontWeight: 700,
+  cursor: 'pointer',
+  letterSpacing: '0.02em',
+};
 const groupChipStyle: React.CSSProperties = {
   display: 'inline-flex', alignItems: 'center', gap: 4,
   padding: '2px 6px 2px 4px',
@@ -2449,7 +2577,14 @@ const taskTitleBadgeStyle: React.CSSProperties = {
   background: 'var(--bg-elevated)',
   border: '1px solid var(--border)',
   borderRadius: 6,
+  // Mirror `taskTitleBadgeTermStyle` exactly: `width: max-content`
+  // sizes the badge to the full title length so the flex container
+  // can't squeeze it back to "let's …" (see
+  // docs/mockups/issue/tasks/name.png). The caller pairs this with
+  // `maxDisplayWords` on EditableTitle to JS-truncate essay-long
+  // titles before they get to the CSS layer.
   flexShrink: 0,
+  width: 'max-content',
 };
 const taskTitleBadgeTermStyle: React.CSSProperties = {
   display: 'inline-flex', alignItems: 'center',

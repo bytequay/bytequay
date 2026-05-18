@@ -546,6 +546,10 @@ function App() {
             onGroupChange={groupId => setNav({ view: 'tasks', groupId: groupId ?? undefined })}
             onRepoChange={repo => setNav({ view: 'tasks', repo: repo ?? undefined })}
             onSelectTask={id => setNav({ view: 'task-detail', taskId: id })}
+            onOpenPr={(owner, repo, prNumber) => setNav({
+              view: 'repo', owner, repo, prNumber,
+              back: { view: 'task-detail', taskId: nav.taskId },
+            })}
             onOpenSettings={() => setNav({ view: 'settings', section: 'integrations' })}
           />
         )}

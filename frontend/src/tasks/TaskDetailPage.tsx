@@ -802,9 +802,15 @@ function StructuredView({
         </div>
       )}
 
-      {changeStats.files > 0 && (
-        <ReviewStrip stats={changeStats} diffOpen={diffOpen} onReview={onReview} />
-      )}
+      {/* Always render the strip so the user can toggle the diff pane
+          regardless of whether the working tree is dirty — the pane's
+          smart default falls back to Commits when clean. The strip
+          tints yellow when there's something to see. */}
+      <ReviewStrip
+        hasChanges={changeStats.files > 0}
+        diffOpen={diffOpen}
+        onReview={onReview}
+      />
 
       {!isTerminal && (
         <div style={replyZoneStyle}>
@@ -1058,32 +1064,27 @@ function ViewToggle({
 }
 
 
-/** "⇄ Diff · N files · +X −Y · ›" strip that sits above the reply
- *  input whenever the working tree has changes. The entire strip is
- *  the click target — toggling expand felt fiddly when only the
- *  trailing button was hot, especially since the strip itself is
- *  what the eye treats as "the diff affordance". The trailing
- *  chevron acts as a visual hint for the action; the label on the
- *  left ("Open diff" / "Hide diff") tells the user which way the
- *  click flips it. */
+/** "⇄ Diff" affordance above the reply input. Earlier this strip
+ *  surfaced lifetime numbers (`N files · +X −Y`) from getTaskFiles,
+ *  but those didn't match what the diff pane actually showed after
+ *  the agent committed (working tree → 0 files, lifetime → 36). To
+ *  remove the confusion we dropped the counts entirely and instead
+ *  tint the strip yellow whenever changes exist — the colour is the
+ *  signal. Click anywhere on the strip to toggle the pane. */
 function ReviewStrip({
-  stats, diffOpen, onReview,
-}: { stats: ChangeStats; diffOpen: boolean; onReview: () => void }) {
+  hasChanges, diffOpen, onReview,
+}: { hasChanges: boolean; diffOpen: boolean; onReview: () => void }) {
   return (
     <button
       type="button"
       onClick={onReview}
-      style={reviewStripStyle}
+      style={hasChanges
+        ? { ...reviewStripStyle, ...reviewStripChangesStyle }
+        : reviewStripStyle}
       title={diffOpen ? 'Hide the diff pane' : 'Open the diff pane'}
       aria-expanded={diffOpen}
     >
-      <span style={reviewStripLabelStyle}>
-        ⇄ Diff · {stats.files} file{stats.files === 1 ? '' : 's'}
-      </span>
-      <span style={reviewStripStatsStyle}>
-        <span style={{ color: 'var(--term-ok, #16a34a)' }}>+{stats.added}</span>{' '}
-        <span style={{ color: 'var(--term-err, #dc2626)' }}>−{stats.removed}</span>
-      </span>
+      <span style={reviewStripLabelStyle}>⇄ Diff</span>
       <span style={{ flex: 1 }} />
       <span style={reviewStripActionStyle}>
         {diffOpen ? 'Hide diff' : 'Open diff'}
@@ -1267,9 +1268,15 @@ function TerminalWrap({
 
       <TerminalStatusBar task={task} stage={stage} liveUsage={liveUsage} />
 
-      {changeStats.files > 0 && (
-        <ReviewStrip stats={changeStats} diffOpen={diffOpen} onReview={onReview} />
-      )}
+      {/* Always render the strip so the user can toggle the diff pane
+          regardless of whether the working tree is dirty — the pane's
+          smart default falls back to Commits when clean. The strip
+          tints yellow when there's something to see. */}
+      <ReviewStrip
+        hasChanges={changeStats.files > 0}
+        diffOpen={diffOpen}
+        onReview={onReview}
+      />
 
       {!isTerminal && (
         <TermInput
@@ -2087,12 +2094,15 @@ const reviewStripStyle: React.CSSProperties = {
   width: '100%',
   color: 'var(--term-text, var(--text-1))',
 };
+// Amber tint when the task has touched files (lifetime). The colour
+// itself is the signal — no count needed.
+const reviewStripChangesStyle: React.CSSProperties = {
+  background: 'rgba(217, 119, 6, 0.10)',
+  borderColor: 'rgba(217, 119, 6, 0.45)',
+};
 const reviewStripLabelStyle: React.CSSProperties = {
   fontSize: 12, fontWeight: 600,
   color: 'var(--term-text-muted, var(--text-2))',
-};
-const reviewStripStatsStyle: React.CSSProperties = {
-  fontSize: 11, fontFamily: '"SF Mono", Menlo, monospace',
 };
 const reviewStripActionStyle: React.CSSProperties = {
   fontSize: 12, fontWeight: 600,

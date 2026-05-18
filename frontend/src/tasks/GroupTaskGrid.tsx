@@ -12,33 +12,19 @@
  * limitations under the License.
  */
 import { useEffect, useMemo, useRef, useState } from 'react';
-import type { TaskDto, TaskGroupDto, TaskMessageDto, TaskStatusDto } from '../types';
-// Membership lookup is supplied by the parent — keeps the grid's
-// fetch surface zero and lets the parent fan out the bridge call
-// once per refresh instead of per tile.
-import GroupMenu from './GroupMenu';
+import type { TaskDto, TaskMessageDto, TaskStatusDto } from '../types';
 import { type PendingPermission } from './ConversationPane';
 import { TileConversation, type TileConversationMode } from './TileConversation';
-import RepoAvatar from './RepoAvatar';
 import { useAutoGrowTextarea, usePersistentDraft } from './draftStore';
 
 export type GroupLayout = 1 | 2 | 3 | 4;
 
 type Props = {
   tasks: TaskDto[];
-  groups: TaskGroupDto[];
   /** Open the full detail page for a task. The tile title
    *  becomes the click target so clicks inside the tile body
    *  (typing a reply, scrolling the history) don't navigate. */
   onOpen: (taskId: string) => void;
-  /** Toggle membership in one group. {@code present} is the desired
-   *  post-click state — {@code true} adds, {@code false} removes.
-   *  The parent persists the change and refreshes. */
-  onToggleGroup: (taskId: string, groupId: string, present: boolean) => void | Promise<void>;
-  /** Indexed memberships from the parent so the per-tile group
-   *  picker can show ticks for the groups this task already
-   *  belongs to. */
-  groupIdsByTaskId: Map<string, string[]>;
   /** Stop an active task from its tile. The page parent serialises
    *  the call and refreshes once the row flips to a terminal state. */
   onStop: (taskId: string) => void | Promise<void>;
@@ -94,7 +80,7 @@ const POLL_MS = 4000;
  * conversations in parallel and is out of scope for this slice.
  */
 export default function GroupTaskGrid({
-  tasks, groups, onOpen, onToggleGroup, groupIdsByTaskId, onStop, onSend, onInterrupt, onDecide,
+  tasks, onOpen, onStop, onSend, onInterrupt, onDecide,
   busyId, immersive, tileMode, selectedId, onSelectTile,
 }: Props) {
   // Auto-derive the tile layout from the task count — the server
@@ -162,6 +148,27 @@ export default function GroupTaskGrid({
     return () => { cancelled = true; window.clearInterval(handle); };
   }, [visibleIdsKey]);
 
+  // ⌘1 / ⌘2 / ⌘3 / ⌘4 select the tile at that slot — works in both
+  // immersive and non-immersive group view. We bind unconditionally
+  // (no input-focus skip) so that someone deep in tile #1's textarea
+  // can flip to tile #2 with a single chord. The actual focus move
+  // to the new tile's reply input is handled by a focus-on-select-
+  // transition effect in TaskTile.
+  useEffect(() => {
+    if (tasks.length === 0) return;
+    function onKey(e: KeyboardEvent) {
+      if (!(e.metaKey || e.ctrlKey)) return;
+      if (e.shiftKey || e.altKey) return;
+      const idx = parseInt(e.key, 10);
+      if (!Number.isInteger(idx) || idx < 1 || idx > 4) return;
+      if (idx > visible.length) return;
+      e.preventDefault();
+      onSelectTile(visible[idx - 1].id);
+    }
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [visible, tasks.length, onSelectTile]);
+
   if (tasks.length === 0) {
     return (
       <div style={emptyStyle}>
@@ -200,17 +207,15 @@ export default function GroupTaskGrid({
           >
             <TaskTile
               task={t}
-              groups={groups}
-              currentGroupIds={groupIdsByTaskId.get(t.id) ?? []}
               messages={previews[t.id] ?? []}
               busy={busyId === t.id}
               dragging={dragFrom === idx}
               immersive={immersive}
               tileMode={tileMode}
+              slotIndex={idx + 1}
               selected={selectedId === t.id}
               onSelect={() => onSelectTile(t.id)}
               onOpen={() => onOpen(t.id)}
-              onToggleGroup={onToggleGroup}
               onStop={() => onStop(t.id)}
               onSend={input => onSend(t.id, input)}
               onInterrupt={() => onInterrupt(t.id)}
@@ -233,23 +238,25 @@ export default function GroupTaskGrid({
 }
 
 function TaskTile({
-  task, groups, currentGroupIds, messages, busy, dragging, immersive, tileMode,
-  selected, onSelect,
-  onOpen, onToggleGroup, onStop,
+  task, messages, busy, dragging, immersive, tileMode,
+  slotIndex, selected, onSelect,
+  onOpen, onStop,
   onSend, onInterrupt, onDecide,
   onDragStart, onDragEnter, onDragEnd, onDrop,
 }: {
   task: TaskDto;
-  groups: TaskGroupDto[];
-  currentGroupIds: string[];
   messages: TaskMessageDto[];
   busy: boolean;
   dragging: boolean;
-  /** When immersive, drop the tile head bar and bottom status strip
-   *  so the conversation + reply input fill the entire pane. */
+  /** Slim head shape in both immersive and non-immersive. Footer
+   *  follows: hidden in immersive (chat + reply only); the
+   *  metadata strip lives below the conversation in non-immersive. */
   immersive: boolean;
   /** Per-tile conversation visual mode (Chat / Terminal). */
   tileMode: TileConversationMode;
+  /** 1-based slot position in the visible tile grid; surfaced in the
+   *  immersive slim head as the `⌘N` shortcut label. */
+  slotIndex: number;
   /** Whether this tile is the active one. Parent guarantees at most
    *  one tile in the grid has selected=true at any time. */
   selected: boolean;
@@ -257,7 +264,6 @@ function TaskTile({
    *  signal — focuses this tile so type-to-reply lands here. */
   onSelect: () => void;
   onOpen: () => void;
-  onToggleGroup: (taskId: string, groupId: string, present: boolean) => void | Promise<void>;
   onStop: () => void | Promise<void>;
   onSend: (input: string) => void | Promise<void>;
   onInterrupt: () => void | Promise<void>;
@@ -290,6 +296,19 @@ function TaskTile({
   const sendingRef = useRef(sending);
   useEffect(() => { draftRef.current = draft; }, [draft]);
   useEffect(() => { sendingRef.current = sending; }, [sending]);
+
+  // Focus the reply textarea whenever this tile becomes the active
+  // one (transition false → true). Covers all paths into selection:
+  // click on the tile body, ⌘1–⌘4 from the parent, etc. The onClick
+  // handler already focuses synchronously too — this effect is the
+  // fallback for keyboard-driven selection paths.
+  const prevSelectedRef = useRef(false);
+  useEffect(() => {
+    if (selected && !prevSelectedRef.current && !isTerminal) {
+      replyRef.current?.focus({ preventScroll: true });
+    }
+    prevSelectedRef.current = selected;
+  }, [selected, isTerminal, replyRef]);
 
   async function doSend(text: string) {
     if (text === '' || sendingRef.current) return;
@@ -416,47 +435,74 @@ function TaskTile({
       onDragEnd={onDragEnd}
       onDoubleClick={onTileDoubleClick}
     >
-      {!immersive && (
-        <header
-          style={tileHeaderStyle}
-          draggable
-          onDragStart={e => {
-            // text/plain payload satisfies browsers that refuse to
-            // start a drag without one; the actual swap is driven by
-            // the parent's dragFrom/dragOver state, not the payload.
-            e.dataTransfer.effectAllowed = 'move';
-            e.dataTransfer.setData('text/plain', task.id);
-            onDragStart();
-          }}
-        >
-          <span style={dragHandleStyle} aria-hidden title="Drag header to reorder">⋮⋮</span>
-          <div style={tileTitleWrapStyle}>
-            <span style={{ ...tileStripeStyle, background: stripeColor(task.status) }} />
-            <RepoAvatar workingDir={task.workingDir} size={18} />
+      {/* Slim 22px tmux-style pane head in BOTH immersive and
+          non-immersive group view (per the latest tasks-design.md
+          update). Composition: 6px status dot · title · right-side
+          slot. The right-side slot differs:
+            - Immersive  → ⌘N shortcut label (keyboard-only verb).
+            - Non-immersive → Stop button (when not terminal) and
+              the ⛶ zoom button. The ⋯ pin-to-groups menu is
+              dropped — that affordance lives in the rail and the
+              detail page now. */}
+      <header
+        style={isTerm ? { ...tileSlimHeadStyle, ...tileSlimHeadTerminalStyle } : tileSlimHeadStyle}
+        draggable
+        onDragStart={e => {
+          e.dataTransfer.effectAllowed = 'move';
+          e.dataTransfer.setData('text/plain', task.id);
+          onDragStart();
+        }}
+      >
+        <span style={{ ...slimDotStyle, background: dotColor(task.status) }} aria-hidden />
+        {immersive ? (
+          <span
+            style={isTerm ? { ...slimTitleStyle, color: '#8b949e' } : slimTitleStyle}
+            title={task.title}
+          >
+            {task.title}
+          </span>
+        ) : (
+          <button
+            type="button"
+            onClick={onOpen}
+            style={isTerm ? { ...slimTitleBtnStyle, color: '#8b949e' } : slimTitleBtnStyle}
+            title="Zoom in (or double-click anywhere on the tile)"
+          >
+            {task.title}
+          </button>
+        )}
+        {immersive ? (
+          <span
+            style={isTerm ? { ...slimShortcutStyle, color: '#6e7681' } : slimShortcutStyle}
+            aria-hidden
+          >
+            ⌘{slotIndex}
+          </span>
+        ) : (
+          <div style={slimHeadActionsStyle}>
+            {!isTerminal && (
+              <button
+                type="button"
+                onClick={e => { e.stopPropagation(); void onStop(); }}
+                disabled={busy}
+                style={isTerm ? { ...slimStopBtnStyle, ...slimStopBtnTerminalStyle } : slimStopBtnStyle}
+                title="Stop and release the agent"
+              >
+                {busy ? '…' : 'Stop'}
+              </button>
+            )}
             <button
               type="button"
-              onClick={onOpen}
-              style={tileTitleBtnStyle}
-              title="Zoom in (or double-click anywhere on the tile)"
-            >
-              <span style={tileTitleStyle}>{task.title}</span>
-            </button>
-          </div>
-          <div style={tileHeaderRightStyle}>
-            <StatusBadge status={task.status} />
-            <button
-              type="button"
-              onClick={onOpen}
-              style={tileMaxBtnStyle}
+              onClick={e => { e.stopPropagation(); onOpen(); }}
+              style={isTerm ? { ...slimZoomBtnStyle, color: '#8b949e' } : slimZoomBtnStyle}
               title="Zoom in (or double-click the tile)"
               aria-label="Zoom in"
             >
               ⛶
             </button>
-            <GroupMenu task={task} groups={groups} currentGroupIds={currentGroupIds} onToggle={onToggleGroup} />
           </div>
-        </header>
-      )}
+        )}
+      </header>
 
       <div style={tileConversationStyle}>
         <TileConversation
@@ -511,6 +557,9 @@ function TaskTile({
       )}
 
       {!immersive && (
+        // Footer is metadata only now — Stop moved to the slim head
+        // alongside the ⛶ zoom button. Keeps the runtime / cost /
+        // tokens glance without competing with the destructive action.
         <footer style={tileFooterStyle}>
           <span style={footerMetaStyle}>{task.model || 'unknown'}</span>
           <span style={footerSepStyle}>·</span>
@@ -521,17 +570,6 @@ function TaskTile({
           <span style={footerMetricStyle}>
             {formatTokens(task.tokensIn + task.tokensOut)} tok
           </span>
-          {!isTerminal && (
-            <button
-              type="button"
-              onClick={() => void onStop()}
-              disabled={busy}
-              style={stopBtnStyle}
-              title="Stop and release the agent"
-            >
-              {busy ? 'Stopping…' : 'Stop'}
-            </button>
-          )}
         </footer>
       )}
     </article>
@@ -566,47 +604,20 @@ function findPendingPermission(messages: TaskMessageDto[]): PendingPermission | 
   return null;
 }
 
-function StatusBadge({ status }: { status: TaskStatusDto }) {
-  const palette: Record<TaskStatusDto, { fg: string; bg: string; label: string }> = {
-    RUNNING:   { fg: '#fff', bg: '#10b981', label: 'RUN' },
-    AWAITING:  { fg: '#fff', bg: '#d97706', label: 'WAIT' },
-    PENDING:   { fg: '#374151', bg: '#e5e7eb', label: 'QUEUED' },
-    IDLE:      { fg: '#374151', bg: '#e5e7eb', label: 'IDLE' },
-    COMPLETED: { fg: '#fff', bg: '#64748b', label: 'DONE' },
-    ERRORED:   { fg: '#fff', bg: '#dc2626', label: 'ERR' },
-  };
-  const p = palette[status];
-  return (
-    <span style={{
-      display: 'inline-flex',
-      alignItems: 'center',
-      gap: 6,
-      padding: '2px 10px',
-      borderRadius: 999,
-      background: p.bg,
-      color: p.fg,
-      fontSize: 11,
-      fontWeight: 700,
-      letterSpacing: 0.4,
-    }}>
-      {status === 'RUNNING' && <span style={pulseDotStyle} />}
-      {p.label}
-    </span>
-  );
-}
-
 // ────────────────────────────────────────────────────────────────────
 // Helpers
 // ────────────────────────────────────────────────────────────────────
 
-function stripeColor(s: TaskStatusDto): string {
+/** 6px status dot colour for the immersive slim head, per the
+ *  tasks-design.md immersive bullet (green RUN / amber WAIT /
+ *  grey IDLE / red ERROR). PENDING + COMPLETED both read as
+ *  "not actively driving" → grey, matching IDLE. */
+function dotColor(s: TaskStatusDto): string {
   switch (s) {
     case 'RUNNING':   return '#10b981';
     case 'AWAITING':  return '#d97706';
-    case 'IDLE':      return '#9ca3af';
-    case 'PENDING':   return '#9ca3af';
-    case 'COMPLETED': return '#64748b';
     case 'ERRORED':   return '#dc2626';
+    default:          return '#9ca3af';
   }
 }
 
@@ -733,74 +744,110 @@ const tileSelectedTerminalStyle: React.CSSProperties = {
   boxShadow: 'inset 0 0 0 2px #a78bfa',
   background: '#10151c',
 };
-const dragHandleStyle: React.CSSProperties = {
-  color: 'var(--text-4)',
-  fontSize: 14,
+// Slim 22px tmux-style pane title used in both immersive and
+// non-immersive group views. ~5% of a 450px tile height —
+// roughly the same ratio tmux pane titles take in a real
+// terminal window. Drag lives on the header itself.
+const tileSlimHeadStyle: React.CSSProperties = {
+  display: 'flex',
+  alignItems: 'center',
+  gap: 8,
+  height: 22,
+  padding: '0 8px 0 10px',
+  borderBottom: '1px solid var(--border-hairline)',
+  fontFamily: '"SF Mono", "JetBrains Mono", Menlo, Consolas, monospace',
   cursor: 'grab',
   userSelect: 'none',
   flexShrink: 0,
-  lineHeight: 1,
-  letterSpacing: -2,
 };
-const tileHeaderStyle: React.CSSProperties = {
-  display: 'flex',
-  alignItems: 'flex-start',
-  gap: 12,
-  padding: '12px 14px',
-  borderBottom: '1px solid var(--border-light)',
+const slimDotStyle: React.CSSProperties = {
+  width: 6,
+  height: 6,
+  borderRadius: '50%',
+  flexShrink: 0,
 };
-const tileHeaderRightStyle: React.CSSProperties = {
-  display: 'flex',
+// Immersive head: title is plain text, centred per the design.
+const slimTitleStyle: React.CSSProperties = {
+  flex: 1,
+  textAlign: 'center',
+  fontSize: 11,
+  color: '#57606a',
+  overflow: 'hidden',
+  textOverflow: 'ellipsis',
+  whiteSpace: 'nowrap',
+  fontWeight: 500,
+};
+// Non-immersive head: title is a button (single-click → zoom). Left-
+// aligned so the right-side action cluster (Stop + ⛶) reads as a
+// distinct slot, not overlapping the title.
+const slimTitleBtnStyle: React.CSSProperties = {
+  flex: 1,
+  minWidth: 0,
+  background: 'transparent',
+  border: 'none',
+  padding: 0,
+  cursor: 'pointer',
+  textAlign: 'left',
+  fontFamily: 'inherit',
+  fontSize: 11,
+  color: '#57606a',
+  overflow: 'hidden',
+  textOverflow: 'ellipsis',
+  whiteSpace: 'nowrap',
+  fontWeight: 500,
+};
+const slimShortcutStyle: React.CSSProperties = {
+  fontSize: 9.5,
+  color: '#afb8c1',
+  fontWeight: 600,
+  flexShrink: 0,
+  letterSpacing: '0.02em',
+};
+// Right-side action slot for non-immersive — Stop button + ⛶ zoom.
+const slimHeadActionsStyle: React.CSSProperties = {
+  display: 'inline-flex',
   alignItems: 'center',
   gap: 4,
   flexShrink: 0,
 };
-const tileMaxBtnStyle: React.CSSProperties = {
-  width: 22, height: 22,
+const slimStopBtnStyle: React.CSSProperties = {
+  padding: '0 6px',
+  height: 16,
+  display: 'inline-flex',
+  alignItems: 'center',
+  background: 'transparent',
+  color: '#dc2626',
+  border: '1px solid #fca5a5',
+  borderRadius: 3,
+  fontFamily: 'inherit',
+  fontSize: 9.5,
+  fontWeight: 600,
+  cursor: 'pointer',
+  letterSpacing: '0.02em',
+  lineHeight: 1,
+};
+const slimStopBtnTerminalStyle: React.CSSProperties = {
+  color: '#f87171',
+  borderColor: '#7f1d1d',
+};
+const slimZoomBtnStyle: React.CSSProperties = {
+  width: 18, height: 18,
   display: 'inline-flex',
   alignItems: 'center',
   justifyContent: 'center',
   background: 'transparent',
   border: 'none',
-  color: 'var(--text-3)',
-  borderRadius: 4,
+  color: '#6e7681',
+  borderRadius: 3,
   cursor: 'pointer',
-  fontSize: 12,
-};
-const tileTitleWrapStyle: React.CSSProperties = {
-  display: 'flex',
-  alignItems: 'flex-start',
-  gap: 10,
-  minWidth: 0,
-  flex: 1,
-};
-const tileStripeStyle: React.CSSProperties = {
-  width: 3,
-  alignSelf: 'stretch',
-  borderRadius: 2,
-  flexShrink: 0,
-};
-const tileTitleStyle: React.CSSProperties = {
-  fontSize: 14,
-  fontWeight: 600,
-  color: 'var(--text-1)',
-  lineHeight: 1.35,
-  overflow: 'hidden',
-  textOverflow: 'ellipsis',
-  display: '-webkit-box',
-  WebkitLineClamp: 2,
-  WebkitBoxOrient: 'vertical',
-};
-const tileTitleBtnStyle: React.CSSProperties = {
-  flex: 1,
-  minWidth: 0,
-  textAlign: 'left',
-  background: 'transparent',
-  border: 'none',
+  fontSize: 11,
   padding: 0,
-  cursor: 'pointer',
-  color: 'inherit',
-  font: 'inherit',
+};
+// Terminal-mode override: the slim head needs a darker base + lighter
+// type so it reads on the `#0d1117` tile background.
+const tileSlimHeadTerminalStyle: React.CSSProperties = {
+  background: '#0d1117',
+  borderBottom: '1px solid #21262d',
 };
 const tileConversationStyle: React.CSSProperties = {
   flex: 1,
@@ -885,23 +932,6 @@ const footerMetricStyle: React.CSSProperties = {
   color: 'var(--text-2)',
   fontWeight: 600,
   fontVariantNumeric: 'tabular-nums',
-};
-const stopBtnStyle: React.CSSProperties = {
-  marginLeft: 8,
-  padding: '3px 10px',
-  background: 'transparent',
-  color: '#dc2626',
-  border: '1px solid #fca5a5',
-  borderRadius: 4,
-  fontSize: 11,
-  fontWeight: 600,
-  cursor: 'pointer',
-};
-const pulseDotStyle: React.CSSProperties = {
-  width: 6,
-  height: 6,
-  borderRadius: '50%',
-  background: '#fff',
 };
 const emptyStyle: React.CSSProperties = {
   padding: '40px 24px',

@@ -357,12 +357,9 @@ export default function TasksPage({
       <>
         <TasksGroupPage
           group={activeGroup}
-          groups={groups}
           tasks={tilesOrdered}
-          groupIdsByTaskId={groupIdsByTaskId}
           busyId={busyId}
           onSelectTask={onSelectTask}
-          onToggleGroup={toggleTaskInGroup}
           onStop={onStop}
           onSend={onTileSend}
           onInterrupt={onTileInterrupt}

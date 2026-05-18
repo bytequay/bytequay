@@ -32,14 +32,11 @@ import type { PendingPermission } from './ConversationPane';
  */
 export type TasksGroupPageProps = {
   group: TaskGroupDto;
-  groups: TaskGroupDto[];
   /** Tasks belonging to this group. The parent has already filtered
    *  to group membership before passing them in. */
   tasks: TaskDto[];
-  groupIdsByTaskId: Map<string, string[]>;
   busyId: string | null;
   onSelectTask: (taskId: string) => void;
-  onToggleGroup: (taskId: string, groupId: string, present: boolean) => void | Promise<void>;
   onStop: (taskId: string) => void | Promise<void>;
   onSend: (taskId: string, input: string) => void | Promise<void>;
   onInterrupt: (taskId: string) => void | Promise<void>;
@@ -72,8 +69,8 @@ const GROUP_MAX_MEMBERS = 4;
 
 export default function TasksGroupPage(props: TasksGroupPageProps) {
   const {
-    group, groups, tasks, groupIdsByTaskId, busyId,
-    onSelectTask, onToggleGroup, onStop, onSend, onInterrupt, onDecide,
+    group, tasks, busyId,
+    onSelectTask, onStop, onSend, onInterrupt, onDecide,
     onAddTask, onOpenGroupSettings, onRefresh,
     immersive, onChangeImmersive, tileMode, onChangeTileMode, onBackToAll,
   } = props;
@@ -179,8 +176,6 @@ export default function TasksGroupPage(props: TasksGroupPageProps) {
       <main style={mainStyle}>
         <GroupTaskGrid
           tasks={tasks}
-          groups={groups}
-          groupIdsByTaskId={groupIdsByTaskId}
           busyId={busyId}
           immersive={immersive}
           tileMode={tileMode}
@@ -191,7 +186,6 @@ export default function TasksGroupPage(props: TasksGroupPageProps) {
           // tile level. The modal's ⛶ button is the only way to
           // navigate into /tasks/:id.
           onOpen={taskId => setZoomedTaskId(taskId)}
-          onToggleGroup={onToggleGroup}
           onStop={onStop}
           onSend={onSend}
           onInterrupt={onInterrupt}

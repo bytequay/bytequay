@@ -64,37 +64,42 @@ export default function GroupMenu({ task, groups, currentGroupIds, onToggle }: P
         type="button"
         onClick={e => { e.stopPropagation(); setOpen(o => !o); }}
         style={triggerStyle}
-        title="Pin to groups…"
+        title="Pin this task to a group"
         aria-haspopup="menu"
         aria-expanded={open}
       >
-        ⋯
+        + Pin
       </button>
       {open && (
+        // No header inside the popover — every caller already sits
+        // inside a "Groups" labelled section / column, so a second
+        // "GROUPS" heading inside the menu was redundant and made
+        // the popover read as a noisy duplicate. Just list the
+        // toggle rows.
         <div
           style={menuStyle}
           onClick={e => e.stopPropagation()}
           role="menu"
         >
-          <div style={menuHeaderStyle}>Pin to groups</div>
-          {groups.length === 0 && (
+          {groups.length === 0 ? (
             <div style={emptyStyle}>
-              No groups yet. Create one from the rail.
+              No groups yet. Create one from the Tasks rail.
             </div>
+          ) : (
+            groups.map(g => {
+              const active = currentGroupIds.includes(g.id);
+              return (
+                <MenuRow
+                  key={g.id}
+                  glyph={g.glyph || '•'}
+                  color={g.color}
+                  label={g.name}
+                  active={active}
+                  onClick={() => void onToggle(task.id, g.id, !active)}
+                />
+              );
+            })
           )}
-          {groups.map(g => {
-            const active = currentGroupIds.includes(g.id);
-            return (
-              <MenuRow
-                key={g.id}
-                glyph={g.glyph || '•'}
-                color={g.color}
-                label={g.name}
-                active={active}
-                onClick={() => void onToggle(task.id, g.id, !active)}
-              />
-            );
-          })}
         </div>
       )}
     </div>
@@ -150,37 +155,40 @@ const wrapStyle: React.CSSProperties = {
   position: 'relative',
   display: 'inline-flex',
 };
+// "+ Pin" reads as a verb the way "⋯" never did. Keep the
+// dashed border + slight tint so it doesn't dominate the row of
+// solid group chips beside it.
 const triggerStyle: React.CSSProperties = {
+  display: 'inline-flex',
+  alignItems: 'center',
+  gap: 2,
   background: 'transparent',
-  border: 'none',
+  border: '1px dashed var(--border)',
   color: 'var(--text-3)',
-  fontSize: 14,
+  fontSize: 11,
+  fontWeight: 600,
   cursor: 'pointer',
-  padding: '2px 6px',
-  borderRadius: 4,
+  padding: '2px 8px',
+  borderRadius: 999,
+  lineHeight: 1.4,
+  letterSpacing: '0.02em',
 };
+// Solid panel background + bigger shadow so the popover reads as
+// its own surface against either a sidebar column or a card grid.
+// Previously used `var(--bg-card)`, which is so close to the
+// surrounding card colours that the popover felt translucent.
 const menuStyle: React.CSSProperties = {
   position: 'absolute',
   top: '100%',
   right: 0,
   marginTop: 4,
   minWidth: 200,
-  background: 'var(--bg-card)',
+  background: 'var(--bg-panel, var(--bg-elevated))',
   border: '1px solid var(--border)',
-  borderRadius: 6,
-  boxShadow: '0 8px 20px rgba(15, 23, 42, 0.15)',
+  borderRadius: 8,
+  boxShadow: '0 12px 28px rgba(15, 23, 42, 0.22), 0 2px 6px rgba(15, 23, 42, 0.10)',
   padding: '4px 0',
   zIndex: 30,
-};
-const menuHeaderStyle: React.CSSProperties = {
-  padding: '4px 12px 6px',
-  fontSize: 10,
-  fontWeight: 700,
-  color: 'var(--text-3)',
-  textTransform: 'uppercase',
-  letterSpacing: 0.06,
-  borderBottom: '1px solid var(--border-hairline)',
-  marginBottom: 2,
 };
 const rowStyle: React.CSSProperties = {
   display: 'flex',

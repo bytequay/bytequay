@@ -48,6 +48,103 @@ export default function TaskChangesTab({ taskId, mode }: Props) {
     : <CommitsPanel taskId={taskId} />;
 }
 
+// ─── Tabbed wrapper — used by TaskDetailPage / TaskZoomModal ────────
+// When the diff pane is opened from the conversation chrome, the user
+// might want either "what's uncommitted" or "what got committed since
+// the task started." Earlier the pane only surfaced the working tree,
+// which read as "no files changed" the moment the agent committed
+// anything — confusing because the conversation strip and the sidebar
+// metric still showed lifetime numbers. The toggle below lets the user
+// flip between the two views; the smart default falls back to Commits
+// when the working tree is clean but commits exist.
+
+const DIFF_TAB_STORAGE_KEY = 'bytequay.tasks.diffPaneTab';
+function loadDiffTab(): Mode {
+  try {
+    return window.localStorage.getItem(DIFF_TAB_STORAGE_KEY) === 'commits'
+      ? 'commits'
+      : 'files';
+  }
+  catch { return 'files'; }
+}
+
+export function TaskDiffPane({ taskId }: { taskId: string }) {
+  const [tab, setTabState] = useState<Mode>(loadDiffTab);
+  const [userOverride, setUserOverride] = useState(false);
+  const [workingCount, setWorkingCount] = useState<number | null>(null);
+  const [commitsCount, setCommitsCount] = useState<number | null>(null);
+
+  // Cheap counts for the badges + the smart-default decision. Both
+  // endpoints are already cached upstream so re-using them here is
+  // cheap; the child panels will hit the same cached responses.
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const [w, c] = await Promise.all([
+          window.bridge.listTaskWorkingChanges(taskId),
+          window.bridge.listTaskCommits(taskId).catch(() => [] as TaskCommitDto[]),
+        ]);
+        if (cancelled) return;
+        setWorkingCount(w.length);
+        setCommitsCount(c.length);
+        // Smart fallback: if the user hasn't picked a tab manually
+        // yet AND the working tree is clean AND there are commits to
+        // show, flip to Commits so "Open diff" lands on something
+        // useful instead of the "no files changed" empty state.
+        if (!userOverride && w.length === 0 && c.length > 0) {
+          setTabState('commits');
+        }
+      }
+      catch { /* non-fatal — tabs still work; counts just stay null */ }
+    })();
+    return () => { cancelled = true; };
+  }, [taskId, userOverride]);
+
+  const setTab = useCallback((next: Mode) => {
+    setUserOverride(true);
+    setTabState(next);
+    try { window.localStorage.setItem(DIFF_TAB_STORAGE_KEY, next); }
+    catch { /* private browsing — fine to skip */ }
+  }, []);
+
+  return (
+    <div style={tabPaneRootStyle}>
+      <div style={tabBarStyle} role="tablist">
+        <button
+          type="button"
+          role="tab"
+          aria-selected={tab === 'files'}
+          onClick={() => setTab('files')}
+          style={tab === 'files' ? tabBtnActiveStyle : tabBtnStyle}
+        >
+          Working tree
+          {workingCount !== null && (
+            <span style={tabCountStyle}>{workingCount}</span>
+          )}
+        </button>
+        <button
+          type="button"
+          role="tab"
+          aria-selected={tab === 'commits'}
+          onClick={() => setTab('commits')}
+          style={tab === 'commits' ? tabBtnActiveStyle : tabBtnStyle}
+        >
+          Commits
+          {commitsCount !== null && (
+            <span style={tabCountStyle}>{commitsCount}</span>
+          )}
+        </button>
+      </div>
+      <div style={tabBodyStyle}>
+        {tab === 'files'
+          ? <FilesPanel taskId={taskId} />
+          : <CommitsPanel taskId={taskId} />}
+      </div>
+    </div>
+  );
+}
+
 // ─── Tree/flat mode persistence ─────────────────────────────────────
 // Kept on a separate localStorage key from the PR review viewer so a
 // user can prefer Flat for tasks (which usually have fewer files)
@@ -714,4 +811,63 @@ const diffPathStyle: React.CSSProperties = {
   color: 'var(--text-2)',
   fontSize: 12, fontWeight: 600,
   overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+};
+
+// Tab pane wrapper used by TaskDetailPage / TaskZoomModal — a thin
+// horizontal toggle above the existing files / commits panels so the
+// user can switch which view fills the pane without leaving the
+// conversation.
+const tabPaneRootStyle: React.CSSProperties = {
+  display: 'flex',
+  flexDirection: 'column',
+  flex: 1,
+  minHeight: 0,
+};
+const tabBarStyle: React.CSSProperties = {
+  display: 'flex',
+  gap: 2,
+  padding: '6px 8px 0',
+  borderBottom: '1px solid var(--border)',
+  background: 'var(--bg-elevated)',
+  flexShrink: 0,
+};
+const tabBtnStyle: React.CSSProperties = {
+  display: 'inline-flex',
+  alignItems: 'center',
+  gap: 6,
+  padding: '6px 12px',
+  background: 'transparent',
+  border: 'none',
+  borderBottom: '2px solid transparent',
+  color: 'var(--text-2)',
+  cursor: 'pointer',
+  fontSize: 12,
+  fontWeight: 600,
+  fontFamily: 'inherit',
+  marginBottom: -1,
+};
+const tabBtnActiveStyle: React.CSSProperties = {
+  ...tabBtnStyle,
+  color: 'var(--text-1)',
+  borderBottomColor: 'var(--accent)',
+};
+const tabBodyStyle: React.CSSProperties = {
+  display: 'flex',
+  flexDirection: 'column',
+  flex: 1,
+  minHeight: 0,
+};
+const tabCountStyle: React.CSSProperties = {
+  display: 'inline-flex',
+  alignItems: 'center',
+  justifyContent: 'center',
+  minWidth: 18,
+  padding: '0 5px',
+  height: 16,
+  borderRadius: 999,
+  background: 'var(--bg-card)',
+  border: '1px solid var(--border-hairline)',
+  fontSize: 10,
+  fontWeight: 600,
+  color: 'var(--text-3)',
 };

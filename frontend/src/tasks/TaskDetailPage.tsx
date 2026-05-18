@@ -25,7 +25,7 @@ import TasksLeftRail, {
 } from './TasksLeftRail';
 import RepoAvatar from './RepoAvatar';
 import { useAutoGrowTextarea, usePersistentDraft } from './draftStore';
-import TaskChangesTab from './TaskChangesTab';
+import { TaskDiffPane } from './TaskChangesTab';
 
 type Props = {
   taskId: string;
@@ -530,7 +530,7 @@ export default function TaskDetailPage({
           </div>
           {diffOpen && (
             <div style={splitRightStyle}>
-              <TaskChangesTab taskId={taskId} mode="files" />
+              <TaskDiffPane taskId={taskId} />
             </div>
           )}
         </div>

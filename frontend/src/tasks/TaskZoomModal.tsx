@@ -14,7 +14,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { StructuredConversation } from './StructuredConversation';
 import { usePersistentDraft, useAutoGrowTextarea } from './draftStore';
-import TaskChangesTab from './TaskChangesTab';
+import { TaskDiffPane } from './TaskChangesTab';
 import type { PendingPermission } from './ConversationPane';
 import type { TaskDto, TaskMessageDto } from '../types';
 
@@ -193,7 +193,7 @@ export default function TaskZoomModal({ task, onClose, onExpandToDetail }: TaskZ
 
         {diffOpen && (
           <aside style={diffPaneStyle}>
-            <TaskChangesTab taskId={task.id} mode="files" />
+            <TaskDiffPane taskId={task.id} />
           </aside>
         )}
       </div>

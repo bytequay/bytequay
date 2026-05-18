@@ -25,8 +25,10 @@ import com.bytequay.app.domain.TaskStatus;
 import com.bytequay.app.repository.TaskGroupStore;
 import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.service.local.GitRunner;
+import org.springframework.http.HttpStatusCode;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.server.ResponseStatusException;
 
 import java.io.IOException;
 import java.nio.file.Path;
@@ -134,7 +136,7 @@ public class TaskService
         }
         for (String taskId : initialTaskIds) {
             if (store.findTaskById(taskId).isEmpty()) {
-                throw new NoSuchElementException("no task: " + taskId);
+                throw new ResponseStatusException(HttpStatusCode.valueOf(404), "no task: " + taskId);
             }
         }
         Instant now = Instant.now();
@@ -165,10 +167,10 @@ public class TaskService
         requireNonNull(taskId, "taskId is null");
         requireNonNull(groupId, "groupId is null");
         if (groupStore.findGroupById(groupId).isEmpty()) {
-            throw new NoSuchElementException("no group: " + groupId);
+            throw new ResponseStatusException(HttpStatusCode.valueOf(404), "no group: " + groupId);
         }
         if (store.findTaskById(taskId).isEmpty()) {
-            throw new NoSuchElementException("no task: " + taskId);
+            throw new ResponseStatusException(HttpStatusCode.valueOf(404), "no task: " + taskId);
         }
         long existing = groupStore.countMembers(groupId);
         // Re-adding an existing member shouldn't trip the cap: the
@@ -176,7 +178,7 @@ public class TaskService
         boolean alreadyMember = groupStore.listMembers(groupId).stream()
                 .anyMatch(m -> m.taskId().equals(taskId));
         if (!alreadyMember && existing >= GROUP_MAX_MEMBERS) {
-            throw new IllegalStateException(
+            throw new ResponseStatusException(HttpStatusCode.valueOf(409),
                     "Group " + groupId + " is full (" + GROUP_MAX_MEMBERS + " tasks); "
                             + "remove one before adding another.");
         }
@@ -194,7 +196,7 @@ public class TaskService
         requireNonNull(taskId, "taskId is null");
         requireNonNull(groupId, "groupId is null");
         if (groupStore.findGroupById(groupId).isEmpty()) {
-            throw new NoSuchElementException("no group: " + groupId);
+            throw new ResponseStatusException(HttpStatusCode.valueOf(404), "no group: " + groupId);
         }
         boolean isMember = groupStore.listMembers(groupId).stream()
                 .anyMatch(m -> m.taskId().equals(taskId));
@@ -202,7 +204,7 @@ public class TaskService
             return;
         }
         if (groupStore.countMembers(groupId) <= 1) {
-            throw new IllegalStateException(
+            throw new ResponseStatusException(HttpStatusCode.valueOf(409),
                     "Group " + groupId + " has only one task left; "
                             + "delete the group instead of emptying it.");
         }
@@ -217,7 +219,7 @@ public class TaskService
         requireNonNull(groupId, "groupId is null");
         requireNonNull(patch, "patch is null");
         TaskGroup current = groupStore.findGroupById(groupId)
-                .orElseThrow(() -> new NoSuchElementException("no group: " + groupId));
+                .orElseThrow(() -> new ResponseStatusException(HttpStatusCode.valueOf(404), "no group: " + groupId));
         TaskGroup next = new TaskGroup(
                 current.id(),
                 patch.name() != null && !patch.name().isBlank() ? patch.name() : current.name(),
@@ -251,7 +253,7 @@ public class TaskService
         requireNonNull(taskId, "taskId is null");
         requireNonNull(patch, "patch is null");
         Task current = store.findTaskById(taskId)
-                .orElseThrow(() -> new NoSuchElementException("no task: " + taskId));
+                .orElseThrow(() -> new ResponseStatusException(HttpStatusCode.valueOf(404), "no task: " + taskId));
 
         String nextTitle = current.title();
         if (patch.title() != null && !patch.title().isBlank()) {
@@ -288,10 +290,10 @@ public class TaskService
                 : List.copyOf(request.initialGroupIds());
         for (String groupId : initialGroupIds) {
             if (groupStore.findGroupById(groupId).isEmpty()) {
-                throw new NoSuchElementException("no group: " + groupId);
+                throw new ResponseStatusException(HttpStatusCode.valueOf(404), "no group: " + groupId);
             }
             if (groupStore.countMembers(groupId) >= GROUP_MAX_MEMBERS) {
-                throw new IllegalStateException(
+                throw new ResponseStatusException(HttpStatusCode.valueOf(409),
                         "Group " + groupId + " is full (" + GROUP_MAX_MEMBERS + " tasks); "
                                 + "remove one before adding another.");
             }
@@ -396,7 +398,7 @@ public class TaskService
         }
         TaskStatus status = existing.get().status();
         if (status != TaskStatus.COMPLETED && status != TaskStatus.ERRORED) {
-            throw new IllegalStateException(
+            throw new ResponseStatusException(HttpStatusCode.valueOf(409),
                     "Task " + taskId + " is " + status + "; only COMPLETED or ERRORED tasks can be deleted");
         }
         // Defensive — if a session got registered post-completion
@@ -504,7 +506,7 @@ public class TaskService
     {
         requireNonNull(taskId, "taskId is null");
         return store.findTaskById(taskId)
-                .orElseThrow(() -> new NoSuchElementException("no task: " + taskId));
+                .orElseThrow(() -> new ResponseStatusException(HttpStatusCode.valueOf(404), "no task: " + taskId));
     }
 
     /** Surface a permission prompt in the conversation pane. Called

@@ -66,17 +66,20 @@ public class TaskService
     private final TaskStore store;
     private final TaskGroupStore groupStore;
     private final TaskSessionRegistry registry;
+    private final TaskTurnScheduler scheduler;
     private final GitRunner git;
 
     public TaskService(
             TaskStore store,
             TaskGroupStore groupStore,
             TaskSessionRegistry registry,
+            TaskTurnScheduler scheduler,
             GitRunner git)
     {
         this.store = requireNonNull(store, "store is null");
         this.groupStore = requireNonNull(groupStore, "groupStore is null");
         this.registry = requireNonNull(registry, "registry is null");
+        this.scheduler = requireNonNull(scheduler, "scheduler is null");
         this.git = requireNonNull(git, "git is null");
     }
 
@@ -329,11 +332,8 @@ public class TaskService
         for (String groupId : initialGroupIds) {
             groupStore.addMember(task.id(), groupId);
         }
-        // Spin up the session synchronously so the first send() call
-        // inside this request can dispatch on it.
-        AgentSession session = registry.getOrCreate(task);
         if (request.initialPrompt() != null && !request.initialPrompt().isBlank()) {
-            session.send(request.initialPrompt());
+            scheduler.enqueueTurn(task, request.initialPrompt());
         }
         return store.findTaskById(task.id()).orElse(task);
     }
@@ -357,7 +357,7 @@ public class TaskService
      *  in-memory session if it was evicted (e.g. after restart). */
     public void send(String taskId, String input)
     {
-        sessionOrThrow(taskId).send(input);
+        scheduler.enqueueTurn(requireTask(taskId), input);
     }
 
     public void interrupt(String taskId)

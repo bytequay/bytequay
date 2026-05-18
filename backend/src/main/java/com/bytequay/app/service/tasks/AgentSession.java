@@ -22,6 +22,7 @@ import com.bytequay.app.domain.TaskStatus;
 
 import java.util.List;
 import java.util.OptionalInt;
+import java.util.concurrent.CompletionStage;
 import java.util.function.Consumer;
 
 /**
@@ -81,9 +82,10 @@ public interface AgentSession
      *  the conversation pane on first load. */
     List<TaskMessage> history();
 
-    /** Send user input as the next turn. No-op if the session is
-     *  in a terminal status. */
-    void send(String userInput);
+    /** Send user input as the next turn. No-op if the session is in a
+     *  terminal status. The returned stage completes once the turn has
+     *  released its local resources. */
+    CompletionStage<Void> send(String userInput);
 
     /** Best-effort cancel of the currently-running turn. The
      *  session moves to {@link TaskStatus#IDLE} once the loop

@@ -40,10 +40,12 @@ import java.util.List;
 import java.util.Map;
 import java.util.OptionalInt;
 import java.util.UUID;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.RejectedExecutionException;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
@@ -225,7 +227,7 @@ public class ClaudeCodeCliSession
     }
 
     @Override
-    public void send(String userInput)
+    public CompletableFuture<Void> send(String userInput)
     {
         requireNonNull(userInput, "userInput is null");
         TaskStatus current = status.get();
@@ -243,7 +245,24 @@ public class ClaudeCodeCliSession
         // listener fan-out, so publish() alone wouldn't show it.
         Instant now = Instant.now();
         handle(new StreamEvent.UserMessage(now, userInput));
-        executor.submit(() -> runTurn(userInput));
+        CompletableFuture<Void> completion = new CompletableFuture<>();
+        try {
+            executor.execute(() -> {
+                try {
+                    runTurn(userInput);
+                    completion.complete(null);
+                }
+                catch (RuntimeException | Error e) {
+                    completion.completeExceptionally(e);
+                    throw e;
+                }
+            });
+        }
+        catch (RejectedExecutionException e) {
+            transition(TaskStatus.ERRORED);
+            completion.completeExceptionally(e);
+        }
+        return completion;
     }
 
     @Override
@@ -463,6 +482,19 @@ public class ClaudeCodeCliSession
         ProcessBuilder pb = new ProcessBuilder(argv.build());
         pb.directory(Path.of(workingDir).toFile());
         pb.redirectErrorStream(false);
+        // Cap the Node.js heap inside the Claude CLI subprocess so a
+        // single task can't blow through the app-wide ~8 GB budget on
+        // its own. 512 MB is enough for the streaming JSON pipeline +
+        // tool-use buffering we observe in practice; multiplied by the
+        // scheduler's 5-way CLI concurrency lane (see
+        // bytequay.tasks.scheduler.max-cli-running) this keeps the
+        // combined CLI footprint around ~3 GB even with the lane full.
+        // NODE_OPTIONS rides through env so it applies whether the user
+        // installed claude as a global npm bin or via npx/yarn.
+        pb.environment().merge(
+                "NODE_OPTIONS",
+                "--max-old-space-size=512",
+                (existing, ours) -> existing.contains("--max-old-space-size") ? existing : existing + " " + ours);
         return pb;
     }
 

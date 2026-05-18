@@ -57,6 +57,11 @@ export type TasksGroupPageProps = {
    *  outside this shell). Esc inside the page exits. */
   immersive: boolean;
   onChangeImmersive: (next: boolean) => void;
+  /** Per-tile visual mode — Chat (default) or Terminal. Owned by
+   *  TasksPage so the bit survives navigating away from the page;
+   *  toggled by {@code ⌘T} from inside the group view. */
+  tileMode: 'chat' | 'terminal';
+  onChangeTileMode: (next: 'chat' | 'terminal') => void;
   /** Clears the group filter and returns to the full task list view.
    *  Surfaced both in the topnav breadcrumb and in the rail's back
    *  link so the user always has an exit. */
@@ -70,8 +75,9 @@ export default function TasksGroupPage(props: TasksGroupPageProps) {
     group, groups, tasks, groupIdsByTaskId, busyId,
     onSelectTask, onToggleGroup, onStop, onSend, onInterrupt, onDecide,
     onAddTask, onOpenGroupSettings, onRefresh,
-    immersive, onChangeImmersive, onBackToAll,
+    immersive, onChangeImmersive, tileMode, onChangeTileMode, onBackToAll,
   } = props;
+  void onChangeTileMode; // toggling lives at TasksPage level (⌘T)
 
   const [zoomedTaskId, setZoomedTaskId] = useState<string | null>(null);
   // Selection lives at the page level (not GroupTaskGrid) so the
@@ -145,10 +151,15 @@ export default function TasksGroupPage(props: TasksGroupPageProps) {
   // Page fills the full viewport while immersive (the topbar is
   // hidden at the App level so app-content gets the whole window).
   // Otherwise we keep the historical 56px reserve the rest of the
-  // app uses for tasks-pages.
-  const sectionStyle: React.CSSProperties = immersive
-    ? { ...shellStyle, height: '100vh' }
+  // app uses for tasks-pages. Terminal mode also flips the page
+  // background to the Warp/tmux dark `#0d1117` so the rail and the
+  // gaps between tiles read as one continuous monospace surface.
+  const baseShell: React.CSSProperties = tileMode === 'terminal'
+    ? { ...shellStyle, background: '#0d1117' }
     : shellStyle;
+  const sectionStyle: React.CSSProperties = immersive
+    ? { ...baseShell, height: '100vh' }
+    : baseShell;
 
   return (
     <section style={sectionStyle}>
@@ -172,6 +183,7 @@ export default function TasksGroupPage(props: TasksGroupPageProps) {
           groupIdsByTaskId={groupIdsByTaskId}
           busyId={busyId}
           immersive={immersive}
+          tileMode={tileMode}
           selectedId={selectedId}
           onSelectTile={setSelectedId}
           // Tiles open the zoom modal — the design intentionally
@@ -187,11 +199,14 @@ export default function TasksGroupPage(props: TasksGroupPageProps) {
         />
       </main>
 
-      {immersive && (
-        // No-cost reminder of how to exit. Pointer-events disabled so
-        // it never intercepts clicks on the tiles below.
+      {/* Always-on mode pill — bottom-right reminder of how to exit
+          (immersive) AND how to switch visual modes. Pointer-events
+          off so it never intercepts clicks on the tiles below. */}
+      {(immersive || tileMode === 'terminal') && (
         <div style={exitPillStyle} aria-hidden>
-          ⛶ Esc to exit immersive
+          {tileMode === 'terminal'
+            ? (immersive ? '⌨ TERMINAL · ⌘T → Chat · Esc to exit' : '⌨ TERMINAL · ⌘T → Chat')
+            : '⛶ Esc to exit immersive'}
         </div>
       )}
 

@@ -18,7 +18,7 @@ import type { TaskDto, TaskGroupDto, TaskMessageDto, TaskStatusDto } from '../ty
 // once per refresh instead of per tile.
 import GroupMenu from './GroupMenu';
 import { type PendingPermission } from './ConversationPane';
-import { StructuredConversation } from './StructuredConversation';
+import { TileConversation, type TileConversationMode } from './TileConversation';
 import RepoAvatar from './RepoAvatar';
 import { useAutoGrowTextarea, usePersistentDraft } from './draftStore';
 
@@ -63,6 +63,9 @@ type Props = {
    *  stays — it's the only chrome the user actively uses while
    *  driving 4 agents at once. */
   immersive: boolean;
+  /** Per-tile visual mode for the conversation pane — Chat (default,
+   *  WeChat bubbles) or Terminal (Warp/tmux monospace). */
+  tileMode: TileConversationMode;
   /** ID of the currently selected tile (parent-owned so Esc
    *  precedence and clear-on-deselect can be driven from outside). */
   selectedId: string | null;
@@ -92,7 +95,7 @@ const POLL_MS = 4000;
  */
 export default function GroupTaskGrid({
   tasks, groups, onOpen, onToggleGroup, groupIdsByTaskId, onStop, onSend, onInterrupt, onDecide,
-  busyId, immersive, selectedId, onSelectTile,
+  busyId, immersive, tileMode, selectedId, onSelectTile,
 }: Props) {
   // Auto-derive the tile layout from the task count — the server
   // caps a group at 4 members so the grid is bounded. Earlier the
@@ -186,7 +189,7 @@ export default function GroupTaskGrid({
 
   return (
     <>
-      <div style={layoutGridStyle(layout)}>
+      <div style={layoutGridStyle(layout, tileMode)}>
         {visible.map((t, idx) => (
           <div
             key={t.id}
@@ -203,6 +206,7 @@ export default function GroupTaskGrid({
               busy={busyId === t.id}
               dragging={dragFrom === idx}
               immersive={immersive}
+              tileMode={tileMode}
               selected={selectedId === t.id}
               onSelect={() => onSelectTile(t.id)}
               onOpen={() => onOpen(t.id)}
@@ -229,7 +233,7 @@ export default function GroupTaskGrid({
 }
 
 function TaskTile({
-  task, groups, currentGroupIds, messages, busy, dragging, immersive,
+  task, groups, currentGroupIds, messages, busy, dragging, immersive, tileMode,
   selected, onSelect,
   onOpen, onToggleGroup, onStop,
   onSend, onInterrupt, onDecide,
@@ -244,6 +248,8 @@ function TaskTile({
   /** When immersive, drop the tile head bar and bottom status strip
    *  so the conversation + reply input fill the entire pane. */
   immersive: boolean;
+  /** Per-tile conversation visual mode (Chat / Terminal). */
+  tileMode: TileConversationMode;
   /** Whether this tile is the active one. Parent guarantees at most
    *  one tile in the grid has selected=true at any time. */
   selected: boolean;
@@ -394,11 +400,13 @@ function TaskTile({
     }
   }
 
+  const isTerm = tileMode === 'terminal';
   return (
     <article
       style={{
         ...tileStyle,
-        ...(selected ? tileSelectedStyle : null),
+        ...(isTerm ? tileTerminalStyle : null),
+        ...(selected ? (isTerm ? tileSelectedTerminalStyle : tileSelectedStyle) : null),
         ...(dragging ? tileDraggingStyle : null),
       }}
       onClick={onTileClick}
@@ -451,16 +459,16 @@ function TaskTile({
       )}
 
       <div style={tileConversationStyle}>
-        <StructuredConversation
+        <TileConversation
           messages={messages}
           pendingPermission={pendingPermission}
           onDecide={onDecide}
-          modelName={task.model}
+          mode={tileMode}
         />
       </div>
 
       {!isTerminal && (
-        <div style={tileReplyStyle}>
+        <div style={isTerm ? { ...tileReplyStyle, ...tileReplyTerminalStyle } : tileReplyStyle}>
           <textarea
             ref={replyRef}
             value={draft}
@@ -475,7 +483,9 @@ function TaskTile({
                 void submit();
               }
             }}
-            style={tileReplyTextareaStyle}
+            style={isTerm
+              ? { ...tileReplyTextareaStyle, ...tileReplyTextareaTerminalStyle }
+              : tileReplyTextareaStyle}
           />
           <div style={tileReplyActionsStyle}>
             {isRunning && (
@@ -632,16 +642,18 @@ function formatTokens(n: number): string {
  *  the user picks. The {@code minmax(0, ...)} on the row tracks lets
  *  tiles shrink inside their slot instead of pushing the grid taller
  *  than the viewport. */
-function layoutGridStyle(layout: GroupLayout): React.CSSProperties {
+function layoutGridStyle(layout: GroupLayout, mode: TileConversationMode): React.CSSProperties {
   // tmux-style splits — 1px dividers via gap + background so adjacent
   // tiles share a hairline border without any per-tile chrome. Tiles
   // butt right up against the rail and the screen edges (no padding
   // on the main column either), matching docs/mockups/design/tasks/
-  // tasks-group.png.
+  // tasks-group.png. In Terminal mode the divider colour swaps to
+  // the GitHub-dark `#21262d` so the whole pane reads as one
+  // continuous monospace surface.
   const base: React.CSSProperties = {
     display: 'grid',
     gap: 1,
-    background: 'var(--border)',
+    background: mode === 'terminal' ? '#21262d' : 'var(--border)',
     flex: 1,
     minHeight: 0,
   };
@@ -709,6 +721,17 @@ const tileDraggingStyle: React.CSSProperties = {
 const tileSelectedStyle: React.CSSProperties = {
   boxShadow: 'inset 0 0 0 2px var(--accent)',
   background: 'var(--accent-a05, rgba(124,92,255,0.04))',
+};
+// Terminal mode: dark base for the tile, so the reply input and any
+// gutters blend with the conversation pane. The selected ring stays
+// purple but the tint flips so it reads against the dark background.
+const tileTerminalStyle: React.CSSProperties = {
+  background: '#0d1117',
+  color: 'rgba(255,255,255,0.88)',
+};
+const tileSelectedTerminalStyle: React.CSSProperties = {
+  boxShadow: 'inset 0 0 0 2px #a78bfa',
+  background: '#10151c',
 };
 const dragHandleStyle: React.CSSProperties = {
   color: 'var(--text-4)',
@@ -808,6 +831,19 @@ const tileReplyTextareaStyle: React.CSSProperties = {
   border: '1px solid var(--border-input)',
   borderRadius: 6,
   outline: 'none',
+};
+// Terminal-mode overrides — the reply row blends with the dark tile
+// while keeping the input itself readable. Monospace matches the
+// conversation pane above.
+const tileReplyTerminalStyle: React.CSSProperties = {
+  background: '#0d1117',
+  borderTop: '1px solid #21262d',
+};
+const tileReplyTextareaTerminalStyle: React.CSSProperties = {
+  background: '#161b22',
+  color: 'rgba(255,255,255,0.92)',
+  border: '1px solid #30363d',
+  fontFamily: '"SF Mono", "JetBrains Mono", Menlo, Consolas, monospace',
 };
 const tileReplyActionsStyle: React.CSSProperties = {
   display: 'flex',

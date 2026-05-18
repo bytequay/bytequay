@@ -31,6 +31,19 @@ import TasksLeftRail, {
  *  hunting down an expensive run to investigate or kill. */
 type SortMode = 'newest' | 'oldest' | 'highestCost';
 
+/** Per-tile conversation visual mode. {@code chat} is the default
+ *  (WeChat-style bubbles); {@code terminal} flips the group page to
+ *  a dark Warp / tmux pane. Persisted per-device. */
+type TileMode = 'chat' | 'terminal';
+const TILE_MODE_KEY = 'bytequay.tasks.tileMode';
+function loadTileMode(): TileMode {
+  try {
+    const raw = window.localStorage.getItem(TILE_MODE_KEY);
+    return raw === 'terminal' ? 'terminal' : 'chat';
+  }
+  catch { return 'chat'; }
+}
+
 type Props = {
   /** Status filter the left rail is highlighting; drives which tasks
    *  appear in the main pane. */
@@ -91,6 +104,31 @@ export default function TasksPage({
   const [activeGroup, setActiveGroup] = useState<TaskGroupDto | null>(null);
   const [showGroupSettings, setShowGroupSettings] = useState(false);
   const [showAddTask, setShowAddTask] = useState(false);
+  const [tileMode, setTileModeState] = useState<TileMode>(loadTileMode);
+  const setTileMode = useCallback((next: TileMode) => {
+    setTileModeState(next);
+    try { window.localStorage.setItem(TILE_MODE_KEY, next); }
+    catch { /* private browsing — fine to skip */ }
+  }, []);
+
+  // ⌘T toggles Chat ↔ Terminal whenever a group page is showing.
+  // Skip while text fields have focus so "t" inside a search box /
+  // textarea still types literally.
+  useEffect(() => {
+    if (groupId === null) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (!(e.metaKey || e.ctrlKey)) return;
+      if (e.shiftKey || e.altKey) return;
+      if (e.key !== 't' && e.key !== 'T') return;
+      const target = e.target as HTMLElement | null;
+      const tag = target?.tagName;
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || target?.isContentEditable) return;
+      e.preventDefault();
+      setTileMode(tileMode === 'chat' ? 'terminal' : 'chat');
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [groupId, tileMode, setTileMode]);
 
   // ⌘\ toggles immersive whenever the user is on a group page —
   // matches the keybinding in tasks-design.md (Group-page chrome
@@ -334,6 +372,8 @@ export default function TasksPage({
           onRefresh={refresh}
           immersive={immersive}
           onChangeImmersive={onChangeImmersive}
+          tileMode={tileMode}
+          onChangeTileMode={setTileMode}
           onBackToAll={() => onGroupChange(null)}
         />
 

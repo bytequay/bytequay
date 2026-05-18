@@ -266,6 +266,23 @@ function TaskTile({
     }
   }
 
+  // Double-click anywhere on the tile zooms — gated to ignore the
+  // gesture when (a) the user just selected text (double-click is the
+  // OS-standard word selection verb), or (b) the click landed inside
+  // an input/textarea/button (those have their own click semantics
+  // and shouldn't accidentally pop a modal).
+  function onTileDoubleClick(e: React.MouseEvent<HTMLElement>) {
+    const target = e.target as HTMLElement | null;
+    if (target !== null) {
+      const tag = target.tagName;
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'BUTTON') return;
+      if (target.closest('button, input, textarea, select, a') !== null) return;
+    }
+    const sel = window.getSelection();
+    if (sel !== null && sel.toString().length > 0) return;
+    onOpen();
+  }
+
   return (
     <article
       style={{
@@ -276,6 +293,7 @@ function TaskTile({
       onDragOver={e => { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; }}
       onDrop={e => { e.preventDefault(); onDrop(); }}
       onDragEnd={onDragEnd}
+      onDoubleClick={onTileDoubleClick}
     >
       <header
         style={tileHeaderStyle}
@@ -288,11 +306,6 @@ function TaskTile({
           e.dataTransfer.setData('text/plain', task.id);
           onDragStart();
         }}
-        // Double-click on the header opens the zoom modal — matches
-        // the design's "double click zooms" verb. Attached to the
-        // header (not the whole tile body) so the scroll area and
-        // reply textarea don't intercept the gesture.
-        onDoubleClick={onOpen}
       >
         <span style={dragHandleStyle} aria-hidden title="Drag header to reorder">⋮⋮</span>
         <div style={tileTitleWrapStyle}>
@@ -302,7 +315,7 @@ function TaskTile({
             type="button"
             onClick={onOpen}
             style={tileTitleBtnStyle}
-            title="Zoom in (Esc to close)"
+            title="Zoom in (or double-click anywhere on the tile)"
           >
             <span style={tileTitleStyle}>{task.title}</span>
           </button>
@@ -313,7 +326,7 @@ function TaskTile({
             type="button"
             onClick={onOpen}
             style={tileMaxBtnStyle}
-            title="Zoom in (double-click the header)"
+            title="Zoom in (or double-click the tile)"
             aria-label="Zoom in"
           >
             ⛶

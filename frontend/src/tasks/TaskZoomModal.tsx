@@ -460,10 +460,16 @@ const backdropStyle: React.CSSProperties = {
   justifyContent: 'center',
 };
 
+// Zoom is meant to be an immersive view of one task — float over
+// the group page using almost the whole viewport (just enough inset
+// to make the modal feel like a card on top, not a full-screen
+// takeover). The fixed 740 height we had before left a lot of dead
+// space on larger displays.
 const modalBaseStyle: React.CSSProperties = {
-  height: 740,
-  maxWidth: 'calc(100vw - 60px)',
-  maxHeight: 'calc(100vh - 60px)',
+  width: 'calc(100vw - 40px)',
+  height: 'calc(100vh - 40px)',
+  maxWidth: 1800,
+  maxHeight: 1200,
   background: 'var(--bg-card)',
   borderRadius: 12,
   border: '1px solid var(--border)',
@@ -473,13 +479,15 @@ const modalBaseStyle: React.CSSProperties = {
 };
 const modalStyleWithDiff: React.CSSProperties = {
   ...modalBaseStyle,
-  width: 1340,
-  gridTemplateColumns: '220px 1fr 700px',
+  // 260px sidebar (a touch wider so the longer "AWAITING" pill
+  // doesn't get cropped); diff pane fixed at 720 so the diff stays
+  // legible regardless of overall viewport width; conversation takes
+  // the rest.
+  gridTemplateColumns: '260px 1fr 720px',
 };
 const modalStyleNoDiff: React.CSSProperties = {
   ...modalBaseStyle,
-  width: 1100,
-  gridTemplateColumns: '220px 1fr',
+  gridTemplateColumns: '260px 1fr',
 };
 
 const sidebarStyle: React.CSSProperties = {

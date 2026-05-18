@@ -230,10 +230,8 @@ export default function TaskCreatePage({
         : 'Title is required — pick a PR or type one in.');
       return;
     }
-    if (trimmedPrompt === '') {
-      setError('Initial prompt is required.');
-      return;
-    }
+    // Initial prompt is optional — the user can start the task and
+    // send the first turn from the detail page once the agent boots.
 
     setSubmitting(true);
     try {
@@ -259,7 +257,7 @@ export default function TaskCreatePage({
         model: '',
         title: trimmedTitle,
         workingDir,
-        initialPrompt: trimmedPrompt,
+        initialPrompt: trimmedPrompt === '' ? undefined : trimmedPrompt,
         initialGroupIds: groupId ? [groupId] : undefined,
         taskType,
         linkedPrNumber: linkedPrNumber ?? undefined,
@@ -435,16 +433,19 @@ export default function TaskCreatePage({
           <Field label="Kind" required>
             <div style={segStyle} role="radiogroup" aria-label="Provider kind">
               <SegBtn
-                glyph="C"
                 label="Claude Code"
                 active={provider === 'claude-code'}
                 onClick={() => setProvider('claude-code')}
               />
+              {/* Codex isn't wired end-to-end yet — the option is in
+                  place for the visual contract but stays disabled
+                  until the backend session for Codex actually runs. */}
               <SegBtn
-                glyph="X"
                 label="Codex"
                 active={provider === 'codex'}
                 onClick={() => setProvider('codex')}
+                disabled
+                title="Codex provider coming soon"
               />
             </div>
           </Field>
@@ -480,7 +481,7 @@ export default function TaskCreatePage({
             />
           </Field>
 
-          <Field label="Initial prompt" required>
+          <Field label="Initial prompt" hint="optional · you can send the first turn after the agent boots">
             <textarea
               value={prompt}
               onChange={e => setPrompt(e.target.value)}
@@ -550,25 +551,34 @@ function Field({
 }
 
 function SegBtn({
-  glyph, label, active, onClick,
+  glyph, label, active, onClick, disabled, title,
 }: {
-  glyph: string;
+  /** Optional decorative glyph. Today only the Type segment renders
+   *  one; the Kind segment uses plain labels per the latest design
+   *  pass. */
+  glyph?: string;
   label: string;
   active: boolean;
   onClick: () => void;
+  disabled?: boolean;
+  title?: string;
 }) {
   return (
     <button
       type="button"
       role="radio"
       aria-checked={active}
+      aria-disabled={disabled}
+      disabled={disabled}
       onClick={onClick}
+      title={title}
       style={{
         ...segBtnStyle,
-        ...(active ? segBtnActiveStyle : null),
+        ...(active && !disabled ? segBtnActiveStyle : null),
+        ...(disabled ? segBtnDisabledStyle : null),
       }}
     >
-      <span aria-hidden style={segGlyphStyle}>{glyph}</span>
+      {glyph !== undefined && <span aria-hidden style={segGlyphStyle}>{glyph}</span>}
       <span>{label}</span>
     </button>
   );
@@ -790,6 +800,10 @@ const segBtnActiveStyle: React.CSSProperties = {
   borderColor: 'var(--accent)',
   color: 'var(--accent)',
   fontWeight: 600,
+};
+const segBtnDisabledStyle: React.CSSProperties = {
+  opacity: 0.45,
+  cursor: 'not-allowed',
 };
 const segGlyphStyle: React.CSSProperties = {
   fontSize: 14,

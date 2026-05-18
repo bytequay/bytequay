@@ -57,6 +57,10 @@ export type TasksGroupPageProps = {
    *  outside this shell). Esc inside the page exits. */
   immersive: boolean;
   onChangeImmersive: (next: boolean) => void;
+  /** Clears the group filter and returns to the full task list view.
+   *  Surfaced both in the topnav breadcrumb and in the rail's back
+   *  link so the user always has an exit. */
+  onBackToAll: () => void;
 };
 
 const GROUP_MAX_MEMBERS = 4;
@@ -66,7 +70,7 @@ export default function TasksGroupPage(props: TasksGroupPageProps) {
     group, groups, tasks, groupIdsByTaskId, busyId,
     onSelectTask, onToggleGroup, onStop, onSend, onInterrupt, onDecide,
     onAddTask, onOpenGroupSettings, onRefresh,
-    immersive, onChangeImmersive,
+    immersive, onChangeImmersive, onBackToAll,
   } = props;
 
   const [zoomedTaskId, setZoomedTaskId] = useState<string | null>(null);
@@ -121,6 +125,7 @@ export default function TasksGroupPage(props: TasksGroupPageProps) {
           onRefresh={() => void onRefresh()}
           onToggleImmersive={() => onChangeImmersive(!immersive)}
           immersive={immersive}
+          onBackToAll={onBackToAll}
         />
       )}
       <main style={mainStyle}>

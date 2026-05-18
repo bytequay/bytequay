@@ -325,6 +325,7 @@ export default function TasksPage({
           onRefresh={refresh}
           immersive={immersive}
           onChangeImmersive={setImmersive}
+          onBackToAll={() => onGroupChange(null)}
         />
 
         {error && (

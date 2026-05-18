@@ -181,6 +181,15 @@ function GlobalTopbar({ nav, onNav, fullScreen }: GlobalTopbarProps) {
             ← Tasks
           </button>
         )}
+        {nav.view === 'tasks' && nav.groupId !== undefined && (
+          <button
+            className="global-topbar__breadcrumb"
+            onClick={() => onNav({ view: 'tasks' })}
+            title="Back to all tasks"
+          >
+            ← All tasks
+          </button>
+        )}
         {/* Portal target: child screens (e.g. PullRequestList) mount
             their own context-back button here via createPortal so it
             sits next to the brand/breadcrumb without forcing the page

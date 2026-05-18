@@ -39,17 +39,29 @@ export type TasksGroupSidebarProps = {
   onRefresh: () => void;
   onToggleImmersive: () => void;
   immersive: boolean;
+  /** Back to the full task list (clears the group filter). Surfaced
+   *  as a small breadcrumb above the group identity row so the user
+   *  always has an in-rail exit from the group view. */
+  onBackToAll: () => void;
 };
 
 export default function TasksGroupSidebar({
   group, tasks, canAddTask,
   onAddTask, onOpenGroupSettings, onRefresh,
-  onToggleImmersive, immersive,
+  onToggleImmersive, immersive, onBackToAll,
 }: TasksGroupSidebarProps) {
   const counts = useMemo(() => deriveStatusCounts(tasks), [tasks]);
   const vitals = useMemo(() => deriveAggregates(tasks), [tasks]);
   return (
     <aside style={sidebarStyle}>
+      <button
+        type="button"
+        onClick={onBackToAll}
+        style={backLinkStyle}
+        title="Back to all tasks"
+      >
+        ← All tasks
+      </button>
       <div style={identityRowStyle}>
         <span style={{ ...identityIconStyle, background: groupColorBg(group.color) }}>
           {group.glyph || '•'}
@@ -272,6 +284,19 @@ const sidebarStyle: React.CSSProperties = {
   scrollbarWidth: 'thin',
 };
 
+const backLinkStyle: React.CSSProperties = {
+  display: 'inline-flex',
+  alignItems: 'center',
+  alignSelf: 'flex-start',
+  padding: '2px 4px',
+  background: 'transparent',
+  border: 'none',
+  color: 'var(--text-3)',
+  fontSize: 11,
+  fontWeight: 500,
+  cursor: 'pointer',
+  letterSpacing: '-0.005em',
+};
 const identityRowStyle: React.CSSProperties = {
   display: 'flex', alignItems: 'center', gap: 8,
   padding: '2px 4px 6px',

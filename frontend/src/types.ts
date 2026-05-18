@@ -742,12 +742,14 @@ export type EmailTagDto = {
 export type EmailTagAction = 'FOCUS' | 'ARCHIVE' | 'IGNORE';
 
 /** Mirror of backend EmailTagArchiveEntry. One row in the local
- *  audit log of tag-driven archives — what the "Archived" view in
- *  the email left nav reads from. */
+ *  audit log of archives — what the "Archived" view in the email
+ *  left nav reads from. {@code tagId} is null for manual archives
+ *  (user clicked the archive button or opened an unread thread);
+ *  non-null for tag-rule-driven archives. */
 export type EmailTagArchiveEntryDto = {
   accountEmail: string;
   gmailThreadId: string;
-  tagId: string;
+  tagId: string | null;
   subject: string | null;
   fromAddr: string | null;
   snippet: string | null;

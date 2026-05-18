@@ -29,7 +29,7 @@ class EmailTagArchiveLogEntity
     @EmbeddedId
     private EmailTagArchiveLogKey id;
 
-    @Column(name = "tag_id", nullable = false)
+    @Column(name = "tag_id")
     private String tagId;
 
     @Column(name = "subject")

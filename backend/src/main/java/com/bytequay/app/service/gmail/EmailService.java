@@ -248,12 +248,16 @@ public class EmailService
     }
 
     /** Removes the Gmail INBOX label from every message in the thread —
-     *  Gmail's archive semantics. */
+     *  Gmail's archive semantics. Also records a row in the tag archive
+     *  log (with {@code tagId = null}) so the Archived left-nav view
+     *  surfaces manual archives, not just tag-driven ones. */
     public void archiveThread(String email, String threadId)
     {
         requireNonBlank(email, "email");
         requireNonBlank(threadId, "threadId");
-        imapClient.archiveThread(email, appPasswordFor(email), threadId);
+        String appPassword = appPasswordFor(email);
+        imapClient.archiveThread(email, appPassword, threadId);
+        logManualArchive(email, appPassword, threadId);
     }
 
     /** Sets {@code \Seen} on every message in the thread. */
@@ -275,12 +279,62 @@ public class EmailService
     /** Combined "open and dismiss" — one IMAP STORE batch sets {@code \Seen}
      *  and removes the INBOX label. Wired to the auto-action that fires
      *  when the user opens an unread thread, so reading is the same
-     *  gesture as archiving. */
+     *  gesture as archiving. Also records the archive in the log (with
+     *  {@code tagId = null}). */
     public void readAndArchiveThread(String email, String threadId)
     {
         requireNonBlank(email, "email");
         requireNonBlank(threadId, "threadId");
-        imapClient.readAndArchiveThread(email, appPasswordFor(email), threadId);
+        String appPassword = appPasswordFor(email);
+        imapClient.readAndArchiveThread(email, appPassword, threadId);
+        logManualArchive(email, appPassword, threadId);
+    }
+
+    /**
+     * Best-effort archive-log write for manually-archived threads. Runs
+     * after the IMAP archive succeeded, so failure here only loses the
+     * audit row — the thread is still archived on Gmail. We swallow
+     * exceptions and log a warning since the user's primary action
+     * (archive) has already succeeded; surfacing a 500 here would be
+     * confusing.
+     */
+    private void logManualArchive(String email, String appPassword, String threadId)
+    {
+        try {
+            EmailThreadDetail detail = imapClient.getThreadFull(email, appPassword, threadId);
+            EmailMessageDetail head = detail.messages().isEmpty() ? null : detail.messages().get(0);
+            String fromAddr = head == null ? "" : (head.from() == null ? "" : head.from());
+            Instant receivedAt = head == null || head.receivedAt() == null
+                    ? Instant.EPOCH
+                    : head.receivedAt();
+            String snippet = head == null ? "" : snippetOf(head.bodyText());
+            // Reuse EmailThreadMeta to feed logArchive without duplicating the
+            // record's shape — receivedAt/messageCount/view fields are inert here.
+            EmailThreadMeta meta = new EmailThreadMeta(
+                    threadId,
+                    head == null ? null : head.id(),
+                    fromAddr,
+                    detail.subject() == null ? "" : detail.subject(),
+                    snippet,
+                    receivedAt,
+                    false,
+                    detail.messages().size(),
+                    null,
+                    EmailThreadMeta.View.ARCHIVE);
+            tagService.logArchive(email, meta, null, Instant.now());
+        }
+        catch (Exception e) {
+            log.warn("Manual archive log failed for thread {} on {}: {}", threadId, email, e.getMessage());
+        }
+    }
+
+    private static String snippetOf(String bodyText)
+    {
+        if (bodyText == null) {
+            return "";
+        }
+        String collapsed = bodyText.replaceAll("\\s+", " ").trim();
+        return collapsed.length() > 240 ? collapsed.substring(0, 240) : collapsed;
     }
 
     /** Reverses an archive: re-adds INBOX and clears UNREAD. Drives the

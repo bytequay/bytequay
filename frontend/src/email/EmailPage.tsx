@@ -795,29 +795,38 @@ function ThreadDetailPane({
       </div>
       {loading && <div className="repo-loading">Loading thread…</div>}
       {error && <div className="repo-error">{error}</div>}
-      {detail && detail.linkedRefs.length > 0 && (
-        <div className="email-linked-refs">
-          <div className="email-linked-refs__label">Detected links · open in ByteQuay</div>
-          <div className="email-linked-refs__items">
-            {detail.linkedRefs.map(ref => (
-              <button
-                key={ref.url}
-                type="button"
-                className="email-linked-refs__item"
-                onClick={() => onOpenLinkedRef(ref)}
-                title={ref.url}
-              >
-                <span className="email-linked-refs__kind">{ref.kind}</span>
-                <span className="email-linked-refs__num">
-                  {ref.kind === 'COMMIT' ? ref.slug : `#${ref.slug}`}
-                </span>
-                <span className="email-linked-refs__repo">{ref.owner}/{ref.repo}</span>
-                <span className="email-linked-refs__arrow">→</span>
-              </button>
-            ))}
+      {detail && detail.linkedRefs.length > 0 && (() => {
+        // The detector returns one row per occurrence of a link in the
+        // thread body, so the same PR/issue mentioned in the subject
+        // *and* a reply line yields two identical entries. Dedupe by
+        // URL so the card surfaces each target exactly once.
+        const dedupedRefs = Array.from(
+          new Map(detail.linkedRefs.map(ref => [ref.url, ref])).values(),
+        );
+        return (
+          <div className="email-linked-refs">
+            <div className="email-linked-refs__label">Detected links · open in ByteQuay</div>
+            <div className="email-linked-refs__items">
+              {dedupedRefs.map(ref => (
+                <button
+                  key={ref.url}
+                  type="button"
+                  className="email-linked-refs__item"
+                  onClick={() => onOpenLinkedRef(ref)}
+                  title={ref.url}
+                >
+                  <span className="email-linked-refs__kind">{ref.kind}</span>
+                  <span className="email-linked-refs__num">
+                    {ref.kind === 'COMMIT' ? ref.slug : `#${ref.slug}`}
+                  </span>
+                  <span className="email-linked-refs__repo">{ref.owner}/{ref.repo}</span>
+                  <span className="email-linked-refs__arrow">→</span>
+                </button>
+              ))}
+            </div>
           </div>
-        </div>
-      )}
+        );
+      })()}
       {detail && (
         <div className="email-detail__messages">
           {detail.messages.map((m, i) => {
@@ -1071,7 +1080,7 @@ function archiveEntryToThreadMeta(entry: EmailTagArchiveEntryDto): EmailThreadMe
 function emptyHintFor(view: EmailActiveView): string {
   switch (view.kind) {
     case 'inbox': return 'Inbox is empty.';
-    case 'archived': return 'Nothing has been archived by a tag yet.';
+    case 'archived': return 'Nothing has been archived yet.';
     case 'ignored': return 'No ignored threads in the current inbox window.';
     case 'tag': return 'No threads match this tag right now.';
   }

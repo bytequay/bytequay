@@ -74,6 +74,11 @@ export default function TasksGroupPage(props: TasksGroupPageProps) {
   } = props;
 
   const [zoomedTaskId, setZoomedTaskId] = useState<string | null>(null);
+  // Selection lives at the page level (not GroupTaskGrid) so the
+  // Esc precedence chain — modal → immersive → deselect — can read
+  // and clear the active tile from one place.
+  const [selectedId, setSelectedId] = useState<string | null>(null);
+
   const zoomedTask = useMemo(
     () => zoomedTaskId === null ? null : tasks.find(t => t.id === zoomedTaskId) ?? null,
     [zoomedTaskId, tasks]);
@@ -86,40 +91,68 @@ export default function TasksGroupPage(props: TasksGroupPageProps) {
     }
   }, [zoomedTaskId, zoomedTask]);
 
+  // First-tile default selection: when the page first has tasks (or
+  // the previously selected tile is gone), focus the first one so the
+  // user can start typing without an explicit click. Esc later clears
+  // this; clicking another tile picks it.
+  useEffect(() => {
+    if (tasks.length === 0) {
+      if (selectedId !== null) setSelectedId(null);
+      return;
+    }
+    if (selectedId !== null && !tasks.some(t => t.id === selectedId)) {
+      setSelectedId(tasks[0].id);
+      return;
+    }
+    if (selectedId === null) {
+      setSelectedId(tasks[0].id);
+    }
+  }, [tasks, selectedId]);
+
   // PermissionRequested pre-rendering — the tiles read pendingPermission
   // from the messages they fetch internally; we don't surface it at the
   // shell level.
   void ([] as PendingPermission[]);
 
-  // Esc exits immersive — global handler so the user can press it
-  // from anywhere on the page, not just over the rail. While the
-  // zoom modal is open the modal itself owns Esc (closes the zoom);
-  // we stand down so Esc doesn't also pop the page out of immersive
-  // mode underneath it.
+  // Esc precedence: modal owns it when open (TaskZoomModal binds its
+  // own handler), otherwise immersive exits, otherwise the active
+  // tile deselects. We register a single handler here that walks the
+  // chain in the right order; the modal's own handler runs in
+  // parallel but our `if (zoomedTaskId !== null) return` keeps us
+  // from also exiting immersive while it's closing.
   useEffect(() => {
-    if (!immersive) return;
-    if (zoomedTaskId !== null) return;
     function onKey(e: KeyboardEvent) {
-      if (e.key === 'Escape') {
+      if (e.key !== 'Escape') return;
+      if (zoomedTaskId !== null) return; // modal owns this Esc
+      if (immersive) {
         e.preventDefault();
         onChangeImmersive(false);
+        return;
+      }
+      if (selectedId !== null) {
+        e.preventDefault();
+        // Blur the active input so type-to-reply doesn't keep going
+        // after the visual selection is gone.
+        const focused = document.activeElement;
+        if (focused instanceof HTMLElement) focused.blur();
+        setSelectedId(null);
       }
     }
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [immersive, onChangeImmersive, zoomedTaskId]);
+  }, [immersive, onChangeImmersive, zoomedTaskId, selectedId]);
+
+  // Page fills the full viewport while immersive (the topbar is
+  // hidden at the App level so app-content gets the whole window).
+  // Otherwise we keep the historical 56px reserve the rest of the
+  // app uses for tasks-pages.
+  const sectionStyle: React.CSSProperties = immersive
+    ? { ...shellStyle, height: '100vh' }
+    : shellStyle;
 
   return (
-    <section style={shellStyle}>
-      {immersive ? (
-        <button
-          type="button"
-          title="Show sidebar (Esc to exit immersive)"
-          onClick={() => onChangeImmersive(false)}
-          style={collapsedRailStyle}
-          aria-label="Exit immersive mode"
-        />
-      ) : (
+    <section style={sectionStyle}>
+      {!immersive && (
         <TasksGroupSidebar
           group={group}
           tasks={tasks}
@@ -138,6 +171,9 @@ export default function TasksGroupPage(props: TasksGroupPageProps) {
           groups={groups}
           groupIdsByTaskId={groupIdsByTaskId}
           busyId={busyId}
+          immersive={immersive}
+          selectedId={selectedId}
+          onSelectTile={setSelectedId}
           // Tiles open the zoom modal — the design intentionally
           // hides the direct path to the full detail page from the
           // tile level. The modal's ⛶ button is the only way to
@@ -150,6 +186,14 @@ export default function TasksGroupPage(props: TasksGroupPageProps) {
           onDecide={onDecide}
         />
       </main>
+
+      {immersive && (
+        // No-cost reminder of how to exit. Pointer-events disabled so
+        // it never intercepts clicks on the tiles below.
+        <div style={exitPillStyle} aria-hidden>
+          ⛶ Esc to exit immersive
+        </div>
+      )}
 
       {zoomedTask !== null && (
         <TaskZoomModal
@@ -166,8 +210,14 @@ const shellStyle: React.CSSProperties = {
   display: 'flex',
   flexDirection: 'row',
   alignItems: 'stretch',
+  // App hides the 44px topbar in immersive mode, so the page can
+  // claim the full viewport height. CSS calc keeps it pixel-correct
+  // either way — the variable is set via the `--topbar-h` custom
+  // property when the topbar is hidden (falls back to the historical
+  // 56px the rest of the layout uses).
   height: 'calc(100vh - 56px)',
   background: 'var(--bg-base)',
+  position: 'relative',
 };
 
 const mainStyle: React.CSSProperties = {
@@ -179,15 +229,21 @@ const mainStyle: React.CSSProperties = {
   // against the rail and screen edges like tmux panes.
 };
 
-// 4px sliver shown in place of the sidebar when immersive mode is
-// on. Click anywhere (or press Esc) to bring the rail back.
-const collapsedRailStyle: React.CSSProperties = {
-  flex: '0 0 4px',
-  width: 4,
-  background: 'var(--bg-elevated)',
-  borderRight: '1px solid var(--border)',
-  opacity: 0.6,
-  border: 'none',
-  cursor: 'ew-resize',
-  padding: 0,
+// Quiet bottom-right reminder when immersive is on. Pointer-events
+// off so it never intercepts clicks; the user dismisses immersive
+// via Esc (or ⌘\).
+const exitPillStyle: React.CSSProperties = {
+  position: 'absolute',
+  bottom: 12,
+  right: 16,
+  padding: '4px 10px',
+  background: 'rgba(13, 17, 23, 0.85)',
+  color: 'rgba(255, 255, 255, 0.85)',
+  borderRadius: 999,
+  fontSize: 10.5,
+  fontWeight: 600,
+  letterSpacing: '0.02em',
+  pointerEvents: 'none',
+  zIndex: 5,
+  boxShadow: '0 2px 8px rgba(0, 0, 0, 0.18)',
 };

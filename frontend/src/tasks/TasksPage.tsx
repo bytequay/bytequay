@@ -31,12 +31,6 @@ import TasksLeftRail, {
  *  hunting down an expensive run to investigate or kill. */
 type SortMode = 'newest' | 'oldest' | 'highestCost';
 
-const IMMERSIVE_KEY = 'bytequay.tasks.groupImmersive';
-function loadImmersive(): boolean {
-  try { return window.localStorage.getItem(IMMERSIVE_KEY) === '1'; }
-  catch { return false; }
-}
-
 type Props = {
   /** Status filter the left rail is highlighting; drives which tasks
    *  appear in the main pane. */
@@ -63,6 +57,11 @@ type Props = {
    *  trigger came from a group page so the new task lands in that
    *  group by default. */
   onNewTask: (initialGroupId?: string) => void;
+  /** Group-page immersive mode — lifted to App so the global topbar
+   *  can also disappear underneath. The toggle is owned here at the
+   *  app shell; TasksPage just reads & writes via the setter. */
+  immersive: boolean;
+  onChangeImmersive: (next: boolean) => void;
 };
 
 /**
@@ -75,6 +74,7 @@ export default function TasksPage({
   groupId, onGroupChange,
   repo, onRepoChange,
   onSelectTask, onOpenSettings, onNewTask,
+  immersive, onChangeImmersive,
 }: Props) {
   const [tasks, setTasks] = useState<TaskDto[] | null>(null);
   const [groups, setGroups] = useState<TaskGroupDto[]>([]);
@@ -91,19 +91,26 @@ export default function TasksPage({
   const [activeGroup, setActiveGroup] = useState<TaskGroupDto | null>(null);
   const [showGroupSettings, setShowGroupSettings] = useState(false);
   const [showAddTask, setShowAddTask] = useState(false);
-  const [immersive, setImmersive] = useState<boolean>(loadImmersive);
 
+  // ⌘\ toggles immersive whenever the user is on a group page —
+  // matches the keybinding in tasks-design.md (Group-page chrome
+  // section). Skip while text fields have focus so a literal "\"
+  // keystroke inside a search box / textarea still types.
   useEffect(() => {
-    try { window.localStorage.setItem(IMMERSIVE_KEY, immersive ? '1' : '0'); }
-    catch { /* private browsing — fine to skip */ }
-  }, [immersive]);
-
-  // Falling out of group view (back to All Tasks etc.) drops the
-  // immersive flag so the wider page chrome shows up again. The user
-  // keeps the bit only while inside the group page.
-  useEffect(() => {
-    if (groupId === null && immersive) setImmersive(false);
-  }, [groupId, immersive]);
+    if (groupId === null) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (!(e.metaKey || e.ctrlKey)) return;
+      if (e.shiftKey || e.altKey) return;
+      if (e.key !== '\\') return;
+      const target = e.target as HTMLElement | null;
+      const tag = target?.tagName;
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || target?.isContentEditable) return;
+      e.preventDefault();
+      onChangeImmersive(!immersive);
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [groupId, immersive, onChangeImmersive]);
 
   const refresh = useCallback(async () => {
     try {
@@ -326,7 +333,7 @@ export default function TasksPage({
           onOpenGroupSettings={() => setShowGroupSettings(true)}
           onRefresh={refresh}
           immersive={immersive}
-          onChangeImmersive={setImmersive}
+          onChangeImmersive={onChangeImmersive}
           onBackToAll={() => onGroupChange(null)}
         />
 

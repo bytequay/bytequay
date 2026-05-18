@@ -58,6 +58,17 @@ type Props = {
   /** ID of the task whose Stop is currently in flight, so the tile
    *  can render a busy state and disable the button. */
   busyId: string | null;
+  /** When immersive, tiles drop their head bar + bottom status strip
+   *  and the conversation fills the whole tile. The reply input
+   *  stays — it's the only chrome the user actively uses while
+   *  driving 4 agents at once. */
+  immersive: boolean;
+  /** ID of the currently selected tile (parent-owned so Esc
+   *  precedence and clear-on-deselect can be driven from outside). */
+  selectedId: string | null;
+  /** Click-to-select callback. The grid never deselects on its own;
+   *  the parent handles Esc-driven clearing. */
+  onSelectTile: (taskId: string) => void;
 };
 
 const POLL_MS = 4000;
@@ -81,7 +92,7 @@ const POLL_MS = 4000;
  */
 export default function GroupTaskGrid({
   tasks, groups, onOpen, onToggleGroup, groupIdsByTaskId, onStop, onSend, onInterrupt, onDecide,
-  busyId,
+  busyId, immersive, selectedId, onSelectTile,
 }: Props) {
   // Auto-derive the tile layout from the task count — the server
   // caps a group at 4 members so the grid is bounded. Earlier the
@@ -98,12 +109,6 @@ export default function GroupTaskGrid({
   const [order, setOrder] = useState<string[]>([]);
   const [dragFrom, setDragFrom] = useState<number | null>(null);
   const [dragOver, setDragOver] = useState<number | null>(null);
-  // Exactly one tile is "selected" — single-click sets it, and when
-  // selected, typing routes straight into the tile's reply textarea
-  // (so the user can chat without first clicking into the input).
-  // Initialised lazily on the first render that has a task; the
-  // garbage-collect effect below keeps it valid as tasks come and go.
-  const [selectedId, setSelectedId] = useState<string | null>(null);
 
   // Garbage-collect order entries pointing at tasks that left the
   // group (deleted / un-grouped / moved). Stops the slot from going
@@ -111,20 +116,6 @@ export default function GroupTaskGrid({
   useEffect(() => {
     setOrder(prev => prev.filter(id => tasks.some(t => t.id === id)));
   }, [tasks]);
-
-  // Keep selection valid: if the selected task is gone (or none is
-  // selected yet), fall back to the first task in the parent's order.
-  // We never deselect down to null while tiles exist — the contract
-  // is "always exactly one selected when the group is non-empty."
-  useEffect(() => {
-    if (tasks.length === 0) {
-      if (selectedId !== null) setSelectedId(null);
-      return;
-    }
-    if (selectedId === null || !tasks.some(t => t.id === selectedId)) {
-      setSelectedId(tasks[0].id);
-    }
-  }, [tasks, selectedId]);
 
   // Final visible order: user-pinned ids first (preserving their
   // chosen slot), then unpinned tasks fill remaining slots in the
@@ -211,8 +202,9 @@ export default function GroupTaskGrid({
               messages={previews[t.id] ?? []}
               busy={busyId === t.id}
               dragging={dragFrom === idx}
+              immersive={immersive}
               selected={selectedId === t.id}
-              onSelect={() => setSelectedId(t.id)}
+              onSelect={() => onSelectTile(t.id)}
               onOpen={() => onOpen(t.id)}
               onToggleGroup={onToggleGroup}
               onStop={() => onStop(t.id)}
@@ -237,7 +229,7 @@ export default function GroupTaskGrid({
 }
 
 function TaskTile({
-  task, groups, currentGroupIds, messages, busy, dragging,
+  task, groups, currentGroupIds, messages, busy, dragging, immersive,
   selected, onSelect,
   onOpen, onToggleGroup, onStop,
   onSend, onInterrupt, onDecide,
@@ -249,7 +241,10 @@ function TaskTile({
   messages: TaskMessageDto[];
   busy: boolean;
   dragging: boolean;
-  /** Whether this tile is the active one. Parent guarantees exactly
+  /** When immersive, drop the tile head bar and bottom status strip
+   *  so the conversation + reply input fill the entire pane. */
+  immersive: boolean;
+  /** Whether this tile is the active one. Parent guarantees at most
    *  one tile in the grid has selected=true at any time. */
   selected: boolean;
   /** Single-click anywhere on the tile body becomes the selection
@@ -331,13 +326,19 @@ function TaskTile({
         return;
       }
       if (e.key === 'Enter') {
+        // Per tasks-design.md: `↵` while a tile is selected opens
+        // the zoom modal (sending lives on the textarea's own
+        // onKeyDown, which only fires when the textarea has focus).
+        // Shift+Enter still falls through to a literal newline in
+        // the draft so the user can pre-stage a multi-line message
+        // without clicking into the textarea first.
         e.preventDefault();
         if (e.shiftKey) {
           setDraft(draftRef.current + '\n');
           ta.focus({ preventScroll: true });
         }
         else {
-          void doSend(draftRef.current.trim());
+          onOpen();
         }
         return;
       }
@@ -355,7 +356,7 @@ function TaskTile({
     // doSend reads its inputs from refs, so the listener stays
     // correct even though we don't list doSend/setDraft in the deps.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [selected, isTerminal, replyRef]);
+  }, [selected, isTerminal, replyRef, onOpen]);
 
   // Double-click anywhere on the tile zooms — only inputs are
   // exempt (the reply textarea, in particular). Buttons and links
@@ -374,6 +375,25 @@ function TaskTile({
     onOpen();
   }
 
+  // Single-click selects this tile AND moves keyboard focus to its
+  // reply input (per tasks-design.md). Clicks that landed directly
+  // on an input (or stopped propagation, e.g. GroupMenu trigger) are
+  // already handled correctly — they keep their own focus target.
+  function onTileClick(e: React.MouseEvent<HTMLElement>) {
+    onSelect();
+    const target = e.target as HTMLElement | null;
+    if (target !== null) {
+      if (target.closest('input, textarea, select, button, a, [contenteditable="true"]') !== null) {
+        // The click target already owns focus semantics; leave it
+        // alone. Selection is still updated above.
+        return;
+      }
+    }
+    if (!isTerminal) {
+      replyRef.current?.focus({ preventScroll: true });
+    }
+  }
+
   return (
     <article
       style={{
@@ -381,52 +401,54 @@ function TaskTile({
         ...(selected ? tileSelectedStyle : null),
         ...(dragging ? tileDraggingStyle : null),
       }}
-      onClick={onSelect}
+      onClick={onTileClick}
       onDragEnter={onDragEnter}
       onDragOver={e => { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; }}
       onDrop={e => { e.preventDefault(); onDrop(); }}
       onDragEnd={onDragEnd}
       onDoubleClick={onTileDoubleClick}
     >
-      <header
-        style={tileHeaderStyle}
-        draggable
-        onDragStart={e => {
-          // text/plain payload satisfies browsers that refuse to
-          // start a drag without one; the actual swap is driven by
-          // the parent's dragFrom/dragOver state, not the payload.
-          e.dataTransfer.effectAllowed = 'move';
-          e.dataTransfer.setData('text/plain', task.id);
-          onDragStart();
-        }}
-      >
-        <span style={dragHandleStyle} aria-hidden title="Drag header to reorder">⋮⋮</span>
-        <div style={tileTitleWrapStyle}>
-          <span style={{ ...tileStripeStyle, background: stripeColor(task.status) }} />
-          <RepoAvatar workingDir={task.workingDir} size={18} />
-          <button
-            type="button"
-            onClick={onOpen}
-            style={tileTitleBtnStyle}
-            title="Zoom in (or double-click anywhere on the tile)"
-          >
-            <span style={tileTitleStyle}>{task.title}</span>
-          </button>
-        </div>
-        <div style={tileHeaderRightStyle}>
-          <StatusBadge status={task.status} />
-          <button
-            type="button"
-            onClick={onOpen}
-            style={tileMaxBtnStyle}
-            title="Zoom in (or double-click the tile)"
-            aria-label="Zoom in"
-          >
-            ⛶
-          </button>
-          <GroupMenu task={task} groups={groups} currentGroupIds={currentGroupIds} onToggle={onToggleGroup} />
-        </div>
-      </header>
+      {!immersive && (
+        <header
+          style={tileHeaderStyle}
+          draggable
+          onDragStart={e => {
+            // text/plain payload satisfies browsers that refuse to
+            // start a drag without one; the actual swap is driven by
+            // the parent's dragFrom/dragOver state, not the payload.
+            e.dataTransfer.effectAllowed = 'move';
+            e.dataTransfer.setData('text/plain', task.id);
+            onDragStart();
+          }}
+        >
+          <span style={dragHandleStyle} aria-hidden title="Drag header to reorder">⋮⋮</span>
+          <div style={tileTitleWrapStyle}>
+            <span style={{ ...tileStripeStyle, background: stripeColor(task.status) }} />
+            <RepoAvatar workingDir={task.workingDir} size={18} />
+            <button
+              type="button"
+              onClick={onOpen}
+              style={tileTitleBtnStyle}
+              title="Zoom in (or double-click anywhere on the tile)"
+            >
+              <span style={tileTitleStyle}>{task.title}</span>
+            </button>
+          </div>
+          <div style={tileHeaderRightStyle}>
+            <StatusBadge status={task.status} />
+            <button
+              type="button"
+              onClick={onOpen}
+              style={tileMaxBtnStyle}
+              title="Zoom in (or double-click the tile)"
+              aria-label="Zoom in"
+            >
+              ⛶
+            </button>
+            <GroupMenu task={task} groups={groups} currentGroupIds={currentGroupIds} onToggle={onToggleGroup} />
+          </div>
+        </header>
+      )}
 
       <div style={tileConversationStyle}>
         <StructuredConversation
@@ -478,28 +500,30 @@ function TaskTile({
         </div>
       )}
 
-      <footer style={tileFooterStyle}>
-        <span style={footerMetaStyle}>{task.model || 'unknown'}</span>
-        <span style={footerSepStyle}>·</span>
-        <span style={footerMetaStyle}>{formatAge(task.updatedAt)}</span>
-        <div style={{ flex: 1 }} />
-        <span style={footerMetricStyle}>{formatCost(task.costUsdMilli)}</span>
-        <span style={footerSepStyle}>·</span>
-        <span style={footerMetricStyle}>
-          {formatTokens(task.tokensIn + task.tokensOut)} tok
-        </span>
-        {!isTerminal && (
-          <button
-            type="button"
-            onClick={() => void onStop()}
-            disabled={busy}
-            style={stopBtnStyle}
-            title="Stop and release the agent"
-          >
-            {busy ? 'Stopping…' : 'Stop'}
-          </button>
-        )}
-      </footer>
+      {!immersive && (
+        <footer style={tileFooterStyle}>
+          <span style={footerMetaStyle}>{task.model || 'unknown'}</span>
+          <span style={footerSepStyle}>·</span>
+          <span style={footerMetaStyle}>{formatAge(task.updatedAt)}</span>
+          <div style={{ flex: 1 }} />
+          <span style={footerMetricStyle}>{formatCost(task.costUsdMilli)}</span>
+          <span style={footerSepStyle}>·</span>
+          <span style={footerMetricStyle}>
+            {formatTokens(task.tokensIn + task.tokensOut)} tok
+          </span>
+          {!isTerminal && (
+            <button
+              type="button"
+              onClick={() => void onStop()}
+              disabled={busy}
+              style={stopBtnStyle}
+              title="Stop and release the agent"
+            >
+              {busy ? 'Stopping…' : 'Stop'}
+            </button>
+          )}
+        </footer>
+      )}
     </article>
   );
 }

@@ -11,7 +11,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import { Component, useEffect, useState, type ErrorInfo, type ReactNode } from 'react';
+import { Component, useCallback, useEffect, useState, type ErrorInfo, type ReactNode } from 'react';
 import SettingsShell from './settings/SettingsShell';
 import NotificationsScreen from './NotificationsScreen';
 import TeamDetailPage from './teams/TeamDetailPage';
@@ -309,6 +309,31 @@ function App() {
   // the × button on the InAppBrowser toolbar.
   const [inAppUrl, setInAppUrl] = useState<string | null>(null);
   const [fullScreen, setFullScreen] = useState<boolean>(false);
+  // Tasks-group immersive mode is lifted to App so the global topbar
+  // can be hidden underneath. Persisted to localStorage so the user
+  // returns to their preferred chrome state between sessions.
+  const [tasksImmersive, setTasksImmersiveState] = useState<boolean>(() => {
+    try { return window.localStorage.getItem('bytequay.tasks.groupImmersive') === '1'; }
+    catch { return false; }
+  });
+  const setTasksImmersive = useCallback((next: boolean) => {
+    setTasksImmersiveState(next);
+    try { window.localStorage.setItem('bytequay.tasks.groupImmersive', next ? '1' : '0'); }
+    catch { /* private browsing — fine to skip */ }
+  }, []);
+  // Immersive is only meaningful when actively inside a group. Drop it
+  // whenever the user navigates away so the chrome shows up again next
+  // time the page mounts.
+  useEffect(() => {
+    if (!tasksImmersive) return;
+    const inGroup = nav.view === 'tasks' && nav.groupId !== undefined;
+    if (!inGroup) setTasksImmersive(false);
+  }, [nav, tasksImmersive, setTasksImmersive]);
+  // The group page hides the topbar entirely in immersive mode. Esc
+  // (handled inside TasksGroupPage) brings it back.
+  const hideTopbar = tasksImmersive
+    && nav.view === 'tasks'
+    && nav.groupId !== undefined;
 
   useEffect(() => {
     applyTheme(loadTheme());
@@ -403,7 +428,9 @@ function App() {
   // Ready: global app shell with persistent topbar
   return (
     <div className="app-shell">
-      <GlobalTopbar nav={nav} onNav={setNav} fullScreen={fullScreen} />
+      {!hideTopbar && (
+        <GlobalTopbar nav={nav} onNav={setNav} fullScreen={fullScreen} />
+      )}
       <div className="app-content">
         <RouteErrorBoundary
           resetKey={JSON.stringify(nav)}
@@ -480,6 +507,8 @@ function App() {
             onSelectTask={taskId => setNav({ view: 'task-detail', taskId })}
             onOpenSettings={() => setNav({ view: 'settings', section: 'integrations' })}
             onNewTask={initialGroupId => setNav({ view: 'task-create', initialGroupId })}
+            immersive={tasksImmersive}
+            onChangeImmersive={setTasksImmersive}
           />
         )}
         {nav.view === 'task-create' && (

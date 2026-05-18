@@ -94,7 +94,7 @@ function providerMeta(rawKey: string): ProviderMeta {
 const STATUS_ROWS: Array<{ filter: StatusFilter; label: string; dot: string }> = [
   { filter: 'ALL',       label: 'All tasks',     dot: '#cbd5e0' },
   { filter: 'RUNNING',   label: 'Running',       dot: '#047857' },
-  { filter: 'IDLE',      label: 'Idle',          dot: '#d97706' },
+  { filter: 'IDLE',      label: 'Alive',         dot: '#d97706' },
   { filter: 'COMPLETED', label: 'Completed',     dot: '#9ca3af' },
 ];
 

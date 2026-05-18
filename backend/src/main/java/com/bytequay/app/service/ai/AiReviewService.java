@@ -345,12 +345,28 @@ public class AiReviewService
                 .collect(toImmutableList());
 
         String reviewEvent = normaliseEvent(event);
-        // The user's "Finish your review" body wins when present; otherwise
-        // fall back to the AI-generated summary so an approve/comment with
-        // no body still ships the draft's reasoning.
-        String body = bodyOverride != null && !bodyOverride.isBlank()
-                ? bodyOverride.strip()
-                : draft.summary();
+        // Three cases:
+        //   • null override         → frontend didn't open the "Finish your
+        //                              review" panel; fall back to the AI
+        //                              summary so an Approve / Comment from
+        //                              the older code path still ships some
+        //                              context.
+        //   • blank-string override → the user opened the panel and cleared
+        //                              the body on purpose. Respect that and
+        //                              send no body — do NOT silently
+        //                              substitute the AI summary they just
+        //                              deleted.
+        //   • non-blank override    → use it verbatim.
+        String body;
+        if (bodyOverride == null) {
+            body = draft.summary();
+        }
+        else if (bodyOverride.isBlank()) {
+            body = null;
+        }
+        else {
+            body = bodyOverride.strip();
+        }
         CreateReviewCommand command = new CreateReviewCommand(
                 draft.headSha() == null ? Optional.empty() : Optional.of(draft.headSha()),
                 Optional.ofNullable(body),

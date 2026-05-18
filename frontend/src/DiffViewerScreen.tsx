@@ -1918,9 +1918,22 @@ function DiffViewerScreen({ pr, onBack, onApprove, initialCommitSha }: Props) {
   };
 
   const openSubmitPanel = () => {
-    // Pre-seed the body with the AI summary so reviewers can start from
-    // it (matching what publish() falls back to when body is empty).
-    setSubmitBody(aiDraft?.summary ?? '');
+    // After a previous publish, the old draft is locked (status =
+    // PUBLISHED) and re-using its summary would just re-send what we
+    // already shipped. Drop the local handle so the next publish call
+    // finds-or-creates a fresh draft on the backend and the user
+    // starts from a blank body.
+    if (aiDraft?.status === 'PUBLISHED') {
+      setAiDraft(null);
+      setSubmitBody('');
+    }
+    else {
+      // Pre-seed the body with the AI summary so reviewers can start
+      // from it. Clearing the textarea now produces an empty publish
+      // — the backend respects that and no longer falls back to the
+      // summary the user just deleted.
+      setSubmitBody(aiDraft?.summary ?? '');
+    }
     setSubmitVerdict('COMMENT');
     setPendingExpanded(true);
     setDiscardConfirm(false);
@@ -2152,10 +2165,9 @@ function DiffViewerScreen({ pr, onBack, onApprove, initialCommitSha }: Props) {
                 <button
                   className="button button--submit"
                   type="button"
-                  disabled={aiDraft?.status === 'PUBLISHED'}
                   onClick={() => (submitOpen ? closeSubmitPanel() : openSubmitPanel())}
                   title={aiDraft?.status === 'PUBLISHED'
-                    ? 'This review has already been submitted.'
+                    ? 'Submit another review on this PR — opens a fresh draft.'
                     : noStaged
                       ? 'Submit a verdict-only review (Approve / Comment) — or stage comments first.'
                       : 'Submit all staged comments to GitHub as a single review.'}
@@ -2165,7 +2177,7 @@ function DiffViewerScreen({ pr, onBack, onApprove, initialCommitSha }: Props) {
                     <span className="button--submit__count">{stagedCount}</span>
                   )} ▾
                 </button>
-                {submitOpen && aiDraft?.status !== 'PUBLISHED' && (
+                {submitOpen && (
                   <FinishReviewPanel
                     body={submitBody}
                     onBodyChange={setSubmitBody}

@@ -28,21 +28,21 @@ class TestLocalRepoService
     @Test
     void testRemoteMatchesHttpsWithDotGit()
     {
-        assertThat(LocalRepoService.remoteMatchesRepo(
+        assertThat(LocalRepoRemote.remoteMatchesRepo(
                 "https://github.com/trinodb/trino.git", "trinodb", "trino")).isTrue();
     }
 
     @Test
     void testRemoteMatchesHttpsWithoutDotGit()
     {
-        assertThat(LocalRepoService.remoteMatchesRepo(
+        assertThat(LocalRepoRemote.remoteMatchesRepo(
                 "https://github.com/trinodb/trino", "trinodb", "trino")).isTrue();
     }
 
     @Test
     void testRemoteMatchesSsh()
     {
-        assertThat(LocalRepoService.remoteMatchesRepo(
+        assertThat(LocalRepoRemote.remoteMatchesRepo(
                 "git@github.com:trinodb/trino.git", "trinodb", "trino")).isTrue();
     }
 
@@ -50,14 +50,14 @@ class TestLocalRepoService
     void testRemoteMatchesIsCaseInsensitive()
     {
         // GitHub URLs are case-insensitive on the path; honor that.
-        assertThat(LocalRepoService.remoteMatchesRepo(
+        assertThat(LocalRepoRemote.remoteMatchesRepo(
                 "https://github.com/TrinoDB/Trino.git", "trinodb", "trino")).isTrue();
     }
 
     @Test
     void testRemoteMismatchOnDifferentRepo()
     {
-        assertThat(LocalRepoService.remoteMatchesRepo(
+        assertThat(LocalRepoRemote.remoteMatchesRepo(
                 "https://github.com/trinodb/trino-doc.git", "trinodb", "trino")).isFalse();
     }
 
@@ -65,7 +65,7 @@ class TestLocalRepoService
     void testRemoteMismatchOnDifferentOwner()
     {
         // Common case: user located their fork instead of the upstream.
-        assertThat(LocalRepoService.remoteMatchesRepo(
+        assertThat(LocalRepoRemote.remoteMatchesRepo(
                 "https://github.com/chenjian2664/trino.git", "trinodb", "trino")).isFalse();
     }
 
@@ -74,21 +74,21 @@ class TestLocalRepoService
     {
         // gitlab clone of the same repo is still rejected — the watched
         // repo is github.com/owner/repo, mirrors don't count.
-        assertThat(LocalRepoService.remoteMatchesRepo(
+        assertThat(LocalRepoRemote.remoteMatchesRepo(
                 "https://gitlab.com/trinodb/trino.git", "trinodb", "trino")).isFalse();
     }
 
     @Test
     void testRemoteMismatchOnEmptyString()
     {
-        assertThat(LocalRepoService.remoteMatchesRepo("", "trinodb", "trino")).isFalse();
+        assertThat(LocalRepoRemote.remoteMatchesRepo("", "trinodb", "trino")).isFalse();
     }
 
     @Test
     void testRedactStripsHttpsCredentials()
     {
         // Embedded PAT — common when GH CLI sets up the remote.
-        assertThat(LocalRepoService.redactCredentials(
+        assertThat(LocalRepoRemote.redactCredentials(
                 "https://ghp_abcdef@github.com/chenjian2664/trino_new.git"))
                 .isEqualTo("https://github.com/chenjian2664/trino_new.git");
     }
@@ -96,7 +96,7 @@ class TestLocalRepoService
     @Test
     void testRedactStripsUserPasswordCredentials()
     {
-        assertThat(LocalRepoService.redactCredentials(
+        assertThat(LocalRepoRemote.redactCredentials(
                 "https://alice:s3cret@github.com/foo/bar.git"))
                 .isEqualTo("https://github.com/foo/bar.git");
     }
@@ -105,7 +105,7 @@ class TestLocalRepoService
     void testRedactPreservesSshForm()
     {
         // SSH form has a literal "git@" prefix that is NOT a credential.
-        assertThat(LocalRepoService.redactCredentials(
+        assertThat(LocalRepoRemote.redactCredentials(
                 "git@github.com:trinodb/trino.git"))
                 .isEqualTo("git@github.com:trinodb/trino.git");
     }
@@ -113,7 +113,7 @@ class TestLocalRepoService
     @Test
     void testRedactPreservesHttpsWithoutCredentials()
     {
-        assertThat(LocalRepoService.redactCredentials(
+        assertThat(LocalRepoRemote.redactCredentials(
                 "https://github.com/trinodb/trino.git"))
                 .isEqualTo("https://github.com/trinodb/trino.git");
     }
@@ -234,7 +234,7 @@ class TestLocalRepoService
     {
         // Direct clone: origin is the watched repo. There's nothing
         // to call "upstream" — we leave the column null.
-        assertThat(LocalRepoService.pickUpstreamRemoteName(
+        assertThat(LocalRepoRemote.pickUpstreamRemoteName(
                 List.of(
                         new GitRunner.Remote("origin", "https://github.com/trinodb/trino.git")),
                 "trinodb", "trino"))
@@ -247,7 +247,7 @@ class TestLocalRepoService
         // Fork-based: origin = fork, upstream = watched repo. We
         // return the name "upstream" so Create-PR knows where to
         // open the PR against.
-        assertThat(LocalRepoService.pickUpstreamRemoteName(
+        assertThat(LocalRepoRemote.pickUpstreamRemoteName(
                 List.of(
                         new GitRunner.Remote("origin", "https://github.com/chenjian2664/trino.git"),
                         new GitRunner.Remote("upstream", "https://github.com/trinodb/trino.git")),
@@ -261,7 +261,7 @@ class TestLocalRepoService
         // User can name the watched-repo remote whatever they want.
         // We return whatever name is configured, not a hardcoded
         // "upstream".
-        assertThat(LocalRepoService.pickUpstreamRemoteName(
+        assertThat(LocalRepoRemote.pickUpstreamRemoteName(
                 List.of(
                         new GitRunner.Remote("origin", "https://github.com/chenjian2664/trino.git"),
                         new GitRunner.Remote("trinodb", "git@github.com:trinodb/trino.git")),
@@ -275,7 +275,7 @@ class TestLocalRepoService
         // Caller is expected to use the null return + a "no remote
         // matches" check to reject the locate. Here we just confirm
         // the helper itself returns null.
-        assertThat(LocalRepoService.pickUpstreamRemoteName(
+        assertThat(LocalRepoRemote.pickUpstreamRemoteName(
                 List.of(
                         new GitRunner.Remote("origin", "https://github.com/chenjian2664/something-else.git")),
                 "trinodb", "trino"))
@@ -285,21 +285,21 @@ class TestLocalRepoService
     @Test
     void testParseGithubOwnerHttps()
     {
-        assertThat(LocalRepoService.parseGithubOwner(
+        assertThat(LocalRepoRemote.parseGithubOwner(
                 "https://github.com/chenjian2664/trino_new.git")).isEqualTo("chenjian2664");
     }
 
     @Test
     void testParseGithubOwnerHttpsNoSuffix()
     {
-        assertThat(LocalRepoService.parseGithubOwner(
+        assertThat(LocalRepoRemote.parseGithubOwner(
                 "https://github.com/chenjian2664/trino_new")).isEqualTo("chenjian2664");
     }
 
     @Test
     void testParseGithubOwnerSsh()
     {
-        assertThat(LocalRepoService.parseGithubOwner(
+        assertThat(LocalRepoRemote.parseGithubOwner(
                 "git@github.com:chenjian2664/trino_new.git")).isEqualTo("chenjian2664");
     }
 
@@ -308,7 +308,7 @@ class TestLocalRepoService
     {
         // gitlab / self-hosted git mirrors are out of scope — we
         // only know how to talk to github.com.
-        assertThat(LocalRepoService.parseGithubOwner(
+        assertThat(LocalRepoRemote.parseGithubOwner(
                 "https://gitlab.com/chenjian2664/trino_new.git")).isNull();
     }
 }

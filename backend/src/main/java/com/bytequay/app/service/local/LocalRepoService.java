@@ -137,7 +137,13 @@ public class LocalRepoService
                     LocalRepoStatus.State.ERROR, null, null,
                     e.stderr().strip(), repo.upstreamRemoteName(), null, viewFocus);
         }
-        catch (IOException | InterruptedException e) {
+        catch (IOException e) {
+            log.warn("git invocation failed on {}", path, e);
+            return new LocalRepoStatus(repo.owner(), repo.repo(), repo.localClonePath(),
+                    LocalRepoStatus.State.ERROR, null, null,
+                    e.getMessage(), repo.upstreamRemoteName(), null, viewFocus);
+        }
+        catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             log.warn("git invocation failed on {}", path, e);
             return new LocalRepoStatus(repo.owner(), repo.repo(), repo.localClonePath(),
@@ -222,10 +228,10 @@ public class LocalRepoService
         if (remotes.isEmpty()) {
             throw new IllegalArgumentException("No remotes configured at " + path);
         }
-        String upstreamRemoteName = pickUpstreamRemoteName(remotes, owner, repo);
-        if (upstreamRemoteName == null && remotes.stream().noneMatch(r -> remoteMatchesRepo(r.url(), owner, repo))) {
+        String upstreamRemoteName = LocalRepoRemote.pickUpstreamRemoteName(remotes, owner, repo);
+        if (upstreamRemoteName == null && remotes.stream().noneMatch(r -> LocalRepoRemote.remoteMatchesRepo(r.url(), owner, repo))) {
             String summary = remotes.stream()
-                    .map(r -> r.name() + " " + redactCredentials(r.url()))
+                    .map(r -> r.name() + " " + LocalRepoRemote.redactCredentials(r.url()))
                     .reduce((a, b) -> a + ", " + b)
                     .orElse("(none)");
             throw new IllegalArgumentException(
@@ -234,62 +240,6 @@ public class LocalRepoService
         watchedRepoStore.setLocalClonePath(owner, repo, path.toString());
         watchedRepoStore.setUpstreamRemoteName(owner, repo, upstreamRemoteName);
         return statusOf(refreshWatchedRepo(owner, repo));
-    }
-
-    /**
-     * Picks the remote that ByteQuay should treat as the "upstream"
-     * (i.e. the watched repo) when this clone is fork-based:
-     *
-     * <ul>
-     *   <li>If origin points at the watched repo → return null. The
-     *       clone is direct, so there's no separate upstream concept
-     *       and ByteQuay should leave the column unset.</li>
-     *   <li>If origin points elsewhere but another remote points at
-     *       the watched repo → return that remote's name. The user's
-     *       fork-based workflow has origin = fork, upstream = watched
-     *       repo, and we record "upstream" (or whatever they named it)
-     *       so Create-PR knows which remote to push the head ref to
-     *       and which repo to open the PR against.</li>
-     *   <li>If no remote matches → return null and let the caller
-     *       reject the locate.</li>
-     * </ul>
-     */
-    static String pickUpstreamRemoteName(List<GitRunner.Remote> remotes, String owner, String repo)
-    {
-        GitRunner.Remote origin = remotes.stream()
-                .filter(r -> "origin".equals(r.name()))
-                .findFirst()
-                .orElse(null);
-        if (origin != null && remoteMatchesRepo(origin.url(), owner, repo)) {
-            return null;
-        }
-        return remotes.stream()
-                .filter(r -> remoteMatchesRepo(r.url(), owner, repo))
-                .map(GitRunner.Remote::name)
-                .findFirst()
-                .orElse(null);
-    }
-
-    /**
-     * Strips embedded credentials (PAT or username:password) from a
-     * git URL so they don't leak into the error message we show the
-     * user. {@code https://ghp_xxx@github.com/foo/bar.git} →
-     * {@code https://github.com/foo/bar.git}.
-     */
-    static String redactCredentials(String url)
-    {
-        // Match scheme://[creds@]rest. Only redact if there's actually
-        // a creds segment — preserve "git@github.com:foo/bar" SSH
-        // form which has a literal "git@" that's not a credential.
-        int schemeEnd = url.indexOf("://");
-        if (schemeEnd < 0) {
-            return url;
-        }
-        int at = url.indexOf('@', schemeEnd + 3);
-        if (at < 0) {
-            return url;
-        }
-        return url.substring(0, schemeEnd + 3) + url.substring(at + 1);
     }
 
     private WatchedRepo refreshWatchedRepo(String owner, String repo)
@@ -525,10 +475,12 @@ public class LocalRepoService
         try {
             gitRunner.fetchPrRefs(path, prNumber, baseRef);
         }
-        catch (GitRunner.GitCommandException | IOException | InterruptedException e) {
-            if (e instanceof InterruptedException) {
-                Thread.currentThread().interrupt();
-            }
+        catch (GitRunner.GitCommandException | IOException e) {
+            log.warn("Could not fetch PR refs for {}/{}#{}: {}", owner, repo, prNumber, e.getMessage());
+            return new MergeConflictPaths(false, "fetch_failed", ImmutableList.of());
+        }
+        catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
             log.warn("Could not fetch PR refs for {}/{}#{}: {}", owner, repo, prNumber, e.getMessage());
             return new MergeConflictPaths(false, "fetch_failed", ImmutableList.of());
         }
@@ -539,10 +491,12 @@ public class LocalRepoService
                     GitRunner.baseRef(prNumber));
             return new MergeConflictPaths(true, null, paths);
         }
-        catch (IOException | InterruptedException e) {
-            if (e instanceof InterruptedException) {
-                Thread.currentThread().interrupt();
-            }
+        catch (IOException e) {
+            log.warn("merge-tree failed for {}/{}#{}: {}", owner, repo, prNumber, e.getMessage());
+            return new MergeConflictPaths(false, "merge_tree_failed", ImmutableList.of());
+        }
+        catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
             log.warn("merge-tree failed for {}/{}#{}: {}", owner, repo, prNumber, e.getMessage());
             return new MergeConflictPaths(false, "merge_tree_failed", ImmutableList.of());
         }
@@ -1004,36 +958,7 @@ public class LocalRepoService
         if (url == null) {
             return null;
         }
-        return parseGithubOwner(url);
-    }
-
-    /**
-     * Pulls the {@code <owner>} segment out of a github.com remote URL.
-     * Tolerates the same four URL shapes {@link #remoteMatchesRepo}
-     * does (HTTPS / SSH / with-or-without {@code .git}). Returns null
-     * if the URL isn't a github.com remote we recognize.
-     */
-    static String parseGithubOwner(String url)
-    {
-        String cleaned = url == null ? "" : url.trim();
-        if (cleaned.endsWith(".git")) {
-            cleaned = cleaned.substring(0, cleaned.length() - 4);
-        }
-        // SSH form: git@github.com:owner/repo
-        String sshPrefix = "git@github.com:";
-        if (cleaned.startsWith(sshPrefix)) {
-            String tail = cleaned.substring(sshPrefix.length());
-            int slash = tail.indexOf('/');
-            return slash > 0 ? tail.substring(0, slash) : null;
-        }
-        // HTTPS / git protocol: ...github.com/owner/repo
-        int idx = cleaned.toLowerCase(Locale.ROOT).indexOf("github.com/");
-        if (idx < 0) {
-            return null;
-        }
-        String tail = cleaned.substring(idx + "github.com/".length());
-        int slash = tail.indexOf('/');
-        return slash > 0 ? tail.substring(0, slash) : null;
+        return LocalRepoRemote.parseGithubOwner(url);
     }
 
     /**
@@ -1267,32 +1192,5 @@ public class LocalRepoService
         catch (DateTimeParseException e) {
             return null;
         }
-    }
-
-    /**
-     * Tolerates the four shapes GitHub publishes for the same repo:
-     * {@code git@github.com:owner/repo.git}, {@code https://github.com/owner/repo.git},
-     * {@code https://github.com/owner/repo}, {@code github.com/owner/repo}.
-     * The trailing {@code .git} is also optional. We don't accept other
-     * hosts — those are forks or mirrors and shouldn't be confused
-     * with the watched github.com repo.
-     */
-    static boolean remoteMatchesRepo(String remoteUrl, String owner, String repo)
-    {
-        String cleaned = remoteUrl.trim();
-        if (cleaned.endsWith(".git")) {
-            cleaned = cleaned.substring(0, cleaned.length() - 4);
-        }
-        String wantPath = owner + "/" + repo;
-        // SSH form: git@github.com:owner/repo
-        if (cleaned.startsWith("git@github.com:")) {
-            return cleaned.substring("git@github.com:".length()).equalsIgnoreCase(wantPath);
-        }
-        // HTTPS / git protocol: ...github.com/owner/repo
-        int idx = cleaned.toLowerCase(Locale.ROOT).indexOf("github.com/");
-        if (idx < 0) {
-            return false;
-        }
-        return cleaned.substring(idx + "github.com/".length()).equalsIgnoreCase(wantPath);
     }
 }

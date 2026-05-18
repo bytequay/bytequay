@@ -68,7 +68,10 @@ public class GitRunner
             GitResult result = run(List.of("git", "--version"), null, 5);
             return result.exitCode() == 0;
         }
-        catch (IOException | InterruptedException e) {
+        catch (IOException e) {
+            return false;
+        }
+        catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             return false;
         }
@@ -1174,7 +1177,10 @@ public class GitRunner
             GitResult result = run(List.of("git", "rev-parse", "--is-inside-work-tree"), path, 5);
             return result.exitCode() == 0 && "true".equals(result.stdout().strip());
         }
-        catch (IOException | InterruptedException e) {
+        catch (IOException e) {
+            return false;
+        }
+        catch (InterruptedException e) {
             Thread.currentThread().interrupt();
             return false;
         }

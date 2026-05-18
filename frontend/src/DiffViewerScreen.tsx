@@ -1852,6 +1852,10 @@ function DiffViewerScreen({ pr, onBack, onApprove, initialCommitSha }: Props) {
   // pendingExpanded toggles the per-comment list at the bottom of the
   // panel. Reset whenever the panel opens.
   const [submitBody, setSubmitBody] = useState('');
+  // Which draft id we've already pre-seeded submitBody from. Lets us
+  // preserve the user's edits across panel close → reopen without
+  // overwriting them with the AI summary on every open.
+  const seededDraftIdRef = useRef<string | null>(null);
   const [submitVerdict, setSubmitVerdict] = useState<'COMMENT' | 'APPROVE' | 'REQUEST_CHANGES'>('COMMENT');
   const [pendingExpanded, setPendingExpanded] = useState(true);
   const [discardConfirm, setDiscardConfirm] = useState(false);
@@ -1926,13 +1930,16 @@ function DiffViewerScreen({ pr, onBack, onApprove, initialCommitSha }: Props) {
     if (aiDraft?.status === 'PUBLISHED') {
       setAiDraft(null);
       setSubmitBody('');
+      seededDraftIdRef.current = null;
     }
-    else {
-      // Pre-seed the body with the AI summary so reviewers can start
-      // from it. Clearing the textarea now produces an empty publish
-      // — the backend respects that and no longer falls back to the
-      // summary the user just deleted.
-      setSubmitBody(aiDraft?.summary ?? '');
+    else if (aiDraft && seededDraftIdRef.current !== aiDraft.id) {
+      // First time opening the panel for this draft — pre-seed the body
+      // with the AI summary so reviewers can start from it. On
+      // subsequent opens we preserve whatever the user typed (or
+      // intentionally cleared), so close → reopen doesn't clobber
+      // their edits.
+      setSubmitBody(aiDraft.summary ?? '');
+      seededDraftIdRef.current = aiDraft.id;
     }
     setSubmitVerdict('COMMENT');
     setPendingExpanded(true);

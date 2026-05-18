@@ -19,6 +19,7 @@ import TeamHomePage from './teams/TeamHomePage';
 import TeamsManagePage from './teams/TeamsManagePage';
 import EmailPage from './email/EmailPage';
 import TasksPage from './tasks/TasksPage';
+import TaskCreatePage from './tasks/TaskCreatePage';
 import TaskDetailPage from './tasks/TaskDetailPage';
 import type {
   StatusFilter as TasksStatusFilter,
@@ -50,6 +51,7 @@ type Nav =
   | { view: 'team-kanban'; teamId: number }
   | { view: 'email' }
   | { view: 'tasks'; filter?: TasksStatusFilter; provider?: TasksProviderFilter; groupId?: string; repo?: TasksRepoFilter }
+  | { view: 'task-create'; initialGroupId?: string }
   | { view: 'task-detail'; taskId: string }
   | { view: 'notifications' }
   | { view: 'repos' }
@@ -168,6 +170,15 @@ function GlobalTopbar({ nav, onNav, fullScreen }: GlobalTopbarProps) {
             onClick={() => onNav(nav.back ?? { view: 'home' })}
           >
             ← {breadcrumbLabel(nav.back) ?? `${nav.owner}/${nav.repo}`}
+          </button>
+        )}
+        {nav.view === 'task-create' && (
+          <button
+            className="global-topbar__breadcrumb"
+            onClick={() => onNav({ view: 'tasks', groupId: nav.initialGroupId })}
+            title="Back to tasks (Esc)"
+          >
+            ← Tasks
           </button>
         )}
         {/* Portal target: child screens (e.g. PullRequestList) mount
@@ -459,6 +470,15 @@ function App() {
             onRepoChange={repo => setNav({ view: 'tasks', repo: repo ?? undefined })}
             onSelectTask={taskId => setNav({ view: 'task-detail', taskId })}
             onOpenSettings={() => setNav({ view: 'settings', section: 'integrations' })}
+            onNewTask={initialGroupId => setNav({ view: 'task-create', initialGroupId })}
+          />
+        )}
+        {nav.view === 'task-create' && (
+          <TaskCreatePage
+            initialGroupId={nav.initialGroupId ?? null}
+            onBack={() => setNav({ view: 'tasks',
+              groupId: nav.initialGroupId })}
+            onCreated={taskId => setNav({ view: 'task-detail', taskId })}
           />
         )}
         {nav.view === 'task-detail' && (

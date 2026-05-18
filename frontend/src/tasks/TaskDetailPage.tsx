@@ -22,7 +22,6 @@ import TasksLeftRail, {
   type RepoFilter,
   type StatusFilter,
 } from './TasksLeftRail';
-import NewTaskDialog from './NewTaskDialog';
 import RepoAvatar from './RepoAvatar';
 import { useAutoGrowTextarea, usePersistentDraft } from './draftStore';
 import TaskChangesTab from './TaskChangesTab';
@@ -167,7 +166,6 @@ export default function TaskDetailPage({
   // still here. Keyed by taskId so per-task drafts stay separate.
   const [draft, setDraft] = usePersistentDraft(`reply:${taskId}`);
   const [sending, setSending] = useState(false);
-  const [showCreate, setShowCreate] = useState(false);
   const [theme, setTheme] = useState<TermTheme>(loadTheme);
   const [view, setView] = useState<DetailView>(loadView);
   const [sidebarCollapsed, setSidebarCollapsed] = useState<boolean>(loadSidebarCollapsed);
@@ -502,16 +500,6 @@ export default function TaskDetailPage({
           )}
         </div>
       </div>
-
-      {showCreate && (
-        <NewTaskDialog
-          onClose={() => setShowCreate(false)}
-          onCreated={async () => {
-            setShowCreate(false);
-            await refresh();
-          }}
-        />
-      )}
 
       {error && <div style={errorBannerStyle}>{error}</div>}
     </section>

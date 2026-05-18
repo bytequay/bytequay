@@ -16,7 +16,6 @@ import type { TaskDto, TaskGroupDto, TaskGroupMembershipDto, TaskStatusDto } fro
 import GroupMenu from './GroupMenu';
 import GroupSettingsDialog from './GroupSettingsDialog';
 import GroupTaskGrid from './GroupTaskGrid';
-import NewTaskDialog from './NewTaskDialog';
 import TasksGroupPage from './TasksGroupPage';
 import TasksLeftRail, {
   repoKey,
@@ -64,6 +63,11 @@ type Props = {
   onSelectTask: (taskId: string) => void;
   /** Routes to Settings → Integrations from the rail's footer row. */
   onOpenSettings: () => void;
+  /** Navigate to the new task-create page. {@code initialGroupId} is
+   *  pre-filled in the Group dropdown when present — used when the
+   *  trigger came from a group page so the new task lands in that
+   *  group by default. */
+  onNewTask: (initialGroupId?: string) => void;
 };
 
 /**
@@ -75,13 +79,12 @@ export default function TasksPage({
   filter, onFilterChange, provider, onProviderChange,
   groupId, onGroupChange,
   repo, onRepoChange,
-  onSelectTask, onOpenSettings,
+  onSelectTask, onOpenSettings, onNewTask,
 }: Props) {
   const [tasks, setTasks] = useState<TaskDto[] | null>(null);
   const [groups, setGroups] = useState<TaskGroupDto[]>([]);
   const [memberships, setMemberships] = useState<TaskGroupMembershipDto[]>([]);
   const [error, setError] = useState<string | null>(null);
-  const [showCreate, setShowCreate] = useState(false);
   const [busyId, setBusyId] = useState<string | null>(null);
   const [activeGroup, setActiveGroup] = useState<TaskGroupDto | null>(null);
   const [showGroupSettings, setShowGroupSettings] = useState(false);
@@ -152,10 +155,10 @@ export default function TasksPage({
     void refresh();
   }, [refresh]);
 
-  // ⌘N / Ctrl+N opens the New task dialog. Skip while a text field
-  // has focus so a literal "n" keystroke inside the search box / a
-  // task title still types a character. The left-rail button shows
-  // a "⌘N" hint, so this binding is the contract.
+  // ⌘N / Ctrl+N navigates to the new-task create page. Skip while a
+  // text field has focus so a literal "n" keystroke inside the
+  // search box / a task title still types a character. The left-rail
+  // button shows a "⌘N" hint, so this binding is the contract.
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (!(e.metaKey || e.ctrlKey)) return;
@@ -164,13 +167,12 @@ export default function TasksPage({
       const target = e.target as HTMLElement | null;
       const tag = target?.tagName;
       if (tag === 'INPUT' || tag === 'TEXTAREA' || target?.isContentEditable) return;
-      if (showCreate) return;
       e.preventDefault();
-      setShowCreate(true);
+      onNewTask(groupId ?? undefined);
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [showCreate]);
+  }, [onNewTask, groupId]);
 
   // Pull the selected group's metadata so the header can render its
   // glyph + name. The rail keeps its own copy for the listing.
@@ -306,7 +308,7 @@ export default function TasksPage({
           onSend={onTileSend}
           onInterrupt={onTileInterrupt}
           onDecide={onTileDecide}
-          onAddTask={() => setShowCreate(true)}
+          onAddTask={() => onNewTask(activeGroup.id)}
           onOpenGroupSettings={() => setShowGroupSettings(true)}
           onRefresh={refresh}
           immersive={immersive}
@@ -317,17 +319,6 @@ export default function TasksPage({
           <div style={errorBannerStyle}>
             <strong>Couldn't load tasks.</strong> {error}
           </div>
-        )}
-
-        {showCreate && (
-          <NewTaskDialog
-            onClose={() => setShowCreate(false)}
-            initialGroupId={groupId}
-            onCreated={async () => {
-              setShowCreate(false);
-              await refresh();
-            }}
-          />
         )}
 
         {showGroupSettings && activeGroup && (
@@ -365,7 +356,7 @@ export default function TasksPage({
         repoFilter={repo}
         onRepoFilter={onRepoChange}
         onSelectTask={onSelectTask}
-        onNewTask={() => setShowCreate(true)}
+        onNewTask={() => onNewTask(groupId ?? undefined)}
         onOpenSettings={onOpenSettings}
       />
 
@@ -448,17 +439,6 @@ export default function TasksPage({
           </div>
         )}
       </div>
-
-      {showCreate && (
-        <NewTaskDialog
-          onClose={() => setShowCreate(false)}
-          initialGroupId={groupId}
-          onCreated={async () => {
-            setShowCreate(false);
-            await refresh();
-          }}
-        />
-      )}
 
       {showGroupSettings && activeGroup && (
         <GroupSettingsDialog

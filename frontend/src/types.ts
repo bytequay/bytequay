@@ -1152,6 +1152,17 @@ export type TaskDto = {
   endedAt: string | null;
   errorMessage: string | null;
   metadataJson: string;
+  /** Free-form task type — {@code "DEVELOP"} or {@code "FIX"} today,
+   *  more values likely later. Defaults to {@code "DEVELOP"} on
+   *  legacy rows. */
+  taskType: string;
+  /** GitHub PR number this task is associated with — scoped to the
+   *  task's own repo. {@code null} when the task isn't tied to a
+   *  remote PR yet. */
+  linkedPrNumber: number | null;
+  /** GitHub issue number this task is associated with — scoped to
+   *  the task's own repo. Optional. */
+  linkedIssueNumber: number | null;
 };
 
 export type TaskGroupDto = {
@@ -1256,6 +1267,13 @@ export type NewTaskRequestDto = {
   /** Optional — pin the new task into one or more existing groups.
    *  Each must have room (the cap is enforced server-side). */
   initialGroupIds?: string[];
+  /** Free-form task type — "DEVELOP" (default) or "FIX" today.
+   *  Server-side defaults to "DEVELOP" when omitted. */
+  taskType?: string;
+  /** Optional GitHub PR number, scoped to the task's repo. */
+  linkedPrNumber?: number | null;
+  /** Optional GitHub issue number, scoped to the task's repo. */
+  linkedIssueNumber?: number | null;
 };
 
 export type Bridge = {

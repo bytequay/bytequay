@@ -11,7 +11,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import type { TaskDto, TaskGroupDto, TaskMessageDto, TaskStatusDto } from '../types';
 // Membership lookup is supplied by the parent — keeps the grid's
 // fetch surface zero and lets the parent fan out the bridge call
@@ -98,6 +98,12 @@ export default function GroupTaskGrid({
   const [order, setOrder] = useState<string[]>([]);
   const [dragFrom, setDragFrom] = useState<number | null>(null);
   const [dragOver, setDragOver] = useState<number | null>(null);
+  // Exactly one tile is "selected" — single-click sets it, and when
+  // selected, typing routes straight into the tile's reply textarea
+  // (so the user can chat without first clicking into the input).
+  // Initialised lazily on the first render that has a task; the
+  // garbage-collect effect below keeps it valid as tasks come and go.
+  const [selectedId, setSelectedId] = useState<string | null>(null);
 
   // Garbage-collect order entries pointing at tasks that left the
   // group (deleted / un-grouped / moved). Stops the slot from going
@@ -105,6 +111,20 @@ export default function GroupTaskGrid({
   useEffect(() => {
     setOrder(prev => prev.filter(id => tasks.some(t => t.id === id)));
   }, [tasks]);
+
+  // Keep selection valid: if the selected task is gone (or none is
+  // selected yet), fall back to the first task in the parent's order.
+  // We never deselect down to null while tiles exist — the contract
+  // is "always exactly one selected when the group is non-empty."
+  useEffect(() => {
+    if (tasks.length === 0) {
+      if (selectedId !== null) setSelectedId(null);
+      return;
+    }
+    if (selectedId === null || !tasks.some(t => t.id === selectedId)) {
+      setSelectedId(tasks[0].id);
+    }
+  }, [tasks, selectedId]);
 
   // Final visible order: user-pinned ids first (preserving their
   // chosen slot), then unpinned tasks fill remaining slots in the
@@ -191,6 +211,8 @@ export default function GroupTaskGrid({
               messages={previews[t.id] ?? []}
               busy={busyId === t.id}
               dragging={dragFrom === idx}
+              selected={selectedId === t.id}
+              onSelect={() => setSelectedId(t.id)}
               onOpen={() => onOpen(t.id)}
               onToggleGroup={onToggleGroup}
               onStop={() => onStop(t.id)}
@@ -216,6 +238,7 @@ export default function GroupTaskGrid({
 
 function TaskTile({
   task, groups, currentGroupIds, messages, busy, dragging,
+  selected, onSelect,
   onOpen, onToggleGroup, onStop,
   onSend, onInterrupt, onDecide,
   onDragStart, onDragEnter, onDragEnd, onDrop,
@@ -226,6 +249,12 @@ function TaskTile({
   messages: TaskMessageDto[];
   busy: boolean;
   dragging: boolean;
+  /** Whether this tile is the active one. Parent guarantees exactly
+   *  one tile in the grid has selected=true at any time. */
+  selected: boolean;
+  /** Single-click anywhere on the tile body becomes the selection
+   *  signal — focuses this tile so type-to-reply lands here. */
+  onSelect: () => void;
   onOpen: () => void;
   onToggleGroup: (taskId: string, groupId: string, present: boolean) => void | Promise<void>;
   onStop: () => void | Promise<void>;
@@ -253,9 +282,16 @@ function TaskTile({
   const [sending, setSending] = useState(false);
   const pendingPermission = useMemo(() => findPendingPermission(messages), [messages]);
 
-  async function submit() {
-    const text = draft.trim();
-    if (!text || sending) return;
+  // Refs mirror the latest draft / sending state so the document-
+  // level keydown listener (registered once per selected change) can
+  // read fresh values instead of a stale closure snapshot.
+  const draftRef = useRef(draft);
+  const sendingRef = useRef(sending);
+  useEffect(() => { draftRef.current = draft; }, [draft]);
+  useEffect(() => { sendingRef.current = sending; }, [sending]);
+
+  async function doSend(text: string) {
+    if (text === '' || sendingRef.current) return;
     setSending(true);
     try {
       await onSend(text);
@@ -265,6 +301,61 @@ function TaskTile({
       setSending(false);
     }
   }
+  async function submit() {
+    await doSend(draftRef.current.trim());
+  }
+
+  // Type-to-reply: when this tile is the selected one and the user
+  // starts typing without an input focused, route the keystroke
+  // straight into the reply draft and focus the textarea so the next
+  // key lands there natively. Backspace deletes the last character;
+  // Enter (without shift) sends. Modifier-shortcut keys (⌘/Ctrl/Alt)
+  // are intentionally passed through so global shortcuts still work.
+  useEffect(() => {
+    if (!selected) return;
+    if (isTerminal) return; // terminal tiles have no reply textarea
+    function onKey(e: KeyboardEvent) {
+      if (e.metaKey || e.ctrlKey || e.altKey) return;
+      const target = e.target as HTMLElement | null;
+      if (target !== null) {
+        const tag = target.tagName;
+        if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
+        if (target.isContentEditable) return;
+      }
+      const ta = replyRef.current;
+      if (ta === null) return;
+      if (e.key === 'Backspace') {
+        e.preventDefault();
+        setDraft(draftRef.current.slice(0, -1));
+        ta.focus({ preventScroll: true });
+        return;
+      }
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        if (e.shiftKey) {
+          setDraft(draftRef.current + '\n');
+          ta.focus({ preventScroll: true });
+        }
+        else {
+          void doSend(draftRef.current.trim());
+        }
+        return;
+      }
+      // Single printable character — everything else (Tab, F-keys,
+      // arrows, Esc, etc.) we leave alone so the user can still use
+      // the page's broader keyboard navigation.
+      if (e.key.length === 1) {
+        e.preventDefault();
+        setDraft(draftRef.current + e.key);
+        ta.focus({ preventScroll: true });
+      }
+    }
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+    // doSend reads its inputs from refs, so the listener stays
+    // correct even though we don't list doSend/setDraft in the deps.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [selected, isTerminal, replyRef]);
 
   // Double-click anywhere on the tile zooms — only inputs are
   // exempt (the reply textarea, in particular). Buttons and links
@@ -287,8 +378,10 @@ function TaskTile({
     <article
       style={{
         ...tileStyle,
+        ...(selected ? tileSelectedStyle : null),
         ...(dragging ? tileDraggingStyle : null),
       }}
+      onClick={onSelect}
       onDragEnter={onDragEnter}
       onDragOver={e => { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; }}
       onDrop={e => { e.preventDefault(); onDrop(); }}
@@ -584,6 +677,14 @@ const tileStyle: React.CSSProperties = {
 };
 const tileDraggingStyle: React.CSSProperties = {
   opacity: 0.5,
+};
+// Inset accent ring + faint tint so the active tile is unmistakable
+// at a glance without adding any chrome to the flat tmux layout. The
+// ring matches the drag-target ring (which lives on the slot wrapper,
+// not the article, so the two visuals don't collide).
+const tileSelectedStyle: React.CSSProperties = {
+  boxShadow: 'inset 0 0 0 2px var(--accent)',
+  background: 'var(--accent-a05, rgba(124,92,255,0.04))',
 };
 const dragHandleStyle: React.CSSProperties = {
   color: 'var(--text-4)',

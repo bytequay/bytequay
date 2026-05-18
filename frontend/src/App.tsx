@@ -487,7 +487,13 @@ function App() {
             initialGroupId={nav.initialGroupId ?? null}
             onBack={() => setNav({ view: 'tasks',
               groupId: nav.initialGroupId })}
-            onCreated={taskId => setNav({ view: 'task-detail', taskId })}
+            // Created from inside a group → land back on the group
+            // view so the new tile shows up next to its siblings.
+            // Created standalone → drop the user on the single-task
+            // detail page so they can babysit the run directly.
+            onCreated={taskId => setNav(nav.initialGroupId !== undefined
+              ? { view: 'tasks', groupId: nav.initialGroupId }
+              : { view: 'task-detail', taskId })}
           />
         )}
         {nav.view === 'task-detail' && (

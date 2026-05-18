@@ -266,17 +266,17 @@ function TaskTile({
     }
   }
 
-  // Double-click anywhere on the tile zooms — gated to ignore the
-  // gesture when (a) the user just selected text (double-click is the
-  // OS-standard word selection verb), or (b) the click landed inside
-  // an input/textarea/button (those have their own click semantics
-  // and shouldn't accidentally pop a modal).
+  // Double-click anywhere on the tile zooms — only inputs are
+  // exempt (the reply textarea, in particular). Buttons and links
+  // are NOT exempt: the user explicitly asked that every non-input
+  // area, including controls, opens the zoom view on double-click.
+  // Single-click semantics on those buttons are untouched.
   function onTileDoubleClick(e: React.MouseEvent<HTMLElement>) {
     const target = e.target as HTMLElement | null;
     if (target !== null) {
       const tag = target.tagName;
-      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'BUTTON') return;
-      if (target.closest('button, input, textarea, select, a') !== null) return;
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
+      if (target.closest('input, textarea, select, [contenteditable="true"]') !== null) return;
     }
     const sel = window.getSelection();
     if (sel !== null && sel.toString().length > 0) return;

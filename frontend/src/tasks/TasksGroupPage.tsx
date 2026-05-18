@@ -92,9 +92,13 @@ export default function TasksGroupPage(props: TasksGroupPageProps) {
   void ([] as PendingPermission[]);
 
   // Esc exits immersive — global handler so the user can press it
-  // from anywhere on the page, not just over the rail.
+  // from anywhere on the page, not just over the rail. While the
+  // zoom modal is open the modal itself owns Esc (closes the zoom);
+  // we stand down so Esc doesn't also pop the page out of immersive
+  // mode underneath it.
   useEffect(() => {
     if (!immersive) return;
+    if (zoomedTaskId !== null) return;
     function onKey(e: KeyboardEvent) {
       if (e.key === 'Escape') {
         e.preventDefault();
@@ -103,7 +107,7 @@ export default function TasksGroupPage(props: TasksGroupPageProps) {
     }
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [immersive, onChangeImmersive]);
+  }, [immersive, onChangeImmersive, zoomedTaskId]);
 
   return (
     <section style={shellStyle}>

@@ -112,17 +112,16 @@ export default function TasksPage({
   }, []);
 
   // ⌘T toggles Chat ↔ Terminal whenever a group page is showing.
-  // Skip while text fields have focus so "t" inside a search box /
-  // textarea still types literally.
+  // We DO fire even when an input is focused — chord shortcuts
+  // (⌘+letter) are unambiguous, and skipping would make the toggle
+  // unreachable once a tile's reply textarea has focus (which it
+  // does the moment the user clicks or selects a tile).
   useEffect(() => {
     if (groupId === null) return;
     const onKey = (e: KeyboardEvent) => {
       if (!(e.metaKey || e.ctrlKey)) return;
       if (e.shiftKey || e.altKey) return;
       if (e.key !== 't' && e.key !== 'T') return;
-      const target = e.target as HTMLElement | null;
-      const tag = target?.tagName;
-      if (tag === 'INPUT' || tag === 'TEXTAREA' || target?.isContentEditable) return;
       e.preventDefault();
       setTileMode(tileMode === 'chat' ? 'terminal' : 'chat');
     };
@@ -132,17 +131,15 @@ export default function TasksPage({
 
   // ⌘\ toggles immersive whenever the user is on a group page —
   // matches the keybinding in tasks-design.md (Group-page chrome
-  // section). Skip while text fields have focus so a literal "\"
-  // keystroke inside a search box / textarea still types.
+  // section). Same reasoning as ⌘T: fire even when an input has
+  // focus, since the modifier chord is unambiguous and tile
+  // selection auto-focuses the reply textarea.
   useEffect(() => {
     if (groupId === null) return;
     const onKey = (e: KeyboardEvent) => {
       if (!(e.metaKey || e.ctrlKey)) return;
       if (e.shiftKey || e.altKey) return;
       if (e.key !== '\\') return;
-      const target = e.target as HTMLElement | null;
-      const tag = target?.tagName;
-      if (tag === 'INPUT' || tag === 'TEXTAREA' || target?.isContentEditable) return;
       e.preventDefault();
       onChangeImmersive(!immersive);
     };

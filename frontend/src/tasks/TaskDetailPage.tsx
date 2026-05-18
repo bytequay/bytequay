@@ -1493,6 +1493,7 @@ function TermInput({
         <span style={termPromptStyle}>›</span>
         <textarea
           ref={textareaRef}
+          className="bytequay-term-caret"
           value={draft}
           onChange={e => onDraft(e.target.value)}
           placeholder={isRunning
@@ -1802,6 +1803,15 @@ function KeyframesStyles() {
       }
       .bytequay-running-dots::before {
         content: '...';
+      }
+      /* Terminal-mode caret. caret-shape: block (Chromium 132+) turns
+         the I-beam into the chunky filled rectangle Claude Code's CLI
+         uses; the colored caret reads off the same --term-user that
+         the prompt ">" uses so the input feels like one continuous
+         terminal line. */
+      .bytequay-term-caret {
+        caret-color: var(--term-user);
+        caret-shape: block;
       }
     `}</style>
   );

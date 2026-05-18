@@ -16,6 +16,7 @@ import type { TaskDto, TaskGroupDto, TaskGroupMembershipDto, TaskStatusDto } fro
 import GroupMenu from './GroupMenu';
 import GroupSettingsDialog from './GroupSettingsDialog';
 import GroupTaskGrid from './GroupTaskGrid';
+import AddTaskToGroupDialog from './AddTaskToGroupDialog';
 import TasksGroupPage from './TasksGroupPage';
 import TasksLeftRail, {
   repoKey,
@@ -89,6 +90,7 @@ export default function TasksPage({
   useEffect(() => { setSearch(''); }, [filter, provider, repo, groupId]);
   const [activeGroup, setActiveGroup] = useState<TaskGroupDto | null>(null);
   const [showGroupSettings, setShowGroupSettings] = useState(false);
+  const [showAddTask, setShowAddTask] = useState(false);
   const [immersive, setImmersive] = useState<boolean>(loadImmersive);
 
   useEffect(() => {
@@ -320,7 +322,7 @@ export default function TasksPage({
           onSend={onTileSend}
           onInterrupt={onTileInterrupt}
           onDecide={onTileDecide}
-          onAddTask={() => onNewTask(activeGroup.id)}
+          onAddTask={() => setShowAddTask(true)}
           onOpenGroupSettings={() => setShowGroupSettings(true)}
           onRefresh={refresh}
           immersive={immersive}
@@ -348,6 +350,24 @@ export default function TasksPage({
               setShowGroupSettings(false);
               onGroupChange(null);
               void refresh();
+            }}
+          />
+        )}
+
+        {showAddTask && activeGroup && tasks && (
+          <AddTaskToGroupDialog
+            group={activeGroup}
+            allTasks={tasks}
+            groupIdsByTaskId={groupIdsByTaskId}
+            onClose={() => setShowAddTask(false)}
+            onCreateNew={() => onNewTask(activeGroup.id)}
+            // Call the bridge directly (not toggleTaskInGroup) so a
+            // backend error — e.g. group at the 4-task cap — bubbles
+            // up to the dialog instead of being swallowed into the
+            // page-level banner.
+            onAddExisting={async taskId => {
+              await window.bridge.addTaskToGroup(activeGroup.id, taskId);
+              await refresh();
             }}
           />
         )}

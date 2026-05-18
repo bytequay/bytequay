@@ -487,7 +487,6 @@ export default function TaskDetailPage({
       ) : (
         <TaskWindowSidebar
           task={task}
-          stage={stage}
           messages={messages}
           files={files}
           liveUsage={liveUsage}
@@ -920,13 +919,12 @@ function StructuredView({
  *    captured in followups/tasks-checkpoints-and-context.md
  */
 function TaskWindowSidebar({
-  task, stage, messages, files, liveUsage,
+  task, messages, files, liveUsage,
   groups, currentGroupIds, onToggleGroup,
   onOpenPr,
   onBack, onCollapse,
 }: {
   task: TaskDto;
-  stage: Stage;
   messages: TaskMessageDto[];
   files: TaskFileDto[];
   liveUsage: { tokensIn: number; tokensOut: number } | null;
@@ -995,15 +993,15 @@ function TaskWindowSidebar({
       {/* Session card — identifying metadata for the run itself.
           Session ID gets a mono ellipsis; branch + PR show up as
           inline chips so the user can copy / click into them. */}
+      {/* Session ID = our internal task UUID (the route key,
+          /tasks/:id). The Claude Code CLI's own session id stays
+          on the Task row (`agentSessionId`) for backend-only use —
+          we need it to `claude --resume <id>` on restart, but
+          surfacing it in the UI confused the question of "which id
+          am I looking at?". */}
       <SidebarSection label="Session">
         <div style={metricListStyle}>
-          {task.agentSessionId !== null && task.agentSessionId !== '' && (
-            <Metric
-              label="Session ID"
-              value={task.agentSessionId}
-              mono
-            />
-          )}
+          <Metric label="Session ID" value={task.id} mono />
           {task.branchName !== null && task.branchName !== '' && (
             <Metric
               label="Branch"
@@ -1039,14 +1037,6 @@ function TaskWindowSidebar({
               mono
             />
           )}
-          {/* If none of the four rows would render, show a quiet
-              fallback so the section never appears empty. */}
-          {task.agentSessionId === null
-            && task.branchName === null
-            && task.linkedPrNumber === null
-            && task.linkedIssueNumber === null && (
-            <span style={groupsEmptyStyle}>No session metadata yet</span>
-          )}
         </div>
       </SidebarSection>
 
@@ -1079,10 +1069,6 @@ function TaskWindowSidebar({
 
       <SidebarSection label="Context window" hint={ctx.hint}>
         <ContextWindowBar pct={ctx.pct} used={ctx.used} limit={ctx.limit} />
-      </SidebarSection>
-
-      <SidebarSection label="Current stage">
-        <StageCard task={task} stage={stage} />
       </SidebarSection>
 
       <SidebarSection label="Checkpoints">
@@ -1676,31 +1662,6 @@ function deriveToolUsage(messages: TaskMessageDto[]): ToolUsage {
     entries: Array.from(counts.entries())
       .sort((a, b) => b[1] - a[1]),
   };
-}
-
-function StageCard({ task, stage }: { task: TaskDto; stage: Stage }) {
-  return (
-    <div style={stageCardStyle}>
-      <span style={{
-        ...stageStatusStyle,
-        ...statusPillPalette(task.status),
-      }}>
-        {task.status === 'RUNNING' && <span className="bytequay-pulse" style={runningDotStyle} />}
-        {task.status}
-      </span>
-      <div style={stageCurrentStyle}>
-        {stage.toolName ? (
-          <>
-            <span style={stageArrowStyle}>›</span>{' '}
-            <span style={stageToolTagStyle}>{stage.toolName.toUpperCase()}</span>
-            <div style={{ marginTop: 6 }}>{stage.detail}</div>
-          </>
-        ) : (
-          <span style={{ color: '#6e7681' }}>{stage.detail}</span>
-        )}
-      </div>
-    </div>
-  );
 }
 
 function Metric({

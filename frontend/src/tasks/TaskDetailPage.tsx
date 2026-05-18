@@ -367,6 +367,20 @@ export default function TaskDetailPage({
     };
   }, [taskId, status, refresh]);
 
+  // 1-second wall-clock tick while RUNNING. The /tasks/{id} poll
+  // runs at 5s so without this the Lifetime · Runtime metric jumps
+  // 5s at a time; the LIVE bar's elapsed-time counter would also
+  // pause. Bumping a ticker forces a re-render so anything that
+  // reads Date.now() inline (formatRuntime, the elapsed display
+  // below) refreshes once per second. Tick stops the moment the
+  // task leaves RUNNING.
+  const [, setTick] = useState(0);
+  useEffect(() => {
+    if (status !== 'RUNNING') return;
+    const id = setInterval(() => setTick(n => n + 1), 1000);
+    return () => clearInterval(id);
+  }, [status]);
+
   const pendingPermission = useMemo<PendingPermission | null>(
     () => findPendingPermission(messages),
     [messages]);
@@ -524,6 +538,7 @@ export default function TaskDetailPage({
                 onDelete={onDelete}
                 canDelete={isTerminal}
                 liveText={liveText}
+                liveUsage={liveUsage}
               />
             )}
             {view === 'terminal' && (
@@ -724,6 +739,7 @@ function StructuredView({
   onDelete,
   canDelete,
   liveText,
+  liveUsage,
 }: {
   task: TaskDto;
   messages: TaskMessageDto[];
@@ -754,12 +770,34 @@ function StructuredView({
    *  flight; otherwise the partial assembled text since the last
    *  assistant message envelope landed. */
   liveText: string;
+  /** Streaming in-flight token totals for the current turn. Used to
+   *  show "↑/↓ N tokens" next to the elapsed counter in the LIVE
+   *  bar, matching what Claude Code's CLI shows while thinking. */
+  liveUsage: { tokensIn: number; tokensOut: number } | null;
 }) {
   const turns = useMemo(
     () => messages.filter(m => m.type === 'turn_done').length,
     [messages]);
   const isRunning = task.status === 'RUNNING';
   const replyRef = useAutoGrowTextarea(draft, 220);
+
+  // Captures the wall-clock moment this turn went RUNNING, so the
+  // LIVE bar can show "5s · 1.2k tokens" the way Claude Code's CLI
+  // does while it's thinking. Each false→true transition starts a
+  // fresh clock; we never read this until isRunning is true, so the
+  // initial null is fine. Page-level 1s tick re-renders us, so the
+  // displayed elapsed advances even when no deltas are arriving.
+  const turnStartRef = useRef<number | null>(null);
+  if (isRunning && turnStartRef.current === null) {
+    turnStartRef.current = Date.now();
+  }
+  if (!isRunning && turnStartRef.current !== null) {
+    turnStartRef.current = null;
+  }
+  const elapsedLabel = isRunning && turnStartRef.current !== null
+    ? formatElapsedSeconds(Math.max(0, Math.floor((Date.now() - turnStartRef.current) / 1000)))
+    : null;
+  const liveTokenTotal = (liveUsage?.tokensIn ?? 0) + (liveUsage?.tokensOut ?? 0);
 
   return (
     <div style={structuredWrapStyle}>
@@ -839,6 +877,16 @@ function StructuredView({
           <span style={livePulseStyle} className="bytequay-pulse" />
           <span style={liveLabelStyle}>✦ LIVE</span>
           <span style={liveMetaStyle}>· Claude is responding</span>
+          {elapsedLabel !== null && (
+            <span style={liveStatStyle} title="Time since this turn started">
+              · {elapsedLabel}
+            </span>
+          )}
+          {liveTokenTotal > 0 && (
+            <span style={liveStatStyle} title="Tokens used so far this turn">
+              · {formatNum(liveTokenTotal)} tok
+            </span>
+          )}
           <span style={{ flex: 1 }} />
           <button type="button" onClick={onInterrupt} style={interruptBtnStyle}>
             ⏵ Interrupt
@@ -1895,6 +1943,19 @@ function formatNum(n: number): string {
   return `${(n / 1_000_000).toFixed(1)}M`;
 }
 
+/** Compact elapsed-time formatter for the LIVE bar. Mirrors the
+ *  shape Claude Code's CLI uses ("12s", "1m 3s", "1h 4m"). Tuned
+ *  to stay narrow — the bar shares its row with the Interrupt
+ *  button so we can't afford a long "1 hour 4 minutes 30 seconds"
+ *  string. */
+function formatElapsedSeconds(s: number): string {
+  if (s < 60) return `${s}s`;
+  const m = Math.floor(s / 60);
+  if (m < 60) return `${m}m ${s % 60}s`;
+  const h = Math.floor(m / 60);
+  return `${h}h ${m % 60}m`;
+}
+
 function shortId(id: string): string {
   return id.length > 10 ? id.slice(0, 8) : id;
 }
@@ -2613,6 +2674,12 @@ const liveLabelStyle: React.CSSProperties = {
   color: 'var(--accent-dark)',
 };
 const liveMetaStyle: React.CSSProperties = { fontSize: 12, color: 'var(--accent-dark)' };
+const liveStatStyle: React.CSSProperties = {
+  fontSize: 11.5,
+  fontVariantNumeric: 'tabular-nums',
+  color: 'var(--accent-dark)',
+  opacity: 0.85,
+};
 const interruptBtnStyle: React.CSSProperties = {
   padding: '4px 10px',
   background: 'var(--bg-card)',

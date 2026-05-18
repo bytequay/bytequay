@@ -12,7 +12,8 @@
  * limitations under the License.
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import type { TaskDto, TaskFileDto, TaskGroupDto, TaskMessageDto, TaskStatusDto } from '../types';
+import type { TaskDto, TaskFileDto, TaskGroupDto, TaskGroupMembershipDto, TaskMessageDto, TaskStatusDto } from '../types';
+import GroupMenu from './GroupMenu';
 import { ConversationPane, type PendingPermission } from './ConversationPane';
 import { StructuredConversation } from './StructuredConversation';
 import TasksLeftRail, {
@@ -160,6 +161,8 @@ export default function TaskDetailPage({
   const [messages, setMessages] = useState<TaskMessageDto[]>([]);
   const [files, setFiles] = useState<TaskFileDto[]>([]);
   const [allTasks, setAllTasks] = useState<TaskDto[]>([]);
+  const [groups, setGroups] = useState<TaskGroupDto[]>([]);
+  const [memberships, setMemberships] = useState<TaskGroupMembershipDto[]>([]);
   const [error, setError] = useState<string | null>(null);
   // Reply draft persists across navigation for the lifetime of the
   // renderer — leave the page mid-sentence, come back, the text is
@@ -187,22 +190,51 @@ export default function TaskDetailPage({
 
   const refresh = useCallback(async () => {
     try {
-      const [t, m, fs, list] = await Promise.all([
+      const [t, m, fs, list, gs, ms] = await Promise.all([
         window.bridge.getTask(taskId),
         window.bridge.getTaskMessages(taskId),
         window.bridge.getTaskFiles(taskId).catch(() => [] as TaskFileDto[]),
         window.bridge.listTasks(),
+        window.bridge.listTaskGroups().catch(() => [] as TaskGroupDto[]),
+        window.bridge.listTaskGroupMemberships().catch(() => [] as TaskGroupMembershipDto[]),
       ]);
       setTask(t);
       setMessages(m);
       setFiles(fs);
       setAllTasks(list);
+      setGroups(gs);
+      setMemberships(ms);
       setError(null);
     }
     catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     }
   }, [taskId]);
+
+  /** Add or remove this task from a group. Mirrors the toggle on the
+   *  TasksPage so the affordance feels the same wherever you find it.
+   *  Membership refresh is implicit: refresh() reloads memberships. */
+  const onToggleGroup = useCallback(
+    async (id: string, nextGroupId: string, present: boolean) => {
+      try {
+        if (present) {
+          await window.bridge.addTaskToGroup(nextGroupId, id);
+        }
+        else {
+          await window.bridge.removeTaskFromGroup(nextGroupId, id);
+        }
+        await refresh();
+      }
+      catch (e) {
+        setError(e instanceof Error ? e.message : String(e));
+      }
+    }, [refresh]);
+
+  /** Group IDs the current task belongs to. */
+  const currentGroupIds = useMemo(
+    () => memberships.filter(m => m.taskId === taskId).map(m => m.groupId),
+    [memberships, taskId],
+  );
 
   const onRename = useCallback(async (nextTitle: string) => {
     const trimmed = nextTitle.trim();
@@ -427,6 +459,9 @@ export default function TaskDetailPage({
           messages={messages}
           files={files}
           liveUsage={liveUsage}
+          groups={groups}
+          currentGroupIds={currentGroupIds}
+          onToggleGroup={onToggleGroup}
           onBack={onBack}
           onCollapse={() => setSidebarCollapsed(true)}
         />
@@ -834,13 +869,18 @@ function StructuredView({
  *    captured in followups/tasks-checkpoints-and-context.md
  */
 function TaskWindowSidebar({
-  task, stage, messages, files, liveUsage, onBack, onCollapse,
+  task, stage, messages, files, liveUsage,
+  groups, currentGroupIds, onToggleGroup,
+  onBack, onCollapse,
 }: {
   task: TaskDto;
   stage: Stage;
   messages: TaskMessageDto[];
   files: TaskFileDto[];
   liveUsage: { tokensIn: number; tokensOut: number } | null;
+  groups: TaskGroupDto[];
+  currentGroupIds: string[];
+  onToggleGroup: (taskId: string, groupId: string, present: boolean) => void | Promise<void>;
   onBack: () => void;
   onCollapse: () => void;
 }) {
@@ -888,6 +928,33 @@ function TaskWindowSidebar({
           <Metric label="Tool calls" value={formatNum(toolUsage.total)} />
           <Metric label="Files touched" value={formatNum(files.length)} />
           <Metric label="Model" value={task.model || 'unknown'} mono />
+        </div>
+      </SidebarSection>
+
+      <SidebarSection label="Groups">
+        <div style={groupsRowStyle}>
+          {currentGroupIds.length === 0 ? (
+            <span style={groupsEmptyStyle}>No groups pinned</span>
+          ) : (
+            currentGroupIds.map(id => {
+              const g = groups.find(x => x.id === id);
+              if (!g) return null;
+              return (
+                <span key={id} style={groupChipStyle} title={g.name}>
+                  <span aria-hidden style={{ ...groupChipGlyphStyle, background: groupSwatchBg(g.color) }}>
+                    {g.glyph || '•'}
+                  </span>
+                  <span style={groupChipLabelStyle}>{g.name}</span>
+                </span>
+              );
+            })
+          )}
+          <GroupMenu
+            task={task}
+            groups={groups}
+            currentGroupIds={currentGroupIds}
+            onToggle={onToggleGroup}
+          />
         </div>
       </SidebarSection>
 
@@ -1920,6 +1987,46 @@ const twHeaderChipStyle: React.CSSProperties = {
 const twHeaderActionsStyle: React.CSSProperties = {
   display: 'flex', alignItems: 'center', gap: 6, flexShrink: 0,
 };
+
+// Groups section in the sidebar: chips for pinned groups + a `⋯`
+// trigger that opens the standard GroupMenu popover.
+const groupsRowStyle: React.CSSProperties = {
+  display: 'flex', flexWrap: 'wrap', alignItems: 'center', gap: 6,
+};
+const groupsEmptyStyle: React.CSSProperties = {
+  fontSize: 12, color: 'var(--text-3)', fontStyle: 'italic',
+};
+const groupChipStyle: React.CSSProperties = {
+  display: 'inline-flex', alignItems: 'center', gap: 4,
+  padding: '2px 6px 2px 4px',
+  border: '1px solid var(--border)',
+  borderRadius: 999,
+  background: 'var(--bg-card)',
+  fontSize: 11,
+  color: 'var(--text-1)',
+  maxWidth: '100%',
+};
+const groupChipGlyphStyle: React.CSSProperties = {
+  width: 14, height: 14, borderRadius: 3,
+  display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
+  fontSize: 8, fontWeight: 700, color: '#fff',
+  flexShrink: 0,
+};
+const groupChipLabelStyle: React.CSSProperties = {
+  overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+  maxWidth: 110,
+};
+
+function groupSwatchBg(color: string | undefined): string {
+  switch (color) {
+    case 'violet': return 'linear-gradient(135deg, #7c3aed, #4c1d95)';
+    case 'amber': return 'linear-gradient(135deg, #d97706, #92400e)';
+    case 'green': return 'linear-gradient(135deg, #10b981, #047857)';
+    case 'blue': return 'linear-gradient(135deg, #2563eb, #1e3a8a)';
+    case 'rose': return 'linear-gradient(135deg, #e11d48, #9f1239)';
+    default: return 'linear-gradient(135deg, #64748b, #334155)';
+  }
+}
 const twHeaderBtnStyle: React.CSSProperties = {
   padding: '5px 10px', fontSize: 12,
   background: 'var(--bg-elevated)', border: '1px solid var(--border)',

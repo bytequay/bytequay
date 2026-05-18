@@ -325,34 +325,41 @@ function ZoomToolbar({
           ⎇ {task.branchName}
         </span>
       )}
-      <span style={{ flex: 1 }} />
-      <button
-        type="button"
-        onClick={onToggleDiff}
-        style={iconBtnStyle}
-        title={diffOpen ? 'Hide diff panel' : 'Show diff panel'}
-        aria-label={diffOpen ? 'Hide diff panel' : 'Show diff panel'}
-      >
-        ⇄
-      </button>
-      <button
-        type="button"
-        onClick={onExpandToDetail}
-        style={iconBtnStyle}
-        title="Open full detail page"
-        aria-label="Open full detail page"
-      >
-        ⛶
-      </button>
-      <button
-        type="button"
-        onClick={onClose}
-        style={iconBtnStyle}
-        title="Close (Esc)"
-        aria-label="Close"
-      >
-        ✕
-      </button>
+      <span style={{ flex: 1, minWidth: 0 }} />
+      {/* The three icon buttons are pinned to the right and never
+          allowed to shrink — without flex-shrink: 0, a long title +
+          branch chip + the diff pane squeezing the middle column
+          would push them off-screen on smaller viewports, making
+          them visually present but un-clickable. */}
+      <div style={toolbarActionsStyle}>
+        <button
+          type="button"
+          onClick={onToggleDiff}
+          style={iconBtnStyle}
+          title={diffOpen ? 'Hide diff panel' : 'Show diff panel'}
+          aria-label={diffOpen ? 'Hide diff panel' : 'Show diff panel'}
+        >
+          ⇄
+        </button>
+        <button
+          type="button"
+          onClick={onExpandToDetail}
+          style={iconBtnStyle}
+          title="Open full detail page"
+          aria-label="Open full detail page"
+        >
+          ⛶
+        </button>
+        <button
+          type="button"
+          onClick={onClose}
+          style={iconBtnStyle}
+          title="Close (Esc)"
+          aria-label="Close"
+        >
+          ✕
+        </button>
+      </div>
     </div>
   );
 }
@@ -458,25 +465,40 @@ const backdropStyle: React.CSSProperties = {
   display: 'flex',
   alignItems: 'center',
   justifyContent: 'center',
-};
+  // Opt the backdrop out of the topbar's drag region too so a
+  // backdrop click near the top of the window dismisses the modal
+  // instead of starting a window drag.
+  WebkitAppRegion: 'no-drag',
+} as React.CSSProperties;
 
 // Zoom is meant to be an immersive view of one task — float over
 // the group page using almost the whole viewport (just enough inset
 // to make the modal feel like a card on top, not a full-screen
 // takeover). The fixed 740 height we had before left a lot of dead
 // space on larger displays.
+//
+// `WebkitAppRegion: 'no-drag'` opts the entire modal out of the
+// 44px topbar's `-webkit-app-region: drag` zone. Without this, the
+// top ~16px of the modal — which is exactly where the toolbar's
+// icon buttons sit — overlaps the OS drag handle and clicks slide
+// to "drag the window" instead of activating the button.
+// Size targets — ~88% × 86% of the viewport. Big enough to still
+// feel like a full focus surface, small enough to leave a real
+// dimmed-backdrop frame around the card. (Previously: ~97% × 96%,
+// which read as "barely a modal".)
 const modalBaseStyle: React.CSSProperties = {
-  width: 'calc(100vw - 40px)',
-  height: 'calc(100vh - 40px)',
-  maxWidth: 1800,
-  maxHeight: 1200,
+  width: 'calc(100vw - 160px)',
+  height: 'calc(100vh - 120px)',
+  maxWidth: 1600,
+  maxHeight: 1040,
   background: 'var(--bg-card)',
   borderRadius: 12,
   border: '1px solid var(--border)',
   boxShadow: '0 24px 60px rgba(0, 0, 0, 0.35), 0 4px 12px rgba(0, 0, 0, 0.2)',
   overflow: 'hidden',
   display: 'grid',
-};
+  WebkitAppRegion: 'no-drag',
+} as React.CSSProperties;
 const modalStyleWithDiff: React.CSSProperties = {
   ...modalBaseStyle,
   // 260px sidebar (a touch wider so the longer "AWAITING" pill
@@ -610,6 +632,20 @@ const toolbarStyle: React.CSSProperties = {
   background: 'var(--bg-elevated)',
   borderBottom: '1px solid var(--border)',
   flexShrink: 0,
+  // The middle column is `1fr` between a fixed sidebar and diff
+  // pane; minWidth: 0 lets the toolbar's flex items shrink instead
+  // of overflowing horizontally and pushing the action cluster
+  // off-screen.
+  minWidth: 0,
+};
+const toolbarActionsStyle: React.CSSProperties = {
+  display: 'inline-flex',
+  alignItems: 'center',
+  gap: 6,
+  flexShrink: 0,
+  // marginLeft auto would be redundant given the flex:1 spacer
+  // earlier in the row, but we keep the cluster as its own flex
+  // item so the buttons share a single shrink boundary.
 };
 const trafficLightsStyle: React.CSSProperties = {
   display: 'inline-flex',
@@ -637,6 +673,11 @@ const titleStyle: React.CSSProperties = {
   textOverflow: 'ellipsis',
   whiteSpace: 'nowrap',
   maxWidth: 460,
+  // Allow the title to actually shrink below the maxWidth when the
+  // middle column is tight (diff pane open on a small viewport),
+  // so the action cluster on the right stays reachable.
+  minWidth: 0,
+  flexShrink: 1,
 };
 const chipStyle: React.CSSProperties = {
   display: 'inline-flex', alignItems: 'center', gap: 4,
@@ -646,6 +687,7 @@ const chipStyle: React.CSSProperties = {
   borderRadius: 999,
   fontSize: 11,
   color: 'var(--text-2)',
+  flexShrink: 0,
 };
 const iconBtnStyle: React.CSSProperties = {
   width: 28, height: 26,
@@ -658,6 +700,7 @@ const iconBtnStyle: React.CSSProperties = {
   color: 'var(--text-2)',
   cursor: 'pointer',
   fontSize: 12,
+  flexShrink: 0,
 };
 
 const conversationScrollStyle: React.CSSProperties = {

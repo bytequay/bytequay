@@ -13,7 +13,7 @@
  */
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { renderMarkdown } from './markdown';
-import type { ActivityItemDto, CheckRunDto, MergeConflictPathsDto, PullRequestDetailDto, PullRequestDto, ReviewMessageDto, ReviewThreadDto, UserProfileDto } from './types';
+import type { ActivityItemDto, CheckRunDto, MergeConflictPathsDto, PullRequestDetailDto, PullRequestDto, ReviewMessageDto, ReviewThreadDto, TaskDto, UserProfileDto } from './types';
 import { getCached as getCachedValue } from './dataCache';
 import { EditableMarkdownBody } from './pr/EditableMarkdownBody';
 import Avatar from './Avatar';
@@ -805,6 +805,14 @@ function MergeBar({ pr, detail, mergeState, mergeError, mergeQueuedMessage, onMe
   );
 }
 
+/** Compact a task title to ~32 chars for chip display so a long
+ *  title doesn't push the rest of the PR meta row off-screen. */
+function truncateTaskTitle(title: string): string {
+  const trimmed = title.trim();
+  if (trimmed.length <= 32) return trimmed;
+  return trimmed.slice(0, 31) + '…';
+}
+
 function loadSideWidth(): number {
   const raw = localStorage.getItem(SIDE_WIDTH_KEY);
   const n = raw ? parseInt(raw, 10) : NaN;
@@ -843,6 +851,10 @@ type Props = {
    *  this when the head is in the same repo (cross-fork PRs hide
    *  it — the branch isn't in the local clone). */
   onOpenLocalBranch?: (owner: string, repo: string, branch: string) => void;
+  /** Jump from this PR back into the task domain — used when one
+   *  or more tasks have `linkedPrNumber === this.PR`. The header
+   *  surfaces a small task chip for each match. */
+  onOpenTask?: (taskId: string) => void;
 };
 
 /** Polling interval for the focus-driven CI snapshot refresh. ~12s is a
@@ -855,7 +867,7 @@ const CI_POLL_INTERVAL_MS = 12_000;
 type ActionState = 'idle' | 'confirming' | 'running' | 'done' | 'error';
 
 
-function PullRequestPreview({ pr, onOpenReview, onInspectDiffs, onMarkHandled, onMerge, onBack, backLabel, onOpenLocalBranch }: Props) {
+function PullRequestPreview({ pr, onOpenReview, onInspectDiffs, onMarkHandled, onMerge, onBack, backLabel, onOpenLocalBranch, onOpenTask }: Props) {
   // {owner, repo} for renderMarkdown — pr.repo is GitHub's "owner/repo"
   // form. Used so `#N` references in the PR body / comments become
   // clickable in-app via App.tsx's global click delegate.
@@ -904,6 +916,35 @@ function PullRequestPreview({ pr, onOpenReview, onInspectDiffs, onMarkHandled, o
   // this without leaving the detail page.
   const [draftToggleState, setDraftToggleState] = useState<'idle' | 'running' | 'error'>('idle');
   const [draftToggleError, setDraftToggleError] = useState<string | null>(null);
+
+  // Reverse PR → task lookup. Lets the header surface a small chip
+  // for every task whose `linkedPrNumber` matches this PR's number
+  // AND whose working directory is rooted in the same repo. Lets
+  // the user jump from the PR domain straight back into a task that
+  // owns this PR.
+  const [linkedTasks, setLinkedTasks] = useState<TaskDto[]>([]);
+  useEffect(() => {
+    let cancelled = false;
+    const repoLower = (repoContext?.repo ?? '').toLowerCase();
+    if (repoLower === '') return;
+    (async () => {
+      try {
+        const all = await window.bridge.listTasks();
+        if (cancelled) return;
+        const matched = all.filter(t => {
+          if (t.linkedPrNumber !== pr.number) return false;
+          // Repo match via path-segment scan (worktrees live at
+          // `<repo>/.worktrees/<branch>`, so basename-only matching
+          // misses them).
+          const segs = (t.workingDir ?? '').split('/').filter(Boolean).map(s => s.toLowerCase());
+          return segs.includes(repoLower);
+        });
+        setLinkedTasks(matched);
+      }
+      catch { /* non-fatal — no chip shown */ }
+    })();
+    return () => { cancelled = true; };
+  }, [pr.number, repoContext?.repo]);
 
   const refreshDetailFromGitHub = async (): Promise<PullRequestDetailDto> => {
     // No maxAgeSeconds → always-probe semantics. Used by the manual
@@ -1293,6 +1334,23 @@ function PullRequestPreview({ pr, onOpenReview, onInspectDiffs, onMarkHandled, o
                 <span key={l} className="pr-badge pr-badge--label" style={style}>{l}</span>
               );
             })}
+            {/* Linked-task chips — visible only when an active task
+                ties itself to this PR via `linkedPrNumber`. Click
+                jumps into the task detail page so the user can
+                travel back into the task domain without manually
+                searching. */}
+            {linkedTasks.map(t => (
+              <button
+                key={t.id}
+                type="button"
+                onClick={() => onOpenTask?.(t.id)}
+                className="pr-badge pr-badge--linked-task"
+                title={`Open task: ${t.title}`}
+                disabled={!onOpenTask}
+              >
+                ⌘ task: {truncateTaskTitle(t.title)}
+              </button>
+            ))}
           </div>
           {pr.author && (
             <div className="preview__sub-meta">

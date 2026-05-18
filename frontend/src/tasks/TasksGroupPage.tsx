@@ -59,6 +59,11 @@ export type TasksGroupPageProps = {
    *  toggled by {@code ⌘T} from inside the group view. */
   tileMode: 'chat' | 'terminal';
   onChangeTileMode: (next: 'chat' | 'terminal') => void;
+  /** Pass-through for the per-tile PR / Issue chip clicks. Parent
+   *  (TasksPage) resolves the task's working dir into an owner/repo
+   *  via the watched-repos list and navigates accordingly. */
+  onOpenPr: (task: TaskDto, prNumber: number) => void;
+  onOpenIssue: (task: TaskDto, issueNumber: number) => void;
   /** Clears the group filter and returns to the full task list view.
    *  Surfaced both in the topnav breadcrumb and in the rail's back
    *  link so the user always has an exit. */
@@ -72,7 +77,8 @@ export default function TasksGroupPage(props: TasksGroupPageProps) {
     group, tasks, busyId,
     onSelectTask, onStop, onSend, onInterrupt, onDecide,
     onAddTask, onOpenGroupSettings, onRefresh,
-    immersive, onChangeImmersive, tileMode, onChangeTileMode, onBackToAll,
+    immersive, onChangeImmersive, tileMode, onChangeTileMode,
+    onOpenPr, onOpenIssue, onBackToAll,
   } = props;
   void onChangeTileMode; // toggling lives at TasksPage level (⌘T)
 
@@ -186,6 +192,8 @@ export default function TasksGroupPage(props: TasksGroupPageProps) {
           // tile level. The modal's ⛶ button is the only way to
           // navigate into /tasks/:id.
           onOpen={taskId => setZoomedTaskId(taskId)}
+          onOpenPr={onOpenPr}
+          onOpenIssue={onOpenIssue}
           onStop={onStop}
           onSend={onSend}
           onInterrupt={onInterrupt}

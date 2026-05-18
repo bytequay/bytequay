@@ -467,6 +467,10 @@ function App() {
             initialDiffCommitSha={nav.diffCommitSha}
             onOpenLocalBranch={(owner, repo, branch) =>
               setNav({ view: 'local-repo', owner, repo, initialBranch: branch })}
+            // PR → task jump. The linked-task chip in the PR header
+            // calls this; we preserve the current repo nav as the
+            // back target so closing the task can return cleanly.
+            onOpenTask={taskId => setNav({ view: 'task-detail', taskId })}
           />
         )}
         {nav.view === 'email' && (
@@ -505,6 +509,14 @@ function App() {
             onGroupChange={groupId => setNav({ view: 'tasks', groupId: groupId ?? undefined, repo: nav.repo })}
             onRepoChange={repo => setNav({ view: 'tasks', repo: repo ?? undefined })}
             onSelectTask={taskId => setNav({ view: 'task-detail', taskId })}
+            onOpenPr={(owner, repo, prNumber) => setNav({
+              view: 'repo', owner, repo, prNumber,
+              back: { view: 'tasks', groupId: nav.groupId, filter: nav.filter, provider: nav.provider, repo: nav.repo },
+            })}
+            onOpenIssues={(owner, repo) => setNav({
+              view: 'repo', owner, repo, initialTab: 'issues',
+              back: { view: 'tasks', groupId: nav.groupId, filter: nav.filter, provider: nav.provider, repo: nav.repo },
+            })}
             onOpenSettings={() => setNav({ view: 'settings', section: 'integrations' })}
             onNewTask={initialGroupId => setNav({ view: 'task-create', initialGroupId })}
             immersive={tasksImmersive}

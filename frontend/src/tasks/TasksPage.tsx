@@ -12,7 +12,7 @@
  * limitations under the License.
  */
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import type { TaskDto, TaskGroupDto, TaskGroupMembershipDto, TaskStatusDto } from '../types';
+import type { TaskDto, TaskGroupDto, TaskGroupMembershipDto, TaskStatusDto, WatchedRepoDto } from '../types';
 import GroupMenu from './GroupMenu';
 import GroupSettingsDialog from './GroupSettingsDialog';
 import GroupTaskGrid from './GroupTaskGrid';
@@ -63,6 +63,12 @@ type Props = {
   onRepoChange: (repo: RepoFilter) => void;
   /** Routes the user to the task detail / live conversation page. */
   onSelectTask: (taskId: string) => void;
+  /** Routes to the repo's PR view (optionally a specific PR number).
+   *  Used to jump from a task tile's #PR chip into the PR domain. */
+  onOpenPr: (owner: string, repo: string, prNumber: number) => void;
+  /** Routes to the repo's Issues view. We don't have a deep-link
+   *  per issue today; the user lands on the list and picks the row. */
+  onOpenIssues: (owner: string, repo: string) => void;
   /** Routes to Settings → Integrations from the rail's footer row. */
   onOpenSettings: () => void;
   /** Navigate to the new task-create page. {@code initialGroupId} is
@@ -86,12 +92,13 @@ export default function TasksPage({
   filter, onFilterChange, provider, onProviderChange,
   groupId, onGroupChange,
   repo, onRepoChange,
-  onSelectTask, onOpenSettings, onNewTask,
+  onSelectTask, onOpenPr, onOpenIssues, onOpenSettings, onNewTask,
   immersive, onChangeImmersive,
 }: Props) {
   const [tasks, setTasks] = useState<TaskDto[] | null>(null);
   const [groups, setGroups] = useState<TaskGroupDto[]>([]);
   const [memberships, setMemberships] = useState<TaskGroupMembershipDto[]>([]);
+  const [watchedRepos, setWatchedRepos] = useState<WatchedRepoDto[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
   // Card-grid search + sort — both client-side over the already-
@@ -149,20 +156,57 @@ export default function TasksPage({
 
   const refresh = useCallback(async () => {
     try {
-      const [list, gs, ms] = await Promise.all([
+      const [list, gs, ms, wrs] = await Promise.all([
         window.bridge.listTasks(),
         window.bridge.listTaskGroups().catch(() => [] as TaskGroupDto[]),
         window.bridge.listTaskGroupMemberships().catch(() => [] as TaskGroupMembershipDto[]),
+        window.bridge.getWatchedRepos().catch(() => [] as WatchedRepoDto[]),
       ]);
       setTasks(list);
       setGroups(gs);
       setMemberships(ms);
+      setWatchedRepos(wrs);
       setError(null);
     }
     catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     }
   }, []);
+
+  /** Map a task's working dir into an owner/repo by scanning the
+   *  user's watched repos for a path segment that matches the repo
+   *  name (case-insensitive). Worktrees live under `<repo>/.worktrees/
+   *  <branch>` so the basename-only `repoKey()` helper isn't enough;
+   *  here we walk every path segment looking for a match. */
+  const resolveTaskRepo = useCallback((task: TaskDto): { owner: string; repo: string } | null => {
+    const segments = (task.workingDir ?? '').split('/').filter(Boolean).map(s => s.toLowerCase());
+    if (segments.length === 0) return null;
+    for (const wr of watchedRepos) {
+      if (segments.includes(wr.repo.toLowerCase())) {
+        return { owner: wr.owner, repo: wr.repo };
+      }
+    }
+    return null;
+  }, [watchedRepos]);
+
+  const onTileOpenPr = useCallback((task: TaskDto, prNumber: number) => {
+    const ctx = resolveTaskRepo(task);
+    if (ctx === null) {
+      setError(`Couldn't resolve owner/repo for task in ${task.workingDir}. Add the repo under Settings → Watched repos.`);
+      return;
+    }
+    onOpenPr(ctx.owner, ctx.repo, prNumber);
+  }, [resolveTaskRepo, onOpenPr]);
+
+  const onTileOpenIssue = useCallback((task: TaskDto, _issueNumber: number) => {
+    const ctx = resolveTaskRepo(task);
+    if (ctx === null) {
+      setError(`Couldn't resolve owner/repo for task in ${task.workingDir}. Add the repo under Settings → Watched repos.`);
+      return;
+    }
+    void _issueNumber; // no deep-link route per issue yet — land on the list
+    onOpenIssues(ctx.owner, ctx.repo);
+  }, [resolveTaskRepo, onOpenIssues]);
 
   const toggleTaskInGroup = useCallback(
     async (taskId: string, nextGroupId: string, present: boolean) => {
@@ -368,6 +412,8 @@ export default function TasksPage({
           onChangeImmersive={onChangeImmersive}
           tileMode={tileMode}
           onChangeTileMode={setTileMode}
+          onOpenPr={onTileOpenPr}
+          onOpenIssue={onTileOpenIssue}
           onBackToAll={() => onGroupChange(null)}
         />
 

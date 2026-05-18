@@ -52,6 +52,14 @@ type Props = {
   /** Per-tile visual mode for the conversation pane — Chat (default,
    *  WeChat bubbles) or Terminal (Warp/tmux monospace). */
   tileMode: TileConversationMode;
+  /** Open the GitHub PR linked to a task in-app (RepoDetailPage with
+   *  prNumber). The parent resolves the task's working dir into an
+   *  owner/repo via the watched-repos list before navigating. */
+  onOpenPr: (task: TaskDto, prNumber: number) => void;
+  /** Open the GitHub issue linked to a task. Today this lands on the
+   *  repo's Issues tab (no deep-link route to a single issue yet);
+   *  the user picks the row. */
+  onOpenIssue: (task: TaskDto, issueNumber: number) => void;
   /** ID of the currently selected tile (parent-owned so Esc
    *  precedence and clear-on-deselect can be driven from outside). */
   selectedId: string | null;
@@ -82,6 +90,7 @@ const POLL_MS = 4000;
 export default function GroupTaskGrid({
   tasks, onOpen, onStop, onSend, onInterrupt, onDecide,
   busyId, immersive, tileMode, selectedId, onSelectTile,
+  onOpenPr, onOpenIssue,
 }: Props) {
   // Auto-derive the tile layout from the task count — the server
   // caps a group at 4 members so the grid is bounded. Earlier the
@@ -216,6 +225,8 @@ export default function GroupTaskGrid({
               selected={selectedId === t.id}
               onSelect={() => onSelectTile(t.id)}
               onOpen={() => onOpen(t.id)}
+              onOpenPr={onOpenPr}
+              onOpenIssue={onOpenIssue}
               onStop={() => onStop(t.id)}
               onSend={input => onSend(t.id, input)}
               onInterrupt={() => onInterrupt(t.id)}
@@ -240,7 +251,7 @@ export default function GroupTaskGrid({
 function TaskTile({
   task, messages, busy, dragging, immersive, tileMode,
   slotIndex, selected, onSelect,
-  onOpen, onStop,
+  onOpen, onOpenPr, onOpenIssue, onStop,
   onSend, onInterrupt, onDecide,
   onDragStart, onDragEnter, onDragEnd, onDrop,
 }: {
@@ -264,6 +275,8 @@ function TaskTile({
    *  signal — focuses this tile so type-to-reply lands here. */
   onSelect: () => void;
   onOpen: () => void;
+  onOpenPr: (task: TaskDto, prNumber: number) => void;
+  onOpenIssue: (task: TaskDto, issueNumber: number) => void;
   onStop: () => void | Promise<void>;
   onSend: (input: string) => void | Promise<void>;
   onInterrupt: () => void | Promise<void>;
@@ -469,6 +482,31 @@ function TaskTile({
             title="Zoom in (or double-click anywhere on the tile)"
           >
             {task.title}
+          </button>
+        )}
+        {/* Linked PR / Issue chips. Click navigates into the
+            repo's PR / Issues view so the user can jump between
+            the task domain and the PR domain in-app. Each
+            stopPropagation so the tile's click handler doesn't
+            also fire selection / focus side-effects. */}
+        {task.linkedPrNumber !== null && (
+          <button
+            type="button"
+            onClick={e => { e.stopPropagation(); onOpenPr(task, task.linkedPrNumber as number); }}
+            style={isTerm ? { ...slimChipStyle, ...slimChipPrTerminalStyle } : slimChipStyle}
+            title={`Open PR #${task.linkedPrNumber}`}
+          >
+            #{task.linkedPrNumber}
+          </button>
+        )}
+        {task.linkedIssueNumber !== null && (
+          <button
+            type="button"
+            onClick={e => { e.stopPropagation(); onOpenIssue(task, task.linkedIssueNumber as number); }}
+            style={isTerm ? { ...slimChipIssueStyle, ...slimChipIssueTerminalStyle } : slimChipIssueStyle}
+            title={`Open Issue #${task.linkedIssueNumber}`}
+          >
+            !{task.linkedIssueNumber}
           </button>
         )}
         {immersive ? (
@@ -744,15 +782,14 @@ const tileSelectedTerminalStyle: React.CSSProperties = {
   boxShadow: 'inset 0 0 0 2px #a78bfa',
   background: '#10151c',
 };
-// Slim 22px tmux-style pane title used in both immersive and
-// non-immersive group views. ~5% of a 450px tile height —
-// roughly the same ratio tmux pane titles take in a real
-// terminal window. Drag lives on the header itself.
+// Slim 25px tmux-style pane title used in both immersive and
+// non-immersive group views. Earlier iterations used 22px; we
+// nudged to 25 to leave room for the PR / Issue chip pills.
 const tileSlimHeadStyle: React.CSSProperties = {
   display: 'flex',
   alignItems: 'center',
   gap: 8,
-  height: 22,
+  height: 25,
   padding: '0 8px 0 10px',
   borderBottom: '1px solid var(--border-hairline)',
   fontFamily: '"SF Mono", "JetBrains Mono", Menlo, Consolas, monospace',
@@ -848,6 +885,42 @@ const slimZoomBtnStyle: React.CSSProperties = {
 const tileSlimHeadTerminalStyle: React.CSSProperties = {
   background: '#0d1117',
   borderBottom: '1px solid #21262d',
+};
+// PR / Issue chip pills shown in the slim head. PR uses a quiet
+// purple, Issue uses an amber per the design's "amber pill #1234"
+// note in the create-task page section.
+const slimChipStyle: React.CSSProperties = {
+  display: 'inline-flex',
+  alignItems: 'center',
+  height: 16,
+  padding: '0 6px',
+  background: 'rgba(124,92,255,0.10)',
+  color: '#7c3aed',
+  border: '1px solid rgba(124,92,255,0.25)',
+  borderRadius: 4,
+  fontFamily: 'inherit',
+  fontSize: 9.5,
+  fontWeight: 700,
+  cursor: 'pointer',
+  letterSpacing: '0.02em',
+  lineHeight: 1,
+  flexShrink: 0,
+};
+const slimChipPrTerminalStyle: React.CSSProperties = {
+  background: 'rgba(167,139,250,0.10)',
+  color: '#c4b5fd',
+  borderColor: 'rgba(167,139,250,0.35)',
+};
+const slimChipIssueStyle: React.CSSProperties = {
+  ...slimChipStyle,
+  background: 'rgba(217,119,6,0.10)',
+  color: '#b45309',
+  border: '1px solid rgba(217,119,6,0.28)',
+};
+const slimChipIssueTerminalStyle: React.CSSProperties = {
+  background: 'rgba(251,191,36,0.10)',
+  color: '#fbbf24',
+  borderColor: 'rgba(251,191,36,0.35)',
 };
 const tileConversationStyle: React.CSSProperties = {
   flex: 1,

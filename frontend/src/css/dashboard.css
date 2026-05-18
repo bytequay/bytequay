@@ -297,6 +297,38 @@
   color: var(--accent-dark);
 }
 
+/* Linked-task chip shown in the PR header when one or more local
+   tasks set `linkedPrNumber` to this PR. Click jumps into the
+   task detail page so the user can hop between the PR and task
+   domains without manual searching. */
+.pr-badge--linked-task {
+  background: rgba(124, 92, 255, 0.10);
+  color: var(--accent-dark, #5b21b6);
+  border: 1px solid rgba(124, 92, 255, 0.25);
+  cursor: pointer;
+  font-family: inherit;
+  font-size: 0.68rem;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  text-transform: none;
+  padding: 1px 8px;
+  border-radius: var(--radius-pill);
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  max-width: 240px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.pr-badge--linked-task:hover:not(:disabled) {
+  background: rgba(124, 92, 255, 0.18);
+}
+.pr-badge--linked-task:disabled {
+  cursor: default;
+  opacity: 0.7;
+}
+
 /* Loading / error states in list */
 
 .list-state {

@@ -418,9 +418,12 @@ public class TaskService
 
     public void stop(String taskId)
     {
+        requireTask(taskId);
         scheduler.cancelQueuedTurns(taskId);
-        sessionOrThrow(taskId).stop();
-        registry.evict(taskId);
+        registry.find(taskId).ifPresent(session -> {
+            session.stop();
+            registry.evict(taskId);
+        });
     }
 
     /**

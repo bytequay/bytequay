@@ -255,6 +255,29 @@ class TestTaskServiceScheduler
     }
 
     @Test
+    void stopCancelsQueuedTurnsWithoutLiveSession()
+    {
+        Task task = task();
+        InMemoryTaskStore store = new InMemoryTaskStore();
+        store.saveTask(task);
+        RecordingScheduler scheduler = new RecordingScheduler();
+        ThrowingRegistry registry = new ThrowingRegistry();
+        TaskService service = new TaskService(
+                store,
+                new EmptyTaskGroupStore(),
+                new InMemoryTaskTurnStore(),
+                new InMemoryTaskTurnEventStore(),
+                registry,
+                scheduler,
+                new GitRunner());
+
+        service.stop(task.id());
+
+        assertThat(scheduler.cancelledTaskIds).containsExactly(task.id());
+        assertThat(registry.used).isFalse();
+    }
+
+    @Test
     void deleteCancelsQueuedTurnsBeforeDeletingTask()
     {
         Task task = task("task-1", TaskStatus.COMPLETED);
@@ -333,6 +356,12 @@ class TestTaskServiceScheduler
         public AgentSession getOrCreate(Task task)
         {
             return session;
+        }
+
+        @Override
+        public Optional<AgentSession> find(String taskId)
+        {
+            return Optional.of(session);
         }
 
         @Override

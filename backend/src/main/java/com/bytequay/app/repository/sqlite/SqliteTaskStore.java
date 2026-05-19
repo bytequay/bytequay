@@ -24,6 +24,7 @@ import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
@@ -141,6 +142,40 @@ class SqliteTaskStore
         return messages.findByTaskIdOrderBySeqAsc(taskId).stream()
                 .map(SqliteTaskStore::toMessage)
                 .toList();
+    }
+
+    @Override
+    public List<TaskMessage> listRecentMessages(String taskId, int limit)
+    {
+        // Fetch newest-first to honour the limit against the tail of
+        // the conversation, then reverse so the caller gets oldest-
+        // first rendering order without an extra sort.
+        List<TaskMessageEntity> tail = messages.findByTaskIdOrderBySeqDesc(
+                taskId, PageRequest.of(0, Math.max(1, limit)));
+        return reversedToMessages(tail);
+    }
+
+    @Override
+    public List<TaskMessage> listMessagesBefore(String taskId, long beforeSeq, int limit)
+    {
+        List<TaskMessageEntity> older = messages.findByTaskIdAndSeqLessThanOrderBySeqDesc(
+                taskId, beforeSeq, PageRequest.of(0, Math.max(1, limit)));
+        return reversedToMessages(older);
+    }
+
+    @Override
+    public long countUserMessages(String taskId)
+    {
+        return messages.countUserMessages(taskId);
+    }
+
+    private static List<TaskMessage> reversedToMessages(List<TaskMessageEntity> newestFirst)
+    {
+        List<TaskMessage> out = new ArrayList<>(newestFirst.size());
+        for (int i = newestFirst.size() - 1; i >= 0; i--) {
+            out.add(toMessage(newestFirst.get(i)));
+        }
+        return List.copyOf(out);
     }
 
     @Override

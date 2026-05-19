@@ -18,6 +18,7 @@ import com.bytequay.app.domain.TaskFile;
 import com.bytequay.app.domain.TaskMessage;
 import com.bytequay.app.domain.TaskStatus;
 
+import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
@@ -75,6 +76,50 @@ public interface TaskStore
 
     /** All messages for a task, oldest-first by seq. */
     List<TaskMessage> listMessages(String taskId);
+
+    /** Tail window for the conversation index's initial load: the
+     *  most-recent {@code limit} messages, returned <b>oldest-first</b>
+     *  for direct render. The index panel walks the same set to derive
+     *  per-prompt rows, so the two views never drift. Default
+     *  implementation is correct but linear — production uses the
+     *  SQLite override for an indexed query. */
+    default List<TaskMessage> listRecentMessages(String taskId, int limit)
+    {
+        List<TaskMessage> all = listMessages(taskId);
+        int from = Math.max(0, all.size() - limit);
+        return List.copyOf(all.subList(from, all.size()));
+    }
+
+    /** Older window for "↑ load earlier" — the {@code limit} messages
+     *  whose seq is strictly less than {@code beforeSeq}, oldest-first.
+     *  Pair with {@link #listRecentMessages} when the user pages back.
+     *  Default is filter-then-slice over the full list; SQLite override
+     *  uses a {@code WHERE seq < ?} indexed query. */
+    default List<TaskMessage> listMessagesBefore(String taskId, long beforeSeq, int limit)
+    {
+        List<TaskMessage> filtered = new ArrayList<>();
+        for (TaskMessage m : listMessages(taskId)) {
+            if (m.seq() < beforeSeq) {
+                filtered.add(m);
+            }
+        }
+        int from = Math.max(0, filtered.size() - limit);
+        return List.copyOf(filtered.subList(from, filtered.size()));
+    }
+
+    /** Count of user-role text prompts in a task. Powers the "N of M"
+     *  header in the conversation-index panel. Default scans
+     *  {@link #listMessages}; SQLite override uses an aggregate query. */
+    default long countUserMessages(String taskId)
+    {
+        long n = 0;
+        for (TaskMessage m : listMessages(taskId)) {
+            if ("user".equals(m.role()) && "text".equals(m.type())) {
+                n++;
+            }
+        }
+        return n;
+    }
 
     // ── files ────────────────────────────────────────────────────────
 

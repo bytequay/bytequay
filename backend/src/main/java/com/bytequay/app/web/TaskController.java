@@ -13,6 +13,7 @@
  */
 package com.bytequay.app.web;
 
+import com.bytequay.app.domain.ConvIndexPage;
 import com.bytequay.app.domain.PermissionDecision;
 import com.bytequay.app.domain.Task;
 import com.bytequay.app.domain.TaskFile;
@@ -22,6 +23,7 @@ import com.bytequay.app.domain.TaskStatus;
 import com.bytequay.app.domain.TaskTurn;
 import com.bytequay.app.domain.TaskTurnEvent;
 import com.bytequay.app.service.local.GitRunner;
+import com.bytequay.app.service.tasks.ConvIndexService;
 import com.bytequay.app.service.tasks.TaskService;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
@@ -72,11 +74,17 @@ public class TaskController
      *  enough that abandoned browser tabs don't leak the stream. */
     private static final long STREAM_TIMEOUT_MS = 6L * 60L * 60L * 1000L;
 
-    private final TaskService tasks;
+    /** Default page size for the conversation-index window. Matches
+     *  the doc's "load the last 50 prompts" target. */
+    private static final int DEFAULT_INDEX_LIMIT = 50;
 
-    public TaskController(TaskService tasks)
+    private final TaskService tasks;
+    private final ConvIndexService convIndex;
+
+    public TaskController(TaskService tasks, ConvIndexService convIndex)
     {
         this.tasks = requireNonNull(tasks, "tasks is null");
+        this.convIndex = requireNonNull(convIndex, "convIndex is null");
     }
 
     /** GET /api/tasks?status=RUNNING&limit=50&groupId=... */
@@ -169,6 +177,42 @@ public class TaskController
     public List<TaskMessage> messages(@PathVariable String id)
     {
         return tasks.history(id);
+    }
+
+    /**
+     * GET /api/tasks/{id}/index?cursor=&limit=&direction=
+     *
+     * <p>Conversation index window. Two modes:
+     * <ul>
+     *   <li>{@code direction=initial} (default): most-recent
+     *       {@code limit} messages plus the user-prompt index entries
+     *       derived from them, plus the task-wide user-prompt count
+     *       for the "N of M" header.</li>
+     *   <li>{@code direction=before}: messages strictly older than
+     *       {@code cursor}, oldest-first; used by the "↑ load earlier"
+     *       affordance to prepend to the loaded window.</li>
+     * </ul>
+     *
+     * <p>Both modes return the messages and the derived index entries
+     * in <b>one round-trip</b> so the two views can't drift — the
+     * design doc explicitly forbids fetching the index without the
+     * messages or vice versa for the same window.
+     */
+    @GetMapping("/{id}/index")
+    public ConvIndexPage index(
+            @PathVariable String id,
+            @RequestParam(required = false) Long cursor,
+            @RequestParam(required = false, defaultValue = "" + DEFAULT_INDEX_LIMIT) int limit,
+            @RequestParam(required = false, defaultValue = "initial") String direction)
+    {
+        if ("before".equalsIgnoreCase(direction)) {
+            if (cursor == null) {
+                throw new IllegalArgumentException(
+                        "cursor is required when direction=before — pass the smallest seq currently loaded");
+            }
+            return convIndex.backfill(id, cursor, limit);
+        }
+        return convIndex.initial(id, limit);
     }
 
     /** GET /api/tasks/{id}/turns — recent scheduler turns, newest first. */

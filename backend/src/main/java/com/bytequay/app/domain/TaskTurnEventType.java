@@ -19,5 +19,6 @@ public enum TaskTurnEventType
     WAITING_FOR_CAPACITY,
     TURN_STARTED,
     TURN_FINISHED,
+    TURN_FAILED,
     TURN_CANCELLED
 }

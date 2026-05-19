@@ -2412,6 +2412,8 @@ function formatSchedulerEventName(event: TaskTurnEventDto['event']): string {
       return 'started';
     case 'TURN_FINISHED':
       return 'finished';
+    case 'TURN_FAILED':
+      return 'failed';
     case 'TURN_CANCELLED':
       return 'cancelled';
   }

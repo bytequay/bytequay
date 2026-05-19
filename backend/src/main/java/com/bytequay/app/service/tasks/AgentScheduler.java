@@ -45,6 +45,7 @@ import java.util.concurrent.CompletionStage;
 import static com.bytequay.app.domain.TaskResourceLane.API;
 import static com.bytequay.app.domain.TaskResourceLane.CLI;
 import static com.bytequay.app.domain.TaskTurnEventType.TURN_CANCELLED;
+import static com.bytequay.app.domain.TaskTurnEventType.TURN_FAILED;
 import static com.bytequay.app.domain.TaskTurnEventType.TURN_FINISHED;
 import static com.bytequay.app.domain.TaskTurnEventType.TURN_QUEUED;
 import static com.bytequay.app.domain.TaskTurnEventType.TURN_STARTED;
@@ -314,7 +315,7 @@ public class AgentScheduler
                 now,
                 unwrapped == null ? null : unwrapped.getMessage());
         turns.saveTurn(finished);
-        appendEvent(finished, TURN_FINISHED, finished.errorMessage());
+        appendEvent(finished, failed ? TURN_FAILED : TURN_FINISHED, finished.errorMessage());
 
         synchronized (lock) {
             LaneState lane = lane(runningTurn.lane());

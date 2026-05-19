@@ -49,6 +49,7 @@ import java.util.function.Consumer;
 import static com.bytequay.app.domain.TaskKind.CLI_AGENT;
 import static com.bytequay.app.domain.TaskKind.LOGIC_LOOP;
 import static com.bytequay.app.domain.TaskTurnEventType.TURN_CANCELLED;
+import static com.bytequay.app.domain.TaskTurnEventType.TURN_FAILED;
 import static com.bytequay.app.domain.TaskTurnEventType.TURN_FINISHED;
 import static com.bytequay.app.domain.TaskTurnEventType.TURN_QUEUED;
 import static com.bytequay.app.domain.TaskTurnEventType.TURN_STARTED;
@@ -281,6 +282,12 @@ class TestAgentScheduler
         TaskTurn failed = harness.turns.findTurnById(firstTurn).orElseThrow();
         assertThat(failed.status()).isEqualTo(FAILED);
         assertThat(failed.errorMessage()).isEqualTo("boom");
+        assertThat(harness.events.listEventsByTaskId(first.id(), 10))
+                .anySatisfy(event -> {
+                    assertThat(event.turnId()).isEqualTo(firstTurn);
+                    assertThat(event.event()).isEqualTo(TURN_FAILED);
+                    assertThat(event.message()).isEqualTo("boom");
+                });
         assertThat(secondSession.inputs).containsExactly("second");
         assertThat(harness.turns.findTurnById(secondTurn).orElseThrow().status())
                 .isEqualTo(RUNNING);

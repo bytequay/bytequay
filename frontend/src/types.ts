@@ -1252,6 +1252,7 @@ export type TaskTurnEventTypeDto =
   | 'WAITING_FOR_CAPACITY'
   | 'TURN_STARTED'
   | 'TURN_FINISHED'
+  | 'TURN_FAILED'
   | 'TURN_CANCELLED';
 
 /** Durable scheduler event for one task turn. Complements

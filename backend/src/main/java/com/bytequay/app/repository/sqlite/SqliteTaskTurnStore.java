@@ -66,7 +66,24 @@ class SqliteTaskTurnStore
     @Override
     public List<TaskTurn> listTurnsByStatus(TaskTurnStatus status, int limit)
     {
-        return turns.findByStatusOrderByCreatedAtMsAsc(status.name(), PageRequest.of(0, limit))
+        requireNonNull(status, "status is null");
+        return turns.findByStatusOrderByCreatedAtMsAscIdAsc(status.name(), PageRequest.of(0, limit))
+                .stream()
+                .map(SqliteTaskTurnStore::toTurn)
+                .toList();
+    }
+
+    @Override
+    public List<TaskTurn> listTurnsByStatusAfter(TaskTurnStatus status, Instant createdAfter, String idAfter, int limit)
+    {
+        requireNonNull(status, "status is null");
+        requireNonNull(createdAfter, "createdAfter is null");
+        requireNonNull(idAfter, "idAfter is null");
+        return turns.findByStatusAfterCursor(
+                        status.name(),
+                        createdAfter.toEpochMilli(),
+                        idAfter,
+                        PageRequest.of(0, limit))
                 .stream()
                 .map(SqliteTaskTurnStore::toTurn)
                 .toList();
@@ -79,7 +96,7 @@ class SqliteTaskTurnStore
         if (statuses.isEmpty()) {
             return List.of();
         }
-        return turns.findByStatusInOrderByCreatedAtMsAsc(
+        return turns.findByStatusInOrderByCreatedAtMsAscIdAsc(
                         statuses.stream()
                                 .map(TaskTurnStatus::name)
                                 .toList(),

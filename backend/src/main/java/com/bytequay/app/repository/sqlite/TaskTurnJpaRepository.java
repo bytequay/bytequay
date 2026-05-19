@@ -15,6 +15,8 @@ package com.bytequay.app.repository.sqlite;
 
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
 
 import java.util.Collection;
 import java.util.List;
@@ -22,9 +24,23 @@ import java.util.List;
 interface TaskTurnJpaRepository
         extends JpaRepository<TaskTurnEntity, String>
 {
-    List<TaskTurnEntity> findByStatusOrderByCreatedAtMsAsc(String status, Pageable pageable);
+    List<TaskTurnEntity> findByStatusOrderByCreatedAtMsAscIdAsc(String status, Pageable pageable);
 
-    List<TaskTurnEntity> findByStatusInOrderByCreatedAtMsAsc(Collection<String> statuses, Pageable pageable);
+    @Query("""
+            SELECT turn
+            FROM TaskTurnEntity turn
+            WHERE turn.status = :status
+              AND (turn.createdAtMs > :createdAtMs
+                OR (turn.createdAtMs = :createdAtMs AND turn.id > :id))
+            ORDER BY turn.createdAtMs ASC, turn.id ASC
+            """)
+    List<TaskTurnEntity> findByStatusAfterCursor(
+            @Param("status") String status,
+            @Param("createdAtMs") long createdAtMs,
+            @Param("id") String id,
+            Pageable pageable);
+
+    List<TaskTurnEntity> findByStatusInOrderByCreatedAtMsAscIdAsc(Collection<String> statuses, Pageable pageable);
 
     List<TaskTurnEntity> findByTaskIdAndStatusOrderByCreatedAtMsDesc(
             String taskId,

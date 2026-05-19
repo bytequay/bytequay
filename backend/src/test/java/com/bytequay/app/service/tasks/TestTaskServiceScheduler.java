@@ -637,7 +637,19 @@ class TestTaskServiceScheduler
         {
             return turns.values().stream()
                     .filter(turn -> turn.status() == status)
-                    .sorted(Comparator.comparing(TaskTurn::createdAt))
+                    .sorted(turnOrder())
+                    .limit(limit)
+                    .toList();
+        }
+
+        @Override
+        public List<TaskTurn> listTurnsByStatusAfter(TaskTurnStatus status, Instant createdAfter, String idAfter, int limit)
+        {
+            return turns.values().stream()
+                    .filter(turn -> turn.status() == status)
+                    .filter(turn -> turn.createdAt().compareTo(createdAfter) > 0
+                            || (turn.createdAt().equals(createdAfter) && turn.id().compareTo(idAfter) > 0))
+                    .sorted(turnOrder())
                     .limit(limit)
                     .toList();
         }
@@ -647,7 +659,7 @@ class TestTaskServiceScheduler
         {
             return turns.values().stream()
                     .filter(turn -> statuses.contains(turn.status()))
-                    .sorted(Comparator.comparing(TaskTurn::createdAt))
+                    .sorted(turnOrder())
                     .limit(limit)
                     .toList();
         }
@@ -671,6 +683,12 @@ class TestTaskServiceScheduler
                     .sorted(Comparator.comparing(TaskTurn::createdAt).reversed())
                     .limit(limit)
                     .toList();
+        }
+
+        private static Comparator<TaskTurn> turnOrder()
+        {
+            return Comparator.comparing(TaskTurn::createdAt)
+                    .thenComparing(TaskTurn::id);
         }
     }
 

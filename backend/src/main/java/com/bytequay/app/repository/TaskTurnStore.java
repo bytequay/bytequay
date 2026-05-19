@@ -16,6 +16,7 @@ package com.bytequay.app.repository;
 import com.bytequay.app.domain.TaskTurn;
 import com.bytequay.app.domain.TaskTurnStatus;
 
+import java.time.Instant;
 import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
@@ -33,6 +34,9 @@ public interface TaskTurnStore
 
     /** Turns in one status, oldest-first by creation time. */
     List<TaskTurn> listTurnsByStatus(TaskTurnStatus status, int limit);
+
+    /** Turns in one status after a stable creation/id cursor, oldest-first. */
+    List<TaskTurn> listTurnsByStatusAfter(TaskTurnStatus status, Instant createdAfter, String idAfter, int limit);
 
     /** Turns in any of the supplied statuses, oldest-first by creation time. */
     List<TaskTurn> listTurnsByStatuses(Collection<TaskTurnStatus> statuses, int limit);

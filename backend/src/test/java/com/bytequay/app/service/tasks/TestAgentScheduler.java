@@ -291,6 +291,28 @@ class TestAgentScheduler
     }
 
     @Test
+    void recoveryPagesThroughAllDurableQueuedTurns()
+    {
+        TestHarness harness = new TestHarness(1, 4);
+        Task task = task("task-1", CLI_AGENT);
+        RecordingSession session = harness.register(task);
+        Instant now = Instant.parse("2026-05-18T12:00:00Z");
+        for (int i = 0; i < 1_001; i++) {
+            harness.turns.saveTurn(turn("turn-" + i, task.id(), QUEUED, now.plusMillis(i)));
+        }
+
+        harness.scheduler.recoverQueuedTurns();
+
+        for (int i = 0; i < 1_001; i++) {
+            assertThat(session.inputs).hasSize(i + 1);
+            session.completeNext();
+        }
+        assertThat(harness.turns.turns.values())
+                .extracting(TaskTurn::status)
+                .containsOnly(COMPLETED);
+    }
+
+    @Test
     void recoveryDoesNotDuplicateWaitingEventForAlreadyKnownQueuedTurn()
     {
         TestHarness harness = new TestHarness(1, 4);
@@ -497,7 +519,19 @@ class TestAgentScheduler
         {
             return turns.values().stream()
                     .filter(turn -> turn.status() == status)
-                    .sorted(Comparator.comparing(TaskTurn::createdAt))
+                    .sorted(turnOrder())
+                    .limit(limit)
+                    .toList();
+        }
+
+        @Override
+        public List<TaskTurn> listTurnsByStatusAfter(TaskTurnStatus status, Instant createdAfter, String idAfter, int limit)
+        {
+            return turns.values().stream()
+                    .filter(turn -> turn.status() == status)
+                    .filter(turn -> turn.createdAt().compareTo(createdAfter) > 0
+                            || (turn.createdAt().equals(createdAfter) && turn.id().compareTo(idAfter) > 0))
+                    .sorted(turnOrder())
                     .limit(limit)
                     .toList();
         }
@@ -507,7 +541,7 @@ class TestAgentScheduler
         {
             return turns.values().stream()
                     .filter(turn -> statuses.contains(turn.status()))
-                    .sorted(Comparator.comparing(TaskTurn::createdAt))
+                    .sorted(turnOrder())
                     .limit(limit)
                     .toList();
         }
@@ -531,6 +565,12 @@ class TestAgentScheduler
                     .sorted(Comparator.comparing(TaskTurn::createdAt).reversed())
                     .limit(limit)
                     .toList();
+        }
+
+        private static Comparator<TaskTurn> turnOrder()
+        {
+            return Comparator.comparing(TaskTurn::createdAt)
+                    .thenComparing(TaskTurn::id);
         }
     }
 

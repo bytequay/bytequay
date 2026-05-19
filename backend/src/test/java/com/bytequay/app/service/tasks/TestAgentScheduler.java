@@ -598,9 +598,16 @@ class TestAgentScheduler
         {
             return events.values().stream()
                     .filter(event -> event.taskId().equals(taskId))
-                    .sorted(Comparator.comparing(TaskTurnEvent::createdAt).reversed())
+                    .sorted(eventHistoryOrder())
                     .limit(limit)
                     .toList();
+        }
+
+        private static Comparator<TaskTurnEvent> eventHistoryOrder()
+        {
+            return Comparator.comparing(TaskTurnEvent::createdAt)
+                    .thenComparing(TaskTurnEvent::id)
+                    .reversed();
         }
     }
 

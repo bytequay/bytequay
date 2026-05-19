@@ -55,7 +55,7 @@ class SqliteTaskTurnEventStore
     public List<TaskTurnEvent> listEventsByTaskId(String taskId, int limit)
     {
         requireNonNull(taskId, "taskId is null");
-        return events.findByTaskIdOrderByCreatedAtMsDesc(taskId, PageRequest.of(0, limit))
+        return events.findByTaskIdOrderByCreatedAtMsDescIdDesc(taskId, PageRequest.of(0, limit))
                 .stream()
                 .map(SqliteTaskTurnEventStore::toEvent)
                 .toList();

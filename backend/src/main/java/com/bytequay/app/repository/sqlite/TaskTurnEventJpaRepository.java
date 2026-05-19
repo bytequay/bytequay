@@ -21,5 +21,5 @@ import java.util.List;
 interface TaskTurnEventJpaRepository
         extends JpaRepository<TaskTurnEventEntity, String>
 {
-    List<TaskTurnEventEntity> findByTaskIdOrderByCreatedAtMsDesc(String taskId, Pageable pageable);
+    List<TaskTurnEventEntity> findByTaskIdOrderByCreatedAtMsDescIdDesc(String taskId, Pageable pageable);
 }

@@ -235,6 +235,33 @@ class TestTaskServiceScheduler
     }
 
     @Test
+    void turnEventsUseStableTieBreakerForMatchingTimestamps()
+    {
+        Task task = task();
+        InMemoryTaskStore store = new InMemoryTaskStore();
+        store.saveTask(task);
+        InMemoryTaskTurnEventStore turnEvents = new InMemoryTaskTurnEventStore();
+        Instant now = Instant.parse("2026-05-18T12:00:00Z");
+        turnEvents.appendEvent(turnEvent("event-a", "turn-1", task.id(), now));
+        turnEvents.appendEvent(turnEvent("event-c", "turn-1", task.id(), now));
+        turnEvents.appendEvent(turnEvent("event-b", "turn-1", task.id(), now.minusSeconds(1)));
+        ThrowingRegistry registry = new ThrowingRegistry();
+        TaskService service = new TaskService(
+                store,
+                new EmptyTaskGroupStore(),
+                new InMemoryTaskTurnStore(),
+                turnEvents,
+                registry,
+                new RecordingScheduler(),
+                new GitRunner());
+
+        assertThat(service.turnEvents(task.id()))
+                .extracting(TaskTurnEvent::id)
+                .containsExactly("event-c", "event-a", "event-b");
+        assertThat(registry.used).isFalse();
+    }
+
+    @Test
     void activeTurnsReturnQueuedAndRunningOnly()
     {
         InMemoryTaskTurnStore turns = new InMemoryTaskTurnStore();
@@ -745,9 +772,16 @@ class TestTaskServiceScheduler
         {
             return events.values().stream()
                     .filter(event -> event.taskId().equals(taskId))
-                    .sorted(Comparator.comparing(TaskTurnEvent::createdAt).reversed())
+                    .sorted(eventHistoryOrder())
                     .limit(limit)
                     .toList();
+        }
+
+        private static Comparator<TaskTurnEvent> eventHistoryOrder()
+        {
+            return Comparator.comparing(TaskTurnEvent::createdAt)
+                    .thenComparing(TaskTurnEvent::id)
+                    .reversed();
         }
     }
 

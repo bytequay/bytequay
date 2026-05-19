@@ -551,9 +551,9 @@ public class ClaudeCodeCliSession
         // single task can't blow through the app-wide ~8 GB budget on
         // its own. 512 MB is enough for the streaming JSON pipeline +
         // tool-use buffering we observe in practice; multiplied by the
-        // scheduler's 5-way CLI concurrency lane (see
+        // scheduler's 4-way CLI concurrency lane (see
         // bytequay.tasks.scheduler.max-cli-running) this keeps the
-        // combined CLI footprint around ~3 GB even with the lane full.
+        // combined CLI heap around ~2 GB even with the lane full.
         // NODE_OPTIONS rides through env so it applies whether the user
         // installed claude as a global npm bin or via npx/yarn.
         pb.environment().merge(

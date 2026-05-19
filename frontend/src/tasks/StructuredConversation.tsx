@@ -464,8 +464,18 @@ function ToolRow({ call, result }: { call: TaskMessageDto; result: TaskMessageDt
   const palette = toolPalette(toolName);
   const [expanded, setExpanded] = useState(false);
   const hasOutput = output.trim().length > 0;
-  const overflow = hasOutput && output.length > 600;
-  const shown = overflow && !expanded ? output.slice(0, 600) + '\n…' : output;
+  // Truncate by lines rather than characters so the collapsed view
+  // never cuts mid-line of a file dump or a multi-column listing.
+  // ~24 lines fits the "give me a sense, click to see the rest"
+  // sweet spot — small enough to keep the conversation scrollable,
+  // big enough to be informative.
+  const COLLAPSED_LINES = 24;
+  const lines = useMemo(() => output.split('\n'), [output]);
+  const overflow = hasOutput && lines.length > COLLAPSED_LINES;
+  const shown = overflow && !expanded
+    ? lines.slice(0, COLLAPSED_LINES).join('\n')
+    : output;
+  const hiddenLineCount = overflow ? lines.length - COLLAPSED_LINES : 0;
 
   return (
     <div style={toolRowStyle}>
@@ -481,20 +491,205 @@ function ToolRow({ call, result }: { call: TaskMessageDto; result: TaskMessageDt
       </div>
       {hasOutput && (
         <div style={toolOutputStyle}>
-          <pre style={preStyle}>{shown}</pre>
+          <ToolOutputBody toolName={toolName} text={shown} isError={isError} />
           {overflow && (
             <button
               type="button"
               onClick={() => setExpanded(v => !v)}
               style={linkBtnStyle}
             >
-              {expanded ? 'collapse' : `· ${output.length - 600} more chars`}
+              {expanded ? '· collapse' : `· show ${hiddenLineCount} more line${hiddenLineCount === 1 ? '' : 's'}`}
             </button>
           )}
         </div>
       )}
     </div>
   );
+}
+
+/**
+ * Per-tool output renderer. Plain-text output is barely scannable for
+ * the user — a file dump from Read, a list of paths from Bash, or a
+ * diff from Edit all read as one undifferentiated mono block in the
+ * fallback {@code <pre>}. This dispatches to specialised renderers
+ * that pull structure out of each tool's output:
+ *
+ *  • Read: line-number gutter parsed from {@code cat -n} format.
+ *  • Bash / Glob: per-line classification — file paths in accent,
+ *    error/warning patterns in red/amber, plain output in default.
+ *  • Edit / Write / MultiEdit: diff coloring on +/- lines.
+ *  • Grep: split {@code file:line:match} so the path stands out.
+ *
+ *  Anything else falls back to the original mono <pre>.
+ */
+function ToolOutputBody({ toolName, text, isError }: { toolName: string; text: string; isError: boolean }) {
+  // Errors override per-tool formatting — a tool whose result came
+  // back with isError=true is almost always plain stderr / an
+  // exception message; surface that in the error palette so the user
+  // doesn't miss it.
+  if (isError) {
+    return <pre style={preErrorStyle}>{text}</pre>;
+  }
+  if (toolName === 'Read') {
+    return <ReadOutput text={text} />;
+  }
+  if (toolName === 'Edit' || toolName === 'MultiEdit' || toolName === 'Write' || toolName === 'NotebookEdit') {
+    return <EditOutput text={text} />;
+  }
+  if (toolName === 'Grep') {
+    return <GrepOutput text={text} />;
+  }
+  if (toolName === 'Glob') {
+    return <PathListOutput text={text} />;
+  }
+  if (toolName === 'Bash') {
+    return <BashOutput text={text} />;
+  }
+  return <pre style={preStyle}>{text}</pre>;
+}
+
+/** Read tool output arrives in {@code cat -n} form: lines like
+ *  {@code "   123\tcontent"} or {@code "   123→content"}. Render
+ *  the line numbers in a right-aligned dim gutter and the content
+ *  in its own column so the eye can scan the file structure
+ *  without parsing the prefix on every row. Falls back to the
+ *  plain <pre> for any line that doesn't match the pattern, so an
+ *  unusual response shape (an error message, a binary refusal)
+ *  still renders intact. */
+function ReadOutput({ text }: { text: string }) {
+  const rows = useMemo(() => {
+    const lineRe = /^\s*(\d+)(?:\t|→)(.*)$/;
+    return text.split('\n').map((raw, idx) => {
+      const m = lineRe.exec(raw);
+      if (m) return { kind: 'numbered' as const, key: idx, num: m[1], content: m[2] };
+      return { kind: 'plain' as const, key: idx, content: raw };
+    });
+  }, [text]);
+  // Width of the gutter is computed from the largest line number so
+  // a 4-digit file doesn't push 1-digit rows out of alignment.
+  const gutterCh = useMemo(() => {
+    let max = 1;
+    for (const r of rows) {
+      if (r.kind === 'numbered' && r.num.length > max) max = r.num.length;
+    }
+    return max;
+  }, [rows]);
+  return (
+    <div style={readBlockStyle}>
+      {rows.map(r => r.kind === 'numbered' ? (
+        <div key={r.key} style={readRowStyle}>
+          <span style={{ ...readGutterStyle, minWidth: `${gutterCh}ch` }}>{r.num}</span>
+          <span style={readContentStyle}>{r.content || ' '}</span>
+        </div>
+      ) : (
+        <div key={r.key} style={readPlainStyle}>{r.content || ' '}</div>
+      ))}
+    </div>
+  );
+}
+
+/** Bash output is freeform but a few patterns are common enough to
+ *  recognise: lines that are just a file path, lines containing
+ *  errors/warnings, lines starting with +/- (e.g., a git diff piped
+ *  through). Color them so the eye lands on the meaningful row
+ *  immediately instead of grepping the whole block.  */
+function BashOutput({ text }: { text: string }) {
+  return <LineColoredOutput text={text} />;
+}
+
+/** Edit / Write / MultiEdit responses often include patch-style
+ *  before/after snippets. Color +/− lines green/red and leave the
+ *  header text in normal weight so the diff stands apart from the
+ *  surrounding prose. */
+function EditOutput({ text }: { text: string }) {
+  return <LineColoredOutput text={text} />;
+}
+
+/** Grep prints rows like {@code path/to/file.ts:42:match text}. Pull
+ *  the path and line number out into their own colored spans so the
+ *  user can pick a hit by scanning the leftmost column instead of
+ *  parsing every row. */
+function GrepOutput({ text }: { text: string }) {
+  const grepRe = /^([^:\n]+):(\d+):(.*)$/;
+  const lines = text.split('\n');
+  return (
+    <div style={readBlockStyle}>
+      {lines.map((line, i) => {
+        const m = grepRe.exec(line);
+        if (m) {
+          return (
+            <div key={i} style={readRowStyle}>
+              <span style={grepPathStyle}>{m[1]}</span>
+              <span style={grepSepStyle}>:</span>
+              <span style={grepLineStyle}>{m[2]}</span>
+              <span style={grepSepStyle}>:</span>
+              <span style={readContentStyle}>{m[3] || ' '}</span>
+            </div>
+          );
+        }
+        return <div key={i} style={readPlainStyle}>{line || ' '}</div>;
+      })}
+    </div>
+  );
+}
+
+/** Glob output: one path per line. Render each as a styled path
+ *  chip so a long list reads as a directory of hits rather than a
+ *  wall of slash-separated identifiers. */
+function PathListOutput({ text }: { text: string }) {
+  const lines = text.split('\n');
+  return (
+    <div style={readBlockStyle}>
+      {lines.map((line, i) => (
+        <div key={i} style={readPlainStyle}>
+          {line.trim().length > 0
+            ? <span style={pathLineStyle}>{line}</span>
+            : ' '}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+/** Shared line-classifier used by Bash + Edit renderers. Picks a
+ *  palette per line from a small pattern set and renders each line
+ *  on its own row so the colored slabs make the structure of the
+ *  output obvious at a glance. Conservative — anything we don't
+ *  recognise falls through to the default text color, so we never
+ *  miscolour real output. */
+function LineColoredOutput({ text }: { text: string }) {
+  // Order matters: more-specific patterns first so e.g. a "+++ file"
+  // diff-header doesn't get coloured as a plain "+" addition.
+  const lines = text.split('\n');
+  return (
+    <div style={readBlockStyle}>
+      {lines.map((line, i) => {
+        const cls = classifyLine(line);
+        const style = lineClassStyle[cls];
+        return (
+          <div key={i} style={{ ...readPlainStyle, ...style }}>
+            {line || ' '}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+type LineClass = 'diffHeader' | 'diffAdd' | 'diffDel' | 'error' | 'warn' | 'path' | 'success' | 'plain';
+
+function classifyLine(line: string): LineClass {
+  if (line.startsWith('+++') || line.startsWith('---') || line.startsWith('@@')) return 'diffHeader';
+  if (line.startsWith('+')) return 'diffAdd';
+  if (line.startsWith('-')) return 'diffDel';
+  if (/(?:^|[\s:])(?:error|exception|fatal|fail(?:ed|ure)?)\b/i.test(line)) return 'error';
+  if (/(?:^|[\s:])(?:warning|warn)\b/i.test(line)) return 'warn';
+  // "Found N files" / "X tests passed" — a success-summary line.
+  if (/^(?:Found \d+|✓|✔|OK[: ])/i.test(line.trim())) return 'success';
+  // A bare path-ish line: starts with a relative or absolute path
+  // and has no spaces (so we don't accidentally style a sentence).
+  if (/^[./]?[\w./@-]+\.[\w]{1,8}$/.test(line.trim())) return 'path';
+  return 'plain';
 }
 
 function TurnFooter({ turn }: { turn: TaskMessageDto }) {
@@ -897,6 +1092,90 @@ const preStyle: React.CSSProperties = {
   whiteSpace: 'pre-wrap',
   wordBreak: 'break-word',
   color: 'var(--text-1)',
+};
+const preErrorStyle: React.CSSProperties = {
+  ...preStyle,
+  color: '#991b1b',
+  background: '#fef2f2',
+  border: '1px solid #fecaca',
+  borderRadius: 4,
+  padding: '6px 8px',
+};
+
+// Read / Grep / Glob / Bash / Edit shared body. Each line is its
+// own row so we can colour-classify and still keep selection /
+// copy-paste sane (multi-line copy via the renderer's native
+// "select across rows" still produces newline-joined text because
+// flex children separate naturally).
+const readBlockStyle: React.CSSProperties = {
+  fontFamily: monoFont,
+  fontSize: 11.5,
+  lineHeight: 1.55,
+  color: 'var(--text-1)',
+  // Cap height so even an expanded 600-line file dump doesn't
+  // dominate the conversation column. Tuned against a typical
+  // viewport — beyond ~320 px the user is better served by a
+  // scrolled subwindow than by an endless inline block.
+  maxHeight: 320,
+  overflow: 'auto',
+};
+const readRowStyle: React.CSSProperties = {
+  display: 'flex',
+  gap: 10,
+  alignItems: 'baseline',
+  whiteSpace: 'pre',
+};
+const readGutterStyle: React.CSSProperties = {
+  color: 'var(--text-4)',
+  textAlign: 'right',
+  flexShrink: 0,
+  userSelect: 'none',
+  // Subtle right divider so the gutter visually separates from
+  // content without needing a literal pipe character.
+  borderRight: '1px solid var(--border-hairline)',
+  paddingRight: 8,
+};
+const readContentStyle: React.CSSProperties = {
+  whiteSpace: 'pre-wrap',
+  wordBreak: 'break-word',
+  flex: 1,
+  minWidth: 0,
+};
+const readPlainStyle: React.CSSProperties = {
+  whiteSpace: 'pre-wrap',
+  wordBreak: 'break-word',
+};
+
+// Per-line palettes for Bash / Edit output. Backgrounds stay light
+// so the row still reads as part of one continuous transcript;
+// foreground colours carry the signal.
+const lineClassStyle: Record<LineClass, React.CSSProperties> = {
+  diffHeader: { color: 'var(--text-3)', fontWeight: 600 },
+  diffAdd:    { color: '#166534', background: '#dcfce7' },
+  diffDel:    { color: '#991b1b', background: '#fee2e2' },
+  error:      { color: '#991b1b' },
+  warn:       { color: '#92400e' },
+  success:    { color: '#166534', fontWeight: 600 },
+  path:       { color: 'var(--accent-dark)' },
+  plain:      {},
+};
+
+// Inline path styling for Glob output and the file column of Grep.
+const pathLineStyle: React.CSSProperties = {
+  color: 'var(--accent-dark)',
+};
+const grepPathStyle: React.CSSProperties = {
+  color: 'var(--accent-dark)',
+  fontWeight: 500,
+  flexShrink: 0,
+};
+const grepLineStyle: React.CSSProperties = {
+  color: 'var(--text-3)',
+  flexShrink: 0,
+};
+const grepSepStyle: React.CSSProperties = {
+  color: 'var(--text-4)',
+  userSelect: 'none',
 };
 
 const turnFooterStyle: React.CSSProperties = {

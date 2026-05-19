@@ -680,6 +680,8 @@ export default function TaskDetailPage({
                   commitsCount={diffState.commitsCount}
                   liveText={liveText}
                   liveUsage={liveUsage}
+                  taskId={taskId}
+                  convIndexSseRef={convIndexSseRef}
                 />
               </div>
             )}
@@ -1633,6 +1635,7 @@ function TerminalWrap({
   changeStats, diffOpen, onReview,
   diffMode, onChangeDiffMode, workingCount, commitsCount,
   liveText, liveUsage,
+  taskId, convIndexSseRef,
 }: {
   task: TaskDto;
   messages: TaskMessageDto[];
@@ -1670,7 +1673,13 @@ function TerminalWrap({
   commitsCount: number | null;
   liveText: string;
   liveUsage: { tokensIn: number; tokensOut: number } | null;
+  taskId: string;
+  convIndexSseRef: React.MutableRefObject<((name: string) => void) | null>;
 }) {
+  // Anchor for the floating ConvIndex rail. Sized to wrap the
+  // ConversationPane so the rail's "absolute" coordinates resolve
+  // against the visible transcript zone, not the whole window.
+  const termHistoryRef = useRef<HTMLDivElement | null>(null);
   return (
     <div style={terminalWrapStyle}>
       <div style={termToolbarStyle}>
@@ -1718,18 +1727,29 @@ function TerminalWrap({
         </button>
       </div>
 
-      <ConversationPane
-        messages={messages}
-        pendingPermission={pendingPermission}
-        onDecide={onDecide}
-        banner={{
-          model: task.model,
-          cwd: task.workingDir,
-          branch: task.branchName,
-          sessionStartedAtIso: task.createdAt,
-        }}
-        liveText={liveText}
-      />
+      <div ref={termHistoryRef} style={termHistoryAnchorStyle}>
+        <ConversationPane
+          messages={messages}
+          pendingPermission={pendingPermission}
+          onDecide={onDecide}
+          banner={{
+            model: task.model,
+            cwd: task.workingDir,
+            branch: task.branchName,
+            sessionStartedAtIso: task.createdAt,
+          }}
+          liveText={liveText}
+        />
+        {/* Floating right-edge index rail. Collapsed by default to a
+            strip of "−" markers; hover expands to full previews.
+            Dark variant matches the terminal palette. */}
+        <ConvIndex
+          taskId={taskId}
+          scrollContainerRef={termHistoryRef}
+          onSseEvent={convIndexSseRef}
+          variant={theme === 'dark' ? 'dark' : 'light'}
+        />
+      </div>
 
       <TerminalStatusBar task={task} stage={stage} liveUsage={liveUsage} />
 
@@ -2824,6 +2844,17 @@ const terminalWrapStyle: React.CSSProperties = {
   overflow: 'hidden',
   display: 'flex', flexDirection: 'column',
   flex: 1, minHeight: 0,
+};
+// position: relative anchors the floating ConvIndex rail to the
+// terminal transcript zone. flex: 1 fills the gap between toolbar
+// and status bar; minHeight: 0 lets the inner ConversationPane
+// scroll instead of growing the whole wrap vertically.
+const termHistoryAnchorStyle: React.CSSProperties = {
+  position: 'relative',
+  flex: 1,
+  minHeight: 0,
+  display: 'flex',
+  flexDirection: 'column',
 };
 const termToolbarStyle: React.CSSProperties = {
   display: 'flex', alignItems: 'center', gap: 10,

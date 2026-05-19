@@ -222,7 +222,7 @@ function Banner({ banner }: { banner: Props['banner'] }) {
 function UserBlock({ message }: { message: TaskMessageDto }) {
   const text = String(parseContent(message.contentJson).text ?? '');
   return (
-    <div style={userBlockStyle}>
+    <div style={userBlockStyle} data-seq={message.seq}>
       <span style={userGlyphStyle}>⏺ </span>
       {renderInline(text)}
     </div>
@@ -639,7 +639,10 @@ const scrollStyle: React.CSSProperties = {
   flex: 1,
   minHeight: 0,
   overflowY: 'auto',
-  padding: '16px 22px 4px',
+  // Right padding is slim — just the overlay scrollbar's width.
+  // The floating ConvIndex rail occupies the rightmost ~30px so
+  // text gets to use the wider column.
+  padding: '16px 8px 4px 22px',
   background: 'var(--term-bg)',
   color: 'var(--term-text)',
   fontFamily: monoFont,

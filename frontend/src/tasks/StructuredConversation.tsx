@@ -913,7 +913,10 @@ const scrollStyle: React.CSSProperties = {
   flex: 1,
   minHeight: 0,
   overflowY: 'auto',
-  padding: '16px 18px 12px',
+  // Right padding is intentionally slim — just enough for the
+  // overlay scrollbar. The floating ConvIndex rail covers the
+  // rightmost ~30px so widening text gains real reading width.
+  padding: '16px 8px 12px 18px',
   background: 'var(--bg-elevated)',
   color: 'var(--text-1)',
   fontSize: 13.5,

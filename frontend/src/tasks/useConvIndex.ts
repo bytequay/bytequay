@@ -12,7 +12,7 @@
  * limitations under the License.
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
-import type { ConvIndexEntryDto } from '../types';
+import type { ConvIndexEntryDto, TaskMessageDto } from '../types';
 
 export type ConvIndexState = {
   /** All loaded user-prompt entries, oldest-first. Grows as the
@@ -32,6 +32,14 @@ export type ConvIndexState = {
   loadingMore: boolean;
   /** Error from the last fetch, if any. Reset on success. */
   error: string | null;
+  /** Full prompt text keyed by user-message seq. The ConvIndex rail
+   *  uses this on hover to show the un-truncated prompt — server-side
+   *  {@code entry.preview} is capped at 80 chars, which is fine for
+   *  the row label but too short when the user is trying to find a
+   *  specific past prompt. Populated from the {@code messages} array
+   *  the backend already ships alongside the index entries, so we
+   *  don't need a second fetch. */
+  fullTextBySeq: Record<number, string>;
 };
 
 const INITIAL_LIMIT = 50;
@@ -63,6 +71,7 @@ export function useConvIndex(taskId: string): ConvIndexState & {
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [fullTextBySeq, setFullTextBySeq] = useState<Record<number, string>>({});
   // Mirror state in refs so the SSE-driven refresh and the
   // user-triggered loadOlder don't race against React's state
   // batching — both read the up-to-date cursor synchronously.
@@ -82,6 +91,7 @@ export function useConvIndex(taskId: string): ConvIndexState & {
       if (taskIdRef.current !== id) return;
       setEntries(prev => mergeEntries(prev, page.entries));
       setTotal(page.totalUserMessages);
+      setFullTextBySeq(prev => mergeFullText(prev, page.messages));
       const loadedFromSeq = mergeLoadedFromSeq(loadedFromSeqRef.current, page.loadedFromSeq);
       setLoadedFromSeq(loadedFromSeq);
       loadedFromSeqRef.current = loadedFromSeq;
@@ -106,6 +116,7 @@ export function useConvIndex(taskId: string): ConvIndexState & {
     setLoadedFromSeq(null);
     loadedFromSeqRef.current = null;
     setCanLoadMore(false);
+    setFullTextBySeq({});
     void fetchInitial(taskId);
   }, [taskId, fetchInitial]);
 
@@ -128,6 +139,7 @@ export function useConvIndex(taskId: string): ConvIndexState & {
       // returned cursor, not on page.entries.length.
       setEntries(prev => mergeEntries(page.entries, prev));
       setTotal(page.totalUserMessages);
+      setFullTextBySeq(prev => mergeFullText(prev, page.messages));
       setLoadedFromSeq(page.loadedFromSeq);
       loadedFromSeqRef.current = page.loadedFromSeq;
       setCanLoadMore(page.nextCursor !== null);
@@ -160,9 +172,56 @@ export function useConvIndex(taskId: string): ConvIndexState & {
     loading,
     loadingMore,
     error,
+    fullTextBySeq,
     loadOlder,
     onUpstreamEvent,
   };
+}
+
+/** Merge newly-arrived user-prompt rows into the existing full-text
+ *  map. Only role=user / type=text messages are kept; the rest of the
+ *  message stream is rendered by the transcript pane and doesn't
+ *  belong on the index rail. */
+function mergeFullText(
+  current: Record<number, string>,
+  messages: TaskMessageDto[],
+): Record<number, string> {
+  let mutated = false;
+  let next: Record<number, string> | null = null;
+  for (const m of messages) {
+    if (m.role !== 'user' || m.type !== 'text') {
+      continue;
+    }
+    if (current[m.seq] !== undefined) {
+      continue;
+    }
+    const text = extractText(m.contentJson);
+    if (text === null) {
+      continue;
+    }
+    if (!mutated) {
+      next = { ...current };
+      mutated = true;
+    }
+    (next as Record<number, string>)[m.seq] = text;
+  }
+  return mutated && next !== null ? next : current;
+}
+
+function extractText(contentJson: string): string | null {
+  if (!contentJson) {
+    return null;
+  }
+  try {
+    const parsed = JSON.parse(contentJson) as { text?: unknown };
+    if (typeof parsed.text === 'string') {
+      return parsed.text;
+    }
+    return null;
+  }
+  catch {
+    return null;
+  }
 }
 
 function mergeEntries(

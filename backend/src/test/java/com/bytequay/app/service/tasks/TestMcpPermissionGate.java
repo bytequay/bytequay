@@ -76,28 +76,35 @@ class TestMcpPermissionGate
     void pendingCallIdsForReturnsOnlyOutstandingCallsForThatTool()
     {
         McpPermissionGate gate = new McpPermissionGate();
-        gate.register("c-bash-1", "Bash");
-        gate.register("c-bash-2", "Bash");
-        gate.register("c-edit-1", "Edit");
-        gate.register("c-untagged");
+        CompletableFuture<PermissionDecision> bash1 = gate.register("c-bash-1", "Bash");
+        CompletableFuture<PermissionDecision> bash2 = gate.register("c-bash-2", "Bash");
+        CompletableFuture<PermissionDecision> edit1 = gate.register("c-edit-1", "Edit");
+        CompletableFuture<PermissionDecision> untagged = gate.register("c-untagged");
 
         assertThat(gate.pendingCallIdsFor("Bash"))
                 .containsExactlyInAnyOrder("c-bash-1", "c-bash-2");
         assertThat(gate.pendingCallIdsFor("Edit"))
                 .containsExactly("c-edit-1");
+        assertThat(bash1.isDone()).isFalse();
+        assertThat(bash2.isDone()).isFalse();
+        assertThat(edit1.isDone()).isFalse();
+        assertThat(untagged.isDone()).isFalse();
     }
 
     @Test
     void pendingCallIdsForOmitsCallsAlreadyDecidedOrCancelled()
     {
         McpPermissionGate gate = new McpPermissionGate();
-        gate.register("c-1", "Bash");
-        gate.register("c-2", "Bash");
-        gate.register("c-3", "Bash");
+        CompletableFuture<PermissionDecision> allowed = gate.register("c-1", "Bash");
+        CompletableFuture<PermissionDecision> pending = gate.register("c-2", "Bash");
+        CompletableFuture<PermissionDecision> cancelled = gate.register("c-3", "Bash");
 
         gate.decide("c-1", PermissionDecision.ALLOW);
         gate.cancel("c-3");
 
         assertThat(gate.pendingCallIdsFor("Bash")).containsExactly("c-2");
+        assertThat(allowed).isCompletedWithValue(PermissionDecision.ALLOW);
+        assertThat(pending.isDone()).isFalse();
+        assertThat(cancelled.isCancelled()).isTrue();
     }
 }

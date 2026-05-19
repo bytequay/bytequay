@@ -29,6 +29,7 @@ import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 
+import static com.bytequay.app.repository.sqlite.SqlitePageRequests.firstPage;
 import static java.util.Objects.requireNonNull;
 
 @Component
@@ -100,7 +101,7 @@ class SqliteTaskStore
     @Override
     public List<Task> listTasksByStatus(TaskStatus status, int limit)
     {
-        return tasks.findByStatusOrderByUpdatedAtMsDesc(status.name(), PageRequest.of(0, limit))
+        return tasks.findByStatusOrderByUpdatedAtMsDesc(status.name(), firstPage(limit))
                 .stream()
                 .map(SqliteTaskStore::toTask)
                 .toList();

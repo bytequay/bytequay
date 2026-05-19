@@ -22,6 +22,8 @@ import com.bytequay.app.repository.TaskStore;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.test.context.TestExecutionListeners;
+import org.springframework.test.context.support.DependencyInjectionTestExecutionListener;
 
 import java.time.Instant;
 import java.util.List;
@@ -29,6 +31,7 @@ import java.util.Optional;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
  * End-to-end exercise of {@link SqliteTaskStore} against the real
@@ -36,6 +39,9 @@ import static org.assertj.core.api.Assertions.assertThat;
  * mapping bugs, and converter issues that the smoke test wouldn't.
  */
 @SpringBootTest
+@TestExecutionListeners(
+        listeners = DependencyInjectionTestExecutionListener.class,
+        mergeMode = TestExecutionListeners.MergeMode.REPLACE_DEFAULTS)
 class TestSqliteTaskStore
 {
     @Autowired
@@ -115,6 +121,14 @@ class TestSqliteTaskStore
         assertThat(page.get(1).updatedAt()).isAfterOrEqualTo(page.get(2).updatedAt());
         // Status filter actually filtered.
         assertThat(page).allSatisfy(t -> assertThat(t.status()).isEqualTo(TaskStatus.IDLE));
+    }
+
+    @Test
+    void listTasksByStatusRejectsNonPositiveLimit()
+    {
+        assertThatThrownBy(() -> store.listTasksByStatus(TaskStatus.IDLE, 0))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("limit must be positive");
     }
 
     @Test

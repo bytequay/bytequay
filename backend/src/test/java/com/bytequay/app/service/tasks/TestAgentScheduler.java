@@ -23,8 +23,10 @@ import com.bytequay.app.domain.TaskMessage;
 import com.bytequay.app.domain.TaskResourceLane;
 import com.bytequay.app.domain.TaskStatus;
 import com.bytequay.app.domain.TaskTurn;
+import com.bytequay.app.domain.TaskTurnEvent;
 import com.bytequay.app.domain.TaskTurnStatus;
 import com.bytequay.app.repository.TaskStore;
+import com.bytequay.app.repository.TaskTurnEventStore;
 import com.bytequay.app.repository.TaskTurnStore;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
@@ -46,6 +48,10 @@ import java.util.function.Consumer;
 
 import static com.bytequay.app.domain.TaskKind.CLI_AGENT;
 import static com.bytequay.app.domain.TaskKind.LOGIC_LOOP;
+import static com.bytequay.app.domain.TaskTurnEventType.TURN_CANCELLED;
+import static com.bytequay.app.domain.TaskTurnEventType.TURN_FINISHED;
+import static com.bytequay.app.domain.TaskTurnEventType.TURN_QUEUED;
+import static com.bytequay.app.domain.TaskTurnEventType.TURN_STARTED;
 import static com.bytequay.app.domain.TaskTurnStatus.CANCELLED;
 import static com.bytequay.app.domain.TaskTurnStatus.COMPLETED;
 import static com.bytequay.app.domain.TaskTurnStatus.FAILED;
@@ -165,6 +171,45 @@ class TestAgentScheduler
     }
 
     @Test
+    void appendsSchedulerEventsForTurnLifecycle()
+    {
+        TestHarness harness = new TestHarness(1, 4);
+        Task task = task("task-1", CLI_AGENT);
+        RecordingSession session = harness.register(task);
+
+        String turnId = harness.scheduler.enqueueTurn(task, "first");
+        session.completeNext();
+
+        assertThat(harness.events.listEventsByTaskId(task.id(), 10))
+                .extracting(TaskTurnEvent::event)
+                .containsExactlyInAnyOrder(TURN_FINISHED, TURN_STARTED, TURN_QUEUED);
+        assertThat(harness.events.listEventsByTaskId(task.id(), 10))
+                .extracting(TaskTurnEvent::turnId)
+                .containsOnly(turnId);
+    }
+
+    @Test
+    void appendsSchedulerEventWhenQueuedTurnIsCancelled()
+    {
+        TestHarness harness = new TestHarness(1, 4);
+        Task first = task("task-1", CLI_AGENT);
+        Task second = task("task-2", CLI_AGENT);
+        harness.register(first);
+        harness.register(second);
+
+        harness.scheduler.enqueueTurn(first, "first");
+        String cancelledTurn = harness.scheduler.enqueueTurn(second, "second");
+
+        assertThat(harness.scheduler.cancelQueuedTurns(second.id())).isEqualTo(1);
+        assertThat(harness.events.listEventsByTaskId(second.id(), 10))
+                .extracting(TaskTurnEvent::event)
+                .containsExactlyInAnyOrder(TURN_CANCELLED, TURN_QUEUED);
+        assertThat(harness.events.listEventsByTaskId(second.id(), 10))
+                .extracting(TaskTurnEvent::turnId)
+                .containsOnly(cancelledTurn);
+    }
+
+    @Test
     void cancelQueuedTurnsPagesThroughAllDurableQueuedTurns()
     {
         TestHarness harness = new TestHarness(1, 4);
@@ -234,12 +279,13 @@ class TestAgentScheduler
     {
         private final InMemoryTaskStore tasks = new InMemoryTaskStore();
         private final InMemoryTaskTurnStore turns = new InMemoryTaskTurnStore();
+        private final InMemoryTaskTurnEventStore events = new InMemoryTaskTurnEventStore();
         private final RecordingRegistry registry = new RecordingRegistry();
         private final AgentScheduler scheduler;
 
         private TestHarness(int maxCliRunning, int maxApiRunning)
         {
-            scheduler = new AgentScheduler(tasks, turns, registry, maxCliRunning, maxApiRunning);
+            scheduler = new AgentScheduler(tasks, turns, events, registry, maxCliRunning, maxApiRunning);
         }
 
         private RecordingSession register(Task task)
@@ -390,6 +436,28 @@ class TestAgentScheduler
             return turns.values().stream()
                     .filter(turn -> turn.taskId().equals(taskId))
                     .sorted(Comparator.comparing(TaskTurn::createdAt).reversed())
+                    .limit(limit)
+                    .toList();
+        }
+    }
+
+    private static final class InMemoryTaskTurnEventStore
+            implements TaskTurnEventStore
+    {
+        private final Map<String, TaskTurnEvent> events = new LinkedHashMap<>();
+
+        @Override
+        public void appendEvent(TaskTurnEvent event)
+        {
+            events.put(event.id(), event);
+        }
+
+        @Override
+        public List<TaskTurnEvent> listEventsByTaskId(String taskId, int limit)
+        {
+            return events.values().stream()
+                    .filter(event -> event.taskId().equals(taskId))
+                    .sorted(Comparator.comparing(TaskTurnEvent::createdAt).reversed())
                     .limit(limit)
                     .toList();
         }

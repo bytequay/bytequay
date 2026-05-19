@@ -17,8 +17,11 @@ import com.bytequay.app.domain.Task;
 import com.bytequay.app.domain.TaskResourceLane;
 import com.bytequay.app.domain.TaskStatus;
 import com.bytequay.app.domain.TaskTurn;
+import com.bytequay.app.domain.TaskTurnEvent;
+import com.bytequay.app.domain.TaskTurnEventType;
 import com.bytequay.app.domain.TaskTurnStatus;
 import com.bytequay.app.repository.TaskStore;
+import com.bytequay.app.repository.TaskTurnEventStore;
 import com.bytequay.app.repository.TaskTurnStore;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.context.event.ApplicationReadyEvent;
@@ -40,6 +43,10 @@ import java.util.concurrent.CompletionStage;
 
 import static com.bytequay.app.domain.TaskResourceLane.API;
 import static com.bytequay.app.domain.TaskResourceLane.CLI;
+import static com.bytequay.app.domain.TaskTurnEventType.TURN_CANCELLED;
+import static com.bytequay.app.domain.TaskTurnEventType.TURN_FINISHED;
+import static com.bytequay.app.domain.TaskTurnEventType.TURN_QUEUED;
+import static com.bytequay.app.domain.TaskTurnEventType.TURN_STARTED;
 import static com.bytequay.app.domain.TaskTurnStatus.CANCELLED;
 import static com.bytequay.app.domain.TaskTurnStatus.COMPLETED;
 import static com.bytequay.app.domain.TaskTurnStatus.FAILED;
@@ -66,6 +73,7 @@ public class AgentScheduler
 
     private final TaskStore tasks;
     private final TaskTurnStore turns;
+    private final TaskTurnEventStore events;
     private final TaskSessionRegistry sessions;
     private final EnumMap<TaskResourceLane, LaneState> lanes = new EnumMap<>(TaskResourceLane.class);
     private final Set<String> runningTaskIds = new HashSet<>();
@@ -74,12 +82,14 @@ public class AgentScheduler
     public AgentScheduler(
             TaskStore tasks,
             TaskTurnStore turns,
+            TaskTurnEventStore events,
             TaskSessionRegistry sessions,
             @Value("${bytequay.tasks.scheduler.max-cli-running:4}") int maxCliRunning,
             @Value("${bytequay.tasks.scheduler.max-api-running:4}") int maxApiRunning)
     {
         this.tasks = requireNonNull(tasks, "tasks is null");
         this.turns = requireNonNull(turns, "turns is null");
+        this.events = requireNonNull(events, "events is null");
         this.sessions = requireNonNull(sessions, "sessions is null");
         lanes.put(CLI, new LaneState(checkedLimit(maxCliRunning, "maxCliRunning")));
         lanes.put(API, new LaneState(checkedLimit(maxApiRunning, "maxApiRunning")));
@@ -110,6 +120,7 @@ public class AgentScheduler
                 /* finishedAt */ null,
                 /* errorMessage */ null);
         turns.saveTurn(turn);
+        appendEvent(turn, TURN_QUEUED, null);
         enqueuePersistedTurn(turn);
         return turn.id();
     }
@@ -147,6 +158,7 @@ public class AgentScheduler
                             turn.startedAt(),
                             now,
                             "cancelled by task lifecycle action"));
+                    appendEvent(turn, TURN_CANCELLED, "cancelled by task lifecycle action");
                 }
                 cancelled += queuedTurns.size();
             }
@@ -176,6 +188,7 @@ public class AgentScheduler
                     /* finishedAt */ null,
                     "interrupted by app restart");
             turns.saveTurn(queued);
+            appendEvent(queued, TURN_QUEUED, "interrupted by app restart");
             enqueuePersistedTurn(queued);
         }
         for (TaskTurn turn : turns.listTurnsByStatus(QUEUED, RECOVERY_LIMIT)) {
@@ -253,6 +266,7 @@ public class AgentScheduler
                 /* finishedAt */ null,
                 /* errorMessage */ null);
         turns.saveTurn(runningTurn);
+        appendEvent(runningTurn, TURN_STARTED, null);
 
         Task task = tasks.findTaskById(runningTurn.taskId()).orElse(null);
         if (task == null) {
@@ -295,6 +309,7 @@ public class AgentScheduler
                 now,
                 unwrapped == null ? null : unwrapped.getMessage());
         turns.saveTurn(finished);
+        appendEvent(finished, TURN_FINISHED, finished.errorMessage());
 
         synchronized (lock) {
             LaneState lane = lane(runningTurn.lane());
@@ -319,6 +334,17 @@ public class AgentScheduler
             case CLI_AGENT -> CLI;
             case LOGIC_LOOP -> API;
         };
+    }
+
+    private void appendEvent(TaskTurn turn, TaskTurnEventType event, String message)
+    {
+        events.appendEvent(new TaskTurnEvent(
+                UUID.randomUUID().toString(),
+                turn.id(),
+                turn.taskId(),
+                event,
+                Instant.now(),
+                message));
     }
 
     private static TaskTurn updateTurn(

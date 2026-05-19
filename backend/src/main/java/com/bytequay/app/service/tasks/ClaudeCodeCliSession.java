@@ -46,6 +46,7 @@ import java.util.concurrent.CopyOnWriteArrayList;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.RejectedExecutionException;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
@@ -98,6 +99,14 @@ public class ClaudeCodeCliSession
     private final AtomicReference<TaskStatus> status = new AtomicReference<>();
     private final AtomicReference<String> agentSessionId = new AtomicReference<>();
     private final AtomicReference<Process> currentProcess = new AtomicReference<>();
+    /** Set true by {@link #interrupt} just before {@code destroy()} so
+     *  {@link #runTurn} can tell a user-initiated cancellation from a
+     *  real crash. p.destroy() makes the subprocess exit non-zero,
+     *  which would otherwise route through the ERRORED branch and
+     *  force the user to click Resume just to keep typing. Reset at
+     *  the start of every turn and consumed when the runTurn cleanup
+     *  observes the non-zero exit. */
+    private final AtomicBoolean userInterrupted = new AtomicBoolean(false);
     private final AtomicLong nextSeq = new AtomicLong();
 
     private final AtomicLong runningCostUsdMilli = new AtomicLong();
@@ -271,6 +280,13 @@ public class ClaudeCodeCliSession
         Process p = currentProcess.get();
         if (p != null && p.isAlive()) {
             log.info("Interrupting task {} subprocess pid={}", taskId, p.pid());
+            // Set the flag before destroy() so the runTurn() exit
+            // handler observes it before the process's non-zero exit
+            // gets classified. Without this, p.destroy() routes
+            // through the ERRORED branch and the user has to click
+            // Resume just to keep typing — the documented Interrupt
+            // contract is "back to IDLE, ready for the next turn".
+            userInterrupted.set(true);
             p.destroy();
         }
     }
@@ -438,6 +454,9 @@ public class ClaudeCodeCliSession
     private void runTurn(String userInput)
     {
         ProcessBuilder pb = buildCommand();
+        // Clear any stale interrupt flag from a prior turn so a fresh
+        // turn's non-zero exit isn't misread as a user cancellation.
+        userInterrupted.set(false);
         Process process;
         try {
             process = pb.start();
@@ -460,19 +479,40 @@ public class ClaudeCodeCliSession
             consumeStdout(process);
             int exit = process.waitFor();
             if (exit != 0) {
-                publish(new StreamEvent.ErrorOccurred(Instant.now(),
-                        binary + " exited with code " + exit, true));
-                transition(TaskStatus.ERRORED);
-                publish(new StreamEvent.SessionEnded(Instant.now(), exit, "non-zero exit"));
+                // p.destroy() from interrupt() always lands here with a
+                // non-zero exit. Treat the user-initiated path as a
+                // clean cancel: back to IDLE, no error banner, no
+                // failure event — the user pressed the button on
+                // purpose and wants to type the next instruction.
+                if (userInterrupted.compareAndSet(true, false)) {
+                    transition(TaskStatus.IDLE);
+                    publish(new StreamEvent.SessionEnded(Instant.now(), exit, "interrupted by user"));
+                }
+                else {
+                    publish(new StreamEvent.ErrorOccurred(Instant.now(),
+                            binary + " exited with code " + exit, true));
+                    transition(TaskStatus.ERRORED);
+                    publish(new StreamEvent.SessionEnded(Instant.now(), exit, "non-zero exit"));
+                }
             }
             else {
                 transition(TaskStatus.IDLE);
             }
         }
         catch (IOException e) {
-            log.warn("I/O error talking to {} for task {}: {}", binary, taskId, e.getMessage());
-            transition(TaskStatus.ERRORED);
-            publish(new StreamEvent.ErrorOccurred(Instant.now(), e.getMessage(), false));
+            // A user interrupt closes the stdin pipe before the CLI
+            // finishes reading it, surfacing here as "Broken pipe".
+            // Same treatment as the non-zero-exit interrupt path —
+            // clean IDLE, no error banner.
+            if (userInterrupted.compareAndSet(true, false)) {
+                transition(TaskStatus.IDLE);
+                publish(new StreamEvent.SessionEnded(Instant.now(), -1, "interrupted by user"));
+            }
+            else {
+                log.warn("I/O error talking to {} for task {}: {}", binary, taskId, e.getMessage());
+                transition(TaskStatus.ERRORED);
+                publish(new StreamEvent.ErrorOccurred(Instant.now(), e.getMessage(), false));
+            }
         }
         catch (InterruptedException e) {
             Thread.currentThread().interrupt();

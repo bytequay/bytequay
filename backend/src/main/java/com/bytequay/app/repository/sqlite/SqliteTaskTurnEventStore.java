@@ -16,13 +16,13 @@ package com.bytequay.app.repository.sqlite;
 import com.bytequay.app.domain.TaskTurnEvent;
 import com.bytequay.app.domain.TaskTurnEventType;
 import com.bytequay.app.repository.TaskTurnEventStore;
-import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
 import java.util.List;
 
+import static com.bytequay.app.repository.sqlite.SqlitePageRequests.firstPage;
 import static java.util.Objects.requireNonNull;
 
 @Component
@@ -55,7 +55,7 @@ class SqliteTaskTurnEventStore
     public List<TaskTurnEvent> listEventsByTaskId(String taskId, int limit)
     {
         requireNonNull(taskId, "taskId is null");
-        return events.findByTaskIdOrderByCreatedAtMsDescIdDesc(taskId, PageRequest.of(0, limit))
+        return events.findByTaskIdOrderByCreatedAtMsDescIdDesc(taskId, firstPage(limit))
                 .stream()
                 .map(SqliteTaskTurnEventStore::toEvent)
                 .toList();

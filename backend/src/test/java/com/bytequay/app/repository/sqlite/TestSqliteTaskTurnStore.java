@@ -31,10 +31,12 @@ import org.springframework.test.context.TestExecutionListeners;
 import org.springframework.test.context.support.DependencyInjectionTestExecutionListener;
 
 import java.time.Instant;
+import java.util.List;
 import java.util.UUID;
 
 import static com.bytequay.app.domain.TaskTurnStatus.QUEUED;
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
  * End-to-end exercise of scheduler turn persistence against the real
@@ -85,6 +87,32 @@ class TestSqliteTaskTurnStore
         assertThat(events.listEventsByTaskId(taskId, 10))
                 .extracting(TaskTurnEvent::id)
                 .containsExactly(id(taskId, "event-c"), id(taskId, "event-a"), id(taskId, "event-b"));
+    }
+
+    @Test
+    void turnListMethodsRejectNonPositiveLimits()
+    {
+        String taskId = newTask();
+        Instant now = Instant.parse("2026-05-19T12:00:00Z");
+
+        assertThatThrownBy(() -> turns.listTurnsByStatus(QUEUED, 0))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("limit must be positive");
+        assertThatThrownBy(() -> turns.listTurnsByStatusAfter(QUEUED, now, id(taskId, "turn-a"), 0))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("limit must be positive");
+        assertThatThrownBy(() -> turns.listTurnsByStatuses(List.of(QUEUED), 0))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("limit must be positive");
+        assertThatThrownBy(() -> turns.listTurnsByTaskIdAndStatus(taskId, QUEUED, 0))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("limit must be positive");
+        assertThatThrownBy(() -> turns.listTurnsByTaskId(taskId, 0))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("limit must be positive");
+        assertThatThrownBy(() -> events.listEventsByTaskId(taskId, 0))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessage("limit must be positive");
     }
 
     private String newTask()

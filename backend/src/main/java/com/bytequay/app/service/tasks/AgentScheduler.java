@@ -204,11 +204,12 @@ public class AgentScheduler
         requireNonNull(turn, "turn is null");
         synchronized (lock) {
             LaneState lane = lane(turn.lane());
-            if (lane.knownTurnIds.add(turn.id())) {
+            boolean enqueued = lane.knownTurnIds.add(turn.id());
+            if (enqueued) {
                 lane.queue.addLast(turn);
             }
             drainLocked();
-            if (lane.knownTurnIds.contains(turn.id())) {
+            if (enqueued && lane.knownTurnIds.contains(turn.id())) {
                 appendEvent(turn, WAITING_FOR_CAPACITY, waitingReason(turn, lane));
             }
         }

@@ -266,6 +266,28 @@ class TestAgentScheduler
     }
 
     @Test
+    void recoveryDoesNotDuplicateWaitingEventForAlreadyKnownQueuedTurn()
+    {
+        TestHarness harness = new TestHarness(1, 4);
+        Task first = task("task-1", CLI_AGENT);
+        Task second = task("task-2", CLI_AGENT);
+        RecordingSession firstSession = harness.register(first);
+        RecordingSession secondSession = harness.register(second);
+        Instant now = Instant.parse("2026-05-18T12:00:00Z");
+        harness.turns.saveTurn(turn("turn-1", first.id(), RUNNING, now));
+        harness.turns.saveTurn(turn("turn-2", second.id(), RUNNING, now.plusMillis(1)));
+
+        harness.scheduler.recoverQueuedTurns();
+
+        assertThat(firstSession.inputs).containsExactly("input");
+        assertThat(secondSession.inputs).isEmpty();
+        assertThat(harness.events.listEventsByTaskId(second.id(), 10))
+                .filteredOn(event -> event.event() == WAITING_FOR_CAPACITY)
+                .hasSize(1)
+                .allSatisfy(event -> assertThat(event.turnId()).isEqualTo("turn-2"));
+    }
+
+    @Test
     void failedTurnReleasesLane()
     {
         TestHarness harness = new TestHarness(1, 4);
@@ -511,11 +533,16 @@ class TestAgentScheduler
 
     private static TaskTurn turn(String id, String taskId, Instant createdAt)
     {
+        return turn(id, taskId, QUEUED, createdAt);
+    }
+
+    private static TaskTurn turn(String id, String taskId, TaskTurnStatus status, Instant createdAt)
+    {
         return new TaskTurn(
                 id,
                 taskId,
                 TaskResourceLane.CLI,
-                QUEUED,
+                status,
                 "input",
                 createdAt,
                 createdAt,

@@ -30,6 +30,7 @@ import org.springframework.stereotype.Component;
 
 import java.time.Instant;
 import java.util.ArrayDeque;
+import java.util.ArrayList;
 import java.util.EnumMap;
 import java.util.HashSet;
 import java.util.Iterator;
@@ -68,7 +69,7 @@ import static java.util.Objects.requireNonNull;
 public class AgentScheduler
         implements TaskTurnScheduler
 {
-    private static final int RECOVERY_LIMIT = 1_000;
+    private static final int RECOVERY_PAGE_SIZE = 1_000;
     // Usually one or two follow-up turns. Keep the page large enough
     // for normal use, but bounded so a pathological task cannot load
     // every durable queued turn in one SQLite read.
@@ -88,7 +89,7 @@ public class AgentScheduler
             TaskTurnEventStore events,
             TaskSessionRegistry sessions,
             @Value("${bytequay.tasks.scheduler.max-cli-running:4}") int maxCliRunning,
-            @Value("${bytequay.tasks.scheduler.max-api-running:4}") int maxApiRunning)
+            @Value("${bytequay.tasks.scheduler.max-api-running:6}") int maxApiRunning)
     {
         this.tasks = requireNonNull(tasks, "tasks is null");
         this.turns = requireNonNull(turns, "turns is null");
@@ -183,20 +184,34 @@ public class AgentScheduler
     @EventListener(ApplicationReadyEvent.class)
     public void recoverQueuedTurns()
     {
-        for (TaskTurn turn : turns.listTurnsByStatus(RUNNING, RECOVERY_LIMIT)) {
-            TaskTurn queued = updateTurn(
-                    turn,
-                    QUEUED,
-                    /* startedAt */ null,
-                    /* finishedAt */ null,
-                    "interrupted by app restart");
-            turns.saveTurn(queued);
-            appendEvent(queued, TURN_QUEUED, "interrupted by app restart");
-            enqueuePersistedTurn(queued);
-        }
-        for (TaskTurn turn : turns.listTurnsByStatus(QUEUED, RECOVERY_LIMIT)) {
+        for (TaskTurn turn : recoverInterruptedRunningTurns()) {
             enqueuePersistedTurn(turn);
         }
+        for (TaskTurn turn : turns.listTurnsByStatus(QUEUED, RECOVERY_PAGE_SIZE)) {
+            enqueuePersistedTurn(turn);
+        }
+    }
+
+    private List<TaskTurn> recoverInterruptedRunningTurns()
+    {
+        List<TaskTurn> recovered = new ArrayList<>();
+        List<TaskTurn> runningTurns;
+        do {
+            runningTurns = turns.listTurnsByStatus(RUNNING, RECOVERY_PAGE_SIZE);
+            for (TaskTurn turn : runningTurns) {
+                TaskTurn queued = updateTurn(
+                        turn,
+                        QUEUED,
+                        /* startedAt */ null,
+                        /* finishedAt */ null,
+                        "interrupted by app restart");
+                turns.saveTurn(queued);
+                appendEvent(queued, TURN_QUEUED, "interrupted by app restart");
+                recovered.add(queued);
+            }
+        }
+        while (runningTurns.size() == RECOVERY_PAGE_SIZE);
+        return recovered;
     }
 
     private void enqueuePersistedTurn(TaskTurn turn)

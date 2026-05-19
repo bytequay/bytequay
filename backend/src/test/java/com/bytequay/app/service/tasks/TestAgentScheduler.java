@@ -266,6 +266,31 @@ class TestAgentScheduler
     }
 
     @Test
+    void recoveryPagesThroughAllOrphanedRunningTurns()
+    {
+        TestHarness harness = new TestHarness(1, 4);
+        Task task = task("task-1", CLI_AGENT);
+        RecordingSession session = harness.register(task);
+        Instant now = Instant.parse("2026-05-18T12:00:00Z");
+        for (int i = 0; i < 1_001; i++) {
+            harness.turns.saveTurn(turn("turn-" + i, task.id(), RUNNING, now.plusMillis(i)));
+        }
+
+        harness.scheduler.recoverQueuedTurns();
+
+        assertThat(session.inputs).containsExactly("input");
+        assertThat(harness.turns.turns.values())
+                .filteredOn(turn -> turn.status() == RUNNING)
+                .hasSize(1);
+        assertThat(harness.turns.turns.values())
+                .filteredOn(turn -> turn.status() == QUEUED)
+                .hasSize(1_000);
+        assertThat(harness.events.listEventsByTaskId(task.id(), 2_100))
+                .filteredOn(event -> event.event() == TURN_QUEUED)
+                .hasSize(1_001);
+    }
+
+    @Test
     void recoveryDoesNotDuplicateWaitingEventForAlreadyKnownQueuedTurn()
     {
         TestHarness harness = new TestHarness(1, 4);

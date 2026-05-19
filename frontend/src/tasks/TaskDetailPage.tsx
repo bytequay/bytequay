@@ -1383,46 +1383,46 @@ function ReviewStrip({
   workingCount: number | null;
   commitsCount: number | null;
 }) {
-  // Nested layout: the toggle buttons need to be real <button> elements
-  // (not inside the Diff button), so the strip is a <div> with the
-  // Diff toggle as its own button on the left.
+  // The whole strip is the click target — clicking anywhere folds /
+  // unfolds the diff pane. The inner toggle pills stop propagation on
+  // their own click so flipping Working tree ↔ Commits doesn't also
+  // collapse the pane.
   return (
     <div
+      role="button"
+      tabIndex={0}
+      onClick={onReview}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          onReview();
+        }
+      }}
       style={hasChanges
         ? { ...reviewStripStyle, ...reviewStripChangesStyle }
         : reviewStripStyle}
+      title={diffOpen ? 'Hide the diff pane' : 'Show the diff pane'}
+      aria-expanded={diffOpen}
     >
-      <button
-        type="button"
-        onClick={onReview}
-        style={reviewStripDiffBtnStyle}
-        title={diffOpen ? 'Hide the diff pane' : 'Open the diff pane'}
-        aria-expanded={diffOpen}
-      >
-        <span style={reviewStripLabelStyle}>⇄ Diff</span>
-        <span style={reviewStripChevronStyle} aria-hidden="true">
-          {diffOpen ? '✕' : '›'}
-        </span>
-      </button>
+      <span style={reviewStripChevronStyle} aria-hidden="true">
+        {diffOpen ? '▾' : '▸'}
+      </span>
+      <span style={reviewStripLabelStyle}>⇄ Diff</span>
       {diffOpen && (
-        <DiffModeToggle
-          mode={diffMode}
-          onChangeMode={onChangeDiffMode}
-          workingCount={workingCount}
-          commitsCount={commitsCount}
-          dense
-        />
+        <span
+          onClick={(e) => e.stopPropagation()}
+          style={{ display: 'inline-flex' }}
+        >
+          <DiffModeToggle
+            mode={diffMode}
+            onChangeMode={onChangeDiffMode}
+            workingCount={workingCount}
+            commitsCount={commitsCount}
+            dense
+          />
+        </span>
       )}
       <span style={{ flex: 1 }} />
-      {!diffOpen && (
-        <button
-          type="button"
-          onClick={onReview}
-          style={reviewStripActionBtnStyle}
-        >
-          Open diff
-        </button>
-      )}
     </div>
   );
 }
@@ -2605,48 +2605,45 @@ const twHeaderViewBtnActiveStyle: React.CSSProperties = {
 // publishes --term-* via termCssVars), the strip picks up the
 // theme-correct dark/light colors. Outside (structured view), the
 // fallback kicks in and the strip uses the app theme.
+// Card-style strip between the conversation history and the reply
+// input. Matches the surrounding zone cards (history / live / reply)
+// so the surface reads as one consistent stack — same radius, same
+// border, same elevated background — with a purple left edge for
+// accent (echoes liveZoneStyle's treatment). The whole strip is the
+// click target; the toggle pills inside stop propagation.
 const reviewStripStyle: React.CSSProperties = {
   display: 'flex', alignItems: 'center', gap: 10,
-  padding: '6px 10px', marginTop: 8,
+  padding: '6px 12px', marginTop: 8,
   background: 'var(--term-bg-elev1, var(--bg-elevated))',
   border: '1px solid var(--term-border, var(--border))',
-  borderRadius: 6,
+  borderLeft: '3px solid var(--term-user, var(--accent))',
+  borderRadius: 8,
   font: 'inherit',
   width: '100%',
   color: 'var(--term-text, var(--text-1))',
-};
-// Amber tint when the task has touched files (lifetime). The colour
-// itself is the signal — no count needed.
-const reviewStripChangesStyle: React.CSSProperties = {
-  background: 'rgba(217, 119, 6, 0.10)',
-  borderColor: 'rgba(217, 119, 6, 0.45)',
-};
-const reviewStripDiffBtnStyle: React.CSSProperties = {
-  display: 'inline-flex', alignItems: 'center', gap: 6,
-  padding: '4px 10px',
-  background: 'transparent',
-  border: '1px solid var(--term-border, var(--border))',
-  borderRadius: 5,
   cursor: 'pointer',
-  font: 'inherit',
-  color: 'var(--term-text, var(--text-1))',
+  transition: 'background 120ms ease, border-color 120ms ease',
+};
+// Amber tint when the task has touched files (lifetime). Replaces
+// just the purple accent edge with amber so the colour stays the
+// signal without fighting the rest of the chrome.
+const reviewStripChangesStyle: React.CSSProperties = {
+  background: 'rgba(217, 119, 6, 0.06)',
+  borderColor: 'rgba(217, 119, 6, 0.35)',
+  borderLeftColor: 'rgba(217, 119, 6, 0.85)',
 };
 const reviewStripLabelStyle: React.CSSProperties = {
   fontSize: 12, fontWeight: 600,
-  color: 'var(--term-text-muted, var(--text-2))',
-};
-const reviewStripActionBtnStyle: React.CSSProperties = {
-  fontSize: 12, fontWeight: 600,
-  color: 'var(--term-user, var(--accent))',
-  background: 'transparent',
-  border: 'none',
-  cursor: 'pointer',
-  padding: 0,
-  font: 'inherit',
+  color: 'var(--term-text, var(--text-1))',
+  letterSpacing: '0.02em',
 };
 const reviewStripChevronStyle: React.CSSProperties = {
-  fontSize: 14, lineHeight: 1,
+  fontSize: 11, lineHeight: 1,
   color: 'var(--term-user, var(--accent))',
+  display: 'inline-flex',
+  alignItems: 'center',
+  justifyContent: 'center',
+  width: 14,
 };
 const ctxBarWrapStyle: React.CSSProperties = {
   display: 'flex', flexDirection: 'column', gap: 4,

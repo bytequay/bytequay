@@ -335,6 +335,94 @@ function useResizableList(): {
   return { width, setWidth, collapsed, setCollapsed };
 }
 
+// ─── Row splitter — vertical-orientation drag handle ───────────────
+// Used inside CommitDiffView, where the file list sits ABOVE the diff
+// body. Mirrors ColumnSplitter but tracks the Y axis. The height is a
+// pixel value (not a fraction) because the parent's height varies
+// with the surrounding split fraction; persisting an absolute file-
+// list height keeps the diff body filling whatever remains.
+
+const COMMIT_FILES_HEIGHT_KEY = 'bytequay.tasks.detailCommitFilesHeight';
+const DEFAULT_COMMIT_FILES_HEIGHT = 220;
+const MIN_COMMIT_FILES_HEIGHT = 80;
+const MAX_COMMIT_FILES_HEIGHT = 600;
+
+function useCommitFilesHeight(): [number, (next: number) => void] {
+  const [height, setHeightState] = useState<number>(() => {
+    try {
+      const raw = window.localStorage.getItem(COMMIT_FILES_HEIGHT_KEY);
+      const n = raw == null ? NaN : parseInt(raw, 10);
+      return Number.isFinite(n) && n >= MIN_COMMIT_FILES_HEIGHT && n <= MAX_COMMIT_FILES_HEIGHT
+        ? n
+        : DEFAULT_COMMIT_FILES_HEIGHT;
+    }
+    catch { return DEFAULT_COMMIT_FILES_HEIGHT; }
+  });
+  const setHeight = useCallback((next: number) => {
+    setHeightState(Math.max(MIN_COMMIT_FILES_HEIGHT, Math.min(MAX_COMMIT_FILES_HEIGHT, next)));
+  }, []);
+  useEffect(() => {
+    try { window.localStorage.setItem(COMMIT_FILES_HEIGHT_KEY, String(height)); }
+    catch { /* private browsing — fine to skip */ }
+  }, [height]);
+  return [height, setHeight];
+}
+
+function RowSplitter({
+  height, onChange,
+}: {
+  height: number;
+  onChange: (next: number) => void;
+}) {
+  const [dragging, setDragging] = useState(false);
+  const startRef = useRef<{ y: number; h: number } | null>(null);
+  useEffect(() => {
+    if (!dragging) return;
+    const onMove = (e: MouseEvent) => {
+      const s = startRef.current;
+      if (s === null) return;
+      onChange(s.h + (e.clientY - s.y));
+    };
+    const onUp = () => setDragging(false);
+    document.addEventListener('mousemove', onMove);
+    document.addEventListener('mouseup', onUp);
+    const prevCursor = document.body.style.cursor;
+    const prevSelect = document.body.style.userSelect;
+    document.body.style.cursor = 'row-resize';
+    document.body.style.userSelect = 'none';
+    return () => {
+      document.removeEventListener('mousemove', onMove);
+      document.removeEventListener('mouseup', onUp);
+      document.body.style.cursor = prevCursor;
+      document.body.style.userSelect = prevSelect;
+    };
+  }, [dragging, onChange]);
+  return (
+    <div
+      role="separator"
+      aria-orientation="horizontal"
+      title="Drag to resize"
+      onMouseDown={(e) => {
+        e.preventDefault();
+        startRef.current = { y: e.clientY, h: height };
+        setDragging(true);
+      }}
+      onDoubleClick={() => onChange(DEFAULT_COMMIT_FILES_HEIGHT)}
+      style={{
+        flex: '0 0 5px',
+        cursor: 'row-resize',
+        background: dragging ? 'var(--accent)' : 'var(--border)',
+        opacity: dragging ? 1 : 0.5,
+        transition: 'opacity 100ms ease, background 100ms ease',
+      }}
+      onMouseEnter={(e) => { (e.currentTarget as HTMLDivElement).style.opacity = '1'; }}
+      onMouseLeave={(e) => {
+        if (!dragging) (e.currentTarget as HTMLDivElement).style.opacity = '0.5';
+      }}
+    />
+  );
+}
+
 function ColumnSplitter({
   width, onChange,
 }: {
@@ -620,6 +708,7 @@ function CommitDiffView({ taskId, sha }: { taskId: string; sha: string }) {
   const [selectedPath, setSelectedPath] = useState<string | null>(null);
   const [collapsedDirs, setCollapsedDirs] = useState<Set<string>>(() => new Set());
   const [filesMode, setFilesMode] = useFilesMode();
+  const [filesHeight, setFilesHeight] = useCommitFilesHeight();
 
   useEffect(() => {
     let cancelled = false;
@@ -652,7 +741,10 @@ function CommitDiffView({ taskId, sha }: { taskId: string; sha: string }) {
 
   return (
     <div style={commitDiffLayoutStyle}>
-      <div style={commitFileListStyle} className="diff-viewer__files">
+      <div
+        style={{ ...commitFileListStyle, height: filesHeight, flex: `0 0 ${filesHeight}px` }}
+        className="diff-viewer__files"
+      >
         <FilesPaneHeader
           staticLabel={files === null ? 'Files in commit' : `Files in commit · ${files.length}`}
           mode={filesMode}
@@ -671,6 +763,7 @@ function CommitDiffView({ taskId, sha }: { taskId: string; sha: string }) {
           onToggleDir={onToggleDir}
         />
       </div>
+      <RowSplitter height={filesHeight} onChange={setFilesHeight} />
       <div style={commitDiffPaneStyle}>
         {selectedPath ? (
           <DiffBody
@@ -869,18 +962,18 @@ const commitMetaStyle: React.CSSProperties = {
 };
 
 const commitDiffLayoutStyle: React.CSSProperties = {
-  display: 'grid',
-  gridTemplateRows: 'minmax(80px, 30vh) 1fr',
+  display: 'flex',
+  flexDirection: 'column',
   minHeight: 0,
   height: '100%',
 };
 const commitFileListStyle: React.CSSProperties = {
-  borderBottom: '1px solid var(--border)',
   display: 'flex', flexDirection: 'column',
   minHeight: 0,
   overflow: 'hidden',
 };
 const commitDiffPaneStyle: React.CSSProperties = {
+  flex: 1,
   overflow: 'auto',
   minHeight: 0,
 };

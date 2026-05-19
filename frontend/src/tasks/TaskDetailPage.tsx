@@ -36,6 +36,7 @@ import TasksLeftRail, {
 import RepoAvatar from './RepoAvatar';
 import { useAutoGrowTextarea, usePersistentDraft } from './draftStore';
 import { ConvIndex } from './ConvIndex';
+import { CheckpointsSection } from './CheckpointsSection';
 import { DiffModeToggle, TaskDiffPane, useTaskDiffState, type DiffMode } from './TaskChangesTab';
 
 type Props = {
@@ -358,6 +359,10 @@ export default function TaskDetailPage({
   // multiple consumers. Null when the panel isn't mounted (e.g.
   // empty task or terminal view).
   const convIndexSseRef = useRef<((name: string) => void) | null>(null);
+  // Sibling of convIndexSseRef — CheckpointsSection registers its
+  // refetch trigger here so it picks up scheduler-generated segments
+  // on TurnDone without opening a second SSE stream.
+  const checkpointsSseRef = useRef<((name: string) => void) | null>(null);
 
   // Scroll container for the agent transcript. The ConvIndex's
   // click handler runs scrollIntoView on the user-message row in
@@ -405,6 +410,7 @@ export default function TaskDetailPage({
       // own refresh. The panel ignores everything except
       // UserMessage / TurnDone, so this is cheap.
       convIndexSseRef.current?.(event.name);
+      checkpointsSseRef.current?.(event.name);
       if (event.name === 'AssistantTextDelta') {
         const chunk = typeof event.data.textChunk === 'string' ? event.data.textChunk : '';
         if (chunk.length === 0) return;
@@ -602,6 +608,7 @@ export default function TaskDetailPage({
           onOpenPr={onOpenPr ? onSidebarOpenPr : undefined}
           onBack={onBack}
           onCollapse={() => setSidebarCollapsed(true)}
+          checkpointsSseRef={checkpointsSseRef}
         />
       )}
       <div style={taskWindowStyle}>
@@ -1172,6 +1179,7 @@ function TaskWindowSidebar({
   groups, currentGroupIds, onToggleGroup,
   onOpenPr,
   onBack, onCollapse,
+  checkpointsSseRef,
 }: {
   task: TaskDto;
   messages: TaskMessageDto[];
@@ -1188,6 +1196,9 @@ function TaskWindowSidebar({
   onOpenPr?: (prNumber: number) => void;
   onBack: () => void;
   onCollapse: () => void;
+  /** Bridge to the parent's SSE handler — CheckpointsSection
+   *  registers a TurnDone-triggered refetch here. */
+  checkpointsSseRef: React.MutableRefObject<((name: string) => void) | null>;
 }) {
   const toolUsage = useMemo(() => deriveToolUsage(messages), [messages]);
   const ctx = useMemo(() => computeContextUsage(messages, task.model), [messages, task.model]);
@@ -1336,7 +1347,7 @@ function TaskWindowSidebar({
       </SidebarSection>
 
       <SidebarSection label="Checkpoints">
-        <CheckpointsStub />
+        <CheckpointsSection taskId={task.id} sseRef={checkpointsSseRef} />
       </SidebarSection>
     </aside>
   );

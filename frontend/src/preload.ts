@@ -50,6 +50,7 @@ import type {
   TaskGroupMembershipDto,
   TaskGroupPatchDto,
   ConvIndexPageDto,
+  TaskCheckpointDto,
   TaskMessageDto,
   TaskSendResultDto,
   TaskStreamEvent,
@@ -490,6 +491,10 @@ const bridge: Bridge = {
     opts?: { cursor?: number; limit?: number; direction?: 'initial' | 'before' },
   ): Promise<ConvIndexPageDto> =>
     ipcRenderer.invoke('tasks:index', { id, ...opts }),
+  getTaskCheckpoints: (id: string): Promise<TaskCheckpointDto[]> =>
+    ipcRenderer.invoke('tasks:checkpoints:list', id),
+  generateTaskCheckpoint: (id: string): Promise<TaskCheckpointDto | null> =>
+    ipcRenderer.invoke('tasks:checkpoints:generate', id),
   getTaskTurns: (id: string): Promise<TaskTurnDto[]> =>
     ipcRenderer.invoke('tasks:turns', id),
   getTaskTurnEvents: (id: string): Promise<TaskTurnEventDto[]> =>

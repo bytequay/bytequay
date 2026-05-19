@@ -1292,6 +1292,31 @@ export type ConvIndexEntryDto = {
   tsMs: number;
 };
 
+/** AI-written summary of a conversation chunk. Two flavours share
+ *  this shape: the Overall rollup (seq=0, isOverall=true, regenerated
+ *  on each new segment) and per-segment summaries (seq>=1,
+ *  immutable). All token / cost / model fields come from the
+ *  Anthropic Haiku call that produced the summary. */
+export type TaskCheckpointDto = {
+  id: string;
+  taskId: string;
+  seq: number;
+  isOverall: boolean;
+  firstMsgSeq: number;
+  lastMsgSeq: number;
+  tokensCovered: number;
+  summaryMd: string;
+  bulletTitles: string[];
+  modelUsed: string;
+  promptTokens: number;
+  completionTokens: number;
+  costUsdMilli: number;
+  generatedAt: string;
+  /** Stamped on Overall rows when a newer Overall replaces them.
+   *  Null on per-segment rows and on the currently-active Overall. */
+  supersededAt: string | null;
+};
+
 /** Conversation-index window response. Carries both the user-prompt
  *  index entries and the matching {@code task_messages} rows in a
  *  single round-trip so the index and the agent terminal stay in
@@ -1972,6 +1997,15 @@ export type Bridge = {
     id: string,
     opts?: { cursor?: number; limit?: number; direction?: 'initial' | 'before' },
   ) => Promise<ConvIndexPageDto>;
+  /** Active checkpoints for a task — Overall first, then segments by
+   *  descending seq. Drives the sidebar Checkpoints section and the
+   *  cross-task seed loader. */
+  getTaskCheckpoints: (id: string) => Promise<TaskCheckpointDto[]>;
+  /** Force-generate a checkpoint segment for any messages added
+   *  since the last segment, regardless of the token threshold.
+   *  Resolves to the new checkpoint or null when there's nothing
+   *  new to summarise. */
+  generateTaskCheckpoint: (id: string) => Promise<TaskCheckpointDto | null>;
   /** Recent scheduler turns, newest first. Used to distinguish
    *  queued work from an active CLI/API run. */
   getTaskTurns: (id: string) => Promise<TaskTurnDto[]>;

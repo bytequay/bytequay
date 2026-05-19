@@ -77,6 +77,16 @@ export default function TaskCreatePage({
   const [linkedPrTitle, setLinkedPrTitle] = useState<string>('');
   const [prSearch, setPrSearch] = useState('');
   const [prFocused, setPrFocused] = useState(false);
+  // Fallback for the user typing #29206 in a repo whose "open PRs"
+  // response is capped — getRepoPulls returns a single page from
+  // GitHub, so very old or closed PRs aren't in `openPrs`. When the
+  // typed number doesn't match anything local, fire a single
+  // getRepoPull(owner, repo, number) and surface the result in the
+  // dropdown so the user can still link it. Mirrors the deep-link
+  // fallback already wired into the PR detail flow.
+  const [extraPr, setExtraPr] = useState<PullRequestDto | null>(null);
+  const [extraPrLoading, setExtraPrLoading] = useState(false);
+  const [extraPrError, setExtraPrError] = useState<string | null>(null);
 
   // Issue selection (scoped to selected repo).
   const [openIssues, setOpenIssues] = useState<IssueDto[] | null>(null);
@@ -206,8 +216,71 @@ export default function TaskCreatePage({
     setIssueSearch('');
   }
 
-  const matchingPrs = useMemo(() => filterPrs(openPrs, prSearch, linkedPrNumber), [openPrs, prSearch, linkedPrNumber]);
+  const matchingPrs = useMemo(() => {
+    const local = filterPrs(openPrs, prSearch, linkedPrNumber);
+    if (local.length > 0) return local;
+    // Surface the fallback-fetched PR when the local list comes up
+    // empty for a numeric query. Hidden once the user clears the
+    // search (extraPr only repopulates when the typed number stops
+    // matching anything in openPrs).
+    if (extraPr !== null && extraPr.number !== linkedPrNumber) {
+      return [extraPr];
+    }
+    return [];
+  }, [openPrs, prSearch, linkedPrNumber, extraPr]);
   const matchingIssues = useMemo(() => filterIssues(openIssues, issueSearch, linkedIssueNumber), [openIssues, issueSearch, linkedIssueNumber]);
+
+  // Deep-link fallback for the PR search field. When the user types a
+  // number we don't recognise locally, fetch that one PR directly.
+  // Debounced so a fast typist doesn't trigger one fetch per
+  // keystroke; gated on a numeric query so title searches don't fall
+  // through to a 404. Bails immediately if the typed number happens
+  // to be in openPrs already, which is the common case.
+  useEffect(() => {
+    const trimmed = prSearch.trim();
+    const numMatch = trimmed.replace(/^#/, '').match(/^\d+$/);
+    if (numMatch === null || openPrs === null) {
+      setExtraPr(null);
+      setExtraPrError(null);
+      setExtraPrLoading(false);
+      return;
+    }
+    const num = Number(numMatch[0]);
+    if (openPrs.some(p => p.number === num)) {
+      setExtraPr(null);
+      setExtraPrError(null);
+      setExtraPrLoading(false);
+      return;
+    }
+    // Reuse a previous fetch if still relevant.
+    if (extraPr !== null && extraPr.number === num) {
+      return;
+    }
+    const repo = repos.find(r => repoKey(r) === selectedRepoKey);
+    if (repo === undefined) return;
+    let cancelled = false;
+    setExtraPrLoading(true);
+    setExtraPrError(null);
+    const timer = window.setTimeout(async () => {
+      try {
+        const pr = await window.bridge.getRepoPull(repo.owner, repo.repo, num);
+        if (cancelled) return;
+        setExtraPr(pr);
+      }
+      catch (e) {
+        if (cancelled) return;
+        setExtraPr(null);
+        setExtraPrError(e instanceof Error ? e.message : String(e));
+      }
+      finally {
+        if (!cancelled) setExtraPrLoading(false);
+      }
+    }, 300);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [prSearch, openPrs, selectedRepoKey, repos, extraPr]);
 
   const selectedRepo = useMemo(
     () => repos.find(r => repoKey(r) === selectedRepoKey) ?? null,
@@ -381,6 +454,8 @@ export default function TaskCreatePage({
                   <PrDropdown
                     prs={matchingPrs}
                     onPick={pickPr}
+                    loading={extraPrLoading}
+                    error={extraPrError}
                   />
                 )}
               </div>
@@ -584,15 +659,25 @@ function SegBtn({
   );
 }
 
-function PrDropdown({ prs, onPick }: {
+function PrDropdown({ prs, onPick, loading, error }: {
   prs: PullRequestDto[];
   onPick: (p: PullRequestDto) => void;
+  /** True while the deep-link fallback is fetching a typed PR
+   *  number that wasn't in the cached local list. */
+  loading?: boolean;
+  /** Error message from a failed deep-link fetch (typically a 404
+   *  for a PR number that doesn't exist in this repo). */
+  error?: string | null;
 }) {
   if (prs.length === 0) {
     return (
       <div style={dropdownStyle}>
         <div style={dropdownEmptyStyle}>
-          No matching open PRs.
+          {loading
+            ? 'Looking it up on GitHub…'
+            : (error !== null && error !== undefined
+                ? `Couldn't find that PR (${error.length > 80 ? error.slice(0, 77) + '…' : error})`
+                : 'No matching open PRs.')}
         </div>
       </div>
     );

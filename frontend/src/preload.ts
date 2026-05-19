@@ -496,6 +496,7 @@ const bridge: Bridge = {
     ipcRenderer.invoke('tasks:decide', { id, callId, decision, preApprove }),
   interruptTask: (id: string): Promise<void> => ipcRenderer.invoke('tasks:interrupt', id),
   stopTask: (id: string): Promise<void> => ipcRenderer.invoke('tasks:stop', id),
+  resumeTask: (id: string): Promise<void> => ipcRenderer.invoke('tasks:resume', id),
   deleteTask: (id: string): Promise<void> => ipcRenderer.invoke('tasks:delete', id),
   listTaskWorkingChanges: (id: string) => ipcRenderer.invoke('tasks:workingChanges', id),
   getTaskWorkingDiff: (id: string, path: string) => ipcRenderer.invoke('tasks:workingDiff', id, path),

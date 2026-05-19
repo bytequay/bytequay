@@ -353,10 +353,24 @@ export default function TaskDetailPage({
         return;
       }
       if (event.name === 'UsageUpdated') {
+        // Anthropic's streaming format splits usage across two events:
+        // message_start carries input_tokens (the dominant number for a
+        // turn — the full prompt cost) and a tiny output_tokens; the
+        // later message_delta(s) carry the growing output_tokens but
+        // often omit input_tokens. A naive replace would lose the input
+        // count after the first delta lands. Merge with a running max
+        // instead — input_tokens monotonically grows across messages in
+        // a turn anyway, and output_tokens within a single message is
+        // already cumulative.
         const tIn = typeof event.data.tokensIn === 'number' ? event.data.tokensIn : 0;
         const tOut = typeof event.data.tokensOut === 'number' ? event.data.tokensOut : 0;
-        liveUsageRef.current = { tokensIn: tIn, tokensOut: tOut };
-        setLiveUsage(liveUsageRef.current);
+        const prev = liveUsageRef.current;
+        const merged = {
+          tokensIn: Math.max(tIn, prev?.tokensIn ?? 0),
+          tokensOut: Math.max(tOut, prev?.tokensOut ?? 0),
+        };
+        liveUsageRef.current = merged;
+        setLiveUsage(merged);
         return;
       }
       schedulePing();
@@ -434,6 +448,16 @@ export default function TaskDetailPage({
   const onStop = useCallback(async () => {
     try {
       await window.bridge.stopTask(taskId);
+      await refresh();
+    }
+    catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    }
+  }, [taskId, refresh]);
+
+  const onResume = useCallback(async () => {
+    try {
+      await window.bridge.resumeTask(taskId);
       await refresh();
     }
     catch (e) {
@@ -541,6 +565,7 @@ export default function TaskDetailPage({
                 canStop={!isTerminal}
                 onDelete={onDelete}
                 canDelete={isTerminal}
+                onResume={onResume}
                 liveText={liveText}
                 liveUsage={liveUsage}
               />
@@ -570,6 +595,7 @@ export default function TaskDetailPage({
                   canStop={!isTerminal}
                   onDelete={onDelete}
                   canDelete={isTerminal}
+                  onResume={onResume}
                   changeStats={changeStats}
                   diffOpen={diffOpen}
                   onReview={onReview}
@@ -742,6 +768,7 @@ function StructuredView({
   canStop,
   onDelete,
   canDelete,
+  onResume,
   liveText,
   liveUsage,
 }: {
@@ -769,6 +796,11 @@ function StructuredView({
   canStop: boolean;
   onDelete: () => void;
   canDelete: boolean;
+  /** Flip an ERRORED task back to IDLE so the user can keep typing.
+   *  The next turn reuses the agent's CLI session id via
+   *  `claude --resume <id>`, so the conversation continues without
+   *  losing context — handy after a token-quota reset. */
+  onResume: () => void;
   /** Per-token assistant text growing in the SSE stream that the
    *  persisted log doesn't have yet. Empty when no streaming is in
    *  flight; otherwise the partial assembled text since the last
@@ -951,6 +983,40 @@ function StructuredView({
           </div>
         </div>
       )}
+      {/* When the CLI turn ends in ERRORED (token-quota reset,
+          network blip, agent crash) we hide the reply zone — but
+          stopping the conversation there forces the user to recreate
+          the task to keep going. Resume flips the task back to IDLE
+          and reuses the persisted agentSessionId, so the next turn
+          spawns `claude --resume <id>` and the model picks up with
+          its prior context. COMPLETED stays as-is: the user already
+          decided that conversation is done. */}
+      {isTerminal && task.status === 'ERRORED' && (
+        <ResumeBanner
+          message={task.errorMessage}
+          onResume={onResume}
+        />
+      )}
+    </div>
+  );
+}
+
+function ResumeBanner({
+  message, onResume,
+}: { message: string | null | undefined; onResume: () => void }) {
+  return (
+    <div style={resumeBannerStyle}>
+      <div style={resumeBannerCopyStyle}>
+        <span style={resumeBannerTitleStyle}>Turn ended in error</span>
+        {message && message.length > 0 && (
+          <span style={resumeBannerMsgStyle} title={message}>
+            {message.length > 180 ? message.slice(0, 177) + '…' : message}
+          </span>
+        )}
+      </div>
+      <button type="button" onClick={onResume} style={resumeBannerBtnStyle}>
+        ↻ Resume conversation
+      </button>
     </div>
   );
 }
@@ -993,7 +1059,7 @@ function TaskWindowSidebar({
 }) {
   const toolUsage = useMemo(() => deriveToolUsage(messages), [messages]);
   const ctx = useMemo(() => computeContextUsage(messages, task.model), [messages, task.model]);
-  const scheduler = useMemo(() => summarizeTurnState(turns), [turns]);
+  const scheduler = useMemo(() => summarizeTurnState(turns, task.status), [turns, task.status]);
   // Overlay running deltas while a turn is in flight; falls back to
   // the persisted totals once liveUsage clears at the next refresh.
   const tokensInDisplay = (task.tokensIn ?? 0) + (liveUsage?.tokensIn ?? 0);
@@ -1050,7 +1116,7 @@ function TaskWindowSidebar({
           <Metric label="Lane" value={scheduler.lane} mono />
           <Metric label="Queued turns" value={String(scheduler.queued)} />
           {scheduler.latestInput !== '' && (
-            <Metric label="Latest input" value={scheduler.latestInput} />
+            <Metric label="Latest input" value={scheduler.latestInput} wrap />
           )}
         </div>
       </SidebarSection>
@@ -1066,7 +1132,7 @@ function TaskWindowSidebar({
           am I looking at?". */}
       <SidebarSection label="Session">
         <div style={metricListStyle}>
-          <Metric label="Session ID" value={task.id} mono />
+          <Metric label="Session ID" value={task.id} mono wrap />
           {task.branchName !== null && task.branchName !== '' && (
             <Metric
               label="Branch"
@@ -1338,6 +1404,7 @@ function TerminalWrap({
   draft, onDraft, onSend, onInterrupt, sending, isTerminal,
   theme, onToggleTheme,
   view, onChangeView, onRename, onStop, canStop, onDelete, canDelete,
+  onResume,
   changeStats, diffOpen, onReview, liveText, liveUsage,
 }: {
   task: TaskDto;
@@ -1364,6 +1431,9 @@ function TerminalWrap({
   canStop: boolean;
   onDelete: () => void;
   canDelete: boolean;
+  /** See {@link StructuredView} props — flips ERRORED → IDLE so the
+   *  user can keep typing into the same CLI session. */
+  onResume: () => void;
   changeStats: ChangeStats;
   diffOpen: boolean;
   onReview: () => void;
@@ -1450,6 +1520,12 @@ function TerminalWrap({
           onInterrupt={onInterrupt}
           sending={sending}
           status={task.status}
+        />
+      )}
+      {isTerminal && task.status === 'ERRORED' && (
+        <ResumeBanner
+          message={task.errorMessage}
+          onResume={onResume}
         />
       )}
     </div>
@@ -1731,12 +1807,38 @@ function deriveToolUsage(messages: TaskMessageDto[]): ToolUsage {
 }
 
 function Metric({
-  label, value, sub, mono, live,
-}: { label: string; value: string; sub?: string; mono?: boolean; live?: boolean }) {
+  label, value, sub, mono, live, wrap,
+}: { label: string; value: string; sub?: string; mono?: boolean; live?: boolean;
+     /** Switch the row to a stacked layout (label on top, value below
+      *  on its own line with break-anywhere wrapping). For values that
+      *  don't fit the narrow right column — UUIDs, full-sentence
+      *  "latest input" snippets, long branch names — this beats
+      *  truncation, since the side-by-side ellipsis hides the part
+      *  the user actually wants to read. */
+     wrap?: boolean }) {
   // `live` keeps a literal positive-green — it's the running indicator,
   // semantic and shouldn't recede in dark mode. Everything else reads
   // from --text-1 via metricValueStyle so the metric values stay legible
   // across themes.
+  if (wrap) {
+    return (
+      <div style={metricRowWrapStyle}>
+        <span style={metricLabelStyle}>{label}</span>
+        <span
+          style={{
+            ...metricValueWrapStyle,
+            ...(live ? { color: '#10b981' } : null),
+            fontFamily: mono ? '"SF Mono", Menlo, monospace' : 'inherit',
+            fontSize: mono ? 11.5 : 13,
+          }}
+          title={value}
+        >
+          {value}
+          {sub && <span style={metricSubStyle}> {sub}</span>}
+        </span>
+      </div>
+    );
+  }
   return (
     <div style={metricRowStyle}>
       <span style={metricLabelStyle}>{label}</span>
@@ -1852,10 +1954,52 @@ type SchedulerSummary = {
   live: boolean;
 };
 
-function summarizeTurnState(turns: TaskTurnDto[]): SchedulerSummary {
+function summarizeTurnState(turns: TaskTurnDto[], taskStatus: TaskStatusDto | undefined): SchedulerSummary {
   const running = turns.find(t => t.status === 'RUNNING') ?? null;
   const queued = turns.filter(t => t.status === 'QUEUED');
-  const latest = running ?? queued[0] ?? turns[0] ?? null;
+  // Once a task is alive again (IDLE / AWAITING / RUNNING / PENDING)
+  // but no new turn has been kicked off yet, the historical "latest
+  // turn" is whatever finished last — typically a COMPLETED or FAILED
+  // row. Showing that as "Turn state" right after Resume confuses
+  // the user into thinking the task is still dead. Anchor the state
+  // on the task itself in that case and only borrow the turn's
+  // status when the scheduler actually has work for this task.
+  const liveTaskStatus = taskStatus === 'IDLE'
+      || taskStatus === 'AWAITING'
+      || taskStatus === 'RUNNING'
+      || taskStatus === 'PENDING';
+  if (running !== null) {
+    return {
+      state: running.status,
+      lane: running.lane,
+      queued: queued.length,
+      latestInput: oneLineInput(running.input),
+      live: true,
+    };
+  }
+  if (queued.length > 0) {
+    const first = queued[0];
+    return {
+      state: first.status,
+      lane: first.lane,
+      queued: queued.length,
+      latestInput: oneLineInput(first.input),
+      live: false,
+    };
+  }
+  // No in-flight work. Reflect the task's own status when it's still
+  // alive (so resumed tasks read "ready"), and fall back to the most
+  // recent finished turn only for terminal tasks.
+  if (liveTaskStatus) {
+    return {
+      state: 'ready',
+      lane: turns[0]?.lane ?? 'CLI',
+      queued: 0,
+      latestInput: '',
+      live: taskStatus === 'RUNNING',
+    };
+  }
+  const latest = turns[0] ?? null;
   if (latest === null) {
     return {
       state: 'none',
@@ -1868,9 +2012,9 @@ function summarizeTurnState(turns: TaskTurnDto[]): SchedulerSummary {
   return {
     state: latest.status,
     lane: latest.lane,
-    queued: queued.length,
+    queued: 0,
     latestInput: oneLineInput(latest.input),
-    live: latest.status === 'RUNNING',
+    live: false,
   };
 }
 
@@ -2602,6 +2746,19 @@ const metricValueStyle: React.CSSProperties = {
   fontWeight: 500, fontVariantNumeric: 'tabular-nums', color: 'var(--text-1)',
   flex: 1, minWidth: 0, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
 };
+// Stacked variant used by Metric({ wrap: true }) — label on top,
+// value on its own line below with break-anywhere wrapping so UUIDs
+// and long prompt previews render in full instead of being clipped
+// against the narrow right column.
+const metricRowWrapStyle: React.CSSProperties = {
+  display: 'flex', flexDirection: 'column', gap: 3,
+  padding: '6px 0', borderBottom: '1px solid var(--border-hairline)',
+};
+const metricValueWrapStyle: React.CSSProperties = {
+  fontWeight: 500, color: 'var(--text-1)',
+  overflowWrap: 'anywhere', whiteSpace: 'normal',
+  lineHeight: 1.4,
+};
 const metricSubStyle: React.CSSProperties = {
   fontSize: 11, color: 'var(--text-3)', marginLeft: 4, fontWeight: 400,
 };
@@ -2808,4 +2965,51 @@ const replySendBtnStyle: React.CSSProperties = {
   fontWeight: 600,
   fontSize: 12.5,
   cursor: 'pointer',
+};
+
+// Resume banner palette — amber border + tinted background reads as
+// "attention needed, not destructive". The structured and terminal
+// views both render this in the same vertical slot the reply zone
+// would occupy when the task is live, so its sizing intentionally
+// matches replyZoneStyle's padding rhythm.
+const resumeBannerStyle: React.CSSProperties = {
+  display: 'flex',
+  alignItems: 'center',
+  gap: 14,
+  padding: '12px 14px',
+  background: 'rgba(217, 119, 6, 0.08)',
+  border: '1px solid rgba(217, 119, 6, 0.4)',
+  borderLeft: '3px solid #d97706',
+  borderRadius: 6,
+  marginTop: 8,
+};
+const resumeBannerCopyStyle: React.CSSProperties = {
+  display: 'flex',
+  flexDirection: 'column',
+  gap: 2,
+  flex: 1,
+  minWidth: 0,
+};
+const resumeBannerTitleStyle: React.CSSProperties = {
+  fontSize: 12.5,
+  fontWeight: 700,
+  color: '#92400e',
+};
+const resumeBannerMsgStyle: React.CSSProperties = {
+  fontSize: 11.5,
+  color: '#78350f',
+  overflow: 'hidden',
+  textOverflow: 'ellipsis',
+  whiteSpace: 'nowrap',
+};
+const resumeBannerBtnStyle: React.CSSProperties = {
+  padding: '6px 14px',
+  background: '#d97706',
+  color: '#fff',
+  border: 'none',
+  borderRadius: 6,
+  fontWeight: 600,
+  fontSize: 12.5,
+  cursor: 'pointer',
+  flexShrink: 0,
 };

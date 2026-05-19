@@ -1934,6 +1934,13 @@ export type Bridge = {
   /** Terminal — releases the underlying agent loop and removes the
    *  task from the live registry. */
   stopTask: (id: string) => Promise<void>;
+  /** Resume an ERRORED (or AWAITING) task back to IDLE so the user
+   *  can send another turn. The agent's CLI session id is preserved
+   *  on the task row, so the next {@code sendTask} call spawns a
+   *  fresh subprocess with {@code claude --resume <id>} and picks
+   *  up where the previous turn died — useful after a token-quota
+   *  reset or transient agent error. */
+  resumeTask: (id: string) => Promise<void>;
   /** Permanent removal — only allowed for COMPLETED / ERRORED tasks.
    *  Drops the task row, its conversation log, and per-file rollups.
    *  Rejects with an error from the backend if the task is still

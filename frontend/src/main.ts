@@ -27,6 +27,17 @@ import { registerTaskStreamIpc } from './taskStreamBridge';
 // this up from forge.config.ts -> packagerConfig.name).
 app.setName('ByteQuay');
 
+// App-wide RAM ceiling is ~8 GB. The renderer that hosts our UI and
+// every embedded WebContentsView (one per open GitHub page) each get
+// their own V8 heap; default max-old-space is ~4 GB per process, so
+// without a cap two open embeds plus our renderer can easily climb to
+// 8–10 GB. 1 GB per V8 heap is enough for our use (the heaviest page
+// is the diff viewer, which we've measured around ~400 MB). Combined
+// with the ~2 GB JVM cap and the scheduler's 4-way CLI lane (capped
+// to 512 MB heap each), a busy session lands around ~7.8 GB. Must be
+// set before app `ready` so every spawned renderer picks it up.
+app.commandLine.appendSwitch('js-flags', '--max-old-space-size=1024');
+
 // Register the bytequay:// custom URL scheme so the OS sends OAuth
 // redirects (GitHub, future integrations) back to our running app.
 // `open-url` (macOS) / second-instance args (Win/Linux) carry the
@@ -2535,6 +2546,19 @@ const url = new URL(`${BACKEND_BASE}/api/search/repos`);
     if (!res.ok) {
       const text = await res.text().catch(() => '');
       throw new Error(`backend POST /api/tasks/${id}/stop returned ${res.status}: ${text}`);
+    }
+  });
+
+  ipcMain.handle('tasks:resume', async (_event, id: unknown) => {
+    if (typeof id !== 'string' || id.trim().length === 0) {
+      throw new Error('id must be a non-empty string');
+    }
+    const res = await fetch(
+      `${BACKEND_BASE}/api/tasks/${encodeURIComponent(id)}/resume`,
+      { method: 'POST' });
+    if (!res.ok) {
+      const text = await res.text().catch(() => '');
+      throw new Error(`backend POST /api/tasks/${id}/resume returned ${res.status}: ${text}`);
     }
   });
 

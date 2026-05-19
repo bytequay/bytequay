@@ -25,9 +25,12 @@ import com.bytequay.app.domain.TaskMessage;
 import com.bytequay.app.domain.TaskResourceLane;
 import com.bytequay.app.domain.TaskStatus;
 import com.bytequay.app.domain.TaskTurn;
+import com.bytequay.app.domain.TaskTurnEvent;
+import com.bytequay.app.domain.TaskTurnEventType;
 import com.bytequay.app.domain.TaskTurnStatus;
 import com.bytequay.app.repository.TaskGroupStore;
 import com.bytequay.app.repository.TaskStore;
+import com.bytequay.app.repository.TaskTurnEventStore;
 import com.bytequay.app.repository.TaskTurnStore;
 import com.bytequay.app.service.local.GitRunner;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -61,6 +64,7 @@ class TestTaskServiceScheduler
                 store,
                 new EmptyTaskGroupStore(),
                 new InMemoryTaskTurnStore(),
+                new InMemoryTaskTurnEventStore(),
                 registry,
                 scheduler,
                 new GitRunner());
@@ -96,6 +100,7 @@ class TestTaskServiceScheduler
                 store,
                 new EmptyTaskGroupStore(),
                 new InMemoryTaskTurnStore(),
+                new InMemoryTaskTurnEventStore(),
                 registry,
                 scheduler,
                 new GitRunner());
@@ -130,6 +135,7 @@ class TestTaskServiceScheduler
                 store,
                 new EmptyTaskGroupStore(),
                 new InMemoryTaskTurnStore(),
+                new InMemoryTaskTurnEventStore(),
                 registry,
                 scheduler,
                 new GitRunner());
@@ -160,6 +166,7 @@ class TestTaskServiceScheduler
                 store,
                 new EmptyTaskGroupStore(),
                 turns,
+                new InMemoryTaskTurnEventStore(),
                 registry,
                 scheduler,
                 new GitRunner());
@@ -167,6 +174,35 @@ class TestTaskServiceScheduler
         assertThat(service.turns(task.id()))
                 .extracting(TaskTurn::id)
                 .containsExactly("turn-3", "turn-1");
+        assertThat(registry.used).isFalse();
+    }
+
+    @Test
+    void turnEventsReturnDurableHistoryForTaskOnly()
+    {
+        Task task = task();
+        Task otherTask = task("task-2");
+        InMemoryTaskStore store = new InMemoryTaskStore();
+        store.saveTask(task);
+        store.saveTask(otherTask);
+        InMemoryTaskTurnEventStore turnEvents = new InMemoryTaskTurnEventStore();
+        Instant now = Instant.parse("2026-05-18T12:00:00Z");
+        turnEvents.appendEvent(turnEvent("event-1", "turn-1", task.id(), now.minusSeconds(10)));
+        turnEvents.appendEvent(turnEvent("event-2", "turn-2", otherTask.id(), now));
+        turnEvents.appendEvent(turnEvent("event-3", "turn-3", task.id(), now.plusSeconds(10)));
+        ThrowingRegistry registry = new ThrowingRegistry();
+        TaskService service = new TaskService(
+                store,
+                new EmptyTaskGroupStore(),
+                new InMemoryTaskTurnStore(),
+                turnEvents,
+                registry,
+                new RecordingScheduler(),
+                new GitRunner());
+
+        assertThat(service.turnEvents(task.id()))
+                .extracting(TaskTurnEvent::id)
+                .containsExactly("event-3", "event-1");
         assertThat(registry.used).isFalse();
     }
 
@@ -182,6 +218,7 @@ class TestTaskServiceScheduler
                 new InMemoryTaskStore(),
                 new EmptyTaskGroupStore(),
                 turns,
+                new InMemoryTaskTurnEventStore(),
                 new ThrowingRegistry(),
                 new RecordingScheduler(),
                 new GitRunner());
@@ -204,6 +241,7 @@ class TestTaskServiceScheduler
                 store,
                 new EmptyTaskGroupStore(),
                 new InMemoryTaskTurnStore(),
+                new InMemoryTaskTurnEventStore(),
                 registry,
                 scheduler,
                 new GitRunner());
@@ -227,6 +265,7 @@ class TestTaskServiceScheduler
                 store,
                 new EmptyTaskGroupStore(),
                 new InMemoryTaskTurnStore(),
+                new InMemoryTaskTurnEventStore(),
                 new ThrowingRegistry(),
                 scheduler,
                 new GitRunner());
@@ -606,6 +645,28 @@ class TestTaskServiceScheduler
         }
     }
 
+    private static final class InMemoryTaskTurnEventStore
+            implements TaskTurnEventStore
+    {
+        private final Map<String, TaskTurnEvent> events = new LinkedHashMap<>();
+
+        @Override
+        public void appendEvent(TaskTurnEvent event)
+        {
+            events.put(event.id(), event);
+        }
+
+        @Override
+        public List<TaskTurnEvent> listEventsByTaskId(String taskId, int limit)
+        {
+            return events.values().stream()
+                    .filter(event -> event.taskId().equals(taskId))
+                    .sorted(Comparator.comparing(TaskTurnEvent::createdAt).reversed())
+                    .limit(limit)
+                    .toList();
+        }
+    }
+
     private static TaskTurn turn(String id, String taskId, Instant createdAt)
     {
         return turn(id, taskId, TaskTurnStatus.QUEUED, createdAt);
@@ -624,6 +685,17 @@ class TestTaskServiceScheduler
                 /* startedAt */ null,
                 /* finishedAt */ null,
                 /* errorMessage */ null);
+    }
+
+    private static TaskTurnEvent turnEvent(String id, String turnId, String taskId, Instant createdAt)
+    {
+        return new TaskTurnEvent(
+                id,
+                turnId,
+                taskId,
+                TaskTurnEventType.TURN_QUEUED,
+                createdAt,
+                /* message */ null);
     }
 
     private static Task task()

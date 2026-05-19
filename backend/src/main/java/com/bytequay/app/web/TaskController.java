@@ -20,6 +20,7 @@ import com.bytequay.app.domain.TaskKind;
 import com.bytequay.app.domain.TaskMessage;
 import com.bytequay.app.domain.TaskStatus;
 import com.bytequay.app.domain.TaskTurn;
+import com.bytequay.app.domain.TaskTurnEvent;
 import com.bytequay.app.service.local.GitRunner;
 import com.bytequay.app.service.tasks.TaskService;
 import com.google.common.collect.ImmutableList;
@@ -175,6 +176,13 @@ public class TaskController
     public List<TaskTurn> turns(@PathVariable String id)
     {
         return tasks.turns(id);
+    }
+
+    /** GET /api/tasks/{id}/turn-events — scheduler timeline, newest first. */
+    @GetMapping("/{id}/turn-events")
+    public List<TaskTurnEvent> turnEvents(@PathVariable String id)
+    {
+        return tasks.turnEvents(id);
     }
 
     /** GET /api/tasks/{id}/files — per-file rollup, most-recently

@@ -23,9 +23,11 @@ import com.bytequay.app.domain.TaskKind;
 import com.bytequay.app.domain.TaskMessage;
 import com.bytequay.app.domain.TaskStatus;
 import com.bytequay.app.domain.TaskTurn;
+import com.bytequay.app.domain.TaskTurnEvent;
 import com.bytequay.app.domain.TaskTurnStatus;
 import com.bytequay.app.repository.TaskGroupStore;
 import com.bytequay.app.repository.TaskStore;
+import com.bytequay.app.repository.TaskTurnEventStore;
 import com.bytequay.app.repository.TaskTurnStore;
 import com.bytequay.app.service.local.GitRunner;
 import org.springframework.http.HttpStatusCode;
@@ -68,12 +70,15 @@ public class TaskService
     /** Small history window for scheduler turns. The full conversation
      *  still lives under messages; this is for queue/running state. */
     private static final int TURN_HISTORY_LIMIT = 50;
+    /** Recent scheduler-event history for explaining task turn state. */
+    private static final int TURN_EVENT_HISTORY_LIMIT = 200;
     /** Active-turn list cap for task-list and group-page summaries. */
     private static final int ACTIVE_TURN_LIMIT = 500;
 
     private final TaskStore store;
     private final TaskGroupStore groupStore;
     private final TaskTurnStore turnStore;
+    private final TaskTurnEventStore turnEventStore;
     private final TaskSessionRegistry registry;
     private final TaskTurnScheduler scheduler;
     private final GitRunner git;
@@ -82,6 +87,7 @@ public class TaskService
             TaskStore store,
             TaskGroupStore groupStore,
             TaskTurnStore turnStore,
+            TaskTurnEventStore turnEventStore,
             TaskSessionRegistry registry,
             TaskTurnScheduler scheduler,
             GitRunner git)
@@ -89,6 +95,7 @@ public class TaskService
         this.store = requireNonNull(store, "store is null");
         this.groupStore = requireNonNull(groupStore, "groupStore is null");
         this.turnStore = requireNonNull(turnStore, "turnStore is null");
+        this.turnEventStore = requireNonNull(turnEventStore, "turnEventStore is null");
         this.registry = requireNonNull(registry, "registry is null");
         this.scheduler = requireNonNull(scheduler, "scheduler is null");
         this.git = requireNonNull(git, "git is null");
@@ -368,6 +375,12 @@ public class TaskService
     public List<TaskTurn> turns(String taskId)
     {
         return turnStore.listTurnsByTaskId(requireTask(taskId).id(), TURN_HISTORY_LIMIT);
+    }
+
+    /** Recent scheduler events for one task, newest first. */
+    public List<TaskTurnEvent> turnEvents(String taskId)
+    {
+        return turnEventStore.listEventsByTaskId(requireTask(taskId).id(), TURN_EVENT_HISTORY_LIMIT);
     }
 
     /** Queued/running turns across all tasks, oldest first. */

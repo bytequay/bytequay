@@ -1877,6 +1877,9 @@ export type Bridge = {
    *  groups by status itself. Pass {@code groupId} to restrict to a
    *  single group (drives the group detail view). */
   listTasks: (groupId?: string) => Promise<TaskDto[]>;
+  /** Queued/running turns across all tasks, oldest first. Lets list
+   *  and group pages show scheduler pressure without N+1 reads. */
+  listActiveTaskTurns: () => Promise<TaskTurnDto[]>;
   /** Create + start one task. Returns the persisted row with the
    *  agent's session id if the first turn already populated it. */
   createTask: (request: NewTaskRequestDto) => Promise<TaskDto>;

@@ -63,6 +63,9 @@ public class TaskController
     /** Per-page cap; matches the design doc's "show ~50 most recent
      *  tasks" target for the list view. */
     private static final int DEFAULT_LIMIT = 50;
+    /** Active scheduler turns are small rows; 200 covers busy groups
+     *  without returning the whole historical table. */
+    private static final int DEFAULT_ACTIVE_TURN_LIMIT = 200;
 
     /** Six hours — long enough for an unattended overnight run, short
      *  enough that abandoned browser tabs don't leak the stream. */
@@ -98,6 +101,14 @@ public class TaskController
             return all.build();
         }
         return tasks.listByStatus(status, cap);
+    }
+
+    /** GET /api/tasks/turns/active — queued/running turns across tasks. */
+    @GetMapping("/turns/active")
+    public List<TaskTurn> activeTurns(
+            @RequestParam(required = false, defaultValue = "" + DEFAULT_ACTIVE_TURN_LIMIT) int limit)
+    {
+        return tasks.activeTurns(limit);
     }
 
     /** POST /api/tasks — create + start. Returns the persisted row. */

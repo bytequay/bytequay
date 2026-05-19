@@ -2426,6 +2426,15 @@ const url = new URL(`${BACKEND_BASE}/api/search/repos`);
     return res.json();
   });
 
+  ipcMain.handle('tasks:activeTurns', async () => {
+    const res = await fetch(`${BACKEND_BASE}/api/tasks/turns/active`);
+    if (!res.ok) {
+      const text = await res.text().catch(() => '');
+      throw new Error(`backend GET /api/tasks/turns/active returned ${res.status}: ${text}`);
+    }
+    return res.json();
+  });
+
   ipcMain.handle('taskGroups:list', async () => {
     const res = await fetch(`${BACKEND_BASE}/api/task-groups`);
     if (!res.ok) {

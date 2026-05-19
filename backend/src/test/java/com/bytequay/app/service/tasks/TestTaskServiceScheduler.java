@@ -163,6 +163,27 @@ class TestTaskServiceScheduler
         assertThat(registry.used).isFalse();
     }
 
+    @Test
+    void activeTurnsReturnQueuedAndRunningOnly()
+    {
+        InMemoryTaskTurnStore turns = new InMemoryTaskTurnStore();
+        Instant now = Instant.parse("2026-05-18T12:00:00Z");
+        turns.saveTurn(turn("queued", "task-1", TaskTurnStatus.QUEUED, now.minusSeconds(30)));
+        turns.saveTurn(turn("completed", "task-2", TaskTurnStatus.COMPLETED, now.minusSeconds(20)));
+        turns.saveTurn(turn("running", "task-3", TaskTurnStatus.RUNNING, now.minusSeconds(10)));
+        TaskService service = new TaskService(
+                new InMemoryTaskStore(),
+                new EmptyTaskGroupStore(),
+                turns,
+                new ThrowingRegistry(),
+                new RecordingScheduler(),
+                new GitRunner());
+
+        assertThat(service.activeTurns(50))
+                .extracting(TaskTurn::id)
+                .containsExactly("queued", "running");
+    }
+
     private record QueuedRequest(Task task, String input) {}
 
     private static final class RecordingScheduler
@@ -340,6 +361,16 @@ class TestTaskServiceScheduler
         }
 
         @Override
+        public List<TaskTurn> listTurnsByStatuses(Collection<TaskTurnStatus> statuses, int limit)
+        {
+            return turns.values().stream()
+                    .filter(turn -> statuses.contains(turn.status()))
+                    .sorted(Comparator.comparing(TaskTurn::createdAt))
+                    .limit(limit)
+                    .toList();
+        }
+
+        @Override
         public List<TaskTurn> listTurnsByTaskId(String taskId, int limit)
         {
             return turns.values().stream()
@@ -352,11 +383,16 @@ class TestTaskServiceScheduler
 
     private static TaskTurn turn(String id, String taskId, Instant createdAt)
     {
+        return turn(id, taskId, TaskTurnStatus.QUEUED, createdAt);
+    }
+
+    private static TaskTurn turn(String id, String taskId, TaskTurnStatus status, Instant createdAt)
+    {
         return new TaskTurn(
                 id,
                 taskId,
                 TaskResourceLane.CLI,
-                TaskTurnStatus.QUEUED,
+                status,
                 "input",
                 createdAt,
                 createdAt,

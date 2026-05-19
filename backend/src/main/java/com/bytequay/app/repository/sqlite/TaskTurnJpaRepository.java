@@ -16,12 +16,15 @@ package com.bytequay.app.repository.sqlite;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 
+import java.util.Collection;
 import java.util.List;
 
 interface TaskTurnJpaRepository
         extends JpaRepository<TaskTurnEntity, String>
 {
     List<TaskTurnEntity> findByStatusOrderByCreatedAtMsAsc(String status, Pageable pageable);
+
+    List<TaskTurnEntity> findByStatusInOrderByCreatedAtMsAsc(Collection<String> statuses, Pageable pageable);
 
     List<TaskTurnEntity> findByTaskIdOrderByCreatedAtMsDesc(String taskId, Pageable pageable);
 }

@@ -23,6 +23,7 @@ import com.bytequay.app.domain.TaskKind;
 import com.bytequay.app.domain.TaskMessage;
 import com.bytequay.app.domain.TaskStatus;
 import com.bytequay.app.domain.TaskTurn;
+import com.bytequay.app.domain.TaskTurnStatus;
 import com.bytequay.app.repository.TaskGroupStore;
 import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.repository.TaskTurnStore;
@@ -67,6 +68,8 @@ public class TaskService
     /** Small history window for scheduler turns. The full conversation
      *  still lives under messages; this is for queue/running state. */
     private static final int TURN_HISTORY_LIMIT = 50;
+    /** Active-turn list cap for task-list and group-page summaries. */
+    private static final int ACTIVE_TURN_LIMIT = 500;
 
     private final TaskStore store;
     private final TaskGroupStore groupStore;
@@ -365,6 +368,17 @@ public class TaskService
     public List<TaskTurn> turns(String taskId)
     {
         return turnStore.listTurnsByTaskId(requireTask(taskId).id(), TURN_HISTORY_LIMIT);
+    }
+
+    /** Queued/running turns across all tasks, oldest first. */
+    public List<TaskTurn> activeTurns(int limit)
+    {
+        if (limit <= 0) {
+            return List.of();
+        }
+        return turnStore.listTurnsByStatuses(
+                List.of(TaskTurnStatus.RUNNING, TaskTurnStatus.QUEUED),
+                Math.min(limit, ACTIVE_TURN_LIMIT));
     }
 
     /** Send a follow-up turn to an existing task. Re-creates the

@@ -12,12 +12,19 @@
  * limitations under the License.
  */
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import type { TaskDto, TaskGroupDto, TaskGroupMembershipDto, TaskStatusDto, WatchedRepoDto } from '../types';
+import type { TaskDto, TaskGroupDto, TaskGroupMembershipDto, TaskStatusDto, TaskTurnDto, WatchedRepoDto } from '../types';
 import GroupMenu from './GroupMenu';
 import GroupSettingsDialog from './GroupSettingsDialog';
 import GroupTaskGrid from './GroupTaskGrid';
 import AddTaskToGroupDialog from './AddTaskToGroupDialog';
 import TasksGroupPage from './TasksGroupPage';
+import {
+  type ActiveTurnSummary,
+  type SchedulerDisplayStatus,
+  buildActiveTurnSummaries,
+  displayStatusForTask,
+  taskActivityRank,
+} from './taskTurnSummary';
 import TasksLeftRail, {
   repoKey,
   type GroupFilter,
@@ -96,6 +103,7 @@ export default function TasksPage({
   immersive, onChangeImmersive,
 }: Props) {
   const [tasks, setTasks] = useState<TaskDto[] | null>(null);
+  const [activeTurns, setActiveTurns] = useState<TaskTurnDto[]>([]);
   const [groups, setGroups] = useState<TaskGroupDto[]>([]);
   const [memberships, setMemberships] = useState<TaskGroupMembershipDto[]>([]);
   const [watchedRepos, setWatchedRepos] = useState<WatchedRepoDto[]>([]);
@@ -156,13 +164,15 @@ export default function TasksPage({
 
   const refresh = useCallback(async () => {
     try {
-      const [list, gs, ms, wrs] = await Promise.all([
+      const [list, ats, gs, ms, wrs] = await Promise.all([
         window.bridge.listTasks(),
+        window.bridge.listActiveTaskTurns().catch(() => [] as TaskTurnDto[]),
         window.bridge.listTaskGroups().catch(() => [] as TaskGroupDto[]),
         window.bridge.listTaskGroupMemberships().catch(() => [] as TaskGroupMembershipDto[]),
         window.bridge.getWatchedRepos().catch(() => [] as WatchedRepoDto[]),
       ]);
       setTasks(list);
+      setActiveTurns(ats);
       setGroups(gs);
       setMemberships(ms);
       setWatchedRepos(wrs);
@@ -240,6 +250,10 @@ export default function TasksPage({
     return map;
   }, [memberships]);
 
+  const activeTurnsByTaskId = useMemo(
+    () => buildActiveTurnSummaries(activeTurns),
+    [activeTurns]);
+
   useEffect(() => {
     void refresh();
   }, [refresh]);
@@ -287,13 +301,21 @@ export default function TasksPage({
   const filtered = useMemo(() => {
     if (!tasks) return [];
     return tasks.filter(t => {
-      if (filter !== 'ALL' && t.status !== filter) return false;
+      const displayStatus = displayStatusForTask(t, activeTurnsByTaskId.get(t.id));
+      if (filter !== 'ALL') {
+        if (filter === 'PENDING') {
+          if (displayStatus !== 'PENDING' && displayStatus !== 'QUEUED') return false;
+        }
+        else if (displayStatus !== filter) {
+          return false;
+        }
+      }
       if (provider && (t.provider || '').toLowerCase() !== provider) return false;
       if (groupId && !(groupIdsByTaskId.get(t.id) ?? []).includes(groupId)) return false;
       if (repo && repoKey(t.workingDir) !== repo) return false;
       return true;
     });
-  }, [tasks, filter, provider, groupId, repo, groupIdsByTaskId]);
+  }, [tasks, filter, provider, groupId, repo, groupIdsByTaskId, activeTurnsByTaskId]);
 
   // Card-grid search narrows the already-status-filtered list by
   // title substring. Empty query passes everything through.
@@ -322,22 +344,16 @@ export default function TasksPage({
   const filteredCount = filtered.length;
   const visibleCount = sorted.length;
 
-  /** Tile order: active first (RUNNING / AWAITING), then PENDING /
-   *  IDLE, terminal last — so the operator scans live work first. */
+  /** Tile order: active first (RUNNING / AWAITING), then queued /
+   *  pending, idle, terminal last — so the operator scans live work
+   *  and scheduler backlog first. */
   const tilesOrdered = useMemo(() => {
-    const rank: Record<TaskStatusDto, number> = {
-      RUNNING:   0,
-      AWAITING:  1,
-      PENDING:   2,
-      IDLE:      3,
-      COMPLETED: 4,
-      ERRORED:   5,
-    };
     return [...filtered].sort((a, b) => {
-      const r = rank[a.status] - rank[b.status];
+      const r = taskActivityRank(a, activeTurnsByTaskId.get(a.id))
+        - taskActivityRank(b, activeTurnsByTaskId.get(b.id));
       return r !== 0 ? r : b.updatedAt.localeCompare(a.updatedAt);
     });
-  }, [filtered]);
+  }, [filtered, activeTurnsByTaskId]);
 
   const onStop = useCallback(async (id: string) => {
     setBusyId(id);
@@ -399,6 +415,7 @@ export default function TasksPage({
         <TasksGroupPage
           group={activeGroup}
           tasks={tilesOrdered}
+          activeTurnsByTaskId={activeTurnsByTaskId}
           busyId={busyId}
           onSelectTask={onSelectTask}
           onStop={onStop}
@@ -578,6 +595,7 @@ export default function TasksPage({
                 <TaskCard
                   key={t.id}
                   task={t}
+                  scheduler={activeTurnsByTaskId.get(t.id)}
                   groups={groups}
                   currentGroupIds={groupIdsByTaskId.get(t.id) ?? []}
                   busy={busyId === t.id}
@@ -717,8 +735,9 @@ function SortPill({ value, onChange }: {
  *  to open the detail page. The stage strip from the mockup isn't
  *  wired here — surfacing it would need per-card message polling,
  *  which is heavy for a list with dozens of tasks. */
-function TaskCard({ task, groups, currentGroupIds, busy, onOpen, onStop, onToggleGroup }: {
+function TaskCard({ task, scheduler, groups, currentGroupIds, busy, onOpen, onStop, onToggleGroup }: {
   task: TaskDto;
+  scheduler: ActiveTurnSummary | undefined;
   groups: TaskGroupDto[];
   currentGroupIds: string[];
   busy: boolean;
@@ -733,11 +752,12 @@ function TaskCard({ task, groups, currentGroupIds, busy, onOpen, onStop, onToggl
   const glyphBg = glyph === 'X'
     ? 'linear-gradient(135deg, #1f2937, #4b5563)'
     : 'linear-gradient(135deg, #d97706, #92400e)';
+  const displayStatus = displayStatusForTask(task, scheduler);
   return (
     <article
       style={{
         ...cardStyle,
-        borderLeftColor: stripeColor(task.status),
+        borderLeftColor: stripeColor(displayStatus),
       }}
       onClick={onOpen}
       role="button"
@@ -771,7 +791,7 @@ function TaskCard({ task, groups, currentGroupIds, busy, onOpen, onStop, onToggl
             )}
           </div>
         </div>
-        <RowStatusPill status={task.status} />
+        <RowStatusPill status={displayStatus} queued={scheduler?.queued ?? 0} />
       </div>
 
       <div style={cardMetricsStyle}>
@@ -814,11 +834,12 @@ function TaskCard({ task, groups, currentGroupIds, busy, onOpen, onStop, onToggl
   );
 }
 
-function RowStatusPill({ status }: { status: TaskStatusDto }) {
-  const palette: Record<TaskStatusDto, { fg: string; bg: string; label: string; pulse: boolean }> = {
+function RowStatusPill({ status, queued }: { status: SchedulerDisplayStatus; queued?: number }) {
+  const palette: Record<SchedulerDisplayStatus, { fg: string; bg: string; label: string; pulse: boolean }> = {
     RUNNING:   { fg: '#047857', bg: '#d1fae5', label: 'RUNNING',  pulse: true  },
     AWAITING:  { fg: '#92400e', bg: '#fef3c7', label: 'AWAITING', pulse: true  },
     PENDING:   { fg: '#374151', bg: '#e5e7eb', label: 'PENDING',  pulse: false },
+    QUEUED:    { fg: '#92400e', bg: '#fef3c7', label: 'QUEUED',   pulse: false },
     IDLE:      { fg: '#57606a', bg: '#f0f1f3', label: 'IDLE',     pulse: false },
     COMPLETED: { fg: '#047857', bg: '#dcfce7', label: 'DONE',     pulse: false },
     ERRORED:   { fg: '#991b1b', bg: '#fee2e2', label: 'ERRORED',  pulse: false },
@@ -837,16 +858,17 @@ function RowStatusPill({ status }: { status: TaskStatusDto }) {
           ? 'bytequayTasksListPulse 1.6s ease-in-out infinite'
           : 'none',
       }} />
-      {p.label}
+      {p.label}{status === 'QUEUED' && queued && queued > 1 ? ` x${queued}` : ''}
     </span>
   );
 }
 
-function stripeColor(status: TaskStatusDto): string {
+function stripeColor(status: SchedulerDisplayStatus): string {
   switch (status) {
     case 'RUNNING':   return '#047857';
     case 'AWAITING':  return '#d97706';
     case 'PENDING':   return '#9ca3af';
+    case 'QUEUED':    return '#d97706';
     case 'IDLE':      return '#cbd5e0';
     case 'COMPLETED': return '#10b981';
     case 'ERRORED':   return '#dc2626';

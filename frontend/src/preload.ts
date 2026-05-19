@@ -461,6 +461,8 @@ const bridge: Bridge = {
     ipcRenderer.invoke('email:listArchived', { account }),
   listTasks: (groupId?: string): Promise<TaskDto[]> =>
     ipcRenderer.invoke('tasks:list', groupId ?? null),
+  listActiveTaskTurns: (): Promise<TaskTurnDto[]> =>
+    ipcRenderer.invoke('tasks:activeTurns'),
   createTask: (request: NewTaskRequestDto): Promise<TaskDto> =>
     ipcRenderer.invoke('tasks:create', request),
   listTaskGroups: (): Promise<TaskGroupDto[]> => ipcRenderer.invoke('taskGroups:list'),

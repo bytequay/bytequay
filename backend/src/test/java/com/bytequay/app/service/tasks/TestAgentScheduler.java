@@ -315,6 +315,16 @@ class TestAgentScheduler
         }
 
         @Override
+        public List<TaskTurn> listTurnsByStatuses(Collection<TaskTurnStatus> statuses, int limit)
+        {
+            return turns.values().stream()
+                    .filter(turn -> statuses.contains(turn.status()))
+                    .sorted(Comparator.comparing(TaskTurn::createdAt))
+                    .limit(limit)
+                    .toList();
+        }
+
+        @Override
         public List<TaskTurn> listTurnsByTaskId(String taskId, int limit)
         {
             return turns.values().stream()

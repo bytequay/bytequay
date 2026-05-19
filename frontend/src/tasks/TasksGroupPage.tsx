@@ -17,6 +17,7 @@ import TasksGroupSidebar from './TasksGroupSidebar';
 import TaskZoomModal from './TaskZoomModal';
 import type { TaskDto, TaskGroupDto } from '../types';
 import type { PendingPermission } from './ConversationPane';
+import type { ActiveTurnSummary } from './taskTurnSummary';
 
 /**
  * Tasks-group page shell. Replaces the regular {@code TasksPage}
@@ -35,6 +36,9 @@ export type TasksGroupPageProps = {
   /** Tasks belonging to this group. The parent has already filtered
    *  to group membership before passing them in. */
   tasks: TaskDto[];
+  /** Active scheduler state keyed by task id. Queued follow-ups can
+   *  exist while the task row itself still says IDLE. */
+  activeTurnsByTaskId: Map<string, ActiveTurnSummary>;
   busyId: string | null;
   onSelectTask: (taskId: string) => void;
   onStop: (taskId: string) => void | Promise<void>;
@@ -74,7 +78,7 @@ const GROUP_MAX_MEMBERS = 4;
 
 export default function TasksGroupPage(props: TasksGroupPageProps) {
   const {
-    group, tasks, busyId,
+    group, tasks, activeTurnsByTaskId, busyId,
     onSelectTask, onStop, onSend, onInterrupt, onDecide,
     onAddTask, onOpenGroupSettings, onRefresh,
     immersive, onChangeImmersive, tileMode, onChangeTileMode,
@@ -182,6 +186,7 @@ export default function TasksGroupPage(props: TasksGroupPageProps) {
       <main style={mainStyle}>
         <GroupTaskGrid
           tasks={tasks}
+          activeTurnsByTaskId={activeTurnsByTaskId}
           busyId={busyId}
           immersive={immersive}
           tileMode={tileMode}

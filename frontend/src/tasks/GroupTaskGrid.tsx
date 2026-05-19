@@ -12,15 +12,23 @@
  * limitations under the License.
  */
 import { useEffect, useMemo, useRef, useState } from 'react';
-import type { TaskDto, TaskMessageDto, TaskStatusDto } from '../types';
+import type { TaskDto, TaskMessageDto } from '../types';
 import { type PendingPermission } from './ConversationPane';
 import { TileConversation, type TileConversationMode } from './TileConversation';
 import { useAutoGrowTextarea, usePersistentDraft } from './draftStore';
+import {
+  type ActiveTurnSummary,
+  type SchedulerDisplayStatus,
+  displayStatusForTask,
+} from './taskTurnSummary';
 
 export type GroupLayout = 1 | 2 | 3 | 4;
 
 type Props = {
   tasks: TaskDto[];
+  /** Active scheduler state keyed by task id. A tile can be queued
+   *  even when the durable task row still says IDLE. */
+  activeTurnsByTaskId: Map<string, ActiveTurnSummary>;
   /** Open the full detail page for a task. The tile title
    *  becomes the click target so clicks inside the tile body
    *  (typing a reply, scrolling the history) don't navigate. */
@@ -88,7 +96,7 @@ const POLL_MS = 4000;
  * conversations in parallel and is out of scope for this slice.
  */
 export default function GroupTaskGrid({
-  tasks, onOpen, onStop, onSend, onInterrupt, onDecide,
+  tasks, activeTurnsByTaskId, onOpen, onStop, onSend, onInterrupt, onDecide,
   busyId, immersive, tileMode, selectedId, onSelectTile,
   onOpenPr, onOpenIssue,
 }: Props) {
@@ -216,6 +224,7 @@ export default function GroupTaskGrid({
           >
             <TaskTile
               task={t}
+              scheduler={activeTurnsByTaskId.get(t.id)}
               messages={previews[t.id] ?? []}
               busy={busyId === t.id}
               dragging={dragFrom === idx}
@@ -249,13 +258,14 @@ export default function GroupTaskGrid({
 }
 
 function TaskTile({
-  task, messages, busy, dragging, immersive, tileMode,
+  task, scheduler, messages, busy, dragging, immersive, tileMode,
   slotIndex, selected, onSelect,
   onOpen, onOpenPr, onOpenIssue, onStop,
   onSend, onInterrupt, onDecide,
   onDragStart, onDragEnter, onDragEnd, onDrop,
 }: {
   task: TaskDto;
+  scheduler: ActiveTurnSummary | undefined;
   messages: TaskMessageDto[];
   busy: boolean;
   dragging: boolean;
@@ -291,7 +301,8 @@ function TaskTile({
   onDrop: () => void;
 }) {
   const isTerminal = task.status === 'COMPLETED' || task.status === 'ERRORED';
-  const isRunning = task.status === 'RUNNING';
+  const displayStatus = displayStatusForTask(task, scheduler);
+  const isRunning = displayStatus === 'RUNNING';
   // Shared key with TaskDetailPage's reply box — text typed in a tile
   // is also visible if the user pops the same task into full detail
   // view, since both render the same logical "reply to this task" input.
@@ -466,7 +477,7 @@ function TaskTile({
           onDragStart();
         }}
       >
-        <span style={{ ...slimDotStyle, background: dotColor(task.status) }} aria-hidden />
+        <span style={{ ...slimDotStyle, background: dotColor(displayStatus) }} aria-hidden />
         {immersive ? (
           <span
             style={isTerm ? { ...slimTitleStyle, color: '#8b949e' } : slimTitleStyle}
@@ -559,6 +570,8 @@ function TaskTile({
             onChange={e => setDraft(e.target.value)}
             placeholder={isRunning
               ? 'message — will queue for after current turn…'
+              : displayStatus === 'QUEUED'
+                ? 'message — will queue behind pending turn…'
               : 'send a follow-up turn…'}
             disabled={sending}
             onKeyDown={e => {
@@ -650,10 +663,11 @@ function findPendingPermission(messages: TaskMessageDto[]): PendingPermission | 
  *  tasks-design.md immersive bullet (green RUN / amber WAIT /
  *  grey IDLE / red ERROR). PENDING + COMPLETED both read as
  *  "not actively driving" → grey, matching IDLE. */
-function dotColor(s: TaskStatusDto): string {
+function dotColor(s: SchedulerDisplayStatus): string {
   switch (s) {
     case 'RUNNING':   return '#10b981';
     case 'AWAITING':  return '#d97706';
+    case 'QUEUED':    return '#d97706';
     case 'ERRORED':   return '#dc2626';
     default:          return '#9ca3af';
   }

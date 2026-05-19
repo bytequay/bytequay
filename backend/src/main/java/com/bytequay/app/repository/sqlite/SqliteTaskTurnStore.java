@@ -22,6 +22,7 @@ import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 
@@ -66,6 +67,23 @@ class SqliteTaskTurnStore
     public List<TaskTurn> listTurnsByStatus(TaskTurnStatus status, int limit)
     {
         return turns.findByStatusOrderByCreatedAtMsAsc(status.name(), PageRequest.of(0, limit))
+                .stream()
+                .map(SqliteTaskTurnStore::toTurn)
+                .toList();
+    }
+
+    @Override
+    public List<TaskTurn> listTurnsByStatuses(Collection<TaskTurnStatus> statuses, int limit)
+    {
+        requireNonNull(statuses, "statuses is null");
+        if (statuses.isEmpty()) {
+            return List.of();
+        }
+        return turns.findByStatusInOrderByCreatedAtMsAsc(
+                        statuses.stream()
+                                .map(TaskTurnStatus::name)
+                                .toList(),
+                        PageRequest.of(0, limit))
                 .stream()
                 .map(SqliteTaskTurnStore::toTurn)
                 .toList();

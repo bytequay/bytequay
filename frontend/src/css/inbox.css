@@ -1389,6 +1389,65 @@
   border-color: var(--accent-a40);
 }
 
+/* Segmented two-button toggle for the diff mode (Working tree vs
+   Commits). Rendered both inside the panel header (default size) and
+   next to the Review-strip "Diff" button (dense variant). Same shape
+   in both places so they read as the same control. */
+.diff-mode-toggle {
+  display: inline-flex;
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  overflow: hidden;
+  background: var(--bg-base);
+  flex-shrink: 0;
+}
+.diff-mode-toggle__btn {
+  appearance: none;
+  border: 0;
+  background: transparent;
+  color: var(--text-2);
+  padding: 4px 10px;
+  font-size: var(--font-size-xs);
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  cursor: pointer;
+  text-transform: none;
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  font-family: inherit;
+  line-height: 1.2;
+}
+.diff-mode-toggle__btn:hover { background: var(--accent-a7); color: var(--text-1); }
+.diff-mode-toggle__btn--active {
+  background: var(--accent);
+  color: #fff;
+}
+.diff-mode-toggle__btn--active:hover { background: var(--accent); color: #fff; }
+.diff-mode-toggle__count {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 18px;
+  padding: 0 5px;
+  height: 15px;
+  border-radius: 999px;
+  background: var(--bg-card);
+  color: var(--text-3);
+  font-size: 10px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+}
+.diff-mode-toggle__btn--active .diff-mode-toggle__count {
+  background: rgba(255, 255, 255, 0.22);
+  color: #fff;
+}
+.diff-mode-toggle--dense .diff-mode-toggle__btn {
+  padding: 2px 8px;
+  font-size: 11px;
+}
+.diff-mode-toggle--dense .diff-mode-toggle__count { height: 13px; min-width: 15px; font-size: 9px; }
+
 /* Collapsed-rail variant of the files panel: a slim 36px column with
    just an expand button and a vertical "Files" label. */
 .diff-viewer__files--collapsed {

@@ -21,13 +21,13 @@ import type {
   TaskWorkingFileDto,
 } from '../types';
 
-type Mode = 'files' | 'commits';
+export type DiffMode = 'files' | 'commits';
 
 type Props = {
   taskId: string;
   /** Switches between the working-tree changes view and the
    *  commits-since-task-start view. */
-  mode: Mode;
+  mode: DiffMode;
 };
 
 /**
@@ -44,8 +44,109 @@ type Props = {
  */
 export default function TaskChangesTab({ taskId, mode }: Props) {
   return mode === 'files'
-    ? <FilesPanel taskId={taskId} />
-    : <CommitsPanel taskId={taskId} />;
+    ? <FilesPanel taskId={taskId} mode={mode} onChangeMode={() => {}} workingCount={null} commitsCount={null} />
+    : <CommitsPanel taskId={taskId} mode={mode} onChangeMode={() => {}} workingCount={null} commitsCount={null} />;
+}
+
+/** Counts shown next to the Working tree / Commits toggle buttons.
+ *  Either count is {@code null} until its fetch resolves; the chip
+ *  hides the number while loading rather than flashing a "0". */
+export type DiffCounts = {
+  workingCount: number | null;
+  commitsCount: number | null;
+};
+
+/** Two-pill segmented toggle for the diff mode. Used in both the
+ *  inline panel header and the {@code ReviewStrip}; same component
+ *  in both places keeps them visually aligned. */
+export function DiffModeToggle({
+  mode, onChangeMode, workingCount, commitsCount, dense,
+}: {
+  mode: DiffMode;
+  onChangeMode: (next: DiffMode) => void;
+  workingCount: number | null;
+  commitsCount: number | null;
+  /** Compact variant for the {@code ReviewStrip} where vertical room
+   *  is tight. The default size is meant for the panel header. */
+  dense?: boolean;
+}) {
+  const groupClass = `diff-mode-toggle${dense ? ' diff-mode-toggle--dense' : ''}`;
+  return (
+    <div className={groupClass} role="tablist" aria-label="Diff view">
+      <button
+        type="button"
+        role="tab"
+        aria-selected={mode === 'files'}
+        onClick={() => onChangeMode('files')}
+        onMouseDown={(e) => e.stopPropagation()}
+        className={`diff-mode-toggle__btn${mode === 'files' ? ' diff-mode-toggle__btn--active' : ''}`}
+      >
+        Working tree
+        {workingCount !== null && (
+          <span className="diff-mode-toggle__count">{workingCount}</span>
+        )}
+      </button>
+      <button
+        type="button"
+        role="tab"
+        aria-selected={mode === 'commits'}
+        onClick={() => onChangeMode('commits')}
+        onMouseDown={(e) => e.stopPropagation()}
+        className={`diff-mode-toggle__btn${mode === 'commits' ? ' diff-mode-toggle__btn--active' : ''}`}
+      >
+        Commits
+        {commitsCount !== null && (
+          <span className="diff-mode-toggle__count">{commitsCount}</span>
+        )}
+      </button>
+    </div>
+  );
+}
+
+/** Owner of the diff mode + per-tab counts. Lives in the parent so
+ *  the inline {@link DiffModeToggle} in the panel header and the
+ *  one rendered next to the Diff button stay in sync. Exposed as a
+ *  hook so both {@code TaskDetailPage} and {@code TaskZoomModal}
+ *  can wire the same state without duplicating fetch logic. */
+export function useTaskDiffState(taskId: string): {
+  mode: DiffMode;
+  setMode: (next: DiffMode) => void;
+  workingCount: number | null;
+  commitsCount: number | null;
+} {
+  const [mode, setModeState] = useState<DiffMode>(loadDiffTab);
+  const [userOverride, setUserOverride] = useState(false);
+  const [workingCount, setWorkingCount] = useState<number | null>(null);
+  const [commitsCount, setCommitsCount] = useState<number | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    (async () => {
+      try {
+        const [w, c] = await Promise.all([
+          window.bridge.listTaskWorkingChanges(taskId),
+          window.bridge.listTaskCommits(taskId).catch(() => [] as TaskCommitDto[]),
+        ]);
+        if (cancelled) return;
+        setWorkingCount(w.length);
+        setCommitsCount(c.length);
+        if (!userOverride && w.length === 0 && c.length > 0) {
+          setModeState('commits');
+        }
+      }
+      catch { /* non-fatal — counts just stay null */ }
+    })();
+    return () => { cancelled = true; };
+  }, [taskId, userOverride]);
+
+  const setMode = useCallback((next: DiffMode) => {
+    setUserOverride(true);
+    setModeState(next);
+    try { window.localStorage.setItem(DIFF_TAB_STORAGE_KEY, next); }
+    catch { /* private browsing — fine to skip */ }
+  }, []);
+
+  return { mode, setMode, workingCount, commitsCount };
 }
 
 // ─── Tabbed wrapper — used by TaskDetailPage / TaskZoomModal ────────
@@ -59,7 +160,7 @@ export default function TaskChangesTab({ taskId, mode }: Props) {
 // when the working tree is clean but commits exist.
 
 const DIFF_TAB_STORAGE_KEY = 'bytequay.tasks.diffPaneTab';
-function loadDiffTab(): Mode {
+function loadDiffTab(): DiffMode {
   try {
     return window.localStorage.getItem(DIFF_TAB_STORAGE_KEY) === 'commits'
       ? 'commits'
@@ -68,81 +169,34 @@ function loadDiffTab(): Mode {
   catch { return 'files'; }
 }
 
-export function TaskDiffPane({ taskId }: { taskId: string }) {
-  const [tab, setTabState] = useState<Mode>(loadDiffTab);
-  const [userOverride, setUserOverride] = useState(false);
-  const [workingCount, setWorkingCount] = useState<number | null>(null);
-  const [commitsCount, setCommitsCount] = useState<number | null>(null);
-
-  // Cheap counts for the badges + the smart-default decision. Both
-  // endpoints are already cached upstream so re-using them here is
-  // cheap; the child panels will hit the same cached responses.
-  useEffect(() => {
-    let cancelled = false;
-    (async () => {
-      try {
-        const [w, c] = await Promise.all([
-          window.bridge.listTaskWorkingChanges(taskId),
-          window.bridge.listTaskCommits(taskId).catch(() => [] as TaskCommitDto[]),
-        ]);
-        if (cancelled) return;
-        setWorkingCount(w.length);
-        setCommitsCount(c.length);
-        // Smart fallback: if the user hasn't picked a tab manually
-        // yet AND the working tree is clean AND there are commits to
-        // show, flip to Commits so "Open diff" lands on something
-        // useful instead of the "no files changed" empty state.
-        if (!userOverride && w.length === 0 && c.length > 0) {
-          setTabState('commits');
-        }
-      }
-      catch { /* non-fatal — tabs still work; counts just stay null */ }
-    })();
-    return () => { cancelled = true; };
-  }, [taskId, userOverride]);
-
-  const setTab = useCallback((next: Mode) => {
-    setUserOverride(true);
-    setTabState(next);
-    try { window.localStorage.setItem(DIFF_TAB_STORAGE_KEY, next); }
-    catch { /* private browsing — fine to skip */ }
-  }, []);
-
-  return (
-    <div style={tabPaneRootStyle}>
-      <div style={tabBarStyle} role="tablist">
-        <button
-          type="button"
-          role="tab"
-          aria-selected={tab === 'files'}
-          onClick={() => setTab('files')}
-          style={tab === 'files' ? tabBtnActiveStyle : tabBtnStyle}
-        >
-          Working tree
-          {workingCount !== null && (
-            <span style={tabCountStyle}>{workingCount}</span>
-          )}
-        </button>
-        <button
-          type="button"
-          role="tab"
-          aria-selected={tab === 'commits'}
-          onClick={() => setTab('commits')}
-          style={tab === 'commits' ? tabBtnActiveStyle : tabBtnStyle}
-        >
-          Commits
-          {commitsCount !== null && (
-            <span style={tabCountStyle}>{commitsCount}</span>
-          )}
-        </button>
-      </div>
-      <div style={tabBodyStyle}>
-        {tab === 'files'
-          ? <FilesPanel taskId={taskId} />
-          : <CommitsPanel taskId={taskId} />}
-      </div>
-    </div>
-  );
+/** Diff pane with no internal mode tab bar — the toggle now lives
+ *  inside the panel header (via {@link DiffModeToggle}). When the
+ *  parent controls the mode (via {@link useTaskDiffState}), pass it
+ *  through; otherwise this falls back to managing its own state so
+ *  surfaces like {@code TaskZoomModal} don't need to thread it. */
+export function TaskDiffPane({
+  taskId, mode, onChangeMode, workingCount, commitsCount,
+}: {
+  taskId: string;
+  mode?: DiffMode;
+  onChangeMode?: (next: DiffMode) => void;
+  workingCount?: number | null;
+  commitsCount?: number | null;
+}) {
+  const internal = useTaskDiffState(taskId);
+  const effectiveMode = mode ?? internal.mode;
+  const effectiveSetMode = onChangeMode ?? internal.setMode;
+  const effectiveWorking = workingCount ?? internal.workingCount;
+  const effectiveCommits = commitsCount ?? internal.commitsCount;
+  const sharedProps = {
+    mode: effectiveMode,
+    onChangeMode: effectiveSetMode,
+    workingCount: effectiveWorking,
+    commitsCount: effectiveCommits,
+  };
+  return effectiveMode === 'files'
+    ? <FilesPanel taskId={taskId} {...sharedProps} />
+    : <CommitsPanel taskId={taskId} {...sharedProps} />;
 }
 
 // ─── Tree/flat mode persistence ─────────────────────────────────────
@@ -169,10 +223,20 @@ function useFilesMode(): [FilesPaneMode, (next: FilesPaneMode) => void] {
 }
 
 function FilesPaneHeader({
-  label, count, mode, onChangeMode, onRefresh, onCollapse,
+  diffMode, onChangeDiffMode, workingCount, commitsCount,
+  staticLabel,
+  mode, onChangeMode, onRefresh, onCollapse,
 }: {
-  label: string;
-  count: number | null;
+  /** Working tree vs Commits. Omitted from the {@code CommitDiffView}
+   *  branch (which shows files inside a single commit, not a top-level
+   *  mode); pass {@code staticLabel} instead. */
+  diffMode?: DiffMode;
+  onChangeDiffMode?: (next: DiffMode) => void;
+  workingCount?: number | null;
+  commitsCount?: number | null;
+  /** Used by {@code CommitDiffView} where the diff-mode toggle isn't
+   *  meaningful — falls back to a plain text label. */
+  staticLabel?: string;
   mode: FilesPaneMode;
   onChangeMode: (next: FilesPaneMode) => void;
   onRefresh: () => void;
@@ -183,9 +247,15 @@ function FilesPaneHeader({
 }) {
   return (
     <div className="diff-viewer__files-header">
-      <span>{label}</span>
-      {count !== null && (
-        <span className="diff-viewer__files-count">{count}</span>
+      {diffMode && onChangeDiffMode ? (
+        <DiffModeToggle
+          mode={diffMode}
+          onChangeMode={onChangeDiffMode}
+          workingCount={workingCount ?? null}
+          commitsCount={commitsCount ?? null}
+        />
+      ) : (
+        <span>{staticLabel}</span>
       )}
       <div className="diff-viewer__mode-toggle">
         {(['tree', 'flat'] as const).map(m => (
@@ -347,7 +417,15 @@ function CollapsedRail({
 
 // ─── Files (uncommitted) ────────────────────────────────────────────
 
-function FilesPanel({ taskId }: { taskId: string }) {
+function FilesPanel({
+  taskId, mode, onChangeMode, workingCount, commitsCount,
+}: {
+  taskId: string;
+  mode: DiffMode;
+  onChangeMode: (next: DiffMode) => void;
+  workingCount: number | null;
+  commitsCount: number | null;
+}) {
   const [files, setFiles] = useState<TaskWorkingFileDto[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [selectedPath, setSelectedPath] = useState<string | null>(null);
@@ -392,8 +470,10 @@ function FilesPanel({ taskId }: { taskId: string }) {
             className="diff-viewer__files"
           >
             <FilesPaneHeader
-              label="Uncommitted"
-              count={files?.length ?? null}
+              diffMode={mode}
+              onChangeDiffMode={onChangeMode}
+              workingCount={workingCount ?? files?.length ?? null}
+              commitsCount={commitsCount}
               mode={filesMode}
               onChangeMode={setFilesMode}
               onRefresh={() => void refresh()}
@@ -431,7 +511,15 @@ function FilesPanel({ taskId }: { taskId: string }) {
 
 // ─── Commits (since task start) ─────────────────────────────────────
 
-function CommitsPanel({ taskId }: { taskId: string }) {
+function CommitsPanel({
+  taskId, mode, onChangeMode, workingCount, commitsCount,
+}: {
+  taskId: string;
+  mode: DiffMode;
+  onChangeMode: (next: DiffMode) => void;
+  workingCount: number | null;
+  commitsCount: number | null;
+}) {
   const [commits, setCommits] = useState<TaskCommitDto[] | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [selectedSha, setSelectedSha] = useState<string | null>(null);
@@ -465,10 +553,12 @@ function CommitsPanel({ taskId }: { taskId: string }) {
             className="diff-viewer__files"
           >
             <div className="diff-viewer__files-header">
-              <span>Commits</span>
-              {commits !== null && (
-                <span className="diff-viewer__files-count">{commits.length}</span>
-              )}
+              <DiffModeToggle
+                mode={mode}
+                onChangeMode={onChangeMode}
+                workingCount={workingCount}
+                commitsCount={commitsCount ?? commits?.length ?? null}
+              />
               <button
                 type="button"
                 className="diff-viewer__files-collapse-btn"
@@ -564,8 +654,7 @@ function CommitDiffView({ taskId, sha }: { taskId: string; sha: string }) {
     <div style={commitDiffLayoutStyle}>
       <div style={commitFileListStyle} className="diff-viewer__files">
         <FilesPaneHeader
-          label="Files in commit"
-          count={files?.length ?? null}
+          staticLabel={files === null ? 'Files in commit' : `Files in commit · ${files.length}`}
           mode={filesMode}
           onChangeMode={setFilesMode}
           onRefresh={() => { /* commit files don't refresh independently */ }}
@@ -813,61 +902,3 @@ const diffPathStyle: React.CSSProperties = {
   overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
 };
 
-// Tab pane wrapper used by TaskDetailPage / TaskZoomModal — a thin
-// horizontal toggle above the existing files / commits panels so the
-// user can switch which view fills the pane without leaving the
-// conversation.
-const tabPaneRootStyle: React.CSSProperties = {
-  display: 'flex',
-  flexDirection: 'column',
-  flex: 1,
-  minHeight: 0,
-};
-const tabBarStyle: React.CSSProperties = {
-  display: 'flex',
-  gap: 2,
-  padding: '6px 8px 0',
-  borderBottom: '1px solid var(--border)',
-  background: 'var(--bg-elevated)',
-  flexShrink: 0,
-};
-const tabBtnStyle: React.CSSProperties = {
-  display: 'inline-flex',
-  alignItems: 'center',
-  gap: 6,
-  padding: '6px 12px',
-  background: 'transparent',
-  border: 'none',
-  borderBottom: '2px solid transparent',
-  color: 'var(--text-2)',
-  cursor: 'pointer',
-  fontSize: 12,
-  fontWeight: 600,
-  fontFamily: 'inherit',
-  marginBottom: -1,
-};
-const tabBtnActiveStyle: React.CSSProperties = {
-  ...tabBtnStyle,
-  color: 'var(--text-1)',
-  borderBottomColor: 'var(--accent)',
-};
-const tabBodyStyle: React.CSSProperties = {
-  display: 'flex',
-  flexDirection: 'column',
-  flex: 1,
-  minHeight: 0,
-};
-const tabCountStyle: React.CSSProperties = {
-  display: 'inline-flex',
-  alignItems: 'center',
-  justifyContent: 'center',
-  minWidth: 18,
-  padding: '0 5px',
-  height: 16,
-  borderRadius: 999,
-  background: 'var(--bg-card)',
-  border: '1px solid var(--border-hairline)',
-  fontSize: 10,
-  fontWeight: 600,
-  color: 'var(--text-3)',
-};

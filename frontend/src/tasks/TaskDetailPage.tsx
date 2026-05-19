@@ -25,7 +25,7 @@ import TasksLeftRail, {
 } from './TasksLeftRail';
 import RepoAvatar from './RepoAvatar';
 import { useAutoGrowTextarea, usePersistentDraft } from './draftStore';
-import { TaskDiffPane } from './TaskChangesTab';
+import { DiffModeToggle, TaskDiffPane, useTaskDiffState, type DiffMode } from './TaskChangesTab';
 
 type Props = {
   taskId: string;
@@ -88,6 +88,34 @@ const DIFF_OPEN_STORAGE_KEY = 'bytequay.tasks.detailDiffOpen';
 function loadDiffOpen(): boolean {
   try { return window.localStorage.getItem(DIFF_OPEN_STORAGE_KEY) === '1'; }
   catch { return false; }
+}
+
+/** Persisted left-pane fraction (0..1) for the conversation / diff
+ *  split. 0.5 means equal halves; the user can drag the splitter to
+ *  taste and the value survives a reload. Clamped to [0.2, 0.85] so
+ *  neither side can be dragged off-screen. */
+const DIFF_SPLIT_FRAC_KEY = 'bytequay.tasks.detailDiffSplitFrac';
+const DEFAULT_DIFF_SPLIT_FRAC = 0.5;
+const MIN_DIFF_SPLIT_FRAC = 0.2;
+const MAX_DIFF_SPLIT_FRAC = 0.85;
+function clampSplitFrac(f: number): number {
+  if (!Number.isFinite(f)) return DEFAULT_DIFF_SPLIT_FRAC;
+  return Math.max(MIN_DIFF_SPLIT_FRAC, Math.min(MAX_DIFF_SPLIT_FRAC, f));
+}
+function useDiffSplitFrac(): [number, (next: number) => void] {
+  const [frac, setFrac] = useState<number>(() => {
+    try {
+      const raw = window.localStorage.getItem(DIFF_SPLIT_FRAC_KEY);
+      return clampSplitFrac(raw == null ? DEFAULT_DIFF_SPLIT_FRAC : parseFloat(raw));
+    }
+    catch { return DEFAULT_DIFF_SPLIT_FRAC; }
+  });
+  const set = useCallback((next: number) => setFrac(clampSplitFrac(next)), []);
+  useEffect(() => {
+    try { window.localStorage.setItem(DIFF_SPLIT_FRAC_KEY, String(frac)); }
+    catch { /* private browsing — fine to skip */ }
+  }, [frac]);
+  return [frac, set];
 }
 
 /** Terminal-view theme. Persisted across sessions so a user who
@@ -494,6 +522,9 @@ export default function TaskDetailPage({
     catch { /* private browsing — fine to skip */ }
   }, [diffOpen]);
   const onReview = useCallback(() => setDiffOpen(open => !open), []);
+  const diffState = useTaskDiffState(taskId);
+  const [diffSplitFrac, setDiffSplitFrac] = useDiffSplitFrac();
+  const splitContainerRef = useRef<HTMLDivElement | null>(null);
 
   if (task === null && error) {
     return (
@@ -541,8 +572,12 @@ export default function TaskDetailPage({
         />
       )}
       <div style={taskWindowStyle}>
-        <div style={taskWindowBodyStyle}>
-          <div style={diffOpen ? splitLeftStyle : flexFillStyle}>
+        <div style={taskWindowBodyStyle} ref={splitContainerRef}>
+          <div
+            style={diffOpen
+              ? { ...splitLeftStyle, flex: `${diffSplitFrac} 1 0` }
+              : flexFillStyle}
+          >
             {view === 'conversation' && (
               <StructuredView
                 task={task}
@@ -558,6 +593,10 @@ export default function TaskDetailPage({
                 changeStats={changeStats}
                 diffOpen={diffOpen}
                 onReview={onReview}
+                diffMode={diffState.mode}
+                onChangeDiffMode={diffState.setMode}
+                workingCount={diffState.workingCount}
+                commitsCount={diffState.commitsCount}
                 view={view}
                 onChangeView={setView}
                 onRename={onRename}
@@ -599,6 +638,10 @@ export default function TaskDetailPage({
                   changeStats={changeStats}
                   diffOpen={diffOpen}
                   onReview={onReview}
+                  diffMode={diffState.mode}
+                  onChangeDiffMode={diffState.setMode}
+                  workingCount={diffState.workingCount}
+                  commitsCount={diffState.commitsCount}
                   liveText={liveText}
                   liveUsage={liveUsage}
                 />
@@ -606,8 +649,23 @@ export default function TaskDetailPage({
             )}
           </div>
           {diffOpen && (
-            <div style={splitRightStyle}>
-              <TaskDiffPane taskId={taskId} />
+            <OuterSplitter
+              containerRef={splitContainerRef}
+              frac={diffSplitFrac}
+              onChange={setDiffSplitFrac}
+            />
+          )}
+          {diffOpen && (
+            <div
+              style={{ ...splitRightStyle, flex: `${1 - diffSplitFrac} 1 0` }}
+            >
+              <TaskDiffPane
+                taskId={taskId}
+                mode={diffState.mode}
+                onChangeMode={diffState.setMode}
+                workingCount={diffState.workingCount}
+                commitsCount={diffState.commitsCount}
+              />
             </div>
           )}
         </div>
@@ -761,6 +819,10 @@ function StructuredView({
   changeStats,
   diffOpen,
   onReview,
+  diffMode,
+  onChangeDiffMode,
+  workingCount,
+  commitsCount,
   view,
   onChangeView,
   onRename,
@@ -789,6 +851,10 @@ function StructuredView({
   changeStats: ChangeStats;
   diffOpen: boolean;
   onReview: () => void;
+  diffMode: DiffMode;
+  onChangeDiffMode: (next: DiffMode) => void;
+  workingCount: number | null;
+  commitsCount: number | null;
   view: DetailView;
   onChangeView: (next: DetailView) => void;
   onRename: (title: string) => void | Promise<void>;
@@ -938,6 +1004,10 @@ function StructuredView({
         hasChanges={changeStats.files > 0}
         diffOpen={diffOpen}
         onReview={onReview}
+        diffMode={diffMode}
+        onChangeDiffMode={onChangeDiffMode}
+        workingCount={workingCount}
+        commitsCount={commitsCount}
       />
 
       {!isTerminal && (
@@ -1303,26 +1373,118 @@ function ViewToggle({
  *  signal. Click anywhere on the strip to toggle the pane. */
 function ReviewStrip({
   hasChanges, diffOpen, onReview,
-}: { hasChanges: boolean; diffOpen: boolean; onReview: () => void }) {
+  diffMode, onChangeDiffMode, workingCount, commitsCount,
+}: {
+  hasChanges: boolean;
+  diffOpen: boolean;
+  onReview: () => void;
+  diffMode: DiffMode;
+  onChangeDiffMode: (next: DiffMode) => void;
+  workingCount: number | null;
+  commitsCount: number | null;
+}) {
+  // Nested layout: the toggle buttons need to be real <button> elements
+  // (not inside the Diff button), so the strip is a <div> with the
+  // Diff toggle as its own button on the left.
   return (
-    <button
-      type="button"
-      onClick={onReview}
+    <div
       style={hasChanges
         ? { ...reviewStripStyle, ...reviewStripChangesStyle }
         : reviewStripStyle}
-      title={diffOpen ? 'Hide the diff pane' : 'Open the diff pane'}
-      aria-expanded={diffOpen}
     >
-      <span style={reviewStripLabelStyle}>⇄ Diff</span>
+      <button
+        type="button"
+        onClick={onReview}
+        style={reviewStripDiffBtnStyle}
+        title={diffOpen ? 'Hide the diff pane' : 'Open the diff pane'}
+        aria-expanded={diffOpen}
+      >
+        <span style={reviewStripLabelStyle}>⇄ Diff</span>
+        <span style={reviewStripChevronStyle} aria-hidden="true">
+          {diffOpen ? '✕' : '›'}
+        </span>
+      </button>
+      {diffOpen && (
+        <DiffModeToggle
+          mode={diffMode}
+          onChangeMode={onChangeDiffMode}
+          workingCount={workingCount}
+          commitsCount={commitsCount}
+          dense
+        />
+      )}
       <span style={{ flex: 1 }} />
-      <span style={reviewStripActionStyle}>
-        {diffOpen ? 'Hide diff' : 'Open diff'}
-      </span>
-      <span style={reviewStripChevronStyle} aria-hidden="true">
-        {diffOpen ? '✕' : '›'}
-      </span>
-    </button>
+      {!diffOpen && (
+        <button
+          type="button"
+          onClick={onReview}
+          style={reviewStripActionBtnStyle}
+        >
+          Open diff
+        </button>
+      )}
+    </div>
+  );
+}
+
+/** Draggable splitter between the conversation pane and the diff
+ *  pane. Owns its own active-drag state so the parent doesn't
+ *  re-render on every mouse move. {@code containerRef} is the parent
+ *  whose width we measure to convert the pointer delta into a 0..1
+ *  fraction. */
+function OuterSplitter({
+  containerRef, frac, onChange,
+}: {
+  containerRef: React.RefObject<HTMLDivElement | null>;
+  frac: number;
+  onChange: (next: number) => void;
+}) {
+  const [dragging, setDragging] = useState(false);
+  useEffect(() => {
+    if (!dragging) return;
+    const onMove = (e: MouseEvent) => {
+      const el = containerRef.current;
+      if (!el) return;
+      const rect = el.getBoundingClientRect();
+      if (rect.width <= 0) return;
+      onChange((e.clientX - rect.left) / rect.width);
+    };
+    const onUp = () => setDragging(false);
+    document.addEventListener('mousemove', onMove);
+    document.addEventListener('mouseup', onUp);
+    const prevCursor = document.body.style.cursor;
+    const prevSelect = document.body.style.userSelect;
+    document.body.style.cursor = 'col-resize';
+    document.body.style.userSelect = 'none';
+    return () => {
+      document.removeEventListener('mousemove', onMove);
+      document.removeEventListener('mouseup', onUp);
+      document.body.style.cursor = prevCursor;
+      document.body.style.userSelect = prevSelect;
+    };
+  }, [dragging, onChange, containerRef]);
+  return (
+    <div
+      role="separator"
+      aria-orientation="vertical"
+      title="Drag to resize"
+      onMouseDown={(e) => {
+        e.preventDefault();
+        setDragging(true);
+      }}
+      onDoubleClick={() => onChange(0.5)}
+      style={{
+        flex: '0 0 6px',
+        cursor: 'col-resize',
+        background: dragging ? 'var(--accent)' : 'var(--border)',
+        opacity: dragging ? 1 : 0.5,
+        transition: 'opacity 100ms ease, background 100ms ease',
+      }}
+      onMouseEnter={(e) => { (e.currentTarget as HTMLDivElement).style.opacity = '1'; }}
+      onMouseLeave={(e) => {
+        if (!dragging) (e.currentTarget as HTMLDivElement).style.opacity = '0.5';
+      }}
+    />
   );
 }
 
@@ -1405,7 +1567,9 @@ function TerminalWrap({
   theme, onToggleTheme,
   view, onChangeView, onRename, onStop, canStop, onDelete, canDelete,
   onResume,
-  changeStats, diffOpen, onReview, liveText, liveUsage,
+  changeStats, diffOpen, onReview,
+  diffMode, onChangeDiffMode, workingCount, commitsCount,
+  liveText, liveUsage,
 }: {
   task: TaskDto;
   messages: TaskMessageDto[];
@@ -1437,6 +1601,10 @@ function TerminalWrap({
   changeStats: ChangeStats;
   diffOpen: boolean;
   onReview: () => void;
+  diffMode: DiffMode;
+  onChangeDiffMode: (next: DiffMode) => void;
+  workingCount: number | null;
+  commitsCount: number | null;
   liveText: string;
   liveUsage: { tokensIn: number; tokensOut: number } | null;
 }) {
@@ -1510,6 +1678,10 @@ function TerminalWrap({
         hasChanges={changeStats.files > 0}
         diffOpen={diffOpen}
         onReview={onReview}
+        diffMode={diffMode}
+        onChangeDiffMode={onChangeDiffMode}
+        workingCount={workingCount}
+        commitsCount={commitsCount}
       />
 
       {!isTerminal && (
@@ -2435,12 +2607,10 @@ const twHeaderViewBtnActiveStyle: React.CSSProperties = {
 // fallback kicks in and the strip uses the app theme.
 const reviewStripStyle: React.CSSProperties = {
   display: 'flex', alignItems: 'center', gap: 10,
-  padding: '8px 14px', marginTop: 8,
+  padding: '6px 10px', marginTop: 8,
   background: 'var(--term-bg-elev1, var(--bg-elevated))',
   border: '1px solid var(--term-border, var(--border))',
   borderRadius: 6,
-  cursor: 'pointer',
-  textAlign: 'left',
   font: 'inherit',
   width: '100%',
   color: 'var(--term-text, var(--text-1))',
@@ -2451,13 +2621,28 @@ const reviewStripChangesStyle: React.CSSProperties = {
   background: 'rgba(217, 119, 6, 0.10)',
   borderColor: 'rgba(217, 119, 6, 0.45)',
 };
+const reviewStripDiffBtnStyle: React.CSSProperties = {
+  display: 'inline-flex', alignItems: 'center', gap: 6,
+  padding: '4px 10px',
+  background: 'transparent',
+  border: '1px solid var(--term-border, var(--border))',
+  borderRadius: 5,
+  cursor: 'pointer',
+  font: 'inherit',
+  color: 'var(--term-text, var(--text-1))',
+};
 const reviewStripLabelStyle: React.CSSProperties = {
   fontSize: 12, fontWeight: 600,
   color: 'var(--term-text-muted, var(--text-2))',
 };
-const reviewStripActionStyle: React.CSSProperties = {
+const reviewStripActionBtnStyle: React.CSSProperties = {
   fontSize: 12, fontWeight: 600,
   color: 'var(--term-user, var(--accent))',
+  background: 'transparent',
+  border: 'none',
+  cursor: 'pointer',
+  padding: 0,
+  font: 'inherit',
 };
 const reviewStripChevronStyle: React.CSSProperties = {
   fontSize: 14, lineHeight: 1,

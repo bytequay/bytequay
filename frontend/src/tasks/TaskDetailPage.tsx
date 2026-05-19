@@ -1323,7 +1323,9 @@ function SidebarSection({
         <span style={twSectionLabelStyle}>{label}</span>
         {hint && <span style={twSectionHintStyle}>{hint}</span>}
       </div>
-      {children}
+      <div style={twSectionBodyStyle} className="bytequay-sidebar-card">
+        {children}
+      </div>
     </div>
   );
 }
@@ -2104,6 +2106,16 @@ function KeyframesStyles() {
         caret-color: var(--term-user);
         caret-shape: block;
       }
+      /* Sidebar cards (see SidebarSection) — drop the dashed divider
+         on the last row inside each card so the visible bottom edge
+         is the card's own border, not a free-floating dash above it.
+         Two selectors cover both the wrapped-list pattern (metric
+         list, scheduler events) and the direct-child pattern (single
+         body component like the context bar). */
+      .bytequay-sidebar-card > *:last-child,
+      .bytequay-sidebar-card > * > *:last-child {
+        border-bottom: 0;
+      }
     `}</style>
   );
 }
@@ -2417,8 +2429,11 @@ const stubPanelBodyStyle: React.CSSProperties = {
 // Left sidebar (TaskWindowSidebar) ──────────────────────────────────
 const twSidebarStyle: React.CSSProperties = {
   width: 280, flexShrink: 0,
-  display: 'flex', flexDirection: 'column', gap: 8,
-  padding: '14px 14px 18px',
+  // Card-per-section layout: 6 px between cards keeps the rail
+  // scannable without the airy 14 px gaps that pushed Checkpoints
+  // below the fold on a 13" laptop.
+  display: 'flex', flexDirection: 'column', gap: 6,
+  padding: '12px 12px 14px',
   background: 'var(--bg-elevated)',
   borderRight: '1px solid var(--border)',
   overflowY: 'auto',
@@ -2467,21 +2482,35 @@ const twSidebarRailLabelStyle: React.CSSProperties = {
 const twStatusRowStyle: React.CSSProperties = {
   padding: '4px 0 6px',
 };
+// Lifted from the .lm-section / .vitals / .ctx-card pattern in
+// docs/mockups/v2/tasks/_src/task-detail-tabs.html. Each rail row is
+// a small surface card with its own border so the section bodies
+// read as discrete units instead of a long flat list. The old
+// border-top-between-sections separator is dropped — the card edge
+// does the demarcation.
 const twSectionStyle: React.CSSProperties = {
-  display: 'flex', flexDirection: 'column', gap: 6,
-  padding: '10px 0 4px',
-  borderTop: '1px solid var(--border-hairline)',
+  display: 'flex', flexDirection: 'column', gap: 4,
 };
 const twSectionHeaderStyle: React.CSSProperties = {
   display: 'flex', alignItems: 'baseline', gap: 6,
-  paddingBottom: 2,
+  padding: '0 2px',
 };
 const twSectionLabelStyle: React.CSSProperties = {
-  fontSize: 10.5, fontWeight: 700, letterSpacing: '0.08em',
+  fontSize: 10, fontWeight: 700, letterSpacing: '0.06em',
   textTransform: 'uppercase', color: 'var(--text-3)',
 };
 const twSectionHintStyle: React.CSSProperties = {
   fontSize: 10, color: 'var(--text-4)', fontStyle: 'italic',
+};
+const twSectionBodyStyle: React.CSSProperties = {
+  // Mirrors .vitals / .ctx-card in the HTML mockup — surface card with
+  // a soft border + small radius. Padding lives here so individual
+  // body components (metric list, context bar, groups chips) don't
+  // have to repeat it.
+  background: 'var(--bg-card)',
+  border: '1px solid var(--border-hairline)',
+  borderRadius: 6,
+  padding: '4px 12px',
 };
 
 // Per-view header bar bits (used in zone header + term toolbar) ─────
@@ -2916,10 +2945,14 @@ const stageToolTagStyle: React.CSSProperties = {
   letterSpacing: '0.04em', textTransform: 'uppercase',
 };
 
-const metricListStyle: React.CSSProperties = { padding: '0 18px 16px', fontSize: 13 };
+// Metric list sits inside a SidebarSection card body so it no longer
+// needs its own padding — the card handles the inset. The class is
+// only used so the :last-child border tweak in KeyframesStyles can
+// drop the dangling divider on the bottom row of every card.
+const metricListStyle: React.CSSProperties = { fontSize: 13 };
 const metricRowStyle: React.CSSProperties = {
   display: 'flex', alignItems: 'baseline',
-  padding: '6px 0', borderBottom: '1px solid var(--border-hairline)',
+  padding: '4px 0', borderBottom: '1px dashed var(--border-hairline)',
 };
 const metricLabelStyle: React.CSSProperties = {
   color: 'var(--text-3)', fontSize: 12, width: 110, flexShrink: 0,
@@ -2934,7 +2967,7 @@ const metricValueStyle: React.CSSProperties = {
 // against the narrow right column.
 const metricRowWrapStyle: React.CSSProperties = {
   display: 'flex', flexDirection: 'column', gap: 3,
-  padding: '6px 0', borderBottom: '1px solid var(--border-hairline)',
+  padding: '4px 0', borderBottom: '1px dashed var(--border-hairline)',
 };
 const metricValueWrapStyle: React.CSSProperties = {
   fontWeight: 500, color: 'var(--text-1)',

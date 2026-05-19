@@ -608,7 +608,10 @@ function EditOutput({ text }: { text: string }) {
 /** Grep prints rows like {@code path/to/file.ts:42:match text}. Pull
  *  the path and line number out into their own colored spans so the
  *  user can pick a hit by scanning the leftmost column instead of
- *  parsing every row. */
+ *  parsing every row. Each row is a plain block (not flex) so long
+ *  absolute paths wrap to a second line instead of overflowing the
+ *  column, and the {@code break-anywhere} on the path keeps a path
+ *  with no whitespace from spilling off the right edge. */
 function GrepOutput({ text }: { text: string }) {
   const grepRe = /^([^:\n]+):(\d+):(.*)$/;
   const lines = text.split('\n');
@@ -618,12 +621,12 @@ function GrepOutput({ text }: { text: string }) {
         const m = grepRe.exec(line);
         if (m) {
           return (
-            <div key={i} style={readRowStyle}>
+            <div key={i} style={grepRowStyle}>
               <span style={grepPathStyle}>{m[1]}</span>
               <span style={grepSepStyle}>:</span>
               <span style={grepLineStyle}>{m[2]}</span>
               <span style={grepSepStyle}>:</span>
-              <span style={readContentStyle}>{m[3] || ' '}</span>
+              <span>{m[3] || ' '}</span>
             </div>
           );
         }
@@ -1112,18 +1115,23 @@ const readBlockStyle: React.CSSProperties = {
   fontSize: 11.5,
   lineHeight: 1.55,
   color: 'var(--text-1)',
-  // Cap height so even an expanded 600-line file dump doesn't
-  // dominate the conversation column. Tuned against a typical
-  // viewport — beyond ~320 px the user is better served by a
-  // scrolled subwindow than by an endless inline block.
-  maxHeight: 320,
-  overflow: 'auto',
+  // No inner scroll box. The collapse-by-line-count cap in ToolRow
+  // (24 lines) is what bounds a "preview" rendering; once the user
+  // clicks "show N more lines" they've explicitly asked for the full
+  // dump and a 320-px scroll window just hides it again. Long content
+  // simply flows down — the conversation column already scrolls.
+  minWidth: 0,
 };
 const readRowStyle: React.CSSProperties = {
   display: 'flex',
   gap: 10,
   alignItems: 'baseline',
-  whiteSpace: 'pre',
+  // pre preserves leading indentation on code lines but blocks wrap;
+  // pre-wrap keeps the indentation visible AND lets a long line break
+  // at whitespace instead of pushing the row off the right edge.
+  whiteSpace: 'pre-wrap',
+  wordBreak: 'break-word',
+  minWidth: 0,
 };
 const readGutterStyle: React.CSSProperties = {
   color: 'var(--text-4)',
@@ -1164,14 +1172,23 @@ const lineClassStyle: Record<LineClass, React.CSSProperties> = {
 const pathLineStyle: React.CSSProperties = {
   color: 'var(--accent-dark)',
 };
+// Grep row layout: plain block so long paths wrap onto a second
+// visual line; overflow-wrap: anywhere lets even a single
+// no-whitespace path break at a slash if it has to. The path
+// uses --accent-dark (the colour the rail's PR chip + linked
+// paths use elsewhere) but at normal weight — bold was making
+// every row scream.
+const grepRowStyle: React.CSSProperties = {
+  overflowWrap: 'anywhere',
+  whiteSpace: 'pre-wrap',
+  wordBreak: 'break-word',
+};
 const grepPathStyle: React.CSSProperties = {
   color: 'var(--accent-dark)',
-  fontWeight: 500,
-  flexShrink: 0,
 };
 const grepLineStyle: React.CSSProperties = {
   color: 'var(--text-3)',
-  flexShrink: 0,
+  fontVariantNumeric: 'tabular-nums',
 };
 const grepSepStyle: React.CSSProperties = {
   color: 'var(--text-4)',

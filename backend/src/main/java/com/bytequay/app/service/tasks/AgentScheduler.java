@@ -187,9 +187,7 @@ public class AgentScheduler
         for (TaskTurn turn : recoverInterruptedRunningTurns()) {
             enqueuePersistedTurn(turn);
         }
-        for (TaskTurn turn : recoverQueuedTurnsFromStore()) {
-            enqueuePersistedTurn(turn);
-        }
+        recoverQueuedTurnsFromStore();
     }
 
     private List<TaskTurn> recoverInterruptedRunningTurns()
@@ -214,15 +212,16 @@ public class AgentScheduler
         return recovered;
     }
 
-    private List<TaskTurn> recoverQueuedTurnsFromStore()
+    private void recoverQueuedTurnsFromStore()
     {
-        List<TaskTurn> recovered = new ArrayList<>();
         List<TaskTurn> queuedTurns = turns.listTurnsByStatus(QUEUED, RECOVERY_PAGE_SIZE);
         while (!queuedTurns.isEmpty()) {
-            recovered.addAll(queuedTurns);
+            for (TaskTurn turn : queuedTurns) {
+                enqueuePersistedTurn(turn);
+            }
             TaskTurn cursor = queuedTurns.get(queuedTurns.size() - 1);
             if (queuedTurns.size() < RECOVERY_PAGE_SIZE) {
-                break;
+                return;
             }
             queuedTurns = turns.listTurnsByStatusAfter(
                     QUEUED,
@@ -230,7 +229,6 @@ public class AgentScheduler
                     cursor.id(),
                     RECOVERY_PAGE_SIZE);
         }
-        return recovered;
     }
 
     private void enqueuePersistedTurn(TaskTurn turn)

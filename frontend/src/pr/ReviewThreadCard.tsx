@@ -112,7 +112,7 @@ export function ReviewThreadCard({
           aria-expanded={!folded}
           title={folded ? 'Expand thread' : 'Collapse thread'}
         >
-          {folded ? '›' : '⌄'}
+          {folded ? '▸' : '▾'}
         </button>
         <span className="prc-review-thread__loc">
           <code>{thread.filePath ?? '?'}{thread.line != null ? `:${thread.line}` : ''}</code>

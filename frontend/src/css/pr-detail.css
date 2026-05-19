@@ -1266,25 +1266,33 @@ button.prc-branches__ref--clickable:hover {
 
 /* Fold chevron at the start of the thread header. The whole header stays
    clickable via the chevron — keeping the row tight so a folded thread
-   reads as a one-liner ("foo.ts:42 · 3 comments · last by alice"). */
+   reads as a one-liner ("foo.ts:42 · 3 comments · last by alice"). The
+   filled triangle glyphs (▸/▾) read as a button on their own; the
+   subtle border just keeps the click target visible against the header
+   bar's elevated background. */
 .prc-review-thread__fold {
   appearance: none;
-  background: transparent;
-  border: 0;
-  padding: 0 6px 0 0;
-  /* Larger chevron — at 13px it was hard to spot and harder to click;
-     20px gives a comfortable tap target without enlarging the row. */
-  font-size: 20px;
+  background: var(--bg-card);
+  border: 1px solid var(--border-hairline);
+  border-radius: var(--radius-sm);
+  padding: 0;
+  margin-right: 4px;
+  font-size: 11px;
   color: var(--text-2);
   cursor: pointer;
   line-height: 1;
-  width: 24px;
-  height: 24px;
+  width: 22px;
+  height: 22px;
   display: inline-flex;
   align-items: center;
   justify-content: center;
+  flex-shrink: 0;
 }
-.prc-review-thread__fold:hover { color: var(--accent); background: var(--accent-a7); border-radius: var(--radius-sm); }
+.prc-review-thread__fold:hover {
+  color: var(--accent);
+  border-color: var(--accent);
+  background: var(--accent-a7);
+}
 .prc-review-thread__summary {
   flex: 1;
   font-size: var(--font-size-xs);

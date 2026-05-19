@@ -52,6 +52,49 @@ interface TaskMessageJpaRepository
             """)
     long countUserMessages(@Param("taskId") String taskId);
 
+    /** Highest seq for a task, or {@code null} when no messages exist
+     *  yet. Coalesces nulls in the application layer so we don't have
+     *  to embed a database-specific {@code COALESCE} here. */
+    @Query("""
+            SELECT MAX(m.seq) FROM TaskMessageEntity m
+            WHERE m.taskId = :taskId
+            """)
+    Long maxSeq(@Param("taskId") String taskId);
+
+    /** Sum of {@code tokensIn + tokensOut} across the inclusive seq
+     *  range. Null token counts are treated as zero by the {@code
+     *  COALESCE}; the outer wrapper coalesces an empty result set
+     *  (no rows in the range) to 0. */
+    @Query("""
+            SELECT COALESCE(
+                     SUM(COALESCE(m.tokensIn, 0) + COALESCE(m.tokensOut, 0)),
+                     0)
+            FROM TaskMessageEntity m
+            WHERE m.taskId = :taskId
+              AND m.seq >= :firstSeq
+              AND m.seq <= :lastSeq
+            """)
+    long sumTokensBetween(
+            @Param("taskId") String taskId,
+            @Param("firstSeq") long firstSeq,
+            @Param("lastSeq") long lastSeq);
+
+    /** Inclusive-range slice in conversation order. Cheaper than the
+     *  filter-then-slice the default {@link
+     *  com.bytequay.app.repository.TaskStore#listMessagesBetween}
+     *  does because it only loads the rows we want. */
+    @Query("""
+            SELECT m FROM TaskMessageEntity m
+            WHERE m.taskId = :taskId
+              AND m.seq >= :firstSeq
+              AND m.seq <= :lastSeq
+            ORDER BY m.seq ASC
+            """)
+    List<TaskMessageEntity> findByTaskIdAndSeqBetween(
+            @Param("taskId") String taskId,
+            @Param("firstSeq") long firstSeq,
+            @Param("lastSeq") long lastSeq);
+
     /** Cascade delete when the parent task is removed. */
     void deleteByTaskId(String taskId);
 }

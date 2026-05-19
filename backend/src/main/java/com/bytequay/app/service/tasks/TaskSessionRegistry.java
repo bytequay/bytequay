@@ -46,12 +46,18 @@ public class TaskSessionRegistry
     private final ObjectMapper mapper;
     private final McpPermissionGate gate;
     private final ExecutorService executor;
+    private final CheckpointTrigger checkpointTrigger;
     private final ConcurrentHashMap<String, AgentSession> sessions = new ConcurrentHashMap<>();
 
     @Autowired
-    public TaskSessionRegistry(TaskStore store, ObjectMapper mapper, McpPermissionGate gate)
+    public TaskSessionRegistry(
+            TaskStore store,
+            ObjectMapper mapper,
+            McpPermissionGate gate,
+            CheckpointTrigger checkpointTrigger)
     {
-        this(store, new StreamJsonParser(mapper), mapper, gate, ClaudeCodeCliSession.defaultExecutor());
+        this(store, new StreamJsonParser(mapper), mapper, gate,
+                ClaudeCodeCliSession.defaultExecutor(), checkpointTrigger);
     }
 
     TaskSessionRegistry(
@@ -59,13 +65,15 @@ public class TaskSessionRegistry
             StreamJsonParser parser,
             ObjectMapper mapper,
             McpPermissionGate gate,
-            ExecutorService executor)
+            ExecutorService executor,
+            CheckpointTrigger checkpointTrigger)
     {
         this.store = requireNonNull(store, "store is null");
         this.parser = requireNonNull(parser, "parser is null");
         this.mapper = requireNonNull(mapper, "mapper is null");
         this.gate = requireNonNull(gate, "gate is null");
         this.executor = requireNonNull(executor, "executor is null");
+        this.checkpointTrigger = requireNonNull(checkpointTrigger, "checkpointTrigger is null");
     }
 
     public Optional<AgentSession> find(String taskId)
@@ -95,7 +103,8 @@ public class TaskSessionRegistry
     private AgentSession build(Task task)
     {
         return switch (task.kind()) {
-            case CLI_AGENT -> new ClaudeCodeCliSession(task, store, parser, mapper, gate, executor);
+            case CLI_AGENT -> new ClaudeCodeCliSession(
+                    task, store, parser, mapper, gate, executor, checkpointTrigger);
             case LOGIC_LOOP -> throw new UnsupportedOperationException(
                     "LOGIC_LOOP sessions land in a later slice");
         };

@@ -424,7 +424,8 @@ class TestAgentScheduler
                     new StreamJsonParser(new ObjectMapper()),
                     new ObjectMapper(),
                     new McpPermissionGate(),
-                    Executors.newSingleThreadExecutor());
+                    Executors.newSingleThreadExecutor(),
+                    CheckpointTrigger.NOOP);
         }
 
         @Override

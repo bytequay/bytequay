@@ -169,6 +169,33 @@ class SqliteTaskStore
         return messages.countUserMessages(taskId);
     }
 
+    @Override
+    public Optional<Long> maxMessageSeq(String taskId)
+    {
+        Long max = messages.maxSeq(taskId);
+        return Optional.ofNullable(max);
+    }
+
+    @Override
+    public long sumTokensBetween(String taskId, long firstSeq, long lastSeq)
+    {
+        if (firstSeq > lastSeq) {
+            return 0;
+        }
+        return messages.sumTokensBetween(taskId, firstSeq, lastSeq);
+    }
+
+    @Override
+    public List<TaskMessage> listMessagesBetween(String taskId, long firstSeq, long lastSeq)
+    {
+        if (firstSeq > lastSeq) {
+            return List.of();
+        }
+        return messages.findByTaskIdAndSeqBetween(taskId, firstSeq, lastSeq).stream()
+                .map(SqliteTaskStore::toMessage)
+                .toList();
+    }
+
     private static List<TaskMessage> reversedToMessages(List<TaskMessageEntity> newestFirst)
     {
         List<TaskMessage> out = new ArrayList<>(newestFirst.size());

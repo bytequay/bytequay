@@ -347,7 +347,8 @@ class TestTaskServiceScheduler
                     new StreamJsonParser(new ObjectMapper()),
                     new ObjectMapper(),
                     new McpPermissionGate(),
-                    Executors.newSingleThreadExecutor());
+                    Executors.newSingleThreadExecutor(),
+                    CheckpointTrigger.NOOP);
             this.events = events;
             this.session = new RecordingStopSession(events);
         }
@@ -493,7 +494,8 @@ class TestTaskServiceScheduler
                     new StreamJsonParser(new ObjectMapper()),
                     new ObjectMapper(),
                     new McpPermissionGate(),
-                    Executors.newSingleThreadExecutor());
+                    Executors.newSingleThreadExecutor(),
+                    CheckpointTrigger.NOOP);
         }
 
         @Override

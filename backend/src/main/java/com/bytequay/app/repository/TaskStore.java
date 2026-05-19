@@ -121,6 +121,56 @@ public interface TaskStore
         return n;
     }
 
+    /** Highest {@code seq} currently assigned in the task, or empty
+     *  when no messages exist yet. The checkpoint scheduler uses this
+     *  as the upper bound of the range it considers summarising. */
+    default Optional<Long> maxMessageSeq(String taskId)
+    {
+        long max = -1;
+        for (TaskMessage m : listMessages(taskId)) {
+            if (m.seq() > max) {
+                max = m.seq();
+            }
+        }
+        return max < 0 ? Optional.empty() : Optional.of(max);
+    }
+
+    /** Sum of {@code tokens_in + tokens_out} across messages whose
+     *  {@code seq} is in {@code [firstSeq, lastSeq]} (inclusive).
+     *  Null token counts are treated as zero. Drives the auto-segment
+     *  threshold check — keeping it as a single aggregate query avoids
+     *  pulling the message bodies into memory just to add numbers. */
+    default long sumTokensBetween(String taskId, long firstSeq, long lastSeq)
+    {
+        long total = 0;
+        for (TaskMessage m : listMessages(taskId)) {
+            if (m.seq() < firstSeq || m.seq() > lastSeq) {
+                continue;
+            }
+            if (m.tokensIn() != null) {
+                total += m.tokensIn();
+            }
+            if (m.tokensOut() != null) {
+                total += m.tokensOut();
+            }
+        }
+        return total;
+    }
+
+    /** Messages whose {@code seq} is in {@code [firstSeq, lastSeq]}
+     *  (inclusive), oldest-first. The summariser walks this range to
+     *  build the dense rendered conversation it hands to Haiku. */
+    default List<TaskMessage> listMessagesBetween(String taskId, long firstSeq, long lastSeq)
+    {
+        List<TaskMessage> out = new ArrayList<>();
+        for (TaskMessage m : listMessages(taskId)) {
+            if (m.seq() >= firstSeq && m.seq() <= lastSeq) {
+                out.add(m);
+            }
+        }
+        return List.copyOf(out);
+    }
+
     // ── files ────────────────────────────────────────────────────────
 
     /**

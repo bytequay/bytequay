@@ -89,6 +89,7 @@ public class ClaudeCodeCliSession
     private final ToolFileOps fileOps;
     private final McpPermissionGate gate;
     private final ExecutorService executor;
+    private final CheckpointTrigger checkpointTrigger;
     private final CopyOnWriteArrayList<Consumer<StreamEvent>> listeners = new CopyOnWriteArrayList<>();
 
     /** Lazily-written MCP config file Claude reads via
@@ -129,9 +130,10 @@ public class ClaudeCodeCliSession
             StreamJsonParser parser,
             ObjectMapper mapper,
             McpPermissionGate gate,
-            ExecutorService executor)
+            ExecutorService executor,
+            CheckpointTrigger checkpointTrigger)
     {
-        this(task, store, parser, mapper, gate, executor, DEFAULT_BINARY);
+        this(task, store, parser, mapper, gate, executor, checkpointTrigger, DEFAULT_BINARY);
     }
 
     ClaudeCodeCliSession(
@@ -141,6 +143,7 @@ public class ClaudeCodeCliSession
             ObjectMapper mapper,
             McpPermissionGate gate,
             ExecutorService executor,
+            CheckpointTrigger checkpointTrigger,
             String binary)
     {
         requireNonNull(task, "task is null");
@@ -158,6 +161,7 @@ public class ClaudeCodeCliSession
         this.fileOps = new ToolFileOps(requireNonNull(mapper, "mapper is null"));
         this.gate = requireNonNull(gate, "gate is null");
         this.executor = requireNonNull(executor, "executor is null");
+        this.checkpointTrigger = requireNonNull(checkpointTrigger, "checkpointTrigger is null");
         this.binary = requireNonNull(binary, "binary is null");
         this.status.set(task.status());
         this.agentSessionId.set(task.agentSessionId());
@@ -643,6 +647,7 @@ public class ClaudeCodeCliSession
             runningToolCallCount.incrementAndGet();
             recordFileOps(call);
         }
+        boolean turnDone = event instanceof StreamEvent.TurnDone;
         if (event instanceof StreamEvent.TurnDone t) {
             runningCostUsdMilli.addAndGet(t.costUsdMilli());
             runningTokensIn.addAndGet(t.tokensIn());
@@ -650,6 +655,17 @@ public class ClaudeCodeCliSession
         }
         persistMessage(event);
         publish(event);
+        if (turnDone) {
+            // Fire-and-forget — the trigger schedules background work
+            // and returns immediately, so a slow Anthropic call can't
+            // back up the session's event thread.
+            try {
+                checkpointTrigger.onTurnDone(taskId);
+            }
+            catch (RuntimeException e) {
+                log.warn("checkpoint trigger failed for task {}: {}", taskId, e.getMessage());
+            }
+        }
     }
 
     /** Pull any file ops out of a tool call's input and upsert them

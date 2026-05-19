@@ -553,7 +553,7 @@ class TestAgentScheduler
             return turns.values().stream()
                     .filter(turn -> turn.taskId().equals(taskId))
                     .filter(turn -> turn.status() == status)
-                    .sorted(Comparator.comparing(TaskTurn::createdAt).reversed())
+                    .sorted(taskHistoryOrder())
                     .limit(limit)
                     .toList();
         }
@@ -563,7 +563,7 @@ class TestAgentScheduler
         {
             return turns.values().stream()
                     .filter(turn -> turn.taskId().equals(taskId))
-                    .sorted(Comparator.comparing(TaskTurn::createdAt).reversed())
+                    .sorted(taskHistoryOrder())
                     .limit(limit)
                     .toList();
         }
@@ -572,6 +572,13 @@ class TestAgentScheduler
         {
             return Comparator.comparing(TaskTurn::createdAt)
                     .thenComparing(TaskTurn::id);
+        }
+
+        private static Comparator<TaskTurn> taskHistoryOrder()
+        {
+            return Comparator.comparing(TaskTurn::createdAt)
+                    .thenComparing(TaskTurn::id)
+                    .reversed();
         }
     }
 

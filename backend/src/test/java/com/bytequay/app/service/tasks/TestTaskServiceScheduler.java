@@ -178,6 +178,34 @@ class TestTaskServiceScheduler
     }
 
     @Test
+    void turnsUseStableTieBreakerForMatchingTimestamps()
+    {
+        Task task = task();
+        InMemoryTaskStore store = new InMemoryTaskStore();
+        store.saveTask(task);
+        InMemoryTaskTurnStore turns = new InMemoryTaskTurnStore();
+        Instant now = Instant.parse("2026-05-18T12:00:00Z");
+        turns.saveTurn(turn("turn-a", task.id(), now));
+        turns.saveTurn(turn("turn-c", task.id(), now));
+        turns.saveTurn(turn("turn-b", task.id(), now.minusSeconds(1)));
+        RecordingScheduler scheduler = new RecordingScheduler();
+        ThrowingRegistry registry = new ThrowingRegistry();
+        TaskService service = new TaskService(
+                store,
+                new EmptyTaskGroupStore(),
+                turns,
+                new InMemoryTaskTurnEventStore(),
+                registry,
+                scheduler,
+                new GitRunner());
+
+        assertThat(service.turns(task.id()))
+                .extracting(TaskTurn::id)
+                .containsExactly("turn-c", "turn-a", "turn-b");
+        assertThat(registry.used).isFalse();
+    }
+
+    @Test
     void turnEventsReturnDurableHistoryForTaskOnly()
     {
         Task task = task();
@@ -672,7 +700,7 @@ class TestTaskServiceScheduler
             return turns.values().stream()
                     .filter(turn -> turn.taskId().equals(taskId))
                     .filter(turn -> turn.status() == status)
-                    .sorted(Comparator.comparing(TaskTurn::createdAt).reversed())
+                    .sorted(taskHistoryOrder())
                     .limit(limit)
                     .toList();
         }
@@ -682,7 +710,7 @@ class TestTaskServiceScheduler
         {
             return turns.values().stream()
                     .filter(turn -> turn.taskId().equals(taskId))
-                    .sorted(Comparator.comparing(TaskTurn::createdAt).reversed())
+                    .sorted(taskHistoryOrder())
                     .limit(limit)
                     .toList();
         }
@@ -691,6 +719,13 @@ class TestTaskServiceScheduler
         {
             return Comparator.comparing(TaskTurn::createdAt)
                     .thenComparing(TaskTurn::id);
+        }
+
+        private static Comparator<TaskTurn> taskHistoryOrder()
+        {
+            return Comparator.comparing(TaskTurn::createdAt)
+                    .thenComparing(TaskTurn::id)
+                    .reversed();
         }
     }
 

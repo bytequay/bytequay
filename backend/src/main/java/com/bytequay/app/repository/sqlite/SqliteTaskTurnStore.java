@@ -111,7 +111,7 @@ class SqliteTaskTurnStore
     {
         requireNonNull(taskId, "taskId is null");
         requireNonNull(status, "status is null");
-        return turns.findByTaskIdAndStatusOrderByCreatedAtMsDesc(taskId, status.name(), PageRequest.of(0, limit))
+        return turns.findByTaskIdAndStatusOrderByCreatedAtMsDescIdDesc(taskId, status.name(), PageRequest.of(0, limit))
                 .stream()
                 .map(SqliteTaskTurnStore::toTurn)
                 .toList();
@@ -121,7 +121,7 @@ class SqliteTaskTurnStore
     public List<TaskTurn> listTurnsByTaskId(String taskId, int limit)
     {
         requireNonNull(taskId, "taskId is null");
-        return turns.findByTaskIdOrderByCreatedAtMsDesc(taskId, PageRequest.of(0, limit))
+        return turns.findByTaskIdOrderByCreatedAtMsDescIdDesc(taskId, PageRequest.of(0, limit))
                 .stream()
                 .map(SqliteTaskTurnStore::toTurn)
                 .toList();

@@ -38,6 +38,7 @@ import org.springframework.web.server.ResponseStatusException;
 import java.io.IOException;
 import java.nio.file.Path;
 import java.time.Instant;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.NoSuchElementException;
 import java.util.Optional;
@@ -153,7 +154,7 @@ public class TaskService
         requireNonNull(request, "request is null");
         List<String> initialTaskIds = request.initialTaskIds() == null
                 ? List.of()
-                : List.copyOf(request.initialTaskIds());
+                : distinctCopy(request.initialTaskIds());
         if (initialTaskIds.isEmpty()) {
             throw new IllegalArgumentException("A group must be created with at least one task.");
         }
@@ -314,7 +315,7 @@ public class TaskService
         requireNonNull(request, "request is null");
         List<String> initialGroupIds = request.initialGroupIds() == null
                 ? List.of()
-                : List.copyOf(request.initialGroupIds());
+                : distinctCopy(request.initialGroupIds());
         for (String groupId : initialGroupIds) {
             if (groupStore.findGroupById(groupId).isEmpty()) {
                 throw new ResponseStatusException(HttpStatusCode.valueOf(404), "no group: " + groupId);
@@ -559,6 +560,11 @@ public class TaskService
         requireNonNull(taskId, "taskId is null");
         return store.findTaskById(taskId)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatusCode.valueOf(404), "no task: " + taskId));
+    }
+
+    private static List<String> distinctCopy(List<String> values)
+    {
+        return List.copyOf(new LinkedHashSet<>(values));
     }
 
     /** Surface a permission prompt in the conversation pane. Called

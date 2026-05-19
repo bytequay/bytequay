@@ -322,6 +322,67 @@ class TestTaskServiceScheduler
     }
 
     @Test
+    void createGroupDeduplicatesInitialTaskIdsBeforeCapCheck()
+    {
+        InMemoryTaskStore store = new InMemoryTaskStore();
+        store.saveTask(task("task-1"));
+        store.saveTask(task("task-2"));
+        EmptyTaskGroupStore groups = new EmptyTaskGroupStore();
+        TaskService service = new TaskService(
+                store,
+                groups,
+                new InMemoryTaskTurnStore(),
+                new InMemoryTaskTurnEventStore(),
+                new ThrowingRegistry(),
+                new RecordingScheduler(),
+                new GitRunner());
+
+        TaskGroup group = service.createGroup(new TaskService.NewGroupRequest(
+                "Backend",
+                "B",
+                "blue",
+                1,
+                List.of("task-1", "task-1", "task-2", "task-2", "task-2")));
+
+        assertThat(groups.listMembers(group.id()))
+                .extracting(TaskGroupMembership::taskId)
+                .containsExactly("task-1", "task-2");
+    }
+
+    @Test
+    void createDeduplicatesInitialGroupIds()
+    {
+        EmptyTaskGroupStore groups = new EmptyTaskGroupStore();
+        groups.saveGroup(group("group-1"));
+        TaskService service = new TaskService(
+                new InMemoryTaskStore(),
+                groups,
+                new InMemoryTaskTurnStore(),
+                new InMemoryTaskTurnEventStore(),
+                new ThrowingRegistry(),
+                new RecordingScheduler(),
+                new GitRunner());
+
+        Task task = service.create(new TaskService.NewTaskRequest(
+                TaskKind.CLI_AGENT,
+                "claude-code",
+                "claude-sonnet-4.6",
+                "Fix tests",
+                "/tmp/work",
+                "main",
+                /* initialPrompt */ null,
+                "{}",
+                List.of("group-1", "group-1"),
+                "DEVELOP",
+                /* linkedPrNumber */ null,
+                /* linkedIssueNumber */ null));
+
+        assertThat(groups.listMembers("group-1"))
+                .extracting(TaskGroupMembership::taskId)
+                .containsExactly(task.id());
+    }
+
+    @Test
     void stopCancelsQueuedTurnsBeforeStoppingSession()
     {
         Task task = task();
@@ -602,7 +663,8 @@ class TestTaskServiceScheduler
     private static final class EmptyTaskGroupStore
             implements TaskGroupStore
     {
-        private final List<TaskGroupMembership> memberships;
+        private final Map<String, TaskGroup> groups = new LinkedHashMap<>();
+        private final List<TaskGroupMembership> memberships = new ArrayList<>();
 
         private EmptyTaskGroupStore()
         {
@@ -611,32 +673,51 @@ class TestTaskServiceScheduler
 
         private EmptyTaskGroupStore(List<TaskGroupMembership> memberships)
         {
-            this.memberships = List.copyOf(memberships);
+            this.memberships.addAll(memberships);
         }
 
         @Override
-        public void saveGroup(TaskGroup group) {}
+        public void saveGroup(TaskGroup group)
+        {
+            groups.put(group.id(), group);
+        }
 
         @Override
         public Optional<TaskGroup> findGroupById(String id)
         {
-            return Optional.empty();
+            return Optional.ofNullable(groups.get(id));
         }
 
         @Override
         public List<TaskGroup> listGroups()
         {
-            return List.of();
+            return List.copyOf(groups.values());
         }
 
         @Override
-        public void deleteGroup(String id) {}
+        public void deleteGroup(String id)
+        {
+            groups.remove(id);
+            memberships.removeIf(membership -> membership.groupId().equals(id));
+        }
 
         @Override
-        public void addMember(String taskId, String groupId) {}
+        public void addMember(String taskId, String groupId)
+        {
+            boolean exists = memberships.stream()
+                    .anyMatch(membership -> membership.taskId().equals(taskId)
+                            && membership.groupId().equals(groupId));
+            if (!exists) {
+                memberships.add(new TaskGroupMembership(taskId, groupId, Instant.EPOCH));
+            }
+        }
 
         @Override
-        public void removeMember(String taskId, String groupId) {}
+        public void removeMember(String taskId, String groupId)
+        {
+            memberships.removeIf(membership -> membership.taskId().equals(taskId)
+                    && membership.groupId().equals(groupId));
+        }
 
         @Override
         public List<TaskGroupMembership> listMembers(String groupId)
@@ -663,7 +744,7 @@ class TestTaskServiceScheduler
         @Override
         public long countMembers(String groupId)
         {
-            return 0;
+            return listMembers(groupId).size();
         }
     }
 
@@ -868,6 +949,12 @@ class TestTaskServiceScheduler
                 TaskTurnEventType.TURN_QUEUED,
                 createdAt,
                 /* message */ null);
+    }
+
+    private static TaskGroup group(String id)
+    {
+        Instant now = Instant.parse("2026-05-18T12:00:00Z");
+        return new TaskGroup(id, "Group " + id, "G", "blue", 1, now, now);
     }
 
     private static Task task()

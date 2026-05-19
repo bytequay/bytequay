@@ -15,6 +15,8 @@ package com.bytequay.app;
 
 import org.junit.jupiter.api.Test;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.test.context.TestExecutionListeners;
+import org.springframework.test.context.support.DependencyInjectionTestExecutionListener;
 
 /**
  * Boots the entire Spring application context — every controller, every
@@ -29,6 +31,9 @@ import org.springframework.boot.test.context.SpringBootTest;
  * to start, JUnit fails this test with the underlying cause.
  */
 @SpringBootTest
+@TestExecutionListeners(
+        listeners = DependencyInjectionTestExecutionListener.class,
+        mergeMode = TestExecutionListeners.MergeMode.REPLACE_DEFAULTS)
 class TestApplicationContextSmoke
 {
     @Test

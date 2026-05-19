@@ -17,14 +17,12 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
-import org.springframework.scheduling.annotation.EnableScheduling;
 
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
 
 @SpringBootApplication
-@EnableScheduling
 public final class ByteQuayApplication
 {
     private static final Logger log = LoggerFactory.getLogger(ByteQuayApplication.class);

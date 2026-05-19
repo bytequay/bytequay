@@ -37,7 +37,7 @@ export function spawnBackend(): void {
   // App-wide RAM budget is ~8 GB; the backend gets ~2 GB of that
   // ceiling, which is enough for Hibernate + the local-repo JGit
   // buffers + scheduler bookkeeping even on a long-lived session, and
-  // leaves headroom alongside the 5-way CLI lane (~3 GB) and the
+  // leaves headroom alongside the 4-way CLI lane (~2 GB) and the
   // Electron renderers (~2.5 GB with one embed open).
   // ExitOnOutOfMemoryError flips an OOM into a clean exit so Electron
   // can surface "backend crashed" instead of getting a wedged sidecar

@@ -1479,6 +1479,10 @@ export type Bridge = {
   /** Single-PR fetch — used by the deep-link fallback when a PR isn't in
    *  the (capped) repo list response. */
   getRepoPull: (owner: string, repo: string, number: number) => Promise<PullRequestDto>;
+  /** Title-search PRs in a repo across all states. Powers the
+   *  create-task linker's text-search fallback for old/closed PRs that
+   *  aren't in the 30 most-recent open PRs returned by getRepoPulls. */
+  searchRepoPulls: (owner: string, repo: string, query: string) => Promise<PullRequestDto[]>;
   getRepoIssues: (owner: string, repo: string, state?: 'open' | 'closed') => Promise<IssueDto[]>;
   getIssueDetail: (owner: string, repo: string, number: number) => Promise<IssueDetailDto>;
   createIssueComment: (owner: string, repo: string, number: number, body: string) => Promise<IssueCommentDto>;

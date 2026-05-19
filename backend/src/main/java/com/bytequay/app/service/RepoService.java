@@ -217,6 +217,36 @@ public class RepoService
         return overlayViewState(fresh, state);
     }
 
+    /**
+     * Title/body search for PRs in a single repo, across all states
+     * (open + closed + merged). Used by the create-task PR linker so
+     * users can find old or closed PRs that aren't in the capped
+     * {@link #getRepoPullRequests} response — typing the linker only
+     * surfaces the top page of recent open PRs without this fallback.
+     *
+     * @param query the user-typed search text. Wrapped into
+     *              {@code repo:owner/repo type:pr in:title <query>}
+     *              before being sent to GitHub's search API.
+     */
+    public List<PullRequest> searchRepoPullRequests(String pat, String owner, String repo, String query)
+    {
+        if (query == null || query.isBlank()) {
+            return ImmutableList.of();
+        }
+        // GitHub's search query syntax: scope to the repo, type=pr,
+        // restrict to title matches so a body word like "fix" doesn't
+        // surface a hundred unrelated PRs. The user's text goes verbatim
+        // after the qualifiers — multi-word queries are AND-ed by
+        // default, which matches typical "type a memorable phrase" UX.
+        String trimmed = query.trim();
+        String searchQuery = "repo:" + owner + "/" + repo + " type:pr in:title " + trimmed;
+        List<PullRequest> hits = gitHub.searchPullRequests(pat, searchQuery);
+        Map<Long, PrViewState> stateByPrId = viewStateStore.findAll();
+        return hits.stream()
+                .map(pr -> overlayViewState(pr, stateByPrId.get(pr.id())))
+                .collect(toImmutableList());
+    }
+
     private static PullRequest overlayViewState(PullRequest pr, PrViewState state)
     {
         if (state == null) {

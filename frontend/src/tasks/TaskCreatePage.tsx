@@ -87,6 +87,16 @@ export default function TaskCreatePage({
   const [extraPr, setExtraPr] = useState<PullRequestDto | null>(null);
   const [extraPrLoading, setExtraPrLoading] = useState(false);
   const [extraPrError, setExtraPrError] = useState<string | null>(null);
+  // Title-search fallback for non-numeric queries. getRepoPulls caps at
+  // the 30 most-recently-created open PRs, so any older/closed PR is
+  // invisible to the local title filter — we hit GitHub's search API
+  // and surface up to ~25 hits here. extraPrSearchQuery records which
+  // query the hits belong to so a slow response can't repaint stale
+  // results against a different prSearch.
+  const [extraPrSearchHits, setExtraPrSearchHits] = useState<PullRequestDto[]>([]);
+  const [extraPrSearchQuery, setExtraPrSearchQuery] = useState<string>('');
+  const [extraPrSearchLoading, setExtraPrSearchLoading] = useState(false);
+  const [extraPrSearchError, setExtraPrSearchError] = useState<string | null>(null);
 
   // Issue selection (scoped to selected repo).
   const [openIssues, setOpenIssues] = useState<IssueDto[] | null>(null);
@@ -220,14 +230,29 @@ export default function TaskCreatePage({
     const local = filterPrs(openPrs, prSearch, linkedPrNumber);
     if (local.length > 0) return local;
     // Surface the fallback-fetched PR when the local list comes up
-    // empty for a numeric query. Hidden once the user clears the
-    // search (extraPr only repopulates when the typed number stops
-    // matching anything in openPrs).
-    if (extraPr !== null && extraPr.number !== linkedPrNumber) {
+    // empty for a numeric query. Tie it to the current search input —
+    // a stale extraPr from a previous query mustn't render as if it
+    // matched what the user typed now.
+    const trimmed = prSearch.trim();
+    const numMatch = trimmed.replace(/^#/, '').match(/^\d+$/);
+    if (numMatch !== null && extraPr !== null
+        && extraPr.number === Number(numMatch[0])
+        && extraPr.number !== linkedPrNumber) {
       return [extraPr];
     }
+    // Text-search hits — only surface results that belong to the
+    // current query (extraPrSearchQuery tracks which input string the
+    // hits were fetched for, so a slow response can't paint over a
+    // newer search).
+    if (numMatch === null && trimmed !== ''
+        && extraPrSearchQuery === trimmed
+        && extraPrSearchHits.length > 0) {
+      return extraPrSearchHits
+        .filter(p => p.number !== linkedPrNumber)
+        .slice(0, 8);
+    }
     return [];
-  }, [openPrs, prSearch, linkedPrNumber, extraPr]);
+  }, [openPrs, prSearch, linkedPrNumber, extraPr, extraPrSearchHits, extraPrSearchQuery]);
   const matchingIssues = useMemo(() => filterIssues(openIssues, issueSearch, linkedIssueNumber), [openIssues, issueSearch, linkedIssueNumber]);
 
   // Deep-link fallback for the PR search field. When the user types a
@@ -259,6 +284,10 @@ export default function TaskCreatePage({
     const repo = repos.find(r => repoKey(r) === selectedRepoKey);
     if (repo === undefined) return;
     let cancelled = false;
+    // Clear the stale fetched PR up-front so the dropdown's
+    // "Looking it up…" state shows immediately instead of briefly
+    // rendering a row for the previous query.
+    setExtraPr(null);
     setExtraPrLoading(true);
     setExtraPrError(null);
     const timer = window.setTimeout(async () => {
@@ -281,6 +310,59 @@ export default function TaskCreatePage({
       window.clearTimeout(timer);
     };
   }, [prSearch, openPrs, selectedRepoKey, repos, extraPr]);
+
+  // Text-search fallback. When the user types a non-numeric query
+  // that the local title filter can't satisfy (openPrs is just the
+  // 30 most-recently-created open PRs), hit the backend's GitHub
+  // search endpoint. Debounced 300 ms so a fast typist doesn't burn
+  // through GitHub's search rate limit (30 req/min on PAT).
+  useEffect(() => {
+    const trimmed = prSearch.trim();
+    const numMatch = trimmed.replace(/^#/, '').match(/^\d+$/);
+    // Empty or numeric → numeric path owns the fallback; skip text
+    // search and clear its state so a stale hit can't render.
+    if (trimmed === '' || numMatch !== null) {
+      setExtraPrSearchHits([]);
+      setExtraPrSearchQuery('');
+      setExtraPrSearchError(null);
+      setExtraPrSearchLoading(false);
+      return;
+    }
+    const repo = repos.find(r => repoKey(r) === selectedRepoKey);
+    if (repo === undefined) return;
+    // Reuse a previous fetch if the query matches exactly — saves a
+    // round-trip when the user re-focuses the field or backspaces and
+    // retypes the same word.
+    if (extraPrSearchQuery === trimmed && extraPrSearchHits.length > 0) {
+      return;
+    }
+    let cancelled = false;
+    setExtraPrSearchHits([]);
+    setExtraPrSearchQuery('');
+    setExtraPrSearchLoading(true);
+    setExtraPrSearchError(null);
+    const timer = window.setTimeout(async () => {
+      try {
+        const hits = await window.bridge.searchRepoPulls(repo.owner, repo.repo, trimmed);
+        if (cancelled) return;
+        setExtraPrSearchHits(hits);
+        setExtraPrSearchQuery(trimmed);
+      }
+      catch (e) {
+        if (cancelled) return;
+        setExtraPrSearchHits([]);
+        setExtraPrSearchQuery('');
+        setExtraPrSearchError(e instanceof Error ? e.message : String(e));
+      }
+      finally {
+        if (!cancelled) setExtraPrSearchLoading(false);
+      }
+    }, 300);
+    return () => {
+      cancelled = true;
+      window.clearTimeout(timer);
+    };
+  }, [prSearch, selectedRepoKey, repos, extraPrSearchQuery, extraPrSearchHits.length]);
 
   const selectedRepo = useMemo(
     () => repos.find(r => repoKey(r) === selectedRepoKey) ?? null,
@@ -454,8 +536,8 @@ export default function TaskCreatePage({
                   <PrDropdown
                     prs={matchingPrs}
                     onPick={pickPr}
-                    loading={extraPrLoading}
-                    error={extraPrError}
+                    loading={extraPrLoading || extraPrSearchLoading}
+                    error={extraPrError ?? extraPrSearchError}
                   />
                 )}
               </div>
@@ -754,9 +836,12 @@ function filterPrs(
   const trimmed = search.trim();
   const numMatch = trimmed.replace(/^#/, '').match(/^\d+$/);
   if (numMatch !== null) {
+    // Exact match only — the substring branch used to surface unrelated
+    // PRs whose number happened to contain the typed digits, which both
+    // hid the deep-fetch fallback's exact match and confused users.
     const num = Number(numMatch[0]);
     return prs
-      .filter(p => p.number === num || String(p.number).includes(String(num)))
+      .filter(p => p.number === num)
       .filter(p => p.number !== linked)
       .slice(0, 8);
   }

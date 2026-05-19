@@ -1049,6 +1049,17 @@ const url = new URL(`${BACKEND_BASE}/prs/comment`);
     return res.json();
   });
 
+  ipcMain.handle('repos:searchPulls', async (_event, owner: string, repo: string, query: string) => {
+    const url = new URL(`${BACKEND_BASE}/api/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/pulls/search`);
+    url.searchParams.set('q', query);
+    const res = await fetch(url);
+    if (!res.ok) {
+      const body = await res.text().catch(() => '');
+      throw new Error(`backend repo pull search returned ${res.status}: ${body}`);
+    }
+    return res.json();
+  });
+
   ipcMain.handle('repos:issues', async (_event, owner: string, repo: string, state?: string) => {
     const url = new URL(`${BACKEND_BASE}/api/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/issues`);
     if (state) url.searchParams.set('state', state);

@@ -139,6 +139,24 @@ public class RepoController
     }
 
     /**
+     * Title search for PRs in a single repo, all states. Powers the
+     * create-task linker's text-search fallback so a user can find an
+     * old or closed PR that isn't in the 30 most-recent open PRs
+     * returned by {@link #getRepoPulls}. Empty {@code q} returns an
+     * empty list rather than running an unscoped search.
+     * GET /api/repos/{owner}/{repo}/pulls/search?q=...
+     */
+    @GetMapping("/repos/{owner}/{repo}/pulls/search")
+    public List<PullRequest> searchRepoPulls(
+            @PathVariable String owner,
+            @PathVariable String repo,
+            @RequestParam(name = "q", required = false) String query)
+    {
+        return repoService.searchRepoPullRequests(
+                patResolver.resolve(owner + "/" + repo), owner, repo, query);
+    }
+
+    /**
      * Lists issues (not PRs) for a watched repo. {@code state} maps
      * directly to GitHub's filter — typically "open" (default) or
      * "closed". Requires a Bearer PAT.

@@ -155,6 +155,8 @@ const bridge: Bridge = {
     ipcRenderer.invoke('repos:pulls', owner, repo),
   getRepoPull: (owner: string, repo: string, number: number): Promise<PullRequestDto> =>
     ipcRenderer.invoke('repos:pull', owner, repo, number),
+  searchRepoPulls: (owner: string, repo: string, query: string): Promise<PullRequestDto[]> =>
+    ipcRenderer.invoke('repos:searchPulls', owner, repo, query),
   getRepoMeta: (owner: string, repo: string) =>
     ipcRenderer.invoke('repos:meta', owner, repo),
   getRepoActivity: (owner: string, repo: string) =>

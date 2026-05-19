@@ -30,7 +30,6 @@ import org.springframework.stereotype.Component;
 
 import java.time.Instant;
 import java.util.ArrayDeque;
-import java.util.ArrayList;
 import java.util.EnumMap;
 import java.util.HashSet;
 import java.util.Iterator;
@@ -184,18 +183,14 @@ public class AgentScheduler
     @EventListener(ApplicationReadyEvent.class)
     public void recoverQueuedTurns()
     {
-        for (TaskTurn turn : recoverInterruptedRunningTurns()) {
-            enqueuePersistedTurn(turn);
-        }
+        recoverInterruptedRunningTurns();
         recoverQueuedTurnsFromStore();
     }
 
-    private List<TaskTurn> recoverInterruptedRunningTurns()
+    private void recoverInterruptedRunningTurns()
     {
-        List<TaskTurn> recovered = new ArrayList<>();
-        List<TaskTurn> runningTurns;
-        do {
-            runningTurns = turns.listTurnsByStatus(RUNNING, RECOVERY_PAGE_SIZE);
+        List<TaskTurn> runningTurns = turns.listTurnsByStatus(RUNNING, RECOVERY_PAGE_SIZE);
+        while (!runningTurns.isEmpty()) {
             for (TaskTurn turn : runningTurns) {
                 TaskTurn queued = updateTurn(
                         turn,
@@ -205,11 +200,18 @@ public class AgentScheduler
                         "interrupted by app restart");
                 turns.saveTurn(queued);
                 appendEvent(queued, TURN_QUEUED, "interrupted by app restart");
-                recovered.add(queued);
+                enqueuePersistedTurn(queued);
             }
+            TaskTurn cursor = runningTurns.get(runningTurns.size() - 1);
+            if (runningTurns.size() < RECOVERY_PAGE_SIZE) {
+                return;
+            }
+            runningTurns = turns.listTurnsByStatusAfter(
+                    RUNNING,
+                    cursor.createdAt(),
+                    cursor.id(),
+                    RECOVERY_PAGE_SIZE);
         }
-        while (runningTurns.size() == RECOVERY_PAGE_SIZE);
-        return recovered;
     }
 
     private void recoverQueuedTurnsFromStore()

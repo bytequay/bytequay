@@ -30,6 +30,7 @@ import java.util.ArrayDeque;
 import java.util.EnumMap;
 import java.util.HashSet;
 import java.util.Iterator;
+import java.util.List;
 import java.util.NoSuchElementException;
 import java.util.Optional;
 import java.util.Set;
@@ -39,6 +40,7 @@ import java.util.concurrent.CompletionStage;
 
 import static com.bytequay.app.domain.TaskResourceLane.API;
 import static com.bytequay.app.domain.TaskResourceLane.CLI;
+import static com.bytequay.app.domain.TaskTurnStatus.CANCELLED;
 import static com.bytequay.app.domain.TaskTurnStatus.COMPLETED;
 import static com.bytequay.app.domain.TaskTurnStatus.FAILED;
 import static com.bytequay.app.domain.TaskTurnStatus.QUEUED;
@@ -57,6 +59,10 @@ public class AgentScheduler
         implements TaskTurnScheduler
 {
     private static final int RECOVERY_LIMIT = 1_000;
+    // Usually one or two follow-up turns. Keep the page large enough
+    // for normal use, but bounded so a pathological task cannot load
+    // every durable queued turn in one SQLite read.
+    private static final int TURN_CANCELLATION_PAGE_SIZE = 1_000;
 
     private final TaskStore tasks;
     private final TaskTurnStore turns;
@@ -106,6 +112,52 @@ public class AgentScheduler
         turns.saveTurn(turn);
         enqueuePersistedTurn(turn);
         return turn.id();
+    }
+
+    /**
+     * Remove queued turns for a task from both the durable queue and
+     * the in-memory lane queues.
+     */
+    @Override
+    public int cancelQueuedTurns(String taskId)
+    {
+        requireNonNull(taskId, "taskId is null");
+        int cancelled = 0;
+        synchronized (lock) {
+            List<TaskTurn> queuedTurns;
+            do {
+                queuedTurns = turns.listTurnsByTaskIdAndStatus(taskId, QUEUED, TURN_CANCELLATION_PAGE_SIZE);
+                if (queuedTurns.isEmpty()) {
+                    break;
+                }
+
+                Set<String> queuedTurnIds = new HashSet<>();
+                for (TaskTurn turn : queuedTurns) {
+                    queuedTurnIds.add(turn.id());
+                }
+                for (LaneState lane : lanes.values()) {
+                    removeQueuedTurns(lane, queuedTurnIds);
+                }
+
+                Instant now = Instant.now();
+                for (TaskTurn turn : queuedTurns) {
+                    turns.saveTurn(updateTurn(
+                            turn,
+                            CANCELLED,
+                            turn.startedAt(),
+                            now,
+                            "cancelled by task lifecycle action"));
+                }
+                cancelled += queuedTurns.size();
+            }
+            // Each read returns at most TURN_CANCELLATION_PAGE_SIZE rows.
+            // A full page means there may be more queued rows after this
+            // page was marked CANCELLED, so fetch the next page.
+            while (queuedTurns.size() == TURN_CANCELLATION_PAGE_SIZE);
+
+            drainLocked();
+        }
+        return cancelled;
     }
 
     /**
@@ -178,6 +230,18 @@ public class AgentScheduler
             return Optional.of(turn);
         }
         return Optional.empty();
+    }
+
+    private static void removeQueuedTurns(LaneState lane, Set<String> turnIds)
+    {
+        Iterator<TaskTurn> iterator = lane.queue.iterator();
+        while (iterator.hasNext()) {
+            TaskTurn turn = iterator.next();
+            if (turnIds.contains(turn.id())) {
+                iterator.remove();
+                lane.knownTurnIds.remove(turn.id());
+            }
+        }
     }
 
     private void dispatch(TaskTurn queuedTurn)

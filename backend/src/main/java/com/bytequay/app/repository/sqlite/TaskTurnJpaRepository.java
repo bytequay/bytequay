@@ -26,5 +26,10 @@ interface TaskTurnJpaRepository
 
     List<TaskTurnEntity> findByStatusInOrderByCreatedAtMsAsc(Collection<String> statuses, Pageable pageable);
 
+    List<TaskTurnEntity> findByTaskIdAndStatusOrderByCreatedAtMsDesc(
+            String taskId,
+            String status,
+            Pageable pageable);
+
     List<TaskTurnEntity> findByTaskIdOrderByCreatedAtMsDesc(String taskId, Pageable pageable);
 }

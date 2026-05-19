@@ -22,4 +22,7 @@ public interface TaskTurnScheduler
 {
     /** Queue a user turn and return its durable turn id. */
     String enqueueTurn(Task task, String input);
+
+    /** Cancel queued turns for one task and return the number cancelled. */
+    int cancelQueuedTurns(String taskId);
 }

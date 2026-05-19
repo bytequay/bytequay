@@ -46,6 +46,7 @@ import java.util.function.Consumer;
 
 import static com.bytequay.app.domain.TaskKind.CLI_AGENT;
 import static com.bytequay.app.domain.TaskKind.LOGIC_LOOP;
+import static com.bytequay.app.domain.TaskTurnStatus.CANCELLED;
 import static com.bytequay.app.domain.TaskTurnStatus.COMPLETED;
 import static com.bytequay.app.domain.TaskTurnStatus.FAILED;
 import static com.bytequay.app.domain.TaskTurnStatus.QUEUED;
@@ -129,6 +130,54 @@ class TestAgentScheduler
                 .isEqualTo(COMPLETED);
         assertThat(harness.turns.findTurnById(secondTurn).orElseThrow().status())
                 .isEqualTo(RUNNING);
+    }
+
+    @Test
+    void cancelQueuedTurnsRemovesOnlyQueuedTurnsForTask()
+    {
+        TestHarness harness = new TestHarness(1, 4);
+        Task first = task("task-1", CLI_AGENT);
+        Task second = task("task-2", CLI_AGENT);
+        RecordingSession firstSession = harness.register(first);
+        RecordingSession secondSession = harness.register(second);
+
+        String runningTurn = harness.scheduler.enqueueTurn(first, "first");
+        String cancelledTurn = harness.scheduler.enqueueTurn(first, "second");
+        String otherTaskTurn = harness.scheduler.enqueueTurn(second, "other");
+
+        assertThat(harness.scheduler.cancelQueuedTurns(first.id())).isEqualTo(1);
+
+        assertThat(harness.turns.findTurnById(runningTurn).orElseThrow().status())
+                .isEqualTo(RUNNING);
+        assertThat(harness.turns.findTurnById(cancelledTurn).orElseThrow().status())
+                .isEqualTo(CANCELLED);
+        assertThat(harness.turns.findTurnById(otherTaskTurn).orElseThrow().status())
+                .isEqualTo(QUEUED);
+
+        firstSession.completeNext();
+
+        assertThat(firstSession.inputs).containsExactly("first");
+        assertThat(secondSession.inputs).containsExactly("other");
+        assertThat(harness.turns.findTurnById(runningTurn).orElseThrow().status())
+                .isEqualTo(COMPLETED);
+        assertThat(harness.turns.findTurnById(otherTaskTurn).orElseThrow().status())
+                .isEqualTo(RUNNING);
+    }
+
+    @Test
+    void cancelQueuedTurnsPagesThroughAllDurableQueuedTurns()
+    {
+        TestHarness harness = new TestHarness(1, 4);
+        String taskId = "task-1";
+        Instant now = Instant.parse("2026-05-18T12:00:00Z");
+        for (int i = 0; i < 1_001; i++) {
+            harness.turns.saveTurn(turn("turn-" + i, taskId, now.plusMillis(i)));
+        }
+
+        assertThat(harness.scheduler.cancelQueuedTurns(taskId)).isEqualTo(1_001);
+        assertThat(harness.turns.turns.values())
+                .extracting(TaskTurn::status)
+                .containsOnly(CANCELLED);
     }
 
     @Test
@@ -325,6 +374,17 @@ class TestAgentScheduler
         }
 
         @Override
+        public List<TaskTurn> listTurnsByTaskIdAndStatus(String taskId, TaskTurnStatus status, int limit)
+        {
+            return turns.values().stream()
+                    .filter(turn -> turn.taskId().equals(taskId))
+                    .filter(turn -> turn.status() == status)
+                    .sorted(Comparator.comparing(TaskTurn::createdAt).reversed())
+                    .limit(limit)
+                    .toList();
+        }
+
+        @Override
         public List<TaskTurn> listTurnsByTaskId(String taskId, int limit)
         {
             return turns.values().stream()
@@ -333,6 +393,21 @@ class TestAgentScheduler
                     .limit(limit)
                     .toList();
         }
+    }
+
+    private static TaskTurn turn(String id, String taskId, Instant createdAt)
+    {
+        return new TaskTurn(
+                id,
+                taskId,
+                TaskResourceLane.CLI,
+                QUEUED,
+                "input",
+                createdAt,
+                createdAt,
+                /* startedAt */ null,
+                /* finishedAt */ null,
+                /* errorMessage */ null);
     }
 
     private static final class RecordingSession

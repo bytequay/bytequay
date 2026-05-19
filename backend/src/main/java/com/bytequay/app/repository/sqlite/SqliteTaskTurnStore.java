@@ -90,6 +90,17 @@ class SqliteTaskTurnStore
     }
 
     @Override
+    public List<TaskTurn> listTurnsByTaskIdAndStatus(String taskId, TaskTurnStatus status, int limit)
+    {
+        requireNonNull(taskId, "taskId is null");
+        requireNonNull(status, "status is null");
+        return turns.findByTaskIdAndStatusOrderByCreatedAtMsDesc(taskId, status.name(), PageRequest.of(0, limit))
+                .stream()
+                .map(SqliteTaskTurnStore::toTurn)
+                .toList();
+    }
+
+    @Override
     public List<TaskTurn> listTurnsByTaskId(String taskId, int limit)
     {
         requireNonNull(taskId, "taskId is null");

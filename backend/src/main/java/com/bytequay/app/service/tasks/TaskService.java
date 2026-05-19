@@ -405,6 +405,7 @@ public class TaskService
 
     public void stop(String taskId)
     {
+        scheduler.cancelQueuedTurns(taskId);
         sessionOrThrow(taskId).stop();
         registry.evict(taskId);
     }
@@ -432,6 +433,7 @@ public class TaskService
         // Defensive — if a session got registered post-completion
         // (e.g. resumed and re-terminated), evict it before removing
         // the row. No-op when nothing's cached.
+        scheduler.cancelQueuedTurns(taskId);
         registry.evict(taskId);
         store.deleteTask(taskId);
     }

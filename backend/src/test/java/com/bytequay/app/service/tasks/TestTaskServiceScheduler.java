@@ -13,6 +13,9 @@
  */
 package com.bytequay.app.service.tasks;
 
+import com.bytequay.app.domain.AgentMetrics;
+import com.bytequay.app.domain.PermissionDecision;
+import com.bytequay.app.domain.StreamEvent;
 import com.bytequay.app.domain.Task;
 import com.bytequay.app.domain.TaskFile;
 import com.bytequay.app.domain.TaskGroup;
@@ -38,7 +41,11 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.OptionalInt;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionStage;
 import java.util.concurrent.Executors;
+import java.util.function.Consumer;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -184,18 +191,225 @@ class TestTaskServiceScheduler
                 .containsExactly("queued", "running");
     }
 
+    @Test
+    void stopCancelsQueuedTurnsBeforeStoppingSession()
+    {
+        Task task = task();
+        InMemoryTaskStore store = new InMemoryTaskStore();
+        store.saveTask(task);
+        List<String> events = new ArrayList<>();
+        RecordingScheduler scheduler = new RecordingScheduler(events);
+        RecordingStopRegistry registry = new RecordingStopRegistry(events);
+        TaskService service = new TaskService(
+                store,
+                new EmptyTaskGroupStore(),
+                new InMemoryTaskTurnStore(),
+                registry,
+                scheduler,
+                new GitRunner());
+
+        service.stop(task.id());
+
+        assertThat(events).containsExactly(
+                "cancel:" + task.id(),
+                "stop",
+                "evict:" + task.id());
+    }
+
+    @Test
+    void deleteCancelsQueuedTurnsBeforeDeletingTask()
+    {
+        Task task = task("task-1", TaskStatus.COMPLETED);
+        InMemoryTaskStore store = new InMemoryTaskStore();
+        store.saveTask(task);
+        RecordingScheduler scheduler = new RecordingScheduler();
+        TaskService service = new TaskService(
+                store,
+                new EmptyTaskGroupStore(),
+                new InMemoryTaskTurnStore(),
+                new ThrowingRegistry(),
+                scheduler,
+                new GitRunner());
+
+        service.delete(task.id());
+
+        assertThat(scheduler.cancelledTaskIds).containsExactly(task.id());
+        assertThat(store.findTaskById(task.id())).isEmpty();
+    }
+
     private record QueuedRequest(Task task, String input) {}
 
     private static final class RecordingScheduler
             implements TaskTurnScheduler
     {
         private final List<QueuedRequest> requests = new ArrayList<>();
+        private final List<String> cancelledTaskIds = new ArrayList<>();
+        private final List<String> events;
+
+        private RecordingScheduler()
+        {
+            this(new ArrayList<>());
+        }
+
+        private RecordingScheduler(List<String> events)
+        {
+            this.events = events;
+        }
 
         @Override
         public String enqueueTurn(Task task, String input)
         {
             requests.add(new QueuedRequest(task, input));
             return "turn-" + requests.size();
+        }
+
+        @Override
+        public int cancelQueuedTurns(String taskId)
+        {
+            cancelledTaskIds.add(taskId);
+            events.add("cancel:" + taskId);
+            return 0;
+        }
+    }
+
+    private static final class RecordingStopRegistry
+            extends TaskSessionRegistry
+    {
+        private final List<String> events;
+        private final RecordingStopSession session;
+
+        private RecordingStopRegistry(List<String> events)
+        {
+            super(
+                    new InMemoryTaskStore(),
+                    new StreamJsonParser(new ObjectMapper()),
+                    new ObjectMapper(),
+                    new McpPermissionGate(),
+                    Executors.newSingleThreadExecutor());
+            this.events = events;
+            this.session = new RecordingStopSession(events);
+        }
+
+        @Override
+        public AgentSession getOrCreate(Task task)
+        {
+            return session;
+        }
+
+        @Override
+        public void evict(String taskId)
+        {
+            events.add("evict:" + taskId);
+        }
+    }
+
+    private static final class RecordingStopSession
+            implements AgentSession
+    {
+        private final List<String> events;
+
+        private RecordingStopSession(List<String> events)
+        {
+            this.events = events;
+        }
+
+        @Override
+        public String id()
+        {
+            return "task-1";
+        }
+
+        @Override
+        public TaskKind kind()
+        {
+            return TaskKind.CLI_AGENT;
+        }
+
+        @Override
+        public String provider()
+        {
+            return "claude-code";
+        }
+
+        @Override
+        public String model()
+        {
+            return "claude-sonnet-4.6";
+        }
+
+        @Override
+        public String workingDir()
+        {
+            return "/tmp/work";
+        }
+
+        @Override
+        public String branchName()
+        {
+            return "main";
+        }
+
+        @Override
+        public TaskStatus status()
+        {
+            return TaskStatus.IDLE;
+        }
+
+        @Override
+        public AgentMetrics metrics()
+        {
+            return new AgentMetrics(0, 0, 0, 0, 0, 0);
+        }
+
+        @Override
+        public List<TaskMessage> history()
+        {
+            return List.of();
+        }
+
+        @Override
+        public CompletionStage<Void> send(String userInput)
+        {
+            return CompletableFuture.completedFuture(null);
+        }
+
+        @Override
+        public void interrupt() {}
+
+        @Override
+        public void pause() {}
+
+        @Override
+        public void resume() {}
+
+        @Override
+        public void stop()
+        {
+            events.add("stop");
+        }
+
+        @Override
+        public void notifyPermissionRequested(String callId, String toolName, String summary) {}
+
+        @Override
+        public void decide(String callId, PermissionDecision decision) {}
+
+        @Override
+        public void grantToolBudget(String toolName, int count) {}
+
+        @Override
+        public OptionalInt tryConsumeToolBudget(String toolName)
+        {
+            return OptionalInt.empty();
+        }
+
+        @Override
+        public void notifyPermissionAutoAllowed(String callId, String toolName, int remaining) {}
+
+        @Override
+        public Runnable subscribeToEvents(Consumer<StreamEvent> listener)
+        {
+            return () -> {};
         }
     }
 
@@ -371,6 +585,17 @@ class TestTaskServiceScheduler
         }
 
         @Override
+        public List<TaskTurn> listTurnsByTaskIdAndStatus(String taskId, TaskTurnStatus status, int limit)
+        {
+            return turns.values().stream()
+                    .filter(turn -> turn.taskId().equals(taskId))
+                    .filter(turn -> turn.status() == status)
+                    .sorted(Comparator.comparing(TaskTurn::createdAt).reversed())
+                    .limit(limit)
+                    .toList();
+        }
+
+        @Override
         public List<TaskTurn> listTurnsByTaskId(String taskId, int limit)
         {
             return turns.values().stream()
@@ -408,6 +633,11 @@ class TestTaskServiceScheduler
 
     private static Task task(String id)
     {
+        return task(id, TaskStatus.IDLE);
+    }
+
+    private static Task task(String id, TaskStatus status)
+    {
         Instant now = Instant.parse("2026-05-18T12:00:00Z");
         Task task = new Task(
                 id,
@@ -415,7 +645,7 @@ class TestTaskServiceScheduler
                 "claude-code",
                 /* agentSessionId */ null,
                 "Fix tests",
-                TaskStatus.IDLE,
+                status,
                 "/tmp/work",
                 "main",
                 "claude-sonnet-4.6",
@@ -432,7 +662,6 @@ class TestTaskServiceScheduler
                 "DEVELOP",
                 /* linkedPrNumber */ null,
                 /* linkedIssueNumber */ null);
-        assertThat(task.status()).isEqualTo(TaskStatus.IDLE);
         return task;
     }
 }

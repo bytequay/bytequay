@@ -37,6 +37,12 @@ public interface TaskTurnStore
     /** Turns in any of the supplied statuses, oldest-first by creation time. */
     List<TaskTurn> listTurnsByStatuses(Collection<TaskTurnStatus> statuses, int limit);
 
+    /**
+     * Turns for one task in one status, newest-first by creation time.
+     * The limit is a caller-selected page size.
+     */
+    List<TaskTurn> listTurnsByTaskIdAndStatus(String taskId, TaskTurnStatus status, int limit);
+
     /** Turns for one task, newest-first by creation time. */
     List<TaskTurn> listTurnsByTaskId(String taskId, int limit);
 }

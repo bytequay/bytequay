@@ -1247,6 +1247,23 @@ export type TaskTurnDto = {
   errorMessage: string | null;
 };
 
+export type TaskTurnEventTypeDto =
+  | 'TURN_QUEUED'
+  | 'TURN_STARTED'
+  | 'TURN_FINISHED'
+  | 'TURN_CANCELLED';
+
+/** Durable scheduler event for one task turn. Complements
+ *  TaskTurnDto with a chronological "why did this happen?" trail. */
+export type TaskTurnEventDto = {
+  id: string;
+  turnId: string;
+  taskId: string;
+  event: TaskTurnEventTypeDto;
+  createdAt: string;
+  message: string | null;
+};
+
 export type TaskSendResultDto = {
   status: 'queued';
   turnId: string;
@@ -1262,6 +1279,36 @@ export type TaskSendResultDto = {
 export type TaskStreamEvent = {
   name: string;
   data: Record<string, unknown>;
+};
+
+/** One row of the floating conversation-index panel. Derived
+ *  server-side from {@code task_messages} — never stored — so
+ *  the panel can't drift from the rendered transcript. */
+export type ConvIndexEntryDto = {
+  seq: number;
+  preview: string;
+  tsMs: number;
+};
+
+/** Conversation-index window response. Carries both the user-prompt
+ *  index entries and the matching {@code task_messages} rows in a
+ *  single round-trip so the index and the agent terminal stay in
+ *  lockstep — fetching one without the other would let them desync.
+ *
+ *  Two modes share the same shape:
+ *  - {@code initial}: tail window for the page-open render.
+ *  - {@code before} (with cursor): older window prepended on
+ *    "↑ load earlier".
+ *
+ *  {@code nextCursor} is the smallest seq strictly less than the
+ *  loaded window — null when the start of the task is reached. */
+export type ConvIndexPageDto = {
+  taskId: string;
+  totalUserMessages: number;
+  entries: ConvIndexEntryDto[];
+  messages: TaskMessageDto[];
+  loadedFromSeq: number | null;
+  nextCursor: number | null;
 };
 
 export type TaskMessageDto = {
@@ -1909,9 +1956,22 @@ export type Bridge = {
   /** Persisted conversation log, oldest first by {@code seq}. The
    *  detail page polls this while the task is live. */
   getTaskMessages: (id: string) => Promise<TaskMessageDto[]>;
+  /** One window of the conversation index — user-prompt entries
+   *  plus the matching messages, fetched together so the floating
+   *  index panel and the agent terminal can't drift. Pass no
+   *  cursor for the initial tail window; pass the smallest loaded
+   *  seq with {@code direction: 'before'} to backfill on
+   *  "↑ load earlier". */
+  getTaskIndex: (
+    id: string,
+    opts?: { cursor?: number; limit?: number; direction?: 'initial' | 'before' },
+  ) => Promise<ConvIndexPageDto>;
   /** Recent scheduler turns, newest first. Used to distinguish
    *  queued work from an active CLI/API run. */
   getTaskTurns: (id: string) => Promise<TaskTurnDto[]>;
+  /** Recent scheduler events, newest first. Explains queued/running/
+   *  cancelled transitions without reading backend logs. */
+  getTaskTurnEvents: (id: string) => Promise<TaskTurnEventDto[]>;
   /** Per-(task, path) rollup rows for the detail-page sidebar. */
   getTaskFiles: (id: string) => Promise<TaskFileDto[]>;
   /** Rename a task. Trimmed and non-blank — empty / whitespace

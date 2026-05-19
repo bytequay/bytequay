@@ -2700,6 +2700,36 @@ const url = new URL(`${BACKEND_BASE}/api/search/repos`);
     return res.json();
   });
 
+  ipcMain.handle('tasks:index', async (_event, payload: unknown) => {
+    if (typeof payload !== 'object' || payload === null) {
+      throw new Error('payload must be an object');
+    }
+    const { id, cursor, limit, direction } = payload as {
+      id?: unknown; cursor?: unknown; limit?: unknown; direction?: unknown;
+    };
+    if (typeof id !== 'string' || id.trim().length === 0) {
+      throw new Error('id must be a non-empty string');
+    }
+    const url = new URL(`${BACKEND_BASE}/api/tasks/${encodeURIComponent(id)}/index`);
+    if (typeof cursor === 'number' && Number.isFinite(cursor)) {
+      url.searchParams.set('cursor', String(Math.trunc(cursor)));
+    }
+    if (typeof limit === 'number' && Number.isFinite(limit) && limit > 0) {
+      url.searchParams.set('limit', String(Math.trunc(limit)));
+    }
+    if (direction === 'initial' || direction === 'before') {
+      url.searchParams.set('direction', direction);
+    } else if (direction !== undefined) {
+      throw new Error('direction must be initial or before');
+    }
+    const res = await fetch(url);
+    if (!res.ok) {
+      const text = await res.text().catch(() => '');
+      throw new Error(`backend GET /api/tasks/${id}/index returned ${res.status}: ${text}`);
+    }
+    return res.json();
+  });
+
   ipcMain.handle('tasks:turns', async (_event, id: unknown) => {
     if (typeof id !== 'string' || id.trim().length === 0) {
       throw new Error('id must be a non-empty string');
@@ -2709,6 +2739,19 @@ const url = new URL(`${BACKEND_BASE}/api/search/repos`);
     if (!res.ok) {
       const text = await res.text().catch(() => '');
       throw new Error(`backend GET /api/tasks/${id}/turns returned ${res.status}: ${text}`);
+    }
+    return res.json();
+  });
+
+  ipcMain.handle('tasks:turnEvents', async (_event, id: unknown) => {
+    if (typeof id !== 'string' || id.trim().length === 0) {
+      throw new Error('id must be a non-empty string');
+    }
+    const res = await fetch(
+      `${BACKEND_BASE}/api/tasks/${encodeURIComponent(id)}/turn-events`);
+    if (!res.ok) {
+      const text = await res.text().catch(() => '');
+      throw new Error(`backend GET /api/tasks/${id}/turn-events returned ${res.status}: ${text}`);
     }
     return res.json();
   });

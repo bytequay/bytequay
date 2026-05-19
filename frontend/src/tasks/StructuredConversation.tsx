@@ -331,8 +331,14 @@ function DaySeparator({ iso }: { iso: string }) {
 
 function UserCard({ message }: { message: TaskMessageDto }) {
   const text = String(parseContent(message.contentJson).text ?? '');
+  // data-seq lets the floating ConvIndex panel scroll the
+  // transcript to a specific prompt: each user-message row carries
+  // its task_messages.seq, and the index's click handler runs
+  // scrollIntoView on the matching element. Other message types
+  // are intentionally not tagged — the index navigates by user
+  // prompt only.
   return (
-    <article style={userCardStyle}>
+    <article style={userCardStyle} data-seq={message.seq}>
       <header style={cardHeaderStyle}>
         <span style={userAvatarStyle}>Y</span>
         <span style={cardNameStyle}>You</span>

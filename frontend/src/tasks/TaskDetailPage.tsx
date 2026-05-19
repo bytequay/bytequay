@@ -12,7 +12,17 @@
  * limitations under the License.
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import type { TaskDto, TaskFileDto, TaskGroupDto, TaskGroupMembershipDto, TaskMessageDto, TaskStatusDto, TaskTurnDto, WatchedRepoDto } from '../types';
+import type {
+  TaskDto,
+  TaskFileDto,
+  TaskGroupDto,
+  TaskGroupMembershipDto,
+  TaskMessageDto,
+  TaskStatusDto,
+  TaskTurnDto,
+  TaskTurnEventDto,
+  WatchedRepoDto,
+} from '../types';
 import GroupMenu from './GroupMenu';
 import { ConversationPane, type PendingPermission } from './ConversationPane';
 import { StructuredConversation } from './StructuredConversation';
@@ -25,6 +35,7 @@ import TasksLeftRail, {
 } from './TasksLeftRail';
 import RepoAvatar from './RepoAvatar';
 import { useAutoGrowTextarea, usePersistentDraft } from './draftStore';
+import { ConvIndex } from './ConvIndex';
 import { DiffModeToggle, TaskDiffPane, useTaskDiffState, type DiffMode } from './TaskChangesTab';
 
 type Props = {
@@ -193,6 +204,7 @@ export default function TaskDetailPage({
   const [task, setTask] = useState<TaskDto | null>(null);
   const [messages, setMessages] = useState<TaskMessageDto[]>([]);
   const [turns, setTurns] = useState<TaskTurnDto[]>([]);
+  const [turnEvents, setTurnEvents] = useState<TaskTurnEventDto[]>([]);
   const [files, setFiles] = useState<TaskFileDto[]>([]);
   const [allTasks, setAllTasks] = useState<TaskDto[]>([]);
   const [groups, setGroups] = useState<TaskGroupDto[]>([]);
@@ -225,10 +237,11 @@ export default function TaskDetailPage({
 
   const refresh = useCallback(async () => {
     try {
-      const [t, m, ts, fs, list, gs, ms, wrs] = await Promise.all([
+      const [t, m, ts, tes, fs, list, gs, ms, wrs] = await Promise.all([
         window.bridge.getTask(taskId),
         window.bridge.getTaskMessages(taskId),
         window.bridge.getTaskTurns(taskId).catch(() => [] as TaskTurnDto[]),
+        window.bridge.getTaskTurnEvents(taskId).catch(() => [] as TaskTurnEventDto[]),
         window.bridge.getTaskFiles(taskId).catch(() => [] as TaskFileDto[]),
         window.bridge.listTasks(),
         window.bridge.listTaskGroups().catch(() => [] as TaskGroupDto[]),
@@ -238,6 +251,7 @@ export default function TaskDetailPage({
       setTask(t);
       setMessages(m);
       setTurns(ts);
+      setTurnEvents(tes);
       setFiles(fs);
       setAllTasks(list);
       setGroups(gs);
@@ -337,6 +351,19 @@ export default function TaskDetailPage({
   const [liveUsage, setLiveUsage] = useState<{ tokensIn: number; tokensOut: number } | null>(null);
   const liveUsageRef = useRef<{ tokensIn: number; tokensOut: number } | null>(null);
 
+  // The ConvIndex panel borrows this ref to register its own SSE
+  // callback (UserMessage / TurnDone → re-fetch the tail window).
+  // We route through the same ref the floating panel populates so
+  // we don't open a second SSE stream per task — one subscriber,
+  // multiple consumers. Null when the panel isn't mounted (e.g.
+  // empty task or terminal view).
+  const convIndexSseRef = useRef<((name: string) => void) | null>(null);
+
+  // Scroll container for the agent transcript. The ConvIndex's
+  // click handler runs scrollIntoView on the user-message row in
+  // here that matches the clicked entry's seq.
+  const historyScrollRef = useRef<HTMLDivElement | null>(null);
+
   // Live SSE subscription — split into two paths by event kind:
   //  • AssistantTextDelta: append the chunk to the live buffer, no
   //    refresh (deltas aren't persisted; /messages wouldn't change).
@@ -373,6 +400,11 @@ export default function TaskDetailPage({
       }, STREAM_REFRESH_DEBOUNCE_MS);
     };
     const onEvent = (event: { name: string; data: Record<string, unknown> }) => {
+      // Fan out to the floating ConvIndex panel first so its
+      // tail-window refetch runs in parallel with the parent's
+      // own refresh. The panel ignores everything except
+      // UserMessage / TurnDone, so this is cheap.
+      convIndexSseRef.current?.(event.name);
       if (event.name === 'AssistantTextDelta') {
         const chunk = typeof event.data.textChunk === 'string' ? event.data.textChunk : '';
         if (chunk.length === 0) return;
@@ -561,6 +593,7 @@ export default function TaskDetailPage({
           task={task}
           messages={messages}
           turns={turns}
+          turnEvents={turnEvents}
           files={files}
           liveUsage={liveUsage}
           groups={groups}
@@ -607,6 +640,9 @@ export default function TaskDetailPage({
                 onResume={onResume}
                 liveText={liveText}
                 liveUsage={liveUsage}
+                taskId={taskId}
+                historyScrollRef={historyScrollRef}
+                convIndexSseRef={convIndexSseRef}
               />
             )}
             {view === 'terminal' && (
@@ -833,6 +869,9 @@ function StructuredView({
   onResume,
   liveText,
   liveUsage,
+  taskId,
+  historyScrollRef,
+  convIndexSseRef,
 }: {
   task: TaskDto;
   messages: TaskMessageDto[];
@@ -876,6 +915,18 @@ function StructuredView({
    *  show "↑/↓ N tokens" next to the elapsed counter in the LIVE
    *  bar, matching what Claude Code's CLI shows while thinking. */
   liveUsage: { tokensIn: number; tokensOut: number } | null;
+  /** Task id used by the floating ConvIndex panel to fetch its
+   *  own /index window. Passed through rather than re-derived so
+   *  the parent owns the source of truth. */
+  taskId: string;
+  /** The agent transcript's scroll container — ConvIndex calls
+   *  {@code scrollIntoView()} on the matching {@code data-seq}
+   *  element inside it when the user clicks an index row. */
+  historyScrollRef: React.RefObject<HTMLDivElement | null>;
+  /** Where ConvIndex stuffs its SSE callback. The parent invokes
+   *  the callback from its existing stream handler so we don't
+   *  open a second SSE per task. */
+  convIndexSseRef: React.MutableRefObject<((name: string) => void) | null>;
 }) {
   const turns = useMemo(
     () => messages.filter(m => m.type === 'turn_done').length,
@@ -959,7 +1010,7 @@ function StructuredView({
             )}
           </div>
         </div>
-        <div style={historyScrollStyle}>
+        <div ref={historyScrollRef} style={historyScrollStyle}>
           <StructuredConversation
             messages={messages}
             pendingPermission={pendingPermission}
@@ -968,6 +1019,14 @@ function StructuredView({
             liveText={liveText}
           />
         </div>
+        {/* Floating right-edge index panel — anchored to the
+            history zone (position: relative on the parent). Hidden
+            automatically when the task has no user prompts yet. */}
+        <ConvIndex
+          taskId={taskId}
+          scrollContainerRef={historyScrollRef}
+          onSseEvent={convIndexSseRef}
+        />
       </div>
 
       {isRunning && (
@@ -1107,7 +1166,7 @@ function ResumeBanner({
  *    captured in followups/tasks-checkpoints-and-context.md
  */
 function TaskWindowSidebar({
-  task, messages, turns, files, liveUsage,
+  task, messages, turns, turnEvents, files, liveUsage,
   groups, currentGroupIds, onToggleGroup,
   onOpenPr,
   onBack, onCollapse,
@@ -1115,6 +1174,7 @@ function TaskWindowSidebar({
   task: TaskDto;
   messages: TaskMessageDto[];
   turns: TaskTurnDto[];
+  turnEvents: TaskTurnEventDto[];
   files: TaskFileDto[];
   liveUsage: { tokensIn: number; tokensOut: number } | null;
   groups: TaskGroupDto[];
@@ -1188,6 +1248,7 @@ function TaskWindowSidebar({
           {scheduler.latestInput !== '' && (
             <Metric label="Latest input" value={scheduler.latestInput} wrap />
           )}
+          <SchedulerEventHistory events={turnEvents} />
         </div>
       </SidebarSection>
 
@@ -2029,6 +2090,30 @@ function Metric({
   );
 }
 
+function SchedulerEventHistory({ events }: { events: TaskTurnEventDto[] }) {
+  const recent = events.slice(0, 3);
+  if (recent.length === 0) {
+    return <Metric label="Events" value="none" />;
+  }
+  return (
+    <div style={metricRowWrapStyle}>
+      <span style={metricLabelStyle}>Events</span>
+      <div style={schedulerEventListStyle}>
+        {recent.map(event => (
+          <div key={event.id} style={schedulerEventRowStyle} title={schedulerEventTitle(event)}>
+            <span style={schedulerEventNameStyle}>{formatSchedulerEventName(event.event)}</span>
+            <span style={schedulerEventTimeStyle}>{ageOf(event.createdAt)}</span>
+            <span style={schedulerEventTurnStyle}>#{shortId(event.turnId)}</span>
+            {event.message && (
+              <span style={schedulerEventMsgStyle}>{event.message}</span>
+            )}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 function StatusPill({ status }: { status: TaskStatusDto }) {
   const palette = statusPillPalette(status);
   return (
@@ -2315,6 +2400,24 @@ function ageOf(iso: string): string {
   const h = Math.round(m / 60);
   if (h < 24) return `${h}h ago`;
   return `${Math.round(h / 24)}d ago`;
+}
+
+function formatSchedulerEventName(event: TaskTurnEventDto['event']): string {
+  switch (event) {
+    case 'TURN_QUEUED':
+      return 'queued';
+    case 'TURN_STARTED':
+      return 'started';
+    case 'TURN_FINISHED':
+      return 'finished';
+    case 'TURN_CANCELLED':
+      return 'cancelled';
+  }
+}
+
+function schedulerEventTitle(event: TaskTurnEventDto): string {
+  const message = event.message ? ` · ${event.message}` : '';
+  return `${formatSchedulerEventName(event.event)} · ${event.turnId} · ${new Date(event.createdAt).toLocaleString()}${message}`;
 }
 
 function formatCost(milli: number | null): string {
@@ -2978,6 +3081,32 @@ const metricSubStyle: React.CSSProperties = {
   fontSize: 11, color: 'var(--text-3)', marginLeft: 4, fontWeight: 400,
 };
 
+const schedulerEventListStyle: React.CSSProperties = {
+  display: 'flex', flexDirection: 'column', gap: 5,
+};
+const schedulerEventRowStyle: React.CSSProperties = {
+  display: 'grid', gridTemplateColumns: '64px 56px minmax(0, 1fr)',
+  alignItems: 'baseline', gap: 6,
+  fontSize: 11.5, lineHeight: 1.35,
+};
+const schedulerEventNameStyle: React.CSSProperties = {
+  color: 'var(--text-1)', fontWeight: 600,
+  overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+};
+const schedulerEventTimeStyle: React.CSSProperties = {
+  color: 'var(--text-3)', fontVariantNumeric: 'tabular-nums',
+  overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+};
+const schedulerEventTurnStyle: React.CSSProperties = {
+  color: 'var(--text-3)', fontFamily: '"SF Mono", Menlo, monospace',
+  overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+};
+const schedulerEventMsgStyle: React.CSSProperties = {
+  gridColumn: '1 / -1',
+  color: 'var(--text-3)',
+  overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+};
+
 
 const errorBannerStyle: React.CSSProperties = {
   padding: '12px 16px', margin: '0 36px 24px',
@@ -3011,6 +3140,11 @@ const historyZoneStyle: React.CSSProperties = {
   border: '1px solid var(--border)',
   borderRadius: 8,
   overflow: 'hidden',
+  // position: relative anchors the floating ConvIndex panel (which
+  // uses position: absolute) to this zone's bounds instead of the
+  // viewport — without it the panel would jump around when the
+  // surrounding layout reflowed.
+  position: 'relative',
 };
 const zoneHeaderStyle: React.CSSProperties = {
   display: 'flex',

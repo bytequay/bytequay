@@ -49,9 +49,11 @@ import type {
   TaskGroupDto,
   TaskGroupMembershipDto,
   TaskGroupPatchDto,
+  ConvIndexPageDto,
   TaskMessageDto,
   TaskSendResultDto,
   TaskStreamEvent,
+  TaskTurnEventDto,
   TaskTurnDto,
   TeamDto,
   TeamSummaryDto,
@@ -481,8 +483,15 @@ const bridge: Bridge = {
     ipcRenderer.invoke('tasks:get', id),
   getTaskMessages: (id: string): Promise<TaskMessageDto[]> =>
     ipcRenderer.invoke('tasks:messages', id),
+  getTaskIndex: (
+    id: string,
+    opts?: { cursor?: number; limit?: number; direction?: 'initial' | 'before' },
+  ): Promise<ConvIndexPageDto> =>
+    ipcRenderer.invoke('tasks:index', { id, ...opts }),
   getTaskTurns: (id: string): Promise<TaskTurnDto[]> =>
     ipcRenderer.invoke('tasks:turns', id),
+  getTaskTurnEvents: (id: string): Promise<TaskTurnEventDto[]> =>
+    ipcRenderer.invoke('tasks:turnEvents', id),
   getTaskFiles: (id: string): Promise<TaskFileDto[]> =>
     ipcRenderer.invoke('tasks:files', id),
   renameTask: (id: string, title: string): Promise<TaskDto> =>

@@ -1249,6 +1249,7 @@ export type TaskTurnDto = {
 
 export type TaskTurnEventTypeDto =
   | 'TURN_QUEUED'
+  | 'WAITING_FOR_CAPACITY'
   | 'TURN_STARTED'
   | 'TURN_FINISHED'
   | 'TURN_CANCELLED';

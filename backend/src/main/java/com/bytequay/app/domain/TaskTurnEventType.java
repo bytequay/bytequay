@@ -16,6 +16,7 @@ package com.bytequay.app.domain;
 public enum TaskTurnEventType
 {
     TURN_QUEUED,
+    WAITING_FOR_CAPACITY,
     TURN_STARTED,
     TURN_FINISHED,
     TURN_CANCELLED

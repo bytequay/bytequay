@@ -52,6 +52,7 @@ import static com.bytequay.app.domain.TaskTurnEventType.TURN_CANCELLED;
 import static com.bytequay.app.domain.TaskTurnEventType.TURN_FINISHED;
 import static com.bytequay.app.domain.TaskTurnEventType.TURN_QUEUED;
 import static com.bytequay.app.domain.TaskTurnEventType.TURN_STARTED;
+import static com.bytequay.app.domain.TaskTurnEventType.WAITING_FOR_CAPACITY;
 import static com.bytequay.app.domain.TaskTurnStatus.CANCELLED;
 import static com.bytequay.app.domain.TaskTurnStatus.COMPLETED;
 import static com.bytequay.app.domain.TaskTurnStatus.FAILED;
@@ -203,10 +204,48 @@ class TestAgentScheduler
         assertThat(harness.scheduler.cancelQueuedTurns(second.id())).isEqualTo(1);
         assertThat(harness.events.listEventsByTaskId(second.id(), 10))
                 .extracting(TaskTurnEvent::event)
-                .containsExactlyInAnyOrder(TURN_CANCELLED, TURN_QUEUED);
+                .containsExactlyInAnyOrder(TURN_CANCELLED, WAITING_FOR_CAPACITY, TURN_QUEUED);
         assertThat(harness.events.listEventsByTaskId(second.id(), 10))
                 .extracting(TaskTurnEvent::turnId)
                 .containsOnly(cancelledTurn);
+    }
+
+    @Test
+    void appendsWaitingEventWhenLaneIsFull()
+    {
+        TestHarness harness = new TestHarness(1, 4);
+        Task first = task("task-1", CLI_AGENT);
+        Task second = task("task-2", CLI_AGENT);
+        harness.register(first);
+        harness.register(second);
+
+        harness.scheduler.enqueueTurn(first, "first");
+        String waitingTurn = harness.scheduler.enqueueTurn(second, "second");
+
+        assertThat(harness.events.listEventsByTaskId(second.id(), 10))
+                .anySatisfy(event -> {
+                    assertThat(event.turnId()).isEqualTo(waitingTurn);
+                    assertThat(event.event()).isEqualTo(WAITING_FOR_CAPACITY);
+                    assertThat(event.message()).isEqualTo("waiting for cli lane capacity");
+                });
+    }
+
+    @Test
+    void appendsWaitingEventWhenSameTaskAlreadyHasRunningTurn()
+    {
+        TestHarness harness = new TestHarness(2, 4);
+        Task task = task("task-1", CLI_AGENT);
+        harness.register(task);
+
+        harness.scheduler.enqueueTurn(task, "first");
+        String waitingTurn = harness.scheduler.enqueueTurn(task, "second");
+
+        assertThat(harness.events.listEventsByTaskId(task.id(), 10))
+                .anySatisfy(event -> {
+                    assertThat(event.turnId()).isEqualTo(waitingTurn);
+                    assertThat(event.event()).isEqualTo(WAITING_FOR_CAPACITY);
+                    assertThat(event.message()).isEqualTo("waiting for previous turn for this task");
+                });
     }
 
     @Test

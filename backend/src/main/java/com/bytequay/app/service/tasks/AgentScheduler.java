@@ -34,6 +34,7 @@ import java.util.EnumMap;
 import java.util.HashSet;
 import java.util.Iterator;
 import java.util.List;
+import java.util.Locale;
 import java.util.NoSuchElementException;
 import java.util.Optional;
 import java.util.Set;
@@ -47,6 +48,7 @@ import static com.bytequay.app.domain.TaskTurnEventType.TURN_CANCELLED;
 import static com.bytequay.app.domain.TaskTurnEventType.TURN_FINISHED;
 import static com.bytequay.app.domain.TaskTurnEventType.TURN_QUEUED;
 import static com.bytequay.app.domain.TaskTurnEventType.TURN_STARTED;
+import static com.bytequay.app.domain.TaskTurnEventType.WAITING_FOR_CAPACITY;
 import static com.bytequay.app.domain.TaskTurnStatus.CANCELLED;
 import static com.bytequay.app.domain.TaskTurnStatus.COMPLETED;
 import static com.bytequay.app.domain.TaskTurnStatus.FAILED;
@@ -205,6 +207,9 @@ public class AgentScheduler
                 lane.queue.addLast(turn);
             }
             drainLocked();
+            if (lane.knownTurnIds.contains(turn.id())) {
+                appendEvent(turn, WAITING_FOR_CAPACITY, waitingReason(turn, lane));
+            }
         }
     }
 
@@ -334,6 +339,17 @@ public class AgentScheduler
             case CLI_AGENT -> CLI;
             case LOGIC_LOOP -> API;
         };
+    }
+
+    private String waitingReason(TaskTurn turn, LaneState lane)
+    {
+        if (lane.running >= lane.maxRunning) {
+            return "waiting for " + turn.lane().name().toLowerCase(Locale.ROOT) + " lane capacity";
+        }
+        if (runningTaskIds.contains(turn.taskId())) {
+            return "waiting for previous turn for this task";
+        }
+        return "waiting for scheduler capacity";
     }
 
     private void appendEvent(TaskTurn turn, TaskTurnEventType event, String message)

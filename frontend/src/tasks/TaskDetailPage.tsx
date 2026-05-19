@@ -2406,6 +2406,8 @@ function formatSchedulerEventName(event: TaskTurnEventDto['event']): string {
   switch (event) {
     case 'TURN_QUEUED':
       return 'queued';
+    case 'WAITING_FOR_CAPACITY':
+      return 'waiting';
     case 'TURN_STARTED':
       return 'started';
     case 'TURN_FINISHED':

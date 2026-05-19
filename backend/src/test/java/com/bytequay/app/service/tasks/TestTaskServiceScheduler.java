@@ -284,6 +284,44 @@ class TestTaskServiceScheduler
     }
 
     @Test
+    void listByStatusReturnsEmptyForNonPositiveLimit()
+    {
+        InMemoryTaskStore store = new InMemoryTaskStore();
+        store.saveTask(task("task-1"));
+        TaskService service = new TaskService(
+                store,
+                new EmptyTaskGroupStore(),
+                new InMemoryTaskTurnStore(),
+                new InMemoryTaskTurnEventStore(),
+                new ThrowingRegistry(),
+                new RecordingScheduler(),
+                new GitRunner());
+
+        assertThat(service.listByStatus(TaskStatus.IDLE, 0)).isEmpty();
+        assertThat(service.listByStatus(TaskStatus.IDLE, -1)).isEmpty();
+    }
+
+    @Test
+    void listByGroupReturnsEmptyForNonPositiveLimit()
+    {
+        InMemoryTaskStore store = new InMemoryTaskStore();
+        Task task = task("task-1");
+        store.saveTask(task);
+        Instant now = Instant.parse("2026-05-18T12:00:00Z");
+        TaskService service = new TaskService(
+                store,
+                new EmptyTaskGroupStore(List.of(new TaskGroupMembership(task.id(), "group-1", now))),
+                new InMemoryTaskTurnStore(),
+                new InMemoryTaskTurnEventStore(),
+                new ThrowingRegistry(),
+                new RecordingScheduler(),
+                new GitRunner());
+
+        assertThat(service.listByGroup("group-1", 0)).isEmpty();
+        assertThat(service.listByGroup("group-1", -1)).isEmpty();
+    }
+
+    @Test
     void stopCancelsQueuedTurnsBeforeStoppingSession()
     {
         Task task = task();
@@ -564,6 +602,18 @@ class TestTaskServiceScheduler
     private static final class EmptyTaskGroupStore
             implements TaskGroupStore
     {
+        private final List<TaskGroupMembership> memberships;
+
+        private EmptyTaskGroupStore()
+        {
+            this(List.of());
+        }
+
+        private EmptyTaskGroupStore(List<TaskGroupMembership> memberships)
+        {
+            this.memberships = List.copyOf(memberships);
+        }
+
         @Override
         public void saveGroup(TaskGroup group) {}
 
@@ -591,19 +641,23 @@ class TestTaskServiceScheduler
         @Override
         public List<TaskGroupMembership> listMembers(String groupId)
         {
-            return List.of();
+            return memberships.stream()
+                    .filter(membership -> membership.groupId().equals(groupId))
+                    .toList();
         }
 
         @Override
         public List<TaskGroupMembership> listMemberships(String taskId)
         {
-            return List.of();
+            return memberships.stream()
+                    .filter(membership -> membership.taskId().equals(taskId))
+                    .toList();
         }
 
         @Override
         public List<TaskGroupMembership> listAllMemberships()
         {
-            return List.of();
+            return memberships;
         }
 
         @Override

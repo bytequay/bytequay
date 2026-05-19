@@ -103,11 +103,17 @@ public class TaskService
 
     public List<Task> listByStatus(TaskStatus status, int limit)
     {
+        if (limit <= 0) {
+            return List.of();
+        }
         return store.listTasksByStatus(status, limit);
     }
 
     public List<Task> listByGroup(String groupId, int limit)
     {
+        if (limit <= 0) {
+            return List.of();
+        }
         List<String> memberIds = groupStore.listMembers(groupId).stream()
                 .map(TaskGroupMembership::taskId)
                 .toList();

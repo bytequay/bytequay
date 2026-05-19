@@ -43,10 +43,7 @@ public class TaskStartupReconciler
 {
     private static final Logger log = LoggerFactory.getLogger(TaskStartupReconciler.class);
 
-    /** Effectively unlimited — we want every orphaned RUNNING row,
-     *  not a paged subset. Tasks tables don't reach the millions even
-     *  for power users. */
-    private static final int SCAN_LIMIT = 10_000;
+    private static final int RECONCILE_PAGE_SIZE = 1_000;
 
     private final TaskStore store;
 
@@ -58,22 +55,31 @@ public class TaskStartupReconciler
     @EventListener(ApplicationReadyEvent.class)
     public void reconcileOnStartup()
     {
-        List<Task> orphaned = store.listTasksByStatus(TaskStatus.RUNNING, SCAN_LIMIT);
-        if (orphaned.isEmpty()) {
-            return;
+        int reconciled = 0;
+        while (true) {
+            List<Task> orphaned = store.listTasksByStatus(TaskStatus.RUNNING, RECONCILE_PAGE_SIZE);
+            if (orphaned.isEmpty()) {
+                break;
+            }
+            Instant now = Instant.now();
+            for (Task task : orphaned) {
+                store.saveTask(new Task(
+                        task.id(), task.kind(), task.provider(), task.agentSessionId(),
+                        task.title(), TaskStatus.IDLE, task.workingDir(), task.branchName(),
+                        task.model(),
+                        task.costUsdMilli(), task.tokensIn(), task.tokensOut(),
+                        /* processPid */ null, task.logPath(),
+                        task.createdAt(), now,
+                        task.endedAt(), task.errorMessage(), task.metadataJson(),
+                        task.taskType(), task.linkedPrNumber(), task.linkedIssueNumber()));
+            }
+            reconciled += orphaned.size();
+            if (orphaned.size() < RECONCILE_PAGE_SIZE) {
+                break;
+            }
         }
-        log.info("Reconciling {} orphaned RUNNING task(s) to IDLE", orphaned.size());
-        Instant now = Instant.now();
-        for (Task task : orphaned) {
-            store.saveTask(new Task(
-                    task.id(), task.kind(), task.provider(), task.agentSessionId(),
-                    task.title(), TaskStatus.IDLE, task.workingDir(), task.branchName(),
-                    task.model(),
-                    task.costUsdMilli(), task.tokensIn(), task.tokensOut(),
-                    /* processPid */ null, task.logPath(),
-                    task.createdAt(), now,
-                    task.endedAt(), task.errorMessage(), task.metadataJson(),
-                    task.taskType(), task.linkedPrNumber(), task.linkedIssueNumber()));
+        if (reconciled > 0) {
+            log.info("Reconciled {} orphaned RUNNING task(s) to IDLE", reconciled);
         }
     }
 }

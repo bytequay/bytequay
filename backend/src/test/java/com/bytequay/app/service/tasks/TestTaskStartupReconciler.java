@@ -20,6 +20,8 @@ import com.bytequay.app.repository.TaskStore;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.test.context.TestExecutionListeners;
+import org.springframework.test.context.support.DependencyInjectionTestExecutionListener;
 
 import java.time.Instant;
 import java.util.UUID;
@@ -31,6 +33,9 @@ import static org.assertj.core.api.Assertions.assertThat;
  * store so it covers the same wiring the production startup path uses.
  */
 @SpringBootTest
+@TestExecutionListeners(
+        listeners = DependencyInjectionTestExecutionListener.class,
+        mergeMode = TestExecutionListeners.MergeMode.REPLACE_DEFAULTS)
 class TestTaskStartupReconciler
 {
     @Autowired
@@ -60,6 +65,18 @@ class TestTaskStartupReconciler
                 .isEqualTo(TaskStatus.PENDING);
         assertThat(store.findTaskById(completed.id()).orElseThrow().status())
                 .isEqualTo(TaskStatus.COMPLETED);
+    }
+
+    @Test
+    void pagesThroughAllOrphanedRunningTasks()
+    {
+        for (int i = 0; i < 1_001; i++) {
+            store.saveTask(newTask(TaskStatus.RUNNING));
+        }
+
+        reconciler.reconcileOnStartup();
+
+        assertThat(store.listTasksByStatus(TaskStatus.RUNNING, 1)).isEmpty();
     }
 
     private static Task newTask(TaskStatus status)

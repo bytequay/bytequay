@@ -16,13 +16,16 @@ package com.bytequay.app.web;
 import com.bytequay.app.domain.ConvIndexPage;
 import com.bytequay.app.domain.PermissionDecision;
 import com.bytequay.app.domain.Task;
+import com.bytequay.app.domain.TaskCheckpoint;
 import com.bytequay.app.domain.TaskFile;
 import com.bytequay.app.domain.TaskKind;
 import com.bytequay.app.domain.TaskMessage;
 import com.bytequay.app.domain.TaskStatus;
 import com.bytequay.app.domain.TaskTurn;
 import com.bytequay.app.domain.TaskTurnEvent;
+import com.bytequay.app.repository.TaskCheckpointStore;
 import com.bytequay.app.service.local.GitRunner;
+import com.bytequay.app.service.tasks.CheckpointTrigger;
 import com.bytequay.app.service.tasks.ConvIndexService;
 import com.bytequay.app.service.tasks.TaskService;
 import com.google.common.collect.ImmutableList;
@@ -80,11 +83,19 @@ public class TaskController
 
     private final TaskService tasks;
     private final ConvIndexService convIndex;
+    private final TaskCheckpointStore checkpoints;
+    private final CheckpointTrigger checkpointTrigger;
 
-    public TaskController(TaskService tasks, ConvIndexService convIndex)
+    public TaskController(
+            TaskService tasks,
+            ConvIndexService convIndex,
+            TaskCheckpointStore checkpoints,
+            CheckpointTrigger checkpointTrigger)
     {
         this.tasks = requireNonNull(tasks, "tasks is null");
         this.convIndex = requireNonNull(convIndex, "convIndex is null");
+        this.checkpoints = requireNonNull(checkpoints, "checkpoints is null");
+        this.checkpointTrigger = requireNonNull(checkpointTrigger, "checkpointTrigger is null");
     }
 
     /** GET /api/tasks?status=RUNNING&limit=50&groupId=... */
@@ -213,6 +224,57 @@ public class TaskController
             return convIndex.backfill(id, cursor, limit);
         }
         return convIndex.initial(id, limit);
+    }
+
+    /** GET /api/tasks/{id}/checkpoints — every active checkpoint for
+     *  the task. Overall first, then segments by descending seq, so
+     *  the sidebar card can render newest-on-top without sorting. */
+    @GetMapping("/{id}/checkpoints")
+    public List<TaskCheckpoint> listCheckpoints(@PathVariable String id)
+    {
+        return checkpoints.listActive(id);
+    }
+
+    /** GET /api/tasks/{id}/checkpoints/{checkpointId} — single
+     *  checkpoint for the detail drawer + the cross-task seed loader. */
+    @GetMapping("/{id}/checkpoints/{checkpointId}")
+    public ResponseEntity<TaskCheckpoint> getCheckpoint(
+            @PathVariable String id,
+            @PathVariable String checkpointId)
+    {
+        return checkpoints.findById(checkpointId)
+                .filter(cp -> cp.taskId().equals(id))
+                .map(ResponseEntity::ok)
+                .orElseGet(() -> ResponseEntity.notFound().build());
+    }
+
+    /** POST /api/tasks/{id}/checkpoints — manual generate. Returns the
+     *  new checkpoint or 204 when there's nothing new since the last
+     *  segment (the UI button should be disabled in that state, but
+     *  we still need a safe answer if it fires). */
+    @PostMapping("/{id}/checkpoints")
+    public ResponseEntity<TaskCheckpoint> generateCheckpoint(@PathVariable String id)
+    {
+        return checkpointTrigger.manualGenerate(id)
+                .map(ResponseEntity::ok)
+                .orElseGet(() -> ResponseEntity.noContent().build());
+    }
+
+    /** DELETE /api/tasks/{id}/checkpoints/{checkpointId} — drop one
+     *  per-segment row. The store refuses Overall rows (those are
+     *  scheduler-owned and regenerate on the next turn). */
+    @DeleteMapping("/{id}/checkpoints/{checkpointId}")
+    public ResponseEntity<Void> deleteCheckpoint(
+            @PathVariable String id,
+            @PathVariable String checkpointId)
+    {
+        return checkpoints.findById(checkpointId)
+                .filter(cp -> cp.taskId().equals(id))
+                .map(cp -> {
+                    checkpoints.deleteSegment(checkpointId);
+                    return ResponseEntity.noContent().<Void>build();
+                })
+                .orElseGet(() -> ResponseEntity.notFound().build());
     }
 
     /** GET /api/tasks/{id}/turns — recent scheduler turns, newest first. */

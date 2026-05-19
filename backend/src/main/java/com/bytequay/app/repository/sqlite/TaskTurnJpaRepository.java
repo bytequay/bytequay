@@ -22,4 +22,6 @@ interface TaskTurnJpaRepository
         extends JpaRepository<TaskTurnEntity, String>
 {
     List<TaskTurnEntity> findByStatusOrderByCreatedAtMsAsc(String status, Pageable pageable);
+
+    List<TaskTurnEntity> findByTaskIdOrderByCreatedAtMsDesc(String taskId, Pageable pageable);
 }

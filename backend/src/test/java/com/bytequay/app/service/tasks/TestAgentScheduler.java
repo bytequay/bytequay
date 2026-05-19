@@ -313,6 +313,16 @@ class TestAgentScheduler
                     .limit(limit)
                     .toList();
         }
+
+        @Override
+        public List<TaskTurn> listTurnsByTaskId(String taskId, int limit)
+        {
+            return turns.values().stream()
+                    .filter(turn -> turn.taskId().equals(taskId))
+                    .sorted(Comparator.comparing(TaskTurn::createdAt).reversed())
+                    .limit(limit)
+                    .toList();
+        }
     }
 
     private static final class RecordingSession

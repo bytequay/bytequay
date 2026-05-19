@@ -19,6 +19,7 @@ import com.bytequay.app.domain.TaskFile;
 import com.bytequay.app.domain.TaskKind;
 import com.bytequay.app.domain.TaskMessage;
 import com.bytequay.app.domain.TaskStatus;
+import com.bytequay.app.domain.TaskTurn;
 import com.bytequay.app.service.local.GitRunner;
 import com.bytequay.app.service.tasks.TaskService;
 import com.google.common.collect.ImmutableList;
@@ -158,6 +159,13 @@ public class TaskController
         return tasks.history(id);
     }
 
+    /** GET /api/tasks/{id}/turns — recent scheduler turns, newest first. */
+    @GetMapping("/{id}/turns")
+    public List<TaskTurn> turns(@PathVariable String id)
+    {
+        return tasks.turns(id);
+    }
+
     /** GET /api/tasks/{id}/files — per-file rollup, most-recently
      *  touched first. Powers the sidebar's Files touched card. */
     @GetMapping("/{id}/files")
@@ -223,8 +231,8 @@ public class TaskController
         if (body.input() == null || body.input().isBlank()) {
             throw new IllegalArgumentException("input is required");
         }
-        tasks.send(id, body.input());
-        return ImmutableMap.of("status", "queued");
+        String turnId = tasks.send(id, body.input());
+        return ImmutableMap.of("status", "queued", "turnId", turnId);
     }
 
     @PostMapping("/{id}/interrupt")

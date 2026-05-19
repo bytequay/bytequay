@@ -1134,6 +1134,15 @@ export type TaskStatusDto =
   | 'COMPLETED'
   | 'ERRORED';
 
+export type TaskResourceLaneDto = 'CLI' | 'API';
+
+export type TaskTurnStatusDto =
+  | 'QUEUED'
+  | 'RUNNING'
+  | 'COMPLETED'
+  | 'FAILED'
+  | 'CANCELLED';
+
 export type TaskDto = {
   id: string;
   kind: TaskKindDto;
@@ -1220,6 +1229,27 @@ export type TaskFileDto = {
   linesAdded: number;
   linesRemoved: number;
   lastTouchedAt: string;
+};
+
+/** One queued/running/completed scheduler turn. This is separate from
+ *  TaskMessageDto: messages are the transcript, turns are scheduler
+ *  capacity state. */
+export type TaskTurnDto = {
+  id: string;
+  taskId: string;
+  lane: TaskResourceLaneDto;
+  status: TaskTurnStatusDto;
+  input: string;
+  createdAt: string;
+  updatedAt: string;
+  startedAt: string | null;
+  finishedAt: string | null;
+  errorMessage: string | null;
+};
+
+export type TaskSendResultDto = {
+  status: 'queued';
+  turnId: string;
 };
 
 /** One event delivered over the {@code /api/tasks/:id/stream} SSE
@@ -1876,13 +1906,17 @@ export type Bridge = {
   /** Persisted conversation log, oldest first by {@code seq}. The
    *  detail page polls this while the task is live. */
   getTaskMessages: (id: string) => Promise<TaskMessageDto[]>;
+  /** Recent scheduler turns, newest first. Used to distinguish
+   *  queued work from an active CLI/API run. */
+  getTaskTurns: (id: string) => Promise<TaskTurnDto[]>;
   /** Per-(task, path) rollup rows for the detail-page sidebar. */
   getTaskFiles: (id: string) => Promise<TaskFileDto[]>;
   /** Rename a task. Trimmed and non-blank — empty / whitespace
    *  values are rejected on the backend. Returns the updated row. */
   renameTask: (id: string, title: string) => Promise<TaskDto>;
-  /** Send a follow-up turn to a non-terminal task. */
-  sendTaskMessage: (id: string, input: string) => Promise<void>;
+  /** Send a follow-up turn to a non-terminal task and return its
+   *  durable scheduler turn id. */
+  sendTaskMessage: (id: string, input: string) => Promise<TaskSendResultDto>;
   /** Reply to a {@code permission_request}. When {@code preApprove}
    *  is supplied, the backend records the per-call decision and then
    *  grants an auto-approval budget for future invocations of the same

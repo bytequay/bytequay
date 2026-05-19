@@ -2667,6 +2667,19 @@ const url = new URL(`${BACKEND_BASE}/api/search/repos`);
     return res.json();
   });
 
+  ipcMain.handle('tasks:turns', async (_event, id: unknown) => {
+    if (typeof id !== 'string' || id.trim().length === 0) {
+      throw new Error('id must be a non-empty string');
+    }
+    const res = await fetch(
+      `${BACKEND_BASE}/api/tasks/${encodeURIComponent(id)}/turns`);
+    if (!res.ok) {
+      const text = await res.text().catch(() => '');
+      throw new Error(`backend GET /api/tasks/${id}/turns returned ${res.status}: ${text}`);
+    }
+    return res.json();
+  });
+
   ipcMain.handle('tasks:files', async (_event, id: unknown) => {
     if (typeof id !== 'string' || id.trim().length === 0) {
       throw new Error('id must be a non-empty string');
@@ -2718,6 +2731,7 @@ const url = new URL(`${BACKEND_BASE}/api/search/repos`);
       const text = await res.text().catch(() => '');
       throw new Error(`backend POST /api/tasks/${id}/messages returned ${res.status}: ${text}`);
     }
+    return res.json();
   });
 
   ipcMain.handle('tasks:decide', async (_event, payload: unknown) => {

@@ -32,4 +32,7 @@ public interface TaskTurnStore
 
     /** Turns in one status, oldest-first by creation time. */
     List<TaskTurn> listTurnsByStatus(TaskTurnStatus status, int limit);
+
+    /** Turns for one task, newest-first by creation time. */
+    List<TaskTurn> listTurnsByTaskId(String taskId, int limit);
 }

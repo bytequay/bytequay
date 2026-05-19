@@ -50,7 +50,9 @@ import type {
   TaskGroupMembershipDto,
   TaskGroupPatchDto,
   TaskMessageDto,
+  TaskSendResultDto,
   TaskStreamEvent,
+  TaskTurnDto,
   TeamDto,
   TeamSummaryDto,
   UpdateTeamRequest,
@@ -477,11 +479,13 @@ const bridge: Bridge = {
     ipcRenderer.invoke('tasks:get', id),
   getTaskMessages: (id: string): Promise<TaskMessageDto[]> =>
     ipcRenderer.invoke('tasks:messages', id),
+  getTaskTurns: (id: string): Promise<TaskTurnDto[]> =>
+    ipcRenderer.invoke('tasks:turns', id),
   getTaskFiles: (id: string): Promise<TaskFileDto[]> =>
     ipcRenderer.invoke('tasks:files', id),
   renameTask: (id: string, title: string): Promise<TaskDto> =>
     ipcRenderer.invoke('tasks:rename', { id, title }),
-  sendTaskMessage: (id: string, input: string): Promise<void> =>
+  sendTaskMessage: (id: string, input: string): Promise<TaskSendResultDto> =>
     ipcRenderer.invoke('tasks:send', { id, input }),
   decideTaskPermission: (
     id: string,

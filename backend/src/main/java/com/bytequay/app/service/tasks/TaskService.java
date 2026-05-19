@@ -22,8 +22,10 @@ import com.bytequay.app.domain.TaskGroupMembership;
 import com.bytequay.app.domain.TaskKind;
 import com.bytequay.app.domain.TaskMessage;
 import com.bytequay.app.domain.TaskStatus;
+import com.bytequay.app.domain.TaskTurn;
 import com.bytequay.app.repository.TaskGroupStore;
 import com.bytequay.app.repository.TaskStore;
+import com.bytequay.app.repository.TaskTurnStore;
 import com.bytequay.app.service.local.GitRunner;
 import org.springframework.http.HttpStatusCode;
 import org.springframework.stereotype.Service;
@@ -62,9 +64,13 @@ public class TaskService
      *  {@code docs/mockups/design/tasks/tasks-group.png} which lays out
      *  1 / 2 / 3 / 4 tiles by count and has no scroll / overflow path. */
     public static final int GROUP_MAX_MEMBERS = 4;
+    /** Small history window for scheduler turns. The full conversation
+     *  still lives under messages; this is for queue/running state. */
+    private static final int TURN_HISTORY_LIMIT = 50;
 
     private final TaskStore store;
     private final TaskGroupStore groupStore;
+    private final TaskTurnStore turnStore;
     private final TaskSessionRegistry registry;
     private final TaskTurnScheduler scheduler;
     private final GitRunner git;
@@ -72,12 +78,14 @@ public class TaskService
     public TaskService(
             TaskStore store,
             TaskGroupStore groupStore,
+            TaskTurnStore turnStore,
             TaskSessionRegistry registry,
             TaskTurnScheduler scheduler,
             GitRunner git)
     {
         this.store = requireNonNull(store, "store is null");
         this.groupStore = requireNonNull(groupStore, "groupStore is null");
+        this.turnStore = requireNonNull(turnStore, "turnStore is null");
         this.registry = requireNonNull(registry, "registry is null");
         this.scheduler = requireNonNull(scheduler, "scheduler is null");
         this.git = requireNonNull(git, "git is null");
@@ -353,11 +361,17 @@ public class TaskService
         return store.listMessages(taskId);
     }
 
+    /** Recent scheduler turns for one task, newest first. */
+    public List<TaskTurn> turns(String taskId)
+    {
+        return turnStore.listTurnsByTaskId(requireTask(taskId).id(), TURN_HISTORY_LIMIT);
+    }
+
     /** Send a follow-up turn to an existing task. Re-creates the
      *  in-memory session if it was evicted (e.g. after restart). */
-    public void send(String taskId, String input)
+    public String send(String taskId, String input)
     {
-        scheduler.enqueueTurn(requireTask(taskId), input);
+        return scheduler.enqueueTurn(requireTask(taskId), input);
     }
 
     public void interrupt(String taskId)

@@ -12,7 +12,7 @@
  * limitations under the License.
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import type { TaskDto, TaskFileDto, TaskGroupDto, TaskGroupMembershipDto, TaskMessageDto, TaskStatusDto, WatchedRepoDto } from '../types';
+import type { TaskDto, TaskFileDto, TaskGroupDto, TaskGroupMembershipDto, TaskMessageDto, TaskStatusDto, TaskTurnDto, WatchedRepoDto } from '../types';
 import GroupMenu from './GroupMenu';
 import { ConversationPane, type PendingPermission } from './ConversationPane';
 import { StructuredConversation } from './StructuredConversation';
@@ -164,6 +164,7 @@ export default function TaskDetailPage({
 }: Props) {
   const [task, setTask] = useState<TaskDto | null>(null);
   const [messages, setMessages] = useState<TaskMessageDto[]>([]);
+  const [turns, setTurns] = useState<TaskTurnDto[]>([]);
   const [files, setFiles] = useState<TaskFileDto[]>([]);
   const [allTasks, setAllTasks] = useState<TaskDto[]>([]);
   const [groups, setGroups] = useState<TaskGroupDto[]>([]);
@@ -196,9 +197,10 @@ export default function TaskDetailPage({
 
   const refresh = useCallback(async () => {
     try {
-      const [t, m, fs, list, gs, ms, wrs] = await Promise.all([
+      const [t, m, ts, fs, list, gs, ms, wrs] = await Promise.all([
         window.bridge.getTask(taskId),
         window.bridge.getTaskMessages(taskId),
+        window.bridge.getTaskTurns(taskId).catch(() => [] as TaskTurnDto[]),
         window.bridge.getTaskFiles(taskId).catch(() => [] as TaskFileDto[]),
         window.bridge.listTasks(),
         window.bridge.listTaskGroups().catch(() => [] as TaskGroupDto[]),
@@ -207,6 +209,7 @@ export default function TaskDetailPage({
       ]);
       setTask(t);
       setMessages(m);
+      setTurns(ts);
       setFiles(fs);
       setAllTasks(list);
       setGroups(gs);
@@ -502,6 +505,7 @@ export default function TaskDetailPage({
         <TaskWindowSidebar
           task={task}
           messages={messages}
+          turns={turns}
           files={files}
           liveUsage={liveUsage}
           groups={groups}
@@ -967,13 +971,14 @@ function StructuredView({
  *    captured in followups/tasks-checkpoints-and-context.md
  */
 function TaskWindowSidebar({
-  task, messages, files, liveUsage,
+  task, messages, turns, files, liveUsage,
   groups, currentGroupIds, onToggleGroup,
   onOpenPr,
   onBack, onCollapse,
 }: {
   task: TaskDto;
   messages: TaskMessageDto[];
+  turns: TaskTurnDto[];
   files: TaskFileDto[];
   liveUsage: { tokensIn: number; tokensOut: number } | null;
   groups: TaskGroupDto[];
@@ -988,6 +993,7 @@ function TaskWindowSidebar({
 }) {
   const toolUsage = useMemo(() => deriveToolUsage(messages), [messages]);
   const ctx = useMemo(() => computeContextUsage(messages, task.model), [messages, task.model]);
+  const scheduler = useMemo(() => summarizeTurnState(turns), [turns]);
   // Overlay running deltas while a turn is in flight; falls back to
   // the persisted totals once liveUsage clears at the next refresh.
   const tokensInDisplay = (task.tokensIn ?? 0) + (liveUsage?.tokensIn ?? 0);
@@ -1035,6 +1041,17 @@ function TaskWindowSidebar({
           <Metric label="Tool calls" value={formatNum(toolUsage.total)} />
           <Metric label="Files touched" value={formatNum(files.length)} />
           <Metric label="Model" value={task.model || 'unknown'} mono />
+        </div>
+      </SidebarSection>
+
+      <SidebarSection label="Scheduler">
+        <div style={metricListStyle}>
+          <Metric label="Turn state" value={scheduler.state} live={scheduler.live} />
+          <Metric label="Lane" value={scheduler.lane} mono />
+          <Metric label="Queued turns" value={String(scheduler.queued)} />
+          {scheduler.latestInput !== '' && (
+            <Metric label="Latest input" value={scheduler.latestInput} />
+          )}
         </div>
       </SidebarSection>
 
@@ -1826,6 +1843,36 @@ type Stage = {
   glyph: string;
   detail: string;
 };
+
+type SchedulerSummary = {
+  state: string;
+  lane: string;
+  queued: number;
+  latestInput: string;
+  live: boolean;
+};
+
+function summarizeTurnState(turns: TaskTurnDto[]): SchedulerSummary {
+  const running = turns.find(t => t.status === 'RUNNING') ?? null;
+  const queued = turns.filter(t => t.status === 'QUEUED');
+  const latest = running ?? queued[0] ?? turns[0] ?? null;
+  if (latest === null) {
+    return {
+      state: 'none',
+      lane: '-',
+      queued: 0,
+      latestInput: '',
+      live: false,
+    };
+  }
+  return {
+    state: latest.status,
+    lane: latest.lane,
+    queued: queued.length,
+    latestInput: oneLineInput(latest.input),
+    live: latest.status === 'RUNNING',
+  };
+}
 
 function deriveStage(messages: TaskMessageDto[], status: TaskStatusDto | undefined): Stage {
   // Most recent tool_call without a matching tool_result = the

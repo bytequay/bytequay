@@ -71,6 +71,16 @@ class SqliteTaskTurnStore
                 .toList();
     }
 
+    @Override
+    public List<TaskTurn> listTurnsByTaskId(String taskId, int limit)
+    {
+        requireNonNull(taskId, "taskId is null");
+        return turns.findByTaskIdOrderByCreatedAtMsDesc(taskId, PageRequest.of(0, limit))
+                .stream()
+                .map(SqliteTaskTurnStore::toTurn)
+                .toList();
+    }
+
     private static TaskTurn toTurn(TaskTurnEntity e)
     {
         return new TaskTurn(

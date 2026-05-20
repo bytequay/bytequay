@@ -1063,7 +1063,7 @@ public class PullRequestService
     private void syncDetailQuietly(String pat, PullRequest pr, String currentLogin)
     {
         try {
-            PullRequestRef ref = PullRequestRef.of(pr.repo().split("/")[0], pr.repo().split("/")[1], pr.number());
+            PullRequestRef ref = parseRef(pr.repo(), pr.number());
             // Repo-scoped fetch: prefer a per-repo PAT if one is configured.
             // Existing detail in the store ⇒ this is an incremental refresh
             // (the detail fetcher sees the watermark and uses `since=`);

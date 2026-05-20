@@ -80,7 +80,6 @@ public class ClaudeCodeCliSession
     private final String taskId;
     private final TaskKind kind;
     private final String provider;
-    private final String model;
     private final String workingDir;
     private final String branchName;
     private final String binary;
@@ -99,6 +98,7 @@ public class ClaudeCodeCliSession
 
     private final AtomicReference<TaskStatus> status = new AtomicReference<>();
     private final AtomicReference<String> agentSessionId = new AtomicReference<>();
+    private final AtomicReference<String> model = new AtomicReference<>("");
     private final AtomicReference<Process> currentProcess = new AtomicReference<>();
     /** Set true by {@link #interrupt} just before {@code destroy()} so
      *  {@link #runTurn} can tell a user-initiated cancellation from a
@@ -153,7 +153,7 @@ public class ClaudeCodeCliSession
         this.taskId = task.id();
         this.kind = task.kind();
         this.provider = task.provider();
-        this.model = task.model();
+        this.model.set(task.model() == null ? "" : task.model());
         // Run inside the task's worktree when one was created; falls
         // back to the user-supplied workingDir when no worktree exists
         // (legacy rows, or worktree creation failed at task-create).
@@ -202,7 +202,7 @@ public class ClaudeCodeCliSession
     @Override
     public String model()
     {
-        return model;
+        return model.get();
     }
 
     @Override
@@ -333,7 +333,7 @@ public class ClaudeCodeCliSession
             store.saveTask(new Task(
                     current.id(), current.kind(), current.provider(), agentSessionId.get(),
                     current.title(), TaskStatus.IDLE, current.workingDir(), current.branchName(),
-                    current.model(),
+                    model.get(),
                     runningCostUsdMilli.get(), runningTokensIn.get(), runningTokensOut.get(),
                     current.processPid(), current.logPath(),
                     current.createdAt(), Instant.now(),
@@ -644,8 +644,11 @@ public class ClaudeCodeCliSession
 
     private void handle(StreamEvent event)
     {
-        if (event instanceof StreamEvent.SessionStarted s && agentSessionId.get() == null) {
-            agentSessionId.set(s.sessionId());
+        if (event instanceof StreamEvent.SessionStarted s) {
+            if (agentSessionId.get() == null) {
+                agentSessionId.set(s.sessionId());
+            }
+            captureReportedModel(s.model());
         }
         if (event instanceof StreamEvent.ToolCallStarted call) {
             runningToolCallCount.incrementAndGet();
@@ -698,6 +701,21 @@ public class ClaudeCodeCliSession
             catch (RuntimeException e) {
                 log.warn("Failed to record file op for task {}: {}", taskId, e.getMessage());
             }
+        }
+    }
+
+    private void captureReportedModel(String reportedModel)
+    {
+        String nextModel = reportedModel == null ? "" : reportedModel.trim();
+        if (nextModel.isEmpty()) {
+            return;
+        }
+        String currentModel = model.get();
+        if (!currentModel.isBlank()) {
+            return;
+        }
+        if (model.compareAndSet(currentModel, nextModel)) {
+            persistTaskSnapshot(null);
         }
     }
 
@@ -831,7 +849,7 @@ public class ClaudeCodeCliSession
         Task next = new Task(
                 current.id(), current.kind(), current.provider(), agentSessionId.get(),
                 current.title(), status.get(), current.workingDir(), current.branchName(),
-                current.model(),
+                model.get(),
                 runningCostUsdMilli.get(), runningTokensIn.get(), runningTokensOut.get(),
                 current.processPid(), current.logPath(),
                 current.createdAt(), Instant.now(),

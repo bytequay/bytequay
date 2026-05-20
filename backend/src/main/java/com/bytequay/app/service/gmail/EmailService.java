@@ -212,6 +212,7 @@ public class EmailService
      *  works for arbitrary owner/repo via the user's PAT) and runs
      *  the existing detail refresh on a background thread. Errors
      *  are swallowed since they're not user-actionable. */
+    @SuppressWarnings("FutureReturnValueIgnored")
     private void triggerPrRefresh(LinkedRef ref)
     {
         int number;

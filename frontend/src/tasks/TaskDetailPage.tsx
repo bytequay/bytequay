@@ -1295,12 +1295,14 @@ function TaskWindowSidebar({
       <SidebarSection label="Session">
         <div style={metricListStyle}>
           <Metric label="Session ID" value={task.id} mono wrap />
-          <Metric label="Agent cwd" value={agentCwd} mono wrap />
+          <CopyableMetric label="Agent cwd" value={agentCwd} mono wrap />
           {displayBranch !== null && displayBranch !== '' && (
-            <Metric
+            <CopyableMetric
               label="Branch"
               value={`⎇ ${displayBranch}`}
+              copyValue={displayBranch}
               mono
+              wrap
             />
           )}
           {task.linkedPrNumber !== null && (
@@ -2140,6 +2142,65 @@ function Metric({
         {sub && <span style={metricSubStyle}> {sub}</span>}
       </span>
     </div>
+  );
+}
+
+function CopyableMetric({
+  label, value, copyValue = value, mono, wrap,
+}: {
+  label: string;
+  value: string;
+  copyValue?: string;
+  mono?: boolean;
+  wrap?: boolean;
+}) {
+  const [copied, setCopied] = useState(false);
+  const onCopy = useCallback(() => {
+    void navigator.clipboard.writeText(copyValue)
+      .then(() => {
+        setCopied(true);
+        window.setTimeout(() => setCopied(false), 1200);
+      })
+      .catch(() => {});
+  }, [copyValue]);
+  const valueStyle: React.CSSProperties = {
+    ...(wrap ? metricValueWrapStyle : metricValueStyle),
+    fontFamily: mono ? '"SF Mono", Menlo, monospace' : 'inherit',
+    fontSize: mono ? 11.5 : 13,
+  };
+  if (wrap) {
+    return (
+      <div style={metricRowWrapStyle}>
+        <span style={metricLabelStyle}>{label}</span>
+        <span style={copyMetricValueRowStyle}>
+          <span style={valueStyle} title={value}>{value}</span>
+          <CopyButton copied={copied} onClick={onCopy} />
+        </span>
+      </div>
+    );
+  }
+  return (
+    <div style={metricRowStyle}>
+      <span style={metricLabelStyle}>{label}</span>
+      <span style={copyMetricValueRowStyle}>
+        <span style={valueStyle} title={value}>{value}</span>
+        <CopyButton copied={copied} onClick={onCopy} />
+      </span>
+    </div>
+  );
+}
+
+function CopyButton({ copied, onClick }: { copied: boolean; onClick: () => void }) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      style={copyMetricButtonStyle}
+      title={copied ? 'Copied' : 'Copy'}
+      aria-label={copied ? 'Copied' : 'Copy'}
+    >
+      {copied ? '✓' : 'Copy'}
+    </button>
   );
 }
 
@@ -3215,6 +3276,21 @@ const metricValueWrapStyle: React.CSSProperties = {
 };
 const metricSubStyle: React.CSSProperties = {
   fontSize: 11, color: 'var(--text-3)', marginLeft: 4, fontWeight: 400,
+};
+const copyMetricValueRowStyle: React.CSSProperties = {
+  display: 'flex', alignItems: 'center', gap: 6,
+  minWidth: 0, flex: 1,
+};
+const copyMetricButtonStyle: React.CSSProperties = {
+  flexShrink: 0,
+  border: '1px solid var(--border-hairline)',
+  borderRadius: 6,
+  background: 'var(--panel)',
+  color: 'var(--text-2)',
+  padding: '1px 6px',
+  fontSize: 11,
+  fontWeight: 650,
+  cursor: 'pointer',
 };
 
 const schedulerEventListStyle: React.CSSProperties = {

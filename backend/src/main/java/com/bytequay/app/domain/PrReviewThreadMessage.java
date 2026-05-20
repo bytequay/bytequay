@@ -21,6 +21,19 @@ import java.time.Instant;
  * messages have {@code inReplyTo == null}; replies link to the thread root
  * via {@code inReplyTo}. The service layer groups these into threads at
  * read time.
+ *
+ * @param outdated true iff GitHub's REST returned a null position for this
+ * comment.
+ * @param startLine first line of a multi-line comment range, or null for
+ * single-line comments.
+ * @param startSide side of {@link #startLine}; usually matches {@link #side}.
+ * @param originalLine original file-side line coordinate matching
+ * {@link #diffHunk}.
+ * @param originalStartLine original file-side start line coordinate matching
+ * {@link #diffHunk}.
+ * @param authorAssociation author's association with the repo.
+ * @param graphqlNodeId GraphQL node id for the thread this message is part of.
+ * @param resolved true iff GitHub considers the parent thread resolved.
  */
 public record PrReviewThreadMessage(
         long githubId,
@@ -35,36 +48,11 @@ public record PrReviewThreadMessage(
         String commitId,
         Instant createdAt,
         Reactions reactions,
-        /** True iff GitHub's REST returned a null `position` for this
-         *  comment, meaning the line it anchored to no longer exists in
-         *  the current diff. Drives the "Outdated" badge in the UI. */
         boolean outdated,
-        /** First line of a multi-line comment range (V27). Null for
-         *  single-line comments. The pair (startLine, lineNumber) is
-         *  the inclusive range covered. */
         Integer startLine,
-        /** Side of {@link #startLine} ("LEFT"/"RIGHT") — usually matches
-         *  {@link #side} but kept separate to mirror GitHub's API shape. */
         String startSide,
-        /** Original line numbers — the file-side coordinates that match
-         *  {@link #diffHunk}. After edits the comment's {@link #lineNumber}
-         *  / {@link #startLine} shift; these stay anchored to whatever
-         *  GitHub recorded when the comment landed. Used by the frontend
-         *  to slice the hunk to the commented range. Null on legacy
-         *  rows; the frontend falls back to lineNumber/startLine. */
         Integer originalLine,
         Integer originalStartLine,
-        /** Author's association with the repo (MEMBER / CONTRIBUTOR /
-         *  OWNER / NONE / FIRST_TIME_CONTRIBUTOR / …). Powers the role
-         *  pill in the UI. Null for legacy rows persisted before this
-         *  field was added. */
         String authorAssociation,
-        /** GraphQL node id for the *thread* this message is part of
-         *  (only meaningful on the thread root, where {@link #inReplyTo}
-         *  is null). Required by the resolve / unresolve mutations.
-         *  Null until the GraphQL fetcher writes it. */
         String graphqlNodeId,
-        /** True iff GitHub considers the parent thread resolved.
-         *  Stored on the thread root only; replies inherit. Null for
-         *  legacy rows or threads that haven't been GraphQL-fetched. */
         Boolean resolved) {}

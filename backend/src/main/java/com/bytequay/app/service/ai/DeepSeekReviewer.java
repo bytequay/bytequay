@@ -173,8 +173,8 @@ public class DeepSeekReviewer
             String text = extractText(response).trim();
             // Strip wrapping quotes/backticks the model occasionally adds.
             if (text.length() >= 2
-                    && (text.startsWith("\"") && text.endsWith("\"")
-                        || text.startsWith("`") && text.endsWith("`"))) {
+                    && ((text.startsWith("\"") && text.endsWith("\""))
+                        || (text.startsWith("`") && text.endsWith("`")))) {
                 text = text.substring(1, text.length() - 1).trim();
             }
             return text;
@@ -339,10 +339,10 @@ public class DeepSeekReviewer
             Map<String, Object> usage)
     {
         @JsonIgnoreProperties(ignoreUnknown = true)
-        record Choice(int index, Message message, @JsonProperty("finish_reason") String finishReason) {}
+        record Choice(int index, ResponseMessage message, @JsonProperty("finish_reason") String finishReason) {}
 
         @JsonIgnoreProperties(ignoreUnknown = true)
-        record Message(String role, String content) {}
+        record ResponseMessage(String role, String content) {}
     }
 
     @JsonIgnoreProperties(ignoreUnknown = true)

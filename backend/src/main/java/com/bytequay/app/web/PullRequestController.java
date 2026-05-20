@@ -409,14 +409,17 @@ public class PullRequestController
         return pullRequestService.getSuggestedReviewers(pat, repo, number);
     }
 
+    /**
+     * Inline comment request body.
+     *
+     * @param startLine optional first line of a multi-line range.
+     */
     public record InlineCommentRequest(
             String body,
             String path,
             int line,
             String side,
             String commitId,
-            /** Optional first line of a multi-line range. Null/omitted
-             *  for single-line comments. */
             Integer startLine,
             String startSide) {}
 

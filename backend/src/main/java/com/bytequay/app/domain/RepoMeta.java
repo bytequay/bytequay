@@ -25,6 +25,13 @@ import java.util.Map;
  * Combines GitHub's {@code GET /repos/{owner}/{repo}} body with the
  * {@code /languages} byte map so the frontend can render the language bar
  * without a second round-trip.
+ *
+ * @param languages map from language name to byte count.
+ * @param ownerAvatarUrl GitHub owner avatar URL.
+ * @param parentOwner parent owner login when this repo is a fork.
+ * @param parentName parent repo name when this repo is a fork.
+ * @param parentDefaultBranch parent repo default branch when this repo is a
+ * fork.
  */
 public record RepoMeta(
         String fullName,
@@ -40,23 +47,8 @@ public record RepoMeta(
         Instant createdAt,
         Instant pushedAt,
         List<String> topics,
-        /** Map from language name to byte-count, as returned by GitHub's
-         *  {@code /repos/{owner}/{repo}/languages}. The frontend computes
-         *  percentages and renders the language bar. Empty when the repo
-         *  has no detectable code (rare). */
         Map<String, Long> languages,
-        /** GitHub's {@code owner.avatar_url} — used by the repo avatar
-         *  on the overview page. Null on legacy rows persisted before
-         *  this field was added; the frontend falls back to a
-         *  colour-and-letter placeholder. */
         String ownerAvatarUrl,
-        /** GitHub's {@code parent.owner.login}. Non-null when this repo
-         *  is a fork; null otherwise. Drives the fork → upstream
-         *  view-focus dropdown on the repo detail page. */
         String parentOwner,
-        /** GitHub's {@code parent.name}. Pairs with {@link #parentOwner}. */
         String parentName,
-        /** GitHub's {@code parent.default_branch} — the upstream's
-         *  default branch. Used as the ref the commits tab queries
-         *  when the toggle is in upstream view. */
         String parentDefaultBranch) {}

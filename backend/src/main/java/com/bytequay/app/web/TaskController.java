@@ -452,7 +452,14 @@ public class TaskController
         return emitter;
     }
 
-    /** POST body for {@link #create}. */
+    /**
+     * POST body for {@link #create}.
+     *
+     * @param initialGroupIds optional group ids to pre-pin the new task into.
+     * @param taskType free-form task type.
+     * @param linkedPrNumber optional GitHub PR number to link.
+     * @param linkedIssueNumber optional GitHub issue number to link.
+     */
     public record NewTaskBody(
             TaskKind kind,
             String provider,
@@ -462,16 +469,9 @@ public class TaskController
             String branchName,
             String initialPrompt,
             String metadataJson,
-            /** Optional — pre-pin the new task into one or more existing
-             *  groups. Each must have room (cap is enforced server-side). */
             List<String> initialGroupIds,
-            /** Free-form task type — currently "DEVELOP" or "FIX",
-             *  default to "DEVELOP" server-side if blank. */
             String taskType,
-            /** Optional GitHub PR number to link, scoped to the
-             *  task's repo. */
             Integer linkedPrNumber,
-            /** Optional GitHub issue number, same scoping. */
             Integer linkedIssueNumber) {}
 
     public record SendBody(String input) {}

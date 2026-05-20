@@ -29,6 +29,7 @@ import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.context.request.async.DeferredResult;
 
 import java.util.OptionalInt;
+import java.util.concurrent.CompletableFuture;
 
 import static java.util.Objects.requireNonNull;
 
@@ -206,7 +207,8 @@ public class McpController
         // Pass the tool name so a later `Allow next N` grant on the
         // same tool can drain still-pending callIds in one click
         // instead of leaving the user with a backlog of prompts.
-        gate.register(callId, toolName).whenComplete((decision, ex) -> {
+        CompletableFuture<PermissionDecision> decisionFuture = gate.register(callId, toolName);
+        CompletableFuture<PermissionDecision> responseFuture = decisionFuture.whenComplete((decision, ex) -> {
             if (ex != null) {
                 deferred.setResult(toolResponse(id, deny("interrupted: " + ex.getMessage())));
             }
@@ -221,7 +223,10 @@ public class McpController
             gate.cancel(callId);
             deferred.setResult(toolResponse(id, deny("timed out waiting for the user")));
         });
-        deferred.onCompletion(() -> gate.cancel(callId));
+        deferred.onCompletion(() -> {
+            responseFuture.cancel(false);
+            gate.cancel(callId);
+        });
     }
 
     private static String summarize(String toolName, JsonNode input)

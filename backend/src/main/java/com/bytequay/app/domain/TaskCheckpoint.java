@@ -38,38 +38,31 @@ import java.util.List;
  * <p>Distinct from snapshots ({@code git stash} rewind points) —
  * checkpoints summarise state, snapshots rewind it. The two live
  * in different rail sections and shouldn't be conflated.
+ *
+ * @param seq {@code 0} for Overall, {@code 1+} for per-segment rows.
+ * @param firstMsgSeq inclusive lower bound of the covered turn range.
+ * @param lastMsgSeq inclusive upper bound of the covered turn range.
+ * @param tokensCovered sum of tokens across the covered range.
+ * @param summaryMd AI-written summary as Markdown.
+ * @param bulletTitles short preview titles for the rail.
+ * @param modelUsed model that produced the summary.
+ * @param supersededAt set on Overall rows when a newer Overall replaces them.
  */
 public record TaskCheckpoint(
         String id,
         String taskId,
-        /** {@code 0} for Overall, {@code 1+} for per-segment rows. */
         long seq,
         boolean isOverall,
-        /** Inclusive lower bound of the covered turn range. */
         long firstMsgSeq,
-        /** Inclusive upper bound of the covered turn range. For
-         *  Overall this is the max {@code task_messages.seq} at the
-         *  moment the rollup was generated. */
         long lastMsgSeq,
-        /** Sum of {@code tokens_in + tokens_out} across the covered
-         *  range — drives the rail's "31.4k tok" label and the
-         *  scheduler threshold check. */
         long tokensCovered,
-        /** AI-written summary, Markdown. */
         String summaryMd,
-        /** 1–3 short bullet titles the rail uses as a preview without
-         *  parsing the full Markdown. */
         List<String> bulletTitles,
-        /** Provenance — which model produced the summary, what it
-         *  cost. Helps when we change models or want to budget. */
         String modelUsed,
         long promptTokens,
         long completionTokens,
         long costUsdMilli,
         Instant generatedAt,
-        /** Set on Overall rows when a newer Overall replaces them;
-         *  {@code null} on per-segment rows and on the currently
-         *  active Overall. */
         Instant supersededAt)
 {
 }

@@ -21,39 +21,27 @@ import java.time.Instant;
  * layer, not here.
  *
  * <p>{@code body} is non-null only for events that carry comment text — currently
- * {@code commented} and {@code reviewed}. PrAttention scans it for {@code @login}
+ * "commented" and "reviewed". PrAttention scans it for {@code @login}
  * mentions to drive the MENTIONED reason.
+ *
+ * @param githubId stable GitHub event id, or null for rare timeline events
+ * without an id.
+ * @param beforeSha before SHA on head-ref force-pushed events.
+ * @param requestedReviewer login invited to review on review-requested events.
+ * @param reviewId GitHub review id for reviewed events.
+ * @param authorAssociation author's relationship to the repo.
+ * @param reactions reactions tally for commented events.
  */
 public record PrTimelineEvent(
-        /** Stable GitHub event id. Used as the dedup key across
-         *  incremental fetches — overlapping `since=` windows can return
-         *  the same row twice, and the unique (pr_id, github_id) index in
-         *  the store turns the second write into a no-op. Null for the
-         *  rare timeline event GitHub returns without an id. */
         Long githubId,
         String event,
         String actor,
         String state,
         Instant timestamp,
         String body,
-        /** GitHub's head_ref_force_pushed event carries before/after SHAs.
-         *  Null for every other event type. Used by the conversation panel
-         *  to render "force-pushed · 12 → 14 commits". */
         String beforeSha,
         String afterSha,
-        /** For {@code review_requested} events, the login of the user being
-         *  invited to review (NOT the actor — actor is the inviter). Null
-         *  for every other event type. */
         String requestedReviewer,
-        /** For {@code reviewed} events, the GitHub review id — the same id
-         *  referenced from per-line review comments via {@code pull_request_review_id}.
-         *  Lets the UI link a review event to its line-comment threads
-         *  exactly. Null for every other event type. */
         Long reviewId,
-        /** Author's relationship to the repo (MEMBER / CONTRIBUTOR /
-         *  OWNER / NONE / FIRST_TIME_CONTRIBUTOR / …) for {@code commented}
-         *  and {@code reviewed} events. Null for structural events. */
         String authorAssociation,
-        /** Reactions tally for {@code commented} events (issue / PR
-         *  comments). Null for non-comment events. */
         Reactions reactions) {}

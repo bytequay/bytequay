@@ -11,12 +11,13 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { StructuredConversation } from './StructuredConversation';
 import { usePersistentDraft, useAutoGrowTextarea } from './draftStore';
 import { TaskDiffPane } from './TaskChangesTab';
 import type { PendingPermission } from './ConversationPane';
 import type { TaskDto, TaskMessageDto } from '../types';
+import { findPendingPermission } from './permissions';
 
 /**
  * Centred zoom modal for one task in a group, opened by
@@ -365,34 +366,6 @@ function ZoomToolbar({
 }
 
 // ─── Helpers ────────────────────────────────────────────────────────
-
-function findPendingPermission(messages: TaskMessageDto[]): PendingPermission | null {
-  for (let i = messages.length - 1; i >= 0; i--) {
-    const m = messages[i];
-    if (m.type === 'permission_decision') {
-      // Any decision after a request resolves it — stop looking.
-      return null;
-    }
-    if (m.type === 'permission_request') {
-      try {
-        const parsed = JSON.parse(m.contentJson) as {
-          callId?: string;
-          toolName?: string;
-          summary?: string;
-        };
-        if (parsed.callId !== undefined && parsed.toolName !== undefined) {
-          return {
-            callId: parsed.callId,
-            toolName: parsed.toolName,
-            summary: parsed.summary ?? '',
-          };
-        }
-      }
-      catch { /* malformed payload — ignore */ }
-    }
-  }
-  return null;
-}
 
 function loadDiffOpen(): boolean {
   try { return window.localStorage.getItem(DIFF_OPEN_STORAGE_KEY) === '1'; }

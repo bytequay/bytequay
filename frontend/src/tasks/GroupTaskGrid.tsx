@@ -13,7 +13,6 @@
  */
 import { useEffect, useMemo, useRef, useState } from 'react';
 import type { TaskDto, TaskMessageDto } from '../types';
-import { type PendingPermission } from './ConversationPane';
 import { TileConversation, type TileConversationMode } from './TileConversation';
 import { useAutoGrowTextarea, usePersistentDraft } from './draftStore';
 import {
@@ -21,6 +20,7 @@ import {
   type SchedulerDisplayStatus,
   displayStatusForTask,
 } from './taskTurnSummary';
+import { findPendingPermission } from './permissions';
 
 export type GroupLayout = 1 | 2 | 3 | 4;
 
@@ -625,34 +625,6 @@ function TaskTile({
       )}
     </article>
   );
-}
-
-/** Walk the message log backwards to find the most recent
- *  permission_request whose callId hasn't yet been answered by a
- *  permission_decision. Mirrors the detail-page helper so a tile
- *  surfaces approval prompts the same way the full page does. */
-function findPendingPermission(messages: TaskMessageDto[]): PendingPermission | null {
-  const decided = new Set<string>();
-  for (let i = messages.length - 1; i >= 0; i--) {
-    const m = messages[i];
-    if (m.type === 'permission_decision') {
-      try {
-        const cid = (JSON.parse(m.contentJson) as { callId?: string }).callId;
-        if (cid) decided.add(cid);
-      }
-      catch { /* ignore */ }
-    }
-    if (m.type === 'permission_request') {
-      try {
-        const p = JSON.parse(m.contentJson) as { callId?: string; toolName?: string; summary?: string };
-        if (p.callId && !decided.has(p.callId)) {
-          return { callId: p.callId, toolName: p.toolName ?? 'tool', summary: p.summary ?? '' };
-        }
-      }
-      catch { /* ignore */ }
-    }
-  }
-  return null;
 }
 
 // ────────────────────────────────────────────────────────────────────

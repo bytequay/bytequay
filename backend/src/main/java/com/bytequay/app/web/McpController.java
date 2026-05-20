@@ -196,14 +196,6 @@ public class McpController
             return;
         }
 
-        // Surface the prompt in the conversation pane and register a
-        // future the user's decide() will complete.
-        try {
-            tasks.notifyPermissionRequested(taskId, callId, toolName, summarize(toolName, toolInput));
-        }
-        catch (RuntimeException e) {
-            log.warn("Failed to surface permission prompt for task {}: {}", taskId, e.getMessage());
-        }
         // Pass the tool name so a later `Allow next N` grant on the
         // same tool can drain still-pending callIds in one click
         // instead of leaving the user with a backlog of prompts.
@@ -219,6 +211,34 @@ public class McpController
                 deferred.setResult(toolResponse(id, deny("user denied")));
             }
         });
+
+        // Close the race where another prompt grants a budget after
+        // our first budget check but before this call is visible in
+        // the gate. Register first, then re-check before showing the
+        // prompt; a hit completes through the same response future.
+        remaining = tasks.tryConsumeToolBudget(taskId, toolName);
+        if (remaining.isPresent()) {
+            try {
+                tasks.notifyPermissionAutoAllowed(taskId, callId, toolName, remaining.getAsInt());
+            }
+            catch (RuntimeException e) {
+                log.warn("Failed to record auto-approval notice for task {}: {}", taskId, e.getMessage());
+            }
+            gate.decide(callId, PermissionDecision.ALLOW);
+            return;
+        }
+        if (decisionFuture.isDone()) {
+            return;
+        }
+
+        // Surface the prompt in the conversation pane after the call
+        // is registered so a concurrent `Allow next N` can drain it.
+        try {
+            tasks.notifyPermissionRequested(taskId, callId, toolName, summarize(toolName, toolInput));
+        }
+        catch (RuntimeException e) {
+            log.warn("Failed to surface permission prompt for task {}: {}", taskId, e.getMessage());
+        }
         deferred.onTimeout(() -> {
             gate.cancel(callId);
             deferred.setResult(toolResponse(id, deny("timed out waiting for the user")));

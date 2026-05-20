@@ -38,6 +38,7 @@ import { useAutoGrowTextarea, usePersistentDraft } from './draftStore';
 import { ConvIndex } from './ConvIndex';
 import { CheckpointsSection } from './CheckpointsSection';
 import { DiffModeToggle, TaskDiffPane, useTaskDiffState, type DiffMode } from './TaskChangesTab';
+import { findPendingPermission } from './permissions';
 
 type Props = {
   taskId: string;
@@ -2376,30 +2377,6 @@ function oneLineInput(input: unknown): string {
   catch {
     return '';
   }
-}
-
-function findPendingPermission(messages: TaskMessageDto[]): PendingPermission | null {
-  const decided = new Set<string>();
-  for (let i = messages.length - 1; i >= 0; i--) {
-    const m = messages[i];
-    if (m.type === 'permission_decision') {
-      try {
-        const cid = (JSON.parse(m.contentJson) as { callId?: string }).callId;
-        if (cid) decided.add(cid);
-      }
-      catch { /* ignore */ }
-    }
-    if (m.type === 'permission_request') {
-      try {
-        const p = JSON.parse(m.contentJson) as { callId?: string; toolName?: string; summary?: string };
-        if (p.callId && !decided.has(p.callId)) {
-          return { callId: p.callId, toolName: p.toolName ?? 'tool', summary: p.summary ?? '' };
-        }
-      }
-      catch { /* ignore */ }
-    }
-  }
-  return null;
 }
 
 function resolvedModelName(taskModel: string | null, messages: TaskMessageDto[]): string {

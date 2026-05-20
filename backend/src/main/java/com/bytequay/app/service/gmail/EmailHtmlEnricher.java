@@ -51,17 +51,6 @@ public class EmailHtmlEnricher
             "<a\\b[^>]*href=\"https://github\\.com/([\\w.-]+)/([\\w.-]+)/commit/([a-f0-9]{7,40})[^\"]*\"[^>]*>.*?</a>",
             Pattern.DOTALL | Pattern.CASE_INSENSITIVE);
 
-    /** Inline-styled because the iframe sandbox isolates from app CSS,
-     *  and we don't ship a stylesheet alongside the email body. */
-    private static final String BUTTON_TEMPLATE =
-            "<a href=\"bytequay://pr-diff?owner=%s&repo=%s&pr=%s&sha=%s\""
-                    + " style=\"display:inline-block;margin-left:6px;padding:1px 7px;"
-                    + "border:1px solid #7C3AED;border-radius:4px;font-size:11px;"
-                    + "line-height:1.4;color:#7C3AED;text-decoration:none;"
-                    + "font-family:-apple-system,BlinkMacSystemFont,sans-serif;"
-                    + "vertical-align:baseline;\">"
-                    + "&#8599;&nbsp;ByteQuay</a>";
-
     public String enrich(String html, List<LinkedRef> linkedRefs)
     {
         if (html == null || html.isEmpty()) {
@@ -103,7 +92,16 @@ public class EmailHtmlEnricher
 
     private static String buildButton(String owner, String repo, String prSlug, String sha)
     {
-        return String.format(BUTTON_TEMPLATE,
+        // Inline-styled because the iframe sandbox isolates from app CSS,
+        // and we don't ship a stylesheet alongside the email body.
+        return String.format(
+                "<a href=\"bytequay://pr-diff?owner=%s&repo=%s&pr=%s&sha=%s\""
+                        + " style=\"display:inline-block;margin-left:6px;padding:1px 7px;"
+                        + "border:1px solid #7C3AED;border-radius:4px;font-size:11px;"
+                        + "line-height:1.4;color:#7C3AED;text-decoration:none;"
+                        + "font-family:-apple-system,BlinkMacSystemFont,sans-serif;"
+                        + "vertical-align:baseline;\">"
+                        + "&#8599;&nbsp;ByteQuay</a>",
                 encode(owner), encode(repo), encode(prSlug), encode(sha));
     }
 

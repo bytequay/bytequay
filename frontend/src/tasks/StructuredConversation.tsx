@@ -527,7 +527,7 @@ function ToolRow({ call, result }: { call: TaskMessageDto; result: TaskMessageDt
  *
  *  Anything else falls back to the original mono <pre>.
  */
-function ToolOutputBody({ toolName, text, isError }: { toolName: string; text: string; isError: boolean }) {
+export function ToolOutputBody({ toolName, text, isError }: { toolName: string; text: string; isError: boolean }) {
   // Errors override per-tool formatting — a tool whose result came
   // back with isError=true is almost always plain stderr / an
   // exception message; surface that in the error palette so the user

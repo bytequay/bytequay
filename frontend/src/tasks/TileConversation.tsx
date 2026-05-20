@@ -14,6 +14,7 @@
 import { useCallback, useEffect, useMemo, useRef } from 'react';
 import type { TaskMessageDto } from '../types';
 import type { PendingPermission } from './ConversationPane';
+import { ToolOutputBody } from './StructuredConversation';
 
 /** Locally re-declared so this file doesn't depend on a private
  *  type alias inside ConversationPane. Matches the inline shape
@@ -276,12 +277,11 @@ function ToolRow({
   const args = formatToolArgs(toolName, content.input);
   const barColor = toolBarColor(toolName);
   const label = toolLabel(toolName);
-  let resultText = '';
-  if (result !== null) {
-    const r = parseContent(result.contentJson);
-    resultText = formatToolOutput(r.output ?? r.text ?? r.error ?? '');
-  }
-  const isError = result !== null && typeof parseContent(result.contentJson).error !== 'undefined';
+  const resultContent = result === null ? null : parseContent(result.contentJson);
+  const resultText = resultContent === null
+    ? ''
+    : formatToolOutput(resultContent.output ?? resultContent.text ?? resultContent.error ?? '');
+  const isError = resultContent?.isError === true || resultContent?.error !== undefined;
   if (mode === 'terminal') {
     return (
       <div style={termAssistantRowStyle}>
@@ -314,7 +314,7 @@ function ToolRow({
             ...chatToolResultStyle,
             color: isError ? '#b91c1c' : 'var(--text-2)',
           }}>
-            {truncate(resultText, 320)}
+            <ToolOutputBody toolName={toolName} text={resultText} isError={isError} />
           </div>
         )}
       </div>

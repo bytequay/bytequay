@@ -21,19 +21,19 @@ import java.time.Instant;
  * payload: many event types (PushEvent, PullRequestEvent, IssuesEvent,
  * ReleaseEvent…) collapse to a single shape so the frontend can render
  * a uniform timeline.
+ *
+ * @param type GitHub event type, for example {@code PushEvent},
+ * {@code PullRequestEvent}, {@code IssuesEvent}, {@code ReleaseEvent}, or
+ * {@code CreateEvent}. The frontend uses this to pick an icon and tense the
+ * message.
+ * @param actor Login of the user who triggered the event.
+ * @param title Pre-rendered single-line title, built server-side so the
+ * renderer does not need to re-derive it from the raw payload.
+ * @param htmlUrl Deep link into github.com for the event subject.
  */
 public record RepoActivityItem(
-        /** GitHub event type — "PushEvent", "PullRequestEvent",
-         *  "IssuesEvent", "ReleaseEvent", "CreateEvent", etc. The
-         *  frontend uses this to pick an icon and tense the message. */
         String type,
-        /** Login of the user who triggered the event. */
         String actor,
-        /** Pre-rendered single-line title — e.g. "#29289 Make Constraint
-         *  serializable opened" or "trino-435 released". Built server-
-         *  side so the renderer doesn't need to re-derive from the
-         *  raw payload. */
         String title,
-        /** Deep link into github.com for the event subject. */
         String htmlUrl,
         Instant createdAt) {}

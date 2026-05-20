@@ -17,21 +17,18 @@ import java.time.Instant;
 
 /**
  * Local state the app tracks per pull request — entirely client-side, never sent to GitHub.
+ *
+ * @param snoozedUntil set while the PR is snoozed; null means no time-based
+ * snooze.
+ * @param snoozedAt when the snooze was set.
+ * @param snoozeWakeReason populated when an auto-wake fires; cleared after the
+ * user acknowledges the alert.
  */
 public record PrViewState(
         long prId,
         Instant viewedAt,
-        /** Set while the PR is snoozed; the timer-based wake fires when
-         *  the current time passes this. Null means no time-based snooze. */
         Instant snoozedUntil,
-        /** When the snooze was set. Used by the auto-wake check to tell
-         *  whether an urgent signal (CI failing, changes requested, …)
-         *  appeared *after* the snooze started, not before. Null when
-         *  not snoozed. */
         Instant snoozedAt,
-        /** Populated when an auto-wake fires; cleared after the user
-         *  has acknowledged the just-woke alert. Values:
-         *  {@code TIME / CI_FAILING / CHANGES_REQUESTED / MERGE_CONFLICT / MANUAL}. */
         String snoozeWakeReason,
         Instant reviewedAt,
         HandledAction handledAction)

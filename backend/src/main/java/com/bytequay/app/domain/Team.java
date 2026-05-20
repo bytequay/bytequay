@@ -25,16 +25,14 @@ import java.util.Set;
  * <p>Members are modelled as a {@link Set} since rosters are an unordered
  * collection of unique logins; duplicate handling stays in the persistence
  * layer rather than leaking into callers.
+ *
+ * @param description optional one-line description.
  */
 public record Team(
         long id,
         String name,
         String avatar,
         String color,
-        /** Optional one-line description, e.g. "Building Trino's query
-         *  engine and connectors". Surfaced in the team sidebar card
-         *  and inside the New Team modal's live preview. Null when
-         *  the user didn't supply one. */
         String description,
         Set<String> members,
         Instant createdAt,

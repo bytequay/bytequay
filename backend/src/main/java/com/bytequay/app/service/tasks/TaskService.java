@@ -634,9 +634,15 @@ public class TaskService
         return registry.getOrCreate(task);
     }
 
-    /** Inputs from the create-task dialog. Kept as a record next to
-     *  the service so controllers don't have to define a near-identical
-     *  request DTO. */
+    /**
+     * Inputs from the create-task dialog. Kept as a record next to the service
+     * so controllers don't have to define a near-identical request DTO.
+     *
+     * @param initialGroupIds optional group ids to pre-assign the new task to.
+     * @param taskType free-form task type.
+     * @param linkedPrNumber optional GitHub PR number to link the task to.
+     * @param linkedIssueNumber optional GitHub issue number to link the task to.
+     */
     public record NewTaskRequest(
             TaskKind kind,
             String provider,
@@ -646,20 +652,9 @@ public class TaskService
             String branchName,
             String initialPrompt,
             String metadataJson,
-            /** Optional — pre-assigns the new task to one or more
-             *  existing groups. Each group must have room (cap =
-             *  {@link #GROUP_MAX_MEMBERS}); the whole create is
-             *  transactional so the task and its memberships either
-             *  all land or none do. */
             List<String> initialGroupIds,
-            /** Free-form task type — {@code "DEVELOP"} or
-             *  {@code "FIX"} today, more values likely later. Defaults
-             *  to {@code "DEVELOP"} when null/blank. */
             String taskType,
-            /** Optional GitHub PR number to link the task to. Scoped
-             *  to the task's repo, so callers only pass the number. */
             Integer linkedPrNumber,
-            /** Optional GitHub issue number, same scoping as the PR. */
             Integer linkedIssueNumber) {}
 
     /** Inputs from the create-group dialog. The redesign requires

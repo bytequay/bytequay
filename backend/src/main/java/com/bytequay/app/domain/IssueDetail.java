@@ -23,37 +23,34 @@ import java.util.List;
  * merge bar. Body + comments + the right-rail facts (labels with
  * colour, assignees, milestone) cover the read-only flow that ships
  * first; linked PRs and the activity tab still defer to I3b/I4.
+ *
+ * @param body Markdown body posted by the author. May be null or blank when
+ * the issue was opened with no description.
+ * @param state GitHub issue state: {@code "open"} or {@code "closed"}.
+ * @param closedAt null while the issue is open.
+ * @param milestone null when the issue is not milestoned.
+ * @param timeline structural timeline events feeding the Activity and Linked
+ * tabs. Always non-null.
+ * @param subscribed true iff the viewer has explicitly subscribed to the issue
+ * via {@code PUT /issues/{n}/subscription}.
  */
 public record IssueDetail(
         long id,
         int number,
         String title,
-        /** Markdown body posted by the author. May be null/blank when
-         *  the issue was opened with no description. */
         String body,
         String author,
         String authorAvatarUrl,
-        /** "open" or "closed". */
         String state,
         String htmlUrl,
         Instant createdAt,
         Instant updatedAt,
-        /** Null while the issue is open. */
         Instant closedAt,
         List<Label> labels,
         List<Assignee> assignees,
-        /** Null when the issue isn't milestoned. */
         Milestone milestone,
         List<Comment> comments,
-        /** Structural timeline events — labeled, assigned, closed,
-         *  cross-referenced, … — feeding the Activity + Linked tabs.
-         *  Always non-null; empty for issues with no structural history. */
         List<IssueTimelineEvent> timeline,
-        /** True iff the viewer has explicitly subscribed to the issue
-         *  via {@code PUT /issues/{n}/subscription}. False covers both
-         *  "never subscribed" and "explicitly muted" (GitHub's
-         *  {@code ignored=true} state) — we don't surface the ignore
-         *  distinction in v1. */
         boolean subscribed)
 {
     public record Label(String name, String color) {}
@@ -62,14 +59,17 @@ public record IssueDetail(
 
     public record Milestone(String title, String state) {}
 
-    /** One comment in the conversation thread. */
+    /**
+     * One comment in the conversation thread.
+     *
+     * @param reactions aggregated reaction counts. Never null; empty rows use
+     * {@link Reactions#EMPTY} so callers do not need to null-check.
+     */
     public record Comment(
             long id,
             String author,
             String authorAvatarUrl,
             String body,
             Instant createdAt,
-            /** Aggregated reaction counts. Never null — empty rows use
-             *  {@link Reactions#EMPTY} so callers don't have to null-check. */
             Reactions reactions) {}
 }

@@ -1221,6 +1221,24 @@ function TaskWindowSidebar({
   const scheduler = useMemo(() => summarizeTurnState(turns, task.status), [turns, task.status]);
   const agentCwd = taskAgentCwd(task);
   const displayBranch = taskDisplayBranch(task);
+  const [sessionActionError, setSessionActionError] = useState<string | null>(null);
+  const openAgentCwd = useCallback(async (target: 'finder' | 'terminal' | 'ide') => {
+    setSessionActionError(null);
+    try {
+      if (target === 'finder') {
+        await window.bridge.revealRepoInFinder(agentCwd);
+        return;
+      }
+      if (target === 'terminal') {
+        await window.bridge.openRepoInTerminal(agentCwd);
+        return;
+      }
+      await window.bridge.openRepoInIDE(agentCwd);
+    }
+    catch (e) {
+      setSessionActionError(e instanceof Error ? e.message : String(e));
+    }
+  }, [agentCwd]);
   // Overlay running deltas while a turn is in flight; falls back to
   // the persisted totals once liveUsage clears at the next refresh.
   const tokensInDisplay = (task.tokensIn ?? 0) + (liveUsage?.tokensIn ?? 0);
@@ -1296,6 +1314,32 @@ function TaskWindowSidebar({
         <div style={metricListStyle}>
           <Metric label="Session ID" value={task.id} mono wrap />
           <CopyableMetric label="Agent cwd" value={agentCwd} mono wrap />
+          <div style={sessionPathActionRowStyle}>
+            <button
+              type="button"
+              style={sessionPathActionBtnStyle}
+              onClick={() => { void openAgentCwd('finder'); }}
+            >
+              Finder
+            </button>
+            <button
+              type="button"
+              style={sessionPathActionBtnStyle}
+              onClick={() => { void openAgentCwd('terminal'); }}
+            >
+              Terminal
+            </button>
+            <button
+              type="button"
+              style={sessionPathActionBtnStyle}
+              onClick={() => { void openAgentCwd('ide'); }}
+            >
+              IDE
+            </button>
+          </div>
+          {sessionActionError !== null && (
+            <div style={sessionActionErrorStyle}>{sessionActionError}</div>
+          )}
           {displayBranch !== null && displayBranch !== '' && (
             <CopyableMetric
               label="Branch"
@@ -3291,6 +3335,29 @@ const copyMetricButtonStyle: React.CSSProperties = {
   fontSize: 11,
   fontWeight: 650,
   cursor: 'pointer',
+};
+const sessionPathActionRowStyle: React.CSSProperties = {
+  display: 'flex',
+  gap: 6,
+  padding: '5px 0 7px',
+  borderBottom: '1px dashed var(--border-hairline)',
+};
+const sessionPathActionBtnStyle: React.CSSProperties = {
+  border: '1px solid var(--border-hairline)',
+  borderRadius: 6,
+  background: 'var(--panel)',
+  color: 'var(--text-2)',
+  padding: '3px 7px',
+  fontSize: 11,
+  fontWeight: 650,
+  cursor: 'pointer',
+};
+const sessionActionErrorStyle: React.CSSProperties = {
+  color: '#dc2626',
+  fontSize: 11,
+  lineHeight: 1.35,
+  padding: '3px 0 6px',
+  borderBottom: '1px dashed var(--border-hairline)',
 };
 
 const schedulerEventListStyle: React.CSSProperties = {

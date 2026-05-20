@@ -16,13 +16,16 @@ package com.bytequay.app.domain;
 import java.time.Instant;
 import java.util.List;
 
+/**
+ * Repository issue list item.
+ *
+ * @param state GitHub state field: {@code "open"} or {@code "closed"}.
+ */
 public record RepoIssue(
         long id,
         int number,
         String title,
         String author,
-        /** GitHub's state field — "open" or "closed". Lets the frontend
-         *  pick the right status icon and tab without re-querying. */
         String state,
         String htmlUrl,
         Instant updatedAt,

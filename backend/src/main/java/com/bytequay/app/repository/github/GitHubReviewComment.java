@@ -22,6 +22,8 @@ import java.time.Instant;
  * Response shape for {@code /repos/{owner}/{repo}/pulls/{n}/comments}.
  * The endpoint returns one row per per-line review comment; replies on a
  * thread reference the thread root via {@link #inReplyToId}.
+ *
+ * @param authorAssociation GitHub's author_association enum.
  */
 @JsonIgnoreProperties(ignoreUnknown = true)
 public record GitHubReviewComment(
@@ -55,10 +57,6 @@ public record GitHubReviewComment(
         // outdated comments without a separate API call.
         Integer position,
         Reactions reactions,
-        /** GitHub's author_association enum: COLLABORATOR, CONTRIBUTOR,
-         *  FIRST_TIMER, FIRST_TIME_CONTRIBUTOR, MANNEQUIN, MEMBER, NONE,
-         *  OWNER. Used by the UI to render the small role pill next to
-         *  the comment author. */
         @JsonProperty("author_association") String authorAssociation)
 {
     @JsonIgnoreProperties(ignoreUnknown = true)

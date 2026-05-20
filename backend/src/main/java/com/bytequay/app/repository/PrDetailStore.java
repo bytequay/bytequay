@@ -69,7 +69,7 @@ public interface PrDetailStore
     void deleteByPrIds(Set<Long> prIds);
 
     /**
-     * Returns the PR id whose cached timeline contains a {@code commented}
+     * Returns the PR id whose cached timeline contains a "commented"
      * event with the given GitHub comment id, or empty if no cached
      * detail references it. Used by the conversation-mutation patch path
      * (edit body, react) to find the cache row to update when the caller

@@ -1289,11 +1289,11 @@ function TaskWindowSidebar({
         </div>
       </SidebarSection>
 
-      <SidebarSection label="Scheduler">
+      <SidebarSection label="Scheduler" hint="Submitted waits; started runs">
         <div style={metricListStyle}>
           <Metric label="Turn state" value={scheduler.state} live={scheduler.live} />
           <Metric label="Lane" value={scheduler.lane} mono />
-          <Metric label="Queued turns" value={String(scheduler.queued)} />
+          <Metric label="Waiting turns" value={String(scheduler.queued)} />
           {scheduler.latestInput !== '' && (
             <Metric label="Latest input" value={scheduler.latestInput} wrap />
           )}
@@ -2258,7 +2258,7 @@ function SchedulerEventHistory({ events, turns }: { events: TaskTurnEventDto[]; 
   }
   return (
     <div style={metricRowWrapStyle}>
-      <span style={metricLabelStyle}>Transitions</span>
+      <span style={metricLabelStyle}>Events</span>
       <div style={schedulerEventListStyle}>
         {recent.map(event => {
           const meta = schedulerEventMeta(event.event);
@@ -2569,19 +2569,19 @@ function schedulerEventMeta(event: TaskTurnEventDto['event']): { label: string; 
   switch (event) {
     case 'TURN_QUEUED':
       return {
-        label: 'Queued',
-        hint: 'Accepted by the scheduler; waiting for a lane slot.',
+        label: 'Submitted',
+        hint: 'Accepted by the scheduler; waits here until a lane slot is free.',
         color: '#b45309',
       };
     case 'WAITING_FOR_CAPACITY':
       return {
-        label: 'Waiting',
+        label: 'Queued',
         hint: 'Still waiting because the lane or this task is busy.',
         color: '#b45309',
       };
     case 'TURN_STARTED':
       return {
-        label: 'Run started',
+        label: 'Started',
         hint: 'A scheduler slot was acquired and the agent began work.',
         color: '#047857',
       };
@@ -2622,7 +2622,7 @@ function schedulerEventHint(
     if (turn?.startedAt) {
       return `Submitted, then executed after ${queuedDurationLabel(event, turn)} in queue.`;
     }
-    return 'Submitted; not executing yet; waiting for scheduler resources.';
+    return 'Submitted; not executing yet; waiting for a scheduler lane.';
   }
   if (event.event === 'WAITING_FOR_CAPACITY') {
     return `Still queued for ${queuedDurationLabel(event, turn)}; waiting for resources.`;
@@ -2643,7 +2643,8 @@ function queuedDurationLabel(event: TaskTurnEventDto, turn: TaskTurnDto | null):
 
 function schedulerEventTitle(event: TaskTurnEventDto, turn: TaskTurnDto | null): string {
   const message = event.message ? ` · ${event.message}` : '';
-  return `${schedulerEventMeta(event.event).label} · ${schedulerEventHint(event, turn, schedulerEventMeta(event.event))} · ${new Date(event.createdAt).toLocaleString()}${message} · internal turn id: ${event.turnId}`;
+  const meta = schedulerEventMeta(event.event);
+  return `${meta.label} · ${schedulerEventHint(event, turn, meta)} · ${new Date(event.createdAt).toLocaleString()}${message}`;
 }
 
 function formatCost(milli: number | null): string {

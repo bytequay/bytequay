@@ -23,21 +23,19 @@ public record GitHubCheckRunsResponse(
         @JsonProperty("total_count") int totalCount,
         @JsonProperty("check_runs") List<CheckRun> checkRuns)
 {
+    /**
+     * GitHub check-run response item.
+     *
+     * @param id stable per-attempt id.
+     * @param output GitHub's per-run summary block.
+     */
     @JsonIgnoreProperties(ignoreUnknown = true)
     public record CheckRun(
-            /** Stable per-attempt id; matches the Actions job id for
-             *  Actions-backed checks, which lets the frontend fetch
-             *  /actions/jobs/{id}/logs for an inline log view. */
             Long id,
             String name,
             String status,
             String conclusion,
             @JsonProperty("html_url") String htmlUrl,
-            /** GitHub's per-run summary block. {@code title} is a short
-             *  one-liner (e.g. "5 tests failed"); {@code summary} is the
-             *  longer markdown blob the runner uploaded — usually the
-             *  actual error message. Both are absent for some runners,
-             *  hence nullable. */
             CheckRunOutput output) {}
 
     @JsonIgnoreProperties(ignoreUnknown = true)

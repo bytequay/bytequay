@@ -18,6 +18,17 @@ import com.fasterxml.jackson.annotation.JsonProperty;
 
 import java.time.Instant;
 
+/**
+ * GitHub timeline event payload.
+ *
+ * @param authorAssociation author's relationship to the repo for commented and
+ * reviewed timeline events.
+ * @param label label payload for labeled and unlabeled events.
+ * @param assignee assignee payload for assigned and unassigned events.
+ * @param milestone milestone payload for milestoned and demilestoned events.
+ * @param rename title diff payload for renamed events.
+ * @param source referencing issue or PR payload for cross-referenced events.
+ */
 @JsonIgnoreProperties(ignoreUnknown = true)
 public record GitHubTimelineEvent(
         // For "reviewed" events this is the GitHub review ID — the same id
@@ -42,18 +53,11 @@ public record GitHubTimelineEvent(
         @JsonProperty("after_commit") Commit afterCommit,
         Author author,
         @JsonProperty("requested_reviewer") User requestedReviewer,
-        /** Author's relationship to the repo for "commented" / "reviewed"
-         *  timeline events: MEMBER / CONTRIBUTOR / OWNER / NONE / …. */
         @JsonProperty("author_association") String authorAssociation,
-        /** "labeled" / "unlabeled" events carry the label here. */
         Label label,
-        /** "assigned" / "unassigned" events carry the assignee here. */
         User assignee,
-        /** "milestoned" / "demilestoned" events carry the milestone here. */
         Milestone milestone,
-        /** "renamed" events carry the title diff here. */
         Rename rename,
-        /** "cross-referenced" events carry the referencing issue / PR here. */
         Source source)
 {
     @JsonIgnoreProperties(ignoreUnknown = true)

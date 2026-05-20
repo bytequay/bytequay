@@ -100,9 +100,9 @@ public class CheckpointScheduler
     public void onTurnDone(String taskId)
     {
         requireNonNull(taskId, "taskId is null");
-        // Submit + return — never block the session's event thread on
+        // Schedule + return — never block the session's event thread on
         // Anthropic. The submitted task does the per-task locking.
-        executor.submit(() -> tryGenerateThresholdSegment(taskId));
+        executor.execute(() -> tryGenerateThresholdSegment(taskId));
     }
 
     @Override

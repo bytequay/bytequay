@@ -23,51 +23,36 @@ import java.util.List;
  * the cached PR-detail blob carry {@code partial = true}; the
  * "Response to review request" card is a placeholder until the
  * review-mirror lands and currently surfaces {@code pendingNote}.
+ *
+ * @param scope query scope echoed back to the UI: {@code "7d"},
+ * {@code "30d"}, {@code "90d"}, or {@code "all"}.
+ * @param watchedRepoCount number of repos the user has explicitly watched.
+ * @param currentLogin GitHub login of the current user, or null when not yet
+ * known.
+ * @param reviewOutcomes latest-verdict distribution across PRs you reviewed.
+ * @param sizeDistribution count of reviewed PRs bucketed by total line change.
+ * @param reposByReview top repos by number of PRs reviewed.
+ * @param dailyActivity one bucket per calendar day in the active scope window.
+ * @param reviewHeatmap 7 by 24 heatmap of review counts, bucketed in the
+ * user's local timezone.
+ * @param reviewNetwork top co-reviewers across PRs you also reviewed.
+ * @param staleAuthoredPrs open PRs you authored that have not been touched in
+ * more than seven days.
  */
 public record PrAnalyticsSummary(
-        /** "7d" | "30d" | "90d" | "all". Echoes the query param. */
         String scope,
-        /** Number of repos the user has explicitly watched. Powers the
-         *  "Scope: N watched repos · 90d cap for unwatched" chip. */
         int watchedRepoCount,
-        /** GitHub login of the current user, resolved from the cached
-         *  settings row. Null when not yet known — the UI renders an
-         *  empty state until the next sync populates it. */
         String currentLogin,
         KpiCard prsReviewed,
         KpiCard approvalRate,
         KpiCard linesReviewed,
         KpiCard responseToReviewRequest,
-        /** Latest-verdict distribution across PRs you reviewed, ordered
-         *  by the canonical slice order (APPROVED, CHANGES_REQUESTED,
-         *  COMMENTED, DISMISSED). Partial — same caveat as the KPI
-         *  cards. */
         List<OutcomeSlice> reviewOutcomes,
-        /** Count of PRs you reviewed bucketed by total line change,
-         *  ordered from Tiny → Huge. Partial. */
         List<SizeBucket> sizeDistribution,
-        /** Top repos by number of PRs you reviewed, sorted desc.
-         *  Capped to the most active handful so the list stays
-         *  scannable. Partial. */
         List<RepoReviewCount> reposByReview,
-        /** One bucket per calendar day in the active scope window
-         *  (oldest → newest). Counts split by review state so the
-         *  chart can stack them. Sparse for legacy reviews captured
-         *  before V53 — those carry no submission timestamp and are
-         *  excluded. */
         List<DailyActivity> dailyActivity,
-        /** 7 × 24 heatmap of review counts: outer index 0 = Sunday,
-         *  inner index 0 = midnight. Bucketed in the user's local
-         *  timezone so the strong-hour band matches their working day.
-         *  Reviews without a timestamp are excluded. */
         List<HeatmapCell> reviewHeatmap,
-        /** Top co-reviewers — engineers whose reviews land on PRs you
-         *  also reviewed. {@code count} is the number of distinct
-         *  PRs you both reviewed. Sorted desc; capped. */
         List<CoReviewer> reviewNetwork,
-        /** Open PRs you authored that haven't been touched in > 7 days.
-         *  Sourced from the {@code pull_requests} row only, so this list
-         *  is complete for the local store (not partial). */
         List<StaleAuthoredPr> staleAuthoredPrs)
 {
     /**
@@ -75,15 +60,14 @@ public record PrAnalyticsSummary(
      * (count or ratio); {@code displayValue} is the rendered string
      * (e.g. "12", "87%", "1,240"). Partial cards depend on cached
      * detail data and may under-count.
+     *
+     * @param pendingNote when non-null, the card renders an empty state with
+     * this copy instead of the value.
      */
     public record KpiCard(
             Double value,
             String displayValue,
             boolean partial,
-            /** When non-null, the card renders an empty state with this
-             *  copy instead of the value. Used for the "Response to
-             *  review request" placeholder until the review mirror
-             *  lands. */
             String pendingNote) {}
 
     /**

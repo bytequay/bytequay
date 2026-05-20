@@ -540,6 +540,37 @@ class TestTaskServiceScheduler
         assertThat(store.findTaskById(task.id())).isEmpty();
     }
 
+    @Test
+    void taskDiffAndCommitViewsUseAgentCwd()
+    {
+        Task task = taskWithWorktree("task-1");
+        InMemoryTaskStore store = new InMemoryTaskStore();
+        store.saveTask(task);
+        RecordingGitRunner git = new RecordingGitRunner();
+        TaskService service = new TaskService(
+                store,
+                new EmptyTaskGroupStore(),
+                new InMemoryTaskTurnStore(),
+                new InMemoryTaskTurnEventStore(),
+                new ThrowingRegistry(),
+                new RecordingScheduler(),
+                git,
+                noopWorktreeService());
+
+        service.listWorkingChanges(task.id());
+        service.getWorkingDiff(task.id(), "src/App.java");
+        service.listTaskCommits(task.id());
+        service.listCommitFiles(task.id(), "abc123");
+        service.getCommitDiff(task.id(), "abc123", "src/App.java");
+
+        Path expected = Path.of(task.agentCwd());
+        assertThat(git.workingTreeFilesPaths).containsExactly(expected);
+        assertThat(git.workingTreeDiffPaths).containsExactly(expected);
+        assertThat(git.listCommitsSincePaths).containsExactly(expected);
+        assertThat(git.commitFilesPaths).containsExactly(expected);
+        assertThat(git.commitDiffPaths).containsExactly(expected);
+    }
+
     private record WorktreeCreateRequest(Path repoRoot, String sessionId, String title) {}
 
     private record WorktreeRemoveRequest(Path repoRoot, String worktreePath, String localBranch) {}
@@ -575,6 +606,51 @@ class TestTaskServiceScheduler
         public void remove(Path repoRoot, String worktreePath, String localBranch)
         {
             removeRequests.add(new WorktreeRemoveRequest(repoRoot, worktreePath, localBranch));
+        }
+    }
+
+    private static final class RecordingGitRunner
+            extends GitRunner
+    {
+        private final List<Path> workingTreeFilesPaths = new ArrayList<>();
+        private final List<Path> workingTreeDiffPaths = new ArrayList<>();
+        private final List<Path> listCommitsSincePaths = new ArrayList<>();
+        private final List<Path> commitFilesPaths = new ArrayList<>();
+        private final List<Path> commitDiffPaths = new ArrayList<>();
+
+        @Override
+        public List<GitRunner.WorkingTreeFile> workingTreeFiles(Path workingDir)
+        {
+            workingTreeFilesPaths.add(workingDir);
+            return List.of();
+        }
+
+        @Override
+        public String workingTreeFileDiff(Path workingDir, String path, int maxBytes)
+        {
+            workingTreeDiffPaths.add(workingDir);
+            return "";
+        }
+
+        @Override
+        public List<GitRunner.CommitEntry> listCommitsSince(Path workingDir, Instant since, int limit)
+        {
+            listCommitsSincePaths.add(workingDir);
+            return List.of();
+        }
+
+        @Override
+        public List<GitRunner.CommitFileChange> commitFiles(Path workingDir, String sha)
+        {
+            commitFilesPaths.add(workingDir);
+            return List.of();
+        }
+
+        @Override
+        public String commitFileDiff(Path workingDir, String sha, String path, int maxBytes)
+        {
+            commitDiffPaths.add(workingDir);
+            return "";
         }
     }
 

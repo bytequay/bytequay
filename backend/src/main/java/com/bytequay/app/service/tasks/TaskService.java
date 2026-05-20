@@ -488,7 +488,7 @@ public class TaskService
     }
 
     // ── Working-tree + commit views for the Tasks UI tabs ────────────
-    // Each call resolves the task to its workingDir, then delegates
+    // Each call resolves the task to its agent cwd, then delegates
     // to GitRunner. We don't cache — these views are opened on demand
     // and the underlying tree mutates as the AI session writes files.
     // Wrap the checked IO/Interrupted exceptions so callers stay clean.
@@ -499,7 +499,7 @@ public class TaskService
     {
         Task task = requireTask(taskId);
         try {
-            return git.workingTreeFiles(Path.of(task.workingDir()));
+            return git.workingTreeFiles(agentCwd(task));
         }
         catch (IOException e) {
             throw new RuntimeException("Failed to list working-tree changes for " + taskId, e);
@@ -516,7 +516,7 @@ public class TaskService
         requireNonNull(path, "path is null");
         Task task = requireTask(taskId);
         try {
-            return git.workingTreeFileDiff(Path.of(task.workingDir()), path, DIFF_MAX_BYTES);
+            return git.workingTreeFileDiff(agentCwd(task), path, DIFF_MAX_BYTES);
         }
         catch (IOException e) {
             throw new RuntimeException("Failed to diff " + path + " for " + taskId, e);
@@ -534,7 +534,7 @@ public class TaskService
     {
         Task task = requireTask(taskId);
         try {
-            return git.listCommitsSince(Path.of(task.workingDir()), task.createdAt(), COMMITS_LIMIT);
+            return git.listCommitsSince(agentCwd(task), task.createdAt(), COMMITS_LIMIT);
         }
         catch (IOException e) {
             throw new RuntimeException("Failed to list commits for " + taskId, e);
@@ -552,7 +552,7 @@ public class TaskService
         requireNonNull(sha, "sha is null");
         Task task = requireTask(taskId);
         try {
-            return git.commitFiles(Path.of(task.workingDir()), sha);
+            return git.commitFiles(agentCwd(task), sha);
         }
         catch (IOException e) {
             throw new RuntimeException("Failed to list files for commit " + sha + " (task " + taskId + ")", e);
@@ -570,7 +570,7 @@ public class TaskService
         requireNonNull(path, "path is null");
         Task task = requireTask(taskId);
         try {
-            return git.commitFileDiff(Path.of(task.workingDir()), sha, path, DIFF_MAX_BYTES);
+            return git.commitFileDiff(agentCwd(task), sha, path, DIFF_MAX_BYTES);
         }
         catch (IOException e) {
             throw new RuntimeException("Failed to diff " + path + " at " + sha + " (task " + taskId + ")", e);
@@ -586,6 +586,11 @@ public class TaskService
         requireNonNull(taskId, "taskId is null");
         return store.findTaskById(taskId)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatusCode.valueOf(404), "no task: " + taskId));
+    }
+
+    private static Path agentCwd(Task task)
+    {
+        return Path.of(task.agentCwd());
     }
 
     private static List<String> distinctCopy(List<String> values)

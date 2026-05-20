@@ -343,8 +343,8 @@ public class ClaudeReviewer
             // Strip any wrapping quotes the model occasionally adds
             // despite the system prompt.
             if (text.length() >= 2
-                    && (text.startsWith("\"") && text.endsWith("\"")
-                        || text.startsWith("`") && text.endsWith("`"))) {
+                    && ((text.startsWith("\"") && text.endsWith("\""))
+                        || (text.startsWith("`") && text.endsWith("`")))) {
                 text = text.substring(1, text.length() - 1).trim();
             }
             return text;

@@ -13,6 +13,7 @@
  */
 import { useState } from 'react';
 import CredentialsTab from '../../CredentialsTab';
+import ReviewSkillsTab from '../../ReviewSkillsTab';
 import ComingSoon from '../shared/ComingSoon';
 
 type Tab = 'credentials' | 'skills' | 'usage';
@@ -62,12 +63,7 @@ function AiReviewPage() {
       </div>
 
       {tab === 'credentials' && <CredentialsTab filterType="AI" />}
-      {tab === 'skills' && (
-        <ComingSoon
-          title="Review skills"
-          description="Always-on and opt-in skills that shape what the AI looks for. Lands with the AI revamp."
-        />
-      )}
+      {tab === 'skills' && <ReviewSkillsTab />}
       {tab === 'usage' && (
         <ComingSoon
           title="Usage"

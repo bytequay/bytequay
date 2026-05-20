@@ -447,32 +447,113 @@ function CredentialsTab({ onFirstCredentialAdded, filterType }: Props) {
                   </label>
                 ))}
               </div>
-              <div className="credentials-editor__field">
-                <label className="credentials-editor__label">Model</label>
-                <input
-                  className="credentials-editor__input"
-                  type="text"
-                  value={aiSettings.model}
-                  placeholder={
-                    aiSettings.provider === 'deepseek' ? 'e.g. deepseek-chat'
-                    : aiSettings.provider === 'openai' ? 'e.g. gpt-4o'
-                    : 'e.g. claude-opus-4-7'
-                  }
-                  onBlur={e => void handleModelChange(e.target.value)}
-                  onChange={e => setAiSettingsState(s => ({ ...s, model: e.target.value }))}
-                />
-                <p className="credentials-editor__hint">
-                  {aiSettings.provider === 'deepseek'
-                    ? 'DeepSeek models: deepseek-chat (general), deepseek-reasoner (chain-of-thought). Leave blank for deepseek-chat.'
-                    : aiSettings.provider === 'claude'
-                    ? 'Claude models: claude-opus-4-7, claude-sonnet-4-6, claude-haiku-4-5. Leave blank for claude-opus-4-7.'
-                    : 'Leave blank to use the provider\'s default model.'}
-                </p>
-              </div>
+              <ModelPicker
+                provider={aiSettings.provider}
+                model={aiSettings.model}
+                onModelDraft={m => setAiSettingsState(s => ({ ...s, model: m }))}
+                onModelCommit={m => void handleModelChange(m)}
+              />
             </section>
           )}
         </>
       )}
+    </div>
+  );
+}
+
+/**
+ * Known model identifiers per provider. A typo in the free-text input
+ * used to silently 404 on the next call; the dropdown trims the
+ * footgun while "Other…" keeps the escape hatch for new releases or
+ * custom routes (Anthropic dated suffixes, OpenAI deployments, etc.).
+ *
+ * Order is most-capable → cheapest so the obvious pick sits on top.
+ */
+const KNOWN_MODELS: Record<string, string[]> = {
+  claude: ['claude-opus-4-7', 'claude-sonnet-4-6', 'claude-haiku-4-5'],
+  openai: ['gpt-4o', 'gpt-4o-mini', 'gpt-4-turbo', 'gpt-3.5-turbo'],
+  deepseek: ['deepseek-chat', 'deepseek-reasoner'],
+  local: [],
+};
+
+function ModelPicker({
+  provider, model, onModelDraft, onModelCommit,
+}: {
+  provider: string;
+  model: string;
+  /** Updates the in-memory draft on every change without persisting —
+   *  matches the old onChange behaviour so the input stays
+   *  controlled. */
+  onModelDraft: (next: string) => void;
+  /** Persists the value via setAiSettings. Called when the user
+   *  picks a preset, or on blur of the custom-input fallback. */
+  onModelCommit: (next: string) => void;
+}) {
+  const known = KNOWN_MODELS[provider] ?? [];
+  const trimmed = model.trim();
+  // "Other" mode is active when the user has typed something that
+  // isn't one of the presets — including the empty default. We surface
+  // a hint that empty falls back to the provider's default model.
+  const isKnown = trimmed.length > 0 && known.includes(trimmed);
+  const [otherMode, setOtherMode] = useState<boolean>(trimmed.length > 0 && !isKnown);
+  // Reset otherMode when the provider switches so the dropdown
+  // doesn't stay stuck on "Other…" after a provider change.
+  useEffect(() => {
+    setOtherMode(trimmed.length > 0 && !(KNOWN_MODELS[provider] ?? []).includes(trimmed));
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [provider]);
+
+  const onPreset = (next: string) => {
+    if (next === '__other__') {
+      setOtherMode(true);
+      return;
+    }
+    setOtherMode(false);
+    onModelDraft(next);
+    onModelCommit(next);
+  };
+
+  const selectValue = otherMode ? '__other__' : (isKnown ? trimmed : '');
+
+  return (
+    <div className="credentials-editor__field">
+      <label className="credentials-editor__label">Model</label>
+      {known.length > 0 ? (
+        <select
+          className="credentials-editor__select"
+          value={selectValue}
+          onChange={e => onPreset(e.target.value)}
+        >
+          <option value="">Default ({known[0]})</option>
+          {known.map(m => (
+            <option key={m} value={m}>{m}</option>
+          ))}
+          <option value="__other__">Other…</option>
+        </select>
+      ) : null}
+      {(otherMode || known.length === 0) && (
+        <input
+          className="credentials-editor__input"
+          type="text"
+          value={model}
+          placeholder={
+            provider === 'local'
+              ? 'e.g. llama3.1:8b, gpt-oss-20b'
+              : provider === 'deepseek' ? 'e.g. deepseek-chat'
+              : provider === 'openai' ? 'e.g. gpt-4o'
+              : 'e.g. claude-opus-4-7'
+          }
+          onBlur={e => onModelCommit(e.target.value)}
+          onChange={e => onModelDraft(e.target.value)}
+          style={known.length > 0 ? { marginTop: 6 } : undefined}
+          autoFocus={otherMode}
+        />
+      )}
+      <p className="credentials-editor__hint">
+        {provider === 'local'
+          ? "Free-text — local servers expose whatever model id they're configured with."
+          : 'Leave blank to use the provider\'s default. Pick "Other…" if your model isn\'t listed.'}
+      </p>
     </div>
   );
 }

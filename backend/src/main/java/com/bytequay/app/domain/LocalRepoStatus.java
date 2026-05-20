@@ -18,40 +18,31 @@ package com.bytequay.app.domain;
  * The state pill the UI renders is derived directly from {@link #state};
  * detail (current branch, dirty file count) is null when the repo is
  * unmapped or git itself is unavailable.
+ *
+ * @param localClonePath filesystem path of the user's working copy, or null
+ * when the repo is watched but no clone has been mapped to it yet.
+ * @param currentBranch currently checked-out branch name. Null when the repo is
+ * unmapped or git could not read HEAD.
+ * @param dirtyFileCount count of changed files reported by
+ * {@code git status --porcelain}. Null when the repo is unmapped.
+ * @param errorMessage human-readable error from the last git operation,
+ * surfaced when state is {@link State#ERROR}.
+ * @param upstreamRemoteName name of the git remote that points at the watched
+ * repo. Null when origin is the watched repo or the repo is not mapped.
+ * @param defaultBranch repo's default branch as the local clone sees it.
+ * @param viewFocus resolved focus for the repo detail page's commits tab:
+ * {@code "fork"} or {@code "upstream"}.
  */
 public record LocalRepoStatus(
         String owner,
         String repo,
-        /** Filesystem path of the user's working copy, or null when the
-         *  repo is watched but no clone has been mapped to it yet. */
         String localClonePath,
         State state,
-        /** Currently checked-out branch name. Null when the repo is
-         *  unmapped or git couldn't read HEAD (e.g. detached, broken). */
         String currentBranch,
-        /** Count of changed files reported by `git status --porcelain`.
-         *  Null when the repo is unmapped. Zero on a CLEAN repo. */
         Integer dirtyFileCount,
-        /** Human-readable error from the last git operation, surfaced
-         *  when state is {@link State#ERROR}. */
         String errorMessage,
-        /** Name of the git remote that points at the watched repo.
-         *  Null when origin is the watched repo (direct clone) or the
-         *  repo isn't mapped. Drives the "Base: trinodb/trino" hint
-         *  on the page header and the default base for Create-PR. */
         String upstreamRemoteName,
-        /** Repo's default branch as the local clone sees it
-         *  ({@code git symbolic-ref refs/remotes/origin/HEAD}). Used
-         *  to pre-fill the Base field in the Create-PR modal so a fork
-         *  whose upstream defaults to {@code master} (Trino, etc.)
-         *  doesn't surprise the user with {@code main}. Null when
-         *  origin/HEAD isn't set or the repo is unmapped. */
         String defaultBranch,
-        /** Resolved focus for the repo detail page's commits tab:
-         *  {@code "fork"} or {@code "upstream"}. Defaults to
-         *  {@code "upstream"} when {@link #upstreamRemoteName} is set
-         *  (the user is watching a fork) and {@code "fork"} otherwise.
-         *  Persisted user choice always wins over the default. */
         String viewFocus)
 {
     public enum State

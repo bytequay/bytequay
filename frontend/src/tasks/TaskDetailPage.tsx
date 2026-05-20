@@ -1888,7 +1888,9 @@ function TerminalStatusBar({
       <span style={termStatGroupRightStyle}>
         <span style={termStatStyle}>⏱ <strong style={termStatStrongStyle}>{formatRuntime(task)}</strong></span>
         <span style={termStatStyle}>💰 <strong style={termStatStrongStyle}>{formatCost(task.costUsdMilli)}</strong></span>
-        <span style={termStatStyle}>tokens <strong style={termStatStrongStyle}>{formatNum(tokensTotal)}</strong></span>
+        <span style={termStatStyle} title="Total input and output tokens">
+          <strong style={termStatStrongStyle}>{formatTokenLabel(tokensTotal)}</strong>
+        </span>
         {stage.toolName && (
           <span style={termStatStyle}>
             {stage.glyph} <strong style={termStatStrongStyle}>{stage.toolName}</strong>
@@ -2653,6 +2655,10 @@ function formatNum(n: number): string {
   if (n < 1_000) return String(n);
   if (n < 1_000_000) return `${(n / 1_000).toFixed(1)}k`;
   return `${(n / 1_000_000).toFixed(1)}M`;
+}
+
+function formatTokenLabel(n: number): string {
+  return `${formatNum(n)} ${n === 1 ? 'token' : 'tokens'}`;
 }
 
 /** Compact elapsed-time formatter for the LIVE bar. Mirrors the

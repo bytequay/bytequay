@@ -618,8 +618,8 @@ function TaskTile({
           <div style={{ flex: 1 }} />
           <span style={footerMetricStyle}>{formatCost(task.costUsdMilli)}</span>
           <span style={footerSepStyle}>·</span>
-          <span style={footerMetricStyle}>
-            {formatTokens(task.tokensIn + task.tokensOut)} tok
+          <span style={footerMetricStyle} title="Total input and output tokens">
+            {formatTokenLabel(task.tokensIn + task.tokensOut)}
           </span>
         </footer>
       )}
@@ -665,6 +665,10 @@ function formatTokens(n: number): string {
   if (n < 1000) return String(n);
   if (n < 1000_000) return `${(n / 1000).toFixed(1)}k`;
   return `${(n / 1000_000).toFixed(1)}M`;
+}
+
+function formatTokenLabel(n: number): string {
+  return `${formatTokens(n)} ${n === 1 ? 'token' : 'tokens'}`;
 }
 
 // ────────────────────────────────────────────────────────────────────

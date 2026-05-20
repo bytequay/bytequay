@@ -154,7 +154,10 @@ public class ClaudeCodeCliSession
         this.kind = task.kind();
         this.provider = task.provider();
         this.model = task.model();
-        this.workingDir = task.workingDir();
+        // Run inside the task's worktree when one was created; falls
+        // back to the user-supplied workingDir when no worktree exists
+        // (legacy rows, or worktree creation failed at task-create).
+        this.workingDir = task.agentCwd();
         this.branchName = task.branchName();
         this.store = requireNonNull(store, "store is null");
         this.parser = requireNonNull(parser, "parser is null");
@@ -336,7 +339,8 @@ public class ClaudeCodeCliSession
                     current.createdAt(), Instant.now(),
                     /* endedAt */ null, /* errorMessage */ null,
                     current.metadataJson(), current.taskType(),
-                    current.linkedPrNumber(), current.linkedIssueNumber()));
+                    current.linkedPrNumber(), current.linkedIssueNumber(),
+                    current.worktreePath(), current.localBranch()));
         }
     }
 
@@ -833,7 +837,8 @@ public class ClaudeCodeCliSession
                 current.createdAt(), Instant.now(),
                 endedAt != null ? endedAt : current.endedAt(),
                 current.errorMessage(), current.metadataJson(),
-                current.taskType(), current.linkedPrNumber(), current.linkedIssueNumber());
+                current.taskType(), current.linkedPrNumber(), current.linkedIssueNumber(),
+                current.worktreePath(), current.localBranch());
         store.saveTask(next);
     }
 

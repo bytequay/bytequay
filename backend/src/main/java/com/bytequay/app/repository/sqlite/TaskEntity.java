@@ -89,6 +89,12 @@ class TaskEntity
     @Column(name = "linked_issue_number")
     private Integer linkedIssueNumber;
 
+    @Column(name = "worktree_path")
+    private String worktreePath;
+
+    @Column(name = "local_branch")
+    private String localBranch;
+
     // The legacy `tasks.group_id` column still exists in the schema
     // (V57) but is no longer mapped — membership moved to the
     // `task_group_members` join table in V59. The column is left
@@ -160,4 +166,10 @@ class TaskEntity
 
     Integer getLinkedIssueNumber() { return linkedIssueNumber; }
     void setLinkedIssueNumber(Integer linkedIssueNumber) { this.linkedIssueNumber = linkedIssueNumber; }
+
+    String getWorktreePath() { return worktreePath; }
+    void setWorktreePath(String worktreePath) { this.worktreePath = worktreePath; }
+
+    String getLocalBranch() { return localBranch; }
+    void setLocalBranch(String localBranch) { this.localBranch = localBranch; }
 }

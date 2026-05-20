@@ -71,7 +71,8 @@ public class TaskStartupReconciler
                         /* processPid */ null, task.logPath(),
                         task.createdAt(), now,
                         task.endedAt(), task.errorMessage(), task.metadataJson(),
-                        task.taskType(), task.linkedPrNumber(), task.linkedIssueNumber()));
+                        task.taskType(), task.linkedPrNumber(), task.linkedIssueNumber(),
+                        task.worktreePath(), task.localBranch()));
             }
             reconciled += orphaned.size();
             if (orphaned.size() < RECONCILE_PAGE_SIZE) {

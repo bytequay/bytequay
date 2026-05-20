@@ -220,6 +220,60 @@ public class GitRunner
     }
 
     /**
+     * Creates a linked worktree rooted at {@code worktreePath} with a
+     * new branch {@code branchName} pointing at {@code baseRef}. The
+     * branch ref is created as part of the same git command — there's
+     * no separate {@code createBranch} call needed.
+     *
+     * <p>Equivalent to {@code git worktree add -b <branchName>
+     * <worktreePath> <baseRef>}. Fails (with git's stderr surfaced) if
+     * the branch already exists, the path already exists, or the base
+     * ref doesn't resolve.
+     *
+     * @param mainRepoDir the main repo's working directory (the
+     *                    worktree command runs from here so it knows
+     *                    which .git store to register the new worktree
+     *                    under)
+     * @param worktreePath absolute path of the new worktree's directory
+     * @param branchName name of the new branch to create
+     * @param baseRef the ref to branch from (e.g. {@code "main"} or
+     *                {@code "upstream/master"})
+     */
+    public void worktreeAdd(Path mainRepoDir, Path worktreePath, String branchName, String baseRef)
+            throws IOException, InterruptedException
+    {
+        requireNonNull(worktreePath, "worktreePath is null");
+        requireNonNull(branchName, "branchName is null");
+        requireNonNull(baseRef, "baseRef is null");
+        run(List.of("git", "worktree", "add",
+                        "-b", branchName,
+                        worktreePath.toString(),
+                        baseRef),
+                mainRepoDir)
+                .requireSuccess();
+    }
+
+    /**
+     * Removes the worktree at {@code worktreePath}. Uses {@code --force}
+     * to handle the case where the worktree has uncommitted changes
+     * (we own the worktree's lifecycle, so the dirty-tree safety check
+     * doesn't apply). Does not delete the branch — pair with
+     * {@link #deleteBranches} when removing the linked dev branch too.
+     *
+     * <p>Idempotent if {@code git worktree prune} has already cleared
+     * the worktree's metadata: stderr surfaces, callers decide whether
+     * to log-and-continue.
+     */
+    public void worktreeRemove(Path mainRepoDir, Path worktreePath)
+            throws IOException, InterruptedException
+    {
+        requireNonNull(worktreePath, "worktreePath is null");
+        run(List.of("git", "worktree", "remove", "--force", worktreePath.toString()),
+                mainRepoDir)
+                .requireSuccess();
+    }
+
+    /**
      * {@code git push <remote> --delete <branch>} — removes the branch
      * from the remote. Used by the per-card delete affordance when
      * the user opts to delete the remote copy alongside the local one.

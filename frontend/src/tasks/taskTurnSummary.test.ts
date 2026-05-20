@@ -87,5 +87,7 @@ function taskRow(status: TaskDto['status']): TaskDto {
     taskType: 'DEVELOP',
     linkedPrNumber: null,
     linkedIssueNumber: null,
+    worktreePath: null,
+    localBranch: null,
   };
 }

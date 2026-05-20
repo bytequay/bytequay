@@ -36,6 +36,7 @@ import com.bytequay.app.service.local.GitRunner;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
 
+import java.nio.file.Path;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Collection;
@@ -67,7 +68,8 @@ class TestTaskServiceScheduler
                 new InMemoryTaskTurnEventStore(),
                 registry,
                 scheduler,
-                new GitRunner());
+                new GitRunner(),
+                noopWorktreeService());
 
         service.create(new TaskService.NewTaskRequest(
                 TaskKind.CLI_AGENT,
@@ -103,7 +105,8 @@ class TestTaskServiceScheduler
                 new InMemoryTaskTurnEventStore(),
                 registry,
                 scheduler,
-                new GitRunner());
+                new GitRunner(),
+                noopWorktreeService());
 
         service.create(new TaskService.NewTaskRequest(
                 TaskKind.CLI_AGENT,
@@ -138,7 +141,8 @@ class TestTaskServiceScheduler
                 new InMemoryTaskTurnEventStore(),
                 registry,
                 scheduler,
-                new GitRunner());
+                new GitRunner(),
+                noopWorktreeService());
 
         String turnId = service.send(task.id(), "next");
 
@@ -169,7 +173,8 @@ class TestTaskServiceScheduler
                 new InMemoryTaskTurnEventStore(),
                 registry,
                 scheduler,
-                new GitRunner());
+                new GitRunner(),
+                noopWorktreeService());
 
         assertThat(service.turns(task.id()))
                 .extracting(TaskTurn::id)
@@ -197,7 +202,8 @@ class TestTaskServiceScheduler
                 new InMemoryTaskTurnEventStore(),
                 registry,
                 scheduler,
-                new GitRunner());
+                new GitRunner(),
+                noopWorktreeService());
 
         assertThat(service.turns(task.id()))
                 .extracting(TaskTurn::id)
@@ -226,7 +232,8 @@ class TestTaskServiceScheduler
                 turnEvents,
                 registry,
                 new RecordingScheduler(),
-                new GitRunner());
+                new GitRunner(),
+                noopWorktreeService());
 
         assertThat(service.turnEvents(task.id()))
                 .extracting(TaskTurnEvent::id)
@@ -253,7 +260,8 @@ class TestTaskServiceScheduler
                 turnEvents,
                 registry,
                 new RecordingScheduler(),
-                new GitRunner());
+                new GitRunner(),
+                noopWorktreeService());
 
         assertThat(service.turnEvents(task.id()))
                 .extracting(TaskTurnEvent::id)
@@ -276,7 +284,8 @@ class TestTaskServiceScheduler
                 new InMemoryTaskTurnEventStore(),
                 new ThrowingRegistry(),
                 new RecordingScheduler(),
-                new GitRunner());
+                new GitRunner(),
+                noopWorktreeService());
 
         assertThat(service.activeTurns(50))
                 .extracting(TaskTurn::id)
@@ -295,7 +304,8 @@ class TestTaskServiceScheduler
                 new InMemoryTaskTurnEventStore(),
                 new ThrowingRegistry(),
                 new RecordingScheduler(),
-                new GitRunner());
+                new GitRunner(),
+                noopWorktreeService());
 
         assertThat(service.listByStatus(TaskStatus.IDLE, 0)).isEmpty();
         assertThat(service.listByStatus(TaskStatus.IDLE, -1)).isEmpty();
@@ -315,7 +325,8 @@ class TestTaskServiceScheduler
                 new InMemoryTaskTurnEventStore(),
                 new ThrowingRegistry(),
                 new RecordingScheduler(),
-                new GitRunner());
+                new GitRunner(),
+                noopWorktreeService());
 
         assertThat(service.listByGroup("group-1", 0)).isEmpty();
         assertThat(service.listByGroup("group-1", -1)).isEmpty();
@@ -335,7 +346,8 @@ class TestTaskServiceScheduler
                 new InMemoryTaskTurnEventStore(),
                 new ThrowingRegistry(),
                 new RecordingScheduler(),
-                new GitRunner());
+                new GitRunner(),
+                noopWorktreeService());
 
         TaskGroup group = service.createGroup(new TaskService.NewGroupRequest(
                 "Backend",
@@ -361,7 +373,8 @@ class TestTaskServiceScheduler
                 new InMemoryTaskTurnEventStore(),
                 new ThrowingRegistry(),
                 new RecordingScheduler(),
-                new GitRunner());
+                new GitRunner(),
+                noopWorktreeService());
 
         Task task = service.create(new TaskService.NewTaskRequest(
                 TaskKind.CLI_AGENT,
@@ -398,7 +411,8 @@ class TestTaskServiceScheduler
                 new InMemoryTaskTurnEventStore(),
                 registry,
                 scheduler,
-                new GitRunner());
+                new GitRunner(),
+                noopWorktreeService());
 
         service.stop(task.id());
 
@@ -423,7 +437,8 @@ class TestTaskServiceScheduler
                 new InMemoryTaskTurnEventStore(),
                 registry,
                 scheduler,
-                new GitRunner());
+                new GitRunner(),
+                noopWorktreeService());
 
         service.stop(task.id());
 
@@ -445,7 +460,8 @@ class TestTaskServiceScheduler
                 new InMemoryTaskTurnEventStore(),
                 new ThrowingRegistry(),
                 scheduler,
-                new GitRunner());
+                new GitRunner(),
+                noopWorktreeService());
 
         service.delete(task.id());
 
@@ -453,7 +469,114 @@ class TestTaskServiceScheduler
         assertThat(store.findTaskById(task.id())).isEmpty();
     }
 
+    @Test
+    void createStoresWorktreeHandleAndQueuesAgentAgainstIt()
+    {
+        InMemoryTaskStore store = new InMemoryTaskStore();
+        RecordingScheduler scheduler = new RecordingScheduler();
+        RecordingWorktreeService worktrees = new RecordingWorktreeService(Optional.of(
+                new WorktreeService.WorktreeHandle(
+                        Path.of("/tmp/repo/.bytequay/worktrees/dev/task-1"),
+                        "dev/task-1")));
+        TaskService service = new TaskService(
+                store,
+                new EmptyTaskGroupStore(),
+                new InMemoryTaskTurnStore(),
+                new InMemoryTaskTurnEventStore(),
+                new ThrowingRegistry(),
+                scheduler,
+                new GitRunner(),
+                worktrees);
+
+        Task task = service.create(new TaskService.NewTaskRequest(
+                TaskKind.CLI_AGENT,
+                "claude-code",
+                "claude-sonnet-4.6",
+                "Fix tests",
+                "/tmp/repo",
+                "main",
+                "please fix",
+                "{}",
+                List.of(),
+                "DEVELOP",
+                /* linkedPrNumber */ null,
+                /* linkedIssueNumber */ null));
+
+        assertThat(task.worktreePath()).isEqualTo("/tmp/repo/.bytequay/worktrees/dev/task-1");
+        assertThat(task.localBranch()).isEqualTo("dev/task-1");
+        assertThat(task.agentCwd()).isEqualTo(task.worktreePath());
+        assertThat(scheduler.requests)
+                .extracting(request -> request.task().agentCwd())
+                .containsExactly(task.worktreePath());
+        assertThat(worktrees.createRequests).containsExactly(new WorktreeCreateRequest(
+                Path.of("/tmp/repo"),
+                task.id(),
+                "Fix tests"));
+    }
+
+    @Test
+    void deleteRemovesTaskWorktreeBeforeDeletingRow()
+    {
+        Task task = taskWithWorktree("task-1");
+        InMemoryTaskStore store = new InMemoryTaskStore();
+        store.saveTask(task);
+        RecordingWorktreeService worktrees = new RecordingWorktreeService(Optional.empty());
+        TaskService service = new TaskService(
+                store,
+                new EmptyTaskGroupStore(),
+                new InMemoryTaskTurnStore(),
+                new InMemoryTaskTurnEventStore(),
+                new ThrowingRegistry(),
+                new RecordingScheduler(),
+                new GitRunner(),
+                worktrees);
+
+        service.delete(task.id());
+
+        assertThat(worktrees.removeRequests).containsExactly(new WorktreeRemoveRequest(
+                Path.of(task.workingDir()),
+                task.worktreePath(),
+                task.localBranch()));
+        assertThat(store.findTaskById(task.id())).isEmpty();
+    }
+
+    private record WorktreeCreateRequest(Path repoRoot, String sessionId, String title) {}
+
+    private record WorktreeRemoveRequest(Path repoRoot, String worktreePath, String localBranch) {}
+
     private record QueuedRequest(Task task, String input) {}
+
+    private static WorktreeService noopWorktreeService()
+    {
+        return new RecordingWorktreeService(Optional.empty());
+    }
+
+    private static final class RecordingWorktreeService
+            extends WorktreeService
+    {
+        private final Optional<WorktreeHandle> createResult;
+        private final List<WorktreeCreateRequest> createRequests = new ArrayList<>();
+        private final List<WorktreeRemoveRequest> removeRequests = new ArrayList<>();
+
+        private RecordingWorktreeService(Optional<WorktreeHandle> createResult)
+        {
+            super(new GitRunner());
+            this.createResult = createResult;
+        }
+
+        @Override
+        public Optional<WorktreeHandle> create(Path repoRoot, String sessionId, String title)
+        {
+            createRequests.add(new WorktreeCreateRequest(repoRoot, sessionId, title));
+            return createResult;
+        }
+
+        @Override
+        public void remove(Path repoRoot, String worktreePath, String localBranch)
+        {
+            removeRequests.add(new WorktreeRemoveRequest(repoRoot, worktreePath, localBranch));
+        }
+    }
 
     private static final class RecordingScheduler
             implements TaskTurnScheduler
@@ -970,7 +1093,7 @@ class TestTaskServiceScheduler
     private static Task task(String id, TaskStatus status)
     {
         Instant now = Instant.parse("2026-05-18T12:00:00Z");
-        Task task = new Task(
+        return new Task(
                 id,
                 TaskKind.CLI_AGENT,
                 "claude-code",
@@ -992,7 +1115,38 @@ class TestTaskServiceScheduler
                 "{}",
                 "DEVELOP",
                 /* linkedPrNumber */ null,
-                /* linkedIssueNumber */ null);
-        return task;
+                /* linkedIssueNumber */ null,
+                /* worktreePath */ null,
+                /* localBranch */ null);
+    }
+
+    private static Task taskWithWorktree(String id)
+    {
+        Instant now = Instant.parse("2026-05-18T12:00:00Z");
+        return new Task(
+                id,
+                TaskKind.CLI_AGENT,
+                "claude-code",
+                /* agentSessionId */ null,
+                "Fix tests",
+                TaskStatus.COMPLETED,
+                "/tmp/work",
+                "main",
+                "claude-sonnet-4.6",
+                /* costUsdMilli */ 0L,
+                /* tokensIn */ 0L,
+                /* tokensOut */ 0L,
+                /* processPid */ null,
+                /* logPath */ null,
+                now,
+                now,
+                /* endedAt */ now,
+                /* errorMessage */ null,
+                "{}",
+                "DEVELOP",
+                /* linkedPrNumber */ null,
+                /* linkedIssueNumber */ null,
+                "/tmp/work/.bytequay/worktrees/dev/task-1",
+                "dev/task-1");
     }
 }

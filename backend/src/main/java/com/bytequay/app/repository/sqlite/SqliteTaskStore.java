@@ -77,6 +77,8 @@ class SqliteTaskStore
         entity.setTaskType(task.taskType());
         entity.setLinkedPrNumber(task.linkedPrNumber());
         entity.setLinkedIssueNumber(task.linkedIssueNumber());
+        entity.setWorktreePath(task.worktreePath());
+        entity.setLocalBranch(task.localBranch());
         tasks.save(entity);
     }
 
@@ -254,7 +256,9 @@ class SqliteTaskStore
                 e.getMetadataJson(),
                 e.getTaskType(),
                 e.getLinkedPrNumber(),
-                e.getLinkedIssueNumber());
+                e.getLinkedIssueNumber(),
+                e.getWorktreePath(),
+                e.getLocalBranch());
     }
 
     private static TaskMessage toMessage(TaskMessageEntity e)

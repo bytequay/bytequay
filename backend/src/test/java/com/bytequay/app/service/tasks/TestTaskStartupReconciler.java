@@ -104,6 +104,8 @@ class TestTaskStartupReconciler
                 "{}",
                 /* taskType */ "DEVELOP",
                 /* linkedPrNumber */ null,
-                /* linkedIssueNumber */ null);
+                /* linkedIssueNumber */ null,
+                /* worktreePath */ null,
+                /* localBranch */ null);
     }
 }

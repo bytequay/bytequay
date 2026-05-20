@@ -27,9 +27,17 @@ import java.time.Instant;
  *       child process is alive, and {@code null} for
  *       {@link TaskKind#LOGIC_LOOP}.</li>
  *   <li>{@code branchName} is best-effort sniffed from the working
- *       directory's git head; null when not in a repo.</li>
+ *       directory's git head; null when not in a repo. Records the
+ *       branch the user had checked out at task-create time — it
+ *       does <em>not</em> change when ByteQuay puts the agent on a
+ *       dev branch via worktree.</li>
  *   <li>{@code endedAt} / {@code errorMessage} only set on terminal
  *       transitions (COMPLETED / ERRORED).</li>
+ *   <li>{@code worktreePath} / {@code localBranch} are populated when
+ *       ByteQuay created a dedicated worktree for the task. Null
+ *       on legacy rows and on tasks where worktree isolation
+ *       didn't apply (non-git working dir, or worktree creation
+ *       failed and the task fell back to the main checkout).</li>
  * </ul>
  *
  * @param costUsdMilli running cost in USD × 1000; divide on read so
@@ -41,6 +49,11 @@ import java.time.Instant;
  * to the task's repo.
  * @param linkedIssueNumber GitHub issue number the task is associated with,
  * scoped to the task's repo.
+ * @param worktreePath absolute path to the git worktree the agent runs in.
+ * Null when no worktree was created for this task (legacy rows, fallback
+ * for non-git working dirs).
+ * @param localBranch name of the branch created on the worktree (e.g.
+ * {@code "dev/<sessionId>-<slug>"}). Null when {@code worktreePath} is null.
  */
 public record Task(
         String id,
@@ -64,6 +77,19 @@ public record Task(
         String metadataJson,
         String taskType,
         Integer linkedPrNumber,
-        Integer linkedIssueNumber)
+        Integer linkedIssueNumber,
+        String worktreePath,
+        String localBranch)
 {
+    /**
+     * Resolves the directory the agent process should be spawned in.
+     * When a worktree was created for this task, that's where the agent
+     * runs. Otherwise we fall back to the user-supplied
+     * {@link #workingDir()} (the repo root for coding tasks, or any
+     * directory for legacy / non-git tasks).
+     */
+    public String agentCwd()
+    {
+        return worktreePath != null && !worktreePath.isBlank() ? worktreePath : workingDir;
+    }
 }

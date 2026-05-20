@@ -141,7 +141,9 @@ class TestSqliteTaskTurnStore
                 "{}",
                 "DEVELOP",
                 /* linkedPrNumber */ null,
-                /* linkedIssueNumber */ null));
+                /* linkedIssueNumber */ null,
+                /* worktreePath */ null,
+                /* localBranch */ null));
         return taskId;
     }
 

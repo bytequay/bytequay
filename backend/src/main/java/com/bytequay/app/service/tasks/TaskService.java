@@ -83,6 +83,7 @@ public class TaskService
     private final TaskSessionRegistry registry;
     private final TaskTurnScheduler scheduler;
     private final GitRunner git;
+    private final WorktreeService worktreeService;
 
     public TaskService(
             TaskStore store,
@@ -91,7 +92,8 @@ public class TaskService
             TaskTurnEventStore turnEventStore,
             TaskSessionRegistry registry,
             TaskTurnScheduler scheduler,
-            GitRunner git)
+            GitRunner git,
+            WorktreeService worktreeService)
     {
         this.store = requireNonNull(store, "store is null");
         this.groupStore = requireNonNull(groupStore, "groupStore is null");
@@ -100,6 +102,7 @@ public class TaskService
         this.registry = requireNonNull(registry, "registry is null");
         this.scheduler = requireNonNull(scheduler, "scheduler is null");
         this.git = requireNonNull(git, "git is null");
+        this.worktreeService = requireNonNull(worktreeService, "worktreeService is null");
     }
 
     public List<Task> listByStatus(TaskStatus status, int limit)
@@ -296,7 +299,8 @@ public class TaskService
                 current.processPid(), current.logPath(),
                 current.createdAt(), Instant.now(),
                 current.endedAt(), current.errorMessage(), current.metadataJson(),
-                current.taskType(), current.linkedPrNumber(), current.linkedIssueNumber());
+                current.taskType(), current.linkedPrNumber(), current.linkedIssueNumber(),
+                current.worktreePath(), current.localBranch());
         store.saveTask(next);
         return store.findTaskById(taskId).orElse(next);
     }
@@ -330,8 +334,18 @@ public class TaskService
         String taskType = request.taskType() == null || request.taskType().isBlank()
                 ? "DEVELOP"
                 : request.taskType().trim();
+        String taskId = UUID.randomUUID().toString();
+        // Best-effort worktree creation. Failures fall through to a
+        // null handle so the agent runs in the main checkout — keeps
+        // tasks against non-git working dirs or read-only repos
+        // working without a special-case.
+        Optional<WorktreeService.WorktreeHandle> handle =
+                request.workingDir() == null || request.workingDir().isBlank()
+                        ? Optional.empty()
+                        : worktreeService.create(
+                                Path.of(request.workingDir()), taskId, request.title());
         Task task = new Task(
-                UUID.randomUUID().toString(),
+                taskId,
                 request.kind(),
                 request.provider(),
                 /* agentSessionId */ null,
@@ -352,7 +366,9 @@ public class TaskService
                 request.metadataJson() == null ? "{}" : request.metadataJson(),
                 taskType,
                 request.linkedPrNumber(),
-                request.linkedIssueNumber());
+                request.linkedIssueNumber(),
+                handle.map(h -> h.worktreePath().toString()).orElse(null),
+                handle.map(WorktreeService.WorktreeHandle::branchName).orElse(null));
         store.saveTask(task);
         for (String groupId : initialGroupIds) {
             groupStore.addMember(task.id(), groupId);
@@ -458,6 +474,16 @@ public class TaskService
         // the row. No-op when nothing's cached.
         scheduler.cancelQueuedTurns(taskId);
         registry.evict(taskId);
+        // Best-effort worktree cleanup. Errors are logged inside the
+        // service; we don't fail the delete if the worktree is already
+        // gone or git can't remove it cleanly — the task row going
+        // away is the authoritative signal.
+        Task task = existing.get();
+        if (task.worktreePath() != null && !task.worktreePath().isBlank()
+                && task.workingDir() != null && !task.workingDir().isBlank()) {
+            worktreeService.remove(Path.of(task.workingDir()),
+                    task.worktreePath(), task.localBranch());
+        }
         store.deleteTask(taskId);
     }
 

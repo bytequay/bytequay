@@ -387,7 +387,9 @@ class TestAgentScheduler
                 "{}",
                 "DEVELOP",
                 /* linkedPrNumber */ null,
-                /* linkedIssueNumber */ null);
+                /* linkedIssueNumber */ null,
+                /* worktreePath */ null,
+                /* localBranch */ null);
     }
 
     private static final class TestHarness

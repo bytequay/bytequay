@@ -203,7 +203,7 @@ class TestSqliteTaskCheckpointStore
                 /* logPath */ null,
                 now, now, null, null,
                 /* metadataJson */ "{}",
-                "DEVELOP", null, null);
+                "DEVELOP", null, null, null, null);
         tasks.saveTask(t);
         return t.id();
     }

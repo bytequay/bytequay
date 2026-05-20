@@ -21,19 +21,20 @@ import java.time.Instant;
  * checkouts, merges, pulls, rebases. The {@link #kind} is parsed
  * from git's reflog subject so the UI can render an icon and label
  * without guessing from free text.
+ *
+ * @param selector Addressable selector for this entry, such as
+ * {@code HEAD@{0}}.
+ * @param kind Coarse classification of the event used for icon and label
+ * decisions. {@link Kind#UNKNOWN} is the catch-all for reflog subjects the
+ * parser does not recognize yet.
+ * @param subject The full reflog subject, including the descriptive tail after
+ * the kind prefix.
  */
 public record LocalActivityEntry(
         String sha,
         String shortSha,
-        /** {@code HEAD@{0}} … — addressable selector for this entry. */
         String selector,
-        /** Coarse classification of the event used for icon + label
-         *  decisions. UNKNOWN is the catch-all for reflog subjects we
-         *  haven't taught the parser about yet. */
         Kind kind,
-        /** The full reflog subject. Includes the descriptive tail
-         *  after the kind prefix — e.g. "checkout: moving from main
-         *  to feat/foo". */
         String subject,
         Instant at)
 {

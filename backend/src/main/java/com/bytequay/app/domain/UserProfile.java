@@ -13,6 +13,13 @@
  */
 package com.bytequay.app.domain;
 
+/**
+ * GitHub user profile summary.
+ *
+ * @param company free-form text from GitHub's Company field.
+ * @param email public email from GitHub, or null if hidden.
+ * @param hasSponsors true iff the user has set up GitHub Sponsors.
+ */
 public record UserProfile(
         String login,
         String name,
@@ -23,12 +30,7 @@ public record UserProfile(
         int following,
         String bio,
         String location,
-        /** Free-form text from GitHub's "Company" field — may be null. */
         String company,
-        /** Public email from GitHub — null if the user has hidden it. */
         String email,
-        /** True iff the user has set up GitHub Sponsors. Sourced via GraphQL
-         *  ({@code viewer.hasSponsorsListing}) since the REST API doesn't
-         *  expose this. */
         boolean hasSponsors)
 {}

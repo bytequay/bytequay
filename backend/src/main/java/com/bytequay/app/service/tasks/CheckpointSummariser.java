@@ -22,6 +22,7 @@ import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.google.common.base.Splitter;
 import com.google.common.collect.ImmutableList;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -290,7 +291,7 @@ public class CheckpointSummariser
             return List.of();
         }
         List<String> bullets = new ArrayList<>();
-        for (String line : summary.split("\n")) {
+        for (String line : Splitter.on('\n').split(summary)) {
             String trimmed = line.trim();
             if (trimmed.startsWith("- ")) {
                 String title = trimmed.substring(2).trim();

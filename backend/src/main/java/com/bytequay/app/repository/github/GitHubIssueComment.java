@@ -22,6 +22,9 @@ import java.time.Instant;
  * Response shape for {@code GET /repos/:owner/:repo/issues/:n/comments}.
  * One row per top-level PR/issue comment ("Add a comment" at the bottom);
  * does not include per-line review comments.
+ *
+ * @param reactions reactions tally on this issue or PR comment.
+ * @param authorAssociation author's relationship to the repo.
  */
 @JsonIgnoreProperties(ignoreUnknown = true)
 public record GitHubIssueComment(
@@ -30,10 +33,7 @@ public record GitHubIssueComment(
         String body,
         @JsonProperty("html_url") String htmlUrl,
         @JsonProperty("created_at") Instant createdAt,
-        /** Reactions tally on this issue/PR comment. */
         Reactions reactions,
-        /** Author's relationship to the repo (MEMBER / CONTRIBUTOR /
-         *  OWNER / NONE / …). Powers the role pill in the UI. */
         @JsonProperty("author_association") String authorAssociation)
 {
     @JsonIgnoreProperties(ignoreUnknown = true)

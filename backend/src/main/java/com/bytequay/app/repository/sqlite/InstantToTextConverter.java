@@ -20,6 +20,7 @@ import java.time.Instant;
 import java.time.LocalDateTime;
 import java.time.ZoneOffset;
 import java.time.format.DateTimeFormatter;
+import java.util.Optional;
 
 /**
  * Stores {@link Instant} values as ISO-8601 text in SQLite.
@@ -63,24 +64,46 @@ class InstantToTextConverter
         if (dbData == null || dbData.isEmpty()) {
             return null;
         }
-        try {
-            return Instant.parse(dbData);
-        }
-        catch (Exception ignored) {
-        }
-
-        try {
-            return LocalDateTime.parse(dbData, SQLITE_DATETIME).toInstant(ZoneOffset.UTC);
-        }
-        catch (Exception ignored) {
+        Optional<Instant> isoInstant = parseIsoInstant(dbData);
+        if (isoInstant.isPresent()) {
+            return isoInstant.get();
         }
 
-        try {
-            return Instant.ofEpochMilli(Long.parseLong(dbData));
-        }
-        catch (Exception ignored) {
+        Optional<Instant> sqliteDateTime = parseSqliteDateTime(dbData);
+        if (sqliteDateTime.isPresent()) {
+            return sqliteDateTime.get();
         }
 
-        return null;
+        return parseEpochMillis(dbData).orElse(null);
+    }
+
+    private static Optional<Instant> parseIsoInstant(String value)
+    {
+        try {
+            return Optional.of(Instant.parse(value));
+        }
+        catch (RuntimeException ignored) {
+            return Optional.empty();
+        }
+    }
+
+    private static Optional<Instant> parseSqliteDateTime(String value)
+    {
+        try {
+            return Optional.of(LocalDateTime.parse(value, SQLITE_DATETIME).toInstant(ZoneOffset.UTC));
+        }
+        catch (RuntimeException ignored) {
+            return Optional.empty();
+        }
+    }
+
+    private static Optional<Instant> parseEpochMillis(String value)
+    {
+        try {
+            return Optional.of(Instant.ofEpochMilli(Long.parseLong(value)));
+        }
+        catch (RuntimeException ignored) {
+            return Optional.empty();
+        }
     }
 }

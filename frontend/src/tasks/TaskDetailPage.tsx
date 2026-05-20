@@ -313,6 +313,10 @@ export default function TaskDetailPage({
     () => memberships.filter(m => m.taskId === taskId).map(m => m.groupId),
     [memberships, taskId],
   );
+  const hasActiveTurn = useMemo(
+    () => turns.some(turn => turn.status === 'RUNNING' || turn.status === 'QUEUED'),
+    [turns],
+  );
 
   const onRename = useCallback(async (nextTitle: string) => {
     const trimmed = nextTitle.trim();
@@ -329,11 +333,11 @@ export default function TaskDetailPage({
   useEffect(() => { void refresh(); }, [refresh]);
 
   useEffect(() => {
-    const interval = pollInterval(task?.status);
+    const interval = pollInterval(task?.status, hasActiveTurn);
     if (!interval) return;
     const id = setInterval(() => { void refresh(); }, interval);
     return () => clearInterval(id);
-  }, [task?.status, refresh]);
+  }, [task?.status, hasActiveTurn, refresh]);
 
   // Per-turn live text buffer fed by AssistantTextDelta SSE events.
   // The chunk-by-chunk text grows the in-flight assistant card so
@@ -459,10 +463,10 @@ export default function TaskDetailPage({
   // task leaves RUNNING.
   const [, setTick] = useState(0);
   useEffect(() => {
-    if (status !== 'RUNNING') return;
+    if (status !== 'RUNNING' && !hasActiveTurn) return;
     const id = setInterval(() => setTick(n => n + 1), 1000);
     return () => clearInterval(id);
-  }, [status]);
+  }, [status, hasActiveTurn]);
 
   const pendingPermission = useMemo<PendingPermission | null>(
     () => findPendingPermission(messages),
@@ -585,6 +589,7 @@ export default function TaskDetailPage({
   }
 
   const isTerminal = task.status === 'COMPLETED' || task.status === 'ERRORED';
+  const modelName = resolvedModelName(task.model, messages);
 
   return (
     <section style={layoutStyle}>
@@ -597,6 +602,7 @@ export default function TaskDetailPage({
       ) : (
         <TaskWindowSidebar
           task={task}
+          modelName={modelName}
           messages={messages}
           turns={turns}
           turnEvents={turnEvents}
@@ -621,6 +627,7 @@ export default function TaskDetailPage({
             {view === 'conversation' && (
               <StructuredView
                 task={task}
+                modelName={modelName}
                 messages={messages}
                 pendingPermission={pendingPermission}
                 onDecide={onDecide}
@@ -658,6 +665,7 @@ export default function TaskDetailPage({
               <div style={{ ...terminalScopeStyle, ...termCssVars(theme) }}>
                 <TerminalWrap
                   task={task}
+                  modelName={modelName}
                   messages={messages}
                   pendingPermission={pendingPermission}
                   onDecide={onDecide}
@@ -852,6 +860,7 @@ function EditableTitle({ title, onRename, maxDisplayWords, titleStyleOverride }:
  */
 function StructuredView({
   task,
+  modelName,
   messages,
   pendingPermission,
   onDecide,
@@ -883,6 +892,7 @@ function StructuredView({
   convIndexSseRef,
 }: {
   task: TaskDto;
+  modelName: string;
   messages: TaskMessageDto[];
   pendingPermission: PendingPermission | null;
   onDecide: (
@@ -960,6 +970,7 @@ function StructuredView({
     ? formatElapsedSeconds(Math.max(0, Math.floor((Date.now() - turnStartRef.current) / 1000)))
     : null;
   const liveTokenTotal = (liveUsage?.tokensIn ?? 0) + (liveUsage?.tokensOut ?? 0);
+  const liveUsageLabel = formatLiveUsage(liveUsage);
 
   return (
     <div style={structuredWrapStyle}>
@@ -993,10 +1004,10 @@ function StructuredView({
                 </span>
               </>
             )}
-            {task.model && (
+            {modelName && (
               <>
                 <span style={twHeaderSepStyle}>·</span>
-                <span style={twHeaderChipStyle}>{task.model}</span>
+                <span style={twHeaderChipStyle}>{modelName}</span>
               </>
             )}
             <span style={twHeaderSepStyle}>·</span>
@@ -1024,7 +1035,7 @@ function StructuredView({
             messages={messages}
             pendingPermission={pendingPermission}
             onDecide={onDecide}
-            modelName={task.model}
+            modelName={modelName}
             liveText={liveText}
           />
         </div>
@@ -1045,7 +1056,7 @@ function StructuredView({
         // by an absolute overlay.
         <div style={liveZoneStyle} className="bytequay-live-sweep">
           <span style={livePulseStyle} className="bytequay-pulse" />
-          <span style={liveLabelStyle}>✦ LIVE</span>
+          <span style={liveLabelStyle}>LIVE</span>
           <span style={liveMetaStyle}>· Claude is responding</span>
           {elapsedLabel !== null && (
             <span style={liveStatStyle} title="Time since this turn started">
@@ -1053,8 +1064,8 @@ function StructuredView({
             </span>
           )}
           {liveTokenTotal > 0 && (
-            <span style={liveStatStyle} title="Tokens used so far this turn">
-              · {formatNum(liveTokenTotal)} tok
+            <span style={liveStatStyle} title="Live token usage reported by the CLI for this turn">
+              · {liveUsageLabel}
             </span>
           )}
           <span style={{ flex: 1 }} />
@@ -1175,13 +1186,14 @@ function ResumeBanner({
  *    captured in followups/tasks-checkpoints-and-context.md
  */
 function TaskWindowSidebar({
-  task, messages, turns, turnEvents, files, liveUsage,
+  task, modelName, messages, turns, turnEvents, files, liveUsage,
   groups, currentGroupIds, onToggleGroup,
   onOpenPr,
   onBack, onCollapse,
   checkpointsSseRef,
 }: {
   task: TaskDto;
+  modelName: string;
   messages: TaskMessageDto[];
   turns: TaskTurnDto[];
   turnEvents: TaskTurnEventDto[];
@@ -1201,7 +1213,7 @@ function TaskWindowSidebar({
   checkpointsSseRef: React.MutableRefObject<((name: string) => void) | null>;
 }) {
   const toolUsage = useMemo(() => deriveToolUsage(messages), [messages]);
-  const ctx = useMemo(() => computeContextUsage(messages, task.model), [messages, task.model]);
+  const ctx = useMemo(() => computeContextUsage(messages, modelName), [messages, modelName]);
   const scheduler = useMemo(() => summarizeTurnState(turns, task.status), [turns, task.status]);
   // Overlay running deltas while a turn is in flight; falls back to
   // the persisted totals once liveUsage clears at the next refresh.
@@ -1249,7 +1261,7 @@ function TaskWindowSidebar({
           />
           <Metric label="Tool calls" value={formatNum(toolUsage.total)} />
           <Metric label="Files touched" value={formatNum(files.length)} />
-          <Metric label="Model" value={task.model || 'unknown'} mono />
+          <Metric label="Model" value={modelName || 'unknown'} mono />
         </div>
       </SidebarSection>
 
@@ -1261,7 +1273,7 @@ function TaskWindowSidebar({
           {scheduler.latestInput !== '' && (
             <Metric label="Latest input" value={scheduler.latestInput} wrap />
           )}
-          <SchedulerEventHistory events={turnEvents} />
+          <SchedulerEventHistory events={turnEvents} turns={turns} />
         </div>
       </SidebarSection>
 
@@ -1638,7 +1650,7 @@ function computeContextUsage(messages: TaskMessageDto[], model: string | null) {
 // ────────────────────────────────────────────────────────────────────
 
 function TerminalWrap({
-  task, messages, pendingPermission, onDecide, stage,
+  task, modelName, messages, pendingPermission, onDecide, stage,
   draft, onDraft, onSend, onInterrupt, sending, isTerminal,
   theme, onToggleTheme,
   view, onChangeView, onRename, onStop, canStop, onDelete, canDelete,
@@ -1649,6 +1661,7 @@ function TerminalWrap({
   taskId, convIndexSseRef,
 }: {
   task: TaskDto;
+  modelName: string;
   messages: TaskMessageDto[];
   pendingPermission: PendingPermission | null;
   onDecide: (
@@ -1710,8 +1723,8 @@ function TerminalWrap({
           {task.branchName && (
             <span style={sessionIdStyleTerminal}> · {task.branchName}</span>
           )}
-          {task.model && (
-            <span style={sessionIdStyleTerminal}> · {task.model}</span>
+          {modelName && (
+            <span style={sessionIdStyleTerminal}> · {modelName}</span>
           )}
         </span>
         <span style={{ flex: 1 }} />
@@ -1744,7 +1757,7 @@ function TerminalWrap({
           pendingPermission={pendingPermission}
           onDecide={onDecide}
           banner={{
-            model: task.model,
+            model: modelName,
             cwd: task.workingDir,
             branch: task.branchName,
             sessionStartedAtIso: task.createdAt,
@@ -2121,25 +2134,27 @@ function Metric({
   );
 }
 
-function SchedulerEventHistory({ events }: { events: TaskTurnEventDto[] }) {
+function SchedulerEventHistory({ events, turns }: { events: TaskTurnEventDto[]; turns: TaskTurnDto[] }) {
   const recent = events.slice(0, 3);
+  const turnById = useMemo(() => new Map(turns.map(turn => [turn.id, turn])), [turns]);
   if (recent.length === 0) {
-    return <Metric label="Events" value="none" />;
+    return <Metric label="Transitions" value="none" />;
   }
   return (
     <div style={metricRowWrapStyle}>
-      <span style={metricLabelStyle}>Events</span>
+      <span style={metricLabelStyle}>Transitions</span>
       <div style={schedulerEventListStyle}>
-        {recent.map(event => (
-          <div key={event.id} style={schedulerEventRowStyle} title={schedulerEventTitle(event)}>
-            <span style={schedulerEventNameStyle}>{formatSchedulerEventName(event.event)}</span>
-            <span style={schedulerEventTimeStyle}>{ageOf(event.createdAt)}</span>
-            <span style={schedulerEventTurnStyle}>#{shortId(event.turnId)}</span>
-            {event.message && (
-              <span style={schedulerEventMsgStyle}>{event.message}</span>
-            )}
-          </div>
-        ))}
+        {recent.map(event => {
+          const meta = schedulerEventMeta(event.event);
+          const turn = turnById.get(event.turnId) ?? null;
+          return (
+            <div key={event.id} style={schedulerEventRowStyle} title={schedulerEventTitle(event, turn)}>
+              <span style={{ ...schedulerEventNameStyle, color: meta.color }}>{meta.label}</span>
+              <span style={schedulerEventTimeStyle}>{schedulerEventTime(event, turn)}</span>
+              <span style={schedulerEventMsgStyle}>{event.message ?? schedulerEventHint(event, turn, meta)}</span>
+            </div>
+          );
+        })}
       </div>
     </div>
   );
@@ -2387,7 +2402,32 @@ function findPendingPermission(messages: TaskMessageDto[]): PendingPermission | 
   return null;
 }
 
-function pollInterval(status: TaskStatusDto | undefined): number {
+function resolvedModelName(taskModel: string | null, messages: TaskMessageDto[]): string {
+  const stored = (taskModel ?? '').trim();
+  if (stored !== '') {
+    return stored;
+  }
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const message = messages[i];
+    if (message.type !== 'session_started') {
+      continue;
+    }
+    try {
+      const parsed = JSON.parse(message.contentJson) as { model?: unknown };
+      const model = typeof parsed.model === 'string' ? parsed.model.trim() : '';
+      if (model !== '') {
+        return model;
+      }
+    }
+    catch {
+      return '';
+    }
+  }
+  return '';
+}
+
+function pollInterval(status: TaskStatusDto | undefined, hasActiveTurn: boolean): number {
+  if (hasActiveTurn) return POLL_MS_RUNNING;
   if (!status) return POLL_MS_IDLE;
   if (status === 'RUNNING') return POLL_MS_RUNNING;
   if (status === 'COMPLETED' || status === 'ERRORED') return POLL_MS_TERMINAL;
@@ -2424,35 +2464,94 @@ function formatRuntime(task: TaskDto): string {
 function ageOf(iso: string): string {
   const d = new Date(iso).getTime();
   const ms = Date.now() - d;
-  const s = Math.round(ms / 1000);
-  if (s < 60) return `${s}s ago`;
-  const m = Math.round(s / 60);
-  if (m < 60) return `${m}m ago`;
-  const h = Math.round(m / 60);
-  if (h < 24) return `${h}h ago`;
+  const s = Math.max(0, Math.floor(ms / 1000));
+  if (s < 60) return `${s}s`;
+  const m = Math.floor(s / 60);
+  if (m < 60) return `${m}m ${String(s % 60).padStart(2, '0')}s`;
+  const h = Math.floor(m / 60);
+  if (h < 24) return `${h}h ${String(m % 60).padStart(2, '0')}m`;
   return `${Math.round(h / 24)}d ago`;
 }
 
-function formatSchedulerEventName(event: TaskTurnEventDto['event']): string {
+function schedulerEventMeta(event: TaskTurnEventDto['event']): { label: string; hint: string; color: string } {
   switch (event) {
     case 'TURN_QUEUED':
-      return 'queued';
+      return {
+        label: 'Queued',
+        hint: 'Accepted by the scheduler; waiting for a lane slot.',
+        color: '#b45309',
+      };
     case 'WAITING_FOR_CAPACITY':
-      return 'waiting';
+      return {
+        label: 'Waiting',
+        hint: 'Still waiting because the lane or this task is busy.',
+        color: '#b45309',
+      };
     case 'TURN_STARTED':
-      return 'started';
+      return {
+        label: 'Run started',
+        hint: 'A scheduler slot was acquired and the agent began work.',
+        color: '#047857',
+      };
     case 'TURN_FINISHED':
-      return 'finished';
+      return {
+        label: 'Finished',
+        hint: 'The agent turn completed successfully.',
+        color: '#64748b',
+      };
     case 'TURN_FAILED':
-      return 'failed';
+      return {
+        label: 'Failed',
+        hint: 'The agent turn ended with an error.',
+        color: '#dc2626',
+      };
     case 'TURN_CANCELLED':
-      return 'cancelled';
+      return {
+        label: 'Cancelled',
+        hint: 'The queued turn was cancelled before it ran.',
+        color: '#64748b',
+      };
   }
 }
 
-function schedulerEventTitle(event: TaskTurnEventDto): string {
+function schedulerEventTime(event: TaskTurnEventDto, turn: TaskTurnDto | null): string {
+  if (event.event === 'TURN_QUEUED' || event.event === 'WAITING_FOR_CAPACITY') {
+    return `${queuedDurationLabel(event, turn)} wait`;
+  }
+  return ageOf(event.createdAt);
+}
+
+function schedulerEventHint(
+  event: TaskTurnEventDto,
+  turn: TaskTurnDto | null,
+  meta: { label: string; hint: string; color: string },
+): string {
+  if (event.event === 'TURN_QUEUED') {
+    if (turn?.startedAt) {
+      return `Submitted, then executed after ${queuedDurationLabel(event, turn)} in queue.`;
+    }
+    return 'Submitted; not executing yet; waiting for scheduler resources.';
+  }
+  if (event.event === 'WAITING_FOR_CAPACITY') {
+    return `Still queued for ${queuedDurationLabel(event, turn)}; waiting for resources.`;
+  }
+  if (event.event === 'TURN_STARTED' && turn?.createdAt && turn.startedAt) {
+    return `Execution began after ${queuedDurationLabel(event, turn)} in queue.`;
+  }
+  return meta.hint;
+}
+
+function queuedDurationLabel(event: TaskTurnEventDto, turn: TaskTurnDto | null): string {
+  const queuedAt = Date.parse(turn?.createdAt ?? event.createdAt);
+  const endedAt = turn?.startedAt ?? turn?.finishedAt ?? null;
+  const endMs = endedAt ? Date.parse(endedAt) : Date.now();
+  const seconds = Math.max(0, Math.floor((endMs - queuedAt) / 1000));
+  return formatElapsedSeconds(seconds);
+}
+
+function schedulerEventTitle(event: TaskTurnEventDto, turn: TaskTurnDto | null): string {
   const message = event.message ? ` · ${event.message}` : '';
-  return `${formatSchedulerEventName(event.event)} · ${event.turnId} · ${new Date(event.createdAt).toLocaleString()}${message}`;
+  return `${schedulerEventMeta(event.event).label} · ${schedulerEventHint(event, turn, schedulerEventMeta(event.event))} · ${new Date(event.createdAt).toLocaleString()}${message} · internal turn id: ${event.turnId}`;
 }
 
 function formatCost(milli: number | null): string {
@@ -2479,8 +2578,14 @@ function formatElapsedSeconds(s: number): string {
   return `${h}h ${m % 60}m`;
 }
 
-function shortId(id: string): string {
-  return id.length > 10 ? id.slice(0, 8) : id;
+function formatLiveUsage(liveUsage: { tokensIn: number; tokensOut: number } | null): string {
+  if (liveUsage === null) {
+    return '';
+  }
+  if (liveUsage.tokensOut <= 0) {
+    return `${formatNum(liveUsage.tokensIn)} input tokens`;
+  }
+  return `${formatNum(liveUsage.tokensIn)} in / ${formatNum(liveUsage.tokensOut)} out tokens`;
 }
 
 function shortenPath(path: string): string {
@@ -3131,7 +3236,7 @@ const schedulerEventListStyle: React.CSSProperties = {
   display: 'flex', flexDirection: 'column', gap: 5,
 };
 const schedulerEventRowStyle: React.CSSProperties = {
-  display: 'grid', gridTemplateColumns: '64px 56px minmax(0, 1fr)',
+  display: 'grid', gridTemplateColumns: '92px 88px minmax(0, 1fr)',
   alignItems: 'baseline', gap: 6,
   fontSize: 11.5, lineHeight: 1.35,
 };
@@ -3143,12 +3248,7 @@ const schedulerEventTimeStyle: React.CSSProperties = {
   color: 'var(--text-3)', fontVariantNumeric: 'tabular-nums',
   overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
 };
-const schedulerEventTurnStyle: React.CSSProperties = {
-  color: 'var(--text-3)', fontFamily: '"SF Mono", Menlo, monospace',
-  overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
-};
 const schedulerEventMsgStyle: React.CSSProperties = {
-  gridColumn: '1 / -1',
   color: 'var(--text-3)',
   overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
 };

@@ -459,9 +459,6 @@ function AutoAllowRow({ message }: { message: TaskMessageDto }) {
 function ToolRow({ call, result }: { call: TaskMessageDto; result: TaskMessageDto | null }) {
   const callContent = parseContent(call.contentJson);
   const toolName = String(callContent.toolName ?? 'tool');
-  if (toolName === 'AskUserQuestion') {
-    return <AskQuestionCard input={callContent.input} variant="card" />;
-  }
   const argSummary = formatToolArgs(toolName, callContent.input);
   const isStreaming = result == null;
   const resContent = result ? parseContent(result.contentJson) : null;
@@ -482,13 +479,15 @@ function ToolRow({ call, result }: { call: TaskMessageDto; result: TaskMessageDt
     ? lines.slice(0, COLLAPSED_LINES).join('\n')
     : output;
   const hiddenLineCount = overflow ? lines.length - COLLAPSED_LINES : 0;
+  if (toolName === 'AskUserQuestion') {
+    return <AskQuestionCard input={callContent.input} variant="card" />;
+  }
 
   return (
     <div style={toolRowStyle}>
       <div style={toolHeadStyle}>
         <span style={{ ...opTagStyle, ...palette }}>{toolLabel(toolName)}</span>
         <span style={toolArgStyle} title={argSummary}>{argSummary || toolName}</span>
-        <span style={{ flex: 1 }} />
         {isStreaming
           ? <span style={runningPillStyle}>RUNNING</span>
           : isError
@@ -585,7 +584,7 @@ function ReadOutput({ text }: { text: string }) {
       {rows.map(r => r.kind === 'numbered' ? (
         <div key={r.key} style={readRowStyle}>
           <span style={{ ...readGutterStyle, minWidth: `${gutterCh}ch` }}>{r.num}</span>
-          <span style={readContentStyle}>{r.content || ' '}</span>
+          <span style={readContentStyle}>{highlightCodeLine(r.content || ' ')}</span>
         </div>
       ) : (
         <div key={r.key} style={readPlainStyle}>{r.content || ' '}</div>
@@ -791,14 +790,49 @@ function formatToolArgs(toolName: string, input: unknown): string {
       return extra ? `${path} · ${extra}` : path;
     }
     case 'Bash':
-      return truncate(String(obj.command ?? ''), 160);
+      return String(obj.command ?? '');
     case 'Grep':
       return `${obj.pattern ?? ''}${obj.path ? ` · ${obj.path}` : ''}`;
     default: {
       const dump = JSON.stringify(obj);
-      return truncate(dump, 160);
+      return truncate(dump, 300);
     }
   }
+}
+
+function highlightCodeLine(line: string): React.ReactNode {
+  const tokenRe = /(\/\/.*|\/\*.*?\*\/|"(?:\\.|[^"\\])*"|'(?:\\.|[^'\\])*'|`(?:\\.|[^`\\])*`|@\w+|\b(?:abstract|async|await|boolean|break|case|catch|class|const|continue|default|else|enum|extends|final|for|function|if|implements|import|instanceof|interface|let|new|null|package|private|protected|public|record|return|static|string|switch|this|throw|throws|try|var|void|while)\b|\b\d+(?:\.\d+)?\b)/g;
+  const parts: React.ReactNode[] = [];
+  let last = 0;
+  for (const match of line.matchAll(tokenRe)) {
+    const token = match[0];
+    const index = match.index ?? 0;
+    if (index > last) {
+      parts.push(line.slice(last, index));
+    }
+    parts.push(<span key={`${index}-${token}`} style={codeTokenStyle(token)}>{token}</span>);
+    last = index + token.length;
+  }
+  if (last < line.length) {
+    parts.push(line.slice(last));
+  }
+  return parts.length > 0 ? parts : line;
+}
+
+function codeTokenStyle(token: string): React.CSSProperties {
+  if (token.startsWith('//') || token.startsWith('/*')) {
+    return codeCommentStyle;
+  }
+  if (token.startsWith('"') || token.startsWith("'") || token.startsWith('`')) {
+    return codeStringStyle;
+  }
+  if (token.startsWith('@')) {
+    return codeAnnotationStyle;
+  }
+  if (/^\d/.test(token)) {
+    return codeNumberStyle;
+  }
+  return codeKeywordStyle;
 }
 
 function formatToolOutput(v: unknown): string {
@@ -1054,7 +1088,10 @@ const toolRowStyle: React.CSSProperties = {
   overflow: 'hidden',
 };
 const toolHeadStyle: React.CSSProperties = {
-  display: 'flex', alignItems: 'center', gap: 8,
+  display: 'grid',
+  gridTemplateColumns: 'auto minmax(0, 1fr) auto',
+  alignItems: 'start',
+  gap: 8,
   padding: '6px 10px',
 };
 const opTagStyle: React.CSSProperties = {
@@ -1067,7 +1104,9 @@ const opTagStyle: React.CSSProperties = {
 const toolArgStyle: React.CSSProperties = {
   fontFamily: monoFont, fontSize: 12,
   color: 'var(--text-2)',
-  overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+  overflowWrap: 'anywhere',
+  whiteSpace: 'normal',
+  lineHeight: 1.45,
   minWidth: 0, flex: 1,
 };
 const runningPillStyle: React.CSSProperties = {
@@ -1129,6 +1168,10 @@ const readBlockStyle: React.CSSProperties = {
   fontSize: 11.5,
   lineHeight: 1.55,
   color: 'var(--text-1)',
+  background: 'var(--bg-elevated)',
+  border: '1px solid var(--border-hairline)',
+  borderRadius: 4,
+  overflowX: 'auto',
   // No inner scroll box. The collapse-by-line-count cap in ToolRow
   // (24 lines) is what bounds a "preview" rendering; once the user
   // clicks "show N more lines" they've explicitly asked for the full
@@ -1138,13 +1181,8 @@ const readBlockStyle: React.CSSProperties = {
 };
 const readRowStyle: React.CSSProperties = {
   display: 'flex',
-  gap: 10,
   alignItems: 'baseline',
-  // pre preserves leading indentation on code lines but blocks wrap;
-  // pre-wrap keeps the indentation visible AND lets a long line break
-  // at whitespace instead of pushing the row off the right edge.
-  whiteSpace: 'pre-wrap',
-  wordBreak: 'break-word',
+  whiteSpace: 'pre',
   minWidth: 0,
 };
 const readGutterStyle: React.CSSProperties = {
@@ -1152,20 +1190,39 @@ const readGutterStyle: React.CSSProperties = {
   textAlign: 'right',
   flexShrink: 0,
   userSelect: 'none',
+  background: 'rgba(148, 163, 184, 0.10)',
   // Subtle right divider so the gutter visually separates from
   // content without needing a literal pipe character.
   borderRight: '1px solid var(--border-hairline)',
-  paddingRight: 8,
+  padding: '0 8px',
 };
 const readContentStyle: React.CSSProperties = {
-  whiteSpace: 'pre-wrap',
-  wordBreak: 'break-word',
+  whiteSpace: 'pre',
   flex: 1,
   minWidth: 0,
+  paddingLeft: 10,
 };
 const readPlainStyle: React.CSSProperties = {
   whiteSpace: 'pre-wrap',
   wordBreak: 'break-word',
+};
+
+const codeKeywordStyle: React.CSSProperties = {
+  color: '#7c3aed',
+  fontWeight: 600,
+};
+const codeStringStyle: React.CSSProperties = {
+  color: '#047857',
+};
+const codeCommentStyle: React.CSSProperties = {
+  color: '#64748b',
+  fontStyle: 'italic',
+};
+const codeNumberStyle: React.CSSProperties = {
+  color: '#b45309',
+};
+const codeAnnotationStyle: React.CSSProperties = {
+  color: '#2563eb',
 };
 
 // Per-line palettes for Bash / Edit output. Backgrounds stay light

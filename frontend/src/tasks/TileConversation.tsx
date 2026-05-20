@@ -437,7 +437,7 @@ function formatToolArgs(toolName: string, input: unknown): string {
       return path;
     }
     case 'Bash':
-      return truncate(String(obj.command ?? ''), 140);
+      return String(obj.command ?? '');
     case 'Grep':
       return `${obj.pattern ?? ''}${obj.path !== undefined ? ` · ${obj.path as string}` : ''}`;
     default: {
@@ -591,9 +591,9 @@ const chatToolTagStyle: React.CSSProperties = {
 const chatToolArgsStyle: React.CSSProperties = {
   flex: 1,
   minWidth: 0,
-  overflow: 'hidden',
-  textOverflow: 'ellipsis',
-  whiteSpace: 'nowrap',
+  overflowWrap: 'anywhere',
+  whiteSpace: 'normal',
+  lineHeight: 1.45,
 };
 const chatToolResultStyle: React.CSSProperties = {
   marginTop: 4,
@@ -714,10 +714,11 @@ const termToolTagStyle: React.CSSProperties = {
 };
 const termToolArgsStyle: React.CSSProperties = {
   color: 'rgba(255,255,255,0.75)',
-  overflow: 'hidden',
-  textOverflow: 'ellipsis',
-  whiteSpace: 'nowrap',
   flex: 1,
+  minWidth: 0,
+  overflowWrap: 'anywhere',
+  whiteSpace: 'normal',
+  lineHeight: 1.45,
 };
 const termToolResultStyle: React.CSSProperties = {
   padding: '2px 8px 2px 18px',

@@ -544,7 +544,7 @@ function formatToolArgs(toolName: string, input: unknown): string {
       return extra ? `${path} · ${extra}` : path;
     }
     case 'Bash':
-      return truncate(String(obj.command ?? ''), 140);
+      return String(obj.command ?? '');
     case 'Grep':
       return `${obj.pattern ?? ''}${obj.path ? ` · ${obj.path}` : ''}`;
     default: {
@@ -744,8 +744,10 @@ const toolNameStyle: React.CSSProperties = {
 };
 const toolArgsStyle: React.CSSProperties = {
   color: 'var(--term-path)',
-  overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
   flex: 1, minWidth: 0,
+  overflowWrap: 'anywhere',
+  whiteSpace: 'normal',
+  lineHeight: 1.45,
 };
 const toolResultLineStyle: React.CSSProperties = {
   color: 'var(--term-text-muted)',
@@ -855,4 +857,3 @@ const autoAllowLineStyle: React.CSSProperties = {
 const autoAllowGlyphStyle: React.CSSProperties = {
   fontWeight: 800, fontSize: 12,
 };
-

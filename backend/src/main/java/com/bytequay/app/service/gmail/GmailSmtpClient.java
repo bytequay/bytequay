@@ -30,6 +30,7 @@ import org.springframework.http.HttpStatusCode;
 import org.springframework.stereotype.Component;
 import org.springframework.web.server.ResponseStatusException;
 
+import java.time.Instant;
 import java.util.Date;
 import java.util.Properties;
 
@@ -104,7 +105,7 @@ public class GmailSmtpClient
             if (references != null && !references.isBlank()) {
                 message.setHeader("References", references);
             }
-            message.setSentDate(new Date());
+            message.setSentDate(Date.from(Instant.now()));
             message.setText(body == null ? "" : body, "UTF-8");
             Transport.send(message);
             log.debug("Gmail SMTP reply sent for {}", email);

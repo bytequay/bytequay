@@ -130,7 +130,7 @@ public class PullRequestSyncJob
     {
         int intervalSeconds = syncSettings.getSettings().intervalSeconds();
         return store.lastSyncedAt()
-                .map(lastSync -> Duration.between(lastSync, Instant.now()).getSeconds() >= intervalSeconds)
+                .map(lastSync -> Duration.between(lastSync, Instant.now()).toSeconds() >= intervalSeconds)
                 .orElse(true);
     }
 

@@ -17,15 +17,14 @@ package com.bytequay.app.domain;
  * Lightweight team view for the Settings → Teams list. Avoids returning the
  * full {@link Team#members} roster (which can be long) when all the list
  * page needs is the count + headline numbers.
+ *
+ * @param description optional one-line description.
  */
 public record TeamSummary(
         long id,
         String name,
         String avatar,
         String color,
-        /** Optional one-line description (see {@link Team#description}).
-         *  Null when the user didn't supply one — the sidebar card
-         *  hides the line in that case. */
         String description,
         int memberCount,
         int inboxCount) {}

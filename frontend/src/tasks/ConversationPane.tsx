@@ -696,6 +696,10 @@ const userBlockStyle: React.CSSProperties = {
   padding: '8px 14px',
   margin: '12px 0',
   color: 'var(--term-text-bright)',
+  // Preserve newlines the user typed in the reply — without
+  // pre-wrap the default whitespace handling collapses every \n to
+  // a single space, so a multi-line prompt renders on one line.
+  whiteSpace: 'pre-wrap',
 };
 const userGlyphStyle: React.CSSProperties = {
   color: 'var(--term-user)', fontWeight: 700, marginRight: 2,

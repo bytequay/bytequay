@@ -1023,6 +1023,11 @@ const assistantCardStyle: React.CSSProperties = {
 
 const paraStyle: React.CSSProperties = {
   margin: 0, lineHeight: 1.6, color: 'var(--text-1)',
+  // pre-wrap preserves the line breaks the user typed inside a
+  // paragraph. Without it the default whitespace handling collapses
+  // every \n to a single space, so a multi-line reply renders as one
+  // long line until the user inserts a blank line between paragraphs.
+  whiteSpace: 'pre-wrap',
 };
 
 const thinkingRowStyle: React.CSSProperties = {

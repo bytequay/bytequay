@@ -2953,7 +2953,7 @@ const termTextareaStyle: React.CSSProperties = {
   resize: 'none',
   overflowY: 'auto',
   fontFamily: monoFont,
-  fontSize: 13.5,
+  fontSize: 15,
   lineHeight: 1.55,
   padding: 0,
 };
@@ -3334,7 +3334,7 @@ const replyTextareaStyle: React.CSSProperties = {
   minHeight: 44,
   padding: '10px 12px',
   fontFamily: 'inherit',
-  fontSize: 13,
+  fontSize: 15,
   background: 'var(--bg-input)',
   color: 'var(--text-1)',
   border: '1px solid var(--border-input)',

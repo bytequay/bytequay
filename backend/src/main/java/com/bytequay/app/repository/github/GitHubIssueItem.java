@@ -18,13 +18,16 @@ import com.fasterxml.jackson.annotation.JsonProperty;
 import java.time.Instant;
 import java.util.List;
 
+/**
+ * GitHub issue item payload.
+ *
+ * @param body Markdown body. List callers should ignore it because GitHub
+ * often omits it from list responses.
+ */
 record GitHubIssueItem(
         long id,
         int number,
         String title,
-        /** Markdown body. Always returned by /issues/{n}; not always
-         *  populated by /issues (the list endpoint often omits the
-         *  body for performance), so list callers should ignore this. */
         String body,
         String state,
         User user,

@@ -17,6 +17,16 @@ import java.util.List;
 
 /**
  * Raw data returned by a single GitHub pull-request API call, before business-logic aggregation.
+ *
+ * @param requestedReviewers GitHub logins still on the PR's pending-review
+ * list. Null on legacy pre-V39 rows; callers that only care about presence
+ * can fall back to {@link #requestedReviewerCount}.
+ * @param headRef Branch name on the head side. Null on legacy rows.
+ * @param headRepo Full {@code owner/repo} name of the head side. Differs
+ * from {@code baseRepo} for fork PRs. Null on legacy rows.
+ * @param baseRef Target branch. Null on legacy rows.
+ * @param baseRepo Full {@code owner/repo} name of the target side. Same as
+ * the PR's repo for in-repo PRs. Null on legacy rows.
  */
 public record PrRawDetail(
         String body,
@@ -28,22 +38,9 @@ public record PrRawDetail(
         int deletions,
         int changedFiles,
         int requestedReviewerCount,
-        /** GitHub logins still on the PR's pending-review list (those
-         *  who were requested but haven't submitted a verdict yet).
-         *  Null on legacy pre-V39 rows; callers that only care about
-         *  presence can fall back to {@link #requestedReviewerCount}. */
         List<String> requestedReviewers,
         String headSha,
-        /** Branch name on the head side (e.g. "feat/foo"). Null on legacy
-         *  rows that pre-date the PR-detail endpoint capturing branch refs. */
         String headRef,
-        /** "owner/repo" of the head side. Differs from baseRepo when the PR
-         *  comes from a fork. Null on legacy rows. */
         String headRepo,
-        /** Target branch (almost always the repo's default branch). Null on
-         *  legacy rows. */
         String baseRef,
-        /** "owner/repo" of the target side. Same as the PR's repo for
-         *  in-repo PRs; differs from headRepo on fork-based PRs. Null on
-         *  legacy rows. */
         String baseRepo) {}

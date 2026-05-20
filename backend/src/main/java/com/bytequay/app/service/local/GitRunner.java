@@ -1070,16 +1070,18 @@ public class GitRunner
         return List.copyOf(entries);
     }
 
+    /**
+     * Local reflog entry.
+     *
+     * @param selector relative selector git uses to address this entry.
+     * @param subject human-readable reflog description.
+     * @param authoredAt author timestamp of the commit the entry points at.
+     */
     public record ReflogEntry(
             String sha,
             String shortSha,
-            /** {@code HEAD@{0}}, {@code HEAD@{1}}, … — the relative
-             *  selector git uses to address this entry. */
             String selector,
-            /** Human-readable description: "commit: …", "checkout: from
-             *  X to Y", "merge: …", "pull: Fast-forward", etc. */
             String subject,
-            /** Author timestamp of the commit the entry points at. */
             String authoredAt) {}
 
     /**

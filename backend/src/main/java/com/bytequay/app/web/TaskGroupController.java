@@ -115,13 +115,16 @@ public class TaskGroupController
         tasks.removeTaskFromGroup(taskId, groupId);
     }
 
+    /**
+     * New task-group request body.
+     *
+     * @param initialTaskIds required existing task ids.
+     */
     public record NewGroupBody(
             String name,
             String glyph,
             String color,
             int sortOrder,
-            /** Required — at least one existing task id. The group
-             *  invariant is enforced server-side. */
             List<String> initialTaskIds) {}
 
     public record PatchGroupBody(String name, String glyph, String color) {}

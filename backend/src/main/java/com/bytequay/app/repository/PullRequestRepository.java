@@ -267,12 +267,12 @@ public interface PullRequestRepository
             int line,
             String side,
             String commitId,
-            /** First line of a multi-line range (optional). When set,
-             *  GitHub creates a multi-line comment spanning startLine
-             *  through line, both inclusive. */
+            /* First line of a multi-line range (optional). When set,
+             * GitHub creates a multi-line comment spanning startLine
+             * through line, both inclusive. */
             Integer startLine,
-            /** Side of startLine ("LEFT"/"RIGHT"); GitHub requires this
-             *  whenever startLine is set. Pass null for single-line. */
+            /* Side of startLine ("LEFT"/"RIGHT"); GitHub requires this
+             * whenever startLine is set. Pass null for single-line. */
             String startSide)
     {
         throw new UnsupportedOperationException("createInlineReviewComment not implemented");

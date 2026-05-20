@@ -197,7 +197,7 @@ public class MyActivityService
             }
             // Opened: bucket by createdAt.
             Instant created = pr.createdAt();
-            if (created != null && (cutoff == Instant.EPOCH || !created.isBefore(cutoff))) {
+            if (created != null && (isAllTime(cutoff) || !created.isBefore(cutoff))) {
                 opened++;
                 LocalDate day = created.atZone(zone).toLocalDate();
                 dailyOpened.merge(day, 1, Integer::sum);
@@ -209,7 +209,7 @@ public class MyActivityService
             // opened (if it opened in-window) and merged (if it merged
             // in-window) on different days.
             Instant mergedAt = pr.mergedAt();
-            if (mergedAt != null && (cutoff == Instant.EPOCH || !mergedAt.isBefore(cutoff))) {
+            if (mergedAt != null && (isAllTime(cutoff) || !mergedAt.isBefore(cutoff))) {
                 merged++;
                 LocalDate day = mergedAt.atZone(zone).toLocalDate();
                 dailyMerged.merge(day, 1, Integer::sum);
@@ -241,7 +241,7 @@ public class MyActivityService
             if (ev.timestamp() == null) {
                 continue;
             }
-            if (cutoff != Instant.EPOCH && ev.timestamp().isBefore(cutoff)) {
+            if (!isAllTime(cutoff) && ev.timestamp().isBefore(cutoff)) {
                 continue;
             }
             count++;
@@ -255,7 +255,7 @@ public class MyActivityService
             if (msg.createdAt() == null) {
                 continue;
             }
-            if (cutoff != Instant.EPOCH && msg.createdAt().isBefore(cutoff)) {
+            if (!isAllTime(cutoff) && msg.createdAt().isBefore(cutoff)) {
                 continue;
             }
             count++;
@@ -273,7 +273,7 @@ public class MyActivityService
             return ImmutableList.of();
         }
         LocalDate today = LocalDate.now(zone);
-        LocalDate from = cutoff == Instant.EPOCH
+        LocalDate from = isAllTime(cutoff)
                 ? today.minusDays(DAILY_MAX_DAYS_ALL - 1L)
                 : cutoff.atZone(zone).toLocalDate();
         ImmutableList.Builder<DailyAuthored> out = ImmutableList.builder();
@@ -312,7 +312,7 @@ public class MyActivityService
             return new KpiCard(null, "—", false, "PAT required");
         }
         long total = 0;
-        LocalDate from = cutoff == Instant.EPOCH ? null : cutoff.atZone(zone).toLocalDate();
+        LocalDate from = isAllTime(cutoff) ? null : cutoff.atZone(zone).toLocalDate();
         for (ContributionCalendar.Week week : calendar.get().weeks()) {
             for (ContributionCalendar.Day day : week.days()) {
                 if (day.date() == null) {
@@ -414,6 +414,11 @@ public class MyActivityService
             return Long.toString(n);
         }
         return String.format(Locale.ROOT, "%,d", n);
+    }
+
+    private static boolean isAllTime(Instant cutoff)
+    {
+        return Instant.EPOCH.equals(cutoff);
     }
 
     private record Aggregate(

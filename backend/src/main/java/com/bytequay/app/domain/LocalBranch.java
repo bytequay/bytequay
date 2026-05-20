@@ -20,47 +20,36 @@ import java.time.Instant;
  * info from {@code git for-each-ref refs/heads} with a join against
  * the watched PR table — {@link #linkedPrNumber} is set when one of
  * the user's open PRs targets this branch as its head ref.
+ *
+ * @param isCurrent true when this branch is what HEAD points at.
+ * @param lastCommitAt timestamp of the branch tip's commit.
+ * @param hasUpstream true iff the branch has an upstream tracking ref
+ * configured. False means local-only branch.
+ * @param ahead commits on the local branch but not on its remote, or null when
+ * {@link #hasUpstream} is false.
+ * @param behind commits on the remote but not on the local branch, or null when
+ * {@link #hasUpstream} is false.
+ * @param linkedPrNumber GitHub PR number whose head ref equals this branch, or
+ * null when no open PR targets it.
+ * @param cleanupReason non-null when this branch is a cleanup candidate.
+ * @param commitCount commits reachable from this branch but not from the repo's
+ * default base.
+ * @param rebasePreview outcome of a virtual merge of this branch onto its
+ * rebase target.
+ * @param remoteOnly true for synthesized entries that mirror an open PR whose
+ * head branch is not checked out in this clone.
  */
 public record LocalBranch(
         String name,
-        /** True when this branch is what HEAD points at. */
         boolean isCurrent,
-        /** Timestamp of the branch tip's commit. Drives the "idle 47d"
-         *  hint on cleanup-candidate cards. */
         Instant lastCommitAt,
-        /** True iff the branch has an upstream tracking ref configured.
-         *  False = local-only branch (never pushed); these end up in
-         *  the LOCAL WORK column. */
         boolean hasUpstream,
-        /** Commits ahead of upstream — what's on the local branch but
-         *  not on its remote. Null when {@link #hasUpstream} is false. */
         Integer ahead,
-        /** Commits behind upstream — what's on the remote but not on
-         *  the local branch. Null when {@link #hasUpstream} is false. */
         Integer behind,
-        /** GitHub PR number whose head ref equals this branch, or null
-         *  when no open PR targets it. Drives placement into the
-         *  IN REVIEW column. */
         Integer linkedPrNumber,
-        /** Non-null when this branch is a cleanup candidate — drives
-         *  placement into CLEAN UP and authorizes the branch to be
-         *  deleted via the bulk-delete flow. Null otherwise. */
         CleanupReason cleanupReason,
-        /** Commits reachable from this branch but not from the repo's
-         *  default base — the size of the work that lives on this
-         *  branch. Null for the default branch itself, when the default
-         *  can't be resolved, or when rev-list failed. */
         Integer commitCount,
-        /** Outcome of a virtual merge of this branch onto its rebase
-         *  target (upstream tracking ref when present, else the default
-         *  branch). Null when no rebase is meaningful (no behind /
-         *  no unique commits) or the preview couldn't run. */
         RebasePreview rebasePreview,
-        /** True for synthesized entries that mirror an open PR whose
-         *  head branch isn't checked out in this clone (typically a
-         *  branch the user pushed from another machine). The card
-         *  surfaces a Check-out action; ahead/behind/cleanup fields
-         *  are all null because we have no local history to compare. */
         boolean remoteOnly)
 {
     public enum Column

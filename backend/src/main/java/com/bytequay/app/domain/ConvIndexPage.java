@@ -40,24 +40,24 @@ import java.util.List;
  *       {@code nextCursor} is again the smallest seq of this batch,
  *       or {@code null} when the start of the task is reached.</li>
  * </ul>
+ *
+ * @param entries User prompts in the loaded window, oldest-first.
+ * @param messages The {@code task_messages} rows that match the same
+ * window. Oldest-first; intended to be prepended to the agent
+ * terminal's loaded set on backfill, or used as the initial render on
+ * initial loads.
+ * @param loadedFromSeq Smallest seq in this window, or {@code null}
+ * when the window is empty.
+ * @param nextCursor Smallest seq strictly less than {@code
+ * loadedFromSeq} for the next load-earlier cursor, or {@code null}
+ * when no older rows remain.
  */
 public record ConvIndexPage(
         String taskId,
         long totalUserMessages,
-        /** User prompts in the loaded window, oldest-first. */
         List<ConvIndexEntry> entries,
-        /** The {@code task_messages} rows that match the same window.
-         *  Oldest-first; intended to be prepended to the agent
-         *  terminal's loaded set on backfill, or used as the initial
-         *  render on initial loads. */
         List<TaskMessage> messages,
-        /** Smallest seq in this window, or {@code null} when the
-         *  window is empty (a brand-new task with no messages yet). */
         Long loadedFromSeq,
-        /** Smallest seq strictly less than {@code loadedFromSeq} for
-         *  the next "↑ load earlier" cursor, or {@code null} when no
-         *  older rows remain. The frontend uses this to gate the
-         *  load-more affordance. */
         Long nextCursor)
 {
 }

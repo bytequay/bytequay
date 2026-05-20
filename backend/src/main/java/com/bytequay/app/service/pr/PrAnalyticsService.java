@@ -236,7 +236,7 @@ public class PrAnalyticsService
             // entirely would silently shrink the cards every time the
             // user picks a narrower scope.
             Instant when = latestReview.submittedAt() != null ? latestReview.submittedAt() : pr.updatedAt();
-            if (cutoff != Instant.EPOCH && (when == null || when.isBefore(cutoff))) {
+            if (!isAllTime(cutoff) && (when == null || when.isBefore(cutoff))) {
                 continue;
             }
             String latestVerdict = latestReview.state();
@@ -269,7 +269,7 @@ public class PrAnalyticsService
                 if (submitted == null) {
                     continue;
                 }
-                if (cutoff != Instant.EPOCH && submitted.isBefore(cutoff)) {
+                if (!isAllTime(cutoff) && submitted.isBefore(cutoff)) {
                     continue;
                 }
                 ZonedDateTime local = submitted.atZone(zone);
@@ -296,7 +296,7 @@ public class PrAnalyticsService
                     if (submitted == null) {
                         continue;
                     }
-                    if (cutoff != Instant.EPOCH && submitted.isBefore(cutoff)) {
+                    if (!isAllTime(cutoff) && submitted.isBefore(cutoff)) {
                         continue;
                     }
                     Instant request = mostRecentBefore(requestTimes, submitted);
@@ -304,8 +304,8 @@ public class PrAnalyticsService
                         continue;
                     }
                     long elapsed = Math.min(
-                            RESPONSE_CAP.getSeconds(),
-                            Duration.between(request, submitted).getSeconds());
+                            RESPONSE_CAP.toSeconds(),
+                            Duration.between(request, submitted).toSeconds());
                     if (elapsed < 0) {
                         // Should not happen given mostRecentBefore semantics,
                         // but defend anyway — a clock-skewed event ordering
@@ -347,7 +347,7 @@ public class PrAnalyticsService
                 ImmutableList.copyOf(responseSeconds));
     }
 
-    private static List<Instant> requestedTimestamps(List<PrTimelineEvent> timeline, String login)
+    private static ImmutableList<Instant> requestedTimestamps(List<PrTimelineEvent> timeline, String login)
     {
         if (timeline == null || timeline.isEmpty()) {
             return ImmutableList.of();
@@ -370,7 +370,7 @@ public class PrAnalyticsService
         // and silently invert the pairing.
         List<Instant> list = new ArrayList<>(out.build());
         list.sort(Comparator.naturalOrder());
-        return list;
+        return ImmutableList.copyOf(list);
     }
 
     private static Instant mostRecentBefore(List<Instant> requests, Instant submitted)
@@ -445,7 +445,7 @@ public class PrAnalyticsService
         }
         LocalDate today = LocalDate.now(zone);
         LocalDate from;
-        if (cutoff == Instant.EPOCH) {
+        if (isAllTime(cutoff)) {
             // "all" — cap to a manageable window so the renderer doesn't
             // try to lay out years of empty days.
             from = today.minusDays(DAILY_MAX_DAYS_ALL - 1L);
@@ -599,6 +599,11 @@ public class PrAnalyticsService
     private static String formatPercent(double fraction)
     {
         return Math.round(fraction * 100) + "%";
+    }
+
+    private static boolean isAllTime(Instant cutoff)
+    {
+        return Instant.EPOCH.equals(cutoff);
     }
 
     private record ReviewAggregate(

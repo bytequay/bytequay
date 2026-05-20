@@ -19,6 +19,11 @@ import com.fasterxml.jackson.annotation.JsonProperty;
 import java.time.Instant;
 import java.util.List;
 
+/**
+ * GitHub repository pull request list item.
+ *
+ * @param state GitHub PR state: {@code "open"} or {@code "closed"}.
+ */
 @JsonIgnoreProperties(ignoreUnknown = true)
 record GitHubRepoPullRequestItem(
         long id,
@@ -29,9 +34,6 @@ record GitHubRepoPullRequestItem(
         @JsonProperty("updated_at") Instant updatedAt,
         @JsonProperty("closed_at") Instant closedAt,
         @JsonProperty("merged_at") Instant mergedAt,
-        /** GitHub PR state: "open" or "closed". Note that GitHub does NOT use
-         *  "merged" here — a merged PR has state="closed" with mergedAt set,
-         *  which we collapse into a synthetic "merged" downstream. */
         String state,
         User user,
         List<Label> labels,

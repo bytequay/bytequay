@@ -35,6 +35,12 @@ import java.time.Instant;
  * @param costUsdMilli running cost in USD × 1000; divide on read so
  *                     SQLite's lack of fixed-precision decimal type
  *                     doesn't cause display drift.
+ * @param taskType free-form task type, currently {@code "DEVELOP"} or
+ * {@code "FIX"}.
+ * @param linkedPrNumber GitHub PR number the task is associated with, scoped
+ * to the task's repo.
+ * @param linkedIssueNumber GitHub issue number the task is associated with,
+ * scoped to the task's repo.
  */
 public record Task(
         String id,
@@ -56,16 +62,8 @@ public record Task(
         Instant endedAt,
         String errorMessage,
         String metadataJson,
-        /** Free-form task type — {@code "DEVELOP"} or {@code "FIX"}
-         *  today, more values likely later. Required (never null);
-         *  defaults to {@code "DEVELOP"} on legacy rows. */
         String taskType,
-        /** GitHub PR number the task is associated with — scoped to
-         *  the task's own repo. {@code null} when the user picked
-         *  "No remote PR yet" on the create page. */
         Integer linkedPrNumber,
-        /** GitHub issue number the task is associated with — scoped
-         *  to the task's own repo. Optional. */
         Integer linkedIssueNumber)
 {
 }

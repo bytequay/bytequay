@@ -13,6 +13,7 @@
  */
 package com.bytequay.app.service.local;
 
+import com.google.common.base.Splitter;
 import com.google.common.collect.ImmutableList;
 import org.springframework.stereotype.Component;
 
@@ -867,7 +868,7 @@ public class GitRunner
                 workingDir);
         numstat.requireSuccess();
         Map<String, int[]> counts = new HashMap<>();
-        for (String line : numstat.stdout().split("\n")) {
+        for (String line : Splitter.on('\n').split(numstat.stdout())) {
             if (line.isEmpty()) {
                 continue;
             }
@@ -884,7 +885,7 @@ public class GitRunner
                 workingDir);
         nameStatus.requireSuccess();
         List<CommitFileChange> files = new ArrayList<>();
-        for (String line : nameStatus.stdout().split("\n")) {
+        for (String line : Splitter.on('\n').split(nameStatus.stdout())) {
             if (line.isEmpty()) {
                 continue;
             }

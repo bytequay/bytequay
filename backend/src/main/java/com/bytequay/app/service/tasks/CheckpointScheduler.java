@@ -71,6 +71,11 @@ public class CheckpointScheduler
     private final CheckpointSummariser summariser;
     private final ExecutorService executor;
     private final ConcurrentHashMap<String, ReentrantLock> locks = new ConcurrentHashMap<>();
+    /** Last error message per task — populated by the background
+     *  catch block, cleared on the next successful generation or
+     *  no-op pass. Used by the UI status endpoint so the rail can
+     *  surface "summariser disabled" instead of an empty list. */
+    private final ConcurrentHashMap<String, String> lastErrors = new ConcurrentHashMap<>();
     private final long thresholdTokens;
 
     @Autowired
@@ -116,11 +121,29 @@ public class CheckpointScheduler
         ReentrantLock lock = lockFor(taskId);
         lock.lock();
         try {
-            return generateSegmentIfPending(taskId, /* force */ true);
+            Optional<TaskCheckpoint> result = generateSegmentIfPending(taskId, /* force */ true);
+            lastErrors.remove(taskId);
+            return result;
+        }
+        catch (RuntimeException e) {
+            // Stash the failure so a later status fetch can render it,
+            // then rethrow — manual generate is synchronous and the
+            // caller wants the error surfaced now (the UI shows it
+            // inline near the button).
+            String message = e.getMessage() == null ? e.getClass().getSimpleName() : e.getMessage();
+            lastErrors.put(taskId, message);
+            throw e;
         }
         finally {
             lock.unlock();
         }
+    }
+
+    @Override
+    public Optional<String> lastErrorFor(String taskId)
+    {
+        requireNonNull(taskId, "taskId is null");
+        return Optional.ofNullable(lastErrors.get(taskId));
     }
 
     private void tryGenerateThresholdSegment(String taskId)
@@ -134,13 +157,20 @@ public class CheckpointScheduler
         }
         try {
             generateSegmentIfPending(taskId, /* force */ false);
+            // Clear any prior error — a successful (or no-op) pass
+            // means the next UI status fetch shouldn't keep advertising
+            // a stale failure.
+            lastErrors.remove(taskId);
         }
         catch (RuntimeException e) {
             // Swallow so a background failure doesn't drag the executor
             // pool with it. The threshold remains crossed; the next
-            // turn will re-attempt.
+            // turn will re-attempt. Stash the message so the UI can
+            // explain why the rail stays empty.
+            String message = e.getMessage() == null ? e.getClass().getSimpleName() : e.getMessage();
+            lastErrors.put(taskId, message);
             log.warn("CheckpointScheduler: segment generation failed for task {}: {}",
-                    taskId, e.getMessage());
+                    taskId, message);
         }
         finally {
             lock.unlock();

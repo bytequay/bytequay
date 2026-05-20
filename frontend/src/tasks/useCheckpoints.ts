@@ -29,6 +29,11 @@ export type CheckpointsState = {
    *  rail can surface it inline near the button without wiping the
    *  list. */
   generateError: string | null;
+  /** Most recent failure the background scheduler recorded for this
+   *  task (e.g. "Anthropic API key not configured"). Null when the
+   *  latest attempt succeeded or hasn't run. Surfaced as a banner so
+   *  an empty rail isn't silently confusing. */
+  schedulerError: string | null;
 };
 
 /**
@@ -60,6 +65,7 @@ export function useCheckpoints(taskId: string): CheckpointsState & {
   const [error, setError] = useState<string | null>(null);
   const [generating, setGenerating] = useState(false);
   const [generateError, setGenerateError] = useState<string | null>(null);
+  const [schedulerError, setSchedulerError] = useState<string | null>(null);
   // Track current task in a ref so a slow response from the previous
   // task can't paint over a new one after a task switch.
   const taskIdRef = useRef(taskId);
@@ -77,10 +83,28 @@ export function useCheckpoints(taskId: string): CheckpointsState & {
     }
     const p = (async () => {
       try {
-        const list = await window.bridge.getTaskCheckpoints(id);
+        // Fetch the list and the scheduler status in parallel so the
+        // banner ("summariser disabled") and the rows update together.
+        // Each is wrapped in its own try/catch so a status-endpoint
+        // failure (e.g. the backend hasn't picked up the new route)
+        // doesn't blank the list and vice versa.
+        const listResult = await window.bridge.getTaskCheckpoints(id).catch(
+          (e: unknown): TaskCheckpointDto[] | null => {
+            if (taskIdRef.current === id) {
+              setError(e instanceof Error ? e.message : String(e));
+            }
+            return null;
+          });
+        const statusResult = await window.bridge.getTaskCheckpointStatus(id).catch(
+          (): { lastError: string | null } | null => null);
+        const list = listResult;
+        const status = statusResult;
         if (taskIdRef.current !== id) return;
-        setRows(list);
-        setError(null);
+        if (list !== null) {
+          setRows(list);
+          setError(null);
+        }
+        setSchedulerError(status?.lastError ?? null);
       }
       catch (e) {
         if (taskIdRef.current !== id) return;
@@ -102,6 +126,7 @@ export function useCheckpoints(taskId: string): CheckpointsState & {
     setRows([]);
     setError(null);
     setGenerateError(null);
+    setSchedulerError(null);
     setLoading(true);
     void (async () => {
       await refresh(taskId);
@@ -137,7 +162,7 @@ export function useCheckpoints(taskId: string): CheckpointsState & {
   }, [refresh]);
 
   return {
-    rows, loading, error, generating, generateError,
+    rows, loading, error, generating, generateError, schedulerError,
     generate, onUpstreamEvent,
   };
 }

@@ -2068,6 +2068,11 @@ export type Bridge = {
    *  Resolves to the new checkpoint or null when there's nothing
    *  new to summarise. */
   generateTaskCheckpoint: (id: string) => Promise<TaskCheckpointDto | null>;
+  /** Last scheduler outcome for the task. Non-null {@code lastError}
+   *  means a recent background summarisation attempt failed (most
+   *  commonly because the Anthropic key isn't configured) so the UI
+   *  can surface a banner instead of an unexplained empty list. */
+  getTaskCheckpointStatus: (id: string) => Promise<{ lastError: string | null }>;
   /** Recent scheduler turns, newest first. Used to distinguish
    *  queued work from an active CLI/API run. */
   getTaskTurns: (id: string) => Promise<TaskTurnDto[]>;

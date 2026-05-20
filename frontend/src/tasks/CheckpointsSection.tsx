@@ -49,12 +49,31 @@ export function CheckpointsSection({ taskId, sseRef }: Props) {
   const overall = cp.rows.find(r => r.isOverall) ?? null;
   const segments = cp.rows.filter(r => !r.isOverall);
 
+  // "Summariser disabled" banner — the scheduler crossed the
+  // threshold but the background call threw. The most common cause
+  // is an unset Anthropic API key, so we treat that text specially
+  // and link to the settings page.
+  const schedErr = cp.schedulerError;
+  const isMissingKey = schedErr !== null && /api key not configured/i.test(schedErr);
+
   return (
     <div style={listStyle}>
+      {schedErr !== null && (
+        <div style={isMissingKey ? warnBannerStyle : errorBannerStyle}>
+          {isMissingKey ? (
+            <>
+              Summariser disabled — configure an Anthropic API key in
+              <em> Settings → AI review </em>to enable checkpoint summaries.
+            </>
+          ) : (
+            <>Last summarise attempt failed: {schedErr}</>
+          )}
+        </div>
+      )}
       {cp.error !== null && cp.rows.length === 0 && (
         <div style={errorStyle}>{cp.error}</div>
       )}
-      {cp.rows.length === 0 && !cp.loading && cp.error === null && (
+      {cp.rows.length === 0 && !cp.loading && cp.error === null && schedErr === null && (
         <div style={emptyStyle}>
           No summaries yet — auto-saved at ~25k tokens, or hit
           <em> + save </em>below.
@@ -265,4 +284,24 @@ const emptyStyle: React.CSSProperties = {
   fontSize: 11,
   color: 'var(--text-3)',
   lineHeight: 1.4,
+};
+
+const warnBannerStyle: React.CSSProperties = {
+  padding: '6px 8px',
+  fontSize: 11,
+  lineHeight: 1.45,
+  color: '#9a6700',
+  background: 'rgba(255, 197, 0, 0.10)',
+  border: '1px solid rgba(255, 197, 0, 0.45)',
+  borderRadius: 4,
+};
+
+const errorBannerStyle: React.CSSProperties = {
+  padding: '6px 8px',
+  fontSize: 11,
+  lineHeight: 1.45,
+  color: '#b91c1c',
+  background: 'rgba(185, 28, 28, 0.06)',
+  border: '1px solid rgba(185, 28, 28, 0.35)',
+  borderRadius: 4,
 };

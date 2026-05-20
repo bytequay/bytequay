@@ -260,6 +260,20 @@ public class TaskController
                 .orElseGet(() -> ResponseEntity.noContent().build());
     }
 
+    /** GET /api/tasks/{id}/checkpoints/status — last scheduler outcome
+     *  for the task. {@code lastError} is null when the most recent
+     *  attempt succeeded or hasn't run yet; non-null carries the
+     *  failure message (typically "Anthropic API key not configured")
+     *  so the rail can render a "summariser disabled" hint instead of
+     *  a silent empty list. */
+    @GetMapping("/{id}/checkpoints/status")
+    public CheckpointStatusResponse checkpointStatus(@PathVariable String id)
+    {
+        return new CheckpointStatusResponse(checkpointTrigger.lastErrorFor(id).orElse(null));
+    }
+
+    public record CheckpointStatusResponse(String lastError) {}
+
     /** DELETE /api/tasks/{id}/checkpoints/{checkpointId} — drop one
      *  per-segment row. The store refuses Overall rows (those are
      *  scheduler-owned and regenerate on the next turn). */

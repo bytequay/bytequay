@@ -498,6 +498,8 @@ const bridge: Bridge = {
     ipcRenderer.invoke('tasks:checkpoints:list', id),
   generateTaskCheckpoint: (id: string): Promise<TaskCheckpointDto | null> =>
     ipcRenderer.invoke('tasks:checkpoints:generate', id),
+  getTaskCheckpointStatus: (id: string): Promise<{ lastError: string | null }> =>
+    ipcRenderer.invoke('tasks:checkpoints:status', id),
   getTaskTurns: (id: string): Promise<TaskTurnDto[]> =>
     ipcRenderer.invoke('tasks:turns', id),
   getTaskTurnEvents: (id: string): Promise<TaskTurnEventDto[]> =>

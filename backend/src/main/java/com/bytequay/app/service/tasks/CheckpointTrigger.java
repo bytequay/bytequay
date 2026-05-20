@@ -41,6 +41,12 @@ public interface CheckpointTrigger
         {
             return Optional.empty();
         }
+
+        @Override
+        public Optional<String> lastErrorFor(String taskId)
+        {
+            return Optional.empty();
+        }
     };
 
     /** Fired after a {@code TurnDone} stream event has been persisted.
@@ -57,4 +63,12 @@ public interface CheckpointTrigger
      *  one was produced, or empty when there was nothing new to
      *  summarise (button is disabled in that state anyway). */
     Optional<TaskCheckpoint> manualGenerate(String taskId);
+
+    /** Last error message a background generation attempt produced
+     *  for {@code taskId}, or empty when no error is recorded.
+     *  Populated by the scheduler's catch block; the UI uses it to
+     *  surface "summariser disabled — configure API key" instead of
+     *  silently rendering an empty rail. Cleared when a subsequent
+     *  attempt either succeeds or finds nothing to do. */
+    Optional<String> lastErrorFor(String taskId);
 }

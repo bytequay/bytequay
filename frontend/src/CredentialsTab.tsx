@@ -18,8 +18,15 @@ import {
   type AiSettingsDto,
   type CredentialDto,
   type CredentialTemplate,
+  type CredentialTestResult,
   type CredentialType,
 } from './types';
+
+type RowTestState = {
+  loading: boolean;
+  result: CredentialTestResult | null;
+  error: string | null;
+};
 
 type Props = {
   onFirstCredentialAdded?: () => void;
@@ -182,6 +189,10 @@ function CredentialsTab({ onFirstCredentialAdded, filterType }: Props) {
   const [editing, setEditing] = useState<CredentialDto | 'new' | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  // Per-row test state — keyed by credential id so concurrent tests
+  // against different rows don't trample each other. Cleared on
+  // reload so a stale "ok" doesn't outlive a replace + new test.
+  const [testStates, setTestStates] = useState<Record<string, RowTestState>>({});
 
   const templates = filterType
     ? CREDENTIAL_TEMPLATES.filter(t => t.type === filterType)
@@ -197,6 +208,7 @@ function CredentialsTab({ onFirstCredentialAdded, filterType }: Props) {
   const load = async () => {
     setLoading(true);
     setError(null);
+    setTestStates({});
     try {
       const [creds, provs, settings] = await Promise.all([
         window.bridge.listCredentials(filterType),
@@ -236,6 +248,30 @@ function CredentialsTab({ onFirstCredentialAdded, filterType }: Props) {
     if (!confirm(`Delete the stored ${label} ("${instanceName}")?`)) return;
     await window.bridge.deleteCredential(type, name, instanceName);
     await load();
+  };
+
+  const handleTest = async (cred: CredentialDto) => {
+    setTestStates(s => ({
+      ...s,
+      [cred.id]: { loading: true, result: null, error: null },
+    }));
+    try {
+      const result = await window.bridge.testCredential(cred.type, cred.name, cred.instanceName);
+      setTestStates(s => ({
+        ...s,
+        [cred.id]: { loading: false, result, error: null },
+      }));
+    }
+    catch (e) {
+      setTestStates(s => ({
+        ...s,
+        [cred.id]: {
+          loading: false,
+          result: null,
+          error: e instanceof Error ? e.message : String(e),
+        },
+      }));
+    }
   };
 
   const handleProviderChange = async (providerId: string) => {
@@ -307,12 +343,53 @@ function CredentialsTab({ onFirstCredentialAdded, filterType }: Props) {
                       {tpl?.usageDescription && (
                         <div className="credentials-row__usage">{tpl.usageDescription}</div>
                       )}
+                      {tpl?.poweredBy && tpl.poweredBy.length > 0 && (
+                        <div className="credentials-row__powered">
+                          <span className="credentials-row__powered-label">Powers:</span>
+                          {tpl.poweredBy.map(f => (
+                            <span key={f} className="credentials-row__powered-chip">{f}</span>
+                          ))}
+                        </div>
+                      )}
+                      {tpl?.alwaysOnFeatures && tpl.alwaysOnFeatures.length > 0 && (
+                        <div className="credentials-row__powered credentials-row__powered--always-on">
+                          <span className="credentials-row__powered-label">Always on (regardless of active provider):</span>
+                          {tpl.alwaysOnFeatures.map(f => (
+                            <span key={f} className="credentials-row__powered-chip credentials-row__powered-chip--always-on">{f}</span>
+                          ))}
+                        </div>
+                      )}
                       {c.notes && <div className="credentials-row__notes">{c.notes}</div>}
                       <div className="credentials-row__timestamps">
                         Added {formatTimestamp(c.createdAt)} · updated {formatTimestamp(c.updatedAt)} · last used {formatTimestamp(c.lastUsedAt)}
                       </div>
+                      {(() => {
+                        const t = testStates[c.id];
+                        if (!t || t.loading) return null;
+                        if (t.error) {
+                          return <div className="credentials-row__test credentials-row__test--err">✕ Test failed: {t.error}</div>;
+                        }
+                        if (t.result) {
+                          const latency = t.result.latencyMs !== null ? ` (${t.result.latencyMs} ms)` : '';
+                          return t.result.ok ? (
+                            <div className="credentials-row__test credentials-row__test--ok">✓ {t.result.message}{latency}</div>
+                          ) : (
+                            <div className="credentials-row__test credentials-row__test--err">✕ {t.result.message}{latency}</div>
+                          );
+                        }
+                        return null;
+                      })()}
                     </div>
                     <div className="credentials-row__actions">
+                      <button
+                        className="button button--secondary button--small"
+                        onClick={() => handleTest(c)}
+                        disabled={testStates[c.id]?.loading === true}
+                        type="button"
+                        title="Run a lightweight upstream call to verify this key works"
+                      >
+                        {testStates[c.id]?.loading ? 'Testing…' : 'Test'}
+                      </button>
                       <button
                         className="button button--secondary button--small"
                         onClick={() => setEditing(c)}
@@ -340,6 +417,15 @@ function CredentialsTab({ onFirstCredentialAdded, filterType }: Props) {
               <p className="credentials-tab__subtitle">
                 Picks which model drafts your AI PR reviews. Only providers with a configured key can be activated.
               </p>
+              {/* A few features are hard-coded to Claude and ignore this picker —
+                  call that out here so a user picking, say, OpenAI doesn't expect
+                  the checkpoint summariser to switch with it. */}
+              <div className="credentials-tab__notice">
+                <strong>Note:</strong> a few features always call Claude regardless
+                of this choice — checkpoint summaries (Haiku), PR description draft,
+                comment polish, and CI failure diagnose. They need an Anthropic key
+                even when another provider is active.
+              </div>
               <div className="credentials-provider-grid">
                 {providers.map(p => (
                   <label

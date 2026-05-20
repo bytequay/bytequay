@@ -65,6 +65,7 @@ import type {
   UserRepoDto,
   UserStatsDto,
   WatchedRepoDto,
+  CredentialTestResult,
 } from './types';
 
 const bridge: Bridge = {
@@ -275,6 +276,8 @@ const bridge: Bridge = {
     ipcRenderer.invoke('credentials:upsert', req),
   deleteCredential: (type: CredentialType, name: string, instanceName?: string): Promise<void> =>
     ipcRenderer.invoke('credentials:delete', type, name, instanceName),
+  testCredential: (type: CredentialType, name: string, instanceName: string): Promise<CredentialTestResult> =>
+    ipcRenderer.invoke('credentials:test', type, name, instanceName),
   listAiProviders: (): Promise<AiProviderInfo[]> => ipcRenderer.invoke('ai:providers'),
   getAiSettings: (): Promise<AiSettingsDto> => ipcRenderer.invoke('ai:getSettings'),
   setAiSettings: (provider: string, model: string | null): Promise<AiSettingsDto> =>

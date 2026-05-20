@@ -884,6 +884,17 @@ export type CredentialTemplate = {
   name: string;
   displayName: string;
   usageDescription: string;
+  /** Concrete features that consult this credential when it fires.
+   *  Rendered as a chip list on each row so the user can see "if I
+   *  delete this, X breaks" without spelunking the code. */
+  poweredBy?: string[];
+  /** Set when the credential is required for some features even if
+   *  the user has chosen a different active provider — i.e. those
+   *  features are hard-coded to this credential, not driven by the
+   *  provider picker. Surfaced as a separate "always-on" group on
+   *  the row so the user understands why the key matters even when
+   *  Claude isn't the active LLM. */
+  alwaysOnFeatures?: string[];
 };
 
 export const CREDENTIAL_TEMPLATES: CredentialTemplate[] = [
@@ -892,30 +903,55 @@ export const CREDENTIAL_TEMPLATES: CredentialTemplate[] = [
     name: 'github',
     displayName: 'GitHub PAT',
     usageDescription: 'Authenticates calls for user profile, repo, org, and other GitHub reads. Singleton — only one allowed.',
+    poweredBy: [
+      'PR list + sync',
+      'Repo, issue, PR detail',
+      'Posting comments + reviews',
+      'PR / issue search',
+      'Branch + commit reads',
+    ],
   },
   {
     type: 'AI',
     name: 'anthropic',
     displayName: 'Anthropic API key',
-    usageDescription: 'Authenticates calls to the Claude API for AI-drafted PR reviews.',
+    usageDescription: 'Authenticates calls to the Claude API.',
+    poweredBy: [
+      'AI PR review (when Claude is the active provider)',
+    ],
+    alwaysOnFeatures: [
+      'Checkpoint summaries (Haiku)',
+      'PR description draft (Opus)',
+      'Comment polish (Opus)',
+      'CI failure diagnose (Opus)',
+    ],
   },
   {
     type: 'AI',
     name: 'openai',
     displayName: 'OpenAI API key',
-    usageDescription: 'Authenticates calls to the OpenAI API for AI-drafted PR reviews.',
+    usageDescription: 'Authenticates calls to the OpenAI API.',
+    poweredBy: [
+      'AI PR review (when OpenAI is the active provider)',
+    ],
   },
   {
     type: 'AI',
     name: 'deepseek',
     displayName: 'DeepSeek API key',
     usageDescription: 'Authenticates calls to the DeepSeek chat completions API. Default model is deepseek-chat; deepseek-reasoner is also available.',
+    poweredBy: [
+      'AI PR review (when DeepSeek is the active provider)',
+    ],
   },
   {
     type: 'AI',
     name: 'local',
     displayName: 'Local LLM endpoint',
     usageDescription: 'Base URL for an OpenAI-compatible local model server (e.g. Ollama, LM Studio).',
+    poweredBy: [
+      'AI PR review (when Local is the active provider)',
+    ],
   },
 ];
 
@@ -924,6 +960,17 @@ export type AiProviderInfo = {
   displayName: string;
   configured: boolean;
   active: boolean;
+};
+
+/** Result of the Settings → AI review credential "Test" button. The
+ *  backend probe ran ok iff {@code ok=true}; otherwise {@code message}
+ *  carries the upstream's error response truncated to ~200 chars. */
+export type CredentialTestResult = {
+  ok: boolean;
+  message: string;
+  /** Round-trip latency of the probe in ms. Null when the call
+   *  didn't fire (e.g. no stored value). */
+  latencyMs: number | null;
 };
 
 export type AiReviewCommentDto = {
@@ -1167,6 +1214,18 @@ export type TaskDto = {
    *  more values likely later. Defaults to {@code "DEVELOP"} on
    *  legacy rows. */
   taskType: string;
+  /** Absolute path to the linked git worktree the agent runs in.
+   *  {@code null} for legacy tasks created before the worktree feature
+   *  shipped, or for tasks where worktree creation failed (non-git
+   *  working dir, etc.) — the agent falls back to running in the
+   *  user-supplied {@code workingDir} in that case. */
+  worktreePath: string | null;
+  /** Name of the dev branch ByteQuay created for this task
+   *  (e.g. {@code "dev/<sessionId>-<slug>"}). {@code null} when
+   *  {@code worktreePath} is {@code null}. Distinct from
+   *  {@code branchName}, which is sniffed from the user's main
+   *  checkout at task-create time. */
+  localBranch: string | null;
   /** GitHub PR number this task is associated with — scoped to the
    *  task's own repo. {@code null} when the task isn't tied to a
    *  remote PR yet. */
@@ -1789,6 +1848,9 @@ export type Bridge = {
   listCredentials: (type?: CredentialType) => Promise<CredentialDto[]>;
   upsertCredential: (req: UpsertCredentialRequest) => Promise<CredentialDto>;
   deleteCredential: (type: CredentialType, name: string, instanceName?: string) => Promise<void>;
+  /** Verify a stored credential against its upstream by firing a
+   *  lightweight probe. Powers the Settings → AI review → "Test" button. */
+  testCredential: (type: CredentialType, name: string, instanceName: string) => Promise<CredentialTestResult>;
   // AI review
   listAiProviders: () => Promise<AiProviderInfo[]>;
   getAiSettings: () => Promise<AiSettingsDto>;

@@ -16,6 +16,7 @@ package com.bytequay.app.web;
 import com.bytequay.app.domain.Credential;
 import com.bytequay.app.domain.CredentialType;
 import com.bytequay.app.service.CredentialService;
+import com.bytequay.app.service.CredentialTester;
 import com.google.common.collect.ImmutableMap;
 import org.springframework.http.HttpStatusCode;
 import org.springframework.web.bind.annotation.DeleteMapping;
@@ -51,10 +52,12 @@ public class CredentialController
     private static final String DELETED = "deleted";
 
     private final CredentialService credentialService;
+    private final CredentialTester credentialTester;
 
-    public CredentialController(CredentialService credentialService)
+    public CredentialController(CredentialService credentialService, CredentialTester credentialTester)
     {
         this.credentialService = requireNonNull(credentialService, "credentialService is null");
+        this.credentialTester = requireNonNull(credentialTester, "credentialTester is null");
     }
 
     public record UpsertRequest(
@@ -127,6 +130,21 @@ public class CredentialController
     {
         credentialService.delete(parseType(type), name, instanceName);
         return ImmutableMap.of("result", DELETED);
+    }
+
+    /**
+     * POST /api/credentials/{type}/{name}/{instanceName}/test — verify
+     * the stored secret by running a lightweight upstream call. Returns
+     * {@code {ok, message, latencyMs?}} — never propagates the exception
+     * because the UI wants a fail message to render inline, not a 5xx.
+     */
+    @PostMapping("/api/credentials/{type}/{name}/{instanceName}/test")
+    public CredentialTester.TestResult testInstance(
+            @PathVariable String type,
+            @PathVariable String name,
+            @PathVariable String instanceName)
+    {
+        return credentialTester.test(parseType(type), name, instanceName);
     }
 
     private static String resolveInstanceName(String fromRequest)

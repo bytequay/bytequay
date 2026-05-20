@@ -32,6 +32,7 @@ import TasksLeftRail, {
   type RepoFilter,
   type StatusFilter,
 } from './TasksLeftRail';
+import { taskDisplayBranch } from './taskDisplay';
 
 /** Card-grid sort options. {@code newest} is the default — the user
  *  scans by recency. {@code highestCost} is handy when the user is
@@ -753,6 +754,7 @@ function TaskCard({ task, scheduler, groups, currentGroupIds, busy, onOpen, onSt
     ? 'linear-gradient(135deg, #1f2937, #4b5563)'
     : 'linear-gradient(135deg, #d97706, #92400e)';
   const displayStatus = displayStatusForTask(task, scheduler);
+  const displayBranch = taskDisplayBranch(task);
   return (
     <article
       style={{
@@ -777,10 +779,10 @@ function TaskCard({ task, scheduler, groups, currentGroupIds, busy, onOpen, onSt
             {repoName && <span style={cardMetaRepoStyle}>{repoName}</span>}
             {repoName && <span style={cardMetaSepStyle}>·</span>}
             <span>{formatRelative(task.updatedAt)}</span>
-            {task.branchName && (
+            {displayBranch && (
               <>
                 <span style={cardMetaSepStyle}>·</span>
-                <span title={`branch ${task.branchName}`}>⎇ {task.branchName}</span>
+                <span title={`branch ${displayBranch}`}>⎇ {displayBranch}</span>
               </>
             )}
             {task.model && (

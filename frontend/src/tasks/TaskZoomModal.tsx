@@ -18,6 +18,7 @@ import { TaskDiffPane } from './TaskChangesTab';
 import type { PendingPermission } from './ConversationPane';
 import type { TaskDto, TaskMessageDto } from '../types';
 import { findPendingPermission } from './permissions';
+import { taskDisplayBranch } from './taskDisplay';
 
 /**
  * Centred zoom modal for one task in a group, opened by
@@ -309,6 +310,7 @@ function ZoomToolbar({
 }) {
   const provider = (task.provider || '').toLowerCase();
   const glyph = provider.startsWith('codex') ? 'X' : 'C';
+  const displayBranch = taskDisplayBranch(task);
   const glyphBg = glyph === 'X'
     ? 'linear-gradient(135deg, #1e293b, #0f172a)'
     : 'linear-gradient(135deg, #d97706, #92400e)';
@@ -321,9 +323,9 @@ function ZoomToolbar({
       </span>
       <span style={{ ...providerGlyphStyle, background: glyphBg }}>{glyph}</span>
       <span style={titleStyle} title={task.title}>{task.title}</span>
-      {task.branchName && (
-        <span style={chipStyle} title={`branch ${task.branchName}`}>
-          ⎇ {task.branchName}
+      {displayBranch && (
+        <span style={chipStyle} title={`branch ${displayBranch}`}>
+          ⎇ {displayBranch}
         </span>
       )}
       <span style={{ flex: 1, minWidth: 0 }} />

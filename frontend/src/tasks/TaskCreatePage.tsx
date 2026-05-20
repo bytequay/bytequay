@@ -33,10 +33,9 @@ import type {
  * ("DEVELOP" / "FIX"), {@code linkedPrNumber}, and
  * {@code linkedIssueNumber}. The PR + Issue dropdowns search the
  * task's repo via the existing {@code getRepoPulls} /
- * {@code getRepoIssues} bridge methods. The "spawned in a fresh
- * worktree" subtitle from the mockup is deliberately omitted until
- * the backend grows worktree support — see
- * {@code followups/task-create-fresh-worktree.md}.
+ * {@code getRepoIssues} bridge methods. New coding tasks are spawned
+ * in a backend-managed git worktree so parallel agents do not share a
+ * working tree or index.
  */
 export type TaskCreatePageProps = {
   /** Optional — pre-fills the Group dropdown. Set when the page is
@@ -452,8 +451,7 @@ export default function TaskCreatePage({
       <div style={cardStyle}>
         <header style={headerStyle}>
           <h1 style={titleH1Style}>New task</h1>
-          {/* "spawned in a fresh worktree" subtitle deferred — see
-              followups/task-create-fresh-worktree.md. */}
+          <p style={subtitleStyle}>Spawned in a fresh worktree</p>
         </header>
 
         <div style={bodyStyle}>
@@ -914,6 +912,11 @@ const titleH1Style: React.CSSProperties = {
   fontSize: 20,
   fontWeight: 700,
   color: 'var(--text-1)',
+};
+const subtitleStyle: React.CSSProperties = {
+  margin: 0,
+  fontSize: 12,
+  color: 'var(--text-2)',
 };
 const bodyStyle: React.CSSProperties = {
   display: 'flex',

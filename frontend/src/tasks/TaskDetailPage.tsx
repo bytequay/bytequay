@@ -39,6 +39,7 @@ import { ConvIndex } from './ConvIndex';
 import { CheckpointsSection } from './CheckpointsSection';
 import { DiffModeToggle, TaskDiffPane, useTaskDiffState, type DiffMode } from './TaskChangesTab';
 import { findPendingPermission } from './permissions';
+import { taskAgentCwd, taskDisplayBranch } from './taskDisplay';
 
 type Props = {
   taskId: string;
@@ -268,7 +269,7 @@ export default function TaskDetailPage({
 
   /** Same workingDir → owner/repo resolver TasksPage uses: walk the
    *  path segments looking for a watched-repo name match so worktrees
-   *  rooted under `<repo>/.worktrees/<branch>` resolve correctly. */
+   *  rooted under the watched repo resolve correctly. */
   const resolveTaskRepo = useCallback(
     (t: TaskDto): { owner: string; repo: string } | null => {
       const segments = (t.workingDir ?? '').split('/').filter(Boolean).map(s => s.toLowerCase());
@@ -972,6 +973,8 @@ function StructuredView({
     : null;
   const liveTokenTotal = (liveUsage?.tokensIn ?? 0) + (liveUsage?.tokensOut ?? 0);
   const liveUsageLabel = formatLiveUsage(liveUsage);
+  const agentCwd = taskAgentCwd(task);
+  const displayBranch = taskDisplayBranch(task);
 
   return (
     <div style={structuredWrapStyle}>
@@ -994,14 +997,14 @@ function StructuredView({
           </div>
           <div style={twHeaderMetaStyle}>
             <RepoAvatar workingDir={task.workingDir} size={14} />
-            {task.workingDir && (
-              <span style={twHeaderRepoStyle}>{shortenPath(task.workingDir)}</span>
+            {agentCwd && (
+              <span style={twHeaderRepoStyle} title={agentCwd}>{shortenPath(agentCwd)}</span>
             )}
-            {task.branchName && (
+            {displayBranch && (
               <>
                 <span style={twHeaderSepStyle}>·</span>
-                <span style={twHeaderChipStyle} title={`branch ${task.branchName}`}>
-                  ⎇ {task.branchName}
+                <span style={twHeaderChipStyle} title={`branch ${displayBranch}`}>
+                  ⎇ {displayBranch}
                 </span>
               </>
             )}
@@ -1216,6 +1219,8 @@ function TaskWindowSidebar({
   const toolUsage = useMemo(() => deriveToolUsage(messages), [messages]);
   const ctx = useMemo(() => computeContextUsage(messages, modelName), [messages, modelName]);
   const scheduler = useMemo(() => summarizeTurnState(turns, task.status), [turns, task.status]);
+  const agentCwd = taskAgentCwd(task);
+  const displayBranch = taskDisplayBranch(task);
   // Overlay running deltas while a turn is in flight; falls back to
   // the persisted totals once liveUsage clears at the next refresh.
   const tokensInDisplay = (task.tokensIn ?? 0) + (liveUsage?.tokensIn ?? 0);
@@ -1290,10 +1295,11 @@ function TaskWindowSidebar({
       <SidebarSection label="Session">
         <div style={metricListStyle}>
           <Metric label="Session ID" value={task.id} mono wrap />
-          {task.branchName !== null && task.branchName !== '' && (
+          <Metric label="Agent cwd" value={agentCwd} mono wrap />
+          {displayBranch !== null && displayBranch !== '' && (
             <Metric
               label="Branch"
-              value={`⎇ ${task.branchName}`}
+              value={`⎇ ${displayBranch}`}
               mono
             />
           )}
@@ -1705,6 +1711,8 @@ function TerminalWrap({
   // ConversationPane so the rail's "absolute" coordinates resolve
   // against the visible transcript zone, not the whole window.
   const termHistoryRef = useRef<HTMLDivElement | null>(null);
+  const agentCwd = taskAgentCwd(task);
+  const displayBranch = taskDisplayBranch(task);
   return (
     <div style={terminalWrapStyle}>
       <div style={termToolbarStyle}>
@@ -1720,9 +1728,9 @@ function TerminalWrap({
           />
         </div>
         <span style={termNameStyle}>
-          <span style={sessionIdStyleTerminal}>{shortenPath(task.workingDir)}</span>
-          {task.branchName && (
-            <span style={sessionIdStyleTerminal}> · {task.branchName}</span>
+          <span style={sessionIdStyleTerminal} title={agentCwd}>{shortenPath(agentCwd)}</span>
+          {displayBranch && (
+            <span style={sessionIdStyleTerminal}> · {displayBranch}</span>
           )}
           {modelName && (
             <span style={sessionIdStyleTerminal}> · {modelName}</span>
@@ -1759,8 +1767,8 @@ function TerminalWrap({
           onDecide={onDecide}
           banner={{
             model: modelName,
-            cwd: task.workingDir,
-            branch: task.branchName,
+            cwd: agentCwd,
+            branch: displayBranch,
             sessionStartedAtIso: task.createdAt,
           }}
           liveText={liveText}

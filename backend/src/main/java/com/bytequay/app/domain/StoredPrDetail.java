@@ -17,6 +17,10 @@ import java.util.List;
 
 /**
  * All cached detail data for a single pull request, loaded as a unit from the local store.
+ *
+ * @param mergeQueueState GraphQL-sourced merge-queue entry state, such as
+ * {@code QUEUED}, {@code MERGEABLE}, or {@code UNMERGEABLE}. Null when the PR
+ * has no queue entry.
  */
 public record StoredPrDetail(
         PrRawDetail raw,
@@ -26,9 +30,6 @@ public record StoredPrDetail(
         List<PrCheckRunState> checkRuns,
         List<PrReviewThreadMessage> reviewComments,
         List<PullRequestDetail.LinkedIssue> linkedIssues,
-        /** GraphQL-sourced merge-queue entry state — "QUEUED",
-         *  "MERGEABLE", "UNMERGEABLE", etc. Null when the PR has no
-         *  queue entry. Persisted via {@code pr_detail.merge_queue_state}. */
         String mergeQueueState)
 {
     /** Backward-compat 7-arg constructor for callers (mostly the

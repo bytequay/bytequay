@@ -1886,14 +1886,14 @@ function TerminalStatusBar({
         </strong>
       </span>
       <span style={termStatGroupRightStyle}>
-        <span style={termStatStyle}>⏱ <strong style={termStatStrongStyle}>{formatRuntime(task)}</strong></span>
-        <span style={termStatStyle}>💰 <strong style={termStatStrongStyle}>{formatCost(task.costUsdMilli)}</strong></span>
+        <span style={termStatStyle}>runtime <strong style={termStatStrongStyle}>{formatRuntime(task)}</strong></span>
+        <span style={termStatStyle}>cost <strong style={termStatStrongStyle}>{formatCost(task.costUsdMilli)}</strong></span>
         <span style={termStatStyle} title="Total input and output tokens">
           <strong style={termStatStrongStyle}>{formatTokenLabel(tokensTotal)}</strong>
         </span>
         {stage.toolName && (
-          <span style={termStatStyle}>
-            {stage.glyph} <strong style={termStatStrongStyle}>{stage.toolName}</strong>
+          <span style={termStatStyle} title={stage.detail}>
+            tool <strong style={termStatStrongStyle}>{stage.toolName}</strong>
           </span>
         )}
         {isRunning && (

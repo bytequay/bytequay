@@ -11,25 +11,174 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-function NotificationsScreen() {
+import { useCallback, useEffect, useState } from 'react';
+import type { NotificationDto, NotificationKindDto } from './types';
+
+type Props = {
+  /** Click-to-thread navigation. The dispatch lives in App.tsx so
+   *  it can flip top-level nav state. */
+  onOpenThread?: (threadId: string) => void;
+};
+
+/** Newest-first list of notifications backed by the bridge. Empty
+ *  state explains what kinds of events will land here once the
+ *  automation runtime starts producing them. */
+function NotificationsScreen({ onOpenThread }: Props) {
+  const [items, setItems] = useState<NotificationDto[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
+
+  const refresh = useCallback(async () => {
+    try {
+      const next = await window.bridge.listNotifications();
+      setItems(next);
+      setError(null);
+    }
+    catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    }
+    finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    void refresh();
+    // Poll while the screen is open. The bell badge in the global
+    // nav does its own short-interval poll independently.
+    const id = window.setInterval(() => { void refresh(); }, 15_000);
+    return () => window.clearInterval(id);
+  }, [refresh]);
+
+  const handleOpen = async (n: NotificationDto) => {
+    if (n.status === 'UNREAD') {
+      try {
+        await window.bridge.markNotificationRead(n.id);
+      }
+      catch {
+        // The thread-open is the user-visible action; a missed
+        // markRead just leaves the badge unchanged until next poll.
+      }
+    }
+    if (n.threadId && onOpenThread) {
+      onOpenThread(n.threadId);
+    }
+    void refresh();
+  };
+
+  const handleDismiss = async (n: NotificationDto, e: React.MouseEvent) => {
+    e.stopPropagation();
+    try {
+      await window.bridge.dismissNotification(n.id);
+    }
+    catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    }
+    void refresh();
+  };
+
   return (
     <section className="notifications-screen">
       <header className="notifications-screen__head">
         <h1 className="notifications-screen__title">Notifications</h1>
         <p className="notifications-screen__subtitle">
-          Mentions, review requests, and team activity will land here.
+          Headless-fix progress and parked work shows up here. Click an
+          item to jump to its thread.
         </p>
       </header>
-      <div className="settings-stub">
-        <div className="settings-stub__title">Coming soon</div>
-        <div>
-          You'll see a feed of @-mentions, blocking-PR alerts, and per-team digests.
-          Quiet hours and per-team mute toggles ship under <em>Settings → Notifications</em>
-          once the feed is live.
+
+      {error && <div className="notifications-screen__error">{error}</div>}
+
+      {loading && items.length === 0 ? (
+        <div className="settings-stub">Loading…</div>
+      ) : items.length === 0 ? (
+        <div className="settings-stub">
+          <div className="settings-stub__title">Nothing yet</div>
+          <div>
+            New rows arrive on ship-and-continue completion and (soon)
+            when a headless run parks at AWAITING REVIEW / NEEDS ATTENTION.
+          </div>
         </div>
-      </div>
+      ) : (
+        <ul className="notifications-list">
+          {items.map(n => (
+            <li
+              key={n.id}
+              className={`notifications-list__row notifications-list__row--${n.status.toLowerCase()}`}
+              onClick={() => { void handleOpen(n); }}
+            >
+              <div className="notifications-list__icon">{kindIcon(n.kind)}</div>
+              <div className="notifications-list__body">
+                <div className="notifications-list__title">{titleFor(n)}</div>
+                <div className="notifications-list__meta">{previewFor(n)}</div>
+                <div className="notifications-list__time">{relativeTime(n.createdAt)}</div>
+              </div>
+              <button
+                type="button"
+                className="notifications-list__dismiss"
+                onClick={e => { void handleDismiss(n, e); }}
+                title="Dismiss"
+              >
+                ✕
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
     </section>
   );
+}
+
+function kindIcon(kind: NotificationKindDto): string {
+  switch (kind) {
+    case 'AWAITING_REVIEW':  return '👁';
+    case 'NEEDS_ATTENTION':  return '⚠';
+    case 'AUTO_FIX_DONE':    return '✓';
+  }
+}
+
+function titleFor(n: NotificationDto): string {
+  switch (n.kind) {
+    case 'AWAITING_REVIEW':  return 'Awaiting your review';
+    case 'NEEDS_ATTENTION':  return 'Needs your attention';
+    case 'AUTO_FIX_DONE':    return 'Shipped';
+  }
+}
+
+function previewFor(n: NotificationDto): string {
+  if (!n.payloadJson) return '';
+  let payload: Record<string, unknown> | null = null;
+  try {
+    payload = JSON.parse(n.payloadJson);
+  }
+  catch {
+    return '';
+  }
+  if (!payload) return '';
+  if (n.kind === 'AUTO_FIX_DONE') {
+    const repo = typeof payload.repoFullName === 'string' ? payload.repoFullName : null;
+    const pr = typeof payload.prNumber === 'number' ? `#${payload.prNumber}` : null;
+    const nextTitle = typeof payload.nextTitle === 'string' ? payload.nextTitle : null;
+    const left = [repo, pr].filter(Boolean).join(' ');
+    if (left && nextTitle) return `${left} · next: ${nextTitle}`;
+    if (left) return left;
+    if (nextTitle) return `next: ${nextTitle}`;
+  }
+  // Default: show the first few payload keys + values for debugging.
+  return Object.entries(payload)
+      .slice(0, 3)
+      .map(([k, v]) => `${k}: ${String(v)}`)
+      .join(' · ');
+}
+
+function relativeTime(iso: string): string {
+  const then = Date.parse(iso);
+  if (Number.isNaN(then)) return '';
+  const deltaSec = Math.round((Date.now() - then) / 1000);
+  if (deltaSec < 60) return 'just now';
+  if (deltaSec < 3600) return `${Math.round(deltaSec / 60)}m ago`;
+  if (deltaSec < 86400) return `${Math.round(deltaSec / 3600)}h ago`;
+  return `${Math.round(deltaSec / 86400)}d ago`;
 }
 
 export default NotificationsScreen;

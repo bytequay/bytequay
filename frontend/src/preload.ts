@@ -521,6 +521,16 @@ const bridge: Bridge = {
   stopTask: (id: string): Promise<void> => ipcRenderer.invoke('threads:stop', id),
   resumeTask: (id: string): Promise<void> => ipcRenderer.invoke('threads:resume', id),
   deleteTask: (id: string): Promise<void> => ipcRenderer.invoke('threads:delete', id),
+
+  listNotifications: () => ipcRenderer.invoke('notifications:list'),
+  listUnreadNotifications: () => ipcRenderer.invoke('notifications:listUnread'),
+  listNotificationsForThread: (threadId: string) =>
+      ipcRenderer.invoke('notifications:listForThread', threadId),
+  markNotificationRead: (id: string) => ipcRenderer.invoke('notifications:markRead', id),
+  dismissNotification: (id: string) => ipcRenderer.invoke('notifications:dismiss', id),
+  deleteNotification: (id: string): Promise<void> =>
+      ipcRenderer.invoke('notifications:delete', id),
+
   listTaskWorkingChanges: (id: string) => ipcRenderer.invoke('threads:workingChanges', id),
   getTaskWorkingDiff: (id: string, path: string) => ipcRenderer.invoke('threads:workingDiff', id, path),
   listTaskCommits: (id: string) => ipcRenderer.invoke('threads:listCommits', id),

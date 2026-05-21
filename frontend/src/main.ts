@@ -2595,6 +2595,79 @@ const url = new URL(`${BACKEND_BASE}/api/search/repos`);
     }
   });
 
+  // ── Notifications ───────────────────────────────────────────────────────
+  ipcMain.handle('notifications:list', async () => {
+    const res = await fetch(`${BACKEND_BASE}/api/notifications`);
+    if (!res.ok) {
+      const text = await res.text().catch(() => '');
+      throw new Error(`backend GET /api/notifications returned ${res.status}: ${text}`);
+    }
+    return res.json();
+  });
+
+  ipcMain.handle('notifications:listUnread', async () => {
+    const res = await fetch(`${BACKEND_BASE}/api/notifications?status=UNREAD`);
+    if (!res.ok) {
+      const text = await res.text().catch(() => '');
+      throw new Error(`backend GET /api/notifications?status=UNREAD returned ${res.status}: ${text}`);
+    }
+    return res.json();
+  });
+
+  ipcMain.handle('notifications:listForThread', async (_event, threadId: unknown) => {
+    if (typeof threadId !== 'string' || threadId.trim().length === 0) {
+      throw new Error('threadId must be a non-empty string');
+    }
+    const res = await fetch(
+      `${BACKEND_BASE}/api/notifications?threadId=${encodeURIComponent(threadId)}`);
+    if (!res.ok) {
+      const text = await res.text().catch(() => '');
+      throw new Error(`backend GET /api/notifications?threadId=${threadId} returned ${res.status}: ${text}`);
+    }
+    return res.json();
+  });
+
+  ipcMain.handle('notifications:markRead', async (_event, id: unknown) => {
+    if (typeof id !== 'string' || id.trim().length === 0) {
+      throw new Error('id must be a non-empty string');
+    }
+    const res = await fetch(
+      `${BACKEND_BASE}/api/notifications/${encodeURIComponent(id)}/read`,
+      { method: 'POST' });
+    if (!res.ok) {
+      const text = await res.text().catch(() => '');
+      throw new Error(`backend POST /api/notifications/${id}/read returned ${res.status}: ${text}`);
+    }
+    return res.json();
+  });
+
+  ipcMain.handle('notifications:dismiss', async (_event, id: unknown) => {
+    if (typeof id !== 'string' || id.trim().length === 0) {
+      throw new Error('id must be a non-empty string');
+    }
+    const res = await fetch(
+      `${BACKEND_BASE}/api/notifications/${encodeURIComponent(id)}/dismiss`,
+      { method: 'POST' });
+    if (!res.ok) {
+      const text = await res.text().catch(() => '');
+      throw new Error(`backend POST /api/notifications/${id}/dismiss returned ${res.status}: ${text}`);
+    }
+    return res.json();
+  });
+
+  ipcMain.handle('notifications:delete', async (_event, id: unknown) => {
+    if (typeof id !== 'string' || id.trim().length === 0) {
+      throw new Error('id must be a non-empty string');
+    }
+    const res = await fetch(
+      `${BACKEND_BASE}/api/notifications/${encodeURIComponent(id)}`,
+      { method: 'DELETE' });
+    if (!res.ok) {
+      const text = await res.text().catch(() => '');
+      throw new Error(`backend DELETE /api/notifications/${id} returned ${res.status}: ${text}`);
+    }
+  });
+
   ipcMain.handle('threads:workingChanges', async (_event, id: unknown) => {
     if (typeof id !== 'string' || id.trim().length === 0) {
       throw new Error('id must be a non-empty string');

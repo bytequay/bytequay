@@ -66,6 +66,9 @@ type GlobalTopbarProps = {
    *  inset traffic lights vanish in that state, so we draw a small
    *  brand mark in the otherwise-empty 78px reserve. */
   fullScreen: boolean;
+  /** Unread-notification count rendered as a badge on the
+   *  Notifications nav button. Zero hides the badge. */
+  unreadNotificationCount: number;
 };
 
 /**
@@ -137,7 +140,7 @@ function breadcrumbLabel(back: Nav | undefined): string | null {
   }
 }
 
-function GlobalTopbar({ nav, onNav, fullScreen }: GlobalTopbarProps) {
+function GlobalTopbar({ nav, onNav, fullScreen, unreadNotificationCount }: GlobalTopbarProps) {
   return (
     <div className={`global-topbar${fullScreen ? ' global-topbar--fullscreen' : ''}`}>
       {fullScreen && (
@@ -236,6 +239,11 @@ function GlobalTopbar({ nav, onNav, fullScreen }: GlobalTopbarProps) {
           title="Notifications"
         >
           Notifications
+          {unreadNotificationCount > 0 && (
+            <span className="global-nav-btn__badge" aria-label={`${unreadNotificationCount} unread`}>
+              {unreadNotificationCount > 99 ? '99+' : unreadNotificationCount}
+            </span>
+          )}
         </button>
         <button
           className={`global-nav-btn${nav.view === 'settings' ? ' global-nav-btn--active' : ''}`}
@@ -309,6 +317,24 @@ function App() {
   // the × button on the InAppBrowser toolbar.
   const [inAppUrl, setInAppUrl] = useState<string | null>(null);
   const [fullScreen, setFullScreen] = useState<boolean>(false);
+  // Unread-notification badge on the Notifications nav button. Polls
+  // every 20s while the app is open so the badge stays roughly fresh
+  // without hammering the local backend. The notifications page does
+  // its own faster poll while it's the visible view.
+  const [unreadNotificationCount, setUnreadNotificationCount] = useState<number>(0);
+  useEffect(() => {
+    let cancelled = false;
+    const refresh = async () => {
+      try {
+        const unread = await window.bridge.listUnreadNotifications();
+        if (!cancelled) setUnreadNotificationCount(unread.length);
+      }
+      catch { /* non-fatal — leave the badge unchanged */ }
+    };
+    void refresh();
+    const id = window.setInterval(() => { void refresh(); }, 20_000);
+    return () => { cancelled = true; window.clearInterval(id); };
+  }, []);
   // threads-group immersive mode is lifted to App so the global topbar
   // can be hidden underneath. Persisted to localStorage so the user
   // returns to their preferred chrome state between sessions.
@@ -429,7 +455,12 @@ function App() {
   return (
     <div className="app-shell">
       {!hideTopbar && (
-        <GlobalTopbar nav={nav} onNav={setNav} fullScreen={fullScreen} />
+        <GlobalTopbar
+          nav={nav}
+          onNav={setNav}
+          fullScreen={fullScreen}
+          unreadNotificationCount={unreadNotificationCount}
+        />
       )}
       <div className="app-content">
         <RouteErrorBoundary
@@ -554,7 +585,9 @@ function App() {
           />
         )}
         {nav.view === 'notifications' && (
-          <NotificationsScreen />
+          <NotificationsScreen
+            onOpenThread={threadId => setNav({ view: 'thread-detail', threadId })}
+          />
         )}
         {nav.view === 'repos' && (
           <ReposPage

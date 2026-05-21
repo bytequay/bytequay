@@ -1441,6 +1441,33 @@ export type NewTaskRequestDto = {
   linkedIssueNumber?: number | null;
 };
 
+/** What a notification is about; matches the backend NotificationKind
+ *  enum. AWAITING_REVIEW / NEEDS_ATTENTION are written by the (future)
+ *  headless runtime; AUTO_FIX_DONE is the ship-and-continue success
+ *  ping. The bell maps each to an icon + body template. */
+export type NotificationKindDto =
+  | 'AWAITING_REVIEW'
+  | 'NEEDS_ATTENTION'
+  | 'AUTO_FIX_DONE';
+
+export type NotificationStatusDto = 'UNREAD' | 'READ' | 'DISMISSED';
+
+export type NotificationDto = {
+  id: string;
+  kind: NotificationKindDto;
+  /** Thread the event came from; null when the notification isn't
+   *  scoped to a specific conversation. */
+  threadId: string | null;
+  /** Task the event is about; null for thread-level events. */
+  taskId: string | null;
+  status: NotificationStatusDto;
+  /** Free-form JSON1 string — the renderer dispatches on {@code kind}
+   *  to know what fields to look for inside (PR number, branch, etc.). */
+  payloadJson: string;
+  createdAt: string;
+  readAt: string | null;
+};
+
 export type Bridge = {
   savePat: (pat: string) => Promise<boolean>;
   hasPat: () => Promise<boolean>;
@@ -2116,6 +2143,20 @@ export type Bridge = {
    *  Rejects with an error from the backend if the thread is still
    *  live. */
   deleteTask: (id: string) => Promise<void>;
+
+  /** All notifications, newest-first. Drives the bell dropdown +
+   *  notification center. */
+  listNotifications: () => Promise<NotificationDto[]>;
+  /** Unread only — the badge count + active toast list. */
+  listUnreadNotifications: () => Promise<NotificationDto[]>;
+  /** Per-thread feed (the auto* row in the threads list). */
+  listNotificationsForThread: (threadId: string) => Promise<NotificationDto[]>;
+  /** Flip UNREAD → READ + stamp readAt. */
+  markNotificationRead: (id: string) => Promise<NotificationDto>;
+  /** Soft-hide via DISMISSED status. */
+  dismissNotification: (id: string) => Promise<NotificationDto>;
+  /** Hard delete — the row is gone. */
+  deleteNotification: (id: string) => Promise<void>;
 
   /** Open a Server-Sent Events subscription to the backend for one
    *  thread. Each {@link StreamEvent} the session emits is delivered

@@ -31,11 +31,13 @@ import com.bytequay.app.domain.ThreadTurn;
 import com.bytequay.app.domain.ThreadTurnEvent;
 import com.bytequay.app.domain.ThreadTurnEventType;
 import com.bytequay.app.domain.ThreadTurnStatus;
+import com.bytequay.app.domain.WorktreeLease;
 import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.repository.ThreadGroupStore;
 import com.bytequay.app.repository.ThreadStore;
 import com.bytequay.app.repository.ThreadTurnEventStore;
 import com.bytequay.app.repository.ThreadTurnStore;
+import com.bytequay.app.repository.WorktreeLeaseStore;
 import com.bytequay.app.service.local.GitRunner;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
@@ -724,12 +726,14 @@ class TestThreadServiceScheduler
         {
             super(
                     new InMemoryTaskStore(),
+                    new StubTaskStore(),
                     new StreamJsonParser(new ObjectMapper()),
                     new ObjectMapper(),
                     new McpPermissionGate(),
                     Executors.newSingleThreadExecutor(),
                     CheckpointTrigger.NOOP,
-                    () -> "");
+                    () -> "",
+                    new WorktreeLeaseService(new StubLeaseStore()));
             this.events = events;
             this.session = new RecordingStopSession(events);
         }
@@ -872,12 +876,14 @@ class TestThreadServiceScheduler
         {
             super(
                     new InMemoryTaskStore(),
+                    new StubTaskStore(),
                     new StreamJsonParser(new ObjectMapper()),
                     new ObjectMapper(),
                     new McpPermissionGate(),
                     Executors.newSingleThreadExecutor(),
                     CheckpointTrigger.NOOP,
-                    () -> "");
+                    () -> "",
+                    new WorktreeLeaseService(new StubLeaseStore()));
         }
 
         @Override
@@ -974,6 +980,24 @@ class TestThreadServiceScheduler
         {
             return listMembers(groupId).size();
         }
+    }
+
+    /** Empty WorktreeLeaseStore — these scheduler tests don't exercise
+     *  the lease layer that landed alongside the Phase-7 data plane.
+     *  Backed by a tiny in-memory map so save / find / release behave. */
+    static final class StubLeaseStore
+            implements WorktreeLeaseStore
+    {
+        private final Map<String, WorktreeLease> leases = new LinkedHashMap<>();
+        @Override public void save(WorktreeLease lease) { leases.put(lease.worktreePath(), lease); }
+        @Override public Optional<WorktreeLease> findByWorktreePath(String worktreePath) {
+            return Optional.ofNullable(leases.get(worktreePath));
+        }
+        @Override public List<WorktreeLease> listForTask(String taskId) {
+            return leases.values().stream().filter(l -> l.taskId().equals(taskId)).toList();
+        }
+        @Override public List<WorktreeLease> listAll() { return List.copyOf(leases.values()); }
+        @Override public void releaseByWorktreePath(String worktreePath) { leases.remove(worktreePath); }
     }
 
     /** Empty TaskStore — these scheduler tests don't exercise the

@@ -14,6 +14,7 @@
 package com.bytequay.app.service.threads;
 
 import com.bytequay.app.domain.Thread;
+import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.repository.ThreadStore;
 import com.bytequay.app.service.workspaces.WorkspaceService;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -44,43 +45,52 @@ import static java.util.Objects.requireNonNull;
 public class ThreadRegistry
 {
     private final ThreadStore store;
+    private final TaskStore taskStore;
     private final StreamJsonParser parser;
     private final ObjectMapper mapper;
     private final McpPermissionGate gate;
     private final ExecutorService executor;
     private final CheckpointTrigger checkpointTrigger;
     private final Supplier<String> workspaceMemoryProvider;
+    private final WorktreeLeaseService leaseService;
     private final ConcurrentHashMap<String, ThreadAgent> sessions = new ConcurrentHashMap<>();
 
     @Autowired
     public ThreadRegistry(
             ThreadStore store,
+            TaskStore taskStore,
             ObjectMapper mapper,
             McpPermissionGate gate,
             CheckpointTrigger checkpointTrigger,
-            WorkspaceService workspaces)
+            WorkspaceService workspaces,
+            WorktreeLeaseService leaseService)
     {
-        this(store, new StreamJsonParser(mapper), mapper, gate,
+        this(store, taskStore, new StreamJsonParser(mapper), mapper, gate,
                 ClaudeCodeCliThreadAgent.defaultExecutor(), checkpointTrigger,
-                () -> workspaces.getMemory(WorkspaceService.DEFAULT_WORKSPACE_ID));
+                () -> workspaces.getMemory(WorkspaceService.DEFAULT_WORKSPACE_ID),
+                leaseService);
     }
 
     ThreadRegistry(
             ThreadStore store,
+            TaskStore taskStore,
             StreamJsonParser parser,
             ObjectMapper mapper,
             McpPermissionGate gate,
             ExecutorService executor,
             CheckpointTrigger checkpointTrigger,
-            Supplier<String> workspaceMemoryProvider)
+            Supplier<String> workspaceMemoryProvider,
+            WorktreeLeaseService leaseService)
     {
         this.store = requireNonNull(store, "store is null");
+        this.taskStore = requireNonNull(taskStore, "taskStore is null");
         this.parser = requireNonNull(parser, "parser is null");
         this.mapper = requireNonNull(mapper, "mapper is null");
         this.gate = requireNonNull(gate, "gate is null");
         this.executor = requireNonNull(executor, "executor is null");
         this.checkpointTrigger = requireNonNull(checkpointTrigger, "checkpointTrigger is null");
         this.workspaceMemoryProvider = requireNonNull(workspaceMemoryProvider, "workspaceMemoryProvider is null");
+        this.leaseService = requireNonNull(leaseService, "leaseService is null");
     }
 
     public Optional<ThreadAgent> find(String threadId)
@@ -111,8 +121,8 @@ public class ThreadRegistry
     {
         return switch (thread.kind()) {
             case CLI_AGENT -> new ClaudeCodeCliThreadAgent(
-                    thread, store, parser, mapper, gate, executor, checkpointTrigger,
-                    workspaceMemoryProvider);
+                    thread, store, taskStore, parser, mapper, gate, executor, checkpointTrigger,
+                    workspaceMemoryProvider, leaseService);
             case LOGIC_LOOP -> throw new UnsupportedOperationException(
                     "LOGIC_LOOP sessions land in a later slice");
         };

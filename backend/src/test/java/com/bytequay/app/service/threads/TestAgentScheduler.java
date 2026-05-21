@@ -16,6 +16,9 @@ package com.bytequay.app.service.threads;
 import com.bytequay.app.domain.AgentMetrics;
 import com.bytequay.app.domain.PermissionDecision;
 import com.bytequay.app.domain.StreamEvent;
+import com.bytequay.app.domain.Task;
+import com.bytequay.app.domain.TaskFile;
+import com.bytequay.app.domain.TaskStatus;
 import com.bytequay.app.domain.Thread;
 import com.bytequay.app.domain.ThreadFile;
 import com.bytequay.app.domain.ThreadKind;
@@ -25,9 +28,12 @@ import com.bytequay.app.domain.ThreadStatus;
 import com.bytequay.app.domain.ThreadTurn;
 import com.bytequay.app.domain.ThreadTurnEvent;
 import com.bytequay.app.domain.ThreadTurnStatus;
+import com.bytequay.app.domain.WorktreeLease;
+import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.repository.ThreadStore;
 import com.bytequay.app.repository.ThreadTurnEventStore;
 import com.bytequay.app.repository.ThreadTurnStore;
+import com.bytequay.app.repository.WorktreeLeaseStore;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
 
@@ -423,12 +429,14 @@ class TestAgentScheduler
         {
             super(
                     new InMemoryTaskStore(),
+                    new StubTaskStore(),
                     new StreamJsonParser(new ObjectMapper()),
                     new ObjectMapper(),
                     new McpPermissionGate(),
                     Executors.newSingleThreadExecutor(),
                     CheckpointTrigger.NOOP,
-                    () -> "");
+                    () -> "",
+                    new WorktreeLeaseService(new StubLeaseStore()));
         }
 
         @Override
@@ -440,6 +448,40 @@ class TestAgentScheduler
             }
             return session;
         }
+    }
+
+    /** Empty TaskStore — the scheduler tests don't exercise the
+     *  per-work-unit storage. Same shape as the one in
+     *  TestThreadServiceScheduler. */
+    private static final class StubTaskStore
+            implements TaskStore
+    {
+        @Override public void saveTask(Task task) {}
+        @Override public Optional<Task> findTaskById(String id) { return Optional.empty(); }
+        @Override public void deleteTask(String id) {}
+        @Override public List<Task> listTasksByThread(String threadId) { return List.of(); }
+        @Override public Optional<Task> findActiveTaskForThread(String threadId) { return Optional.empty(); }
+        @Override public Optional<Long> maxSeqForThread(String threadId) { return Optional.empty(); }
+        @Override public List<Task> listByStatus(TaskStatus status, int limit) { return List.of(); }
+        @Override public void recordFile(TaskFile file) {}
+        @Override public List<TaskFile> listFiles(String taskId) { return List.of(); }
+    }
+
+    /** Tiny in-memory WorktreeLeaseStore so the registry constructor's
+     *  WorktreeLeaseService dep is satisfied without dragging Spring in. */
+    private static final class StubLeaseStore
+            implements WorktreeLeaseStore
+    {
+        private final Map<String, WorktreeLease> leases = new LinkedHashMap<>();
+        @Override public void save(WorktreeLease lease) { leases.put(lease.worktreePath(), lease); }
+        @Override public Optional<WorktreeLease> findByWorktreePath(String worktreePath) {
+            return Optional.ofNullable(leases.get(worktreePath));
+        }
+        @Override public List<WorktreeLease> listForTask(String taskId) {
+            return leases.values().stream().filter(l -> l.taskId().equals(taskId)).toList();
+        }
+        @Override public List<WorktreeLease> listAll() { return List.copyOf(leases.values()); }
+        @Override public void releaseByWorktreePath(String worktreePath) { leases.remove(worktreePath); }
     }
 
     private static final class InMemoryTaskStore

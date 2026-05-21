@@ -179,7 +179,8 @@ class TestCheckpointScheduler
                 UUID.randomUUID().toString(), "t1", 1L, false,
                 1L, 1L, 5_000L, "covered", List.of(),
                 "haiku", 0L, 0L, 0L,
-                Instant.ofEpochMilli(1_000L), null));
+                Instant.ofEpochMilli(1_000L), null,
+                /* taskId */ null));
         CheckpointSummariser summariser = mock(CheckpointSummariser.class);
         CheckpointScheduler scheduler = newScheduler(threads, ckps, summariser);
 
@@ -278,7 +279,8 @@ class TestCheckpointScheduler
                 firstMsg, lastMsg, tokens,
                 "summary", List.of("b"),
                 "haiku", 0L, 0L, 0L,
-                when, null);
+                when, null,
+                /* taskId */ null);
     }
 
     private static CheckpointSummaryResult result(String summary, List<String> bullets)
@@ -360,14 +362,6 @@ class TestCheckpointScheduler
         }
 
         @Override
-        public void saveSegmentForTask(String taskId, ThreadCheckpoint segment)
-        {
-            // The scheduler test exercises Thread-scope only; the
-            // Task-scope path lands behind the new store method.
-            saveSegment(segment);
-        }
-
-        @Override
         public List<ThreadCheckpoint> listActiveForTask(String taskId)
         {
             return List.of();
@@ -390,7 +384,8 @@ class TestCheckpointScheduler
                             cp.firstMsgSeq(), cp.lastMsgSeq(), cp.tokensCovered(),
                             cp.summaryMd(), cp.bulletTitles(),
                             cp.modelUsed(), cp.promptTokens(), cp.completionTokens(),
-                            cp.costUsdMilli(), cp.generatedAt(), next.generatedAt()));
+                            cp.costUsdMilli(), cp.generatedAt(), next.generatedAt(),
+                            cp.taskId()));
                 }
             }
             rows.add(next);

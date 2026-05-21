@@ -12,7 +12,7 @@
  * limitations under the License.
  */
 import { useEffect, useState } from 'react';
-import type { ThreadCheckpointDto } from '../types';
+import type { ThreadCheckpointDto, WorkUnitTaskDto } from '../types';
 import { threadTokenLabel } from './threadDisplay';
 import { useCheckpoints } from './useCheckpoints';
 
@@ -49,6 +49,7 @@ export function CheckpointsSection({ threadId, sseRef }: Props) {
 
   const overall = cp.rows.find(r => r.isOverall) ?? null;
   const segments = cp.rows.filter(r => !r.isOverall);
+  const grouped = groupSegmentsByTask(segments, cp.tasks);
 
   // "Summariser disabled" banner — the scheduler crossed the
   // threshold but the background call threw. The most common cause
@@ -83,8 +84,15 @@ export function CheckpointsSection({ threadId, sseRef }: Props) {
       {overall && (
         <CheckpointCard cp={overall} variant="overall" />
       )}
-      {segments.map(seg => (
-        <CheckpointCard key={seg.id} cp={seg} variant="segment" />
+      {grouped.map(group => (
+        <div key={group.key} style={groupStyle}>
+          {group.header !== null && (
+            <div style={groupHeaderStyle}>{group.header}</div>
+          )}
+          {group.segments.map(seg => (
+            <CheckpointCard key={seg.id} cp={seg} variant="segment" />
+          ))}
+        </div>
       ))}
       <div style={footerStyle}>
         <button
@@ -102,6 +110,68 @@ export function CheckpointsSection({ threadId, sseRef }: Props) {
       )}
     </div>
   );
+}
+
+type SegmentGroup = {
+  key: string;
+  /** Rendered above the group when non-null. Suppressed for the
+   *  brainstorm group on a thread that never materialised a Task — a
+   *  header would just be a tautology there. */
+  header: string | null;
+  segments: ThreadCheckpointDto[];
+};
+
+/**
+ * Bucket segments by their {@code taskId} so the rail can paint a
+ * "Task <seq> · <branch>" header above each Task's slice plus a
+ * separate "Brainstorm" header for any pre-Task segments. Bucket
+ * order matches the seq order of the segments (highest seq first),
+ * so a freshly-created Task's slice naturally floats to the top.
+ */
+function groupSegmentsByTask(
+  segments: ThreadCheckpointDto[],
+  tasks: WorkUnitTaskDto[],
+): SegmentGroup[] {
+  if (segments.length === 0) {
+    return [];
+  }
+  const taskById = new Map<string, WorkUnitTaskDto>(tasks.map(t => [t.id, t]));
+  // Preserve seg order (newest-seq first as the API returns) by
+  // walking once and appending to each bucket in encounter order.
+  const buckets = new Map<string, ThreadCheckpointDto[]>();
+  const orderedKeys: string[] = [];
+  for (const seg of segments) {
+    const key = seg.taskId ?? '__brainstorm__';
+    let bucket = buckets.get(key);
+    if (bucket === undefined) {
+      bucket = [];
+      buckets.set(key, bucket);
+      orderedKeys.push(key);
+    }
+    bucket.push(seg);
+  }
+  // No Task on the thread at all → render a single flat group with no
+  // header. Keeps the rail visually identical to the pre-Tasks UI for
+  // brainstorm threads.
+  if (orderedKeys.length === 1 && orderedKeys[0] === '__brainstorm__'
+      && tasks.length === 0) {
+    return [{ key: '__brainstorm__', header: null, segments: buckets.get('__brainstorm__')! }];
+  }
+  return orderedKeys.map(key => {
+    if (key === '__brainstorm__') {
+      return {
+        key,
+        header: 'Brainstorm · before first task',
+        segments: buckets.get(key)!,
+      };
+    }
+    const task = taskById.get(key);
+    const branch = task?.branchName ?? null;
+    const header = task !== undefined
+      ? `Task ${task.seq}${branch !== null ? ` · ${branch}` : ''}`
+      : `Task · ${key.slice(0, 7)}`;
+    return { key, header, segments: buckets.get(key)! };
+  });
 }
 
 function CheckpointCard({
@@ -164,6 +234,21 @@ const listStyle: React.CSSProperties = {
   display: 'flex',
   flexDirection: 'column',
   gap: 6,
+};
+
+const groupStyle: React.CSSProperties = {
+  display: 'flex',
+  flexDirection: 'column',
+  gap: 4,
+};
+
+const groupHeaderStyle: React.CSSProperties = {
+  fontSize: 10,
+  fontWeight: 600,
+  letterSpacing: '0.04em',
+  textTransform: 'uppercase',
+  color: 'var(--text-4)',
+  padding: '4px 2px 2px',
 };
 
 const cardSegmentStyle: React.CSSProperties = {

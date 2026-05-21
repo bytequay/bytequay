@@ -1374,6 +1374,37 @@ export type ThreadCheckpointDto = {
   /** Stamped on Overall rows when a newer Overall replaces them.
    *  Null on per-segment rows and on the currently-active Overall. */
   supersededAt: string | null;
+  /** FK to the Task this segment belongs to. Null on Overall rows
+   *  (always thread-scoped) and on segments produced before the
+   *  thread materialised its first Task (the 0-Task brainstorm state). */
+  taskId: string | null;
+};
+
+/** One unit of work inside a {@link ThreadDto} — a branch + worktree +
+ *  agent run + (eventually) a PR. A thread accumulates these as it
+ *  rolls through "ship & continue" hops; at most one is non-terminal
+ *  at a time. The DTO mirrors the backend {@code Task} record one-to-
+ *  one. Field set is intentionally narrow for the rail's grouping
+ *  needs: callers that need full details fetch the dedicated row.
+ *
+ *  Distinct from the older "task = thread" usage on the rest of the
+ *  bridge (kept until the Phase-4 rename ships). */
+export type WorkUnitTaskDto = {
+  id: string;
+  threadId: string;
+  /** 1..N within the thread; sequence in which tasks were created. */
+  seq: number;
+  /** PENDING | RUNNING | AWAITING | IDLE | COMPLETED | ERRORED. */
+  status: string;
+  branchName: string | null;
+  worktreePath: string | null;
+  baseBranch: string | null;
+  prNumber: number | null;
+  prState: string | null;
+  ciState: string | null;
+  taskType: string;
+  linkedPrNumber: number | null;
+  linkedIssueNumber: number | null;
 };
 
 /** Conversation-index window response. Carries both the user-prompt
@@ -2086,6 +2117,12 @@ export type Bridge = {
     id: string,
     opts?: { cursor?: number; limit?: number; direction?: 'initial' | 'before' },
   ) => Promise<ConvIndexPageDto>;
+  /** Work-unit tasks for a thread, oldest seq first. Drives the Tasks
+   *  grouping in the Checkpoints rail and (in time) the Tasks-in-thread
+   *  list. The Task model is described in the work-unit design note;
+   *  not to be confused with the legacy "task = thread" alias still
+   *  in place on most other bridge methods. */
+  listTasksForThread: (threadId: string) => Promise<WorkUnitTaskDto[]>;
   /** Active checkpoints for a thread — Overall first, then segments by
    *  descending seq. Drives the sidebar Checkpoints section and the
    *  cross-thread seed loader. */

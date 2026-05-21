@@ -206,6 +206,15 @@ public class CheckpointScheduler
     {
         CheckpointSummaryResult summary = summariser.summariseSegment(threadId, firstSeq, lastSeq);
         long nextSeq = checkpoints.nextSegmentSeq(threadId);
+        // Attribute the segment to the thread's active task when one
+        // exists — this builds the Task tier of the memory hierarchy
+        // (per-Task summaries compact upward into the Thread Overall,
+        // which compacts into workspace memory). Threads in the
+        // 0-Task brainstorm state leave taskId null, which routes the
+        // row to the legacy thread-scope slice.
+        String taskId = taskStore.findActiveTaskForThread(threadId)
+                .map(Task::id)
+                .orElse(null);
         ThreadCheckpoint cp = new ThreadCheckpoint(
                 UUID.randomUUID().toString(),
                 threadId,
@@ -221,20 +230,9 @@ public class CheckpointScheduler
                 summary.completionTokens(),
                 summary.costUsdMilli(),
                 Instant.now(),
-                /* supersededAt */ null);
-        // Attribute the segment to the thread's active task when one
-        // exists — this builds the Task tier of the memory hierarchy
-        // (per-Task summaries compact upward into the Thread Overall,
-        // which compacts into workspace memory). Threads in the
-        // 0-Task brainstorm state fall through to the legacy
-        // thread-scope path.
-        Task active = taskStore.findActiveTaskForThread(threadId).orElse(null);
-        if (active != null) {
-            checkpoints.saveSegmentForTask(active.id(), cp);
-        }
-        else {
-            checkpoints.saveSegment(cp);
-        }
+                /* supersededAt */ null,
+                taskId);
+        checkpoints.saveSegment(cp);
         return cp;
     }
 
@@ -275,7 +273,8 @@ public class CheckpointScheduler
                 summary.completionTokens(),
                 summary.costUsdMilli(),
                 Instant.now(),
-                /* supersededAt */ null);
+                /* supersededAt */ null,
+                /* taskId — Overall always thread-scoped */ null);
         checkpoints.replaceOverall(threadId, overall);
     }
 

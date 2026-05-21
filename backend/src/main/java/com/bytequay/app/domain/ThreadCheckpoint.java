@@ -47,6 +47,9 @@ import java.util.List;
  * @param bulletTitles short preview titles for the rail.
  * @param modelUsed model that produced the summary.
  * @param supersededAt set on Overall rows when a newer Overall replaces them.
+ * @param taskId nullable FK to the Task this segment belongs to; null
+ *               on Overall rows and on segments produced before the
+ *               thread materialised a task (the 0-Task brainstorm state).
  */
 public record ThreadCheckpoint(
         String id,
@@ -63,6 +66,7 @@ public record ThreadCheckpoint(
         long completionTokens,
         long costUsdMilli,
         Instant generatedAt,
-        Instant supersededAt)
+        Instant supersededAt,
+        String taskId)
 {
 }

@@ -44,16 +44,12 @@ public interface ThreadCheckpointStore
     /** Insert a per-segment checkpoint. Callers compute {@code seq}
      *  via {@link #nextSegmentSeq}; the store doesn't double-check
      *  uniqueness, so two racing inserts will collide on the unique
-     *  constraint (the scheduler serialises per thread to avoid this). */
+     *  constraint (the scheduler serialises per thread to avoid this).
+     *
+     *  <p>Set {@link ThreadCheckpoint#taskId} on the record to scope the
+     *  segment to a Task; leave it {@code null} for the legacy thread-
+     *  scope path used by threads in the 0-Task brainstorm state. */
     void saveSegment(ThreadCheckpoint segment);
-
-    /** Insert a per-segment checkpoint scoped to one Task. Same as
-     *  {@link #saveSegment} but stamps the new {@code task_id} column
-     *  so this row belongs to the named Task's slice of the thread.
-     *  Used by the Task-tier of the memory hierarchy described in
-     *  the model doc; pre-existing Thread-only callers continue to
-     *  use {@link #saveSegment} which leaves {@code task_id} null. */
-    void saveSegmentForTask(String taskId, ThreadCheckpoint segment);
 
     /** Per-Task active checkpoints, newest-{@code seq} first. Empty
      *  when the task has not produced any checkpoints yet. */

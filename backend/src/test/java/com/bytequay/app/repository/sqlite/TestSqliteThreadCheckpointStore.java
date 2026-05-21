@@ -13,10 +13,13 @@
  */
 package com.bytequay.app.repository.sqlite;
 
+import com.bytequay.app.domain.Task;
+import com.bytequay.app.domain.TaskStatus;
 import com.bytequay.app.domain.Thread;
 import com.bytequay.app.domain.ThreadCheckpoint;
 import com.bytequay.app.domain.ThreadKind;
 import com.bytequay.app.domain.ThreadStatus;
+import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.repository.ThreadCheckpointStore;
 import com.bytequay.app.repository.ThreadStore;
 import org.junit.jupiter.api.Test;
@@ -43,6 +46,8 @@ class TestSqliteThreadCheckpointStore
 {
     @Autowired
     private ThreadStore threads;
+    @Autowired
+    private TaskStore tasks;
     @Autowired
     private ThreadCheckpointStore checkpoints;
 
@@ -103,7 +108,8 @@ class TestSqliteThreadCheckpointStore
                 1L, 13L, 59_500L,
                 "second rollup", List.of("second"),
                 "claude-haiku-4-5", 1_500L, 350L, 1L,
-                Instant.parse("2026-05-15T12:00:01Z"), null);
+                Instant.parse("2026-05-15T12:00:01Z"), null,
+                /* taskId */ null);
         checkpoints.replaceOverall(threadId, second);
 
         Optional<ThreadCheckpoint> active2 = checkpoints.findActiveOverall(threadId);
@@ -173,6 +179,32 @@ class TestSqliteThreadCheckpointStore
     }
 
     @Test
+    void listActiveForTaskReturnsOnlyTheNamedTaskSegmentsNewestFirst()
+    {
+        String threadId = newTask();
+        // SqliteThreadStore.saveThread auto-materialises a seq=1 task
+        // when the thread carries execution state — start our explicit
+        // task seqs at 2 to avoid colliding with that row.
+        String taskA = persistTask(threadId, 2);
+        String taskB = persistTask(threadId, 3);
+
+        // Two segments for taskA, one for taskB, and one thread-scoped
+        // segment from the 0-Task brainstorm prefix. Only taskA's two
+        // rows should come back, newest seq first.
+        checkpoints.saveSegment(segmentForTask(threadId, 1, 1, 6, 28_100, List.of("brainstorm"), null));
+        checkpoints.saveSegment(segmentForTask(threadId, 2, 7, 13, 31_400, List.of("a-first"), taskA));
+        checkpoints.saveSegment(segmentForTask(threadId, 3, 14, 18, 22_800, List.of("b-only"), taskB));
+        checkpoints.saveSegment(segmentForTask(threadId, 4, 19, 24, 26_200, List.of("a-second"), taskA));
+
+        List<ThreadCheckpoint> rows = checkpoints.listActiveForTask(taskA);
+        assertThat(rows).hasSize(2);
+        assertThat(rows.get(0).seq()).isEqualTo(4L);
+        assertThat(rows.get(0).taskId()).isEqualTo(taskA);
+        assertThat(rows.get(1).seq()).isEqualTo(2L);
+        assertThat(rows.get(1).taskId()).isEqualTo(taskA);
+    }
+
+    @Test
     void saveSegmentRejectsOverallShapedRows()
     {
         String threadId = newTask();
@@ -180,7 +212,8 @@ class TestSqliteThreadCheckpointStore
                 UUID.randomUUID().toString(), threadId, 1L, /* isOverall */ true,
                 1L, 6L, 28_100L, "wrong", List.of(),
                 "haiku", 100L, 50L, 1L,
-                Instant.parse("2026-05-15T12:00:00Z"), null);
+                Instant.parse("2026-05-15T12:00:00Z"), null,
+                /* taskId */ null);
         assertThatThrownBy(() -> checkpoints.saveSegment(bad))
                 .isInstanceOf(IllegalArgumentException.class);
     }
@@ -208,16 +241,56 @@ class TestSqliteThreadCheckpointStore
         return t.id();
     }
 
+    private String persistTask(String threadId, long seq)
+    {
+        Instant now = Instant.parse("2026-05-15T12:00:00Z");
+        Task task = new Task(
+                UUID.randomUUID().toString(),
+                threadId,
+                seq,
+                TaskStatus.RUNNING,
+                /* branchName */ "bytequay/task-" + seq,
+                /* worktreePath */ null,
+                /* baseBranch */ "main",
+                /* workingDir */ "/tmp",
+                /* processPid */ null,
+                /* logPath */ null,
+                /* prNumber */ null,
+                /* prState */ null,
+                /* ciState */ null,
+                /* taskType */ "DEVELOP",
+                /* linkedPrNumber */ null,
+                /* linkedIssueNumber */ null,
+                /* costUsdMilli */ 0L,
+                /* tokensIn */ 0L,
+                /* tokensOut */ 0L,
+                /* firstMsgSeq */ null,
+                /* lastMsgSeq */ null,
+                /* createdAt */ now,
+                /* endedAt */ null,
+                /* errorMessage */ null);
+        tasks.saveTask(task);
+        return task.id();
+    }
+
     private static ThreadCheckpoint segment(
             String threadId, long seq, long firstMsgSeq, long lastMsgSeq,
             long tokensCovered, List<String> bullets)
+    {
+        return segmentForTask(threadId, seq, firstMsgSeq, lastMsgSeq, tokensCovered, bullets, null);
+    }
+
+    private static ThreadCheckpoint segmentForTask(
+            String threadId, long seq, long firstMsgSeq, long lastMsgSeq,
+            long tokensCovered, List<String> bullets, String taskId)
     {
         return new ThreadCheckpoint(
                 UUID.randomUUID().toString(), threadId, seq, /* isOverall */ false,
                 firstMsgSeq, lastMsgSeq, tokensCovered,
                 "segment summary", bullets,
                 "claude-haiku-4-5", 800L, 150L, 1L,
-                Instant.parse("2026-05-15T12:00:00Z"), null);
+                Instant.parse("2026-05-15T12:00:00Z"), null,
+                taskId);
     }
 
     private static ThreadCheckpoint overall(
@@ -229,6 +302,7 @@ class TestSqliteThreadCheckpointStore
                 firstMsgSeq, lastMsgSeq, tokensCovered,
                 summary, bullets,
                 "claude-haiku-4-5", 1_500L, 350L, 1L,
-                Instant.parse("2026-05-15T12:00:00Z"), null);
+                Instant.parse("2026-05-15T12:00:00Z"), null,
+                /* taskId — Overall always thread-scoped */ null);
     }
 }

@@ -65,6 +65,7 @@ import type {
   UserRepoDto,
   UserStatsDto,
   WatchedRepoDto,
+  WorkUnitTaskDto,
   CredentialTestResult,
 } from './types';
 
@@ -494,6 +495,8 @@ const bridge: Bridge = {
     opts?: { cursor?: number; limit?: number; direction?: 'initial' | 'before' },
   ): Promise<ConvIndexPageDto> =>
     ipcRenderer.invoke('threads:index', { id, ...opts }),
+  listTasksForThread: (threadId: string): Promise<WorkUnitTaskDto[]> =>
+    ipcRenderer.invoke('threads:tasks:list', threadId),
   getTaskCheckpoints: (id: string): Promise<ThreadCheckpointDto[]> =>
     ipcRenderer.invoke('threads:checkpoints:list', id),
   generateTaskCheckpoint: (id: string): Promise<ThreadCheckpointDto | null> =>

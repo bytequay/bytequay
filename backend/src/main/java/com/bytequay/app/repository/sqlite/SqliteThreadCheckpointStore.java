@@ -68,25 +68,6 @@ class SqliteThreadCheckpointStore
     }
 
     @Override
-    @Transactional
-    public void saveSegmentForTask(String taskId, ThreadCheckpoint segment)
-    {
-        requireNonNull(taskId, "taskId is null");
-        requireNonNull(segment, "segment is null");
-        if (segment.isOverall()) {
-            throw new IllegalArgumentException(
-                    "saveSegmentForTask refuses Overall rows — Overall stays thread-scoped");
-        }
-        if (segment.seq() < FIRST_SEGMENT_SEQ) {
-            throw new IllegalArgumentException(
-                    "per-segment seq must be >= " + FIRST_SEGMENT_SEQ + ", got " + segment.seq());
-        }
-        ThreadCheckpointEntity entity = toEntity(segment);
-        entity.setWorkUnitTaskId(taskId);
-        repo.save(entity);
-    }
-
-    @Override
     public List<ThreadCheckpoint> listActiveForTask(String taskId)
     {
         requireNonNull(taskId, "taskId is null");
@@ -210,6 +191,7 @@ class SqliteThreadCheckpointStore
         e.setCostUsdMilli(c.costUsdMilli());
         e.setGeneratedAtMs(c.generatedAt().toEpochMilli());
         e.setSupersededAtMs(c.supersededAt() == null ? null : c.supersededAt().toEpochMilli());
+        e.setWorkUnitTaskId(c.taskId());
         return e;
     }
 
@@ -230,7 +212,8 @@ class SqliteThreadCheckpointStore
                 e.getCompletionTokens(),
                 e.getCostUsdMilli(),
                 Instant.ofEpochMilli(e.getGeneratedAtMs()),
-                e.getSupersededAtMs() == null ? null : Instant.ofEpochMilli(e.getSupersededAtMs()));
+                e.getSupersededAtMs() == null ? null : Instant.ofEpochMilli(e.getSupersededAtMs()),
+                e.getWorkUnitTaskId());
     }
 
     private String writeBullets(List<String> bullets)

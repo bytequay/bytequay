@@ -12,12 +12,17 @@
  * limitations under the License.
  */
 import { useCallback, useEffect, useRef, useState } from 'react';
-import type { ThreadCheckpointDto } from '../types';
+import type { ThreadCheckpointDto, WorkUnitTaskDto } from '../types';
 
 export type CheckpointsState = {
   /** Active rows for the thread — Overall first, then per-segment by
    *  descending seq. Empty until the first fetch resolves. */
   rows: ThreadCheckpointDto[];
+  /** Work-unit tasks for the thread, oldest seq first. Fetched in
+   *  lockstep with {@link #rows} so the rail can group segments by
+   *  their Task header (seq + branch) without a second wait. Empty
+   *  for 0-Task brainstorm threads. */
+  tasks: WorkUnitTaskDto[];
   /** True during the initial fetch; null state vs empty state. */
   loading: boolean;
   /** Last fetch error, if any. Cleared on the next successful fetch. */
@@ -61,6 +66,7 @@ export function useCheckpoints(threadId: string): CheckpointsState & {
   onUpstreamEvent: (eventName: string) => void;
 } {
   const [rows, setRows] = useState<ThreadCheckpointDto[]>([]);
+  const [tasks, setTasks] = useState<WorkUnitTaskDto[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [generating, setGenerating] = useState(false);
@@ -83,28 +89,31 @@ export function useCheckpoints(threadId: string): CheckpointsState & {
     }
     const p = (async () => {
       try {
-        // Fetch the list and the scheduler status in parallel so the
-        // banner ("summariser disabled") and the rows update together.
-        // Each is wrapped in its own try/catch so a status-endpoint
-        // failure (e.g. the backend hasn't picked up the new route)
-        // doesn't blank the list and vice versa.
-        const listResult = await window.bridge.getTaskCheckpoints(id).catch(
-          (e: unknown): ThreadCheckpointDto[] | null => {
-            if (threadIdRef.current === id) {
-              setError(e instanceof Error ? e.message : String(e));
-            }
-            return null;
-          });
-        const statusResult = await window.bridge.getTaskCheckpointStatus(id).catch(
-          (): { lastError: string | null } | null => null);
-        const list = listResult;
-        const status = statusResult;
+        // Fetch checkpoints, scheduler status, and the thread's tasks
+        // together so the rail's grouping headers paint in lockstep
+        // with the rows. Each is wrapped in its own try/catch so a
+        // single endpoint failure (e.g. a missing route on an older
+        // backend) doesn't blank the list and vice versa.
+        const [listResult, statusResult, tasksResult] = await Promise.all([
+          window.bridge.getTaskCheckpoints(id).catch(
+            (e: unknown): ThreadCheckpointDto[] | null => {
+              if (threadIdRef.current === id) {
+                setError(e instanceof Error ? e.message : String(e));
+              }
+              return null;
+            }),
+          window.bridge.getTaskCheckpointStatus(id).catch(
+            (): { lastError: string | null } | null => null),
+          window.bridge.listTasksForThread(id).catch(
+            (): WorkUnitTaskDto[] => []),
+        ]);
         if (threadIdRef.current !== id) return;
-        if (list !== null) {
-          setRows(list);
+        if (listResult !== null) {
+          setRows(listResult);
           setError(null);
         }
-        setSchedulerError(status?.lastError ?? null);
+        setTasks(tasksResult);
+        setSchedulerError(statusResult?.lastError ?? null);
       }
       catch (e) {
         if (threadIdRef.current !== id) return;
@@ -124,6 +133,7 @@ export function useCheckpoints(threadId: string): CheckpointsState & {
   // the previous thread can't briefly render against the new thread.
   useEffect(() => {
     setRows([]);
+    setTasks([]);
     setError(null);
     setGenerateError(null);
     setSchedulerError(null);
@@ -162,7 +172,7 @@ export function useCheckpoints(threadId: string): CheckpointsState & {
   }, [refresh]);
 
   return {
-    rows, loading, error, generating, generateError, schedulerError,
+    rows, tasks, loading, error, generating, generateError, schedulerError,
     generate, onUpstreamEvent,
   };
 }

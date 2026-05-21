@@ -32,6 +32,24 @@ export function taskModelLabel(model: string | null | undefined): string {
   return nonBlank(model) ?? 'model pending';
 }
 
+export function taskTokenLabel(tokens: number): string {
+  return `${compactNumber(tokens)} ${tokens === 1 ? 'token' : 'tokens'}`;
+}
+
+function compactNumber(value: number): string {
+  if (value < 1_000) {
+    return String(value);
+  }
+  if (value < 1_000_000) {
+    return trimFixed(value / 1_000) + 'k';
+  }
+  return trimFixed(value / 1_000_000) + 'M';
+}
+
+function trimFixed(value: number): string {
+  return value.toFixed(1).replace(/\.0$/, '');
+}
+
 function nonBlank(value: string | null | undefined): string | null {
   if (value === null || value === undefined) {
     return null;

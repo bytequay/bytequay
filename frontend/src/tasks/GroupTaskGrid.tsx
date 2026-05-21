@@ -21,7 +21,7 @@ import {
   displayStatusForTask,
 } from './taskTurnSummary';
 import { findPendingPermission } from './permissions';
-import { taskModelLabel } from './taskDisplay';
+import { taskModelLabel, taskTokenLabel } from './taskDisplay';
 
 export type GroupLayout = 1 | 2 | 3 | 4;
 
@@ -620,7 +620,7 @@ function TaskTile({
           <span style={footerMetricStyle}>{formatCost(task.costUsdMilli)}</span>
           <span style={footerSepStyle}>·</span>
           <span style={footerMetricStyle} title="Total input and output tokens">
-            {formatTokenLabel(task.tokensIn + task.tokensOut)}
+            {taskTokenLabel(task.tokensIn + task.tokensOut)}
           </span>
         </footer>
       )}
@@ -660,16 +660,6 @@ function formatAge(iso: string): string {
 function formatCost(milli: number): string {
   if (!milli) return '$0.00';
   return `$${(milli / 1000).toFixed(milli < 100 ? 4 : 2)}`;
-}
-
-function formatTokens(n: number): string {
-  if (n < 1000) return String(n);
-  if (n < 1000_000) return `${(n / 1000).toFixed(1)}k`;
-  return `${(n / 1000_000).toFixed(1)}M`;
-}
-
-function formatTokenLabel(n: number): string {
-  return `${formatTokens(n)} ${n === 1 ? 'token' : 'tokens'}`;
 }
 
 // ────────────────────────────────────────────────────────────────────

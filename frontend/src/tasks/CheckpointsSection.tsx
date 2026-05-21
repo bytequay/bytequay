@@ -13,6 +13,7 @@
  */
 import { useEffect, useState } from 'react';
 import type { TaskCheckpointDto } from '../types';
+import { taskTokenLabel } from './taskDisplay';
 import { useCheckpoints } from './useCheckpoints';
 
 type Props = {
@@ -111,7 +112,7 @@ function CheckpointCard({
 }) {
   const [expanded, setExpanded] = useState(false);
   const ago = relativeAgo(cp.generatedAt);
-  const tokenLabel = formatTokens(cp.tokensCovered);
+  const tokenLabel = taskTokenLabel(cp.tokensCovered);
   const isOverall = variant === 'overall';
   const titleParts = isOverall
     ? `Overall · turns ${cp.firstMsgSeq}–${cp.lastMsgSeq}`
@@ -157,12 +158,6 @@ function relativeAgo(iso: string): string {
   if (h < 24) return `${h}h ago`;
   const d = Math.round(h / 24);
   return `${d}d ago`;
-}
-
-function formatTokens(n: number): string {
-  if (n < 1000) return `${n} ${n === 1 ? 'token' : 'tokens'}`;
-  if (n < 1_000_000) return `${(n / 1000).toFixed(1).replace(/\.0$/, '')}k tokens`;
-  return `${(n / 1_000_000).toFixed(1).replace(/\.0$/, '')}M tokens`;
 }
 
 const listStyle: React.CSSProperties = {

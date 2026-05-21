@@ -44,18 +44,18 @@ import type {
   NewTaskGroupRequestDto,
   NewTaskRequestDto,
   SyncSettingsDto,
-  TaskDto,
-  TaskFileDto,
-  TaskGroupDto,
-  TaskGroupMembershipDto,
-  TaskGroupPatchDto,
+  ThreadDto,
+  ThreadFileDto,
+  ThreadGroupDto,
+  ThreadGroupMembershipDto,
+  ThreadGroupPatchDto,
   ConvIndexPageDto,
-  TaskCheckpointDto,
-  TaskMessageDto,
-  TaskSendResultDto,
-  TaskStreamEvent,
-  TaskTurnEventDto,
-  TaskTurnDto,
+  ThreadCheckpointDto,
+  ThreadMessageDto,
+  ThreadSendResultDto,
+  ThreadStreamEvent,
+  ThreadTurnEventDto,
+  ThreadTurnDto,
   TeamDto,
   TeamSummaryDto,
   UpdateTeamRequest,
@@ -467,98 +467,98 @@ const bridge: Bridge = {
     ipcRenderer.invoke('email:deleteTag', { id }),
   listArchivedEmailThreads: (account: string): Promise<EmailTagArchiveEntryDto[]> =>
     ipcRenderer.invoke('email:listArchived', { account }),
-  listTasks: (groupId?: string): Promise<TaskDto[]> =>
-    ipcRenderer.invoke('tasks:list', groupId ?? null),
-  listActiveTaskTurns: (): Promise<TaskTurnDto[]> =>
-    ipcRenderer.invoke('tasks:activeTurns'),
-  createTask: (request: NewTaskRequestDto): Promise<TaskDto> =>
-    ipcRenderer.invoke('tasks:create', request),
-  listTaskGroups: (): Promise<TaskGroupDto[]> => ipcRenderer.invoke('taskGroups:list'),
-  listTaskGroupMemberships: (): Promise<TaskGroupMembershipDto[]> =>
-    ipcRenderer.invoke('taskGroups:listMemberships'),
-  createTaskGroup: (request: NewTaskGroupRequestDto): Promise<TaskGroupDto> =>
-    ipcRenderer.invoke('taskGroups:create', request),
-  updateTaskGroup: (id: string, patch: TaskGroupPatchDto): Promise<TaskGroupDto> =>
-    ipcRenderer.invoke('taskGroups:update', { id, patch }),
-  deleteTaskGroup: (id: string): Promise<void> => ipcRenderer.invoke('taskGroups:delete', id),
-  addTaskToGroup: (groupId: string, taskId: string): Promise<void> =>
-    ipcRenderer.invoke('taskGroups:addMember', { groupId, taskId }),
-  removeTaskFromGroup: (groupId: string, taskId: string): Promise<void> =>
-    ipcRenderer.invoke('taskGroups:removeMember', { groupId, taskId }),
-  getTask: (id: string): Promise<TaskDto | null> =>
-    ipcRenderer.invoke('tasks:get', id),
-  getTaskMessages: (id: string): Promise<TaskMessageDto[]> =>
-    ipcRenderer.invoke('tasks:messages', id),
+  listTasks: (groupId?: string): Promise<ThreadDto[]> =>
+    ipcRenderer.invoke('threads:list', groupId ?? null),
+  listActiveTaskTurns: (): Promise<ThreadTurnDto[]> =>
+    ipcRenderer.invoke('threads:activeTurns'),
+  createTask: (request: NewTaskRequestDto): Promise<ThreadDto> =>
+    ipcRenderer.invoke('threads:create', request),
+  listTaskGroups: (): Promise<ThreadGroupDto[]> => ipcRenderer.invoke('threadGroups:list'),
+  listTaskGroupMemberships: (): Promise<ThreadGroupMembershipDto[]> =>
+    ipcRenderer.invoke('threadGroups:listMemberships'),
+  createTaskGroup: (request: NewTaskGroupRequestDto): Promise<ThreadGroupDto> =>
+    ipcRenderer.invoke('threadGroups:create', request),
+  updateTaskGroup: (id: string, patch: ThreadGroupPatchDto): Promise<ThreadGroupDto> =>
+    ipcRenderer.invoke('threadGroups:update', { id, patch }),
+  deleteTaskGroup: (id: string): Promise<void> => ipcRenderer.invoke('threadGroups:delete', id),
+  addTaskToGroup: (groupId: string, threadId: string): Promise<void> =>
+    ipcRenderer.invoke('threadGroups:addMember', { groupId, threadId }),
+  removeTaskFromGroup: (groupId: string, threadId: string): Promise<void> =>
+    ipcRenderer.invoke('threadGroups:removeMember', { groupId, threadId }),
+  getTask: (id: string): Promise<ThreadDto | null> =>
+    ipcRenderer.invoke('threads:get', id),
+  getTaskMessages: (id: string): Promise<ThreadMessageDto[]> =>
+    ipcRenderer.invoke('threads:messages', id),
   getTaskIndex: (
     id: string,
     opts?: { cursor?: number; limit?: number; direction?: 'initial' | 'before' },
   ): Promise<ConvIndexPageDto> =>
-    ipcRenderer.invoke('tasks:index', { id, ...opts }),
-  getTaskCheckpoints: (id: string): Promise<TaskCheckpointDto[]> =>
-    ipcRenderer.invoke('tasks:checkpoints:list', id),
-  generateTaskCheckpoint: (id: string): Promise<TaskCheckpointDto | null> =>
-    ipcRenderer.invoke('tasks:checkpoints:generate', id),
+    ipcRenderer.invoke('threads:index', { id, ...opts }),
+  getTaskCheckpoints: (id: string): Promise<ThreadCheckpointDto[]> =>
+    ipcRenderer.invoke('threads:checkpoints:list', id),
+  generateTaskCheckpoint: (id: string): Promise<ThreadCheckpointDto | null> =>
+    ipcRenderer.invoke('threads:checkpoints:generate', id),
   getTaskCheckpointStatus: (id: string): Promise<{ lastError: string | null }> =>
-    ipcRenderer.invoke('tasks:checkpoints:status', id),
-  getTaskTurns: (id: string): Promise<TaskTurnDto[]> =>
-    ipcRenderer.invoke('tasks:turns', id),
-  getTaskTurnEvents: (id: string): Promise<TaskTurnEventDto[]> =>
-    ipcRenderer.invoke('tasks:turnEvents', id),
-  getTaskFiles: (id: string): Promise<TaskFileDto[]> =>
-    ipcRenderer.invoke('tasks:files', id),
-  renameTask: (id: string, title: string): Promise<TaskDto> =>
-    ipcRenderer.invoke('tasks:rename', { id, title }),
-  sendTaskMessage: (id: string, input: string): Promise<TaskSendResultDto> =>
-    ipcRenderer.invoke('tasks:send', { id, input }),
+    ipcRenderer.invoke('threads:checkpoints:status', id),
+  getTaskTurns: (id: string): Promise<ThreadTurnDto[]> =>
+    ipcRenderer.invoke('threads:turns', id),
+  getTaskTurnEvents: (id: string): Promise<ThreadTurnEventDto[]> =>
+    ipcRenderer.invoke('threads:turnEvents', id),
+  getTaskFiles: (id: string): Promise<ThreadFileDto[]> =>
+    ipcRenderer.invoke('threads:files', id),
+  renameTask: (id: string, title: string): Promise<ThreadDto> =>
+    ipcRenderer.invoke('threads:rename', { id, title }),
+  sendTaskMessage: (id: string, input: string): Promise<ThreadSendResultDto> =>
+    ipcRenderer.invoke('threads:send', { id, input }),
   decideTaskPermission: (
     id: string,
     callId: string,
     decision: 'ALLOW' | 'DENY',
     preApprove?: { toolName: string; count: number },
   ): Promise<void> =>
-    ipcRenderer.invoke('tasks:decide', { id, callId, decision, preApprove }),
-  interruptTask: (id: string): Promise<void> => ipcRenderer.invoke('tasks:interrupt', id),
-  stopTask: (id: string): Promise<void> => ipcRenderer.invoke('tasks:stop', id),
-  resumeTask: (id: string): Promise<void> => ipcRenderer.invoke('tasks:resume', id),
-  deleteTask: (id: string): Promise<void> => ipcRenderer.invoke('tasks:delete', id),
-  listTaskWorkingChanges: (id: string) => ipcRenderer.invoke('tasks:workingChanges', id),
-  getTaskWorkingDiff: (id: string, path: string) => ipcRenderer.invoke('tasks:workingDiff', id, path),
-  listTaskCommits: (id: string) => ipcRenderer.invoke('tasks:listCommits', id),
-  listTaskCommitFiles: (id: string, sha: string) => ipcRenderer.invoke('tasks:commitFiles', id, sha),
-  getTaskCommitDiff: (id: string, sha: string, path: string) => ipcRenderer.invoke('tasks:commitDiff', id, sha, path),
+    ipcRenderer.invoke('threads:decide', { id, callId, decision, preApprove }),
+  interruptTask: (id: string): Promise<void> => ipcRenderer.invoke('threads:interrupt', id),
+  stopTask: (id: string): Promise<void> => ipcRenderer.invoke('threads:stop', id),
+  resumeTask: (id: string): Promise<void> => ipcRenderer.invoke('threads:resume', id),
+  deleteTask: (id: string): Promise<void> => ipcRenderer.invoke('threads:delete', id),
+  listTaskWorkingChanges: (id: string) => ipcRenderer.invoke('threads:workingChanges', id),
+  getTaskWorkingDiff: (id: string, path: string) => ipcRenderer.invoke('threads:workingDiff', id, path),
+  listTaskCommits: (id: string) => ipcRenderer.invoke('threads:listCommits', id),
+  listTaskCommitFiles: (id: string, sha: string) => ipcRenderer.invoke('threads:commitFiles', id, sha),
+  getTaskCommitDiff: (id: string, sha: string, path: string) => ipcRenderer.invoke('threads:commitDiff', id, sha, path),
 
-  /** Wire the renderer to the per-task SSE stream brokered by the
+  /** Wire the renderer to the per-thread SSE stream brokered by the
    *  main process. The contract: ask main to open (or join) a
-   *  subscription for {@code taskId}; register listeners that filter
-   *  by {@code taskId}; on cleanup, drop the listeners and ask main
+   *  subscription for {@code threadId}; register listeners that filter
+   *  by {@code threadId}; on cleanup, drop the listeners and ask main
    *  to release the subscription. Main process ref-counts the
    *  underlying SSE connection so multiple renderers/components can
    *  share one. */
   subscribeTaskStream: (
-    taskId: string,
-    onEvent: (event: TaskStreamEvent) => void,
+    threadId: string,
+    onEvent: (event: ThreadStreamEvent) => void,
     onClose?: (reason: string) => void,
   ) => {
     const eventListener = (
       _e: unknown,
-      payload: { taskId: string; event: TaskStreamEvent },
+      payload: { threadId: string; event: ThreadStreamEvent },
     ) => {
-      if (payload.taskId === taskId) onEvent(payload.event);
+      if (payload.threadId === threadId) onEvent(payload.event);
     };
     const closeListener = (
       _e: unknown,
-      payload: { taskId: string; reason: string },
+      payload: { threadId: string; reason: string },
     ) => {
-      if (payload.taskId === taskId) onClose?.(payload.reason);
+      if (payload.threadId === threadId) onClose?.(payload.reason);
     };
-    ipcRenderer.on('tasks:stream:event', eventListener);
-    ipcRenderer.on('tasks:stream:close', closeListener);
+    ipcRenderer.on('threads:stream:event', eventListener);
+    ipcRenderer.on('threads:stream:close', closeListener);
     // Fire-and-forget: main handles the actual SSE lifecycle.
-    void ipcRenderer.invoke('tasks:stream:start', taskId);
+    void ipcRenderer.invoke('threads:stream:start', threadId);
     return () => {
-      ipcRenderer.removeListener('tasks:stream:event', eventListener);
-      ipcRenderer.removeListener('tasks:stream:close', closeListener);
-      void ipcRenderer.invoke('tasks:stream:stop', taskId);
+      ipcRenderer.removeListener('threads:stream:event', eventListener);
+      ipcRenderer.removeListener('threads:stream:close', closeListener);
+      void ipcRenderer.invoke('threads:stream:stop', threadId);
     };
   },
 };

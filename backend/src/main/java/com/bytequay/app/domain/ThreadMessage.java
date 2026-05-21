@@ -13,8 +13,6 @@
  */
 package com.bytequay.app.domain;
 
-import com.fasterxml.jackson.annotation.JsonProperty;
-
 import java.time.Instant;
 
 /**
@@ -40,8 +38,7 @@ import java.time.Instant;
  */
 public record ThreadMessage(
         String id,
-        // JSON key kept as "taskId" through Phase 4; the frontend renames in lockstep then.
-        @JsonProperty("taskId") String threadId,
+        String threadId,
         long seq,
         String role,
         String type,

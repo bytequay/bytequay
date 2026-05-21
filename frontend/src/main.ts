@@ -20,7 +20,7 @@ import { promisify } from 'node:util';
 const execFileAsync = promisify(execFile);
 import started from 'electron-squirrel-startup';
 import { BACKEND_BASE, killBackend, spawnBackend, waitForBackendReady } from './backendProcess';
-import { registerTaskStreamIpc } from './taskStreamBridge';
+import { registerTaskStreamIpc } from './threadStreamBridge';
 
 // Override the menu-bar / About-box / dock display name. Without this
 // Electron uses its own name in dev mode (the packaged build picks
@@ -466,7 +466,7 @@ function registerIpc(): void {
     return mainWindow ? mainWindow.isFullScreen() : false;
   });
 
-  // SSE broker for per-task live event streams. Renderer subscribes via
+  // SSE broker for per-thread live event streams. Renderer subscribes via
   // window.bridge.subscribeTaskStream(); main opens the upstream SSE
   // connection and forwards parsed events. Replaces the 1s poll while
   // the page is RUNNING.
@@ -2419,12 +2419,12 @@ const url = new URL(`${BACKEND_BASE}/api/search/repos`);
     return (json && Array.isArray(json.entries)) ? json.entries : [];
   });
 
-  // ── Tasks ───────────────────────────────────────────────────────────────
-  // Local AI coding tasks. The list endpoint returns rows across all
+  // ── Threads ───────────────────────────────────────────────────────────────
+  // Local AI coding threads. The list endpoint returns rows across all
   // statuses; the page does its own grouping. Create kicks off the first
   // turn synchronously so the returned row already carries the agent
   // session id where available.
-  ipcMain.handle('tasks:list', async (_event, groupId: unknown) => {
+  ipcMain.handle('threads:list', async (_event, groupId: unknown) => {
     let url = `${BACKEND_BASE}/api/threads`;
     if (typeof groupId === 'string' && groupId.trim().length > 0) {
       url += `?groupId=${encodeURIComponent(groupId)}`;
@@ -2437,7 +2437,7 @@ const url = new URL(`${BACKEND_BASE}/api/search/repos`);
     return res.json();
   });
 
-  ipcMain.handle('tasks:activeTurns', async () => {
+  ipcMain.handle('threads:activeTurns', async () => {
     const res = await fetch(`${BACKEND_BASE}/api/threads/turns/active`);
     if (!res.ok) {
       const text = await res.text().catch(() => '');
@@ -2446,7 +2446,7 @@ const url = new URL(`${BACKEND_BASE}/api/search/repos`);
     return res.json();
   });
 
-  ipcMain.handle('taskGroups:list', async () => {
+  ipcMain.handle('threadGroups:list', async () => {
     const res = await fetch(`${BACKEND_BASE}/api/thread-groups`);
     if (!res.ok) {
       const text = await res.text().catch(() => '');
@@ -2455,7 +2455,7 @@ const url = new URL(`${BACKEND_BASE}/api/search/repos`);
     return res.json();
   });
 
-  ipcMain.handle('taskGroups:listMemberships', async () => {
+  ipcMain.handle('threadGroups:listMemberships', async () => {
     const res = await fetch(`${BACKEND_BASE}/api/thread-groups/memberships`);
     if (!res.ok) {
       const text = await res.text().catch(() => '');
@@ -2464,7 +2464,7 @@ const url = new URL(`${BACKEND_BASE}/api/search/repos`);
     return res.json();
   });
 
-  ipcMain.handle('taskGroups:create', async (_event, request: unknown) => {
+  ipcMain.handle('threadGroups:create', async (_event, request: unknown) => {
     const res = await fetch(`${BACKEND_BASE}/api/thread-groups`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -2477,7 +2477,7 @@ const url = new URL(`${BACKEND_BASE}/api/search/repos`);
     return res.json();
   });
 
-  ipcMain.handle('taskGroups:update', async (_event, payload: unknown) => {
+  ipcMain.handle('threadGroups:update', async (_event, payload: unknown) => {
     const { id, patch } = (payload ?? {}) as { id?: string; patch?: unknown };
     if (!id || typeof id !== 'string' || id.trim().length === 0) {
       throw new Error('id must be a non-empty string');
@@ -2496,7 +2496,7 @@ const url = new URL(`${BACKEND_BASE}/api/search/repos`);
     return res.json();
   });
 
-  ipcMain.handle('taskGroups:delete', async (_event, id: unknown) => {
+  ipcMain.handle('threadGroups:delete', async (_event, id: unknown) => {
     if (typeof id !== 'string' || id.trim().length === 0) {
       throw new Error('id must be a non-empty string');
     }
@@ -2509,41 +2509,41 @@ const url = new URL(`${BACKEND_BASE}/api/search/repos`);
     }
   });
 
-  ipcMain.handle('taskGroups:addMember', async (_event, payload: unknown) => {
-    const { groupId, taskId } = (payload ?? {}) as { groupId?: string; taskId?: string };
+  ipcMain.handle('threadGroups:addMember', async (_event, payload: unknown) => {
+    const { groupId, threadId } = (payload ?? {}) as { groupId?: string; threadId?: string };
     if (!groupId || typeof groupId !== 'string' || groupId.trim().length === 0) {
       throw new Error('groupId must be a non-empty string');
     }
-    if (!taskId || typeof taskId !== 'string' || taskId.trim().length === 0) {
-      throw new Error('taskId must be a non-empty string');
+    if (!threadId || typeof threadId !== 'string' || threadId.trim().length === 0) {
+      throw new Error('threadId must be a non-empty string');
     }
     const res = await fetch(
-      `${BACKEND_BASE}/api/thread-groups/${encodeURIComponent(groupId)}/members/${encodeURIComponent(taskId)}`,
+      `${BACKEND_BASE}/api/thread-groups/${encodeURIComponent(groupId)}/members/${encodeURIComponent(threadId)}`,
       { method: 'POST' });
     if (!res.ok) {
       const text = await res.text().catch(() => '');
-      throw new Error(`backend POST /api/thread-groups/${groupId}/members/${taskId} returned ${res.status}: ${text}`);
+      throw new Error(`backend POST /api/thread-groups/${groupId}/members/${threadId} returned ${res.status}: ${text}`);
     }
   });
 
-  ipcMain.handle('taskGroups:removeMember', async (_event, payload: unknown) => {
-    const { groupId, taskId } = (payload ?? {}) as { groupId?: string; taskId?: string };
+  ipcMain.handle('threadGroups:removeMember', async (_event, payload: unknown) => {
+    const { groupId, threadId } = (payload ?? {}) as { groupId?: string; threadId?: string };
     if (!groupId || typeof groupId !== 'string' || groupId.trim().length === 0) {
       throw new Error('groupId must be a non-empty string');
     }
-    if (!taskId || typeof taskId !== 'string' || taskId.trim().length === 0) {
-      throw new Error('taskId must be a non-empty string');
+    if (!threadId || typeof threadId !== 'string' || threadId.trim().length === 0) {
+      throw new Error('threadId must be a non-empty string');
     }
     const res = await fetch(
-      `${BACKEND_BASE}/api/thread-groups/${encodeURIComponent(groupId)}/members/${encodeURIComponent(taskId)}`,
+      `${BACKEND_BASE}/api/thread-groups/${encodeURIComponent(groupId)}/members/${encodeURIComponent(threadId)}`,
       { method: 'DELETE' });
     if (!res.ok) {
       const text = await res.text().catch(() => '');
-      throw new Error(`backend DELETE /api/thread-groups/${groupId}/members/${taskId} returned ${res.status}: ${text}`);
+      throw new Error(`backend DELETE /api/thread-groups/${groupId}/members/${threadId} returned ${res.status}: ${text}`);
     }
   });
 
-  ipcMain.handle('tasks:create', async (_event, request: unknown) => {
+  ipcMain.handle('threads:create', async (_event, request: unknown) => {
     const res = await fetch(`${BACKEND_BASE}/api/threads`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -2556,7 +2556,7 @@ const url = new URL(`${BACKEND_BASE}/api/search/repos`);
     return res.json();
   });
 
-  ipcMain.handle('tasks:stop', async (_event, id: unknown) => {
+  ipcMain.handle('threads:stop', async (_event, id: unknown) => {
     if (typeof id !== 'string' || id.trim().length === 0) {
       throw new Error('id must be a non-empty string');
     }
@@ -2569,7 +2569,7 @@ const url = new URL(`${BACKEND_BASE}/api/search/repos`);
     }
   });
 
-  ipcMain.handle('tasks:resume', async (_event, id: unknown) => {
+  ipcMain.handle('threads:resume', async (_event, id: unknown) => {
     if (typeof id !== 'string' || id.trim().length === 0) {
       throw new Error('id must be a non-empty string');
     }
@@ -2582,7 +2582,7 @@ const url = new URL(`${BACKEND_BASE}/api/search/repos`);
     }
   });
 
-  ipcMain.handle('tasks:delete', async (_event, id: unknown) => {
+  ipcMain.handle('threads:delete', async (_event, id: unknown) => {
     if (typeof id !== 'string' || id.trim().length === 0) {
       throw new Error('id must be a non-empty string');
     }
@@ -2595,7 +2595,7 @@ const url = new URL(`${BACKEND_BASE}/api/search/repos`);
     }
   });
 
-  ipcMain.handle('tasks:workingChanges', async (_event, id: unknown) => {
+  ipcMain.handle('threads:workingChanges', async (_event, id: unknown) => {
     if (typeof id !== 'string' || id.trim().length === 0) {
       throw new Error('id must be a non-empty string');
     }
@@ -2607,7 +2607,7 @@ const url = new URL(`${BACKEND_BASE}/api/search/repos`);
     return res.json();
   });
 
-  ipcMain.handle('tasks:workingDiff', async (_event, id: unknown, path: unknown) => {
+  ipcMain.handle('threads:workingDiff', async (_event, id: unknown, path: unknown) => {
     if (typeof id !== 'string' || id.trim().length === 0) {
       throw new Error('id must be a non-empty string');
     }
@@ -2624,7 +2624,7 @@ const url = new URL(`${BACKEND_BASE}/api/search/repos`);
     return body.diff ?? '';
   });
 
-  ipcMain.handle('tasks:listCommits', async (_event, id: unknown) => {
+  ipcMain.handle('threads:listCommits', async (_event, id: unknown) => {
     if (typeof id !== 'string' || id.trim().length === 0) {
       throw new Error('id must be a non-empty string');
     }
@@ -2636,7 +2636,7 @@ const url = new URL(`${BACKEND_BASE}/api/search/repos`);
     return res.json();
   });
 
-  ipcMain.handle('tasks:commitFiles', async (_event, id: unknown, sha: unknown) => {
+  ipcMain.handle('threads:commitFiles', async (_event, id: unknown, sha: unknown) => {
     if (typeof id !== 'string' || id.trim().length === 0) {
       throw new Error('id must be a non-empty string');
     }
@@ -2652,7 +2652,7 @@ const url = new URL(`${BACKEND_BASE}/api/search/repos`);
     return res.json();
   });
 
-  ipcMain.handle('tasks:commitDiff', async (_event, id: unknown, sha: unknown, path: unknown) => {
+  ipcMain.handle('threads:commitDiff', async (_event, id: unknown, sha: unknown, path: unknown) => {
     if (typeof id !== 'string' || id.trim().length === 0) {
       throw new Error('id must be a non-empty string');
     }
@@ -2672,7 +2672,7 @@ const url = new URL(`${BACKEND_BASE}/api/search/repos`);
     return body.diff ?? '';
   });
 
-  ipcMain.handle('tasks:interrupt', async (_event, id: unknown) => {
+  ipcMain.handle('threads:interrupt', async (_event, id: unknown) => {
     if (typeof id !== 'string' || id.trim().length === 0) {
       throw new Error('id must be a non-empty string');
     }
@@ -2685,7 +2685,7 @@ const url = new URL(`${BACKEND_BASE}/api/search/repos`);
     }
   });
 
-  ipcMain.handle('tasks:get', async (_event, id: unknown) => {
+  ipcMain.handle('threads:get', async (_event, id: unknown) => {
     if (typeof id !== 'string' || id.trim().length === 0) {
       throw new Error('id must be a non-empty string');
     }
@@ -2698,7 +2698,7 @@ const url = new URL(`${BACKEND_BASE}/api/search/repos`);
     return res.json();
   });
 
-  ipcMain.handle('tasks:messages', async (_event, id: unknown) => {
+  ipcMain.handle('threads:messages', async (_event, id: unknown) => {
     if (typeof id !== 'string' || id.trim().length === 0) {
       throw new Error('id must be a non-empty string');
     }
@@ -2711,7 +2711,7 @@ const url = new URL(`${BACKEND_BASE}/api/search/repos`);
     return res.json();
   });
 
-  ipcMain.handle('tasks:index', async (_event, payload: unknown) => {
+  ipcMain.handle('threads:index', async (_event, payload: unknown) => {
     if (typeof payload !== 'object' || payload === null) {
       throw new Error('payload must be an object');
     }
@@ -2741,7 +2741,7 @@ const url = new URL(`${BACKEND_BASE}/api/search/repos`);
     return res.json();
   });
 
-  ipcMain.handle('tasks:checkpoints:list', async (_event, id: unknown) => {
+  ipcMain.handle('threads:checkpoints:list', async (_event, id: unknown) => {
     if (typeof id !== 'string' || id.trim().length === 0) {
       throw new Error('id must be a non-empty string');
     }
@@ -2754,7 +2754,7 @@ const url = new URL(`${BACKEND_BASE}/api/search/repos`);
     return res.json();
   });
 
-  ipcMain.handle('tasks:checkpoints:generate', async (_event, id: unknown) => {
+  ipcMain.handle('threads:checkpoints:generate', async (_event, id: unknown) => {
     if (typeof id !== 'string' || id.trim().length === 0) {
       throw new Error('id must be a non-empty string');
     }
@@ -2773,7 +2773,7 @@ const url = new URL(`${BACKEND_BASE}/api/search/repos`);
     return res.json();
   });
 
-  ipcMain.handle('tasks:checkpoints:status', async (_event, id: unknown) => {
+  ipcMain.handle('threads:checkpoints:status', async (_event, id: unknown) => {
     if (typeof id !== 'string' || id.trim().length === 0) {
       throw new Error('id must be a non-empty string');
     }
@@ -2786,7 +2786,7 @@ const url = new URL(`${BACKEND_BASE}/api/search/repos`);
     return res.json();
   });
 
-  ipcMain.handle('tasks:turns', async (_event, id: unknown) => {
+  ipcMain.handle('threads:turns', async (_event, id: unknown) => {
     if (typeof id !== 'string' || id.trim().length === 0) {
       throw new Error('id must be a non-empty string');
     }
@@ -2799,7 +2799,7 @@ const url = new URL(`${BACKEND_BASE}/api/search/repos`);
     return res.json();
   });
 
-  ipcMain.handle('tasks:turnEvents', async (_event, id: unknown) => {
+  ipcMain.handle('threads:turnEvents', async (_event, id: unknown) => {
     if (typeof id !== 'string' || id.trim().length === 0) {
       throw new Error('id must be a non-empty string');
     }
@@ -2812,7 +2812,7 @@ const url = new URL(`${BACKEND_BASE}/api/search/repos`);
     return res.json();
   });
 
-  ipcMain.handle('tasks:files', async (_event, id: unknown) => {
+  ipcMain.handle('threads:files', async (_event, id: unknown) => {
     if (typeof id !== 'string' || id.trim().length === 0) {
       throw new Error('id must be a non-empty string');
     }
@@ -2825,7 +2825,7 @@ const url = new URL(`${BACKEND_BASE}/api/search/repos`);
     return res.json();
   });
 
-  ipcMain.handle('tasks:rename', async (_event, payload: unknown) => {
+  ipcMain.handle('threads:rename', async (_event, payload: unknown) => {
     const { id, title } = (payload ?? {}) as { id?: string; title?: string };
     if (!id || typeof id !== 'string' || id.trim().length === 0) {
       throw new Error('id must be a non-empty string');
@@ -2847,7 +2847,7 @@ const url = new URL(`${BACKEND_BASE}/api/search/repos`);
     return res.json();
   });
 
-  ipcMain.handle('tasks:send', async (_event, payload: unknown) => {
+  ipcMain.handle('threads:send', async (_event, payload: unknown) => {
     const { id, input } = (payload ?? {}) as { id?: string; input?: string };
     if (!id || typeof input !== 'string' || input.trim().length === 0) {
       throw new Error('id and non-empty input are required');
@@ -2866,7 +2866,7 @@ const url = new URL(`${BACKEND_BASE}/api/search/repos`);
     return res.json();
   });
 
-  ipcMain.handle('tasks:decide', async (_event, payload: unknown) => {
+  ipcMain.handle('threads:decide', async (_event, payload: unknown) => {
     const { id, callId, decision, preApprove } =
       (payload ?? {}) as {
         id?: string;

@@ -1171,9 +1171,9 @@ export type LocalActivityEntryDto = {
   at: string | null;
 };
 
-export type TaskKindDto = 'CLI_AGENT' | 'LOGIC_LOOP';
+export type ThreadKindDto = 'CLI_AGENT' | 'LOGIC_LOOP';
 
-export type TaskStatusDto =
+export type ThreadStatusDto =
   | 'PENDING'
   | 'RUNNING'
   | 'AWAITING'
@@ -1181,22 +1181,22 @@ export type TaskStatusDto =
   | 'COMPLETED'
   | 'ERRORED';
 
-export type TaskResourceLaneDto = 'CLI' | 'API';
+export type ThreadResourceLaneDto = 'CLI' | 'API';
 
-export type TaskTurnStatusDto =
+export type ThreadTurnStatusDto =
   | 'QUEUED'
   | 'RUNNING'
   | 'COMPLETED'
   | 'FAILED'
   | 'CANCELLED';
 
-export type TaskDto = {
+export type ThreadDto = {
   id: string;
-  kind: TaskKindDto;
+  kind: ThreadKindDto;
   provider: string;
   agentSessionId: string | null;
   title: string;
-  status: TaskStatusDto;
+  status: ThreadStatusDto;
   workingDir: string;
   branchName: string | null;
   model: string;
@@ -1210,32 +1210,32 @@ export type TaskDto = {
   endedAt: string | null;
   errorMessage: string | null;
   metadataJson: string;
-  /** Free-form task type — {@code "DEVELOP"} or {@code "FIX"} today,
+  /** Free-form thread type — {@code "DEVELOP"} or {@code "FIX"} today,
    *  more values likely later. Defaults to {@code "DEVELOP"} on
    *  legacy rows. */
   taskType: string;
   /** Absolute path to the linked git worktree the agent runs in.
-   *  {@code null} for legacy tasks created before the worktree feature
-   *  shipped, or for tasks where worktree creation failed (non-git
+   *  {@code null} for legacy threads created before the worktree feature
+   *  shipped, or for threads where worktree creation failed (non-git
    *  working dir, etc.) — the agent falls back to running in the
    *  user-supplied {@code workingDir} in that case. */
   worktreePath: string | null;
-  /** Name of the dev branch ByteQuay created for this task
+  /** Name of the dev branch ByteQuay created for this thread
    *  (e.g. {@code "dev/<sessionId>-<slug>"}). {@code null} when
    *  {@code worktreePath} is {@code null}. Distinct from
    *  {@code branchName}, which is sniffed from the user's main
-   *  checkout at task-create time. */
+   *  checkout at thread-create time. */
   localBranch: string | null;
-  /** GitHub PR number this task is associated with — scoped to the
-   *  task's own repo. {@code null} when the task isn't tied to a
+  /** GitHub PR number this thread is associated with — scoped to the
+   *  thread's own repo. {@code null} when the thread isn't tied to a
    *  remote PR yet. */
   linkedPrNumber: number | null;
-  /** GitHub issue number this task is associated with — scoped to
-   *  the task's own repo. Optional. */
+  /** GitHub issue number this thread is associated with — scoped to
+   *  the thread's own repo. Optional. */
   linkedIssueNumber: number | null;
 };
 
-export type TaskGroupDto = {
+export type ThreadGroupDto = {
   id: string;
   name: string;
   /** Single character (or short emoji) shown in the rail badge. */
@@ -1248,12 +1248,12 @@ export type TaskGroupDto = {
   updatedAt: string;
 };
 
-/** One row of the {@code task_group_members} join table. Tasks and
- *  groups are many-to-many — one task can live in several groups, and
- *  the new tasks-group page caps a group at 4 members. The frontend
+/** One row of the {@code thread_group_members} join table. Threads and
+ *  groups are many-to-many — one thread can live in several groups, and
+ *  the new threads-group page caps a group at 4 members. The frontend
  *  pulls the full membership snapshot once and joins it in memory. */
-export type TaskGroupMembershipDto = {
-  taskId: string;
+export type ThreadGroupMembershipDto = {
+  threadId: string;
   groupId: string;
   addedAt: string;
 };
@@ -1263,23 +1263,23 @@ export type NewTaskGroupRequestDto = {
   glyph?: string;
   color?: string;
   sortOrder?: number;
-  /** Required — at least one existing task id. A group can never sit
+  /** Required — at least one existing thread id. A group can never sit
    *  empty under the new invariant, and the cap of 4 is enforced on
    *  the backend. */
   initialTaskIds: string[];
 };
 
 /** Patch payload — only non-null/blank fields update on the backend. */
-export type TaskGroupPatchDto = {
+export type ThreadGroupPatchDto = {
   name?: string;
   glyph?: string;
   color?: string;
 };
 
-/** Per-(task, path) rollup row. Powers the Files touched sidebar
+/** Per-(thread, path) rollup row. Powers the Files touched sidebar
  *  card on the detail page. */
-export type TaskFileDto = {
-  taskId: string;
+export type ThreadFileDto = {
+  threadId: string;
   path: string;
   /** {@code read} | {@code write} | {@code edit} | {@code delete} */
   operation: string;
@@ -1291,13 +1291,13 @@ export type TaskFileDto = {
 };
 
 /** One queued/running/completed scheduler turn. This is separate from
- *  TaskMessageDto: messages are the transcript, turns are scheduler
+ *  ThreadMessageDto: messages are the transcript, turns are scheduler
  *  capacity state. */
-export type TaskTurnDto = {
+export type ThreadTurnDto = {
   id: string;
-  taskId: string;
-  lane: TaskResourceLaneDto;
-  status: TaskTurnStatusDto;
+  threadId: string;
+  lane: ThreadResourceLaneDto;
+  status: ThreadTurnStatusDto;
   input: string;
   createdAt: string;
   updatedAt: string;
@@ -1306,7 +1306,7 @@ export type TaskTurnDto = {
   errorMessage: string | null;
 };
 
-export type TaskTurnEventTypeDto =
+export type ThreadTurnEventTypeDto =
   | 'TURN_QUEUED'
   | 'WAITING_FOR_CAPACITY'
   | 'TURN_STARTED'
@@ -1314,18 +1314,18 @@ export type TaskTurnEventTypeDto =
   | 'TURN_FAILED'
   | 'TURN_CANCELLED';
 
-/** Durable scheduler event for one task turn. Complements
- *  TaskTurnDto with a chronological "why did this happen?" trail. */
-export type TaskTurnEventDto = {
+/** Durable scheduler event for one thread turn. Complements
+ *  ThreadTurnDto with a chronological "why did this happen?" trail. */
+export type ThreadTurnEventDto = {
   id: string;
   turnId: string;
-  taskId: string;
-  event: TaskTurnEventTypeDto;
+  threadId: string;
+  event: ThreadTurnEventTypeDto;
   createdAt: string;
   message: string | null;
 };
 
-export type TaskSendResultDto = {
+export type ThreadSendResultDto = {
   status: 'queued';
   turnId: string;
 };
@@ -1337,13 +1337,13 @@ export type TaskSendResultDto = {
  *  {@code ErrorOccurred}, {@code SessionEnded}). {@code data} is the
  *  parsed JSON payload — the exact shape mirrors the corresponding
  *  Java record. */
-export type TaskStreamEvent = {
+export type ThreadStreamEvent = {
   name: string;
   data: Record<string, unknown>;
 };
 
 /** One row of the floating conversation-index panel. Derived
- *  server-side from {@code task_messages} — never stored — so
+ *  server-side from {@code thread_messages} — never stored — so
  *  the panel can't drift from the rendered transcript. */
 export type ConvIndexEntryDto = {
   seq: number;
@@ -1356,9 +1356,9 @@ export type ConvIndexEntryDto = {
  *  on each new segment) and per-segment summaries (seq>=1,
  *  immutable). All token / cost / model fields come from the
  *  Anthropic Haiku call that produced the summary. */
-export type TaskCheckpointDto = {
+export type ThreadCheckpointDto = {
   id: string;
-  taskId: string;
+  threadId: string;
   seq: number;
   isOverall: boolean;
   firstMsgSeq: number;
@@ -1377,7 +1377,7 @@ export type TaskCheckpointDto = {
 };
 
 /** Conversation-index window response. Carries both the user-prompt
- *  index entries and the matching {@code task_messages} rows in a
+ *  index entries and the matching {@code thread_messages} rows in a
  *  single round-trip so the index and the agent terminal stay in
  *  lockstep — fetching one without the other would let them desync.
  *
@@ -1387,19 +1387,19 @@ export type TaskCheckpointDto = {
  *    "↑ load earlier".
  *
  *  {@code nextCursor} is the smallest seq strictly less than the
- *  loaded window — null when the start of the task is reached. */
+ *  loaded window — null when the start of the thread is reached. */
 export type ConvIndexPageDto = {
-  taskId: string;
+  threadId: string;
   totalUserMessages: number;
   entries: ConvIndexEntryDto[];
-  messages: TaskMessageDto[];
+  messages: ThreadMessageDto[];
   loadedFromSeq: number | null;
   nextCursor: number | null;
 };
 
-export type TaskMessageDto = {
+export type ThreadMessageDto = {
   id: string;
-  taskId: string;
+  threadId: string;
   seq: number;
   /** {@code user} | {@code assistant} | {@code tool} | {@code system} */
   role: string;
@@ -1421,7 +1421,7 @@ export type TaskMessageDto = {
 };
 
 export type NewTaskRequestDto = {
-  kind: TaskKindDto;
+  kind: ThreadKindDto;
   provider?: string;
   model: string;
   title: string;
@@ -1429,15 +1429,15 @@ export type NewTaskRequestDto = {
   branchName?: string | null;
   initialPrompt?: string;
   metadataJson?: string;
-  /** Optional — pin the new task into one or more existing groups.
+  /** Optional — pin the new thread into one or more existing groups.
    *  Each must have room (the cap is enforced server-side). */
   initialGroupIds?: string[];
-  /** Free-form task type — "DEVELOP" (default) or "FIX" today.
+  /** Free-form thread type — "DEVELOP" (default) or "FIX" today.
    *  Server-side defaults to "DEVELOP" when omitted. */
   taskType?: string;
-  /** Optional GitHub PR number, scoped to the task's repo. */
+  /** Optional GitHub PR number, scoped to the thread's repo. */
   linkedPrNumber?: number | null;
-  /** Optional GitHub issue number, scoped to the task's repo. */
+  /** Optional GitHub issue number, scoped to the thread's repo. */
   linkedIssueNumber?: number | null;
 };
 
@@ -1564,7 +1564,7 @@ export type Bridge = {
    *  the (capped) repo list response. */
   getRepoPull: (owner: string, repo: string, number: number) => Promise<PullRequestDto>;
   /** Title-search PRs in a repo across all states. Powers the
-   *  create-task linker's text-search fallback for old/closed PRs that
+   *  create-thread linker's text-search fallback for old/closed PRs that
    *  aren't in the 30 most-recent open PRs returned by getRepoPulls. */
   searchRepoPulls: (owner: string, repo: string, query: string) => Promise<PullRequestDto[]>;
   getRepoIssues: (owner: string, repo: string, state?: 'open' | 'closed') => Promise<IssueDto[]>;
@@ -2013,42 +2013,42 @@ export type Bridge = {
    *  queries this on mount to recover the initial state if the main
    *  process's did-finish-load push raced React's listener registration. */
   getFullScreenState: () => Promise<boolean>;
-  /** All tasks across every status, newest-updated first; the page
+  /** All threads across every status, newest-updated first; the page
    *  groups by status itself. Pass {@code groupId} to restrict to a
    *  single group (drives the group detail view). */
-  listTasks: (groupId?: string) => Promise<TaskDto[]>;
-  /** Queued/running turns across all tasks, oldest first. Lets list
+  listTasks: (groupId?: string) => Promise<ThreadDto[]>;
+  /** Queued/running turns across all threads, oldest first. Lets list
    *  and group pages show scheduler pressure without N+1 reads. */
-  listActiveTaskTurns: () => Promise<TaskTurnDto[]>;
-  /** Create + start one task. Returns the persisted row with the
+  listActiveTaskTurns: () => Promise<ThreadTurnDto[]>;
+  /** Create + start one thread. Returns the persisted row with the
    *  agent's session id if the first turn already populated it. */
-  createTask: (request: NewTaskRequestDto) => Promise<TaskDto>;
+  createTask: (request: NewTaskRequestDto) => Promise<ThreadDto>;
   /** User-defined groups in display order. */
-  listTaskGroups: () => Promise<TaskGroupDto[]>;
-  /** Full task ↔ group membership snapshot. Tasks and groups are
+  listTaskGroups: () => Promise<ThreadGroupDto[]>;
+  /** Full thread ↔ group membership snapshot. Threads and groups are
    *  many-to-many — render the page once you have both lists and
    *  this index. */
-  listTaskGroupMemberships: () => Promise<TaskGroupMembershipDto[]>;
+  listTaskGroupMemberships: () => Promise<ThreadGroupMembershipDto[]>;
   /** Insert one group along with its initial members
    *  ({@code initialTaskIds} must contain ≥ 1 and ≤ 4 ids). */
-  createTaskGroup: (request: NewTaskGroupRequestDto) => Promise<TaskGroupDto>;
+  createTaskGroup: (request: NewTaskGroupRequestDto) => Promise<ThreadGroupDto>;
   /** Partial update — null/blank fields keep the current value. */
-  updateTaskGroup: (id: string, patch: TaskGroupPatchDto) => Promise<TaskGroupDto>;
+  updateTaskGroup: (id: string, patch: ThreadGroupPatchDto) => Promise<ThreadGroupDto>;
   /** Drop a group. The membership rows cascade away in the schema;
-   *  the tasks themselves survive — they simply leave the group. */
+   *  the threads themselves survive — they simply leave the group. */
   deleteTaskGroup: (id: string) => Promise<void>;
-  /** Add an existing task to an existing group. Rejected when the
+  /** Add an existing thread to an existing group. Rejected when the
    *  group is at the 4-member cap; idempotent on existing members. */
-  addTaskToGroup: (groupId: string, taskId: string) => Promise<void>;
-  /** Remove a task from a group. Rejected when the task is the
+  addTaskToGroup: (groupId: string, threadId: string) => Promise<void>;
+  /** Remove a thread from a group. Rejected when the thread is the
    *  group's only remaining member — callers must
    *  {@link #deleteTaskGroup deleteTaskGroup} instead. */
-  removeTaskFromGroup: (groupId: string, taskId: string) => Promise<void>;
-  /** Single task by id; null when no row matches. */
-  getTask: (id: string) => Promise<TaskDto | null>;
+  removeTaskFromGroup: (groupId: string, threadId: string) => Promise<void>;
+  /** Single thread by id; null when no row matches. */
+  getTask: (id: string) => Promise<ThreadDto | null>;
   /** Persisted conversation log, oldest first by {@code seq}. The
-   *  detail page polls this while the task is live. */
-  getTaskMessages: (id: string) => Promise<TaskMessageDto[]>;
+   *  detail page polls this while the thread is live. */
+  getTaskMessages: (id: string) => Promise<ThreadMessageDto[]>;
   /** One window of the conversation index — user-prompt entries
    *  plus the matching messages, fetched together so the floating
    *  index panel and the agent terminal can't drift. Pass no
@@ -2059,34 +2059,34 @@ export type Bridge = {
     id: string,
     opts?: { cursor?: number; limit?: number; direction?: 'initial' | 'before' },
   ) => Promise<ConvIndexPageDto>;
-  /** Active checkpoints for a task — Overall first, then segments by
+  /** Active checkpoints for a thread — Overall first, then segments by
    *  descending seq. Drives the sidebar Checkpoints section and the
-   *  cross-task seed loader. */
-  getTaskCheckpoints: (id: string) => Promise<TaskCheckpointDto[]>;
+   *  cross-thread seed loader. */
+  getTaskCheckpoints: (id: string) => Promise<ThreadCheckpointDto[]>;
   /** Force-generate a checkpoint segment for any messages added
    *  since the last segment, regardless of the token threshold.
    *  Resolves to the new checkpoint or null when there's nothing
    *  new to summarise. */
-  generateTaskCheckpoint: (id: string) => Promise<TaskCheckpointDto | null>;
-  /** Last scheduler outcome for the task. Non-null {@code lastError}
+  generateTaskCheckpoint: (id: string) => Promise<ThreadCheckpointDto | null>;
+  /** Last scheduler outcome for the thread. Non-null {@code lastError}
    *  means a recent background summarisation attempt failed (most
    *  commonly because the Anthropic key isn't configured) so the UI
    *  can surface a banner instead of an unexplained empty list. */
   getTaskCheckpointStatus: (id: string) => Promise<{ lastError: string | null }>;
   /** Recent scheduler turns, newest first. Used to distinguish
    *  queued work from an active CLI/API run. */
-  getTaskTurns: (id: string) => Promise<TaskTurnDto[]>;
+  getTaskTurns: (id: string) => Promise<ThreadTurnDto[]>;
   /** Recent scheduler events, newest first. Explains queued/running/
    *  cancelled transitions without reading backend logs. */
-  getTaskTurnEvents: (id: string) => Promise<TaskTurnEventDto[]>;
-  /** Per-(task, path) rollup rows for the detail-page sidebar. */
-  getTaskFiles: (id: string) => Promise<TaskFileDto[]>;
-  /** Rename a task. Trimmed and non-blank — empty / whitespace
+  getTaskTurnEvents: (id: string) => Promise<ThreadTurnEventDto[]>;
+  /** Per-(thread, path) rollup rows for the detail-page sidebar. */
+  getTaskFiles: (id: string) => Promise<ThreadFileDto[]>;
+  /** Rename a thread. Trimmed and non-blank — empty / whitespace
    *  values are rejected on the backend. Returns the updated row. */
-  renameTask: (id: string, title: string) => Promise<TaskDto>;
-  /** Send a follow-up turn to a non-terminal task and return its
+  renameTask: (id: string, title: string) => Promise<ThreadDto>;
+  /** Send a follow-up turn to a non-terminal thread and return its
    *  durable scheduler turn id. */
-  sendTaskMessage: (id: string, input: string) => Promise<TaskSendResultDto>;
+  sendTaskMessage: (id: string, input: string) => Promise<ThreadSendResultDto>;
   /** Reply to a {@code permission_request}. When {@code preApprove}
    *  is supplied, the backend records the per-call decision and then
    *  grants an auto-approval budget for future invocations of the same
@@ -2102,66 +2102,66 @@ export type Bridge = {
    *  itself stays alive — the user can send another turn. */
   interruptTask: (id: string) => Promise<void>;
   /** Terminal — releases the underlying agent loop and removes the
-   *  task from the live registry. */
+   *  thread from the live registry. */
   stopTask: (id: string) => Promise<void>;
-  /** Resume an ERRORED (or AWAITING) task back to IDLE so the user
+  /** Resume an ERRORED (or AWAITING) thread back to IDLE so the user
    *  can send another turn. The agent's CLI session id is preserved
-   *  on the task row, so the next {@code sendTask} call spawns a
+   *  on the thread row, so the next {@code sendTask} call spawns a
    *  fresh subprocess with {@code claude --resume <id>} and picks
    *  up where the previous turn died — useful after a token-quota
    *  reset or transient agent error. */
   resumeTask: (id: string) => Promise<void>;
-  /** Permanent removal — only allowed for COMPLETED / ERRORED tasks.
-   *  Drops the task row, its conversation log, and per-file rollups.
-   *  Rejects with an error from the backend if the task is still
+  /** Permanent removal — only allowed for COMPLETED / ERRORED threads.
+   *  Drops the thread row, its conversation log, and per-file rollups.
+   *  Rejects with an error from the backend if the thread is still
    *  live. */
   deleteTask: (id: string) => Promise<void>;
 
   /** Open a Server-Sent Events subscription to the backend for one
-   *  task. Each {@link StreamEvent} the session emits is delivered
+   *  thread. Each {@link StreamEvent} the session emits is delivered
    *  through {@code onEvent}; lifecycle / error conditions fire
    *  {@code onClose}. The returned function tears down both the
-   *  backend connection (when the last subscriber for that task
+   *  backend connection (when the last subscriber for that thread
    *  unsubscribes) and the renderer-side listener.
    *
    *  The renderer should treat this as a "wake me up" signal —
    *  call {@code refresh()} on each event to pull the canonical
-   *  state from {@code /messages}, /{@code tasks/{id}}, etc. The
+   *  state from {@code /messages}, /{@code threads/{id}}, etc. The
    *  event payload is included in case finer-grained handling
    *  becomes useful later (e.g., appending streamed text deltas
    *  to an in-flight assistant card). */
   subscribeTaskStream: (
-    taskId: string,
-    onEvent: (event: TaskStreamEvent) => void,
+    threadId: string,
+    onEvent: (event: ThreadStreamEvent) => void,
     onClose?: (reason: string) => void,
   ) => () => void;
 
-  // ── Task tabs: working-tree changes + commits ────────────────────
+  // ── Thread tabs: working-tree changes + commits ──────────────────
   /** Files modified by the AI session but not yet committed. Returns
    *  paths + single-char status (M, A, D, R, ...). Empty when nothing
    *  has changed or the workingDir isn't a git repo. */
-  listTaskWorkingChanges: (id: string) => Promise<TaskWorkingFileDto[]>;
+  listTaskWorkingChanges: (id: string) => Promise<ThreadWorkingFileDto[]>;
   /** Unified diff for one uncommitted file. Truncated at 256 KB. */
   getTaskWorkingDiff: (id: string, path: string) => Promise<string>;
-  /** Commits authored in the task's workingDir since task.createdAt,
+  /** Commits authored in the thread's workingDir since thread.createdAt,
    *  most-recent first. Limited to 100. */
-  listTaskCommits: (id: string) => Promise<TaskCommitDto[]>;
-  /** Per-file rollup (path + status + +/-) for one of the task's commits. */
-  listTaskCommitFiles: (id: string, sha: string) => Promise<TaskCommitFileDto[]>;
-  /** Unified diff for one file at one of the task's commits. */
+  listTaskCommits: (id: string) => Promise<ThreadCommitDto[]>;
+  /** Per-file rollup (path + status + +/-) for one of the thread's commits. */
+  listTaskCommitFiles: (id: string, sha: string) => Promise<ThreadCommitFileDto[]>;
+  /** Unified diff for one file at one of the thread's commits. */
   getTaskCommitDiff: (id: string, sha: string, path: string) => Promise<string>;
 };
 
 /** Mirror of GitRunner.WorkingTreeFile — uncommitted change in a
- *  task's workingDir. {@code status} is a single git porcelain char
+ *  thread's workingDir. {@code status} is a single git porcelain char
  *  (M = modified, A = added/untracked, D = deleted, R = renamed). */
-export type TaskWorkingFileDto = {
+export type ThreadWorkingFileDto = {
   path: string;
   status: string;
 };
 
-/** Mirror of GitRunner.CommitEntry — one commit in the task's history. */
-export type TaskCommitDto = {
+/** Mirror of GitRunner.CommitEntry — one commit in the thread's history. */
+export type ThreadCommitDto = {
   sha: string;
   shortSha: string;
   authorName: string;
@@ -2172,7 +2172,7 @@ export type TaskCommitDto = {
 
 /** Mirror of GitRunner.CommitFileChange — per-file rollup inside a
  *  commit, with status char and line counts. */
-export type TaskCommitFileDto = {
+export type ThreadCommitFileDto = {
   path: string;
   status: string;
   additions: number;

@@ -18,14 +18,14 @@ import TeamDetailPage from './teams/TeamDetailPage';
 import TeamHomePage from './teams/TeamHomePage';
 import TeamsManagePage from './teams/TeamsManagePage';
 import EmailPage from './email/EmailPage';
-import TasksPage from './tasks/TasksPage';
-import TaskCreatePage from './tasks/TaskCreatePage';
-import TaskDetailPage from './tasks/TaskDetailPage';
+import ThreadsPage from './threads/ThreadsPage';
+import ThreadCreatePage from './threads/ThreadCreatePage';
+import ThreadDetailPage from './threads/ThreadDetailPage';
 import type {
-  StatusFilter as TasksStatusFilter,
-  ProviderFilter as TasksProviderFilter,
-  RepoFilter as TasksRepoFilter,
-} from './tasks/TasksLeftRail';
+  StatusFilter as ThreadsStatusFilter,
+  ProviderFilter as ThreadsProviderFilter,
+  RepoFilter as ThreadsRepoFilter,
+} from './threads/ThreadsLeftRail';
 import type { SettingsSection } from './settings/types';
 import PullRequestList from './PullRequestList';
 import HomePage from './HomePage';
@@ -50,9 +50,9 @@ type Nav =
   | { view: 'team'; teamId: number }
   | { view: 'team-kanban'; teamId: number }
   | { view: 'email' }
-  | { view: 'tasks'; filter?: TasksStatusFilter; provider?: TasksProviderFilter; groupId?: string; repo?: TasksRepoFilter }
-  | { view: 'task-create'; initialGroupId?: string }
-  | { view: 'task-detail'; taskId: string }
+  | { view: 'threads'; filter?: ThreadsStatusFilter; provider?: ThreadsProviderFilter; groupId?: string; repo?: ThreadsRepoFilter }
+  | { view: 'thread-create'; initialGroupId?: string }
+  | { view: 'thread-detail'; threadId: string }
   | { view: 'notifications' }
   | { view: 'repos' }
   | { view: 'repository'; owner: string; repo: string }
@@ -127,7 +127,7 @@ function breadcrumbLabel(back: Nav | undefined): string | null {
   if (!back) return null;
   switch (back.view) {
     case 'email': return 'Email';
-    case 'tasks': return 'Tasks';
+    case 'threads': return 'Threads';
     case 'home': return 'Home';
     case 'my-prs': return 'My PRs';
     case 'notifications': return 'Notifications';
@@ -172,22 +172,22 @@ function GlobalTopbar({ nav, onNav, fullScreen }: GlobalTopbarProps) {
             ← {breadcrumbLabel(nav.back) ?? `${nav.owner}/${nav.repo}`}
           </button>
         )}
-        {nav.view === 'task-create' && (
+        {nav.view === 'thread-create' && (
           <button
             className="global-topbar__breadcrumb"
-            onClick={() => onNav({ view: 'tasks', groupId: nav.initialGroupId })}
-            title="Back to tasks (Esc)"
+            onClick={() => onNav({ view: 'threads', groupId: nav.initialGroupId })}
+            title="Back to threads (Esc)"
           >
-            ← Tasks
+            ← Threads
           </button>
         )}
-        {nav.view === 'tasks' && nav.groupId !== undefined && (
+        {nav.view === 'threads' && nav.groupId !== undefined && (
           <button
             className="global-topbar__breadcrumb"
-            onClick={() => onNav({ view: 'tasks' })}
-            title="Back to all tasks"
+            onClick={() => onNav({ view: 'threads' })}
+            title="Back to all threads"
           >
-            ← All tasks
+            ← All threads
           </button>
         )}
         {/* Portal target: child screens (e.g. PullRequestList) mount
@@ -224,11 +224,11 @@ function GlobalTopbar({ nav, onNav, fullScreen }: GlobalTopbarProps) {
           Email
         </button>
         <button
-          className={`global-nav-btn${nav.view === 'tasks' ? ' global-nav-btn--active' : ''}`}
-          onClick={() => onNav({ view: 'tasks' })}
-          title="AI coding tasks"
+          className={`global-nav-btn${nav.view === 'threads' ? ' global-nav-btn--active' : ''}`}
+          onClick={() => onNav({ view: 'threads' })}
+          title="AI coding threads"
         >
-          Tasks
+          Threads
         </button>
         <button
           className={`global-nav-btn${nav.view === 'notifications' ? ' global-nav-btn--active' : ''}`}
@@ -309,30 +309,30 @@ function App() {
   // the × button on the InAppBrowser toolbar.
   const [inAppUrl, setInAppUrl] = useState<string | null>(null);
   const [fullScreen, setFullScreen] = useState<boolean>(false);
-  // Tasks-group immersive mode is lifted to App so the global topbar
+  // threads-group immersive mode is lifted to App so the global topbar
   // can be hidden underneath. Persisted to localStorage so the user
   // returns to their preferred chrome state between sessions.
-  const [tasksImmersive, setTasksImmersiveState] = useState<boolean>(() => {
-    try { return window.localStorage.getItem('bytequay.tasks.groupImmersive') === '1'; }
+  const [threadsImmersive, setThreadsImmersiveState] = useState<boolean>(() => {
+    try { return window.localStorage.getItem('bytequay.threads.groupImmersive') === '1'; }
     catch { return false; }
   });
-  const setTasksImmersive = useCallback((next: boolean) => {
-    setTasksImmersiveState(next);
-    try { window.localStorage.setItem('bytequay.tasks.groupImmersive', next ? '1' : '0'); }
+  const setThreadsImmersive = useCallback((next: boolean) => {
+    setThreadsImmersiveState(next);
+    try { window.localStorage.setItem('bytequay.threads.groupImmersive', next ? '1' : '0'); }
     catch { /* private browsing — fine to skip */ }
   }, []);
   // Immersive is only meaningful when actively inside a group. Drop it
   // whenever the user navigates away so the chrome shows up again next
   // time the page mounts.
   useEffect(() => {
-    if (!tasksImmersive) return;
-    const inGroup = nav.view === 'tasks' && nav.groupId !== undefined;
-    if (!inGroup) setTasksImmersive(false);
-  }, [nav, tasksImmersive, setTasksImmersive]);
+    if (!threadsImmersive) return;
+    const inGroup = nav.view === 'threads' && nav.groupId !== undefined;
+    if (!inGroup) setThreadsImmersive(false);
+  }, [nav, threadsImmersive, setThreadsImmersive]);
   // The group page hides the topbar entirely in immersive mode. Esc
-  // (handled inside TasksGroupPage) brings it back.
-  const hideTopbar = tasksImmersive
-    && nav.view === 'tasks'
+  // (handled inside ThreadGroupPage) brings it back.
+  const hideTopbar = threadsImmersive
+    && nav.view === 'threads'
     && nav.groupId !== undefined;
 
   useEffect(() => {
@@ -467,10 +467,10 @@ function App() {
             initialDiffCommitSha={nav.diffCommitSha}
             onOpenLocalBranch={(owner, repo, branch) =>
               setNav({ view: 'local-repo', owner, repo, initialBranch: branch })}
-            // PR → task jump. The linked-task chip in the PR header
+            // PR → thread jump. The linked-thread chip in the PR header
             // calls this; we preserve the current repo nav as the
-            // back target so closing the task can return cleanly.
-            onOpenTask={taskId => setNav({ view: 'task-detail', taskId })}
+            // back target so closing the thread can return cleanly.
+            onOpenThread={threadId => setNav({ view: 'thread-detail', threadId })}
           />
         )}
         {nav.view === 'email' && (
@@ -495,60 +495,60 @@ function App() {
             }}
           />
         )}
-        {nav.view === 'tasks' && (
-          <TasksPage
+        {nav.view === 'threads' && (
+          <ThreadsPage
             filter={nav.filter ?? 'ALL'}
             provider={nav.provider ?? null}
             groupId={nav.groupId ?? null}
             repo={nav.repo ?? null}
-            onFilterChange={filter => setNav({ view: 'tasks', filter, provider: nav.provider, groupId: nav.groupId, repo: nav.repo })}
+            onFilterChange={filter => setNav({ view: 'threads', filter, provider: nav.provider, groupId: nav.groupId, repo: nav.repo })}
             // Picking a provider drops the status filter back to ALL —
             // provider is a coarse focus reset, not a compound filter
             // on top of whatever status was active.
-            onProviderChange={provider => setNav({ view: 'tasks', provider, groupId: nav.groupId, repo: nav.repo })}
-            onGroupChange={groupId => setNav({ view: 'tasks', groupId: groupId ?? undefined, repo: nav.repo })}
-            onRepoChange={repo => setNav({ view: 'tasks', repo: repo ?? undefined })}
-            onSelectTask={taskId => setNav({ view: 'task-detail', taskId })}
+            onProviderChange={provider => setNav({ view: 'threads', provider, groupId: nav.groupId, repo: nav.repo })}
+            onGroupChange={groupId => setNav({ view: 'threads', groupId: groupId ?? undefined, repo: nav.repo })}
+            onRepoChange={repo => setNav({ view: 'threads', repo: repo ?? undefined })}
+            onSelectTask={threadId => setNav({ view: 'thread-detail', threadId })}
             onOpenPr={(owner, repo, prNumber) => setNav({
               view: 'repo', owner, repo, prNumber,
-              back: { view: 'tasks', groupId: nav.groupId, filter: nav.filter, provider: nav.provider, repo: nav.repo },
+              back: { view: 'threads', groupId: nav.groupId, filter: nav.filter, provider: nav.provider, repo: nav.repo },
             })}
             onOpenIssues={(owner, repo) => setNav({
               view: 'repo', owner, repo, initialTab: 'issues',
-              back: { view: 'tasks', groupId: nav.groupId, filter: nav.filter, provider: nav.provider, repo: nav.repo },
+              back: { view: 'threads', groupId: nav.groupId, filter: nav.filter, provider: nav.provider, repo: nav.repo },
             })}
             onOpenSettings={() => setNav({ view: 'settings', section: 'integrations' })}
-            onNewTask={initialGroupId => setNav({ view: 'task-create', initialGroupId })}
-            immersive={tasksImmersive}
-            onChangeImmersive={setTasksImmersive}
+            onNewTask={initialGroupId => setNav({ view: 'thread-create', initialGroupId })}
+            immersive={threadsImmersive}
+            onChangeImmersive={setThreadsImmersive}
           />
         )}
-        {nav.view === 'task-create' && (
-          <TaskCreatePage
+        {nav.view === 'thread-create' && (
+          <ThreadCreatePage
             initialGroupId={nav.initialGroupId ?? null}
-            onBack={() => setNav({ view: 'tasks',
+            onBack={() => setNav({ view: 'threads',
               groupId: nav.initialGroupId })}
             // Created from inside a group → land back on the group
             // view so the new tile shows up next to its siblings.
-            // Created standalone → drop the user on the single-task
+            // Created standalone → drop the user on the single-thread
             // detail page so they can babysit the run directly.
-            onCreated={taskId => setNav(nav.initialGroupId !== undefined
-              ? { view: 'tasks', groupId: nav.initialGroupId }
-              : { view: 'task-detail', taskId })}
+            onCreated={threadId => setNav(nav.initialGroupId !== undefined
+              ? { view: 'threads', groupId: nav.initialGroupId }
+              : { view: 'thread-detail', threadId })}
           />
         )}
-        {nav.view === 'task-detail' && (
-          <TaskDetailPage
-            taskId={nav.taskId}
-            onBack={() => setNav({ view: 'tasks' })}
-            onFilterChange={filter => setNav({ view: 'tasks', filter })}
-            onProviderChange={provider => setNav({ view: 'tasks', provider })}
-            onGroupChange={groupId => setNav({ view: 'tasks', groupId: groupId ?? undefined })}
-            onRepoChange={repo => setNav({ view: 'tasks', repo: repo ?? undefined })}
-            onSelectTask={id => setNav({ view: 'task-detail', taskId: id })}
+        {nav.view === 'thread-detail' && (
+          <ThreadDetailPage
+            threadId={nav.threadId}
+            onBack={() => setNav({ view: 'threads' })}
+            onFilterChange={filter => setNav({ view: 'threads', filter })}
+            onProviderChange={provider => setNav({ view: 'threads', provider })}
+            onGroupChange={groupId => setNav({ view: 'threads', groupId: groupId ?? undefined })}
+            onRepoChange={repo => setNav({ view: 'threads', repo: repo ?? undefined })}
+            onSelectTask={id => setNav({ view: 'thread-detail', threadId: id })}
             onOpenPr={(owner, repo, prNumber) => setNav({
               view: 'repo', owner, repo, prNumber,
-              back: { view: 'task-detail', taskId: nav.taskId },
+              back: { view: 'thread-detail', threadId: nav.threadId },
             })}
             onOpenSettings={() => setNav({ view: 'settings', section: 'integrations' })}
           />

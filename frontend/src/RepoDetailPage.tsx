@@ -86,10 +86,10 @@ type Props = {
    *  head ref that calls this. App-level so the nav target lines up
    *  with the existing local-repo route. */
   onOpenLocalBranch?: (owner: string, repo: string, branch: string) => void;
-  /** Cross-domain jump: PR detail → task detail. The header shows a
-   *  chip for every task whose `linkedPrNumber` matches the PR; the
+  /** Cross-domain jump: PR detail → thread detail. The header shows a
+   *  chip for every thread whose `linkedPrNumber` matches the PR; the
    *  click dispatches up to the app shell to flip nav. */
-  onOpenTask?: (taskId: string) => void;
+  onOpenThread?: (threadId: string) => void;
 };
 
 /** Right-pane placeholder shown while a deep-link's PR fetch is in
@@ -111,7 +111,7 @@ function DeepLinkLoading({ owner, repo, number }: { owner: string; repo: string;
   );
 }
 
-function RepoDetailPage({ owner, repo, initialPrNumber, initialTab, initialDiffCommitSha, onOpenLocalBranch, onOpenTask }: Props) {
+function RepoDetailPage({ owner, repo, initialPrNumber, initialTab, initialDiffCommitSha, onOpenLocalBranch, onOpenThread }: Props) {
   const [tab, setTab] = useState<Tab>(initialTab ?? 'pulls');
   const [bucket, setBucket] = useState<Bucket>('inbox');
   const [scope, setScope] = useState<Scope>('mine');
@@ -756,7 +756,7 @@ function RepoDetailPage({ owner, repo, initialPrNumber, initialTab, initialDiffC
             onMarkHandled={handleMarkHandled}
             onMerge={handleMerge}
             onOpenLocalBranch={onOpenLocalBranch}
-            onOpenTask={onOpenTask}
+            onOpenThread={onOpenThread}
           />
         ) : deepLinkPending && initialPrNumber != null ? (
           <DeepLinkLoading owner={owner} repo={repo} number={initialPrNumber} />

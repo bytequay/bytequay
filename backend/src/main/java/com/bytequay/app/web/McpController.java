@@ -14,9 +14,13 @@
 package com.bytequay.app.web;
 
 import com.bytequay.app.domain.PermissionDecision;
+import com.bytequay.app.domain.PullRequestRef;
 import com.bytequay.app.domain.Task;
 import com.bytequay.app.domain.TaskStatus;
+import com.bytequay.app.domain.WatchedRepo;
+import com.bytequay.app.repository.PullRequestRepository;
 import com.bytequay.app.repository.TaskStore;
+import com.bytequay.app.repository.WatchedRepoStore;
 import com.bytequay.app.service.threads.McpPermissionGate;
 import com.bytequay.app.service.threads.NotificationService;
 import com.bytequay.app.service.threads.ThreadService;
@@ -33,10 +37,12 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.context.request.async.DeferredResult;
 
+import java.nio.file.Path;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Optional;
 import java.util.OptionalInt;
+import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 
 import static java.util.Objects.requireNonNull;
@@ -78,6 +84,12 @@ public class McpController
      *  AWAITING_REVIEW and writes a notification. */
     private static final String REQUEST_REVIEW_TOOL = "request_review";
 
+    /** Gated publish tool: the CLI agent asks the user before posting
+     *  an issue comment to the active task's linked PR. The user sees
+     *  a permission card showing the body; on Allow we POST via the
+     *  per-repo PAT. */
+    private static final String POST_COMMENT_TOOL = "post_comment";
+
     /** How long the agent will wait for the user before we give up
      *  and tell Claude the request was denied. Two minutes is enough
      *  to switch tabs, read the call site, and decide; longer would
@@ -88,6 +100,9 @@ public class McpController
     private final TaskStore taskStore;
     private final McpPermissionGate gate;
     private final NotificationService notifications;
+    private final WatchedRepoStore watchedRepos;
+    private final PullRequestRepository pullRequests;
+    private final PatResolver patResolver;
     private final ObjectMapper mapper;
 
     public McpController(
@@ -95,12 +110,18 @@ public class McpController
             TaskStore taskStore,
             McpPermissionGate gate,
             NotificationService notifications,
+            WatchedRepoStore watchedRepos,
+            PullRequestRepository pullRequests,
+            PatResolver patResolver,
             ObjectMapper mapper)
     {
         this.threads = requireNonNull(threads, "threads is null");
         this.taskStore = requireNonNull(taskStore, "taskStore is null");
         this.gate = requireNonNull(gate, "gate is null");
         this.notifications = requireNonNull(notifications, "notifications is null");
+        this.watchedRepos = requireNonNull(watchedRepos, "watchedRepos is null");
+        this.pullRequests = requireNonNull(pullRequests, "pullRequests is null");
+        this.patResolver = requireNonNull(patResolver, "patResolver is null");
         this.mapper = requireNonNull(mapper, "mapper is null");
     }
 
@@ -184,6 +205,27 @@ public class McpController
         reviewSchema.putArray("required").add("summary");
         tools.add(review);
 
+        // post_comment — gated publish. Posts an issue-style comment
+        // (the timeline-level kind, not a per-line review comment) to
+        // the active task's linked PR, but only after the user clicks
+        // Allow on a permission card showing the body. Resolves the
+        // (owner, repo, number) tuple from the task's workingDir +
+        // linkedPrNumber so the agent only has to write the body.
+        ObjectNode postComment = mapper.createObjectNode();
+        postComment.put("name", POST_COMMENT_TOOL);
+        postComment.put("description",
+                "Ask the user to post a comment on the active task's linked PR. "
+                        + "Body is shown to the user before sending; on Approve the "
+                        + "server makes the GitHub API call with the per-repo PAT.");
+        ObjectNode postSchema = postComment.putObject("inputSchema");
+        postSchema.put("type", "object");
+        ObjectNode postProperties = postSchema.putObject("properties");
+        postProperties.putObject("body")
+                .put("type", "string")
+                .put("description", "Markdown-formatted body of the comment.");
+        postSchema.putArray("required").add("body");
+        tools.add(postComment);
+
         return ok(id, result);
     }
 
@@ -193,6 +235,10 @@ public class McpController
         String name = params.path("name").asText();
         if (REQUEST_REVIEW_TOOL.equals(name)) {
             handleRequestReview(threadId, id, params.path("arguments"), deferred);
+            return;
+        }
+        if (POST_COMMENT_TOOL.equals(name)) {
+            handlePostComment(threadId, id, params.path("arguments"), deferred);
             return;
         }
         if (!TOOL_NAME.equals(name)) {
@@ -365,6 +411,103 @@ public class McpController
                 + "and can approve, edit, or discard from the thread.");
         result.putArray("content").add(item);
         deferred.setResult(ok(id, result));
+    }
+
+    /**
+     * Handles {@code post_comment}: surfaces a permission card with
+     * the proposed body and, on Approve, POSTs the comment to the
+     * active task's linked PR via the per-repo PAT. Resolves the
+     * (owner, repo, number) tuple from the task's workingDir +
+     * linkedPrNumber so the agent only has to write the body.
+     */
+    private void handlePostComment(
+            String threadId, JsonNode id, JsonNode args, DeferredResult<JsonNode> deferred)
+    {
+        String body = args.path("body").asText("");
+        if (body.isBlank()) {
+            deferred.setResult(plainText(id, "body is required"));
+            return;
+        }
+        Optional<PullRequestRef> prRef = resolvePrRef(threadId);
+        if (prRef.isEmpty()) {
+            deferred.setResult(plainText(id,
+                    "no PR linked to the active task — set linked_pr_number first"));
+            return;
+        }
+
+        // Run the same permission flow approval_prompt uses, just with
+        // post_comment as the gate's tool name. The frontend's
+        // PermissionCard already special-cases the toolName for nicer
+        // copy when one lands; arbitrary tools render a generic card.
+        String callId = "post_comment-" + UUID.randomUUID();
+        CompletableFuture<PermissionDecision> decisionFuture = gate.register(callId, POST_COMMENT_TOOL);
+        try {
+            threads.notifyPermissionRequested(threadId, callId, POST_COMMENT_TOOL,
+                    "Post comment on " + prRef.get().owner() + "/" + prRef.get().repo()
+                            + "#" + prRef.get().number());
+        }
+        catch (RuntimeException e) {
+            log.warn("Failed to surface post_comment permission card for thread {}: {}",
+                    threadId, e.getMessage());
+        }
+
+        decisionFuture.whenComplete((decision, ex) -> {
+            if (ex != null) {
+                deferred.setResult(plainText(id, "interrupted: " + ex.getMessage()));
+                return;
+            }
+            if (decision != PermissionDecision.ALLOW) {
+                deferred.setResult(plainText(id, "user denied"));
+                return;
+            }
+            try {
+                String repoFullName = prRef.get().owner() + "/" + prRef.get().repo();
+                String pat = patResolver.resolve(repoFullName);
+                pullRequests.createIssueComment(pat, prRef.get(), body);
+                deferred.setResult(plainText(id,
+                        "Posted comment on " + repoFullName + "#" + prRef.get().number() + "."));
+            }
+            catch (RuntimeException e) {
+                log.warn("post_comment GitHub call failed for thread {}: {}",
+                        threadId, e.getMessage());
+                deferred.setResult(plainText(id,
+                        "GitHub rejected the comment: " + e.getMessage()));
+            }
+        });
+    }
+
+    /** Resolves the active task's linked PR into a PullRequestRef by
+     *  matching the task's workingDir against the watched-repos list. */
+    private Optional<PullRequestRef> resolvePrRef(String threadId)
+    {
+        Optional<Task> active = taskStore.findActiveTaskForThread(threadId);
+        if (active.isEmpty()) {
+            return Optional.empty();
+        }
+        Task task = active.get();
+        if (task.linkedPrNumber() == null || task.workingDir() == null) {
+            return Optional.empty();
+        }
+        Path needle = Path.of(task.workingDir());
+        for (WatchedRepo r : watchedRepos.findAll()) {
+            if (r.localClonePath() != null
+                    && !r.localClonePath().isBlank()
+                    && Path.of(r.localClonePath()).equals(needle)) {
+                return Optional.of(new PullRequestRef(r.owner(), r.repo(), task.linkedPrNumber()));
+            }
+        }
+        return Optional.empty();
+    }
+
+    /** Plain-text MCP tool response — no allow/deny envelope. */
+    private JsonNode plainText(JsonNode id, String text)
+    {
+        ObjectNode result = mapper.createObjectNode();
+        ObjectNode item = mapper.createObjectNode();
+        item.put("type", "text");
+        item.put("text", text);
+        result.putArray("content").add(item);
+        return ok(id, result);
     }
 
     private ObjectNode allow(JsonNode updatedInput)

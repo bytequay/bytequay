@@ -15,7 +15,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { ThreadDto, ThreadGroupDto, ThreadStatusDto } from '../types';
 import NewThreadGroupDialog from './NewThreadGroupDialog';
 
-export type StatusFilter = ThreadStatusDto | 'ALL';
+export type StatusFilter = ThreadStatusDto | 'ALL' | 'AUTO';
 /** {@code null} = no provider filter active; otherwise the
  *  lowercased provider key (e.g. {@code "claude-code"}). */
 export type ProviderFilter = string | null;
@@ -43,6 +43,9 @@ type Props = {
   onGroupFilter: (group: GroupFilter) => void;
   repoFilter: RepoFilter;
   onRepoFilter: (repo: RepoFilter) => void;
+  /** Number of distinct threads with at least one UNREAD notification —
+   *  surfaces as the count next to the {@code auto*} filter row. */
+  autoCount?: number;
   onSelectTask: (threadId: string) => void;
   onNewTask: () => void;
   onOpenSettings: () => void;
@@ -90,9 +93,13 @@ function providerMeta(rawKey: string): ProviderMeta {
     bg: 'linear-gradient(135deg, #64748b, #334155)' };
 }
 
-/** Status rows in the order the mockup lists them. */
+/** Status rows in the order the mockup lists them. The {@code AUTO}
+ *  row is the "auto*" filter from the model doc — threads carrying at
+ *  least one unread notification (parked headless runs, ship-and-
+ *  continue pings, etc.). */
 const STATUS_ROWS: Array<{ filter: StatusFilter; label: string; dot: string }> = [
   { filter: 'ALL',       label: 'All threads',     dot: '#cbd5e0' },
+  { filter: 'AUTO',      label: 'auto*',           dot: '#7c3aed' },
   { filter: 'RUNNING',   label: 'Running',       dot: '#047857' },
   { filter: 'IDLE',      label: 'Alive',         dot: '#d97706' },
   { filter: 'COMPLETED', label: 'Completed',     dot: '#9ca3af' },
@@ -121,6 +128,7 @@ export default function ThreadsLeftRail({
   onGroupFilter,
   repoFilter,
   onRepoFilter,
+  autoCount = 0,
   onSelectTask,
   onNewTask,
   onOpenSettings,
@@ -162,7 +170,11 @@ export default function ThreadsLeftRail({
             <span style={{ ...dotStyle, background: row.dot }} />
             <span style={labelStyle}>{row.label}</span>
             <span style={countStyle}>
-              {row.filter === 'ALL' ? threads.length : (counts[row.filter] ?? 0)}
+              {row.filter === 'ALL'
+                ? threads.length
+                : row.filter === 'AUTO'
+                    ? autoCount
+                    : (counts[row.filter] ?? 0)}
             </span>
           </RailRow>
         ))}

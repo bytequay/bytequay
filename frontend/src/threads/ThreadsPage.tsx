@@ -117,6 +117,29 @@ export default function ThreadsPage({
   const [search, setSearch] = useState('');
   const [sortMode, setSortMode] = useState<SortMode>('newest');
   useEffect(() => { setSearch(''); }, [filter, provider, repo, groupId]);
+  // Threads with at least one UNREAD notification — populates the
+  // auto* rail filter and the per-row badge. Polls in tandem with
+  // the global topbar's unread badge so the two stay roughly in
+  // sync without hammering the local backend.
+  const [autoThreadIds, setAutoThreadIds] = useState<Set<string>>(() => new Set<string>());
+  useEffect(() => {
+    let cancelled = false;
+    const refresh = async () => {
+      try {
+        const unread = await window.bridge.listUnreadNotifications();
+        if (cancelled) return;
+        const ids = new Set<string>();
+        for (const n of unread) {
+          if (n.threadId) ids.add(n.threadId);
+        }
+        setAutoThreadIds(ids);
+      }
+      catch { /* non-fatal — leave the previous set */ }
+    };
+    void refresh();
+    const id = window.setInterval(() => { void refresh(); }, 20_000);
+    return () => { cancelled = true; window.clearInterval(id); };
+  }, []);
   const [activeGroup, setActiveGroup] = useState<ThreadGroupDto | null>(null);
   const [showGroupSettings, setShowGroupSettings] = useState(false);
   const [showAddTask, setShowAddTask] = useState(false);
@@ -303,7 +326,11 @@ export default function ThreadsPage({
     if (!threads) return [];
     return threads.filter(t => {
       const displayStatus = displayStatusForTask(t, activeTurnsByThreadId.get(t.id));
-      if (filter !== 'ALL') {
+      if (filter === 'AUTO') {
+        // auto* filter: only threads carrying unread notifications.
+        if (!autoThreadIds.has(t.id)) return false;
+      }
+      else if (filter !== 'ALL') {
         if (filter === 'PENDING') {
           if (displayStatus !== 'PENDING' && displayStatus !== 'QUEUED') return false;
         }
@@ -316,7 +343,7 @@ export default function ThreadsPage({
       if (repo && repoKey(t.workingDir) !== repo) return false;
       return true;
     });
-  }, [threads, filter, provider, groupId, repo, groupIdsByTaskId, activeTurnsByThreadId]);
+  }, [threads, filter, provider, groupId, repo, groupIdsByTaskId, activeTurnsByThreadId, autoThreadIds]);
 
   // Card-grid search narrows the already-status-filtered list by
   // title substring. Empty query passes everything through.
@@ -494,6 +521,7 @@ export default function ThreadsPage({
         onGroupFilter={onGroupChange}
         repoFilter={repo}
         onRepoFilter={onRepoChange}
+        autoCount={autoThreadIds.size}
         onSelectTask={onSelectTask}
         onNewTask={() => onNewTask(groupId ?? undefined)}
         onOpenSettings={onOpenSettings}

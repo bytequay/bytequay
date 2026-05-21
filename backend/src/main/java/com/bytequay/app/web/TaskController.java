@@ -19,6 +19,8 @@ import com.bytequay.app.service.threads.TaskService;
 import org.springframework.http.HttpStatusCode;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.server.ResponseStatusException;
@@ -80,5 +82,20 @@ public class TaskController
     public List<TaskFile> files(@PathVariable String threadId, @PathVariable String taskId)
     {
         return taskService.listFiles(threadId, taskId);
+    }
+
+    /** Close out the current task (commit + push + open PR) and start
+     *  the next one inside the same thread. See
+     *  {@link TaskService#shipAndContinue} for the full flow. */
+    @PostMapping("/{taskId}/ship")
+    public Task ship(
+            @PathVariable String threadId,
+            @PathVariable String taskId,
+            @RequestBody(required = false) TaskService.ShipRequest body)
+    {
+        TaskService.ShipRequest request = body != null
+                ? body
+                : new TaskService.ShipRequest(null, TaskService.BaseMode.MAIN);
+        return taskService.shipAndContinue(threadId, taskId, request);
     }
 }

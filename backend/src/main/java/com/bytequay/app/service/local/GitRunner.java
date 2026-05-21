@@ -99,6 +99,57 @@ public class GitRunner
     }
 
     /**
+     * True if the working tree or index has anything {@code git status
+     * --porcelain} would report (unstaged, staged, or untracked).
+     * The ship-and-continue path uses this to decide whether to auto-
+     * stage and commit before pushing.
+     */
+    public boolean hasUncommittedChanges(Path workingDir)
+            throws IOException, InterruptedException
+    {
+        GitResult result = run(List.of("git", "status", "--porcelain"), workingDir);
+        result.requireSuccess();
+        return !result.stdout().isBlank();
+    }
+
+    /**
+     * {@code git add -A} on the working dir — stages all unstaged
+     * changes and untracked files. Pairs with {@link #commit} when
+     * the agent finished editing but never committed.
+     */
+    public void stageAll(Path workingDir)
+            throws IOException, InterruptedException
+    {
+        run(List.of("git", "add", "-A"), workingDir).requireSuccess();
+    }
+
+    /**
+     * {@code git commit -m <message>}; returns the new HEAD sha, or
+     * empty when there was nothing staged (which git reports as a
+     * non-zero exit with "nothing to commit" in stderr — we treat
+     * that as success-with-nothing-to-do).
+     */
+    public Optional<String> commit(Path workingDir, String message)
+            throws IOException, InterruptedException
+    {
+        requireNonNull(message, "message is null");
+        GitResult result = run(
+                List.of("git", "commit", "-m", message),
+                workingDir);
+        if (result.exitCode() != 0) {
+            String stderr = result.stderr() == null ? "" : result.stderr();
+            if (stderr.contains("nothing to commit")
+                    || stderr.contains("no changes added to commit")) {
+                return Optional.empty();
+            }
+            result.requireSuccess();
+        }
+        GitResult head = run(List.of("git", "rev-parse", "HEAD"), workingDir);
+        head.requireSuccess();
+        return Optional.of(head.stdout().strip());
+    }
+
+    /**
      * Returns the current branch name, or null if HEAD is detached
      * (e.g. the user checked out a tag or specific commit). Powers
      * the branch chip on the repo detail header.

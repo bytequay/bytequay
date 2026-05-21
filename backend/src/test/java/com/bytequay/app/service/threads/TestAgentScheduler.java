@@ -1,0 +1,761 @@
+/*
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+package com.bytequay.app.service.threads;
+
+import com.bytequay.app.domain.AgentMetrics;
+import com.bytequay.app.domain.PermissionDecision;
+import com.bytequay.app.domain.StreamEvent;
+import com.bytequay.app.domain.Thread;
+import com.bytequay.app.domain.ThreadFile;
+import com.bytequay.app.domain.ThreadKind;
+import com.bytequay.app.domain.ThreadMessage;
+import com.bytequay.app.domain.ThreadResourceLane;
+import com.bytequay.app.domain.ThreadStatus;
+import com.bytequay.app.domain.ThreadTurn;
+import com.bytequay.app.domain.ThreadTurnEvent;
+import com.bytequay.app.domain.ThreadTurnStatus;
+import com.bytequay.app.repository.ThreadStore;
+import com.bytequay.app.repository.ThreadTurnEventStore;
+import com.bytequay.app.repository.ThreadTurnStore;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import org.junit.jupiter.api.Test;
+
+import java.time.Instant;
+import java.util.ArrayDeque;
+import java.util.ArrayList;
+import java.util.Collection;
+import java.util.Comparator;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Optional;
+import java.util.OptionalInt;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionStage;
+import java.util.concurrent.Executors;
+import java.util.function.Consumer;
+
+import static com.bytequay.app.domain.ThreadKind.CLI_AGENT;
+import static com.bytequay.app.domain.ThreadKind.LOGIC_LOOP;
+import static com.bytequay.app.domain.ThreadTurnEventType.TURN_CANCELLED;
+import static com.bytequay.app.domain.ThreadTurnEventType.TURN_FAILED;
+import static com.bytequay.app.domain.ThreadTurnEventType.TURN_FINISHED;
+import static com.bytequay.app.domain.ThreadTurnEventType.TURN_QUEUED;
+import static com.bytequay.app.domain.ThreadTurnEventType.TURN_STARTED;
+import static com.bytequay.app.domain.ThreadTurnEventType.WAITING_FOR_CAPACITY;
+import static com.bytequay.app.domain.ThreadTurnStatus.CANCELLED;
+import static com.bytequay.app.domain.ThreadTurnStatus.COMPLETED;
+import static com.bytequay.app.domain.ThreadTurnStatus.FAILED;
+import static com.bytequay.app.domain.ThreadTurnStatus.QUEUED;
+import static com.bytequay.app.domain.ThreadTurnStatus.RUNNING;
+import static org.assertj.core.api.Assertions.assertThat;
+
+class TestAgentScheduler
+{
+    @Test
+    void capsCliTurnsAndQueuesOverflow()
+    {
+        TestHarness harness = new TestHarness(1, 4);
+        Thread first = thread("thread-1", CLI_AGENT);
+        Thread second = thread("thread-2", CLI_AGENT);
+        RecordingSession firstSession = harness.register(first);
+        RecordingSession secondSession = harness.register(second);
+
+        String firstTurn = harness.scheduler.enqueueTurn(first, "first");
+        String secondTurn = harness.scheduler.enqueueTurn(second, "second");
+
+        assertThat(firstSession.inputs).containsExactly("first");
+        assertThat(secondSession.inputs).isEmpty();
+        assertThat(harness.turns.findTurnById(firstTurn).orElseThrow().status())
+                .isEqualTo(RUNNING);
+        assertThat(harness.turns.findTurnById(secondTurn).orElseThrow().status())
+                .isEqualTo(QUEUED);
+
+        firstSession.completeNext();
+
+        assertThat(harness.turns.findTurnById(firstTurn).orElseThrow().status())
+                .isEqualTo(COMPLETED);
+        assertThat(secondSession.inputs).containsExactly("second");
+        assertThat(harness.turns.findTurnById(secondTurn).orElseThrow().status())
+                .isEqualTo(RUNNING);
+    }
+
+    @Test
+    void apiLaneRunsWhileCliLaneIsFull()
+    {
+        TestHarness harness = new TestHarness(1, 1);
+        Thread cliFirst = thread("cli-1", CLI_AGENT);
+        Thread cliSecond = thread("cli-2", CLI_AGENT);
+        Thread apiTask = thread("api-1", LOGIC_LOOP);
+        RecordingSession cliFirstSession = harness.register(cliFirst);
+        RecordingSession cliSecondSession = harness.register(cliSecond);
+        RecordingSession apiSession = harness.register(apiTask);
+
+        harness.scheduler.enqueueTurn(cliFirst, "cli first");
+        String cliSecondTurn = harness.scheduler.enqueueTurn(cliSecond, "cli second");
+        String apiTurn = harness.scheduler.enqueueTurn(apiTask, "api");
+
+        assertThat(cliFirstSession.inputs).containsExactly("cli first");
+        assertThat(cliSecondSession.inputs).isEmpty();
+        assertThat(apiSession.inputs).containsExactly("api");
+        assertThat(harness.turns.findTurnById(cliSecondTurn).orElseThrow().status())
+                .isEqualTo(QUEUED);
+        assertThat(harness.turns.findTurnById(apiTurn).orElseThrow().lane())
+                .isEqualTo(ThreadResourceLane.API);
+    }
+
+    @Test
+    void sameTaskTurnsDoNotRunConcurrently()
+    {
+        TestHarness harness = new TestHarness(2, 4);
+        Thread thread = thread("thread-1", CLI_AGENT);
+        RecordingSession session = harness.register(thread);
+
+        String firstTurn = harness.scheduler.enqueueTurn(thread, "first");
+        String secondTurn = harness.scheduler.enqueueTurn(thread, "second");
+
+        assertThat(session.inputs).containsExactly("first");
+        assertThat(harness.turns.findTurnById(firstTurn).orElseThrow().status())
+                .isEqualTo(RUNNING);
+        assertThat(harness.turns.findTurnById(secondTurn).orElseThrow().status())
+                .isEqualTo(QUEUED);
+
+        session.completeNext();
+
+        assertThat(session.inputs).containsExactly("first", "second");
+        assertThat(harness.turns.findTurnById(firstTurn).orElseThrow().status())
+                .isEqualTo(COMPLETED);
+        assertThat(harness.turns.findTurnById(secondTurn).orElseThrow().status())
+                .isEqualTo(RUNNING);
+    }
+
+    @Test
+    void cancelQueuedTurnsRemovesOnlyQueuedTurnsForTask()
+    {
+        TestHarness harness = new TestHarness(1, 4);
+        Thread first = thread("thread-1", CLI_AGENT);
+        Thread second = thread("thread-2", CLI_AGENT);
+        RecordingSession firstSession = harness.register(first);
+        RecordingSession secondSession = harness.register(second);
+
+        String runningTurn = harness.scheduler.enqueueTurn(first, "first");
+        String cancelledTurn = harness.scheduler.enqueueTurn(first, "second");
+        String otherTaskTurn = harness.scheduler.enqueueTurn(second, "other");
+
+        assertThat(harness.scheduler.cancelQueuedTurns(first.id())).isEqualTo(1);
+
+        assertThat(harness.turns.findTurnById(runningTurn).orElseThrow().status())
+                .isEqualTo(RUNNING);
+        assertThat(harness.turns.findTurnById(cancelledTurn).orElseThrow().status())
+                .isEqualTo(CANCELLED);
+        assertThat(harness.turns.findTurnById(otherTaskTurn).orElseThrow().status())
+                .isEqualTo(QUEUED);
+
+        firstSession.completeNext();
+
+        assertThat(firstSession.inputs).containsExactly("first");
+        assertThat(secondSession.inputs).containsExactly("other");
+        assertThat(harness.turns.findTurnById(runningTurn).orElseThrow().status())
+                .isEqualTo(COMPLETED);
+        assertThat(harness.turns.findTurnById(otherTaskTurn).orElseThrow().status())
+                .isEqualTo(RUNNING);
+    }
+
+    @Test
+    void appendsSchedulerEventsForTurnLifecycle()
+    {
+        TestHarness harness = new TestHarness(1, 4);
+        Thread thread = thread("thread-1", CLI_AGENT);
+        RecordingSession session = harness.register(thread);
+
+        String turnId = harness.scheduler.enqueueTurn(thread, "first");
+        session.completeNext();
+
+        assertThat(harness.events.listEventsByTaskId(thread.id(), 10))
+                .extracting(ThreadTurnEvent::event)
+                .containsExactlyInAnyOrder(TURN_FINISHED, TURN_STARTED, TURN_QUEUED);
+        assertThat(harness.events.listEventsByTaskId(thread.id(), 10))
+                .extracting(ThreadTurnEvent::turnId)
+                .containsOnly(turnId);
+    }
+
+    @Test
+    void appendsSchedulerEventWhenQueuedTurnIsCancelled()
+    {
+        TestHarness harness = new TestHarness(1, 4);
+        Thread first = thread("thread-1", CLI_AGENT);
+        Thread second = thread("thread-2", CLI_AGENT);
+        harness.register(first);
+        harness.register(second);
+
+        harness.scheduler.enqueueTurn(first, "first");
+        String cancelledTurn = harness.scheduler.enqueueTurn(second, "second");
+
+        assertThat(harness.scheduler.cancelQueuedTurns(second.id())).isEqualTo(1);
+        assertThat(harness.events.listEventsByTaskId(second.id(), 10))
+                .extracting(ThreadTurnEvent::event)
+                .containsExactlyInAnyOrder(TURN_CANCELLED, WAITING_FOR_CAPACITY, TURN_QUEUED);
+        assertThat(harness.events.listEventsByTaskId(second.id(), 10))
+                .extracting(ThreadTurnEvent::turnId)
+                .containsOnly(cancelledTurn);
+    }
+
+    @Test
+    void appendsWaitingEventWhenLaneIsFull()
+    {
+        TestHarness harness = new TestHarness(1, 4);
+        Thread first = thread("thread-1", CLI_AGENT);
+        Thread second = thread("thread-2", CLI_AGENT);
+        harness.register(first);
+        harness.register(second);
+
+        harness.scheduler.enqueueTurn(first, "first");
+        String waitingTurn = harness.scheduler.enqueueTurn(second, "second");
+
+        assertThat(harness.events.listEventsByTaskId(second.id(), 10))
+                .anySatisfy(event -> {
+                    assertThat(event.turnId()).isEqualTo(waitingTurn);
+                    assertThat(event.event()).isEqualTo(WAITING_FOR_CAPACITY);
+                    assertThat(event.message()).isEqualTo("waiting for cli lane capacity");
+                });
+    }
+
+    @Test
+    void appendsWaitingEventWhenSameTaskAlreadyHasRunningTurn()
+    {
+        TestHarness harness = new TestHarness(2, 4);
+        Thread thread = thread("thread-1", CLI_AGENT);
+        harness.register(thread);
+
+        harness.scheduler.enqueueTurn(thread, "first");
+        String waitingTurn = harness.scheduler.enqueueTurn(thread, "second");
+
+        assertThat(harness.events.listEventsByTaskId(thread.id(), 10))
+                .anySatisfy(event -> {
+                    assertThat(event.turnId()).isEqualTo(waitingTurn);
+                    assertThat(event.event()).isEqualTo(WAITING_FOR_CAPACITY);
+                    assertThat(event.message()).isEqualTo("waiting for previous turn for this thread");
+                });
+    }
+
+    @Test
+    void cancelQueuedTurnsPagesThroughAllDurableQueuedTurns()
+    {
+        TestHarness harness = new TestHarness(1, 4);
+        String threadId = "thread-1";
+        Instant now = Instant.parse("2026-05-18T12:00:00Z");
+        for (int i = 0; i < 1_001; i++) {
+            harness.turns.saveTurn(turn("turn-" + i, threadId, now.plusMillis(i)));
+        }
+
+        assertThat(harness.scheduler.cancelQueuedTurns(threadId)).isEqualTo(1_001);
+        assertThat(harness.turns.turns.values())
+                .extracting(ThreadTurn::status)
+                .containsOnly(CANCELLED);
+    }
+
+    @Test
+    void recoveryPagesThroughAllOrphanedRunningTurns()
+    {
+        TestHarness harness = new TestHarness(1, 4);
+        Thread thread = thread("thread-1", CLI_AGENT);
+        RecordingSession session = harness.register(thread);
+        Instant now = Instant.parse("2026-05-18T12:00:00Z");
+        for (int i = 0; i < 1_001; i++) {
+            harness.turns.saveTurn(turn("turn-" + i, thread.id(), RUNNING, now.plusMillis(i)));
+        }
+
+        harness.scheduler.recoverQueuedTurns();
+
+        assertThat(session.inputs).containsExactly("input");
+        assertThat(harness.turns.turns.values())
+                .filteredOn(turn -> turn.status() == RUNNING)
+                .hasSize(1);
+        assertThat(harness.turns.turns.values())
+                .filteredOn(turn -> turn.status() == QUEUED)
+                .hasSize(1_000);
+        assertThat(harness.events.listEventsByTaskId(thread.id(), 2_100))
+                .filteredOn(event -> event.event() == TURN_QUEUED)
+                .hasSize(1_001);
+    }
+
+    @Test
+    void recoveryPagesThroughAllDurableQueuedTurns()
+    {
+        TestHarness harness = new TestHarness(1, 4);
+        Thread thread = thread("thread-1", CLI_AGENT);
+        RecordingSession session = harness.register(thread);
+        Instant now = Instant.parse("2026-05-18T12:00:00Z");
+        for (int i = 0; i < 1_001; i++) {
+            harness.turns.saveTurn(turn("turn-" + i, thread.id(), QUEUED, now.plusMillis(i)));
+        }
+
+        harness.scheduler.recoverQueuedTurns();
+
+        for (int i = 0; i < 1_001; i++) {
+            assertThat(session.inputs).hasSize(i + 1);
+            session.completeNext();
+        }
+        assertThat(harness.turns.turns.values())
+                .extracting(ThreadTurn::status)
+                .containsOnly(COMPLETED);
+    }
+
+    @Test
+    void recoveryDoesNotDuplicateWaitingEventForAlreadyKnownQueuedTurn()
+    {
+        TestHarness harness = new TestHarness(1, 4);
+        Thread first = thread("thread-1", CLI_AGENT);
+        Thread second = thread("thread-2", CLI_AGENT);
+        RecordingSession firstSession = harness.register(first);
+        RecordingSession secondSession = harness.register(second);
+        Instant now = Instant.parse("2026-05-18T12:00:00Z");
+        harness.turns.saveTurn(turn("turn-1", first.id(), RUNNING, now));
+        harness.turns.saveTurn(turn("turn-2", second.id(), RUNNING, now.plusMillis(1)));
+
+        harness.scheduler.recoverQueuedTurns();
+
+        assertThat(firstSession.inputs).containsExactly("input");
+        assertThat(secondSession.inputs).isEmpty();
+        assertThat(harness.events.listEventsByTaskId(second.id(), 10))
+                .filteredOn(event -> event.event() == WAITING_FOR_CAPACITY)
+                .hasSize(1)
+                .allSatisfy(event -> assertThat(event.turnId()).isEqualTo("turn-2"));
+    }
+
+    @Test
+    void failedTurnReleasesLane()
+    {
+        TestHarness harness = new TestHarness(1, 4);
+        Thread first = thread("thread-1", CLI_AGENT);
+        Thread second = thread("thread-2", CLI_AGENT);
+        RecordingSession firstSession = harness.register(first);
+        RecordingSession secondSession = harness.register(second);
+
+        String firstTurn = harness.scheduler.enqueueTurn(first, "first");
+        String secondTurn = harness.scheduler.enqueueTurn(second, "second");
+
+        firstSession.failNext(new IllegalStateException("boom"));
+
+        ThreadTurn failed = harness.turns.findTurnById(firstTurn).orElseThrow();
+        assertThat(failed.status()).isEqualTo(FAILED);
+        assertThat(failed.errorMessage()).isEqualTo("boom");
+        assertThat(harness.events.listEventsByTaskId(first.id(), 10))
+                .anySatisfy(event -> {
+                    assertThat(event.turnId()).isEqualTo(firstTurn);
+                    assertThat(event.event()).isEqualTo(TURN_FAILED);
+                    assertThat(event.message()).isEqualTo("boom");
+                });
+        assertThat(secondSession.inputs).containsExactly("second");
+        assertThat(harness.turns.findTurnById(secondTurn).orElseThrow().status())
+                .isEqualTo(RUNNING);
+    }
+
+    private static Thread thread(String id, ThreadKind kind)
+    {
+        Instant now = Instant.parse("2026-05-18T12:00:00Z");
+        return new Thread(
+                id,
+                kind,
+                kind == CLI_AGENT ? "claude-code" : "openai",
+                /* agentSessionId */ null,
+                "Thread " + id,
+                ThreadStatus.IDLE,
+                "/tmp/work",
+                "main",
+                "model",
+                /* costUsdMilli */ 0L,
+                /* tokensIn */ 0L,
+                /* tokensOut */ 0L,
+                /* processPid */ null,
+                /* logPath */ null,
+                now,
+                now,
+                /* endedAt */ null,
+                /* errorMessage */ null,
+                "{}",
+                "DEVELOP",
+                /* linkedPrNumber */ null,
+                /* linkedIssueNumber */ null,
+                /* worktreePath */ null,
+                /* localBranch */ null);
+    }
+
+    private static final class TestHarness
+    {
+        private final InMemoryTaskStore threads = new InMemoryTaskStore();
+        private final InMemoryTaskTurnStore turns = new InMemoryTaskTurnStore();
+        private final InMemoryTaskTurnEventStore events = new InMemoryTaskTurnEventStore();
+        private final RecordingRegistry registry = new RecordingRegistry();
+        private final AgentScheduler scheduler;
+
+        private TestHarness(int maxCliRunning, int maxApiRunning)
+        {
+            scheduler = new AgentScheduler(threads, turns, events, registry, maxCliRunning, maxApiRunning);
+        }
+
+        private RecordingSession register(Thread thread)
+        {
+            RecordingSession session = new RecordingSession(thread);
+            threads.saveThread(thread);
+            registry.sessions.put(thread.id(), session);
+            return session;
+        }
+    }
+
+    private static final class RecordingRegistry
+            extends ThreadRegistry
+    {
+        private final Map<String, ThreadAgent> sessions = new LinkedHashMap<>();
+
+        private RecordingRegistry()
+        {
+            super(
+                    new InMemoryTaskStore(),
+                    new StreamJsonParser(new ObjectMapper()),
+                    new ObjectMapper(),
+                    new McpPermissionGate(),
+                    Executors.newSingleThreadExecutor(),
+                    CheckpointTrigger.NOOP);
+        }
+
+        @Override
+        public ThreadAgent getOrCreate(Thread thread)
+        {
+            ThreadAgent session = sessions.get(thread.id());
+            if (session == null) {
+                throw new IllegalStateException("no session for " + thread.id());
+            }
+            return session;
+        }
+    }
+
+    private static final class InMemoryTaskStore
+            implements ThreadStore
+    {
+        private final Map<String, Thread> threads = new LinkedHashMap<>();
+
+        @Override
+        public void saveThread(Thread thread)
+        {
+            threads.put(thread.id(), thread);
+        }
+
+        @Override
+        public Optional<Thread> findThreadById(String id)
+        {
+            return Optional.ofNullable(threads.get(id));
+        }
+
+        @Override
+        public void deleteThread(String id)
+        {
+            threads.remove(id);
+        }
+
+        @Override
+        public List<Thread> listTasksByStatus(ThreadStatus status, int limit)
+        {
+            return threads.values().stream()
+                    .filter(thread -> thread.status() == status)
+                    .limit(limit)
+                    .toList();
+        }
+
+        @Override
+        public List<Thread> listTasksByIds(Collection<String> ids)
+        {
+            return threads.values().stream()
+                    .filter(thread -> ids.contains(thread.id()))
+                    .toList();
+        }
+
+        @Override
+        public void appendMessage(ThreadMessage message) {}
+
+        @Override
+        public List<ThreadMessage> listMessages(String threadId)
+        {
+            return List.of();
+        }
+
+        @Override
+        public void recordFile(ThreadFile file) {}
+
+        @Override
+        public List<ThreadFile> listFiles(String threadId)
+        {
+            return List.of();
+        }
+    }
+
+    private static final class InMemoryTaskTurnStore
+            implements ThreadTurnStore
+    {
+        private final Map<String, ThreadTurn> turns = new LinkedHashMap<>();
+
+        @Override
+        public void saveTurn(ThreadTurn turn)
+        {
+            turns.put(turn.id(), turn);
+        }
+
+        @Override
+        public Optional<ThreadTurn> findTurnById(String id)
+        {
+            return Optional.ofNullable(turns.get(id));
+        }
+
+        @Override
+        public List<ThreadTurn> listTurnsByStatus(ThreadTurnStatus status, int limit)
+        {
+            return turns.values().stream()
+                    .filter(turn -> turn.status() == status)
+                    .sorted(turnOrder())
+                    .limit(limit)
+                    .toList();
+        }
+
+        @Override
+        public List<ThreadTurn> listTurnsByStatusAfter(ThreadTurnStatus status, Instant createdAfter, String idAfter, int limit)
+        {
+            return turns.values().stream()
+                    .filter(turn -> turn.status() == status)
+                    .filter(turn -> turn.createdAt().compareTo(createdAfter) > 0
+                            || (turn.createdAt().equals(createdAfter) && turn.id().compareTo(idAfter) > 0))
+                    .sorted(turnOrder())
+                    .limit(limit)
+                    .toList();
+        }
+
+        @Override
+        public List<ThreadTurn> listTurnsByStatuses(Collection<ThreadTurnStatus> statuses, int limit)
+        {
+            return turns.values().stream()
+                    .filter(turn -> statuses.contains(turn.status()))
+                    .sorted(turnOrder())
+                    .limit(limit)
+                    .toList();
+        }
+
+        @Override
+        public List<ThreadTurn> listTurnsByTaskIdAndStatus(String threadId, ThreadTurnStatus status, int limit)
+        {
+            return turns.values().stream()
+                    .filter(turn -> turn.threadId().equals(threadId))
+                    .filter(turn -> turn.status() == status)
+                    .sorted(threadHistoryOrder())
+                    .limit(limit)
+                    .toList();
+        }
+
+        @Override
+        public List<ThreadTurn> listTurnsByTaskId(String threadId, int limit)
+        {
+            return turns.values().stream()
+                    .filter(turn -> turn.threadId().equals(threadId))
+                    .sorted(threadHistoryOrder())
+                    .limit(limit)
+                    .toList();
+        }
+
+        private static Comparator<ThreadTurn> turnOrder()
+        {
+            return Comparator.comparing(ThreadTurn::createdAt)
+                    .thenComparing(ThreadTurn::id);
+        }
+
+        private static Comparator<ThreadTurn> threadHistoryOrder()
+        {
+            return Comparator.comparing(ThreadTurn::createdAt)
+                    .thenComparing(ThreadTurn::id)
+                    .reversed();
+        }
+    }
+
+    private static final class InMemoryTaskTurnEventStore
+            implements ThreadTurnEventStore
+    {
+        private final Map<String, ThreadTurnEvent> events = new LinkedHashMap<>();
+
+        @Override
+        public void appendEvent(ThreadTurnEvent event)
+        {
+            events.put(event.id(), event);
+        }
+
+        @Override
+        public List<ThreadTurnEvent> listEventsByTaskId(String threadId, int limit)
+        {
+            return events.values().stream()
+                    .filter(event -> event.threadId().equals(threadId))
+                    .sorted(eventHistoryOrder())
+                    .limit(limit)
+                    .toList();
+        }
+
+        private static Comparator<ThreadTurnEvent> eventHistoryOrder()
+        {
+            return Comparator.comparing(ThreadTurnEvent::createdAt)
+                    .thenComparing(ThreadTurnEvent::id)
+                    .reversed();
+        }
+    }
+
+    private static ThreadTurn turn(String id, String threadId, Instant createdAt)
+    {
+        return turn(id, threadId, QUEUED, createdAt);
+    }
+
+    private static ThreadTurn turn(String id, String threadId, ThreadTurnStatus status, Instant createdAt)
+    {
+        return new ThreadTurn(
+                id,
+                threadId,
+                ThreadResourceLane.CLI,
+                status,
+                "input",
+                createdAt,
+                createdAt,
+                /* startedAt */ null,
+                /* finishedAt */ null,
+                /* errorMessage */ null);
+    }
+
+    private static final class RecordingSession
+            implements ThreadAgent
+    {
+        private final Thread thread;
+        private final List<String> inputs = new ArrayList<>();
+        private final ArrayDeque<CompletableFuture<Void>> completions = new ArrayDeque<>();
+        private ThreadStatus status = ThreadStatus.IDLE;
+
+        private RecordingSession(Thread thread)
+        {
+            this.thread = thread;
+        }
+
+        @Override
+        public String id()
+        {
+            return thread.id();
+        }
+
+        @Override
+        public ThreadKind kind()
+        {
+            return thread.kind();
+        }
+
+        @Override
+        public String provider()
+        {
+            return thread.provider();
+        }
+
+        @Override
+        public String model()
+        {
+            return thread.model();
+        }
+
+        @Override
+        public String workingDir()
+        {
+            return thread.workingDir();
+        }
+
+        @Override
+        public String branchName()
+        {
+            return thread.branchName();
+        }
+
+        @Override
+        public ThreadStatus status()
+        {
+            return status;
+        }
+
+        @Override
+        public AgentMetrics metrics()
+        {
+            return new AgentMetrics(0, 0, 0, 0, 0, 0);
+        }
+
+        @Override
+        public List<ThreadMessage> history()
+        {
+            return List.of();
+        }
+
+        @Override
+        public CompletionStage<Void> send(String userInput)
+        {
+            inputs.add(userInput);
+            status = ThreadStatus.RUNNING;
+            CompletableFuture<Void> completion = new CompletableFuture<>();
+            completions.add(completion);
+            return completion;
+        }
+
+        private void completeNext()
+        {
+            status = ThreadStatus.IDLE;
+            completions.removeFirst().complete(null);
+        }
+
+        private void failNext(RuntimeException failure)
+        {
+            status = ThreadStatus.ERRORED;
+            completions.removeFirst().completeExceptionally(failure);
+        }
+
+        @Override
+        public void interrupt() {}
+
+        @Override
+        public void pause() {}
+
+        @Override
+        public void resume() {}
+
+        @Override
+        public void stop() {}
+
+        @Override
+        public void notifyPermissionRequested(String callId, String toolName, String summary) {}
+
+        @Override
+        public void decide(String callId, PermissionDecision decision) {}
+
+        @Override
+        public void grantToolBudget(String toolName, int count) {}
+
+        @Override
+        public OptionalInt tryConsumeToolBudget(String toolName)
+        {
+            return OptionalInt.empty();
+        }
+
+        @Override
+        public void notifyPermissionAutoAllowed(String callId, String toolName, int remaining) {}
+
+        @Override
+        public Runnable subscribeToEvents(Consumer<StreamEvent> listener)
+        {
+            return () -> {};
+        }
+    }
+}

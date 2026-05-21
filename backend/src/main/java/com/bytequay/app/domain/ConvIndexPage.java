@@ -22,7 +22,7 @@ import java.util.List;
  * <p>The frontend reads {@code totalUserMessages} and {@code entries}
  * for the index panel header ("Conversation · N of M") and rows;
  * {@code messages} carries the corresponding window of
- * {@code task_messages} for the agent terminal. They're fetched in
+ * {@code thread_messages} for the agent terminal. They're fetched in
  * one round-trip so the index and the rendered transcript can't
  * drift — a deliberate constraint from the conversation-index
  * design doc.
@@ -31,18 +31,18 @@ import java.util.List;
  * <ul>
  *   <li><b>Initial window</b>: the page returns the tail of the
  *       conversation. {@code messages} is the rendered window;
- *       {@code totalUserMessages} reflects the whole task;
+ *       {@code totalUserMessages} reflects the whole thread;
  *       {@code nextCursor} is the smallest loaded seq, or
  *       {@code null} when nothing older exists.</li>
  *   <li><b>Backfill window</b>: the page returns an older slice
  *       triggered by "↑ load earlier". {@code totalUserMessages}
- *       is still the task-wide count (so the header math works);
+ *       is still the thread-wide count (so the header math works);
  *       {@code nextCursor} is again the smallest seq of this batch,
- *       or {@code null} when the start of the task is reached.</li>
+ *       or {@code null} when the start of the thread is reached.</li>
  * </ul>
  *
  * @param entries User prompts in the loaded window, oldest-first.
- * @param messages The {@code task_messages} rows that match the same
+ * @param messages The {@code thread_messages} rows that match the same
  * window. Oldest-first; intended to be prepended to the agent
  * terminal's loaded set on backfill, or used as the initial render on
  * initial loads.
@@ -53,10 +53,10 @@ import java.util.List;
  * when no older rows remain.
  */
 public record ConvIndexPage(
-        String taskId,
+        String threadId,
         long totalUserMessages,
         List<ConvIndexEntry> entries,
-        List<TaskMessage> messages,
+        List<ThreadMessage> messages,
         Long loadedFromSeq,
         Long nextCursor)
 {

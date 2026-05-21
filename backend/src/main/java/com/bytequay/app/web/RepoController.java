@@ -140,7 +140,7 @@ public class RepoController
 
     /**
      * Title search for PRs in a single repo, all states. Powers the
-     * create-task linker's text-search fallback so a user can find an
+     * create-thread linker's text-search fallback so a user can find an
      * old or closed PR that isn't in the 30 most-recent open PRs
      * returned by {@link #getRepoPulls}. Empty {@code q} returns an
      * empty list rather than running an unscoped search.

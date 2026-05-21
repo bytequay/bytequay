@@ -219,7 +219,7 @@ public class RepoService
 
     /**
      * Title/body search for PRs in a single repo, across all states
-     * (open + closed + merged). Used by the create-task PR linker so
+     * (open + closed + merged). Used by the create-thread PR linker so
      * users can find old or closed PRs that aren't in the capped
      * {@link #getRepoPullRequests} response — typing the linker only
      * surfaces the top page of recent open PRs without this fallback.

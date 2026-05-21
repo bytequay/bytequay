@@ -1330,7 +1330,7 @@ export type TaskSendResultDto = {
   turnId: string;
 };
 
-/** One event delivered over the {@code /api/tasks/:id/stream} SSE
+/** One event delivered over the {@code /api/threads/:id/stream} SSE
  *  channel. {@code name} is the Java class's simple name (e.g.
  *  {@code AssistantText}, {@code ToolCallStarted}, {@code TurnDone},
  *  {@code PermissionRequested}, {@code PermissionAutoAllowed},

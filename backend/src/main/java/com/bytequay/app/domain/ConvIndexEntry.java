@@ -15,7 +15,7 @@ package com.bytequay.app.domain;
 
 /**
  * One row of the floating conversation index — a single user prompt
- * derived from {@code task_messages}.
+ * derived from {@code thread_messages}.
  *
  * <p>The preview is a server-side rendering of the prompt's text:
  * leading whitespace stripped, internal whitespace collapsed to

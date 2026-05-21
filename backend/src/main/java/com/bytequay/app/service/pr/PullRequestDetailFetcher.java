@@ -276,12 +276,12 @@ final class PullRequestDetailFetcher
                 issueComments.size());
     }
 
-    private <T> CompletableFuture<T> timed(String name, PullRequestRef ref, Supplier<T> task)
+    private <T> CompletableFuture<T> timed(String name, PullRequestRef ref, Supplier<T> thread)
     {
         return CompletableFuture.supplyAsync(() -> {
             long t = System.nanoTime();
             try {
-                T result = task.get();
+                T result = thread.get();
                 long ms = (System.nanoTime() - t) / 1_000_000;
                 if (ms > 500) {
                     log.info("{}({}#{}) ok in {}ms", name, repoFullName(ref), ref.number(), ms);

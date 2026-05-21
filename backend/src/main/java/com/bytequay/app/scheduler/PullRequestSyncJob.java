@@ -81,7 +81,7 @@ public class PullRequestSyncJob
 
     /**
      * Fires a sync immediately on the shared application executor, bypassing the interval check.
-     * Returns as soon as the task is submitted and does not block.
+     * Returns as soon as the thread is submitted and does not block.
      */
     public void requestImmediateSync()
     {

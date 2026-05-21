@@ -2425,54 +2425,54 @@ const url = new URL(`${BACKEND_BASE}/api/search/repos`);
   // turn synchronously so the returned row already carries the agent
   // session id where available.
   ipcMain.handle('tasks:list', async (_event, groupId: unknown) => {
-    let url = `${BACKEND_BASE}/api/tasks`;
+    let url = `${BACKEND_BASE}/api/threads`;
     if (typeof groupId === 'string' && groupId.trim().length > 0) {
       url += `?groupId=${encodeURIComponent(groupId)}`;
     }
     const res = await fetch(url);
     if (!res.ok) {
       const text = await res.text().catch(() => '');
-      throw new Error(`backend /api/tasks returned ${res.status}: ${text}`);
+      throw new Error(`backend /api/threads returned ${res.status}: ${text}`);
     }
     return res.json();
   });
 
   ipcMain.handle('tasks:activeTurns', async () => {
-    const res = await fetch(`${BACKEND_BASE}/api/tasks/turns/active`);
+    const res = await fetch(`${BACKEND_BASE}/api/threads/turns/active`);
     if (!res.ok) {
       const text = await res.text().catch(() => '');
-      throw new Error(`backend GET /api/tasks/turns/active returned ${res.status}: ${text}`);
+      throw new Error(`backend GET /api/threads/turns/active returned ${res.status}: ${text}`);
     }
     return res.json();
   });
 
   ipcMain.handle('taskGroups:list', async () => {
-    const res = await fetch(`${BACKEND_BASE}/api/task-groups`);
+    const res = await fetch(`${BACKEND_BASE}/api/thread-groups`);
     if (!res.ok) {
       const text = await res.text().catch(() => '');
-      throw new Error(`backend /api/task-groups returned ${res.status}: ${text}`);
+      throw new Error(`backend /api/thread-groups returned ${res.status}: ${text}`);
     }
     return res.json();
   });
 
   ipcMain.handle('taskGroups:listMemberships', async () => {
-    const res = await fetch(`${BACKEND_BASE}/api/task-groups/memberships`);
+    const res = await fetch(`${BACKEND_BASE}/api/thread-groups/memberships`);
     if (!res.ok) {
       const text = await res.text().catch(() => '');
-      throw new Error(`backend /api/task-groups/memberships returned ${res.status}: ${text}`);
+      throw new Error(`backend /api/thread-groups/memberships returned ${res.status}: ${text}`);
     }
     return res.json();
   });
 
   ipcMain.handle('taskGroups:create', async (_event, request: unknown) => {
-    const res = await fetch(`${BACKEND_BASE}/api/task-groups`, {
+    const res = await fetch(`${BACKEND_BASE}/api/thread-groups`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(request ?? {}),
     });
     if (!res.ok) {
       const text = await res.text().catch(() => '');
-      throw new Error(`backend POST /api/task-groups returned ${res.status}: ${text}`);
+      throw new Error(`backend POST /api/thread-groups returned ${res.status}: ${text}`);
     }
     return res.json();
   });
@@ -2483,7 +2483,7 @@ const url = new URL(`${BACKEND_BASE}/api/search/repos`);
       throw new Error('id must be a non-empty string');
     }
     const res = await fetch(
-      `${BACKEND_BASE}/api/task-groups/${encodeURIComponent(id)}`,
+      `${BACKEND_BASE}/api/thread-groups/${encodeURIComponent(id)}`,
       {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
@@ -2491,7 +2491,7 @@ const url = new URL(`${BACKEND_BASE}/api/search/repos`);
       });
     if (!res.ok) {
       const text = await res.text().catch(() => '');
-      throw new Error(`backend PATCH /api/task-groups/${id} returned ${res.status}: ${text}`);
+      throw new Error(`backend PATCH /api/thread-groups/${id} returned ${res.status}: ${text}`);
     }
     return res.json();
   });
@@ -2501,11 +2501,11 @@ const url = new URL(`${BACKEND_BASE}/api/search/repos`);
       throw new Error('id must be a non-empty string');
     }
     const res = await fetch(
-      `${BACKEND_BASE}/api/task-groups/${encodeURIComponent(id)}`,
+      `${BACKEND_BASE}/api/thread-groups/${encodeURIComponent(id)}`,
       { method: 'DELETE' });
     if (!res.ok) {
       const text = await res.text().catch(() => '');
-      throw new Error(`backend DELETE /api/task-groups/${id} returned ${res.status}: ${text}`);
+      throw new Error(`backend DELETE /api/thread-groups/${id} returned ${res.status}: ${text}`);
     }
   });
 
@@ -2518,11 +2518,11 @@ const url = new URL(`${BACKEND_BASE}/api/search/repos`);
       throw new Error('taskId must be a non-empty string');
     }
     const res = await fetch(
-      `${BACKEND_BASE}/api/task-groups/${encodeURIComponent(groupId)}/members/${encodeURIComponent(taskId)}`,
+      `${BACKEND_BASE}/api/thread-groups/${encodeURIComponent(groupId)}/members/${encodeURIComponent(taskId)}`,
       { method: 'POST' });
     if (!res.ok) {
       const text = await res.text().catch(() => '');
-      throw new Error(`backend POST /api/task-groups/${groupId}/members/${taskId} returned ${res.status}: ${text}`);
+      throw new Error(`backend POST /api/thread-groups/${groupId}/members/${taskId} returned ${res.status}: ${text}`);
     }
   });
 
@@ -2535,23 +2535,23 @@ const url = new URL(`${BACKEND_BASE}/api/search/repos`);
       throw new Error('taskId must be a non-empty string');
     }
     const res = await fetch(
-      `${BACKEND_BASE}/api/task-groups/${encodeURIComponent(groupId)}/members/${encodeURIComponent(taskId)}`,
+      `${BACKEND_BASE}/api/thread-groups/${encodeURIComponent(groupId)}/members/${encodeURIComponent(taskId)}`,
       { method: 'DELETE' });
     if (!res.ok) {
       const text = await res.text().catch(() => '');
-      throw new Error(`backend DELETE /api/task-groups/${groupId}/members/${taskId} returned ${res.status}: ${text}`);
+      throw new Error(`backend DELETE /api/thread-groups/${groupId}/members/${taskId} returned ${res.status}: ${text}`);
     }
   });
 
   ipcMain.handle('tasks:create', async (_event, request: unknown) => {
-    const res = await fetch(`${BACKEND_BASE}/api/tasks`, {
+    const res = await fetch(`${BACKEND_BASE}/api/threads`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(request ?? {}),
     });
     if (!res.ok) {
       const text = await res.text().catch(() => '');
-      throw new Error(`backend POST /api/tasks returned ${res.status}: ${text}`);
+      throw new Error(`backend POST /api/threads returned ${res.status}: ${text}`);
     }
     return res.json();
   });
@@ -2561,11 +2561,11 @@ const url = new URL(`${BACKEND_BASE}/api/search/repos`);
       throw new Error('id must be a non-empty string');
     }
     const res = await fetch(
-      `${BACKEND_BASE}/api/tasks/${encodeURIComponent(id)}/stop`,
+      `${BACKEND_BASE}/api/threads/${encodeURIComponent(id)}/stop`,
       { method: 'POST' });
     if (!res.ok) {
       const text = await res.text().catch(() => '');
-      throw new Error(`backend POST /api/tasks/${id}/stop returned ${res.status}: ${text}`);
+      throw new Error(`backend POST /api/threads/${id}/stop returned ${res.status}: ${text}`);
     }
   });
 
@@ -2574,11 +2574,11 @@ const url = new URL(`${BACKEND_BASE}/api/search/repos`);
       throw new Error('id must be a non-empty string');
     }
     const res = await fetch(
-      `${BACKEND_BASE}/api/tasks/${encodeURIComponent(id)}/resume`,
+      `${BACKEND_BASE}/api/threads/${encodeURIComponent(id)}/resume`,
       { method: 'POST' });
     if (!res.ok) {
       const text = await res.text().catch(() => '');
-      throw new Error(`backend POST /api/tasks/${id}/resume returned ${res.status}: ${text}`);
+      throw new Error(`backend POST /api/threads/${id}/resume returned ${res.status}: ${text}`);
     }
   });
 
@@ -2587,11 +2587,11 @@ const url = new URL(`${BACKEND_BASE}/api/search/repos`);
       throw new Error('id must be a non-empty string');
     }
     const res = await fetch(
-      `${BACKEND_BASE}/api/tasks/${encodeURIComponent(id)}`,
+      `${BACKEND_BASE}/api/threads/${encodeURIComponent(id)}`,
       { method: 'DELETE' });
     if (!res.ok) {
       const text = await res.text().catch(() => '');
-      throw new Error(`backend DELETE /api/tasks/${id} returned ${res.status}: ${text}`);
+      throw new Error(`backend DELETE /api/threads/${id} returned ${res.status}: ${text}`);
     }
   });
 
@@ -2599,10 +2599,10 @@ const url = new URL(`${BACKEND_BASE}/api/search/repos`);
     if (typeof id !== 'string' || id.trim().length === 0) {
       throw new Error('id must be a non-empty string');
     }
-    const res = await fetch(`${BACKEND_BASE}/api/tasks/${encodeURIComponent(id)}/working-changes`);
+    const res = await fetch(`${BACKEND_BASE}/api/threads/${encodeURIComponent(id)}/working-changes`);
     if (!res.ok) {
       const text = await res.text().catch(() => '');
-      throw new Error(`backend GET /api/tasks/${id}/working-changes returned ${res.status}: ${text}`);
+      throw new Error(`backend GET /api/threads/${id}/working-changes returned ${res.status}: ${text}`);
     }
     return res.json();
   });
@@ -2614,7 +2614,7 @@ const url = new URL(`${BACKEND_BASE}/api/search/repos`);
     if (typeof path !== 'string' || path.length === 0) {
       throw new Error('path must be a non-empty string');
     }
-    const url = `${BACKEND_BASE}/api/tasks/${encodeURIComponent(id)}/working-diff?path=${encodeURIComponent(path)}`;
+    const url = `${BACKEND_BASE}/api/threads/${encodeURIComponent(id)}/working-diff?path=${encodeURIComponent(path)}`;
     const res = await fetch(url);
     if (!res.ok) {
       const text = await res.text().catch(() => '');
@@ -2628,10 +2628,10 @@ const url = new URL(`${BACKEND_BASE}/api/search/repos`);
     if (typeof id !== 'string' || id.trim().length === 0) {
       throw new Error('id must be a non-empty string');
     }
-    const res = await fetch(`${BACKEND_BASE}/api/tasks/${encodeURIComponent(id)}/commits`);
+    const res = await fetch(`${BACKEND_BASE}/api/threads/${encodeURIComponent(id)}/commits`);
     if (!res.ok) {
       const text = await res.text().catch(() => '');
-      throw new Error(`backend GET /api/tasks/${id}/commits returned ${res.status}: ${text}`);
+      throw new Error(`backend GET /api/threads/${id}/commits returned ${res.status}: ${text}`);
     }
     return res.json();
   });
@@ -2643,7 +2643,7 @@ const url = new URL(`${BACKEND_BASE}/api/search/repos`);
     if (typeof sha !== 'string' || sha.trim().length === 0) {
       throw new Error('sha must be a non-empty string');
     }
-    const url = `${BACKEND_BASE}/api/tasks/${encodeURIComponent(id)}/commits/${encodeURIComponent(sha)}/files`;
+    const url = `${BACKEND_BASE}/api/threads/${encodeURIComponent(id)}/commits/${encodeURIComponent(sha)}/files`;
     const res = await fetch(url);
     if (!res.ok) {
       const text = await res.text().catch(() => '');
@@ -2662,7 +2662,7 @@ const url = new URL(`${BACKEND_BASE}/api/search/repos`);
     if (typeof path !== 'string' || path.length === 0) {
       throw new Error('path must be a non-empty string');
     }
-    const url = `${BACKEND_BASE}/api/tasks/${encodeURIComponent(id)}/commits/${encodeURIComponent(sha)}/diff?path=${encodeURIComponent(path)}`;
+    const url = `${BACKEND_BASE}/api/threads/${encodeURIComponent(id)}/commits/${encodeURIComponent(sha)}/diff?path=${encodeURIComponent(path)}`;
     const res = await fetch(url);
     if (!res.ok) {
       const text = await res.text().catch(() => '');
@@ -2677,11 +2677,11 @@ const url = new URL(`${BACKEND_BASE}/api/search/repos`);
       throw new Error('id must be a non-empty string');
     }
     const res = await fetch(
-      `${BACKEND_BASE}/api/tasks/${encodeURIComponent(id)}/interrupt`,
+      `${BACKEND_BASE}/api/threads/${encodeURIComponent(id)}/interrupt`,
       { method: 'POST' });
     if (!res.ok) {
       const text = await res.text().catch(() => '');
-      throw new Error(`backend POST /api/tasks/${id}/interrupt returned ${res.status}: ${text}`);
+      throw new Error(`backend POST /api/threads/${id}/interrupt returned ${res.status}: ${text}`);
     }
   });
 
@@ -2689,11 +2689,11 @@ const url = new URL(`${BACKEND_BASE}/api/search/repos`);
     if (typeof id !== 'string' || id.trim().length === 0) {
       throw new Error('id must be a non-empty string');
     }
-    const res = await fetch(`${BACKEND_BASE}/api/tasks/${encodeURIComponent(id)}`);
+    const res = await fetch(`${BACKEND_BASE}/api/threads/${encodeURIComponent(id)}`);
     if (res.status === 404) return null;
     if (!res.ok) {
       const text = await res.text().catch(() => '');
-      throw new Error(`backend GET /api/tasks/${id} returned ${res.status}: ${text}`);
+      throw new Error(`backend GET /api/threads/${id} returned ${res.status}: ${text}`);
     }
     return res.json();
   });
@@ -2703,10 +2703,10 @@ const url = new URL(`${BACKEND_BASE}/api/search/repos`);
       throw new Error('id must be a non-empty string');
     }
     const res = await fetch(
-      `${BACKEND_BASE}/api/tasks/${encodeURIComponent(id)}/messages`);
+      `${BACKEND_BASE}/api/threads/${encodeURIComponent(id)}/messages`);
     if (!res.ok) {
       const text = await res.text().catch(() => '');
-      throw new Error(`backend GET /api/tasks/${id}/messages returned ${res.status}: ${text}`);
+      throw new Error(`backend GET /api/threads/${id}/messages returned ${res.status}: ${text}`);
     }
     return res.json();
   });
@@ -2721,7 +2721,7 @@ const url = new URL(`${BACKEND_BASE}/api/search/repos`);
     if (typeof id !== 'string' || id.trim().length === 0) {
       throw new Error('id must be a non-empty string');
     }
-    const url = new URL(`${BACKEND_BASE}/api/tasks/${encodeURIComponent(id)}/index`);
+    const url = new URL(`${BACKEND_BASE}/api/threads/${encodeURIComponent(id)}/index`);
     if (typeof cursor === 'number' && Number.isFinite(cursor)) {
       url.searchParams.set('cursor', String(Math.trunc(cursor)));
     }
@@ -2736,7 +2736,7 @@ const url = new URL(`${BACKEND_BASE}/api/search/repos`);
     const res = await fetch(url);
     if (!res.ok) {
       const text = await res.text().catch(() => '');
-      throw new Error(`backend GET /api/tasks/${id}/index returned ${res.status}: ${text}`);
+      throw new Error(`backend GET /api/threads/${id}/index returned ${res.status}: ${text}`);
     }
     return res.json();
   });
@@ -2746,10 +2746,10 @@ const url = new URL(`${BACKEND_BASE}/api/search/repos`);
       throw new Error('id must be a non-empty string');
     }
     const res = await fetch(
-      `${BACKEND_BASE}/api/tasks/${encodeURIComponent(id)}/checkpoints`);
+      `${BACKEND_BASE}/api/threads/${encodeURIComponent(id)}/checkpoints`);
     if (!res.ok) {
       const text = await res.text().catch(() => '');
-      throw new Error(`backend GET /api/tasks/${id}/checkpoints returned ${res.status}: ${text}`);
+      throw new Error(`backend GET /api/threads/${id}/checkpoints returned ${res.status}: ${text}`);
     }
     return res.json();
   });
@@ -2759,11 +2759,11 @@ const url = new URL(`${BACKEND_BASE}/api/search/repos`);
       throw new Error('id must be a non-empty string');
     }
     const res = await fetch(
-      `${BACKEND_BASE}/api/tasks/${encodeURIComponent(id)}/checkpoints`,
+      `${BACKEND_BASE}/api/threads/${encodeURIComponent(id)}/checkpoints`,
       { method: 'POST' });
     if (!res.ok) {
       const text = await res.text().catch(() => '');
-      throw new Error(`backend POST /api/tasks/${id}/checkpoints returned ${res.status}: ${text}`);
+      throw new Error(`backend POST /api/threads/${id}/checkpoints returned ${res.status}: ${text}`);
     }
     // 204 → nothing new to summarise. Resolve as null so callers can
     // distinguish "no-op" from "fresh segment".
@@ -2778,10 +2778,10 @@ const url = new URL(`${BACKEND_BASE}/api/search/repos`);
       throw new Error('id must be a non-empty string');
     }
     const res = await fetch(
-      `${BACKEND_BASE}/api/tasks/${encodeURIComponent(id)}/checkpoints/status`);
+      `${BACKEND_BASE}/api/threads/${encodeURIComponent(id)}/checkpoints/status`);
     if (!res.ok) {
       const text = await res.text().catch(() => '');
-      throw new Error(`backend GET /api/tasks/${id}/checkpoints/status returned ${res.status}: ${text}`);
+      throw new Error(`backend GET /api/threads/${id}/checkpoints/status returned ${res.status}: ${text}`);
     }
     return res.json();
   });
@@ -2791,10 +2791,10 @@ const url = new URL(`${BACKEND_BASE}/api/search/repos`);
       throw new Error('id must be a non-empty string');
     }
     const res = await fetch(
-      `${BACKEND_BASE}/api/tasks/${encodeURIComponent(id)}/turns`);
+      `${BACKEND_BASE}/api/threads/${encodeURIComponent(id)}/turns`);
     if (!res.ok) {
       const text = await res.text().catch(() => '');
-      throw new Error(`backend GET /api/tasks/${id}/turns returned ${res.status}: ${text}`);
+      throw new Error(`backend GET /api/threads/${id}/turns returned ${res.status}: ${text}`);
     }
     return res.json();
   });
@@ -2804,10 +2804,10 @@ const url = new URL(`${BACKEND_BASE}/api/search/repos`);
       throw new Error('id must be a non-empty string');
     }
     const res = await fetch(
-      `${BACKEND_BASE}/api/tasks/${encodeURIComponent(id)}/turn-events`);
+      `${BACKEND_BASE}/api/threads/${encodeURIComponent(id)}/turn-events`);
     if (!res.ok) {
       const text = await res.text().catch(() => '');
-      throw new Error(`backend GET /api/tasks/${id}/turn-events returned ${res.status}: ${text}`);
+      throw new Error(`backend GET /api/threads/${id}/turn-events returned ${res.status}: ${text}`);
     }
     return res.json();
   });
@@ -2817,10 +2817,10 @@ const url = new URL(`${BACKEND_BASE}/api/search/repos`);
       throw new Error('id must be a non-empty string');
     }
     const res = await fetch(
-      `${BACKEND_BASE}/api/tasks/${encodeURIComponent(id)}/files`);
+      `${BACKEND_BASE}/api/threads/${encodeURIComponent(id)}/files`);
     if (!res.ok) {
       const text = await res.text().catch(() => '');
-      throw new Error(`backend GET /api/tasks/${id}/files returned ${res.status}: ${text}`);
+      throw new Error(`backend GET /api/threads/${id}/files returned ${res.status}: ${text}`);
     }
     return res.json();
   });
@@ -2834,7 +2834,7 @@ const url = new URL(`${BACKEND_BASE}/api/search/repos`);
       throw new Error('title must be a non-empty string');
     }
     const res = await fetch(
-      `${BACKEND_BASE}/api/tasks/${encodeURIComponent(id)}`,
+      `${BACKEND_BASE}/api/threads/${encodeURIComponent(id)}`,
       {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
@@ -2842,7 +2842,7 @@ const url = new URL(`${BACKEND_BASE}/api/search/repos`);
       });
     if (!res.ok) {
       const text = await res.text().catch(() => '');
-      throw new Error(`backend PATCH /api/tasks/${id} returned ${res.status}: ${text}`);
+      throw new Error(`backend PATCH /api/threads/${id} returned ${res.status}: ${text}`);
     }
     return res.json();
   });
@@ -2853,7 +2853,7 @@ const url = new URL(`${BACKEND_BASE}/api/search/repos`);
       throw new Error('id and non-empty input are required');
     }
     const res = await fetch(
-      `${BACKEND_BASE}/api/tasks/${encodeURIComponent(id)}/messages`,
+      `${BACKEND_BASE}/api/threads/${encodeURIComponent(id)}/messages`,
       {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -2861,7 +2861,7 @@ const url = new URL(`${BACKEND_BASE}/api/search/repos`);
       });
     if (!res.ok) {
       const text = await res.text().catch(() => '');
-      throw new Error(`backend POST /api/tasks/${id}/messages returned ${res.status}: ${text}`);
+      throw new Error(`backend POST /api/threads/${id}/messages returned ${res.status}: ${text}`);
     }
     return res.json();
   });
@@ -2883,7 +2883,7 @@ const url = new URL(`${BACKEND_BASE}/api/search/repos`);
       body.preApproveCount = preApprove.count;
     }
     const res = await fetch(
-      `${BACKEND_BASE}/api/tasks/${encodeURIComponent(id)}/decisions`,
+      `${BACKEND_BASE}/api/threads/${encodeURIComponent(id)}/decisions`,
       {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -2891,7 +2891,7 @@ const url = new URL(`${BACKEND_BASE}/api/search/repos`);
       });
     if (!res.ok) {
       const text = await res.text().catch(() => '');
-      throw new Error(`backend POST /api/tasks/${id}/decisions returned ${res.status}: ${text}`);
+      throw new Error(`backend POST /api/threads/${id}/decisions returned ${res.status}: ${text}`);
     }
   });
 

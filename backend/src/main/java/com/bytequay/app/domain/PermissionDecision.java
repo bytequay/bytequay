@@ -16,7 +16,7 @@ package com.bytequay.app.domain;
 /**
  * User's response to a {@link StreamEvent.PermissionRequested}.
  * Delivered back to the agent loop via
- * {@code AgentSession.decide(callId, decision)}.
+ * {@code ThreadAgent.decide(callId, decision)}.
  */
 public enum PermissionDecision
 {

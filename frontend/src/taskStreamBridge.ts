@@ -17,7 +17,7 @@ import type { TaskStreamEvent } from './types';
 
 /**
  * Main-process broker for the per-task Server-Sent Events stream that
- * the backend exposes at {@code GET /api/tasks/:id/stream}. The
+ * the backend exposes at {@code GET /api/threads/:id/stream}. The
  * renderer can't open an SSE connection itself under the sandboxed
  * preload model, so we keep one open in main and forward each parsed
  * event to the renderer via {@code webContents.send('tasks:stream:event', ...)}.
@@ -77,7 +77,7 @@ async function runStream(
   controller: AbortController,
   getMainWindow: () => BrowserWindow | null,
 ): Promise<void> {
-  const url = `${BACKEND_BASE}/api/tasks/${encodeURIComponent(taskId)}/stream`;
+  const url = `${BACKEND_BASE}/api/threads/${encodeURIComponent(taskId)}/stream`;
   let reason = 'closed';
   try {
     const res = await fetch(url, {

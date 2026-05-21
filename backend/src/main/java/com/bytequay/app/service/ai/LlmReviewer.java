@@ -73,7 +73,7 @@ public interface LlmReviewer
 
     /**
      * Rewrites a developer-authored review comment to be clearer, more
-     * specific, and friendlier — same task as the user pasting their
+     * specific, and friendlier — same thread as the user pasting their
      * draft into ChatGPT and asking "give me better words". Returns the
      * polished text directly (no JSON wrapper, no preamble).
      *

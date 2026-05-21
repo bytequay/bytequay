@@ -1,0 +1,500 @@
+/*
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+package com.bytequay.app.web;
+
+import com.bytequay.app.domain.ConvIndexPage;
+import com.bytequay.app.domain.PermissionDecision;
+import com.bytequay.app.domain.Thread;
+import com.bytequay.app.domain.ThreadCheckpoint;
+import com.bytequay.app.domain.ThreadFile;
+import com.bytequay.app.domain.ThreadKind;
+import com.bytequay.app.domain.ThreadMessage;
+import com.bytequay.app.domain.ThreadStatus;
+import com.bytequay.app.domain.ThreadTurn;
+import com.bytequay.app.domain.ThreadTurnEvent;
+import com.bytequay.app.repository.ThreadCheckpointStore;
+import com.bytequay.app.service.local.GitRunner;
+import com.bytequay.app.service.threads.CheckpointTrigger;
+import com.bytequay.app.service.threads.ConvIndexService;
+import com.bytequay.app.service.threads.ThreadService;
+import com.google.common.collect.ImmutableList;
+import com.google.common.collect.ImmutableMap;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.http.MediaType;
+import org.springframework.http.ResponseEntity;
+import org.springframework.web.bind.annotation.DeleteMapping;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PatchMapping;
+import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
+import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
+
+import java.io.IOException;
+import java.util.List;
+import java.util.Map;
+
+import static java.util.Objects.requireNonNull;
+
+/**
+ * Local REST surface for the Tasks page.
+ *
+ * <p>Exposes one resource per primitive in {@link ThreadService}:
+ * list/create on {@code /api/threads}, detail/history under
+ * {@code /api/threads/{id}}, mutating verbs as POST sub-paths, and a
+ * single SSE stream that the frontend's thread-detail view subscribes
+ * to for live events.
+ */
+@RestController
+@RequestMapping("/api/threads")
+public class ThreadController
+{
+    private static final Logger log = LoggerFactory.getLogger(ThreadController.class);
+
+    /** Per-page cap; matches the design doc's "show ~50 most recent
+     *  threads" target for the list view. */
+    private static final int DEFAULT_LIMIT = 50;
+    /** Active scheduler turns are small rows; 200 covers busy groups
+     *  without returning the whole historical table. */
+    private static final int DEFAULT_ACTIVE_TURN_LIMIT = 200;
+
+    /** Six hours — long enough for an unattended overnight run, short
+     *  enough that abandoned browser tabs don't leak the stream. */
+    private static final long STREAM_TIMEOUT_MS = 6L * 60L * 60L * 1000L;
+
+    /** Default page size for the conversation-index window. Matches
+     *  the doc's "load the last 50 prompts" target. */
+    private static final int DEFAULT_INDEX_LIMIT = 50;
+
+    private final ThreadService threads;
+    private final ConvIndexService convIndex;
+    private final ThreadCheckpointStore checkpoints;
+    private final CheckpointTrigger checkpointTrigger;
+
+    public ThreadController(
+            ThreadService threads,
+            ConvIndexService convIndex,
+            ThreadCheckpointStore checkpoints,
+            CheckpointTrigger checkpointTrigger)
+    {
+        this.threads = requireNonNull(threads, "threads is null");
+        this.convIndex = requireNonNull(convIndex, "convIndex is null");
+        this.checkpoints = requireNonNull(checkpoints, "checkpoints is null");
+        this.checkpointTrigger = requireNonNull(checkpointTrigger, "checkpointTrigger is null");
+    }
+
+    /** GET /api/threads?status=RUNNING&limit=50&groupId=... */
+    @GetMapping
+    public List<Thread> list(
+            @RequestParam(required = false) ThreadStatus status,
+            @RequestParam(required = false) String groupId,
+            @RequestParam(required = false, defaultValue = "" + DEFAULT_LIMIT) int limit)
+    {
+        int cap = Math.min(limit, DEFAULT_LIMIT);
+        if (groupId != null && !groupId.isBlank()) {
+            List<Thread> page = threads.listByGroup(groupId, cap);
+            if (status == null) {
+                return page;
+            }
+            return page.stream().filter(t -> t.status() == status).toList();
+        }
+        if (status == null) {
+            ImmutableList.Builder<Thread> all = ImmutableList.builder();
+            for (ThreadStatus s : ThreadStatus.values()) {
+                all.addAll(threads.listByStatus(s, cap));
+            }
+            return all.build();
+        }
+        return threads.listByStatus(status, cap);
+    }
+
+    /** GET /api/threads/turns/active — queued/running turns across threads. */
+    @GetMapping("/turns/active")
+    public List<ThreadTurn> activeTurns(
+            @RequestParam(required = false, defaultValue = "" + DEFAULT_ACTIVE_TURN_LIMIT) int limit)
+    {
+        return threads.activeTurns(limit);
+    }
+
+    /** POST /api/threads — create + start. Returns the persisted row. */
+    @PostMapping
+    public Thread create(@RequestBody NewTaskBody body)
+    {
+        requireNonNull(body, "body is null");
+        if (body.kind() == null) {
+            throw new IllegalArgumentException("kind is required");
+        }
+        if (body.workingDir() == null || body.workingDir().isBlank()) {
+            throw new IllegalArgumentException("workingDir is required");
+        }
+        if (body.title() == null || body.title().isBlank()) {
+            throw new IllegalArgumentException("title is required");
+        }
+        return threads.create(new ThreadService.NewTaskRequest(
+                body.kind(),
+                body.provider() == null ? "claude-code" : body.provider(),
+                body.model(),
+                body.title(),
+                body.workingDir(),
+                body.branchName(),
+                body.initialPrompt(),
+                body.metadataJson(),
+                body.initialGroupIds() == null ? List.of() : body.initialGroupIds(),
+                body.taskType(),
+                body.linkedPrNumber(),
+                body.linkedIssueNumber()));
+    }
+
+    /** GET /api/threads/{id} */
+    @GetMapping("/{id}")
+    public ResponseEntity<Thread> get(@PathVariable String id)
+    {
+        return threads.find(id)
+                .map(ResponseEntity::ok)
+                .orElseGet(() -> ResponseEntity.notFound().build());
+    }
+
+    /**
+     * PATCH /api/threads/{id} — partial update. Only {@code title} is
+     * editable; pass a non-null, non-blank string to rename. Group
+     * membership moved to its own endpoints under
+     * {@code /api/thread-groups/{id}/members/{threadId}} since one thread
+     * can belong to many groups.
+     */
+    @PatchMapping("/{id}")
+    public Thread patch(@PathVariable String id, @RequestBody PatchTaskBody body)
+    {
+        requireNonNull(body, "body is required");
+        return threads.patchTask(id, new ThreadService.TaskPatch(body.title()));
+    }
+
+    /** GET /api/threads/{id}/messages — full conversation, oldest first. */
+    @GetMapping("/{id}/messages")
+    public List<ThreadMessage> messages(@PathVariable String id)
+    {
+        return threads.history(id);
+    }
+
+    /**
+     * GET /api/threads/{id}/index?cursor=&limit=&direction=
+     *
+     * <p>Conversation index window. Two modes:
+     * <ul>
+     *   <li>{@code direction=initial} (default): most-recent
+     *       {@code limit} messages plus the user-prompt index entries
+     *       derived from them, plus the thread-wide user-prompt count
+     *       for the "N of M" header.</li>
+     *   <li>{@code direction=before}: messages strictly older than
+     *       {@code cursor}, oldest-first; used by the "↑ load earlier"
+     *       affordance to prepend to the loaded window.</li>
+     * </ul>
+     *
+     * <p>Both modes return the messages and the derived index entries
+     * in <b>one round-trip</b> so the two views can't drift — the
+     * design doc explicitly forbids fetching the index without the
+     * messages or vice versa for the same window.
+     */
+    @GetMapping("/{id}/index")
+    public ConvIndexPage index(
+            @PathVariable String id,
+            @RequestParam(required = false) Long cursor,
+            @RequestParam(required = false, defaultValue = "" + DEFAULT_INDEX_LIMIT) int limit,
+            @RequestParam(required = false, defaultValue = "initial") String direction)
+    {
+        if ("before".equalsIgnoreCase(direction)) {
+            if (cursor == null) {
+                throw new IllegalArgumentException(
+                        "cursor is required when direction=before — pass the smallest seq currently loaded");
+            }
+            return convIndex.backfill(id, cursor, limit);
+        }
+        return convIndex.initial(id, limit);
+    }
+
+    /** GET /api/threads/{id}/checkpoints — every active checkpoint for
+     *  the thread. Overall first, then segments by descending seq, so
+     *  the sidebar card can render newest-on-top without sorting. */
+    @GetMapping("/{id}/checkpoints")
+    public List<ThreadCheckpoint> listCheckpoints(@PathVariable String id)
+    {
+        return checkpoints.listActive(id);
+    }
+
+    /** GET /api/threads/{id}/checkpoints/{checkpointId} — single
+     *  checkpoint for the detail drawer + the cross-thread seed loader. */
+    @GetMapping("/{id}/checkpoints/{checkpointId}")
+    public ResponseEntity<ThreadCheckpoint> getCheckpoint(
+            @PathVariable String id,
+            @PathVariable String checkpointId)
+    {
+        return checkpoints.findById(checkpointId)
+                .filter(cp -> cp.threadId().equals(id))
+                .map(ResponseEntity::ok)
+                .orElseGet(() -> ResponseEntity.notFound().build());
+    }
+
+    /** POST /api/threads/{id}/checkpoints — manual generate. Returns the
+     *  new checkpoint or 204 when there's nothing new since the last
+     *  segment (the UI button should be disabled in that state, but
+     *  we still need a safe answer if it fires). */
+    @PostMapping("/{id}/checkpoints")
+    public ResponseEntity<ThreadCheckpoint> generateCheckpoint(@PathVariable String id)
+    {
+        return checkpointTrigger.manualGenerate(id)
+                .map(ResponseEntity::ok)
+                .orElseGet(() -> ResponseEntity.noContent().build());
+    }
+
+    /** GET /api/threads/{id}/checkpoints/status — last scheduler outcome
+     *  for the thread. {@code lastError} is null when the most recent
+     *  attempt succeeded or hasn't run yet; non-null carries the
+     *  failure message (typically "Anthropic API key not configured")
+     *  so the rail can render a "summariser disabled" hint instead of
+     *  a silent empty list. */
+    @GetMapping("/{id}/checkpoints/status")
+    public CheckpointStatusResponse checkpointStatus(@PathVariable String id)
+    {
+        return new CheckpointStatusResponse(checkpointTrigger.lastErrorFor(id).orElse(null));
+    }
+
+    public record CheckpointStatusResponse(String lastError) {}
+
+    /** DELETE /api/threads/{id}/checkpoints/{checkpointId} — drop one
+     *  per-segment row. The store refuses Overall rows (those are
+     *  scheduler-owned and regenerate on the next turn). */
+    @DeleteMapping("/{id}/checkpoints/{checkpointId}")
+    public ResponseEntity<Void> deleteCheckpoint(
+            @PathVariable String id,
+            @PathVariable String checkpointId)
+    {
+        return checkpoints.findById(checkpointId)
+                .filter(cp -> cp.threadId().equals(id))
+                .map(cp -> {
+                    checkpoints.deleteSegment(checkpointId);
+                    return ResponseEntity.noContent().<Void>build();
+                })
+                .orElseGet(() -> ResponseEntity.notFound().build());
+    }
+
+    /** GET /api/threads/{id}/turns — recent scheduler turns, newest first. */
+    @GetMapping("/{id}/turns")
+    public List<ThreadTurn> turns(@PathVariable String id)
+    {
+        return threads.turns(id);
+    }
+
+    /** GET /api/threads/{id}/turn-events — scheduler timeline, newest first. */
+    @GetMapping("/{id}/turn-events")
+    public List<ThreadTurnEvent> turnEvents(@PathVariable String id)
+    {
+        return threads.turnEvents(id);
+    }
+
+    /** GET /api/threads/{id}/files — per-file rollup, most-recently
+     *  touched first. Powers the sidebar's Files touched card. */
+    @GetMapping("/{id}/files")
+    public List<ThreadFile> files(@PathVariable String id)
+    {
+        return threads.files(id);
+    }
+
+    // ── Tabs: Files (uncommitted) + Commits (since thread started) ─────
+
+    /** GET /api/threads/{id}/working-changes — paths the AI session has
+     *  modified but not yet committed. Drives the Files tab. */
+    @GetMapping("/{id}/working-changes")
+    public List<GitRunner.WorkingTreeFile> workingChanges(@PathVariable String id)
+    {
+        return threads.listWorkingChanges(id);
+    }
+
+    /** GET /api/threads/{id}/working-diff?path=... — unified diff for
+     *  one uncommitted file. Capped at 256 KB. */
+    @GetMapping("/{id}/working-diff")
+    public Map<String, String> workingDiff(
+            @PathVariable String id,
+            @RequestParam String path)
+    {
+        return ImmutableMap.of("diff", threads.getWorkingDiff(id, path));
+    }
+
+    /** GET /api/threads/{id}/commits — commits authored since the thread
+     *  was created. Drives the Commits tab. */
+    @GetMapping("/{id}/commits")
+    public List<GitRunner.CommitEntry> commits(@PathVariable String id)
+    {
+        return threads.listTaskCommits(id);
+    }
+
+    /** GET /api/threads/{id}/commits/{sha}/files — per-file rollup for
+     *  one of the thread's commits. */
+    @GetMapping("/{id}/commits/{sha}/files")
+    public List<GitRunner.CommitFileChange> commitFiles(
+            @PathVariable String id,
+            @PathVariable String sha)
+    {
+        return threads.listCommitFiles(id, sha);
+    }
+
+    /** GET /api/threads/{id}/commits/{sha}/diff?path=... — unified diff
+     *  for one file at one commit. */
+    @GetMapping("/{id}/commits/{sha}/diff")
+    public Map<String, String> commitDiff(
+            @PathVariable String id,
+            @PathVariable String sha,
+            @RequestParam String path)
+    {
+        return ImmutableMap.of("diff", threads.getCommitDiff(id, sha, path));
+    }
+
+    /** POST /api/threads/{id}/messages — send a follow-up turn. */
+    @PostMapping("/{id}/messages")
+    public Map<String, String> send(@PathVariable String id, @RequestBody SendBody body)
+    {
+        requireNonNull(body, "body is null");
+        if (body.input() == null || body.input().isBlank()) {
+            throw new IllegalArgumentException("input is required");
+        }
+        String turnId = threads.send(id, body.input());
+        return ImmutableMap.of("status", "queued", "turnId", turnId);
+    }
+
+    @PostMapping("/{id}/interrupt")
+    public Map<String, String> interrupt(@PathVariable String id)
+    {
+        threads.interrupt(id);
+        return ImmutableMap.of("status", "interrupted");
+    }
+
+    @PostMapping("/{id}/pause")
+    public Map<String, String> pause(@PathVariable String id)
+    {
+        threads.pause(id);
+        return ImmutableMap.of("status", "paused");
+    }
+
+    @PostMapping("/{id}/resume")
+    public Map<String, String> resume(@PathVariable String id)
+    {
+        threads.resume(id);
+        return ImmutableMap.of("status", "resumed");
+    }
+
+    @PostMapping("/{id}/stop")
+    public Map<String, String> stop(@PathVariable String id)
+    {
+        threads.stop(id);
+        return ImmutableMap.of("status", "stopped");
+    }
+
+    @DeleteMapping("/{id}")
+    public Map<String, String> delete(@PathVariable String id)
+    {
+        threads.delete(id);
+        return ImmutableMap.of("status", "deleted");
+    }
+
+    @PostMapping("/{id}/decisions")
+    public Map<String, String> decide(@PathVariable String id, @RequestBody DecisionBody body)
+    {
+        requireNonNull(body, "body is null");
+        if (body.callId() == null || body.callId().isBlank()) {
+            throw new IllegalArgumentException("callId is required");
+        }
+        if (body.decision() == null) {
+            throw new IllegalArgumentException("decision is required");
+        }
+        threads.decide(id, body.callId(), body.decision());
+        // Optional pre-approval rider — when the user clicks "Allow next
+        // 5 / 10 / 50 / Always" we record the current decision first,
+        // then grant the budget so subsequent calls of the same tool
+        // skip the prompt. -1 is the "always" sentinel.
+        if (body.preApproveToolName() != null
+                && !body.preApproveToolName().isBlank()
+                && body.preApproveCount() != null
+                && body.preApproveCount() != 0) {
+            threads.grantToolBudget(id, body.preApproveToolName(), body.preApproveCount());
+        }
+        return ImmutableMap.of("status", "recorded");
+    }
+
+    /**
+     * GET /api/threads/{id}/stream — Server-Sent Events of every
+     * {@link com.bytequay.app.domain.StreamEvent} the session emits
+     * after subscription. The renderer uses the {@code event:}
+     * channel to switch on shape; all payloads are JSON.
+     */
+    @GetMapping(value = "/{id}/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
+    public SseEmitter stream(@PathVariable String id)
+    {
+        SseEmitter emitter = new SseEmitter(STREAM_TIMEOUT_MS);
+        Runnable unsubscribe = threads.subscribe(id, event -> {
+            try {
+                emitter.send(SseEmitter.event()
+                        .name(event.getClass().getSimpleName())
+                        .data(event));
+            }
+            catch (IOException e) {
+                // Client gone — surface so the upstream cleanup runs.
+                throw new IllegalStateException("SSE channel closed", e);
+            }
+        });
+        emitter.onCompletion(unsubscribe);
+        emitter.onTimeout(() -> {
+            unsubscribe.run();
+            emitter.complete();
+        });
+        emitter.onError(t -> {
+            log.debug("SSE error on thread {} stream: {}", id, t.getMessage());
+            unsubscribe.run();
+        });
+        return emitter;
+    }
+
+    /**
+     * POST body for {@link #create}.
+     *
+     * @param initialGroupIds optional group ids to pre-pin the new thread into.
+     * @param taskType free-form thread type.
+     * @param linkedPrNumber optional GitHub PR number to link.
+     * @param linkedIssueNumber optional GitHub issue number to link.
+     */
+    public record NewTaskBody(
+            ThreadKind kind,
+            String provider,
+            String model,
+            String title,
+            String workingDir,
+            String branchName,
+            String initialPrompt,
+            String metadataJson,
+            List<String> initialGroupIds,
+            String taskType,
+            Integer linkedPrNumber,
+            Integer linkedIssueNumber) {}
+
+    public record SendBody(String input) {}
+
+    public record DecisionBody(
+            String callId,
+            PermissionDecision decision,
+            String preApproveToolName,
+            Integer preApproveCount) {}
+
+    public record PatchTaskBody(String title) {}
+}

@@ -14,8 +14,8 @@
 package com.bytequay.app.web;
 
 import com.bytequay.app.domain.PermissionDecision;
-import com.bytequay.app.service.tasks.McpPermissionGate;
-import com.bytequay.app.service.tasks.TaskService;
+import com.bytequay.app.service.threads.McpPermissionGate;
+import com.bytequay.app.service.threads.ThreadService;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
@@ -34,7 +34,7 @@ import java.util.concurrent.CompletableFuture;
 import static java.util.Objects.requireNonNull;
 
 /**
- * Minimal MCP server exposed over HTTP, one URL per task. Claude
+ * Minimal MCP server exposed over HTTP, one URL per thread. Claude
  * Code is configured via {@code --mcp-config} to talk to this
  * endpoint, and via {@code --permission-prompt-tool} to route tool
  * approvals through our single {@code approval_prompt} tool.
@@ -50,7 +50,7 @@ import static java.util.Objects.requireNonNull;
  * once the user clicks Allow / Deny in the conversation pane.
  */
 @RestController
-@RequestMapping("/api/tasks/{taskId}/mcp")
+@RequestMapping("/api/threads/{threadId}/mcp")
 public class McpController
 {
     private static final Logger log = LoggerFactory.getLogger(McpController.class);
@@ -70,20 +70,20 @@ public class McpController
      *  leak DeferredResults if the browser tab dies. */
     private static final long DECISION_TIMEOUT_MS = 2L * 60L * 1000L;
 
-    private final TaskService tasks;
+    private final ThreadService threads;
     private final McpPermissionGate gate;
     private final ObjectMapper mapper;
 
-    public McpController(TaskService tasks, McpPermissionGate gate, ObjectMapper mapper)
+    public McpController(ThreadService threads, McpPermissionGate gate, ObjectMapper mapper)
     {
-        this.tasks = requireNonNull(tasks, "tasks is null");
+        this.threads = requireNonNull(threads, "threads is null");
         this.gate = requireNonNull(gate, "gate is null");
         this.mapper = requireNonNull(mapper, "mapper is null");
     }
 
     @PostMapping
     public DeferredResult<JsonNode> handle(
-            @PathVariable String taskId,
+            @PathVariable String threadId,
             @RequestBody JsonNode request)
     {
         DeferredResult<JsonNode> deferred = new DeferredResult<>(DECISION_TIMEOUT_MS);
@@ -93,7 +93,7 @@ public class McpController
             switch (method) {
                 case "initialize" -> deferred.setResult(initialize(id));
                 case "tools/list" -> deferred.setResult(listTools(id));
-                case "tools/call" -> handleToolCall(taskId, id, request, deferred);
+                case "tools/call" -> handleToolCall(threadId, id, request, deferred);
                 case "notifications/initialized", "notifications/cancelled" ->
                         // Notifications carry no id and need no response — Spring
                         // returns an empty body when the result is null.
@@ -102,7 +102,7 @@ public class McpController
             }
         }
         catch (RuntimeException e) {
-            log.warn("MCP request failed for task {}: {}", taskId, e.getMessage());
+            log.warn("MCP request failed for thread {}: {}", threadId, e.getMessage());
             deferred.setResult(error(request.path("id"), -32603, e.getMessage()));
         }
         return deferred;
@@ -138,7 +138,7 @@ public class McpController
         return ok(id, result);
     }
 
-    private void handleToolCall(String taskId, JsonNode id, JsonNode request, DeferredResult<JsonNode> deferred)
+    private void handleToolCall(String threadId, JsonNode id, JsonNode request, DeferredResult<JsonNode> deferred)
     {
         JsonNode params = request.path("params");
         String name = params.path("name").asText();
@@ -164,7 +164,7 @@ public class McpController
         // arrives as the next chat message. The deny message is
         // deliberately blunt: without it Claude tends to apologize
         // about the failure and re-ask the same question in plain
-        // prose, duplicating the card. (Phase 2 tracked as task #106:
+        // prose, duplicating the card. (Phase 2 tracked as thread #106:
         // an off-page notification queue.)
         if ("AskUserQuestion".equals(toolName)) {
             deferred.setResult(toolResponse(id, deny(
@@ -184,13 +184,13 @@ public class McpController
         // ever showing a prompt. We surface a permission_auto_allowed
         // notice next to the tool call so the user can see which slot
         // was burned and how many are left.
-        OptionalInt remaining = tasks.tryConsumeToolBudget(taskId, toolName);
+        OptionalInt remaining = threads.tryConsumeToolBudget(threadId, toolName);
         if (remaining.isPresent()) {
             try {
-                tasks.notifyPermissionAutoAllowed(taskId, callId, toolName, remaining.getAsInt());
+                threads.notifyPermissionAutoAllowed(threadId, callId, toolName, remaining.getAsInt());
             }
             catch (RuntimeException e) {
-                log.warn("Failed to record auto-approval notice for task {}: {}", taskId, e.getMessage());
+                log.warn("Failed to record auto-approval notice for thread {}: {}", threadId, e.getMessage());
             }
             deferred.setResult(toolResponse(id, allow(toolInput)));
             return;
@@ -216,13 +216,13 @@ public class McpController
         // our first budget check but before this call is visible in
         // the gate. Register first, then re-check before showing the
         // prompt; a hit completes through the same response future.
-        remaining = tasks.tryConsumeToolBudget(taskId, toolName);
+        remaining = threads.tryConsumeToolBudget(threadId, toolName);
         if (remaining.isPresent()) {
             try {
-                tasks.notifyPermissionAutoAllowed(taskId, callId, toolName, remaining.getAsInt());
+                threads.notifyPermissionAutoAllowed(threadId, callId, toolName, remaining.getAsInt());
             }
             catch (RuntimeException e) {
-                log.warn("Failed to record auto-approval notice for task {}: {}", taskId, e.getMessage());
+                log.warn("Failed to record auto-approval notice for thread {}: {}", threadId, e.getMessage());
             }
             gate.decide(callId, PermissionDecision.ALLOW);
             return;
@@ -234,10 +234,10 @@ public class McpController
         // Surface the prompt in the conversation pane after the call
         // is registered so a concurrent `Allow next N` can drain it.
         try {
-            tasks.notifyPermissionRequested(taskId, callId, toolName, summarize(toolName, toolInput));
+            threads.notifyPermissionRequested(threadId, callId, toolName, summarize(toolName, toolInput));
         }
         catch (RuntimeException e) {
-            log.warn("Failed to surface permission prompt for task {}: {}", taskId, e.getMessage());
+            log.warn("Failed to surface permission prompt for thread {}: {}", threadId, e.getMessage());
         }
         deferred.onTimeout(() -> {
             gate.cancel(callId);

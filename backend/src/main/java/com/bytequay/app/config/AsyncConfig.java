@@ -33,9 +33,9 @@ public class AsyncConfig
     private static final int APPLICATION_EXECUTOR_AWAIT_TERMINATION_SECONDS = 10;
 
     /**
-     * For top-level orchestration tasks (sync job, controller hand-offs).
+     * For top-level orchestration threads (sync job, controller hand-offs).
      * Bounded so we don't fork unlimited work; 4 cores is plenty since
-     * each task handed to this executor is short-lived itself — the heavy
+     * each thread handed to this executor is short-lived itself — the heavy
      * IO inside fans out onto the {@link #IO_EXECUTOR}.
      */
     @Bean(name = APPLICATION_EXECUTOR)
@@ -55,13 +55,13 @@ public class AsyncConfig
     /**
      * For IO-bound GitHub fan-outs (per-PR detail sub-fetches: timeline,
      * reviews, files, comments, …). Backed by virtual threads so a
-     * "parent" task on {@link #APPLICATION_EXECUTOR} that submits 6
+     * "parent" thread on {@link #APPLICATION_EXECUTOR} that submits 6
      * children and {@code .join()}s them can never deadlock against
      * its own children — virtual threads are unlimited and parking
      * doesn't pin a carrier.
      *
      * <p>This separation fixes the executor-starvation deadlock observed
-     * before this change: parent tasks filled all 4 applicationExecutor
+     * before this change: parent threads filled all 4 applicationExecutor
      * threads, their own children couldn't acquire a thread, and every
      * {@code fetchDetailFromGitHub} request hung at {@code .join()}.
      */

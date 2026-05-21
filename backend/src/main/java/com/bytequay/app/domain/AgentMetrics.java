@@ -15,15 +15,15 @@ package com.bytequay.app.domain;
 
 /**
  * Cheap snapshot of an in-flight agent session — what the header
- * strip on the task detail page renders and what we persist back to
- * the {@code tasks} row on every checkpoint.
+ * strip on the thread detail page renders and what we persist back to
+ * the {@code threads} row on every checkpoint.
  *
  * @param runtimeMs       wall-clock since the session began.
  * @param costUsdMilli    USD × 1000; same convention as
- *                        {@link Task#costUsdMilli()}.
+ *                        {@link Thread#costUsdMilli()}.
  * @param toolCallCount   total {@code ToolCallStarted} events seen.
  * @param filesTouched    distinct paths in the session's
- *                        {@code task_files} rows.
+ *                        {@code thread_files} rows.
  */
 public record AgentMetrics(
         long runtimeMs,

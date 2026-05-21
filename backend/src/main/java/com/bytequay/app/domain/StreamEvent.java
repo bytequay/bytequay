@@ -17,8 +17,8 @@ import java.time.Instant;
 
 /**
  * Single live event in an agent session — the unit the frontend
- * renders one row at a time. The {@link com.bytequay.app.service.tasks.AgentSession}
- * implementation for each {@link TaskKind} synthesizes the same shapes:
+ * renders one row at a time. The {@link com.bytequay.app.service.threads.ThreadAgent}
+ * implementation for each {@link ThreadKind} synthesizes the same shapes:
  *
  * <ul>
  *   <li>{@code CLI_AGENT} parses Claude Code's
@@ -27,7 +27,7 @@ import java.time.Instant;
  *       its own tools.</li>
  * </ul>
  *
- * <p>Each variant is also persisted as a {@link TaskMessage} row, so
+ * <p>Each variant is also persisted as a {@link ThreadMessage} row, so
  * a refresh replays the conversation by reading rows in {@code seq}
  * order. Live subscribers and the persistence layer share the same
  * stream — there is no separate "history-only" shape.
@@ -83,7 +83,7 @@ public sealed interface StreamEvent
      *  delta carries the next chunk of {@code text} for content block
      *  {@code blockIndex}; consumers stitch them into a live preview
      *  card and clear once the final {@link AssistantText} arrives (or
-     *  the turn ends). Never persisted as a task_message row — writing
+     *  the turn ends). Never persisted as a thread_message row — writing
      *  one row per delta would inflate the conversation table by
      *  orders of magnitude. The full assembled text still lands as
      *  {@link AssistantText} at message_stop. */
@@ -130,7 +130,7 @@ public sealed interface StreamEvent
 
     /** Loop is blocked waiting for the user to allow / deny a tool
      *  call. The frontend pops a banner and calls
-     *  {@code AgentSession.decide(callId, ...)}. */
+     *  {@code ThreadAgent.decide(callId, ...)}. */
     record PermissionRequested(
             Instant timestamp,
             String callId,

@@ -24,6 +24,7 @@ import type {
   WatchedRepoDto,
 } from '../types';
 import GroupMenu from './GroupMenu';
+import NotificationStrip from './NotificationStrip';
 import { ConversationPane, type PendingPermission } from './ConversationPane';
 import { StructuredConversation } from './StructuredConversation';
 import ThreadsLeftRail, {
@@ -620,6 +621,7 @@ export default function ThreadDetailPage({
         />
       )}
       <div style={threadWindowStyle}>
+        <NotificationStrip threadId={thread.id} />
         <div style={threadWindowBodyStyle} ref={splitContainerRef}>
           <div
             style={diffOpen

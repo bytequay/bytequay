@@ -427,7 +427,8 @@ class TestAgentScheduler
                     new ObjectMapper(),
                     new McpPermissionGate(),
                     Executors.newSingleThreadExecutor(),
-                    CheckpointTrigger.NOOP);
+                    CheckpointTrigger.NOOP,
+                    () -> "");
         }
 
         @Override

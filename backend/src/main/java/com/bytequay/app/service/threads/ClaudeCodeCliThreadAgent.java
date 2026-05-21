@@ -50,6 +50,7 @@ import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
+import java.util.function.Supplier;
 
 import static java.util.Objects.requireNonNull;
 
@@ -89,6 +90,11 @@ public class ClaudeCodeCliThreadAgent
     private final McpPermissionGate gate;
     private final ExecutorService executor;
     private final CheckpointTrigger checkpointTrigger;
+    /** Resolves the thread's workspace memory_md at spawn time. Empty
+     *  string when nothing's there yet (the freshly-installed default
+     *  workspace). The CLI sees the result via --append-system-prompt
+     *  on each session bootstrap. */
+    private final Supplier<String> workspaceMemoryProvider;
     private final CopyOnWriteArrayList<Consumer<StreamEvent>> listeners = new CopyOnWriteArrayList<>();
 
     /** Lazily-written MCP config file Claude reads via
@@ -131,9 +137,11 @@ public class ClaudeCodeCliThreadAgent
             ObjectMapper mapper,
             McpPermissionGate gate,
             ExecutorService executor,
-            CheckpointTrigger checkpointTrigger)
+            CheckpointTrigger checkpointTrigger,
+            Supplier<String> workspaceMemoryProvider)
     {
-        this(thread, store, parser, mapper, gate, executor, checkpointTrigger, DEFAULT_BINARY);
+        this(thread, store, parser, mapper, gate, executor, checkpointTrigger,
+                workspaceMemoryProvider, DEFAULT_BINARY);
     }
 
     ClaudeCodeCliThreadAgent(
@@ -144,6 +152,7 @@ public class ClaudeCodeCliThreadAgent
             McpPermissionGate gate,
             ExecutorService executor,
             CheckpointTrigger checkpointTrigger,
+            Supplier<String> workspaceMemoryProvider,
             String binary)
     {
         requireNonNull(thread, "thread is null");
@@ -165,6 +174,7 @@ public class ClaudeCodeCliThreadAgent
         this.gate = requireNonNull(gate, "gate is null");
         this.executor = requireNonNull(executor, "executor is null");
         this.checkpointTrigger = requireNonNull(checkpointTrigger, "checkpointTrigger is null");
+        this.workspaceMemoryProvider = requireNonNull(workspaceMemoryProvider, "workspaceMemoryProvider is null");
         this.binary = requireNonNull(binary, "binary is null");
         this.status.set(thread.status());
         this.agentSessionId.set(thread.agentSessionId());
@@ -548,6 +558,15 @@ public class ClaudeCodeCliThreadAgent
                 .add("--include-partial-messages")
                 .add("--mcp-config", ensureMcpConfig().toString())
                 .add("--permission-prompt-tool", "mcp__bytequay__approval_prompt");
+        // Inject the workspace memory as an appended system prompt so
+        // every turn sees the distilled project brain (architecture
+        // decisions, conventions, blockers). Skip the flag when memory
+        // is blank to avoid noise.
+        String workspaceMemory = workspaceMemoryProvider.get();
+        if (workspaceMemory != null && !workspaceMemory.isBlank()) {
+            argv.add("--append-system-prompt",
+                    "# Workspace memory\n\n" + workspaceMemory.strip());
+        }
         String resume = agentSessionId.get();
         if (resume != null && !resume.isBlank()) {
             argv.add("--resume", resume);

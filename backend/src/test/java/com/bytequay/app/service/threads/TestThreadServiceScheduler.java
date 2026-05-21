@@ -728,7 +728,8 @@ class TestThreadServiceScheduler
                     new ObjectMapper(),
                     new McpPermissionGate(),
                     Executors.newSingleThreadExecutor(),
-                    CheckpointTrigger.NOOP);
+                    CheckpointTrigger.NOOP,
+                    () -> "");
             this.events = events;
             this.session = new RecordingStopSession(events);
         }
@@ -875,7 +876,8 @@ class TestThreadServiceScheduler
                     new ObjectMapper(),
                     new McpPermissionGate(),
                     Executors.newSingleThreadExecutor(),
-                    CheckpointTrigger.NOOP);
+                    CheckpointTrigger.NOOP,
+                    () -> "");
         }
 
         @Override

@@ -15,6 +15,7 @@ package com.bytequay.app.service.threads;
 
 import com.bytequay.app.domain.Thread;
 import com.bytequay.app.repository.ThreadStore;
+import com.bytequay.app.service.workspaces.WorkspaceService;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.annotation.PreDestroy;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -23,6 +24,7 @@ import org.springframework.stereotype.Component;
 import java.util.Optional;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
+import java.util.function.Supplier;
 
 import static java.util.Objects.requireNonNull;
 
@@ -47,6 +49,7 @@ public class ThreadRegistry
     private final McpPermissionGate gate;
     private final ExecutorService executor;
     private final CheckpointTrigger checkpointTrigger;
+    private final Supplier<String> workspaceMemoryProvider;
     private final ConcurrentHashMap<String, ThreadAgent> sessions = new ConcurrentHashMap<>();
 
     @Autowired
@@ -54,10 +57,12 @@ public class ThreadRegistry
             ThreadStore store,
             ObjectMapper mapper,
             McpPermissionGate gate,
-            CheckpointTrigger checkpointTrigger)
+            CheckpointTrigger checkpointTrigger,
+            WorkspaceService workspaces)
     {
         this(store, new StreamJsonParser(mapper), mapper, gate,
-                ClaudeCodeCliThreadAgent.defaultExecutor(), checkpointTrigger);
+                ClaudeCodeCliThreadAgent.defaultExecutor(), checkpointTrigger,
+                () -> workspaces.getMemory(WorkspaceService.DEFAULT_WORKSPACE_ID));
     }
 
     ThreadRegistry(
@@ -66,7 +71,8 @@ public class ThreadRegistry
             ObjectMapper mapper,
             McpPermissionGate gate,
             ExecutorService executor,
-            CheckpointTrigger checkpointTrigger)
+            CheckpointTrigger checkpointTrigger,
+            Supplier<String> workspaceMemoryProvider)
     {
         this.store = requireNonNull(store, "store is null");
         this.parser = requireNonNull(parser, "parser is null");
@@ -74,6 +80,7 @@ public class ThreadRegistry
         this.gate = requireNonNull(gate, "gate is null");
         this.executor = requireNonNull(executor, "executor is null");
         this.checkpointTrigger = requireNonNull(checkpointTrigger, "checkpointTrigger is null");
+        this.workspaceMemoryProvider = requireNonNull(workspaceMemoryProvider, "workspaceMemoryProvider is null");
     }
 
     public Optional<ThreadAgent> find(String threadId)
@@ -104,7 +111,8 @@ public class ThreadRegistry
     {
         return switch (thread.kind()) {
             case CLI_AGENT -> new ClaudeCodeCliThreadAgent(
-                    thread, store, parser, mapper, gate, executor, checkpointTrigger);
+                    thread, store, parser, mapper, gate, executor, checkpointTrigger,
+                    workspaceMemoryProvider);
             case LOGIC_LOOP -> throw new UnsupportedOperationException(
                     "LOGIC_LOOP sessions land in a later slice");
         };

@@ -65,6 +65,14 @@ class ThreadEntity
     @Column(name = "error_message")
     private String errorMessage;
 
+    // FK on workspaces.id, added in V73. Every existing thread was
+    // backfilled to the ambient "ws-default" workspace by that
+    // migration; SqliteThreadStore defaults it to the same value on
+    // INSERT so new rows don't drift to NULL. Multi-workspace
+    // creation will route this through the create request later.
+    @Column(name = "workspace_id")
+    private String workspaceId;
+
     // Dropped in V72 (moved to the tasks table):
     //   working_dir, branch_name, local_branch, worktree_path,
     //   process_pid, log_path, task_type, linked_pr_number,
@@ -114,4 +122,7 @@ class ThreadEntity
 
     String getErrorMessage() { return errorMessage; }
     void setErrorMessage(String errorMessage) { this.errorMessage = errorMessage; }
+
+    String getWorkspaceId() { return workspaceId; }
+    void setWorkspaceId(String workspaceId) { this.workspaceId = workspaceId; }
 }

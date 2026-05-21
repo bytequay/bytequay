@@ -71,6 +71,10 @@ class SqliteThreadStore
         this.taskStore = requireNonNull(taskStore, "taskStore is null");
     }
 
+    /** Ambient workspace every new thread joins. Multi-workspace
+     *  creation will route this through the create request later. */
+    private static final String DEFAULT_WORKSPACE_ID = "ws-default";
+
     @Override
     @Transactional
     public void saveThread(Thread thread)
@@ -90,6 +94,9 @@ class SqliteThreadStore
         entity.setUpdatedAtMs(thread.updatedAt().toEpochMilli());
         entity.setEndedAtMs(thread.endedAt() == null ? null : thread.endedAt().toEpochMilli());
         entity.setErrorMessage(thread.errorMessage());
+        if (entity.getWorkspaceId() == null) {
+            entity.setWorkspaceId(DEFAULT_WORKSPACE_ID);
+        }
         threads.save(entity);
 
         // Flow execution fields to the active task. We treat the active

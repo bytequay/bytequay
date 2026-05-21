@@ -61,7 +61,9 @@ class TestSqliteThreadStore
         assertThat(got.status()).isEqualTo(ThreadStatus.RUNNING);
         assertThat(got.processPid()).isEqualTo(1234);
         assertThat(got.logPath()).isEqualTo("/tmp/log.jsonl");
-        assertThat(got.metadataJson()).isEqualTo("{\"originPr\":\"trinodb/trino#42\"}");
+        // metadata_json was dropped from the threads table in V72; the
+        // record component still exists for wire compat and returns "{}".
+        assertThat(got.metadataJson()).isEqualTo("{}");
     }
 
     @Test

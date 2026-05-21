@@ -41,12 +41,6 @@ class ThreadEntity
     @Column(name = "status", nullable = false)
     private String status;
 
-    @Column(name = "working_dir", nullable = false)
-    private String workingDir;
-
-    @Column(name = "branch_name")
-    private String branchName;
-
     @Column(name = "model", nullable = false)
     private String model;
 
@@ -58,12 +52,6 @@ class ThreadEntity
 
     @Column(name = "tokens_out", nullable = false)
     private long tokensOut;
-
-    @Column(name = "process_pid")
-    private Integer processPid;
-
-    @Column(name = "log_path")
-    private String logPath;
 
     @Column(name = "created_at_ms", nullable = false)
     private long createdAtMs;
@@ -77,29 +65,13 @@ class ThreadEntity
     @Column(name = "error_message")
     private String errorMessage;
 
-    @Column(name = "metadata_json", nullable = false)
-    private String metadataJson;
-
-    @Column(name = "task_type", nullable = false)
-    private String taskType;
-
-    @Column(name = "linked_pr_number")
-    private Integer linkedPrNumber;
-
-    @Column(name = "linked_issue_number")
-    private Integer linkedIssueNumber;
-
-    @Column(name = "worktree_path")
-    private String worktreePath;
-
-    @Column(name = "local_branch")
-    private String localBranch;
-
+    // Dropped in V72 (moved to the tasks table):
+    //   working_dir, branch_name, local_branch, worktree_path,
+    //   process_pid, log_path, task_type, linked_pr_number,
+    //   linked_issue_number, metadata_json.
     // The legacy `threads.group_id` column still exists in the schema
     // (V57) but is no longer mapped — membership moved to the
-    // `thread_group_members` join table in V59. The column is left
-    // in place because SQLite can't DROP a column that's the source
-    // of a REFERENCES clause without a full table rebuild.
+    // `thread_group_members` join table in V59.
 
     String getId() { return id; }
     void setId(String id) { this.id = id; }
@@ -119,12 +91,6 @@ class ThreadEntity
     String getStatus() { return status; }
     void setStatus(String status) { this.status = status; }
 
-    String getWorkingDir() { return workingDir; }
-    void setWorkingDir(String workingDir) { this.workingDir = workingDir; }
-
-    String getBranchName() { return branchName; }
-    void setBranchName(String branchName) { this.branchName = branchName; }
-
     String getModel() { return model; }
     void setModel(String model) { this.model = model; }
 
@@ -137,12 +103,6 @@ class ThreadEntity
     long getTokensOut() { return tokensOut; }
     void setTokensOut(long tokensOut) { this.tokensOut = tokensOut; }
 
-    Integer getProcessPid() { return processPid; }
-    void setProcessPid(Integer processPid) { this.processPid = processPid; }
-
-    String getLogPath() { return logPath; }
-    void setLogPath(String logPath) { this.logPath = logPath; }
-
     long getCreatedAtMs() { return createdAtMs; }
     void setCreatedAtMs(long createdAtMs) { this.createdAtMs = createdAtMs; }
 
@@ -154,22 +114,4 @@ class ThreadEntity
 
     String getErrorMessage() { return errorMessage; }
     void setErrorMessage(String errorMessage) { this.errorMessage = errorMessage; }
-
-    String getMetadataJson() { return metadataJson; }
-    void setMetadataJson(String metadataJson) { this.metadataJson = metadataJson; }
-
-    String getTaskType() { return taskType; }
-    void setTaskType(String taskType) { this.taskType = taskType; }
-
-    Integer getLinkedPrNumber() { return linkedPrNumber; }
-    void setLinkedPrNumber(Integer linkedPrNumber) { this.linkedPrNumber = linkedPrNumber; }
-
-    Integer getLinkedIssueNumber() { return linkedIssueNumber; }
-    void setLinkedIssueNumber(Integer linkedIssueNumber) { this.linkedIssueNumber = linkedIssueNumber; }
-
-    String getWorktreePath() { return worktreePath; }
-    void setWorktreePath(String worktreePath) { this.worktreePath = worktreePath; }
-
-    String getLocalBranch() { return localBranch; }
-    void setLocalBranch(String localBranch) { this.localBranch = localBranch; }
 }

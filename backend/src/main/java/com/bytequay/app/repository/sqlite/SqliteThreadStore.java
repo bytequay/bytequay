@@ -13,11 +13,15 @@
  */
 package com.bytequay.app.repository.sqlite;
 
+import com.bytequay.app.domain.Task;
+import com.bytequay.app.domain.TaskFile;
+import com.bytequay.app.domain.TaskStatus;
 import com.bytequay.app.domain.Thread;
 import com.bytequay.app.domain.ThreadFile;
 import com.bytequay.app.domain.ThreadKind;
 import com.bytequay.app.domain.ThreadMessage;
 import com.bytequay.app.domain.ThreadStatus;
+import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.repository.ThreadStore;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Component;
@@ -28,26 +32,43 @@ import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
+import java.util.UUID;
 
 import static com.bytequay.app.repository.sqlite.SqlitePageRequests.firstPage;
 import static java.util.Objects.requireNonNull;
 
+/**
+ * Bridges the {@link Thread} domain record (which still exposes the
+ * execution fields callers depend on — worktreePath, branchName,
+ * processPid, …) against the post-V72 split schema where those fields
+ * live on the {@code tasks} row, not on {@code threads}.
+ *
+ * <p>Saves split the payload: conversation columns go to {@code threads},
+ * execution columns flow to the active task (created with seq=1 the
+ * first time, updated thereafter). Reads merge the two back into the
+ * fat {@link Thread} record so existing callers see the same shape.
+ *
+ * <p>This hidden coupling is a temporary bridge while the call sites
+ * still read {@code thread.worktreePath()} etc. directly; a follow-up
+ * commit can shrink the {@link Thread} record once those callers move
+ * to an explicit {@code TaskService.findActiveTask(threadId)} lookup.
+ */
 @Component
 class SqliteThreadStore
         implements ThreadStore
 {
     private final ThreadJpaRepository threads;
     private final ThreadMessageJpaRepository messages;
-    private final ThreadFileJpaRepository files;
+    private final TaskStore taskStore;
 
     SqliteThreadStore(
             ThreadJpaRepository threads,
             ThreadMessageJpaRepository messages,
-            ThreadFileJpaRepository files)
+            TaskStore taskStore)
     {
         this.threads = requireNonNull(threads, "threads is null");
         this.messages = requireNonNull(messages, "messages is null");
-        this.files = requireNonNull(files, "files is null");
+        this.taskStore = requireNonNull(taskStore, "taskStore is null");
     }
 
     @Override
@@ -61,31 +82,84 @@ class SqliteThreadStore
         entity.setAgentSessionId(thread.agentSessionId());
         entity.setTitle(thread.title());
         entity.setStatus(thread.status().name());
-        entity.setWorkingDir(thread.workingDir());
-        entity.setBranchName(thread.branchName());
         entity.setModel(thread.model());
         entity.setCostUsdMilli(thread.costUsdMilli());
         entity.setTokensIn(thread.tokensIn());
         entity.setTokensOut(thread.tokensOut());
-        entity.setProcessPid(thread.processPid());
-        entity.setLogPath(thread.logPath());
         entity.setCreatedAtMs(thread.createdAt().toEpochMilli());
         entity.setUpdatedAtMs(thread.updatedAt().toEpochMilli());
         entity.setEndedAtMs(thread.endedAt() == null ? null : thread.endedAt().toEpochMilli());
         entity.setErrorMessage(thread.errorMessage());
-        entity.setMetadataJson(thread.metadataJson());
-        entity.setTaskType(thread.taskType());
-        entity.setLinkedPrNumber(thread.linkedPrNumber());
-        entity.setLinkedIssueNumber(thread.linkedIssueNumber());
-        entity.setWorktreePath(thread.worktreePath());
-        entity.setLocalBranch(thread.localBranch());
         threads.save(entity);
+
+        // Flow execution fields to the active task. We treat the active
+        // task as the home for branchName / worktreePath / processPid /
+        // logPath / linked PR/issue / per-task spend; the existing
+        // callers still pass these through the Thread record.
+        if (hasExecutionState(thread)) {
+            Optional<Task> active = taskStore.findActiveTaskForThread(thread.id());
+            Task next;
+            if (active.isPresent()) {
+                Task t = active.get();
+                next = new Task(
+                        t.id(),
+                        t.threadId(),
+                        t.seq(),
+                        mapStatus(thread.status()),
+                        coalesce(thread.localBranch(), thread.branchName(), t.branchName()),
+                        coalesce(thread.worktreePath(), t.worktreePath()),
+                        t.baseBranch(),
+                        coalesce(thread.workingDir(), t.workingDir()),
+                        thread.processPid(),
+                        coalesce(thread.logPath(), t.logPath()),
+                        t.prNumber(),
+                        t.prState(),
+                        t.ciState(),
+                        coalesce(thread.taskType(), t.taskType()),
+                        coalesce(thread.linkedPrNumber(), t.linkedPrNumber()),
+                        coalesce(thread.linkedIssueNumber(), t.linkedIssueNumber()),
+                        thread.costUsdMilli(),
+                        thread.tokensIn(),
+                        thread.tokensOut(),
+                        t.firstMsgSeq(),
+                        t.lastMsgSeq(),
+                        t.createdAt(),
+                        thread.endedAt() != null ? thread.endedAt() : t.endedAt(),
+                        thread.errorMessage() != null ? thread.errorMessage() : t.errorMessage());
+            }
+            else {
+                // First save for this thread — materialise a seq=1 task.
+                next = new Task(
+                        UUID.randomUUID().toString(),
+                        thread.id(),
+                        1L,
+                        mapStatus(thread.status()),
+                        coalesce(thread.localBranch(), thread.branchName()),
+                        thread.worktreePath(),
+                        "main",
+                        thread.workingDir(),
+                        thread.processPid(),
+                        thread.logPath(),
+                        /* prNumber */ null, /* prState */ null, /* ciState */ null,
+                        thread.taskType() != null ? thread.taskType() : "DEVELOP",
+                        thread.linkedPrNumber(),
+                        thread.linkedIssueNumber(),
+                        thread.costUsdMilli(),
+                        thread.tokensIn(),
+                        thread.tokensOut(),
+                        /* firstMsgSeq */ null, /* lastMsgSeq */ null,
+                        thread.createdAt(),
+                        thread.endedAt(),
+                        thread.errorMessage());
+            }
+            taskStore.saveTask(next);
+        }
     }
 
     @Override
     public Optional<Thread> findThreadById(String id)
     {
-        return threads.findById(id).map(SqliteThreadStore::toThread);
+        return threads.findById(id).map(this::merge);
     }
 
     @Override
@@ -96,7 +170,7 @@ class SqliteThreadStore
             return;
         }
         messages.deleteByThreadId(id);
-        files.deleteByIdThreadId(id);
+        // FK cascade drops the tasks rows and task_files for this thread.
         threads.deleteById(id);
     }
 
@@ -105,7 +179,7 @@ class SqliteThreadStore
     {
         return threads.findByStatusOrderByUpdatedAtMsDesc(status.name(), firstPage(limit))
                 .stream()
-                .map(SqliteThreadStore::toThread)
+                .map(this::merge)
                 .toList();
     }
 
@@ -116,7 +190,7 @@ class SqliteThreadStore
             return List.of();
         }
         return threads.findByIdInOrderByUpdatedAtMsDesc(ids).stream()
-                .map(SqliteThreadStore::toThread)
+                .map(this::merge)
                 .toList();
     }
 
@@ -150,9 +224,6 @@ class SqliteThreadStore
     @Override
     public List<ThreadMessage> listRecentMessages(String threadId, int limit)
     {
-        // Fetch newest-first to honour the limit against the tail of
-        // the conversation, then reverse so the caller gets oldest-
-        // first rendering order without an extra sort.
         List<ThreadMessageEntity> tail = messages.findByThreadIdOrderBySeqDesc(
                 threadId, PageRequest.of(0, Math.max(1, limit)));
         return reversedToMessages(tail);
@@ -212,28 +283,57 @@ class SqliteThreadStore
     @Transactional
     public void recordFile(ThreadFile file)
     {
-        ThreadFileEntity.ThreadFileKey key =
-                new ThreadFileEntity.ThreadFileKey(file.threadId(), file.path());
-        ThreadFileEntity entity = files.findById(key).orElseGet(ThreadFileEntity::new);
-        entity.setId(key);
-        entity.setOperation(file.operation());
-        entity.setCount(file.count());
-        entity.setLinesAdded(file.linesAdded());
-        entity.setLinesRemoved(file.linesRemoved());
-        entity.setLastTouchedMs(file.lastTouchedAt().toEpochMilli());
-        files.save(entity);
+        // File rollups live on the task now. Resolve the active task and
+        // forward; if there's no active task we drop the event — a
+        // recordFile only fires while an agent is alive, which implies
+        // an active task. The compile-time signature stays as ThreadFile
+        // until the caller-side rename in a later commit.
+        Optional<Task> active = taskStore.findActiveTaskForThread(file.threadId());
+        if (active.isEmpty()) {
+            return;
+        }
+        taskStore.recordFile(new TaskFile(
+                active.get().id(),
+                file.path(),
+                file.operation(),
+                file.count(),
+                file.linesAdded(),
+                file.linesRemoved(),
+                file.lastTouchedAt()));
     }
 
     @Override
     public List<ThreadFile> listFiles(String threadId)
     {
-        return files.findByIdThreadIdOrderByLastTouchedMsDesc(threadId).stream()
-                .map(SqliteThreadStore::toFile)
+        Optional<Task> active = taskStore.findActiveTaskForThread(threadId);
+        if (active.isEmpty()) {
+            return List.of();
+        }
+        return taskStore.listFiles(active.get().id()).stream()
+                .map(tf -> new ThreadFile(
+                        threadId, tf.path(), tf.operation(),
+                        tf.count(), tf.linesAdded(), tf.linesRemoved(),
+                        tf.lastTouchedAt()))
                 .toList();
     }
 
-    private static Thread toThread(ThreadEntity e)
+    private Thread merge(ThreadEntity e)
     {
+        Optional<Task> active = taskStore.findActiveTaskForThread(e.getId());
+        return toThread(e, active.orElse(null));
+    }
+
+    private static Thread toThread(ThreadEntity e, Task active)
+    {
+        String workingDir = active != null ? active.workingDir() : null;
+        String branchName = active != null ? active.branchName() : null;
+        String worktreePath = active != null ? active.worktreePath() : null;
+        String localBranch = active != null ? active.branchName() : null;
+        Integer processPid = active != null ? active.processPid() : null;
+        String logPath = active != null ? active.logPath() : null;
+        String taskType = active != null ? active.taskType() : "DEVELOP";
+        Integer linkedPr = active != null ? active.linkedPrNumber() : null;
+        Integer linkedIssue = active != null ? active.linkedIssueNumber() : null;
         return new Thread(
                 e.getId(),
                 ThreadKind.valueOf(e.getKind()),
@@ -241,24 +341,24 @@ class SqliteThreadStore
                 e.getAgentSessionId(),
                 e.getTitle(),
                 ThreadStatus.valueOf(e.getStatus()),
-                e.getWorkingDir(),
-                e.getBranchName(),
+                workingDir,
+                branchName,
                 e.getModel(),
                 e.getCostUsdMilli(),
                 e.getTokensIn(),
                 e.getTokensOut(),
-                e.getProcessPid(),
-                e.getLogPath(),
+                processPid,
+                logPath,
                 Instant.ofEpochMilli(e.getCreatedAtMs()),
                 Instant.ofEpochMilli(e.getUpdatedAtMs()),
                 e.getEndedAtMs() == null ? null : Instant.ofEpochMilli(e.getEndedAtMs()),
                 e.getErrorMessage(),
-                e.getMetadataJson(),
-                e.getTaskType(),
-                e.getLinkedPrNumber(),
-                e.getLinkedIssueNumber(),
-                e.getWorktreePath(),
-                e.getLocalBranch());
+                /* metadataJson — dropped in V72 */ "{}",
+                taskType,
+                linkedPr,
+                linkedIssue,
+                worktreePath,
+                localBranch);
     }
 
     private static ThreadMessage toMessage(ThreadMessageEntity e)
@@ -277,15 +377,29 @@ class SqliteThreadStore
                 Instant.ofEpochMilli(e.getTsMs()));
     }
 
-    private static ThreadFile toFile(ThreadFileEntity e)
+    private static boolean hasExecutionState(Thread thread)
     {
-        return new ThreadFile(
-                e.getId().getTaskId(),
-                e.getId().getPath(),
-                e.getOperation(),
-                e.getCount(),
-                e.getLinesAdded(),
-                e.getLinesRemoved(),
-                Instant.ofEpochMilli(e.getLastTouchedMs()));
+        return thread.worktreePath() != null
+                || thread.branchName() != null
+                || thread.localBranch() != null
+                || thread.workingDir() != null
+                || thread.processPid() != null
+                || thread.logPath() != null;
+    }
+
+    private static TaskStatus mapStatus(ThreadStatus status)
+    {
+        return TaskStatus.valueOf(status.name());
+    }
+
+    @SafeVarargs
+    private static <T> T coalesce(T... values)
+    {
+        for (T v : values) {
+            if (v != null) {
+                return v;
+            }
+        }
+        return null;
     }
 }

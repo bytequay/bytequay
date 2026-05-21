@@ -1151,9 +1151,9 @@ const preStyle: React.CSSProperties = {
 };
 const preErrorStyle: React.CSSProperties = {
   ...preStyle,
-  color: '#991b1b',
-  background: '#fef2f2',
-  border: '1px solid #fecaca',
+  color: 'var(--tool-error-fg, #991b1b)',
+  background: 'var(--tool-error-bg, #fef2f2)',
+  border: '1px solid var(--tool-error-border, #fecaca)',
   borderRadius: 4,
   padding: '6px 8px',
 };
@@ -1208,21 +1208,21 @@ const readPlainStyle: React.CSSProperties = {
 };
 
 const codeKeywordStyle: React.CSSProperties = {
-  color: '#7c3aed',
+  color: 'var(--tool-code-keyword, #7c3aed)',
   fontWeight: 600,
 };
 const codeStringStyle: React.CSSProperties = {
-  color: '#047857',
+  color: 'var(--tool-code-string, #047857)',
 };
 const codeCommentStyle: React.CSSProperties = {
-  color: '#64748b',
+  color: 'var(--tool-code-comment, #64748b)',
   fontStyle: 'italic',
 };
 const codeNumberStyle: React.CSSProperties = {
-  color: '#b45309',
+  color: 'var(--tool-code-number, #b45309)',
 };
 const codeAnnotationStyle: React.CSSProperties = {
-  color: '#2563eb',
+  color: 'var(--tool-code-annotation, #2563eb)',
 };
 
 // Per-line palettes for Bash / Edit output. Backgrounds stay light
@@ -1230,11 +1230,11 @@ const codeAnnotationStyle: React.CSSProperties = {
 // foreground colours carry the signal.
 const lineClassStyle: Record<LineClass, React.CSSProperties> = {
   diffHeader: { color: 'var(--text-3)', fontWeight: 600 },
-  diffAdd:    { color: '#166534', background: '#dcfce7' },
-  diffDel:    { color: '#991b1b', background: '#fee2e2' },
-  error:      { color: '#991b1b' },
-  warn:       { color: '#92400e' },
-  success:    { color: '#166534', fontWeight: 600 },
+  diffAdd:    { color: 'var(--tool-diff-add-fg, #166534)', background: 'var(--tool-diff-add-bg, #dcfce7)' },
+  diffDel:    { color: 'var(--tool-diff-del-fg, #991b1b)', background: 'var(--tool-diff-del-bg, #fee2e2)' },
+  error:      { color: 'var(--tool-error-fg, #991b1b)' },
+  warn:       { color: 'var(--tool-warn-fg, #92400e)' },
+  success:    { color: 'var(--tool-success-fg, #166534)', fontWeight: 600 },
   path:       { color: 'var(--accent-dark)' },
   plain:      {},
 };

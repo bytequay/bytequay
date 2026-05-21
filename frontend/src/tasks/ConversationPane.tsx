@@ -769,10 +769,30 @@ const toolResultHeadStyle: React.CSSProperties = {
   display: 'flex', alignItems: 'center', gap: 6,
   color: 'var(--term-text-muted)', fontSize: 11,
 };
-const toolResultBodyStyle: React.CSSProperties = {
+const toolResultBodyStyle = {
   padding: 8,
   background: 'var(--term-bg-result)',
-};
+  '--text-1': 'var(--term-text)',
+  '--text-3': 'var(--term-text-muted)',
+  '--text-4': 'var(--term-text-dim)',
+  '--bg-elevated': 'var(--term-bg-result)',
+  '--border-hairline': 'var(--term-border)',
+  '--accent-dark': 'var(--term-path)',
+  '--tool-error-fg': 'var(--term-err)',
+  '--tool-error-bg': 'var(--term-error-bg)',
+  '--tool-error-border': 'var(--term-err)',
+  '--tool-warn-fg': 'var(--term-warn)',
+  '--tool-success-fg': 'var(--term-ok)',
+  '--tool-diff-add-fg': '#7ee787',
+  '--tool-diff-add-bg': 'rgba(46, 160, 67, 0.18)',
+  '--tool-diff-del-fg': '#ffa198',
+  '--tool-diff-del-bg': 'rgba(248, 81, 73, 0.18)',
+  '--tool-code-keyword': '#a78bfa',
+  '--tool-code-string': '#7ee787',
+  '--tool-code-comment': 'var(--term-text-dim)',
+  '--tool-code-number': '#f2cc60',
+  '--tool-code-annotation': 'var(--term-read)',
+} as React.CSSProperties;
 const okGlyphStyle: React.CSSProperties = { color: 'var(--term-ok)', fontWeight: 700, marginRight: 4 };
 const errorGlyphStyle: React.CSSProperties = { color: 'var(--term-err)', fontWeight: 700, marginRight: 4 };
 const warnGlyphStyle: React.CSSProperties = { color: 'var(--term-warn)', fontWeight: 700, marginRight: 4 };

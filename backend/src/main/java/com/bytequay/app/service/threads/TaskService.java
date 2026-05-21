@@ -26,6 +26,7 @@ import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.repository.ThreadStore;
 import com.bytequay.app.repository.WatchedRepoStore;
 import com.bytequay.app.service.local.GitRunner;
+import com.bytequay.app.service.workspaces.WorkspaceService;
 import com.bytequay.app.web.PatResolver;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -63,6 +64,7 @@ public class TaskService
     private final PullRequestRepository pullRequestRepository;
     private final PatResolver patResolver;
     private final ThreadRegistry registry;
+    private final WorkspaceService workspaceService;
 
     public TaskService(
             ThreadStore threadStore,
@@ -72,7 +74,8 @@ public class TaskService
             GitRunner git,
             PullRequestRepository pullRequestRepository,
             PatResolver patResolver,
-            ThreadRegistry registry)
+            ThreadRegistry registry,
+            WorkspaceService workspaceService)
     {
         this.threadStore = requireNonNull(threadStore, "threadStore is null");
         this.taskStore = requireNonNull(taskStore, "taskStore is null");
@@ -82,6 +85,7 @@ public class TaskService
         this.pullRequestRepository = requireNonNull(pullRequestRepository, "pullRequestRepository is null");
         this.patResolver = requireNonNull(patResolver, "patResolver is null");
         this.registry = requireNonNull(registry, "registry is null");
+        this.workspaceService = requireNonNull(workspaceService, "workspaceService is null");
     }
 
     /** All tasks for a thread, ordered by seq ascending. 404 if the
@@ -193,11 +197,14 @@ public class TaskService
             //    remote setup). push() sets upstream on first run.
             git.push(worktreePath);
 
-            // 3. Open a PR (or accept that one already exists).
+            // 3. Open a PR (or accept that one already exists). The PR
+            //    targets the per-repo merge-target from the workspace
+            //    (e.g. upstream/master for a fork) when set, else the
+            //    local clone's default branch.
             Integer prNumber = current.prNumber();
             if (prNumber == null) {
                 String pat = patResolver.resolve(repoFullName);
-                String prBase = git.defaultBranch(workingDir).orElse("main");
+                String prBase = resolveMergeTarget(repoFullName, workingDir);
                 try {
                     PullRequest pr = pullRequestRepository.createPullRequest(
                             pat, repoRef,
@@ -229,10 +236,12 @@ public class TaskService
                     current.firstMsgSeq(), current.lastMsgSeq(),
                     current.createdAt(), now, current.errorMessage()));
 
-            // 5. Resolve next base + cut a new worktree.
+            // 5. Resolve next base + cut a new worktree. MAIN mode
+            //    uses the same per-repo merge-target as the PR base;
+            //    STACKED chains on the current branch instead.
             String nextBase = request.baseMode() == BaseMode.STACKED
                     ? current.branchName()
-                    : git.defaultBranch(workingDir).orElse("main");
+                    : resolveMergeTarget(repoFullName, workingDir);
             long nextSeq = current.seq() + 1;
             String nextTaskId = UUID.randomUUID().toString();
             String nextTitle = request.nextTitle() != null && !request.nextTitle().isBlank()
@@ -282,6 +291,22 @@ public class TaskService
             java.lang.Thread.currentThread().interrupt();
             throw new RuntimeException("Ship and continue interrupted for task " + taskId, e);
         }
+    }
+
+    /**
+     * Picks the merge-target branch for the given repo. Resolution
+     * order: per-(workspace, repo) override on workspace_repos →
+     * local clone's default branch → "main".
+     */
+    private String resolveMergeTarget(String repoFullName, Path workingDir)
+            throws IOException, InterruptedException
+    {
+        Optional<String> override = workspaceService.findDefaultBaseBranch(
+                WorkspaceService.DEFAULT_WORKSPACE_ID, repoFullName);
+        if (override.isPresent()) {
+            return override.get();
+        }
+        return git.defaultBranch(workingDir).orElse("main");
     }
 
     private WatchedRepo resolveRepo(Path workingDir)

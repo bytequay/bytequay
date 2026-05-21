@@ -13,6 +13,7 @@
  */
 import { useMemo } from 'react';
 import type { TaskDto, TaskGroupDto } from '../types';
+import { taskCompactNumber } from './taskDisplay';
 
 /**
  * Compact left rail for the tasks-group page. Replaces the
@@ -221,8 +222,8 @@ function deriveAggregates(tasks: TaskDto[]): Aggregates {
   return {
     runtime: formatDuration(runtimeMs),
     cost: formatCost(costMilli),
-    tokensIn:  formatTokens(tokensIn),
-    tokensOut: formatTokens(tokensOut),
+    tokensIn:  taskCompactNumber(tokensIn),
+    tokensOut: taskCompactNumber(tokensOut),
     burnRate: formatBurnRate(costMilli, runtimeMs),
     anyLive,
   };
@@ -243,11 +244,6 @@ function formatCost(milli: number): string {
   if (dollars >= 100) return `$${dollars.toFixed(0)}`;
   if (dollars >= 10)  return `$${dollars.toFixed(1)}`;
   return `$${dollars.toFixed(2)}`;
-}
-function formatTokens(n: number): string {
-  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
-  if (n >= 1_000)     return `${(n / 1_000).toFixed(1)}k`;
-  return String(n);
 }
 function formatBurnRate(costMilli: number, runtimeMs: number): string {
   if (runtimeMs <= 0) return '—';

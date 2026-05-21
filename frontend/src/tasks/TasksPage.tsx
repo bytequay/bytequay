@@ -32,7 +32,7 @@ import TasksLeftRail, {
   type RepoFilter,
   type StatusFilter,
 } from './TasksLeftRail';
-import { taskDisplayBranch } from './taskDisplay';
+import { taskCompactNumber, taskDisplayBranch } from './taskDisplay';
 
 /** Card-grid sort options. {@code newest} is the default — the user
  *  scans by recency. {@code highestCost} is handy when the user is
@@ -807,7 +807,7 @@ function TaskCard({ task, scheduler, groups, currentGroupIds, busy, onOpen, onSt
         </span>
         <span style={cardMetricStyle}>
           <span style={cardMetricIconStyle}>🔢</span>
-          <strong style={cardMetricNumStyle}>{formatTokens(task.tokensIn + task.tokensOut)}</strong> tokens
+          <strong style={cardMetricNumStyle}>{taskCompactNumber(task.tokensIn + task.tokensOut)}</strong> tokens
         </span>
         <span style={cardActionsStyle} onClick={e => e.stopPropagation()}>
           {!isTerminal && (
@@ -883,12 +883,6 @@ function formatCost(milli: number): string {
   if (dollars >= 100) return `$${dollars.toFixed(0)}`;
   if (dollars >= 10)  return `$${dollars.toFixed(2)}`;
   return `$${dollars.toFixed(2)}`;
-}
-
-function formatTokens(n: number): string {
-  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
-  if (n >= 1_000)     return `${(n / 1_000).toFixed(1)}k`;
-  return String(n);
 }
 
 function formatRuntime(task: TaskDto): string {

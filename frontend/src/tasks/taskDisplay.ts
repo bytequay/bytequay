@@ -33,10 +33,10 @@ export function taskModelLabel(model: string | null | undefined): string {
 }
 
 export function taskTokenLabel(tokens: number): string {
-  return `${compactNumber(tokens)} ${tokens === 1 ? 'token' : 'tokens'}`;
+  return `${taskCompactNumber(tokens)} ${tokens === 1 ? 'token' : 'tokens'}`;
 }
 
-function compactNumber(value: number): string {
+export function taskCompactNumber(value: number): string {
   if (value < 1_000) {
     return String(value);
   }

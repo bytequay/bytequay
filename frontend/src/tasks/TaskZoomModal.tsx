@@ -18,7 +18,7 @@ import { TaskDiffPane } from './TaskChangesTab';
 import type { PendingPermission } from './ConversationPane';
 import type { TaskDto, TaskMessageDto } from '../types';
 import { findPendingPermission } from './permissions';
-import { taskDisplayBranch } from './taskDisplay';
+import { taskCompactNumber, taskDisplayBranch } from './taskDisplay';
 
 /**
  * Centred zoom modal for one task in a group, opened by
@@ -220,7 +220,7 @@ function ZoomSidebar({ task, messages }: { task: TaskDto; messages: TaskMessageD
         <div style={vitalsStyle}>
           <VitalsRow label="Runtime"    value={runtime} live={task.status === 'RUNNING'} />
           <VitalsRow label="Cost"       value={formatCost(task.costUsdMilli)} />
-          <VitalsRow label="Tokens"     value={`${formatTokens(task.tokensIn)} → ${formatTokens(task.tokensOut)}`} />
+          <VitalsRow label="Tokens"     value={`${taskCompactNumber(task.tokensIn)} → ${taskCompactNumber(task.tokensOut)}`} />
           <VitalsRow label="Turns"      value={String(turns)} />
         </div>
       </div>
@@ -283,7 +283,7 @@ function ContextBar({ pct, used, limit }: { pct: number; used: number; limit: nu
           {' · '}{tone}
         </span>
         <span style={{ color: 'var(--text-3)' }}>
-          {formatTokens(used)} / {formatTokens(limit)}
+          {taskCompactNumber(used)} / {taskCompactNumber(limit)}
         </span>
       </div>
       <div style={ctxBarTrackStyle}>
@@ -394,12 +394,6 @@ function formatCost(milli: number): string {
   if (dollars >= 10)  return `$${dollars.toFixed(1)}`;
   return `$${dollars.toFixed(2)}`;
 }
-function formatTokens(n: number): string {
-  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
-  if (n >= 1_000)     return `${(n / 1_000).toFixed(1)}k`;
-  return String(n);
-}
-
 /** Local copy of TaskDetailPage's context-usage helper — kept local
  *  so this modal doesn't rely on the detail page being open or its
  *  internals being exported. Cache tokens are excluded (same

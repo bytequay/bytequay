@@ -12,7 +12,14 @@
  * limitations under the License.
  */
 import { describe, expect, it } from 'vitest';
-import { isWorktreeBackedTask, taskAgentCwd, taskDisplayBranch, taskModelLabel, taskTokenLabel } from './taskDisplay';
+import {
+  isWorktreeBackedTask,
+  taskAgentCwd,
+  taskCompactNumber,
+  taskDisplayBranch,
+  taskModelLabel,
+  taskTokenLabel,
+} from './taskDisplay';
 
 describe('taskDisplay', () => {
   it('prefers the worktree path for the agent cwd', () => {
@@ -62,5 +69,12 @@ describe('taskDisplay', () => {
     expect(taskTokenLabel(1_000)).toBe('1k tokens');
     expect(taskTokenLabel(25_500)).toBe('25.5k tokens');
     expect(taskTokenLabel(1_000_000)).toBe('1M tokens');
+  });
+
+  it('formats compact numbers', () => {
+    expect(taskCompactNumber(999)).toBe('999');
+    expect(taskCompactNumber(1_000)).toBe('1k');
+    expect(taskCompactNumber(12_500)).toBe('12.5k');
+    expect(taskCompactNumber(1_000_000)).toBe('1M');
   });
 });

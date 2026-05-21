@@ -63,6 +63,12 @@ public interface TaskStore
      *  the reconciler flips them to IDLE. */
     List<Task> listByStatus(TaskStatus status, int limit);
 
+    /** All tasks that carry a {@code linked_pr_number}, newest-first.
+     *  Used by the automation coordinator's CI-fail subscriber to find
+     *  candidates to check against {@code PrDetailStore}'s check-run
+     *  cache. */
+    List<Task> listWithLinkedPr(int limit);
+
     // ── files ────────────────────────────────────────────────────────
 
     /**

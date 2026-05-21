@@ -36,4 +36,7 @@ interface TaskJpaRepository
     /** Orphan scan used by startup reconciliation: rows still marked
      *  RUNNING are stale because their subprocess is gone. */
     List<TaskEntity> findByStatusOrderByCreatedAtMsAsc(String status, Pageable pageable);
+
+    /** Used by the automation coordinator's CI-fail subscriber. */
+    List<TaskEntity> findByLinkedPrNumberIsNotNullOrderByCreatedAtMsDesc(Pageable pageable);
 }

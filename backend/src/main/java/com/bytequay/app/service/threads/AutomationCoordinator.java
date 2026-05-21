@@ -13,14 +13,31 @@
  */
 package com.bytequay.app.service.threads;
 
+import com.bytequay.app.domain.Notification;
+import com.bytequay.app.domain.NotificationKind;
+import com.bytequay.app.domain.PrCheckRunState;
+import com.bytequay.app.domain.StoredPrDetail;
+import com.bytequay.app.domain.Task;
+import com.bytequay.app.domain.WatchedRepo;
 import com.bytequay.app.domain.WorktreeLease;
+import com.bytequay.app.repository.PrDetailStore;
+import com.bytequay.app.repository.PullRequestStore;
+import com.bytequay.app.repository.TaskStore;
+import com.bytequay.app.repository.WatchedRepoStore;
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
+import java.nio.file.Path;
 import java.time.Instant;
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Locale;
+import java.util.Map;
 import java.util.Optional;
 
 import static java.util.Objects.requireNonNull;
@@ -31,12 +48,22 @@ import static java.util.Objects.requireNonNull;
  * {@code docs/mockups/workspace-thread-task-design.md} "Automation
  * and system-initiated tasks").
  *
- * <p>v1 is just the stale-lease reaper: a periodic sweep that
- * releases lease rows whose holder pid no longer corresponds to a
- * live OS process. Without it a crashed subprocess (JVM kill, OOM)
- * would leave the lease row in place and the next agent on that
- * worktree would log "already held" forever. The reaper closes the
- * loop. CI-fail subscriber and friends land next.
+ * <p>v1 ships two periodic sweeps:
+ * <ul>
+ *   <li>{@link #reapStaleLeases} — release lease rows whose holder
+ *       process is gone, so a crashed subprocess doesn't permanently
+ *       block the next agent on that worktree.</li>
+ *   <li>{@link #scanForFailingCi} — for every task carrying a
+ *       {@code linked_pr_number}, look up the PR's cached check-run
+ *       state; when the aggregate is failing, emit one
+ *       {@link NotificationKind#NEEDS_ATTENTION} row so the bell
+ *       lights up. De-dups against open UNREAD notifications on the
+ *       same task so a stubbornly-red PR doesn't spam the user.</li>
+ * </ul>
+ *
+ * Auto-fix-on-CI-fail (actually run a headless agent in the free
+ * worktree) and jump-in lease transfer land on top of this in
+ * follow-up commits.
  */
 @Component
 public class AutomationCoordinator
@@ -50,11 +77,35 @@ public class AutomationCoordinator
      *  session with plenty of slack. */
     private static final long MAX_LEASE_AGE_MS = 6L * 60 * 60 * 1000;
 
-    private final WorktreeLeaseService leaseService;
+    /** Page size cap on the CI-fail scan. A user with hundreds of
+     *  linked-PR tasks would otherwise hit the GitHub-detail cache
+     *  hard on each sweep. */
+    private static final int CI_SCAN_LIMIT = 200;
 
-    public AutomationCoordinator(WorktreeLeaseService leaseService)
+    private final WorktreeLeaseService leaseService;
+    private final TaskStore taskStore;
+    private final WatchedRepoStore watchedRepoStore;
+    private final PullRequestStore pullRequestStore;
+    private final PrDetailStore prDetailStore;
+    private final NotificationService notificationService;
+    private final ObjectMapper mapper;
+
+    public AutomationCoordinator(
+            WorktreeLeaseService leaseService,
+            TaskStore taskStore,
+            WatchedRepoStore watchedRepoStore,
+            PullRequestStore pullRequestStore,
+            PrDetailStore prDetailStore,
+            NotificationService notificationService,
+            ObjectMapper mapper)
     {
         this.leaseService = requireNonNull(leaseService, "leaseService is null");
+        this.taskStore = requireNonNull(taskStore, "taskStore is null");
+        this.watchedRepoStore = requireNonNull(watchedRepoStore, "watchedRepoStore is null");
+        this.pullRequestStore = requireNonNull(pullRequestStore, "pullRequestStore is null");
+        this.prDetailStore = requireNonNull(prDetailStore, "prDetailStore is null");
+        this.notificationService = requireNonNull(notificationService, "notificationService is null");
+        this.mapper = requireNonNull(mapper, "mapper is null");
     }
 
     /**
@@ -84,6 +135,108 @@ public class AutomationCoordinator
     }
 
     /**
+     * Walks tasks with a {@code linked_pr_number}, looks each PR up
+     * in the local detail cache, and emits one NEEDS_ATTENTION row
+     * the first time its aggregate check-run state turns failing.
+     * Idempotent across runs — an open UNREAD notification on the
+     * same task is treated as "already told the user."
+     */
+    @Scheduled(fixedDelay = 60_000, initialDelay = 90_000)
+    public void scanForFailingCi()
+    {
+        List<Task> candidates = taskStore.listWithLinkedPr(CI_SCAN_LIMIT);
+        int emitted = 0;
+        for (Task task : candidates) {
+            if (task.linkedPrNumber() == null || task.workingDir() == null) {
+                continue;
+            }
+            try {
+                if (maybeEmitCiFail(task)) {
+                    emitted++;
+                }
+            }
+            catch (RuntimeException e) {
+                log.warn("CI-fail check failed for task {}: {}", task.id(), e.getMessage());
+            }
+        }
+        if (emitted > 0) {
+            log.info("Emitted {} NEEDS_ATTENTION notification(s) for failing CI", emitted);
+        }
+    }
+
+    /** Returns true when this scan actually wrote a new notification. */
+    private boolean maybeEmitCiFail(Task task)
+    {
+        Optional<WatchedRepo> repo = findRepoForWorkingDir(task.workingDir());
+        if (repo.isEmpty()) {
+            return false;
+        }
+        String repoFullName = repo.get().owner() + "/" + repo.get().repo();
+        Optional<Long> prId = pullRequestStore.findIdByRepoAndNumber(
+                repoFullName, task.linkedPrNumber());
+        if (prId.isEmpty()) {
+            return false;
+        }
+        Optional<StoredPrDetail> detail = prDetailStore.find(prId.get());
+        if (detail.isEmpty()) {
+            return false;
+        }
+        CiAggregate ci = aggregateChecks(detail.get().checkRuns());
+        if (!ci.isFailing()) {
+            return false;
+        }
+        if (hasOpenNotificationForTask(task.id())) {
+            return false;
+        }
+        try {
+            Map<String, Object> payload = new LinkedHashMap<>();
+            payload.put("repoFullName", repoFullName);
+            payload.put("prNumber", task.linkedPrNumber());
+            payload.put("failingChecks", ci.failingNames());
+            payload.put("totalChecks", ci.total());
+            payload.put("reason", "CI failing");
+            String payloadJson = mapper.writeValueAsString(payload);
+            notificationService.notifyNeedsAttention(task.threadId(), task.id(), payloadJson);
+            log.info("CI failing on {} PR #{} (task {}); emitted NEEDS_ATTENTION",
+                    repoFullName, task.linkedPrNumber(), task.id());
+            return true;
+        }
+        catch (JsonProcessingException e) {
+            log.warn("Failed to write CI-fail payload for task {}: {}", task.id(), e.getMessage());
+            return false;
+        }
+    }
+
+    private Optional<WatchedRepo> findRepoForWorkingDir(String workingDir)
+    {
+        Path needle = Path.of(workingDir);
+        for (WatchedRepo r : watchedRepoStore.findAll()) {
+            if (r.localClonePath() != null
+                    && !r.localClonePath().isBlank()
+                    && Path.of(r.localClonePath()).equals(needle)) {
+                return Optional.of(r);
+            }
+        }
+        return Optional.empty();
+    }
+
+    private boolean hasOpenNotificationForTask(String taskId)
+    {
+        // Treat any UNREAD NEEDS_ATTENTION notification on this task
+        // as "already told the user, don't pile on." A read-but-not-
+        // dismissed dedup window would be sturdier, but UNREAD-only
+        // keeps the rule simple while still preventing every tick
+        // from emitting a fresh row.
+        for (Notification n : notificationService.listUnread()) {
+            if (n.kind() == NotificationKind.NEEDS_ATTENTION
+                    && taskId.equals(n.taskId())) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
      * Decides whether a lease row is stale. A lease counts as stale
      * when ANY of the following holds:
      *   * its soft expiry has passed,
@@ -107,4 +260,28 @@ public class AutomationCoordinator
         long ageMs = now.toEpochMilli() - lease.acquiredAt().toEpochMilli();
         return ageMs > MAX_LEASE_AGE_MS;
     }
+
+    /** Aggregated check-run state for a PR. "Failing" mirrors the
+     *  GitHub PR-merge button logic: ANY check whose conclusion is
+     *  failure / timed_out / cancelled / action_required counts as
+     *  failing; in-progress checks don't tip the scale either way. */
+    static CiAggregate aggregateChecks(List<PrCheckRunState> checks)
+    {
+        if (checks == null || checks.isEmpty()) {
+            return new CiAggregate(false, List.of(), 0);
+        }
+        List<String> failingNames = new ArrayList<>();
+        for (PrCheckRunState c : checks) {
+            String conclusion = c.conclusion() == null ? "" : c.conclusion().toLowerCase(Locale.ROOT);
+            if (conclusion.equals("failure")
+                    || conclusion.equals("timed_out")
+                    || conclusion.equals("cancelled")
+                    || conclusion.equals("action_required")) {
+                failingNames.add(c.name() == null ? "(unnamed)" : c.name());
+            }
+        }
+        return new CiAggregate(!failingNames.isEmpty(), List.copyOf(failingNames), checks.size());
+    }
+
+    record CiAggregate(boolean isFailing, List<String> failingNames, int total) {}
 }

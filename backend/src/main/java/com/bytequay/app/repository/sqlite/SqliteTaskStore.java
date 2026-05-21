@@ -130,6 +130,15 @@ class SqliteTaskStore
     }
 
     @Override
+    public List<Task> listWithLinkedPr(int limit)
+    {
+        return tasks.findByLinkedPrNumberIsNotNullOrderByCreatedAtMsDesc(firstPage(limit))
+                .stream()
+                .map(SqliteTaskStore::toTask)
+                .toList();
+    }
+
+    @Override
     @Transactional
     public void recordFile(TaskFile file)
     {

@@ -463,6 +463,7 @@ class TestAgentScheduler
         @Override public Optional<Task> findActiveTaskForThread(String threadId) { return Optional.empty(); }
         @Override public Optional<Long> maxSeqForThread(String threadId) { return Optional.empty(); }
         @Override public List<Task> listByStatus(TaskStatus status, int limit) { return List.of(); }
+        @Override public List<Task> listWithLinkedPr(int limit) { return List.of(); }
         @Override public void recordFile(TaskFile file) {}
         @Override public List<TaskFile> listFiles(String taskId) { return List.of(); }
     }

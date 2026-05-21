@@ -14,6 +14,7 @@
 package com.bytequay.app.service.threads;
 
 import com.bytequay.app.domain.CreatePullRequestCommand;
+import com.bytequay.app.domain.ListPullRequestsQuery;
 import com.bytequay.app.domain.PullRequest;
 import com.bytequay.app.domain.RepoRef;
 import com.bytequay.app.domain.Task;
@@ -212,11 +213,14 @@ public class TaskService
                     prNumber = pr.number();
                 }
                 catch (RuntimeException e) {
-                    // Most commonly: a PR is already open for this branch.
-                    // Keep going without a PR number; the user can attach
-                    // the existing PR through the regular linking UI.
-                    log.warn("PR create failed for {} branch {}: {}",
+                    // Most commonly: a PR is already open for this branch
+                    // (GitHub returns 422). Re-fetch the open PR by head
+                    // ref so the task still picks up a pr_number instead
+                    // of needing the user to attach it manually.
+                    log.info("PR create failed for {} branch {}: {} — looking up existing",
                             repoFullName, current.branchName(), e.getMessage());
+                    prNumber = findExistingPrNumber(pat, repoRef, current.branchName())
+                            .orElse(null);
                 }
             }
 
@@ -307,6 +311,31 @@ public class TaskService
             return override.get();
         }
         return git.defaultBranch(workingDir).orElse("main");
+    }
+
+    /**
+     * Look up an already-open PR by head branch when create returns
+     * 422. GitHub's list-PRs API takes a {@code head=<owner>:<branch>}
+     * filter; we ask for the single newest match. Best-effort — a
+     * second failure here just leaves pr_number null and the user
+     * attaches the PR manually.
+     */
+    private Optional<Integer> findExistingPrNumber(String pat, RepoRef repo, String branchName)
+    {
+        try {
+            ListPullRequestsQuery query = new ListPullRequestsQuery(
+                    "open",
+                    Optional.of(repo.owner() + ":" + branchName),
+                    Optional.empty(),
+                    "created", "desc", 1, 1);
+            List<PullRequest> hits = pullRequestRepository.listPullRequests(pat, repo, query);
+            return hits.stream().findFirst().map(PullRequest::number);
+        }
+        catch (RuntimeException e) {
+            log.warn("Lookup of existing PR for {} branch {} failed: {}",
+                    repo.owner() + "/" + repo.repo(), branchName, e.getMessage());
+            return Optional.empty();
+        }
     }
 
     private WatchedRepo resolveRepo(Path workingDir)

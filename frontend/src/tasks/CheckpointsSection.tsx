@@ -160,9 +160,9 @@ function relativeAgo(iso: string): string {
 }
 
 function formatTokens(n: number): string {
-  if (n < 1000) return `${n} tok`;
-  if (n < 1_000_000) return `${(n / 1000).toFixed(1).replace(/\.0$/, '')}k tok`;
-  return `${(n / 1_000_000).toFixed(1).replace(/\.0$/, '')}M tok`;
+  if (n < 1000) return `${n} ${n === 1 ? 'token' : 'tokens'}`;
+  if (n < 1_000_000) return `${(n / 1000).toFixed(1).replace(/\.0$/, '')}k tokens`;
+  return `${(n / 1_000_000).toFixed(1).replace(/\.0$/, '')}M tokens`;
 }
 
 const listStyle: React.CSSProperties = {

@@ -77,6 +77,17 @@ class SqliteThreadCheckpointStore
     }
 
     @Override
+    public List<ThreadCheckpoint> listAllActiveOveralls(int limit)
+    {
+        if (limit <= 0) {
+            return List.of();
+        }
+        return repo.findAllActiveOveralls(PageRequest.of(0, limit)).stream()
+                .map(this::toCheckpoint)
+                .toList();
+    }
+
+    @Override
     @Transactional
     public void replaceOverall(String threadId, ThreadCheckpoint next)
     {

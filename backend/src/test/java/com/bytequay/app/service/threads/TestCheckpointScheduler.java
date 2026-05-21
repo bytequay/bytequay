@@ -368,6 +368,12 @@ class TestCheckpointScheduler
         }
 
         @Override
+        public List<ThreadCheckpoint> listAllActiveOveralls(int limit)
+        {
+            return List.of();
+        }
+
+        @Override
         public void replaceOverall(String threadId, ThreadCheckpoint next)
         {
             if (!next.isOverall()) {

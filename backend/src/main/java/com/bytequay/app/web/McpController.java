@@ -17,9 +17,11 @@ import com.bytequay.app.domain.PermissionDecision;
 import com.bytequay.app.domain.PullRequestRef;
 import com.bytequay.app.domain.Task;
 import com.bytequay.app.domain.TaskStatus;
+import com.bytequay.app.domain.ThreadCheckpoint;
 import com.bytequay.app.domain.WatchedRepo;
 import com.bytequay.app.repository.PullRequestRepository;
 import com.bytequay.app.repository.TaskStore;
+import com.bytequay.app.repository.ThreadCheckpointStore;
 import com.bytequay.app.repository.WatchedRepoStore;
 import com.bytequay.app.service.local.GitRunner;
 import com.bytequay.app.service.threads.McpPermissionGate;
@@ -40,7 +42,10 @@ import org.springframework.web.context.request.async.DeferredResult;
 
 import java.io.IOException;
 import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.OptionalInt;
@@ -97,6 +102,27 @@ public class McpController
      *  {@link #POST_COMMENT_TOOL} — no silent publish. */
     private static final String PUSH_TOOL = "push";
 
+    /** Read-only cross-thread context lookup. The agent calls this
+     *  with a free-text query (or no query at all) and the server
+     *  returns a digest of matching active Overall checkpoints from
+     *  other threads — title, summary excerpt, bullets. No user gate;
+     *  no GitHub mutation. */
+    private static final String RECALL_THREAD_TOOL = "recall_thread";
+
+    /** Hard upper bound on the {@code limit} arg of {@code recall_thread}
+     *  — the result is inlined into the agent's context, so we cap it
+     *  so a too-eager caller can't blow up a single turn. */
+    private static final int RECALL_THREAD_MAX_LIMIT = 20;
+
+    /** Default {@code limit} when the agent doesn't supply one — small
+     *  enough that a typical recall pulls in just the most-relevant
+     *  threads, big enough that fuzzy queries return useful diversity. */
+    private static final int RECALL_THREAD_DEFAULT_LIMIT = 5;
+
+    /** Per-checkpoint summary excerpt cap. Keeps the response readable
+     *  when the matching threads have long Overall summaries. */
+    private static final int RECALL_SUMMARY_EXCERPT_CHARS = 800;
+
     /** How long the agent will wait for the user before we give up
      *  and tell Claude the request was denied. Two minutes is enough
      *  to switch tabs, read the call site, and decide; longer would
@@ -105,6 +131,7 @@ public class McpController
 
     private final ThreadService threads;
     private final TaskStore taskStore;
+    private final ThreadCheckpointStore checkpoints;
     private final McpPermissionGate gate;
     private final NotificationService notifications;
     private final WatchedRepoStore watchedRepos;
@@ -116,6 +143,7 @@ public class McpController
     public McpController(
             ThreadService threads,
             TaskStore taskStore,
+            ThreadCheckpointStore checkpoints,
             McpPermissionGate gate,
             NotificationService notifications,
             WatchedRepoStore watchedRepos,
@@ -126,6 +154,7 @@ public class McpController
     {
         this.threads = requireNonNull(threads, "threads is null");
         this.taskStore = requireNonNull(taskStore, "taskStore is null");
+        this.checkpoints = requireNonNull(checkpoints, "checkpoints is null");
         this.gate = requireNonNull(gate, "gate is null");
         this.notifications = requireNonNull(notifications, "notifications is null");
         this.watchedRepos = requireNonNull(watchedRepos, "watchedRepos is null");
@@ -251,6 +280,36 @@ public class McpController
         pushSchema.putObject("properties");
         tools.add(push);
 
+        // recall_thread — read-only cross-thread lookup. Returns a
+        // digest of matching active Overall checkpoints so the agent
+        // can find an earlier conversation that already covered the
+        // ground it's about to walk. The current thread is excluded
+        // so the agent isn't handed back a summary of the turn it's
+        // in the middle of.
+        ObjectNode recall = mapper.createObjectNode();
+        recall.put("name", RECALL_THREAD_TOOL);
+        recall.put("description",
+                "Search prior threads' Overall summaries for prior context. "
+                        + "Use this before answering an unfamiliar question to see if "
+                        + "a previous thread already worked through the same problem. "
+                        + "Returns title + summary excerpt + bullet titles for each "
+                        + "matching thread; never mutates state.");
+        ObjectNode recallSchema = recall.putObject("inputSchema");
+        recallSchema.put("type", "object");
+        ObjectNode recallProperties = recallSchema.putObject("properties");
+        recallProperties.putObject("query")
+                .put("type", "string")
+                .put("description",
+                        "Optional free-text filter. Matched case-insensitively against "
+                                + "Overall summary text and bullet titles. Omit to get the "
+                                + "most recent threads regardless of content.");
+        recallProperties.putObject("limit")
+                .put("type", "integer")
+                .put("description",
+                        "Max threads to return (default " + RECALL_THREAD_DEFAULT_LIMIT
+                                + ", capped at " + RECALL_THREAD_MAX_LIMIT + ").");
+        tools.add(recall);
+
         return ok(id, result);
     }
 
@@ -268,6 +327,10 @@ public class McpController
         }
         if (PUSH_TOOL.equals(name)) {
             handlePush(threadId, id, deferred);
+            return;
+        }
+        if (RECALL_THREAD_TOOL.equals(name)) {
+            handleRecallThread(threadId, id, params.path("arguments"), deferred);
             return;
         }
         if (!TOOL_NAME.equals(name)) {
@@ -570,6 +633,104 @@ public class McpController
                 deferred.setResult(plainText(id, "push rejected: " + e.getMessage()));
             }
         });
+    }
+
+    /**
+     * Handles {@code recall_thread}: searches active Overall checkpoints
+     * across the database for prior threads whose Overall summary or
+     * bullet titles match the agent's query, then returns a digest as a
+     * single text block.
+     *
+     * <p>Read-only — no user gate. The current thread is excluded so
+     * the agent doesn't read back its own in-flight Overall as if it
+     * were a separate hit. Filtering is plain case-insensitive substring
+     * matching today; a future commit can swap in BM25 or embeddings
+     * once we have a corpus to tune against.
+     */
+    private void handleRecallThread(
+            String threadId, JsonNode id, JsonNode args, DeferredResult<JsonNode> deferred)
+    {
+        String query = args.path("query").asText("").trim();
+        int requestedLimit = args.path("limit").asInt(RECALL_THREAD_DEFAULT_LIMIT);
+        if (requestedLimit <= 0) {
+            requestedLimit = RECALL_THREAD_DEFAULT_LIMIT;
+        }
+        int limit = Math.min(requestedLimit, RECALL_THREAD_MAX_LIMIT);
+
+        // Pull a generous candidate window — we filter in-memory and
+        // the table is local, so an extra factor here costs little but
+        // helps when the query is selective.
+        int scanLimit = Math.min(RECALL_THREAD_MAX_LIMIT * 4, limit * 8);
+        List<ThreadCheckpoint> candidates = checkpoints.listAllActiveOveralls(scanLimit);
+        String needle = query.isEmpty() ? null : query.toLowerCase(Locale.ROOT);
+
+        List<ThreadCheckpoint> matches = new ArrayList<>();
+        for (ThreadCheckpoint cp : candidates) {
+            if (cp.threadId().equals(threadId)) {
+                continue;
+            }
+            if (needle != null && !checkpointMatches(cp, needle)) {
+                continue;
+            }
+            matches.add(cp);
+            if (matches.size() >= limit) {
+                break;
+            }
+        }
+
+        deferred.setResult(plainText(id, renderRecallResult(query, matches)));
+    }
+
+    private static boolean checkpointMatches(ThreadCheckpoint cp, String needle)
+    {
+        String summary = cp.summaryMd();
+        if (summary != null && summary.toLowerCase(Locale.ROOT).contains(needle)) {
+            return true;
+        }
+        for (String bullet : cp.bulletTitles()) {
+            if (bullet != null && bullet.toLowerCase(Locale.ROOT).contains(needle)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private String renderRecallResult(String query, List<ThreadCheckpoint> matches)
+    {
+        if (matches.isEmpty()) {
+            return query.isEmpty()
+                    ? "No prior threads with an Overall summary yet."
+                    : "No prior threads matched: " + query;
+        }
+        StringBuilder out = new StringBuilder();
+        out.append(matches.size())
+                .append(query.isEmpty() ? " recent thread(s):\n" : " match(es) for \"")
+                .append(query.isEmpty() ? "" : query)
+                .append(query.isEmpty() ? "" : "\":\n");
+        for (ThreadCheckpoint cp : matches) {
+            String title = threads.find(cp.threadId())
+                    .map(com.bytequay.app.domain.Thread::title)
+                    .filter(s -> s != null && !s.isBlank())
+                    .orElse("(untitled)");
+            out.append("\n— thread ").append(cp.threadId())
+                    .append(" · ").append(title).append('\n');
+            for (String bullet : cp.bulletTitles()) {
+                if (bullet != null && !bullet.isBlank()) {
+                    out.append("  • ").append(bullet).append('\n');
+                }
+            }
+            String summary = cp.summaryMd();
+            if (summary != null && !summary.isBlank()) {
+                String excerpt = summary.length() <= RECALL_SUMMARY_EXCERPT_CHARS
+                        ? summary
+                        : summary.substring(0, RECALL_SUMMARY_EXCERPT_CHARS) + "…";
+                out.append(excerpt);
+                if (!excerpt.endsWith("\n")) {
+                    out.append('\n');
+                }
+            }
+        }
+        return out.toString();
     }
 
     /** Resolves the active task's linked PR into a PullRequestRef by

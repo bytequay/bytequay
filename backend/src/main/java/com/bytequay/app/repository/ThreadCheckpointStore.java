@@ -55,6 +55,12 @@ public interface ThreadCheckpointStore
      *  when the task has not produced any checkpoints yet. */
     List<ThreadCheckpoint> listActiveForTask(String taskId);
 
+    /** Every currently-active Overall row across the database, ordered
+     *  newest-generated first and capped at {@code limit}. Powers the
+     *  cross-thread recall lookup; callers filter the result in-memory
+     *  by their query text. */
+    List<ThreadCheckpoint> listAllActiveOveralls(int limit);
+
     /** Atomic Overall swap: stamp any currently-active Overall as
      *  superseded and persist {@code next}. Use this rather than
      *  two separate writes so a reader can't briefly observe two

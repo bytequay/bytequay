@@ -82,4 +82,18 @@ interface ThreadCheckpointJpaRepository
             ORDER BY c.seq DESC
             """)
     List<ThreadCheckpointEntity> findActiveForTaskId(@Param("taskId") String taskId);
+
+    /** Every currently-active Overall row across the database, newest-
+     *  generated first. Powers the {@code recall_thread} MCP tool: the
+     *  agent scans these to find a prior thread to load context from
+     *  before answering an unfamiliar question. {@code Pageable} caps
+     *  the row count so a large checkpoint table doesn't push memory
+     *  pressure through a tool call. */
+    @Query("""
+            SELECT c FROM ThreadCheckpointEntity c
+            WHERE c.isOverall = 1
+              AND c.supersededAtMs IS NULL
+            ORDER BY c.generatedAtMs DESC
+            """)
+    List<ThreadCheckpointEntity> findAllActiveOveralls(Pageable page);
 }

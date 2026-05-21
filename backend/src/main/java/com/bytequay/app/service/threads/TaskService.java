@@ -29,6 +29,8 @@ import com.bytequay.app.repository.WatchedRepoStore;
 import com.bytequay.app.service.local.GitRunner;
 import com.bytequay.app.service.workspaces.WorkspaceService;
 import com.bytequay.app.web.PatResolver;
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatusCode;
@@ -39,7 +41,9 @@ import org.springframework.web.server.ResponseStatusException;
 import java.io.IOException;
 import java.nio.file.Path;
 import java.time.Instant;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.UUID;
 
@@ -66,6 +70,8 @@ public class TaskService
     private final PatResolver patResolver;
     private final ThreadRegistry registry;
     private final WorkspaceService workspaceService;
+    private final NotificationService notificationService;
+    private final ObjectMapper mapper;
 
     public TaskService(
             ThreadStore threadStore,
@@ -76,7 +82,9 @@ public class TaskService
             PullRequestRepository pullRequestRepository,
             PatResolver patResolver,
             ThreadRegistry registry,
-            WorkspaceService workspaceService)
+            WorkspaceService workspaceService,
+            NotificationService notificationService,
+            ObjectMapper mapper)
     {
         this.threadStore = requireNonNull(threadStore, "threadStore is null");
         this.taskStore = requireNonNull(taskStore, "taskStore is null");
@@ -87,6 +95,8 @@ public class TaskService
         this.patResolver = requireNonNull(patResolver, "patResolver is null");
         this.registry = requireNonNull(registry, "registry is null");
         this.workspaceService = requireNonNull(workspaceService, "workspaceService is null");
+        this.notificationService = requireNonNull(notificationService, "notificationService is null");
+        this.mapper = requireNonNull(mapper, "mapper is null");
     }
 
     /** All tasks for a thread, ordered by seq ascending. 404 if the
@@ -285,6 +295,28 @@ public class TaskService
                 }
             });
             registry.evict(threadId);
+
+            // Drop an informational notification so the bell / center
+            // shows "Task N shipped → PR #M, next task started" the
+            // next time the user looks. Best-effort: a failure here
+            // shouldn't roll back the (already-completed) ship.
+            try {
+                Map<String, Object> payloadMap = new LinkedHashMap<>();
+                payloadMap.put("shippedTaskId", current.id());
+                payloadMap.put("shippedSeq", current.seq());
+                payloadMap.put("prNumber", prNumber);
+                payloadMap.put("repoFullName", repoFullName);
+                payloadMap.put("branchName", current.branchName());
+                payloadMap.put("nextTaskId", nextTaskId);
+                payloadMap.put("nextSeq", nextSeq);
+                payloadMap.put("nextTitle", nextTitle);
+                String payload = mapper.writeValueAsString(payloadMap);
+                notificationService.notifyAutoFixDone(threadId, current.id(), payload);
+            }
+            catch (JsonProcessingException | RuntimeException e) {
+                log.warn("notification emit on ship-and-continue threw for thread {}: {}",
+                        threadId, e.getMessage());
+            }
 
             return next;
         }

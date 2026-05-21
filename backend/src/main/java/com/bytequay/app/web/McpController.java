@@ -21,6 +21,7 @@ import com.bytequay.app.domain.WatchedRepo;
 import com.bytequay.app.repository.PullRequestRepository;
 import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.repository.WatchedRepoStore;
+import com.bytequay.app.service.local.GitRunner;
 import com.bytequay.app.service.threads.McpPermissionGate;
 import com.bytequay.app.service.threads.NotificationService;
 import com.bytequay.app.service.threads.ThreadService;
@@ -37,6 +38,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.context.request.async.DeferredResult;
 
+import java.io.IOException;
 import java.nio.file.Path;
 import java.util.LinkedHashMap;
 import java.util.Map;
@@ -90,6 +92,11 @@ public class McpController
      *  per-repo PAT. */
     private static final String POST_COMMENT_TOOL = "post_comment";
 
+    /** Gated publish tool: pushes the active task's worktree branch
+     *  upstream via {@code git push}. Same user-gate pattern as
+     *  {@link #POST_COMMENT_TOOL} — no silent publish. */
+    private static final String PUSH_TOOL = "push";
+
     /** How long the agent will wait for the user before we give up
      *  and tell Claude the request was denied. Two minutes is enough
      *  to switch tabs, read the call site, and decide; longer would
@@ -103,6 +110,7 @@ public class McpController
     private final WatchedRepoStore watchedRepos;
     private final PullRequestRepository pullRequests;
     private final PatResolver patResolver;
+    private final GitRunner git;
     private final ObjectMapper mapper;
 
     public McpController(
@@ -113,6 +121,7 @@ public class McpController
             WatchedRepoStore watchedRepos,
             PullRequestRepository pullRequests,
             PatResolver patResolver,
+            GitRunner git,
             ObjectMapper mapper)
     {
         this.threads = requireNonNull(threads, "threads is null");
@@ -122,6 +131,7 @@ public class McpController
         this.watchedRepos = requireNonNull(watchedRepos, "watchedRepos is null");
         this.pullRequests = requireNonNull(pullRequests, "pullRequests is null");
         this.patResolver = requireNonNull(patResolver, "patResolver is null");
+        this.git = requireNonNull(git, "git is null");
         this.mapper = requireNonNull(mapper, "mapper is null");
     }
 
@@ -226,6 +236,21 @@ public class McpController
         postSchema.putArray("required").add("body");
         tools.add(postComment);
 
+        // push — gated git push. Pushes the active task's worktree
+        // branch to its upstream (sets -u origin <branch> on first
+        // push, per GitRunner). Same user-gate pattern as post_comment;
+        // no silent publish.
+        ObjectNode push = mapper.createObjectNode();
+        push.put("name", PUSH_TOOL);
+        push.put("description",
+                "Push the active task's branch upstream. The user must approve "
+                        + "before the push runs; on Approve the server invokes "
+                        + "`git push` from the task's worktree.");
+        ObjectNode pushSchema = push.putObject("inputSchema");
+        pushSchema.put("type", "object");
+        pushSchema.putObject("properties");
+        tools.add(push);
+
         return ok(id, result);
     }
 
@@ -239,6 +264,10 @@ public class McpController
         }
         if (POST_COMMENT_TOOL.equals(name)) {
             handlePostComment(threadId, id, params.path("arguments"), deferred);
+            return;
+        }
+        if (PUSH_TOOL.equals(name)) {
+            handlePush(threadId, id, deferred);
             return;
         }
         if (!TOOL_NAME.equals(name)) {
@@ -472,6 +501,73 @@ public class McpController
                         threadId, e.getMessage());
                 deferred.setResult(plainText(id,
                         "GitHub rejected the comment: " + e.getMessage()));
+            }
+        });
+    }
+
+    /**
+     * Handles {@code push}: surfaces a permission card and, on
+     * Approve, runs {@code git push} from the active task's worktree
+     * path. Returns plain text — the agent isn't asking permission
+     * for a future tool, it's asking for one side-effect to happen
+     * now (same as {@code post_comment}).
+     */
+    private void handlePush(String threadId, JsonNode id, DeferredResult<JsonNode> deferred)
+    {
+        Optional<Task> active = taskStore.findActiveTaskForThread(threadId);
+        if (active.isEmpty()) {
+            deferred.setResult(plainText(id,
+                    "no active task on this thread — nothing to push"));
+            return;
+        }
+        Task task = active.get();
+        if (task.worktreePath() == null || task.worktreePath().isBlank()) {
+            deferred.setResult(plainText(id,
+                    "the active task has no worktree — push needs an isolated branch"));
+            return;
+        }
+        Path worktree = Path.of(task.worktreePath());
+
+        String callId = "push-" + UUID.randomUUID();
+        CompletableFuture<PermissionDecision> decisionFuture = gate.register(callId, PUSH_TOOL);
+        try {
+            threads.notifyPermissionRequested(threadId, callId, PUSH_TOOL,
+                    "Push " + (task.branchName() == null ? "branch" : task.branchName())
+                            + " from worktree " + worktree);
+        }
+        catch (RuntimeException e) {
+            log.warn("Failed to surface push permission card for thread {}: {}",
+                    threadId, e.getMessage());
+        }
+
+        decisionFuture.whenComplete((decision, ex) -> {
+            if (ex != null) {
+                deferred.setResult(plainText(id, "interrupted: " + ex.getMessage()));
+                return;
+            }
+            if (decision != PermissionDecision.ALLOW) {
+                deferred.setResult(plainText(id, "user denied"));
+                return;
+            }
+            try {
+                git.push(worktree);
+                deferred.setResult(plainText(id,
+                        "Pushed " + (task.branchName() == null ? "branch" : task.branchName())
+                                + " from " + worktree + "."));
+            }
+            catch (IOException e) {
+                log.warn("push from {} failed for thread {}: {}",
+                        worktree, threadId, e.getMessage());
+                deferred.setResult(plainText(id, "push failed: " + e.getMessage()));
+            }
+            catch (InterruptedException e) {
+                Thread.currentThread().interrupt();
+                deferred.setResult(plainText(id, "push interrupted"));
+            }
+            catch (RuntimeException e) {
+                log.warn("push from {} rejected for thread {}: {}",
+                        worktree, threadId, e.getMessage());
+                deferred.setResult(plainText(id, "push rejected: " + e.getMessage()));
             }
         });
     }

@@ -97,9 +97,23 @@ public class WorkspaceController
         return workspaces.setDefaultBaseBranch(id, owner + "/" + repo, body.defaultBaseBranch());
     }
 
+    /** Flip the headless auto-fix opt-in on or off for one repo.
+     *  Off by default per CLAUDE.md — only when this is explicitly
+     *  enabled will the automation coordinator spawn a CLI agent
+     *  against a failing-CI candidate. */
+    @PutMapping("/{id}/repos/{owner}/{repo}/auto-fix-enabled")
+    public WorkspaceRepo setAutoFixEnabled(@PathVariable String id,
+            @PathVariable String owner, @PathVariable String repo,
+            @RequestBody AutoFixEnabledBody body)
+    {
+        return workspaces.setAutoFixEnabled(id, owner + "/" + repo, body.autoFixEnabled());
+    }
+
     public record MemoryBody(String memoryMd) {}
 
     public record RepoAttachBody(String repoFullName, String defaultBaseBranch) {}
 
     public record DefaultBaseBranchBody(String defaultBaseBranch) {}
+
+    public record AutoFixEnabledBody(boolean autoFixEnabled) {}
 }

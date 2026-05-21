@@ -1,0 +1,196 @@
+/*
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+package com.bytequay.app.repository.sqlite;
+
+import com.bytequay.app.domain.Task;
+import com.bytequay.app.domain.TaskFile;
+import com.bytequay.app.domain.TaskStatus;
+import com.bytequay.app.repository.TaskStore;
+import org.springframework.stereotype.Component;
+import org.springframework.transaction.annotation.Transactional;
+
+import java.time.Instant;
+import java.util.List;
+import java.util.Optional;
+
+import static com.bytequay.app.repository.sqlite.SqlitePageRequests.firstPage;
+import static java.util.Objects.requireNonNull;
+
+@Component
+class SqliteTaskStore
+        implements TaskStore
+{
+    private final TaskJpaRepository tasks;
+    private final TaskFileJpaRepository files;
+
+    SqliteTaskStore(TaskJpaRepository tasks, TaskFileJpaRepository files)
+    {
+        this.tasks = requireNonNull(tasks, "tasks is null");
+        this.files = requireNonNull(files, "files is null");
+    }
+
+    @Override
+    @Transactional
+    public void saveTask(Task task)
+    {
+        TaskEntity entity = tasks.findById(task.id()).orElseGet(TaskEntity::new);
+        entity.setId(task.id());
+        entity.setThreadId(task.threadId());
+        entity.setSeq(task.seq());
+        entity.setStatus(task.status().name());
+        entity.setBranchName(task.branchName());
+        entity.setWorktreePath(task.worktreePath());
+        entity.setBaseBranch(task.baseBranch());
+        entity.setWorkingDir(task.workingDir());
+        entity.setProcessPid(task.processPid());
+        entity.setLogPath(task.logPath());
+        entity.setPrNumber(task.prNumber());
+        entity.setPrState(task.prState());
+        entity.setCiState(task.ciState());
+        entity.setTaskType(task.taskType());
+        entity.setLinkedPrNumber(task.linkedPrNumber());
+        entity.setLinkedIssueNumber(task.linkedIssueNumber());
+        entity.setCostUsdMilli(task.costUsdMilli());
+        entity.setTokensIn(task.tokensIn());
+        entity.setTokensOut(task.tokensOut());
+        entity.setFirstMsgSeq(task.firstMsgSeq());
+        entity.setLastMsgSeq(task.lastMsgSeq());
+        entity.setCreatedAtMs(task.createdAt().toEpochMilli());
+        entity.setEndedAtMs(task.endedAt() == null ? null : task.endedAt().toEpochMilli());
+        entity.setErrorMessage(task.errorMessage());
+        tasks.save(entity);
+    }
+
+    @Override
+    public Optional<Task> findTaskById(String id)
+    {
+        return tasks.findById(id).map(SqliteTaskStore::toTask);
+    }
+
+    @Override
+    @Transactional
+    public void deleteTask(String id)
+    {
+        if (!tasks.existsById(id)) {
+            return;
+        }
+        // task_files cascades via the FK ON DELETE CASCADE clause in the
+        // migration; no manual delete required.
+        tasks.deleteById(id);
+    }
+
+    @Override
+    public List<Task> listTasksByThread(String threadId)
+    {
+        return tasks.findByThreadIdOrderBySeqAsc(threadId).stream()
+                .map(SqliteTaskStore::toTask)
+                .toList();
+    }
+
+    @Override
+    public Optional<Task> findActiveTaskForThread(String threadId)
+    {
+        // Non-terminal = anything that isn't COMPLETED or ERRORED.
+        // Listed seq-desc so the first row is the latest active task.
+        List<String> active = List.of(
+                TaskStatus.PENDING.name(),
+                TaskStatus.RUNNING.name(),
+                TaskStatus.AWAITING.name(),
+                TaskStatus.IDLE.name());
+        return tasks.findByThreadIdAndStatusInOrderBySeqDesc(threadId, active)
+                .stream()
+                .findFirst()
+                .map(SqliteTaskStore::toTask);
+    }
+
+    @Override
+    public Optional<Long> maxSeqForThread(String threadId)
+    {
+        return tasks.findFirstByThreadIdOrderBySeqDesc(threadId).map(TaskEntity::getSeq);
+    }
+
+    @Override
+    public List<Task> listByStatus(TaskStatus status, int limit)
+    {
+        return tasks.findByStatusOrderByCreatedAtMsAsc(status.name(), firstPage(limit))
+                .stream()
+                .map(SqliteTaskStore::toTask)
+                .toList();
+    }
+
+    @Override
+    @Transactional
+    public void recordFile(TaskFile file)
+    {
+        TaskFileEntity.TaskFileKey key =
+                new TaskFileEntity.TaskFileKey(file.taskId(), file.path());
+        TaskFileEntity entity = files.findById(key).orElseGet(TaskFileEntity::new);
+        entity.setId(key);
+        entity.setOperation(file.operation());
+        entity.setCount(file.count());
+        entity.setLinesAdded(file.linesAdded());
+        entity.setLinesRemoved(file.linesRemoved());
+        entity.setLastTouchedMs(file.lastTouchedAt().toEpochMilli());
+        files.save(entity);
+    }
+
+    @Override
+    public List<TaskFile> listFiles(String taskId)
+    {
+        return files.findByIdTaskIdOrderByLastTouchedMsDesc(taskId).stream()
+                .map(SqliteTaskStore::toFile)
+                .toList();
+    }
+
+    private static Task toTask(TaskEntity e)
+    {
+        return new Task(
+                e.getId(),
+                e.getThreadId(),
+                e.getSeq(),
+                TaskStatus.valueOf(e.getStatus()),
+                e.getBranchName(),
+                e.getWorktreePath(),
+                e.getBaseBranch(),
+                e.getWorkingDir(),
+                e.getProcessPid(),
+                e.getLogPath(),
+                e.getPrNumber(),
+                e.getPrState(),
+                e.getCiState(),
+                e.getTaskType(),
+                e.getLinkedPrNumber(),
+                e.getLinkedIssueNumber(),
+                e.getCostUsdMilli(),
+                e.getTokensIn(),
+                e.getTokensOut(),
+                e.getFirstMsgSeq(),
+                e.getLastMsgSeq(),
+                Instant.ofEpochMilli(e.getCreatedAtMs()),
+                e.getEndedAtMs() == null ? null : Instant.ofEpochMilli(e.getEndedAtMs()),
+                e.getErrorMessage());
+    }
+
+    private static TaskFile toFile(TaskFileEntity e)
+    {
+        return new TaskFile(
+                e.getId().getTaskId(),
+                e.getId().getPath(),
+                e.getOperation(),
+                e.getCount(),
+                e.getLinesAdded(),
+                e.getLinesRemoved(),
+                Instant.ofEpochMilli(e.getLastTouchedMs()));
+    }
+}

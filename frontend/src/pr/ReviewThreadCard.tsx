@@ -13,6 +13,7 @@
  */
 import { useState } from 'react';
 import type { ReviewThreadDto } from '../types';
+import type { MarkdownRepoContext } from '../markdown';
 import Avatar from '../Avatar';
 import PolishButtons from '../ai/PolishButtons';
 import MarkdownComposer from '../MarkdownComposer';
@@ -36,6 +37,7 @@ export function ReviewThreadCard({
   onReact,
   onSetResolved,
   onEditMessage,
+  repoContext,
 }: {
   thread: ReviewThreadDto;
   prAuthor: string | null;
@@ -53,6 +55,9 @@ export function ReviewThreadCard({
   /** Edit one of this thread's messages (only the message author can
    *  use this). The parent owns the bridge call + local-state patch. */
   onEditMessage?: (commentGithubId: number, newBody: string) => Promise<void>;
+  /** Forwarded to the inner {@link EditableMarkdownBody} so {@code #N}
+   *  issue chips know which repo they came from. */
+  repoContext?: MarkdownRepoContext;
 }) {
   const [resolving, setResolving] = useState(false);
   const [body, setBody] = useState('');
@@ -191,6 +196,7 @@ export function ReviewThreadCard({
                       canEdit={!!(onEditMessage && currentUserLogin && currentUserLogin === msg.author)}
                       onSave={(newBody) => onEditMessage!(msg.githubId, newBody)}
                       renderViewSlot={(b) => <CommentBodyWithSuggestions body={b} hunk={thread.diffHunk} />}
+                      repoContext={repoContext}
                     />
                   )}
                   <ReactionChips

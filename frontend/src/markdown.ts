@@ -31,11 +31,20 @@ import { marked } from 'marked';
  *  `#N` issue references in themed chip spans — same treatment
  *  github.com gives them on its own pages.
  */
-export function renderMarkdown(text: string | null | undefined): string {
+/**
+ * Optional repo context the caller passes when the markdown comes
+ * from a known repo. Used by {@link decorateRefsAndMentions} to stamp
+ * {@code data-repo-owner} / {@code data-repo-name} on the {@code #N}
+ * issue-reference chips so a future click delegate can resolve the
+ * reference without re-parsing the surrounding URL.
+ */
+export type MarkdownRepoContext = { owner: string; repo: string };
+
+export function renderMarkdown(text: string | null | undefined, repoContext?: MarkdownRepoContext): string {
   if (!text) return '';
   const normalised = text.replace(/\r\n/g, '\n');
   const html = marked.parse(normalised, { gfm: true, breaks: true, async: false }) as string;
-  return decorateRefsAndMentions(html);
+  return decorateRefsAndMentions(html, repoContext);
 }
 
 /** Walks the rendered HTML, finds bare `@user` / `#N` tokens in text
@@ -52,24 +61,24 @@ export function renderMarkdown(text: string | null | undefined): string {
  *  No-ops in non-DOM environments (SSR / unit tests without jsdom),
  *  so the renderer stays safe to call from anywhere.
  */
-function decorateRefsAndMentions(html: string): string {
+function decorateRefsAndMentions(html: string, repoContext?: MarkdownRepoContext): string {
   if (!html || typeof document === 'undefined') return html;
   if (!html.includes('@') && !html.includes('#')) return html;
   const container = document.createElement('div');
   container.innerHTML = html;
-  decorateNode(container);
+  decorateNode(container, repoContext);
   return container.innerHTML;
 }
 
 const SKIP_TAGS = new Set(['A', 'CODE', 'PRE', 'STYLE', 'SCRIPT', 'TEXTAREA']);
 const REF_RE = /(?<=^|[\s(\[])(@[A-Za-z0-9][A-Za-z0-9-]{0,38}|#\d{1,8})(?=$|[\s.,;:!?)\]])/g;
 
-function decorateNode(node: Node): void {
+function decorateNode(node: Node, repoContext?: MarkdownRepoContext): void {
   if (node.nodeType === Node.ELEMENT_NODE) {
     if (SKIP_TAGS.has((node as Element).tagName)) return;
     // Snapshot children before mutating — replaceChild during iteration
     // breaks a live NodeList.
-    for (const child of Array.from(node.childNodes)) decorateNode(child);
+    for (const child of Array.from(node.childNodes)) decorateNode(child, repoContext);
     return;
   }
   if (node.nodeType !== Node.TEXT_NODE) return;
@@ -84,8 +93,17 @@ function decorateNode(node: Node): void {
     const end = start + m[0].length;
     if (start > pos) frag.appendChild(document.createTextNode(text.slice(pos, start)));
     const span = document.createElement('span');
-    span.className = m[0].startsWith('@') ? 'md-ref-mention' : 'md-ref-issue';
+    const isIssue = !m[0].startsWith('@');
+    span.className = isIssue ? 'md-ref-issue' : 'md-ref-mention';
     span.textContent = m[0];
+    // Stamp the originating repo on issue chips so a future click
+    // delegate can resolve `#N` without re-parsing the URL the comment
+    // came from. Mentions don't need the context (a `@user` reference
+    // is global on GitHub).
+    if (isIssue && repoContext) {
+      span.dataset.repoOwner = repoContext.owner;
+      span.dataset.repoName = repoContext.repo;
+    }
     frag.appendChild(span);
     pos = end;
   }

@@ -1855,7 +1855,7 @@ function DiffViewerScreen({ pr, onBack, onApprove, initialCommitSha }: Props) {
   // Which draft id we've already pre-seeded submitBody from. Lets us
   // preserve the user's edits across panel close → reopen without
   // overwriting them with the AI summary on every open.
-  const seededDraftIdRef = useRef<string | null>(null);
+  const seededDraftIdRef = useRef<number | null>(null);
   const [submitVerdict, setSubmitVerdict] = useState<'COMMENT' | 'APPROVE' | 'REQUEST_CHANGES'>('COMMENT');
   const [pendingExpanded, setPendingExpanded] = useState(true);
   const [discardConfirm, setDiscardConfirm] = useState(false);

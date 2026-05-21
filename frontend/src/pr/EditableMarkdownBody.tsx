@@ -12,7 +12,7 @@
  * limitations under the License.
  */
 import { useEffect, useState, type ReactNode } from 'react';
-import { renderMarkdown } from '../markdown';
+import { renderMarkdown, type MarkdownRepoContext } from '../markdown';
 
 /**
  * Renders a comment body as markdown by default; when {@code canEdit}
@@ -35,12 +35,16 @@ export function EditableMarkdownBody({
   onSave,
   className = 'prc-comment-body',
   renderViewSlot,
+  repoContext,
 }: {
   body: string;
   canEdit: boolean;
   onSave: (newBody: string) => Promise<void>;
   className?: string;
   renderViewSlot?: (body: string) => ReactNode;
+  /** Forwarded to {@code renderMarkdown} so {@code #N} issue chips
+   *  inside the rendered body remember which repo they came from. */
+  repoContext?: MarkdownRepoContext;
 }) {
   const [editing, setEditing] = useState(false);
   const [draft, setDraft] = useState(body);
@@ -124,7 +128,7 @@ export function EditableMarkdownBody({
         ? renderViewSlot(body)
         // Content comes from the GitHub API; contextIsolation prevents
         // renderer escapes via the markdown render path.
-        : <div className={className} dangerouslySetInnerHTML={{ __html: renderMarkdown(body) }} />}
+        : <div className={className} dangerouslySetInnerHTML={{ __html: renderMarkdown(body, repoContext) }} />}
       {canEdit && (
         <button
           type="button"

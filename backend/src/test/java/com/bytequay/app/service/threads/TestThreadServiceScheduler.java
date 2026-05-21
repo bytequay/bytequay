@@ -16,6 +16,9 @@ package com.bytequay.app.service.threads;
 import com.bytequay.app.domain.AgentMetrics;
 import com.bytequay.app.domain.PermissionDecision;
 import com.bytequay.app.domain.StreamEvent;
+import com.bytequay.app.domain.Task;
+import com.bytequay.app.domain.TaskFile;
+import com.bytequay.app.domain.TaskStatus;
 import com.bytequay.app.domain.Thread;
 import com.bytequay.app.domain.ThreadFile;
 import com.bytequay.app.domain.ThreadGroup;
@@ -28,6 +31,7 @@ import com.bytequay.app.domain.ThreadTurn;
 import com.bytequay.app.domain.ThreadTurnEvent;
 import com.bytequay.app.domain.ThreadTurnEventType;
 import com.bytequay.app.domain.ThreadTurnStatus;
+import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.repository.ThreadGroupStore;
 import com.bytequay.app.repository.ThreadStore;
 import com.bytequay.app.repository.ThreadTurnEventStore;
@@ -63,6 +67,7 @@ class TestThreadServiceScheduler
         ThrowingRegistry registry = new ThrowingRegistry();
         ThreadService service = new ThreadService(
                 store,
+                new StubTaskStore(),
                 new EmptyTaskGroupStore(),
                 new InMemoryTaskTurnStore(),
                 new InMemoryTaskTurnEventStore(),
@@ -100,6 +105,7 @@ class TestThreadServiceScheduler
         ThrowingRegistry registry = new ThrowingRegistry();
         ThreadService service = new ThreadService(
                 store,
+                new StubTaskStore(),
                 new EmptyTaskGroupStore(),
                 new InMemoryTaskTurnStore(),
                 new InMemoryTaskTurnEventStore(),
@@ -136,6 +142,7 @@ class TestThreadServiceScheduler
         ThrowingRegistry registry = new ThrowingRegistry();
         ThreadService service = new ThreadService(
                 store,
+                new StubTaskStore(),
                 new EmptyTaskGroupStore(),
                 new InMemoryTaskTurnStore(),
                 new InMemoryTaskTurnEventStore(),
@@ -168,6 +175,7 @@ class TestThreadServiceScheduler
         ThrowingRegistry registry = new ThrowingRegistry();
         ThreadService service = new ThreadService(
                 store,
+                new StubTaskStore(),
                 new EmptyTaskGroupStore(),
                 turns,
                 new InMemoryTaskTurnEventStore(),
@@ -197,6 +205,7 @@ class TestThreadServiceScheduler
         ThrowingRegistry registry = new ThrowingRegistry();
         ThreadService service = new ThreadService(
                 store,
+                new StubTaskStore(),
                 new EmptyTaskGroupStore(),
                 turns,
                 new InMemoryTaskTurnEventStore(),
@@ -227,6 +236,7 @@ class TestThreadServiceScheduler
         ThrowingRegistry registry = new ThrowingRegistry();
         ThreadService service = new ThreadService(
                 store,
+                new StubTaskStore(),
                 new EmptyTaskGroupStore(),
                 new InMemoryTaskTurnStore(),
                 turnEvents,
@@ -255,6 +265,7 @@ class TestThreadServiceScheduler
         ThrowingRegistry registry = new ThrowingRegistry();
         ThreadService service = new ThreadService(
                 store,
+                new StubTaskStore(),
                 new EmptyTaskGroupStore(),
                 new InMemoryTaskTurnStore(),
                 turnEvents,
@@ -279,6 +290,7 @@ class TestThreadServiceScheduler
         turns.saveTurn(turn("running", "thread-3", ThreadTurnStatus.RUNNING, now.minusSeconds(10)));
         ThreadService service = new ThreadService(
                 new InMemoryTaskStore(),
+                new StubTaskStore(),
                 new EmptyTaskGroupStore(),
                 turns,
                 new InMemoryTaskTurnEventStore(),
@@ -299,6 +311,7 @@ class TestThreadServiceScheduler
         store.saveThread(thread("thread-1"));
         ThreadService service = new ThreadService(
                 store,
+                new StubTaskStore(),
                 new EmptyTaskGroupStore(),
                 new InMemoryTaskTurnStore(),
                 new InMemoryTaskTurnEventStore(),
@@ -320,6 +333,7 @@ class TestThreadServiceScheduler
         Instant now = Instant.parse("2026-05-18T12:00:00Z");
         ThreadService service = new ThreadService(
                 store,
+                new StubTaskStore(),
                 new EmptyTaskGroupStore(List.of(new ThreadGroupMembership(thread.id(), "group-1", now))),
                 new InMemoryTaskTurnStore(),
                 new InMemoryTaskTurnEventStore(),
@@ -341,6 +355,7 @@ class TestThreadServiceScheduler
         EmptyTaskGroupStore groups = new EmptyTaskGroupStore();
         ThreadService service = new ThreadService(
                 store,
+                new StubTaskStore(),
                 groups,
                 new InMemoryTaskTurnStore(),
                 new InMemoryTaskTurnEventStore(),
@@ -368,6 +383,7 @@ class TestThreadServiceScheduler
         groups.saveGroup(group("group-1"));
         ThreadService service = new ThreadService(
                 new InMemoryTaskStore(),
+                new StubTaskStore(),
                 groups,
                 new InMemoryTaskTurnStore(),
                 new InMemoryTaskTurnEventStore(),
@@ -406,6 +422,7 @@ class TestThreadServiceScheduler
         RecordingStopRegistry registry = new RecordingStopRegistry(events);
         ThreadService service = new ThreadService(
                 store,
+                new StubTaskStore(),
                 new EmptyTaskGroupStore(),
                 new InMemoryTaskTurnStore(),
                 new InMemoryTaskTurnEventStore(),
@@ -432,6 +449,7 @@ class TestThreadServiceScheduler
         ThrowingRegistry registry = new ThrowingRegistry();
         ThreadService service = new ThreadService(
                 store,
+                new StubTaskStore(),
                 new EmptyTaskGroupStore(),
                 new InMemoryTaskTurnStore(),
                 new InMemoryTaskTurnEventStore(),
@@ -455,6 +473,7 @@ class TestThreadServiceScheduler
         RecordingScheduler scheduler = new RecordingScheduler();
         ThreadService service = new ThreadService(
                 store,
+                new StubTaskStore(),
                 new EmptyTaskGroupStore(),
                 new InMemoryTaskTurnStore(),
                 new InMemoryTaskTurnEventStore(),
@@ -476,10 +495,11 @@ class TestThreadServiceScheduler
         RecordingScheduler scheduler = new RecordingScheduler();
         RecordingWorktreeService worktrees = new RecordingWorktreeService(Optional.of(
                 new WorktreeService.WorktreeHandle(
-                        Path.of("/tmp/repo/.bytequay/worktrees/dev/thread-1"),
-                        "dev/thread-1")));
+                        Path.of("/tmp/repo/.worktrees/task-1"),
+                        "dev/task-1")));
         ThreadService service = new ThreadService(
                 store,
+                new StubTaskStore(),
                 new EmptyTaskGroupStore(),
                 new InMemoryTaskTurnStore(),
                 new InMemoryTaskTurnEventStore(),
@@ -502,16 +522,21 @@ class TestThreadServiceScheduler
                 /* linkedPrNumber */ null,
                 /* linkedIssueNumber */ null));
 
-        assertThat(thread.worktreePath()).isEqualTo("/tmp/repo/.bytequay/worktrees/dev/thread-1");
-        assertThat(thread.localBranch()).isEqualTo("dev/thread-1");
+        assertThat(thread.worktreePath()).isEqualTo("/tmp/repo/.worktrees/task-1");
+        assertThat(thread.localBranch()).isEqualTo("dev/task-1");
         assertThat(thread.agentCwd()).isEqualTo(thread.worktreePath());
         assertThat(scheduler.requests)
                 .extracting(request -> request.thread().agentCwd())
                 .containsExactly(thread.worktreePath());
-        assertThat(worktrees.createRequests).containsExactly(new WorktreeCreateRequest(
-                Path.of("/tmp/repo"),
-                thread.id(),
-                "Fix tests"));
+        // WorktreeService is now keyed by task-id (per the model doc:
+        // <repo>/.worktrees/<task-id>/), not thread-id. The exact id is
+        // generated inside ThreadService, so we just check the call's
+        // repoRoot + title — the worktree handle path returned above is
+        // the contract that matters to the rest of the system.
+        assertThat(worktrees.createRequests)
+                .singleElement()
+                .extracting(WorktreeCreateRequest::repoRoot, WorktreeCreateRequest::title)
+                .containsExactly(Path.of("/tmp/repo"), "Fix tests");
     }
 
     @Test
@@ -523,6 +548,7 @@ class TestThreadServiceScheduler
         RecordingWorktreeService worktrees = new RecordingWorktreeService(Optional.empty());
         ThreadService service = new ThreadService(
                 store,
+                new StubTaskStore(),
                 new EmptyTaskGroupStore(),
                 new InMemoryTaskTurnStore(),
                 new InMemoryTaskTurnEventStore(),
@@ -549,6 +575,7 @@ class TestThreadServiceScheduler
         RecordingGitRunner git = new RecordingGitRunner();
         ThreadService service = new ThreadService(
                 store,
+                new StubTaskStore(),
                 new EmptyTaskGroupStore(),
                 new InMemoryTaskTurnStore(),
                 new InMemoryTaskTurnEventStore(),
@@ -945,6 +972,23 @@ class TestThreadServiceScheduler
         {
             return listMembers(groupId).size();
         }
+    }
+
+    /** Empty TaskStore — these scheduler tests don't exercise the
+     *  per-work-unit storage that landed alongside Thread/Task split.
+     *  A returning-empty stub keeps the constructor happy. */
+    private static final class StubTaskStore
+            implements TaskStore
+    {
+        @Override public void saveTask(Task task) {}
+        @Override public Optional<Task> findTaskById(String id) { return Optional.empty(); }
+        @Override public void deleteTask(String id) {}
+        @Override public List<Task> listTasksByThread(String threadId) { return List.of(); }
+        @Override public Optional<Task> findActiveTaskForThread(String threadId) { return Optional.empty(); }
+        @Override public Optional<Long> maxSeqForThread(String threadId) { return Optional.empty(); }
+        @Override public List<Task> listByStatus(TaskStatus status, int limit) { return List.of(); }
+        @Override public void recordFile(TaskFile file) {}
+        @Override public List<TaskFile> listFiles(String taskId) { return List.of(); }
     }
 
     private static final class InMemoryTaskStore

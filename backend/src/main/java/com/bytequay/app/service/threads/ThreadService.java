@@ -15,6 +15,8 @@ package com.bytequay.app.service.threads;
 
 import com.bytequay.app.domain.PermissionDecision;
 import com.bytequay.app.domain.StreamEvent;
+import com.bytequay.app.domain.Task;
+import com.bytequay.app.domain.TaskStatus;
 import com.bytequay.app.domain.Thread;
 import com.bytequay.app.domain.ThreadFile;
 import com.bytequay.app.domain.ThreadGroup;
@@ -25,6 +27,7 @@ import com.bytequay.app.domain.ThreadStatus;
 import com.bytequay.app.domain.ThreadTurn;
 import com.bytequay.app.domain.ThreadTurnEvent;
 import com.bytequay.app.domain.ThreadTurnStatus;
+import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.repository.ThreadGroupStore;
 import com.bytequay.app.repository.ThreadStore;
 import com.bytequay.app.repository.ThreadTurnEventStore;
@@ -77,6 +80,7 @@ public class ThreadService
     private static final int ACTIVE_TURN_LIMIT = 500;
 
     private final ThreadStore store;
+    private final TaskStore taskStore;
     private final ThreadGroupStore groupStore;
     private final ThreadTurnStore turnStore;
     private final ThreadTurnEventStore turnEventStore;
@@ -87,6 +91,7 @@ public class ThreadService
 
     public ThreadService(
             ThreadStore store,
+            TaskStore taskStore,
             ThreadGroupStore groupStore,
             ThreadTurnStore turnStore,
             ThreadTurnEventStore turnEventStore,
@@ -96,6 +101,7 @@ public class ThreadService
             WorktreeService worktreeService)
     {
         this.store = requireNonNull(store, "store is null");
+        this.taskStore = requireNonNull(taskStore, "taskStore is null");
         this.groupStore = requireNonNull(groupStore, "groupStore is null");
         this.turnStore = requireNonNull(turnStore, "turnStore is null");
         this.turnEventStore = requireNonNull(turnEventStore, "turnEventStore is null");
@@ -335,6 +341,10 @@ public class ThreadService
                 ? "DEVELOP"
                 : request.taskType().trim();
         String threadId = UUID.randomUUID().toString();
+        // The new model names the worktree directory after the task id
+        // (one worktree per task), so we generate the first task's id
+        // up-front and reuse it as the on-disk name.
+        String firstTaskId = UUID.randomUUID().toString();
         // Best-effort worktree creation. Failures fall through to a
         // null handle so the agent runs in the main checkout — keeps
         // threads against non-git working dirs or read-only repos
@@ -343,7 +353,7 @@ public class ThreadService
                 request.workingDir() == null || request.workingDir().isBlank()
                         ? Optional.empty()
                         : worktreeService.create(
-                                Path.of(request.workingDir()), threadId, request.title());
+                                Path.of(request.workingDir()), firstTaskId, request.title());
         Thread thread = new Thread(
                 threadId,
                 request.kind(),
@@ -370,6 +380,41 @@ public class ThreadService
                 handle.map(h -> h.worktreePath().toString()).orElse(null),
                 handle.map(WorktreeService.WorktreeHandle::branchName).orElse(null));
         store.saveThread(thread);
+        // Materialise the first task row with a chosen id so the on-disk
+        // worktree dir name (which used firstTaskId) matches it. The
+        // saveThread call above's transparent task-create branch would
+        // have done this with an auto-generated id; we override that by
+        // creating the row explicitly here.
+        Task existing = taskStore.findActiveTaskForThread(threadId).orElse(null);
+        if (existing != null && !existing.id().equals(firstTaskId)) {
+            Task aligned = new Task(
+                    firstTaskId, threadId, existing.seq(), existing.status(),
+                    existing.branchName(), existing.worktreePath(), existing.baseBranch(),
+                    existing.workingDir(), existing.processPid(), existing.logPath(),
+                    existing.prNumber(), existing.prState(), existing.ciState(),
+                    existing.taskType(), existing.linkedPrNumber(), existing.linkedIssueNumber(),
+                    existing.costUsdMilli(), existing.tokensIn(), existing.tokensOut(),
+                    existing.firstMsgSeq(), existing.lastMsgSeq(),
+                    existing.createdAt(), existing.endedAt(), existing.errorMessage());
+            taskStore.deleteTask(existing.id());
+            taskStore.saveTask(aligned);
+        }
+        else if (existing == null && handle.isPresent()) {
+            // saveThread didn't auto-create (no execution state for the
+            // store to spot) but we have a worktree — record it anyway.
+            taskStore.saveTask(new Task(
+                    firstTaskId, threadId, 1L, TaskStatus.PENDING,
+                    handle.get().branchName(),
+                    handle.get().worktreePath().toString(),
+                    "main",
+                    request.workingDir(),
+                    /* processPid */ null, /* logPath */ null,
+                    null, null, null,
+                    taskType, request.linkedPrNumber(), request.linkedIssueNumber(),
+                    0L, 0L, 0L,
+                    null, null,
+                    now, null, null));
+        }
         for (String groupId : initialGroupIds) {
             groupStore.addMember(thread.id(), groupId);
         }

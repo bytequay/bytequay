@@ -30,45 +30,43 @@ import java.util.Optional;
 import static java.util.Objects.requireNonNull;
 
 /**
- * Manages per-thread git worktrees so multiple agents can edit the same
+ * Manages per-task git worktrees so multiple agents can edit the same
  * repo in parallel without colliding on the working tree or the index.
  *
- * <p>For each new coding thread:
+ * <p>For each new task:
  * <ol>
- *   <li>Slugify the thread title.</li>
+ *   <li>Slugify the task title for the branch name.</li>
  *   <li>Compute the worktree path as
- *       {@code <repo-root>/.bytequay/worktrees/dev/<sessionId>-<slug>/}.</li>
- *   <li>Make sure {@code .bytequay/} is in {@code .git/info/exclude}
+ *       {@code <repo-root>/.worktrees/<task-id>/} per the model doc.</li>
+ *   <li>Make sure {@code .worktrees/} is in {@code .git/info/exclude}
  *       (per-repo, not committed) so the directory doesn't show up in
  *       the main worktree's {@code git status}.</li>
- *   <li>Pick a base ref via {@link GitRunner#defaultBranch}, falling
- *       back to {@link GitRunner#currentBranch} if the default can't
- *       be resolved.</li>
+ *   <li>Resolve the base ref (callers can override; default is the
+ *       repo's default branch, falling back to whatever's checked out
+ *       in the main worktree).</li>
  *   <li>Run {@code git worktree add -b <branchName> <path> <baseRef>}
  *       which creates the branch and checks it out in one step.</li>
  * </ol>
  *
- * <p>If any step fails (working dir isn't a git repo, base ref can't be
- * resolved, disk full, etc.), {@link #create} returns
- * {@link Optional#empty()} and the caller falls back to running the agent
- * directly in the main checkout. This keeps the worktree feature
- * opt-in in practice: threads for which it fails still work, they just
- * don't get isolation.
+ * <p>If any step fails, {@link #create} returns {@link Optional#empty()}
+ * and the caller falls back to running the agent in the main checkout.
+ * That keeps worktree isolation opt-in in practice — failures don't
+ * block thread creation.
  */
 @Service
 public class WorktreeService
 {
     private static final Logger log = LoggerFactory.getLogger(WorktreeService.class);
 
-    /** Directory the worktrees live under (per repo). Matches the path
-     *  layout described in docs/mockups/tasks/task-development.md. */
-    static final String WORKTREE_ROOT_REL = ".bytequay/worktrees";
-    /** Sub-tree under {@link #WORKTREE_ROOT_REL} for coding threads. Other
-     *  kinds (future "generic") will get their own sibling directory. */
-    static final String DEV_SUBDIR = "dev";
-    /** Branch-name prefix for coding threads; same shape as the on-disk
-     *  directory tree so the branch name and worktree path mirror. */
+    /** Directory worktrees live under inside each repo. The model doc
+     *  ({@code docs/mockups/workspace-thread-task-design.md}) names this
+     *  exact path: {@code <repo>/.worktrees/<task-id>/}. */
+    static final String WORKTREE_ROOT_REL = ".worktrees";
+
+    /** Branch-name prefix for dev branches; the suffix is task-id + slug
+     *  so the branch name and worktree path are easy to correlate. */
     static final String DEV_BRANCH_PREFIX = "dev/";
+
     /** Hard cap on slug length so worktree paths and branch names stay
      *  human-readable. */
     static final int SLUG_MAX_CHARS = 32;
@@ -81,55 +79,57 @@ public class WorktreeService
     }
 
     /**
-     * Creates the worktree + branch for a new thread. Returns the
-     * handle on success, empty if the working dir isn't usable as a
-     * git repo or any git step failed — caller falls back to the
-     * main checkout.
+     * Creates the worktree + branch for a new task. Returns the handle
+     * on success, empty if the working dir isn't usable as a git repo
+     * or any git step failed — callers fall back to the main checkout.
+     *
+     * <p>The on-disk dir is named for the task id (one worktree per
+     * task), while the branch keeps a slugged form of the title for
+     * readability.
      */
-    public Optional<WorktreeHandle> create(Path repoRoot, String sessionId, String title)
+    public Optional<WorktreeHandle> create(Path repoRoot, String taskId, String title)
     {
         requireNonNull(repoRoot, "repoRoot is null");
-        requireNonNull(sessionId, "sessionId is null");
+        requireNonNull(taskId, "taskId is null");
         if (!git.isAvailable()) {
-            log.debug("git binary unavailable; skipping worktree for session {}", sessionId);
+            log.debug("git binary unavailable; skipping worktree for task {}", taskId);
             return Optional.empty();
         }
         try {
             String slug = slugify(title);
-            String suffix = sessionId + (slug.isEmpty() ? "" : "-" + slug);
+            String branchSuffix = taskId + (slug.isEmpty() ? "" : "-" + slug);
             Path worktreePath = repoRoot
                     .resolve(WORKTREE_ROOT_REL)
-                    .resolve(DEV_SUBDIR)
-                    .resolve(suffix)
+                    .resolve(taskId)
                     .toAbsolutePath()
                     .normalize();
-            String branchName = DEV_BRANCH_PREFIX + suffix;
+            String branchName = DEV_BRANCH_PREFIX + branchSuffix;
             String baseRef = resolveBaseRef(repoRoot);
             if (baseRef == null) {
-                log.info("No base ref resolvable in {}; skipping worktree for session {}",
-                        repoRoot, sessionId);
+                log.info("No base ref resolvable in {}; skipping worktree for task {}",
+                        repoRoot, taskId);
                 return Optional.empty();
             }
             appendToGitInfoExclude(repoRoot);
             git.worktreeAdd(repoRoot, worktreePath, branchName, baseRef);
-            log.info("Created worktree at {} on branch {} (from {}) for session {}",
-                    worktreePath, branchName, baseRef, sessionId);
+            log.info("Created worktree at {} on branch {} (from {}) for task {}",
+                    worktreePath, branchName, baseRef, taskId);
             return Optional.of(new WorktreeHandle(worktreePath, branchName));
         }
         catch (IOException e) {
-            log.warn("Worktree create failed for session {} in {}: {}",
-                    sessionId, repoRoot, e.getMessage());
+            log.warn("Worktree create failed for task {} in {}: {}",
+                    taskId, repoRoot, e.getMessage());
             return Optional.empty();
         }
         catch (InterruptedException e) {
             Thread.currentThread().interrupt();
-            log.warn("Worktree create interrupted for session {}", sessionId);
+            log.warn("Worktree create interrupted for task {}", taskId);
             return Optional.empty();
         }
         catch (RuntimeException e) {
             // requireSuccess() throws RuntimeException-derived for non-zero exit.
-            log.warn("Worktree create rejected by git for session {}: {}",
-                    sessionId, e.getMessage());
+            log.warn("Worktree create rejected by git for task {}: {}",
+                    taskId, e.getMessage());
             return Optional.empty();
         }
     }
@@ -171,12 +171,11 @@ public class WorktreeService
     }
 
     /**
-     * Normalises a thread title into a worktree-safe slug. Lowercase,
+     * Normalises a task title into a worktree-safe slug. Lowercase,
      * non-alphanumeric runs collapsed to single dashes, leading/
-     * trailing dashes stripped, truncated to {@link #SLUG_MAX_CHARS}
-     * so the resulting path stays a reasonable length. Empty input
-     * (or input that slugifies to nothing) returns an empty string;
-     * the caller uses the session id alone in that case.
+     * trailing dashes stripped, truncated to {@link #SLUG_MAX_CHARS}.
+     * Empty input returns an empty string; the caller uses the task id
+     * alone in that case.
      */
     static String slugify(String raw)
     {
@@ -205,10 +204,9 @@ public class WorktreeService
     }
 
     /**
-     * Picks a sensible base ref to branch the new worktree from. Tries
-     * {@link GitRunner#defaultBranch} first (e.g. {@code main} /
-     * {@code master} from the {@code origin/HEAD} symref); falls back
-     * to whatever branch is currently checked out in the main repo.
+     * Picks a sensible base ref. Tries {@link GitRunner#defaultBranch}
+     * first (from the {@code origin/HEAD} symref); falls back to the
+     * branch checked out in the main repo.
      */
     private String resolveBaseRef(Path repoRoot)
             throws IOException, InterruptedException
@@ -225,33 +223,34 @@ public class WorktreeService
     }
 
     /**
-     * Adds {@code /.bytequay/} to {@code .git/info/exclude} if it's not
-     * already there. Per-repo, not committed — the user's
-     * {@code .gitignore} stays untouched. Best-effort: failures are
-     * surfaced as IOExceptions so the caller can decide whether to
-     * abort the worktree create or proceed.
+     * Adds {@code /.worktrees/} to {@code .git/info/exclude} if it's
+     * not already there. Per-repo, not committed — the user's
+     * {@code .gitignore} stays untouched. The previous layout added
+     * {@code /.bytequay/} for older installs; we leave that marker
+     * alone (the directory may still exist with leftover worktrees).
      */
     private static void appendToGitInfoExclude(Path repoRoot)
             throws IOException
     {
         Path excludePath = repoRoot.resolve(".git").resolve("info").resolve("exclude");
         if (!Files.isDirectory(excludePath.getParent())) {
-            // Not a standard git layout (e.g. a submodule or worktree
-            // checkout). Skip — the worktree-add will surface a clearer
-            // error if the repo really is broken.
+            // Not a standard git layout (submodule or worktree checkout).
+            // Skip — the subsequent worktree-add surfaces a clearer error
+            // if the repo really is broken.
             return;
         }
-        String marker = "/.bytequay/";
+        String marker = "/.worktrees/";
         if (Files.exists(excludePath)) {
             String body = Files.readString(excludePath, StandardCharsets.UTF_8);
             for (String line : body.split("\\R", -1)) {
-                if (line.trim().equals(marker) || line.trim().equals(".bytequay/")) {
+                String trimmed = line.trim();
+                if (trimmed.equals(marker) || trimmed.equals(".worktrees/")) {
                     return;
                 }
             }
         }
         String append = (Files.exists(excludePath) && Files.size(excludePath) > 0 ? "\n" : "")
-                + "# Added by ByteQuay — per-thread worktrees live here.\n"
+                + "# Added by ByteQuay — per-task worktrees live here.\n"
                 + marker + "\n";
         Files.writeString(excludePath, append, StandardCharsets.UTF_8,
                 StandardOpenOption.CREATE, StandardOpenOption.APPEND);

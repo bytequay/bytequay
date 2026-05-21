@@ -95,9 +95,9 @@ class TestWorktreeService
         Path worktreePath = handle.get().worktreePath();
         String branchName = handle.get().branchName();
 
-        // Path mirrors what the design doc promised.
-        assertThat(worktreePath.toString())
-                .endsWith("/.bytequay/worktrees/dev/sess123-fix-the-login-redirect-loop");
+        // Path mirrors what the design doc promised: one worktree dir
+        // per task, named for the task id.
+        assertThat(worktreePath.toString()).endsWith("/.worktrees/sess123");
         assertThat(branchName).isEqualTo("dev/sess123-fix-the-login-redirect-loop");
         assertThat(Files.isDirectory(worktreePath)).isTrue();
         // The branch was created and points somewhere; refExists is
@@ -107,7 +107,7 @@ class TestWorktreeService
         // .git/info/exclude grew the marker.
         Path excludePath = repo.resolve(".git").resolve("info").resolve("exclude");
         String body = Files.readString(excludePath, StandardCharsets.UTF_8);
-        assertThat(body).contains("/.bytequay/");
+        assertThat(body).contains("/.worktrees/");
 
         service.remove(repo, worktreePath.toString(), branchName);
         assertThat(Files.exists(worktreePath))
@@ -143,7 +143,7 @@ class TestWorktreeService
         Path excludePath = repo.resolve(".git").resolve("info").resolve("exclude");
         String body = Files.readString(excludePath, StandardCharsets.UTF_8);
         long markerCount = body.lines()
-                .filter(l -> l.trim().equals("/.bytequay/"))
+                .filter(l -> l.trim().equals("/.worktrees/"))
                 .count();
         assertThat(markerCount).as("marker line should appear exactly once").isEqualTo(1);
     }

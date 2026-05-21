@@ -628,6 +628,7 @@ export default function ThreadsPage({
                   groups={groups}
                   currentGroupIds={groupIdsByTaskId.get(t.id) ?? []}
                   busy={busyId === t.id}
+                  hasUnread={autoThreadIds.has(t.id)}
                   onOpen={() => onSelectTask(t.id)}
                   onStop={() => void onStop(t.id)}
                   onToggleGroup={toggleTaskInGroup}
@@ -764,12 +765,16 @@ function SortPill({ value, onChange }: {
  *  to open the detail page. The stage strip from the mockup isn't
  *  wired here — surfacing it would need per-card message polling,
  *  which is heavy for a list with dozens of threads. */
-function ThreadCard({ thread, scheduler, groups, currentGroupIds, busy, onOpen, onStop, onToggleGroup }: {
+function ThreadCard({ thread, scheduler, groups, currentGroupIds, busy, hasUnread, onOpen, onStop, onToggleGroup }: {
   thread: ThreadDto;
   scheduler: ActiveTurnSummary | undefined;
   groups: ThreadGroupDto[];
   currentGroupIds: string[];
   busy: boolean;
+  /** True when this thread carries at least one UNREAD notification.
+   *  Renders as a small dot next to the status pill — the same auto*
+   *  signal the left rail and the bell badge consume. */
+  hasUnread: boolean;
   onOpen: () => void;
   onStop: () => void;
   onToggleGroup: (threadId: string, groupId: string, present: boolean) => void | Promise<void>;
@@ -821,6 +826,13 @@ function ThreadCard({ thread, scheduler, groups, currentGroupIds, busy, onOpen, 
             )}
           </div>
         </div>
+        {hasUnread && (
+          <span
+            style={unreadDotStyle}
+            title="Open notifications on this thread"
+            aria-label="Unread notifications"
+          />
+        )}
         <RowStatusPill status={displayStatus} queued={scheduler?.queued ?? 0} />
       </div>
 
@@ -1116,6 +1128,19 @@ const cardTopStyle: React.CSSProperties = {
   display: 'flex',
   alignItems: 'flex-start',
   gap: 10,
+};
+/** Small violet dot next to the status pill when the thread carries
+ *  at least one UNREAD notification. Same colour as the auto* row in
+ *  the left rail so the two signals visually agree. */
+const unreadDotStyle: React.CSSProperties = {
+  width: 8,
+  height: 8,
+  borderRadius: 999,
+  background: '#7c3aed',
+  flexShrink: 0,
+  marginTop: 6,
+  marginRight: 2,
+  boxShadow: '0 0 0 2px rgba(124, 58, 237, 0.18)',
 };
 const cardProviderStyle: React.CSSProperties = {
   width: 28, height: 28,

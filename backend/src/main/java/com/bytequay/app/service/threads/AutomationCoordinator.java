@@ -18,12 +18,15 @@ import com.bytequay.app.domain.NotificationKind;
 import com.bytequay.app.domain.PrCheckRunState;
 import com.bytequay.app.domain.StoredPrDetail;
 import com.bytequay.app.domain.Task;
+import com.bytequay.app.domain.Thread;
+import com.bytequay.app.domain.ThreadStatus;
 import com.bytequay.app.domain.WatchedRepo;
 import com.bytequay.app.domain.WorkspaceRepo;
 import com.bytequay.app.domain.WorktreeLease;
 import com.bytequay.app.repository.PrDetailStore;
 import com.bytequay.app.repository.PullRequestStore;
 import com.bytequay.app.repository.TaskStore;
+import com.bytequay.app.repository.ThreadStore;
 import com.bytequay.app.repository.WatchedRepoStore;
 import com.bytequay.app.repository.WorkspaceStore;
 import com.bytequay.app.service.workspaces.WorkspaceService;
@@ -42,6 +45,8 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
+import java.util.concurrent.ConcurrentHashMap;
 
 import static java.util.Objects.requireNonNull;
 
@@ -87,30 +92,45 @@ public class AutomationCoordinator
 
     private final WorktreeLeaseService leaseService;
     private final TaskStore taskStore;
+    private final ThreadStore threadStore;
     private final WatchedRepoStore watchedRepoStore;
     private final PullRequestStore pullRequestStore;
     private final PrDetailStore prDetailStore;
     private final NotificationService notificationService;
     private final WorkspaceStore workspaceStore;
+    private final ThreadTurnScheduler scheduler;
     private final ObjectMapper mapper;
+
+    /** Tracks tasks that already had an auto-fix turn queued during
+     *  this process's lifetime. Without it the 60-second CI sweep
+     *  would re-trigger on every tick as long as CI stays red, piling
+     *  up duplicate turns. Not durable — a restart resets the dedup,
+     *  which is fine: the operator's hands are on the system at that
+     *  point and can stop or re-disable the flag. Removed on
+     *  enqueue-failure so the next sweep retries. */
+    private final Set<String> autoFixTriggered = ConcurrentHashMap.newKeySet();
 
     public AutomationCoordinator(
             WorktreeLeaseService leaseService,
             TaskStore taskStore,
+            ThreadStore threadStore,
             WatchedRepoStore watchedRepoStore,
             PullRequestStore pullRequestStore,
             PrDetailStore prDetailStore,
             NotificationService notificationService,
             WorkspaceStore workspaceStore,
+            ThreadTurnScheduler scheduler,
             ObjectMapper mapper)
     {
         this.leaseService = requireNonNull(leaseService, "leaseService is null");
         this.taskStore = requireNonNull(taskStore, "taskStore is null");
+        this.threadStore = requireNonNull(threadStore, "threadStore is null");
         this.watchedRepoStore = requireNonNull(watchedRepoStore, "watchedRepoStore is null");
         this.pullRequestStore = requireNonNull(pullRequestStore, "pullRequestStore is null");
         this.prDetailStore = requireNonNull(prDetailStore, "prDetailStore is null");
         this.notificationService = requireNonNull(notificationService, "notificationService is null");
         this.workspaceStore = requireNonNull(workspaceStore, "workspaceStore is null");
+        this.scheduler = requireNonNull(scheduler, "scheduler is null");
         this.mapper = requireNonNull(mapper, "mapper is null");
     }
 
@@ -206,12 +226,12 @@ public class AutomationCoordinator
             log.info("CI failing on {} PR #{} (task {}); emitted NEEDS_ATTENTION",
                     repoFullName, task.linkedPrNumber(), task.id());
             // Best-effort follow-up: when auto-fix is opt-in for this
-            // repo AND the worktree is free, mark the task as an
-            // auto-fix candidate. Actual headless-spawn lands in a
-            // follow-up commit; for now we log so the operator can
-            // see the decision the coordinator would have made.
+            // repo AND the worktree is free, enqueue a headless turn
+            // through the agent scheduler. Off by default per
+            // CLAUDE.md — the bell-lights-up path above happens
+            // regardless of the flag.
             try {
-                tryAutoFix(task, repoFullName);
+                tryAutoFix(task, repoFullName, ci.failingNames());
             }
             catch (RuntimeException e) {
                 log.warn("auto-fix candidate check failed for task {}: {}",
@@ -227,7 +247,7 @@ public class AutomationCoordinator
 
     /**
      * Decides what to do with a candidate task whose linked PR is
-     * failing CI. Three outcomes:
+     * failing CI. Four outcomes:
      *
      *   * the repo hasn't opted in to auto-fix → human-only, no
      *     headless run. The NEEDS_ATTENTION row already lights up the
@@ -236,11 +256,16 @@ public class AutomationCoordinator
      *     (the human is live-editing the same branch) → defer, log
      *     "would auto-fix later." The model doc explicitly forbids
      *     barging in on a worktree the human is using.
-     *   * the repo is opted in AND the worktree is free → log
-     *     "auto-fix candidate." The actual headless spawn that takes
-     *     the lease and runs the CLI agent lands in a follow-up.
+     *   * the repo is opted in AND the worktree is free AND the
+     *     owning thread is IDLE → enqueue a headless turn through the
+     *     agent scheduler with a CI-fail prompt. The CLI lane cap, the
+     *     worktree lease, the permission gate are all the scheduler's
+     *     concern; the coordinator just supplies the prompt.
+     *   * any other thread state (RUNNING, AWAITING, terminal, …) →
+     *     defer to the next sweep so we don't interrupt the user or
+     *     re-animate a finished thread.
      */
-    private void tryAutoFix(Task task, String repoFullName)
+    private void tryAutoFix(Task task, String repoFullName, List<String> failingChecks)
     {
         if (task.worktreePath() == null || task.worktreePath().isBlank()) {
             return;
@@ -257,11 +282,68 @@ public class AutomationCoordinator
                     task.worktreePath(), task.id(), task.linkedPrNumber());
             return;
         }
-        // Free worktree + opt-in repo. This is the slot the headless
-        // CLI spawn will fill in a follow-up; for now log the decision
-        // so the operator can see the coordinator picking candidates.
-        log.info("auto-fix candidate: task {} on {} (worktree {}, PR #{}) — headless spawn TBD",
-                task.id(), repoFullName, task.worktreePath(), task.linkedPrNumber());
+        // Already queued during this process's lifetime → skip. Each
+        // 60-sec sweep would otherwise queue a fresh turn for as long
+        // as CI stays red.
+        if (!autoFixTriggered.add(task.id())) {
+            log.debug("auto-fix already queued earlier for task {}; skipping", task.id());
+            return;
+        }
+        Optional<Thread> threadOpt = threadStore.findThreadById(task.threadId());
+        if (threadOpt.isEmpty()) {
+            autoFixTriggered.remove(task.id());
+            log.warn("auto-fix skipped: owning thread {} not found for task {}",
+                    task.threadId(), task.id());
+            return;
+        }
+        Thread thread = threadOpt.get();
+        if (thread.status() != ThreadStatus.IDLE) {
+            // Not strictly an error — RUNNING means the user is
+            // mid-turn; AWAITING means a permission card is up;
+            // terminals are off-limits. In every case the next sweep
+            // re-evaluates, so undo the dedup so we can retry.
+            autoFixTriggered.remove(task.id());
+            log.info("auto-fix deferred: thread {} is {} (task {}, PR #{})",
+                    thread.id(), thread.status(), task.id(), task.linkedPrNumber());
+            return;
+        }
+        String prompt = buildAutoFixPrompt(task, repoFullName, failingChecks);
+        try {
+            String turnId = scheduler.enqueueTurn(thread, prompt);
+            log.info("auto-fix queued: task {} on {} (worktree {}, PR #{}) → turn {}",
+                    task.id(), repoFullName, task.worktreePath(),
+                    task.linkedPrNumber(), turnId);
+        }
+        catch (RuntimeException e) {
+            autoFixTriggered.remove(task.id());
+            log.warn("auto-fix enqueue failed for task {}: {}", task.id(), e.getMessage());
+        }
+    }
+
+    /** Composes the agent's first prompt for an auto-fix turn. Names
+     *  the failing checks so the CLI can grep logs by check name
+     *  rather than re-discovering them, and lists the repo + PR so
+     *  the agent can attach gh / API calls correctly. */
+    private static String buildAutoFixPrompt(
+            Task task, String repoFullName, List<String> failingChecks)
+    {
+        StringBuilder out = new StringBuilder();
+        out.append("CI is failing on ").append(repoFullName)
+                .append(" PR #").append(task.linkedPrNumber()).append(".\n");
+        if (failingChecks != null && !failingChecks.isEmpty()) {
+            out.append("Failing checks:\n");
+            for (String name : failingChecks) {
+                out.append("  - ").append(name).append('\n');
+            }
+        }
+        out.append('\n')
+                .append("Investigate the failure(s) from the CI logs in this worktree, ")
+                .append("propose a fix on the existing branch, and run the local checks ")
+                .append("(`mvn verify` for the backend, `npx tsc --noEmit` + `npm test` ")
+                .append("for the frontend) before requesting review. Do not push or comment ")
+                .append("on the PR yourself — call `request_review` when you have a candidate ")
+                .append("fix and the user will publish.");
+        return out.toString();
     }
 
     private Optional<WatchedRepo> findRepoForWorkingDir(String workingDir)

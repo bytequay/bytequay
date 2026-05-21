@@ -381,6 +381,18 @@ public class ThreadController
         return ImmutableMap.of("status", "interrupted");
     }
 
+    /** POST /api/threads/{id}/jump-in — take control of the thread
+     *  away from any in-flight headless run. Interrupts the live
+     *  session if one exists, releases the active task's worktree
+     *  lease, and marks parked notifications for the thread as read.
+     *  Returns the updated thread so the UI doesn't need a separate
+     *  GET to refresh the card. */
+    @PostMapping("/{id}/jump-in")
+    public Thread jumpIn(@PathVariable String id)
+    {
+        return threads.jumpIn(id);
+    }
+
     @PostMapping("/{id}/pause")
     public Map<String, String> pause(@PathVariable String id)
     {

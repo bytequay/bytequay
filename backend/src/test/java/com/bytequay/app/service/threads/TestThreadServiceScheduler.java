@@ -41,6 +41,7 @@ import com.bytequay.app.repository.WorktreeLeaseStore;
 import com.bytequay.app.service.local.GitRunner;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
+import org.mockito.Mockito;
 
 import java.nio.file.Path;
 import java.time.Instant;
@@ -75,6 +76,8 @@ class TestThreadServiceScheduler
                 new InMemoryTaskTurnEventStore(),
                 registry,
                 scheduler,
+                Mockito.mock(WorktreeLeaseService.class),
+                Mockito.mock(NotificationService.class),
                 new GitRunner(),
                 noopWorktreeService());
 
@@ -113,6 +116,8 @@ class TestThreadServiceScheduler
                 new InMemoryTaskTurnEventStore(),
                 registry,
                 scheduler,
+                Mockito.mock(WorktreeLeaseService.class),
+                Mockito.mock(NotificationService.class),
                 new GitRunner(),
                 noopWorktreeService());
 
@@ -150,6 +155,8 @@ class TestThreadServiceScheduler
                 new InMemoryTaskTurnEventStore(),
                 registry,
                 scheduler,
+                Mockito.mock(WorktreeLeaseService.class),
+                Mockito.mock(NotificationService.class),
                 new GitRunner(),
                 noopWorktreeService());
 
@@ -183,6 +190,8 @@ class TestThreadServiceScheduler
                 new InMemoryTaskTurnEventStore(),
                 registry,
                 scheduler,
+                Mockito.mock(WorktreeLeaseService.class),
+                Mockito.mock(NotificationService.class),
                 new GitRunner(),
                 noopWorktreeService());
 
@@ -213,6 +222,8 @@ class TestThreadServiceScheduler
                 new InMemoryTaskTurnEventStore(),
                 registry,
                 scheduler,
+                Mockito.mock(WorktreeLeaseService.class),
+                Mockito.mock(NotificationService.class),
                 new GitRunner(),
                 noopWorktreeService());
 
@@ -244,6 +255,8 @@ class TestThreadServiceScheduler
                 turnEvents,
                 registry,
                 new RecordingScheduler(),
+                Mockito.mock(WorktreeLeaseService.class),
+                Mockito.mock(NotificationService.class),
                 new GitRunner(),
                 noopWorktreeService());
 
@@ -273,6 +286,8 @@ class TestThreadServiceScheduler
                 turnEvents,
                 registry,
                 new RecordingScheduler(),
+                Mockito.mock(WorktreeLeaseService.class),
+                Mockito.mock(NotificationService.class),
                 new GitRunner(),
                 noopWorktreeService());
 
@@ -298,6 +313,8 @@ class TestThreadServiceScheduler
                 new InMemoryTaskTurnEventStore(),
                 new ThrowingRegistry(),
                 new RecordingScheduler(),
+                Mockito.mock(WorktreeLeaseService.class),
+                Mockito.mock(NotificationService.class),
                 new GitRunner(),
                 noopWorktreeService());
 
@@ -319,6 +336,8 @@ class TestThreadServiceScheduler
                 new InMemoryTaskTurnEventStore(),
                 new ThrowingRegistry(),
                 new RecordingScheduler(),
+                Mockito.mock(WorktreeLeaseService.class),
+                Mockito.mock(NotificationService.class),
                 new GitRunner(),
                 noopWorktreeService());
 
@@ -341,6 +360,8 @@ class TestThreadServiceScheduler
                 new InMemoryTaskTurnEventStore(),
                 new ThrowingRegistry(),
                 new RecordingScheduler(),
+                Mockito.mock(WorktreeLeaseService.class),
+                Mockito.mock(NotificationService.class),
                 new GitRunner(),
                 noopWorktreeService());
 
@@ -363,6 +384,8 @@ class TestThreadServiceScheduler
                 new InMemoryTaskTurnEventStore(),
                 new ThrowingRegistry(),
                 new RecordingScheduler(),
+                Mockito.mock(WorktreeLeaseService.class),
+                Mockito.mock(NotificationService.class),
                 new GitRunner(),
                 noopWorktreeService());
 
@@ -391,6 +414,8 @@ class TestThreadServiceScheduler
                 new InMemoryTaskTurnEventStore(),
                 new ThrowingRegistry(),
                 new RecordingScheduler(),
+                Mockito.mock(WorktreeLeaseService.class),
+                Mockito.mock(NotificationService.class),
                 new GitRunner(),
                 noopWorktreeService());
 
@@ -430,6 +455,8 @@ class TestThreadServiceScheduler
                 new InMemoryTaskTurnEventStore(),
                 registry,
                 scheduler,
+                Mockito.mock(WorktreeLeaseService.class),
+                Mockito.mock(NotificationService.class),
                 new GitRunner(),
                 noopWorktreeService());
 
@@ -457,6 +484,8 @@ class TestThreadServiceScheduler
                 new InMemoryTaskTurnEventStore(),
                 registry,
                 scheduler,
+                Mockito.mock(WorktreeLeaseService.class),
+                Mockito.mock(NotificationService.class),
                 new GitRunner(),
                 noopWorktreeService());
 
@@ -481,6 +510,8 @@ class TestThreadServiceScheduler
                 new InMemoryTaskTurnEventStore(),
                 new ThrowingRegistry(),
                 scheduler,
+                Mockito.mock(WorktreeLeaseService.class),
+                Mockito.mock(NotificationService.class),
                 new GitRunner(),
                 noopWorktreeService());
 
@@ -507,6 +538,8 @@ class TestThreadServiceScheduler
                 new InMemoryTaskTurnEventStore(),
                 new ThrowingRegistry(),
                 scheduler,
+                Mockito.mock(WorktreeLeaseService.class),
+                Mockito.mock(NotificationService.class),
                 new GitRunner(),
                 worktrees);
 
@@ -556,6 +589,8 @@ class TestThreadServiceScheduler
                 new InMemoryTaskTurnEventStore(),
                 new ThrowingRegistry(),
                 new RecordingScheduler(),
+                Mockito.mock(WorktreeLeaseService.class),
+                Mockito.mock(NotificationService.class),
                 new GitRunner(),
                 worktrees);
 
@@ -583,6 +618,8 @@ class TestThreadServiceScheduler
                 new InMemoryTaskTurnEventStore(),
                 new ThrowingRegistry(),
                 new RecordingScheduler(),
+                Mockito.mock(WorktreeLeaseService.class),
+                Mockito.mock(NotificationService.class),
                 git,
                 noopWorktreeService());
 

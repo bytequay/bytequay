@@ -13,6 +13,9 @@
  */
 package com.bytequay.app.service.threads;
 
+import com.bytequay.app.domain.Notification;
+import com.bytequay.app.domain.NotificationKind;
+import com.bytequay.app.domain.NotificationStatus;
 import com.bytequay.app.domain.PermissionDecision;
 import com.bytequay.app.domain.StreamEvent;
 import com.bytequay.app.domain.Task;
@@ -86,6 +89,8 @@ public class ThreadService
     private final ThreadTurnEventStore turnEventStore;
     private final ThreadRegistry registry;
     private final ThreadTurnScheduler scheduler;
+    private final WorktreeLeaseService leases;
+    private final NotificationService notifications;
     private final GitRunner git;
     private final WorktreeService worktreeService;
 
@@ -97,6 +102,8 @@ public class ThreadService
             ThreadTurnEventStore turnEventStore,
             ThreadRegistry registry,
             ThreadTurnScheduler scheduler,
+            WorktreeLeaseService leases,
+            NotificationService notifications,
             GitRunner git,
             WorktreeService worktreeService)
     {
@@ -107,6 +114,8 @@ public class ThreadService
         this.turnEventStore = requireNonNull(turnEventStore, "turnEventStore is null");
         this.registry = requireNonNull(registry, "registry is null");
         this.scheduler = requireNonNull(scheduler, "scheduler is null");
+        this.leases = requireNonNull(leases, "leases is null");
+        this.notifications = requireNonNull(notifications, "notifications is null");
         this.git = requireNonNull(git, "git is null");
         this.worktreeService = requireNonNull(worktreeService, "worktreeService is null");
     }
@@ -472,6 +481,62 @@ public class ThreadService
     public void interrupt(String threadId)
     {
         sessionOrThrow(threadId).interrupt();
+    }
+
+    /**
+     * Take control of a thread away from any in-flight headless run.
+     * Drives the "Jump in" button on parked notifications, per the
+     * model doc's jump-in flow:
+     *
+     *   * interrupt the live session (if any) so a mid-flight CLI
+     *     subprocess exits at the next tool boundary and releases its
+     *     worktree lease on its own shutdown path,
+     *   * defensively release the lease too in case the holder is
+     *     already gone but the row wasn't cleaned up (the reaper does
+     *     the same thing every minute, but the user clicking Jump in
+     *     shouldn't have to wait for it),
+     *   * mark any UNREAD NEEDS_ATTENTION / AWAITING_REVIEW
+     *     notifications for this thread as read so the bell quiets
+     *     down — the user is *here* now.
+     *
+     * <p>Returns the thread snapshot the controller hands back, so the
+     * caller sees status / cost / token counts immediately after the
+     * transfer.
+     *
+     * <p>Unlike {@link #interrupt}, this method is forgiving when no
+     * live session exists — the thread might have been evicted from
+     * the registry after the headless turn already finished and the
+     * user is jumping in to a quiescent thread. Cleaning up the lease
+     * + notifications is still useful in that case.
+     */
+    public Thread jumpIn(String threadId)
+    {
+        requireNonNull(threadId, "threadId is null");
+        Thread thread = requireTask(threadId);
+        registry.find(threadId).ifPresent(session -> {
+            if (thread.status() == ThreadStatus.RUNNING
+                    || thread.status() == ThreadStatus.AWAITING) {
+                session.interrupt();
+            }
+        });
+        // Release the lease on the active task's worktree. The CLI
+        // agent's shutdown path also releases on exit; doing it here
+        // makes the transfer atomic from the user's perspective.
+        Optional<Task> active = taskStore.findActiveTaskForThread(threadId);
+        active.map(Task::worktreePath)
+                .filter(p -> p != null && !p.isBlank())
+                .ifPresent(leases::release);
+        // Quiet the bell for this thread. Parked notifications are
+        // the trigger for jump-in, so leaving them UNREAD after the
+        // user has actively transferred would mis-report attention.
+        for (Notification n : notifications.listForThread(threadId)) {
+            if (n.status() == NotificationStatus.UNREAD
+                    && (n.kind() == NotificationKind.NEEDS_ATTENTION
+                            || n.kind() == NotificationKind.AWAITING_REVIEW)) {
+                notifications.markRead(n.id());
+            }
+        }
+        return store.findThreadById(threadId).orElse(thread);
     }
 
     public void pause(String threadId)

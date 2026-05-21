@@ -13,7 +13,9 @@
  */
 package com.bytequay.app.service.threads;
 
+import com.bytequay.app.domain.Task;
 import com.bytequay.app.domain.ThreadCheckpoint;
+import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.repository.ThreadCheckpointStore;
 import com.bytequay.app.repository.ThreadStore;
 import jakarta.annotation.PreDestroy;
@@ -67,6 +69,7 @@ public class CheckpointScheduler
     static final long DEFAULT_THRESHOLD_TOKENS = 25_000L;
 
     private final ThreadStore threads;
+    private final TaskStore taskStore;
     private final ThreadCheckpointStore checkpoints;
     private final CheckpointSummariser summariser;
     private final ExecutorService executor;
@@ -81,20 +84,23 @@ public class CheckpointScheduler
     @Autowired
     public CheckpointScheduler(
             ThreadStore threads,
+            TaskStore taskStore,
             ThreadCheckpointStore checkpoints,
             CheckpointSummariser summariser)
     {
-        this(threads, checkpoints, summariser, defaultExecutor(), DEFAULT_THRESHOLD_TOKENS);
+        this(threads, taskStore, checkpoints, summariser, defaultExecutor(), DEFAULT_THRESHOLD_TOKENS);
     }
 
     CheckpointScheduler(
             ThreadStore threads,
+            TaskStore taskStore,
             ThreadCheckpointStore checkpoints,
             CheckpointSummariser summariser,
             ExecutorService executor,
             long thresholdTokens)
     {
         this.threads = requireNonNull(threads, "threads is null");
+        this.taskStore = requireNonNull(taskStore, "taskStore is null");
         this.checkpoints = requireNonNull(checkpoints, "checkpoints is null");
         this.summariser = requireNonNull(summariser, "summariser is null");
         this.executor = requireNonNull(executor, "executor is null");
@@ -216,7 +222,19 @@ public class CheckpointScheduler
                 summary.costUsdMilli(),
                 Instant.now(),
                 /* supersededAt */ null);
-        checkpoints.saveSegment(cp);
+        // Attribute the segment to the thread's active task when one
+        // exists — this builds the Task tier of the memory hierarchy
+        // (per-Task summaries compact upward into the Thread Overall,
+        // which compacts into workspace memory). Threads in the
+        // 0-Task brainstorm state fall through to the legacy
+        // thread-scope path.
+        Task active = taskStore.findActiveTaskForThread(threadId).orElse(null);
+        if (active != null) {
+            checkpoints.saveSegmentForTask(active.id(), cp);
+        }
+        else {
+            checkpoints.saveSegment(cp);
+        }
         return cp;
     }
 

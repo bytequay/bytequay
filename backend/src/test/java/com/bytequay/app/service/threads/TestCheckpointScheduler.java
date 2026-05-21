@@ -13,11 +13,15 @@
  */
 package com.bytequay.app.service.threads;
 
+import com.bytequay.app.domain.Task;
+import com.bytequay.app.domain.TaskFile;
+import com.bytequay.app.domain.TaskStatus;
 import com.bytequay.app.domain.Thread;
 import com.bytequay.app.domain.ThreadCheckpoint;
 import com.bytequay.app.domain.ThreadFile;
 import com.bytequay.app.domain.ThreadMessage;
 import com.bytequay.app.domain.ThreadStatus;
+import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.repository.ThreadCheckpointStore;
 import com.bytequay.app.repository.ThreadStore;
 import org.junit.jupiter.api.Test;
@@ -220,7 +224,8 @@ class TestCheckpointScheduler
     private static CheckpointScheduler newScheduler(
             InMemoryTaskStore threads, InMemoryCheckpointStore ckps, CheckpointSummariser summariser)
     {
-        return new CheckpointScheduler(threads, ckps, summariser, sameThreadExecutor(), THRESHOLD);
+        return new CheckpointScheduler(
+                threads, new EmptyTaskStore(), ckps, summariser, sameThreadExecutor(), THRESHOLD);
     }
 
     /**
@@ -279,6 +284,24 @@ class TestCheckpointScheduler
     private static CheckpointSummaryResult result(String summary, List<String> bullets)
     {
         return new CheckpointSummaryResult(summary, bullets, "haiku-test", 100L, 50L, 1L);
+    }
+
+    /** Returns empty for every Task query — the scheduler treats the
+     *  result as "no active task" and falls back to thread-scope
+     *  segment saves. */
+    private static final class EmptyTaskStore
+            implements TaskStore
+    {
+        @Override public void saveTask(Task task) {}
+        @Override public Optional<Task> findTaskById(String id) { return Optional.empty(); }
+        @Override public void deleteTask(String id) {}
+        @Override public List<Task> listTasksByThread(String threadId) { return List.of(); }
+        @Override public Optional<Task> findActiveTaskForThread(String threadId) { return Optional.empty(); }
+        @Override public Optional<Long> maxSeqForThread(String threadId) { return Optional.empty(); }
+        @Override public List<Task> listByStatus(TaskStatus status, int limit) { return List.of(); }
+        @Override public List<Task> listWithLinkedPr(int limit) { return List.of(); }
+        @Override public void recordFile(TaskFile file) {}
+        @Override public List<TaskFile> listFiles(String taskId) { return List.of(); }
     }
 
     /** Minimal ThreadStore that only serves the message-side queries the

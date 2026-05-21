@@ -206,7 +206,7 @@ function Banner({ banner }: { banner: Props['banner'] }) {
     <div style={bannerStyle}>
       <span style={bannerNameStyle}>claude-code</span>{' '}
       <span style={bannerVerStyle}>stream-json</span> · session started {startedAt} ·
-      model <span style={bannerModStyle}>{banner.model || 'unknown'}</span> · cwd{' '}
+      model <span style={bannerModStyle}>{formatModelLabel(banner.model)}</span> · cwd{' '}
       <span style={bannerCwdStyle}>{banner.cwd}</span>
       {banner.branch && (
         <> · branch <span style={bannerCwdStyle}>{banner.branch}</span></>
@@ -585,6 +585,10 @@ function formatNum(n: number): string {
   if (n < 1_000) return String(n);
   if (n < 1_000_000) return `${(n / 1_000).toFixed(1)}k`;
   return `${(n / 1_000_000).toFixed(1)}M`;
+}
+
+function formatModelLabel(model: string | null | undefined): string {
+  return model && model.trim() !== '' ? model : 'model pending';
 }
 
 function formatTime(iso: string): string {

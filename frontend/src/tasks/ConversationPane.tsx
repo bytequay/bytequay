@@ -16,6 +16,7 @@ import type { TaskMessageDto } from '../types';
 import { AskQuestionCard } from './AskQuestionCard';
 import { MarkdownProse } from './MarkdownProse';
 import { PermissionCard } from './PermissionCard';
+import { ToolOutputBody } from './StructuredConversation';
 import { useMessageWindow, useScrollAnchoredLoadMore } from './useMessageWindow';
 
 export type PendingPermission = {
@@ -303,12 +304,12 @@ function ToolBlock({ call, result }: { call: TaskMessageDto; result: TaskMessage
         {argSummary && <span style={toolArgsStyle}>({argSummary})</span>}
         {isStreaming && <span style={cursorStyle} />}
       </div>
-      {result && <ToolResult result={result} />}
+      {result && <ToolResult result={result} toolName={toolName} />}
     </div>
   );
 }
 
-function ToolResult({ result }: { result: TaskMessageDto }) {
+function ToolResult({ result, toolName }: { result: TaskMessageDto; toolName: string }) {
   const content = parseContent(result.contentJson);
   const isError = content.isError === true;
   const output = formatToolOutput(content.output);
@@ -340,11 +341,9 @@ function ToolResult({ result }: { result: TaskMessageDto }) {
           </button>
         )}
       </div>
-      <pre style={{
-        ...preStyle,
-        color: isError ? 'var(--term-err)' : 'var(--term-text)',
-        background: isError ? 'var(--term-error-bg)' : 'transparent',
-      }}>{truncated}</pre>
+      <div style={toolResultBodyStyle}>
+        <ToolOutputBody toolName={toolName} text={truncated} isError={isError} />
+      </div>
     </div>
   );
 }
@@ -770,19 +769,14 @@ const toolResultHeadStyle: React.CSSProperties = {
   display: 'flex', alignItems: 'center', gap: 6,
   color: 'var(--term-text-muted)', fontSize: 11,
 };
+const toolResultBodyStyle: React.CSSProperties = {
+  padding: 8,
+  background: 'var(--term-bg-result)',
+};
 const okGlyphStyle: React.CSSProperties = { color: 'var(--term-ok)', fontWeight: 700, marginRight: 4 };
 const errorGlyphStyle: React.CSSProperties = { color: 'var(--term-err)', fontWeight: 700, marginRight: 4 };
 const warnGlyphStyle: React.CSSProperties = { color: 'var(--term-warn)', fontWeight: 700, marginRight: 4 };
 
-const preStyle: React.CSSProperties = {
-  margin: 0,
-  padding: '8px 12px',
-  fontFamily: monoFont,
-  fontSize: 11.5,
-  lineHeight: 1.55,
-  whiteSpace: 'pre-wrap',
-  wordBreak: 'break-word',
-};
 const inlineCodeStyle: React.CSSProperties = {
   color: 'var(--term-pill-fg)',
   background: 'var(--term-pill-bg)',

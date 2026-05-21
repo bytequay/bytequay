@@ -17,6 +17,7 @@ import { AskQuestionCard } from './AskQuestionCard';
 import type { PendingPermission } from './ConversationPane';
 import { MarkdownProse } from './MarkdownProse';
 import { PermissionCard, type PermissionDecideHandler } from './PermissionCard';
+import { taskModelLabel } from './taskDisplay';
 import { useMessageWindow, useScrollAnchoredLoadMore } from './useMessageWindow';
 
 type Props = {
@@ -359,7 +360,7 @@ function AssistantCard({ card }: { card: Extract<Card, { kind: 'assistant' }> })
       <header style={cardHeaderStyle}>
         <span style={claudeAvatarStyle}>C</span>
         <span style={cardNameStyle}>Claude</span>
-        <span style={modelBadgeStyle}>{formatModelLabel(card.modelName)}</span>
+        <span style={modelBadgeStyle}>{taskModelLabel(card.modelName)}</span>
         {card.isStreaming && <span style={streamingPillStyle}>· streaming</span>}
         <span style={cardTsStyle}>{formatTime(card.tsIso)}</span>
       </header>
@@ -395,7 +396,7 @@ function StreamingCard({ text, modelName }: { text: string; modelName: string })
       <header style={cardHeaderStyle}>
         <span style={claudeAvatarStyle}>C</span>
         <span style={cardNameStyle}>Claude</span>
-        <span style={modelBadgeStyle}>{formatModelLabel(modelName)}</span>
+        <span style={modelBadgeStyle}>{taskModelLabel(modelName)}</span>
         <span style={streamingPillStyle}>· streaming</span>
       </header>
       <div style={cardBodyStyle}>
@@ -869,10 +870,6 @@ function formatTime(iso: string): string {
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return iso;
   return d.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
-}
-
-function formatModelLabel(model: string | null | undefined): string {
-  return model && model.trim() !== '' ? model : 'model pending';
 }
 
 function paragraphs(text: string): string[] {

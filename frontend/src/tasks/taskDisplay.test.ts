@@ -12,7 +12,7 @@
  * limitations under the License.
  */
 import { describe, expect, it } from 'vitest';
-import { isWorktreeBackedTask, taskAgentCwd, taskDisplayBranch } from './taskDisplay';
+import { isWorktreeBackedTask, taskAgentCwd, taskDisplayBranch, taskModelLabel } from './taskDisplay';
 
 describe('taskDisplay', () => {
   it('prefers the worktree path for the agent cwd', () => {
@@ -47,5 +47,11 @@ describe('taskDisplay', () => {
     expect(isWorktreeBackedTask({ worktreePath: '/repo/.bytequay/worktrees/dev/task-1' })).toBe(true);
     expect(isWorktreeBackedTask({ worktreePath: '' })).toBe(false);
     expect(isWorktreeBackedTask({ worktreePath: null })).toBe(false);
+  });
+
+  it('formats pending model labels', () => {
+    expect(taskModelLabel('claude-sonnet-4.6')).toBe('claude-sonnet-4.6');
+    expect(taskModelLabel('  ')).toBe('model pending');
+    expect(taskModelLabel(null)).toBe('model pending');
   });
 });

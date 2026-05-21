@@ -39,7 +39,7 @@ import { ConvIndex } from './ConvIndex';
 import { CheckpointsSection } from './CheckpointsSection';
 import { DiffModeToggle, TaskDiffPane, useTaskDiffState, type DiffMode } from './TaskChangesTab';
 import { findPendingPermission } from './permissions';
-import { taskAgentCwd, taskDisplayBranch } from './taskDisplay';
+import { taskAgentCwd, taskDisplayBranch, taskModelLabel } from './taskDisplay';
 
 type Props = {
   taskId: string;
@@ -1285,7 +1285,7 @@ function TaskWindowSidebar({
           />
           <Metric label="Tool calls" value={formatNum(toolUsage.total)} />
           <Metric label="Files touched" value={formatNum(files.length)} />
-          <Metric label="Model" value={formatModelLabel(modelName)} mono />
+          <Metric label="Model" value={taskModelLabel(modelName)} mono />
         </div>
       </SidebarSection>
 
@@ -2660,10 +2660,6 @@ function formatNum(n: number): string {
 
 function formatTokenLabel(n: number): string {
   return `${formatNum(n)} ${n === 1 ? 'token' : 'tokens'}`;
-}
-
-function formatModelLabel(model: string | null | undefined): string {
-  return model && model.trim() !== '' ? model : 'model pending';
 }
 
 /** Compact elapsed-time formatter for the LIVE bar. Mirrors the

@@ -28,6 +28,10 @@ export function isWorktreeBackedTask(task: Pick<TaskDto, 'worktreePath'>): boole
   return nonBlank(task.worktreePath) !== null;
 }
 
+export function taskModelLabel(model: string | null | undefined): string {
+  return nonBlank(model) ?? 'model pending';
+}
+
 function nonBlank(value: string | null | undefined): string | null {
   if (value === null || value === undefined) {
     return null;

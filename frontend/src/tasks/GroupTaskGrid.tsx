@@ -21,6 +21,7 @@ import {
   displayStatusForTask,
 } from './taskTurnSummary';
 import { findPendingPermission } from './permissions';
+import { taskModelLabel } from './taskDisplay';
 
 export type GroupLayout = 1 | 2 | 3 | 4;
 
@@ -612,7 +613,7 @@ function TaskTile({
         // alongside the ⛶ zoom button. Keeps the runtime / cost /
         // tokens glance without competing with the destructive action.
         <footer style={tileFooterStyle}>
-          <span style={footerMetaStyle}>{formatModelLabel(task.model)}</span>
+          <span style={footerMetaStyle}>{taskModelLabel(task.model)}</span>
           <span style={footerSepStyle}>·</span>
           <span style={footerMetaStyle}>{formatAge(task.updatedAt)}</span>
           <div style={{ flex: 1 }} />
@@ -669,10 +670,6 @@ function formatTokens(n: number): string {
 
 function formatTokenLabel(n: number): string {
   return `${formatTokens(n)} ${n === 1 ? 'token' : 'tokens'}`;
-}
-
-function formatModelLabel(model: string | null): string {
-  return model && model.trim() !== '' ? model : 'model pending';
 }
 
 // ────────────────────────────────────────────────────────────────────

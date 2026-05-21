@@ -17,6 +17,7 @@ import { AskQuestionCard } from './AskQuestionCard';
 import { MarkdownProse } from './MarkdownProse';
 import { PermissionCard } from './PermissionCard';
 import { ToolOutputBody } from './StructuredConversation';
+import { taskModelLabel } from './taskDisplay';
 import { useMessageWindow, useScrollAnchoredLoadMore } from './useMessageWindow';
 
 export type PendingPermission = {
@@ -206,7 +207,7 @@ function Banner({ banner }: { banner: Props['banner'] }) {
     <div style={bannerStyle}>
       <span style={bannerNameStyle}>claude-code</span>{' '}
       <span style={bannerVerStyle}>stream-json</span> · session started {startedAt} ·
-      model <span style={bannerModStyle}>{formatModelLabel(banner.model)}</span> · cwd{' '}
+      model <span style={bannerModStyle}>{taskModelLabel(banner.model)}</span> · cwd{' '}
       <span style={bannerCwdStyle}>{banner.cwd}</span>
       {banner.branch && (
         <> · branch <span style={bannerCwdStyle}>{banner.branch}</span></>
@@ -585,10 +586,6 @@ function formatNum(n: number): string {
   if (n < 1_000) return String(n);
   if (n < 1_000_000) return `${(n / 1_000).toFixed(1)}k`;
   return `${(n / 1_000_000).toFixed(1)}M`;
-}
-
-function formatModelLabel(model: string | null | undefined): string {
-  return model && model.trim() !== '' ? model : 'model pending';
 }
 
 function formatTime(iso: string): string {

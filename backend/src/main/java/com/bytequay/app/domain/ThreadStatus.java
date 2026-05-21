@@ -40,6 +40,15 @@ public enum ThreadStatus
     /** Open session, no recent activity; the user hasn't replied. */
     IDLE,
 
+    /** Parked: the active task finished with a proposed diff + reply
+     *  and is holding at the publish gate. Surfaces a notification;
+     *  never silent publish. */
+    AWAITING_REVIEW,
+
+    /** Parked: the active task is stuck on a conflict, rejected push,
+     *  or a judgment-call comment and needs the human to weigh in. */
+    NEEDS_ATTENTION,
+
     /** Agent emitted "I'm done" or the user clicked Stop with
      *  {@code mark as complete}. */
     COMPLETED,

@@ -33,12 +33,22 @@ public enum TaskStatus
     /** Agent process is alive and producing events. */
     RUNNING,
 
-    /** Paused waiting for the human — permission gate, AWAITING_REVIEW
-     *  diff, or a question. */
+    /** Paused waiting for the human at a per-tool permission gate
+     *  (e.g. approve a destructive command). Short-lived. */
     AWAITING,
 
     /** Agent is idle (no live process) but the task hasn't terminated. */
     IDLE,
+
+    /** Parked: the agent finished with a proposed diff + reply and is
+     *  holding at the publish gate. Default landing state for headless
+     *  auto-fix work — surfaces a notification, never silent publish. */
+    AWAITING_REVIEW,
+
+    /** Parked: the agent is stuck on a conflict, rejected push, or a
+     *  judgment-call comment and needs the human to weigh in. The
+     *  user's reply takes over the lease into an interactive session. */
+    NEEDS_ATTENTION,
 
     /** Task finished cleanly. */
     COMPLETED,

@@ -74,6 +74,14 @@ class ThreadCheckpointEntity
     @Column(name = "superseded_at_ms")
     private Long supersededAtMs;
 
+    /** FK on tasks.id, V76. Per-segment Task-tier checkpoints fill
+     *  this; Thread-Overall and legacy segment rows leave it null.
+     *  Named distinctly from the thread_id field above (which still
+     *  carries the long-standing getTaskId() / setTaskId() pair from
+     *  before the Task/Thread split) so the wires don't cross. */
+    @Column(name = "task_id")
+    private String workUnitTaskId;
+
     String getId() { return id; }
     void setId(String id) { this.id = id; }
 
@@ -118,4 +126,7 @@ class ThreadCheckpointEntity
 
     Long getSupersededAtMs() { return supersededAtMs; }
     void setSupersededAtMs(Long supersededAtMs) { this.supersededAtMs = supersededAtMs; }
+
+    String getWorkUnitTaskId() { return workUnitTaskId; }
+    void setWorkUnitTaskId(String workUnitTaskId) { this.workUnitTaskId = workUnitTaskId; }
 }

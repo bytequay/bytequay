@@ -70,4 +70,16 @@ interface ThreadCheckpointJpaRepository
               AND c.isOverall = 0
             """)
     Long maxSegmentSeq(@Param("threadId") String threadId);
+
+    /** Active per-segment checkpoints scoped to one Task, newest-first.
+     *  Powers the Task-tier of the rail and the Task→Thread compaction
+     *  pass. Overall rows always stay thread-scoped (task_id is null)
+     *  and are queried via {@link #findActiveOverall}. */
+    @Query("""
+            SELECT c FROM ThreadCheckpointEntity c
+            WHERE c.workUnitTaskId = :taskId
+              AND c.supersededAtMs IS NULL
+            ORDER BY c.seq DESC
+            """)
+    List<ThreadCheckpointEntity> findActiveForTaskId(@Param("taskId") String taskId);
 }

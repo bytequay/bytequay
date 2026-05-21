@@ -337,6 +337,20 @@ class TestCheckpointScheduler
         }
 
         @Override
+        public void saveSegmentForTask(String taskId, ThreadCheckpoint segment)
+        {
+            // The scheduler test exercises Thread-scope only; the
+            // Task-scope path lands behind the new store method.
+            saveSegment(segment);
+        }
+
+        @Override
+        public List<ThreadCheckpoint> listActiveForTask(String taskId)
+        {
+            return List.of();
+        }
+
+        @Override
         public void replaceOverall(String threadId, ThreadCheckpoint next)
         {
             if (!next.isOverall()) {

@@ -69,6 +69,34 @@ class SqliteThreadCheckpointStore
 
     @Override
     @Transactional
+    public void saveSegmentForTask(String taskId, ThreadCheckpoint segment)
+    {
+        requireNonNull(taskId, "taskId is null");
+        requireNonNull(segment, "segment is null");
+        if (segment.isOverall()) {
+            throw new IllegalArgumentException(
+                    "saveSegmentForTask refuses Overall rows — Overall stays thread-scoped");
+        }
+        if (segment.seq() < FIRST_SEGMENT_SEQ) {
+            throw new IllegalArgumentException(
+                    "per-segment seq must be >= " + FIRST_SEGMENT_SEQ + ", got " + segment.seq());
+        }
+        ThreadCheckpointEntity entity = toEntity(segment);
+        entity.setWorkUnitTaskId(taskId);
+        repo.save(entity);
+    }
+
+    @Override
+    public List<ThreadCheckpoint> listActiveForTask(String taskId)
+    {
+        requireNonNull(taskId, "taskId is null");
+        return repo.findActiveForTaskId(taskId).stream()
+                .map(this::toCheckpoint)
+                .toList();
+    }
+
+    @Override
+    @Transactional
     public void replaceOverall(String threadId, ThreadCheckpoint next)
     {
         requireNonNull(threadId, "threadId is null");

@@ -47,6 +47,18 @@ public interface ThreadCheckpointStore
      *  constraint (the scheduler serialises per thread to avoid this). */
     void saveSegment(ThreadCheckpoint segment);
 
+    /** Insert a per-segment checkpoint scoped to one Task. Same as
+     *  {@link #saveSegment} but stamps the new {@code task_id} column
+     *  so this row belongs to the named Task's slice of the thread.
+     *  Used by the Task-tier of the memory hierarchy described in
+     *  the model doc; pre-existing Thread-only callers continue to
+     *  use {@link #saveSegment} which leaves {@code task_id} null. */
+    void saveSegmentForTask(String taskId, ThreadCheckpoint segment);
+
+    /** Per-Task active checkpoints, newest-{@code seq} first. Empty
+     *  when the task has not produced any checkpoints yet. */
+    List<ThreadCheckpoint> listActiveForTask(String taskId);
+
     /** Atomic Overall swap: stamp any currently-active Overall as
      *  superseded and persist {@code next}. Use this rather than
      *  two separate writes so a reader can't briefly observe two

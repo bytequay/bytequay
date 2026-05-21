@@ -14,8 +14,13 @@
 package com.bytequay.app.web;
 
 import com.bytequay.app.domain.PermissionDecision;
+import com.bytequay.app.domain.Task;
+import com.bytequay.app.domain.TaskStatus;
+import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.service.threads.McpPermissionGate;
+import com.bytequay.app.service.threads.NotificationService;
 import com.bytequay.app.service.threads.ThreadService;
+import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
@@ -28,6 +33,9 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.context.request.async.DeferredResult;
 
+import java.util.LinkedHashMap;
+import java.util.Map;
+import java.util.Optional;
 import java.util.OptionalInt;
 import java.util.concurrent.CompletableFuture;
 
@@ -64,6 +72,12 @@ public class McpController
      *  on the server name in {@code --mcp-config}. */
     private static final String TOOL_NAME = "approval_prompt";
 
+    /** Self-park tool: the CLI agent calls this when it finishes
+     *  with a proposed diff that wants the human's eyes before
+     *  publishing. Transitions the thread's active task to
+     *  AWAITING_REVIEW and writes a notification. */
+    private static final String REQUEST_REVIEW_TOOL = "request_review";
+
     /** How long the agent will wait for the user before we give up
      *  and tell Claude the request was denied. Two minutes is enough
      *  to switch tabs, read the call site, and decide; longer would
@@ -71,13 +85,22 @@ public class McpController
     private static final long DECISION_TIMEOUT_MS = 2L * 60L * 1000L;
 
     private final ThreadService threads;
+    private final TaskStore taskStore;
     private final McpPermissionGate gate;
+    private final NotificationService notifications;
     private final ObjectMapper mapper;
 
-    public McpController(ThreadService threads, McpPermissionGate gate, ObjectMapper mapper)
+    public McpController(
+            ThreadService threads,
+            TaskStore taskStore,
+            McpPermissionGate gate,
+            NotificationService notifications,
+            ObjectMapper mapper)
     {
         this.threads = requireNonNull(threads, "threads is null");
+        this.taskStore = requireNonNull(taskStore, "taskStore is null");
         this.gate = requireNonNull(gate, "gate is null");
+        this.notifications = requireNonNull(notifications, "notifications is null");
         this.mapper = requireNonNull(mapper, "mapper is null");
     }
 
@@ -123,18 +146,44 @@ public class McpController
     private JsonNode listTools(JsonNode id)
     {
         ObjectNode result = mapper.createObjectNode();
-        ObjectNode tool = mapper.createObjectNode();
-        tool.put("name", TOOL_NAME);
-        tool.put("description", "Asks the user to allow or deny a tool call. "
+        var tools = result.putArray("tools");
+
+        // approval_prompt — drives Claude's --permission-prompt-tool.
+        ObjectNode approval = mapper.createObjectNode();
+        approval.put("name", TOOL_NAME);
+        approval.put("description", "Asks the user to allow or deny a tool call. "
                 + "Returns a JSON envelope with behavior=allow|deny.");
-        ObjectNode schema = tool.putObject("inputSchema");
-        schema.put("type", "object");
-        ObjectNode properties = schema.putObject("properties");
-        properties.putObject("tool_name").put("type", "string");
-        properties.putObject("input").put("type", "object");
-        properties.putObject("tool_use_id").put("type", "string");
-        schema.putArray("required").add("tool_name").add("input").add("tool_use_id");
-        result.putArray("tools").add(tool);
+        ObjectNode approvalSchema = approval.putObject("inputSchema");
+        approvalSchema.put("type", "object");
+        ObjectNode approvalProperties = approvalSchema.putObject("properties");
+        approvalProperties.putObject("tool_name").put("type", "string");
+        approvalProperties.putObject("input").put("type", "object");
+        approvalProperties.putObject("tool_use_id").put("type", "string");
+        approvalSchema.putArray("required").add("tool_name").add("input").add("tool_use_id");
+        tools.add(approval);
+
+        // request_review — self-park gate. The CLI agent calls this
+        // when it finishes with a proposed diff that needs the human's
+        // eyes before publishing. No user prompt; the side-effect is
+        // a status transition + notification.
+        ObjectNode review = mapper.createObjectNode();
+        review.put("name", REQUEST_REVIEW_TOOL);
+        review.put("description",
+                "Park the current task at AWAITING_REVIEW with a proposed diff + reply. "
+                        + "Use this when you've finished a unit of work and want the human "
+                        + "to review before anything is pushed or commented on GitHub.");
+        ObjectNode reviewSchema = review.putObject("inputSchema");
+        reviewSchema.put("type", "object");
+        ObjectNode reviewProperties = reviewSchema.putObject("properties");
+        reviewProperties.putObject("summary")
+                .put("type", "string")
+                .put("description", "One- or two-sentence summary of what's ready for review.");
+        reviewProperties.putObject("draft_reply")
+                .put("type", "string")
+                .put("description", "Optional reply the human can publish as-is or edit.");
+        reviewSchema.putArray("required").add("summary");
+        tools.add(review);
+
         return ok(id, result);
     }
 
@@ -142,6 +191,10 @@ public class McpController
     {
         JsonNode params = request.path("params");
         String name = params.path("name").asText();
+        if (REQUEST_REVIEW_TOOL.equals(name)) {
+            handleRequestReview(threadId, id, params.path("arguments"), deferred);
+            return;
+        }
         if (!TOOL_NAME.equals(name)) {
             deferred.setResult(error(id, -32602, "unknown tool: " + name));
             return;
@@ -256,6 +309,62 @@ public class McpController
         }
         String s = input.toString();
         return s.length() > 240 ? s.substring(0, 237) + "…" : s;
+    }
+
+    /**
+     * Handles the {@code request_review} MCP call. The CLI agent
+     * uses this to self-park the current task at AWAITING_REVIEW
+     * once it has a proposed diff + reply ready. Side effects:
+     *
+     *   * the thread's active task transitions to AWAITING_REVIEW
+     *     (no-op when the thread is 0-Task — the notification is
+     *     still emitted so the user sees something happened),
+     *   * an AWAITING_REVIEW notification is written so the bell /
+     *     auto* filter / thread strip light up,
+     *   * the response is plain text — no allow/deny envelope, since
+     *     the agent isn't asking for permission, it's announcing it
+     *     is done.
+     */
+    private void handleRequestReview(
+            String threadId, JsonNode id, JsonNode args, DeferredResult<JsonNode> deferred)
+    {
+        String summary = args.path("summary").asText("");
+        String draftReply = args.path("draft_reply").asText("");
+        Optional<Task> active = taskStore.findActiveTaskForThread(threadId);
+        if (active.isPresent()) {
+            Task t = active.get();
+            taskStore.saveTask(new Task(
+                    t.id(), t.threadId(), t.seq(), TaskStatus.AWAITING_REVIEW,
+                    t.branchName(), t.worktreePath(), t.baseBranch(), t.workingDir(),
+                    t.processPid(), t.logPath(),
+                    t.prNumber(), t.prState(), t.ciState(),
+                    t.taskType(), t.linkedPrNumber(), t.linkedIssueNumber(),
+                    t.costUsdMilli(), t.tokensIn(), t.tokensOut(),
+                    t.firstMsgSeq(), t.lastMsgSeq(),
+                    t.createdAt(), t.endedAt(), t.errorMessage()));
+        }
+        try {
+            Map<String, Object> payload = new LinkedHashMap<>();
+            payload.put("summary", summary);
+            if (!draftReply.isEmpty()) {
+                payload.put("draftReply", draftReply);
+            }
+            payload.put("source", "mcp:request_review");
+            String payloadJson = mapper.writeValueAsString(payload);
+            notifications.notifyAwaitingReview(
+                    threadId, active.map(Task::id).orElse(null), payloadJson);
+        }
+        catch (JsonProcessingException | RuntimeException e) {
+            log.warn("notification emit on request_review failed for thread {}: {}",
+                    threadId, e.getMessage());
+        }
+        ObjectNode result = mapper.createObjectNode();
+        ObjectNode item = mapper.createObjectNode();
+        item.put("type", "text");
+        item.put("text", "Parked at AWAITING_REVIEW. The user will see a notification "
+                + "and can approve, edit, or discard from the thread.");
+        result.putArray("content").add(item);
+        deferred.setResult(ok(id, result));
     }
 
     private ObjectNode allow(JsonNode updatedInput)

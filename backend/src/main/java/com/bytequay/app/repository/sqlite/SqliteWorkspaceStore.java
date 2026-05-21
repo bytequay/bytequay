@@ -82,6 +82,7 @@ class SqliteWorkspaceStore
         WorkspaceRepoEntity entity = repos.findById(key).orElseGet(WorkspaceRepoEntity::new);
         entity.setId(key);
         entity.setDefaultBaseBranch(repo.defaultBaseBranch());
+        entity.setAutoFixEnabled(repo.autoFixEnabled() ? 1 : 0);
         entity.setAddedAtMs(repo.addedAt().toEpochMilli());
         repos.save(entity);
     }
@@ -142,6 +143,7 @@ class SqliteWorkspaceStore
                 e.getId().getWorkspaceId(),
                 e.getId().getRepoFullName(),
                 e.getDefaultBaseBranch(),
+                e.getAutoFixEnabled() != 0,
                 Instant.ofEpochMilli(e.getAddedAtMs()));
     }
 }

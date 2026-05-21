@@ -29,6 +29,11 @@ public record WorkspaceRepo(
         String workspaceId,
         String repoFullName,
         String defaultBaseBranch,
+        /** Opt-in for the headless auto-fix runner. Off by default
+         *  per CLAUDE.md — only when the user explicitly enables
+         *  this will AutomationCoordinator spawn a CLI agent against
+         *  free worktrees when their linked PRs flip to failing CI. */
+        boolean autoFixEnabled,
         Instant addedAt)
 {
 }

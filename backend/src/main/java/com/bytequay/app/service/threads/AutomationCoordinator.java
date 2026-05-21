@@ -19,11 +19,14 @@ import com.bytequay.app.domain.PrCheckRunState;
 import com.bytequay.app.domain.StoredPrDetail;
 import com.bytequay.app.domain.Task;
 import com.bytequay.app.domain.WatchedRepo;
+import com.bytequay.app.domain.WorkspaceRepo;
 import com.bytequay.app.domain.WorktreeLease;
 import com.bytequay.app.repository.PrDetailStore;
 import com.bytequay.app.repository.PullRequestStore;
 import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.repository.WatchedRepoStore;
+import com.bytequay.app.repository.WorkspaceStore;
+import com.bytequay.app.service.workspaces.WorkspaceService;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
@@ -88,6 +91,7 @@ public class AutomationCoordinator
     private final PullRequestStore pullRequestStore;
     private final PrDetailStore prDetailStore;
     private final NotificationService notificationService;
+    private final WorkspaceStore workspaceStore;
     private final ObjectMapper mapper;
 
     public AutomationCoordinator(
@@ -97,6 +101,7 @@ public class AutomationCoordinator
             PullRequestStore pullRequestStore,
             PrDetailStore prDetailStore,
             NotificationService notificationService,
+            WorkspaceStore workspaceStore,
             ObjectMapper mapper)
     {
         this.leaseService = requireNonNull(leaseService, "leaseService is null");
@@ -105,6 +110,7 @@ public class AutomationCoordinator
         this.pullRequestStore = requireNonNull(pullRequestStore, "pullRequestStore is null");
         this.prDetailStore = requireNonNull(prDetailStore, "prDetailStore is null");
         this.notificationService = requireNonNull(notificationService, "notificationService is null");
+        this.workspaceStore = requireNonNull(workspaceStore, "workspaceStore is null");
         this.mapper = requireNonNull(mapper, "mapper is null");
     }
 
@@ -199,12 +205,63 @@ public class AutomationCoordinator
             notificationService.notifyNeedsAttention(task.threadId(), task.id(), payloadJson);
             log.info("CI failing on {} PR #{} (task {}); emitted NEEDS_ATTENTION",
                     repoFullName, task.linkedPrNumber(), task.id());
+            // Best-effort follow-up: when auto-fix is opt-in for this
+            // repo AND the worktree is free, mark the task as an
+            // auto-fix candidate. Actual headless-spawn lands in a
+            // follow-up commit; for now we log so the operator can
+            // see the decision the coordinator would have made.
+            try {
+                tryAutoFix(task, repoFullName);
+            }
+            catch (RuntimeException e) {
+                log.warn("auto-fix candidate check failed for task {}: {}",
+                        task.id(), e.getMessage());
+            }
             return true;
         }
         catch (JsonProcessingException e) {
             log.warn("Failed to write CI-fail payload for task {}: {}", task.id(), e.getMessage());
             return false;
         }
+    }
+
+    /**
+     * Decides what to do with a candidate task whose linked PR is
+     * failing CI. Three outcomes:
+     *
+     *   * the repo hasn't opted in to auto-fix → human-only, no
+     *     headless run. The NEEDS_ATTENTION row already lights up the
+     *     bell; the user clicks in and handles it themselves.
+     *   * the repo IS opted in BUT the worktree is currently leased
+     *     (the human is live-editing the same branch) → defer, log
+     *     "would auto-fix later." The model doc explicitly forbids
+     *     barging in on a worktree the human is using.
+     *   * the repo is opted in AND the worktree is free → log
+     *     "auto-fix candidate." The actual headless spawn that takes
+     *     the lease and runs the CLI agent lands in a follow-up.
+     */
+    private void tryAutoFix(Task task, String repoFullName)
+    {
+        if (task.worktreePath() == null || task.worktreePath().isBlank()) {
+            return;
+        }
+        Optional<WorkspaceRepo> ws = workspaceStore.findRepo(
+                WorkspaceService.DEFAULT_WORKSPACE_ID, repoFullName);
+        if (ws.isEmpty() || !ws.get().autoFixEnabled()) {
+            log.debug("auto-fix not enabled for {} (task {}); NEEDS_ATTENTION-only",
+                    repoFullName, task.id());
+            return;
+        }
+        if (leaseService.isHeld(task.worktreePath())) {
+            log.info("auto-fix deferred: worktree {} is held (task {}, PR #{})",
+                    task.worktreePath(), task.id(), task.linkedPrNumber());
+            return;
+        }
+        // Free worktree + opt-in repo. This is the slot the headless
+        // CLI spawn will fill in a follow-up; for now log the decision
+        // so the operator can see the coordinator picking candidates.
+        log.info("auto-fix candidate: task {} on {} (worktree {}, PR #{}) — headless spawn TBD",
+                task.id(), repoFullName, task.worktreePath(), task.linkedPrNumber());
     }
 
     private Optional<WatchedRepo> findRepoForWorkingDir(String workingDir)

@@ -32,6 +32,9 @@ class WorkspaceRepoEntity
     @Column(name = "default_base_branch")
     private String defaultBaseBranch;
 
+    @Column(name = "auto_fix_enabled", nullable = false)
+    private int autoFixEnabled;
+
     @Column(name = "added_at_ms", nullable = false)
     private long addedAtMs;
 
@@ -40,6 +43,9 @@ class WorkspaceRepoEntity
 
     String getDefaultBaseBranch() { return defaultBaseBranch; }
     void setDefaultBaseBranch(String defaultBaseBranch) { this.defaultBaseBranch = defaultBaseBranch; }
+
+    int getAutoFixEnabled() { return autoFixEnabled; }
+    void setAutoFixEnabled(int autoFixEnabled) { this.autoFixEnabled = autoFixEnabled; }
 
     long getAddedAtMs() { return addedAtMs; }
     void setAddedAtMs(long addedAtMs) { this.addedAtMs = addedAtMs; }

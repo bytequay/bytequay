@@ -117,9 +117,34 @@ public class WorkspaceService
         requireNonNull(repoFullName, "repoFullName is null");
         WorkspaceRepo repo = new WorkspaceRepo(
                 workspaceId, repoFullName.trim(),
-                trimToNull(defaultBaseBranch), Instant.now());
+                trimToNull(defaultBaseBranch),
+                /* autoFixEnabled */ false,
+                Instant.now());
         store.addRepo(repo);
         return repo;
+    }
+
+    /**
+     * Flip the headless auto-fix opt-in for a repo. Off by default,
+     * per CLAUDE.md. AutomationCoordinator reads this when deciding
+     * whether a failing-CI candidate triggers a notification only or
+     * also a headless run.
+     */
+    public WorkspaceRepo setAutoFixEnabled(String workspaceId, String repoFullName, boolean enabled)
+    {
+        require(workspaceId);
+        WorkspaceRepo existing = store.findRepo(workspaceId, repoFullName)
+                .orElseThrow(() -> new ResponseStatusException(
+                        HttpStatusCode.valueOf(404),
+                        repoFullName + " not attached to workspace " + workspaceId));
+        WorkspaceRepo next = new WorkspaceRepo(
+                existing.workspaceId(),
+                existing.repoFullName(),
+                existing.defaultBaseBranch(),
+                enabled,
+                existing.addedAt());
+        store.addRepo(next);
+        return next;
     }
 
     public void removeRepo(String workspaceId, String repoFullName)

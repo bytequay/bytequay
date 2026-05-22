@@ -99,12 +99,98 @@ function ReviewThreadPage({ threadId, onBack }: Props) {
             participantsById={participantsById}
           />
           <FindingsSection findings={detail.findings} />
-          <PublishSection
-            detail={detail}
-            onPublished={(next) => setDetail(next)}
-          />
+          {detail.pass.phase === 'ARBITRATE' ? (
+            <ArbitrationBallotSection
+              detail={detail}
+              onResolved={(next) => setDetail(next)}
+            />
+          ) : (
+            <PublishSection
+              detail={detail}
+              onPublished={(next) => setDetail(next)}
+            />
+          )}
         </>
       )}
+    </section>
+  );
+}
+
+function ArbitrationBallotSection({
+  detail, onResolved,
+}: {
+  detail: ReviewPassDetailDto;
+  onResolved: (next: ReviewPassDetailDto) => void;
+}) {
+  const disputed = detail.findings.filter(f => f.status === 'DISPUTED');
+  const [busyId, setBusyId] = useState<string | null>(null);
+  const [error, setError] = useState<string | null>(null);
+
+  const resolve = async (findingId: string, resolution: 'include' | 'drop') => {
+    if (busyId !== null) return;
+    setBusyId(findingId);
+    setError(null);
+    try {
+      const next = await window.bridge.arbitrateReviewFinding(
+          detail.pass.id, findingId, resolution);
+      onResolved(next);
+    }
+    catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    }
+    finally {
+      setBusyId(null);
+    }
+  };
+
+  return (
+    <section style={cardStyle} aria-label="Arbitration">
+      <h2 style={cardTitleStyle}>
+        Arbitration ballot ({disputed.length} pending)
+      </h2>
+      <p style={publishHintStyle}>
+        The panel couldn't agree on these findings. Pick one per item:{' '}
+        <strong>Include</strong> to surface it in the published review;{' '}
+        <strong>Drop</strong> to discard it. The publish form unlocks once
+        every disputed finding is resolved.
+      </p>
+      {error !== null && (
+        <div style={errorStyle} role="alert">{error}</div>
+      )}
+      <ul style={findingsListStyle}>
+        {disputed.map(f => (
+          <li key={f.id} style={findingRowStyle}>
+            <SeverityChip severity={f.severity} />
+            <StatusChip status={f.status} />
+            <div style={findingBodyStyle}>
+              <div style={findingAnchorStyle}>
+                {f.path !== null
+                    ? `${f.path}${f.line !== null ? `:${f.line}` : ''}`
+                    : 'Whole PR'}
+              </div>
+              <div>{f.body}</div>
+              <div style={{ marginTop: 8, display: 'flex', gap: 8 }}>
+                <button
+                  type="button"
+                  className="button button--primary"
+                  onClick={() => { void resolve(f.id, 'include'); }}
+                  disabled={busyId !== null}
+                >
+                  {busyId === f.id ? 'Working…' : 'Include'}
+                </button>
+                <button
+                  type="button"
+                  className="button"
+                  onClick={() => { void resolve(f.id, 'drop'); }}
+                  disabled={busyId !== null}
+                >
+                  Drop
+                </button>
+              </div>
+            </div>
+          </li>
+        ))}
+      </ul>
     </section>
   );
 }

@@ -97,7 +97,27 @@ public class ReviewController
                 body.findingIds() == null ? List.of() : body.findingIds());
     }
 
+    /** Resolve one disputed finding via the arbitration ballot.
+     *  {@code resolution} is {@code "include"} (status →
+     *  ARBITRATED) or {@code "drop"} (status → DROPPED). Once every
+     *  DISPUTED finding on the pass is resolved the pass transitions
+     *  to TERMINATE and the publish form unlocks. */
+    @PostMapping("/{passId}/findings/{findingId}/arbitrate")
+    public ReviewPassDetail arbitrate(
+            @PathVariable String passId,
+            @PathVariable String findingId,
+            @RequestBody ArbitrateFindingRequest body)
+    {
+        if (body == null || body.resolution() == null || body.resolution().isBlank()) {
+            throw new ResponseStatusException(HttpStatusCode.valueOf(400),
+                    "resolution is required ('include' or 'drop')");
+        }
+        return reviews.arbitrateFinding(passId, findingId, body.resolution());
+    }
+
     public record StartReviewRequest(String repoFullName, int prNumber) {}
 
     public record PublishReviewRequest(String verdict, List<String> findingIds) {}
+
+    public record ArbitrateFindingRequest(String resolution) {}
 }

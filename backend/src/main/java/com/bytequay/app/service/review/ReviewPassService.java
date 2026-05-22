@@ -350,21 +350,97 @@ public class ReviewPassService
             suggested = suggestedVerdictForConsensus(consensus);
         }
 
-        // 9. Terminate.
-        ReviewPass terminated = new ReviewPass(
+        // 9. Final phase. Panels that produced disputed findings park
+        //    at ARBITRATE so the human picks each contested item via
+        //    the ballot; otherwise the pass terminates straight away
+        //    and the publish form unlocks.
+        boolean hasDisputed = reviewStore.listFindingsForPass(pass.id()).stream()
+                .anyMatch(f -> f.status() == ReviewFindingStatus.DISPUTED);
+        ReviewPhase finalPhase = hasDisputed ? ReviewPhase.ARBITRATE : ReviewPhase.TERMINATE;
+        ReviewPass finalPass = new ReviewPass(
                 pass.id(), pass.threadId(), pass.repoFullName(), pass.prNumber(),
                 pass.headSha(),
-                ReviewPhase.TERMINATE,
+                finalPhase,
                 pass.round(),
                 pass.roundCap(),
                 pass.costCapMilli(),
                 pass.costUsdMilli(),
                 suggested,
                 pass.createdAt(),
-                /* endedAt */ Instant.now());
-        reviewStore.savePass(terminated);
+                /* endedAt */ hasDisputed ? null : Instant.now());
+        reviewStore.savePass(finalPass);
 
-        return buildDetail(terminated);
+        return buildDetail(finalPass);
+    }
+
+    /**
+     * Resolve one disputed finding via the arbitration ballot. The
+     * human picks {@code include} to keep the call (status →
+     * ARBITRATED) or {@code drop} to discard it (status → DROPPED).
+     * Once every DISPUTED finding on the pass is resolved the pass
+     * transitions out of ARBITRATE into TERMINATE so the publish
+     * form unlocks.
+     */
+    @Transactional
+    public ReviewPassDetail arbitrateFinding(String passId, String findingId, String resolution)
+    {
+        requireNonNull(passId, "passId is null");
+        requireNonNull(findingId, "findingId is null");
+        requireNonNull(resolution, "resolution is null");
+
+        ReviewPass pass = reviewStore.findPassById(passId)
+                .orElseThrow(() -> new ResponseStatusException(
+                        HttpStatusCode.valueOf(404), "no review pass: " + passId));
+        if (pass.phase() != ReviewPhase.ARBITRATE) {
+            throw new ResponseStatusException(HttpStatusCode.valueOf(409),
+                    "pass " + passId + " is not in ARBITRATE — current phase is " + pass.phase());
+        }
+        ReviewFinding finding = reviewStore.findFindingById(findingId)
+                .orElseThrow(() -> new ResponseStatusException(
+                        HttpStatusCode.valueOf(404), "no finding: " + findingId));
+        if (!finding.reviewPassId().equals(passId)) {
+            throw new ResponseStatusException(HttpStatusCode.valueOf(400),
+                    "finding " + findingId + " does not belong to pass " + passId);
+        }
+        if (finding.status() != ReviewFindingStatus.DISPUTED) {
+            throw new ResponseStatusException(HttpStatusCode.valueOf(409),
+                    "finding " + findingId + " is not DISPUTED — already " + finding.status());
+        }
+        ReviewFindingStatus next;
+        switch (resolution.toLowerCase(Locale.ROOT)) {
+            case "include" -> next = ReviewFindingStatus.ARBITRATED;
+            case "drop" -> next = ReviewFindingStatus.DROPPED;
+            default -> throw new ResponseStatusException(HttpStatusCode.valueOf(400),
+                    "resolution must be 'include' or 'drop'");
+        }
+        reviewStore.saveFinding(new ReviewFinding(
+                finding.id(), finding.reviewPassId(),
+                finding.path(), finding.line(),
+                finding.severity(),
+                next,
+                finding.body(),
+                /* resolution */ resolution.toLowerCase(Locale.ROOT),
+                finding.postedCommentId(),
+                finding.createdAt()));
+
+        // Once no DISPUTED findings remain, the pass falls through to
+        // TERMINATE so the publish form unlocks.
+        boolean stillDisputed = reviewStore.listFindingsForPass(passId).stream()
+                .anyMatch(f -> f.status() == ReviewFindingStatus.DISPUTED);
+        if (!stillDisputed) {
+            ReviewPass terminated = new ReviewPass(
+                    pass.id(), pass.threadId(), pass.repoFullName(), pass.prNumber(),
+                    pass.headSha(),
+                    ReviewPhase.TERMINATE,
+                    pass.round(), pass.roundCap(),
+                    pass.costCapMilli(), pass.costUsdMilli(),
+                    pass.verdict(),
+                    pass.createdAt(),
+                    /* endedAt */ Instant.now());
+            reviewStore.savePass(terminated);
+            log.info("Review pass {} arbitration complete; transitioned to TERMINATE", passId);
+        }
+        return findPassWithDetail(passId).orElseThrow();
     }
 
     /** Configured reviewers form the panel. Capped at 3 — design
@@ -528,6 +604,11 @@ public class ReviewPassService
         if (pass.phase() == ReviewPhase.PUBLISHED) {
             throw new ResponseStatusException(HttpStatusCode.valueOf(409),
                     "review pass " + passId + " is already published");
+        }
+        if (pass.phase() == ReviewPhase.ARBITRATE) {
+            throw new ResponseStatusException(HttpStatusCode.valueOf(409),
+                    "review pass " + passId + " is at ARBITRATE — resolve disputed "
+                            + "findings via the ballot before publishing");
         }
 
         List<ReviewFinding> allFindings = reviewStore.listFindingsForPass(passId);

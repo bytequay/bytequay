@@ -2338,6 +2338,16 @@ export type Bridge = {
   /** Read the latest pass on a review thread — the URL the panel UI
    *  lives on uses the thread id, this resolves the pass for it. */
   getReviewPassByThread: (threadId: string) => Promise<ReviewPassDetailDto | null>;
+  /** Resolve one DISPUTED finding via the arbitration ballot.
+   *  {@code resolution} = "include" flips it to ARBITRATED;
+   *  "drop" flips it to DROPPED. When no DISPUTED findings remain
+   *  the pass transitions out of ARBITRATE and the publish form
+   *  unlocks. */
+  arbitrateReviewFinding: (
+    passId: string,
+    findingId: string,
+    resolution: 'include' | 'drop',
+  ) => Promise<ReviewPassDetailDto>;
   /** Post the pass to GitHub as a PR review. {@code findingIds} is
    *  the subset of findings the user has confirmed for posting; the
    *  rest stay on the pass as AGREED but never reach GitHub.

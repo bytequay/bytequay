@@ -204,6 +204,53 @@ describe('ReviewThreadPage', () => {
     expect(screen.queryByText('Post review to PR')).toBeNull();
   });
 
+  it('renders the arbitration ballot when phase=ARBITRATE and routes include/drop to the bridge', async () => {
+    // ARBITRATE phase: publish form should NOT show; ballot does.
+    // Each disputed finding gets [Include] [Drop] buttons.
+    const base = buildDetail({ verdict: 'COMMENT' });
+    const arbitrating: ReviewPassDetailDto = {
+      ...base,
+      pass: { ...base.pass, phase: 'ARBITRATE', endedAt: null },
+      findings: [
+        finding({ id: 'd1', severity: 'NIT', status: 'DISPUTED',
+            body: '[Claude] solo nit', path: 'src/a.ts', line: 1 }),
+        finding({ id: 'd2', severity: 'NIT', status: 'DISPUTED',
+            body: '[GPT] solo nit', path: 'src/b.ts', line: 2 }),
+      ],
+    };
+    const afterInclude: ReviewPassDetailDto = {
+      ...arbitrating,
+      findings: arbitrating.findings.map(f =>
+        f.id === 'd1' ? { ...f, status: 'ARBITRATED', resolution: 'include' } : f),
+    };
+    const arbitrateReviewFinding = vi.fn(async () => afterInclude);
+    installBridge({
+      getReviewPassByThread: vi.fn(async (): Promise<ReviewPassDetailDto | null> => arbitrating),
+      arbitrateReviewFinding,
+    });
+
+    render(<ReviewThreadPage threadId="thread-1" onBack={() => {}} />);
+    await waitFor(() => screen.getByText(/Arbitration ballot/i));
+
+    // Publish form is hidden — the user must arbitrate first.
+    expect(screen.queryByText('Post review to PR')).toBeNull();
+    expect(screen.queryByText(/Verdict suggestion/i)).toBeNull();
+
+    // Two ballot items each with Include + Drop buttons. Look by
+    // role to avoid matching the same words used inside the hint
+    // text above the list.
+    const includes = screen.getAllByRole('button', { name: 'Include' });
+    const drops = screen.getAllByRole('button', { name: 'Drop' });
+    expect(includes).toHaveLength(2);
+    expect(drops).toHaveLength(2);
+
+    // Clicking the first Include calls the bridge with 'include'.
+    await act(async () => {
+      fireEvent.click(includes[0]);
+    });
+    expect(arbitrateReviewFinding).toHaveBeenCalledWith('pass-1', 'd1', 'include');
+  });
+
   it('surfaces the backend error inline and leaves the form mounted for retry', async () => {
     const detail = buildDetail({
       verdict: 'COMMENT',

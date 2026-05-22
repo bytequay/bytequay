@@ -392,14 +392,17 @@ class TestReviewPassService
                 .count();
         assertThat(independentMessages).isEqualTo(2);
 
-        // 2. Phase machine walked through CROSS_REVIEW.
+        // 2. Phase machine walked through CROSS_REVIEW. This test
+        //    produces disputed findings (each reviewer's solo nit) so
+        //    the pass parks at ARBITRATE for the ballot rather than
+        //    going straight to TERMINATE.
         List<ReviewPhase> phaseHistory = recording.passHistory.stream()
                 .map(ReviewPass::phase).toList();
         assertThat(phaseHistory).containsSubsequence(
                 ReviewPhase.KICKOFF,
                 ReviewPhase.INDEPENDENT,
                 ReviewPhase.CROSS_REVIEW,
-                ReviewPhase.TERMINATE);
+                ReviewPhase.ARBITRATE);
         // Moderator emits a CROSS_REVIEW announcement so the
         // transcript reflects the consensus split even without an LLM
         // round.
@@ -438,8 +441,10 @@ class TestReviewPassService
         });
 
         // 4. Verdict suggestion: AGREED blocker → REQUEST_CHANGES.
+        //    Phase parks at ARBITRATE for the ballot since two
+        //    DISPUTED findings remain unresolved.
         assertThat(detail.pass().verdict()).isEqualTo(ReviewVerdict.REQUEST_CHANGES);
-        assertThat(detail.pass().phase()).isEqualTo(ReviewPhase.TERMINATE);
+        assertThat(detail.pass().phase()).isEqualTo(ReviewPhase.ARBITRATE);
 
         // 5. Three reviewer participants seated (two reviewers + the
         //    moderator + the human; assert reviewers specifically).
@@ -447,6 +452,134 @@ class TestReviewPassService
                 .filter(p -> p.kind() == ReviewParticipantKind.REVIEWER)
                 .count();
         assertThat(reviewerSeats).isEqualTo(2);
+    }
+
+    @Test
+    void multiReviewerPanelParksAtArbitrateWhenDisputedFindingsRemain()
+    {
+        LlmReviewer claude = mock(LlmReviewer.class);
+        LlmReviewer openai = mock(LlmReviewer.class);
+        when(claude.providerId()).thenReturn("claude");
+        when(claude.displayName()).thenReturn("Claude");
+        when(claude.isConfigured()).thenReturn(true);
+        when(openai.providerId()).thenReturn("openai");
+        when(openai.displayName()).thenReturn("GPT-5");
+        when(openai.isConfigured()).thenReturn(true);
+        when(registry.all()).thenReturn(List.of(claude, openai));
+
+        // Two distinct nits at unique anchors → both DISPUTED, no
+        // AGREED. The pass should park at ARBITRATE so the ballot
+        // surfaces the contest to the user instead of silently
+        // publishing one reviewer's call.
+        when(claude.review(any(ReviewRequest.class))).thenReturn(new ReviewOutput(
+                "Claude take.", List.of(
+                        new ReviewOutput.LineComment("src/a.ts", 1, "Claude's pick.", "nit")),
+                "claude", "claude-sonnet-4.6"));
+        when(openai.review(any(ReviewRequest.class))).thenReturn(new ReviewOutput(
+                "GPT take.", List.of(
+                        new ReviewOutput.LineComment("src/b.ts", 2, "GPT's pick.", "nit")),
+                "openai", "gpt-5"));
+
+        ReviewPassDetail detail = service.startReviewOnPr("acme/widget", 42);
+
+        // Disputed findings exist → pass parks at ARBITRATE, not
+        // TERMINATE. endedAt stays null until the user resolves.
+        assertThat(detail.pass().phase()).isEqualTo(ReviewPhase.ARBITRATE);
+        assertThat(detail.pass().endedAt()).isNull();
+    }
+
+    @Test
+    void arbitrateFindingFlipsDisputedToArbitratedOrDroppedAndTerminatesWhenAllResolved()
+    {
+        LlmReviewer claude = mock(LlmReviewer.class);
+        LlmReviewer openai = mock(LlmReviewer.class);
+        when(claude.providerId()).thenReturn("claude");
+        when(claude.displayName()).thenReturn("Claude");
+        when(claude.isConfigured()).thenReturn(true);
+        when(openai.providerId()).thenReturn("openai");
+        when(openai.displayName()).thenReturn("GPT-5");
+        when(openai.isConfigured()).thenReturn(true);
+        when(registry.all()).thenReturn(List.of(claude, openai));
+
+        when(claude.review(any(ReviewRequest.class))).thenReturn(new ReviewOutput(
+                "Claude take.", List.of(
+                        new ReviewOutput.LineComment("src/a.ts", 1, "Claude pick.", "nit")),
+                "claude", "claude-sonnet-4.6"));
+        when(openai.review(any(ReviewRequest.class))).thenReturn(new ReviewOutput(
+                "GPT take.", List.of(
+                        new ReviewOutput.LineComment("src/b.ts", 2, "GPT pick.", "nit")),
+                "openai", "gpt-5"));
+        ReviewPassDetail parked = service.startReviewOnPr("acme/widget", 42);
+        assertThat(parked.pass().phase()).isEqualTo(ReviewPhase.ARBITRATE);
+        List<ReviewFinding> disputed = parked.findings().stream()
+                .filter(f -> f.status() == ReviewFindingStatus.DISPUTED)
+                .toList();
+        assertThat(disputed).hasSize(2);
+        String includeId = disputed.get(0).id();
+        String dropId = disputed.get(1).id();
+
+        // Include the first → ARBITRATED. Pass stays at ARBITRATE
+        // because the second is still pending.
+        ReviewPassDetail afterFirst = service.arbitrateFinding(parked.pass().id(), includeId, "include");
+        assertThat(afterFirst.pass().phase()).isEqualTo(ReviewPhase.ARBITRATE);
+        ReviewFinding includedNow = afterFirst.findings().stream()
+                .filter(f -> f.id().equals(includeId)).findFirst().orElseThrow();
+        assertThat(includedNow.status()).isEqualTo(ReviewFindingStatus.ARBITRATED);
+        assertThat(includedNow.resolution()).isEqualTo("include");
+
+        // Drop the second → DROPPED. No DISPUTED left → pass moves
+        // to TERMINATE and endedAt stamps.
+        ReviewPassDetail afterSecond = service.arbitrateFinding(parked.pass().id(), dropId, "drop");
+        assertThat(afterSecond.pass().phase()).isEqualTo(ReviewPhase.TERMINATE);
+        assertThat(afterSecond.pass().endedAt()).isNotNull();
+        ReviewFinding droppedNow = afterSecond.findings().stream()
+                .filter(f -> f.id().equals(dropId)).findFirst().orElseThrow();
+        assertThat(droppedNow.status()).isEqualTo(ReviewFindingStatus.DROPPED);
+    }
+
+    @Test
+    void arbitrateFindingRefusesWhenPassIsNotInArbitratePhase()
+    {
+        // Single-reviewer pass → no ARBITRATE phase. Arbitrating
+        // anything on it must 409 so a stale frontend can't poke at
+        // findings on a terminated pass.
+        when(reviewer.review(any(ReviewRequest.class))).thenReturn(new ReviewOutput(
+                "Done.", List.of(), "claude", "claude-sonnet-4.6"));
+        ReviewPassDetail kicked = service.startReviewOnPr("acme/widget", 11);
+
+        assertThatThrownBy(() -> service.arbitrateFinding(
+                kicked.pass().id(), "nonexistent", "include"))
+                .isInstanceOf(ResponseStatusException.class)
+                .hasMessageContaining("not in ARBITRATE");
+    }
+
+    @Test
+    void publishPassRefusesWhenPassIsAtArbitrate()
+    {
+        LlmReviewer claude = mock(LlmReviewer.class);
+        LlmReviewer openai = mock(LlmReviewer.class);
+        when(claude.providerId()).thenReturn("claude");
+        when(claude.displayName()).thenReturn("Claude");
+        when(claude.isConfigured()).thenReturn(true);
+        when(openai.providerId()).thenReturn("openai");
+        when(openai.displayName()).thenReturn("GPT-5");
+        when(openai.isConfigured()).thenReturn(true);
+        when(registry.all()).thenReturn(List.of(claude, openai));
+        when(claude.review(any(ReviewRequest.class))).thenReturn(new ReviewOutput(
+                "Claude.", List.of(
+                        new ReviewOutput.LineComment("src/a.ts", 1, "C.", "nit")),
+                "claude", "claude-sonnet-4.6"));
+        when(openai.review(any(ReviewRequest.class))).thenReturn(new ReviewOutput(
+                "GPT.", List.of(
+                        new ReviewOutput.LineComment("src/b.ts", 2, "G.", "nit")),
+                "openai", "gpt-5"));
+        ReviewPassDetail parked = service.startReviewOnPr("acme/widget", 9);
+        assertThat(parked.pass().phase()).isEqualTo(ReviewPhase.ARBITRATE);
+
+        assertThatThrownBy(() -> service.publishPass(
+                parked.pass().id(), ReviewVerdict.COMMENT, List.of()))
+                .isInstanceOf(ResponseStatusException.class)
+                .hasMessageContaining("ARBITRATE");
     }
 
     @Test

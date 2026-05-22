@@ -3029,6 +3029,35 @@ const url = new URL(`${BACKEND_BASE}/api/search/repos`);
     return res.json();
   });
 
+  ipcMain.handle('reviews:arbitrate', async (_event, args: unknown) => {
+    if (typeof args !== 'object' || args === null) {
+      throw new Error('reviews:arbitrate args must be an object');
+    }
+    const a = args as { passId?: unknown; findingId?: unknown; resolution?: unknown };
+    if (typeof a.passId !== 'string' || a.passId.trim().length === 0) {
+      throw new Error('passId must be a non-empty string');
+    }
+    if (typeof a.findingId !== 'string' || a.findingId.trim().length === 0) {
+      throw new Error('findingId must be a non-empty string');
+    }
+    if (a.resolution !== 'include' && a.resolution !== 'drop') {
+      throw new Error("resolution must be 'include' or 'drop'");
+    }
+    const res = await fetch(
+      `${BACKEND_BASE}/api/reviews/${encodeURIComponent(a.passId)}`
+      + `/findings/${encodeURIComponent(a.findingId)}/arbitrate`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ resolution: a.resolution }),
+      });
+    if (!res.ok) {
+      const text = await res.text().catch(() => '');
+      throw new Error(`backend POST arbitrate returned ${res.status}: ${text}`);
+    }
+    return res.json();
+  });
+
   ipcMain.handle('reviews:publish', async (_event, args: unknown) => {
     if (typeof args !== 'object' || args === null) {
       throw new Error('reviews:publish args must be an object');

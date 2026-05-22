@@ -467,7 +467,10 @@ function statusDotStyle(status: string): React.CSSProperties {
 
 const twoColStyle: React.CSSProperties = {
   display: 'grid',
-  gridTemplateColumns: '1fr 1fr',
+  // Cards reflow into one column below ~664px (2 × 320px + gap). Matches
+  // the design doc's repeat(auto-fit, minmax(320px, 1fr)) primitive so
+  // the workspace surfaces don't hard-break at a fixed width.
+  gridTemplateColumns: 'repeat(auto-fit, minmax(320px, 1fr))',
   gap: 14,
 };
 

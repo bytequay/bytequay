@@ -19,7 +19,6 @@ import com.bytequay.app.domain.Task;
 import com.bytequay.app.domain.TaskStatus;
 import com.bytequay.app.domain.ThreadCheckpoint;
 import com.bytequay.app.domain.WatchedRepo;
-import com.bytequay.app.repository.PullRequestRepository;
 import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.repository.ThreadCheckpointStore;
 import com.bytequay.app.repository.WatchedRepoStore;
@@ -49,7 +48,6 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.OptionalInt;
-import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 
 import static java.util.Objects.requireNonNull;
@@ -129,14 +127,20 @@ public class McpController
      *  leak DeferredResults if the browser tab dies. */
     private static final long DECISION_TIMEOUT_MS = 2L * 60L * 1000L;
 
+    /** Hard cap on the unified-diff payload we attach to the
+     *  AWAITING_REVIEW notification for a parked push. Notifications
+     *  land in a SQLite TEXT column and the frontend renders the diff
+     *  inline, so we truncate aggressively rather than store a megabyte
+     *  per parked push. The truncation marker comes from
+     *  {@link GitRunner#diff} itself so a reader can tell what was cut. */
+    private static final int PUSH_DIFF_MAX_BYTES = 500_000;
+
     private final ThreadService threads;
     private final TaskStore taskStore;
     private final ThreadCheckpointStore checkpoints;
     private final McpPermissionGate gate;
     private final NotificationService notifications;
     private final WatchedRepoStore watchedRepos;
-    private final PullRequestRepository pullRequests;
-    private final PatResolver patResolver;
     private final GitRunner git;
     private final ObjectMapper mapper;
 
@@ -147,8 +151,6 @@ public class McpController
             McpPermissionGate gate,
             NotificationService notifications,
             WatchedRepoStore watchedRepos,
-            PullRequestRepository pullRequests,
-            PatResolver patResolver,
             GitRunner git,
             ObjectMapper mapper)
     {
@@ -158,8 +160,6 @@ public class McpController
         this.gate = requireNonNull(gate, "gate is null");
         this.notifications = requireNonNull(notifications, "notifications is null");
         this.watchedRepos = requireNonNull(watchedRepos, "watchedRepos is null");
-        this.pullRequests = requireNonNull(pullRequests, "pullRequests is null");
-        this.patResolver = requireNonNull(patResolver, "patResolver is null");
         this.git = requireNonNull(git, "git is null");
         this.mapper = requireNonNull(mapper, "mapper is null");
     }
@@ -469,48 +469,63 @@ public class McpController
         String summary = args.path("summary").asText("");
         String draftReply = args.path("draft_reply").asText("");
         Optional<Task> active = taskStore.findActiveTaskForThread(threadId);
-        if (active.isPresent()) {
-            Task t = active.get();
-            taskStore.saveTask(new Task(
-                    t.id(), t.threadId(), t.seq(), TaskStatus.AWAITING_REVIEW,
-                    t.branchName(), t.worktreePath(), t.baseBranch(), t.workingDir(),
-                    t.processPid(), t.logPath(),
-                    t.prNumber(), t.prState(), t.ciState(),
-                    t.taskType(), t.linkedPrNumber(), t.linkedIssueNumber(),
-                    t.costUsdMilli(), t.tokensIn(), t.tokensOut(),
-                    t.firstMsgSeq(), t.lastMsgSeq(),
-                    t.createdAt(), t.endedAt(), t.errorMessage()));
+        active.ifPresent(this::parkActiveTaskAtAwaitingReview);
+        Map<String, Object> payload = new LinkedHashMap<>();
+        payload.put("summary", summary);
+        if (!draftReply.isEmpty()) {
+            payload.put("draftReply", draftReply);
         }
+        payload.put("source", "mcp:request_review");
+        emitAwaitingReviewNotification(threadId, active.map(Task::id).orElse(null), payload,
+                "mcp:request_review");
+        deferred.setResult(plainText(id,
+                "Parked at AWAITING_REVIEW. The user will see a notification "
+                        + "and can approve, edit, or discard from the thread."));
+    }
+
+    /** Save {@code task} with its status flipped to AWAITING_REVIEW.
+     *  Mirrors the shape used by {@link #handleRequestReview} so the
+     *  publish gates (push / post_comment) land at the same parked
+     *  state with the same row update. */
+    private void parkActiveTaskAtAwaitingReview(Task task)
+    {
+        taskStore.saveTask(new Task(
+                task.id(), task.threadId(), task.seq(), TaskStatus.AWAITING_REVIEW,
+                task.branchName(), task.worktreePath(), task.baseBranch(), task.workingDir(),
+                task.processPid(), task.logPath(),
+                task.prNumber(), task.prState(), task.ciState(),
+                task.taskType(), task.linkedPrNumber(), task.linkedIssueNumber(),
+                task.costUsdMilli(), task.tokensIn(), task.tokensOut(),
+                task.firstMsgSeq(), task.lastMsgSeq(),
+                task.createdAt(), task.endedAt(), task.errorMessage()));
+    }
+
+    /** Serialises {@code payload} and writes an AWAITING_REVIEW
+     *  notification. Failures only get logged — the notification is the
+     *  audit trail, but if it can't be written we still want the MCP
+     *  call to return a parked result so the agent ends its turn
+     *  cleanly. */
+    private void emitAwaitingReviewNotification(
+            String threadId, String taskId, Map<String, Object> payload, String source)
+    {
         try {
-            Map<String, Object> payload = new LinkedHashMap<>();
-            payload.put("summary", summary);
-            if (!draftReply.isEmpty()) {
-                payload.put("draftReply", draftReply);
-            }
-            payload.put("source", "mcp:request_review");
             String payloadJson = mapper.writeValueAsString(payload);
-            notifications.notifyAwaitingReview(
-                    threadId, active.map(Task::id).orElse(null), payloadJson);
+            notifications.notifyAwaitingReview(threadId, taskId, payloadJson);
         }
         catch (JsonProcessingException | RuntimeException e) {
-            log.warn("notification emit on request_review failed for thread {}: {}",
-                    threadId, e.getMessage());
+            log.warn("notification emit on {} failed for thread {}: {}",
+                    source, threadId, e.getMessage());
         }
-        ObjectNode result = mapper.createObjectNode();
-        ObjectNode item = mapper.createObjectNode();
-        item.put("type", "text");
-        item.put("text", "Parked at AWAITING_REVIEW. The user will see a notification "
-                + "and can approve, edit, or discard from the thread.");
-        result.putArray("content").add(item);
-        deferred.setResult(ok(id, result));
     }
 
     /**
-     * Handles {@code post_comment}: surfaces a permission card with
-     * the proposed body and, on Approve, POSTs the comment to the
-     * active task's linked PR via the per-repo PAT. Resolves the
-     * (owner, repo, number) tuple from the task's workingDir +
-     * linkedPrNumber so the agent only has to write the body.
+     * Handles {@code post_comment}: parks the active task at
+     * AWAITING_REVIEW with the proposed body + linked-PR ref captured
+     * in the notification payload, and returns immediately. The
+     * actual GitHub call doesn't fire here — the user's Approve click
+     * in the AWAITING_REVIEW pane drives a separate publish endpoint
+     * (the design contract is "diff viewer + Approve / Edit / Discard",
+     * not an inline allow/deny card).
      */
     private void handlePostComment(
             String threadId, JsonNode id, JsonNode args, DeferredResult<JsonNode> deferred)
@@ -520,60 +535,48 @@ public class McpController
             deferred.setResult(plainText(id, "body is required"));
             return;
         }
-        Optional<PullRequestRef> prRef = resolvePrRef(threadId);
+        Optional<Task> active = taskStore.findActiveTaskForThread(threadId);
+        if (active.isEmpty()) {
+            deferred.setResult(plainText(id,
+                    "no active task on this thread — nothing to comment on"));
+            return;
+        }
+        Optional<PullRequestRef> prRef = resolvePrRefFromTask(active.get());
         if (prRef.isEmpty()) {
             deferred.setResult(plainText(id,
                     "no PR linked to the active task — set linked_pr_number first"));
             return;
         }
 
-        // Run the same permission flow approval_prompt uses, just with
-        // post_comment as the gate's tool name. The frontend's
-        // PermissionCard already special-cases the toolName for nicer
-        // copy when one lands; arbitrary tools render a generic card.
-        String callId = "post_comment-" + UUID.randomUUID();
-        CompletableFuture<PermissionDecision> decisionFuture = gate.register(callId, POST_COMMENT_TOOL);
-        try {
-            threads.notifyPermissionRequested(threadId, callId, POST_COMMENT_TOOL,
-                    "Post comment on " + prRef.get().owner() + "/" + prRef.get().repo()
-                            + "#" + prRef.get().number());
-        }
-        catch (RuntimeException e) {
-            log.warn("Failed to surface post_comment permission card for thread {}: {}",
-                    threadId, e.getMessage());
-        }
+        parkActiveTaskAtAwaitingReview(active.get());
+        Map<String, Object> payload = new LinkedHashMap<>();
+        payload.put("action", "post_comment");
+        payload.put("body", body);
+        Map<String, Object> pr = new LinkedHashMap<>();
+        pr.put("owner", prRef.get().owner());
+        pr.put("repo", prRef.get().repo());
+        pr.put("number", prRef.get().number());
+        payload.put("pr", pr);
+        payload.put("source", "mcp:post_comment");
+        emitAwaitingReviewNotification(threadId, active.get().id(), payload, "mcp:post_comment");
 
-        decisionFuture.whenComplete((decision, ex) -> {
-            if (ex != null) {
-                deferred.setResult(plainText(id, "interrupted: " + ex.getMessage()));
-                return;
-            }
-            if (decision != PermissionDecision.ALLOW) {
-                deferred.setResult(plainText(id, "user denied"));
-                return;
-            }
-            try {
-                String repoFullName = prRef.get().owner() + "/" + prRef.get().repo();
-                String pat = patResolver.resolve(repoFullName);
-                pullRequests.createIssueComment(pat, prRef.get(), body);
-                deferred.setResult(plainText(id,
-                        "Posted comment on " + repoFullName + "#" + prRef.get().number() + "."));
-            }
-            catch (RuntimeException e) {
-                log.warn("post_comment GitHub call failed for thread {}: {}",
-                        threadId, e.getMessage());
-                deferred.setResult(plainText(id,
-                        "GitHub rejected the comment: " + e.getMessage()));
-            }
-        });
+        deferred.setResult(plainText(id,
+                "Parked at AWAITING_REVIEW. The user will review the comment body and "
+                        + "approve, edit, or discard from the thread."));
     }
 
     /**
-     * Handles {@code push}: surfaces a permission card and, on
-     * Approve, runs {@code git push} from the active task's worktree
-     * path. Returns plain text — the agent isn't asking permission
-     * for a future tool, it's asking for one side-effect to happen
-     * now (same as {@code post_comment}).
+     * Handles {@code push}: parks the active task at AWAITING_REVIEW
+     * with the proposed unified diff captured in the notification
+     * payload, so the user can review what would be pushed before any
+     * branch hits the remote. The {@code git push} itself doesn't fire
+     * here — it's deferred to a publish endpoint the Approve action
+     * drives.
+     *
+     * <p>Diff base: prefer {@code origin/<branch>} when the branch has
+     * been pushed before (so the user sees "what's new since the last
+     * push"), else fall back to {@code origin/<baseBranch>} or the
+     * local base branch, matching the three-dot diff GitHub renders.
      */
     private void handlePush(String threadId, JsonNode id, DeferredResult<JsonNode> deferred)
     {
@@ -591,48 +594,90 @@ public class McpController
         }
         Path worktree = Path.of(task.worktreePath());
 
-        String callId = "push-" + UUID.randomUUID();
-        CompletableFuture<PermissionDecision> decisionFuture = gate.register(callId, PUSH_TOOL);
+        parkActiveTaskAtAwaitingReview(task);
+        Map<String, Object> payload = new LinkedHashMap<>();
+        payload.put("action", "push");
+        payload.put("branch", task.branchName());
+        payload.put("baseBranch", task.baseBranch());
+        payload.put("worktreePath", task.worktreePath());
+        attachPushDiffToPayload(payload, worktree, task);
+        payload.put("source", "mcp:push");
+        emitAwaitingReviewNotification(threadId, task.id(), payload, "mcp:push");
+
+        deferred.setResult(plainText(id,
+                "Parked at AWAITING_REVIEW. The user will review the diff and "
+                        + "approve or discard from the thread."));
+    }
+
+    /** Adds {@code diff} + companion fields to {@code payload}: the
+     *  unified diff string when computable, the chosen base ref, and a
+     *  human-readable error string when git can't produce the diff
+     *  (missing baseBranch, fetch needed, etc.). Failures don't abort
+     *  the park — the audit trail is still useful even without the
+     *  preview. */
+    private void attachPushDiffToPayload(Map<String, Object> payload, Path worktree, Task task)
+    {
+        String base = chooseDiffBase(worktree, task);
+        if (base == null) {
+            payload.put("diff", null);
+            payload.put("diffError", "no base ref available to diff against; "
+                    + "task.baseBranch is " + (task.baseBranch() == null ? "null" : "not on origin yet"));
+            return;
+        }
+        payload.put("diffBase", base);
         try {
-            threads.notifyPermissionRequested(threadId, callId, PUSH_TOOL,
-                    "Push " + (task.branchName() == null ? "branch" : task.branchName())
-                            + " from worktree " + worktree);
+            String diff = git.diff(worktree, base, "HEAD", PUSH_DIFF_MAX_BYTES);
+            payload.put("diff", diff);
+        }
+        catch (IOException e) {
+            log.warn("push diff for {} failed: {}", worktree, e.getMessage());
+            payload.put("diff", null);
+            payload.put("diffError", "git diff failed: " + e.getMessage());
+        }
+        catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            payload.put("diff", null);
+            payload.put("diffError", "git diff interrupted");
         }
         catch (RuntimeException e) {
-            log.warn("Failed to surface push permission card for thread {}: {}",
-                    threadId, e.getMessage());
+            log.warn("push diff for {} rejected: {}", worktree, e.getMessage());
+            payload.put("diff", null);
+            payload.put("diffError", "git diff rejected: " + e.getMessage());
         }
+    }
 
-        decisionFuture.whenComplete((decision, ex) -> {
-            if (ex != null) {
-                deferred.setResult(plainText(id, "interrupted: " + ex.getMessage()));
-                return;
+    /** Picks the most useful base ref for the push diff: the remote
+     *  branch tip if the branch has been pushed (so the user sees only
+     *  what's new), else the remote base branch, else the local base
+     *  branch. Returns null when nothing resolves so the caller can
+     *  record a {@code diffError} instead of guessing. */
+    private String chooseDiffBase(Path worktree, Task task)
+    {
+        try {
+            if (task.branchName() != null && !task.branchName().isBlank()) {
+                String remoteBranch = "origin/" + task.branchName();
+                if (git.refExists(worktree, remoteBranch)) {
+                    return remoteBranch;
+                }
             }
-            if (decision != PermissionDecision.ALLOW) {
-                deferred.setResult(plainText(id, "user denied"));
-                return;
+            if (task.baseBranch() != null && !task.baseBranch().isBlank()) {
+                String remoteBase = "origin/" + task.baseBranch();
+                if (git.refExists(worktree, remoteBase)) {
+                    return remoteBase;
+                }
+                if (git.refExists(worktree, task.baseBranch())) {
+                    return task.baseBranch();
+                }
             }
-            try {
-                git.push(worktree);
-                deferred.setResult(plainText(id,
-                        "Pushed " + (task.branchName() == null ? "branch" : task.branchName())
-                                + " from " + worktree + "."));
-            }
-            catch (IOException e) {
-                log.warn("push from {} failed for thread {}: {}",
-                        worktree, threadId, e.getMessage());
-                deferred.setResult(plainText(id, "push failed: " + e.getMessage()));
-            }
-            catch (InterruptedException e) {
+        }
+        catch (IOException | InterruptedException e) {
+            if (e instanceof InterruptedException) {
                 Thread.currentThread().interrupt();
-                deferred.setResult(plainText(id, "push interrupted"));
             }
-            catch (RuntimeException e) {
-                log.warn("push from {} rejected for thread {}: {}",
-                        worktree, threadId, e.getMessage());
-                deferred.setResult(plainText(id, "push rejected: " + e.getMessage()));
-            }
-        });
+            log.warn("ref probe in {} failed while choosing diff base: {}",
+                    worktree, e.getMessage());
+        }
+        return null;
     }
 
     /**
@@ -733,15 +778,13 @@ public class McpController
         return out.toString();
     }
 
-    /** Resolves the active task's linked PR into a PullRequestRef by
-     *  matching the task's workingDir against the watched-repos list. */
-    private Optional<PullRequestRef> resolvePrRef(String threadId)
+    /** Resolves a task's linked PR into a PullRequestRef by matching
+     *  the task's workingDir against the watched-repos list. Returns
+     *  empty when the task has no PR linked or the workingDir doesn't
+     *  match any known clone, so callers can surface a useful error
+     *  rather than mint a half-formed ref. */
+    private Optional<PullRequestRef> resolvePrRefFromTask(Task task)
     {
-        Optional<Task> active = taskStore.findActiveTaskForThread(threadId);
-        if (active.isEmpty()) {
-            return Optional.empty();
-        }
-        Task task = active.get();
         if (task.linkedPrNumber() == null || task.workingDir() == null) {
             return Optional.empty();
         }

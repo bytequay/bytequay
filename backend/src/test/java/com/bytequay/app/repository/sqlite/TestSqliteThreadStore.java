@@ -15,6 +15,7 @@ package com.bytequay.app.repository.sqlite;
 
 import com.bytequay.app.domain.Thread;
 import com.bytequay.app.domain.ThreadFile;
+import com.bytequay.app.domain.ThreadFlow;
 import com.bytequay.app.domain.ThreadKind;
 import com.bytequay.app.domain.ThreadMessage;
 import com.bytequay.app.domain.ThreadStatus;
@@ -95,7 +96,8 @@ class TestSqliteThreadStore
                 /* endedAt */ null, /* errorMessage */ null,
                 initial.metadataJson(),
                 initial.taskType(), initial.linkedPrNumber(), initial.linkedIssueNumber(),
-                initial.worktreePath(), initial.localBranch());
+                initial.worktreePath(), initial.localBranch(),
+                initial.flow());
         store.saveThread(updated);
 
         Thread got = store.findThreadById(initial.id()).orElseThrow();
@@ -104,6 +106,39 @@ class TestSqliteThreadStore
         assertThat(got.costUsdMilli()).isEqualTo(12_345L);
         assertThat(got.tokensIn()).isEqualTo(1_000L);
         assertThat(got.updatedAt()).isEqualTo(Instant.parse("2026-05-15T13:00:00Z"));
+    }
+
+    @Test
+    void flowRoundTripsAndCannotBeFlippedOnUpdate()
+    {
+        Thread original = newTask(ThreadKind.CLI_AGENT, ThreadStatus.RUNNING, 99, "/tmp/x.jsonl");
+        store.saveThread(original);
+        assertThat(store.findThreadById(original.id()).orElseThrow().flow())
+                .isEqualTo(ThreadFlow.BUILD);
+
+        // Attempting to flip flow to REVIEW on an existing row must
+        // throw — this is the invariant V74 set up but couldn't enforce
+        // until the domain field landed.
+        Thread flipped = new Thread(
+                original.id(), original.kind(), original.provider(), original.agentSessionId(),
+                original.title(), original.status(), original.workingDir(), original.branchName(),
+                original.model(),
+                original.costUsdMilli(), original.tokensIn(), original.tokensOut(),
+                original.processPid(), original.logPath(),
+                original.createdAt(), original.updatedAt(),
+                original.endedAt(), original.errorMessage(), original.metadataJson(),
+                original.taskType(), original.linkedPrNumber(), original.linkedIssueNumber(),
+                original.worktreePath(), original.localBranch(),
+                ThreadFlow.REVIEW);
+        assertThatThrownBy(() -> store.saveThread(flipped))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("set-once");
+
+        // Re-saving with the same flow value is fine — the no-flip
+        // rule only fires when the value actually changes.
+        store.saveThread(original);
+        assertThat(store.findThreadById(original.id()).orElseThrow().flow())
+                .isEqualTo(ThreadFlow.BUILD);
     }
 
     @Test
@@ -201,7 +236,8 @@ class TestSqliteThreadStore
                 /* linkedPrNumber */ null,
                 /* linkedIssueNumber */ null,
                 /* worktreePath */ null,
-                /* localBranch */ null);
+                /* localBranch */ null,
+                ThreadFlow.BUILD);
     }
 
     private static Thread withTimestamps(Thread source, Instant created, Instant updated)
@@ -213,7 +249,8 @@ class TestSqliteThreadStore
                 source.processPid(), source.logPath(), created, updated,
                 source.endedAt(), source.errorMessage(), source.metadataJson(),
                 source.taskType(), source.linkedPrNumber(), source.linkedIssueNumber(),
-                source.worktreePath(), source.localBranch());
+                source.worktreePath(), source.localBranch(),
+                source.flow());
     }
 
     private static ThreadMessage message(String threadId, long seq, String role, String type, String contentJson)

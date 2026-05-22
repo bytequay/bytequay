@@ -73,6 +73,13 @@ class ThreadEntity
     @Column(name = "workspace_id")
     private String workspaceId;
 
+    // Structural discriminator: 'build' or 'review'. V74 carries the
+    // column in NOT NULL DEFAULT 'build'; the store sets this only on
+    // INSERT so the saveThread update path can't silently flip flow
+    // on an existing row.
+    @Column(name = "flow", nullable = false)
+    private String flow;
+
     // Dropped in V72 (moved to the tasks table):
     //   working_dir, branch_name, local_branch, worktree_path,
     //   process_pid, log_path, task_type, linked_pr_number,
@@ -125,4 +132,7 @@ class ThreadEntity
 
     String getWorkspaceId() { return workspaceId; }
     void setWorkspaceId(String workspaceId) { this.workspaceId = workspaceId; }
+
+    String getFlow() { return flow; }
+    void setFlow(String flow) { this.flow = flow; }
 }

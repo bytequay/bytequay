@@ -21,6 +21,7 @@ import com.bytequay.app.domain.TaskFile;
 import com.bytequay.app.domain.TaskStatus;
 import com.bytequay.app.domain.Thread;
 import com.bytequay.app.domain.ThreadFile;
+import com.bytequay.app.domain.ThreadFlow;
 import com.bytequay.app.domain.ThreadGroup;
 import com.bytequay.app.domain.ThreadGroupMembership;
 import com.bytequay.app.domain.ThreadKind;
@@ -93,13 +94,56 @@ class TestThreadServiceScheduler
                 List.of(),
                 "DEVELOP",
                 /* linkedPrNumber */ null,
-                /* linkedIssueNumber */ null));
+                /* linkedIssueNumber */ null,
+                /* flow */ null));
 
         assertThat(store.threads).hasSize(1);
         assertThat(scheduler.requests).hasSize(1);
         assertThat(scheduler.requests.get(0).thread()).isEqualTo(store.threads.values().iterator().next());
         assertThat(scheduler.requests.get(0).input()).isEqualTo("please fix");
         assertThat(registry.used).isFalse();
+        // A NewTaskRequest with no flow defaults to BUILD per the
+        // V74 column default and the design's "BUILD threads are the
+        // overwhelming majority" guidance.
+        assertThat(store.threads.values().iterator().next().flow())
+                .isEqualTo(ThreadFlow.BUILD);
+    }
+
+    @Test
+    void createHonoursReviewFlowOnTheRequest()
+    {
+        InMemoryTaskStore store = new InMemoryTaskStore();
+        ThreadService service = new ThreadService(
+                store,
+                new StubTaskStore(),
+                new EmptyTaskGroupStore(),
+                new InMemoryTaskTurnStore(),
+                new InMemoryTaskTurnEventStore(),
+                new ThrowingRegistry(),
+                new RecordingScheduler(),
+                Mockito.mock(WorktreeLeaseService.class),
+                Mockito.mock(NotificationService.class),
+                new GitRunner(),
+                noopWorktreeService());
+
+        service.create(new ThreadService.NewTaskRequest(
+                ThreadKind.CLI_AGENT,
+                "claude-code",
+                "claude-sonnet-4.6",
+                "Review PR #42",
+                "/tmp/work",
+                "main",
+                /* initialPrompt */ null,
+                "{}",
+                List.of(),
+                "DEVELOP",
+                /* linkedPrNumber */ 42,
+                /* linkedIssueNumber */ null,
+                ThreadFlow.REVIEW));
+
+        assertThat(store.threads).hasSize(1);
+        assertThat(store.threads.values().iterator().next().flow())
+                .isEqualTo(ThreadFlow.REVIEW);
     }
 
     @Test
@@ -133,7 +177,8 @@ class TestThreadServiceScheduler
                 List.of(),
                 "DEVELOP",
                 /* linkedPrNumber */ null,
-                /* linkedIssueNumber */ null));
+                /* linkedIssueNumber */ null,
+                /* flow */ null));
 
         assertThat(scheduler.requests).isEmpty();
         assertThat(registry.used).isFalse();
@@ -431,7 +476,8 @@ class TestThreadServiceScheduler
                 List.of("group-1", "group-1"),
                 "DEVELOP",
                 /* linkedPrNumber */ null,
-                /* linkedIssueNumber */ null));
+                /* linkedIssueNumber */ null,
+                /* flow */ null));
 
         assertThat(groups.listMembers("group-1"))
                 .extracting(ThreadGroupMembership::threadId)
@@ -555,7 +601,8 @@ class TestThreadServiceScheduler
                 List.of(),
                 "DEVELOP",
                 /* linkedPrNumber */ null,
-                /* linkedIssueNumber */ null));
+                /* linkedIssueNumber */ null,
+                /* flow */ null));
 
         assertThat(thread.worktreePath()).isEqualTo("/tmp/repo/.worktrees/task-1");
         assertThat(thread.localBranch()).isEqualTo("dev/task-1");
@@ -1301,7 +1348,8 @@ class TestThreadServiceScheduler
                 /* linkedPrNumber */ null,
                 /* linkedIssueNumber */ null,
                 /* worktreePath */ null,
-                /* localBranch */ null);
+                /* localBranch */ null,
+                ThreadFlow.BUILD);
     }
 
     private static Thread threadWithWorktree(String id)
@@ -1331,6 +1379,7 @@ class TestThreadServiceScheduler
                 /* linkedPrNumber */ null,
                 /* linkedIssueNumber */ null,
                 "/tmp/work/.bytequay/worktrees/dev/thread-1",
-                "dev/thread-1");
+                "dev/thread-1",
+                ThreadFlow.BUILD);
     }
 }

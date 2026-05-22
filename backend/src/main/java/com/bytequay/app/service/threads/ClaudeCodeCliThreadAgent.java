@@ -354,7 +354,8 @@ public class ClaudeCodeCliThreadAgent
                     /* endedAt */ null, /* errorMessage */ null,
                     current.metadataJson(), current.taskType(),
                     current.linkedPrNumber(), current.linkedIssueNumber(),
-                    current.worktreePath(), current.localBranch()));
+                    current.worktreePath(), current.localBranch(),
+                    current.flow()));
         }
     }
 
@@ -885,7 +886,8 @@ public class ClaudeCodeCliThreadAgent
                 endedAt != null ? endedAt : current.endedAt(),
                 current.errorMessage(), current.metadataJson(),
                 current.taskType(), current.linkedPrNumber(), current.linkedIssueNumber(),
-                current.worktreePath(), current.localBranch());
+                current.worktreePath(), current.localBranch(),
+                current.flow());
         store.saveThread(next);
     }
 

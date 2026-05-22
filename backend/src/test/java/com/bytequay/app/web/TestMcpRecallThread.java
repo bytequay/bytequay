@@ -15,6 +15,7 @@ package com.bytequay.app.web;
 
 import com.bytequay.app.domain.Thread;
 import com.bytequay.app.domain.ThreadCheckpoint;
+import com.bytequay.app.domain.ThreadFlow;
 import com.bytequay.app.domain.ThreadKind;
 import com.bytequay.app.domain.ThreadStatus;
 import com.bytequay.app.repository.ThreadCheckpointStore;
@@ -174,7 +175,7 @@ class TestMcpRecallThread
                 /* logPath */ null,
                 now, now, null, null,
                 /* metadataJson */ "{\"slug\":\"" + slug + "\"}",
-                "DEVELOP", null, null, null, null);
+                "DEVELOP", null, null, null, null, ThreadFlow.BUILD);
         threads.saveThread(t);
         return t.id();
     }

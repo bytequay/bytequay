@@ -18,6 +18,7 @@ import com.bytequay.app.domain.TaskFile;
 import com.bytequay.app.domain.TaskStatus;
 import com.bytequay.app.domain.Thread;
 import com.bytequay.app.domain.ThreadFile;
+import com.bytequay.app.domain.ThreadFlow;
 import com.bytequay.app.domain.ThreadKind;
 import com.bytequay.app.domain.ThreadMessage;
 import com.bytequay.app.domain.ThreadStatus;
@@ -79,7 +80,8 @@ class SqliteThreadStore
     @Transactional
     public void saveThread(Thread thread)
     {
-        ThreadEntity entity = threads.findById(thread.id()).orElseGet(ThreadEntity::new);
+        Optional<ThreadEntity> existing = threads.findById(thread.id());
+        ThreadEntity entity = existing.orElseGet(ThreadEntity::new);
         entity.setId(thread.id());
         entity.setKind(thread.kind().name());
         entity.setProvider(thread.provider());
@@ -96,6 +98,20 @@ class SqliteThreadStore
         entity.setErrorMessage(thread.errorMessage());
         if (entity.getWorkspaceId() == null) {
             entity.setWorkspaceId(DEFAULT_WORKSPACE_ID);
+        }
+        // Flow is set-once: write it on INSERT, refuse to silently
+        // flip it on UPDATE. The build vs review discriminator is a
+        // structural property of the thread; if a caller wants to
+        // change it, that's a different thread.
+        if (existing.isEmpty()) {
+            ThreadFlow flow = thread.flow() == null ? ThreadFlow.BUILD : thread.flow();
+            entity.setFlow(flow.dbValue());
+        }
+        else if (thread.flow() != null
+                && !thread.flow().dbValue().equals(entity.getFlow())) {
+            throw new IllegalStateException(
+                    "thread.flow is set-once; cannot flip thread " + thread.id()
+                            + " from " + entity.getFlow() + " to " + thread.flow().dbValue());
         }
         threads.save(entity);
 
@@ -365,7 +381,8 @@ class SqliteThreadStore
                 linkedPr,
                 linkedIssue,
                 worktreePath,
-                localBranch);
+                localBranch,
+                ThreadFlow.fromDbValue(e.getFlow()));
     }
 
     private static ThreadMessage toMessage(ThreadMessageEntity e)

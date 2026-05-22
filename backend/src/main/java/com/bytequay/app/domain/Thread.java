@@ -54,6 +54,9 @@ import java.time.Instant;
  * for non-git working dirs).
  * @param localBranch name of the branch created on the worktree (e.g.
  * {@code "dev/<sessionId>-<slug>"}). Null when {@code worktreePath} is null.
+ * @param flow structural discriminator. Set at creation, never silently
+ * flipped — the persistence layer refuses to rewrite it on an existing
+ * row.
  */
 public record Thread(
         String id,
@@ -79,7 +82,8 @@ public record Thread(
         Integer linkedPrNumber,
         Integer linkedIssueNumber,
         String worktreePath,
-        String localBranch)
+        String localBranch,
+        ThreadFlow flow)
 {
     /**
      * Resolves the directory the agent process should be spawned in.

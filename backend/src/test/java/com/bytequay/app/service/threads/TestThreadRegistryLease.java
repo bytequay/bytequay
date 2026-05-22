@@ -16,6 +16,7 @@ package com.bytequay.app.service.threads;
 import com.bytequay.app.domain.Task;
 import com.bytequay.app.domain.TaskStatus;
 import com.bytequay.app.domain.Thread;
+import com.bytequay.app.domain.ThreadFlow;
 import com.bytequay.app.domain.ThreadKind;
 import com.bytequay.app.domain.ThreadStatus;
 import com.bytequay.app.domain.WorktreeLease;
@@ -203,7 +204,7 @@ class TestThreadRegistryLease
                 /* processPid */ null, /* logPath */ null,
                 now, now, null, null,
                 /* metadataJson */ "{}",
-                "DEVELOP", null, null, null, null);
+                "DEVELOP", null, null, null, null, ThreadFlow.BUILD);
     }
 
     private static Task task(String id, String threadId, String worktreePath)

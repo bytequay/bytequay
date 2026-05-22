@@ -22,6 +22,7 @@ import com.bytequay.app.domain.Task;
 import com.bytequay.app.domain.TaskStatus;
 import com.bytequay.app.domain.Thread;
 import com.bytequay.app.domain.ThreadFile;
+import com.bytequay.app.domain.ThreadFlow;
 import com.bytequay.app.domain.ThreadGroup;
 import com.bytequay.app.domain.ThreadGroupMembership;
 import com.bytequay.app.domain.ThreadKind;
@@ -315,7 +316,8 @@ public class ThreadService
                 current.createdAt(), Instant.now(),
                 current.endedAt(), current.errorMessage(), current.metadataJson(),
                 current.taskType(), current.linkedPrNumber(), current.linkedIssueNumber(),
-                current.worktreePath(), current.localBranch());
+                current.worktreePath(), current.localBranch(),
+                current.flow());
         store.saveThread(next);
         return store.findThreadById(threadId).orElse(next);
     }
@@ -387,7 +389,8 @@ public class ThreadService
                 request.linkedPrNumber(),
                 request.linkedIssueNumber(),
                 handle.map(h -> h.worktreePath().toString()).orElse(null),
-                handle.map(WorktreeService.WorktreeHandle::branchName).orElse(null));
+                handle.map(WorktreeService.WorktreeHandle::branchName).orElse(null),
+                request.flow() == null ? ThreadFlow.BUILD : request.flow());
         store.saveThread(thread);
         // Materialise the first task row with a chosen id so the on-disk
         // worktree dir name (which used firstTaskId) matches it. The
@@ -783,6 +786,9 @@ public class ThreadService
      * @param taskType free-form thread type.
      * @param linkedPrNumber optional GitHub PR number to link the thread to.
      * @param linkedIssueNumber optional GitHub issue number to link the thread to.
+     * @param flow build vs review discriminator. Null defaults to
+     * {@link ThreadFlow#BUILD}; once set on a thread it can't be
+     * silently flipped (see SqliteThreadStore.saveThread).
      */
     public record NewTaskRequest(
             ThreadKind kind,
@@ -796,7 +802,8 @@ public class ThreadService
             List<String> initialGroupIds,
             String taskType,
             Integer linkedPrNumber,
-            Integer linkedIssueNumber) {}
+            Integer linkedIssueNumber,
+            ThreadFlow flow) {}
 
     /** Inputs from the create-group dialog. The redesign requires
      *  a non-empty group, so {@code initialTaskIds} is required (≥1

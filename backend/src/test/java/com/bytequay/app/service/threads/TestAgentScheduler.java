@@ -21,6 +21,7 @@ import com.bytequay.app.domain.TaskFile;
 import com.bytequay.app.domain.TaskStatus;
 import com.bytequay.app.domain.Thread;
 import com.bytequay.app.domain.ThreadFile;
+import com.bytequay.app.domain.ThreadFlow;
 import com.bytequay.app.domain.ThreadKind;
 import com.bytequay.app.domain.ThreadMessage;
 import com.bytequay.app.domain.ThreadResourceLane;
@@ -395,7 +396,8 @@ class TestAgentScheduler
                 /* linkedPrNumber */ null,
                 /* linkedIssueNumber */ null,
                 /* worktreePath */ null,
-                /* localBranch */ null);
+                /* localBranch */ null,
+                ThreadFlow.BUILD);
     }
 
     private static final class TestHarness

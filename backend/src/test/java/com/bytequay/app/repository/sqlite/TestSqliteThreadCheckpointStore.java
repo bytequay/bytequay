@@ -17,6 +17,7 @@ import com.bytequay.app.domain.Task;
 import com.bytequay.app.domain.TaskStatus;
 import com.bytequay.app.domain.Thread;
 import com.bytequay.app.domain.ThreadCheckpoint;
+import com.bytequay.app.domain.ThreadFlow;
 import com.bytequay.app.domain.ThreadKind;
 import com.bytequay.app.domain.ThreadStatus;
 import com.bytequay.app.repository.TaskStore;
@@ -236,7 +237,7 @@ class TestSqliteThreadCheckpointStore
                 /* logPath */ null,
                 now, now, null, null,
                 /* metadataJson */ "{}",
-                "DEVELOP", null, null, null, null);
+                "DEVELOP", null, null, null, null, ThreadFlow.BUILD);
         threads.saveThread(t);
         return t.id();
     }

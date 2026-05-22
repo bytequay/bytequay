@@ -157,7 +157,8 @@ public class ThreadController
                 body.initialGroupIds() == null ? List.of() : body.initialGroupIds(),
                 body.taskType(),
                 body.linkedPrNumber(),
-                body.linkedIssueNumber()));
+                body.linkedIssueNumber(),
+                /* flow */ null));
     }
 
     /** GET /api/threads/{id} */

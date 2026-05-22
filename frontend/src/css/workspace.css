@@ -8,8 +8,15 @@
  * via the global topbar; the workspace nav is a sibling entry, not a
  * replacement.
  *
+ * Background recipe (per `workspace-thread-task-design.md`):
+ *   Four layered radial gradients in pastel purple / sky / pink / mint
+ *   over a near-white base, with an SVG feTurbulence grain layered on
+ *   top in mix-blend-mode: overlay at ~4.5% opacity. The grain is what
+ *   stops the otherwise huge gradient washes from banding.
+ *
  * Design tokens:
- *  --ws-bg-*       gradient background stops (pastel purple/blue wash)
+ *  --ws-bg-base    near-white base under the mesh
+ *  --ws-mesh-*     pastel radial-gradient stops (purple/sky/pink/mint)
  *  --ws-glass      translucent fill for floating cards
  *  --ws-glass-edge subtle outline on cards
  *  --ws-accent     primary purple — active nav row, "+ New thread" button
@@ -21,9 +28,11 @@
  */
 
 :root {
-  --ws-bg-1: #f3f0ff;
-  --ws-bg-2: #eef3ff;
-  --ws-bg-3: #fdf4f7;
+  --ws-bg-base: #fafafe;
+  --ws-mesh-purple: rgba(167, 139, 250, 0.22);
+  --ws-mesh-sky:    rgba(125, 211, 252, 0.16);
+  --ws-mesh-pink:   rgba(244, 114, 182, 0.14);
+  --ws-mesh-mint:   rgba(110, 231, 183, 0.12);
   --ws-glass: rgba(255, 255, 255, 0.78);
   --ws-glass-edge: rgba(255, 255, 255, 0.55);
   --ws-card-border: rgba(124, 58, 237, 0.08);
@@ -42,13 +51,30 @@
   display: flex;
   height: 100%;
   min-height: 0;
+  position: relative;
   background:
-    linear-gradient(135deg,
-      var(--ws-bg-1) 0%,
-      var(--ws-bg-2) 45%,
-      var(--ws-bg-3) 100%);
+    radial-gradient(at 18% 12%, var(--ws-mesh-purple) 0%, transparent 55%),
+    radial-gradient(at 82% 14%, var(--ws-mesh-sky)    0%, transparent 60%),
+    radial-gradient(at 22% 88%, var(--ws-mesh-pink)   0%, transparent 55%),
+    radial-gradient(at 86% 80%, var(--ws-mesh-mint)   0%, transparent 60%),
+    var(--ws-bg-base);
   color: var(--ws-text-1);
   font-feature-settings: 'cv02', 'cv03', 'cv04', 'cv11';
+}
+
+/* SVG feTurbulence grain sits above the mesh but below the rail and
+ * content, breaking gradient bands without dirtying the cards' glass.
+ * `#` in url(#n) is %23-encoded so the data-URL parser doesn't take it
+ * as a fragment marker. */
+.workspace-shell::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  mix-blend-mode: overlay;
+  opacity: 0.045;
+  background-image: url("data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 240 240'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/></filter><rect width='240' height='240' filter='url(%23n)'/></svg>");
+  background-size: 240px 240px;
 }
 
 /* ── Left rail ─────────────────────────────────────────────────── */

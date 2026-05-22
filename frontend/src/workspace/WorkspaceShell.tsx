@@ -67,6 +67,7 @@ function WorkspaceShell({
           <WorkspaceHomePage
             onSelectSection={onSelectSection}
             onNewThread={() => setNewThreadOpen(true)}
+            onOpenThread={onOpenThread}
           />
         )}
         {section === 'threads' && <WorkspaceThreadsPage onLeaveShell={onLeaveShell} />}

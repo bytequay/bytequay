@@ -316,6 +316,61 @@
   color: var(--ws-accent-deep);
 }
 
+/* ── Clickable list rows inside a workspace card ───────────────── */
+
+/* A row inside .workspace-card that behaves like a button. Used by
+ * the Active threads and Tasks-in-flight lists on Home so each row
+ * is keyboard- and mouse-actionable. The card stays the visual
+ * container; the row is the interactive surface inside it. */
+.workspace-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 10px;
+  border: none;
+  background: transparent;
+  width: 100%;
+  text-align: left;
+  font: inherit;
+  color: inherit;
+  cursor: pointer;
+  border-radius: 8px;
+  transition: background var(--ws-fast), transform var(--ws-fast),
+    box-shadow var(--ws-fast);
+}
+
+.workspace-row:disabled {
+  cursor: default;
+}
+
+.workspace-row:disabled:hover {
+  background: transparent;
+  transform: none;
+}
+
+.workspace-row:hover {
+  background: rgba(124, 58, 237, 0.05);
+  transform: translateX(2px);
+}
+
+.workspace-row:focus-visible {
+  outline: 2px solid var(--ws-accent);
+  outline-offset: 2px;
+}
+
+/* "Next-up" indicator — the default click target the user lands on
+ * when first arriving at the workspace. Gradient left-accent bar +
+ * a touch more background so it reads as the active row without
+ * being so loud that it competes with the user's mouse focus. */
+.workspace-row--selected {
+  background: rgba(124, 58, 237, 0.10);
+  box-shadow: inset 3px 0 0 var(--ws-accent);
+}
+
+.workspace-row--selected:hover {
+  background: rgba(124, 58, 237, 0.14);
+}
+
 .workspace-placeholder {
   padding: 28px;
   background: var(--ws-glass);

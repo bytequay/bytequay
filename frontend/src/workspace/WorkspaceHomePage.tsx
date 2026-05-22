@@ -22,6 +22,9 @@ type Props = {
   /** Open the new-thread modal. The shell owns the modal state so
    *  the dialog can also be triggered from other surfaces later. */
   onNewThread?: () => void;
+  /** Navigate to a thread's detail page. Wired so each Active threads
+   *  / Tasks-in-flight row is a clickable target. */
+  onOpenThread?: (threadId: string) => void;
 };
 
 const WORKSPACE_ID = 'ws-default';
@@ -41,7 +44,7 @@ const CHARS_PER_TOKEN = 4;
  *  markdown body for excerpts and the budget bar. Spend today is a
  *  rough estimate summed from threads updated today — proper
  *  aggregation lands with Insights (commit 3). */
-function WorkspaceHomePage({ onSelectSection, onNewThread }: Props) {
+function WorkspaceHomePage({ onSelectSection, onNewThread, onOpenThread }: Props) {
   const [threads, setThreads] = useState<ThreadDto[]>([]);
   const [memoryMd, setMemoryMd] = useState<string>('');
   const [loading, setLoading] = useState(true);
@@ -74,6 +77,10 @@ function WorkspaceHomePage({ onSelectSection, onNewThread }: Props) {
   const spentTodayMilli = threads
       .filter(t => isUpdatedToday(t.updatedAt))
       .reduce((sum, t) => sum + (t.costUsdMilli || 0), 0);
+  // The first row of Active threads is the default click target on
+  // workspace entry — keyed off thread id so the highlight survives
+  // re-renders even if the list shuffles slightly.
+  const defaultThreadId = activeThreads[0]?.id ?? null;
 
   return (
     <>
@@ -120,19 +127,31 @@ function WorkspaceHomePage({ onSelectSection, onNewThread }: Props) {
           </div>
         ) : (
           <ul style={listStyle}>
-            {activeThreads.slice(0, ACTIVE_THREADS_PREVIEW).map(t => (
-              <li key={t.id} style={threadRowStyle}>
-                <span style={statusDotStyle(t.status)} aria-hidden />
-                <div style={{ flex: 1, minWidth: 0 }}>
-                  <div style={threadTitleStyle}>{t.title}</div>
-                  <ThreadMetaLine task={t.activeTask} />
-                </div>
-                <div style={threadRightStyle}>
-                  <div>{relativeTime(t.updatedAt)}</div>
-                  <div style={threadCostStyle}>{formatMilliUsd(t.costUsdMilli)}</div>
-                </div>
-              </li>
-            ))}
+            {activeThreads.slice(0, ACTIVE_THREADS_PREVIEW).map(t => {
+              const isDefault = t.id === defaultThreadId;
+              const className = 'workspace-row'
+                  + (isDefault ? ' workspace-row--selected' : '');
+              return (
+                <li key={t.id}>
+                  <button
+                    type="button"
+                    className={className}
+                    onClick={() => onOpenThread?.(t.id)}
+                    disabled={!onOpenThread}
+                  >
+                    <span style={statusDotStyle(t.status)} aria-hidden />
+                    <div style={threadBodyStyle}>
+                      <div style={threadTitleStyle}>{t.title}</div>
+                      <ThreadMetaLine task={t.activeTask} />
+                    </div>
+                    <div style={threadRightStyle}>
+                      <div>{relativeTime(t.updatedAt)}</div>
+                      <div style={threadCostStyle}>{formatMilliUsd(t.costUsdMilli)}</div>
+                    </div>
+                  </button>
+                </li>
+              );
+            })}
           </ul>
         )}
       </section>
@@ -159,18 +178,11 @@ function WorkspaceHomePage({ onSelectSection, onNewThread }: Props) {
           ) : (
             <ul style={listStyle}>
               {tasksInFlight.slice(0, TASKS_PREVIEW).map(t => (
-                <li key={t.id} style={taskRowStyle}>
-                  <div style={taskTitleStyle}>
-                    {t.branchName ?? 'no branch'}
-                    <span style={taskSeqStyle}>:{t.seq}</span>
-                  </div>
-                  <div style={taskMetaStyle}>
-                    {t.linkedPrNumber !== null
-                      ? `PR #${t.linkedPrNumber}`
-                      : 'no PR yet'}
-                    {' · '}{(t.status || 'idle').toLowerCase()}
-                  </div>
-                </li>
+                <TaskRow
+                  key={t.id}
+                  task={t}
+                  onClick={onOpenThread ? () => onOpenThread(t.threadId) : undefined}
+                />
               ))}
             </ul>
           )}
@@ -246,6 +258,11 @@ function ThreadMetaLine({ task }: { task: WorkUnitTaskDto | null }) {
       node: <span style={branchChipStyle}>↗ {task.branchName}</span>,
     });
   }
+  else {
+    // Task materialised but worktree not cut yet — surface the gap
+    // so the row doesn't read as a blank space.
+    segs.push({ key: 'no-branch', node: 'no branch yet' });
+  }
 
   if (task.linkedPrNumber !== null) {
     const stateLabel = formatPrState(task.prState);
@@ -262,10 +279,6 @@ function ThreadMetaLine({ task }: { task: WorkUnitTaskDto | null }) {
 
   if (task.seq >= 2) {
     segs.push({ key: 'seq', node: `task ${task.seq} of ${task.seq}` });
-  }
-
-  if (segs.length === 0) {
-    return <div style={threadMetaStyle}>no task yet</div>;
   }
 
   return (
@@ -286,6 +299,80 @@ function formatPrState(prState: string | null): string | null {
   // "open" is the default — surface only the qualifier states.
   if (lower === 'open') return null;
   return lower;
+}
+
+/** A row in the Tasks-in-flight card. Three columns:
+ *  - status box (colored swatch keyed off the task's run status)
+ *  - body: branch:seq title + a one-line status/CI hint
+ *  - right-aligned PR # or "no PR"
+ *
+ *  Clicking the row navigates to the owning thread's detail page —
+ *  one work-unit task lives in one thread, so the task is also the
+ *  thread's entry point in practice.
+ *
+ *  Diff stats (linesAdded / linesRemoved) aren't surfaced yet — the
+ *  Task DTO doesn't aggregate them. Follow-up: either a per-task
+ *  rollup on the backend or a join through {@code thread_files}. */
+function TaskRow({ task, onClick }: { task: WorkUnitTaskDto; onClick?: () => void }) {
+  const meta = describeTaskMeta(task);
+  // No branch yet → the worktree hasn't been cut. Render "task N" as
+  // the title instead of "no branch:1" so the row reads as a real
+  // pending work unit rather than a string concatenation accident.
+  const titleText = task.branchName ?? `task ${task.seq}`;
+  const showSeqSuffix = task.branchName !== null;
+  return (
+    <li>
+      <button
+        type="button"
+        className="workspace-row"
+        onClick={onClick}
+        disabled={onClick === undefined}
+      >
+        <span style={taskStatusBoxStyle(task.status)} aria-hidden />
+        <div style={taskBodyStyle}>
+          <div style={taskTitleStyle}>
+            {titleText}
+            {showSeqSuffix && <span style={taskSeqStyle}>:{task.seq}</span>}
+          </div>
+          {meta !== null && <div style={taskMetaStyle}>{meta}</div>}
+        </div>
+        <div style={taskPrStyle}>
+          {task.linkedPrNumber !== null ? `#${task.linkedPrNumber}` : 'no PR'}
+        </div>
+      </button>
+    </li>
+  );
+}
+
+/** Status text under a task row. AWAITING speaks for itself (publish
+ *  gate); a populated CI state takes precedence over the generic
+ *  status word for everything else; truly-resting states (idle /
+ *  pending) fall through to the bare status word. A RUNNING task with
+ *  no CI signal yet returns null — the title alone reads fine, and
+ *  empty meta keeps the row visually quiet. */
+function describeTaskMeta(t: WorkUnitTaskDto): string | null {
+  if (t.status === 'AWAITING') return 'awaiting approval';
+  if (t.ciState !== null && t.ciState.length > 0) {
+    return t.ciState.toLowerCase();
+  }
+  if (t.status === 'IDLE' || t.status === 'PENDING') {
+    return t.status.toLowerCase();
+  }
+  return null;
+}
+
+function taskStatusBoxStyle(status: string): React.CSSProperties {
+  const color = status === 'RUNNING' || status === 'COMPLETED' ? '#16a34a'
+      : status === 'AWAITING' || status === 'AWAITING_REVIEW' ? '#d97706'
+      : status === 'ERRORED' ? '#cf1322'
+      : '#a8a3b5';
+  return {
+    width: 18,
+    height: 18,
+    borderRadius: 5,
+    background: color,
+    flexShrink: 0,
+  };
 }
 
 /* ── helpers ─────────────────────────────────────────────────── */
@@ -375,7 +462,6 @@ function statusDotStyle(status: string): React.CSSProperties {
     borderRadius: 4,
     background: color,
     flexShrink: 0,
-    marginTop: 6,
   };
 }
 
@@ -394,12 +480,13 @@ const listStyle: React.CSSProperties = {
   gap: 8,
 };
 
-const threadRowStyle: React.CSSProperties = {
-  display: 'flex',
-  alignItems: 'flex-start',
-  gap: 10,
+// Row layout (gap, padding, hover, selected-state) lives on the
+// .workspace-row CSS class — the row is a <button> so it can be a
+// real click target. These inline styles only cover the body column.
+const threadBodyStyle: React.CSSProperties = {
+  flex: 1,
+  minWidth: 0,
   fontSize: 13,
-  padding: '4px 0',
 };
 
 const threadTitleStyle: React.CSSProperties = {
@@ -435,14 +522,13 @@ const monoStyle: React.CSSProperties = {
   fontFamily: 'ui-monospace, SFMono-Regular, monospace',
 };
 
-// Tasks-in-flight card uses mono throughout (branch label, PR number,
-// status word). Group B will rewrite the row layout; keeping the old
-// mono treatment here in the meantime avoids a visual regression.
+// Tasks-in-flight meta is now prose (status word or CI state). Stats
+// like "+47/-12" would be mono, but they aren't surfaced yet — see the
+// TaskRow comment for the data-model follow-up.
 const taskMetaStyle: React.CSSProperties = {
   fontSize: 11,
   color: 'var(--ws-text-3)',
   marginTop: 2,
-  fontFamily: 'ui-monospace, SFMono-Regular, monospace',
 };
 
 const threadRightStyle: React.CSSProperties = {
@@ -450,7 +536,6 @@ const threadRightStyle: React.CSSProperties = {
   color: 'var(--ws-text-3)',
   textAlign: 'right',
   flexShrink: 0,
-  marginLeft: 8,
 };
 
 const threadCostStyle: React.CSSProperties = {
@@ -458,11 +543,9 @@ const threadCostStyle: React.CSSProperties = {
   marginTop: 2,
 };
 
-const taskRowStyle: React.CSSProperties = {
-  display: 'flex',
-  flexDirection: 'column',
-  gap: 2,
-  padding: '4px 0',
+const taskBodyStyle: React.CSSProperties = {
+  flex: 1,
+  minWidth: 0,
 };
 
 const taskTitleStyle: React.CSSProperties = {
@@ -473,6 +556,14 @@ const taskTitleStyle: React.CSSProperties = {
 
 const taskSeqStyle: React.CSSProperties = {
   color: 'var(--ws-text-3)',
+};
+
+const taskPrStyle: React.CSSProperties = {
+  fontSize: 11,
+  color: 'var(--ws-text-3)',
+  fontFamily: 'ui-monospace, SFMono-Regular, monospace',
+  flexShrink: 0,
+  textAlign: 'right',
 };
 
 const memorySectionStyle: React.CSSProperties = {

@@ -15,6 +15,8 @@ package com.bytequay.app.web;
 
 import com.bytequay.app.domain.ReviewPassDetail;
 import com.bytequay.app.domain.ReviewVerdict;
+import com.bytequay.app.repository.AppSettingsStore;
+import com.bytequay.app.repository.AppSettingsStore.Key;
 import com.bytequay.app.service.review.ReviewPassService;
 import com.bytequay.app.service.review.ScheduledReviewService;
 import org.springframework.http.HttpStatusCode;
@@ -47,12 +49,38 @@ public class ReviewController
 {
     private final ReviewPassService reviews;
     private final ScheduledReviewService scheduledReviews;
+    private final AppSettingsStore appSettings;
 
-    public ReviewController(ReviewPassService reviews, ScheduledReviewService scheduledReviews)
+    public ReviewController(
+            ReviewPassService reviews,
+            ScheduledReviewService scheduledReviews,
+            AppSettingsStore appSettings)
     {
         this.reviews = requireNonNull(reviews, "reviews is null");
         this.scheduledReviews = requireNonNull(scheduledReviews, "scheduledReviews is null");
+        this.appSettings = requireNonNull(appSettings, "appSettings is null");
     }
+
+    /** Read the workspace-level reviewer persona — a user-editable
+     *  nudge prepended to every panel reviewer's skill-context at
+     *  request time. Empty when unset. */
+    @GetMapping("/persona")
+    public Map<String, String> getPersona()
+    {
+        return Map.of("persona", appSettings.get(Key.REVIEW_PERSONA).orElse(""));
+    }
+
+    /** Save the workspace-level reviewer persona. Blank or null
+     *  body clears the nudge. */
+    @PutMapping("/persona")
+    public Map<String, String> setPersona(@RequestBody PersonaRequest body)
+    {
+        String value = body == null || body.persona() == null ? "" : body.persona().strip();
+        appSettings.set(Key.REVIEW_PERSONA, value);
+        return Map.of("persona", value);
+    }
+
+    public record PersonaRequest(String persona) {}
 
     @PostMapping("/start")
     public ReviewPassDetail start(@RequestBody StartReviewRequest body)

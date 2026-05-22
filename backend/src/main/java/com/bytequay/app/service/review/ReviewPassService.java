@@ -33,6 +33,8 @@ import com.bytequay.app.domain.Thread;
 import com.bytequay.app.domain.ThreadFlow;
 import com.bytequay.app.domain.ThreadKind;
 import com.bytequay.app.domain.ThreadStatus;
+import com.bytequay.app.repository.AppSettingsStore;
+import com.bytequay.app.repository.AppSettingsStore.Key;
 import com.bytequay.app.repository.PullRequestRepository;
 import com.bytequay.app.repository.ReviewStore;
 import com.bytequay.app.repository.ThreadStore;
@@ -99,19 +101,22 @@ public class ReviewPassService
     private final PullRequestRepository pullRequests;
     private final PatResolver patResolver;
     private final LlmReviewerRegistry reviewers;
+    private final AppSettingsStore appSettings;
 
     public ReviewPassService(
             ThreadStore threadStore,
             ReviewStore reviewStore,
             PullRequestRepository pullRequests,
             PatResolver patResolver,
-            LlmReviewerRegistry reviewers)
+            LlmReviewerRegistry reviewers,
+            AppSettingsStore appSettings)
     {
         this.threadStore = requireNonNull(threadStore, "threadStore is null");
         this.reviewStore = requireNonNull(reviewStore, "reviewStore is null");
         this.pullRequests = requireNonNull(pullRequests, "pullRequests is null");
         this.patResolver = requireNonNull(patResolver, "patResolver is null");
         this.reviewers = requireNonNull(reviewers, "reviewers is null");
+        this.appSettings = requireNonNull(appSettings, "appSettings is null");
     }
 
     /**
@@ -238,7 +243,8 @@ public class ReviewPassService
                 /* title */ null,
                 raw.body(),
                 raw.headSha(),
-                diff);
+                diff,
+                composeSkillContext(/* baseSkill */ null));
         Map<ReviewParticipant, ReviewOutput> outputs;
         try {
             outputs = runIndependentInParallel(reviewerSeats, panel, request);
@@ -583,6 +589,25 @@ public class ReviewPassService
     /** Split a unified diff on {@code diff --git} boundaries, keeping
      *  the boundary line as the head of each chunk. Empty or blank
      *  chunks are dropped. */
+    /** Prepend the user-editable review persona (when set) to the
+     *  supplied skill-context body. Empty persona / empty base both
+     *  no-op cleanly so callers don't have to special-case either.
+     *  The persona lands above the base body under its own labelled
+     *  header so the LLM treats it as orchestrator-level guidance
+     *  rather than mixing it with repo-specific facts. */
+    String composeSkillContext(String baseSkill)
+    {
+        String persona = appSettings.get(Key.REVIEW_PERSONA).orElse("").strip();
+        String base = baseSkill == null ? "" : baseSkill.strip();
+        if (persona.isEmpty()) {
+            return base.isEmpty() ? null : base;
+        }
+        if (base.isEmpty()) {
+            return "Reviewer persona:\n" + persona;
+        }
+        return "Reviewer persona:\n" + persona + "\n\n" + base;
+    }
+
     static List<String> splitDiffByFile(String diff)
     {
         String[] parts = diff.split("(?m)^(?=diff --git )");
@@ -634,7 +659,7 @@ public class ReviewPassService
                 baseRequest.body(),
                 baseRequest.headSha(),
                 baseRequest.diff(),
-                debateContext);
+                composeSkillContext(debateContext));
 
         int roundCap = pass.roundCap();
         for (int round = 1; round <= roundCap; round++) {

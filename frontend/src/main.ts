@@ -3063,6 +3063,31 @@ const url = new URL(`${BACKEND_BASE}/api/search/repos`);
     return res.json();
   });
 
+  ipcMain.handle('reviews:persona:get', async () => {
+    const res = await fetch(`${BACKEND_BASE}/api/reviews/persona`);
+    if (!res.ok) {
+      const text = await res.text().catch(() => '');
+      throw new Error(`backend GET /api/reviews/persona returned ${res.status}: ${text}`);
+    }
+    return res.json();
+  });
+
+  ipcMain.handle('reviews:persona:set', async (_event, persona: unknown) => {
+    if (typeof persona !== 'string') {
+      throw new Error('persona must be a string');
+    }
+    const res = await fetch(`${BACKEND_BASE}/api/reviews/persona`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ persona }),
+    });
+    if (!res.ok) {
+      const text = await res.text().catch(() => '');
+      throw new Error(`backend PUT /api/reviews/persona returned ${res.status}: ${text}`);
+    }
+    return res.json();
+  });
+
   ipcMain.handle('workspace:insights:get', async (_event, args: unknown) => {
     if (typeof args !== 'object' || args === null) {
       throw new Error('workspace insights args must be an object');

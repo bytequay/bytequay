@@ -52,6 +52,12 @@ public interface AppSettingsStore
         public static final String BEHAVIOR_AUTO_PROPOSE_TASK = "behavior.auto_propose_task";
         public static final String BEHAVIOR_AUTO_PROMOTE_DECISIONS = "behavior.auto_promote_decisions";
         public static final String BEHAVIOR_NEW_TOPIC_NUDGE = "behavior.new_topic_nudge";
+
+        // Phase 8 inner-5: a user-editable persona nudge prepended
+        // to every panel reviewer's skill-context payload at request
+        // time. Empty / missing means no nudge — reviewers run
+        // against the bare repo-skill context only.
+        public static final String REVIEW_PERSONA = "review.persona";
     }
 
     /**

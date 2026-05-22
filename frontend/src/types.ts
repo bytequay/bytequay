@@ -2380,6 +2380,11 @@ export type Bridge = {
    *  {@code "24h" | "7d" | "30d"}; the backend defaults to {@code 7d}
    *  on unknown values. */
   getWorkspaceInsights: (workspaceId: string, window: string) => Promise<WorkspaceInsightsDto>;
+  /** Workspace-level reviewer persona — a user-editable nudge that
+   *  prepends to every panel reviewer's skill-context at request
+   *  time. Empty string when unset. */
+  getReviewPersona: () => Promise<{ persona: string }>;
+  setReviewPersona: (persona: string) => Promise<{ persona: string }>;
   /** Resolve one DISPUTED finding via the arbitration ballot.
    *  {@code resolution} = "include" flips it to ARBITRATED;
    *  "drop" flips it to DROPPED. When no DISPUTED findings remain

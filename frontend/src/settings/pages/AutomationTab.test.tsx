@@ -85,6 +85,8 @@ function installBridge(overrides: Partial<Bridge>) {
   (window as unknown as { bridge: Partial<Bridge> }).bridge = {
     getScheduledReviewSettings: vi.fn(async () => ({ enabled: false })),
     setScheduledReviewSettings: vi.fn(async () => ({ enabled: true })),
+    getReviewPersona: vi.fn(async () => ({ persona: '' })),
+    setReviewPersona: vi.fn(async (p: string) => ({ persona: p })),
     ...overrides,
   } as Partial<Bridge>;
 }

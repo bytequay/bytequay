@@ -30,6 +30,7 @@ import com.bytequay.app.domain.ReviewRequest;
 import com.bytequay.app.domain.ReviewVerdict;
 import com.bytequay.app.domain.Thread;
 import com.bytequay.app.domain.ThreadFlow;
+import com.bytequay.app.repository.AppSettingsStore;
 import com.bytequay.app.repository.PullRequestRepository;
 import com.bytequay.app.repository.ReviewStore;
 import com.bytequay.app.repository.ThreadStore;
@@ -67,6 +68,7 @@ class TestReviewPassService
     private PatResolver patResolver;
     private LlmReviewerRegistry registry;
     private LlmReviewer reviewer;
+    private AppSettingsStore appSettings;
     private ReviewPassService service;
     private RecordingReviewStore recording;
 
@@ -78,6 +80,7 @@ class TestReviewPassService
         patResolver = mock(PatResolver.class);
         registry = mock(LlmReviewerRegistry.class);
         reviewer = mock(LlmReviewer.class);
+        appSettings = mock(AppSettingsStore.class);
         recording = new RecordingReviewStore();
         reviewStore = recording;
 
@@ -90,9 +93,10 @@ class TestReviewPassService
                 .thenReturn(rawDetail());
         when(pullRequests.fetchPrDiff(eq("ghp_secret"), any(PullRequestRef.class)))
                 .thenReturn("diff --git a/x b/x\n");
+        when(appSettings.get(anyString())).thenReturn(Optional.empty());
 
         service = new ReviewPassService(
-                threadStore, reviewStore, pullRequests, patResolver, registry);
+                threadStore, reviewStore, pullRequests, patResolver, registry, appSettings);
     }
 
     @Test

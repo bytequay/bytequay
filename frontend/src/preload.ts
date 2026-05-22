@@ -540,6 +540,10 @@ const bridge: Bridge = {
   }) => ipcRenderer.invoke('workspace:behavior:set', settings),
   getWorkspaceInsights: (workspaceId: string, window: string) =>
     ipcRenderer.invoke('workspace:insights:get', { workspaceId, window }),
+  getReviewPersona: () =>
+    ipcRenderer.invoke('reviews:persona:get'),
+  setReviewPersona: (persona: string) =>
+    ipcRenderer.invoke('reviews:persona:set', persona),
   setWorkspaceRepoAutoFix: (
     workspaceId: string, owner: string, repo: string, enabled: boolean,
   ): Promise<WorkspaceRepoDto> =>

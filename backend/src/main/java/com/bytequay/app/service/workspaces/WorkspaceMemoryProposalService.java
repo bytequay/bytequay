@@ -15,6 +15,8 @@ package com.bytequay.app.service.workspaces;
 
 import com.bytequay.app.domain.Workspace;
 import com.bytequay.app.domain.WorkspaceMemoryProposal;
+import com.bytequay.app.repository.AppSettingsStore;
+import com.bytequay.app.repository.AppSettingsStore.Key;
 import com.bytequay.app.repository.WorkspaceMemoryProposalStore;
 import com.bytequay.app.service.threads.CheckpointSummaryResult;
 import org.slf4j.Logger;
@@ -50,13 +52,16 @@ public class WorkspaceMemoryProposalService
 
     private final WorkspaceService workspaces;
     private final WorkspaceMemoryProposalStore store;
+    private final AppSettingsStore appSettings;
 
     public WorkspaceMemoryProposalService(
             WorkspaceService workspaces,
-            WorkspaceMemoryProposalStore store)
+            WorkspaceMemoryProposalStore store,
+            AppSettingsStore appSettings)
     {
         this.workspaces = requireNonNull(workspaces, "workspaces is null");
         this.store = requireNonNull(store, "store is null");
+        this.appSettings = requireNonNull(appSettings, "appSettings is null");
     }
 
     public Optional<WorkspaceMemoryProposal> find(String workspaceId)
@@ -94,8 +99,38 @@ public class WorkspaceMemoryProposalService
                 result.completionTokens(),
                 result.costUsdMilli(),
                 Instant.now());
+
+        // Phase 6 enforcement: when auto_promote_decisions is on, the
+        // proposal is written *and* immediately applied so the user
+        // doesn't have to walk through the propose/confirm banner for
+        // every distillation. Off by default — the banner stays the
+        // canonical path. We still save the proposal first so the
+        // /apply call goes through the drift-check ladder; that
+        // protects against an apply landing on top of a hand-edit
+        // that landed during the distillation roundtrip.
         store.save(proposal);
+        if (isAutoPromoteEnabled()) {
+            try {
+                apply(workspaceId);
+                log.info("Auto-promoted workspace memory proposal for {} (auto_promote_decisions = on)",
+                        workspaceId);
+            }
+            catch (ResponseStatusException e) {
+                // Drift detected — fall back to the banner path. The
+                // user re-distills against the current memory to get a
+                // fresh proposal.
+                log.info("Auto-promote skipped for {} due to memory drift; banner will surface for confirmation",
+                        workspaceId);
+            }
+        }
         return Optional.of(proposal);
+    }
+
+    private boolean isAutoPromoteEnabled()
+    {
+        return appSettings.get(Key.BEHAVIOR_AUTO_PROMOTE_DECISIONS)
+                .map(Boolean::parseBoolean)
+                .orElse(false);
     }
 
     /**

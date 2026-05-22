@@ -15,6 +15,7 @@ package com.bytequay.app.service.workspaces;
 
 import com.bytequay.app.domain.Workspace;
 import com.bytequay.app.domain.WorkspaceMemoryProposal;
+import com.bytequay.app.repository.AppSettingsStore;
 import com.bytequay.app.repository.WorkspaceMemoryProposalStore;
 import com.bytequay.app.service.threads.CheckpointSummaryResult;
 import org.junit.jupiter.api.Test;
@@ -39,8 +40,10 @@ class TestWorkspaceMemoryProposalService
 {
     private final WorkspaceService workspaces = mock(WorkspaceService.class);
     private final InMemoryProposalStore store = new InMemoryProposalStore();
+    private final AppSettingsStore appSettings =
+            mock(AppSettingsStore.class);
     private final WorkspaceMemoryProposalService service =
-            new WorkspaceMemoryProposalService(workspaces, store);
+            new WorkspaceMemoryProposalService(workspaces, store, appSettings);
 
     @Test
     void proposeStoresTheUpsertWhenHaikuOutputDiffersFromCurrentMemory()
@@ -56,6 +59,59 @@ class TestWorkspaceMemoryProposalService
         assertThat(saved.currentMd()).isEqualTo("Current memory text.");
         assertThat(saved.proposedMd()).isEqualTo("## Architecture\n…fresh…");
         assertThat(saved.summariserModel()).isEqualTo("claude-haiku-4-5");
+    }
+
+    @Test
+    void proposeAutoAppliesWhenBehaviorAutoPromoteIsOn()
+    {
+        // behavior.auto_promote_decisions = true → distillation
+        // writes the proposal AND immediately applies it to the
+        // workspace, clearing the row so the banner doesn't surface.
+        when(appSettings.get("behavior.auto_promote_decisions"))
+                .thenReturn(Optional.of("true"));
+        Workspace ws = new Workspace("ws-1", "Default", "Current memory text.",
+                /* archived */ false,
+                Instant.parse("2026-01-01T00:00:00Z"),
+                Instant.parse("2026-01-01T00:00:00Z"));
+        when(workspaces.require("ws-1")).thenReturn(ws);
+        when(workspaces.setMemory(eq("ws-1"), eq("## Architecture\n…fresh…")))
+                .thenReturn(new Workspace("ws-1", "Default", "## Architecture\n…fresh…",
+                        /* archived */ false, ws.createdAt(), Instant.now()));
+
+        Optional<WorkspaceMemoryProposal> queued = service.propose(
+                "ws-1", "Current memory text.", summaryResult("## Architecture\n…fresh…"));
+
+        // The propose() return is still the proposal record so the
+        // caller can log / surface what happened; the side effect is
+        // that the row was applied + deleted.
+        assertThat(queued).isPresent();
+        assertThat(store.rows).doesNotContainKey("ws-1");
+        verify(workspaces).setMemory("ws-1", "## Architecture\n…fresh…");
+    }
+
+    @Test
+    void proposeFallsBackToBannerWhenAutoPromoteWouldDriftConflict()
+    {
+        // The proposal's currentMd doesn't match the workspace's
+        // live memory_md anymore (a hand-edit landed) — apply()
+        // would 409. Auto-promote catches the 409 and falls back
+        // to the banner path so the user re-distills against the
+        // fresh memory. The proposal stays saved.
+        when(appSettings.get("behavior.auto_promote_decisions"))
+                .thenReturn(Optional.of("true"));
+        Workspace drifted = new Workspace("ws-1", "Default", "User hand-edit landed in between",
+                /* archived */ false,
+                Instant.parse("2026-01-01T00:00:00Z"),
+                Instant.parse("2026-01-01T00:00:00Z"));
+        when(workspaces.require("ws-1")).thenReturn(drifted);
+
+        Optional<WorkspaceMemoryProposal> queued = service.propose(
+                "ws-1", "Current memory text.", summaryResult("## Architecture\n…fresh…"));
+
+        assertThat(queued).isPresent();
+        // Row stays — the banner can surface from here once the user
+        // refreshes against the drifted memory.
+        assertThat(store.rows).containsKey("ws-1");
     }
 
     @Test

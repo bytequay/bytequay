@@ -82,6 +82,28 @@ describe('ControlBar', () => {
     expect(screen.queryByLabelText('Command bar')).toBeNull();
   });
 
+  it('renders context tag chips above the input when provided', () => {
+    render(
+      <ControlBar
+        open
+        onClose={() => {}}
+        onDispatch={() => {}}
+        contextTags={[
+          { label: 'workspace-bytequay', kind: 'scope' },
+          { label: 'threads', kind: 'scope' },
+        ]}
+      />,
+    );
+    expect(screen.getByText('#workspace-bytequay')).toBeTruthy();
+    expect(screen.getByText('#threads')).toBeTruthy();
+  });
+
+  it('omits the "on" row when no context tags are provided', () => {
+    render(<ControlBar open onClose={() => {}} onDispatch={() => {}} />);
+    // The "on" label shouldn't render when contextTags is undefined.
+    expect(screen.queryByText('on')).toBeNull();
+  });
+
   it('renders the full catalog on first open', () => {
     render(<ControlBar open onClose={() => {}} onDispatch={() => {}} />);
     expect(screen.getByLabelText('Command bar')).toBeTruthy();

@@ -19,12 +19,27 @@ import {
   type ControlDispatch,
 } from './actionCatalog';
 
+/** A tag the current page declares so the control bar can show
+ *  "on #tag-1 #tag-2…" context above the input. Tags are
+ *  read-only display today — typing a tag does not yet narrow the
+ *  catalog; that's the next slice of the grammar. */
+export type PageContextTag = {
+  label: string;
+  /** Optional kind hint used to colour the chip. Defaults to
+   *  "scope" (purple). */
+  kind?: 'scope' | 'entity' | 'state';
+};
+
 type Props = {
   open: boolean;
   onClose: () => void;
   /** Host handles the dispatch — this component stays free of nav
    *  state knowledge. App.tsx routes the dispatch into setNav. */
   onDispatch: (action: ControlDispatch) => void;
+  /** Tags the current page registered. Renders above the input as
+   *  "on #tag-1 #tag-2…" so the user sees what scope the next verb
+   *  would resolve against. */
+  contextTags?: PageContextTag[];
 };
 
 /** Phase-9 MVP control bar.
@@ -37,7 +52,7 @@ type Props = {
  *  <p>Deliberately small surface: no AI section, no per-row
  *  ⌘1-9 shortcuts, no action preview, no undo, no command grammar
  *  parser. Those each get their own commit. */
-function ControlBar({ open, onClose, onDispatch }: Props) {
+function ControlBar({ open, onClose, onDispatch, contextTags }: Props) {
   const [query, setQuery] = useState('');
   const [selected, setSelected] = useState(0);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -109,6 +124,16 @@ function ControlBar({ open, onClose, onDispatch }: Props) {
         onClick={e => e.stopPropagation()}
         onKeyDown={handleKeyDown}
       >
+        {contextTags && contextTags.length > 0 && (
+          <div style={contextRowStyle}>
+            <span style={contextLabelStyle}>on</span>
+            {contextTags.map((tag, i) => (
+              <span key={i} style={contextChipStyle(tag.kind ?? 'scope')}>
+                #{tag.label}
+              </span>
+            ))}
+          </div>
+        )}
         <div style={inputRowStyle}>
           <span style={inputIconStyle} aria-hidden>⌘K</span>
           <input
@@ -274,6 +299,42 @@ const escHintStyle: React.CSSProperties = {
   color: '#7a7388',
   fontFamily: 'ui-monospace, SFMono-Regular, monospace',
 };
+
+const contextRowStyle: React.CSSProperties = {
+  display: 'flex',
+  alignItems: 'center',
+  gap: 6,
+  padding: '10px 14px 0',
+  flexWrap: 'wrap',
+};
+
+const contextLabelStyle: React.CSSProperties = {
+  fontSize: 10,
+  color: '#7a7388',
+  textTransform: 'uppercase',
+  letterSpacing: '0.06em',
+  fontWeight: 600,
+};
+
+function contextChipStyle(kind: 'scope' | 'entity' | 'state'): React.CSSProperties {
+  // Three colours so the chip kind is visible at a glance: scope is
+  // purple (workspace / section), entity is blue (a specific thread
+  // / PR / repo), state is orange (RUNNING / AWAITING / etc.).
+  const palette = kind === 'entity'
+      ? { bg: 'rgba(0, 102, 204, 0.10)', fg: '#0050a0', border: 'rgba(0, 102, 204, 0.25)' }
+      : kind === 'state'
+          ? { bg: 'rgba(217, 119, 6, 0.10)', fg: '#a55c00', border: 'rgba(217, 119, 6, 0.25)' }
+          : { bg: 'rgba(124, 58, 237, 0.10)', fg: '#6d28d9', border: 'rgba(124, 58, 237, 0.25)' };
+  return {
+    fontSize: 11,
+    fontFamily: 'ui-monospace, SFMono-Regular, monospace',
+    padding: '2px 8px',
+    borderRadius: 999,
+    background: palette.bg,
+    color: palette.fg,
+    border: `1px solid ${palette.border}`,
+  };
+}
 
 const verbHintsRowStyle: React.CSSProperties = {
   display: 'flex',

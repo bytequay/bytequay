@@ -20,7 +20,7 @@ import TeamsManagePage from './teams/TeamsManagePage';
 import EmailPage from './email/EmailPage';
 import ThreadsPage from './threads/ThreadsPage';
 import ThreadCreatePage from './threads/ThreadCreatePage';
-import ControlBar from './control/ControlBar';
+import ControlBar, { type PageContextTag } from './control/ControlBar';
 import type { ControlDispatch } from './control/actionCatalog';
 import ReviewThreadPage from './review/ReviewThreadPage';
 import ThreadDetailPage from './threads/ThreadDetailPage';
@@ -363,6 +363,33 @@ function App() {
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);
   }, []);
+
+  /** Tags the current page registers with the control bar, displayed
+   *  as "on #tag-1 #tag-2…" above the input. Tags are derived from
+   *  the active nav state so the bar's context tracks the user
+   *  without any per-page registration code today. Future commits
+   *  can replace this with a page-element registry that pages
+   *  populate themselves. */
+  const contextTags: PageContextTag[] = ((): PageContextTag[] => {
+    switch (nav.view) {
+      case 'home':           return [{ label: 'home', kind: 'scope' }];
+      case 'workspace':      return [
+        { label: 'workspace-bytequay', kind: 'scope' },
+        { label: nav.section ?? 'home', kind: 'scope' },
+      ];
+      case 'my-prs':         return [{ label: 'pull-requests', kind: 'scope' }];
+      case 'threads':        return [{ label: 'threads', kind: 'scope' }];
+      case 'thread-detail':  return [{ label: 'thread', kind: 'entity' }];
+      case 'thread-create':  return [{ label: 'new-thread', kind: 'scope' }];
+      case 'repos':          return [{ label: 'repos', kind: 'scope' }];
+      case 'repository':     return [{ label: `${nav.owner}-${nav.repo}`, kind: 'entity' }];
+      case 'email':          return [{ label: 'email', kind: 'scope' }];
+      case 'notifications':  return [{ label: 'notifications', kind: 'scope' }];
+      case 'settings':       return [{ label: 'settings', kind: 'scope' }];
+      case 'review-thread':  return [{ label: 'review-thread', kind: 'entity' }];
+      default:               return [];
+    }
+  })();
 
   /** Route a ControlBar dispatch into setNav. Lives at the App level
    *  so the catalog stays a static module — no React context or
@@ -747,6 +774,7 @@ function App() {
         open={controlBarOpen}
         onClose={() => setControlBarOpen(false)}
         onDispatch={handleControlDispatch}
+        contextTags={contextTags}
       />
     </div>
   );

@@ -15,6 +15,7 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import type {
   ReviewFindingDto,
   ReviewFindingSeverityDto,
+  ReviewFindingStatusDto,
   ReviewPanelMessageDto,
   ReviewParticipantDto,
   ReviewPassDetailDto,
@@ -172,6 +173,7 @@ function FindingsSection({ findings }: { findings: ReviewFindingDto[] }) {
           {findings.map(f => (
             <li key={f.id} style={findingRowStyle}>
               <SeverityChip severity={f.severity} />
+              <StatusChip status={f.status} />
               <div style={findingBodyStyle}>
                 <div style={findingAnchorStyle}>
                   {f.path !== null
@@ -197,10 +199,13 @@ function PublishSection({
   const alreadyPublished = detail.pass.phase === 'PUBLISHED';
   const suggested: ReviewVerdictDto = detail.pass.verdict ?? 'COMMENT';
   const [verdict, setVerdict] = useState<ReviewVerdictDto>(suggested);
-  // Default every finding to included; the user un-checks anything
-  // they don't want posted.
+  // Default to including AGREED findings only — DISPUTED findings
+  // start un-checked since the panel didn't reach consensus on them.
+  // The user can still tick them in if they want to surface them.
   const [includedIds, setIncludedIds] = useState<Set<string>>(
-      () => new Set(detail.findings.map(f => f.id)));
+      () => new Set(detail.findings
+          .filter(f => f.status !== 'DISPUTED')
+          .map(f => f.id)));
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -279,6 +284,7 @@ function PublishSection({
                     disabled={busy}
                   />
                   <SeverityChip severity={f.severity} />
+                  <StatusChip status={f.status} />
                   <span style={findingChoiceBodyStyle}>
                     <span style={findingAnchorStyle}>
                       {f.path !== null
@@ -336,6 +342,30 @@ function SeverityChip({ severity }: { severity: ReviewFindingSeverityDto }) {
       {severity.toLowerCase()}
     </span>
   );
+}
+
+/** Status chip surfaces consensus state (AGREED / DISPUTED / POSTED).
+ *  The other status values (RESOLVED / ARBITRATED / DROPPED) belong
+ *  to later phases and aren't currently emitted; they render with a
+ *  neutral fallback if they ever land. */
+function StatusChip({ status }: { status: ReviewFindingStatusDto }) {
+  const color = statusColor(status);
+  return (
+    <span style={severityChipStyle(color)} aria-label={`status-${status.toLowerCase()}`}>
+      {status.toLowerCase()}
+    </span>
+  );
+}
+
+function statusColor(status: ReviewFindingStatusDto): string {
+  switch (status) {
+    case 'AGREED':     return '#16a34a';
+    case 'DISPUTED':   return '#d97706';
+    case 'POSTED':     return '#0066cc';
+    case 'RESOLVED':   return '#16a34a';
+    case 'ARBITRATED': return '#737373';
+    case 'DROPPED':    return '#737373';
+  }
 }
 
 function severityColor(severity: ReviewFindingSeverityDto): string {

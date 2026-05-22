@@ -88,6 +88,39 @@ describe('ReviewThreadPage', () => {
     });
   });
 
+  it('renders a status chip per finding and default-unchecks DISPUTED ones in the publish form', async () => {
+    // Multi-reviewer pass shape: one AGREED (panel consensus) + one
+    // DISPUTED (only one reviewer raised). The status chip should
+    // render for each, and the publish form should default the
+    // disputed finding to UN-checked so the user opts in deliberately.
+    const detail = buildDetail({
+      verdict: 'COMMENT',
+      findings: [
+        finding({ id: 'f-agreed', severity: 'BLOCKER', status: 'AGREED',
+            body: 'Both reviewers flagged this.', path: 'src/foo.ts', line: 12 }),
+        finding({ id: 'f-disputed', severity: 'NIT', status: 'DISPUTED',
+            body: '[Claude] Solo nit.', path: 'src/bar.ts', line: 7 }),
+      ],
+    });
+    installBridge({
+      getReviewPassByThread: vi.fn(async (): Promise<ReviewPassDetailDto | null> => detail),
+    });
+
+    render(<ReviewThreadPage threadId="thread-1" onBack={() => {}} />);
+    await waitFor(() => screen.getByText(/Verdict suggestion/i));
+
+    // Both status chips render — by aria-label so the test doesn't
+    // hinge on the exact severity text getting matched first.
+    expect(screen.getAllByLabelText('status-agreed').length).toBeGreaterThanOrEqual(1);
+    expect(screen.getAllByLabelText('status-disputed').length).toBeGreaterThanOrEqual(1);
+
+    // Publish counter reflects 1/2 included (the agreed one).
+    expect(screen.getByText(/Findings to post \(1\/2\)/)).toBeTruthy();
+    const [agreedBox, disputedBox] = screen.getAllByRole('checkbox') as HTMLInputElement[];
+    expect(agreedBox.checked).toBe(true);
+    expect(disputedBox.checked).toBe(false);
+  });
+
   it('surfaces a backend error inline without rendering the panel sections', async () => {
     installBridge({
       getReviewPassByThread: vi.fn(async (): Promise<ReviewPassDetailDto | null> => {

@@ -80,7 +80,7 @@ class TestReviewPassService
         recording = new RecordingReviewStore();
         reviewStore = recording;
 
-        when(registry.active()).thenReturn(reviewer);
+        when(registry.all()).thenReturn(List.of(reviewer));
         when(reviewer.providerId()).thenReturn("claude");
         when(reviewer.displayName()).thenReturn("Claude (Anthropic)");
         when(reviewer.isConfigured()).thenReturn(true);
@@ -211,7 +211,7 @@ class TestReviewPassService
 
         assertThatThrownBy(() -> service.startReviewOnPr("acme/widget", 1))
                 .isInstanceOf(ResponseStatusException.class)
-                .hasMessageContaining("no API key configured");
+                .hasMessageContaining("API key configured");
 
         verify(threadStore, never()).saveThread(any());
         assertThat(recording.passHistory).isEmpty();
@@ -350,6 +350,135 @@ class TestReviewPassService
         // PUBLISHED when nothing actually landed on GitHub.
         ReviewPhase phase = recording.passes.get(kicked.pass().id()).phase();
         assertThat(phase).isEqualTo(ReviewPhase.TERMINATE);
+    }
+
+    // ── Phase 2: multi-reviewer panel ───────────────────────────────
+
+    @Test
+    void multiReviewerPanelRunsBothInParallelAndDedupsFindings()
+    {
+        // Two configured reviewers; both flag the same blocker at
+        // foo.ts:12 (→ AGREED with the more severe reading), and each
+        // flags a distinct nit at a unique anchor (→ DISPUTED, one
+        // per reporter).
+        LlmReviewer claude = mock(LlmReviewer.class);
+        LlmReviewer openai = mock(LlmReviewer.class);
+        when(claude.providerId()).thenReturn("claude");
+        when(claude.displayName()).thenReturn("Claude");
+        when(claude.isConfigured()).thenReturn(true);
+        when(openai.providerId()).thenReturn("openai");
+        when(openai.displayName()).thenReturn("GPT-5");
+        when(openai.isConfigured()).thenReturn(true);
+        when(registry.all()).thenReturn(List.of(claude, openai));
+
+        when(claude.review(any(ReviewRequest.class))).thenReturn(new ReviewOutput(
+                "Found a real issue.",
+                List.of(
+                        new ReviewOutput.LineComment("src/foo.ts", 12, "Null deref.", "blocker"),
+                        new ReviewOutput.LineComment("src/bar.ts", 3, "Claude-only nit.", "nit")),
+                "claude", "claude-sonnet-4.6"));
+        when(openai.review(any(ReviewRequest.class))).thenReturn(new ReviewOutput(
+                "Same problem, different wording.",
+                List.of(
+                        new ReviewOutput.LineComment("src/foo.ts", 12, "Crashes on null.", "major"),
+                        new ReviewOutput.LineComment("src/baz.ts", 4, "GPT-only nit.", "nit")),
+                "openai", "gpt-5"));
+
+        ReviewPassDetail detail = service.startReviewOnPr("acme/widget", 42);
+
+        // 1. Both reviewers ran — exactly two INDEPENDENT messages.
+        long independentMessages = recording.messages.stream()
+                .filter(m -> m.phase() == ReviewPhase.INDEPENDENT)
+                .count();
+        assertThat(independentMessages).isEqualTo(2);
+
+        // 2. Phase machine walked through CROSS_REVIEW.
+        List<ReviewPhase> phaseHistory = recording.passHistory.stream()
+                .map(ReviewPass::phase).toList();
+        assertThat(phaseHistory).containsSubsequence(
+                ReviewPhase.KICKOFF,
+                ReviewPhase.INDEPENDENT,
+                ReviewPhase.CROSS_REVIEW,
+                ReviewPhase.TERMINATE);
+        // Moderator emits a CROSS_REVIEW announcement so the
+        // transcript reflects the consensus split even without an LLM
+        // round.
+        boolean crossReviewMessage = recording.messages.stream()
+                .anyMatch(m -> m.phase() == ReviewPhase.CROSS_REVIEW
+                        && m.body().contains("1 agreed")
+                        && m.body().contains("2 disputed"));
+        assertThat(crossReviewMessage).isTrue();
+
+        // 3. Findings: one AGREED at foo.ts:12 (the BLOCKER wins), two
+        //    DISPUTED rows (one from each reviewer for their unique
+        //    anchors).
+        List<ReviewFinding> findings = detail.findings();
+        assertThat(findings).hasSize(3);
+        ReviewFinding agreed = findings.stream()
+                .filter(f -> f.status() == ReviewFindingStatus.AGREED)
+                .findFirst().orElseThrow();
+        assertThat(agreed.path()).isEqualTo("src/foo.ts");
+        assertThat(agreed.line()).isEqualTo(12);
+        // The blocker reading wins over the major reading.
+        assertThat(agreed.severity()).isEqualTo(ReviewFindingSeverity.BLOCKER);
+
+        List<ReviewFinding> disputed = findings.stream()
+                .filter(f -> f.status() == ReviewFindingStatus.DISPUTED)
+                .toList();
+        assertThat(disputed).hasSize(2);
+        // Reviewer attribution surfaces in the body so the publish UI
+        // can render "who flagged this".
+        assertThat(disputed).anySatisfy(f -> {
+            assertThat(f.body()).contains("[Claude]");
+            assertThat(f.body()).contains("Claude-only nit.");
+        });
+        assertThat(disputed).anySatisfy(f -> {
+            assertThat(f.body()).contains("[GPT-5]");
+            assertThat(f.body()).contains("GPT-only nit.");
+        });
+
+        // 4. Verdict suggestion: AGREED blocker → REQUEST_CHANGES.
+        assertThat(detail.pass().verdict()).isEqualTo(ReviewVerdict.REQUEST_CHANGES);
+        assertThat(detail.pass().phase()).isEqualTo(ReviewPhase.TERMINATE);
+
+        // 5. Three reviewer participants seated (two reviewers + the
+        //    moderator + the human; assert reviewers specifically).
+        long reviewerSeats = detail.participants().stream()
+                .filter(p -> p.kind() == ReviewParticipantKind.REVIEWER)
+                .count();
+        assertThat(reviewerSeats).isEqualTo(2);
+    }
+
+    @Test
+    void multiReviewerPanelPicksCommentVerdictWhenOnlyDisputedFindingsExist()
+    {
+        LlmReviewer claude = mock(LlmReviewer.class);
+        LlmReviewer openai = mock(LlmReviewer.class);
+        when(claude.providerId()).thenReturn("claude");
+        when(claude.displayName()).thenReturn("Claude");
+        when(claude.isConfigured()).thenReturn(true);
+        when(openai.providerId()).thenReturn("openai");
+        when(openai.displayName()).thenReturn("GPT-5");
+        when(openai.isConfigured()).thenReturn(true);
+        when(registry.all()).thenReturn(List.of(claude, openai));
+
+        when(claude.review(any(ReviewRequest.class))).thenReturn(new ReviewOutput(
+                "Just nits.", List.of(
+                        new ReviewOutput.LineComment("src/a.ts", 1, "Claude's nit.", "nit")),
+                "claude", "claude-sonnet-4.6"));
+        when(openai.review(any(ReviewRequest.class))).thenReturn(new ReviewOutput(
+                "Just nits.", List.of(
+                        new ReviewOutput.LineComment("src/b.ts", 2, "GPT's nit.", "nit")),
+                "openai", "gpt-5"));
+
+        ReviewPassDetail detail = service.startReviewOnPr("acme/widget", 42);
+
+        // No agreed findings, just two disputed nits — the suggested
+        // verdict is COMMENT (we surface findings the user might want
+        // to address) rather than escalating to REQUEST_CHANGES on a
+        // single reviewer's unconfirmed call.
+        assertThat(detail.findings()).allMatch(f -> f.status() == ReviewFindingStatus.DISPUTED);
+        assertThat(detail.pass().verdict()).isEqualTo(ReviewVerdict.COMMENT);
     }
 
     private static PrRawDetail rawDetail()

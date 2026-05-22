@@ -48,31 +48,46 @@ import org.springframework.web.server.ResponseStatusException;
 
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.CompletableFuture;
+import java.util.concurrent.CompletionException;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Executors;
 
 import static com.bytequay.app.utils.PullRequestRefUtil.parseRef;
 import static java.util.Objects.requireNonNull;
 
 /**
- * Deterministic moderator for the review flow-type, Phase 1
- * (single-reviewer pass). Owns the lifecycle of a {@link ReviewPass}:
- * create the {@code flow='review'} thread, seat the panel
- * (moderator + one reviewer + a human row for the orchestrator),
- * dispatch the reviewer call through the existing {@link LlmReviewer}
- * pathway, persist the streamed kickoff/summary messages and the
- * per-line findings, and transition the pass through
- * {@code KICKOFF → INDEPENDENT → TERMINATE} with a suggested verdict
- * the user later confirms at the publish gate.
+ * Deterministic moderator for the review flow-type. Owns the
+ * lifecycle of a {@link ReviewPass}: create the {@code flow='review'}
+ * thread, seat the panel (moderator + N reviewers + a human row for
+ * the orchestrator), dispatch the reviewer call(s) through the
+ * existing {@link LlmReviewer} pathway, persist the streamed
+ * messages + findings, and transition the pass through the right
+ * phase machine for the panel size.
  *
- * <p>This is the single-reviewer slice — the multi-reviewer
- * {@code CROSS_REVIEW / CONSENSUS / DEBATE / ARBITRATE} phases land
- * in follow-up commits. The phase enum already covers them so the
- * row shape doesn't need to change.
+ * <p>Panel-of-1: {@code KICKOFF → INDEPENDENT → TERMINATE} — the
+ * single reviewer's findings persist as {@code AGREED} straight away
+ * (no consensus to extract).
+ *
+ * <p>Panel-of-2+: {@code KICKOFF → INDEPENDENT (parallel)
+ * → CROSS_REVIEW → TERMINATE}. INDEPENDENT runs the reviewers
+ * concurrently against the same diff so no reviewer anchors on
+ * another. CROSS_REVIEW transitions through a heuristic consensus
+ * pass (no LLM round yet — Phase 3 follow-up adds the LLM-driven
+ * cross-review + debate loop). Findings reported at the same
+ * {@code (path, line)} by every reviewer land as a single AGREED row
+ * carrying the highest-severity reading; the rest land as one
+ * DISPUTED row per reporter so the publish UI can show what each
+ * reviewer said.
  */
 @Service
 public class ReviewPassService
@@ -100,10 +115,11 @@ public class ReviewPassService
     }
 
     /**
-     * Kick off a fresh review pass for the given PR. Synchronous in
-     * Phase 1 — one model call, no parallel fan-out yet. Streams a
-     * future async / SSE wrapper on top once the multi-reviewer phase
-     * lands and the panel size justifies it.
+     * Kick off a fresh review pass for the given PR. Synchronous —
+     * even with multi-reviewer fan-out the call blocks until the
+     * panel terminates so the controller can hand back a populated
+     * detail. A future async / SSE wrapper can layer on top when the
+     * round count starts to matter.
      */
     @Transactional
     public ReviewPassDetail startReviewOnPr(String repoFullName, int prNumber)
@@ -114,13 +130,7 @@ public class ReviewPassService
                     "prNumber must be a positive integer");
         }
 
-        LlmReviewer reviewer = reviewers.active();
-        if (!reviewer.isConfigured()) {
-            throw new ResponseStatusException(
-                    HttpStatusCode.valueOf(412),
-                    "The active LLM provider (" + reviewer.displayName() + ") has no API key "
-                            + "configured. Add it in Settings → AI review.");
-        }
+        List<LlmReviewer> panel = resolvePanel();
 
         // 1. Pull the PR + diff via the existing GitHub bindings so
         //    the new flow reuses the cached raw-detail / diff paths
@@ -139,11 +149,11 @@ public class ReviewPassService
         // 2. Materialise the review thread. flow=REVIEW + kind=
         //    LOGIC_LOOP — the read-only design row says review
         //    threads never take a worktree lease, so there's no
-        //    CLI-agent kind to consider in Phase 1.
+        //    CLI-agent kind to consider here.
         Thread thread = new Thread(
                 UUID.randomUUID().toString(),
                 ThreadKind.LOGIC_LOOP,
-                reviewer.providerId(),
+                panel.get(0).providerId(),
                 /* agentSessionId */ null,
                 "Review " + repoFullName + "#" + prNumber,
                 ThreadStatus.RUNNING,
@@ -156,7 +166,7 @@ public class ReviewPassService
         threadStore.saveThread(thread);
 
         // 3. Pass row at KICKOFF — a later step transitions it as the
-        //    reviewer runs. round 0, round_cap 3, default cost cap.
+        //    panel runs. round 0, round_cap 3, default cost cap.
         ReviewPass pass = new ReviewPass(
                 UUID.randomUUID().toString(),
                 thread.id(),
@@ -173,39 +183,39 @@ public class ReviewPassService
                 /* endedAt */ null);
         reviewStore.savePass(pass);
 
-        // 4. Seat the panel. Phase 1 = moderator + one reviewer + the
-        //    human row. The human row exists so a later commit can
-        //    bind user-typed messages to it without a schema change.
+        // 4. Seat the panel: moderator + N reviewers + the human row.
+        //    The human row exists so a later commit can bind user-
+        //    typed messages to it without a schema change.
         ReviewParticipant moderator = new ReviewParticipant(
                 UUID.randomUUID().toString(), pass.id(),
                 ReviewParticipantKind.MODERATOR,
                 /* credentialId */ null,
                 "Moderator",
-                /* model */ null,
-                /* color */ null,
-                now);
-        ReviewParticipant reviewerParticipant = new ReviewParticipant(
-                UUID.randomUUID().toString(), pass.id(),
-                ReviewParticipantKind.REVIEWER,
-                /* credentialId */ reviewer.providerId(),
-                reviewer.displayName(),
-                /* model */ null,
-                /* color */ null,
-                now);
+                /* model */ null, /* color */ null, now);
+        reviewStore.saveParticipant(moderator);
+        List<ReviewParticipant> reviewerSeats = new ArrayList<>();
+        for (LlmReviewer r : panel) {
+            ReviewParticipant seat = new ReviewParticipant(
+                    UUID.randomUUID().toString(), pass.id(),
+                    ReviewParticipantKind.REVIEWER,
+                    /* credentialId */ r.providerId(),
+                    r.displayName(),
+                    /* model */ null, /* color */ null, now);
+            reviewStore.saveParticipant(seat);
+            reviewerSeats.add(seat);
+        }
         ReviewParticipant human = new ReviewParticipant(
                 UUID.randomUUID().toString(), pass.id(),
                 ReviewParticipantKind.HUMAN,
                 /* credentialId */ null,
                 "You",
-                /* model */ null,
-                /* color */ null,
-                now);
-        reviewStore.saveParticipant(moderator);
-        reviewStore.saveParticipant(reviewerParticipant);
+                /* model */ null, /* color */ null, now);
         reviewStore.saveParticipant(human);
 
-        // 5. Kickoff message — broadcast announcement. Mentions the
-        //    panel so a later UI can highlight who's about to speak.
+        // 5. Kickoff message — broadcast announcement.
+        String kickoffMention = panel.size() == 1
+                ? panel.get(0).displayName()
+                : "a panel of " + panel.size() + " reviewers (" + panelDisplayNames(panel) + ")";
         reviewStore.saveMessage(new ReviewMessage(
                 UUID.randomUUID().toString(),
                 pass.id(),
@@ -213,76 +223,134 @@ public class ReviewPassService
                 ReviewPhase.KICKOFF,
                 /* round */ 0,
                 "Reviewing " + repoFullName + "#" + prNumber + " with "
-                        + reviewer.displayName() + ". Independent phase starting.",
-                List.of(reviewerParticipant.id()),
+                        + kickoffMention + ". Independent phase starting.",
+                reviewerSeats.stream().map(ReviewParticipant::id).toList(),
                 /* refs */ List.of(),
                 /* costUsdMilli */ 0L,
                 now));
 
-        // 6. Transition to INDEPENDENT and dispatch the reviewer.
+        // 6. Transition to INDEPENDENT and dispatch the panel.
         pass = withPhase(pass, ReviewPhase.INDEPENDENT, /* endedAt */ null);
         reviewStore.savePass(pass);
 
-        ReviewOutput output;
+        ReviewRequest request = new ReviewRequest(
+                repoFullName, prNumber,
+                /* title */ null,
+                raw.body(),
+                raw.headSha(),
+                diff);
+        Map<ReviewParticipant, ReviewOutput> outputs;
         try {
-            ReviewRequest request = new ReviewRequest(
-                    repoFullName, prNumber,
-                    /* title */ null,
-                    raw.body(),
-                    raw.headSha(),
-                    diff);
-            output = reviewer.review(request);
+            outputs = runIndependentInParallel(reviewerSeats, panel, request);
         }
         catch (RuntimeException e) {
             // Mark the pass terminated-with-error so the UI shows a
             // clear failure state rather than a pass stuck at
             // INDEPENDENT forever. Re-throw as a 502 so the caller
             // sees the provider error verbatim.
-            log.warn("Review pass {} failed during INDEPENDENT phase: {}", pass.id(), e.getMessage());
+            log.warn("Review pass {} failed during INDEPENDENT phase: {}",
+                    pass.id(), e.getMessage());
             ReviewPass terminated = withPhase(pass, ReviewPhase.TERMINATE, Instant.now());
             reviewStore.savePass(terminated);
             throw new ResponseStatusException(HttpStatusCode.valueOf(502),
                     "LLM reviewer call failed: " + e.getMessage(), e);
         }
 
-        // 7. Reviewer summary as one INDEPENDENT message.
+        // 7. Persist each reviewer's INDEPENDENT message verbatim.
         Instant afterReviewer = Instant.now();
-        reviewStore.saveMessage(new ReviewMessage(
-                UUID.randomUUID().toString(),
-                pass.id(),
-                reviewerParticipant.id(),
-                ReviewPhase.INDEPENDENT,
-                /* round */ 0,
-                output.summary() == null ? "" : output.summary(),
-                /* mentions */ List.of(),
-                /* refs */ List.of(),
-                /* costUsdMilli */ 0L,
-                afterReviewer));
-
-        // 8. Per-line findings. Phase 1 marks them AGREED — there's
-        //    only one reviewer so nothing is disputed. The publish
-        //    gate later transitions agreed → posted.
-        List<ReviewOutput.LineComment> comments = output.comments() == null
-                ? List.of() : output.comments();
-        for (ReviewOutput.LineComment c : comments) {
-            reviewStore.saveFinding(new ReviewFinding(
+        for (ReviewParticipant seat : reviewerSeats) {
+            ReviewOutput out = outputs.get(seat);
+            reviewStore.saveMessage(new ReviewMessage(
                     UUID.randomUUID().toString(),
                     pass.id(),
-                    c.file(),
-                    c.line() > 0 ? c.line() : null,
-                    severityFromComment(c.severity()),
-                    ReviewFindingStatus.AGREED,
-                    c.body() == null ? "" : c.body(),
-                    /* resolution */ null,
-                    /* postedCommentId */ null,
+                    seat.id(),
+                    ReviewPhase.INDEPENDENT,
+                    /* round */ 0,
+                    out.summary() == null ? "" : out.summary(),
+                    /* mentions */ List.of(),
+                    /* refs */ List.of(),
+                    /* costUsdMilli */ 0L,
                     afterReviewer));
         }
 
-        // 9. Terminate. Suggested verdict comes from the severity mix
-        //    so the user has a one-click default; nothing posts until
-        //    they confirm via the publish gate (a future commit wires
-        //    that surface for review findings).
-        ReviewVerdict suggested = suggestedVerdict(comments);
+        // 8. Branch on panel size for findings persistence + phase
+        //    transitions:
+        //      - 1 reviewer: AGREED straight through, no CROSS_REVIEW.
+        //      - 2+ reviewers: heuristic CONSENSUS over the panel's
+        //        raw outputs; CROSS_REVIEW phase carries a moderator
+        //        announcement so the transcript reflects the dedup
+        //        result even without an LLM round.
+        ReviewVerdict suggested;
+        if (panel.size() == 1) {
+            List<ReviewOutput.LineComment> comments = outputs.values().iterator().next().comments();
+            comments = comments == null ? List.of() : comments;
+            for (ReviewOutput.LineComment c : comments) {
+                reviewStore.saveFinding(new ReviewFinding(
+                        UUID.randomUUID().toString(),
+                        pass.id(),
+                        c.file(),
+                        c.line() > 0 ? c.line() : null,
+                        severityFromComment(c.severity()),
+                        ReviewFindingStatus.AGREED,
+                        c.body() == null ? "" : c.body(),
+                        /* resolution */ null,
+                        /* postedCommentId */ null,
+                        afterReviewer));
+            }
+            suggested = suggestedVerdictForComments(comments);
+        }
+        else {
+            ConsensusResult consensus = extractConsensus(reviewerSeats, outputs);
+            for (ConsensusFinding f : consensus.agreed()) {
+                reviewStore.saveFinding(new ReviewFinding(
+                        UUID.randomUUID().toString(),
+                        pass.id(),
+                        f.path(), f.line(),
+                        f.severity(),
+                        ReviewFindingStatus.AGREED,
+                        f.body(),
+                        /* resolution */ null,
+                        /* postedCommentId */ null,
+                        afterReviewer));
+            }
+            for (ConsensusFinding f : consensus.disputed()) {
+                // Reviewer attribution lands as a prefix on the body
+                // so the publish UI can show "@Claude said: ..." for
+                // disputed picks without a new column on the row.
+                String body = "[" + f.reporterPersona() + "] " + f.body();
+                reviewStore.saveFinding(new ReviewFinding(
+                        UUID.randomUUID().toString(),
+                        pass.id(),
+                        f.path(), f.line(),
+                        f.severity(),
+                        ReviewFindingStatus.DISPUTED,
+                        body,
+                        /* resolution */ null,
+                        /* postedCommentId */ null,
+                        afterReviewer));
+            }
+            // CROSS_REVIEW phase + moderator announcement message.
+            // The LLM-driven cross-review round and Haiku semantic
+            // check land in Phase 3 of Phase 8.
+            pass = withPhase(pass, ReviewPhase.CROSS_REVIEW, /* endedAt */ null);
+            reviewStore.savePass(pass);
+            reviewStore.saveMessage(new ReviewMessage(
+                    UUID.randomUUID().toString(),
+                    pass.id(),
+                    moderator.id(),
+                    ReviewPhase.CROSS_REVIEW,
+                    /* round */ 0,
+                    "Heuristic consensus extracted from the panel: "
+                            + consensus.agreed().size() + " agreed, "
+                            + consensus.disputed().size() + " disputed.",
+                    /* mentions */ List.of(),
+                    /* refs */ List.of(),
+                    /* costUsdMilli */ 0L,
+                    Instant.now()));
+            suggested = suggestedVerdictForConsensus(consensus);
+        }
+
+        // 9. Terminate.
         ReviewPass terminated = new ReviewPass(
                 pass.id(), pass.threadId(), pass.repoFullName(), pass.prNumber(),
                 pass.headSha(),
@@ -293,10 +361,128 @@ public class ReviewPassService
                 pass.costUsdMilli(),
                 suggested,
                 pass.createdAt(),
-                /* endedAt */ afterReviewer);
+                /* endedAt */ Instant.now());
         reviewStore.savePass(terminated);
 
         return buildDetail(terminated);
+    }
+
+    /** Configured reviewers form the panel. Capped at 3 — design
+     *  open-decision lands at "2 sweet spot, 3 high-stakes, more
+     *  rarely worth it". Panel-of-1 falls back to the Phase 1 single-
+     *  reviewer path through the same {@code startReviewOnPr}. */
+    private List<LlmReviewer> resolvePanel()
+    {
+        List<LlmReviewer> configured = reviewers.all().stream()
+                .filter(LlmReviewer::isConfigured)
+                .toList();
+        if (configured.isEmpty()) {
+            throw new ResponseStatusException(
+                    HttpStatusCode.valueOf(412),
+                    "No LLM provider has an API key configured. "
+                            + "Add one in Settings → AI review.");
+        }
+        return configured.size() > 3 ? configured.subList(0, 3) : configured;
+    }
+
+    /** Dispatches every panel reviewer against the same request on
+     *  its own thread so no reviewer sees another's draft before
+     *  finishing. Returns outputs in the same iteration order as the
+     *  seats list so the persistence side keeps a stable transcript
+     *  ordering. */
+    private Map<ReviewParticipant, ReviewOutput> runIndependentInParallel(
+            List<ReviewParticipant> seats,
+            List<LlmReviewer> panel,
+            ReviewRequest request)
+    {
+        ExecutorService executor = Executors.newFixedThreadPool(panel.size());
+        try {
+            List<CompletableFuture<ReviewOutput>> futures = new ArrayList<>();
+            for (LlmReviewer r : panel) {
+                futures.add(CompletableFuture.supplyAsync(() -> r.review(request), executor));
+            }
+            Map<ReviewParticipant, ReviewOutput> result = new LinkedHashMap<>();
+            for (int i = 0; i < panel.size(); i++) {
+                // join() rethrows the worker's RuntimeException
+                // wrapped in CompletionException — unwrap so the
+                // outer catch surfaces the provider's actual message.
+                try {
+                    result.put(seats.get(i), futures.get(i).join());
+                }
+                catch (CompletionException e) {
+                    Throwable cause = e.getCause();
+                    if (cause instanceof RuntimeException re) {
+                        throw re;
+                    }
+                    throw e;
+                }
+            }
+            return result;
+        }
+        finally {
+            executor.shutdown();
+        }
+    }
+
+    /** Heuristic consensus dedup. Groups raw findings by
+     *  {@code (path, line)} — exact match. Each group reported by all
+     *  panel reviewers collapses to one AGREED row using the most
+     *  severe reading; groups missing a reviewer fan out into one
+     *  DISPUTED row per reporter so the publish UI can show who said
+     *  what. The Haiku-driven semantic check is a Phase 3 follow-up. */
+    private ConsensusResult extractConsensus(
+            List<ReviewParticipant> seats,
+            Map<ReviewParticipant, ReviewOutput> outputs)
+    {
+        int panelSize = seats.size();
+        Map<AnchorKey, List<ReportedFinding>> byAnchor = new LinkedHashMap<>();
+        for (ReviewParticipant seat : seats) {
+            ReviewOutput out = outputs.get(seat);
+            List<ReviewOutput.LineComment> comments = out.comments() == null
+                    ? List.of() : out.comments();
+            for (ReviewOutput.LineComment c : comments) {
+                Integer line = c.line() > 0 ? c.line() : null;
+                AnchorKey key = new AnchorKey(c.file(), line);
+                byAnchor.computeIfAbsent(key, k -> new ArrayList<>())
+                        .add(new ReportedFinding(
+                                seat,
+                                severityFromComment(c.severity()),
+                                c.body() == null ? "" : c.body()));
+            }
+        }
+
+        List<ConsensusFinding> agreed = new ArrayList<>();
+        List<ConsensusFinding> disputed = new ArrayList<>();
+        for (Map.Entry<AnchorKey, List<ReportedFinding>> entry : byAnchor.entrySet()) {
+            AnchorKey anchor = entry.getKey();
+            List<ReportedFinding> reports = entry.getValue();
+            if (reports.size() >= panelSize) {
+                ReportedFinding representative = reports.stream()
+                        .max(Comparator.comparingInt(r -> severityWeight(r.severity())))
+                        .orElseThrow();
+                agreed.add(new ConsensusFinding(
+                        anchor.path(), anchor.line(),
+                        representative.severity(),
+                        representative.body(),
+                        /* reporterPersona */ representative.participant().personaLabel()));
+            }
+            else {
+                for (ReportedFinding r : reports) {
+                    disputed.add(new ConsensusFinding(
+                            anchor.path(), anchor.line(),
+                            r.severity(),
+                            r.body(),
+                            r.participant().personaLabel()));
+                }
+            }
+        }
+        return new ConsensusResult(List.copyOf(agreed), List.copyOf(disputed));
+    }
+
+    private static String panelDisplayNames(List<LlmReviewer> panel)
+    {
+        return panel.stream().map(LlmReviewer::displayName).reduce(
+                (a, b) -> a + " + " + b).orElse("");
     }
 
     public Optional<ReviewPassDetail> findPassWithDetail(String passId)
@@ -494,11 +680,25 @@ public class ReviewPassService
         return ReviewFindingSeverity.fromDbValue(raw);
     }
 
-    /** Pick a default verdict from the severity mix. Any BLOCKER →
-     *  REQUEST_CHANGES; any other finding → COMMENT; no findings at
-     *  all → APPROVE. The user confirms at the publish gate — this
-     *  is just the one-click default. */
-    private static ReviewVerdict suggestedVerdict(List<ReviewOutput.LineComment> comments)
+    /** Severity weight so the consensus extractor picks the most-
+     *  serious reading as the representative for an AGREED row. Higher
+     *  = more severe. Explicit weights avoid {@code Enum.ordinal()},
+     *  which Error Prone flags as fragile against enum-reordering. */
+    private static int severityWeight(ReviewFindingSeverity s)
+    {
+        return switch (s) {
+            case BLOCKER -> 4;
+            case MAJOR -> 3;
+            case NIT -> 2;
+            case QUESTION -> 1;
+        };
+    }
+
+    /** Single-reviewer verdict suggestion: any BLOCKER →
+     *  REQUEST_CHANGES; any other finding → COMMENT; empty → APPROVE.
+     *  The user confirms at the publish gate — this is just the
+     *  one-click default. */
+    private static ReviewVerdict suggestedVerdictForComments(List<ReviewOutput.LineComment> comments)
     {
         if (comments.isEmpty()) {
             return ReviewVerdict.APPROVE;
@@ -510,4 +710,38 @@ public class ReviewPassService
         }
         return ReviewVerdict.COMMENT;
     }
+
+    /** Multi-reviewer verdict suggestion: agreed blocker →
+     *  REQUEST_CHANGES; any agreed or disputed finding → COMMENT;
+     *  fully clean panel → APPROVE. Disputed findings don't escalate
+     *  to REQUEST_CHANGES on their own — the design wants the human
+     *  to arbitrate disagreements rather than have one reviewer's
+     *  unconfirmed call block a merge. */
+    private static ReviewVerdict suggestedVerdictForConsensus(ConsensusResult consensus)
+    {
+        for (ConsensusFinding f : consensus.agreed()) {
+            if (f.severity() == ReviewFindingSeverity.BLOCKER) {
+                return ReviewVerdict.REQUEST_CHANGES;
+            }
+        }
+        if (consensus.agreed().isEmpty() && consensus.disputed().isEmpty()) {
+            return ReviewVerdict.APPROVE;
+        }
+        return ReviewVerdict.COMMENT;
+    }
+
+    private record AnchorKey(String path, Integer line) {}
+    private record ReportedFinding(
+            ReviewParticipant participant,
+            ReviewFindingSeverity severity,
+            String body) {}
+    private record ConsensusFinding(
+            String path,
+            Integer line,
+            ReviewFindingSeverity severity,
+            String body,
+            String reporterPersona) {}
+    private record ConsensusResult(
+            List<ConsensusFinding> agreed,
+            List<ConsensusFinding> disputed) {}
 }

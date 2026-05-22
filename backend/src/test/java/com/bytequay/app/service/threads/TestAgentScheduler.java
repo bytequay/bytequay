@@ -391,7 +391,6 @@ class TestAgentScheduler
                 now,
                 /* endedAt */ null,
                 /* errorMessage */ null,
-                "{}",
                 "DEVELOP",
                 /* linkedPrNumber */ null,
                 /* linkedIssueNumber */ null,

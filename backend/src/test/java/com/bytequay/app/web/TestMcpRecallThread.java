@@ -61,10 +61,10 @@ class TestMcpRecallThread
     void recallThreadReturnsMatchesAndExcludesTheCallingThread()
             throws Exception
     {
-        String callingThreadId = newThread("caller", "Currently running");
-        String matchA = newThread("flaky-tests-thread", "Flaky test investigation");
-        String matchB = newThread("github-rate-limits-thread", "GitHub rate limits");
-        String unrelated = newThread("unrelated", "Onboarding doc draft");
+        String callingThreadId = newThread("Currently running");
+        String matchA = newThread("Flaky test investigation");
+        String matchB = newThread("GitHub rate limits");
+        String unrelated = newThread("Onboarding doc draft");
 
         // Overall summaries the agent will recall against. matchA's
         // summary uses "flaky", matchB's bullets use "rate limit", and
@@ -92,10 +92,10 @@ class TestMcpRecallThread
     void recallThreadHonoursTheLimitArgument()
             throws Exception
     {
-        String caller = newThread("limit-caller", "Limit caller");
-        String a = newThread("limit-a", "Topic A");
-        String b = newThread("limit-b", "Topic B");
-        String c = newThread("limit-c", "Topic C");
+        String caller = newThread("Limit caller");
+        String a = newThread("Topic A");
+        String b = newThread("Topic B");
+        String c = newThread("Topic C");
         saveOverall(a, "kubernetes ingress", List.of());
         saveOverall(b, "kubernetes services", List.of());
         saveOverall(c, "kubernetes pods", List.of());
@@ -115,7 +115,7 @@ class TestMcpRecallThread
     void recallThreadReportsWhenNothingMatches()
             throws Exception
     {
-        String caller = newThread("empty-caller", "Empty caller");
+        String caller = newThread("Empty caller");
 
         JsonNode response = invokeRecall(caller, "nonexistent-needle-string", 5);
 
@@ -157,7 +157,7 @@ class TestMcpRecallThread
         return out.toString();
     }
 
-    private String newThread(String slug, String title)
+    private String newThread(String title)
     {
         Instant now = Instant.parse("2026-05-15T12:00:00Z");
         Thread t = new Thread(
@@ -174,7 +174,6 @@ class TestMcpRecallThread
                 /* processPid */ null,
                 /* logPath */ null,
                 now, now, null, null,
-                /* metadataJson */ "{\"slug\":\"" + slug + "\"}",
                 "DEVELOP", null, null, null, ThreadFlow.BUILD);
         threads.saveThread(t);
         return t.id();

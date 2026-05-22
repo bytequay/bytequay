@@ -23,10 +23,10 @@ import java.time.Instant;
  * <p><b>Bridge fields.</b> V72 moved the work-unit columns
  * ({@code working_dir}, {@code branch_name}, {@code worktree_path},
  * {@code process_pid}, {@code log_path}, {@code task_type},
- * {@code linked_pr_number}, {@code linked_issue_number},
- * {@code metadata_json}) out of {@code threads} and onto
- * {@code tasks}. Until callers migrate to reading the active task
- * directly through {@link com.bytequay.app.repository.TaskStore},
+ * {@code linked_pr_number}, {@code linked_issue_number}) out of
+ * {@code threads} and onto {@code tasks}. Until callers migrate to
+ * reading the active task directly through {@link
+ * com.bytequay.app.repository.TaskStore},
  * {@link com.bytequay.app.repository.sqlite.SqliteThreadStore#toThread}
  * still synthesises those fields from the thread's active task
  * row. Treat them as a temporary read projection; new code should
@@ -86,7 +86,6 @@ public record Thread(
         Instant updatedAt,
         Instant endedAt,
         String errorMessage,
-        String metadataJson,
         String taskType,
         Integer linkedPrNumber,
         Integer linkedIssueNumber,

@@ -139,7 +139,6 @@ class TestSqliteThreadTurnStore
                 now,
                 /* endedAt */ null,
                 /* errorMessage */ null,
-                "{}",
                 "DEVELOP",
                 /* linkedPrNumber */ null,
                 /* linkedIssueNumber */ null,

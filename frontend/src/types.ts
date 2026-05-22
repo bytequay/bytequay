@@ -1209,7 +1209,6 @@ export type ThreadDto = {
   updatedAt: string;
   endedAt: string | null;
   errorMessage: string | null;
-  metadataJson: string;
   /** Free-form thread type — {@code "DEVELOP"} or {@code "FIX"} today,
    *  more values likely later. Defaults to {@code "DEVELOP"} on
    *  legacy rows. */
@@ -1487,7 +1486,6 @@ export type NewTaskRequestDto = {
   workingDir: string;
   branchName?: string | null;
   initialPrompt?: string;
-  metadataJson?: string;
   /** Optional — pin the new thread into one or more existing groups.
    *  Each must have room (the cap is enforced server-side). */
   initialGroupIds?: string[];

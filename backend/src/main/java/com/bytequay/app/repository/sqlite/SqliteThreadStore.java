@@ -381,7 +381,6 @@ class SqliteThreadStore
                 Instant.ofEpochMilli(e.getUpdatedAtMs()),
                 e.getEndedAtMs() == null ? null : Instant.ofEpochMilli(e.getEndedAtMs()),
                 e.getErrorMessage(),
-                /* metadataJson — dropped in V72 */ "{}",
                 taskType,
                 linkedPr,
                 linkedIssue,

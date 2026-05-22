@@ -102,7 +102,6 @@ class TestThreadStartupReconciler
                 now,
                 /* endedAt */ status == ThreadStatus.COMPLETED ? now : null,
                 /* errorMessage */ null,
-                "{}",
                 /* taskType */ "DEVELOP",
                 /* linkedPrNumber */ null,
                 /* linkedIssueNumber */ null,

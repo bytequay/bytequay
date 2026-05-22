@@ -62,9 +62,6 @@ class TestSqliteThreadStore
         assertThat(got.status()).isEqualTo(ThreadStatus.RUNNING);
         assertThat(got.processPid()).isEqualTo(1234);
         assertThat(got.logPath()).isEqualTo("/tmp/log.jsonl");
-        // metadata_json was dropped from the threads table in V72; the
-        // record component still exists for wire compat and returns "{}".
-        assertThat(got.metadataJson()).isEqualTo("{}");
     }
 
     @Test
@@ -94,7 +91,6 @@ class TestSqliteThreadStore
                 initial.processPid(), initial.logPath(),
                 initial.createdAt(), Instant.parse("2026-05-15T13:00:00Z"),
                 /* endedAt */ null, /* errorMessage */ null,
-                initial.metadataJson(),
                 initial.taskType(), initial.linkedPrNumber(), initial.linkedIssueNumber(),
                 initial.worktreePath(),
                 initial.flow());
@@ -126,7 +122,7 @@ class TestSqliteThreadStore
                 original.costUsdMilli(), original.tokensIn(), original.tokensOut(),
                 original.processPid(), original.logPath(),
                 original.createdAt(), original.updatedAt(),
-                original.endedAt(), original.errorMessage(), original.metadataJson(),
+                original.endedAt(), original.errorMessage(),
                 original.taskType(), original.linkedPrNumber(), original.linkedIssueNumber(),
                 original.worktreePath(),
                 ThreadFlow.REVIEW);
@@ -231,7 +227,6 @@ class TestSqliteThreadStore
                 now,
                 /* endedAt */ null,
                 /* errorMessage */ null,
-                "{\"originPr\":\"trinodb/trino#42\"}",
                 /* taskType */ "DEVELOP",
                 /* linkedPrNumber */ null,
                 /* linkedIssueNumber */ null,
@@ -246,7 +241,7 @@ class TestSqliteThreadStore
                 source.title(), source.status(), source.workingDir(), source.branchName(),
                 source.model(), source.costUsdMilli(), source.tokensIn(), source.tokensOut(),
                 source.processPid(), source.logPath(), created, updated,
-                source.endedAt(), source.errorMessage(), source.metadataJson(),
+                source.endedAt(), source.errorMessage(),
                 source.taskType(), source.linkedPrNumber(), source.linkedIssueNumber(),
                 source.worktreePath(),
                 source.flow());

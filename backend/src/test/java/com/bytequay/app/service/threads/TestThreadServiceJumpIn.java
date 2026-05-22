@@ -138,7 +138,6 @@ class TestThreadServiceJumpIn
                 /* processPid */ null,
                 /* logPath */ null,
                 now, now, null, null,
-                /* metadataJson */ "{}",
                 "DEVELOP", null, null, null, ThreadFlow.BUILD);
         threadStore.saveThread(t);
         return t.id();

@@ -352,7 +352,7 @@ public class ClaudeCodeCliThreadAgent
                     current.processPid(), current.logPath(),
                     current.createdAt(), Instant.now(),
                     /* endedAt */ null, /* errorMessage */ null,
-                    current.metadataJson(), current.taskType(),
+                    current.taskType(),
                     current.linkedPrNumber(), current.linkedIssueNumber(),
                     current.worktreePath(),
                     current.flow()));
@@ -884,7 +884,7 @@ public class ClaudeCodeCliThreadAgent
                 current.processPid(), current.logPath(),
                 current.createdAt(), Instant.now(),
                 endedAt != null ? endedAt : current.endedAt(),
-                current.errorMessage(), current.metadataJson(),
+                current.errorMessage(),
                 current.taskType(), current.linkedPrNumber(), current.linkedIssueNumber(),
                 current.worktreePath(),
                 current.flow());

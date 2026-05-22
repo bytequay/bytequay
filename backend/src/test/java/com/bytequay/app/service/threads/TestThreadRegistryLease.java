@@ -203,7 +203,6 @@ class TestThreadRegistryLease
                 0L, 0L, 0L,
                 /* processPid */ null, /* logPath */ null,
                 now, now, null, null,
-                /* metadataJson */ "{}",
                 "DEVELOP", null, null, null, ThreadFlow.BUILD);
     }
 

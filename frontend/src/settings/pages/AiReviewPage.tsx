@@ -15,8 +15,9 @@ import { useState } from 'react';
 import CredentialsTab from '../../CredentialsTab';
 import ReviewSkillsTab from '../../ReviewSkillsTab';
 import ComingSoon from '../shared/ComingSoon';
+import AutomationTab from './AutomationTab';
 
-type Tab = 'credentials' | 'skills' | 'usage';
+type Tab = 'credentials' | 'skills' | 'automation' | 'usage';
 
 function AiReviewPage() {
   const [tab, setTab] = useState<Tab>('credentials');
@@ -54,6 +55,15 @@ function AiReviewPage() {
         <button
           type="button"
           role="tab"
+          aria-selected={tab === 'automation'}
+          className={`settings-page-tab${tab === 'automation' ? ' settings-page-tab--active' : ''}`}
+          onClick={() => setTab('automation')}
+        >
+          Automation
+        </button>
+        <button
+          type="button"
+          role="tab"
           aria-selected={tab === 'usage'}
           className={`settings-page-tab${tab === 'usage' ? ' settings-page-tab--active' : ''}`}
           onClick={() => setTab('usage')}
@@ -64,6 +74,7 @@ function AiReviewPage() {
 
       {tab === 'credentials' && <CredentialsTab filterType="AI" />}
       {tab === 'skills' && <ReviewSkillsTab />}
+      {tab === 'automation' && <AutomationTab />}
       {tab === 'usage' && (
         <ComingSoon
           title="Usage"

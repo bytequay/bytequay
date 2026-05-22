@@ -36,6 +36,11 @@ public interface AppSettingsStore
         public static final String LLM_PROVIDER = "llm.provider";
         /** Model name for the active provider (e.g. "claude-opus-4-7"). */
         public static final String LLM_MODEL = "llm.model";
+        /** Opt-in toggle for the {@code ScheduledReviewService}.
+         *  Stored as the string {@code "true"} when enabled; anything
+         *  else (or missing) means disabled. Off by default so the
+         *  app never silently burns LLM budget on a fresh install. */
+        public static final String SCHEDULED_REVIEWS_ENABLED = "scheduled_reviews.enabled";
     }
 
     /**

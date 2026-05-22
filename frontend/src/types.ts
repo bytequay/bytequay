@@ -2338,6 +2338,12 @@ export type Bridge = {
   /** Read the latest pass on a review thread — the URL the panel UI
    *  lives on uses the thread id, this resolves the pass for it. */
   getReviewPassByThread: (threadId: string) => Promise<ReviewPassDetailDto | null>;
+  /** Read the scheduled-reviews opt-in toggle. */
+  getScheduledReviewSettings: () => Promise<{ enabled: boolean }>;
+  /** Flip the scheduled-reviews opt-in toggle. The backend reads
+   *  it each tick so a flip takes effect on the next sweep without
+   *  a restart. */
+  setScheduledReviewSettings: (enabled: boolean) => Promise<{ enabled: boolean }>;
   /** Resolve one DISPUTED finding via the arbitration ballot.
    *  {@code resolution} = "include" flips it to ARBITRATED;
    *  "drop" flips it to DROPPED. When no DISPUTED findings remain

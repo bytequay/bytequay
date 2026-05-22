@@ -595,6 +595,9 @@ function App() {
         {nav.view === 'notifications' && (
           <NotificationsScreen
             onOpenThread={threadId => setNav({ view: 'thread-detail', threadId })}
+            onOpenReviewThread={threadId => setNav({
+              view: 'review-thread', threadId, back: nav,
+            })}
           />
         )}
         {nav.view === 'review-thread' && (

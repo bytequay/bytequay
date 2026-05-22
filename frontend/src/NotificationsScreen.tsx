@@ -20,12 +20,17 @@ type Props = {
   /** Click-to-thread navigation. The dispatch lives in App.tsx so
    *  it can flip top-level nav state. */
   onOpenThread?: (threadId: string) => void;
+  /** Same as {@link onOpenThread}, but routes to the review-thread
+   *  page instead of the build-thread detail. Used when a
+   *  notification's payload is tagged {@code source:
+   *  'scheduled-review'} so the click lands on the panel UI. */
+  onOpenReviewThread?: (threadId: string) => void;
 };
 
 /** Newest-first list of notifications backed by the bridge. Empty
  *  state explains what kinds of events will land here once the
  *  automation runtime starts producing them. */
-function NotificationsScreen({ onOpenThread }: Props) {
+function NotificationsScreen({ onOpenThread, onOpenReviewThread }: Props) {
   const [items, setItems] = useState<NotificationDto[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -67,8 +72,18 @@ function NotificationsScreen({ onOpenThread }: Props) {
         // markRead just leaves the badge unchanged until next poll.
       }
     }
-    if (n.threadId && onOpenThread) {
-      onOpenThread(n.threadId);
+    if (n.threadId) {
+      // Scheduled-review notifications carry source='scheduled-review'
+      // in their payload — those threads use the panel UI, so route
+      // the click to the review-thread page instead of build-thread
+      // detail. Other AWAITING_REVIEW payloads (push / post_comment)
+      // stay on the build-thread route they already use.
+      if (isScheduledReviewNotification(n) && onOpenReviewThread) {
+        onOpenReviewThread(n.threadId);
+      }
+      else if (onOpenThread) {
+        onOpenThread(n.threadId);
+      }
     }
     void refresh();
   };
@@ -162,6 +177,22 @@ function NotificationsScreen({ onOpenThread }: Props) {
       )}
     </section>
   );
+}
+
+/** True when the notification is tagged source='scheduled-review' —
+ *  i.e. one of the panel passes the ScheduledReviewService kicked
+ *  off. The click target is the review-thread page rather than the
+ *  build-thread detail. */
+function isScheduledReviewNotification(n: NotificationDto): boolean {
+  if (n.kind !== 'AWAITING_REVIEW') return false;
+  if (!n.payloadJson) return false;
+  try {
+    const raw = JSON.parse(n.payloadJson) as { source?: unknown };
+    return raw.source === 'scheduled-review';
+  }
+  catch {
+    return false;
+  }
 }
 
 /** True when the row should show a Review button that expands the

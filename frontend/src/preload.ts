@@ -526,6 +526,10 @@ const bridge: Bridge = {
     ipcRenderer.invoke('reviews:publish', { passId, verdict, findingIds }),
   arbitrateReviewFinding: (passId: string, findingId: string, resolution: 'include' | 'drop') =>
     ipcRenderer.invoke('reviews:arbitrate', { passId, findingId, resolution }),
+  getScheduledReviewSettings: () =>
+    ipcRenderer.invoke('reviews:scheduled:get'),
+  setScheduledReviewSettings: (enabled: boolean) =>
+    ipcRenderer.invoke('reviews:scheduled:set', enabled),
   setWorkspaceRepoAutoFix: (
     workspaceId: string, owner: string, repo: string, enabled: boolean,
   ): Promise<WorkspaceRepoDto> =>

@@ -16,17 +16,20 @@ package com.bytequay.app.web;
 import com.bytequay.app.domain.ReviewPassDetail;
 import com.bytequay.app.domain.ReviewVerdict;
 import com.bytequay.app.service.review.ReviewPassService;
+import com.bytequay.app.service.review.ScheduledReviewService;
 import org.springframework.http.HttpStatusCode;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.util.List;
+import java.util.Map;
 
 import static java.util.Objects.requireNonNull;
 
@@ -43,10 +46,12 @@ import static java.util.Objects.requireNonNull;
 public class ReviewController
 {
     private final ReviewPassService reviews;
+    private final ScheduledReviewService scheduledReviews;
 
-    public ReviewController(ReviewPassService reviews)
+    public ReviewController(ReviewPassService reviews, ScheduledReviewService scheduledReviews)
     {
         this.reviews = requireNonNull(reviews, "reviews is null");
+        this.scheduledReviews = requireNonNull(scheduledReviews, "scheduledReviews is null");
     }
 
     @PostMapping("/start")
@@ -115,9 +120,33 @@ public class ReviewController
         return reviews.arbitrateFinding(passId, findingId, body.resolution());
     }
 
+    /** Read the scheduled-reviews opt-in toggle. The settings UI
+     *  polls this to render the on/off state. */
+    @GetMapping("/scheduled-settings")
+    public Map<String, Boolean> getScheduledSettings()
+    {
+        return Map.of("enabled", scheduledReviews.isEnabled());
+    }
+
+    /** Flip the toggle. Stored in AppSettings; the @Scheduled loop
+     *  reads it each tick so a flip takes effect on the next tick
+     *  without restart. */
+    @PutMapping("/scheduled-settings")
+    public Map<String, Boolean> setScheduledSettings(@RequestBody ScheduledSettingsRequest body)
+    {
+        if (body == null) {
+            throw new ResponseStatusException(HttpStatusCode.valueOf(400),
+                    "request body is required");
+        }
+        scheduledReviews.setEnabled(body.enabled());
+        return Map.of("enabled", scheduledReviews.isEnabled());
+    }
+
     public record StartReviewRequest(String repoFullName, int prNumber) {}
 
     public record PublishReviewRequest(String verdict, List<String> findingIds) {}
 
     public record ArbitrateFindingRequest(String resolution) {}
+
+    public record ScheduledSettingsRequest(boolean enabled) {}
 }

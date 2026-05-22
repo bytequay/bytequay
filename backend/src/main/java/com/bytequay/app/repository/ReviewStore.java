@@ -1,0 +1,78 @@
+/*
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+package com.bytequay.app.repository;
+
+import com.bytequay.app.domain.ReviewFinding;
+import com.bytequay.app.domain.ReviewMessage;
+import com.bytequay.app.domain.ReviewParticipant;
+import com.bytequay.app.domain.ReviewPass;
+
+import java.util.List;
+import java.util.Optional;
+
+/**
+ * Persistence boundary for the review-panel surface. One store
+ * covers all four tables (passes / participants / messages /
+ * findings) because they share a transactional lifecycle — a pass is
+ * created with its participants in one shot, messages stream into
+ * the pass, findings come out of consensus extraction. Mirrors the
+ * shape of {@link WorkspaceStore} which similarly fronts a related
+ * pair of tables.
+ */
+public interface ReviewStore
+{
+    // ── passes ────────────────────────────────────────────────────────
+
+    void savePass(ReviewPass pass);
+
+    Optional<ReviewPass> findPassById(String id);
+
+    /** All passes for a thread, oldest first. A {@code flow='review'}
+     *  thread typically owns one active pass plus a small tail of
+     *  historical re-runs. */
+    List<ReviewPass> listPassesByThread(String threadId);
+
+    /** Cross-thread lookup by PR — useful for "this PR already has N
+     *  reviews" surfaces on the PR detail page. Newest first. */
+    List<ReviewPass> listPassesForPr(String repoFullName, int prNumber);
+
+    void deletePass(String id);
+
+    // ── participants ─────────────────────────────────────────────────
+
+    void saveParticipant(ReviewParticipant participant);
+
+    Optional<ReviewParticipant> findParticipantById(String id);
+
+    List<ReviewParticipant> listParticipantsForPass(String reviewPassId);
+
+    // ── messages ─────────────────────────────────────────────────────
+
+    void saveMessage(ReviewMessage message);
+
+    Optional<ReviewMessage> findMessageById(String id);
+
+    /** All messages on one pass, oldest first. Drives the transcript
+     *  view; the moderator also re-reads this to assemble the
+     *  referenced-by-id context for downstream model calls. */
+    List<ReviewMessage> listMessagesForPass(String reviewPassId);
+
+    // ── findings ─────────────────────────────────────────────────────
+
+    void saveFinding(ReviewFinding finding);
+
+    Optional<ReviewFinding> findFindingById(String id);
+
+    List<ReviewFinding> listFindingsForPass(String reviewPassId);
+}

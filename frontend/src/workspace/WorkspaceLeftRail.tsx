@@ -16,6 +16,10 @@ import type { WorkspaceSection } from './WorkspaceShell';
 type Props = {
   active: WorkspaceSection;
   onSelect: (section: WorkspaceSection) => void;
+  /** Open the new-workspace modal. Triggered from the brand row at
+   *  the top of the rail — that slot is the natural home for the
+   *  workspace switcher in multi-workspace mode. */
+  onOpenNewWorkspace?: () => void;
 };
 
 type Item = { id: WorkspaceSection; label: string; icon: string };
@@ -33,14 +37,21 @@ const ITEMS: Item[] = [
  *  Command bar is intentionally a placeholder for Phase 9 — it
  *  surfaces in the chrome now so the visual hierarchy matches the
  *  mockup, but clicking it doesn't open the command palette yet. */
-function WorkspaceLeftRail({ active, onSelect }: Props) {
+function WorkspaceLeftRail({ active, onSelect, onOpenNewWorkspace }: Props) {
   return (
     <aside className="workspace-rail" aria-label="Workspace navigation">
-      <div className="workspace-rail__brand">
+      <button
+        type="button"
+        className="workspace-rail__brand"
+        onClick={onOpenNewWorkspace}
+        disabled={!onOpenNewWorkspace}
+        title={onOpenNewWorkspace ? 'New workspace…' : undefined}
+        style={brandButtonStyle}
+      >
         <span className="workspace-rail__brand-badge" aria-hidden>B</span>
         <span className="workspace-rail__brand-name">ByteQuay</span>
         <span className="workspace-rail__brand-chevron" aria-hidden>▾</span>
-      </div>
+      </button>
       <div
         className="workspace-rail__commandbar"
         role="button"
@@ -77,5 +88,15 @@ function WorkspaceLeftRail({ active, onSelect }: Props) {
     </aside>
   );
 }
+
+const brandButtonStyle: React.CSSProperties = {
+  border: 'none',
+  background: 'transparent',
+  width: '100%',
+  cursor: 'pointer',
+  font: 'inherit',
+  color: 'inherit',
+  textAlign: 'left',
+};
 
 export default WorkspaceLeftRail;

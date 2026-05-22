@@ -621,6 +621,7 @@ function App() {
             onSelectSection={section => setNav({ view: 'workspace', section })}
             onOpenThread={threadId => setNav({ view: 'thread-detail', threadId })}
             onLeaveShell={() => setNav({ view: 'threads' })}
+            onOpenThreadCreate={() => setNav({ view: 'thread-create' })}
           />
         )}
         {nav.view === 'repos' && (

@@ -11,7 +11,10 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+import { useState } from 'react';
 import WorkspaceMemoryPage from '../settings/pages/WorkspaceMemoryPage';
+import NewThreadDialog from './NewThreadDialog';
+import NewWorkspaceDialog from './NewWorkspaceDialog';
 import WorkspaceHomePage from './WorkspaceHomePage';
 import WorkspaceInsightsPage from './WorkspaceInsightsPage';
 import WorkspaceLeftRail from './WorkspaceLeftRail';
@@ -30,6 +33,11 @@ type Props = {
    *  Threads section's "Go to threads list" button until we render
    *  ThreadsPage inline in a polish pass). */
   onLeaveShell?: () => void;
+  /** Punch from the new-thread dialog into the full create page
+   *  (existing ThreadCreatePage) so the user can finish picking
+   *  repo + agent + skills. The modal owns the prompt + start-mode
+   *  intent; everything else stays on the page. */
+  onOpenThreadCreate?: (params: { initialPrompt: string; initialGroupId?: string }) => void;
 };
 
 /** Calm-language workspace shell. Sibling of the existing top-level
@@ -37,20 +45,47 @@ type Props = {
  *  Settings) — clicking the "Workspace" entry in the global topbar
  *  mounts this; the user moves between the 5 inner sections via the
  *  left rail. Browse-mode pages stay outside the shell. */
-function WorkspaceShell({ section, onSelectSection, onOpenThread, onLeaveShell }: Props) {
+function WorkspaceShell({
+  section, onSelectSection, onOpenThread, onLeaveShell, onOpenThreadCreate,
+}: Props) {
+  const [newThreadOpen, setNewThreadOpen] = useState(false);
+  const [newWorkspaceOpen, setNewWorkspaceOpen] = useState(false);
+
   return (
     <section className="workspace-shell">
       <WorkspaceLeftRail
         active={section}
         onSelect={onSelectSection}
+        onOpenNewWorkspace={() => setNewWorkspaceOpen(true)}
       />
       <div className="workspace-content">
-        {section === 'home' && <WorkspaceHomePage onSelectSection={onSelectSection} />}
+        {section === 'home' && (
+          <WorkspaceHomePage
+            onSelectSection={onSelectSection}
+            onNewThread={() => setNewThreadOpen(true)}
+          />
+        )}
         {section === 'threads' && <WorkspaceThreadsPage onLeaveShell={onLeaveShell} />}
         {section === 'memory' && <WorkspaceMemoryPage onOpenThread={onOpenThread} />}
         {section === 'insights' && <WorkspaceInsightsPage />}
         {section === 'settings' && <WorkspaceSettingsPage />}
       </div>
+      {newThreadOpen && (
+        <NewThreadDialog
+          onClose={() => setNewThreadOpen(false)}
+          onContinueFullForm={({ prompt }) => {
+            setNewThreadOpen(false);
+            // The full create page owns repo + agent + skills + linked
+            // PR/issue; the dialog hands off the prompt it captured.
+            // start-mode is informational for now — the full page
+            // surfaces both modes through its own toggles.
+            onOpenThreadCreate?.({ initialPrompt: prompt });
+          }}
+        />
+      )}
+      {newWorkspaceOpen && (
+        <NewWorkspaceDialog onClose={() => setNewWorkspaceOpen(false)} />
+      )}
     </section>
   );
 }

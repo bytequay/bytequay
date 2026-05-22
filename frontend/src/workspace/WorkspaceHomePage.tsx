@@ -19,6 +19,9 @@ type Props = {
   /** Routes the "View all →" / "Open →" affordances directly into
    *  the matching workspace section. */
   onSelectSection: (section: WorkspaceSection) => void;
+  /** Open the new-thread modal. The shell owns the modal state so
+   *  the dialog can also be triggered from other surfaces later. */
+  onNewThread?: () => void;
 };
 
 const WORKSPACE_ID = 'ws-default';
@@ -38,7 +41,7 @@ const CHARS_PER_TOKEN = 4;
  *  markdown body for excerpts and the budget bar. Spend today is a
  *  rough estimate summed from threads updated today — proper
  *  aggregation lands with Insights (commit 3). */
-function WorkspaceHomePage({ onSelectSection }: Props) {
+function WorkspaceHomePage({ onSelectSection, onNewThread }: Props) {
   const [threads, setThreads] = useState<ThreadDto[]>([]);
   const [memoryMd, setMemoryMd] = useState<string>('');
   const [loading, setLoading] = useState(true);
@@ -88,8 +91,8 @@ function WorkspaceHomePage({ onSelectSection }: Props) {
         <button
           type="button"
           className="workspace-pageheader__action"
-          disabled
-          title="New-thread dialog ships in commit 5"
+          onClick={onNewThread}
+          disabled={!onNewThread}
         >
           + New thread
         </button>

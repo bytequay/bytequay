@@ -13,6 +13,7 @@
  */
 import { useEffect, useState } from 'react';
 import SettingCard from '../shared/SettingCard';
+import WorkspaceMemoryProposalBanner from './WorkspaceMemoryProposalBanner';
 
 /** v1 ships a single ambient workspace. When multi-workspace
  *  switching arrives, this constant becomes a useWorkspace() lookup. */
@@ -32,6 +33,10 @@ function WorkspaceMemoryPage() {
   const [distilling, setDistilling] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [statusMsg, setStatusMsg] = useState<string | null>(null);
+  /** Bumped to nudge the banner into an immediate refresh after a
+   *  manual Distill click — without it the user would wait up to 15s
+   *  for the next poll to show the new proposal. */
+  const [proposalRefreshKey, setProposalRefreshKey] = useState(0);
 
   const load = async () => {
     setLoading(true);
@@ -84,11 +89,9 @@ function WorkspaceMemoryPage() {
         setStatusMsg('No proposal queued — there were no Thread Overalls to fold '
             + 'in, or the distilled body matched the current memory.');
       } else {
-        // The distiller no longer overwrites memory_md directly — it
-        // queues a proposal for the user to confirm. Banner UI lands
-        // in a follow-up commit; for now we just acknowledge the queue.
         setStatusMsg(`Proposed ${proposal.proposedMd.length.toLocaleString()} chars `
-            + '— review and apply from the banner (coming soon).');
+            + '— review the banner above and apply or discard.');
+        setProposalRefreshKey(k => k + 1);
       }
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
@@ -109,6 +112,12 @@ function WorkspaceMemoryPage() {
           </div>
         </div>
       </div>
+
+      <WorkspaceMemoryProposalBanner
+        workspaceId={DEFAULT_WORKSPACE_ID}
+        refreshKey={proposalRefreshKey}
+        onApplied={() => { void load(); }}
+      />
 
       <SettingCard
         title="WORKSPACE.md"

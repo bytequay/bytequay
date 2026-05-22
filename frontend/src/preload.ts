@@ -66,6 +66,7 @@ import type {
   UserStatsDto,
   WatchedRepoDto,
   WorkUnitTaskDto,
+  WorkspaceRepoDto,
   CredentialTestResult,
 } from './types';
 
@@ -499,6 +500,12 @@ const bridge: Bridge = {
     ipcRenderer.invoke('threads:tasks:list', threadId),
   jumpInThread: (threadId: string): Promise<ThreadDto> =>
     ipcRenderer.invoke('threads:jumpIn', threadId),
+  listWorkspaceRepos: (workspaceId: string): Promise<WorkspaceRepoDto[]> =>
+    ipcRenderer.invoke('workspaces:repos:list', workspaceId),
+  setWorkspaceRepoAutoFix: (
+    workspaceId: string, owner: string, repo: string, enabled: boolean,
+  ): Promise<WorkspaceRepoDto> =>
+    ipcRenderer.invoke('workspaces:repos:autoFix', { workspaceId, owner, repo, enabled }),
   getTaskCheckpoints: (id: string): Promise<ThreadCheckpointDto[]> =>
     ipcRenderer.invoke('threads:checkpoints:list', id),
   generateTaskCheckpoint: (id: string): Promise<ThreadCheckpointDto | null> =>

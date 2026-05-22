@@ -12,16 +12,22 @@
  * limitations under the License.
  */
 import { useEffect, useMemo, useState } from 'react';
-import type { CredentialDto, WatchedRepoDto } from '../../types';
+import type { CredentialDto, WatchedRepoDto, WorkspaceRepoDto } from '../../types';
 import AddRepoModal from '../../AddRepoModal';
 import Avatar from '../../Avatar';
 import SettingCard from '../shared/SettingCard';
+
+/** v1 ships a single ambient workspace; the auto-fix toggle on each
+ *  watched repo writes against this id. Multi-workspace switching
+ *  will replace this constant with a useWorkspace() lookup. */
+const DEFAULT_WORKSPACE_ID = 'ws-default';
 
 type Tab = 'repos' | 'tokens';
 
 function WatchedReposPage() {
   const [tab, setTab] = useState<Tab>('repos');
   const [repos, setRepos] = useState<WatchedRepoDto[]>([]);
+  const [workspaceRepos, setWorkspaceRepos] = useState<WorkspaceRepoDto[]>([]);
   const [tokens, setTokens] = useState<CredentialDto[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -32,17 +38,34 @@ function WatchedReposPage() {
     setLoading(true);
     setError(null);
     try {
-      const [freshRepos, freshTokens] = await Promise.all([
+      const [freshRepos, freshTokens, freshWorkspaceRepos] = await Promise.all([
         window.bridge.getWatchedRepos(),
         window.bridge.listCredentials('REPO'),
+        // Pre-fetch in parallel; a backend that doesn't yet have the
+        // workspace_repos endpoint shouldn't blank the rest of the
+        // settings page, so we swallow the error here and surface it
+        // only at the toggle level.
+        window.bridge.listWorkspaceRepos(DEFAULT_WORKSPACE_ID)
+          .catch((): WorkspaceRepoDto[] => []),
       ]);
       setRepos(freshRepos);
       setTokens(freshTokens);
+      setWorkspaceRepos(freshWorkspaceRepos);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
       setLoading(false);
     }
+  };
+
+  const setRepoAutoFix = async (owner: string, repo: string, enabled: boolean) => {
+    const updated = await window.bridge.setWorkspaceRepoAutoFix(
+      DEFAULT_WORKSPACE_ID, owner, repo, enabled);
+    setWorkspaceRepos(prev => {
+      const next = prev.filter(r => r.repoFullName !== updated.repoFullName);
+      next.push(updated);
+      return next;
+    });
   };
 
   useEffect(() => { void load(); }, []);
@@ -106,7 +129,15 @@ function WatchedReposPage() {
       {loading && <div className="repo-loading">Loading…</div>}
       {error && <div className="repo-error">{error}</div>}
 
-      {!loading && tab === 'repos' && <ReposTab repos={repos} removing={removing} onRemove={handleRemove} />}
+      {!loading && tab === 'repos' && (
+        <ReposTab
+          repos={repos}
+          workspaceRepos={workspaceRepos}
+          removing={removing}
+          onRemove={handleRemove}
+          onAutoFixChange={setRepoAutoFix}
+        />
+      )}
       {!loading && tab === 'tokens' && <TokensTab repos={repos} tokens={tokens} onChange={load} />}
 
       {addOpen && (
@@ -122,13 +153,23 @@ function WatchedReposPage() {
 
 function ReposTab({
   repos,
+  workspaceRepos,
   removing,
   onRemove,
+  onAutoFixChange,
 }: {
   repos: WatchedRepoDto[];
+  workspaceRepos: WorkspaceRepoDto[];
   removing: string | null;
   onRemove: (owner: string, repo: string) => void;
+  onAutoFixChange: (owner: string, repo: string, enabled: boolean) => Promise<void>;
 }) {
+  const wsByFullName = useMemo(() => {
+    const m = new Map<string, WorkspaceRepoDto>();
+    for (const r of workspaceRepos) m.set(r.repoFullName, r);
+    return m;
+  }, [workspaceRepos]);
+
   if (repos.length === 0) {
     return (
       <SettingCard>
@@ -139,13 +180,29 @@ function ReposTab({
     );
   }
   return (
-    <SettingCard>
+    <SettingCard
+      hint={
+        <>
+          The <em>headless auto-fix</em> toggle is off by default. When
+          enabled, ByteQuay queues an agent turn against this repo's
+          failing-CI tasks; the agent still parks at the publish gate
+          (no silent push). Leave it off until you trust auto-fix for a
+          given repo.
+        </>
+      }
+    >
       {repos.map(r => {
         const fullName = `${r.owner}/${r.repo}`;
+        const workspaceRepo = wsByFullName.get(fullName);
         return (
           <div key={r.id} className="watched-row">
             <Avatar login={r.owner} size={20} className="avatar--repo" />
             <div className="watched-row__name">{fullName}</div>
+            <AutoFixToggle
+              fullName={fullName}
+              workspaceRepo={workspaceRepo}
+              onChange={enabled => onAutoFixChange(r.owner, r.repo, enabled)}
+            />
             <button
               className="button button--danger"
               type="button"
@@ -158,6 +215,53 @@ function ReposTab({
         );
       })}
     </SettingCard>
+  );
+}
+
+function AutoFixToggle({
+  fullName,
+  workspaceRepo,
+  onChange,
+}: {
+  fullName: string;
+  workspaceRepo: WorkspaceRepoDto | undefined;
+  onChange: (enabled: boolean) => Promise<void>;
+}) {
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const enabled = workspaceRepo?.autoFixEnabled === true;
+  // Repo isn't attached to the workspace yet — the V73 backfill
+  // covers existing repos, but ones added after the migration land
+  // outside it. Surface a hint so the user knows why the toggle is
+  // greyed out instead of guessing the backend was sleeping.
+  const attached = workspaceRepo !== undefined;
+  const flip = async () => {
+    setSaving(true);
+    setError(null);
+    try {
+      await onChange(!enabled);
+    } catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setSaving(false);
+    }
+  };
+  return (
+    <label
+      style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 12 }}
+      title={attached
+        ? `Headless auto-fix on CI failure for ${fullName}`
+        : `${fullName} isn't attached to the default workspace yet`}
+    >
+      <input
+        type="checkbox"
+        checked={enabled}
+        disabled={saving || !attached}
+        onChange={() => { void flip(); }}
+      />
+      <span>{saving ? 'Saving…' : 'Headless auto-fix'}</span>
+      {error !== null && <span style={{ color: '#b91c1c', fontStyle: 'italic' }}>{error}</span>}
+    </label>
   );
 }
 

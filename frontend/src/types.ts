@@ -1380,6 +1380,22 @@ export type ThreadCheckpointDto = {
   taskId: string | null;
 };
 
+/** One repo attached to a workspace. v1 ships a single ambient
+ *  workspace ({@code ws-default}), so for now the list mirrors the
+ *  watched-repos table 1:1; the row carries the workspace-level
+ *  settings that don't belong on the GitHub watched-list row
+ *  (default base branch, auto-fix opt-in). */
+export type WorkspaceRepoDto = {
+  workspaceId: string;
+  repoFullName: string;
+  defaultBaseBranch: string | null;
+  /** Off by default per CLAUDE.md; only when this is true will the
+   *  automation coordinator queue a headless agent turn against a
+   *  failing-CI candidate in this repo. */
+  autoFixEnabled: boolean;
+  addedAt: string;
+};
+
 /** One unit of work inside a {@link ThreadDto} — a branch + worktree +
  *  agent run + (eventually) a PR. A thread accumulates these as it
  *  rolls through "ship & continue" hops; at most one is non-terminal
@@ -2129,6 +2145,20 @@ export type Bridge = {
    *  and marks parked notifications for the thread as read. Returns
    *  the refreshed thread row. */
   jumpInThread: (threadId: string) => Promise<ThreadDto>;
+  /** List the repos attached to a workspace. Used by the watched-repos
+   *  settings page to read each repo's auto-fix flag — the data lives
+   *  on workspace_repos, not on the watched-repos table itself. */
+  listWorkspaceRepos: (workspaceId: string) => Promise<WorkspaceRepoDto[]>;
+  /** Flip the headless auto-fix opt-in for one repo. Off by default
+   *  per CLAUDE.md; only when this is explicitly true does the
+   *  automation coordinator queue a headless turn against a failing-
+   *  CI candidate in that repo. */
+  setWorkspaceRepoAutoFix: (
+    workspaceId: string,
+    owner: string,
+    repo: string,
+    enabled: boolean,
+  ) => Promise<WorkspaceRepoDto>;
   /** Active checkpoints for a thread — Overall first, then segments by
    *  descending seq. Drives the sidebar Checkpoints section and the
    *  cross-thread seed loader. */

@@ -2841,6 +2841,46 @@ const url = new URL(`${BACKEND_BASE}/api/search/repos`);
     return res.json();
   });
 
+  ipcMain.handle('workspaces:repos:list', async (_event, workspaceId: unknown) => {
+    if (typeof workspaceId !== 'string' || workspaceId.trim().length === 0) {
+      throw new Error('workspaceId must be a non-empty string');
+    }
+    const res = await fetch(
+      `${BACKEND_BASE}/api/workspaces/${encodeURIComponent(workspaceId)}/repos`);
+    if (!res.ok) {
+      const text = await res.text().catch(() => '');
+      throw new Error(`backend GET /api/workspaces/${workspaceId}/repos returned ${res.status}: ${text}`);
+    }
+    return res.json();
+  });
+
+  ipcMain.handle('workspaces:repos:autoFix', async (_event, args: unknown) => {
+    const params = args as { workspaceId?: unknown; owner?: unknown; repo?: unknown; enabled?: unknown };
+    const workspaceId = params?.workspaceId;
+    const owner = params?.owner;
+    const repo = params?.repo;
+    const enabled = params?.enabled;
+    if (typeof workspaceId !== 'string' || workspaceId.trim().length === 0
+        || typeof owner !== 'string' || owner.trim().length === 0
+        || typeof repo !== 'string' || repo.trim().length === 0
+        || typeof enabled !== 'boolean') {
+      throw new Error('workspaceId / owner / repo must be non-empty strings; enabled must be a boolean');
+    }
+    const res = await fetch(
+      `${BACKEND_BASE}/api/workspaces/${encodeURIComponent(workspaceId)}`
+        + `/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/auto-fix-enabled`,
+      {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ autoFixEnabled: enabled }),
+      });
+    if (!res.ok) {
+      const text = await res.text().catch(() => '');
+      throw new Error(`backend PUT auto-fix-enabled returned ${res.status}: ${text}`);
+    }
+    return res.json();
+  });
+
   ipcMain.handle('threads:checkpoints:list', async (_event, id: unknown) => {
     if (typeof id !== 'string' || id.trim().length === 0) {
       throw new Error('id must be a non-empty string');

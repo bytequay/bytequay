@@ -11,9 +11,10 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import { useCallback, useEffect, useState } from 'react';
-import type { ConvIndexEntryDto } from '../types';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import type { ConvIndexEntryDto, WorkUnitTaskDto } from '../types';
 import { useConvIndex } from './useConvIndex';
+import { useThreadTasks } from './useThreadTasks';
 
 type Variant = 'light' | 'dark';
 
@@ -52,6 +53,7 @@ export function ConvIndex({
   threadId, scrollContainerRef, onSseEvent, variant = 'light',
 }: Props) {
   const idx = useConvIndex(threadId);
+  const { tasks } = useThreadTasks(threadId);
   const [expanded, setExpanded] = useState(false);
 
   // Expose the hook's SSE callback to the parent without forcing a
@@ -125,6 +127,7 @@ export function ConvIndex({
           onPick={scrollToSeq}
           fullTextBySeq={idx.fullTextBySeq}
           palette={palette}
+          tasks={tasks ?? []}
         />
       ) : (
         <CollapsedStrip
@@ -178,7 +181,7 @@ function CollapsedStrip({
 function ExpandedPanel({
   entries, total, loaded, currentSeq,
   canLoadMore, loadingMore, olderCount,
-  error, onLoadOlder, onPick, fullTextBySeq, palette,
+  error, onLoadOlder, onPick, fullTextBySeq, palette, tasks,
 }: {
   entries: ConvIndexEntryDto[];
   total: number;
@@ -192,8 +195,10 @@ function ExpandedPanel({
   onPick: (seq: number) => void;
   fullTextBySeq: Record<number, string>;
   palette: Palette;
+  tasks: WorkUnitTaskDto[];
 }) {
   const [hoveredSeq, setHoveredSeq] = useState<number | null>(null);
+  const groups = useMemo(() => groupEntriesByTask(entries, tasks), [entries, tasks]);
   return (
     <>
       <div style={headStyle(palette)}>
@@ -216,22 +221,105 @@ function ExpandedPanel({
         <div style={errorRowStyle}>{error}</div>
       )}
       <div style={rowsStyle}>
-        {entries.map(e => (
-          <ConvIndexRow
-            key={e.seq}
-            entry={e}
-            isCurrent={e.seq === currentSeq}
-            isHovered={e.seq === hoveredSeq}
-            fullText={fullTextBySeq[e.seq] ?? null}
-            onHover={() => setHoveredSeq(e.seq)}
-            onLeave={() => setHoveredSeq(prev => prev === e.seq ? null : prev)}
-            onClick={() => onPick(e.seq)}
-            palette={palette}
-          />
+        {groups.map(group => (
+          <div key={group.key}>
+            {group.header !== null && (
+              <div style={taskHeaderStyle(palette)}>{group.header}</div>
+            )}
+            {group.entries.map(e => (
+              <ConvIndexRow
+                key={e.seq}
+                entry={e}
+                isCurrent={e.seq === currentSeq}
+                isHovered={e.seq === hoveredSeq}
+                fullText={fullTextBySeq[e.seq] ?? null}
+                onHover={() => setHoveredSeq(e.seq)}
+                onLeave={() => setHoveredSeq(prev => prev === e.seq ? null : prev)}
+                onClick={() => onPick(e.seq)}
+                palette={palette}
+              />
+            ))}
+          </div>
         ))}
       </div>
     </>
   );
+}
+
+type EntryGroup = {
+  key: string;
+  /** Rendered above the group when non-null. Suppressed for the
+   *  brainstorm bucket on a thread that never created a task. */
+  header: string | null;
+  entries: ConvIndexEntryDto[];
+};
+
+/**
+ * Bucket index entries by which task owns each one — derived from
+ * the tasks' {@code firstMsgSeq} / {@code lastMsgSeq} ranges. Entries
+ * with no covering task fall into a brainstorm bucket; the bucket
+ * gets a header only when the thread also has at least one
+ * materialised task, so a pure-brainstorm thread looks identical to
+ * the pre-grouping rail.
+ */
+function groupEntriesByTask(
+  entries: ConvIndexEntryDto[],
+  tasks: WorkUnitTaskDto[],
+): EntryGroup[] {
+  if (entries.length === 0) {
+    return [];
+  }
+  // Tasks that don't know their message range can't claim entries;
+  // skip them silently rather than guessing.
+  type Indexed = WorkUnitTaskDto & {
+    firstMsgSeq?: number | null;
+    lastMsgSeq?: number | null;
+  };
+  const ranged = (tasks as Indexed[])
+    .filter(t => typeof t.firstMsgSeq === 'number' && typeof t.lastMsgSeq === 'number')
+    .sort((a, b) => (a.firstMsgSeq ?? 0) - (b.firstMsgSeq ?? 0));
+
+  function ownerFor(seq: number): Indexed | null {
+    for (const t of ranged) {
+      const first = t.firstMsgSeq ?? 0;
+      const last = t.lastMsgSeq ?? Number.POSITIVE_INFINITY;
+      if (seq >= first && seq <= last) return t;
+    }
+    return null;
+  }
+
+  const buckets = new Map<string, EntryGroup>();
+  const orderedKeys: string[] = [];
+  for (const e of entries) {
+    const owner = ownerFor(e.seq);
+    const key = owner === null ? '__brainstorm__' : owner.id;
+    let bucket = buckets.get(key);
+    if (bucket === undefined) {
+      const header = owner === null
+        ? null
+        : `Task ${owner.seq}${owner.branchName !== null ? ` · ${owner.branchName}` : ''}`;
+      bucket = { key, header, entries: [] };
+      buckets.set(key, bucket);
+      orderedKeys.push(key);
+    }
+    bucket.entries.push(e);
+  }
+  // Single brainstorm bucket on a thread with no materialised tasks
+  // → fall back to the original flat rendering by clearing the
+  // header. Matches the pre-grouping pre-Task behaviour.
+  if (orderedKeys.length === 1
+      && orderedKeys[0] === '__brainstorm__'
+      && ranged.length === 0) {
+    const only = buckets.get('__brainstorm__')!;
+    return [{ ...only, header: null }];
+  }
+  // Brainstorm bucket on a thread that *does* have tasks → label it
+  // explicitly so the rail makes the prefix readable.
+  const brainstorm = buckets.get('__brainstorm__');
+  if (brainstorm !== undefined && brainstorm.header === null) {
+    brainstorm.header = 'Brainstorm · before first task';
+  }
+  return orderedKeys.map(k => buckets.get(k)!);
 }
 
 function ConvIndexRow({
@@ -463,6 +551,17 @@ const rowsStyle: React.CSSProperties = {
   flexDirection: 'column',
   gap: 1,
 };
+
+function taskHeaderStyle(p: Palette): React.CSSProperties {
+  return {
+    fontSize: 10,
+    fontWeight: 700,
+    letterSpacing: '0.04em',
+    textTransform: 'uppercase',
+    color: p.subColor,
+    padding: '6px 10px 2px',
+  };
+}
 
 function rowStyle(p: Palette): React.CSSProperties {
   return {

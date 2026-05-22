@@ -84,7 +84,7 @@ function userMessage(args: { seq: number; ts: string; text: string }): ThreadMes
     role: 'user',
     type: 'text',
     contentJson: JSON.stringify({ text: args.text }),
-    callId: null,
+    durationMs: null,
     tokensIn: 0,
     tokensOut: 0,
     costUsdMilli: 0,

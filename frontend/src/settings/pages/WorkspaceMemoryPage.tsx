@@ -39,6 +39,10 @@ function WorkspaceMemoryPage({ onOpenThread }: Props) {
   const [distilling, setDistilling] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [statusMsg, setStatusMsg] = useState<string | null>(null);
+  /** Default is the parsed section view; edit drops the user into the
+   *  textarea. Save returns to view so the new sections are visible
+   *  without an extra click. */
+  const [mode, setMode] = useState<'view' | 'edit'>('view');
   /** Bumped to nudge the banner into an immediate refresh after a
    *  manual Distill click — without it the user would wait up to 15s
    *  for the next poll to show the new proposal. */
@@ -72,6 +76,9 @@ function WorkspaceMemoryPage({ onOpenThread }: Props) {
       setMemory(updated.memoryMd);
       setOriginal(updated.memoryMd);
       setStatusMsg('Saved.');
+      // Return to the section view after a successful save so the
+      // user immediately sees the rendered structure.
+      setMode('view');
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
@@ -106,6 +113,8 @@ function WorkspaceMemoryPage({ onOpenThread }: Props) {
     }
   };
 
+  const sections = parseMemorySections(memory);
+
   return (
     <>
       <header className="workspace-pageheader">
@@ -117,15 +126,25 @@ function WorkspaceMemoryPage({ onOpenThread }: Props) {
             hand.
           </div>
         </div>
-        <button
-          type="button"
-          className="workspace-pageheader__action"
-          onClick={() => { void distill(); }}
-          disabled={distilling || saving}
-          title="Ask Haiku to fold recent Thread Overalls into this blob"
-        >
-          {distilling ? 'Distilling…' : 'Distill from threads'}
-        </button>
+        <div style={headerActionsStyle}>
+          <button
+            type="button"
+            style={secondaryActionStyle}
+            onClick={() => { setMode(mode === 'view' ? 'edit' : 'view'); }}
+            disabled={loading}
+          >
+            {mode === 'view' ? 'Edit raw markdown' : 'View sections'}
+          </button>
+          <button
+            type="button"
+            className="workspace-pageheader__action"
+            onClick={() => { void distill(); }}
+            disabled={distilling || saving}
+            title="Ask Haiku to fold recent Thread Overalls into this blob"
+          >
+            {distilling ? 'Distilling…' : 'Distill from threads'}
+          </button>
+        </div>
       </header>
 
       <WorkspaceMemoryProposalBanner
@@ -135,62 +154,128 @@ function WorkspaceMemoryPage({ onOpenThread }: Props) {
         onOpenThread={onOpenThread}
       />
 
-      <section className="workspace-card" aria-label="WORKSPACE.md editor">
-        <div className="workspace-card__head">
-          <div className="workspace-card__title">WORKSPACE.md</div>
-          <span style={budgetTextStyle}>
-            {memory.length.toLocaleString()} / {TARGET_CHARS.toLocaleString()} chars
-            {overBudget && <span style={budgetWarnStyle}> · over budget</span>}
-          </span>
-        </div>
-        {loading ? (
+      <section className="workspace-card" style={budgetCardStyle} aria-label="Memory budget">
+        <BudgetBar used={memory.length} target={TARGET_CHARS} />
+        <span style={budgetTextInlineStyle}>
+          {memory.length.toLocaleString()} / {TARGET_CHARS.toLocaleString()} chars
+          {overBudget && <span style={budgetWarnStyle}> · over budget</span>}
+        </span>
+      </section>
+
+      {loading ? (
+        <section className="workspace-card" aria-label="Loading">
           <div style={loadingStyle}>Loading…</div>
+        </section>
+      ) : mode === 'view' ? (
+        sections.length === 0 ? (
+          <section className="workspace-card" aria-label="Empty memory">
+            <div style={emptyStateStyle}>
+              No memory yet. Distill from threads, or switch to
+              "Edit raw markdown" to write the first section.
+            </div>
+          </section>
         ) : (
           <>
-            <BudgetBar used={memory.length} target={TARGET_CHARS} />
-            <textarea
-              value={memory}
-              onChange={e => { setMemory(e.target.value); }}
-              spellCheck={false}
-              style={textareaStyle}
-              placeholder="# Architecture&#10;&#10;# Active work&#10;&#10;# Decisions&#10;&#10;# Blockers"
-            />
-            <div style={actionsRowStyle}>
-              <button
-                type="button"
-                className="button button--primary"
-                onClick={() => { void save(); }}
-                disabled={!dirty || saving}
+            {sections.map(s => (
+              <section
+                className="workspace-card"
+                style={sectionCardStyle}
+                key={s.heading}
+                aria-label={s.heading}
               >
-                {saving ? 'Saving…' : 'Save'}
-              </button>
-              <button
-                type="button"
-                className="button"
-                onClick={discard}
-                disabled={!dirty || saving}
-              >
-                Discard changes
-              </button>
-              <div style={{ flex: 1 }} />
-              <span style={hintStyle}>
-                Target ~{TARGET_CHARS.toLocaleString()} chars; budget bar turns
-                red past the soft cap.
-              </span>
-            </div>
-            {(statusMsg !== null || error !== null) && (
-              <div style={statusRowStyle}>
-                {error !== null && <span style={errorStyle}>{error}</span>}
-                {statusMsg !== null && error === null && (
-                  <span style={statusOkStyle}>{statusMsg}</span>
-                )}
-              </div>
-            )}
+                <div className="workspace-card__head">
+                  <div className="workspace-card__title">
+                    {s.heading}
+                    <span className="workspace-card__title-count">
+                      {s.bullets.length}
+                    </span>
+                  </div>
+                </div>
+                <ul style={sectionBulletsStyle}>
+                  {s.bullets.map((b, i) => (
+                    <li key={i} style={bulletStyleFor(s.heading)}>{b}</li>
+                  ))}
+                </ul>
+              </section>
+            ))}
           </>
-        )}
-      </section>
+        )
+      ) : (
+        <section className="workspace-card" aria-label="WORKSPACE.md editor">
+          <div className="workspace-card__head">
+            <div className="workspace-card__title">WORKSPACE.md</div>
+          </div>
+          <textarea
+            value={memory}
+            onChange={e => { setMemory(e.target.value); }}
+            spellCheck={false}
+            style={textareaStyle}
+            placeholder="## Architecture&#10;&#10;## Active work&#10;&#10;## Decisions&#10;&#10;## Blockers"
+          />
+          <div style={actionsRowStyle}>
+            <button
+              type="button"
+              className="button button--primary"
+              onClick={() => { void save(); }}
+              disabled={!dirty || saving}
+            >
+              {saving ? 'Saving…' : 'Save'}
+            </button>
+            <button
+              type="button"
+              className="button"
+              onClick={discard}
+              disabled={!dirty || saving}
+            >
+              Discard changes
+            </button>
+            <div style={{ flex: 1 }} />
+            <span style={hintStyle}>
+              Target ~{TARGET_CHARS.toLocaleString()} chars; budget bar turns
+              red past the soft cap.
+            </span>
+          </div>
+        </section>
+      )}
+
+      {(statusMsg !== null || error !== null) && (
+        <div style={statusRowStyle}>
+          {error !== null && <span style={errorStyle}>{error}</span>}
+          {statusMsg !== null && error === null && (
+            <span style={statusOkStyle}>{statusMsg}</span>
+          )}
+        </div>
+      )}
     </>
   );
+}
+
+/** Parse a markdown blob into top-level "##" sections, capturing each
+ *  bullet underneath. Trailing "[thread:id]" back-link markers are
+ *  stripped from the bullet text — Home renders the chip there, and
+ *  this page treats them as noise inside the bullet body. */
+function parseMemorySections(md: string): { heading: string; bullets: string[] }[] {
+  if (md.length === 0) return [];
+  const sections: { heading: string; bullets: string[] }[] = [];
+  let cur: { heading: string; bullets: string[] } | null = null;
+  for (const line of md.split('\n')) {
+    const heading = /^##\s+(.+?)\s*$/.exec(line);
+    if (heading !== null) {
+      cur = { heading: heading[1].trim(), bullets: [] };
+      sections.push(cur);
+      continue;
+    }
+    if (cur === null) continue;
+    const bullet = /^\s*[-*]\s+(.+)$/.exec(line);
+    if (bullet !== null) {
+      cur.bullets.push(bullet[1].replace(/\s*\[thread:[A-Za-z0-9_-]+\]/g, '').trim());
+    }
+  }
+  return sections;
+}
+
+function bulletStyleFor(heading: string): React.CSSProperties {
+  return heading === 'Blockers' ? blockerBulletStyle : neutralBulletStyle;
 }
 
 function BudgetBar({ used, target }: { used: number; target: number }) {
@@ -208,6 +293,71 @@ function BudgetBar({ used, target }: { used: number; target: number }) {
     </div>
   );
 }
+
+const headerActionsStyle: React.CSSProperties = {
+  display: 'flex',
+  gap: 8,
+  alignItems: 'center',
+};
+
+const secondaryActionStyle: React.CSSProperties = {
+  padding: '6px 11px',
+  fontSize: 12,
+  fontWeight: 500,
+  color: 'var(--ws-accent-deep)',
+  background: 'rgba(255, 255, 255, 0.5)',
+  border: '1px solid var(--ws-card-border)',
+  borderRadius: 8,
+  cursor: 'pointer',
+};
+
+const budgetCardStyle: React.CSSProperties = {
+  display: 'flex',
+  alignItems: 'center',
+  gap: 12,
+  marginBottom: 14,
+  padding: '10px 14px',
+};
+
+const budgetTextInlineStyle: React.CSSProperties = {
+  fontSize: 11,
+  color: 'var(--ws-text-3)',
+  fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
+  whiteSpace: 'nowrap',
+  flexShrink: 0,
+};
+
+const sectionCardStyle: React.CSSProperties = {
+  marginBottom: 12,
+};
+
+const sectionBulletsStyle: React.CSSProperties = {
+  listStyle: 'disc',
+  paddingLeft: 20,
+  margin: 0,
+  display: 'flex',
+  flexDirection: 'column',
+  gap: 4,
+};
+
+const neutralBulletStyle: React.CSSProperties = {
+  fontSize: 13,
+  color: 'var(--ws-text-2)',
+  lineHeight: 1.55,
+};
+
+const blockerBulletStyle: React.CSSProperties = {
+  fontSize: 13,
+  color: '#dc2626',
+  lineHeight: 1.55,
+};
+
+const emptyStateStyle: React.CSSProperties = {
+  padding: '16px 0',
+  fontSize: 13,
+  color: 'var(--ws-text-3)',
+  textAlign: 'center',
+};
 
 const textareaStyle: React.CSSProperties = {
   width: '100%',

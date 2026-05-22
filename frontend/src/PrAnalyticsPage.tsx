@@ -120,7 +120,7 @@ function ReviewsAnalyticsView({ onOpenPr, view, onChangeView }: ReviewsProps) {
 
   return (
     <div className="analytics-page calm-page">
-      <header className="analytics-page__header">
+      <header className="analytics-page__header calm-page-header">
         <div className="analytics-page__crumbs">
           <span className="analytics-page__crumb-back">Pull requests</span>
           <span className="analytics-page__crumb-sep" aria-hidden="true">›</span>

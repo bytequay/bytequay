@@ -108,7 +108,7 @@ function ReposPage({ onSelectRepo }: Props) {
 
   return (
     <div className="repos-page calm-page">
-      <header className="repos-page__header">
+      <header className="repos-page__header calm-page-header">
         <div className="repos-page__header-row">
           <div>
             <h1 className="repos-page__title">Repos</h1>

@@ -106,7 +106,7 @@ function MergeHistoryPage({ onBack, onSelect }: Props) {
 
   return (
     <div className="merge-history calm-page">
-      <header className="merge-history__header">
+      <header className="merge-history__header calm-page-header">
         <button type="button" className="merge-history__back" onClick={onBack} title="Back to the kanban">
           ← Back
         </button>

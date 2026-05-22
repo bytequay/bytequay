@@ -469,7 +469,7 @@ export default function EmailPage({ onOpenIntegrationsSettings, onOpenLinkedRef 
 
   return (
     <div className="email-page calm-page">
-      <header className="email-page__header">
+      <header className="email-page__header calm-page-header">
         <div className="email-page__accounts">
           {accounts.map(acc => (
             <button

@@ -101,7 +101,7 @@ function NotificationsScreen({ onOpenThread, onOpenReviewThread }: Props) {
 
   return (
     <section className="notifications-screen calm-page">
-      <header className="notifications-screen__head">
+      <header className="notifications-screen__head calm-page-header">
         <h1 className="notifications-screen__title">Notifications</h1>
         <p className="notifications-screen__subtitle">
           Headless-fix progress and parked work shows up here. Click an

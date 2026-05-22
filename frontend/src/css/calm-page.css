@@ -54,3 +54,23 @@
 .calm-page > * {
   position: relative;
 }
+
+/* Header modifier — opt-in for inbox/dashboard pages that already have
+ * their own header class with bespoke flex layout. Adds the sticky
+ * frosted-blurred treatment from workspace-pageheader without touching
+ * the page's existing inner layout, so titles, controls, and crumbs
+ * stay where they are. Mask is the near-white --ws-bg-base because the
+ * calm-page mesh starts from that base; the workspace-pageheader in
+ * workspace.css uses a slightly purple-tinted mask for its own mesh
+ * region and the two stay deliberately different. */
+.calm-page-header {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  background: linear-gradient(to bottom,
+    rgba(250, 250, 254, 0.95),
+    rgba(250, 250, 254, 0.7) 70%,
+    transparent);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+}

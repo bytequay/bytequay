@@ -11,6 +11,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
+import type { ReactNode } from 'react';
 import type { WorkspaceSection } from './WorkspaceShell';
 
 type Props = {
@@ -40,14 +41,59 @@ type Props = {
   hasUnreadThread?: boolean;
 };
 
-type Item = { id: WorkspaceSection; label: string; icon: string };
+type Item = { id: WorkspaceSection; label: string; icon: ReactNode };
+
+/** Tiny stroke-only glyphs — 16px box, 1.6 stroke, currentColor so the
+ *  rail's hover / active text colour drives the icon colour too. Kept
+ *  inline as bare SVG (no icon library dep) since each shape is one or
+ *  two paths. */
+function strokeIcon(d: string) {
+  return (
+    <svg
+      width="16"
+      height="16"
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth="1.6"
+      strokeLinecap="round"
+      strokeLinejoin="round"
+    >
+      <path d={d} />
+    </svg>
+  );
+}
+
+const HOME_ICON = strokeIcon('M4 11l8-7 8 7v9a1 1 0 0 1-1 1h-4v-6h-6v6H5a1 1 0 0 1-1-1v-9z');
+const THREADS_ICON = (
+  <svg
+    width="16" height="16" viewBox="0 0 24 24" fill="none"
+    stroke="currentColor" strokeWidth="1.6"
+    strokeLinecap="round" strokeLinejoin="round"
+  >
+    <path d="M3 5h11a1 1 0 0 1 1 1v6a1 1 0 0 1-1 1H7l-4 3V5z" />
+    <path d="M8 17v2a1 1 0 0 0 1 1h10l2 2v-9a1 1 0 0 0-1-1h-2" />
+  </svg>
+);
+const MEMORY_ICON = strokeIcon('M5 4h12a2 2 0 0 1 2 2v14H7a2 2 0 0 1-2-2V4zm0 14a2 2 0 0 0 2 2');
+const INSIGHTS_ICON = strokeIcon('M4 4v16h16M8 16v-4M12 16V8M16 16v-7');
+const SETTINGS_ICON = (
+  <svg
+    width="16" height="16" viewBox="0 0 24 24" fill="none"
+    stroke="currentColor" strokeWidth="1.6"
+    strokeLinecap="round" strokeLinejoin="round"
+  >
+    <circle cx="12" cy="12" r="3" />
+    <path d="M12 3v3M12 18v3M3 12h3M18 12h3M5.6 5.6l2.1 2.1M16.3 16.3l2.1 2.1M5.6 18.4l2.1-2.1M16.3 7.7l2.1-2.1" />
+  </svg>
+);
 
 const ITEMS: Item[] = [
-  { id: 'home', label: 'Home', icon: '•' },
-  { id: 'threads', label: 'Threads', icon: '▢' },
-  { id: 'memory', label: 'Memory', icon: '◇' },
-  { id: 'insights', label: 'Insights', icon: '△' },
-  { id: 'settings', label: 'Settings', icon: '●' },
+  { id: 'home', label: 'Home', icon: HOME_ICON },
+  { id: 'threads', label: 'Threads', icon: THREADS_ICON },
+  { id: 'memory', label: 'Memory', icon: MEMORY_ICON },
+  { id: 'insights', label: 'Insights', icon: INSIGHTS_ICON },
+  { id: 'settings', label: 'Settings', icon: SETTINGS_ICON },
 ];
 
 /** Workspace-scoped left rail. The brand chip + command-bar

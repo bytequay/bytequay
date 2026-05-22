@@ -12,7 +12,7 @@
  * limitations under the License.
  */
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from 'react';
-import type { ThreadMessageDto } from '../types';
+import type { ThreadMessageDto, WorkUnitTaskDto } from '../types';
 import { AskQuestionCard } from './AskQuestionCard';
 import type { PendingPermission } from './ConversationPane';
 import { MarkdownProse } from './MarkdownProse';
@@ -31,6 +31,12 @@ type Props = {
    *  growing chunk-by-chunk; cleared by the parent once the canonical
    *  assistant message lands. Empty string when nothing is in flight. */
   liveText?: string;
+  /** Work-unit tasks for this thread, ordered by seq ascending. Used
+   *  to draw task-boundary markers (`━ Shipped Task N · started
+   *  Task N+1 on <branch> ━`) at the seam between a task's last
+   *  message and the next task's first message. Empty for threads
+   *  in the 0-Task brainstorm state. */
+  tasks?: WorkUnitTaskDto[];
 };
 
 /**
@@ -54,7 +60,7 @@ type Props = {
  * scrolled away, mirroring the terminal pane's stickiness.
  */
 export function StructuredConversation({
-  messages, pendingPermission, onDecide, modelName, liveText = '',
+  messages, pendingPermission, onDecide, modelName, liveText = '', tasks = [],
 }: Props) {
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const stickRef = useRef(true);
@@ -118,6 +124,10 @@ export function StructuredConversation({
   );
   const events = useMemo(() => groupAndPair(window.visible), [window.visible]);
   const cards = useMemo(() => buildDialog(events, modelName), [events, modelName]);
+  // Map a card's first-message seq → "this card starts task N>1". The
+  // boundary marker renders ABOVE that card, between the previous
+  // task's last message and the new task's first prompt.
+  const boundariesBySeq = useMemo(() => taskBoundaries(tasks), [tasks]);
 
   return (
     <div style={scrollStyle} ref={scrollRef}>
@@ -136,7 +146,15 @@ export function StructuredConversation({
           Waiting for the first turn — send a prompt below to kick off.
         </div>
       )}
-      {cards.map(c => renderCard(c, onDecide))}
+      {cards.flatMap(c => {
+        const seq = cardFirstSeq(c);
+        const boundary = seq === null ? null : boundariesBySeq.get(seq) ?? null;
+        const out = boundary === null
+          ? []
+          : [<TaskBoundaryDivider key={`boundary-${seq}`} boundary={boundary} />];
+        out.push(renderCard(c, onDecide));
+        return out;
+      })}
       {liveText.length > 0 && <StreamingCard text={liveText} modelName={modelName} />}
       {pendingPermission && (
         <PermissionCard permission={pendingPermission} onDecide={onDecide} />
@@ -310,6 +328,66 @@ function renderCard(c: Card, onDecide: PermissionDecideHandler) {
   if (c.kind === 'assistant') return <AssistantCard key={c.key} card={c} />;
   if (c.kind === 'error') return <ErrorCard key={c.key} message={c.message} />;
   return <LifecycleLine key={c.key} message={c.message} onDecide={onDecide} />;
+}
+
+type TaskBoundary = { from: WorkUnitTaskDto; to: WorkUnitTaskDto };
+
+/** Returns the message seq of each card's earliest message, or null
+ *  for non-message cards (day separators). Used to place task-
+ *  boundary dividers at the right point in the rendered card stream. */
+function cardFirstSeq(card: Card): number | null {
+  if (card.kind === 'day') return null;
+  if (card.kind === 'user' || card.kind === 'error' || card.kind === 'lifecycle') {
+    return card.message.seq;
+  }
+  // Assistant card aggregates items; the earliest one defines the
+  // "this is where the assistant turn started" position.
+  for (const item of card.items) {
+    if (item.kind === 'tool') return item.call.seq;
+    return item.message.seq;
+  }
+  return card.turn?.seq ?? null;
+}
+
+/** For each Task whose seq > 1, returns a Map keyed by the task's
+ *  {@code firstMsgSeq}. The render loop inserts a boundary divider
+ *  before the first card whose first-message seq matches. Tasks
+ *  without a {@code firstMsgSeq} (not yet started, or the legacy
+ *  backfilled row with no message range) don't contribute. */
+function taskBoundaries(tasks: WorkUnitTaskDto[]): Map<number, TaskBoundary> {
+  const sorted = [...tasks].sort((a, b) => a.seq - b.seq);
+  const out = new Map<number, TaskBoundary>();
+  for (let i = 1; i < sorted.length; i++) {
+    const from = sorted[i - 1];
+    const to = sorted[i];
+    // The "to" task must know where it starts in the message log; the
+    // "from" task is just the label source so a missing firstMsgSeq
+    // on it is fine.
+    const seq = (to as WorkUnitTaskDto & { firstMsgSeq?: number | null }).firstMsgSeq;
+    if (typeof seq === 'number' && seq > 0) {
+      out.set(seq, { from, to });
+    }
+  }
+  return out;
+}
+
+function TaskBoundaryDivider({ boundary }: { boundary: TaskBoundary }) {
+  const { from, to } = boundary;
+  // Prefer PR destination for the "shipped" half, branch name as a
+  // fallback — matches how the rail's task-row pill picks its label.
+  const fromLabel = from.prNumber !== null
+    ? `PR #${from.prNumber}${(from.prState ?? '').toLowerCase() === 'merged' ? ' merged' : ''}`
+    : (from.branchName ?? `Task ${from.seq}`);
+  const toLabel = to.branchName ?? `Task ${to.seq}`;
+  return (
+    <div style={taskBoundaryStyle}>
+      <span style={taskBoundaryLineStyle} />
+      <span style={taskBoundaryLabelStyle}>
+        ✓ Shipped Task {from.seq} · {fromLabel} · started Task {to.seq} on {toLabel}
+      </span>
+      <span style={taskBoundaryLineStyle} />
+    </div>
+  );
 }
 
 function DaySeparator({ iso }: { iso: string }) {
@@ -993,6 +1071,19 @@ const daySepLineStyle: React.CSSProperties = {
 const daySepLabelStyle: React.CSSProperties = {
   fontSize: 10.5, fontWeight: 700, letterSpacing: '0.08em',
   color: 'var(--text-4)',
+};
+
+const taskBoundaryStyle: React.CSSProperties = {
+  display: 'flex', alignItems: 'center', gap: 10,
+  margin: '12px 0 8px',
+};
+const taskBoundaryLineStyle: React.CSSProperties = {
+  flex: 1, height: 1, background: 'var(--accent-a40, rgba(46,125,50,0.40))',
+};
+const taskBoundaryLabelStyle: React.CSSProperties = {
+  fontSize: 10.5, fontWeight: 700, letterSpacing: '0.04em',
+  color: 'var(--accent-dark, #2e7d32)',
+  whiteSpace: 'nowrap',
 };
 
 const cardHeaderStyle: React.CSSProperties = {

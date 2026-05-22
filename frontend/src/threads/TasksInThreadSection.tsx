@@ -11,8 +11,9 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import { useCallback, useEffect, useState } from 'react';
+import { useState } from 'react';
 import type { WorkUnitTaskDto } from '../types';
+import { useThreadTasks } from './useThreadTasks';
 
 type Props = {
   threadId: string;
@@ -42,34 +43,9 @@ const ACTIVE_STATUSES = new Set([
  * have data.
  */
 export function TasksInThreadSection({ threadId }: Props) {
-  const [tasks, setTasks] = useState<WorkUnitTaskDto[] | null>(null);
-  const [error, setError] = useState<string | null>(null);
+  const { tasks, error, refresh } = useThreadTasks(threadId);
   const [shipping, setShipping] = useState(false);
   const [shipError, setShipError] = useState<string | null>(null);
-
-  const refresh = useCallback(async () => {
-    try {
-      const list = await window.bridge.listTasksForThread(threadId);
-      setTasks(list);
-      setError(null);
-    }
-    catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
-    }
-  }, [threadId]);
-
-  useEffect(() => {
-    let cancelled = false;
-    setTasks(null);
-    setError(null);
-    setShipError(null);
-    void (async () => {
-      if (!cancelled) {
-        await refresh();
-      }
-    })();
-    return () => { cancelled = true; };
-  }, [threadId, refresh]);
 
   if (error !== null) {
     return <div style={errorStyle}>Could not load tasks: {error}</div>;

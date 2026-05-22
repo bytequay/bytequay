@@ -39,6 +39,7 @@ import { useAutoGrowTextarea, usePersistentDraft } from './draftStore';
 import { ConvIndex } from './ConvIndex';
 import { CheckpointsSection } from './CheckpointsSection';
 import { TasksInThreadSection } from './TasksInThreadSection';
+import { useThreadTasks } from './useThreadTasks';
 import { DiffModeToggle, ThreadDiffPane, useTaskDiffState, type DiffMode } from './ThreadChangesTab';
 import { findPendingPermission } from './permissions';
 import { threadAgentCwd, threadDisplayBranch, threadModelLabel, threadTokenLabel } from './threadDisplay';
@@ -224,6 +225,12 @@ export default function ThreadDetailPage({
   const [theme, setTheme] = useState<TermTheme>(loadTheme);
   const [view, setView] = useState<DetailView>(loadView);
   const [sidebarCollapsed, setSidebarCollapsed] = useState<boolean>(loadSidebarCollapsed);
+  // Work-unit tasks for the thread — used to draw task-boundary
+  // dividers in the conversation pane. Hook fetches on mount + on
+  // threadId change; the sidebar's TasksInThreadSection runs its own
+  // copy of the hook to drive Ship & continue. Two fetches but local
+  // SQLite, negligible.
+  const { tasks: threadTasks } = useThreadTasks(threadId);
 
   useEffect(() => {
     try { window.localStorage.setItem(THEME_STORAGE_KEY, theme); }
@@ -662,6 +669,7 @@ export default function ThreadDetailPage({
                 threadId={threadId}
                 historyScrollRef={historyScrollRef}
                 convIndexSseRef={convIndexSseRef}
+                threadTasks={threadTasks}
               />
             )}
             {view === 'terminal' && (
@@ -895,6 +903,7 @@ function StructuredView({
   threadId,
   historyScrollRef,
   convIndexSseRef,
+  threadTasks,
 }: {
   thread: ThreadDto;
   modelName: string;
@@ -951,6 +960,12 @@ function StructuredView({
    *  the callback from its existing stream handler so we don't
    *  open a second SSE per thread. */
   convIndexSseRef: React.MutableRefObject<((name: string) => void) | null>;
+  /** Work-unit tasks for this thread, oldest-seq first. Forwarded to
+   *  StructuredConversation so it can draw task-boundary dividers
+   *  at the seam between consecutive tasks. Null during the brief
+   *  initial fetch window; the conversation degrades to no
+   *  dividers, which is the right behaviour. */
+  threadTasks: import('../types').WorkUnitTaskDto[] | null;
 }) {
   const turns = useMemo(
     () => messages.filter(m => m.type === 'turn_done').length,
@@ -1044,6 +1059,7 @@ function StructuredView({
             onDecide={onDecide}
             modelName={modelName}
             liveText={liveText}
+            tasks={threadTasks ?? undefined}
           />
         </div>
         {/* Floating right-edge index panel — anchored to the

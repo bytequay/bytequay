@@ -18,6 +18,7 @@ export type SettingsSection =
   | 'teams'
   | 'ai-review'
   | 'watched-repos'
+  | 'workspace-memory'
   | 'integrations'
   | 'email'
   | 'help';

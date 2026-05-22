@@ -1380,6 +1380,24 @@ export type ThreadCheckpointDto = {
   taskId: string | null;
 };
 
+/** The persistent project brain — a single ambient row in v1
+ *  ({@code ws-default}) that holds the markdown blob loaded into
+ *  every thread's context. */
+export type WorkspaceDto = {
+  id: string;
+  name: string;
+  /** The markdown blob loaded into every thread's context. Kept
+   *  intentionally small (target ~2k tokens / 8 000 chars); the
+   *  distillation pass keeps it that way by promoting durable
+   *  decisions and demoting noise. */
+  memoryMd: string;
+  /** Scratch workspaces never accrue durable memory — the
+   *  distillation pass skips them by design. */
+  isScratch: boolean;
+  createdAt: string;
+  updatedAt: string;
+};
+
 /** One repo attached to a workspace. v1 ships a single ambient
  *  workspace ({@code ws-default}), so for now the list mirrors the
  *  watched-repos table 1:1; the row carries the workspace-level
@@ -2149,6 +2167,20 @@ export type Bridge = {
    *  settings page to read each repo's auto-fix flag — the data lives
    *  on workspace_repos, not on the watched-repos table itself. */
   listWorkspaceRepos: (workspaceId: string) => Promise<WorkspaceRepoDto[]>;
+  /** Fetch a workspace's persistent {@code memory_md} blob. Empty
+   *  string before the first distillation pass runs. */
+  getWorkspaceMemory: (workspaceId: string) => Promise<{ memoryMd: string }>;
+  /** Replace a workspace's {@code memory_md} wholesale. Caller is
+   *  responsible for keeping it inside the soft 8 000 char target;
+   *  the backend hard-caps at 32 000 chars and 413s past that. */
+  setWorkspaceMemory: (
+    workspaceId: string, memoryMd: string,
+  ) => Promise<WorkspaceDto>;
+  /** Force a fresh Haiku distillation pass against the current
+   *  active Thread Overalls. Resolves to the updated workspace, or
+   *  null when nothing was folded in (no Overalls yet, or scratch
+   *  workspace). */
+  distillWorkspaceMemory: (workspaceId: string) => Promise<WorkspaceDto | null>;
   /** Flip the headless auto-fix opt-in for one repo. Off by default
    *  per CLAUDE.md; only when this is explicitly true does the
    *  automation coordinator queue a headless turn against a failing-

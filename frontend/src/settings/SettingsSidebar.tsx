@@ -34,6 +34,7 @@ const GROUPS: GroupDef[] = [
       { id: 'teams', label: 'Teams', icon: '👥' },
       { id: 'ai-review', label: 'AI review', icon: '✨' },
       { id: 'watched-repos', label: 'Watched repos', icon: '📦' },
+      { id: 'workspace-memory', label: 'Workspace memory', icon: '🧠' },
     ],
   },
   {

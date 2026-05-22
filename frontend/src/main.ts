@@ -2841,6 +2841,57 @@ const url = new URL(`${BACKEND_BASE}/api/search/repos`);
     return res.json();
   });
 
+  ipcMain.handle('workspaces:memory:get', async (_event, workspaceId: unknown) => {
+    if (typeof workspaceId !== 'string' || workspaceId.trim().length === 0) {
+      throw new Error('workspaceId must be a non-empty string');
+    }
+    const res = await fetch(
+      `${BACKEND_BASE}/api/workspaces/${encodeURIComponent(workspaceId)}/memory`);
+    if (!res.ok) {
+      const text = await res.text().catch(() => '');
+      throw new Error(`backend GET memory returned ${res.status}: ${text}`);
+    }
+    return res.json();
+  });
+
+  ipcMain.handle('workspaces:memory:set', async (_event, args: unknown) => {
+    const params = args as { workspaceId?: unknown; memoryMd?: unknown };
+    const workspaceId = params?.workspaceId;
+    const memoryMd = params?.memoryMd;
+    if (typeof workspaceId !== 'string' || workspaceId.trim().length === 0
+        || typeof memoryMd !== 'string') {
+      throw new Error('workspaceId must be a non-empty string; memoryMd must be a string');
+    }
+    const res = await fetch(
+      `${BACKEND_BASE}/api/workspaces/${encodeURIComponent(workspaceId)}/memory`,
+      {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ memoryMd }),
+      });
+    if (!res.ok) {
+      const text = await res.text().catch(() => '');
+      throw new Error(`backend PUT memory returned ${res.status}: ${text}`);
+    }
+    return res.json();
+  });
+
+  ipcMain.handle('workspaces:memory:distill', async (_event, workspaceId: unknown) => {
+    if (typeof workspaceId !== 'string' || workspaceId.trim().length === 0) {
+      throw new Error('workspaceId must be a non-empty string');
+    }
+    const res = await fetch(
+      `${BACKEND_BASE}/api/workspaces/${encodeURIComponent(workspaceId)}/memory/distill`,
+      { method: 'POST' });
+    if (!res.ok) {
+      const text = await res.text().catch(() => '');
+      throw new Error(`backend POST memory/distill returned ${res.status}: ${text}`);
+    }
+    // 204 → nothing to fold in (no Overalls or scratch workspace).
+    if (res.status === 204) return null;
+    return res.json();
+  });
+
   ipcMain.handle('workspaces:repos:list', async (_event, workspaceId: unknown) => {
     if (typeof workspaceId !== 'string' || workspaceId.trim().length === 0) {
       throw new Error('workspaceId must be a non-empty string');

@@ -66,6 +66,7 @@ import type {
   UserStatsDto,
   WatchedRepoDto,
   WorkUnitTaskDto,
+  WorkspaceDto,
   WorkspaceRepoDto,
   CredentialTestResult,
 } from './types';
@@ -502,6 +503,12 @@ const bridge: Bridge = {
     ipcRenderer.invoke('threads:jumpIn', threadId),
   listWorkspaceRepos: (workspaceId: string): Promise<WorkspaceRepoDto[]> =>
     ipcRenderer.invoke('workspaces:repos:list', workspaceId),
+  getWorkspaceMemory: (workspaceId: string): Promise<{ memoryMd: string }> =>
+    ipcRenderer.invoke('workspaces:memory:get', workspaceId),
+  setWorkspaceMemory: (workspaceId: string, memoryMd: string): Promise<WorkspaceDto> =>
+    ipcRenderer.invoke('workspaces:memory:set', { workspaceId, memoryMd }),
+  distillWorkspaceMemory: (workspaceId: string): Promise<WorkspaceDto | null> =>
+    ipcRenderer.invoke('workspaces:memory:distill', workspaceId),
   setWorkspaceRepoAutoFix: (
     workspaceId: string, owner: string, repo: string, enabled: boolean,
   ): Promise<WorkspaceRepoDto> =>

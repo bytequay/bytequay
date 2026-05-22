@@ -23,6 +23,7 @@ import HelpPage from './pages/HelpPage';
 import IntegrationsPage from './pages/IntegrationsPage';
 import TeamsPage from './pages/TeamsPage';
 import WatchedReposPage from './pages/WatchedReposPage';
+import WorkspaceMemoryPage from './pages/WorkspaceMemoryPage';
 
 type Props = {
   section: SettingsSection;
@@ -45,6 +46,7 @@ function SettingsShell({ section, onSelectSection, onClearPat, onOpenTeam }: Pro
           {section === 'teams' && <TeamsPage onOpenTeam={onOpenTeam} />}
           {section === 'ai-review' && <AiReviewPage />}
           {section === 'watched-repos' && <WatchedReposPage />}
+          {section === 'workspace-memory' && <WorkspaceMemoryPage />}
           {section === 'integrations' && <IntegrationsPage />}
           {section === 'email' && <EmailSettingsPage />}
           {section === 'help' && <HelpPage />}

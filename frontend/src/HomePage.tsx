@@ -324,7 +324,7 @@ function HomePage({ onSelectRepo, onGoToMyPrs, onOpenTeam, onGoToTeams }: Props)
   }
 
   return (
-    <div className="home-page">
+    <div className="home-page calm-page">
       <div className="home-main">
 
       {/* ── Top row: profile card + year-in-code chart ── */}

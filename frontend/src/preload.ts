@@ -507,8 +507,14 @@ const bridge: Bridge = {
     ipcRenderer.invoke('workspaces:memory:get', workspaceId),
   setWorkspaceMemory: (workspaceId: string, memoryMd: string): Promise<WorkspaceDto> =>
     ipcRenderer.invoke('workspaces:memory:set', { workspaceId, memoryMd }),
-  distillWorkspaceMemory: (workspaceId: string): Promise<WorkspaceDto | null> =>
+  distillWorkspaceMemory: (workspaceId: string) =>
     ipcRenderer.invoke('workspaces:memory:distill', workspaceId),
+  getWorkspaceMemoryProposal: (workspaceId: string) =>
+    ipcRenderer.invoke('workspaces:memory:proposal:get', workspaceId),
+  applyWorkspaceMemoryProposal: (workspaceId: string) =>
+    ipcRenderer.invoke('workspaces:memory:proposal:apply', workspaceId),
+  discardWorkspaceMemoryProposal: (workspaceId: string): Promise<void> =>
+    ipcRenderer.invoke('workspaces:memory:proposal:discard', workspaceId),
   setWorkspaceRepoAutoFix: (
     workspaceId: string, owner: string, repo: string, enabled: boolean,
   ): Promise<WorkspaceRepoDto> =>

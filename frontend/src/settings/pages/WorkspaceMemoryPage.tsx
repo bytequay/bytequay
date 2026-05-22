@@ -79,13 +79,16 @@ function WorkspaceMemoryPage() {
     setError(null);
     setStatusMsg(null);
     try {
-      const updated = await window.bridge.distillWorkspaceMemory(DEFAULT_WORKSPACE_ID);
-      if (updated === null) {
-        setStatusMsg('No thread Overalls to fold in yet — memory left as-is.');
+      const proposal = await window.bridge.distillWorkspaceMemory(DEFAULT_WORKSPACE_ID);
+      if (proposal === null) {
+        setStatusMsg('No proposal queued — there were no Thread Overalls to fold '
+            + 'in, or the distilled body matched the current memory.');
       } else {
-        setMemory(updated.memoryMd);
-        setOriginal(updated.memoryMd);
-        setStatusMsg('Distilled.');
+        // The distiller no longer overwrites memory_md directly — it
+        // queues a proposal for the user to confirm. Banner UI lands
+        // in a follow-up commit; for now we just acknowledge the queue.
+        setStatusMsg(`Proposed ${proposal.proposedMd.length.toLocaleString()} chars `
+            + '— review and apply from the banner (coming soon).');
       }
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));

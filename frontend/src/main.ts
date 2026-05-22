@@ -2929,9 +2929,53 @@ const url = new URL(`${BACKEND_BASE}/api/search/repos`);
       const text = await res.text().catch(() => '');
       throw new Error(`backend POST memory/distill returned ${res.status}: ${text}`);
     }
-    // 204 → nothing to fold in (no Overalls or scratch workspace).
+    // 204 → nothing to queue (no Overalls, scratch workspace, or
+    // proposed body identical to current memory). 200 carries the
+    // pending WorkspaceMemoryProposal — the user confirms it via the
+    // banner before memory_md actually changes.
     if (res.status === 204) return null;
     return res.json();
+  });
+
+  ipcMain.handle('workspaces:memory:proposal:get', async (_event, workspaceId: unknown) => {
+    if (typeof workspaceId !== 'string' || workspaceId.trim().length === 0) {
+      throw new Error('workspaceId must be a non-empty string');
+    }
+    const res = await fetch(
+      `${BACKEND_BASE}/api/workspaces/${encodeURIComponent(workspaceId)}/memory/proposal`);
+    if (!res.ok) {
+      const text = await res.text().catch(() => '');
+      throw new Error(`backend GET memory/proposal returned ${res.status}: ${text}`);
+    }
+    if (res.status === 204) return null;
+    return res.json();
+  });
+
+  ipcMain.handle('workspaces:memory:proposal:apply', async (_event, workspaceId: unknown) => {
+    if (typeof workspaceId !== 'string' || workspaceId.trim().length === 0) {
+      throw new Error('workspaceId must be a non-empty string');
+    }
+    const res = await fetch(
+      `${BACKEND_BASE}/api/workspaces/${encodeURIComponent(workspaceId)}/memory/proposal/apply`,
+      { method: 'POST' });
+    if (!res.ok) {
+      const text = await res.text().catch(() => '');
+      throw new Error(`backend POST memory/proposal/apply returned ${res.status}: ${text}`);
+    }
+    return res.json();
+  });
+
+  ipcMain.handle('workspaces:memory:proposal:discard', async (_event, workspaceId: unknown) => {
+    if (typeof workspaceId !== 'string' || workspaceId.trim().length === 0) {
+      throw new Error('workspaceId must be a non-empty string');
+    }
+    const res = await fetch(
+      `${BACKEND_BASE}/api/workspaces/${encodeURIComponent(workspaceId)}/memory/proposal/discard`,
+      { method: 'POST' });
+    if (!res.ok) {
+      const text = await res.text().catch(() => '');
+      throw new Error(`backend POST memory/proposal/discard returned ${res.status}: ${text}`);
+    }
   });
 
   ipcMain.handle('workspaces:repos:list', async (_event, workspaceId: unknown) => {

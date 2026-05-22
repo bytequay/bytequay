@@ -14,8 +14,10 @@
 package com.bytequay.app.web;
 
 import com.bytequay.app.domain.Workspace;
+import com.bytequay.app.domain.WorkspaceMemoryProposal;
 import com.bytequay.app.domain.WorkspaceRepo;
 import com.bytequay.app.service.workspaces.WorkspaceMemoryDistiller;
+import com.bytequay.app.service.workspaces.WorkspaceMemoryProposalService;
 import com.bytequay.app.service.workspaces.WorkspaceService;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.DeleteMapping;
@@ -43,11 +45,16 @@ public class WorkspaceController
 {
     private final WorkspaceService workspaces;
     private final WorkspaceMemoryDistiller distiller;
+    private final WorkspaceMemoryProposalService proposals;
 
-    public WorkspaceController(WorkspaceService workspaces, WorkspaceMemoryDistiller distiller)
+    public WorkspaceController(
+            WorkspaceService workspaces,
+            WorkspaceMemoryDistiller distiller,
+            WorkspaceMemoryProposalService proposals)
     {
         this.workspaces = requireNonNull(workspaces, "workspaces is null");
         this.distiller = requireNonNull(distiller, "distiller is null");
+        this.proposals = requireNonNull(proposals, "proposals is null");
     }
 
     @GetMapping
@@ -78,15 +85,48 @@ public class WorkspaceController
      *  the active Thread Overalls. The scheduled job runs every 30
      *  minutes; this endpoint is the "do it now" trigger users
      *  reach for after configuring the Anthropic key or after a
-     *  heavy day's worth of thread activity. Returns 204 when there
-     *  was nothing to fold in (no Overalls yet, or the workspace
-     *  is scratch). */
+     *  heavy day's worth of thread activity. Returns the upserted
+     *  proposal, or 204 when there was nothing to fold in (no
+     *  Overalls yet, scratch workspace, or proposed body identical
+     *  to current memory). The user confirms via
+     *  {@link #applyMemoryProposal} before anything lands in
+     *  {@code memory_md}. */
     @PostMapping("/{id}/memory/distill")
-    public ResponseEntity<Workspace> distillMemory(@PathVariable String id)
+    public ResponseEntity<WorkspaceMemoryProposal> distillMemory(@PathVariable String id)
     {
         return distiller.distill(id)
                 .map(ResponseEntity::ok)
                 .orElseGet(() -> ResponseEntity.noContent().build());
+    }
+
+    /** Return the pending memory proposal for this workspace, or 204
+     *  when there isn't one. The frontend polls this to drive the
+     *  banner in WorkspaceMemoryPage. */
+    @GetMapping("/{id}/memory/proposal")
+    public ResponseEntity<WorkspaceMemoryProposal> getMemoryProposal(@PathVariable String id)
+    {
+        return proposals.find(id)
+                .map(ResponseEntity::ok)
+                .orElseGet(() -> ResponseEntity.noContent().build());
+    }
+
+    /** Confirm the pending proposal — write its body back to
+     *  {@code memory_md} and clear the row. 409 when the workspace's
+     *  memory has been hand-edited since the proposal was generated
+     *  (drift check), so a stale proposal can't clobber the edit. */
+    @PostMapping("/{id}/memory/proposal/apply")
+    public Workspace applyMemoryProposal(@PathVariable String id)
+    {
+        return proposals.apply(id);
+    }
+
+    /** Drop the pending proposal without writing anything. 404 when
+     *  no proposal exists; the UI should only render Discard when
+     *  GET .../proposal returns 200. */
+    @PostMapping("/{id}/memory/proposal/discard")
+    public void discardMemoryProposal(@PathVariable String id)
+    {
+        proposals.discard(id);
     }
 
     @GetMapping("/{id}/repos")

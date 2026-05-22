@@ -15,6 +15,7 @@ package com.bytequay.app.service.workspaces;
 
 import com.bytequay.app.domain.ThreadCheckpoint;
 import com.bytequay.app.domain.Workspace;
+import com.bytequay.app.domain.WorkspaceMemoryProposal;
 import com.bytequay.app.repository.ThreadCheckpointStore;
 import com.bytequay.app.service.threads.CheckpointSummariser;
 import com.bytequay.app.service.threads.CheckpointSummaryResult;
@@ -32,15 +33,21 @@ import static java.util.Objects.requireNonNull;
  * Closes the top of the three-level memory hierarchy: per-segment ↑
  * Thread Overall ↑ Workspace memory. Reads recent active Thread
  * Overalls, asks the Haiku summariser to fold them into the
- * workspace's persistent {@code memory_md}, and writes the result
- * back through {@link WorkspaceService#setMemory}.
+ * workspace's persistent {@code memory_md}, and surfaces the result
+ * as a pending proposal through {@link WorkspaceMemoryProposalService}.
+ *
+ * <p>The distiller never writes {@code memory_md} directly. Per the
+ * Phase 3 acceptance row "distillation proposes (doesn't silently
+ * overwrite)", the user confirms each edit before it lands — applying
+ * goes through the proposal service, which also drift-checks against
+ * any hand-edits that arrived in the interim.
  *
  * <p>Runs on a long cadence (every 30 minutes by default) so it's
- * cheap; the {@link #distill(String)} method is also exposed for
- * manual triggers — see {@code WorkspaceController}'s distill
- * endpoint. Skips quietly when the Anthropic API key isn't
- * configured: the summariser throws, we log the cause once, and the
- * next sweep retries.
+ * cheap; {@link #distill(String)} is also exposed for manual
+ * triggers — see {@code WorkspaceController}'s distill endpoint.
+ * Skips quietly when the Anthropic API key isn't configured: the
+ * summariser throws, we log the cause once, and the next sweep
+ * retries.
  *
  * <p>v1 ships single-workspace; the corpus query is global because
  * the only workspace is {@link WorkspaceService#DEFAULT_WORKSPACE_ID}.
@@ -59,15 +66,18 @@ public class WorkspaceMemoryDistiller
     static final int OVERALL_CORPUS_LIMIT = 25;
 
     private final WorkspaceService workspaces;
+    private final WorkspaceMemoryProposalService proposals;
     private final ThreadCheckpointStore checkpoints;
     private final CheckpointSummariser summariser;
 
     public WorkspaceMemoryDistiller(
             WorkspaceService workspaces,
+            WorkspaceMemoryProposalService proposals,
             ThreadCheckpointStore checkpoints,
             CheckpointSummariser summariser)
     {
         this.workspaces = requireNonNull(workspaces, "workspaces is null");
+        this.proposals = requireNonNull(proposals, "proposals is null");
         this.checkpoints = requireNonNull(checkpoints, "checkpoints is null");
         this.summariser = requireNonNull(summariser, "summariser is null");
     }
@@ -96,11 +106,12 @@ public class WorkspaceMemoryDistiller
 
     /**
      * Drive one distillation pass for a single workspace. Returns the
-     * updated workspace on success or empty when nothing was written
-     * (no Overalls to fold in, or no work since the last pass). The
-     * caller can render the result without a follow-up GET.
+     * upserted proposal, or empty when nothing was proposed (no
+     * Overalls to fold in, scratch workspace, or Haiku produced a
+     * body identical to the current memory). The caller can render
+     * the result without a follow-up GET.
      */
-    public Optional<Workspace> distill(String workspaceId)
+    public Optional<WorkspaceMemoryProposal> distill(String workspaceId)
     {
         requireNonNull(workspaceId, "workspaceId is null");
         Workspace current = workspaces.require(workspaceId);
@@ -118,11 +129,13 @@ public class WorkspaceMemoryDistiller
         }
         CheckpointSummaryResult result = summariser.distilWorkspaceMemory(
                 current.memoryMd(), corpus);
-        Workspace next = workspaces.setMemory(workspaceId, result.summaryMd());
+        Optional<WorkspaceMemoryProposal> proposal = proposals.propose(
+                workspaceId, current.memoryMd(), result);
         log.info("Distilled workspace memory for {} from {} thread Overall(s) "
-                        + "({} prompt + {} completion tokens, {} milli-USD)",
+                        + "({} prompt + {} completion tokens, {} milli-USD); proposal={}",
                 workspaceId, corpus.size(),
-                result.promptTokens(), result.completionTokens(), result.costUsdMilli());
-        return Optional.of(next);
+                result.promptTokens(), result.completionTokens(), result.costUsdMilli(),
+                proposal.isPresent() ? "queued" : "no-op (identical to current memory)");
+        return proposal;
     }
 }

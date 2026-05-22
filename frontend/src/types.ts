@@ -1498,6 +1498,26 @@ export type NotificationKindDto =
 
 export type NotificationStatusDto = 'UNREAD' | 'READ' | 'DISMISSED';
 
+/** A pending workspace-memory edit the Haiku distiller wants the
+ *  user to approve before {@code memory_md} actually changes. Mirrors
+ *  the backend WorkspaceMemoryProposal record. The banner inside
+ *  WorkspaceMemoryPage renders the diff and the apply/discard
+ *  buttons. */
+export type WorkspaceMemoryProposalDto = {
+  workspaceId: string;
+  /** memory_md as it was when the proposal was generated — apply uses
+   *  this to drift-check against the live workspace memory and refuse
+   *  when a user hand-edit landed in between. */
+  currentMd: string;
+  /** Haiku's proposed body. Written wholesale to memory_md on apply. */
+  proposedMd: string;
+  summariserModel: string;
+  promptTokens: number;
+  completionTokens: number;
+  costUsdMilli: number;
+  createdAt: string;
+};
+
 /** Payload shape for an AWAITING_REVIEW notification produced by the
  *  `push` MCP tool. The agent parked here so the user can review the
  *  unified diff before any branch hits the remote. `diff` is null when
@@ -2199,11 +2219,22 @@ export type Bridge = {
   setWorkspaceMemory: (
     workspaceId: string, memoryMd: string,
   ) => Promise<WorkspaceDto>;
-  /** Force a fresh Haiku distillation pass against the current
-   *  active Thread Overalls. Resolves to the updated workspace, or
-   *  null when nothing was folded in (no Overalls yet, or scratch
-   *  workspace). */
-  distillWorkspaceMemory: (workspaceId: string) => Promise<WorkspaceDto | null>;
+  /** Force a fresh Haiku distillation pass. The result lands as a
+   *  pending proposal (not a direct edit to memory_md) — the user
+   *  confirms via approveWorkspaceMemoryProposal before anything
+   *  changes. Resolves to the upserted proposal, or null when nothing
+   *  was queued (no Overalls yet, scratch workspace, or proposed body
+   *  identical to current memory). */
+  distillWorkspaceMemory: (workspaceId: string) => Promise<WorkspaceMemoryProposalDto | null>;
+  /** Read the pending memory proposal for a workspace, or null when
+   *  there isn't one. The banner in WorkspaceMemoryPage polls this. */
+  getWorkspaceMemoryProposal: (workspaceId: string) => Promise<WorkspaceMemoryProposalDto | null>;
+  /** Apply the pending proposal: write its body back to memory_md and
+   *  clear the row. Rejects (409) when memory_md has drifted since
+   *  the proposal was queued. */
+  applyWorkspaceMemoryProposal: (workspaceId: string) => Promise<WorkspaceDto>;
+  /** Drop the pending proposal without writing anything. */
+  discardWorkspaceMemoryProposal: (workspaceId: string) => Promise<void>;
   /** Flip the headless auto-fix opt-in for one repo. Off by default
    *  per CLAUDE.md; only when this is explicitly true does the
    *  automation coordinator queue a headless turn against a failing-

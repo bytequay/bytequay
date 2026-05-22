@@ -15,6 +15,7 @@ package com.bytequay.app.service.workspaces;
 
 import com.bytequay.app.domain.ThreadCheckpoint;
 import com.bytequay.app.domain.Workspace;
+import com.bytequay.app.domain.WorkspaceMemoryProposal;
 import com.bytequay.app.repository.ThreadCheckpointStore;
 import com.bytequay.app.service.threads.CheckpointSummariser;
 import com.bytequay.app.service.threads.CheckpointSummaryResult;
@@ -40,14 +41,19 @@ import static org.mockito.Mockito.when;
 class TestWorkspaceMemoryDistiller
 {
     private final WorkspaceService workspaces = mock(WorkspaceService.class);
+    private final WorkspaceMemoryProposalService proposals = mock(WorkspaceMemoryProposalService.class);
     private final ThreadCheckpointStore checkpoints = mock(ThreadCheckpointStore.class);
     private final CheckpointSummariser summariser = mock(CheckpointSummariser.class);
     private final WorkspaceMemoryDistiller distiller =
-            new WorkspaceMemoryDistiller(workspaces, checkpoints, summariser);
+            new WorkspaceMemoryDistiller(workspaces, proposals, checkpoints, summariser);
 
     @Test
-    void distilWritesTheSummariserOutputBackToTheWorkspace()
+    void distilQueuesAProposalRatherThanWritingMemoryDirectly()
     {
+        // Phase 3 acceptance: "distillation proposes (doesn't silently
+        // overwrite)". The distiller must never call setMemory; it
+        // hands the summariser output to the proposal service so the
+        // user gets a confirm step.
         Workspace before = newWorkspace("ws-1", "Current memory text.", /* scratch */ false);
         when(workspaces.require("ws-1")).thenReturn(before);
         when(checkpoints.listAllActiveOveralls(anyInt())).thenReturn(List.of(
@@ -58,28 +64,33 @@ class TestWorkspaceMemoryDistiller
                 "claude-haiku-4-5", 1_000L, 400L, 3L);
         when(summariser.distilWorkspaceMemory(eq("Current memory text."), any()))
                 .thenReturn(fresh);
-        Workspace after = newWorkspace("ws-1", fresh.summaryMd(), false);
-        when(workspaces.setMemory(eq("ws-1"), eq(fresh.summaryMd()))).thenReturn(after);
+        WorkspaceMemoryProposal queued = new WorkspaceMemoryProposal(
+                "ws-1", before.memoryMd(), fresh.summaryMd(),
+                "claude-haiku-4-5", 1_000L, 400L, 3L,
+                Instant.parse("2026-05-22T12:00:00Z"));
+        when(proposals.propose(eq("ws-1"), eq("Current memory text."), eq(fresh)))
+                .thenReturn(Optional.of(queued));
 
-        Optional<Workspace> result = distiller.distill("ws-1");
+        Optional<WorkspaceMemoryProposal> result = distiller.distill("ws-1");
 
-        assertThat(result).contains(after);
-        verify(workspaces).setMemory(eq("ws-1"), eq(fresh.summaryMd()));
+        assertThat(result).contains(queued);
+        verify(proposals).propose(eq("ws-1"), eq("Current memory text."), eq(fresh));
+        // Critical guard against the silent-overwrite regression the
+        // reviewer flagged: setMemory must never be called from
+        // distill().
+        verify(workspaces, never()).setMemory(anyString(), anyString());
     }
 
     @Test
     void distilIsANoOpForScratchWorkspaces()
     {
-        // Scratch workspaces never accrue durable memory — that's the
-        // domain rule on the Workspace record. The distiller must
-        // respect it without an early bail in the summariser or store.
         when(workspaces.require("ws-scratch"))
                 .thenReturn(newWorkspace("ws-scratch", "", /* scratch */ true));
 
-        Optional<Workspace> result = distiller.distill("ws-scratch");
+        Optional<WorkspaceMemoryProposal> result = distiller.distill("ws-scratch");
 
         assertThat(result).isEmpty();
-        verifyNoInteractions(checkpoints, summariser);
+        verifyNoInteractions(checkpoints, summariser, proposals);
     }
 
     @Test
@@ -89,11 +100,11 @@ class TestWorkspaceMemoryDistiller
                 .thenReturn(newWorkspace("ws-1", "Existing memory.", false));
         when(checkpoints.listAllActiveOveralls(anyInt())).thenReturn(List.of());
 
-        Optional<Workspace> result = distiller.distill("ws-1");
+        Optional<WorkspaceMemoryProposal> result = distiller.distill("ws-1");
 
         assertThat(result).isEmpty();
         verify(summariser, never()).distilWorkspaceMemory(anyString(), any());
-        verify(workspaces, never()).setMemory(anyString(), anyString());
+        verifyNoInteractions(proposals);
     }
 
     @Test
@@ -107,15 +118,15 @@ class TestWorkspaceMemoryDistiller
         when(workspaces.require("ws-2")).thenReturn(two);
         when(checkpoints.listAllActiveOveralls(anyInt())).thenReturn(List.of(
                 overall("thread-x", "Resolved a deploy regression.")));
-        when(summariser.distilWorkspaceMemory(anyString(), any())).thenReturn(
-                new CheckpointSummaryResult("ok", List.of(), "claude-haiku-4-5", 0L, 0L, 0L));
-        when(workspaces.setMemory(eq("ws-2"), anyString())).thenReturn(two);
+        CheckpointSummaryResult ok = new CheckpointSummaryResult(
+                "ok", List.of(), "claude-haiku-4-5", 0L, 0L, 0L);
+        when(summariser.distilWorkspaceMemory(anyString(), any())).thenReturn(ok);
 
         distiller.distillAll();
 
         // First workspace blew up but the second still got its
-        // distillation pass.
-        verify(workspaces, times(1)).setMemory(eq("ws-2"), anyString());
+        // distillation pass routed through the proposal queue.
+        verify(proposals, times(1)).propose(eq("ws-2"), eq("m"), eq(ok));
     }
 
     @Test
@@ -126,10 +137,9 @@ class TestWorkspaceMemoryDistiller
         ThreadCheckpoint a = overall("thread-a", "Body A");
         ThreadCheckpoint b = overall("thread-b", "Body B");
         when(checkpoints.listAllActiveOveralls(anyInt())).thenReturn(List.of(a, b));
-        when(summariser.distilWorkspaceMemory(anyString(), any())).thenReturn(
-                new CheckpointSummaryResult("NEXT", List.of(), "claude-haiku-4-5", 0L, 0L, 0L));
-        when(workspaces.setMemory(eq("ws-1"), eq("NEXT")))
-                .thenReturn(newWorkspace("ws-1", "NEXT", false));
+        CheckpointSummaryResult next = new CheckpointSummaryResult(
+                "NEXT", List.of(), "claude-haiku-4-5", 0L, 0L, 0L);
+        when(summariser.distilWorkspaceMemory(anyString(), any())).thenReturn(next);
 
         distiller.distill("ws-1");
 
@@ -140,6 +150,7 @@ class TestWorkspaceMemoryDistiller
         verify(summariser).distilWorkspaceMemory(mem.capture(), corpus.capture());
         assertThat(mem.getValue()).isEqualTo("PREV");
         assertThat(corpus.getValue()).containsExactly(a, b);
+        verify(proposals).propose(eq("ws-1"), eq("PREV"), eq(next));
     }
 
     private static ThreadCheckpoint overall(String threadId, String summary)

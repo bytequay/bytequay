@@ -1,0 +1,332 @@
+/*
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+package com.bytequay.app.service.review;
+
+import com.bytequay.app.domain.PrRawDetail;
+import com.bytequay.app.domain.PullRequestRef;
+import com.bytequay.app.domain.ReviewFinding;
+import com.bytequay.app.domain.ReviewFindingSeverity;
+import com.bytequay.app.domain.ReviewFindingStatus;
+import com.bytequay.app.domain.ReviewMessage;
+import com.bytequay.app.domain.ReviewOutput;
+import com.bytequay.app.domain.ReviewParticipant;
+import com.bytequay.app.domain.ReviewParticipantKind;
+import com.bytequay.app.domain.ReviewPass;
+import com.bytequay.app.domain.ReviewPassDetail;
+import com.bytequay.app.domain.ReviewPhase;
+import com.bytequay.app.domain.ReviewRequest;
+import com.bytequay.app.domain.ReviewVerdict;
+import com.bytequay.app.domain.Thread;
+import com.bytequay.app.domain.ThreadFlow;
+import com.bytequay.app.repository.PullRequestRepository;
+import com.bytequay.app.repository.ReviewStore;
+import com.bytequay.app.repository.ThreadStore;
+import com.bytequay.app.service.ai.LlmReviewer;
+import com.bytequay.app.service.ai.LlmReviewerRegistry;
+import com.bytequay.app.web.PatResolver;
+import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
+import org.springframework.web.server.ResponseStatusException;
+
+import java.util.ArrayList;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.Optional;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.when;
+
+class TestReviewPassService
+{
+    private ThreadStore threadStore;
+    private ReviewStore reviewStore;
+    private PullRequestRepository pullRequests;
+    private PatResolver patResolver;
+    private LlmReviewerRegistry registry;
+    private LlmReviewer reviewer;
+    private ReviewPassService service;
+    private RecordingReviewStore recording;
+
+    @BeforeEach
+    void setUp()
+    {
+        threadStore = mock(ThreadStore.class);
+        pullRequests = mock(PullRequestRepository.class);
+        patResolver = mock(PatResolver.class);
+        registry = mock(LlmReviewerRegistry.class);
+        reviewer = mock(LlmReviewer.class);
+        recording = new RecordingReviewStore();
+        reviewStore = recording;
+
+        when(registry.active()).thenReturn(reviewer);
+        when(reviewer.providerId()).thenReturn("claude");
+        when(reviewer.displayName()).thenReturn("Claude (Anthropic)");
+        when(reviewer.isConfigured()).thenReturn(true);
+        when(patResolver.resolve("acme/widget")).thenReturn("ghp_secret");
+        when(pullRequests.fetchPrDetail(eq("ghp_secret"), any(PullRequestRef.class)))
+                .thenReturn(rawDetail());
+        when(pullRequests.fetchPrDiff(eq("ghp_secret"), any(PullRequestRef.class)))
+                .thenReturn("diff --git a/x b/x\n");
+
+        service = new ReviewPassService(
+                threadStore, reviewStore, pullRequests, patResolver, registry);
+    }
+
+    @Test
+    void startReviewOnPrPersistsTheFullPassAndReturnsDetail()
+    {
+        ReviewOutput output = new ReviewOutput(
+                "Mostly fine — one nit on the helper.",
+                List.of(
+                        new ReviewOutput.LineComment("src/foo.ts", 12, "Inline the helper.", "nit"),
+                        new ReviewOutput.LineComment("src/bar.ts", 0, "Whole-file note.", "question")),
+                "claude", "claude-sonnet-4.6");
+        when(reviewer.review(any(ReviewRequest.class))).thenReturn(output);
+
+        ReviewPassDetail detail = service.startReviewOnPr("acme/widget", 42);
+
+        // 1. Thread saved exactly once, flow = REVIEW.
+        ArgumentCaptor<Thread> threadCaptor = ArgumentCaptor.forClass(Thread.class);
+        verify(threadStore).saveThread(threadCaptor.capture());
+        assertThat(threadCaptor.getValue().flow()).isEqualTo(ThreadFlow.REVIEW);
+        assertThat(threadCaptor.getValue().title()).contains("acme/widget#42");
+
+        // 2. Pass walks KICKOFF → INDEPENDENT → TERMINATE in order.
+        //    The savePass calls capture the intermediate state.
+        List<ReviewPhase> phaseHistory = recording.passHistory.stream()
+                .map(ReviewPass::phase)
+                .toList();
+        assertThat(phaseHistory).containsExactly(
+                ReviewPhase.KICKOFF, ReviewPhase.INDEPENDENT, ReviewPhase.TERMINATE);
+
+        // 3. Three participants seated: Moderator, Reviewer, Human.
+        List<ReviewParticipantKind> participantKinds = recording.participants.stream()
+                .map(ReviewParticipant::kind)
+                .toList();
+        assertThat(participantKinds).containsExactly(
+                ReviewParticipantKind.MODERATOR,
+                ReviewParticipantKind.REVIEWER,
+                ReviewParticipantKind.HUMAN);
+        ReviewParticipant reviewerSeat = recording.participants.get(1);
+        assertThat(reviewerSeat.credentialId()).isEqualTo("claude");
+        assertThat(reviewerSeat.personaLabel()).isEqualTo("Claude (Anthropic)");
+
+        // 4. Two messages — moderator kickoff + reviewer summary.
+        assertThat(recording.messages).hasSize(2);
+        assertThat(recording.messages.get(0).phase()).isEqualTo(ReviewPhase.KICKOFF);
+        assertThat(recording.messages.get(0).participantId()).isEqualTo(recording.participants.get(0).id());
+        assertThat(recording.messages.get(1).phase()).isEqualTo(ReviewPhase.INDEPENDENT);
+        assertThat(recording.messages.get(1).body()).isEqualTo(output.summary());
+
+        // 5. One finding per LineComment, severities mapped, all AGREED.
+        assertThat(recording.findings).hasSize(2);
+        assertThat(recording.findings).extracting(ReviewFinding::severity).containsExactly(
+                ReviewFindingSeverity.NIT, ReviewFindingSeverity.QUESTION);
+        assertThat(recording.findings).allMatch(f -> f.status() == ReviewFindingStatus.AGREED);
+        // line 0 from the LineComment normalises to null on the finding
+        // (a "whole-file" comment) so the publish gate doesn't anchor
+        // at a nonexistent line.
+        assertThat(recording.findings.get(1).line()).isNull();
+
+        // 6. Suggested verdict — no blocker, but at least one finding
+        //    → COMMENT.
+        assertThat(detail.pass().phase()).isEqualTo(ReviewPhase.TERMINATE);
+        assertThat(detail.pass().verdict()).isEqualTo(ReviewVerdict.COMMENT);
+        assertThat(detail.findings()).hasSize(2);
+        assertThat(detail.participants()).hasSize(3);
+    }
+
+    @Test
+    void blockerSeverityFlipsTheSuggestedVerdictToRequestChanges()
+    {
+        ReviewOutput output = new ReviewOutput(
+                "Found a real problem.",
+                List.of(
+                        new ReviewOutput.LineComment("src/x.ts", 1, "Null deref.", "blocker"),
+                        new ReviewOutput.LineComment("src/y.ts", 2, "Style.", "nit")),
+                "claude", "claude-sonnet-4.6");
+        when(reviewer.review(any(ReviewRequest.class))).thenReturn(output);
+
+        ReviewPassDetail detail = service.startReviewOnPr("acme/widget", 7);
+
+        assertThat(detail.pass().verdict()).isEqualTo(ReviewVerdict.REQUEST_CHANGES);
+    }
+
+    @Test
+    void emptyFindingsListSuggestsApprove()
+    {
+        ReviewOutput output = new ReviewOutput(
+                "Looks good to me.", List.of(),
+                "claude", "claude-sonnet-4.6");
+        when(reviewer.review(any(ReviewRequest.class))).thenReturn(output);
+
+        ReviewPassDetail detail = service.startReviewOnPr("acme/widget", 8);
+
+        assertThat(detail.pass().verdict()).isEqualTo(ReviewVerdict.APPROVE);
+        assertThat(detail.findings()).isEmpty();
+    }
+
+    @Test
+    void reviewerExceptionTerminatesThePassAndSurfacesA502()
+    {
+        when(reviewer.review(any(ReviewRequest.class)))
+                .thenThrow(new RuntimeException("Anthropic returned 529"));
+
+        assertThatThrownBy(() -> service.startReviewOnPr("acme/widget", 99))
+                .isInstanceOf(ResponseStatusException.class)
+                .hasMessageContaining("LLM reviewer call failed: Anthropic returned 529");
+
+        // Pass is persisted terminated so the UI shows "review failed"
+        // rather than "review running forever".
+        ReviewPhase terminalPhase = recording.passHistory.get(recording.passHistory.size() - 1).phase();
+        assertThat(terminalPhase).isEqualTo(ReviewPhase.TERMINATE);
+    }
+
+    @Test
+    void refusesWith412WhenTheActiveReviewerHasNoApiKey()
+    {
+        when(reviewer.isConfigured()).thenReturn(false);
+
+        assertThatThrownBy(() -> service.startReviewOnPr("acme/widget", 1))
+                .isInstanceOf(ResponseStatusException.class)
+                .hasMessageContaining("no API key configured");
+
+        verify(threadStore, never()).saveThread(any());
+        assertThat(recording.passHistory).isEmpty();
+    }
+
+    @Test
+    void refusesWith400WhenPrNumberIsZeroOrNegative()
+    {
+        assertThatThrownBy(() -> service.startReviewOnPr("acme/widget", 0))
+                .isInstanceOf(ResponseStatusException.class)
+                .hasMessageContaining("prNumber must be a positive integer");
+        assertThatThrownBy(() -> service.startReviewOnPr("acme/widget", -1))
+                .isInstanceOf(ResponseStatusException.class);
+    }
+
+    private static PrRawDetail rawDetail()
+    {
+        return new PrRawDetail(
+                /* body */ "Description.", List.of(),
+                /* draft */ false, /* mergeable */ null, /* mergeableState */ null,
+                /* additions */ 10, /* deletions */ 5, /* changedFiles */ 2,
+                /* requestedReviewerCount */ 0, /* requestedReviewers */ List.of(),
+                /* headSha */ "abc123", /* headRef */ "feature/x", /* headRepo */ "acme/widget",
+                /* baseRef */ "main", /* baseRepo */ "acme/widget");
+    }
+
+    /** In-memory ReviewStore that records every save so the test can
+     *  assert on the order of pass-phase transitions and the exact
+     *  participant / message / finding rows that get persisted. */
+    private static final class RecordingReviewStore
+            implements ReviewStore
+    {
+        final List<ReviewPass> passHistory = new ArrayList<>();
+        final Map<String, ReviewPass> passes = new HashMap<>();
+        final List<ReviewParticipant> participants = new ArrayList<>();
+        final List<ReviewMessage> messages = new ArrayList<>();
+        final List<ReviewFinding> findings = new ArrayList<>();
+
+        @Override
+        public void savePass(ReviewPass pass)
+        {
+            passHistory.add(pass);
+            passes.put(pass.id(), pass);
+        }
+
+        @Override
+        public Optional<ReviewPass> findPassById(String id)
+        {
+            return Optional.ofNullable(passes.get(id));
+        }
+
+        @Override
+        public List<ReviewPass> listPassesByThread(String threadId)
+        {
+            return passes.values().stream()
+                    .filter(p -> p.threadId().equals(threadId))
+                    .toList();
+        }
+
+        @Override
+        public List<ReviewPass> listPassesForPr(String repoFullName, int prNumber)
+        {
+            return passes.values().stream()
+                    .filter(p -> p.repoFullName().equals(repoFullName) && p.prNumber() == prNumber)
+                    .toList();
+        }
+
+        @Override public void deletePass(String id) { passes.remove(id); }
+
+        @Override
+        public void saveParticipant(ReviewParticipant participant) { participants.add(participant); }
+
+        @Override
+        public Optional<ReviewParticipant> findParticipantById(String id)
+        {
+            return participants.stream().filter(p -> p.id().equals(id)).findFirst();
+        }
+
+        @Override
+        public List<ReviewParticipant> listParticipantsForPass(String reviewPassId)
+        {
+            return participants.stream()
+                    .filter(p -> p.reviewPassId().equals(reviewPassId))
+                    .toList();
+        }
+
+        @Override
+        public void saveMessage(ReviewMessage message) { messages.add(message); }
+
+        @Override
+        public Optional<ReviewMessage> findMessageById(String id)
+        {
+            return messages.stream().filter(m -> m.id().equals(id)).findFirst();
+        }
+
+        @Override
+        public List<ReviewMessage> listMessagesForPass(String reviewPassId)
+        {
+            return messages.stream()
+                    .filter(m -> m.reviewPassId().equals(reviewPassId))
+                    .toList();
+        }
+
+        @Override
+        public void saveFinding(ReviewFinding finding) { findings.add(finding); }
+
+        @Override
+        public Optional<ReviewFinding> findFindingById(String id)
+        {
+            return findings.stream().filter(f -> f.id().equals(id)).findFirst();
+        }
+
+        @Override
+        public List<ReviewFinding> listFindingsForPass(String reviewPassId)
+        {
+            return findings.stream()
+                    .filter(f -> f.reviewPassId().equals(reviewPassId))
+                    .toList();
+        }
+    }
+}

@@ -22,6 +22,7 @@ import ThreadsPage from './threads/ThreadsPage';
 import ThreadCreatePage from './threads/ThreadCreatePage';
 import ReviewThreadPage from './review/ReviewThreadPage';
 import ThreadDetailPage from './threads/ThreadDetailPage';
+import WorkspaceShell, { type WorkspaceSection } from './workspace/WorkspaceShell';
 import type {
   StatusFilter as ThreadsStatusFilter,
   ProviderFilter as ThreadsProviderFilter,
@@ -59,7 +60,8 @@ type Nav =
   | { view: 'repos' }
   | { view: 'repository'; owner: string; repo: string }
   | { view: 'local-repo'; owner: string; repo: string; initialBranch?: string }
-  | { view: 'settings'; section?: SettingsSection };
+  | { view: 'settings'; section?: SettingsSection }
+  | { view: 'workspace'; section?: WorkspaceSection };
 
 type GlobalTopbarProps = {
   nav: Nav;
@@ -207,6 +209,13 @@ function GlobalTopbar({ nav, onNav, fullScreen, unreadNotificationCount }: Globa
           onClick={() => onNav({ view: 'home' })}
         >
           Home
+        </button>
+        <button
+          className={`global-nav-btn${nav.view === 'workspace' ? ' global-nav-btn--active' : ''}`}
+          onClick={() => onNav({ view: 'workspace', section: 'home' })}
+          title="Workspace home, threads, memory, insights, settings"
+        >
+          Workspace
         </button>
         <button
           className={`global-nav-btn${nav.view === 'my-prs' ? ' global-nav-btn--active' : ''}`}
@@ -604,6 +613,14 @@ function App() {
           <ReviewThreadPage
             threadId={nav.threadId}
             onBack={() => setNav(nav.back ?? { view: 'home' })}
+          />
+        )}
+        {nav.view === 'workspace' && (
+          <WorkspaceShell
+            section={nav.section ?? 'home'}
+            onSelectSection={section => setNav({ view: 'workspace', section })}
+            onOpenThread={threadId => setNav({ view: 'thread-detail', threadId })}
+            onLeaveShell={() => setNav({ view: 'threads' })}
           />
         )}
         {nav.view === 'repos' && (

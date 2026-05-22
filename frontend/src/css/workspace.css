@@ -1,0 +1,327 @@
+/*
+ * Workspace shell — calm visual language.
+ *
+ * Distinct from the app's existing top-level chrome: this shell hosts
+ * the per-workspace surfaces (Home / Threads / Memory / Insights /
+ * Settings) the design doc spells out. Browse-mode pages (PRs, Repos,
+ * Email, Notifications) stay on the existing chrome and are reached
+ * via the global topbar; the workspace nav is a sibling entry, not a
+ * replacement.
+ *
+ * Design tokens:
+ *  --ws-bg-*       gradient background stops (pastel purple/blue wash)
+ *  --ws-glass      translucent fill for floating cards
+ *  --ws-glass-edge subtle outline on cards
+ *  --ws-accent     primary purple — active nav row, "+ New thread" button
+ *  --ws-accent-soft very-light purple — hovered nav rows, chip backgrounds
+ *  --ws-text-1     primary text color
+ *  --ws-text-2     secondary
+ *  --ws-text-3     muted / meta
+ *  --ws-fast       micro-interaction transition (~140ms easing)
+ */
+
+:root {
+  --ws-bg-1: #f3f0ff;
+  --ws-bg-2: #eef3ff;
+  --ws-bg-3: #fdf4f7;
+  --ws-glass: rgba(255, 255, 255, 0.78);
+  --ws-glass-edge: rgba(255, 255, 255, 0.55);
+  --ws-card-border: rgba(124, 58, 237, 0.08);
+  --ws-card-shadow: 0 1px 2px rgba(67, 56, 202, 0.05), 0 4px 18px rgba(124, 58, 237, 0.06);
+  --ws-accent: #7c3aed;
+  --ws-accent-deep: #6d28d9;
+  --ws-accent-soft: rgba(124, 58, 237, 0.08);
+  --ws-text-1: #1f1b2e;
+  --ws-text-2: #4b455e;
+  --ws-text-3: #7a7388;
+  --ws-fast: 140ms ease;
+  --ws-rail-width: 220px;
+}
+
+.workspace-shell {
+  display: flex;
+  height: 100%;
+  min-height: 0;
+  background:
+    linear-gradient(135deg,
+      var(--ws-bg-1) 0%,
+      var(--ws-bg-2) 45%,
+      var(--ws-bg-3) 100%);
+  color: var(--ws-text-1);
+  font-feature-settings: 'cv02', 'cv03', 'cv04', 'cv11';
+}
+
+/* ── Left rail ─────────────────────────────────────────────────── */
+
+.workspace-rail {
+  width: var(--ws-rail-width);
+  flex-shrink: 0;
+  display: flex;
+  flex-direction: column;
+  padding: 16px 12px;
+  background: rgba(255, 255, 255, 0.45);
+  backdrop-filter: blur(12px);
+  border-right: 1px solid rgba(255, 255, 255, 0.5);
+  box-sizing: border-box;
+}
+
+.workspace-rail__brand {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 6px 12px;
+}
+
+.workspace-rail__brand-badge {
+  width: 28px;
+  height: 28px;
+  border-radius: 7px;
+  background: var(--ws-accent);
+  color: #fff;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 13px;
+  font-weight: 700;
+  letter-spacing: -0.01em;
+}
+
+.workspace-rail__brand-name {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--ws-text-1);
+  flex: 1;
+}
+
+.workspace-rail__brand-chevron {
+  color: var(--ws-text-3);
+  font-size: 12px;
+}
+
+.workspace-rail__commandbar {
+  margin: 6px 0 14px;
+  padding: 7px 10px;
+  font-size: 12px;
+  color: var(--ws-text-3);
+  background: rgba(255, 255, 255, 0.7);
+  border: 1px solid var(--ws-card-border);
+  border-radius: 8px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  cursor: text;
+  transition: background var(--ws-fast), border-color var(--ws-fast);
+}
+
+.workspace-rail__commandbar:hover {
+  background: #fff;
+  border-color: rgba(124, 58, 237, 0.18);
+}
+
+.workspace-rail__commandbar-key {
+  font-size: 10px;
+  color: var(--ws-text-3);
+  padding: 1px 5px;
+  background: rgba(124, 58, 237, 0.08);
+  border-radius: 3px;
+  font-family: ui-monospace, SFMono-Regular, monospace;
+}
+
+.workspace-rail__section-label {
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--ws-text-3);
+  padding: 8px 8px 6px;
+}
+
+.workspace-rail__items {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.workspace-rail__item {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 10px;
+  border-radius: 7px;
+  border: none;
+  background: transparent;
+  font-size: 13px;
+  color: var(--ws-text-2);
+  cursor: pointer;
+  text-align: left;
+  transition: background var(--ws-fast), color var(--ws-fast);
+}
+
+.workspace-rail__item:hover {
+  background: var(--ws-accent-soft);
+  color: var(--ws-text-1);
+}
+
+.workspace-rail__item--active {
+  background: rgba(124, 58, 237, 0.14);
+  color: var(--ws-accent-deep);
+  font-weight: 600;
+}
+
+.workspace-rail__item-icon {
+  font-size: 13px;
+  width: 16px;
+  display: inline-flex;
+  justify-content: center;
+}
+
+.workspace-rail__user {
+  margin-top: auto;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 6px 2px;
+}
+
+.workspace-rail__user-avatar {
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #ec4899, #f97316);
+  color: #fff;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.workspace-rail__user-name {
+  flex: 1;
+  font-size: 12px;
+  color: var(--ws-text-2);
+}
+
+.workspace-rail__user-menu {
+  color: var(--ws-text-3);
+  font-size: 12px;
+}
+
+/* ── Content area ──────────────────────────────────────────────── */
+
+.workspace-content {
+  flex: 1;
+  min-width: 0;
+  overflow-y: auto;
+  padding: 22px 28px 32px;
+}
+
+.workspace-pageheader {
+  position: sticky;
+  top: -22px;
+  z-index: 2;
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 16px 0 14px;
+  background: linear-gradient(to bottom,
+    rgba(243, 240, 255, 0.95),
+    rgba(243, 240, 255, 0.7) 70%,
+    transparent);
+  backdrop-filter: blur(6px);
+}
+
+.workspace-pageheader__title {
+  margin: 0;
+  font-size: 19px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  color: var(--ws-text-1);
+}
+
+.workspace-pageheader__meta {
+  margin-top: 2px;
+  font-size: 12px;
+  color: var(--ws-text-3);
+}
+
+.workspace-pageheader__action {
+  padding: 7px 12px;
+  font-size: 12px;
+  font-weight: 600;
+  color: #fff;
+  background: var(--ws-accent);
+  border: none;
+  border-radius: 8px;
+  cursor: pointer;
+  transition: background var(--ws-fast), transform var(--ws-fast);
+}
+
+.workspace-pageheader__action:hover {
+  background: var(--ws-accent-deep);
+  transform: translateY(-1px);
+}
+
+.workspace-card {
+  background: var(--ws-glass);
+  backdrop-filter: blur(12px);
+  border: 1px solid var(--ws-card-border);
+  border-radius: 12px;
+  box-shadow: var(--ws-card-shadow);
+  padding: 16px 18px;
+  transition: box-shadow var(--ws-fast), transform var(--ws-fast);
+}
+
+.workspace-card:hover {
+  box-shadow: 0 2px 4px rgba(67, 56, 202, 0.06), 0 8px 26px rgba(124, 58, 237, 0.08);
+}
+
+.workspace-card__head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+
+.workspace-card__title {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ws-text-1);
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+}
+
+.workspace-card__title-count {
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--ws-accent-deep);
+  background: var(--ws-accent-soft);
+  padding: 1px 6px;
+  border-radius: 999px;
+}
+
+.workspace-card__link {
+  font-size: 12px;
+  color: var(--ws-accent);
+  background: none;
+  border: none;
+  cursor: pointer;
+  font-weight: 500;
+  transition: color var(--ws-fast);
+}
+
+.workspace-card__link:hover {
+  color: var(--ws-accent-deep);
+}
+
+.workspace-placeholder {
+  padding: 28px;
+  background: var(--ws-glass);
+  border: 1px dashed var(--ws-card-border);
+  border-radius: 12px;
+  text-align: center;
+  color: var(--ws-text-3);
+  font-size: 13px;
+}

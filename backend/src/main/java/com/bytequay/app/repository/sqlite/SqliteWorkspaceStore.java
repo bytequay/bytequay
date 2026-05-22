@@ -13,9 +13,13 @@
  */
 package com.bytequay.app.repository.sqlite;
 
+import com.bytequay.app.domain.TaskStatus;
+import com.bytequay.app.domain.ThreadStatus;
 import com.bytequay.app.domain.Workspace;
 import com.bytequay.app.domain.WorkspaceRepo;
 import com.bytequay.app.repository.WorkspaceStore;
+import jakarta.persistence.EntityManager;
+import jakarta.persistence.PersistenceContext;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -29,8 +33,40 @@ import static java.util.Objects.requireNonNull;
 class SqliteWorkspaceStore
         implements WorkspaceStore
 {
+    /** Thread statuses we treat as "alive" for the landing card's
+     *  activeThreadCount. Terminal rows are excluded; the parked
+     *  AWAITING_REVIEW / NEEDS_ATTENTION states stay in because they
+     *  still belong to the workspace's live surface. */
+    private static final List<String> ACTIVE_THREAD_STATUSES = List.of(
+            ThreadStatus.PENDING.name(),
+            ThreadStatus.RUNNING.name(),
+            ThreadStatus.AWAITING.name(),
+            ThreadStatus.IDLE.name(),
+            ThreadStatus.AWAITING_REVIEW.name(),
+            ThreadStatus.NEEDS_ATTENTION.name());
+
+    /** Task statuses that count as in-flight on a workspace card. Same
+     *  shape as ACTIVE_THREAD_STATUSES but on the task lifecycle. */
+    private static final List<String> IN_FLIGHT_TASK_STATUSES = List.of(
+            TaskStatus.PENDING.name(),
+            TaskStatus.RUNNING.name(),
+            TaskStatus.AWAITING.name(),
+            TaskStatus.IDLE.name(),
+            TaskStatus.AWAITING_REVIEW.name(),
+            TaskStatus.NEEDS_ATTENTION.name());
+
+    /** Task statuses that drive the amber "needs you" chip. Both
+     *  parked states qualify per the design's "AWAITING_REVIEW /
+     *  NEEDS_ATTENTION" UI rules. */
+    private static final List<String> PARKED_TASK_STATUSES = List.of(
+            TaskStatus.AWAITING_REVIEW.name(),
+            TaskStatus.NEEDS_ATTENTION.name());
+
     private final WorkspaceJpaRepository workspaces;
     private final WorkspaceRepoJpaRepository repos;
+
+    @PersistenceContext
+    private EntityManager entityManager;
 
     SqliteWorkspaceStore(WorkspaceJpaRepository workspaces, WorkspaceRepoJpaRepository repos)
     {
@@ -125,6 +161,79 @@ class SqliteWorkspaceStore
             repos.save(entity);
         });
     }
+
+    @Override
+    public WorkspaceStats fetchStats(String workspaceId, long sinceMs)
+    {
+        requireNonNull(workspaceId, "workspaceId is null");
+        int activeThreads = countActiveThreads(workspaceId);
+        TaskAggregates tasks = aggregateTasks(workspaceId, sinceMs);
+        Long lastActivity = maxThreadUpdatedAt(workspaceId);
+        return new WorkspaceStats(
+                activeThreads,
+                tasks.inFlight(),
+                tasks.parked(),
+                tasks.spendMilliUsd(),
+                lastActivity);
+    }
+
+    private int countActiveThreads(String workspaceId)
+    {
+        // SQLite's COUNT returns BIGINT; widen with Number to dodge a
+        // ClassCastException when the JDBC driver hands back Long here
+        // and Integer on other rows.
+        Object raw = entityManager.createNativeQuery(
+                        "SELECT COUNT(*) FROM threads "
+                                + "WHERE workspace_id = :workspaceId "
+                                + "AND status IN (:statuses)")
+                .setParameter("workspaceId", workspaceId)
+                .setParameter("statuses", ACTIVE_THREAD_STATUSES)
+                .getSingleResult();
+        return raw instanceof Number n ? n.intValue() : 0;
+    }
+
+    private TaskAggregates aggregateTasks(String workspaceId, long sinceMs)
+    {
+        // One round-trip via conditional SUMs: counts and the spend
+        // accumulator all share the same threads→tasks JOIN. Cheaper
+        // than three separate queries and keeps the workspace_id
+        // join cost paid once. The CASE expressions return 1/0 for
+        // counts and the cost field / 0 for the spend sum.
+        Object[] row = (Object[]) entityManager.createNativeQuery(
+                        "SELECT "
+                                + "  COALESCE(SUM(CASE WHEN t.status IN (:inFlight) THEN 1 ELSE 0 END), 0), "
+                                + "  COALESCE(SUM(CASE WHEN t.status IN (:parked) THEN 1 ELSE 0 END), 0), "
+                                + "  COALESCE(SUM(CASE WHEN t.created_at_ms >= :sinceMs THEN t.cost_usd_milli ELSE 0 END), 0) "
+                                + "FROM tasks t "
+                                + "JOIN threads th ON th.id = t.thread_id "
+                                + "WHERE th.workspace_id = :workspaceId")
+                .setParameter("workspaceId", workspaceId)
+                .setParameter("inFlight", IN_FLIGHT_TASK_STATUSES)
+                .setParameter("parked", PARKED_TASK_STATUSES)
+                .setParameter("sinceMs", sinceMs)
+                .getSingleResult();
+        int inFlight = row[0] instanceof Number n ? n.intValue() : 0;
+        int parked = row[1] instanceof Number n ? n.intValue() : 0;
+        long spend = row[2] instanceof Number n ? n.longValue() : 0L;
+        return new TaskAggregates(inFlight, parked, spend);
+    }
+
+    private Long maxThreadUpdatedAt(String workspaceId)
+    {
+        // MAX over an empty selection comes back as NULL — we surface
+        // that as a null Long so the card can fall back to "no
+        // activity yet" instead of rendering epoch zero.
+        Object raw = entityManager.createNativeQuery(
+                        "SELECT MAX(updated_at_ms) FROM threads "
+                                + "WHERE workspace_id = :workspaceId")
+                .setParameter("workspaceId", workspaceId)
+                .getSingleResult();
+        return raw instanceof Number n ? n.longValue() : null;
+    }
+
+    /** Internal tuple for {@link #aggregateTasks} so the multi-column
+     *  native-query result has a name instead of an opaque int[3]. */
+    private record TaskAggregates(int inFlight, int parked, long spendMilliUsd) {}
 
     private static Workspace toWorkspace(WorkspaceEntity e)
     {

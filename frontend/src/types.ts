@@ -1376,6 +1376,50 @@ export type WorkspaceDto = {
   updatedAt: string;
 };
 
+/** Card-shaped projection of a workspace for the top-level landing
+ *  grid. Aggregates the thread / task counts and the memory summary
+ *  the user picks between on, so the landing renders in one round-
+ *  trip. Backed by {@code GET /api/workspaces}. */
+export type WorkspaceCardDto = {
+  id: string;
+  name: string;
+  /** Hex colour the gradient avatar uses. Derived from the name on
+   *  the backend so a hand-typed name keeps the same colour across
+   *  restarts. */
+  color: string;
+  /** Scratch workspaces accrue no durable memory and render the muted
+   *  card variant ("throwaway · no durable memory"). */
+  isScratch: boolean;
+  /** Short repo names ({@code "bytequay"}, {@code "backend"}) — the
+   *  card chips skip the owner prefix to keep rows scannable. */
+  repos: string[];
+  /** Threads in non-terminal status — what the design calls the
+   *  workspace's "live" surface. */
+  activeThreadCount: number;
+  /** Tasks not yet COMPLETED or ERRORED across all of the workspace's
+   *  threads — branches the agent is still touching. */
+  tasksInFlight: number;
+  /** Milli-USD spent on tasks created since local midnight.
+   *  Approximation — no per-day cost ledger yet, so a long task
+   *  counts on its create date. */
+  spendTodayMilliUsd: number;
+  /** Tasks parked at AWAITING_REVIEW or NEEDS_ATTENTION — drives the
+   *  amber "N needs you" chip on the card footer. */
+  needsAttentionCount: number;
+  /** Decisions / blockers / token budget pulled from
+   *  {@code memoryMd}'s named H2 sections. */
+  memory: {
+    decisionCount: number;
+    blockerCount: number;
+    tokensUsed: number;
+    tokensCap: number;
+  };
+  /** Newest {@code updated_at_ms} across the workspace's threads;
+   *  null for an empty workspace. Drives the relative "edited Nm ago"
+   *  text. */
+  lastActivityMs: number | null;
+};
+
 /** One repo attached to a workspace. v1 ships a single ambient
  *  workspace ({@code ws-default}), so for now the list mirrors the
  *  watched-repos table 1:1; the row carries the workspace-level
@@ -1617,6 +1661,10 @@ export type WorkspaceInsightsDto = {
   reposInWorkspace: number;
   spendTodayMilli: number;
   spendInWindowMilli: number;
+  /** Count of tasks created inside the window that carry a linked
+   *  PR — the "shipped" signal. Per-repo breakdown is deferred until
+   *  Task carries an owner/repo column. */
+  tasksShippedInWindow: number;
   spendByDay: { date: string; label: string; costUsdMilli: number }[];
 };
 
@@ -2323,6 +2371,10 @@ export type Bridge = {
    *  and marks parked notifications for the thread as read. Returns
    *  the refreshed thread row. */
   jumpInThread: (threadId: string) => Promise<ThreadDto>;
+  /** Top-level Workspaces landing grid feed. One card per workspace
+   *  with all the aggregates the landing renders (counts, today's
+   *  spend, memory summary). Read-only. */
+  listWorkspaces: () => Promise<WorkspaceCardDto[]>;
   /** List the repos attached to a workspace. Used by the watched-repos
    *  settings page to read each repo's auto-fix flag — the data lives
    *  on workspace_repos, not on the watched-repos table itself. */

@@ -194,6 +194,32 @@
   font-weight: 600;
 }
 
+/* Right-edge status dot on a rail nav item. The live variant pulses
+ * green when at least one thread is currently RUNNING; the unread
+ * variant is a solid purple dot when something needs attention but
+ * nothing is actively running. Mutually exclusive — live wins. */
+.workspace-rail__item-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  margin-left: auto;
+  flex-shrink: 0;
+}
+
+.workspace-rail__item-dot--live {
+  background: #16a34a;
+  animation: ws-pulse 1.8s ease-in-out infinite;
+}
+
+.workspace-rail__item-dot--unread {
+  background: var(--ws-accent);
+}
+
+@keyframes ws-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(22, 163, 74, 0.45); }
+  60%      { box-shadow: 0 0 0 5px rgba(22, 163, 74, 0); }
+}
+
 .workspace-rail__item-icon {
   font-size: 13px;
   width: 16px;
@@ -407,4 +433,498 @@
   text-align: center;
   color: var(--ws-text-3);
   font-size: 13px;
+}
+
+/* ── Workspaces landing page ───────────────────────────────────────────
+ *
+ * Top-level "which project brain do I enter?" surface. Lives above any
+ * workspace — no left rail, no workspace nav — but reuses the same
+ * calm visual language (mesh background, noise overlay, glass cards,
+ * 140ms micro-interactions) so the eye doesn't need to recalibrate
+ * between landing and the workspace dashboards.
+ */
+
+.workspace-landing {
+  min-height: 100%;
+  position: relative;
+  background:
+    radial-gradient(at 18% 12%, var(--ws-mesh-purple, rgba(196, 181, 253, 0.55)) 0%, transparent 55%),
+    radial-gradient(at 82% 14%, var(--ws-mesh-sky,    rgba(186, 230, 253, 0.55)) 0%, transparent 60%),
+    radial-gradient(at 22% 88%, var(--ws-mesh-pink,   rgba(252, 207, 232, 0.55)) 0%, transparent 55%),
+    radial-gradient(at 86% 80%, var(--ws-mesh-mint,   rgba(187, 247, 208, 0.50)) 0%, transparent 60%),
+    var(--ws-bg-base, #fafafe);
+  color: var(--ws-text-1);
+  padding: 24px 32px 64px;
+  box-sizing: border-box;
+  overflow-y: auto;
+}
+
+.workspace-landing::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  mix-blend-mode: overlay;
+  opacity: 0.045;
+  background-image: url("data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 240 240'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/></filter><rect width='240' height='240' filter='url(%23n)'/></svg>");
+  background-size: 240px 240px;
+}
+
+.workspace-landing__appbar {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  margin-bottom: 32px;
+  position: relative;
+  z-index: 1;
+}
+
+.workspace-landing__brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-weight: 600;
+  font-size: 14px;
+  color: var(--ws-text-1);
+}
+
+.workspace-landing__brand-badge {
+  display: inline-flex;
+  width: 26px;
+  height: 26px;
+  border-radius: 8px;
+  background: linear-gradient(135deg, var(--ws-accent) 0%, #a78bfa 100%);
+  color: #fff;
+  align-items: center;
+  justify-content: center;
+  font-weight: 700;
+  font-size: 13px;
+  letter-spacing: -0.02em;
+}
+
+.workspace-landing__search {
+  flex: 1;
+  max-width: 360px;
+  padding: 8px 12px;
+  border-radius: 8px;
+  border: 1px solid var(--ws-card-border);
+  background: rgba(255, 255, 255, 0.66);
+  backdrop-filter: blur(10px);
+  font: inherit;
+  color: var(--ws-text-1);
+  outline: none;
+  transition: border-color var(--ws-fast), box-shadow var(--ws-fast);
+}
+
+.workspace-landing__search::placeholder {
+  color: var(--ws-text-3);
+}
+
+.workspace-landing__search:focus {
+  border-color: var(--ws-accent);
+  box-shadow: 0 0 0 3px rgba(124, 58, 237, 0.18);
+}
+
+.workspace-landing__account {
+  margin-left: auto;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 4px 8px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.66);
+  backdrop-filter: blur(10px);
+  color: var(--ws-text-2);
+  font-size: 13px;
+}
+
+.workspace-landing__account-avatar {
+  display: inline-flex;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #f472b6 0%, #fb7185 100%);
+  color: #fff;
+  align-items: center;
+  justify-content: center;
+  font-weight: 600;
+  font-size: 11px;
+}
+
+.workspace-landing__account-chevron {
+  color: var(--ws-text-3);
+  font-size: 10px;
+}
+
+.workspace-landing__hero {
+  position: relative;
+  z-index: 1;
+  margin-bottom: 24px;
+}
+
+.workspace-landing__title {
+  font-size: 36px;
+  font-weight: 700;
+  letter-spacing: -0.025em;
+  margin: 0 0 8px;
+  color: var(--ws-text-1);
+}
+
+.workspace-landing__subtitle {
+  margin: 0;
+  color: var(--ws-text-2);
+  font-size: 14px;
+  max-width: 640px;
+  line-height: 1.5;
+}
+
+.workspace-landing__grid {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(360px, 1fr));
+  gap: 20px;
+}
+
+.workspace-landing__placeholder {
+  grid-column: 1 / -1;
+  padding: 32px;
+  text-align: center;
+  color: var(--ws-text-3);
+  font-size: 14px;
+  background: var(--ws-glass);
+  border: 1px dashed var(--ws-card-border);
+  border-radius: 12px;
+}
+
+.workspace-landing__error {
+  grid-column: 1 / -1;
+  padding: 20px;
+  background: var(--ws-glass);
+  border: 1px solid #fca5a5;
+  border-radius: 12px;
+  color: #b91c1c;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  align-items: flex-start;
+}
+
+.workspace-landing__error button {
+  font: inherit;
+  padding: 6px 12px;
+  border-radius: 6px;
+  border: 1px solid #fca5a5;
+  background: #fff;
+  color: #b91c1c;
+  cursor: pointer;
+}
+
+/* ── Landing card ──────────────────────────────────────────────────── */
+
+.workspace-landing-card {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 18px;
+  background: rgba(255, 255, 255, 0.66);
+  backdrop-filter: blur(14px) saturate(125%);
+  border: 1px solid var(--ws-card-border);
+  border-radius: 18px;
+  box-shadow: var(--ws-card-shadow);
+  text-align: left;
+  cursor: pointer;
+  color: inherit;
+  font: inherit;
+  transition: transform var(--ws-fast), box-shadow var(--ws-fast),
+              border-color var(--ws-fast);
+}
+
+.workspace-landing-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 2px 4px rgba(67, 56, 202, 0.08),
+              0 10px 28px rgba(124, 58, 237, 0.12);
+  border-color: rgba(124, 58, 237, 0.18);
+}
+
+.workspace-landing-card:focus-visible {
+  outline: 2px solid var(--ws-accent);
+  outline-offset: 3px;
+}
+
+.workspace-landing-card--current {
+  box-shadow:
+    0 0 0 2px var(--ws-accent),
+    0 1px 2px rgba(67, 56, 202, 0.05),
+    0 6px 22px rgba(124, 58, 237, 0.10);
+}
+
+.workspace-landing-card__head {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.workspace-landing-card__avatar {
+  display: inline-flex;
+  width: 40px;
+  height: 40px;
+  border-radius: 12px;
+  align-items: center;
+  justify-content: center;
+  color: #fff;
+  font-weight: 700;
+  font-size: 18px;
+  letter-spacing: -0.02em;
+  flex-shrink: 0;
+}
+
+.workspace-landing-card__avatar--scratch {
+  background: linear-gradient(135deg, #d1d5db 0%, #9ca3af 100%);
+  color: #4b5563;
+}
+
+.workspace-landing-card__heading {
+  flex: 1;
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.workspace-landing-card__name-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.workspace-landing-card__name {
+  font-weight: 600;
+  font-size: 15px;
+  color: var(--ws-text-1);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.workspace-landing-card__chip {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  padding: 2px 6px;
+  border-radius: 4px;
+  background: var(--ws-accent-soft);
+  color: var(--ws-accent-deep);
+  text-transform: uppercase;
+  flex-shrink: 0;
+}
+
+.workspace-landing-card__meta {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12px;
+  color: var(--ws-text-3);
+}
+
+.workspace-landing-card__live-dot {
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #10b981;
+  box-shadow: 0 0 6px rgba(16, 185, 129, 0.45);
+}
+
+.workspace-landing-card__menu {
+  color: var(--ws-text-3);
+  font-size: 16px;
+  letter-spacing: 0.1em;
+  align-self: flex-start;
+  padding: 0 4px;
+}
+
+.workspace-landing-card__repos {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.workspace-landing-card__repo {
+  font-family: ui-monospace, 'SF Mono', Menlo, monospace;
+  font-size: 11px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: rgba(124, 58, 237, 0.06);
+  color: var(--ws-accent-deep);
+  border: 1px solid rgba(124, 58, 237, 0.10);
+}
+
+.workspace-landing-card__stats {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+  padding: 12px;
+  background: rgba(255, 255, 255, 0.50);
+  border: 1px solid rgba(255, 255, 255, 0.65);
+  border-radius: 12px;
+}
+
+.workspace-landing-card__stat {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.workspace-landing-card__stat-value {
+  font-size: 20px;
+  font-weight: 600;
+  color: var(--ws-text-1);
+  letter-spacing: -0.02em;
+}
+
+.workspace-landing-card__stat-label {
+  font-size: 11px;
+  color: var(--ws-text-3);
+}
+
+.workspace-landing-card__stat--dim .workspace-landing-card__stat-value {
+  color: var(--ws-text-3);
+}
+
+.workspace-landing-card__memory {
+  display: grid;
+  grid-template-columns: auto 1fr auto;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  background: rgba(16, 185, 129, 0.06);
+  border-radius: 10px;
+  font-size: 12px;
+  color: var(--ws-text-2);
+}
+
+.workspace-landing-card__memory-diamond {
+  color: #10b981;
+}
+
+.workspace-landing-card__memory-text {
+  font-weight: 500;
+  color: var(--ws-text-2);
+}
+
+.workspace-landing-card__memory-blocker {
+  color: #d97706;
+}
+
+.workspace-landing-card__budget {
+  height: 6px;
+  border-radius: 3px;
+  background: rgba(124, 58, 237, 0.12);
+  overflow: hidden;
+  min-width: 40px;
+  max-width: 120px;
+}
+
+.workspace-landing-card__budget-fill {
+  height: 100%;
+  background: linear-gradient(90deg, var(--ws-accent) 0%, #a78bfa 100%);
+  transition: width var(--ws-fast);
+}
+
+.workspace-landing-card__budget-text {
+  font-size: 10px;
+  color: var(--ws-text-3);
+  font-variant-numeric: tabular-nums;
+  white-space: nowrap;
+}
+
+.workspace-landing-card__foot {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: auto;
+  padding-top: 4px;
+  font-size: 12px;
+  color: var(--ws-text-3);
+}
+
+.workspace-landing-card__attention {
+  display: inline-flex;
+  align-items: center;
+  padding: 3px 8px;
+  border-radius: 999px;
+  background: rgba(245, 158, 11, 0.14);
+  color: #b45309;
+  font-weight: 600;
+  font-size: 11px;
+}
+
+.workspace-landing-card__edited {
+  color: var(--ws-text-3);
+}
+
+.workspace-landing-card__enter {
+  color: var(--ws-accent);
+  font-weight: 600;
+  font-size: 12px;
+}
+
+/* Scratch variant — muted + dashed, no memory strip. The Inhabitable
+ * cards remain interactive (Enter →) because users do sometimes want
+ * to drop into the scratch space. */
+.workspace-landing-card--scratch {
+  background: rgba(248, 248, 250, 0.66);
+  border-style: dashed;
+  color: var(--ws-text-2);
+}
+
+.workspace-landing-card--scratch .workspace-landing-card__name {
+  color: var(--ws-text-2);
+}
+
+.workspace-landing-card__scratch-blurb {
+  margin: 0;
+  font-size: 12px;
+  color: var(--ws-text-3);
+  line-height: 1.45;
+}
+
+/* + New workspace tile — dashed, centered, no header / stats. */
+.workspace-landing-card--new {
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  border-style: dashed;
+  background: rgba(255, 255, 255, 0.42);
+  gap: 8px;
+  min-height: 220px;
+}
+
+.workspace-landing-card__new-plus {
+  display: inline-flex;
+  width: 44px;
+  height: 44px;
+  border-radius: 50%;
+  background: rgba(124, 58, 237, 0.10);
+  color: var(--ws-accent-deep);
+  align-items: center;
+  justify-content: center;
+  font-size: 24px;
+  font-weight: 300;
+}
+
+.workspace-landing-card__new-label {
+  font-weight: 600;
+  color: var(--ws-accent-deep);
+  font-size: 14px;
+}
+
+.workspace-landing-card__new-blurb {
+  font-size: 12px;
+  color: var(--ws-text-3);
+  max-width: 240px;
+  line-height: 1.45;
 }

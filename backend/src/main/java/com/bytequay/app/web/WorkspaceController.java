@@ -14,6 +14,7 @@
 package com.bytequay.app.web;
 
 import com.bytequay.app.domain.Workspace;
+import com.bytequay.app.domain.WorkspaceCardDto;
 import com.bytequay.app.domain.WorkspaceMemoryProposal;
 import com.bytequay.app.domain.WorkspaceRepo;
 import com.bytequay.app.service.WorkspaceInsightsService;
@@ -75,10 +76,15 @@ public class WorkspaceController
         return insights.get(window);
     }
 
+    /**
+     * Landing-grid feed. Returns each workspace shaped as a card with
+     * aggregate stats — counts/sums and a memory summary — so the
+     * top-level Workspaces page renders in one round-trip. Read-only.
+     */
     @GetMapping
-    public List<Workspace> list()
+    public List<WorkspaceCardDto> list()
     {
-        return workspaces.list();
+        return workspaces.listWithStats();
     }
 
     @GetMapping("/{id}")

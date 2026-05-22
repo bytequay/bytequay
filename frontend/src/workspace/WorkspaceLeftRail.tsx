@@ -16,14 +16,28 @@ import type { WorkspaceSection } from './WorkspaceShell';
 type Props = {
   active: WorkspaceSection;
   onSelect: (section: WorkspaceSection) => void;
-  /** Open the new-workspace modal. Triggered from the brand row at
-   *  the top of the rail — that slot is the natural home for the
-   *  workspace switcher in multi-workspace mode. */
+  /** Navigate up to the Workspaces landing grid. The brand chevron
+   *  ("ByteQuay ▾") fires this when wired — that's the workspace
+   *  switcher. Falls back to {@link onOpenNewWorkspace} when not
+   *  provided so older mounts still surface a useful click. */
+  onOpenWorkspaceSwitcher?: () => void;
+  /** Open the new-workspace modal. Legacy entry for the brand chevron;
+   *  superseded by {@link onOpenWorkspaceSwitcher} once the landing
+   *  page is wired. The dialog itself remains the inline creation
+   *  path for callers that punch straight to "+ New workspace". */
   onOpenNewWorkspace?: () => void;
   /** Open the Phase-9 control bar. The command-bar placeholder in
    *  the rail acts as the launcher when this is provided; ⌘K still
    *  works globally either way. */
   onOpenControlBar?: () => void;
+  /** True when at least one thread is currently RUNNING. The Threads
+   *  nav item grows a pulsing green dot at its right edge. */
+  hasLiveThread?: boolean;
+  /** True when at least one thread is parked at the publish gate /
+   *  needs attention but nothing is actively running. The Threads
+   *  nav item grows a static purple dot at its right edge. Ignored
+   *  when {@link hasLiveThread} is also set — live wins. */
+  hasUnreadThread?: boolean;
 };
 
 type Item = { id: WorkspaceSection; label: string; icon: string };
@@ -41,15 +55,24 @@ const ITEMS: Item[] = [
  *  Command bar is intentionally a placeholder for Phase 9 — it
  *  surfaces in the chrome now so the visual hierarchy matches the
  *  mockup, but clicking it doesn't open the command palette yet. */
-function WorkspaceLeftRail({ active, onSelect, onOpenNewWorkspace, onOpenControlBar }: Props) {
+function WorkspaceLeftRail({
+  active, onSelect, onOpenWorkspaceSwitcher, onOpenNewWorkspace, onOpenControlBar,
+  hasLiveThread = false, hasUnreadThread = false,
+}: Props) {
+  // Prefer the new switcher hook; fall back to the legacy
+  // new-workspace dialog for callers that haven't migrated yet.
+  const brandClick = onOpenWorkspaceSwitcher ?? onOpenNewWorkspace;
+  const brandTitle = onOpenWorkspaceSwitcher
+    ? 'Switch workspaces…'
+    : onOpenNewWorkspace ? 'New workspace…' : undefined;
   return (
     <aside className="workspace-rail" aria-label="Workspace navigation">
       <button
         type="button"
         className="workspace-rail__brand"
-        onClick={onOpenNewWorkspace}
-        disabled={!onOpenNewWorkspace}
-        title={onOpenNewWorkspace ? 'New workspace…' : undefined}
+        onClick={brandClick}
+        disabled={!brandClick}
+        title={brandTitle}
         style={brandButtonStyle}
       >
         <span className="workspace-rail__brand-badge" aria-hidden>B</span>
@@ -70,19 +93,35 @@ function WorkspaceLeftRail({ active, onSelect, onOpenNewWorkspace, onOpenControl
 
       <div className="workspace-rail__section-label">Workspace</div>
       <nav className="workspace-rail__items">
-        {ITEMS.map(item => (
-          <button
-            key={item.id}
-            type="button"
-            className={`workspace-rail__item${
-              active === item.id ? ' workspace-rail__item--active' : ''}`}
-            onClick={() => onSelect(item.id)}
-            aria-current={active === item.id ? 'page' : undefined}
-          >
-            <span className="workspace-rail__item-icon" aria-hidden>{item.icon}</span>
-            <span>{item.label}</span>
-          </button>
-        ))}
+        {ITEMS.map(item => {
+          const showLive = item.id === 'threads' && hasLiveThread;
+          const showUnread = item.id === 'threads' && !hasLiveThread && hasUnreadThread;
+          return (
+            <button
+              key={item.id}
+              type="button"
+              className={`workspace-rail__item${
+                active === item.id ? ' workspace-rail__item--active' : ''}`}
+              onClick={() => onSelect(item.id)}
+              aria-current={active === item.id ? 'page' : undefined}
+            >
+              <span className="workspace-rail__item-icon" aria-hidden>{item.icon}</span>
+              <span>{item.label}</span>
+              {showLive && (
+                <span
+                  className="workspace-rail__item-dot workspace-rail__item-dot--live"
+                  aria-label="threads are live"
+                />
+              )}
+              {showUnread && (
+                <span
+                  className="workspace-rail__item-dot workspace-rail__item-dot--unread"
+                  aria-label="threads need attention"
+                />
+              )}
+            </button>
+          );
+        })}
       </nav>
 
       <div className="workspace-rail__user">

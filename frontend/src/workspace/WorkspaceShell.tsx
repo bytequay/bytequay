@@ -11,7 +11,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import WorkspaceMemoryPage from '../settings/pages/WorkspaceMemoryPage';
 import NewThreadDialog from './NewThreadDialog';
 import NewWorkspaceDialog from './NewWorkspaceDialog';
@@ -41,6 +41,10 @@ type Props = {
   /** Open the Phase-9 control bar. Wired here so the left-rail
    *  command-bar placeholder becomes an actual launcher. */
   onOpenControlBar?: () => void;
+  /** Navigate up to the top-level Workspaces landing grid. Wired
+   *  through the brand chevron ("ByteQuay ▾") so the user can switch
+   *  between workspaces or reach the "+ New workspace" tile. */
+  onOpenWorkspaceSwitcher?: () => void;
 };
 
 /** Calm-language workspace shell. Sibling of the existing top-level
@@ -50,17 +54,27 @@ type Props = {
  *  left rail. Browse-mode pages stay outside the shell. */
 function WorkspaceShell({
   section, onSelectSection, onOpenThread, onLeaveShell, onOpenThreadCreate, onOpenControlBar,
+  onOpenWorkspaceSwitcher,
 }: Props) {
   const [newThreadOpen, setNewThreadOpen] = useState(false);
   const [newWorkspaceOpen, setNewWorkspaceOpen] = useState(false);
+  const { hasLiveThread, hasUnreadThread } = useRailThreadSignals();
 
   return (
     <section className="workspace-shell">
       <WorkspaceLeftRail
         active={section}
         onSelect={onSelectSection}
+        // The brand chevron is now the workspace switcher per the
+        // landing design. We pass through onOpenWorkspaceSwitcher
+        // when it's wired; the rail falls back to opening the New
+        // Workspace dialog inline when it isn't, so older mounts of
+        // the shell still work.
+        onOpenWorkspaceSwitcher={onOpenWorkspaceSwitcher}
         onOpenNewWorkspace={() => setNewWorkspaceOpen(true)}
         onOpenControlBar={onOpenControlBar}
+        hasLiveThread={hasLiveThread}
+        hasUnreadThread={hasUnreadThread}
       />
       <div className="workspace-content">
         {section === 'home' && (
@@ -93,6 +107,37 @@ function WorkspaceShell({
       )}
     </section>
   );
+}
+
+/** Quick poll for the two rail nav signals (live + unread). Re-runs
+ *  on a 15s cadence so the dots don't go stale after a thread finishes
+ *  or parks — a streaming WebSocket would be cheaper, but the existing
+ *  bridge already gives us a snappy list endpoint so polling is the
+ *  short path. Home does its own fetch for the card data, so this is
+ *  a small extra cost. Hoist to a shared store if it grows further. */
+function useRailThreadSignals() {
+  const [signals, setSignals] = useState<{ hasLiveThread: boolean; hasUnreadThread: boolean }>({
+    hasLiveThread: false,
+    hasUnreadThread: false,
+  });
+
+  useEffect(() => {
+    let cancelled = false;
+    const tick = () => {
+      window.bridge.listTasks().then(threads => {
+        if (cancelled) return;
+        const hasLive = threads.some(t => t.status === 'RUNNING');
+        const hasUnread = threads.some(t =>
+          t.status === 'AWAITING' || t.activeTask?.status === 'AWAITING');
+        setSignals({ hasLiveThread: hasLive, hasUnreadThread: hasUnread });
+      }).catch(() => {});
+    };
+    tick();
+    const id = window.setInterval(tick, 15_000);
+    return () => { cancelled = true; window.clearInterval(id); };
+  }, []);
+
+  return signals;
 }
 
 export default WorkspaceShell;

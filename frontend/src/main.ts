@@ -2883,6 +2883,15 @@ const url = new URL(`${BACKEND_BASE}/api/search/repos`);
     return res.json();
   });
 
+  ipcMain.handle('workspaces:list', async () => {
+    const res = await fetch(`${BACKEND_BASE}/api/workspaces`);
+    if (!res.ok) {
+      const text = await res.text().catch(() => '');
+      throw new Error(`backend GET /api/workspaces returned ${res.status}: ${text}`);
+    }
+    return res.json();
+  });
+
   ipcMain.handle('workspaces:memory:get', async (_event, workspaceId: unknown) => {
     if (typeof workspaceId !== 'string' || workspaceId.trim().length === 0) {
       throw new Error('workspaceId must be a non-empty string');

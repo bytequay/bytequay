@@ -66,6 +66,7 @@ import type {
   UserStatsDto,
   WatchedRepoDto,
   WorkUnitTaskDto,
+  WorkspaceCardDto,
   WorkspaceDto,
   WorkspaceRepoDto,
   CredentialTestResult,
@@ -501,6 +502,8 @@ const bridge: Bridge = {
     ipcRenderer.invoke('threads:tasks:list', threadId),
   jumpInThread: (threadId: string): Promise<ThreadDto> =>
     ipcRenderer.invoke('threads:jumpIn', threadId),
+  listWorkspaces: (): Promise<WorkspaceCardDto[]> =>
+    ipcRenderer.invoke('workspaces:list'),
   listWorkspaceRepos: (workspaceId: string): Promise<WorkspaceRepoDto[]> =>
     ipcRenderer.invoke('workspaces:repos:list', workspaceId),
   getWorkspaceMemory: (workspaceId: string): Promise<{ memoryMd: string }> =>

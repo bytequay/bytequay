@@ -25,6 +25,7 @@ import type { ControlDispatch } from './control/actionCatalog';
 import ReviewThreadPage from './review/ReviewThreadPage';
 import ThreadDetailPage from './threads/ThreadDetailPage';
 import WorkspaceShell, { type WorkspaceSection } from './workspace/WorkspaceShell';
+import WorkspacesLandingPage from './workspace/WorkspacesLandingPage';
 import type {
   StatusFilter as ThreadsStatusFilter,
   ProviderFilter as ThreadsProviderFilter,
@@ -63,7 +64,14 @@ type Nav =
   | { view: 'repository'; owner: string; repo: string }
   | { view: 'local-repo'; owner: string; repo: string; initialBranch?: string }
   | { view: 'settings'; section?: SettingsSection }
-  | { view: 'workspace'; section?: WorkspaceSection };
+  | { view: 'workspace'; section?: WorkspaceSection }
+  /** Top-level "which project brain do I enter?" page. Lives above
+   *  any workspace; the global Workspace nav button routes here, the
+   *  single-workspace ambient case auto-enters from inside the landing
+   *  itself. {@code fromSwitcher} marks the in-shell brand-chevron
+   *  click so the landing skips the ambient redirect — the user
+   *  explicitly asked to see the switcher and shouldn't be bounced. */
+  | { view: 'workspaces-landing'; fromSwitcher?: boolean };
 
 type GlobalTopbarProps = {
   nav: Nav;
@@ -213,9 +221,12 @@ function GlobalTopbar({ nav, onNav, fullScreen, unreadNotificationCount }: Globa
           Home
         </button>
         <button
-          className={`global-nav-btn${nav.view === 'workspace' ? ' global-nav-btn--active' : ''}`}
-          onClick={() => onNav({ view: 'workspace', section: 'home' })}
-          title="Workspace home, threads, memory, insights, settings"
+          className={`global-nav-btn${
+            nav.view === 'workspace' || nav.view === 'workspaces-landing'
+              ? ' global-nav-btn--active'
+              : ''}`}
+          onClick={() => onNav({ view: 'workspaces-landing' })}
+          title="Workspaces — pick a project brain to drop into"
         >
           Workspace
         </button>
@@ -321,9 +332,31 @@ class RouteErrorBoundary extends Component<ErrorBoundaryProps, ErrorBoundaryStat
   }
 }
 
+/** Storage key the renderer reads / writes when the user enters a
+ *  workspace from the landing grid. The CURRENT chip on the landing
+ *  card reads this; multi-workspace switching reads it to know which
+ *  workspace to drop into. localStorage instead of a backend setting:
+ *  v1 is single-user single-device, so survival across restart is
+ *  the only requirement. */
+const ACTIVE_WORKSPACE_STORAGE_KEY = 'bytequay.workspace.active';
+
+function readActiveWorkspaceId(): string | null {
+  try { return window.localStorage.getItem(ACTIVE_WORKSPACE_STORAGE_KEY); }
+  catch { return null; }
+}
+
+function writeActiveWorkspaceId(id: string): void {
+  try { window.localStorage.setItem(ACTIVE_WORKSPACE_STORAGE_KEY, id); }
+  catch { /* private browsing — skip silently */ }
+}
+
 function App() {
   const [status, setStatus] = useState<Status>('checking');
   const [nav, setNav] = useState<Nav>({ view: 'home' });
+  /** Which workspace the user last entered. Drives the CURRENT chip
+   *  on the landing grid. Set when the user picks a card. */
+  const [activeWorkspaceId, setActiveWorkspaceId] = useState<string | null>(
+    () => readActiveWorkspaceId());
   const [fatal, setFatal] = useState<string | null>(null);
   /** Phase-9 control bar. ⌘K opens it; ControlBar's onDispatch
    *  routes a typed payload back here into setNav. Keeps the bar
@@ -377,6 +410,7 @@ function App() {
         { label: 'workspace-bytequay', kind: 'scope' },
         { label: nav.section ?? 'home', kind: 'scope' },
       ];
+      case 'workspaces-landing': return [{ label: 'workspaces', kind: 'scope' }];
       case 'my-prs':         return [{ label: 'pull-requests', kind: 'scope' }];
       case 'threads':        return [{ label: 'threads', kind: 'scope' }];
       case 'thread-detail':  return [{ label: 'thread', kind: 'entity' }];
@@ -690,6 +724,20 @@ function App() {
             onBack={() => setNav(nav.back ?? { view: 'home' })}
           />
         )}
+        {nav.view === 'workspaces-landing' && (
+          <WorkspacesLandingPage
+            currentWorkspaceId={activeWorkspaceId}
+            // forceVisible suppresses the ambient single-workspace
+            // redirect — the in-shell switcher click sets it so a
+            // single-workspace user can still browse / create.
+            forceVisible={nav.fromSwitcher === true}
+            onEnterWorkspace={(id) => {
+              setActiveWorkspaceId(id);
+              writeActiveWorkspaceId(id);
+              setNav({ view: 'workspace', section: 'home' });
+            }}
+          />
+        )}
         {nav.view === 'workspace' && (
           <WorkspaceShell
             section={nav.section ?? 'home'}
@@ -698,6 +746,7 @@ function App() {
             onLeaveShell={() => setNav({ view: 'threads' })}
             onOpenThreadCreate={() => setNav({ view: 'thread-create' })}
             onOpenControlBar={() => setControlBarOpen(true)}
+            onOpenWorkspaceSwitcher={() => setNav({ view: 'workspaces-landing', fromSwitcher: true })}
           />
         )}
         {nav.view === 'repos' && (

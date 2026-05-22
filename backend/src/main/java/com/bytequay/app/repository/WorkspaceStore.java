@@ -59,4 +59,29 @@ public interface WorkspaceStore
     /** Update only the default_base_branch on an existing row.
      *  No-op when the row doesn't exist. */
     void setDefaultBaseBranch(String workspaceId, String repoFullName, String defaultBaseBranch);
+
+    // ── aggregates ─────────────────────────────────────────────────────
+
+    /**
+     * Per-workspace aggregates for the landing-grid card. One DB
+     * round-trip's worth of counts/sums computed against {@code threads}
+     * and {@code tasks}, scoped by {@code workspaceId}. Zeros for an
+     * empty workspace; {@code lastActivityMs} is null in that case.
+     *
+     * @param sinceMs lower bound for {@code spendMilliUsd} — the
+     *                service passes today's local-midnight epoch ms.
+     */
+    WorkspaceStats fetchStats(String workspaceId, long sinceMs);
+
+    /** Tiny carrier for the four numeric aggregates the card needs.
+     *  Pulled from the database in one call so the service doesn't
+     *  fan out N queries per workspace. */
+    record WorkspaceStats(
+            int activeThreadCount,
+            int tasksInFlight,
+            int needsAttentionCount,
+            long spendMilliUsd,
+            Long lastActivityMs)
+    {
+    }
 }

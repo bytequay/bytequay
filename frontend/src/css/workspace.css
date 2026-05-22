@@ -265,23 +265,52 @@
   flex: 1;
   min-width: 0;
   overflow-y: auto;
-  padding: 22px 28px 32px;
+  /* No top padding: each page's first child is .workspace-pageheader,
+   * which extends edge-to-edge and must touch the workspace area's
+   * top boundary. Horizontal padding is the side gutter for cards
+   * below; the header escapes it via negative left/right margin. */
+  padding: 0 28px 32px;
 }
 
+/* The page header is a flat full-width bar pinned to the top of the
+ * content area, not a card — per docs/mockups/issue/tasks/home-bar.png.
+ * Negative horizontal/top margins pull it out of .workspace-content's
+ * padding so the bar reaches edge-to-edge with zero gap from the top
+ * boundary; the horizontal padding moves inside so the title still
+ * sits inset from the bar's left edge. A thin bottom hairline + soft
+ * shadow separates the bar from the content beneath. */
 .workspace-pageheader {
   position: sticky;
-  top: -22px;
+  top: 0;
   z-index: 2;
   display: flex;
-  align-items: flex-start;
+  align-items: center;
   justify-content: space-between;
   gap: 16px;
-  padding: 16px 0 14px;
-  background: linear-gradient(to bottom,
-    rgba(243, 240, 255, 0.95),
-    rgba(243, 240, 255, 0.7) 70%,
-    transparent);
-  backdrop-filter: blur(6px);
+  /* .workspace-content has no top padding now, so the bar sits at
+   * y=0 of the workspace area naturally — no negative top margin
+   * tricks. Negative horizontal margins still escape the 28px side
+   * gutter so the bar reaches the workspace area's left/right edges.
+   * Bottom margin gives the breathing room before the first card. */
+  margin: 0 -28px 22px;
+  padding: 14px 28px;
+  background: rgba(255, 255, 255, 0.88);
+  backdrop-filter: blur(14px) saturate(125%);
+  -webkit-backdrop-filter: blur(14px) saturate(125%);
+  border-bottom: 1px solid rgba(124, 58, 237, 0.08);
+  box-shadow: 0 1px 2px rgba(67, 56, 202, 0.04);
+}
+
+/* Title + meta share one baseline-aligned row per the workspace-home
+ * mockup ("ByteQuay  3 active threads · 2 tasks in flight · $1.84
+ * today"). Meta wraps under the title only when the viewport gets
+ * too narrow to keep both inline. */
+.workspace-pageheader__heading {
+  display: flex;
+  align-items: baseline;
+  flex-wrap: wrap;
+  gap: 4px 14px;
+  min-width: 0;
 }
 
 .workspace-pageheader__title {
@@ -293,21 +322,41 @@
 }
 
 .workspace-pageheader__meta {
-  margin-top: 2px;
-  font-size: 12px;
+  font-size: 13px;
   color: var(--ws-text-3);
 }
 
+/* Numbers and dollar amounts in the meta line read as bolder darker
+ * text against the muted labels — matches the workspace-home mockup's
+ * "3 active threads · 2 tasks in flight · $1.84 today" treatment. */
+.workspace-pageheader__meta-num {
+  color: var(--ws-text-1);
+  font-weight: 600;
+}
+
+.workspace-pageheader__meta-sep {
+  color: var(--ws-text-3);
+}
+
+/* + New thread button: flat purple pill with the label on the left
+ * and a slightly dimmer ⌘N inline on the right. No divider chip — the
+ * design treats the keybind as trailing text, not a separate cap.
+ *
+ * Background uses the lighter violet-500 (#8b5cf6) the home-bar mockup
+ * shows — distinct from --ws-accent (#7c3aed), which is used for
+ * darker accents elsewhere. Keeping the broader accent token alone
+ * avoids shifting every workspace surface for one button. */
 .workspace-pageheader__action {
-  padding: 7px 12px;
-  font-size: 12px;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 14px;
+  font-size: 13px;
   font-weight: 600;
   color: #fff;
-  /* Vertical gradient gives the button a bit of depth against the
-   * mesh background; the rest button's flat purple looked plastic. */
-  background: linear-gradient(180deg, var(--ws-accent), var(--ws-accent-deep));
+  background: #8b5cf6;
   border: none;
-  border-radius: 8px;
+  border-radius: 999px;
   cursor: pointer;
   box-shadow: 0 1px 2px rgba(67, 56, 202, 0.10);
   transition: background var(--ws-fast), transform var(--ws-fast),
@@ -315,9 +364,24 @@
 }
 
 .workspace-pageheader__action:hover {
-  background: linear-gradient(180deg, var(--ws-accent-deep), #5b21b6);
+  background: #7c3aed;
   transform: translateY(-1px);
   box-shadow: 0 4px 12px rgba(124, 58, 237, 0.25);
+}
+
+.workspace-pageheader__action:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+  transform: none;
+  box-shadow: 0 1px 2px rgba(67, 56, 202, 0.10);
+}
+
+.workspace-pageheader__action-kbd {
+  font: inherit;
+  font-size: 12px;
+  font-weight: 500;
+  color: rgba(255, 255, 255, 0.72);
+  letter-spacing: 0.02em;
 }
 
 .workspace-card {
@@ -341,6 +405,11 @@
   align-items: baseline;
   justify-content: space-between;
   margin-bottom: 12px;
+  /* Hairline separator below the title row — matches the design's
+   * card-head treatment ("Active threads | 3 | View all →" sits on
+   * its own band, divided from the list below). */
+  padding-bottom: 12px;
+  border-bottom: 1px solid rgba(124, 58, 237, 0.08);
 }
 
 .workspace-card__title {

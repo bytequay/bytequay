@@ -85,15 +85,22 @@ function WorkspaceHomePage({ onSelectSection, onNewThread, onOpenThread }: Props
   return (
     <>
       <header className="workspace-pageheader">
-        <div>
+        <div className="workspace-pageheader__heading">
           <h1 className="workspace-pageheader__title">ByteQuay</h1>
-          <div className="workspace-pageheader__meta">
-            {loading
-              ? 'loading…'
-              : `${activeThreads.length} active thread${activeThreads.length === 1 ? '' : 's'}`
-                + ` · ${tasksInFlight.length} task${tasksInFlight.length === 1 ? '' : 's'} in flight`
-                + ` · ${formatMilliUsd(spentTodayMilli)} today`}
-          </div>
+          {loading ? (
+            <span className="workspace-pageheader__meta">loading…</span>
+          ) : (
+            <span className="workspace-pageheader__meta">
+              <span className="workspace-pageheader__meta-num">{activeThreads.length}</span>
+              {' active thread' + (activeThreads.length === 1 ? '' : 's')}
+              <span className="workspace-pageheader__meta-sep" aria-hidden> · </span>
+              <span className="workspace-pageheader__meta-num">{tasksInFlight.length}</span>
+              {' task' + (tasksInFlight.length === 1 ? '' : 's') + ' in flight'}
+              <span className="workspace-pageheader__meta-sep" aria-hidden> · </span>
+              <span className="workspace-pageheader__meta-num">{formatMilliUsd(spentTodayMilli)}</span>
+              {' today'}
+            </span>
+          )}
         </div>
         <button
           type="button"
@@ -102,6 +109,7 @@ function WorkspaceHomePage({ onSelectSection, onNewThread, onOpenThread }: Props
           disabled={!onNewThread}
         >
           + New thread
+          <span className="workspace-pageheader__action-kbd" aria-hidden>⌘N</span>
         </button>
       </header>
 

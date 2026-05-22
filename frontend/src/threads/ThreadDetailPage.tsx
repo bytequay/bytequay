@@ -38,6 +38,7 @@ import RepoAvatar from './RepoAvatar';
 import { useAutoGrowTextarea, usePersistentDraft } from './draftStore';
 import { ConvIndex } from './ConvIndex';
 import { CheckpointsSection } from './CheckpointsSection';
+import { TasksInThreadSection } from './TasksInThreadSection';
 import { DiffModeToggle, ThreadDiffPane, useTaskDiffState, type DiffMode } from './ThreadChangesTab';
 import { findPendingPermission } from './permissions';
 import { threadAgentCwd, threadDisplayBranch, threadModelLabel, threadTokenLabel } from './threadDisplay';
@@ -1407,6 +1408,10 @@ function ThreadWindowSidebar({
             onToggle={onToggleGroup}
           />
         </div>
+      </SidebarSection>
+
+      <SidebarSection label="Tasks in this thread">
+        <TasksInThreadSection threadId={thread.id} />
       </SidebarSection>
 
       <SidebarSection label="Context window" hint={ctx.hint}>

@@ -11,8 +11,8 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import { useCallback, useEffect, useState } from 'react';
-import type { ThreadDto } from '../types';
+import { Fragment, useCallback, useEffect, useState } from 'react';
+import type { ThreadDto, WorkUnitTaskDto } from '../types';
 import type { WorkspaceSection } from './WorkspaceShell';
 
 type Props = {
@@ -125,13 +125,7 @@ function WorkspaceHomePage({ onSelectSection, onNewThread }: Props) {
                 <span style={statusDotStyle(t.status)} aria-hidden />
                 <div style={{ flex: 1, minWidth: 0 }}>
                   <div style={threadTitleStyle}>{t.title}</div>
-                  <div style={threadMetaStyle}>
-                    {t.activeTask?.branchName ?? 'no branch'}
-                    {t.activeTask?.linkedPrNumber !== undefined
-                        && t.activeTask?.linkedPrNumber !== null && (
-                      <> · PR #{t.activeTask.linkedPrNumber}</>
-                    )}
-                  </div>
+                  <ThreadMetaLine task={t.activeTask} />
                 </div>
                 <div style={threadRightStyle}>
                   <div>{relativeTime(t.updatedAt)}</div>
@@ -170,7 +164,7 @@ function WorkspaceHomePage({ onSelectSection, onNewThread }: Props) {
                     {t.branchName ?? 'no branch'}
                     <span style={taskSeqStyle}>:{t.seq}</span>
                   </div>
-                  <div style={threadMetaStyle}>
+                  <div style={taskMetaStyle}>
                     {t.linkedPrNumber !== null
                       ? `PR #${t.linkedPrNumber}`
                       : 'no PR yet'}
@@ -227,6 +221,71 @@ function MemoryBudgetBar({ charLength }: { charLength: number }) {
       </div>
     </div>
   );
+}
+
+/** The Active threads row's metadata line. Three shapes:
+ *  - 0-Task discussion thread → "discussion · no task yet".
+ *  - Task-bearing thread without a PR yet → branch chip + "awaiting
+ *    approval" when the task is parked at the publish gate.
+ *  - Task-bearing thread with a PR → branch chip + PR # + state qualifier
+ *    (draft/merged/closed; "open" is omitted as the default state).
+ *
+ *  Task-progression hint ("task N of N") shows once the thread has rolled
+ *  through ship-&-continue at least once (seq ≥ 2); a single-task thread
+ *  doesn't surface the count since it adds no information. */
+function ThreadMetaLine({ task }: { task: WorkUnitTaskDto | null }) {
+  if (task === null) {
+    return <div style={threadMetaStyle}>discussion · no task yet</div>;
+  }
+
+  const segs: { key: string; node: React.ReactNode }[] = [];
+
+  if (task.branchName !== null) {
+    segs.push({
+      key: 'branch',
+      node: <span style={branchChipStyle}>↗ {task.branchName}</span>,
+    });
+  }
+
+  if (task.linkedPrNumber !== null) {
+    const stateLabel = formatPrState(task.prState);
+    segs.push({
+      key: 'pr',
+      node: stateLabel === null
+        ? <span style={monoStyle}>PR #{task.linkedPrNumber}</span>
+        : <><span style={monoStyle}>PR #{task.linkedPrNumber}</span> {stateLabel}</>,
+    });
+  }
+  else if (task.status === 'AWAITING') {
+    segs.push({ key: 'await', node: 'awaiting approval' });
+  }
+
+  if (task.seq >= 2) {
+    segs.push({ key: 'seq', node: `task ${task.seq} of ${task.seq}` });
+  }
+
+  if (segs.length === 0) {
+    return <div style={threadMetaStyle}>no task yet</div>;
+  }
+
+  return (
+    <div style={threadMetaStyle}>
+      {segs.map((s, i) => (
+        <Fragment key={s.key}>
+          {i > 0 && ' · '}
+          {s.node}
+        </Fragment>
+      ))}
+    </div>
+  );
+}
+
+function formatPrState(prState: string | null): string | null {
+  if (prState === null || prState.length === 0) return null;
+  const lower = prState.toLowerCase();
+  // "open" is the default — surface only the qualifier states.
+  if (lower === 'open') return null;
+  return lower;
 }
 
 /* ── helpers ─────────────────────────────────────────────────── */
@@ -352,6 +411,34 @@ const threadTitleStyle: React.CSSProperties = {
 };
 
 const threadMetaStyle: React.CSSProperties = {
+  fontSize: 11,
+  color: 'var(--ws-text-3)',
+  marginTop: 2,
+  display: 'flex',
+  flexWrap: 'wrap',
+  alignItems: 'center',
+  gap: 0,
+};
+
+const branchChipStyle: React.CSSProperties = {
+  display: 'inline-flex',
+  alignItems: 'center',
+  gap: 3,
+  padding: '1px 6px',
+  borderRadius: 4,
+  background: 'rgba(124, 58, 237, 0.08)',
+  color: 'var(--ws-accent-deep)',
+  fontFamily: 'ui-monospace, SFMono-Regular, monospace',
+};
+
+const monoStyle: React.CSSProperties = {
+  fontFamily: 'ui-monospace, SFMono-Regular, monospace',
+};
+
+// Tasks-in-flight card uses mono throughout (branch label, PR number,
+// status word). Group B will rewrite the row layout; keeping the old
+// mono treatment here in the meantime avoids a visual regression.
+const taskMetaStyle: React.CSSProperties = {
   fontSize: 11,
   color: 'var(--ws-text-3)',
   marginTop: 2,

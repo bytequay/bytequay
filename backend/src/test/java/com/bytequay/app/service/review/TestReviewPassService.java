@@ -13,6 +13,7 @@
  */
 package com.bytequay.app.service.review;
 
+import com.bytequay.app.domain.CreateReviewCommand;
 import com.bytequay.app.domain.PrRawDetail;
 import com.bytequay.app.domain.PullRequestRef;
 import com.bytequay.app.domain.ReviewFinding;
@@ -49,7 +50,9 @@ import java.util.Optional;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -224,6 +227,131 @@ class TestReviewPassService
                 .isInstanceOf(ResponseStatusException.class);
     }
 
+    @Test
+    void publishPassPostsTheSelectedFindingsAsAGitHubReviewAndTransitionsThePass()
+    {
+        // Set up a terminated pass with two findings — one line-anchored,
+        // one whole-PR — so we can verify routing: inline comments for
+        // file:line, body fold-in for whole-PR.
+        ReviewOutput output = new ReviewOutput(
+                "Mostly fine — one nit and one whole-PR note.",
+                List.of(
+                        new ReviewOutput.LineComment("src/foo.ts", 12, "Inline.", "nit"),
+                        new ReviewOutput.LineComment(null, 0, "Whole PR.", "question")),
+                "claude", "claude-sonnet-4.6");
+        when(reviewer.review(any(ReviewRequest.class))).thenReturn(output);
+        ReviewPassDetail kicked = service.startReviewOnPr("acme/widget", 42);
+        // Include both findings; verdict = COMMENT.
+        List<String> findingIds = kicked.findings().stream()
+                .map(ReviewFinding::id)
+                .toList();
+
+        ReviewPassDetail published = service.publishPass(
+                kicked.pass().id(), ReviewVerdict.COMMENT, findingIds);
+
+        // 1. Single GitHub createReview call composed correctly: COMMENT
+        //    event, body contains summary + whole-PR fold-in, inline
+        //    comment for the line-anchored finding.
+        ArgumentCaptor<CreateReviewCommand> commandCaptor =
+                ArgumentCaptor.forClass(CreateReviewCommand.class);
+        verify(pullRequests).createReview(
+                eq("ghp_secret"), any(PullRequestRef.class), commandCaptor.capture());
+        CreateReviewCommand command = commandCaptor.getValue();
+        assertThat(command.event()).isEqualTo("COMMENT");
+        assertThat(command.body()).isPresent();
+        assertThat(command.body().get()).contains("Mostly fine");
+        assertThat(command.body().get()).contains("Whole-PR notes");
+        assertThat(command.body().get()).contains("Whole PR");
+        assertThat(command.comments()).hasSize(1);
+        CreateReviewCommand.ReviewLineComment inline = command.comments().get(0);
+        assertThat(inline.path()).isEqualTo("src/foo.ts");
+        assertThat(inline.line()).contains(12);
+        assertThat(inline.body()).contains("Inline");
+
+        // 2. Pass is PUBLISHED with the chosen verdict + endedAt.
+        assertThat(published.pass().phase()).isEqualTo(ReviewPhase.PUBLISHED);
+        assertThat(published.pass().verdict()).isEqualTo(ReviewVerdict.COMMENT);
+        assertThat(published.pass().endedAt()).isNotNull();
+
+        // 3. Both selected findings flipped to POSTED.
+        assertThat(published.findings())
+                .allMatch(f -> f.status() == ReviewFindingStatus.POSTED);
+    }
+
+    @Test
+    void publishPassDropsUnselectedFindingsFromThePayloadButLeavesThemAgreedOnTheRow()
+    {
+        ReviewOutput output = new ReviewOutput(
+                "Two nits.",
+                List.of(
+                        new ReviewOutput.LineComment("src/a.ts", 1, "Keep.", "nit"),
+                        new ReviewOutput.LineComment("src/b.ts", 2, "Drop.", "nit")),
+                "claude", "claude-sonnet-4.6");
+        when(reviewer.review(any(ReviewRequest.class))).thenReturn(output);
+        ReviewPassDetail kicked = service.startReviewOnPr("acme/widget", 7);
+        String keepId = kicked.findings().get(0).id();
+        String dropId = kicked.findings().get(1).id();
+
+        ReviewPassDetail published = service.publishPass(
+                kicked.pass().id(), ReviewVerdict.COMMENT, List.of(keepId));
+
+        ArgumentCaptor<CreateReviewCommand> commandCaptor =
+                ArgumentCaptor.forClass(CreateReviewCommand.class);
+        verify(pullRequests).createReview(
+                eq("ghp_secret"), any(PullRequestRef.class), commandCaptor.capture());
+        assertThat(commandCaptor.getValue().comments()).hasSize(1);
+        assertThat(commandCaptor.getValue().comments().get(0).body()).contains("Keep");
+
+        // The dropped finding stays on the row at AGREED (not POSTED),
+        // so the user can re-publish later if they change their mind.
+        ReviewFinding keep = published.findings().stream()
+                .filter(f -> f.id().equals(keepId)).findFirst().orElseThrow();
+        ReviewFinding drop = published.findings().stream()
+                .filter(f -> f.id().equals(dropId)).findFirst().orElseThrow();
+        assertThat(keep.status()).isEqualTo(ReviewFindingStatus.POSTED);
+        assertThat(drop.status()).isEqualTo(ReviewFindingStatus.AGREED);
+    }
+
+    @Test
+    void publishPassRefusesWithA409WhenThePassIsAlreadyPublished()
+    {
+        ReviewOutput output = new ReviewOutput(
+                "Done.", List.of(), "claude", "claude-sonnet-4.6");
+        when(reviewer.review(any(ReviewRequest.class))).thenReturn(output);
+        ReviewPassDetail kicked = service.startReviewOnPr("acme/widget", 11);
+        service.publishPass(kicked.pass().id(), ReviewVerdict.APPROVE, List.of());
+
+        // Second publish on the same pass — must be refused so we
+        // don't post the same review twice to GitHub.
+        assertThatThrownBy(() -> service.publishPass(
+                kicked.pass().id(), ReviewVerdict.APPROVE, List.of()))
+                .isInstanceOf(ResponseStatusException.class)
+                .hasMessageContaining("already published");
+    }
+
+    @Test
+    void publishPassSurfacesA502WhenGitHubRejectsTheReview()
+    {
+        ReviewOutput output = new ReviewOutput(
+                "Looks reasonable.", List.of(), "claude", "claude-sonnet-4.6");
+        when(reviewer.review(any(ReviewRequest.class))).thenReturn(output);
+        ReviewPassDetail kicked = service.startReviewOnPr("acme/widget", 13);
+        doThrow(new RuntimeException("422 — head_sha out of date"))
+                .when(pullRequests).createReview(
+                        anyString(), any(PullRequestRef.class), any(CreateReviewCommand.class));
+
+        assertThatThrownBy(() -> service.publishPass(
+                kicked.pass().id(), ReviewVerdict.APPROVE, List.of()))
+                .isInstanceOf(ResponseStatusException.class)
+                .hasMessageContaining("GitHub rejected the review");
+
+        // The pass stays at TERMINATE so the user can retry once the
+        // upstream issue is fixed — it would be wrong to mark it
+        // PUBLISHED when nothing actually landed on GitHub.
+        ReviewPhase phase = recording.passes.get(kicked.pass().id()).phase();
+        assertThat(phase).isEqualTo(ReviewPhase.TERMINATE);
+    }
+
     private static PrRawDetail rawDetail()
     {
         return new PrRawDetail(
@@ -279,7 +407,14 @@ class TestReviewPassService
         @Override public void deletePass(String id) { passes.remove(id); }
 
         @Override
-        public void saveParticipant(ReviewParticipant participant) { participants.add(participant); }
+        public void saveParticipant(ReviewParticipant participant)
+        {
+            // Upsert — match production SqliteReviewStore.saveParticipant
+            // semantics so tests that update an existing row don't see
+            // duplicate entries.
+            participants.removeIf(p -> p.id().equals(participant.id()));
+            participants.add(participant);
+        }
 
         @Override
         public Optional<ReviewParticipant> findParticipantById(String id)
@@ -296,7 +431,11 @@ class TestReviewPassService
         }
 
         @Override
-        public void saveMessage(ReviewMessage message) { messages.add(message); }
+        public void saveMessage(ReviewMessage message)
+        {
+            messages.removeIf(m -> m.id().equals(message.id()));
+            messages.add(message);
+        }
 
         @Override
         public Optional<ReviewMessage> findMessageById(String id)
@@ -313,7 +452,11 @@ class TestReviewPassService
         }
 
         @Override
-        public void saveFinding(ReviewFinding finding) { findings.add(finding); }
+        public void saveFinding(ReviewFinding finding)
+        {
+            findings.removeIf(f -> f.id().equals(finding.id()));
+            findings.add(finding);
+        }
 
         @Override
         public Optional<ReviewFinding> findFindingById(String id)

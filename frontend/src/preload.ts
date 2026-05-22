@@ -522,6 +522,8 @@ const bridge: Bridge = {
     ipcRenderer.invoke('reviews:get', passId),
   getReviewPassByThread: (threadId: string) =>
     ipcRenderer.invoke('reviews:byThread', threadId),
+  publishReviewPass: (passId: string, verdict: string, findingIds: string[]) =>
+    ipcRenderer.invoke('reviews:publish', { passId, verdict, findingIds }),
   setWorkspaceRepoAutoFix: (
     workspaceId: string, owner: string, repo: string, enabled: boolean,
   ): Promise<WorkspaceRepoDto> =>

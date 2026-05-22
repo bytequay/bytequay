@@ -3029,6 +3029,34 @@ const url = new URL(`${BACKEND_BASE}/api/search/repos`);
     return res.json();
   });
 
+  ipcMain.handle('reviews:publish', async (_event, args: unknown) => {
+    if (typeof args !== 'object' || args === null) {
+      throw new Error('reviews:publish args must be an object');
+    }
+    const a = args as { passId?: unknown; verdict?: unknown; findingIds?: unknown };
+    if (typeof a.passId !== 'string' || a.passId.trim().length === 0) {
+      throw new Error('passId must be a non-empty string');
+    }
+    if (typeof a.verdict !== 'string' || a.verdict.trim().length === 0) {
+      throw new Error('verdict must be a non-empty string');
+    }
+    if (!Array.isArray(a.findingIds) || a.findingIds.some(id => typeof id !== 'string')) {
+      throw new Error('findingIds must be an array of strings');
+    }
+    const res = await fetch(
+      `${BACKEND_BASE}/api/reviews/${encodeURIComponent(a.passId)}/publish`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ verdict: a.verdict, findingIds: a.findingIds }),
+      });
+    if (!res.ok) {
+      const text = await res.text().catch(() => '');
+      throw new Error(`backend POST /api/reviews/${a.passId}/publish returned ${res.status}: ${text}`);
+    }
+    return res.json();
+  });
+
   ipcMain.handle('workspaces:repos:list', async (_event, workspaceId: unknown) => {
     if (typeof workspaceId !== 'string' || workspaceId.trim().length === 0) {
       throw new Error('workspaceId must be a non-empty string');

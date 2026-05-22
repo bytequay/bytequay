@@ -11,7 +11,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import { cleanup, render, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import ReviewThreadPage from './ReviewThreadPage';
 import type {
@@ -65,12 +65,15 @@ describe('ReviewThreadPage', () => {
 
     // Findings render with the file:line anchor and a severity chip
     // each — the line=null finding falls back to just the path.
-    expect(screen.getByText('Reachable null deref.')).toBeTruthy();
-    expect(screen.getByText('src/foo.ts:12')).toBeTruthy();
-    expect(screen.getByText('Trailing whitespace.')).toBeTruthy();
-    expect(screen.getByText('src/bar.ts')).toBeTruthy();
-    expect(screen.getByLabelText('severity-blocker')).toBeTruthy();
-    expect(screen.getByLabelText('severity-nit')).toBeTruthy();
+    // Each finding body appears twice now (the read-only Findings
+    // section and the publish form's checkbox list); the file:line
+    // anchors do too, so just assert >=1 match for each.
+    expect(screen.getAllByText('Reachable null deref.').length).toBeGreaterThanOrEqual(1);
+    expect(screen.getAllByText('src/foo.ts:12').length).toBeGreaterThanOrEqual(1);
+    expect(screen.getAllByText('Trailing whitespace.').length).toBeGreaterThanOrEqual(1);
+    expect(screen.getAllByText('src/bar.ts').length).toBeGreaterThanOrEqual(1);
+    expect(screen.getAllByLabelText('severity-blocker').length).toBeGreaterThanOrEqual(1);
+    expect(screen.getAllByLabelText('severity-nit').length).toBeGreaterThanOrEqual(1);
   });
 
   it('shows an empty state when no pass exists for the thread', async () => {
@@ -101,22 +104,98 @@ describe('ReviewThreadPage', () => {
     expect(screen.queryByText(/Findings/i)).toBeNull();
   });
 
-  it('renders the publish placeholder as disabled with the suggested verdict copy', async () => {
-    const detail = buildDetail({ verdict: 'APPROVE', findings: [] });
+  it('renders the publish form with the suggested verdict pre-selected and all findings checked', async () => {
+    const detail = buildDetail({
+      verdict: 'APPROVE',
+      findings: [finding({ id: 'f1', body: 'Nit.' })],
+    });
     installBridge({
       getReviewPassByThread: vi.fn(async (): Promise<ReviewPassDetailDto | null> => detail),
     });
 
     render(<ReviewThreadPage threadId="thread-1" onBack={() => {}} />);
 
-    await waitFor(() => screen.getByText(/Suggested verdict/i));
-    const publishBtn = screen.getByText('Post review to PR (coming soon)') as HTMLButtonElement;
-    expect(publishBtn.disabled).toBe(true);
-    // The verdict copy is split across "Suggested verdict: " + a
-    // <strong> for the value, so traverse the publish section's
-    // <p> and assert on its full textContent.
-    const publishHint = screen.getByText(/Suggested verdict:/i).closest('p');
-    expect(publishHint?.textContent).toContain('APPROVE');
+    await waitFor(() => screen.getByText(/Verdict suggestion/i));
+    const approveRadio = screen.getByRole('radio', { name: 'APPROVE' }) as HTMLInputElement;
+    expect(approveRadio.checked).toBe(true);
+    // All findings default to included.
+    expect(screen.getByText(/Findings to post \(1\/1\)/)).toBeTruthy();
+    const findingCheckbox = screen.getByRole('checkbox') as HTMLInputElement;
+    expect(findingCheckbox.checked).toBe(true);
+
+    const publishBtn = screen.getByText('Post review to PR') as HTMLButtonElement;
+    expect(publishBtn.disabled).toBe(false);
+  });
+
+  it('publishes the pass with the selected verdict + finding ids and re-renders the published state', async () => {
+    const initial = buildDetail({
+      verdict: 'COMMENT',
+      findings: [
+        finding({ id: 'f-keep', severity: 'MAJOR', body: 'Keep me.' }),
+        finding({ id: 'f-drop', severity: 'NIT', body: 'Drop me.' }),
+      ],
+    });
+    const published: ReviewPassDetailDto = {
+      ...initial,
+      pass: { ...initial.pass, phase: 'PUBLISHED', verdict: 'REQUEST_CHANGES' },
+      findings: initial.findings.map(f => ({ ...f, status: 'POSTED' })),
+    };
+    const publishReviewPass = vi.fn(async () => published);
+    installBridge({
+      getReviewPassByThread: vi.fn(async (): Promise<ReviewPassDetailDto | null> => initial),
+      publishReviewPass,
+    });
+
+    render(<ReviewThreadPage threadId="thread-1" onBack={() => {}} />);
+    await waitFor(() => screen.getByText(/Verdict suggestion/i));
+
+    // Switch verdict + un-check the second finding.
+    await act(async () => {
+      fireEvent.click(screen.getByRole('radio', { name: 'REQUEST_CHANGES' }));
+    });
+    const dropCheckbox = screen.getAllByRole('checkbox')[1] as HTMLInputElement;
+    await act(async () => { fireEvent.click(dropCheckbox); });
+    expect(dropCheckbox.checked).toBe(false);
+
+    await act(async () => {
+      fireEvent.click(screen.getByText('Post review to PR'));
+    });
+
+    expect(publishReviewPass).toHaveBeenCalledTimes(1);
+    expect(publishReviewPass).toHaveBeenCalledWith('pass-1', 'REQUEST_CHANGES', ['f-keep']);
+    // Published state replaces the form with a one-line confirmation
+    // and shows a Published badge in the heading.
+    await waitFor(() => expect(screen.getByLabelText('published')).toBeTruthy());
+    expect(screen.getByText(/Posted to the PR as a/i).textContent).toContain('REQUEST_CHANGES');
+    // The post button is gone — the form is locked once published.
+    expect(screen.queryByText('Post review to PR')).toBeNull();
+  });
+
+  it('surfaces the backend error inline and leaves the form mounted for retry', async () => {
+    const detail = buildDetail({
+      verdict: 'COMMENT',
+      findings: [finding({ id: 'f1', body: 'A.' })],
+    });
+    installBridge({
+      getReviewPassByThread: vi.fn(async (): Promise<ReviewPassDetailDto | null> => detail),
+      publishReviewPass: vi.fn(async () => {
+        throw new Error('backend POST /api/reviews/pass-1/publish returned 502: '
+            + 'GitHub rejected the review');
+      }),
+    });
+
+    render(<ReviewThreadPage threadId="thread-1" onBack={() => {}} />);
+    await waitFor(() => screen.getByText('Post review to PR'));
+
+    await act(async () => {
+      fireEvent.click(screen.getByText('Post review to PR'));
+    });
+
+    await waitFor(() => {
+      expect(screen.getByRole('alert').textContent).toContain('GitHub rejected the review');
+    });
+    // Form stays so the user can retry after fixing the upstream issue.
+    expect(screen.getByText('Post review to PR')).toBeTruthy();
   });
 });
 

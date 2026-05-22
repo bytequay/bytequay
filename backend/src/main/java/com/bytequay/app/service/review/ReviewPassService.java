@@ -13,6 +13,8 @@
  */
 package com.bytequay.app.service.review;
 
+import com.bytequay.app.domain.CreateReviewCommand;
+import com.bytequay.app.domain.CreateReviewCommand.ReviewLineComment;
 import com.bytequay.app.domain.PrRawDetail;
 import com.bytequay.app.domain.PullRequestRef;
 import com.bytequay.app.domain.ReviewFinding;
@@ -45,8 +47,12 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.time.Instant;
+import java.util.ArrayList;
+import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Locale;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 
 import static com.bytequay.app.utils.PullRequestRefUtil.parseRef;
@@ -307,6 +313,153 @@ public class ReviewPassService
         // listPassesByThread is oldest-first; the latest pass is what
         // the UI wants to render by default (older passes are history).
         return Optional.of(buildDetail(passes.get(passes.size() - 1)));
+    }
+
+    /**
+     * Publish a terminated review pass to the PR as a GitHub review.
+     * The user picks the verdict + which findings to include via the
+     * panel UI's publish form; this method validates, composes the
+     * GitHub payload, posts it, marks the selected findings
+     * {@link ReviewFindingStatus#POSTED}, and transitions the pass
+     * into {@link ReviewPhase#PUBLISHED}.
+     *
+     * <p>Findings with both a {@code path} and a positive {@code line}
+     * become inline review comments; whole-PR notes (path or line
+     * missing) fold into the review body so nothing the user picked is
+     * silently dropped.
+     */
+    @Transactional
+    public ReviewPassDetail publishPass(
+            String passId, ReviewVerdict verdict, List<String> includedFindingIds)
+    {
+        requireNonNull(passId, "passId is null");
+        requireNonNull(verdict, "verdict is null");
+        requireNonNull(includedFindingIds, "includedFindingIds is null");
+
+        ReviewPass pass = reviewStore.findPassById(passId)
+                .orElseThrow(() -> new ResponseStatusException(
+                        HttpStatusCode.valueOf(404), "no review pass: " + passId));
+        if (pass.phase() == ReviewPhase.PUBLISHED) {
+            throw new ResponseStatusException(HttpStatusCode.valueOf(409),
+                    "review pass " + passId + " is already published");
+        }
+
+        List<ReviewFinding> allFindings = reviewStore.listFindingsForPass(passId);
+        Set<String> includedIds = new LinkedHashSet<>(includedFindingIds);
+        List<ReviewFinding> selected = new ArrayList<>();
+        for (ReviewFinding f : allFindings) {
+            if (includedIds.contains(f.id())) {
+                selected.add(f);
+            }
+        }
+
+        // Compose the review body: reviewer's INDEPENDENT summary
+        // followed by any whole-PR / file-no-line findings as a list
+        // so the user's selection doesn't lose them.
+        String summary = reviewSummaryBody(pass);
+        List<ReviewFinding> inlineable = new ArrayList<>();
+        List<ReviewFinding> wholePr = new ArrayList<>();
+        for (ReviewFinding f : selected) {
+            if (f.path() != null && f.line() != null && f.line() > 0) {
+                inlineable.add(f);
+            }
+            else {
+                wholePr.add(f);
+            }
+        }
+        String body = composeBody(summary, wholePr);
+
+        List<ReviewLineComment> inlineComments = inlineable.stream()
+                .map(f -> new ReviewLineComment(
+                        f.path(),
+                        Optional.empty(),
+                        Optional.of(f.line()),
+                        "RIGHT",
+                        renderFindingBody(f)))
+                .toList();
+
+        CreateReviewCommand command = new CreateReviewCommand(
+                pass.headSha() == null ? Optional.empty() : Optional.of(pass.headSha()),
+                body.isBlank() ? Optional.empty() : Optional.of(body),
+                verdict.dbValue().toUpperCase(Locale.ROOT),
+                inlineComments);
+
+        String pat = patResolver.resolve(pass.repoFullName());
+        PullRequestRef ref = parseRef(pass.repoFullName(), pass.prNumber());
+        try {
+            pullRequests.createReview(pat, ref, command);
+        }
+        catch (RuntimeException e) {
+            log.warn("Review pass {} publish to GitHub failed: {}", passId, e.getMessage());
+            throw new ResponseStatusException(HttpStatusCode.valueOf(502),
+                    "GitHub rejected the review: " + e.getMessage(), e);
+        }
+
+        // GitHub doesn't hand back per-comment ids from the bulk
+        // createReview endpoint, so we mark the rows POSTED without a
+        // posted_comment_id. Phase 2+ may switch to per-finding posts
+        // and capture ids.
+        Instant publishedAt = Instant.now();
+        for (ReviewFinding f : selected) {
+            reviewStore.saveFinding(new ReviewFinding(
+                    f.id(), f.reviewPassId(),
+                    f.path(), f.line(),
+                    f.severity(),
+                    ReviewFindingStatus.POSTED,
+                    f.body(),
+                    f.resolution(),
+                    /* postedCommentId */ null,
+                    f.createdAt()));
+        }
+
+        ReviewPass published = new ReviewPass(
+                pass.id(), pass.threadId(), pass.repoFullName(), pass.prNumber(),
+                pass.headSha(),
+                ReviewPhase.PUBLISHED,
+                pass.round(), pass.roundCap(),
+                pass.costCapMilli(), pass.costUsdMilli(),
+                verdict,
+                pass.createdAt(),
+                publishedAt);
+        reviewStore.savePass(published);
+
+        return buildDetail(published);
+    }
+
+    /** The reviewer's most-recent INDEPENDENT message is the natural
+     *  body for the GitHub review. Falls back to a generated line if
+     *  the transcript is empty (defensive — shouldn't happen on a
+     *  terminated pass). */
+    private String reviewSummaryBody(ReviewPass pass)
+    {
+        List<ReviewMessage> messages = reviewStore.listMessagesForPass(pass.id());
+        for (int i = messages.size() - 1; i >= 0; i--) {
+            ReviewMessage m = messages.get(i);
+            if (m.phase() == ReviewPhase.INDEPENDENT && m.body() != null && !m.body().isBlank()) {
+                return m.body().strip();
+            }
+        }
+        return "Review by ByteQuay panel.";
+    }
+
+    private static String composeBody(String summary, List<ReviewFinding> wholePr)
+    {
+        if (wholePr.isEmpty()) {
+            return summary;
+        }
+        StringBuilder out = new StringBuilder(summary);
+        out.append("\n\n**Whole-PR notes**\n");
+        for (ReviewFinding f : wholePr) {
+            out.append("- ").append(renderFindingBody(f)).append('\n');
+        }
+        return out.toString();
+    }
+
+    private static String renderFindingBody(ReviewFinding f)
+    {
+        // Inline a severity tag so the GitHub-side reader knows the
+        // panel's call without clicking through to the review thread.
+        return "[" + f.severity().dbValue() + "] " + (f.body() == null ? "" : f.body());
     }
 
     private ReviewPassDetail buildDetail(ReviewPass pass)

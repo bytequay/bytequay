@@ -14,7 +14,9 @@
 package com.bytequay.app.web;
 
 import com.bytequay.app.domain.ReviewPassDetail;
+import com.bytequay.app.domain.ReviewVerdict;
 import com.bytequay.app.service.review.ReviewPassService;
+import org.springframework.http.HttpStatusCode;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -22,6 +24,9 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.server.ResponseStatusException;
+
+import java.util.List;
 
 import static java.util.Objects.requireNonNull;
 
@@ -66,5 +71,33 @@ public class ReviewController
                 .orElseGet(() -> ResponseEntity.notFound().build());
     }
 
+    /**
+     * Publish the pass to the PR. The frontend hands over the user's
+     * confirmed verdict + the subset of finding ids that should
+     * actually land on GitHub; the service posts them as one GitHub
+     * review and marks the rows POSTED.
+     */
+    @PostMapping("/{passId}/publish")
+    public ReviewPassDetail publish(
+            @PathVariable String passId,
+            @RequestBody PublishReviewRequest body)
+    {
+        if (body == null || body.verdict() == null || body.verdict().isBlank()) {
+            throw new ResponseStatusException(HttpStatusCode.valueOf(400),
+                    "verdict is required");
+        }
+        ReviewVerdict verdict = ReviewVerdict.fromDbValue(body.verdict());
+        if (verdict == null) {
+            throw new ResponseStatusException(HttpStatusCode.valueOf(400),
+                    "unknown verdict: " + body.verdict());
+        }
+        return reviews.publishPass(
+                passId,
+                verdict,
+                body.findingIds() == null ? List.of() : body.findingIds());
+    }
+
     public record StartReviewRequest(String repoFullName, int prNumber) {}
+
+    public record PublishReviewRequest(String verdict, List<String> findingIds) {}
 }

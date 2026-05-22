@@ -2338,6 +2338,16 @@ export type Bridge = {
   /** Read the latest pass on a review thread — the URL the panel UI
    *  lives on uses the thread id, this resolves the pass for it. */
   getReviewPassByThread: (threadId: string) => Promise<ReviewPassDetailDto | null>;
+  /** Post the pass to GitHub as a PR review. {@code findingIds} is
+   *  the subset of findings the user has confirmed for posting; the
+   *  rest stay on the pass as AGREED but never reach GitHub.
+   *  Returns the updated detail (pass.phase = PUBLISHED, findings
+   *  flipped to POSTED). */
+  publishReviewPass: (
+    passId: string,
+    verdict: ReviewVerdictDto,
+    findingIds: string[],
+  ) => Promise<ReviewPassDetailDto>;
   /** Flip the headless auto-fix opt-in for one repo. Off by default
    *  per CLAUDE.md; only when this is explicitly true does the
    *  automation coordinator queue a headless turn against a failing-

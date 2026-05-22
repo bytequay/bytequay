@@ -98,7 +98,10 @@ function ReviewThreadPage({ threadId, onBack }: Props) {
             participantsById={participantsById}
           />
           <FindingsSection findings={detail.findings} />
-          <PublishGatePlaceholder verdict={detail.pass.verdict} />
+          <PublishSection
+            detail={detail}
+            onPublished={(next) => setDetail(next)}
+          />
         </>
       )}
     </section>
@@ -185,25 +188,133 @@ function FindingsSection({ findings }: { findings: ReviewFindingDto[] }) {
   );
 }
 
-function PublishGatePlaceholder({ verdict }: { verdict: ReviewVerdictDto | null }) {
+function PublishSection({
+  detail, onPublished,
+}: {
+  detail: ReviewPassDetailDto;
+  onPublished: (next: ReviewPassDetailDto) => void;
+}) {
+  const alreadyPublished = detail.pass.phase === 'PUBLISHED';
+  const suggested: ReviewVerdictDto = detail.pass.verdict ?? 'COMMENT';
+  const [verdict, setVerdict] = useState<ReviewVerdictDto>(suggested);
+  // Default every finding to included; the user un-checks anything
+  // they don't want posted.
+  const [includedIds, setIncludedIds] = useState<Set<string>>(
+      () => new Set(detail.findings.map(f => f.id)));
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const toggle = (id: string) => {
+    setIncludedIds(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id); else next.add(id);
+      return next;
+    });
+  };
+
+  const handlePublish = async () => {
+    if (busy || alreadyPublished) return;
+    setBusy(true);
+    setError(null);
+    try {
+      const next = await window.bridge.publishReviewPass(
+          detail.pass.id, verdict, Array.from(includedIds));
+      onPublished(next);
+    }
+    catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    }
+    finally {
+      setBusy(false);
+    }
+  };
+
   return (
     <section style={cardStyle} aria-label="Publish">
-      <h2 style={cardTitleStyle}>Publish to PR</h2>
-      <p style={publishHintStyle}>
-        Suggested verdict: <strong>{verdict ?? 'pending'}</strong>.
-        Posting to GitHub goes through the publish gate; the UI for
-        confirming and posting findings as PR comments lands in a
-        follow-up commit.
-      </p>
-      <button
-        type="button"
-        className="button"
-        disabled
-        title="Coming soon"
-      >
-        Post review to PR (coming soon)
-      </button>
+      <h2 style={cardTitleStyle}>
+        Publish to PR{alreadyPublished && <PublishedBadge />}
+      </h2>
+
+      {alreadyPublished ? (
+        <p style={publishHintStyle}>
+          Posted to the PR as a <strong>{detail.pass.verdict}</strong> review.
+          Findings flipped to POSTED above.
+        </p>
+      ) : (
+        <>
+          <p style={publishHintStyle}>
+            Verdict suggestion: <strong>{suggested}</strong>. The selected
+            findings post as inline review comments on GitHub; whole-PR
+            notes fold into the review body so nothing you pick is dropped.
+          </p>
+
+          <fieldset style={fieldsetStyle} aria-label="Verdict">
+            <legend style={legendStyle}>Verdict</legend>
+            {(['APPROVE', 'COMMENT', 'REQUEST_CHANGES'] as ReviewVerdictDto[]).map(v => (
+              <label key={v} style={radioLabelStyle}>
+                <input
+                  type="radio"
+                  name="review-verdict"
+                  value={v}
+                  checked={verdict === v}
+                  onChange={() => setVerdict(v)}
+                  disabled={busy}
+                />
+                <span>{v}</span>
+              </label>
+            ))}
+          </fieldset>
+
+          {detail.findings.length > 0 && (
+            <fieldset style={fieldsetStyle} aria-label="Findings to post">
+              <legend style={legendStyle}>
+                Findings to post ({includedIds.size}/{detail.findings.length})
+              </legend>
+              {detail.findings.map(f => (
+                <label key={f.id} style={findingChoiceStyle}>
+                  <input
+                    type="checkbox"
+                    checked={includedIds.has(f.id)}
+                    onChange={() => toggle(f.id)}
+                    disabled={busy}
+                  />
+                  <SeverityChip severity={f.severity} />
+                  <span style={findingChoiceBodyStyle}>
+                    <span style={findingAnchorStyle}>
+                      {f.path !== null
+                          ? `${f.path}${f.line !== null ? `:${f.line}` : ''}`
+                          : 'Whole PR'}
+                    </span>
+                    {f.body}
+                  </span>
+                </label>
+              ))}
+            </fieldset>
+          )}
+
+          {error !== null && (
+            <div style={errorStyle} role="alert">{error}</div>
+          )}
+
+          <button
+            type="button"
+            className="button button--primary"
+            onClick={() => { void handlePublish(); }}
+            disabled={busy}
+          >
+            {busy ? 'Posting…' : 'Post review to PR'}
+          </button>
+        </>
+      )}
     </section>
+  );
+}
+
+function PublishedBadge() {
+  return (
+    <span style={publishedBadgeStyle} aria-label="published">
+      Published
+    </span>
   );
 }
 
@@ -408,6 +519,57 @@ const publishHintStyle: React.CSSProperties = {
   marginTop: 0,
   marginBottom: 10,
   lineHeight: 1.5,
+};
+
+const fieldsetStyle: React.CSSProperties = {
+  border: '1px solid var(--border)',
+  borderRadius: 6,
+  padding: '8px 12px 10px',
+  marginBottom: 10,
+};
+
+const legendStyle: React.CSSProperties = {
+  fontSize: 11,
+  fontWeight: 600,
+  textTransform: 'uppercase',
+  letterSpacing: '0.04em',
+  color: 'var(--text-3)',
+  padding: '0 6px',
+};
+
+const radioLabelStyle: React.CSSProperties = {
+  display: 'inline-flex',
+  alignItems: 'center',
+  gap: 6,
+  marginRight: 16,
+  fontSize: 13,
+};
+
+const findingChoiceStyle: React.CSSProperties = {
+  display: 'flex',
+  alignItems: 'flex-start',
+  gap: 8,
+  padding: '6px 0',
+  fontSize: 13,
+};
+
+const findingChoiceBodyStyle: React.CSSProperties = {
+  display: 'flex',
+  flexDirection: 'column',
+  gap: 2,
+};
+
+const publishedBadgeStyle: React.CSSProperties = {
+  marginLeft: 8,
+  fontSize: 10,
+  fontWeight: 700,
+  textTransform: 'uppercase',
+  letterSpacing: '0.06em',
+  padding: '2px 7px',
+  borderRadius: 4,
+  color: '#fff',
+  background: '#16a34a',
+  verticalAlign: 'middle',
 };
 
 const errorStyle: React.CSSProperties = {

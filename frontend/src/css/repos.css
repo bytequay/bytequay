@@ -156,13 +156,16 @@
   border: 1px solid var(--border);
   border-radius: var(--radius-lg);
   padding: var(--space-3) var(--space-4);
-  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04);
+  /* Purple-tinted shadow matches the workspace-card depth so cards
+   * read as the same family when the page sits on the calm-page
+   * mesh backdrop. */
+  box-shadow: 0 1px 2px rgba(67, 56, 202, 0.04), 0 4px 18px rgba(124, 58, 237, 0.05);
   transition: border-color 120ms ease, box-shadow 120ms ease, transform 120ms ease;
   cursor: pointer;
 }
 .repo-card:hover {
   border-color: var(--accent);
-  box-shadow: 0 2px 6px rgba(15, 23, 42, 0.10);
+  box-shadow: 0 2px 4px rgba(67, 56, 202, 0.06), 0 8px 26px rgba(124, 58, 237, 0.08);
   transform: translateY(-1px);
 }
 .repo-card:focus-visible {

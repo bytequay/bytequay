@@ -1274,6 +1274,11 @@
   border-radius: var(--radius-md);
   background: var(--bg-card);
   overflow: hidden;
+  /* Soft purple shadow so the rows container reads in the same
+   * family as workspace-card when the page sits on the calm-page
+   * mesh backdrop. Static — individual rows inside have their own
+   * hover effects, so lifting the whole container would compete. */
+  box-shadow: 0 1px 2px rgba(67, 56, 202, 0.04), 0 4px 18px rgba(124, 58, 237, 0.05);
 }
 .merge-card--ready .merge-card__icon {
   background: #1a7f37;

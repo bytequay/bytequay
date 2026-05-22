@@ -12,7 +12,6 @@
  * limitations under the License.
  */
 import { useEffect, useState } from 'react';
-import SettingCard from '../shared/SettingCard';
 import WorkspaceMemoryProposalBanner from './WorkspaceMemoryProposalBanner';
 
 /** v1 ships a single ambient workspace. When multi-workspace
@@ -109,16 +108,25 @@ function WorkspaceMemoryPage({ onOpenThread }: Props) {
 
   return (
     <>
-      <div className="settings-shell-page__head">
+      <header className="workspace-pageheader">
         <div>
-          <h2 className="settings-shell-page__title">Workspace memory</h2>
-          <div className="settings-shell-page__subtitle">
-            The persistent project brain. Loaded into every thread's context —
-            keep it tight. Distillation folds recent thread Overalls into this
-            blob every 30 minutes; you can also write or rewrite it by hand.
+          <h1 className="workspace-pageheader__title">Memory</h1>
+          <div className="workspace-pageheader__meta">
+            The distilled project brain every thread inherits — distillation
+            folds recent Thread Overalls in every 30 minutes, or write it by
+            hand.
           </div>
         </div>
-      </div>
+        <button
+          type="button"
+          className="workspace-pageheader__action"
+          onClick={() => { void distill(); }}
+          disabled={distilling || saving}
+          title="Ask Haiku to fold recent Thread Overalls into this blob"
+        >
+          {distilling ? 'Distilling…' : 'Distill from threads'}
+        </button>
+      </header>
 
       <WorkspaceMemoryProposalBanner
         workspaceId={DEFAULT_WORKSPACE_ID}
@@ -127,22 +135,19 @@ function WorkspaceMemoryPage({ onOpenThread }: Props) {
         onOpenThread={onOpenThread}
       />
 
-      <SettingCard
-        title="WORKSPACE.md"
-        hint={
-          <>
-            Target ~{TARGET_CHARS.toLocaleString()} characters. The editor stays
-            usable above that, but the budget bar turns red so distillation has
-            something obvious to work back down to.
-          </>
-        }
-      >
+      <section className="workspace-card" aria-label="WORKSPACE.md editor">
+        <div className="workspace-card__head">
+          <div className="workspace-card__title">WORKSPACE.md</div>
+          <span style={budgetTextStyle}>
+            {memory.length.toLocaleString()} / {TARGET_CHARS.toLocaleString()} chars
+            {overBudget && <span style={budgetWarnStyle}> · over budget</span>}
+          </span>
+        </div>
         {loading ? (
-          <div className="settings-shell-page__subtitle" style={{ padding: '20px 0' }}>
-            Loading…
-          </div>
+          <div style={loadingStyle}>Loading…</div>
         ) : (
           <>
+            <BudgetBar used={memory.length} target={TARGET_CHARS} />
             <textarea
               value={memory}
               onChange={e => { setMemory(e.target.value); }}
@@ -150,13 +155,6 @@ function WorkspaceMemoryPage({ onOpenThread }: Props) {
               style={textareaStyle}
               placeholder="# Architecture&#10;&#10;# Active work&#10;&#10;# Decisions&#10;&#10;# Blockers"
             />
-            <div style={budgetRowStyle}>
-              <BudgetBar used={memory.length} target={TARGET_CHARS} />
-              <span style={budgetTextStyle}>
-                {memory.length.toLocaleString()} / {TARGET_CHARS.toLocaleString()} chars
-                {overBudget && <span style={budgetWarnStyle}> · over budget</span>}
-              </span>
-            </div>
             <div style={actionsRowStyle}>
               <button
                 type="button"
@@ -175,15 +173,10 @@ function WorkspaceMemoryPage({ onOpenThread }: Props) {
                 Discard changes
               </button>
               <div style={{ flex: 1 }} />
-              <button
-                type="button"
-                className="button"
-                onClick={() => { void distill(); }}
-                disabled={distilling || saving}
-                title="Ask Haiku to fold recent Thread Overalls into this blob"
-              >
-                {distilling ? 'Distilling…' : 'Distill from threads'}
-              </button>
+              <span style={hintStyle}>
+                Target ~{TARGET_CHARS.toLocaleString()} chars; budget bar turns
+                red past the soft cap.
+              </span>
             </div>
             {(statusMsg !== null || error !== null) && (
               <div style={statusRowStyle}>
@@ -195,7 +188,7 @@ function WorkspaceMemoryPage({ onOpenThread }: Props) {
             )}
           </>
         )}
-      </SettingCard>
+      </section>
     </>
   );
 }
@@ -219,28 +212,23 @@ function BudgetBar({ used, target }: { used: number; target: number }) {
 const textareaStyle: React.CSSProperties = {
   width: '100%',
   minHeight: 320,
-  padding: '10px 12px',
+  marginTop: 10,
+  padding: '12px 14px',
   fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
   fontSize: 12,
   lineHeight: 1.55,
-  border: '1px solid var(--border)',
-  borderRadius: 6,
-  background: 'var(--bg-elevated)',
-  color: 'var(--text-1)',
+  border: '1px solid var(--ws-card-border)',
+  borderRadius: 10,
+  background: 'rgba(255, 255, 255, 0.6)',
+  color: 'var(--ws-text-1)',
   resize: 'vertical',
-};
-
-const budgetRowStyle: React.CSSProperties = {
-  display: 'flex',
-  alignItems: 'center',
-  gap: 10,
-  padding: '8px 0 0',
+  boxSizing: 'border-box',
 };
 
 const budgetBarStyle: React.CSSProperties = {
-  flex: 1,
-  height: 6,
-  background: 'var(--bg-card, #f4f4f4)',
+  width: '100%',
+  height: 5,
+  background: 'rgba(124, 58, 237, 0.10)',
   borderRadius: 999,
   overflow: 'hidden',
 };
@@ -252,13 +240,13 @@ const budgetBarFillStyle: React.CSSProperties = {
 
 const budgetTextStyle: React.CSSProperties = {
   fontSize: 11,
-  color: 'var(--text-3)',
+  color: 'var(--ws-text-3)',
   fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
   whiteSpace: 'nowrap',
 };
 
 const budgetWarnStyle: React.CSSProperties = {
-  color: '#b91c1c',
+  color: '#dc2626',
   fontWeight: 600,
 };
 
@@ -269,13 +257,24 @@ const actionsRowStyle: React.CSSProperties = {
   padding: '12px 0 0',
 };
 
+const hintStyle: React.CSSProperties = {
+  fontSize: 11,
+  color: 'var(--ws-text-3)',
+};
+
+const loadingStyle: React.CSSProperties = {
+  padding: '20px 0',
+  fontSize: 12,
+  color: 'var(--ws-text-3)',
+};
+
 const statusRowStyle: React.CSSProperties = {
   padding: '8px 0 0',
   fontSize: 12,
 };
 
 const errorStyle: React.CSSProperties = {
-  color: '#b91c1c',
+  color: '#dc2626',
   fontStyle: 'italic',
 };
 

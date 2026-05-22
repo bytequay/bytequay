@@ -646,6 +646,7 @@ function App() {
             section={nav.section ?? 'account'}
             onSelectSection={(section) => setNav({ view: 'settings', section })}
             onOpenTeam={(teamId) => setNav({ view: 'team', teamId })}
+            onOpenThread={threadId => setNav({ view: 'thread-detail', threadId })}
             onClearPat={async () => {
               await window.bridge.clearPat();
               setNav({ view: 'home' });

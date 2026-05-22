@@ -78,7 +78,13 @@ public class CheckpointSummariser
             segments as background context and later segments as the current state. Do not \
             re-state every bullet from every segment; pick the load-bearing facts.""";
 
-    private static final String WORKSPACE_MEMORY_SYSTEM_PROMPT = """
+    /** Package-private so {@code TestCheckpointSummariserPrompt} can
+     *  pin the back-link instruction. The prompt is a load-bearing
+     *  surface — the Phase 3 design row "Back-linked. Each promoted
+     *  fact links to the thread that produced it" is enforced here,
+     *  and a quiet drop of the instruction would silently break the
+     *  banner's chip rendering. */
+    static final String WORKSPACE_MEMORY_SYSTEM_PROMPT = """
             You distil a workspace-wide memory note from (a) the current workspace memory and \
             (b) summaries of recent threads. Produce a single Markdown blob of 400–800 words \
             organised under H2 sections — "Architecture", "Active work", "Decisions", \
@@ -86,7 +92,12 @@ public class CheckpointSummariser
             future thread. Promote durable decisions and architecture from the thread \
             summaries; demote or drop one-off task details. Keep the current memory's \
             wording where it still holds; rewrite where threads contradict or supersede it. \
-            Do not greet, do not editorialise, do not include timestamps.""";
+            Append a [thread:<id>] back-link marker to the end of each bullet you promote \
+            from a thread Overall, using the IDs given in the "### thread <id>" headings of \
+            the user message. The marker is a literal token — render it inline at the end of \
+            the bullet, do not turn it into a Markdown link. If a bullet carries forward from \
+            the current workspace memory without a single attributable source thread, leave it \
+            unmarked. Do not greet, do not editorialise, do not include timestamps.""";
 
     private static final String ANTHROPIC_NAME = "anthropic";
 

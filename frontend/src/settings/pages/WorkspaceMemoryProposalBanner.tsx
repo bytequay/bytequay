@@ -25,6 +25,10 @@ type Props = {
    *  its own memory_md state. Not called on discard — that one has
    *  no side effect on the workspace. */
   onApplied: () => void;
+  /** Click handler for back-link chips ({@code [thread:<id>]}) in
+   *  the rendered panes. When omitted, chips render as plain text so
+   *  the markdown still reads the same. */
+  onOpenThread?: (threadId: string) => void;
 };
 
 /** Banner that surfaces a pending workspace-memory proposal above the
@@ -37,7 +41,7 @@ type Props = {
  *  <p>Diff rendering is a simple side-by-side: current memory on the
  *  left, proposed body on the right. Anything fancier (per-line +/-,
  *  syntax highlighting) is overkill for ~2-4 kB of markdown. */
-function WorkspaceMemoryProposalBanner({ workspaceId, refreshKey, onApplied }: Props) {
+function WorkspaceMemoryProposalBanner({ workspaceId, refreshKey, onApplied, onOpenThread }: Props) {
   const [proposal, setProposal] = useState<WorkspaceMemoryProposalDto | null>(null);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -126,8 +130,16 @@ function WorkspaceMemoryProposalBanner({ workspaceId, refreshKey, onApplied }: P
 
       {expanded && (
         <div style={diffGridStyle}>
-          <ProposalPane label="Current memory" body={proposal.currentMd} />
-          <ProposalPane label="Proposed memory" body={proposal.proposedMd} />
+          <ProposalPane
+            label="Current memory"
+            body={proposal.currentMd}
+            onOpenThread={onOpenThread}
+          />
+          <ProposalPane
+            label="Proposed memory"
+            body={proposal.proposedMd}
+            onOpenThread={onOpenThread}
+          />
         </div>
       )}
 
@@ -157,14 +169,92 @@ function WorkspaceMemoryProposalBanner({ workspaceId, refreshKey, onApplied }: P
   );
 }
 
-function ProposalPane({ label, body }: { label: string; body: string }) {
+function ProposalPane({ label, body, onOpenThread }: {
+  label: string;
+  body: string;
+  onOpenThread?: (threadId: string) => void;
+}) {
   return (
     <div style={paneStyle}>
       <div style={paneLabelStyle}>{label}</div>
-      <pre style={paneBodyStyle}>{body.length === 0 ? '(empty)' : body}</pre>
+      <pre style={paneBodyStyle}>
+        {body.length === 0
+            ? '(empty)'
+            : renderWithThreadLinks(body, onOpenThread)}
+      </pre>
     </div>
   );
 }
+
+/** Splits {@code md} on the back-link token regex and intersperses
+ *  clickable chips. The token comes from the distiller prompt — every
+ *  bullet promoted from a thread Overall ends with
+ *  {@code [thread:<id>]}, and this is where the chip rendering lives.
+ *  When {@code onOpenThread} is undefined the chip renders as plain
+ *  text so the markdown stays readable. */
+function renderWithThreadLinks(
+    md: string, onOpenThread?: (threadId: string) => void): React.ReactNode[] {
+  const re = /\[thread:([A-Za-z0-9_-]+)\]/g;
+  const out: React.ReactNode[] = [];
+  let lastIndex = 0;
+  let match: RegExpExecArray | null;
+  let key = 0;
+  while ((match = re.exec(md)) !== null) {
+    if (match.index > lastIndex) {
+      out.push(md.slice(lastIndex, match.index));
+    }
+    const threadId = match[1];
+    const label = `thread:${threadId.length > 12 ? `${threadId.slice(0, 8)}…` : threadId}`;
+    if (onOpenThread) {
+      out.push(
+        <button
+          key={`chip-${key++}`}
+          type="button"
+          onClick={() => onOpenThread(threadId)}
+          style={chipButtonStyle}
+          title={`Open thread ${threadId}`}
+        >
+          {label}
+        </button>,
+      );
+    }
+    else {
+      out.push(
+        <span key={`chip-${key++}`} style={chipTextStyle}>{label}</span>,
+      );
+    }
+    lastIndex = re.lastIndex;
+  }
+  if (lastIndex < md.length) {
+    out.push(md.slice(lastIndex));
+  }
+  return out;
+}
+
+const chipButtonStyle: React.CSSProperties = {
+  display: 'inline',
+  padding: '0 6px',
+  margin: '0 1px',
+  fontFamily: 'inherit',
+  fontSize: 11,
+  border: '1px solid rgba(0, 102, 204, 0.35)',
+  borderRadius: 4,
+  background: 'rgba(0, 102, 204, 0.08)',
+  color: '#0066cc',
+  cursor: 'pointer',
+};
+
+const chipTextStyle: React.CSSProperties = {
+  display: 'inline',
+  padding: '0 6px',
+  margin: '0 1px',
+  fontFamily: 'inherit',
+  fontSize: 11,
+  border: '1px solid var(--border)',
+  borderRadius: 4,
+  background: 'var(--bg-2)',
+  color: 'var(--text-3)',
+};
 
 const bannerStyle: React.CSSProperties = {
   marginBottom: 16,

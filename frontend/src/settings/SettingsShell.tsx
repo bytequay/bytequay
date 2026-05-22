@@ -32,9 +32,12 @@ type Props = {
   onClearPat?: () => void;
   /** Forwarded to TeamsPage so a team-row click navigates to the top-level TeamDetailPage. */
   onOpenTeam?: (id: number) => void;
+  /** Forwarded to WorkspaceMemoryPage so back-link chips in the
+   *  memory proposal banner can navigate to the source thread. */
+  onOpenThread?: (threadId: string) => void;
 };
 
-function SettingsShell({ section, onSelectSection, onClearPat, onOpenTeam }: Props) {
+function SettingsShell({ section, onSelectSection, onClearPat, onOpenTeam, onOpenThread }: Props) {
   return (
     <section className="settings-shell">
       <div className="settings-shell__layout">
@@ -46,7 +49,7 @@ function SettingsShell({ section, onSelectSection, onClearPat, onOpenTeam }: Pro
           {section === 'teams' && <TeamsPage onOpenTeam={onOpenTeam} />}
           {section === 'ai-review' && <AiReviewPage />}
           {section === 'watched-repos' && <WatchedReposPage />}
-          {section === 'workspace-memory' && <WorkspaceMemoryPage />}
+          {section === 'workspace-memory' && <WorkspaceMemoryPage onOpenThread={onOpenThread} />}
           {section === 'integrations' && <IntegrationsPage />}
           {section === 'email' && <EmailSettingsPage />}
           {section === 'help' && <HelpPage />}

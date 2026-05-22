@@ -111,6 +111,54 @@ describe('WorkspaceMemoryProposalBanner', () => {
       expect(screen.queryByTestId('workspace-memory-proposal-banner')).toBeNull());
   });
 
+  it('renders back-link tokens in the proposed pane as clickable chips that fire onOpenThread', async () => {
+    const proposal = sampleProposal({
+      currentMd: 'Previously.',
+      proposedMd: '## Decisions\n- Use embedded browser. [thread:abc-12345-thread-id]\n',
+    });
+    installBridge({ getWorkspaceMemoryProposal: vi.fn(async () => proposal) });
+    const onOpenThread = vi.fn();
+
+    render(
+      <WorkspaceMemoryProposalBanner
+        workspaceId="ws-default"
+        onApplied={() => {}}
+        onOpenThread={onOpenThread}
+      />);
+
+    await waitFor(() => screen.getByTestId('workspace-memory-proposal-banner'));
+    await act(async () => { fireEvent.click(screen.getByText('Show diff')); });
+
+    // The raw [thread:...] token must not survive into the rendered
+    // pane — it should have been swapped for a chip.
+    expect(screen.queryByText(/\[thread:/)).toBeNull();
+    const chip = screen.getByTitle('Open thread abc-12345-thread-id');
+    expect(chip).toBeTruthy();
+
+    await act(async () => { fireEvent.click(chip); });
+    expect(onOpenThread).toHaveBeenCalledWith('abc-12345-thread-id');
+  });
+
+  it('renders back-link tokens as inert text when no onOpenThread handler is provided', async () => {
+    const proposal = sampleProposal({
+      currentMd: '',
+      proposedMd: '- Promoted fact. [thread:xyz-789]\n',
+    });
+    installBridge({ getWorkspaceMemoryProposal: vi.fn(async () => proposal) });
+
+    render(
+      <WorkspaceMemoryProposalBanner workspaceId="ws-default" onApplied={() => {}} />);
+
+    await waitFor(() => screen.getByTestId('workspace-memory-proposal-banner'));
+    await act(async () => { fireEvent.click(screen.getByText('Show diff')); });
+
+    // Token still gets replaced with the chip label so the markdown
+    // doesn't show the raw form, but it's a <span> not a <button>.
+    expect(screen.queryByText(/\[thread:/)).toBeNull();
+    expect(screen.queryByRole('button', { name: /thread:xyz/ })).toBeNull();
+    expect(screen.getByText(/thread:xyz-789/)).toBeTruthy();
+  });
+
   it('surfaces the 409 drift error from apply inline', async () => {
     installBridge({
       getWorkspaceMemoryProposal: vi.fn(async () => sampleProposal({})),

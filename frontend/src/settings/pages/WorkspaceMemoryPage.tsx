@@ -25,7 +25,14 @@ const DEFAULT_WORKSPACE_ID = 'ws-default';
  *  chars (PUT returns 413 past that). */
 const TARGET_CHARS = 8_000;
 
-function WorkspaceMemoryPage() {
+type Props = {
+  /** Wires up the back-link chips in the memory proposal banner so a
+   *  click navigates to the source thread. Forwarded from
+   *  SettingsShell, originally App.tsx's nav dispatch. */
+  onOpenThread?: (threadId: string) => void;
+};
+
+function WorkspaceMemoryPage({ onOpenThread }: Props) {
   const [memory, setMemory] = useState('');
   const [original, setOriginal] = useState('');
   const [loading, setLoading] = useState(true);
@@ -117,6 +124,7 @@ function WorkspaceMemoryPage() {
         workspaceId={DEFAULT_WORKSPACE_ID}
         refreshKey={proposalRefreshKey}
         onApplied={() => { void load(); }}
+        onOpenThread={onOpenThread}
       />
 
       <SettingCard

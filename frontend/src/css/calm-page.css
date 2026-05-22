@@ -1,0 +1,56 @@
+/*
+ * Calm-page background — extends the workspace visual language to
+ * inbox/dashboard pages that live outside the workspace shell.
+ *
+ * The recipe mirrors .workspace-shell (four pastel radial gradients
+ * over a near-white base + an SVG feTurbulence grain at 4.5% in
+ * mix-blend-mode: overlay), without the shell's flex layout. Pages
+ * opt in by wrapping their root in <div className="calm-page">; the
+ * existing .workspace-pageheader and .workspace-card primitives from
+ * workspace.css then read correctly against the new backdrop.
+ *
+ * Working surfaces (thread detail, diff viewer, PR preview, repo
+ * detail) deliberately stay on their denser chrome — the design doc
+ * splits calm from focused, and this class is the calm side only.
+ *
+ * Tokens (--ws-bg-base, --ws-mesh-*) live in workspace.css; this
+ * file just composes them into a reusable page wrapper.
+ */
+
+.calm-page {
+  position: relative;
+  min-height: 100%;
+  background:
+    radial-gradient(at 18% 12%, var(--ws-mesh-purple) 0%, transparent 55%),
+    radial-gradient(at 82% 14%, var(--ws-mesh-sky)    0%, transparent 60%),
+    radial-gradient(at 22% 88%, var(--ws-mesh-pink)   0%, transparent 55%),
+    radial-gradient(at 86% 80%, var(--ws-mesh-mint)   0%, transparent 60%),
+    var(--ws-bg-base);
+  color: var(--ws-text-1);
+  font-feature-settings: 'cv02', 'cv03', 'cv04', 'cv11';
+}
+
+/* SVG feTurbulence grain sits above the mesh but below the page
+ * content, breaking gradient bands without dirtying any cards' glass.
+ * `#` in url(#n) is %23-encoded so the data-URL parser doesn't take
+ * it as a fragment marker. */
+.calm-page::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  mix-blend-mode: overlay;
+  opacity: 0.045;
+  background-image: url("data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 240 240'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/></filter><rect width='240' height='240' filter='url(%23n)'/></svg>");
+  background-size: 240px 240px;
+}
+
+/* The page's content stacks above the grain. Anything inside .calm-page
+ * that uses position is unaffected — z-index isn't set on the grain so
+ * normal-flow children naturally render above. Direct content
+ * containers (like the inbox lists) get a small min-z context to keep
+ * dropdowns and modals above the grain even when they use stacking
+ * tricks. */
+.calm-page > * {
+  position: relative;
+}

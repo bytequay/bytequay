@@ -2159,6 +2159,16 @@ export type Bridge = {
     repo: string,
     enabled: boolean,
   ) => Promise<WorkspaceRepoDto>;
+  /** Close out one task on a thread and roll over to a fresh task,
+   *  the "Ship & continue" action. The backend commits + pushes the
+   *  current task's branch, opens its PR if not already up, then
+   *  cuts the next task on either {@code main} (default) or stacked
+   *  on the current branch. Returns the newly-created next task. */
+  shipAndContinue: (
+    threadId: string,
+    taskId: string,
+    opts?: { nextTitle?: string | null; baseMode?: 'MAIN' | 'STACKED' },
+  ) => Promise<WorkUnitTaskDto>;
   /** Active checkpoints for a thread — Overall first, then segments by
    *  descending seq. Drives the sidebar Checkpoints section and the
    *  cross-thread seed loader. */

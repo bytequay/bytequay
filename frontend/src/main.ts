@@ -2854,6 +2854,37 @@ const url = new URL(`${BACKEND_BASE}/api/search/repos`);
     return res.json();
   });
 
+  ipcMain.handle('threads:tasks:ship', async (_event, args: unknown) => {
+    const params = args as {
+      threadId?: unknown;
+      taskId?: unknown;
+      opts?: { nextTitle?: string | null; baseMode?: 'MAIN' | 'STACKED' };
+    };
+    const threadId = params?.threadId;
+    const taskId = params?.taskId;
+    if (typeof threadId !== 'string' || threadId.trim().length === 0
+        || typeof taskId !== 'string' || taskId.trim().length === 0) {
+      throw new Error('threadId and taskId must be non-empty strings');
+    }
+    const body = {
+      nextTitle: params.opts?.nextTitle ?? null,
+      baseMode: params.opts?.baseMode ?? 'MAIN',
+    };
+    const res = await fetch(
+      `${BACKEND_BASE}/api/threads/${encodeURIComponent(threadId)}`
+        + `/tasks/${encodeURIComponent(taskId)}/ship`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+    if (!res.ok) {
+      const text = await res.text().catch(() => '');
+      throw new Error(`backend POST /tasks/${taskId}/ship returned ${res.status}: ${text}`);
+    }
+    return res.json();
+  });
+
   ipcMain.handle('workspaces:repos:autoFix', async (_event, args: unknown) => {
     const params = args as { workspaceId?: unknown; owner?: unknown; repo?: unknown; enabled?: unknown };
     const workspaceId = params?.workspaceId;

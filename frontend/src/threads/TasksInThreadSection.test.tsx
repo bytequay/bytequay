@@ -11,8 +11,8 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import { cleanup, render, screen, waitFor } from '@testing-library/react';
-import { afterEach, describe, expect, it, vi } from 'vitest';
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Bridge, WorkUnitTaskDto } from '../types';
 import { TasksInThreadSection } from './TasksInThreadSection';
 
@@ -22,6 +22,12 @@ import { TasksInThreadSection } from './TasksInThreadSection';
 afterEach(() => {
   cleanup();
   delete (window as unknown as { bridge?: unknown }).bridge;
+});
+
+beforeEach(() => {
+  // window.confirm defaults to a no-op in jsdom; stub it true so the
+  // ship-and-continue test can drive past the guard.
+  window.confirm = vi.fn(() => true) as unknown as typeof window.confirm;
 });
 
 describe('TasksInThreadSection', () => {
@@ -67,14 +73,59 @@ describe('TasksInThreadSection', () => {
       expect(screen.getByText(/boom/)).toBeTruthy();
     });
   });
+
+  it('routes Ship & continue against the newest non-terminal task', async () => {
+    const ship = vi.fn(async () => task({
+      id: 'task-3', seq: 3, status: 'IDLE', branchName: 'auto/next',
+    }));
+    installBridge(
+      async () => [
+        task({ id: 'task-1', seq: 1, status: 'COMPLETED', branchName: 'auto/first' }),
+        task({ id: 'task-2', seq: 2, status: 'IDLE', branchName: 'auto/second' }),
+      ],
+      ship,
+    );
+
+    render(<TasksInThreadSection threadId="thread-1" />);
+    await waitFor(() => expect(screen.getByText('Task 2')).toBeTruthy());
+
+    fireEvent.click(screen.getByRole('button', { name: /Ship & continue/i }));
+
+    await waitFor(() => {
+      expect(ship).toHaveBeenCalledTimes(1);
+      // Active task is the newest non-terminal one (task-2, not the
+      // already-completed task-1).
+      expect(ship).toHaveBeenCalledWith('thread-1', 'task-2');
+    });
+  });
+
+  it('disables Ship & continue when no active task remains', async () => {
+    installBridge(async () => [
+      task({ id: 'task-1', seq: 1, status: 'COMPLETED', branchName: 'auto/first' }),
+    ]);
+
+    render(<TasksInThreadSection threadId="thread-1" />);
+    await waitFor(() => expect(screen.getByText('Task 1')).toBeTruthy());
+
+    const button = screen.getByRole('button', { name: /Ship & continue/i });
+    expect(button.hasAttribute('disabled')).toBe(true);
+  });
 });
 
-function installBridge(handler: Bridge['listTasksForThread']) {
+function installBridge(
+  handler: Bridge['listTasksForThread'],
+  ship?: Bridge['shipAndContinue'],
+): Bridge['shipAndContinue'] {
   const listTasksForThread = vi.fn((id: string) => handler(id));
-  (window as unknown as { bridge: Pick<Bridge, 'listTasksForThread'> }).bridge = {
+  const fallback: Bridge['shipAndContinue'] = async () => task({ id: 'next', seq: 99 });
+  const shipAndContinue = vi.fn((ship ?? fallback));
+  (window as unknown as {
+    bridge: Pick<Bridge, 'listTasksForThread' | 'shipAndContinue'>;
+  }).bridge = {
     listTasksForThread: listTasksForThread as Bridge['listTasksForThread'],
+    shipAndContinue: shipAndContinue as Bridge['shipAndContinue'],
   };
-  return listTasksForThread;
+  return shipAndContinue;
 }
 
 function task(overrides: Partial<WorkUnitTaskDto>): WorkUnitTaskDto {

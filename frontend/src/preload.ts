@@ -506,6 +506,12 @@ const bridge: Bridge = {
     workspaceId: string, owner: string, repo: string, enabled: boolean,
   ): Promise<WorkspaceRepoDto> =>
     ipcRenderer.invoke('workspaces:repos:autoFix', { workspaceId, owner, repo, enabled }),
+  shipAndContinue: (
+    threadId: string,
+    taskId: string,
+    opts?: { nextTitle?: string | null; baseMode?: 'MAIN' | 'STACKED' },
+  ): Promise<WorkUnitTaskDto> =>
+    ipcRenderer.invoke('threads:tasks:ship', { threadId, taskId, opts }),
   getTaskCheckpoints: (id: string): Promise<ThreadCheckpointDto[]> =>
     ipcRenderer.invoke('threads:checkpoints:list', id),
   generateTaskCheckpoint: (id: string): Promise<ThreadCheckpointDto | null> =>

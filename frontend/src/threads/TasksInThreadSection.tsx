@@ -11,12 +11,22 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import type { WorkUnitTaskDto } from '../types';
 
 type Props = {
   threadId: string;
 };
+
+/** TaskStatus values that mean "this task is still in flight"; the
+ *  Ship & continue button targets the highest-seq task in this set.
+ *  Terminal statuses (COMPLETED, ERRORED) never qualify — a shipped
+ *  thread that wants more work materialises a fresh task via the
+ *  next user prompt rather than rolling over a closed one. */
+const ACTIVE_STATUSES = new Set([
+  'PENDING', 'RUNNING', 'AWAITING', 'IDLE',
+  'AWAITING_REVIEW', 'NEEDS_ATTENTION',
+]);
 
 /**
  * Sidebar rail entry that lists the thread's work-unit Tasks in
@@ -34,26 +44,32 @@ type Props = {
 export function TasksInThreadSection({ threadId }: Props) {
   const [tasks, setTasks] = useState<WorkUnitTaskDto[] | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const [shipping, setShipping] = useState(false);
+  const [shipError, setShipError] = useState<string | null>(null);
+
+  const refresh = useCallback(async () => {
+    try {
+      const list = await window.bridge.listTasksForThread(threadId);
+      setTasks(list);
+      setError(null);
+    }
+    catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    }
+  }, [threadId]);
 
   useEffect(() => {
     let cancelled = false;
     setTasks(null);
     setError(null);
+    setShipError(null);
     void (async () => {
-      try {
-        const list = await window.bridge.listTasksForThread(threadId);
-        if (!cancelled) {
-          setTasks(list);
-        }
-      }
-      catch (e) {
-        if (!cancelled) {
-          setError(e instanceof Error ? e.message : String(e));
-        }
+      if (!cancelled) {
+        await refresh();
       }
     })();
     return () => { cancelled = true; };
-  }, [threadId]);
+  }, [threadId, refresh]);
 
   if (error !== null) {
     return <div style={errorStyle}>Could not load tasks: {error}</div>;
@@ -74,21 +90,67 @@ export function TasksInThreadSection({ threadId }: Props) {
   // active / most recent task lands at the top of the rail, matching
   // how segments / checkpoints already render.
   const ordered = [...tasks].reverse();
+  // Active = newest task whose status is non-terminal. The button
+  // closes this one out and opens the next; greyed out when only
+  // terminal tasks remain so the click can't churn closed work.
+  const activeTask = tasks
+    .filter(t => ACTIVE_STATUSES.has(t.status))
+    .reduce<WorkUnitTaskDto | null>(
+      (acc, t) => acc === null || t.seq > acc.seq ? t : acc, null);
+
+  const onShipAndContinue = async () => {
+    if (activeTask === null || shipping) return;
+    if (!window.confirm(
+        `Ship Task ${activeTask.seq}`
+        + (activeTask.branchName !== null ? ` (${activeTask.branchName})` : '')
+        + ` and start the next task on main?`)) {
+      return;
+    }
+    setShipping(true);
+    setShipError(null);
+    try {
+      await window.bridge.shipAndContinue(threadId, activeTask.id);
+      await refresh();
+    }
+    catch (e) {
+      setShipError(e instanceof Error ? e.message : String(e));
+    }
+    finally {
+      setShipping(false);
+    }
+  };
+
   return (
-    <ul style={listStyle}>
-      {ordered.map(task => (
-        <li key={task.id} style={rowStyle}>
-          <span style={glyphFor(task)} aria-hidden>{glyphChar(task)}</span>
-          <span style={labelStyle}>
-            <span style={titleStyle}>Task {task.seq}</span>
-            {task.branchName !== null && (
-              <span style={branchStyle}>{task.branchName}</span>
-            )}
-          </span>
-          <StatusPill status={task.status} prNumber={task.prNumber} prState={task.prState} />
-        </li>
-      ))}
-    </ul>
+    <div>
+      <ul style={listStyle}>
+        {ordered.map(task => (
+          <li key={task.id} style={rowStyle}>
+            <span style={glyphFor(task)} aria-hidden>{glyphChar(task)}</span>
+            <span style={labelStyle}>
+              <span style={titleStyle}>Task {task.seq}</span>
+              {task.branchName !== null && (
+                <span style={branchStyle}>{task.branchName}</span>
+              )}
+            </span>
+            <StatusPill status={task.status} prNumber={task.prNumber} prState={task.prState} />
+          </li>
+        ))}
+      </ul>
+      <button
+        type="button"
+        onClick={() => { void onShipAndContinue(); }}
+        disabled={activeTask === null || shipping}
+        style={shipBtnStyle}
+        title={activeTask === null
+          ? 'No active task — start a new one with the next prompt'
+          : `Ship Task ${activeTask.seq} and start the next one`}
+      >
+        {shipping ? '⚡ shipping…' : '⚡ Ship & continue'}
+      </button>
+      {shipError !== null && (
+        <div style={errorStyle}>{shipError}</div>
+      )}
+    </div>
   );
 }
 
@@ -237,4 +299,16 @@ const errorStyle: React.CSSProperties = {
   fontSize: 11,
   color: '#b91c1c',
   fontStyle: 'italic',
+};
+
+const shipBtnStyle: React.CSSProperties = {
+  marginTop: 6,
+  width: '100%',
+  padding: '5px 8px',
+  fontSize: 11,
+  border: '1px dashed var(--border)',
+  background: 'transparent',
+  borderRadius: 4,
+  color: 'var(--text-2)',
+  cursor: 'pointer',
 };

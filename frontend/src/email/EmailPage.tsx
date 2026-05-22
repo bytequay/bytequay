@@ -435,19 +435,19 @@ export default function EmailPage({ onOpenIntegrationsSettings, onOpenLinkedRef 
 
   if (accountsError) {
     return (
-      <div className="email-page">
+      <div className="email-page calm-page">
         <div className="repo-error">{accountsError}</div>
       </div>
     );
   }
 
   if (accounts == null) {
-    return <div className="email-page"><div className="repo-loading">Loading accounts…</div></div>;
+    return <div className="email-page calm-page"><div className="repo-loading">Loading accounts…</div></div>;
   }
 
   if (accounts.length === 0) {
     return (
-      <div className="email-page email-page--empty">
+      <div className="email-page email-page--empty calm-page">
         <h2>No Gmail account connected</h2>
         <p>Connect a Gmail account in Settings → Integrations to start triaging email here.</p>
         <button className="button button--primary" type="button" onClick={onOpenIntegrationsSettings}>
@@ -468,7 +468,7 @@ export default function EmailPage({ onOpenIntegrationsSettings, onOpenLinkedRef 
   const selectedThread = visibleThreads.find(t => t.id === selectedThreadId) ?? null;
 
   return (
-    <div className="email-page">
+    <div className="email-page calm-page">
       <header className="email-page__header">
         <div className="email-page__accounts">
           {accounts.map(acc => (

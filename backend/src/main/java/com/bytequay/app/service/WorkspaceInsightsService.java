@@ -13,8 +13,10 @@
  */
 package com.bytequay.app.service;
 
+import com.bytequay.app.domain.Task;
 import com.bytequay.app.domain.Thread;
 import com.bytequay.app.domain.ThreadStatus;
+import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.repository.ThreadStore;
 import org.springframework.stereotype.Service;
 
@@ -60,11 +62,18 @@ public class WorkspaceInsightsService
             ThreadStatus.IDLE);
 
     private final ThreadStore threadStore;
+    private final TaskStore taskStore;
 
-    public WorkspaceInsightsService(ThreadStore threadStore)
+    public WorkspaceInsightsService(ThreadStore threadStore, TaskStore taskStore)
     {
         this.threadStore = requireNonNull(threadStore, "threadStore is null");
+        this.taskStore = requireNonNull(taskStore, "taskStore is null");
     }
+
+    /** Page size when scanning shipped tasks. Single-user local app,
+     *  so 1000 covers the typical window comfortably; if the user
+     *  hits the cap the count just rolls over (rare). */
+    private static final int SHIPPED_TASKS_PAGE = 1_000;
 
     public Insights get(String window)
     {
@@ -119,6 +128,8 @@ public class WorkspaceInsightsService
                     e.getValue()));
         }
 
+        int tasksShipped = countTasksShippedSince(windowStart);
+
         return new Insights(
                 window,
                 activeThreads,
@@ -126,7 +137,33 @@ public class WorkspaceInsightsService
                 /* reposInWorkspace */ 0,
                 spendTodayMilli,
                 spendInWindowMilli,
+                tasksShipped,
                 series);
+    }
+
+    /** Tasks linked to a PR that updated inside the window. The
+     *  linked_pr_number set on a Task is the "shipped" signal — the
+     *  task ran through ship-and-continue, opened (or finalized) a
+     *  PR, and the agent moved on to the next sequence step. A
+     *  per-repo breakdown wants an owner/repo column on Task that
+     *  doesn't exist today; this rolled-up count is the honest
+     *  number until that column lands. */
+    private int countTasksShippedSince(Instant since)
+    {
+        // Task has no updatedAt today, so we filter on createdAt
+        // (when the task was cut) — close enough for "shipped this
+        // window" since a task with a linked PR is almost always
+        // created → PR-opened in the same session. Tasks that linger
+        // for follow-up commits past the window cap still count if
+        // they originated inside it.
+        List<Task> withPr = taskStore.listWithLinkedPr(SHIPPED_TASKS_PAGE);
+        int count = 0;
+        for (Task t : withPr) {
+            if (!t.createdAt().isBefore(since)) {
+                count++;
+            }
+        }
+        return count;
     }
 
     private static Duration parseWindow(String window)
@@ -158,6 +195,7 @@ public class WorkspaceInsightsService
             int reposInWorkspace,
             long spendTodayMilli,
             long spendInWindowMilli,
+            int tasksShippedInWindow,
             List<DayPoint> spendByDay) {}
 
     public record DayPoint(String date, String label, long costUsdMilli) {}

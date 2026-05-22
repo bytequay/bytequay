@@ -204,7 +204,7 @@ function WorkspaceHomePage({ onSelectSection, onNewThread, onOpenThread }: Props
               <div style={memorySectionHeadStyle}>{section.heading}</div>
               <ul style={memoryBulletsStyle}>
                 {section.bullets.map((b, i) => (
-                  <li key={i} style={memoryBulletStyle}>{b}</li>
+                  <li key={i} style={bulletStyleFor(section.heading)}>{b}</li>
                 ))}
               </ul>
             </div>
@@ -227,7 +227,7 @@ function MemoryBudgetBar({ charLength }: { charLength: number }) {
         <div style={{ ...budgetFillStyle, width: `${pct}%`, background: color }} />
       </div>
       <div style={budgetTextStyle}>
-        {approxTokens.toLocaleString()} / {MEMORY_TOKEN_CAP.toLocaleString()} tokens
+        {formatTokensCompact(approxTokens)} / {formatTokensCompact(MEMORY_TOKEN_CAP)}
         {' · '}
         <span style={{ color }}>{healthy ? 'healthy' : 'over budget'}</span>
       </div>
@@ -291,6 +291,17 @@ function ThreadMetaLine({ task }: { task: WorkUnitTaskDto | null }) {
       ))}
     </div>
   );
+}
+
+/** Compact token-count formatter for the Memory budget bar — "1.6k"
+ *  instead of "1,600". Below 1k we keep the literal number; the bar
+ *  loses meaning at counts that small so the form barely matters. */
+function formatTokensCompact(n: number): string {
+  if (n < 1000) return n.toString();
+  const thousands = n / 1000;
+  return thousands >= 10
+    ? `${Math.round(thousands)}k`
+    : `${thousands.toFixed(1)}k`;
 }
 
 function formatPrState(prState: string | null): string | null {
@@ -592,6 +603,17 @@ const memoryBulletStyle: React.CSSProperties = {
   color: 'var(--ws-text-2)',
   lineHeight: 1.5,
 };
+
+const memoryBulletBlockerStyle: React.CSSProperties = {
+  ...memoryBulletStyle,
+  // Coral/warm-red so Blockers visibly read as friction the user
+  // should notice, while Decisions stay in neutral prose.
+  color: '#dc2626',
+};
+
+function bulletStyleFor(heading: string): React.CSSProperties {
+  return heading === 'Blockers' ? memoryBulletBlockerStyle : memoryBulletStyle;
+}
 
 const budgetWrapStyle: React.CSSProperties = {
   marginTop: 10,

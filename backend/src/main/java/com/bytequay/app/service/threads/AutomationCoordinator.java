@@ -380,10 +380,17 @@ public class AutomationCoordinator
      * when ANY of the following holds:
      *   * its soft expiry has passed,
      *   * its holder pid is non-null and no live OS process matches,
-     *   * its acquired_at is older than {@link #MAX_LEASE_AGE_MS}.
+     *   * the lease has no holder pid AND its acquired_at is older
+     *     than {@link #MAX_LEASE_AGE_MS}.
      *
-     * The third rule catches LOGIC_LOOP holders that have no pid to
-     * check against — for those, "too old" is the only signal.
+     * The pid-less age rule catches LOGIC_LOOP holders that have no
+     * pid to check against. The age rule does <em>not</em> apply to
+     * leases held by a live pid — the registry holds the worktree
+     * lease for the lifetime of the human's attachment to the
+     * thread, which is allowed to outlive any subprocess. Reaping a
+     * live attachment just because it's been open for six hours
+     * would let an auto-fix run barge in on a thread the human is
+     * still working in.
      */
     static boolean shouldReap(WorktreeLease lease, Instant now)
     {
@@ -392,9 +399,7 @@ public class AutomationCoordinator
         }
         if (lease.holderPid() != null) {
             Optional<ProcessHandle> handle = ProcessHandle.of(lease.holderPid());
-            if (handle.isEmpty() || !handle.get().isAlive()) {
-                return true;
-            }
+            return handle.isEmpty() || !handle.get().isAlive();
         }
         long ageMs = now.toEpochMilli() - lease.acquiredAt().toEpochMilli();
         return ageMs > MAX_LEASE_AGE_MS;

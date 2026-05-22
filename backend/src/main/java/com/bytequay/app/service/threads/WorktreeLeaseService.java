@@ -98,6 +98,45 @@ public class WorktreeLeaseService
         return tryAcquire(worktreePath, taskId, agentKind, holderPid, /* expiresAt */ null);
     }
 
+    /**
+     * Atomically acquire a lease, reclaiming any prior row whose
+     * holder pid no longer maps to a live process. Used by the
+     * registry-owned session attachment path so a crashed-backend
+     * restart picks up its old worktrees immediately rather than
+     * waiting up to a minute for the reaper sweep.
+     *
+     * <p>Reclamation only fires when the existing row has a non-null
+     * holder pid AND that pid is gone. A pid-less LOGIC_LOOP-held
+     * lease or a live-pid lease is treated as a genuine conflict and
+     * returns empty so the caller can surface a 409.
+     */
+    public Optional<WorktreeLease> tryAcquireOrReclaim(
+            String worktreePath, String taskId, ThreadKind agentKind, Integer holderPid)
+    {
+        requireNonNull(worktreePath, "worktreePath is null");
+        Optional<WorktreeLease> existing = store.findByWorktreePath(worktreePath);
+        if (existing.isPresent() && isHolderDead(existing.get())) {
+            log.info("Reclaiming stale lease on {} (prior taskId {}, pid {})",
+                    worktreePath, existing.get().taskId(), existing.get().holderPid());
+            store.releaseByWorktreePath(worktreePath);
+        }
+        return tryAcquire(worktreePath, taskId, agentKind, holderPid, /* expiresAt */ null);
+    }
+
+    /** True when the lease names a holder pid that no longer maps to
+     *  a live OS process. Pid-less leases (LOGIC_LOOP) are NOT
+     *  considered dead — those are alive-by-default and the age rule
+     *  is the only way to reap them. */
+    static boolean isHolderDead(WorktreeLease lease)
+    {
+        Integer pid = lease.holderPid();
+        if (pid == null) {
+            return false;
+        }
+        Optional<ProcessHandle> handle = ProcessHandle.of(pid);
+        return handle.isEmpty() || !handle.get().isAlive();
+    }
+
     /** Release the lease — typically in a finally block on agent exit.
      *  No-op when the worktree wasn't held, so the call site doesn't
      *  need to know whether acquire actually succeeded. */

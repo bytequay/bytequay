@@ -16,7 +16,6 @@ package com.bytequay.app.service.threads;
 import com.bytequay.app.domain.AgentMetrics;
 import com.bytequay.app.domain.PermissionDecision;
 import com.bytequay.app.domain.StreamEvent;
-import com.bytequay.app.domain.Task;
 import com.bytequay.app.domain.Thread;
 import com.bytequay.app.domain.ThreadFile;
 import com.bytequay.app.domain.ThreadKind;
@@ -40,7 +39,6 @@ import java.time.Instant;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.Optional;
 import java.util.OptionalInt;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
@@ -98,16 +96,6 @@ public class ClaudeCodeCliThreadAgent
      *  workspace). The CLI sees the result via --append-system-prompt
      *  on each session bootstrap. */
     private final Supplier<String> workspaceMemoryProvider;
-    /** Per-worktree lock the runtime acquires before pb.start() and
-     *  releases in the finally block. Optional in tests / when there's
-     *  no isolated worktree to protect. */
-    private final WorktreeLeaseService leaseService;
-    /** Active task's id and worktree path at ctor time. Used to claim
-     *  the lease for the right (taskId, worktreePath) pair. Both null
-     *  for 0-Task threads or when the agent fell back to the main
-     *  checkout — in that case no lease is taken. */
-    private final String leaseTaskId;
-    private final String leaseWorktreePath;
     private final CopyOnWriteArrayList<Consumer<StreamEvent>> listeners = new CopyOnWriteArrayList<>();
 
     /** Lazily-written MCP config file Claude reads via
@@ -152,11 +140,10 @@ public class ClaudeCodeCliThreadAgent
             McpPermissionGate gate,
             ExecutorService executor,
             CheckpointTrigger checkpointTrigger,
-            Supplier<String> workspaceMemoryProvider,
-            WorktreeLeaseService leaseService)
+            Supplier<String> workspaceMemoryProvider)
     {
         this(thread, store, taskStore, parser, mapper, gate, executor, checkpointTrigger,
-                workspaceMemoryProvider, leaseService, DEFAULT_BINARY);
+                workspaceMemoryProvider, DEFAULT_BINARY);
     }
 
     ClaudeCodeCliThreadAgent(
@@ -169,7 +156,6 @@ public class ClaudeCodeCliThreadAgent
             ExecutorService executor,
             CheckpointTrigger checkpointTrigger,
             Supplier<String> workspaceMemoryProvider,
-            WorktreeLeaseService leaseService,
             String binary)
     {
         requireNonNull(thread, "thread is null");
@@ -192,18 +178,7 @@ public class ClaudeCodeCliThreadAgent
         this.executor = requireNonNull(executor, "executor is null");
         this.checkpointTrigger = requireNonNull(checkpointTrigger, "checkpointTrigger is null");
         this.workspaceMemoryProvider = requireNonNull(workspaceMemoryProvider, "workspaceMemoryProvider is null");
-        this.leaseService = requireNonNull(leaseService, "leaseService is null");
-        // Capture the active task + worktree at ctor time. Both null
-        // means "no isolated worktree" (legacy 0-Task thread, or
-        // worktree creation failed); we just skip leasing in that
-        // case. The pairing matters: leases are keyed by worktree
-        // path but the FK is to the task that owns it.
-        Optional<Task> activeAtSpawn = requireNonNull(taskStore, "taskStore is null")
-                .findActiveTaskForThread(thread.id());
-        this.leaseTaskId = activeAtSpawn.map(Task::id).orElse(null);
-        this.leaseWorktreePath = activeAtSpawn.map(Task::worktreePath)
-                .filter(p -> p != null && !p.isBlank())
-                .orElse(null);
+        requireNonNull(taskStore, "taskStore is null");
         this.binary = requireNonNull(binary, "binary is null");
         this.status.set(thread.status());
         this.agentSessionId.set(thread.agentSessionId());
@@ -518,25 +493,12 @@ public class ClaudeCodeCliThreadAgent
             return;
         }
         currentProcess.set(process);
-        // Claim the per-worktree lease so headless automation (and a
-        // future second cli_agent on the same worktree) defers while
-        // this turn is live. Best-effort: if the lease is already held
-        // we log and proceed — the spawn ABI doesn't have a clean way
-        // to refuse mid-turn and the runtime that enforces "defer when
-        // held" lands separately.
-        boolean leaseHeld = false;
-        if (leaseWorktreePath != null && leaseTaskId != null) {
-            boolean ok = leaseService.tryAcquire(
-                    leaseWorktreePath, leaseTaskId, ThreadKind.CLI_AGENT,
-                    /* pid */ (int) process.pid()).isPresent();
-            if (ok) {
-                leaseHeld = true;
-            }
-            else {
-                log.warn("Worktree lease on {} was already held when {} spawned for thread {}",
-                        leaseWorktreePath, binary, threadId);
-            }
-        }
+        // The worktree lease is held by the registry for the lifetime
+        // of this session — see ThreadRegistry.getOrCreate / evict —
+        // so the per-turn subprocess doesn't manage it. That keeps
+        // the lock in place while the human is reading the diff or
+        // walking away between prompts, which is what the design
+        // doc's "lease is the lock" wording assumes.
         try {
             try (OutputStream stdin = process.getOutputStream()) {
                 stdin.write(userInput.getBytes(StandardCharsets.UTF_8));
@@ -587,9 +549,6 @@ public class ClaudeCodeCliThreadAgent
         finally {
             currentProcess.set(null);
             persistTaskSnapshot(null);
-            if (leaseHeld) {
-                leaseService.release(leaseWorktreePath);
-            }
         }
     }
 

@@ -497,6 +497,8 @@ const bridge: Bridge = {
     ipcRenderer.invoke('threads:index', { id, ...opts }),
   listTasksForThread: (threadId: string): Promise<WorkUnitTaskDto[]> =>
     ipcRenderer.invoke('threads:tasks:list', threadId),
+  jumpInThread: (threadId: string): Promise<ThreadDto> =>
+    ipcRenderer.invoke('threads:jumpIn', threadId),
   getTaskCheckpoints: (id: string): Promise<ThreadCheckpointDto[]> =>
     ipcRenderer.invoke('threads:checkpoints:list', id),
   generateTaskCheckpoint: (id: string): Promise<ThreadCheckpointDto | null> =>

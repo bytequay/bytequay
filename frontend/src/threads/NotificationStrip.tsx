@@ -56,6 +56,16 @@ export default function NotificationStrip({ threadId }: Props) {
     void refresh();
   };
 
+  const onJumpIn = async (e: React.MouseEvent) => {
+    e.stopPropagation();
+    try {
+      await window.bridge.jumpInThread(threadId);
+    }
+    catch { /* fall through to refresh; the backend's defensive
+                  paths cover partial failures */ }
+    void refresh();
+  };
+
   if (items.length === 0) return null;
   return (
     <div style={stripStyle}>
@@ -73,6 +83,17 @@ export default function NotificationStrip({ threadId }: Props) {
             <span style={chipTitleStyle}>{titleFor(n.kind)}</span>
             <span style={chipMetaStyle}>{previewFor(n)}</span>
           </span>
+          {isParked(n.kind) && (
+            <button
+              type="button"
+              style={chipJumpInStyle}
+              onClick={e => { void onJumpIn(e); }}
+              title="Interrupt the headless run and take control of the lease"
+              aria-label="Jump in to this thread"
+            >
+              Jump in
+            </button>
+          )}
           <button
             type="button"
             style={chipDismissStyle}
@@ -86,6 +107,10 @@ export default function NotificationStrip({ threadId }: Props) {
       ))}
     </div>
   );
+}
+
+function isParked(kind: NotificationKindDto): boolean {
+  return kind === 'NEEDS_ATTENTION' || kind === 'AWAITING_REVIEW';
 }
 
 function kindIcon(kind: NotificationKindDto): string {
@@ -194,4 +219,16 @@ const chipDismissStyle: React.CSSProperties = {
   cursor: 'pointer',
   padding: 2,
   lineHeight: 1,
+};
+
+const chipJumpInStyle: React.CSSProperties = {
+  border: '1px solid #cbd5e1',
+  background: '#ffffff',
+  color: '#1f2937',
+  fontSize: 11,
+  fontWeight: 600,
+  padding: '3px 8px',
+  borderRadius: 999,
+  cursor: 'pointer',
+  whiteSpace: 'nowrap',
 };

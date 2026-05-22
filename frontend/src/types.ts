@@ -2123,6 +2123,12 @@ export type Bridge = {
    *  not to be confused with the legacy "task = thread" alias still
    *  in place on most other bridge methods. */
   listTasksForThread: (threadId: string) => Promise<WorkUnitTaskDto[]>;
+  /** Take control of a thread away from any in-flight headless run.
+   *  Drives the "Jump in" button on parked notifications: interrupts
+   *  the live session, releases the active task's worktree lease,
+   *  and marks parked notifications for the thread as read. Returns
+   *  the refreshed thread row. */
+  jumpInThread: (threadId: string) => Promise<ThreadDto>;
   /** Active checkpoints for a thread — Overall first, then segments by
    *  descending seq. Drives the sidebar Checkpoints section and the
    *  cross-thread seed loader. */

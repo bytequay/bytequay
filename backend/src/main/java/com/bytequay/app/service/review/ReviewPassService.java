@@ -469,11 +469,25 @@ public class ReviewPassService
         return configured.size() > 3 ? configured.subList(0, 3) : configured;
     }
 
+    /** Threshold above which a single reviewer call gets split per
+     *  file. The existing {@link com.bytequay.app.service.ai.ReviewPrompt}
+     *  truncates over 200K to fit context windows; fanning out below
+     *  that keeps each call comfortably under the cap and avoids
+     *  losing the tail of a large PR to truncation. */
+    static final int MAX_DIFF_CHARS_PER_CALL = 60_000;
+
     /** Dispatches every panel reviewer against the same request on
      *  its own thread so no reviewer sees another's draft before
      *  finishing. Returns outputs in the same iteration order as the
      *  seats list so the persistence side keeps a stable transcript
-     *  ordering. */
+     *  ordering.
+     *
+     *  <p>For diffs over {@link #MAX_DIFF_CHARS_PER_CALL}, each
+     *  reviewer's call fans out per file inside the worker thread —
+     *  parallelism stays at the panel level (so we don't hammer
+     *  one provider with N concurrent calls) but the LLM context
+     *  per call stays bounded, which is the actual failure mode on
+     *  large PRs. */
     private Map<ReviewParticipant, ReviewOutput> runIndependentInParallel(
             List<ReviewParticipant> seats,
             List<LlmReviewer> panel,
@@ -483,7 +497,8 @@ public class ReviewPassService
         try {
             List<CompletableFuture<ReviewOutput>> futures = new ArrayList<>();
             for (LlmReviewer r : panel) {
-                futures.add(CompletableFuture.supplyAsync(() -> r.review(request), executor));
+                futures.add(CompletableFuture.supplyAsync(
+                        () -> runOneReviewerMaybeFanOut(r, request), executor));
             }
             Map<ReviewParticipant, ReviewOutput> result = new LinkedHashMap<>();
             for (int i = 0; i < panel.size(); i++) {
@@ -506,6 +521,78 @@ public class ReviewPassService
         finally {
             executor.shutdown();
         }
+    }
+
+    /** One reviewer's call against a request — fanning out per file
+     *  when the diff is large enough that a single call would blow
+     *  the LLM's context window. Falls through to the existing one-
+     *  shot path for small diffs and for single-huge-file diffs that
+     *  can't be sliced further. Per-file errors are logged and
+     *  skipped so one bad chunk doesn't tank the whole review. */
+    private ReviewOutput runOneReviewerMaybeFanOut(LlmReviewer reviewer, ReviewRequest base)
+    {
+        String diff = base.diff() == null ? "" : base.diff();
+        if (diff.length() <= MAX_DIFF_CHARS_PER_CALL) {
+            return reviewer.review(base);
+        }
+        List<String> chunks = splitDiffByFile(diff);
+        if (chunks.size() <= 1) {
+            // Single mega-file — ReviewPrompt's own truncation will
+            // catch it. Fanning out wouldn't help here.
+            return reviewer.review(base);
+        }
+        log.info("Diff is {} chars across {} files — fanning out per file for {}",
+                diff.length(), chunks.size(), reviewer.providerId());
+        List<ReviewOutput.LineComment> mergedComments = new ArrayList<>();
+        StringBuilder mergedSummary = new StringBuilder();
+        String modelName = "";
+        for (String chunk : chunks) {
+            ReviewRequest perFile = new ReviewRequest(
+                    base.repo(), base.number(),
+                    base.title(), base.body(),
+                    base.headSha(), chunk,
+                    base.skillContext());
+            try {
+                ReviewOutput out = reviewer.review(perFile);
+                if (out.summary() != null && !out.summary().isBlank()) {
+                    if (mergedSummary.length() > 0) {
+                        mergedSummary.append("\n\n");
+                    }
+                    mergedSummary.append(out.summary().trim());
+                }
+                if (out.comments() != null) {
+                    mergedComments.addAll(out.comments());
+                }
+                if (out.modelName() != null && !out.modelName().isBlank()) {
+                    modelName = out.modelName();
+                }
+            }
+            catch (RuntimeException e) {
+                // One file failing shouldn't drop the entire review.
+                log.warn("Per-file reviewer call failed (reviewer={}, chunk len={}): {}",
+                        reviewer.providerId(), chunk.length(), e.getMessage());
+            }
+        }
+        return new ReviewOutput(
+                mergedSummary.toString(),
+                mergedComments,
+                reviewer.providerId(),
+                modelName);
+    }
+
+    /** Split a unified diff on {@code diff --git} boundaries, keeping
+     *  the boundary line as the head of each chunk. Empty or blank
+     *  chunks are dropped. */
+    static List<String> splitDiffByFile(String diff)
+    {
+        String[] parts = diff.split("(?m)^(?=diff --git )");
+        List<String> chunks = new ArrayList<>();
+        for (String p : parts) {
+            if (!p.isBlank()) {
+                chunks.add(p);
+            }
+        }
+        return chunks;
     }
 
     /** Bounded debate loop: up to {@code pass.roundCap()} rounds of

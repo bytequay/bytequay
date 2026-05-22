@@ -55,6 +55,7 @@ import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -657,6 +658,119 @@ class TestReviewPassService
         // single reviewer's unconfirmed call.
         assertThat(detail.findings()).allMatch(f -> f.status() == ReviewFindingStatus.DISPUTED);
         assertThat(detail.pass().verdict()).isEqualTo(ReviewVerdict.COMMENT);
+    }
+
+    // ── Phase 8 inner-5: per-file fan-out for big PRs ────────────────
+
+    @Test
+    void splitDiffByFileBoundariesIsHeadCanonical()
+    {
+        // Empty / blank input returns nothing — the fan-out caller
+        // falls through to the single-shot path on empty.
+        assertThat(ReviewPassService.splitDiffByFile("")).isEmpty();
+        assertThat(ReviewPassService.splitDiffByFile("   \n\n  ")).isEmpty();
+
+        // Single-file diff stays one chunk; the chunk starts with the
+        // marker so per-file calls each get a self-contained diff.
+        String oneFile = "diff --git a/x b/x\nindex 1..2\n--- a/x\n+++ b/x\n@@ -1 +1 @@\n-old\n+new\n";
+        List<String> oneOnly = ReviewPassService.splitDiffByFile(oneFile);
+        assertThat(oneOnly).hasSize(1);
+        assertThat(oneOnly.get(0)).startsWith("diff --git ");
+
+        // Multi-file: split on `diff --git ` line starts, marker kept
+        // at the head of each chunk.
+        String twoFiles = "diff --git a/x b/x\nbody-x\ndiff --git a/y b/y\nbody-y\n";
+        List<String> two = ReviewPassService.splitDiffByFile(twoFiles);
+        assertThat(two).hasSize(2);
+        assertThat(two.get(0)).startsWith("diff --git a/x");
+        assertThat(two.get(0)).contains("body-x");
+        assertThat(two.get(1)).startsWith("diff --git a/y");
+        assertThat(two.get(1)).contains("body-y");
+    }
+
+    @Test
+    void smallDiffStaysASingleCallEvenWhenFanOutLooksLikeItCouldFire()
+    {
+        // Regression guard: a small two-file diff should still go in
+        // one call so we don't multiply LLM cost on small PRs.
+        when(pullRequests.fetchPrDiff(anyString(), any(PullRequestRef.class)))
+                .thenReturn("diff --git a/x b/x\nshort\ndiff --git a/y b/y\nshort\n");
+        when(reviewer.review(any(ReviewRequest.class))).thenReturn(new ReviewOutput(
+                "Fine.", List.of(), "claude", "claude-sonnet-4.6"));
+
+        service.startReviewOnPr("acme/widget", 42);
+
+        // Independent phase: exactly one call (no debate fires because
+        // there are no findings → no disputed).
+        verify(reviewer, times(1)).review(any(ReviewRequest.class));
+    }
+
+    @Test
+    void largeMultiFileDiffFansOutOneCallPerFileAndMergesTheOutputs()
+    {
+        // Build a 3-file diff with each file's body padded over the
+        // per-call threshold so we exercise the fan-out path.
+        String filler = "x".repeat(ReviewPassService.MAX_DIFF_CHARS_PER_CALL);
+        String bigDiff = "diff --git a/foo.ts b/foo.ts\n" + filler + "\n"
+                + "diff --git a/bar.ts b/bar.ts\n" + filler + "\n"
+                + "diff --git a/baz.ts b/baz.ts\n" + filler + "\n";
+        when(pullRequests.fetchPrDiff(anyString(), any(PullRequestRef.class)))
+                .thenReturn(bigDiff);
+
+        // Each chunk produces a finding tagged with its file name so
+        // we can verify all three made it into the final merged
+        // output. The reviewer mock answers each call based on which
+        // file path appears in the chunk's diff.
+        when(reviewer.review(any(ReviewRequest.class))).thenAnswer(invocation -> {
+            ReviewRequest req = invocation.getArgument(0);
+            String diff = req.diff();
+            String file = diff.contains("foo.ts") ? "src/foo.ts"
+                    : diff.contains("bar.ts") ? "src/bar.ts"
+                    : "src/baz.ts";
+            return new ReviewOutput(
+                    "Per-file summary for " + file,
+                    List.of(new ReviewOutput.LineComment(file, 1, "found at " + file, "nit")),
+                    "claude", "claude-sonnet-4.6");
+        });
+
+        ReviewPassDetail detail = service.startReviewOnPr("acme/widget", 99);
+
+        // 3 fan-out calls during INDEPENDENT — the panel-of-1 path
+        // doesn't enter CROSS_REVIEW / DEBATE, so this count is
+        // exactly the file count.
+        verify(reviewer, times(3)).review(any(ReviewRequest.class));
+
+        // All three files surface as findings on the pass.
+        assertThat(detail.findings()).hasSize(3);
+        assertThat(detail.findings()).extracting(ReviewFinding::path)
+                .containsExactlyInAnyOrder("src/foo.ts", "src/bar.ts", "src/baz.ts");
+
+        // The merged summary preserves each chunk's contribution.
+        ReviewMessage independent = recording.messages.stream()
+                .filter(m -> m.phase() == ReviewPhase.INDEPENDENT)
+                .findFirst().orElseThrow();
+        assertThat(independent.body()).contains("Per-file summary for src/foo.ts");
+        assertThat(independent.body()).contains("Per-file summary for src/bar.ts");
+        assertThat(independent.body()).contains("Per-file summary for src/baz.ts");
+    }
+
+    @Test
+    void singleMegaFileFallsThroughToOneCallWithTheFullDiff()
+    {
+        // One file bigger than the threshold can't be sliced further
+        // — the existing ReviewPrompt truncation is the safety net.
+        // We must NOT spuriously call review() N times on the same
+        // chunk; one call only.
+        String filler = "x".repeat(ReviewPassService.MAX_DIFF_CHARS_PER_CALL + 1_000);
+        String monolithic = "diff --git a/giant.ts b/giant.ts\n" + filler + "\n";
+        when(pullRequests.fetchPrDiff(anyString(), any(PullRequestRef.class)))
+                .thenReturn(monolithic);
+        when(reviewer.review(any(ReviewRequest.class))).thenReturn(new ReviewOutput(
+                "Big file done.", List.of(), "claude", "claude-sonnet-4.6"));
+
+        service.startReviewOnPr("acme/widget", 12);
+
+        verify(reviewer, times(1)).review(any(ReviewRequest.class));
     }
 
     private static PrRawDetail rawDetail()

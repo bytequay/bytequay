@@ -1207,10 +1207,6 @@ export type ThreadDto = {
   updatedAt: string;
   endedAt: string | null;
   errorMessage: string | null;
-  /** Free-form thread type — {@code "DEVELOP"} or {@code "FIX"} today,
-   *  more values likely later. Defaults to {@code "DEVELOP"} on
-   *  legacy rows. */
-  taskType: string;
   /** Absolute path to the linked git worktree the agent runs in.
    *  {@code null} for legacy threads created before the worktree feature
    *  shipped, or for threads where worktree creation failed (non-git

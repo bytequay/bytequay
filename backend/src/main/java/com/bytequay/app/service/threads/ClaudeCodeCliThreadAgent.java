@@ -351,7 +351,6 @@ public class ClaudeCodeCliThreadAgent
                     runningCostUsdMilli.get(), runningTokensIn.get(), runningTokensOut.get(),
                     current.createdAt(), Instant.now(),
                     /* endedAt */ null, /* errorMessage */ null,
-                    current.taskType(),
                     current.worktreePath(),
                     current.flow(),
                     current.activeTask()));
@@ -883,7 +882,6 @@ public class ClaudeCodeCliThreadAgent
                 current.createdAt(), Instant.now(),
                 endedAt != null ? endedAt : current.endedAt(),
                 current.errorMessage(),
-                current.taskType(),
                 current.worktreePath(),
                 current.flow(),
                 current.activeTask());

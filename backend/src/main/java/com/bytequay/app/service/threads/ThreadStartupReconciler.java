@@ -70,7 +70,6 @@ public class ThreadStartupReconciler
                         thread.costUsdMilli(), thread.tokensIn(), thread.tokensOut(),
                         thread.createdAt(), now,
                         thread.endedAt(), thread.errorMessage(),
-                        thread.taskType(),
                         thread.worktreePath(),
                         thread.flow(),
                         thread.activeTask()));

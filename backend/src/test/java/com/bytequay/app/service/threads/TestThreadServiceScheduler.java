@@ -1338,7 +1338,6 @@ class TestThreadServiceScheduler
                 now,
                 /* endedAt */ null,
                 /* errorMessage */ null,
-                "DEVELOP",
                 /* worktreePath */ null,
                 ThreadFlow.BUILD,
                 /* activeTask */ null);
@@ -1364,7 +1363,6 @@ class TestThreadServiceScheduler
                 now,
                 /* endedAt */ now,
                 /* errorMessage */ null,
-                "DEVELOP",
                 "/tmp/work/.bytequay/worktrees/dev/thread-1",
                 ThreadFlow.BUILD,
                 /* activeTask */ null);

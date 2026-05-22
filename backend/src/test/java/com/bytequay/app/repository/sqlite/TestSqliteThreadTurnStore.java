@@ -137,7 +137,6 @@ class TestSqliteThreadTurnStore
                 now,
                 /* endedAt */ null,
                 /* errorMessage */ null,
-                "DEVELOP",
                 /* worktreePath */ null,
                 ThreadFlow.BUILD,
                 /* activeTask */ null));

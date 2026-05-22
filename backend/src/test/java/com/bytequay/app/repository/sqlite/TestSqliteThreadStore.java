@@ -86,7 +86,6 @@ class TestSqliteThreadStore
                 /* costUsdMilli */ 12_345L, /* tokensIn */ 1_000L, /* tokensOut */ 2_000L,
                 initial.createdAt(), Instant.parse("2026-05-15T13:00:00Z"),
                 /* endedAt */ null, /* errorMessage */ null,
-                initial.taskType(),
                 initial.worktreePath(),
                 initial.flow(),
                 initial.activeTask());
@@ -118,7 +117,6 @@ class TestSqliteThreadStore
                 original.costUsdMilli(), original.tokensIn(), original.tokensOut(),
                 original.createdAt(), original.updatedAt(),
                 original.endedAt(), original.errorMessage(),
-                original.taskType(),
                 original.worktreePath(),
                 ThreadFlow.REVIEW,
                 original.activeTask());
@@ -221,7 +219,6 @@ class TestSqliteThreadStore
                 now,
                 /* endedAt */ null,
                 /* errorMessage */ null,
-                /* taskType */ "DEVELOP",
                 /* worktreePath */ null,
                 ThreadFlow.BUILD,
                 /* activeTask */ null);
@@ -235,7 +232,6 @@ class TestSqliteThreadStore
                 source.model(), source.costUsdMilli(), source.tokensIn(), source.tokensOut(),
                 created, updated,
                 source.endedAt(), source.errorMessage(),
-                source.taskType(),
                 source.worktreePath(),
                 source.flow(),
                 source.activeTask());

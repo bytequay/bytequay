@@ -142,11 +142,11 @@ class SqliteThreadStore
                         t.prNumber(),
                         t.prState(),
                         t.ciState(),
-                        coalesce(thread.taskType(), t.taskType()),
-                        // linkedPrNumber / linkedIssueNumber live on
-                        // the Task only now; Thread no longer carries
-                        // them so the split path preserves what the
-                        // task already holds.
+                        // taskType / linkedPrNumber / linkedIssueNumber
+                        // live on the Task only now; Thread no longer
+                        // carries them so the split path preserves
+                        // what the task already holds.
+                        t.taskType(),
                         t.linkedPrNumber(),
                         t.linkedIssueNumber(),
                         thread.costUsdMilli(),
@@ -172,7 +172,9 @@ class SqliteThreadStore
                         /* processPid */ null,
                         /* logPath */ null,
                         /* prNumber */ null, /* prState */ null, /* ciState */ null,
-                        thread.taskType() != null ? thread.taskType() : "DEVELOP",
+                        // Auto-create defaults to DEVELOP; ThreadService.create
+                        // overrides with the request task_type right after.
+                        "DEVELOP",
                         /* linkedPrNumber */ null, /* linkedIssueNumber */ null,
                         thread.costUsdMilli(),
                         thread.tokensIn(),
@@ -363,7 +365,6 @@ class SqliteThreadStore
         String workingDir = active != null ? active.workingDir() : null;
         String branchName = active != null ? active.branchName() : null;
         String worktreePath = active != null ? active.worktreePath() : null;
-        String taskType = active != null ? active.taskType() : null;
         return new Thread(
                 e.getId(),
                 ThreadKind.valueOf(e.getKind()),
@@ -381,7 +382,6 @@ class SqliteThreadStore
                 Instant.ofEpochMilli(e.getUpdatedAtMs()),
                 e.getEndedAtMs() == null ? null : Instant.ofEpochMilli(e.getEndedAtMs()),
                 e.getErrorMessage(),
-                taskType,
                 worktreePath,
                 ThreadFlow.fromDbValue(e.getFlow()),
                 active);

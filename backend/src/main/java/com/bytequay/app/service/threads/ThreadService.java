@@ -314,7 +314,6 @@ public class ThreadService
                 current.costUsdMilli(), current.tokensIn(), current.tokensOut(),
                 current.createdAt(), Instant.now(),
                 current.endedAt(), current.errorMessage(),
-                current.taskType(),
                 current.worktreePath(),
                 current.flow(),
                 current.activeTask());
@@ -389,7 +388,6 @@ public class ThreadService
                 now,
                 /* endedAt */ null,
                 /* errorMessage */ null,
-                taskType,
                 handle.map(h -> h.worktreePath().toString()).orElse(null),
                 request.flow() == null ? ThreadFlow.BUILD : request.flow(),
                 /* activeTask — populated on read after saveThread + the

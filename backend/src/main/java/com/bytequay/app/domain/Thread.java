@@ -21,10 +21,10 @@ import java.time.Instant;
  * agent loop, persistent metadata.
  *
  * <p><b>Bridge fields.</b> V72 moved the work-unit columns
- * ({@code working_dir}, {@code branch_name}, {@code worktree_path},
- * {@code task_type}) out of {@code threads} and onto
- * {@code tasks}. Until callers migrate to reading the active task
- * directly through {@link com.bytequay.app.repository.TaskStore},
+ * ({@code working_dir}, {@code branch_name}, {@code worktree_path})
+ * out of {@code threads} and onto {@code tasks}. Until callers
+ * migrate to reading the active task directly through {@link
+ * com.bytequay.app.repository.TaskStore},
  * {@link com.bytequay.app.repository.sqlite.SqliteThreadStore#toThread}
  * still synthesises those fields from the thread's active task
  * row. Treat them as a temporary read projection; new code should
@@ -52,10 +52,6 @@ import java.time.Instant;
  * @param costUsdMilli running cost in USD × 1000; divide on read so
  *                     SQLite's lack of fixed-precision decimal type
  *                     doesn't cause display drift.
- * @param taskType free-form active-task type, e.g. {@code "DEVELOP"}
- *                 or {@code "FIX"}. Null when the thread has no active
- *                 task (0-Task brainstorm threads); callers must
- *                 handle the null rather than assume a default.
  * @param worktreePath absolute path to the git worktree the agent runs in.
  * Null when no worktree was created for this thread (legacy rows, fallback
  * for non-git working dirs).
@@ -83,7 +79,6 @@ public record Thread(
         Instant updatedAt,
         Instant endedAt,
         String errorMessage,
-        String taskType,
         String worktreePath,
         ThreadFlow flow,
         Task activeTask)

@@ -60,7 +60,6 @@ class TestThreadStartupReconciler
         // RUNNING row reconciled.
         Thread afterRunning = store.findThreadById(running.id()).orElseThrow();
         assertThat(afterRunning.status()).isEqualTo(ThreadStatus.IDLE);
-        assertThat(afterRunning.processPid()).isNull();
         // Untouched buckets remain themselves.
         assertThat(store.findThreadById(pending.id()).orElseThrow().status())
                 .isEqualTo(ThreadStatus.PENDING);
@@ -96,8 +95,6 @@ class TestThreadStartupReconciler
                 /* costUsdMilli */ 0L,
                 /* tokensIn */ 0L,
                 /* tokensOut */ 0L,
-                /* processPid */ status == ThreadStatus.RUNNING ? 12345 : null,
-                /* logPath */ null,
                 now,
                 now,
                 /* endedAt */ status == ThreadStatus.COMPLETED ? now : null,

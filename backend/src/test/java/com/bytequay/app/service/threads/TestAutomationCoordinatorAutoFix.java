@@ -230,7 +230,6 @@ class TestAutomationCoordinatorAutoFix
                 /* branchName */ "auto-fix/" + id,
                 "claude-sonnet-4.6",
                 0L, 0L, 0L,
-                /* processPid */ null, /* logPath */ null,
                 now, now, null, null,
                 "DEVELOP", null, null, null, ThreadFlow.BUILD);
     }

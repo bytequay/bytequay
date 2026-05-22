@@ -22,11 +22,10 @@ import java.time.Instant;
  *
  * <p><b>Bridge fields.</b> V72 moved the work-unit columns
  * ({@code working_dir}, {@code branch_name}, {@code worktree_path},
- * {@code process_pid}, {@code log_path}, {@code task_type},
- * {@code linked_pr_number}, {@code linked_issue_number}) out of
- * {@code threads} and onto {@code tasks}. Until callers migrate to
- * reading the active task directly through {@link
- * com.bytequay.app.repository.TaskStore},
+ * {@code task_type}, {@code linked_pr_number},
+ * {@code linked_issue_number}) out of {@code threads} and onto
+ * {@code tasks}. Until callers migrate to reading the active task
+ * directly through {@link com.bytequay.app.repository.TaskStore},
  * {@link com.bytequay.app.repository.sqlite.SqliteThreadStore#toThread}
  * still synthesises those fields from the thread's active task
  * row. Treat them as a temporary read projection; new code should
@@ -35,10 +34,11 @@ import java.time.Instant;
  *
  * <p>Several fields are conditional on {@link #kind}:
  * <ul>
- *   <li>{@code agentSessionId}, {@code processPid}, {@code logPath}
- *       are populated for {@link ThreadKind#CLI_AGENT} threads while a
- *       child process is alive, and {@code null} for
- *       {@link ThreadKind#LOGIC_LOOP}.</li>
+ *   <li>{@code agentSessionId} is populated for
+ *       {@link ThreadKind#CLI_AGENT} threads while a child process
+ *       is alive, and {@code null} for {@link ThreadKind#LOGIC_LOOP}.
+ *       Per-process diagnostics ({@code process_pid}, {@code log_path})
+ *       live on the active {@code tasks} row now, not here.</li>
  *   <li>{@code branchName} currently mirrors the active task's branch
  *       (post-V72). The pre-V72 semantics — "the branch the user had
  *       checked out at thread-create time" — no longer hold; callers
@@ -80,8 +80,6 @@ public record Thread(
         long costUsdMilli,
         long tokensIn,
         long tokensOut,
-        Integer processPid,
-        String logPath,
         Instant createdAt,
         Instant updatedAt,
         Instant endedAt,

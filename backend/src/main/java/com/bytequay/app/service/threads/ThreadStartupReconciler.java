@@ -68,7 +68,6 @@ public class ThreadStartupReconciler
                         thread.title(), ThreadStatus.IDLE, thread.workingDir(), thread.branchName(),
                         thread.model(),
                         thread.costUsdMilli(), thread.tokensIn(), thread.tokensOut(),
-                        /* processPid */ null, thread.logPath(),
                         thread.createdAt(), now,
                         thread.endedAt(), thread.errorMessage(),
                         thread.taskType(), thread.linkedPrNumber(), thread.linkedIssueNumber(),

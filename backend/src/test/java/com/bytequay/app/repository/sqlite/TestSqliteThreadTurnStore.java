@@ -133,8 +133,6 @@ class TestSqliteThreadTurnStore
                 0L,
                 0L,
                 0L,
-                /* processPid */ null,
-                /* logPath */ null,
                 now,
                 now,
                 /* endedAt */ null,

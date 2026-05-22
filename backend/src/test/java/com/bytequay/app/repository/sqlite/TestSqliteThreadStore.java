@@ -51,7 +51,7 @@ class TestSqliteThreadStore
     @Test
     void roundtripsACliAgentTask()
     {
-        Thread thread = newTask(ThreadKind.CLI_AGENT, ThreadStatus.RUNNING, 1234, "/tmp/log.jsonl");
+        Thread thread = newTask(ThreadKind.CLI_AGENT, ThreadStatus.RUNNING);
         store.saveThread(thread);
 
         Optional<Thread> loaded = store.findThreadById(thread.id());
@@ -60,27 +60,23 @@ class TestSqliteThreadStore
         assertThat(got.id()).isEqualTo(thread.id());
         assertThat(got.kind()).isEqualTo(ThreadKind.CLI_AGENT);
         assertThat(got.status()).isEqualTo(ThreadStatus.RUNNING);
-        assertThat(got.processPid()).isEqualTo(1234);
-        assertThat(got.logPath()).isEqualTo("/tmp/log.jsonl");
     }
 
     @Test
     void roundtripsALogicLoopTaskWithNullCliFields()
     {
-        Thread thread = newTask(ThreadKind.LOGIC_LOOP, ThreadStatus.PENDING, null, null);
+        Thread thread = newTask(ThreadKind.LOGIC_LOOP, ThreadStatus.PENDING);
         store.saveThread(thread);
 
         Thread got = store.findThreadById(thread.id()).orElseThrow();
         assertThat(got.kind()).isEqualTo(ThreadKind.LOGIC_LOOP);
-        assertThat(got.processPid()).isNull();
-        assertThat(got.logPath()).isNull();
         assertThat(got.agentSessionId()).isNull();
     }
 
     @Test
     void saveTaskUpdatesInPlaceWhenIdMatches()
     {
-        Thread initial = newTask(ThreadKind.CLI_AGENT, ThreadStatus.RUNNING, 99, "/tmp/x.jsonl");
+        Thread initial = newTask(ThreadKind.CLI_AGENT, ThreadStatus.RUNNING);
         store.saveThread(initial);
 
         Thread updated = new Thread(
@@ -88,7 +84,6 @@ class TestSqliteThreadStore
                 initial.title(), ThreadStatus.AWAITING, initial.workingDir(),
                 initial.branchName(), initial.model(),
                 /* costUsdMilli */ 12_345L, /* tokensIn */ 1_000L, /* tokensOut */ 2_000L,
-                initial.processPid(), initial.logPath(),
                 initial.createdAt(), Instant.parse("2026-05-15T13:00:00Z"),
                 /* endedAt */ null, /* errorMessage */ null,
                 initial.taskType(), initial.linkedPrNumber(), initial.linkedIssueNumber(),
@@ -107,7 +102,7 @@ class TestSqliteThreadStore
     @Test
     void flowRoundTripsAndCannotBeFlippedOnUpdate()
     {
-        Thread original = newTask(ThreadKind.CLI_AGENT, ThreadStatus.RUNNING, 99, "/tmp/x.jsonl");
+        Thread original = newTask(ThreadKind.CLI_AGENT, ThreadStatus.RUNNING);
         store.saveThread(original);
         assertThat(store.findThreadById(original.id()).orElseThrow().flow())
                 .isEqualTo(ThreadFlow.BUILD);
@@ -120,7 +115,6 @@ class TestSqliteThreadStore
                 original.title(), original.status(), original.workingDir(), original.branchName(),
                 original.model(),
                 original.costUsdMilli(), original.tokensIn(), original.tokensOut(),
-                original.processPid(), original.logPath(),
                 original.createdAt(), original.updatedAt(),
                 original.endedAt(), original.errorMessage(),
                 original.taskType(), original.linkedPrNumber(), original.linkedIssueNumber(),
@@ -143,7 +137,7 @@ class TestSqliteThreadStore
         Instant base = Instant.parse("2026-05-15T12:00:00Z");
         for (int i = 0; i < 5; i++) {
             Thread t = withTimestamps(
-                    newTask(ThreadKind.CLI_AGENT, ThreadStatus.IDLE, 7000 + i, "/tmp/" + i + ".jsonl"),
+                    newTask(ThreadKind.CLI_AGENT, ThreadStatus.IDLE),
                     base, base.plusSeconds(i));
             store.saveThread(t);
         }
@@ -168,7 +162,7 @@ class TestSqliteThreadStore
     @Test
     void appendsAndListsMessagesInSeqOrder()
     {
-        Thread thread = newTask(ThreadKind.CLI_AGENT, ThreadStatus.RUNNING, 4242, "/tmp/m.jsonl");
+        Thread thread = newTask(ThreadKind.CLI_AGENT, ThreadStatus.RUNNING);
         store.saveThread(thread);
 
         store.appendMessage(message(thread.id(), 0, "user", "text", "{\"text\":\"fix the bug\"}"));
@@ -185,7 +179,7 @@ class TestSqliteThreadStore
     @Test
     void recordFileUpsertsByCompositeKey()
     {
-        Thread thread = newTask(ThreadKind.LOGIC_LOOP, ThreadStatus.RUNNING, null, null);
+        Thread thread = newTask(ThreadKind.LOGIC_LOOP, ThreadStatus.RUNNING);
         store.saveThread(thread);
 
         Instant first = Instant.parse("2026-05-15T12:00:00Z");
@@ -205,7 +199,7 @@ class TestSqliteThreadStore
         assertThat(foo.lastTouchedAt()).isEqualTo(second);
     }
 
-    private static Thread newTask(ThreadKind kind, ThreadStatus status, Integer pid, String logPath)
+    private static Thread newTask(ThreadKind kind, ThreadStatus status)
     {
         Instant now = Instant.parse("2026-05-15T12:00:00Z");
         return new Thread(
@@ -221,8 +215,6 @@ class TestSqliteThreadStore
                 /* costUsdMilli */ 0L,
                 /* tokensIn */ 0L,
                 /* tokensOut */ 0L,
-                pid,
-                logPath,
                 now,
                 now,
                 /* endedAt */ null,
@@ -240,7 +232,7 @@ class TestSqliteThreadStore
                 source.id(), source.kind(), source.provider(), source.agentSessionId(),
                 source.title(), source.status(), source.workingDir(), source.branchName(),
                 source.model(), source.costUsdMilli(), source.tokensIn(), source.tokensOut(),
-                source.processPid(), source.logPath(), created, updated,
+                created, updated,
                 source.endedAt(), source.errorMessage(),
                 source.taskType(), source.linkedPrNumber(), source.linkedIssueNumber(),
                 source.worktreePath(),

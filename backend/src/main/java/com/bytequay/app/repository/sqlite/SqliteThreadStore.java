@@ -133,8 +133,12 @@ class SqliteThreadStore
                         coalesce(thread.worktreePath(), t.worktreePath()),
                         t.baseBranch(),
                         coalesce(thread.workingDir(), t.workingDir()),
-                        thread.processPid(),
-                        coalesce(thread.logPath(), t.logPath()),
+                        // processPid + logPath are owned by the task
+                        // now (V72). Saving via Thread doesn't carry
+                        // them anymore; preserve whatever the task
+                        // row already holds.
+                        t.processPid(),
+                        t.logPath(),
                         t.prNumber(),
                         t.prState(),
                         t.ciState(),
@@ -161,8 +165,8 @@ class SqliteThreadStore
                         thread.worktreePath(),
                         "main",
                         thread.workingDir(),
-                        thread.processPid(),
-                        thread.logPath(),
+                        /* processPid */ null,
+                        /* logPath */ null,
                         /* prNumber */ null, /* prState */ null, /* ciState */ null,
                         thread.taskType() != null ? thread.taskType() : "DEVELOP",
                         thread.linkedPrNumber(),
@@ -357,8 +361,6 @@ class SqliteThreadStore
         String workingDir = active != null ? active.workingDir() : null;
         String branchName = active != null ? active.branchName() : null;
         String worktreePath = active != null ? active.worktreePath() : null;
-        Integer processPid = active != null ? active.processPid() : null;
-        String logPath = active != null ? active.logPath() : null;
         String taskType = active != null ? active.taskType() : null;
         Integer linkedPr = active != null ? active.linkedPrNumber() : null;
         Integer linkedIssue = active != null ? active.linkedIssueNumber() : null;
@@ -375,8 +377,6 @@ class SqliteThreadStore
                 e.getCostUsdMilli(),
                 e.getTokensIn(),
                 e.getTokensOut(),
-                processPid,
-                logPath,
                 Instant.ofEpochMilli(e.getCreatedAtMs()),
                 Instant.ofEpochMilli(e.getUpdatedAtMs()),
                 e.getEndedAtMs() == null ? null : Instant.ofEpochMilli(e.getEndedAtMs()),
@@ -408,9 +408,7 @@ class SqliteThreadStore
     {
         return thread.worktreePath() != null
                 || thread.branchName() != null
-                || thread.workingDir() != null
-                || thread.processPid() != null
-                || thread.logPath() != null;
+                || thread.workingDir() != null;
     }
 
     private static TaskStatus mapStatus(ThreadStatus status)

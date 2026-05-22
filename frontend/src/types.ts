@@ -1203,8 +1203,6 @@ export type ThreadDto = {
   costUsdMilli: number;
   tokensIn: number;
   tokensOut: number;
-  processPid: number | null;
-  logPath: string | null;
   createdAt: string;
   updatedAt: string;
   endedAt: string | null;

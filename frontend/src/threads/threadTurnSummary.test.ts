@@ -77,8 +77,6 @@ function threadRow(status: ThreadDto['status']): ThreadDto {
     costUsdMilli: 0,
     tokensIn: 0,
     tokensOut: 0,
-    processPid: null,
-    logPath: null,
     createdAt: '2026-05-18T12:00:00Z',
     updatedAt: '2026-05-18T12:00:00Z',
     endedAt: null,

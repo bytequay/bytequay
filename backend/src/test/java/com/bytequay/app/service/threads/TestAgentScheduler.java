@@ -385,8 +385,6 @@ class TestAgentScheduler
                 /* costUsdMilli */ 0L,
                 /* tokensIn */ 0L,
                 /* tokensOut */ 0L,
-                /* processPid */ null,
-                /* logPath */ null,
                 now,
                 now,
                 /* endedAt */ null,

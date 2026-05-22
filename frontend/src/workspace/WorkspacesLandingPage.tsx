@@ -11,7 +11,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useMemo, useState } from 'react';
 import NewWorkspaceDialog from './NewWorkspaceDialog';
 import WorkspaceCard from './WorkspaceCard';
 import useWorkspaces from './useWorkspaces';
@@ -24,12 +24,6 @@ type Props = {
   /** Called when the user picks a workspace. The caller bumps
    *  activeWorkspaceId and routes into that workspace's Home. */
   onEnterWorkspace: (workspaceId: string) => void;
-  /** When false (the topbar-button entry) and exactly one non-scratch
-   *  workspace exists, auto-enter that workspace instead of rendering
-   *  the grid — the ambient-when-one rule. When true (the in-shell
-   *  brand chevron) the grid always renders so the explicit "open
-   *  switcher" click isn't bounced back. */
-  forceVisible?: boolean;
 };
 
 /** Top-level Workspaces page. Lives "above" any workspace — no
@@ -37,29 +31,16 @@ type Props = {
  *  enter?" question. Renders the grid of WorkspaceCards plus a
  *  dashed "+ New workspace" tile. */
 function WorkspacesLandingPage({
-  currentWorkspaceId, onEnterWorkspace, forceVisible = false,
+  currentWorkspaceId, onEnterWorkspace,
 }: Props) {
   const { cards, loading, error, reload } = useWorkspaces();
   const [filter, setFilter] = useState('');
   const [newWorkspaceOpen, setNewWorkspaceOpen] = useState(false);
-  // Guard the ambient-redirect: fire at most once per mount so a
-  // post-reload that briefly returns one workspace doesn't bounce
-  // the user out of the grid they explicitly opened.
-  const autoEnteredRef = useRef(false);
-
-  useEffect(() => {
-    if (forceVisible || autoEnteredRef.current) {
-      return;
-    }
-    if (loading || error || !cards) {
-      return;
-    }
-    const nonScratch = cards.filter(c => !c.isScratch);
-    if (nonScratch.length === 1) {
-      autoEnteredRef.current = true;
-      onEnterWorkspace(nonScratch[0].id);
-    }
-  }, [cards, loading, error, forceVisible, onEnterWorkspace]);
+  // decision pending — the ambient "auto-enter the only non-scratch
+  // workspace" redirect lives elsewhere once multi-workspace creation
+  // ships. While we're single-workspace the landing always renders so
+  // the user can see + verify the card grid; revisit when the grid is
+  // visually settled.
 
   const filtered = useMemo(() => {
     if (!cards) {

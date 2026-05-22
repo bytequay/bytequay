@@ -13,13 +13,18 @@
  */
 import { useEffect, useState } from 'react';
 import WorkspaceMemoryPage from '../settings/pages/WorkspaceMemoryPage';
+import ThreadsPage from '../threads/ThreadsPage';
+import type {
+  ProviderFilter as ThreadsProviderFilter,
+  RepoFilter as ThreadsRepoFilter,
+  StatusFilter as ThreadsStatusFilter,
+} from '../threads/ThreadsLeftRail';
 import NewThreadDialog from './NewThreadDialog';
 import NewWorkspaceDialog from './NewWorkspaceDialog';
 import WorkspaceHomePage from './WorkspaceHomePage';
 import WorkspaceInsightsPage from './WorkspaceInsightsPage';
 import WorkspaceLeftRail from './WorkspaceLeftRail';
 import WorkspaceSettingsPage from './WorkspaceSettingsPage';
-import WorkspaceThreadsPage from './WorkspaceThreadsPage';
 
 export type WorkspaceSection = 'home' | 'threads' | 'memory' | 'insights' | 'settings';
 
@@ -29,15 +34,10 @@ type Props = {
   /** Callback for back-link chips inside the memory proposal banner.
    *  Routes to a review/build thread detail at the app level. */
   onOpenThread?: (threadId: string) => void;
-  /** Fallback when a section punches out of the shell (e.g. the
-   *  Threads section's "Go to threads list" button until we render
-   *  ThreadsPage inline in a polish pass). */
-  onLeaveShell?: () => void;
-  /** Punch from the new-thread dialog into the full create page
-   *  (existing ThreadCreatePage) so the user can finish picking
-   *  repo + agent + skills. The modal owns the prompt + start-mode
-   *  intent; everything else stays on the page. */
-  onOpenThreadCreate?: (params: { initialPrompt: string; initialGroupId?: string }) => void;
+  /** Punch from the new-thread dialog (or the threads section's
+   *  "+ New thread" button) into the full create page so the user
+   *  can finish picking repo + agent + skills. */
+  onOpenThreadCreate?: (params?: { initialPrompt?: string; initialGroupId?: string }) => void;
   /** Open the Phase-9 control bar. Wired here so the left-rail
    *  command-bar placeholder becomes an actual launcher. */
   onOpenControlBar?: () => void;
@@ -45,16 +45,46 @@ type Props = {
    *  through the brand chevron ("ByteQuay ▾") so the user can switch
    *  between workspaces or reach the "+ New workspace" tile. */
   onOpenWorkspaceSwitcher?: () => void;
+
+  // ── Threads-section state (passed through to the inlined
+  // ThreadsPage when section === 'threads'). Hoisted to the App-level
+  // nav so a deep link or browser-style back keeps the user's view. ──
+  threadsFilter: ThreadsStatusFilter;
+  threadsProvider: ThreadsProviderFilter;
+  threadsGroupId: ThreadsRepoFilter; // string | null — same shape
+  threadsRepo: ThreadsRepoFilter;
+  onThreadsFilterChange: (filter: ThreadsStatusFilter) => void;
+  onThreadsProviderChange: (provider: ThreadsProviderFilter) => void;
+  onThreadsGroupChange: (groupId: string | null) => void;
+  onThreadsRepoChange: (repo: string | null) => void;
+  /** Open a PR in the repo view with the threads list as the back
+   *  target. */
+  onOpenPr: (owner: string, repo: string, prNumber: number) => void;
+  /** Open the repo's Issues tab with the threads list as the back
+   *  target. */
+  onOpenIssues: (owner: string, repo: string) => void;
+  /** Jump to Settings → Integrations (used by the threads-list "PAT
+   *  missing" affordance). */
+  onOpenSettings: () => void;
+  /** 2×2 group view's immersive toggle — lifted to App so the global
+   *  topbar can hide while the user babysits a group. */
+  immersive: boolean;
+  onChangeImmersive: (next: boolean) => void;
 };
 
-/** Calm-language workspace shell. Sibling of the existing top-level
- *  chrome (Home / PRs / Repos / Email / Threads / Notifications /
- *  Settings) — clicking the "Workspace" entry in the global topbar
- *  mounts this; the user moves between the 5 inner sections via the
- *  left rail. Browse-mode pages stay outside the shell. */
+/** Calm-language workspace shell. The "Workspace" entry in the global
+ *  topbar mounts this; the user moves between the 5 inner sections
+ *  (Home · Threads · Memory · Insights · Settings) via the left rail.
+ *  Threads are workspace-scoped per the model doc — the section
+ *  renders the existing ThreadsPage inline rather than punching out to
+ *  a top-level page. */
 function WorkspaceShell({
-  section, onSelectSection, onOpenThread, onLeaveShell, onOpenThreadCreate, onOpenControlBar,
+  section, onSelectSection, onOpenThread, onOpenThreadCreate, onOpenControlBar,
   onOpenWorkspaceSwitcher,
+  threadsFilter, threadsProvider, threadsGroupId, threadsRepo,
+  onThreadsFilterChange, onThreadsProviderChange, onThreadsGroupChange, onThreadsRepoChange,
+  onOpenPr, onOpenIssues, onOpenSettings,
+  immersive, onChangeImmersive,
 }: Props) {
   const [newThreadOpen, setNewThreadOpen] = useState(false);
   const [newWorkspaceOpen, setNewWorkspaceOpen] = useState(false);
@@ -65,7 +95,7 @@ function WorkspaceShell({
       <WorkspaceLeftRail
         active={section}
         onSelect={onSelectSection}
-        // The brand chevron is now the workspace switcher per the
+        // The brand chevron is the workspace switcher per the
         // landing design. We pass through onOpenWorkspaceSwitcher
         // when it's wired; the rail falls back to opening the New
         // Workspace dialog inline when it isn't, so older mounts of
@@ -84,7 +114,25 @@ function WorkspaceShell({
             onOpenThread={onOpenThread}
           />
         )}
-        {section === 'threads' && <WorkspaceThreadsPage onLeaveShell={onLeaveShell} />}
+        {section === 'threads' && (
+          <ThreadsPage
+            filter={threadsFilter}
+            provider={threadsProvider}
+            groupId={threadsGroupId}
+            repo={threadsRepo}
+            onFilterChange={onThreadsFilterChange}
+            onProviderChange={onThreadsProviderChange}
+            onGroupChange={onThreadsGroupChange}
+            onRepoChange={onThreadsRepoChange}
+            onSelectTask={(threadId) => onOpenThread?.(threadId)}
+            onOpenPr={onOpenPr}
+            onOpenIssues={onOpenIssues}
+            onOpenSettings={onOpenSettings}
+            onNewTask={(initialGroupId) => onOpenThreadCreate?.({ initialGroupId })}
+            immersive={immersive}
+            onChangeImmersive={onChangeImmersive}
+          />
+        )}
         {section === 'memory' && <WorkspaceMemoryPage onOpenThread={onOpenThread} />}
         {section === 'insights' && <WorkspaceInsightsPage />}
         {section === 'settings' && <WorkspaceSettingsPage />}

@@ -18,7 +18,6 @@ import TeamDetailPage from './teams/TeamDetailPage';
 import TeamHomePage from './teams/TeamHomePage';
 import TeamsManagePage from './teams/TeamsManagePage';
 import EmailPage from './email/EmailPage';
-import ThreadsPage from './threads/ThreadsPage';
 import ThreadCreatePage from './threads/ThreadCreatePage';
 import ControlBar, { type PageContextTag } from './control/ControlBar';
 import type { ControlDispatch } from './control/actionCatalog';
@@ -55,7 +54,6 @@ type Nav =
   | { view: 'team'; teamId: number }
   | { view: 'team-kanban'; teamId: number }
   | { view: 'email' }
-  | { view: 'threads'; filter?: ThreadsStatusFilter; provider?: ThreadsProviderFilter; groupId?: string; repo?: ThreadsRepoFilter }
   | { view: 'thread-create'; initialGroupId?: string }
   | { view: 'thread-detail'; threadId: string }
   | { view: 'review-thread'; threadId: string; back?: Nav }
@@ -64,14 +62,26 @@ type Nav =
   | { view: 'repository'; owner: string; repo: string }
   | { view: 'local-repo'; owner: string; repo: string; initialBranch?: string }
   | { view: 'settings'; section?: SettingsSection }
-  | { view: 'workspace'; section?: WorkspaceSection }
+  /** Workspace shell. {@code section} picks one of the five inner
+   *  surfaces. When section==='threads' the four threadsXxx fields
+   *  hold the URL-ish filter state the inlined ThreadsPage reads —
+   *  same shape as the old top-level {@code view: 'threads'}, just
+   *  reached as a nested surface so threads stay workspace-scoped
+   *  per the model doc. */
+  | { view: 'workspace';
+      section?: WorkspaceSection;
+      threadsFilter?: ThreadsStatusFilter;
+      threadsProvider?: ThreadsProviderFilter;
+      threadsGroupId?: string;
+      threadsRepo?: ThreadsRepoFilter;
+    }
   /** Top-level "which project brain do I enter?" page. Lives above
-   *  any workspace; the global Workspace nav button routes here, the
-   *  single-workspace ambient case auto-enters from inside the landing
-   *  itself. {@code fromSwitcher} marks the in-shell brand-chevron
-   *  click so the landing skips the ambient redirect — the user
-   *  explicitly asked to see the switcher and shouldn't be bounced. */
-  | { view: 'workspaces-landing'; fromSwitcher?: boolean };
+   *  any workspace; the global Workspace nav button and the in-shell
+   *  brand chevron both route here. While we're single-workspace the
+   *  landing always renders; the ambient "skip to the only non-scratch
+   *  workspace's Home" behaviour will land back when multi-workspace
+   *  creation ships and the visual design is settled. */
+  | { view: 'workspaces-landing' };
 
 type GlobalTopbarProps = {
   nav: Nav;
@@ -144,7 +154,7 @@ function breadcrumbLabel(back: Nav | undefined): string | null {
   if (!back) return null;
   switch (back.view) {
     case 'email': return 'Email';
-    case 'threads': return 'Threads';
+    case 'workspace': return back.section === 'threads' ? 'Threads' : 'Workspace';
     case 'home': return 'Home';
     case 'my-prs': return 'My PRs';
     case 'notifications': return 'Notifications';
@@ -192,16 +202,20 @@ function GlobalTopbar({ nav, onNav, fullScreen, unreadNotificationCount }: Globa
         {nav.view === 'thread-create' && (
           <button
             className="global-topbar__breadcrumb"
-            onClick={() => onNav({ view: 'threads', groupId: nav.initialGroupId })}
+            onClick={() => onNav({
+              view: 'workspace', section: 'threads',
+              threadsGroupId: nav.initialGroupId,
+            })}
             title="Back to threads (Esc)"
           >
             ← Threads
           </button>
         )}
-        {nav.view === 'threads' && nav.groupId !== undefined && (
+        {nav.view === 'workspace' && nav.section === 'threads'
+            && nav.threadsGroupId !== undefined && (
           <button
             className="global-topbar__breadcrumb"
-            onClick={() => onNav({ view: 'threads' })}
+            onClick={() => onNav({ view: 'workspace', section: 'threads' })}
             title="Back to all threads"
           >
             ← All threads
@@ -249,13 +263,6 @@ function GlobalTopbar({ nav, onNav, fullScreen, unreadNotificationCount }: Globa
           title="Email"
         >
           Email
-        </button>
-        <button
-          className={`global-nav-btn${nav.view === 'threads' ? ' global-nav-btn--active' : ''}`}
-          onClick={() => onNav({ view: 'threads' })}
-          title="AI coding threads"
-        >
-          Threads
         </button>
         <button
           className={`global-nav-btn${nav.view === 'notifications' ? ' global-nav-btn--active' : ''}`}
@@ -412,7 +419,6 @@ function App() {
       ];
       case 'workspaces-landing': return [{ label: 'workspaces', kind: 'scope' }];
       case 'my-prs':         return [{ label: 'pull-requests', kind: 'scope' }];
-      case 'threads':        return [{ label: 'threads', kind: 'scope' }];
       case 'thread-detail':  return [{ label: 'thread', kind: 'entity' }];
       case 'thread-create':  return [{ label: 'new-thread', kind: 'scope' }];
       case 'repos':          return [{ label: 'repos', kind: 'scope' }];
@@ -432,7 +438,7 @@ function App() {
     switch (d.kind) {
       case 'nav.home':            setNav({ view: 'home' }); break;
       case 'nav.workspace':       setNav({ view: 'workspace', section: d.section }); break;
-      case 'nav.threads':         setNav({ view: 'threads' }); break;
+      case 'nav.threads':         setNav({ view: 'workspace', section: 'threads' }); break;
       case 'nav.pull-requests':   setNav({ view: 'my-prs' }); break;
       case 'nav.repos':           setNav({ view: 'repos' }); break;
       case 'nav.email':           setNav({ view: 'email' }); break;
@@ -472,14 +478,17 @@ function App() {
   // time the page mounts.
   useEffect(() => {
     if (!threadsImmersive) return;
-    const inGroup = nav.view === 'threads' && nav.groupId !== undefined;
+    const inGroup = nav.view === 'workspace'
+        && nav.section === 'threads'
+        && nav.threadsGroupId !== undefined;
     if (!inGroup) setThreadsImmersive(false);
   }, [nav, threadsImmersive, setThreadsImmersive]);
   // The group page hides the topbar entirely in immersive mode. Esc
   // (handled inside ThreadGroupPage) brings it back.
   const hideTopbar = threadsImmersive
-    && nav.view === 'threads'
-    && nav.groupId !== undefined;
+    && nav.view === 'workspace'
+    && nav.section === 'threads'
+    && nav.threadsGroupId !== undefined;
 
   useEffect(() => {
     applyTheme(loadTheme());
@@ -652,56 +661,40 @@ function App() {
             }}
           />
         )}
-        {nav.view === 'threads' && (
-          <ThreadsPage
-            filter={nav.filter ?? 'ALL'}
-            provider={nav.provider ?? null}
-            groupId={nav.groupId ?? null}
-            repo={nav.repo ?? null}
-            onFilterChange={filter => setNav({ view: 'threads', filter, provider: nav.provider, groupId: nav.groupId, repo: nav.repo })}
-            // Picking a provider drops the status filter back to ALL —
-            // provider is a coarse focus reset, not a compound filter
-            // on top of whatever status was active.
-            onProviderChange={provider => setNav({ view: 'threads', provider, groupId: nav.groupId, repo: nav.repo })}
-            onGroupChange={groupId => setNav({ view: 'threads', groupId: groupId ?? undefined, repo: nav.repo })}
-            onRepoChange={repo => setNav({ view: 'threads', repo: repo ?? undefined })}
-            onSelectTask={threadId => setNav({ view: 'thread-detail', threadId })}
-            onOpenPr={(owner, repo, prNumber) => setNav({
-              view: 'repo', owner, repo, prNumber,
-              back: { view: 'threads', groupId: nav.groupId, filter: nav.filter, provider: nav.provider, repo: nav.repo },
-            })}
-            onOpenIssues={(owner, repo) => setNav({
-              view: 'repo', owner, repo, initialTab: 'issues',
-              back: { view: 'threads', groupId: nav.groupId, filter: nav.filter, provider: nav.provider, repo: nav.repo },
-            })}
-            onOpenSettings={() => setNav({ view: 'settings', section: 'integrations' })}
-            onNewTask={initialGroupId => setNav({ view: 'thread-create', initialGroupId })}
-            immersive={threadsImmersive}
-            onChangeImmersive={setThreadsImmersive}
-          />
-        )}
         {nav.view === 'thread-create' && (
           <ThreadCreatePage
             initialGroupId={nav.initialGroupId ?? null}
-            onBack={() => setNav({ view: 'threads',
-              groupId: nav.initialGroupId })}
+            onBack={() => setNav({
+              view: 'workspace', section: 'threads',
+              threadsGroupId: nav.initialGroupId,
+            })}
             // Created from inside a group → land back on the group
             // view so the new tile shows up next to its siblings.
             // Created standalone → drop the user on the single-thread
             // detail page so they can babysit the run directly.
             onCreated={threadId => setNav(nav.initialGroupId !== undefined
-              ? { view: 'threads', groupId: nav.initialGroupId }
+              ? { view: 'workspace', section: 'threads', threadsGroupId: nav.initialGroupId }
               : { view: 'thread-detail', threadId })}
           />
         )}
         {nav.view === 'thread-detail' && (
           <ThreadDetailPage
             threadId={nav.threadId}
-            onBack={() => setNav({ view: 'threads' })}
-            onFilterChange={filter => setNav({ view: 'threads', filter })}
-            onProviderChange={provider => setNav({ view: 'threads', provider })}
-            onGroupChange={groupId => setNav({ view: 'threads', groupId: groupId ?? undefined })}
-            onRepoChange={repo => setNav({ view: 'threads', repo: repo ?? undefined })}
+            onBack={() => setNav({ view: 'workspace', section: 'threads' })}
+            onFilterChange={filter => setNav({
+              view: 'workspace', section: 'threads', threadsFilter: filter,
+            })}
+            onProviderChange={provider => setNav({
+              view: 'workspace', section: 'threads', threadsProvider: provider,
+            })}
+            onGroupChange={groupId => setNav({
+              view: 'workspace', section: 'threads',
+              threadsGroupId: groupId ?? undefined,
+            })}
+            onRepoChange={repo => setNav({
+              view: 'workspace', section: 'threads',
+              threadsRepo: repo ?? undefined,
+            })}
             onSelectTask={id => setNav({ view: 'thread-detail', threadId: id })}
             onOpenPr={(owner, repo, prNumber) => setNav({
               view: 'repo', owner, repo, prNumber,
@@ -727,10 +720,6 @@ function App() {
         {nav.view === 'workspaces-landing' && (
           <WorkspacesLandingPage
             currentWorkspaceId={activeWorkspaceId}
-            // forceVisible suppresses the ambient single-workspace
-            // redirect — the in-shell switcher click sets it so a
-            // single-workspace user can still browse / create.
-            forceVisible={nav.fromSwitcher === true}
             onEnterWorkspace={(id) => {
               setActiveWorkspaceId(id);
               writeActiveWorkspaceId(id);
@@ -743,10 +732,64 @@ function App() {
             section={nav.section ?? 'home'}
             onSelectSection={section => setNav({ view: 'workspace', section })}
             onOpenThread={threadId => setNav({ view: 'thread-detail', threadId })}
-            onLeaveShell={() => setNav({ view: 'threads' })}
-            onOpenThreadCreate={() => setNav({ view: 'thread-create' })}
+            onOpenThreadCreate={(params) => setNav({
+              view: 'thread-create',
+              initialGroupId: params?.initialGroupId,
+            })}
             onOpenControlBar={() => setControlBarOpen(true)}
-            onOpenWorkspaceSwitcher={() => setNav({ view: 'workspaces-landing', fromSwitcher: true })}
+            onOpenWorkspaceSwitcher={() => setNav({ view: 'workspaces-landing' })}
+            // The workspace Threads section reads & writes the four
+            // URL-ish filter fields off the workspace nav so a deep
+            // link or a back-button keeps the user's view.
+            threadsFilter={nav.threadsFilter ?? 'ALL'}
+            threadsProvider={nav.threadsProvider ?? null}
+            threadsGroupId={nav.threadsGroupId ?? null}
+            threadsRepo={nav.threadsRepo ?? null}
+            onThreadsFilterChange={filter => setNav({
+              view: 'workspace', section: 'threads',
+              threadsFilter: filter,
+              threadsProvider: nav.threadsProvider,
+              threadsGroupId: nav.threadsGroupId,
+              threadsRepo: nav.threadsRepo,
+            })}
+            onThreadsProviderChange={provider => setNav({
+              view: 'workspace', section: 'threads',
+              threadsProvider: provider,
+              threadsGroupId: nav.threadsGroupId,
+              threadsRepo: nav.threadsRepo,
+            })}
+            onThreadsGroupChange={groupId => setNav({
+              view: 'workspace', section: 'threads',
+              threadsGroupId: groupId ?? undefined,
+              threadsRepo: nav.threadsRepo,
+            })}
+            onThreadsRepoChange={repo => setNav({
+              view: 'workspace', section: 'threads',
+              threadsRepo: repo ?? undefined,
+            })}
+            onOpenPr={(owner, repo, prNumber) => setNav({
+              view: 'repo', owner, repo, prNumber,
+              back: {
+                view: 'workspace', section: 'threads',
+                threadsGroupId: nav.threadsGroupId,
+                threadsFilter: nav.threadsFilter,
+                threadsProvider: nav.threadsProvider,
+                threadsRepo: nav.threadsRepo,
+              },
+            })}
+            onOpenIssues={(owner, repo) => setNav({
+              view: 'repo', owner, repo, initialTab: 'issues',
+              back: {
+                view: 'workspace', section: 'threads',
+                threadsGroupId: nav.threadsGroupId,
+                threadsFilter: nav.threadsFilter,
+                threadsProvider: nav.threadsProvider,
+                threadsRepo: nav.threadsRepo,
+              },
+            })}
+            onOpenSettings={() => setNav({ view: 'settings', section: 'integrations' })}
+            immersive={threadsImmersive}
+            onChangeImmersive={setThreadsImmersive}
           />
         )}
         {nav.view === 'repos' && (

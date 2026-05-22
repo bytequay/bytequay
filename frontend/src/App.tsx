@@ -20,6 +20,8 @@ import TeamsManagePage from './teams/TeamsManagePage';
 import EmailPage from './email/EmailPage';
 import ThreadsPage from './threads/ThreadsPage';
 import ThreadCreatePage from './threads/ThreadCreatePage';
+import ControlBar from './control/ControlBar';
+import type { ControlDispatch } from './control/actionCatalog';
 import ReviewThreadPage from './review/ReviewThreadPage';
 import ThreadDetailPage from './threads/ThreadDetailPage';
 import WorkspaceShell, { type WorkspaceSection } from './workspace/WorkspaceShell';
@@ -323,6 +325,10 @@ function App() {
   const [status, setStatus] = useState<Status>('checking');
   const [nav, setNav] = useState<Nav>({ view: 'home' });
   const [fatal, setFatal] = useState<string | null>(null);
+  /** Phase-9 control bar. ⌘K opens it; ControlBar's onDispatch
+   *  routes a typed payload back here into setNav. Keeps the bar
+   *  free of nav state knowledge. */
+  const [controlBarOpen, setControlBarOpen] = useState(false);
   // URL of the in-app browser overlay, or null when closed. Set by the
   // main process whenever a link is clicked in the React UI; cleared by
   // the × button on the InAppBrowser toolbar.
@@ -333,6 +339,48 @@ function App() {
   // without hammering the local backend. The notifications page does
   // its own faster poll while it's the visible view.
   const [unreadNotificationCount, setUnreadNotificationCount] = useState<number>(0);
+  // Global keybindings: ⌘K opens the control bar, ⌘N starts a new
+  // thread. Both ignore the press when an input/textarea/contentEditable
+  // has focus and the key isn't meta-modified — the user typing K in a
+  // text field shouldn't summon the bar.
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if (!(e.metaKey || e.ctrlKey)) return;
+      if (e.key === 'k' || e.key === 'K') {
+        e.preventDefault();
+        setControlBarOpen(open => !open);
+        return;
+      }
+      if (e.key === 'n' || e.key === 'N') {
+        // ⌘N = new thread. Routes through the existing thread-create
+        // page; the workspace shell's NewThreadDialog can also open
+        // it via its onContinueFullForm hand-off, so behaviour stays
+        // consistent across surfaces.
+        e.preventDefault();
+        setNav({ view: 'thread-create' });
+      }
+    };
+    window.addEventListener('keydown', handler);
+    return () => window.removeEventListener('keydown', handler);
+  }, []);
+
+  /** Route a ControlBar dispatch into setNav. Lives at the App level
+   *  so the catalog stays a static module — no React context or
+   *  prop drilling. */
+  const handleControlDispatch = (d: ControlDispatch) => {
+    switch (d.kind) {
+      case 'nav.home':            setNav({ view: 'home' }); break;
+      case 'nav.workspace':       setNav({ view: 'workspace', section: d.section }); break;
+      case 'nav.threads':         setNav({ view: 'threads' }); break;
+      case 'nav.pull-requests':   setNav({ view: 'my-prs' }); break;
+      case 'nav.repos':           setNav({ view: 'repos' }); break;
+      case 'nav.email':           setNav({ view: 'email' }); break;
+      case 'nav.notifications':   setNav({ view: 'notifications' }); break;
+      case 'nav.settings':        setNav({ view: 'settings' }); break;
+      case 'create.thread':       setNav({ view: 'thread-create' }); break;
+    }
+  };
+
   useEffect(() => {
     let cancelled = false;
     const refresh = async () => {
@@ -622,6 +670,7 @@ function App() {
             onOpenThread={threadId => setNav({ view: 'thread-detail', threadId })}
             onLeaveShell={() => setNav({ view: 'threads' })}
             onOpenThreadCreate={() => setNav({ view: 'thread-create' })}
+            onOpenControlBar={() => setControlBarOpen(true)}
           />
         )}
         {nav.view === 'repos' && (
@@ -694,6 +743,11 @@ function App() {
       {inAppUrl && (
         <InAppBrowser url={inAppUrl} onClose={() => setInAppUrl(null)} fullScreen={fullScreen} />
       )}
+      <ControlBar
+        open={controlBarOpen}
+        onClose={() => setControlBarOpen(false)}
+        onDispatch={handleControlDispatch}
+      />
     </div>
   );
 }

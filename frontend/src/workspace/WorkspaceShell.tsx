@@ -38,6 +38,9 @@ type Props = {
    *  repo + agent + skills. The modal owns the prompt + start-mode
    *  intent; everything else stays on the page. */
   onOpenThreadCreate?: (params: { initialPrompt: string; initialGroupId?: string }) => void;
+  /** Open the Phase-9 control bar. Wired here so the left-rail
+   *  command-bar placeholder becomes an actual launcher. */
+  onOpenControlBar?: () => void;
 };
 
 /** Calm-language workspace shell. Sibling of the existing top-level
@@ -46,7 +49,7 @@ type Props = {
  *  mounts this; the user moves between the 5 inner sections via the
  *  left rail. Browse-mode pages stay outside the shell. */
 function WorkspaceShell({
-  section, onSelectSection, onOpenThread, onLeaveShell, onOpenThreadCreate,
+  section, onSelectSection, onOpenThread, onLeaveShell, onOpenThreadCreate, onOpenControlBar,
 }: Props) {
   const [newThreadOpen, setNewThreadOpen] = useState(false);
   const [newWorkspaceOpen, setNewWorkspaceOpen] = useState(false);
@@ -57,6 +60,7 @@ function WorkspaceShell({
         active={section}
         onSelect={onSelectSection}
         onOpenNewWorkspace={() => setNewWorkspaceOpen(true)}
+        onOpenControlBar={onOpenControlBar}
       />
       <div className="workspace-content">
         {section === 'home' && (

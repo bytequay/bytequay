@@ -20,6 +20,10 @@ type Props = {
    *  the top of the rail — that slot is the natural home for the
    *  workspace switcher in multi-workspace mode. */
   onOpenNewWorkspace?: () => void;
+  /** Open the Phase-9 control bar. The command-bar placeholder in
+   *  the rail acts as the launcher when this is provided; ⌘K still
+   *  works globally either way. */
+  onOpenControlBar?: () => void;
 };
 
 type Item = { id: WorkspaceSection; label: string; icon: string };
@@ -37,7 +41,7 @@ const ITEMS: Item[] = [
  *  Command bar is intentionally a placeholder for Phase 9 — it
  *  surfaces in the chrome now so the visual hierarchy matches the
  *  mockup, but clicking it doesn't open the command palette yet. */
-function WorkspaceLeftRail({ active, onSelect, onOpenNewWorkspace }: Props) {
+function WorkspaceLeftRail({ active, onSelect, onOpenNewWorkspace, onOpenControlBar }: Props) {
   return (
     <aside className="workspace-rail" aria-label="Workspace navigation">
       <button
@@ -52,16 +56,17 @@ function WorkspaceLeftRail({ active, onSelect, onOpenNewWorkspace }: Props) {
         <span className="workspace-rail__brand-name">ByteQuay</span>
         <span className="workspace-rail__brand-chevron" aria-hidden>▾</span>
       </button>
-      <div
+      <button
+        type="button"
         className="workspace-rail__commandbar"
-        role="button"
-        tabIndex={0}
-        aria-label="Command bar (coming in Phase 9)"
-        title="Command bar — Phase 9 builds the action grammar"
+        onClick={onOpenControlBar}
+        disabled={!onOpenControlBar}
+        aria-label="Open command bar"
+        style={commandbarButtonStyle}
       >
         <span>Type a command or ask…</span>
         <span className="workspace-rail__commandbar-key">⌘K</span>
-      </div>
+      </button>
 
       <div className="workspace-rail__section-label">Workspace</div>
       <nav className="workspace-rail__items">
@@ -88,6 +93,13 @@ function WorkspaceLeftRail({ active, onSelect, onOpenNewWorkspace }: Props) {
     </aside>
   );
 }
+
+const commandbarButtonStyle: React.CSSProperties = {
+  font: 'inherit',
+  color: 'inherit',
+  width: '100%',
+  textAlign: 'left',
+};
 
 const brandButtonStyle: React.CSSProperties = {
   border: 'none',

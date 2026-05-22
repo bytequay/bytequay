@@ -1,0 +1,357 @@
+/*
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+import { useEffect, useMemo, useRef, useState } from 'react';
+import {
+  ACTION_CATALOG,
+  filterCatalog,
+  type ControlAction,
+  type ControlDispatch,
+} from './actionCatalog';
+
+type Props = {
+  open: boolean;
+  onClose: () => void;
+  /** Host handles the dispatch — this component stays free of nav
+   *  state knowledge. App.tsx routes the dispatch into setNav. */
+  onDispatch: (action: ControlDispatch) => void;
+};
+
+/** Phase-9 MVP control bar.
+ *
+ *  <p>⌘K (handled by the host) opens the overlay; typing filters
+ *  the action catalog; arrow keys move the selection; Enter
+ *  executes; Esc closes. Tag-chip slot above the input is plumbed
+ *  for the page-element registry follow-up but renders empty here.
+ *
+ *  <p>Deliberately small surface: no AI section, no per-row
+ *  ⌘1-9 shortcuts, no action preview, no undo, no command grammar
+ *  parser. Those each get their own commit. */
+function ControlBar({ open, onClose, onDispatch }: Props) {
+  const [query, setQuery] = useState('');
+  const [selected, setSelected] = useState(0);
+  const inputRef = useRef<HTMLInputElement>(null);
+
+  const results = useMemo(() => filterCatalog(query), [query]);
+
+  // Reset the bar between opens so the user starts from a clean
+  // query / top selection on each ⌘K.
+  useEffect(() => {
+    if (open) {
+      setQuery('');
+      setSelected(0);
+      // Autofocus the input — defer to the next frame so the
+      // overlay's render finishes before we steal focus.
+      const id = window.requestAnimationFrame(() => inputRef.current?.focus());
+      return () => window.cancelAnimationFrame(id);
+    }
+    return undefined;
+  }, [open]);
+
+  // Clamp the selection if the result list shrinks past the cursor.
+  useEffect(() => {
+    if (selected >= results.length) {
+      setSelected(Math.max(0, results.length - 1));
+    }
+  }, [results.length, selected]);
+
+  if (!open) return null;
+
+  const execute = (action: ControlAction) => {
+    onDispatch(action.dispatch);
+    onClose();
+  };
+
+  const handleKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
+    if (e.key === 'Escape') {
+      e.preventDefault();
+      onClose();
+      return;
+    }
+    if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      setSelected(s => Math.min(s + 1, Math.max(0, results.length - 1)));
+      return;
+    }
+    if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      setSelected(s => Math.max(0, s - 1));
+      return;
+    }
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      const target = results[selected];
+      if (target) execute(target);
+    }
+  };
+
+  return (
+    <div
+      style={overlayStyle}
+      role="presentation"
+      onClick={onClose}
+    >
+      <div
+        style={panelStyle}
+        role="dialog"
+        aria-modal="true"
+        aria-label="Command bar"
+        onClick={e => e.stopPropagation()}
+        onKeyDown={handleKeyDown}
+      >
+        <div style={inputRowStyle}>
+          <span style={inputIconStyle} aria-hidden>⌘K</span>
+          <input
+            ref={inputRef}
+            type="text"
+            value={query}
+            onChange={e => setQuery(e.target.value)}
+            placeholder="navigate, open, create…"
+            style={inputStyle}
+            aria-label="Command bar input"
+            aria-controls="control-bar-results"
+            aria-activedescendant={
+                results[selected] ? `control-bar-result-${results[selected].id}` : undefined}
+          />
+          <span style={escHintStyle}>Esc to close</span>
+        </div>
+
+        <ResultList
+          results={results}
+          selected={selected}
+          onSelect={i => setSelected(i)}
+          onExecute={execute}
+        />
+
+        <footer style={footerStyle}>
+          <span style={footerHintStyle}>↑↓ navigate</span>
+          <span style={footerHintStyle}>⏎ execute</span>
+          <span style={footerHintStyle}>esc close</span>
+          <span style={{ flex: 1 }} />
+          <span style={footerSummonStyle}>⌘K to summon</span>
+        </footer>
+      </div>
+    </div>
+  );
+}
+
+function ResultList({ results, selected, onSelect, onExecute }: {
+  results: ControlAction[];
+  selected: number;
+  onSelect: (index: number) => void;
+  onExecute: (action: ControlAction) => void;
+}) {
+  if (results.length === 0) {
+    return (
+      <div style={emptyStyle}>
+        No commands match. Try a different word, or open{' '}
+        <button
+          type="button"
+          style={emptyLinkStyle}
+          onClick={() => onExecute(ACTION_CATALOG[0])}
+        >
+          Workspace home →
+        </button>
+      </div>
+    );
+  }
+  return (
+    <ul id="control-bar-results" role="listbox" style={listStyle}>
+      {results.map((action, i) => (
+        <li
+          key={action.id}
+          id={`control-bar-result-${action.id}`}
+          role="option"
+          aria-selected={i === selected}
+          style={rowStyle(i === selected)}
+          onMouseEnter={() => onSelect(i)}
+          onClick={() => onExecute(action)}
+        >
+          <span style={rowIconStyle(action.source)}>{action.icon}</span>
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={rowLabelStyle}>{action.label}</div>
+            <div style={rowDescStyle}>{action.description}</div>
+          </div>
+          <span style={rowSourceStyle}>{action.source}</span>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+/* ── styles ────────────────────────────────────────────────── */
+
+const overlayStyle: React.CSSProperties = {
+  position: 'fixed',
+  inset: 0,
+  background: 'rgba(31, 27, 46, 0.22)',
+  backdropFilter: 'blur(4px)',
+  display: 'flex',
+  alignItems: 'flex-start',
+  justifyContent: 'center',
+  paddingTop: '12vh',
+  zIndex: 120,
+};
+
+const panelStyle: React.CSSProperties = {
+  width: 560,
+  maxWidth: 'calc(100vw - 40px)',
+  background: 'rgba(255, 255, 255, 0.97)',
+  border: '1px solid rgba(124, 58, 237, 0.15)',
+  borderRadius: 14,
+  boxShadow: '0 20px 60px rgba(67, 56, 202, 0.25), 0 4px 12px rgba(0,0,0,0.08)',
+  padding: 0,
+  overflow: 'hidden',
+  color: '#1f1b2e',
+};
+
+const inputRowStyle: React.CSSProperties = {
+  display: 'flex',
+  alignItems: 'center',
+  gap: 10,
+  padding: '12px 14px',
+  borderBottom: '1px solid rgba(124, 58, 237, 0.08)',
+};
+
+const inputIconStyle: React.CSSProperties = {
+  fontSize: 12,
+  fontWeight: 600,
+  color: '#7c3aed',
+  padding: '3px 7px',
+  background: 'rgba(124, 58, 237, 0.08)',
+  borderRadius: 5,
+  fontFamily: 'ui-monospace, SFMono-Regular, monospace',
+};
+
+const inputStyle: React.CSSProperties = {
+  flex: 1,
+  border: 'none',
+  outline: 'none',
+  background: 'transparent',
+  fontSize: 14,
+  fontFamily: 'inherit',
+  color: '#1f1b2e',
+};
+
+const escHintStyle: React.CSSProperties = {
+  fontSize: 10,
+  color: '#7a7388',
+  fontFamily: 'ui-monospace, SFMono-Regular, monospace',
+};
+
+const listStyle: React.CSSProperties = {
+  listStyle: 'none',
+  margin: 0,
+  padding: '6px 0',
+  maxHeight: 360,
+  overflowY: 'auto',
+};
+
+function rowStyle(active: boolean): React.CSSProperties {
+  return {
+    display: 'flex',
+    alignItems: 'center',
+    gap: 10,
+    padding: '8px 14px',
+    cursor: 'pointer',
+    background: active ? 'rgba(124, 58, 237, 0.08)' : 'transparent',
+    transition: 'background 140ms ease',
+  };
+}
+
+function rowIconStyle(source: 'navigation' | 'create'): React.CSSProperties {
+  const color = source === 'create' ? '#16a34a' : '#7c3aed';
+  return {
+    width: 26,
+    height: 26,
+    borderRadius: 7,
+    background: source === 'create' ? 'rgba(22, 163, 74, 0.12)' : 'rgba(124, 58, 237, 0.12)',
+    color,
+    display: 'inline-flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    fontSize: 14,
+    fontWeight: 700,
+    flexShrink: 0,
+  };
+}
+
+const rowLabelStyle: React.CSSProperties = {
+  fontSize: 13,
+  fontWeight: 600,
+  color: '#1f1b2e',
+  overflow: 'hidden',
+  textOverflow: 'ellipsis',
+  whiteSpace: 'nowrap',
+};
+
+const rowDescStyle: React.CSSProperties = {
+  fontSize: 11,
+  color: '#7a7388',
+  marginTop: 2,
+  overflow: 'hidden',
+  textOverflow: 'ellipsis',
+  whiteSpace: 'nowrap',
+};
+
+const rowSourceStyle: React.CSSProperties = {
+  fontSize: 9,
+  fontWeight: 600,
+  textTransform: 'uppercase',
+  letterSpacing: '0.06em',
+  color: '#7a7388',
+  padding: '2px 6px',
+  borderRadius: 4,
+  background: 'rgba(124, 58, 237, 0.05)',
+  flexShrink: 0,
+};
+
+const footerStyle: React.CSSProperties = {
+  display: 'flex',
+  alignItems: 'center',
+  gap: 14,
+  padding: '8px 14px',
+  borderTop: '1px solid rgba(124, 58, 237, 0.08)',
+  background: 'rgba(243, 240, 255, 0.7)',
+};
+
+const footerHintStyle: React.CSSProperties = {
+  fontSize: 10,
+  color: '#7a7388',
+  fontFamily: 'ui-monospace, SFMono-Regular, monospace',
+};
+
+const footerSummonStyle: React.CSSProperties = {
+  fontSize: 10,
+  color: '#7c3aed',
+  fontWeight: 600,
+  fontFamily: 'ui-monospace, SFMono-Regular, monospace',
+};
+
+const emptyStyle: React.CSSProperties = {
+  padding: 22,
+  textAlign: 'center',
+  color: '#7a7388',
+  fontSize: 13,
+};
+
+const emptyLinkStyle: React.CSSProperties = {
+  border: 'none',
+  background: 'transparent',
+  color: '#7c3aed',
+  cursor: 'pointer',
+  fontSize: 13,
+  fontWeight: 600,
+};
+
+export default ControlBar;

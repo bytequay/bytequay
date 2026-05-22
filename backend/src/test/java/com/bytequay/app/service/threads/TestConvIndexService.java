@@ -176,6 +176,7 @@ class TestConvIndexService
         @Override public Optional<Thread> findThreadById(String id) { throw new UnsupportedOperationException(); }
         @Override public List<Thread> listTasksByStatus(ThreadStatus status, int limit) { throw new UnsupportedOperationException(); }
         @Override public List<Thread> listTasksByIds(Collection<String> ids) { throw new UnsupportedOperationException(); }
+        @Override public List<Thread> listThreadsUpdatedSince(Instant since) { throw new UnsupportedOperationException(); }
         @Override public void deleteThread(String threadId) { throw new UnsupportedOperationException(); }
         @Override public void appendMessage(ThreadMessage message) { throw new UnsupportedOperationException(); }
         @Override public void recordFile(ThreadFile file) { throw new UnsupportedOperationException(); }

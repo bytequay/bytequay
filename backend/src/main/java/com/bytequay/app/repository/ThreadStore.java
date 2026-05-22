@@ -18,6 +18,7 @@ import com.bytequay.app.domain.ThreadFile;
 import com.bytequay.app.domain.ThreadMessage;
 import com.bytequay.app.domain.ThreadStatus;
 
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
@@ -64,6 +65,14 @@ public interface ThreadStore
      * resolves the rows in one round-trip).
      */
     List<Thread> listTasksByIds(Collection<String> ids);
+
+    /**
+     * Threads with an {@code updatedAt} at or after {@code since},
+     * newest-first. Workspace Insights uses this to roll up spend +
+     * counts over a 24h / 7d / 30d window without paging through the
+     * whole table.
+     */
+    List<Thread> listThreadsUpdatedSince(Instant since);
 
     // ── messages ─────────────────────────────────────────────────────
 

@@ -30,4 +30,10 @@ interface ThreadJpaRepository
      *  list of thread ids returned from {@code thread_group_members} into
      *  the actual rows in one query, newest-first by updated_at_ms. */
     List<ThreadEntity> findByIdInOrderByUpdatedAtMsDesc(Collection<String> ids);
+
+    /** Pulls every thread whose {@code updated_at_ms} lands at or
+     *  after the supplied bound, ordered most-recent-first.
+     *  Workspace Insights uses this to roll up spend / counts over
+     *  a 24h / 7d / 30d window without slurping the whole table. */
+    List<ThreadEntity> findByUpdatedAtMsGreaterThanEqualOrderByUpdatedAtMsDesc(long sinceMs);
 }

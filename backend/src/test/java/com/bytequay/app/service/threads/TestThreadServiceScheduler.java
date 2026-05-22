@@ -1183,6 +1183,9 @@ class TestThreadServiceScheduler
         @Override public List<Thread> listTasksByIds(Collection<String> ids) {
             return inner.listTasksByIds(ids).stream().map(this::withActiveTask).toList();
         }
+        @Override public List<Thread> listThreadsUpdatedSince(Instant since) {
+            return inner.listThreadsUpdatedSince(since).stream().map(this::withActiveTask).toList();
+        }
         @Override public void deleteThread(String threadId) { inner.deleteThread(threadId); }
         @Override public void appendMessage(ThreadMessage message) { inner.appendMessage(message); }
         @Override public List<ThreadMessage> listMessages(String threadId) {
@@ -1273,6 +1276,14 @@ class TestThreadServiceScheduler
         {
             return threads.values().stream()
                     .filter(thread -> ids.contains(thread.id()))
+                    .toList();
+        }
+
+        @Override
+        public List<Thread> listThreadsUpdatedSince(Instant since)
+        {
+            return threads.values().stream()
+                    .filter(thread -> !thread.updatedAt().isBefore(since))
                     .toList();
         }
 

@@ -12,28 +12,31 @@
  * limitations under the License.
  */
 import { useCallback, useEffect, useState } from 'react';
-import type { ThreadDto } from '../types';
+import type { WorkspaceInsightsDto } from '../types';
 
 type InsightsWindow = '24h' | '7d' | '30d';
 
 const WINDOWS: InsightsWindow[] = ['24h', '7d', '30d'];
+const WORKSPACE_ID = 'ws-default';
 
-/** Workspace Insights — KPI cards + a 7-day spend chart + the
- *  per-repo tasks-shipped breakdown. Counts pull from the existing
- *  thread store; spend + shipped charts use placeholder data per
- *  the Phase 6 scope agreement (real aggregation queries land
- *  later, behind a new backend endpoint). The 24h/7d/30d toggle
- *  re-renders the chart against different placeholder shapes so the
- *  affordance feels live even before real data hits. */
+/** Workspace Insights — KPI cards + a per-window spend chart + the
+ *  per-repo tasks-shipped breakdown. KPI counts, today/window spend,
+ *  and the per-day spend series pull from
+ *  {@code /api/workspaces/{id}/insights?window=…} so the numbers are
+ *  real. The tasks-shipped-per-repo card stays placeholder for now —
+ *  the work-unit {@code Task} doesn't carry an owner/repo column,
+ *  and parsing the {@code workingDir} path is fragile; the
+ *  follow-up wires it once the column lands. */
 function WorkspaceInsightsPage() {
-  const [threads, setThreads] = useState<ThreadDto[]>([]);
+  const [insights, setInsights] = useState<WorkspaceInsightsDto | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [windowKey, setWindowKey] = useState<InsightsWindow>('7d');
 
   const refresh = useCallback(async () => {
+    setLoading(true);
     try {
-      setThreads(await window.bridge.listTasks());
+      setInsights(await window.bridge.getWorkspaceInsights(WORKSPACE_ID, windowKey));
       setError(null);
     }
     catch (e) {
@@ -42,27 +45,17 @@ function WorkspaceInsightsPage() {
     finally {
       setLoading(false);
     }
-  }, []);
+  }, [windowKey]);
 
   useEffect(() => { void refresh(); }, [refresh]);
 
-  const activeThreads = threads.filter(t =>
-      t.status === 'PENDING' || t.status === 'RUNNING'
-      || t.status === 'AWAITING' || t.status === 'IDLE').length;
-  const tasksInFlight = threads
-      .map(t => t.activeTask)
-      .filter(t => t !== null).length;
-  // Repos in workspace: distinct workingDirs from active tasks, since
-  // there's no direct workspace-repos surface on the thread list. A
-  // future commit can swap to the workspace_repos store directly.
-  const reposInWorkspace = new Set(
-      threads
-          .map(t => t.activeTask?.workingDir)
-          .filter((w): w is string => typeof w === 'string' && w.length > 0))
-      .size || 0;
-  const spentTodayMilli = threads
-      .filter(t => isUpdatedToday(t.updatedAt))
-      .reduce((sum, t) => sum + (t.costUsdMilli || 0), 0);
+  const activeThreads = insights?.activeThreads ?? 0;
+  const tasksInFlight = insights?.tasksInFlight ?? 0;
+  const reposInWorkspace = insights?.reposInWorkspace ?? 0;
+  const spendForCard = windowKey === '24h'
+      ? (insights?.spendTodayMilli ?? 0)
+      : (insights?.spendInWindowMilli ?? 0);
+  const spendCardLabel = windowKey === '24h' ? 'Spent today' : 'Spent in window';
 
   return (
     <>
@@ -70,7 +63,7 @@ function WorkspaceInsightsPage() {
         <div>
           <h1 className="workspace-pageheader__title">Insights</h1>
           <div className="workspace-pageheader__meta">
-            spend + shipped charts are placeholder until backend aggregation lands
+            workspace insights · counts + spend chart are live
           </div>
         </div>
         <div role="tablist" style={windowToggleStyle}>
@@ -98,9 +91,9 @@ function WorkspaceInsightsPage() {
                  value={loading ? '—' : String(tasksInFlight)} />
         <KpiCard label="Repos in workspace" icon="▣" iconColor="#0066cc"
                  value={loading ? '—' : String(reposInWorkspace)} />
-        <KpiCard label={`Spent ${windowKey === '24h' ? 'today' : 'in window'}`}
+        <KpiCard label={spendCardLabel}
                  icon="$" iconColor="#d97706"
-                 value={loading ? '—' : formatMilliUsd(spentTodayMilli)} />
+                 value={loading ? '—' : formatMilliUsd(spendForCard)} />
       </div>
 
       <div style={chartRowStyle}>
@@ -108,10 +101,13 @@ function WorkspaceInsightsPage() {
           <div className="workspace-card__head">
             <div className="workspace-card__title">Spend</div>
             <div style={chartMetaStyle}>
-              last 7 days · placeholder
+              window: {windowKey}
+              {insights !== null && (
+                <> · ${(insights.spendInWindowMilli / 1000).toFixed(2)} total</>
+              )}
             </div>
           </div>
-          <SpendChart windowKey={windowKey} />
+          <SpendChart series={insights?.spendByDay ?? []} />
         </section>
 
         <section className="workspace-card" style={{ flex: 1, minWidth: 0 }} aria-label="Tasks shipped">
@@ -151,22 +147,29 @@ function KpiCard({ label, icon, iconColor, value }: {
   );
 }
 
-function SpendChart({ windowKey }: { windowKey: InsightsWindow }) {
-  // Placeholder shapes vary by window so the toggle visibly does
-  // *something* even before aggregation hits.
-  const bars = windowKey === '24h' ? PLACEHOLDER_BARS_24H
-      : windowKey === '7d' ? PLACEHOLDER_BARS_7D
-      : PLACEHOLDER_BARS_30D;
-  const max = Math.max(...bars.map(b => b.value), 1);
+function SpendChart({ series }: { series: WorkspaceInsightsDto['spendByDay'] }) {
+  // Real spend series — one entry per day in the window, dollars
+  // computed from costUsdMilli at render time. Empty days still
+  // appear (zero-height bar) so the x-axis matches the window
+  // length and the user sees their idle days as a gap.
+  if (series.length === 0) {
+    return (
+      <div style={{ ...chartCanvasStyle, alignItems: 'center', justifyContent: 'center', color: '#7a7388', fontSize: 12 }}>
+        No spend in this window.
+      </div>
+    );
+  }
+  const max = Math.max(...series.map(s => s.costUsdMilli), 1);
   return (
     <div style={chartCanvasStyle}>
-      {bars.map((b, i) => {
-        const pct = (b.value / max) * 100;
+      {series.map((s, i) => {
+        const dollars = s.costUsdMilli / 1000;
+        const pct = (s.costUsdMilli / max) * 100;
         return (
           <div key={i} style={chartColumnStyle}>
-            <div style={chartBarLabelStyle}>${b.value.toFixed(1)}</div>
-            <div style={{ ...chartBarStyle, height: `${Math.max(4, pct)}%` }} />
-            <div style={chartTickStyle}>{b.label}</div>
+            <div style={chartBarLabelStyle}>${dollars.toFixed(1)}</div>
+            <div style={{ ...chartBarStyle, height: `${Math.max(2, pct)}%` }} />
+            <div style={chartTickStyle}>{s.label}</div>
           </div>
         );
       })}
@@ -200,24 +203,9 @@ function ShippedByRepo({ windowKey }: { windowKey: InsightsWindow }) {
 
 /* ── placeholder data ───────────────────────────────────────── */
 
-const PLACEHOLDER_BARS_24H = Array.from({ length: 8 }, (_, i) => ({
-  label: `${String(i * 3).padStart(2, '0')}h`,
-  value: Math.round(40 + 80 * Math.sin(i * 0.7)) / 100,
-}));
-const PLACEHOLDER_BARS_7D = [
-  { label: 'Mon', value: 1.5 },
-  { label: 'Tue', value: 1.3 },
-  { label: 'Wed', value: 2.0 },
-  { label: 'Thu', value: 2.3 },
-  { label: 'Fri', value: 1.6 },
-  { label: 'Sat', value: 0.4 },
-  { label: 'Today', value: 1.84 },
-];
-const PLACEHOLDER_BARS_30D = Array.from({ length: 10 }, (_, i) => ({
-  label: `${i * 3 + 1}`,
-  value: Math.round(150 + 200 * Math.cos(i * 0.5)) / 100,
-}));
-
+// Tasks-shipped breakdown stays placeholder until Task carries an
+// owner/repo column — see WorkspaceInsightsService for the matching
+// backend note. Drop these constants when the breakdown wires.
 const PLACEHOLDER_SHIPPED_7D = [
   { repo: 'ByteQuay', count: 7, color: '#7c3aed' },
   { repo: 'bytequay-infra', count: 2, color: '#0066cc' },
@@ -229,15 +217,6 @@ const PLACEHOLDER_SHIPPED_30D = [
 ];
 
 /* ── helpers ────────────────────────────────────────────────── */
-
-function isUpdatedToday(iso: string): boolean {
-  const then = new Date(iso);
-  if (Number.isNaN(then.getTime())) return false;
-  const now = new Date();
-  return then.getUTCFullYear() === now.getUTCFullYear()
-      && then.getUTCMonth() === now.getUTCMonth()
-      && then.getUTCDate() === now.getUTCDate();
-}
 
 function formatMilliUsd(milli: number): string {
   return `$${(milli / 1000).toFixed(2)}`;

@@ -1606,6 +1606,20 @@ export type WorkspaceBehaviorDto = {
   newTopicNudge: boolean;
 };
 
+/** Workspace Insights — counts + per-day spend series for the
+ *  Insights surface. Per-repo shipped-tasks breakdown is not yet
+ *  served (the work-unit Task doesn't carry repo today); the
+ *  frontend continues to render placeholder data for that card. */
+export type WorkspaceInsightsDto = {
+  window: string;
+  activeThreads: number;
+  tasksInFlight: number;
+  reposInWorkspace: number;
+  spendTodayMilli: number;
+  spendInWindowMilli: number;
+  spendByDay: { date: string; label: string; costUsdMilli: number }[];
+};
+
 export type WorkspaceMemoryProposalDto = {
   workspaceId: string;
   /** memory_md as it was when the proposal was generated — apply uses
@@ -2360,6 +2374,12 @@ export type Bridge = {
    *  sweeper, propose-task hook, etc.). */
   getWorkspaceBehavior: () => Promise<WorkspaceBehaviorDto>;
   setWorkspaceBehavior: (settings: WorkspaceBehaviorDto) => Promise<WorkspaceBehaviorDto>;
+  /** Workspace Insights aggregation — pulls active-thread + tasks-in-
+   *  flight counts, today's spend, the window-wide spend total, and a
+   *  per-day spend series for the chart. {@code window} is one of
+   *  {@code "24h" | "7d" | "30d"}; the backend defaults to {@code 7d}
+   *  on unknown values. */
+  getWorkspaceInsights: (workspaceId: string, window: string) => Promise<WorkspaceInsightsDto>;
   /** Resolve one DISPUTED finding via the arbitration ballot.
    *  {@code resolution} = "include" flips it to ARBITRATED;
    *  "drop" flips it to DROPPED. When no DISPUTED findings remain

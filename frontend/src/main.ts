@@ -3063,6 +3063,24 @@ const url = new URL(`${BACKEND_BASE}/api/search/repos`);
     return res.json();
   });
 
+  ipcMain.handle('workspace:insights:get', async (_event, args: unknown) => {
+    if (typeof args !== 'object' || args === null) {
+      throw new Error('workspace insights args must be an object');
+    }
+    const { workspaceId, window } = args as { workspaceId: string; window: string };
+    if (typeof workspaceId !== 'string' || workspaceId.length === 0) {
+      throw new Error('workspaceId must be a non-empty string');
+    }
+    const w = typeof window === 'string' ? window : '7d';
+    const res = await fetch(
+      `${BACKEND_BASE}/api/workspaces/${encodeURIComponent(workspaceId)}/insights?window=${encodeURIComponent(w)}`);
+    if (!res.ok) {
+      const text = await res.text().catch(() => '');
+      throw new Error(`backend GET /api/workspaces/.../insights returned ${res.status}: ${text}`);
+    }
+    return res.json();
+  });
+
   ipcMain.handle('workspace:behavior:set', async (_event, body: unknown) => {
     if (typeof body !== 'object' || body === null) {
       throw new Error('workspace behavior settings must be an object');

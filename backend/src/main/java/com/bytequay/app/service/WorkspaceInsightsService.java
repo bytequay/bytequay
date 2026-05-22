@@ -1,0 +1,164 @@
+/*
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+package com.bytequay.app.service;
+
+import com.bytequay.app.domain.Thread;
+import com.bytequay.app.domain.ThreadStatus;
+import com.bytequay.app.repository.ThreadStore;
+import org.springframework.stereotype.Service;
+
+import java.time.Duration;
+import java.time.Instant;
+import java.time.LocalDate;
+import java.time.ZoneId;
+import java.time.format.TextStyle;
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
+import java.util.List;
+import java.util.Locale;
+import java.util.Map;
+import java.util.Set;
+
+import static java.util.Objects.requireNonNull;
+
+/**
+ * Rolls thread state up into the per-window numbers the Workspace
+ * Insights surface renders. Active threads + tasks-in-flight come
+ * straight from the existing status query; spend over the window
+ * sums {@code costUsdMilli} from threads whose {@code updatedAt}
+ * lands inside the window; the per-day breakdown buckets those
+ * threads by local calendar day so the chart matches what the user
+ * sees in their timezone.
+ *
+ * <p>Tasks-shipped-per-repo is intentionally absent from this commit
+ * because {@code Task} doesn't carry an owner/repo column today —
+ * the workingDir path is the only repo signal and parsing it is
+ * fragile. A follow-up adds the column (or joins via PR lookup) and
+ * extends this service.
+ */
+@Service
+public class WorkspaceInsightsService
+{
+    /** Statuses that count as "in-flight" for the headline counters.
+     *  Lines up with {@code ThreadDto.activeTask} on the frontend so
+     *  the Home page and Insights page report the same numbers. */
+    private static final Set<ThreadStatus> ACTIVE = Set.of(
+            ThreadStatus.PENDING,
+            ThreadStatus.RUNNING,
+            ThreadStatus.AWAITING,
+            ThreadStatus.IDLE);
+
+    private final ThreadStore threadStore;
+
+    public WorkspaceInsightsService(ThreadStore threadStore)
+    {
+        this.threadStore = requireNonNull(threadStore, "threadStore is null");
+    }
+
+    public Insights get(String window)
+    {
+        Duration windowDuration = parseWindow(window);
+        Instant now = Instant.now();
+        Instant windowStart = now.minus(windowDuration);
+        Instant today = LocalDate.now(ZoneId.systemDefault())
+                .atStartOfDay(ZoneId.systemDefault())
+                .toInstant();
+
+        List<Thread> recent = threadStore.listThreadsUpdatedSince(windowStart);
+
+        // Bucket by local-day for the spend chart. Days with no
+        // recorded spend still surface as 0 so the chart's x-axis
+        // length matches the window.
+        ZoneId zone = ZoneId.systemDefault();
+        Map<LocalDate, Long> spendByDay = new LinkedHashMap<>();
+        LocalDate fromDay = LocalDate.ofInstant(windowStart, zone);
+        LocalDate toDay = LocalDate.ofInstant(now, zone);
+        for (LocalDate d = fromDay; !d.isAfter(toDay); d = d.plusDays(1)) {
+            spendByDay.put(d, 0L);
+        }
+
+        long spendInWindowMilli = 0L;
+        long spendTodayMilli = 0L;
+        int activeThreads = 0;
+        int tasksInFlight = 0;
+        for (Thread t : recent) {
+            spendInWindowMilli += t.costUsdMilli();
+            LocalDate day = LocalDate.ofInstant(t.updatedAt(), zone);
+            spendByDay.merge(day, t.costUsdMilli(), Long::sum);
+            if (!t.updatedAt().isBefore(today)) {
+                spendTodayMilli += t.costUsdMilli();
+            }
+            if (ACTIVE.contains(t.status())) {
+                activeThreads++;
+                if (t.activeTask() != null) {
+                    tasksInFlight++;
+                }
+            }
+        }
+
+        // The Insights page caps the chart at the most recent N
+        // points to match the existing placeholder shape (7d -> 7
+        // bars, 24h -> 8 buckets of 3h, 30d -> ~10 bars of 3d). Keep
+        // it simple here: emit one entry per day in the window;
+        // the frontend already handles arbitrary length.
+        List<DayPoint> series = new ArrayList<>();
+        for (Map.Entry<LocalDate, Long> e : spendByDay.entrySet()) {
+            series.add(new DayPoint(e.getKey().toString(),
+                    formatDayLabel(e.getKey(), now, zone),
+                    e.getValue()));
+        }
+
+        return new Insights(
+                window,
+                activeThreads,
+                tasksInFlight,
+                /* reposInWorkspace */ 0,
+                spendTodayMilli,
+                spendInWindowMilli,
+                series);
+    }
+
+    private static Duration parseWindow(String window)
+    {
+        if (window == null) {
+            return Duration.ofDays(7);
+        }
+        return switch (window.toLowerCase(Locale.ROOT)) {
+            case "24h" -> Duration.ofHours(24);
+            case "30d" -> Duration.ofDays(30);
+            default -> Duration.ofDays(7);
+        };
+    }
+
+    private static String formatDayLabel(LocalDate day, Instant now, ZoneId zone)
+    {
+        LocalDate today = LocalDate.ofInstant(now, zone);
+        if (day.equals(today)) {
+            return "Today";
+        }
+        // Short day-of-week for the 7d window matches the mockup.
+        return day.getDayOfWeek().getDisplayName(TextStyle.SHORT, Locale.getDefault());
+    }
+
+    public record Insights(
+            String window,
+            int activeThreads,
+            int tasksInFlight,
+            int reposInWorkspace,
+            long spendTodayMilli,
+            long spendInWindowMilli,
+            List<DayPoint> spendByDay) {}
+
+    public record DayPoint(String date, String label, long costUsdMilli) {}
+}

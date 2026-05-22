@@ -178,6 +178,15 @@ class SqliteThreadStore
     }
 
     @Override
+    public List<Thread> listThreadsUpdatedSince(Instant since)
+    {
+        return threads.findByUpdatedAtMsGreaterThanEqualOrderByUpdatedAtMsDesc(since.toEpochMilli())
+                .stream()
+                .map(this::merge)
+                .toList();
+    }
+
+    @Override
     @Transactional
     public void appendMessage(ThreadMessage message)
     {

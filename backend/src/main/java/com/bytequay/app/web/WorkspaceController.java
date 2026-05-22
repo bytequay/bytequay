@@ -16,6 +16,8 @@ package com.bytequay.app.web;
 import com.bytequay.app.domain.Workspace;
 import com.bytequay.app.domain.WorkspaceMemoryProposal;
 import com.bytequay.app.domain.WorkspaceRepo;
+import com.bytequay.app.service.WorkspaceInsightsService;
+import com.bytequay.app.service.WorkspaceInsightsService.Insights;
 import com.bytequay.app.service.workspaces.WorkspaceMemoryDistiller;
 import com.bytequay.app.service.workspaces.WorkspaceMemoryProposalService;
 import com.bytequay.app.service.workspaces.WorkspaceService;
@@ -27,6 +29,7 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.util.List;
@@ -46,15 +49,30 @@ public class WorkspaceController
     private final WorkspaceService workspaces;
     private final WorkspaceMemoryDistiller distiller;
     private final WorkspaceMemoryProposalService proposals;
+    private final WorkspaceInsightsService insights;
 
     public WorkspaceController(
             WorkspaceService workspaces,
             WorkspaceMemoryDistiller distiller,
-            WorkspaceMemoryProposalService proposals)
+            WorkspaceMemoryProposalService proposals,
+            WorkspaceInsightsService insights)
     {
         this.workspaces = requireNonNull(workspaces, "workspaces is null");
         this.distiller = requireNonNull(distiller, "distiller is null");
         this.proposals = requireNonNull(proposals, "proposals is null");
+        this.insights = requireNonNull(insights, "insights is null");
+    }
+
+    /** GET /api/workspaces/{id}/insights?window=7d */
+    @GetMapping("/{id}/insights")
+    public Insights insights(
+            @PathVariable String id,
+            @RequestParam(name = "window", required = false, defaultValue = "7d") String window)
+    {
+        // Single-workspace mode: id is informational. When multi-
+        // workspace lands the service will filter by workspaceId.
+        requireNonNull(id, "id is null");
+        return insights.get(window);
     }
 
     @GetMapping

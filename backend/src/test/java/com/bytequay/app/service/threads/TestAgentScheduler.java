@@ -519,6 +519,14 @@ class TestAgentScheduler
         }
 
         @Override
+        public List<Thread> listThreadsUpdatedSince(Instant since)
+        {
+            return threads.values().stream()
+                    .filter(thread -> !thread.updatedAt().isBefore(since))
+                    .toList();
+        }
+
+        @Override
         public void appendMessage(ThreadMessage message) {}
 
         @Override

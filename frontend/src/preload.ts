@@ -538,6 +538,8 @@ const bridge: Bridge = {
     autoPromoteDecisions: boolean;
     newTopicNudge: boolean;
   }) => ipcRenderer.invoke('workspace:behavior:set', settings),
+  getWorkspaceInsights: (workspaceId: string, window: string) =>
+    ipcRenderer.invoke('workspace:insights:get', { workspaceId, window }),
   setWorkspaceRepoAutoFix: (
     workspaceId: string, owner: string, repo: string, enabled: boolean,
   ): Promise<WorkspaceRepoDto> =>

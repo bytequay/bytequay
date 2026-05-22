@@ -1155,16 +1155,16 @@ function StructuredView({
           </div>
         </div>
       )}
-      {/* When the CLI turn ends in ERRORED (token-quota reset,
-          network blip, agent crash) we hide the reply zone — but
-          stopping the conversation there forces the user to recreate
-          the thread to keep going. Resume flips the thread back to IDLE
-          and reuses the persisted agentSessionId, so the next turn
-          spawns `claude --resume <id>` and the model picks up with
-          its prior context. COMPLETED stays as-is: the user already
-          decided that conversation is done. */}
-      {isTerminal && thread.status === 'ERRORED' && (
+      {/* Terminal-status banner that flips the thread back to IDLE so
+          the user can keep going. ERRORED variant says "Turn ended in
+          error" + the error message; COMPLETED variant says
+          "Conversation closed" and surfaces a Continue button. Both
+          variants reuse the persisted agentSessionId, so the next turn
+          spawns `claude --resume <id>` and the model picks up with its
+          prior context. */}
+      {isTerminal && (thread.status === 'ERRORED' || thread.status === 'COMPLETED') && (
         <ResumeBanner
+          variant={thread.status === 'ERRORED' ? 'errored' : 'completed'}
           message={thread.errorMessage}
           onResume={onResume}
         />
@@ -1174,20 +1174,39 @@ function StructuredView({
 }
 
 function ResumeBanner({
-  message, onResume,
-}: { message: string | null | undefined; onResume: () => void }) {
+  variant, message, onResume,
+}: {
+  /** {@code errored} surfaces the failure message + "Resume" copy;
+   *  {@code completed} treats the thread as just-finished-but-the-
+   *  user-has-more-to-say and uses "Continue" copy with no error
+   *  body. Both reuse the persisted agentSessionId on resume so the
+   *  next turn spawns `claude --resume <id>`. */
+  variant: 'errored' | 'completed';
+  message: string | null | undefined;
+  onResume: () => void;
+}) {
+  const isErr = variant === 'errored';
   return (
     <div style={resumeBannerStyle}>
       <div style={resumeBannerCopyStyle}>
-        <span style={resumeBannerTitleStyle}>Turn ended in error</span>
-        {message && message.length > 0 && (
+        <span style={resumeBannerTitleStyle}>
+          {isErr ? 'Turn ended in error' : 'Conversation closed'}
+        </span>
+        {isErr && message && message.length > 0 && (
           <span style={resumeBannerMsgStyle} title={message}>
             {message.length > 180 ? message.slice(0, 177) + '…' : message}
           </span>
         )}
+        {!isErr && (
+          <span style={resumeBannerMsgStyle}>
+            The agent marked this thread complete. Resume picks up where
+            it left off with the same{' '}
+            <code>claude --resume</code> session.
+          </span>
+        )}
       </div>
       <button type="button" onClick={onResume} style={resumeBannerBtnStyle}>
-        ↻ Resume conversation
+        {isErr ? '↻ Resume conversation' : '↻ Continue conversation'}
       </button>
     </div>
   );
@@ -1879,8 +1898,9 @@ function TerminalWrap({
           status={thread.status}
         />
       )}
-      {isTerminal && thread.status === 'ERRORED' && (
+      {isTerminal && (thread.status === 'ERRORED' || thread.status === 'COMPLETED') && (
         <ResumeBanner
+          variant={thread.status === 'ERRORED' ? 'errored' : 'completed'}
           message={thread.errorMessage}
           onResume={onResume}
         />

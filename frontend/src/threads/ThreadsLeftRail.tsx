@@ -15,7 +15,25 @@ import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { ThreadDto, ThreadGroupDto, ThreadStatusDto } from '../types';
 import NewThreadGroupDialog from './NewThreadGroupDialog';
 
-export type StatusFilter = ThreadStatusDto | 'ALL' | 'AUTO';
+/** Filter chip set the rail surfaces above the per-status rows.
+ *  - {@code ALL}: every thread in the workspace.
+ *  - {@code AWAITING_ME}: collapsed parked/waiting threads — active
+ *    task is AWAITING_REVIEW / NEEDS_ATTENTION, or the thread itself
+ *    is paused at AWAITING for a permission decision.
+ *  - {@code REVIEW}: threads carrying {@code flow === 'review'}
+ *    (read-only review panels). Empty today; lands populated when the
+ *    multi-agent review flow ships.
+ *  - {@code AUTO}: the auto* queue — threads with at least one unread
+ *    notification (parked headless runs, ship-and-continue pings).
+ *  - The remaining {@link ThreadStatusDto} entries filter to one
+ *    explicit status apiece. */
+export type StatusFilter =
+    | ThreadStatusDto
+    | 'ALL'
+    | 'MINE'
+    | 'REVIEW'
+    | 'AUTO'
+    | 'AWAITING_ME';
 /** {@code null} = no provider filter active; otherwise the
  *  lowercased provider key (e.g. {@code "claude-code"}). */
 export type ProviderFilter = string | null;
@@ -46,6 +64,10 @@ type Props = {
   /** Number of distinct threads with at least one UNREAD notification —
    *  surfaces as the count next to the {@code auto*} filter row. */
   autoCount?: number;
+  /** The actual auto* membership — the set of thread ids carrying an
+   *  unread notification. Drives the {@code MINE} chip's count
+   *  (everything outside this set, modulo review threads). */
+  autoIds?: ReadonlySet<string>;
   onSelectTask: (threadId: string) => void;
   onNewTask: () => void;
   onOpenSettings: () => void;
@@ -96,13 +118,19 @@ function providerMeta(rawKey: string): ProviderMeta {
 /** Status rows in the order the mockup lists them. The {@code AUTO}
  *  row is the "auto*" filter from the model doc — threads carrying at
  *  least one unread notification (parked headless runs, ship-and-
- *  continue pings, etc.). */
+ *  continue pings, etc.). {@code AWAITING_ME} collapses the
+ *  human-needs-to-look-at-this states (parked tasks + AWAITING
+ *  approval); {@code REVIEW} narrows to {@code flow === 'review'}
+ *  threads. */
 const STATUS_ROWS: Array<{ filter: StatusFilter; label: string; dot: string }> = [
-  { filter: 'ALL',       label: 'All threads',     dot: '#cbd5e0' },
-  { filter: 'AUTO',      label: 'auto*',           dot: '#7c3aed' },
-  { filter: 'RUNNING',   label: 'Running',       dot: '#047857' },
-  { filter: 'IDLE',      label: 'Alive',         dot: '#d97706' },
-  { filter: 'COMPLETED', label: 'Completed',     dot: '#9ca3af' },
+  { filter: 'ALL',         label: 'All threads',    dot: '#cbd5e0' },
+  { filter: 'MINE',        label: 'Mine',           dot: '#10b981' },
+  { filter: 'REVIEW',      label: 'Review',         dot: '#0ea5e9' },
+  { filter: 'AUTO',        label: 'auto*',          dot: '#7c3aed' },
+  { filter: 'AWAITING_ME', label: 'Awaiting me',    dot: '#d97706' },
+  { filter: 'RUNNING',     label: 'Running',        dot: '#047857' },
+  { filter: 'IDLE',        label: 'Alive',          dot: '#d97706' },
+  { filter: 'COMPLETED',   label: 'Completed',      dot: '#9ca3af' },
 ];
 
 /**
@@ -129,6 +157,7 @@ export default function ThreadsLeftRail({
   repoFilter,
   onRepoFilter,
   autoCount = 0,
+  autoIds,
   onSelectTask,
   onNewTask,
   onOpenSettings,
@@ -170,11 +199,7 @@ export default function ThreadsLeftRail({
             <span style={{ ...dotStyle, background: row.dot }} />
             <span style={labelStyle}>{row.label}</span>
             <span style={countStyle}>
-              {row.filter === 'ALL'
-                ? threads.length
-                : row.filter === 'AUTO'
-                    ? autoCount
-                    : (counts[row.filter] ?? 0)}
+              {countForFilter(row.filter, threads, counts, autoCount, autoIds ?? EMPTY_AUTO_IDS)}
             </span>
           </RailRow>
         ))}
@@ -351,6 +376,47 @@ function buildCounts(threads: ThreadDto[]): Partial<Record<ThreadStatusDto, numb
   }
   return out;
 }
+
+/** Whether the thread should count under {@code Awaiting me} — either
+ *  the conversation itself is paused at a permission prompt, or the
+ *  active task is parked at a publish gate / needs the human. */
+function isAwaitingMe(t: ThreadDto): boolean {
+  if (t.status === 'AWAITING') {
+    return true;
+  }
+  const taskStatus = t.activeTask?.status;
+  return taskStatus === 'AWAITING_REVIEW' || taskStatus === 'NEEDS_ATTENTION';
+}
+
+function countForFilter(
+    filter: StatusFilter,
+    threads: ThreadDto[],
+    perStatus: Partial<Record<ThreadStatusDto, number>>,
+    autoCount: number,
+    autoIds: ReadonlySet<string>): number {
+  switch (filter) {
+    case 'ALL':
+      return threads.length;
+    case 'AUTO':
+      return autoCount;
+    case 'MINE':
+      // "Mine" = threads I started myself, not the auto-fix queue.
+      // We don't track an origin column yet; auto* membership is the
+      // proxy — anything that isn't in the unread/parked auto queue
+      // is treated as user-authored.
+      return threads.filter(t => !autoIds.has(t.id) && t.flow !== 'review').length;
+    case 'AWAITING_ME':
+      return threads.filter(isAwaitingMe).length;
+    case 'REVIEW':
+      return threads.filter(t => t.flow === 'review').length;
+    default:
+      return perStatus[filter] ?? 0;
+  }
+}
+
+/** Shared empty-set sentinel so the {@code autoIds} default in
+ *  {@link countForFilter} callers doesn't allocate per-render. */
+const EMPTY_AUTO_IDS: ReadonlySet<string> = new Set<string>();
 
 /** Distinct providers across the thread list, each with its metadata
  *  and a count. Sorted by descending count so the most-used provider

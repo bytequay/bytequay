@@ -91,11 +91,30 @@
   box-sizing: border-box;
 }
 
+/* Brand chip is a card per the workspace-home mockup — solid white
+ * fill, soft shadow, and a 12 px radius so it reads as a distinct
+ * pill against the rail's translucent backdrop. Doubles as the
+ * workspace switcher (the ▾ chevron). */
 .workspace-rail__brand {
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 4px 6px 12px;
+  gap: 10px;
+  padding: 10px 12px;
+  margin: 0 0 14px;
+  background: #fff;
+  border: 1px solid var(--ws-card-border);
+  border-radius: 12px;
+  box-shadow:
+    0 1px 2px rgba(67, 56, 202, 0.04),
+    0 4px 14px rgba(124, 58, 237, 0.06);
+  transition: box-shadow var(--ws-fast), transform var(--ws-fast);
+}
+
+.workspace-rail__brand:hover {
+  box-shadow:
+    0 2px 4px rgba(67, 56, 202, 0.06),
+    0 8px 22px rgba(124, 58, 237, 0.10);
+  transform: translateY(-1px);
 }
 
 .workspace-rail__brand-badge {
@@ -171,12 +190,16 @@
 .workspace-rail__item {
   display: flex;
   align-items: center;
-  gap: 10px;
-  padding: 7px 10px;
-  border-radius: 7px;
+  gap: 12px;
+  /* Taller hit area + larger label per the workspace-home mockup —
+   * the rail's nav items are the highest-frequency click target in
+   * the shell, so they earn more height + a more legible font size
+   * than the 13 px / 7 px combo the rail used to ship. */
+  padding: 10px 12px;
+  border-radius: 8px;
   border: none;
   background: transparent;
-  font-size: 13px;
+  font-size: 14px;
   color: var(--ws-text-2);
   cursor: pointer;
   text-align: left;
@@ -221,10 +244,11 @@
 }
 
 .workspace-rail__item-icon {
-  font-size: 13px;
-  width: 16px;
+  font-size: 16px;
+  width: 20px;
   display: inline-flex;
   justify-content: center;
+  flex-shrink: 0;
 }
 
 .workspace-rail__user {
@@ -1005,4 +1029,598 @@
   color: var(--ws-text-3);
   max-width: 240px;
   line-height: 1.45;
+}
+
+/* ── Auto-queue (auto* filter) ─────────────────────────────────────
+ *
+ * Rendered in place of the normal status-grouped card grid when the
+ * user picks the auto* chip. Surfaces the automation queue per the
+ * threads-auto-filter design: purple banner + an "Automation threads"
+ * white card whose rows show a coloured dot, the title with an inline
+ * auto* chip, branch/PR chips, an optional description, a big
+ * right-side status pill, and a verb-led action button with a
+ * relative timestamp underneath. */
+
+.auto-queue {
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.auto-queue__banner {
+  display: flex;
+  gap: 12px;
+  align-items: center;
+  padding: 12px 16px;
+  background: rgba(124, 58, 237, 0.06);
+  border: 1px solid rgba(124, 58, 237, 0.14);
+  border-radius: 10px;
+  font-size: 13px;
+  color: var(--ws-text-2);
+}
+
+.auto-queue__banner-icon {
+  font-size: 14px;
+  flex-shrink: 0;
+}
+
+.auto-queue__banner-text {
+  margin: 0;
+  flex: 1;
+  line-height: 1.5;
+}
+
+.auto-queue__banner-text strong {
+  color: var(--ws-text-1);
+}
+
+.auto-queue__banner-link {
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  padding: 4px 10px;
+  border: none;
+  background: transparent;
+  color: var(--ws-accent-deep);
+  cursor: pointer;
+  flex-shrink: 0;
+  border-radius: 6px;
+  transition: background var(--ws-fast), color var(--ws-fast);
+}
+
+.auto-queue__banner-link:hover {
+  background: rgba(124, 58, 237, 0.10);
+  color: var(--ws-accent);
+}
+
+.auto-queue__banner-link:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+
+/* "Automation threads" white card wrapping the queue rows. Carries the
+ * same glass treatment as the other workspace surface cards. */
+.auto-queue__card {
+  background: rgba(255, 255, 255, 0.78);
+  border: 1px solid var(--ws-card-border);
+  border-radius: 14px;
+  box-shadow: var(--ws-card-shadow);
+  padding: 14px 18px;
+}
+
+.auto-queue__card-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding-bottom: 10px;
+  margin-bottom: 6px;
+  border-bottom: 1px solid var(--ws-card-border);
+}
+
+.auto-queue__card-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--ws-text-1);
+}
+
+.auto-queue__card-chip {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: rgba(124, 58, 237, 0.10);
+  color: var(--ws-accent-deep);
+}
+
+.auto-queue__card-sep {
+  color: var(--ws-text-3);
+}
+
+.auto-queue__card-count {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--ws-text-2);
+}
+
+.auto-queue__empty {
+  margin: 16px 4px;
+  color: var(--ws-text-3);
+  font-size: 13px;
+  text-align: center;
+}
+
+.auto-queue__list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+}
+
+.auto-queue__row {
+  display: grid;
+  grid-template-columns: 10px 1fr auto auto;
+  align-items: center;
+  gap: 14px;
+  padding: 14px;
+  margin: 0 -10px;
+  border-radius: 8px;
+  border-bottom: 1px solid var(--ws-card-border);
+  transition: background var(--ws-fast);
+}
+
+.auto-queue__row:last-child {
+  border-bottom: none;
+}
+
+/* Done rows get a muted grey wash so the eye separates them from
+ * live work at a glance — distinct from the COMPLETED status pill's
+ * own grey (which sits inside the row). */
+.auto-queue__row--done {
+  background: rgba(148, 163, 184, 0.06);
+}
+
+.auto-queue__row--done .auto-queue__title {
+  color: var(--ws-text-2);
+}
+
+/* Leading colour dot — same hue mapping as the right-side status
+ * pill, so the row reads consistently. */
+.auto-queue__dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+.auto-queue__dot--running    { background: #10b981; }
+.auto-queue__dot--await      { background: #f59e0b; }
+.auto-queue__dot--attention  { background: #ef4444; }
+.auto-queue__dot--idle       { background: #d97706; }
+.auto-queue__dot--done       { background: #9ca3af; }
+
+.auto-queue__body {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.auto-queue__title-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+}
+
+.auto-queue__title {
+  font: inherit;
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--ws-text-1);
+  background: transparent;
+  border: none;
+  padding: 0;
+  text-align: left;
+  cursor: pointer;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.auto-queue__title:hover {
+  color: var(--ws-accent-deep);
+}
+
+.auto-queue__inline-chip {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  padding: 2px 7px;
+  border-radius: 999px;
+  background: rgba(124, 58, 237, 0.10);
+  color: var(--ws-accent-deep);
+  flex-shrink: 0;
+}
+
+.auto-queue__meta {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  font-size: 12px;
+  color: var(--ws-text-3);
+  flex-wrap: wrap;
+}
+
+.auto-queue__pill {
+  font-family: ui-monospace, 'SF Mono', Menlo, monospace;
+  font-size: 11px;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 1px 8px;
+  border-radius: 999px;
+  background: rgba(124, 58, 237, 0.06);
+  color: var(--ws-accent-deep);
+  border: 1px solid rgba(124, 58, 237, 0.10);
+}
+
+.auto-queue__pill-icon {
+  font-family: inherit;
+  font-size: 10px;
+}
+
+.auto-queue__pill--pr {
+  color: #0ea5e9;
+  background: rgba(14, 165, 233, 0.06);
+  border-color: rgba(14, 165, 233, 0.18);
+}
+
+.auto-queue__desc {
+  color: var(--ws-text-3);
+  font-size: 12px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Big right-side status pill. Higher-saturation than the inline chips
+ * so the eye lands on it; one variant per QueueStatus. */
+.auto-queue__status {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  padding: 6px 12px;
+  border-radius: 999px;
+  white-space: nowrap;
+  flex-shrink: 0;
+}
+
+.auto-queue__status--running {
+  background: #d1fae5;
+  color: #065f46;
+}
+
+.auto-queue__status--await {
+  background: #fef3c7;
+  color: #92400e;
+}
+
+.auto-queue__status--attention {
+  background: #fee2e2;
+  color: #b91c1c;
+}
+
+.auto-queue__status--idle {
+  background: rgba(217, 119, 6, 0.12);
+  color: #92400e;
+}
+
+.auto-queue__status--done {
+  background: rgba(156, 163, 175, 0.18);
+  color: #4b5563;
+}
+
+.auto-queue__action-stack {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+  gap: 4px;
+  min-width: 120px;
+}
+
+.auto-queue__action {
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  padding: 6px 12px;
+  border-radius: 999px;
+  border: 1px solid var(--ws-card-border);
+  background: #fff;
+  color: var(--ws-accent-deep);
+  cursor: pointer;
+  transition: background var(--ws-fast), color var(--ws-fast),
+    border-color var(--ws-fast);
+}
+
+.auto-queue__action:hover {
+  background: var(--ws-accent);
+  color: #fff;
+  border-color: var(--ws-accent);
+}
+
+/* Attention-action gets the violet fill by default — it's the row
+ * the user is most likely to need to click on. */
+.auto-queue__action--attention {
+  background: var(--ws-accent);
+  color: #fff;
+  border-color: var(--ws-accent);
+}
+
+.auto-queue__action--attention:hover {
+  background: var(--ws-accent-deep);
+  border-color: var(--ws-accent-deep);
+}
+
+.auto-queue__action--await {
+  background: var(--ws-accent);
+  color: #fff;
+  border-color: var(--ws-accent);
+}
+
+.auto-queue__action--await:hover {
+  background: var(--ws-accent-deep);
+  border-color: var(--ws-accent-deep);
+}
+
+.auto-queue__action:disabled {
+  opacity: 0.6;
+  cursor: progress;
+}
+
+.auto-queue__age {
+  font-size: 11px;
+  color: var(--ws-text-3);
+  white-space: nowrap;
+}
+
+/* ── Threads view toggle (List / Group / Immersive) ────────────────
+ *
+ * Slim pill segmented control that sits in the threads list toolbar
+ * alongside Search and Sort. List is the only mode wired today; the
+ * other two land in later phases — the placeholder body explains why
+ * a button is greeted with an empty state. */
+
+.threads-view-toggle {
+  display: inline-flex;
+  gap: 2px;
+  padding: 2px;
+  background: rgba(255, 255, 255, 0.65);
+  border: 1px solid var(--ws-card-border);
+  border-radius: 999px;
+}
+
+.threads-view-toggle__btn {
+  font: inherit;
+  font-size: 12px;
+  font-weight: 500;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 5px 12px;
+  border: none;
+  background: transparent;
+  color: var(--ws-text-3);
+  border-radius: 999px;
+  cursor: pointer;
+  transition: background var(--ws-fast), color var(--ws-fast);
+}
+
+.threads-view-toggle__btn:hover {
+  color: var(--ws-text-1);
+}
+
+.threads-view-toggle__btn--active {
+  background: #fff;
+  color: var(--ws-accent-deep);
+  box-shadow: 0 1px 2px rgba(67, 56, 202, 0.06);
+}
+
+.threads-view-toggle__icon {
+  font-size: 13px;
+  line-height: 1;
+}
+
+.threads-view-placeholder {
+  margin: 16px 2px;
+  padding: 32px 28px;
+  background: var(--ws-glass);
+  border: 1px dashed var(--ws-card-border);
+  border-radius: 14px;
+  text-align: center;
+}
+
+.threads-view-placeholder__title {
+  margin: 0 0 8px;
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--ws-text-1);
+}
+
+.threads-view-placeholder__body {
+  margin: 0 auto 8px;
+  max-width: 440px;
+  font-size: 13px;
+  color: var(--ws-text-2);
+  line-height: 1.5;
+}
+
+.threads-view-placeholder__meta {
+  margin: 0 auto 18px;
+  max-width: 440px;
+  font-size: 12px;
+  color: var(--ws-text-3);
+}
+
+.threads-view-placeholder__btn {
+  font: inherit;
+  font-size: 12px;
+  font-weight: 600;
+  padding: 6px 14px;
+  border: 1px solid var(--ws-card-border);
+  background: #fff;
+  color: var(--ws-accent-deep);
+  border-radius: 999px;
+  cursor: pointer;
+  transition: background var(--ws-fast), color var(--ws-fast);
+}
+
+.threads-view-placeholder__btn:hover {
+  background: var(--ws-accent);
+  color: #fff;
+}
+
+/* ── Threads page header (workspace > Threads) ─────────────────────
+ *
+ * Single inline row: "Threads" title + view toggle + spacer + the
+ * "+ New thread ⌘N" pill on the far right. Same flat full-width
+ * glass-bar chrome the workspace Home header uses — sticky to the
+ * top of the workspace area, edge-to-edge via negative horizontal
+ * margins, hairline bottom border separating it from the chip row
+ * and content below. */
+
+.threads-pageheader {
+  position: sticky;
+  top: 0;
+  z-index: 2;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  /* Negative left/right margins pull the bar out of
+   * .workspace-content's 28 px side gutter so it reaches the
+   * workspace area's edges. The 28 px bottom margin gives the chip
+   * row breathing room below the hairline. */
+  margin: 0 -28px 28px;
+  padding: 14px 28px;
+  background: rgba(255, 255, 255, 0.88);
+  backdrop-filter: blur(14px) saturate(125%);
+  -webkit-backdrop-filter: blur(14px) saturate(125%);
+  border-bottom: 1px solid rgba(124, 58, 237, 0.08);
+  box-shadow: 0 1px 2px rgba(67, 56, 202, 0.04);
+}
+
+.threads-pageheader__title {
+  margin: 0;
+  font-size: 22px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  color: var(--ws-text-1);
+}
+
+.threads-pageheader__spacer {
+  flex: 1;
+}
+
+.threads-pageheader__new {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 600;
+  padding: 8px 14px;
+  color: #fff;
+  background: #8b5cf6;
+  border: none;
+  border-radius: 999px;
+  cursor: pointer;
+  box-shadow: 0 1px 2px rgba(67, 56, 202, 0.10);
+  transition: background var(--ws-fast), transform var(--ws-fast),
+    box-shadow var(--ws-fast);
+}
+
+.threads-pageheader__new:hover {
+  background: #7c3aed;
+  transform: translateY(-1px);
+  box-shadow: 0 4px 12px rgba(124, 58, 237, 0.25);
+}
+
+.threads-pageheader__new-kbd {
+  font-size: 12px;
+  font-weight: 500;
+  color: rgba(255, 255, 255, 0.72);
+  letter-spacing: 0.02em;
+}
+
+/* ── Filter chip row ──────────────────────────────────────────────
+ *
+ * Horizontal pill row sitting under the page title. Replaces the
+ * rail's vertical Status section as the primary filter for the
+ * Threads surface. Each chip carries a small count badge; the
+ * active chip is filled with workspace accent — the auto* chip
+ * is purple to distinguish the automation queue at a glance. */
+
+.threads-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-bottom: 40px;
+}
+
+.threads-chips__chip {
+  font: inherit;
+  font-size: 13px;
+  font-weight: 500;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 12px;
+  border: 1px solid var(--ws-card-border);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.7);
+  color: var(--ws-text-2);
+  cursor: pointer;
+  transition: background var(--ws-fast), color var(--ws-fast),
+    border-color var(--ws-fast);
+}
+
+.threads-chips__chip:hover {
+  background: #fff;
+  color: var(--ws-text-1);
+  border-color: rgba(124, 58, 237, 0.18);
+}
+
+.threads-chips__chip--active {
+  background: var(--ws-accent);
+  color: #fff;
+  border-color: var(--ws-accent);
+}
+
+.threads-chips__chip--active:hover {
+  background: var(--ws-accent-deep);
+  border-color: var(--ws-accent-deep);
+  color: #fff;
+}
+
+/* auto* chip gets a slightly different active treatment — the purple
+ * fill maps onto the accent already, so we just tighten the weight to
+ * signal "this is the queue" when active. */
+.threads-chips__chip--active.threads-chips__chip--auto {
+  background: var(--ws-accent);
+  font-weight: 600;
+}
+
+/* Count renders as plain inline text after the label, just slightly
+ * dimmer — no badge bubble. Hidden via parent gating when the value
+ * is zero. The active chip flips it to white for legibility. */
+.threads-chips__count {
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--ws-text-3);
+  margin-left: 1px;
+}
+
+.threads-chips__chip--active .threads-chips__count {
+  color: rgba(255, 255, 255, 0.85);
 }

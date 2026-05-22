@@ -1178,6 +1178,12 @@ export type ThreadStatusDto =
   | 'RUNNING'
   | 'AWAITING'
   | 'IDLE'
+  /** Parked: the active task finished with a proposed diff and is
+   *  holding at the publish gate. Surfaces a notification. */
+  | 'AWAITING_REVIEW'
+  /** Parked: the active task is stuck on a conflict / push rejection /
+   *  judgment-call comment and needs the human to weigh in. */
+  | 'NEEDS_ATTENTION'
   | 'COMPLETED'
   | 'ERRORED';
 
@@ -1190,6 +1196,12 @@ export type ThreadTurnStatusDto =
   | 'FAILED'
   | 'CANCELLED';
 
+/** Structural flow discriminator on a thread. {@code build} threads
+ *  own a branch via their tasks and mutate code; {@code review}
+ *  threads reference a PR read-only and host a (possibly multi-agent)
+ *  review panel. Set at create time and never silently flipped. */
+export type ThreadFlowDto = 'build' | 'review';
+
 export type ThreadDto = {
   id: string;
   kind: ThreadKindDto;
@@ -1197,6 +1209,9 @@ export type ThreadDto = {
   agentSessionId: string | null;
   title: string;
   status: ThreadStatusDto;
+  /** Structural discriminator; see {@link ThreadFlowDto}. Defaults to
+   *  {@code 'build'} on legacy rows. */
+  flow: ThreadFlowDto;
   model: string;
   costUsdMilli: number;
   tokensIn: number;

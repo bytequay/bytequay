@@ -342,13 +342,17 @@ public class ClaudeCodeCliThreadAgent
         }
         // ERRORED → IDLE: the user wants to continue the conversation
         // after the CLI turn failed (token-quota reset, network blip,
-        // agent error). agentSessionId stays on the thread row, so the
-        // next send() spawns `claude -p ... --resume <session-id>` and
-        // picks up exactly where the previous turn left off. We clear
-        // endedAt and errorMessage so the Lifetime · Runtime ticker
-        // restarts and the failure banner doesn't hover over the new
+        // agent error). COMPLETED → IDLE: the user wants to follow up
+        // on a thread the agent had marked done; the conversation isn't
+        // really over, the user just has more to say. Both transitions
+        // keep agentSessionId on the row so the next send() spawns
+        // `claude -p ... --resume <session-id>` and the model picks up
+        // exactly where the previous turn left off. We clear endedAt
+        // and errorMessage so the Lifetime · Runtime ticker restarts
+        // and the failure banner (if any) doesn't hover over the new
         // conversation.
-        if (status.compareAndSet(ThreadStatus.ERRORED, ThreadStatus.IDLE)) {
+        if (status.compareAndSet(ThreadStatus.ERRORED, ThreadStatus.IDLE)
+                || status.compareAndSet(ThreadStatus.COMPLETED, ThreadStatus.IDLE)) {
             Thread current = store.findThreadById(threadId).orElse(null);
             if (current == null) {
                 return;

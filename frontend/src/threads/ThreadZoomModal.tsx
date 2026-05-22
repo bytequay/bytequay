@@ -242,22 +242,25 @@ function ZoomSidebar({ thread, messages }: { thread: ThreadDto; messages: Thread
 }
 
 function StatusPill({ status }: { status: ThreadDto['status'] }) {
-  const palette = {
-    RUNNING:   { fg: '#fff',    bg: '#047857', label: 'RUNNING'  },
-    AWAITING:  { fg: '#fff',    bg: '#d97706', label: 'AWAITING' },
-    PENDING:   { fg: '#1f2937', bg: '#e5e7eb', label: 'PENDING'  },
-    IDLE:      { fg: '#374151', bg: '#f3f4f6', label: 'IDLE'     },
-    COMPLETED: { fg: '#fff',    bg: '#64748b', label: 'DONE'     },
-    ERRORED:   { fg: '#fff',    bg: '#dc2626', label: 'ERRORED'  },
-  }[status];
+  const palette: Record<ThreadDto['status'], { fg: string; bg: string; label: string }> = {
+    RUNNING:         { fg: '#fff',    bg: '#047857', label: 'RUNNING'         },
+    AWAITING:        { fg: '#fff',    bg: '#d97706', label: 'AWAITING'        },
+    AWAITING_REVIEW: { fg: '#fff',    bg: '#d97706', label: 'AWAITING REVIEW' },
+    NEEDS_ATTENTION: { fg: '#fff',    bg: '#dc2626', label: 'NEEDS ATTENTION' },
+    PENDING:         { fg: '#1f2937', bg: '#e5e7eb', label: 'PENDING'         },
+    IDLE:            { fg: '#374151', bg: '#f3f4f6', label: 'IDLE'            },
+    COMPLETED:       { fg: '#fff',    bg: '#64748b', label: 'DONE'            },
+    ERRORED:         { fg: '#fff',    bg: '#dc2626', label: 'ERRORED'         },
+  };
+  const tone = palette[status];
   return (
     <span style={{
       ...statusPillStyle,
-      background: palette.bg,
-      color: palette.fg,
+      background: tone.bg,
+      color: tone.fg,
     }}>
       <span style={pulseDotStyle} aria-hidden />
-      {palette.label}
+      {tone.label}
     </span>
   );
 }

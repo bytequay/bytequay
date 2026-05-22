@@ -71,6 +71,7 @@ function threadRow(status: ThreadDto['status']): ThreadDto {
     agentSessionId: null,
     title: 'Thread',
     status,
+    flow: 'build',
     model: 'claude-sonnet-4.6',
     costUsdMilli: 0,
     tokensIn: 0,

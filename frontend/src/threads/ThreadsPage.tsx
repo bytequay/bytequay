@@ -13,6 +13,9 @@
  */
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { ThreadDto, ThreadGroupDto, ThreadGroupMembershipDto, ThreadStatusDto, ThreadTurnDto, WatchedRepoDto } from '../types';
+import AutoQueueList from './AutoQueueList';
+import FilterChipsRow from './FilterChipsRow';
+import ThreadsViewToggle, { useThreadsView } from './ThreadsViewToggle';
 import GroupMenu from './GroupMenu';
 import GroupSettingsDialog from './GroupSettingsDialog';
 import GroupThreadGrid from './GroupThreadGrid';
@@ -116,6 +119,10 @@ export default function ThreadsPage({
   // to a different bucket.
   const [search, setSearch] = useState('');
   const [sortMode, setSortMode] = useState<SortMode>('newest');
+  // View-mode toggle (List / Group / Immersive). Only List has its
+  // body wired today; Group and Immersive surface as placeholders so
+  // the scaffold matches the design while the per-phase work lands.
+  const [view, setView] = useThreadsView();
   useEffect(() => { setSearch(''); }, [filter, provider, repo, groupId]);
   // Threads with at least one UNREAD notification — populates the
   // auto* rail filter and the per-row badge. Polls in tandem with
@@ -330,6 +337,26 @@ export default function ThreadsPage({
         // auto* filter: only threads carrying unread notifications.
         if (!autoThreadIds.has(t.id)) return false;
       }
+      else if (filter === 'MINE') {
+        // "Mine" = threads I started myself, not the auto-fix queue.
+        // Approximated by auto* membership today; review threads are
+        // excluded since they have their own chip.
+        if (autoThreadIds.has(t.id)) return false;
+        if (t.flow === 'review') return false;
+      }
+      else if (filter === 'AWAITING_ME') {
+        // Collapsed "needs the human" filter: parked active task or a
+        // permission-prompt pause on the thread itself.
+        const taskStatus = t.activeTask?.status;
+        const awaiting = displayStatus === 'AWAITING'
+            || taskStatus === 'AWAITING_REVIEW'
+            || taskStatus === 'NEEDS_ATTENTION';
+        if (!awaiting) return false;
+      }
+      else if (filter === 'REVIEW') {
+        // Review-flow threads only — read-only PR review panels.
+        if (t.flow !== 'review') return false;
+      }
       else if (filter !== 'ALL') {
         if (filter === 'PENDING') {
           if (displayStatus !== 'PENDING' && displayStatus !== 'QUEUED') return false;
@@ -510,59 +537,27 @@ export default function ThreadsPage({
   return (
     <section style={layoutStyle}>
       <ThreadsListKeyframes />
-      <ThreadsLeftRail
-        threads={threads ?? []}
-        groupIdsByTaskId={groupIdsByTaskId}
-        statusFilter={filter}
-        onStatusFilter={onFilterChange}
-        providerFilter={provider}
-        onProviderFilter={onProviderChange}
-        groupFilter={groupId}
-        onGroupFilter={onGroupChange}
-        repoFilter={repo}
-        onRepoFilter={onRepoChange}
-        autoCount={autoThreadIds.size}
-        onSelectTask={onSelectTask}
-        onNewTask={() => onNewTask(groupId ?? undefined)}
-        onOpenSettings={onOpenSettings}
-      />
-
       <div style={mainStyle}>
-        <nav style={breadcrumbRowStyle}>
+        <header className="threads-pageheader">
+          <h1 className="threads-pageheader__title">Threads</h1>
+          <ThreadsViewToggle value={view} onChange={setView} />
+          <div className="threads-pageheader__spacer" />
           <button
             type="button"
-            onClick={() => onFilterChange('ALL')}
-            style={breadcrumbRootStyle}
+            className="threads-pageheader__new"
+            onClick={() => onNewTask(groupId ?? undefined)}
           >
-            Threads
+            + New thread
+            <span className="threads-pageheader__new-kbd" aria-hidden>⌘N</span>
           </button>
-          {filter !== 'ALL' && (
-            <>
-              <span style={breadcrumbSepStyle}>/</span>
-              <span style={breadcrumbCurrentStyle}>{filterLabel(filter)}</span>
-            </>
-          )}
-        </nav>
-
-        <header style={headerStyle}>
-          <div>
-            <h1 style={titleStyle}>
-              {filterLabel(filter)}
-              <FilterStatusPill filter={filter} count={filteredCount} />
-            </h1>
-            <p style={subtitleStyle}>{subtitleFor(filter)}</p>
-          </div>
-          <div style={headerActionsStyle}>
-            <button
-              type="button"
-              onClick={() => void refresh()}
-              style={secondaryBtnStyle}
-              title="Refresh list"
-            >
-              ↻ Refresh
-            </button>
-          </div>
         </header>
+
+        <FilterChipsRow
+          threads={threads ?? []}
+          autoIds={autoThreadIds}
+          value={filter}
+          onChange={onFilterChange}
+        />
 
         {error && (
           <div style={errorBannerStyle}>
@@ -581,19 +576,6 @@ export default function ThreadsPage({
               Threads are agent runs you delegate from the app. Use{' '}
               <strong>+ New thread</strong> on the left to start one.
             </div>
-          </div>
-        )}
-
-        {threads !== null && totalCount > 0 && (
-          <div style={toolbarRowStyle}>
-            <input
-              type="search"
-              value={search}
-              onChange={e => setSearch(e.target.value)}
-              placeholder={`Search within ${filterLabel(filter)}…`}
-              style={searchInputStyle}
-            />
-            <SortPill value={sortMode} onChange={setSortMode} />
           </div>
         )}
 
@@ -617,36 +599,15 @@ export default function ThreadsPage({
           </div>
         )}
 
-        {visibleCount > 0 && (
-          <>
-            <div style={cardGridStyle}>
-              {sorted.map(t => (
-                <ThreadCard
-                  key={t.id}
-                  thread={t}
-                  scheduler={activeTurnsByThreadId.get(t.id)}
-                  groups={groups}
-                  currentGroupIds={groupIdsByTaskId.get(t.id) ?? []}
-                  busy={busyId === t.id}
-                  hasUnread={autoThreadIds.has(t.id)}
-                  onOpen={() => onSelectTask(t.id)}
-                  onStop={() => void onStop(t.id)}
-                  onToggleGroup={toggleTaskInGroup}
-                />
-              ))}
-            </div>
-            <div style={hintFooterStyle}>
-              Showing <strong>{visibleCount}</strong> of{' '}
-              <strong>{totalCount}</strong> thread{totalCount === 1 ? '' : 's'}
-              {filter !== 'ALL' && (
-                <> · filtered by <strong>{filterLabel(filter)}</strong></>
-              )}
-              {search.trim() !== '' && (
-                <> · matching "<strong>{search.trim()}</strong>"</>
-              )}
-              . Click a card to open its detail view.
-            </div>
-          </>
+        {view !== 'list' && (
+          <ViewModePlaceholder mode={view} onPickList={() => setView('list')} />
+        )}
+        {view === 'list' && visibleCount > 0 && (
+          <AutoQueueList
+            threads={sorted}
+            filter={filter}
+            onOpenThread={onSelectTask}
+          />
         )}
       </div>
 
@@ -878,13 +839,15 @@ function ThreadCard({ thread, scheduler, groups, currentGroupIds, busy, hasUnrea
 
 function RowStatusPill({ status, queued }: { status: SchedulerDisplayStatus; queued?: number }) {
   const palette: Record<SchedulerDisplayStatus, { fg: string; bg: string; label: string; pulse: boolean }> = {
-    RUNNING:   { fg: '#047857', bg: '#d1fae5', label: 'RUNNING',  pulse: true  },
-    AWAITING:  { fg: '#92400e', bg: '#fef3c7', label: 'AWAITING', pulse: true  },
-    PENDING:   { fg: '#374151', bg: '#e5e7eb', label: 'PENDING',  pulse: false },
-    QUEUED:    { fg: '#92400e', bg: '#fef3c7', label: 'QUEUED',   pulse: false },
-    IDLE:      { fg: '#57606a', bg: '#f0f1f3', label: 'IDLE',     pulse: false },
-    COMPLETED: { fg: '#047857', bg: '#dcfce7', label: 'DONE',     pulse: false },
-    ERRORED:   { fg: '#991b1b', bg: '#fee2e2', label: 'ERRORED',  pulse: false },
+    RUNNING:         { fg: '#047857', bg: '#d1fae5', label: 'RUNNING',          pulse: true  },
+    AWAITING:        { fg: '#92400e', bg: '#fef3c7', label: 'AWAITING',         pulse: true  },
+    AWAITING_REVIEW: { fg: '#92400e', bg: '#fef3c7', label: 'AWAITING REVIEW',  pulse: false },
+    NEEDS_ATTENTION: { fg: '#b91c1c', bg: '#fee2e2', label: 'NEEDS ATTENTION',  pulse: true  },
+    PENDING:         { fg: '#374151', bg: '#e5e7eb', label: 'PENDING',          pulse: false },
+    QUEUED:          { fg: '#92400e', bg: '#fef3c7', label: 'QUEUED',           pulse: false },
+    IDLE:            { fg: '#57606a', bg: '#f0f1f3', label: 'IDLE',             pulse: false },
+    COMPLETED:       { fg: '#047857', bg: '#dcfce7', label: 'DONE',             pulse: false },
+    ERRORED:         { fg: '#991b1b', bg: '#fee2e2', label: 'ERRORED',          pulse: false },
   };
   const p = palette[status];
   return (
@@ -960,7 +923,12 @@ const layoutStyle: React.CSSProperties = {
 const mainStyle: React.CSSProperties = {
   flex: 1,
   minWidth: 0,
-  padding: '24px 32px 64px',
+  // No horizontal padding here — .workspace-content owns the 28 px
+  // side gutter the rest of the workspace surfaces align to, and
+  // .threads-pageheader's negative margin counts on it. Keep a small
+  // bottom padding so the last card row doesn't kiss the viewport
+  // floor in the immersive case.
+  padding: '0 0 64px',
 };
 const headerStyle: React.CSSProperties = {
   display: 'flex',
@@ -1259,3 +1227,43 @@ const hintFooterStyle: React.CSSProperties = {
   color: 'var(--text-3)',
   lineHeight: 1.55,
 };
+
+/**
+ * Coming-soon body for the Group and Immersive view modes. Phase 1
+ * ships the toggle as scaffold; the actual group board and immersive
+ * surface land in later phases. Renders a calm card with the mode
+ * name and an escape hatch back to List so the user isn't stranded.
+ */
+function ViewModePlaceholder({
+  mode, onPickList,
+}: { mode: 'group' | 'immersive'; onPickList: () => void }) {
+  const copy = mode === 'group'
+      ? {
+        title: 'Group board',
+        body: 'Side-by-side 2×2 monitoring of pinned threads. Each board '
+            + 'holds at most four threads, shown as a tmux-minimal grid.',
+      }
+      : {
+        title: 'Immersive',
+        body: 'Full-bleed group view with chromeless panes — conversation '
+            + 'or terminal — for watching agents work with maximum real '
+            + 'estate. Esc exits.',
+      };
+  return (
+    <div className="threads-view-placeholder">
+      <h2 className="threads-view-placeholder__title">{copy.title}</h2>
+      <p className="threads-view-placeholder__body">{copy.body}</p>
+      <p className="threads-view-placeholder__meta">
+        Lands in a follow-up — the toggle is wired so the scaffold's in
+        place.
+      </p>
+      <button
+        type="button"
+        className="threads-view-placeholder__btn"
+        onClick={onPickList}
+      >
+        ← Back to List
+      </button>
+    </div>
+  );
+}

@@ -105,7 +105,7 @@ function MergeHistoryPage({ onBack, onSelect }: Props) {
   const grouped = useMemo(() => groupByMonth(visible), [visible]);
 
   return (
-    <div className="merge-history">
+    <div className="merge-history calm-page">
       <header className="merge-history__header">
         <button type="button" className="merge-history__back" onClick={onBack} title="Back to the kanban">
           ← Back

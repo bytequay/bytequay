@@ -16,10 +16,14 @@ package com.bytequay.app.web;
 import com.bytequay.app.domain.Notification;
 import com.bytequay.app.domain.NotificationStatus;
 import com.bytequay.app.service.threads.NotificationService;
+import com.bytequay.app.service.threads.PublishService;
+import com.bytequay.app.service.threads.PublishService.PublishResult;
+import com.fasterxml.jackson.databind.JsonNode;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
@@ -45,10 +49,14 @@ import static java.util.Objects.requireNonNull;
 public class NotificationController
 {
     private final NotificationService notifications;
+    private final PublishService publishes;
 
-    public NotificationController(NotificationService notifications)
+    public NotificationController(
+            NotificationService notifications,
+            PublishService publishes)
     {
         this.notifications = requireNonNull(notifications, "notifications is null");
+        this.publishes = requireNonNull(publishes, "publishes is null");
     }
 
     @GetMapping
@@ -83,5 +91,30 @@ public class NotificationController
     public void delete(@PathVariable String id)
     {
         notifications.delete(id);
+    }
+
+    /**
+     * Approve a parked AWAITING_REVIEW publish: the backend runs the
+     * deferred {@code git push} / {@code createIssueComment} and the
+     * task transitions to COMPLETED on success. Optional {@code
+     * editedBody} (post_comment only) replaces the parked body so the
+     * user can tweak copy in the review pane before publishing.
+     */
+    @PostMapping("/{id}/approve")
+    public PublishResult approve(
+            @PathVariable String id,
+            @RequestBody(required = false) JsonNode body)
+    {
+        String editedBody = body == null ? null : body.path("editedBody").asText(null);
+        return publishes.approve(id, editedBody);
+    }
+
+    /** Discard a parked AWAITING_REVIEW publish. Marks the
+     *  notification DISMISSED, transitions the task to COMPLETED, and
+     *  writes an audit row — the proposed side effect never runs. */
+    @PostMapping("/{id}/discard")
+    public PublishResult discard(@PathVariable String id)
+    {
+        return publishes.discard(id);
     }
 }

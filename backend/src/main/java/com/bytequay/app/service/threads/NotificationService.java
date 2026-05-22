@@ -145,6 +145,14 @@ public class NotificationService
         store.delete(id);
     }
 
+    /** Single-row lookup; returns empty when the id is unknown so a
+     *  caller (e.g. the publish gate's approve endpoint) can decide
+     *  whether absence is a 404 or a no-op. */
+    public Optional<Notification> find(String id)
+    {
+        return store.findById(id);
+    }
+
     private Notification require(String id)
     {
         Optional<Notification> existing = store.findById(id);

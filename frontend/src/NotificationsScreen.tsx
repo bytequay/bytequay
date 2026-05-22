@@ -12,8 +12,9 @@
  * limitations under the License.
  */
 import { useCallback, useEffect, useState } from 'react';
+import { kindIcon, previewFor, relativeTime, titleFor } from './notificationDisplay';
 import PublishGatePane from './PublishGatePane';
-import type { NotificationDto, NotificationKindDto } from './types';
+import type { NotificationDto } from './types';
 
 type Props = {
   /** Click-to-thread navigation. The dispatch lives in App.tsx so
@@ -177,58 +178,6 @@ function isPublishGateNotification(n: NotificationDto): boolean {
   catch {
     return false;
   }
-}
-
-function kindIcon(kind: NotificationKindDto): string {
-  switch (kind) {
-    case 'AWAITING_REVIEW':  return '👁';
-    case 'NEEDS_ATTENTION':  return '⚠';
-    case 'AUTO_FIX_DONE':    return '✓';
-  }
-}
-
-function titleFor(n: NotificationDto): string {
-  switch (n.kind) {
-    case 'AWAITING_REVIEW':  return 'Awaiting your review';
-    case 'NEEDS_ATTENTION':  return 'Needs your attention';
-    case 'AUTO_FIX_DONE':    return 'Shipped';
-  }
-}
-
-function previewFor(n: NotificationDto): string {
-  if (!n.payloadJson) return '';
-  let payload: Record<string, unknown> | null = null;
-  try {
-    payload = JSON.parse(n.payloadJson);
-  }
-  catch {
-    return '';
-  }
-  if (!payload) return '';
-  if (n.kind === 'AUTO_FIX_DONE') {
-    const repo = typeof payload.repoFullName === 'string' ? payload.repoFullName : null;
-    const pr = typeof payload.prNumber === 'number' ? `#${payload.prNumber}` : null;
-    const nextTitle = typeof payload.nextTitle === 'string' ? payload.nextTitle : null;
-    const left = [repo, pr].filter(Boolean).join(' ');
-    if (left && nextTitle) return `${left} · next: ${nextTitle}`;
-    if (left) return left;
-    if (nextTitle) return `next: ${nextTitle}`;
-  }
-  // Default: show the first few payload keys + values for debugging.
-  return Object.entries(payload)
-      .slice(0, 3)
-      .map(([k, v]) => `${k}: ${String(v)}`)
-      .join(' · ');
-}
-
-function relativeTime(iso: string): string {
-  const then = Date.parse(iso);
-  if (Number.isNaN(then)) return '';
-  const deltaSec = Math.round((Date.now() - then) / 1000);
-  if (deltaSec < 60) return 'just now';
-  if (deltaSec < 3600) return `${Math.round(deltaSec / 60)}m ago`;
-  if (deltaSec < 86400) return `${Math.round(deltaSec / 3600)}h ago`;
-  return `${Math.round(deltaSec / 86400)}d ago`;
 }
 
 export default NotificationsScreen;

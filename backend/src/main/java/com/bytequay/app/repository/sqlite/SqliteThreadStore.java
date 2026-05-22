@@ -129,7 +129,7 @@ class SqliteThreadStore
                         t.threadId(),
                         t.seq(),
                         mapStatus(thread.status()),
-                        coalesce(thread.localBranch(), thread.branchName(), t.branchName()),
+                        coalesce(thread.branchName(), t.branchName()),
                         coalesce(thread.worktreePath(), t.worktreePath()),
                         t.baseBranch(),
                         coalesce(thread.workingDir(), t.workingDir()),
@@ -157,7 +157,7 @@ class SqliteThreadStore
                         thread.id(),
                         1L,
                         mapStatus(thread.status()),
-                        coalesce(thread.localBranch(), thread.branchName()),
+                        thread.branchName(),
                         thread.worktreePath(),
                         "main",
                         thread.workingDir(),
@@ -348,13 +348,18 @@ class SqliteThreadStore
 
     private static Thread toThread(ThreadEntity e, Task active)
     {
+        // Bridge projection: V72 moved the work-unit columns onto
+        // tasks. Until callers stop reading them off the Thread
+        // record, we synthesise them from the active task. Null on
+        // 0-Task brainstorm threads — including taskType, which used
+        // to default to "DEVELOP" here and masked the no-task state
+        // from readers.
         String workingDir = active != null ? active.workingDir() : null;
         String branchName = active != null ? active.branchName() : null;
         String worktreePath = active != null ? active.worktreePath() : null;
-        String localBranch = active != null ? active.branchName() : null;
         Integer processPid = active != null ? active.processPid() : null;
         String logPath = active != null ? active.logPath() : null;
-        String taskType = active != null ? active.taskType() : "DEVELOP";
+        String taskType = active != null ? active.taskType() : null;
         Integer linkedPr = active != null ? active.linkedPrNumber() : null;
         Integer linkedIssue = active != null ? active.linkedIssueNumber() : null;
         return new Thread(
@@ -381,7 +386,6 @@ class SqliteThreadStore
                 linkedPr,
                 linkedIssue,
                 worktreePath,
-                localBranch,
                 ThreadFlow.fromDbValue(e.getFlow()));
     }
 
@@ -405,7 +409,6 @@ class SqliteThreadStore
     {
         return thread.worktreePath() != null
                 || thread.branchName() != null
-                || thread.localBranch() != null
                 || thread.workingDir() != null
                 || thread.processPid() != null
                 || thread.logPath() != null;

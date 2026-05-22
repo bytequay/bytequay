@@ -88,6 +88,5 @@ function threadRow(status: ThreadDto['status']): ThreadDto {
     linkedPrNumber: null,
     linkedIssueNumber: null,
     worktreePath: null,
-    localBranch: null,
   };
 }

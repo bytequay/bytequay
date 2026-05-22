@@ -96,7 +96,7 @@ class TestSqliteThreadStore
                 /* endedAt */ null, /* errorMessage */ null,
                 initial.metadataJson(),
                 initial.taskType(), initial.linkedPrNumber(), initial.linkedIssueNumber(),
-                initial.worktreePath(), initial.localBranch(),
+                initial.worktreePath(),
                 initial.flow());
         store.saveThread(updated);
 
@@ -128,7 +128,7 @@ class TestSqliteThreadStore
                 original.createdAt(), original.updatedAt(),
                 original.endedAt(), original.errorMessage(), original.metadataJson(),
                 original.taskType(), original.linkedPrNumber(), original.linkedIssueNumber(),
-                original.worktreePath(), original.localBranch(),
+                original.worktreePath(),
                 ThreadFlow.REVIEW);
         assertThatThrownBy(() -> store.saveThread(flipped))
                 .isInstanceOf(IllegalStateException.class)
@@ -236,7 +236,6 @@ class TestSqliteThreadStore
                 /* linkedPrNumber */ null,
                 /* linkedIssueNumber */ null,
                 /* worktreePath */ null,
-                /* localBranch */ null,
                 ThreadFlow.BUILD);
     }
 
@@ -249,7 +248,7 @@ class TestSqliteThreadStore
                 source.processPid(), source.logPath(), created, updated,
                 source.endedAt(), source.errorMessage(), source.metadataJson(),
                 source.taskType(), source.linkedPrNumber(), source.linkedIssueNumber(),
-                source.worktreePath(), source.localBranch(),
+                source.worktreePath(),
                 source.flow());
     }
 

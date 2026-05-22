@@ -237,7 +237,7 @@ class TestSqliteThreadCheckpointStore
                 /* logPath */ null,
                 now, now, null, null,
                 /* metadataJson */ "{}",
-                "DEVELOP", null, null, null, null, ThreadFlow.BUILD);
+                "DEVELOP", null, null, null, ThreadFlow.BUILD);
         threads.saveThread(t);
         return t.id();
     }

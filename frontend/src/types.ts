@@ -1220,12 +1220,6 @@ export type ThreadDto = {
    *  working dir, etc.) — the agent falls back to running in the
    *  user-supplied {@code workingDir} in that case. */
   worktreePath: string | null;
-  /** Name of the dev branch ByteQuay created for this thread
-   *  (e.g. {@code "dev/<sessionId>-<slug>"}). {@code null} when
-   *  {@code worktreePath} is {@code null}. Distinct from
-   *  {@code branchName}, which is sniffed from the user's main
-   *  checkout at thread-create time. */
-  localBranch: string | null;
   /** GitHub PR number this thread is associated with — scoped to the
    *  thread's own repo. {@code null} when the thread isn't tied to a
    *  remote PR yet. */

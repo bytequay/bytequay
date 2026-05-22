@@ -316,7 +316,7 @@ public class ThreadService
                 current.createdAt(), Instant.now(),
                 current.endedAt(), current.errorMessage(), current.metadataJson(),
                 current.taskType(), current.linkedPrNumber(), current.linkedIssueNumber(),
-                current.worktreePath(), current.localBranch(),
+                current.worktreePath(),
                 current.flow());
         store.saveThread(next);
         return store.findThreadById(threadId).orElse(next);
@@ -365,6 +365,13 @@ public class ThreadService
                         ? Optional.empty()
                         : worktreeService.create(
                                 Path.of(request.workingDir()), firstTaskId, request.title());
+        // branchName flows to the active task row. Prefer the
+        // worktree's dev branch (the actual branch the agent will be
+        // on) over the user's pre-worktree checkout; the latter
+        // hasn't survived V72's column drops anyway.
+        String taskBranchName = handle
+                .map(WorktreeService.WorktreeHandle::branchName)
+                .orElse(request.branchName());
         Thread thread = new Thread(
                 threadId,
                 request.kind(),
@@ -373,7 +380,7 @@ public class ThreadService
                 request.title(),
                 ThreadStatus.PENDING,
                 request.workingDir(),
-                request.branchName(),
+                taskBranchName,
                 request.model(),
                 /* costUsdMilli */ 0L,
                 /* tokensIn */ 0L,
@@ -389,7 +396,6 @@ public class ThreadService
                 request.linkedPrNumber(),
                 request.linkedIssueNumber(),
                 handle.map(h -> h.worktreePath().toString()).orElse(null),
-                handle.map(WorktreeService.WorktreeHandle::branchName).orElse(null),
                 request.flow() == null ? ThreadFlow.BUILD : request.flow());
         store.saveThread(thread);
         // Materialise the first task row with a chosen id so the on-disk
@@ -594,8 +600,12 @@ public class ThreadService
         Thread thread = existing.get();
         if (thread.worktreePath() != null && !thread.worktreePath().isBlank()
                 && thread.workingDir() != null && !thread.workingDir().isBlank()) {
+            // branchName is the worktree dev branch post-V72 (see the
+            // bridge note on the Thread record); pass it as the
+            // branch-to-prune argument so worktree cleanup deletes
+            // the right ref.
             worktreeService.remove(Path.of(thread.workingDir()),
-                    thread.worktreePath(), thread.localBranch());
+                    thread.worktreePath(), thread.branchName());
         }
         store.deleteThread(threadId);
     }

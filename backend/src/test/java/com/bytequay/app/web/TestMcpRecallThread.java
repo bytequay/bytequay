@@ -175,7 +175,7 @@ class TestMcpRecallThread
                 /* logPath */ null,
                 now, now, null, null,
                 /* metadataJson */ "{\"slug\":\"" + slug + "\"}",
-                "DEVELOP", null, null, null, null, ThreadFlow.BUILD);
+                "DEVELOP", null, null, null, ThreadFlow.BUILD);
         threads.saveThread(t);
         return t.id();
     }

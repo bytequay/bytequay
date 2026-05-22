@@ -605,7 +605,9 @@ class TestThreadServiceScheduler
                 /* flow */ null));
 
         assertThat(thread.worktreePath()).isEqualTo("/tmp/repo/.worktrees/task-1");
-        assertThat(thread.localBranch()).isEqualTo("dev/task-1");
+        // branchName now carries the worktree's dev branch (V72
+        // collapsed localBranch into branchName).
+        assertThat(thread.branchName()).isEqualTo("dev/task-1");
         assertThat(thread.agentCwd()).isEqualTo(thread.worktreePath());
         assertThat(scheduler.requests)
                 .extracting(request -> request.thread().agentCwd())
@@ -646,7 +648,7 @@ class TestThreadServiceScheduler
         assertThat(worktrees.removeRequests).containsExactly(new WorktreeRemoveRequest(
                 Path.of(thread.workingDir()),
                 thread.worktreePath(),
-                thread.localBranch()));
+                thread.branchName()));
         assertThat(store.findThreadById(thread.id())).isEmpty();
     }
 
@@ -1348,7 +1350,6 @@ class TestThreadServiceScheduler
                 /* linkedPrNumber */ null,
                 /* linkedIssueNumber */ null,
                 /* worktreePath */ null,
-                /* localBranch */ null,
                 ThreadFlow.BUILD);
     }
 
@@ -1379,7 +1380,6 @@ class TestThreadServiceScheduler
                 /* linkedPrNumber */ null,
                 /* linkedIssueNumber */ null,
                 "/tmp/work/.bytequay/worktrees/dev/thread-1",
-                "dev/thread-1",
                 ThreadFlow.BUILD);
     }
 }

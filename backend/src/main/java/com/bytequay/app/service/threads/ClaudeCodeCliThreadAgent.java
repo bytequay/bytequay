@@ -320,7 +320,7 @@ public class ClaudeCodeCliThreadAgent
         // accepting new turns until resume. We model that by flipping
         // to AWAITING; resume() flips back to IDLE.
         if (status.compareAndSet(ThreadStatus.IDLE, ThreadStatus.AWAITING)) {
-            persistTaskSnapshot(null);
+            persistThreadSnapshot(null);
         }
     }
 
@@ -328,7 +328,7 @@ public class ClaudeCodeCliThreadAgent
     public void resume()
     {
         if (status.compareAndSet(ThreadStatus.AWAITING, ThreadStatus.IDLE)) {
-            persistTaskSnapshot(null);
+            persistThreadSnapshot(null);
             return;
         }
         // ERRORED → IDLE: the user wants to continue the conversation
@@ -354,7 +354,7 @@ public class ClaudeCodeCliThreadAgent
                     /* endedAt */ null, /* errorMessage */ null,
                     current.metadataJson(), current.taskType(),
                     current.linkedPrNumber(), current.linkedIssueNumber(),
-                    current.worktreePath(), current.localBranch(),
+                    current.worktreePath(),
                     current.flow()));
         }
     }
@@ -364,7 +364,7 @@ public class ClaudeCodeCliThreadAgent
     {
         interrupt();
         if (status.getAndSet(ThreadStatus.COMPLETED) != ThreadStatus.COMPLETED) {
-            persistTaskSnapshot(Instant.now());
+            persistThreadSnapshot(Instant.now());
             handle(new StreamEvent.SessionEnded(Instant.now(), 0, null));
         }
         cleanupMcpConfig();
@@ -490,7 +490,7 @@ public class ClaudeCodeCliThreadAgent
             publish(new StreamEvent.ErrorOccurred(Instant.now(),
                     "failed to spawn " + binary + ": " + e.getMessage(), false));
             publish(new StreamEvent.SessionEnded(Instant.now(), -1, e.getMessage()));
-            persistTaskSnapshot(Instant.now());
+            persistThreadSnapshot(Instant.now());
             return;
         }
         currentProcess.set(process);
@@ -549,7 +549,7 @@ public class ClaudeCodeCliThreadAgent
         }
         finally {
             currentProcess.set(null);
-            persistTaskSnapshot(null);
+            persistThreadSnapshot(null);
         }
     }
 
@@ -745,7 +745,7 @@ public class ClaudeCodeCliThreadAgent
             return;
         }
         if (model.compareAndSet(currentModel, nextModel)) {
-            persistTaskSnapshot(null);
+            persistThreadSnapshot(null);
         }
     }
 
@@ -864,13 +864,13 @@ public class ClaudeCodeCliThreadAgent
     {
         ThreadStatus prev = status.getAndSet(next);
         if (prev != next) {
-            persistTaskSnapshot(next == ThreadStatus.COMPLETED || next == ThreadStatus.ERRORED
+            persistThreadSnapshot(next == ThreadStatus.COMPLETED || next == ThreadStatus.ERRORED
                     ? Instant.now()
                     : null);
         }
     }
 
-    private void persistTaskSnapshot(Instant endedAt)
+    private void persistThreadSnapshot(Instant endedAt)
     {
         Thread current = store.findThreadById(threadId).orElse(null);
         if (current == null) {
@@ -886,7 +886,7 @@ public class ClaudeCodeCliThreadAgent
                 endedAt != null ? endedAt : current.endedAt(),
                 current.errorMessage(), current.metadataJson(),
                 current.taskType(), current.linkedPrNumber(), current.linkedIssueNumber(),
-                current.worktreePath(), current.localBranch(),
+                current.worktreePath(),
                 current.flow());
         store.saveThread(next);
     }

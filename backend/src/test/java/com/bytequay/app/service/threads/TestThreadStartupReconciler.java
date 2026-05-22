@@ -107,7 +107,6 @@ class TestThreadStartupReconciler
                 /* linkedPrNumber */ null,
                 /* linkedIssueNumber */ null,
                 /* worktreePath */ null,
-                /* localBranch */ null,
                 ThreadFlow.BUILD);
     }
 }

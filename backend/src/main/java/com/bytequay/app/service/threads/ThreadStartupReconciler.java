@@ -72,7 +72,7 @@ public class ThreadStartupReconciler
                         thread.createdAt(), now,
                         thread.endedAt(), thread.errorMessage(), thread.metadataJson(),
                         thread.taskType(), thread.linkedPrNumber(), thread.linkedIssueNumber(),
-                        thread.worktreePath(), thread.localBranch(),
+                        thread.worktreePath(),
                         thread.flow()));
             }
             reconciled += orphaned.size();

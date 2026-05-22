@@ -144,7 +144,6 @@ class TestSqliteThreadTurnStore
                 /* linkedPrNumber */ null,
                 /* linkedIssueNumber */ null,
                 /* worktreePath */ null,
-                /* localBranch */ null,
                 ThreadFlow.BUILD));
         return threadId;
     }

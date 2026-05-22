@@ -233,6 +233,6 @@ class TestAutomationCoordinatorAutoFix
                 /* processPid */ null, /* logPath */ null,
                 now, now, null, null,
                 /* metadataJson */ "{}",
-                "DEVELOP", null, null, null, null, ThreadFlow.BUILD);
+                "DEVELOP", null, null, null, ThreadFlow.BUILD);
     }
 }

@@ -14,14 +14,14 @@
 import type { ThreadDto } from '../types';
 
 type ThreadCwdFields = Pick<ThreadDto, 'workingDir' | 'worktreePath'>;
-type ThreadBranchFields = Pick<ThreadDto, 'branchName' | 'localBranch'>;
+type ThreadBranchFields = Pick<ThreadDto, 'branchName'>;
 
 export function threadAgentCwd(thread: ThreadCwdFields): string {
   return nonBlank(thread.worktreePath) ?? thread.workingDir;
 }
 
 export function threadDisplayBranch(thread: ThreadBranchFields): string | null {
-  return nonBlank(thread.localBranch) ?? nonBlank(thread.branchName);
+  return nonBlank(thread.branchName);
 }
 
 export function isWorktreeBackedTask(thread: Pick<ThreadDto, 'worktreePath'>): boolean {

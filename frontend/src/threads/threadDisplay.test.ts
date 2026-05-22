@@ -36,18 +36,16 @@ describe('threadDisplay', () => {
     })).toBe('/repo/main');
   });
 
-  it('prefers the local worktree branch over the original branch', () => {
+  it('returns the active task branch name as-is', () => {
     expect(threadDisplayBranch({
-      branchName: 'main',
-      localBranch: 'dev/thread-1',
+      branchName: 'dev/thread-1',
     })).toBe('dev/thread-1');
   });
 
-  it('falls back to the original branch when no worktree branch exists', () => {
+  it('returns null when the active task has no branch', () => {
     expect(threadDisplayBranch({
-      branchName: 'main',
-      localBranch: ' ',
-    })).toBe('main');
+      branchName: null,
+    })).toBeNull();
   });
 
   it('detects worktree-backed threads', () => {

@@ -234,11 +234,18 @@ public class TaskService
                 }
             }
 
-            // 4. Close the current task.
+            // 4. Close the current task. worktreePath clears to null
+            //    because the worktree is about to be reaped (step 8) —
+            //    leaving the path on the row would point at a directory
+            //    that no longer exists, and a future "reopen this task"
+            //    flow should re-cut a worktree from origin/<branch>
+            //    rather than trust a stale pointer.
             Instant now = Instant.now();
             taskStore.saveTask(new Task(
                     current.id(), current.threadId(), current.seq(), TaskStatus.COMPLETED,
-                    current.branchName(), current.worktreePath(), current.baseBranch(),
+                    current.branchName(),
+                    /* worktreePath */ null,
+                    current.baseBranch(),
                     current.workingDir(),
                     /* processPid */ null,
                     current.logPath(),
@@ -317,6 +324,15 @@ public class TaskService
                 log.warn("notification emit on ship-and-continue threw for thread {}: {}",
                         threadId, e.getMessage());
             }
+
+            // 8. Reap the shipped task's worktree + local branch.
+            //    The PR is on the remote; the local refs are an inert
+            //    cache from this point on. Done last and best-effort —
+            //    if the remove fails (concurrent rm -rf, locked file)
+            //    we've still completed the ship; the directory is a
+            //    disk leak the operator can clean up by hand or a
+            //    future orphan-sweep can pick up.
+            worktreeService.remove(workingDir, worktreePath.toString(), current.branchName());
 
             return next;
         }

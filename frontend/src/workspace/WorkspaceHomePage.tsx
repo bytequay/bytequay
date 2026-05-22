@@ -141,7 +141,15 @@ function WorkspaceHomePage({ onSelectSection, onNewThread, onOpenThread }: Props
                   >
                     <span style={statusDotStyle(t.status)} aria-hidden />
                     <div style={threadBodyStyle}>
-                      <div style={threadTitleStyle}>{t.title}</div>
+                      <div style={threadTitleRowStyle}>
+                        <div style={threadTitleStyle}>{t.title}</div>
+                        {needsAttention(t) && (
+                          <span
+                            style={attentionDotStyle}
+                            aria-label="needs attention"
+                          />
+                        )}
+                      </div>
                       <ThreadMetaLine task={t.activeTask} />
                     </div>
                     <div style={threadRightStyle}>
@@ -388,6 +396,15 @@ function taskStatusBoxStyle(status: string): React.CSSProperties {
 
 /* ── helpers ─────────────────────────────────────────────────── */
 
+/** A thread "needs attention" when something is parked at the publish
+ *  gate or otherwise waiting on the human — the small purple dot next
+ *  to the title is the at-a-glance signal. AWAITING on either the
+ *  thread or its active task counts; the rail's unread dot uses the
+ *  same predicate. */
+function needsAttention(t: ThreadDto): boolean {
+  return t.status === 'AWAITING' || t.activeTask?.status === 'AWAITING';
+}
+
 function isActiveThread(t: ThreadDto): boolean {
   // Non-terminal status set lines up with the backend's
   // findActiveTaskForThread filter (PENDING/RUNNING/AWAITING/IDLE).
@@ -503,12 +520,32 @@ const threadBodyStyle: React.CSSProperties = {
   fontSize: 13,
 };
 
+// Title sits next to an optional attention dot — flex row so the dot
+// stays put while the title clips with an ellipsis. min-width: 0 on
+// both is what unlocks the ellipsis inside a flex container.
+const threadTitleRowStyle: React.CSSProperties = {
+  display: 'flex',
+  alignItems: 'center',
+  gap: 6,
+  minWidth: 0,
+};
+
 const threadTitleStyle: React.CSSProperties = {
+  flex: 1,
+  minWidth: 0,
   fontWeight: 600,
   color: 'var(--ws-text-1)',
   overflow: 'hidden',
   textOverflow: 'ellipsis',
   whiteSpace: 'nowrap',
+};
+
+const attentionDotStyle: React.CSSProperties = {
+  width: 7,
+  height: 7,
+  borderRadius: 4,
+  background: 'var(--ws-accent)',
+  flexShrink: 0,
 };
 
 const threadMetaStyle: React.CSSProperties = {

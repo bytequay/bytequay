@@ -15,7 +15,9 @@ package com.bytequay.app.web;
 
 import com.bytequay.app.domain.Workspace;
 import com.bytequay.app.domain.WorkspaceRepo;
+import com.bytequay.app.service.workspaces.WorkspaceMemoryDistiller;
 import com.bytequay.app.service.workspaces.WorkspaceService;
+import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -40,10 +42,12 @@ import static java.util.Objects.requireNonNull;
 public class WorkspaceController
 {
     private final WorkspaceService workspaces;
+    private final WorkspaceMemoryDistiller distiller;
 
-    public WorkspaceController(WorkspaceService workspaces)
+    public WorkspaceController(WorkspaceService workspaces, WorkspaceMemoryDistiller distiller)
     {
         this.workspaces = requireNonNull(workspaces, "workspaces is null");
+        this.distiller = requireNonNull(distiller, "distiller is null");
     }
 
     @GetMapping
@@ -68,6 +72,21 @@ public class WorkspaceController
     public Workspace setMemory(@PathVariable String id, @RequestBody MemoryBody body)
     {
         return workspaces.setMemory(id, body.memoryMd() == null ? "" : body.memoryMd());
+    }
+
+    /** Force a fresh distillation pass of the workspace memory from
+     *  the active Thread Overalls. The scheduled job runs every 30
+     *  minutes; this endpoint is the "do it now" trigger users
+     *  reach for after configuring the Anthropic key or after a
+     *  heavy day's worth of thread activity. Returns 204 when there
+     *  was nothing to fold in (no Overalls yet, or the workspace
+     *  is scratch). */
+    @PostMapping("/{id}/memory/distill")
+    public ResponseEntity<Workspace> distillMemory(@PathVariable String id)
+    {
+        return distiller.distill(id)
+                .map(ResponseEntity::ok)
+                .orElseGet(() -> ResponseEntity.noContent().build());
     }
 
     @GetMapping("/{id}/repos")

@@ -78,6 +78,16 @@ public class CheckpointSummariser
             segments as background context and later segments as the current state. Do not \
             re-state every bullet from every segment; pick the load-bearing facts.""";
 
+    private static final String WORKSPACE_MEMORY_SYSTEM_PROMPT = """
+            You distil a workspace-wide memory note from (a) the current workspace memory and \
+            (b) summaries of recent threads. Produce a single Markdown blob of 400–800 words \
+            organised under H2 sections — "Architecture", "Active work", "Decisions", \
+            "Blockers" — that captures durable facts the user will want loaded into every \
+            future thread. Promote durable decisions and architecture from the thread \
+            summaries; demote or drop one-off task details. Keep the current memory's \
+            wording where it still holds; rewrite where threads contradict or supersede it. \
+            Do not greet, do not editorialise, do not include timestamps.""";
+
     private static final String ANTHROPIC_NAME = "anthropic";
 
     private final RestClient client;
@@ -114,6 +124,44 @@ public class CheckpointSummariser
         String rendered = renderForSummary(msgs);
         String user = "Segment of conversation to summarise:\n\n" + rendered;
         return callAnthropic(SEGMENT_SYSTEM_PROMPT, user);
+    }
+
+    /**
+     * Distil a workspace-wide memory blob from the current memory and a
+     * set of recent Thread Overall checkpoints. The result's
+     * {@link CheckpointSummaryResult#summaryMd} is the new
+     * {@code workspace.memory_md}; bullet titles / token counts come
+     * along for the audit log but the persistence layer only stores
+     * the markdown.
+     *
+     * <p>Caller is responsible for picking the corpus — typically all
+     * active Thread Overalls for the workspace, capped at a small
+     * number so the call stays cheap.
+     */
+    public CheckpointSummaryResult distilWorkspaceMemory(
+            String currentMemoryMd, List<ThreadCheckpoint> threadOveralls)
+    {
+        requireNonNull(threadOveralls, "threadOveralls is null");
+        StringBuilder sb = new StringBuilder();
+        sb.append("## Current workspace memory\n\n");
+        if (currentMemoryMd == null || currentMemoryMd.isBlank()) {
+            sb.append("(empty — this is the first distillation pass)\n\n");
+        }
+        else {
+            sb.append(currentMemoryMd).append("\n\n");
+        }
+        sb.append("## Recent thread Overalls\n\n");
+        if (threadOveralls.isEmpty()) {
+            sb.append("(no active thread Overalls)\n");
+        }
+        else {
+            for (ThreadCheckpoint cp : threadOveralls) {
+                sb.append("### thread ").append(cp.threadId()).append('\n')
+                        .append(cp.summaryMd())
+                        .append("\n\n");
+            }
+        }
+        return callAnthropic(WORKSPACE_MEMORY_SYSTEM_PROMPT, sb.toString().trim());
     }
 
     /**

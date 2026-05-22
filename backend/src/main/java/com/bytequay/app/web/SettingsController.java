@@ -16,6 +16,8 @@ package com.bytequay.app.web;
 import com.bytequay.app.domain.SyncSettings;
 import com.bytequay.app.scheduler.PullRequestSyncJob;
 import com.bytequay.app.service.SyncSettingsService;
+import com.bytequay.app.service.WorkspaceBehaviorService;
+import com.bytequay.app.service.WorkspaceBehaviorService.Settings;
 import org.springframework.http.HttpStatus;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -33,11 +35,30 @@ public class SettingsController
 {
     private final SyncSettingsService syncSettingsService;
     private final PullRequestSyncJob syncJob;
+    private final WorkspaceBehaviorService workspaceBehavior;
 
-    public SettingsController(SyncSettingsService syncSettingsService, PullRequestSyncJob syncJob)
+    public SettingsController(
+            SyncSettingsService syncSettingsService,
+            PullRequestSyncJob syncJob,
+            WorkspaceBehaviorService workspaceBehavior)
     {
         this.syncSettingsService = requireNonNull(syncSettingsService, "syncSettingsService is null");
         this.syncJob = requireNonNull(syncJob, "syncJob is null");
+        this.workspaceBehavior = requireNonNull(workspaceBehavior, "workspaceBehavior is null");
+    }
+
+    /** GET /api/settings/workspace-behavior */
+    @GetMapping("/workspace-behavior")
+    public Settings getWorkspaceBehavior()
+    {
+        return workspaceBehavior.get();
+    }
+
+    /** PUT /api/settings/workspace-behavior */
+    @PutMapping("/workspace-behavior")
+    public Settings updateWorkspaceBehavior(@RequestBody Settings body)
+    {
+        return workspaceBehavior.update(body);
     }
 
     /**

@@ -3054,6 +3054,31 @@ const url = new URL(`${BACKEND_BASE}/api/search/repos`);
     return res.json();
   });
 
+  ipcMain.handle('workspace:behavior:get', async () => {
+    const res = await fetch(`${BACKEND_BASE}/api/settings/workspace-behavior`);
+    if (!res.ok) {
+      const text = await res.text().catch(() => '');
+      throw new Error(`backend GET /api/settings/workspace-behavior returned ${res.status}: ${text}`);
+    }
+    return res.json();
+  });
+
+  ipcMain.handle('workspace:behavior:set', async (_event, body: unknown) => {
+    if (typeof body !== 'object' || body === null) {
+      throw new Error('workspace behavior settings must be an object');
+    }
+    const res = await fetch(`${BACKEND_BASE}/api/settings/workspace-behavior`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    if (!res.ok) {
+      const text = await res.text().catch(() => '');
+      throw new Error(`backend PUT /api/settings/workspace-behavior returned ${res.status}: ${text}`);
+    }
+    return res.json();
+  });
+
   ipcMain.handle('reviews:arbitrate', async (_event, args: unknown) => {
     if (typeof args !== 'object' || args === null) {
       throw new Error('reviews:arbitrate args must be an object');

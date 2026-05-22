@@ -41,6 +41,17 @@ public interface AppSettingsStore
          *  else (or missing) means disabled. Off by default so the
          *  app never silently burns LLM budget on a fresh install. */
         public static final String SCHEDULED_REVIEWS_ENABLED = "scheduled_reviews.enabled";
+
+        // Workspace Settings → Behavior toggles. Persistence only —
+        // enforcement (actually archiving idle threads, auto-proposing
+        // tasks, promoting decisions, nudging new topics) lands as
+        // each feature wires through to its consumer. Values stored
+        // as strings; sentinel "off" represents the "Never" arm of
+        // the archive cadence.
+        public static final String BEHAVIOR_ARCHIVE_IDLE_AFTER = "behavior.archive_idle_after";
+        public static final String BEHAVIOR_AUTO_PROPOSE_TASK = "behavior.auto_propose_task";
+        public static final String BEHAVIOR_AUTO_PROMOTE_DECISIONS = "behavior.auto_promote_decisions";
+        public static final String BEHAVIOR_NEW_TOPIC_NUDGE = "behavior.new_topic_nudge";
     }
 
     /**

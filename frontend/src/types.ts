@@ -1595,6 +1595,17 @@ export type ReviewPassDetailDto = {
  *  the backend WorkspaceMemoryProposal record. The banner inside
  *  WorkspaceMemoryPage renders the diff and the apply/discard
  *  buttons. */
+/** Workspace Settings → Behavior toggles. {@code archiveIdleAfter} is
+ *  one of {@code "1h" | "1d" | "1w" | "never"}; the booleans drive
+ *  the three feature toggles directly. Persistence only — each
+ *  consumer reads its own key when it makes a decision. */
+export type WorkspaceBehaviorDto = {
+  archiveIdleAfter: string;
+  autoProposeTask: boolean;
+  autoPromoteDecisions: boolean;
+  newTopicNudge: boolean;
+};
+
 export type WorkspaceMemoryProposalDto = {
   workspaceId: string;
   /** memory_md as it was when the proposal was generated — apply uses
@@ -2344,6 +2355,11 @@ export type Bridge = {
    *  it each tick so a flip takes effect on the next sweep without
    *  a restart. */
   setScheduledReviewSettings: (enabled: boolean) => Promise<{ enabled: boolean }>;
+  /** Read the Workspace Settings → Behavior toggles. Persistence
+   *  only — enforcement lands with each consumer (auto-archive
+   *  sweeper, propose-task hook, etc.). */
+  getWorkspaceBehavior: () => Promise<WorkspaceBehaviorDto>;
+  setWorkspaceBehavior: (settings: WorkspaceBehaviorDto) => Promise<WorkspaceBehaviorDto>;
   /** Resolve one DISPUTED finding via the arbitration ballot.
    *  {@code resolution} = "include" flips it to ARBITRATED;
    *  "drop" flips it to DROPPED. When no DISPUTED findings remain

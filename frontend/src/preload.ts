@@ -530,6 +530,14 @@ const bridge: Bridge = {
     ipcRenderer.invoke('reviews:scheduled:get'),
   setScheduledReviewSettings: (enabled: boolean) =>
     ipcRenderer.invoke('reviews:scheduled:set', enabled),
+  getWorkspaceBehavior: () =>
+    ipcRenderer.invoke('workspace:behavior:get'),
+  setWorkspaceBehavior: (settings: {
+    archiveIdleAfter: string;
+    autoProposeTask: boolean;
+    autoPromoteDecisions: boolean;
+    newTopicNudge: boolean;
+  }) => ipcRenderer.invoke('workspace:behavior:set', settings),
   setWorkspaceRepoAutoFix: (
     workspaceId: string, owner: string, repo: string, enabled: boolean,
   ): Promise<WorkspaceRepoDto> =>

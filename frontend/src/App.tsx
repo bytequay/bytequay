@@ -20,6 +20,7 @@ import TeamsManagePage from './teams/TeamsManagePage';
 import EmailPage from './email/EmailPage';
 import ThreadsPage from './threads/ThreadsPage';
 import ThreadCreatePage from './threads/ThreadCreatePage';
+import ReviewThreadPage from './review/ReviewThreadPage';
 import ThreadDetailPage from './threads/ThreadDetailPage';
 import type {
   StatusFilter as ThreadsStatusFilter,
@@ -53,6 +54,7 @@ type Nav =
   | { view: 'threads'; filter?: ThreadsStatusFilter; provider?: ThreadsProviderFilter; groupId?: string; repo?: ThreadsRepoFilter }
   | { view: 'thread-create'; initialGroupId?: string }
   | { view: 'thread-detail'; threadId: string }
+  | { view: 'review-thread'; threadId: string; back?: Nav }
   | { view: 'notifications' }
   | { view: 'repos' }
   | { view: 'repository'; owner: string; repo: string }
@@ -502,6 +504,12 @@ function App() {
             // calls this; we preserve the current repo nav as the
             // back target so closing the thread can return cleanly.
             onOpenThread={threadId => setNav({ view: 'thread-detail', threadId })}
+            // The AI panel-review button on a PR row routes the user
+            // to the new review thread; we preserve the repo nav as
+            // the back target so the user can return.
+            onStartReview={threadId => setNav({
+              view: 'review-thread', threadId, back: nav,
+            })}
           />
         )}
         {nav.view === 'email' && (
@@ -587,6 +595,12 @@ function App() {
         {nav.view === 'notifications' && (
           <NotificationsScreen
             onOpenThread={threadId => setNav({ view: 'thread-detail', threadId })}
+          />
+        )}
+        {nav.view === 'review-thread' && (
+          <ReviewThreadPage
+            threadId={nav.threadId}
+            onBack={() => setNav(nav.back ?? { view: 'home' })}
           />
         )}
         {nav.view === 'repos' && (

@@ -855,6 +855,11 @@ type Props = {
    *  or more threads have `linkedPrNumber === this.PR`. The header
    *  surfaces a small thread chip for each match. */
   onOpenThread?: (threadId: string) => void;
+  /** Open a new AI review-panel thread on this PR. The button manages
+   *  its own loading state because the kickoff is an LLM call (~10s);
+   *  the parent only owns navigation — receives the new thread id and
+   *  routes to the review page. Omit to hide the button. */
+  onStartReview?: (threadId: string) => void;
 };
 
 /** Polling interval for the focus-driven CI snapshot refresh. ~12s is a
@@ -867,7 +872,10 @@ const CI_POLL_INTERVAL_MS = 12_000;
 type ActionState = 'idle' | 'confirming' | 'running' | 'done' | 'error';
 
 
-function PullRequestPreview({ pr, onOpenReview, onInspectDiffs, onMarkHandled, onMerge, onBack, backLabel, onOpenLocalBranch, onOpenThread }: Props) {
+function PullRequestPreview({
+  pr, onOpenReview, onInspectDiffs, onMarkHandled, onMerge, onBack, backLabel,
+  onOpenLocalBranch, onOpenThread, onStartReview,
+}: Props) {
   // {owner, repo} for renderMarkdown — pr.repo is GitHub's "owner/repo"
   // form. Used so `#N` references in the PR body / comments become
   // clickable in-app via App.tsx's global click delegate.
@@ -882,6 +890,11 @@ function PullRequestPreview({ pr, onOpenReview, onInspectDiffs, onMarkHandled, o
 
   const [handledState, setHandledState] = useState<ActionState>('idle');
   const [handledError, setHandledError] = useState<string | null>(null);
+  // The "Start review-panel" button is async (kickoff calls the LLM);
+  // local state surfaces loading + error inline so the parent doesn't
+  // have to plumb a global loader for one PR-preview button.
+  const [reviewStarting, setReviewStarting] = useState(false);
+  const [reviewError, setReviewError] = useState<string | null>(null);
   const [sideWidth, setSideWidth] = useState<number>(loadSideWidth);
   // Collapse the right meta sidebar to a thin rail with just an
   // expand affordance. Lets the timeline column claim the full width
@@ -2097,7 +2110,34 @@ function PullRequestPreview({ pr, onOpenReview, onInspectDiffs, onMarkHandled, o
                   // formatShortSha(.slice).
                   <button type="button" className="prc-meta-link-btn" onClick={() => onInspectDiffs?.()}>View diff →</button>
                 )}
+                {onStartReview && (
+                  <button
+                    type="button"
+                    className="prc-meta-link-btn"
+                    disabled={reviewStarting}
+                    onClick={async () => {
+                      if (reviewStarting) return;
+                      setReviewStarting(true);
+                      setReviewError(null);
+                      try {
+                        const result = await window.bridge.startReview(pr.repo, pr.number);
+                        onStartReview(result.pass.threadId);
+                      }
+                      catch (e) {
+                        setReviewError(e instanceof Error ? e.message : String(e));
+                      }
+                      finally {
+                        setReviewStarting(false);
+                      }
+                    }}
+                  >
+                    {reviewStarting ? 'Starting…' : 'AI panel review →'}
+                  </button>
+                )}
               </div>
+              {reviewError !== null && (
+                <div className="prc-meta-error" role="alert">{reviewError}</div>
+              )}
               <div className="prc-stat-line">
                 <span>{detail.files.length} file{detail.files.length === 1 ? '' : 's'}</span>
                 <span className="prc-stat-num">

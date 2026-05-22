@@ -2978,6 +2978,57 @@ const url = new URL(`${BACKEND_BASE}/api/search/repos`);
     }
   });
 
+  ipcMain.handle('reviews:start', async (_event, args: unknown) => {
+    if (typeof args !== 'object' || args === null) {
+      throw new Error('reviews:start args must be an object');
+    }
+    const a = args as { repoFullName?: unknown; prNumber?: unknown };
+    if (typeof a.repoFullName !== 'string' || a.repoFullName.trim().length === 0) {
+      throw new Error('repoFullName must be a non-empty string');
+    }
+    if (typeof a.prNumber !== 'number' || !Number.isInteger(a.prNumber) || a.prNumber <= 0) {
+      throw new Error('prNumber must be a positive integer');
+    }
+    const res = await fetch(`${BACKEND_BASE}/api/reviews/start`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ repoFullName: a.repoFullName, prNumber: a.prNumber }),
+    });
+    if (!res.ok) {
+      const text = await res.text().catch(() => '');
+      throw new Error(`backend POST /api/reviews/start returned ${res.status}: ${text}`);
+    }
+    return res.json();
+  });
+
+  ipcMain.handle('reviews:get', async (_event, passId: unknown) => {
+    if (typeof passId !== 'string' || passId.trim().length === 0) {
+      throw new Error('passId must be a non-empty string');
+    }
+    const res = await fetch(
+      `${BACKEND_BASE}/api/reviews/${encodeURIComponent(passId)}`);
+    if (res.status === 404) return null;
+    if (!res.ok) {
+      const text = await res.text().catch(() => '');
+      throw new Error(`backend GET /api/reviews/${passId} returned ${res.status}: ${text}`);
+    }
+    return res.json();
+  });
+
+  ipcMain.handle('reviews:byThread', async (_event, threadId: unknown) => {
+    if (typeof threadId !== 'string' || threadId.trim().length === 0) {
+      throw new Error('threadId must be a non-empty string');
+    }
+    const res = await fetch(
+      `${BACKEND_BASE}/api/reviews/by-thread/${encodeURIComponent(threadId)}`);
+    if (res.status === 404) return null;
+    if (!res.ok) {
+      const text = await res.text().catch(() => '');
+      throw new Error(`backend GET /api/reviews/by-thread/${threadId} returned ${res.status}: ${text}`);
+    }
+    return res.json();
+  });
+
   ipcMain.handle('workspaces:repos:list', async (_event, workspaceId: unknown) => {
     if (typeof workspaceId !== 'string' || workspaceId.trim().length === 0) {
       throw new Error('workspaceId must be a non-empty string');

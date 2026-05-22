@@ -515,6 +515,13 @@ const bridge: Bridge = {
     ipcRenderer.invoke('workspaces:memory:proposal:apply', workspaceId),
   discardWorkspaceMemoryProposal: (workspaceId: string): Promise<void> =>
     ipcRenderer.invoke('workspaces:memory:proposal:discard', workspaceId),
+
+  startReview: (repoFullName: string, prNumber: number) =>
+    ipcRenderer.invoke('reviews:start', { repoFullName, prNumber }),
+  getReviewPass: (passId: string) =>
+    ipcRenderer.invoke('reviews:get', passId),
+  getReviewPassByThread: (threadId: string) =>
+    ipcRenderer.invoke('reviews:byThread', threadId),
   setWorkspaceRepoAutoFix: (
     workspaceId: string, owner: string, repo: string, enabled: boolean,
   ): Promise<WorkspaceRepoDto> =>

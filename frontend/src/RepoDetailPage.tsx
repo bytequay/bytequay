@@ -90,6 +90,10 @@ type Props = {
    *  chip for every thread whose `linkedPrNumber` matches the PR; the
    *  click dispatches up to the app shell to flip nav. */
   onOpenThread?: (threadId: string) => void;
+  /** Forwarded to PullRequestPreview's "AI panel review" button; the
+   *  app shell routes the returned threadId into the review-thread
+   *  page. */
+  onStartReview?: (threadId: string) => void;
 };
 
 /** Right-pane placeholder shown while a deep-link's PR fetch is in
@@ -111,7 +115,7 @@ function DeepLinkLoading({ owner, repo, number }: { owner: string; repo: string;
   );
 }
 
-function RepoDetailPage({ owner, repo, initialPrNumber, initialTab, initialDiffCommitSha, onOpenLocalBranch, onOpenThread }: Props) {
+function RepoDetailPage({ owner, repo, initialPrNumber, initialTab, initialDiffCommitSha, onOpenLocalBranch, onOpenThread, onStartReview }: Props) {
   const [tab, setTab] = useState<Tab>(initialTab ?? 'pulls');
   const [bucket, setBucket] = useState<Bucket>('inbox');
   const [scope, setScope] = useState<Scope>('mine');
@@ -757,6 +761,7 @@ function RepoDetailPage({ owner, repo, initialPrNumber, initialTab, initialDiffC
             onMerge={handleMerge}
             onOpenLocalBranch={onOpenLocalBranch}
             onOpenThread={onOpenThread}
+            onStartReview={onStartReview}
           />
         ) : deepLinkPending && initialPrNumber != null ? (
           <DeepLinkLoading owner={owner} repo={repo} number={initialPrNumber} />

@@ -1498,6 +1498,98 @@ export type NotificationKindDto =
 
 export type NotificationStatusDto = 'UNREAD' | 'READ' | 'DISMISSED';
 
+/** Phase of a {@link ReviewPassDto} — mirrors the backend
+ *  ReviewPhase enum. Phase 1 walks KICKOFF → INDEPENDENT →
+ *  TERMINATE; the cross-review / consensus / debate / arbitrate
+ *  values are reserved for the multi-reviewer commits. */
+export type ReviewPhaseDto =
+  | 'KICKOFF'
+  | 'INDEPENDENT'
+  | 'CROSS_REVIEW'
+  | 'CONSENSUS'
+  | 'DEBATE'
+  | 'TERMINATE'
+  | 'ARBITRATE'
+  | 'PUBLISHED';
+
+export type ReviewParticipantKindDto = 'MODERATOR' | 'REVIEWER' | 'HUMAN';
+export type ReviewFindingSeverityDto = 'BLOCKER' | 'MAJOR' | 'NIT' | 'QUESTION';
+export type ReviewFindingStatusDto =
+  | 'AGREED' | 'DISPUTED' | 'RESOLVED' | 'ARBITRATED' | 'DROPPED' | 'POSTED';
+export type ReviewVerdictDto = 'APPROVE' | 'REQUEST_CHANGES' | 'COMMENT';
+
+export type ReviewPassDto = {
+  id: string;
+  threadId: string;
+  repoFullName: string;
+  prNumber: number;
+  /** Commit reviewed; null while the kickoff fetch is in flight. */
+  headSha: string | null;
+  phase: ReviewPhaseDto;
+  round: number;
+  roundCap: number;
+  costCapMilli: number;
+  costUsdMilli: number;
+  /** Suggested verdict; null until the moderator finishes. */
+  verdict: ReviewVerdictDto | null;
+  createdAt: string;
+  endedAt: string | null;
+};
+
+export type ReviewParticipantDto = {
+  id: string;
+  reviewPassId: string;
+  kind: ReviewParticipantKindDto;
+  /** Backing AI credential id for reviewer rows; null for moderator + human. */
+  credentialId: string | null;
+  personaLabel: string;
+  model: string | null;
+  color: string | null;
+  createdAt: string;
+};
+
+/** Named with the {@code Panel} prefix to disambiguate from the
+ *  legacy {@link ReviewMessageDto} that models GitHub PR review-
+ *  thread comments — different concept entirely. */
+export type ReviewPanelMessageDto = {
+  id: string;
+  reviewPassId: string;
+  participantId: string;
+  phase: ReviewPhaseDto;
+  round: number;
+  body: string;
+  /** Participant ids this message addresses; empty array when broadcast. */
+  mentions: string[];
+  /** Message ids quoted via #ref; empty when none. */
+  refs: string[];
+  costUsdMilli: number;
+  createdAt: string;
+};
+
+export type ReviewFindingDto = {
+  id: string;
+  reviewPassId: string;
+  /** File the finding anchors to; null for whole-PR notes. */
+  path: string | null;
+  /** Line number; null for whole-file findings or whole-PR notes. */
+  line: number | null;
+  severity: ReviewFindingSeverityDto;
+  status: ReviewFindingStatusDto;
+  body: string;
+  resolution: string | null;
+  postedCommentId: string | null;
+  createdAt: string;
+};
+
+/** Aggregated panel state — what the controller hands back to the
+ *  page in one round-trip. */
+export type ReviewPassDetailDto = {
+  pass: ReviewPassDto;
+  participants: ReviewParticipantDto[];
+  messages: ReviewPanelMessageDto[];
+  findings: ReviewFindingDto[];
+};
+
 /** A pending workspace-memory edit the Haiku distiller wants the
  *  user to approve before {@code memory_md} actually changes. Mirrors
  *  the backend WorkspaceMemoryProposal record. The banner inside
@@ -2235,6 +2327,17 @@ export type Bridge = {
   applyWorkspaceMemoryProposal: (workspaceId: string) => Promise<WorkspaceDto>;
   /** Drop the pending proposal without writing anything. */
   discardWorkspaceMemoryProposal: (workspaceId: string) => Promise<void>;
+
+  /** Kick off a new single-reviewer review pass against {@code prNumber}
+   *  in {@code repoFullName}. Creates a {@code flow=REVIEW} thread,
+   *  runs the active LLM reviewer synchronously, and returns the
+   *  populated panel state. */
+  startReview: (repoFullName: string, prNumber: number) => Promise<ReviewPassDetailDto>;
+  /** Read a review pass by id with the full transcript + findings. */
+  getReviewPass: (passId: string) => Promise<ReviewPassDetailDto | null>;
+  /** Read the latest pass on a review thread — the URL the panel UI
+   *  lives on uses the thread id, this resolves the pass for it. */
+  getReviewPassByThread: (threadId: string) => Promise<ReviewPassDetailDto | null>;
   /** Flip the headless auto-fix opt-in for one repo. Off by default
    *  per CLAUDE.md; only when this is explicitly true does the
    *  automation coordinator queue a headless turn against a failing-

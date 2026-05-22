@@ -572,9 +572,13 @@ class TestThreadServiceScheduler
                 new WorktreeService.WorktreeHandle(
                         Path.of("/tmp/repo/.worktrees/task-1"),
                         "dev/task-1")));
+        // Use the recording task store + a store wrapper so the
+        // active-task projection actually populates on read-back.
+        InMemoryRecordingTaskStore tasks = new InMemoryRecordingTaskStore();
+        ProjectingThreadStore projecting = new ProjectingThreadStore(store, tasks);
         ThreadService service = new ThreadService(
-                store,
-                new StubTaskStore(),
+                projecting,
+                tasks,
                 new EmptyTaskGroupStore(),
                 new InMemoryTaskTurnStore(),
                 new InMemoryTaskTurnEventStore(),
@@ -599,14 +603,15 @@ class TestThreadServiceScheduler
                 /* linkedIssueNumber */ null,
                 /* flow */ null));
 
-        assertThat(thread.worktreePath()).isEqualTo("/tmp/repo/.worktrees/task-1");
-        // branchName now carries the worktree's dev branch (V72
-        // collapsed localBranch into branchName).
-        assertThat(thread.branchName()).isEqualTo("dev/task-1");
-        assertThat(thread.agentCwd()).isEqualTo(thread.worktreePath());
+        // Per-task fields live on the active task projection now;
+        // Thread.agentCwd() delegates to it.
+        assertThat(thread.activeTask()).isNotNull();
+        assertThat(thread.activeTask().worktreePath()).isEqualTo("/tmp/repo/.worktrees/task-1");
+        assertThat(thread.activeTask().branchName()).isEqualTo("dev/task-1");
+        assertThat(thread.agentCwd()).isEqualTo(thread.activeTask().worktreePath());
         assertThat(scheduler.requests)
                 .extracting(request -> request.thread().agentCwd())
-                .containsExactly(thread.worktreePath());
+                .containsExactly(thread.activeTask().worktreePath());
         // WorktreeService is now keyed by task-id (per the model doc:
         // <repo>/.worktrees/<task-id>/), not thread-id. The exact id is
         // generated inside ThreadService, so we just check the call's
@@ -624,10 +629,22 @@ class TestThreadServiceScheduler
         Thread thread = threadWithWorktree("thread-1");
         InMemoryTaskStore store = new InMemoryTaskStore();
         store.saveThread(thread);
+        // Seed an active task with the worktree path the test expects
+        // to be pruned. After the bridge teardown the delete path
+        // reads the worktree off thread.activeTask() rather than off
+        // a flattened Thread scalar.
+        SingleTaskStore tasks = new SingleTaskStore(new Task(
+                "task-1", thread.id(), 1L, TaskStatus.IDLE,
+                "dev/thread-1",
+                "/tmp/work/.bytequay/worktrees/dev/thread-1",
+                "main", "/tmp/work",
+                null, null, null, null, null, "DEVELOP", null, null,
+                0L, 0L, 0L, null, null,
+                Instant.parse("2026-05-18T12:00:00Z"), null, null));
         RecordingWorktreeService worktrees = new RecordingWorktreeService(Optional.empty());
         ThreadService service = new ThreadService(
                 store,
-                new StubTaskStore(),
+                tasks,
                 new EmptyTaskGroupStore(),
                 new InMemoryTaskTurnStore(),
                 new InMemoryTaskTurnEventStore(),
@@ -641,9 +658,9 @@ class TestThreadServiceScheduler
         service.delete(thread.id());
 
         assertThat(worktrees.removeRequests).containsExactly(new WorktreeRemoveRequest(
-                Path.of(thread.workingDir()),
-                thread.worktreePath(),
-                thread.branchName()));
+                Path.of("/tmp/work"),
+                "/tmp/work/.bytequay/worktrees/dev/thread-1",
+                "dev/thread-1"));
         assertThat(store.findThreadById(thread.id())).isEmpty();
     }
 
@@ -653,10 +670,21 @@ class TestThreadServiceScheduler
         Thread thread = threadWithWorktree("thread-1");
         InMemoryTaskStore store = new InMemoryTaskStore();
         store.saveThread(thread);
+        // Per-task fields live on the active task projection; seed
+        // one so service.X(threadId) can resolve a real agentCwd.
+        Task active = new Task(
+                "task-1", thread.id(), 1L, TaskStatus.IDLE,
+                "dev/thread-1",
+                "/tmp/work/.bytequay/worktrees/dev/thread-1",
+                "main", "/tmp/work",
+                null, null, null, null, null, "DEVELOP", null, null,
+                0L, 0L, 0L, null, null,
+                Instant.parse("2026-05-18T12:00:00Z"), null, null);
+        SingleTaskStore tasks = new SingleTaskStore(active);
         RecordingGitRunner git = new RecordingGitRunner();
         ThreadService service = new ThreadService(
                 store,
-                new StubTaskStore(),
+                tasks,
                 new EmptyTaskGroupStore(),
                 new InMemoryTaskTurnStore(),
                 new InMemoryTaskTurnEventStore(),
@@ -673,7 +701,7 @@ class TestThreadServiceScheduler
         service.listCommitFiles(thread.id(), "abc123");
         service.getCommitDiff(thread.id(), "abc123", "src/App.java");
 
-        Path expected = Path.of(thread.agentCwd());
+        Path expected = Path.of(active.agentCwd());
         assertThat(git.workingTreeFilesPaths).containsExactly(expected);
         assertThat(git.workingTreeDiffPaths).containsExactly(expected);
         assertThat(git.listCommitsSincePaths).containsExactly(expected);
@@ -1099,6 +1127,115 @@ class TestThreadServiceScheduler
         @Override public List<TaskFile> listFiles(String taskId) { return List.of(); }
     }
 
+    /** TaskStore that records saveTask calls and surfaces them back
+     *  through the standard query API. Tests that exercise the create
+     *  flow need this so the active-task projection lands on the
+     *  Thread record read back from the store. */
+    private static final class InMemoryRecordingTaskStore
+            implements TaskStore
+    {
+        final Map<String, Task> byId = new LinkedHashMap<>();
+
+        @Override public void saveTask(Task task) { byId.put(task.id(), task); }
+        @Override public Optional<Task> findTaskById(String id) {
+            return Optional.ofNullable(byId.get(id));
+        }
+        @Override public void deleteTask(String id) { byId.remove(id); }
+        @Override public List<Task> listTasksByThread(String threadId) {
+            return byId.values().stream().filter(t -> t.threadId().equals(threadId)).toList();
+        }
+        @Override public Optional<Task> findActiveTaskForThread(String threadId) {
+            return byId.values().stream()
+                    .filter(t -> t.threadId().equals(threadId))
+                    .max(Comparator.comparingLong(Task::seq));
+        }
+        @Override public Optional<Long> maxSeqForThread(String threadId) {
+            return findActiveTaskForThread(threadId).map(Task::seq);
+        }
+        @Override public List<Task> listByStatus(TaskStatus status, int limit) { return List.of(); }
+        @Override public List<Task> listWithLinkedPr(int limit) { return List.of(); }
+        @Override public void recordFile(TaskFile file) {}
+        @Override public List<TaskFile> listFiles(String taskId) { return List.of(); }
+    }
+
+    /** ThreadStore wrapper that projects the active task onto each
+     *  read, mirroring what SqliteThreadStore does in production.
+     *  Lets the create-flow tests assert on thread.activeTask(). */
+    private static final class ProjectingThreadStore
+            implements ThreadStore
+    {
+        private final ThreadStore inner;
+        private final TaskStore tasks;
+
+        ProjectingThreadStore(ThreadStore inner, TaskStore tasks)
+        {
+            this.inner = inner;
+            this.tasks = tasks;
+        }
+
+        @Override public void saveThread(Thread thread) { inner.saveThread(thread); }
+        @Override public Optional<Thread> findThreadById(String id) {
+            return inner.findThreadById(id).map(this::withActiveTask);
+        }
+        @Override public List<Thread> listTasksByStatus(ThreadStatus status, int limit) {
+            return inner.listTasksByStatus(status, limit).stream().map(this::withActiveTask).toList();
+        }
+        @Override public List<Thread> listTasksByIds(Collection<String> ids) {
+            return inner.listTasksByIds(ids).stream().map(this::withActiveTask).toList();
+        }
+        @Override public void deleteThread(String threadId) { inner.deleteThread(threadId); }
+        @Override public void appendMessage(ThreadMessage message) { inner.appendMessage(message); }
+        @Override public List<ThreadMessage> listMessages(String threadId) {
+            return inner.listMessages(threadId);
+        }
+        @Override public void recordFile(ThreadFile file) { inner.recordFile(file); }
+        @Override public List<ThreadFile> listFiles(String threadId) { return inner.listFiles(threadId); }
+
+        private Thread withActiveTask(Thread t)
+        {
+            Task active = tasks.findActiveTaskForThread(t.id()).orElse(null);
+            if (active == t.activeTask()) {
+                return t;
+            }
+            return new Thread(
+                    t.id(), t.kind(), t.provider(), t.agentSessionId(),
+                    t.title(), t.status(), t.model(),
+                    t.costUsdMilli(), t.tokensIn(), t.tokensOut(),
+                    t.createdAt(), t.updatedAt(), t.endedAt(), t.errorMessage(),
+                    t.flow(), active);
+        }
+    }
+
+    /** TaskStore that holds exactly one seeded task. The bridge
+     *  teardown moved per-task fields off Thread, so tests that need
+     *  thread.activeTask() to be non-null seed via this helper. */
+    private static final class SingleTaskStore
+            implements TaskStore
+    {
+        private final Task task;
+
+        SingleTaskStore(Task task) { this.task = task; }
+
+        @Override public void saveTask(Task t) {}
+        @Override public Optional<Task> findTaskById(String id) {
+            return task.id().equals(id) ? Optional.of(task) : Optional.empty();
+        }
+        @Override public void deleteTask(String id) {}
+        @Override public List<Task> listTasksByThread(String threadId) {
+            return task.threadId().equals(threadId) ? List.of(task) : List.of();
+        }
+        @Override public Optional<Task> findActiveTaskForThread(String threadId) {
+            return task.threadId().equals(threadId) ? Optional.of(task) : Optional.empty();
+        }
+        @Override public Optional<Long> maxSeqForThread(String threadId) {
+            return task.threadId().equals(threadId) ? Optional.of(task.seq()) : Optional.empty();
+        }
+        @Override public List<Task> listByStatus(TaskStatus status, int limit) { return List.of(); }
+        @Override public List<Task> listWithLinkedPr(int limit) { return List.of(); }
+        @Override public void recordFile(TaskFile file) {}
+        @Override public List<TaskFile> listFiles(String taskId) { return List.of(); }
+    }
+
     private static final class InMemoryTaskStore
             implements ThreadStore
     {
@@ -1328,8 +1465,6 @@ class TestThreadServiceScheduler
                 /* agentSessionId */ null,
                 "Fix tests",
                 status,
-                "/tmp/work",
-                "main",
                 "claude-sonnet-4.6",
                 /* costUsdMilli */ 0L,
                 /* tokensIn */ 0L,
@@ -1338,7 +1473,6 @@ class TestThreadServiceScheduler
                 now,
                 /* endedAt */ null,
                 /* errorMessage */ null,
-                /* worktreePath */ null,
                 ThreadFlow.BUILD,
                 /* activeTask */ null);
     }
@@ -1353,8 +1487,6 @@ class TestThreadServiceScheduler
                 /* agentSessionId */ null,
                 "Fix tests",
                 ThreadStatus.COMPLETED,
-                "/tmp/work",
-                "main",
                 "claude-sonnet-4.6",
                 /* costUsdMilli */ 0L,
                 /* tokensIn */ 0L,
@@ -1363,7 +1495,6 @@ class TestThreadServiceScheduler
                 now,
                 /* endedAt */ now,
                 /* errorMessage */ null,
-                "/tmp/work/.bytequay/worktrees/dev/thread-1",
                 ThreadFlow.BUILD,
                 /* activeTask */ null);
     }

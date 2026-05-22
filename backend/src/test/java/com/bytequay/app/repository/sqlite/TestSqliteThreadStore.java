@@ -13,12 +13,15 @@
  */
 package com.bytequay.app.repository.sqlite;
 
+import com.bytequay.app.domain.Task;
+import com.bytequay.app.domain.TaskStatus;
 import com.bytequay.app.domain.Thread;
 import com.bytequay.app.domain.ThreadFile;
 import com.bytequay.app.domain.ThreadFlow;
 import com.bytequay.app.domain.ThreadKind;
 import com.bytequay.app.domain.ThreadMessage;
 import com.bytequay.app.domain.ThreadStatus;
+import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.repository.ThreadStore;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -47,6 +50,8 @@ class TestSqliteThreadStore
 {
     @Autowired
     private ThreadStore store;
+    @Autowired
+    private TaskStore taskStore;
 
     @Test
     void roundtripsACliAgentTask()
@@ -81,12 +86,11 @@ class TestSqliteThreadStore
 
         Thread updated = new Thread(
                 initial.id(), initial.kind(), initial.provider(), "agent-session-abc",
-                initial.title(), ThreadStatus.AWAITING, initial.workingDir(),
-                initial.branchName(), initial.model(),
+                initial.title(), ThreadStatus.AWAITING,
+                initial.model(),
                 /* costUsdMilli */ 12_345L, /* tokensIn */ 1_000L, /* tokensOut */ 2_000L,
                 initial.createdAt(), Instant.parse("2026-05-15T13:00:00Z"),
                 /* endedAt */ null, /* errorMessage */ null,
-                initial.worktreePath(),
                 initial.flow(),
                 initial.activeTask());
         store.saveThread(updated);
@@ -112,12 +116,11 @@ class TestSqliteThreadStore
         // until the domain field landed.
         Thread flipped = new Thread(
                 original.id(), original.kind(), original.provider(), original.agentSessionId(),
-                original.title(), original.status(), original.workingDir(), original.branchName(),
+                original.title(), original.status(),
                 original.model(),
                 original.costUsdMilli(), original.tokensIn(), original.tokensOut(),
                 original.createdAt(), original.updatedAt(),
                 original.endedAt(), original.errorMessage(),
-                original.worktreePath(),
                 ThreadFlow.REVIEW,
                 original.activeTask());
         assertThatThrownBy(() -> store.saveThread(flipped))
@@ -181,6 +184,15 @@ class TestSqliteThreadStore
     {
         Thread thread = newTask(ThreadKind.LOGIC_LOOP, ThreadStatus.RUNNING);
         store.saveThread(thread);
+        // recordFile / listFiles delegate to the active task (V72
+        // moved the file ledger off threads). Seed a task explicitly
+        // since saveThread no longer auto-materialises one.
+        Instant taskCreated = Instant.parse("2026-05-15T12:00:00Z");
+        taskStore.saveTask(new Task(
+                UUID.randomUUID().toString(), thread.id(), 1L, TaskStatus.RUNNING,
+                "main", null, "main", "/tmp",
+                null, null, null, null, null, "DEVELOP", null, null,
+                0L, 0L, 0L, null, null, taskCreated, null, null));
 
         Instant first = Instant.parse("2026-05-15T12:00:00Z");
         Instant second = Instant.parse("2026-05-15T12:05:00Z");
@@ -209,8 +221,6 @@ class TestSqliteThreadStore
                 /* agentSessionId */ null,
                 "Build daily standup feature",
                 status,
-                "/Users/jack.chen/IdeaProjects/bytequay",
-                /* branchName */ "main",
                 "claude-sonnet-4.6",
                 /* costUsdMilli */ 0L,
                 /* tokensIn */ 0L,
@@ -219,7 +229,6 @@ class TestSqliteThreadStore
                 now,
                 /* endedAt */ null,
                 /* errorMessage */ null,
-                /* worktreePath */ null,
                 ThreadFlow.BUILD,
                 /* activeTask */ null);
     }
@@ -228,11 +237,10 @@ class TestSqliteThreadStore
     {
         return new Thread(
                 source.id(), source.kind(), source.provider(), source.agentSessionId(),
-                source.title(), source.status(), source.workingDir(), source.branchName(),
+                source.title(), source.status(),
                 source.model(), source.costUsdMilli(), source.tokensIn(), source.tokensOut(),
                 created, updated,
                 source.endedAt(), source.errorMessage(),
-                source.worktreePath(),
                 source.flow(),
                 source.activeTask());
     }

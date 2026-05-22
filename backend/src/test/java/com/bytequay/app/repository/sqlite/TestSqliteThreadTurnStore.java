@@ -127,8 +127,6 @@ class TestSqliteThreadTurnStore
                 /* agentSessionId */ null,
                 "Turn store test thread",
                 ThreadStatus.IDLE,
-                "/tmp",
-                "main",
                 "claude-sonnet-4.6",
                 0L,
                 0L,
@@ -137,7 +135,6 @@ class TestSqliteThreadTurnStore
                 now,
                 /* endedAt */ null,
                 /* errorMessage */ null,
-                /* worktreePath */ null,
                 ThreadFlow.BUILD,
                 /* activeTask */ null));
         return threadId;

@@ -281,7 +281,7 @@ export default function ThreadDetailPage({
    *  rooted under the watched repo resolve correctly. */
   const resolveTaskRepo = useCallback(
     (t: ThreadDto): { owner: string; repo: string } | null => {
-      const segments = (t.workingDir ?? '').split('/').filter(Boolean).map(s => s.toLowerCase());
+      const segments = (t.activeTask?.workingDir ?? '').split('/').filter(Boolean).map((s: string) => s.toLowerCase());
       if (segments.length === 0) return null;
       for (const wr of watchedRepos) {
         if (segments.includes(wr.repo.toLowerCase())) {
@@ -1014,7 +1014,7 @@ function StructuredView({
             />
           </div>
           <div style={twHeaderMetaStyle}>
-            <RepoAvatar workingDir={thread.workingDir} size={14} />
+            <RepoAvatar workingDir={thread.activeTask?.workingDir ?? ''} size={14} />
             {agentCwd && (
               <span style={twHeaderRepoStyle} title={agentCwd}>{shortenPath(agentCwd)}</span>
             )}

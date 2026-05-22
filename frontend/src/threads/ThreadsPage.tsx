@@ -213,7 +213,7 @@ export default function ThreadsPage({
    *  <branch>` so the basename-only `repoKey()` helper isn't enough;
    *  here we walk every path segment looking for a match. */
   const resolveTaskRepo = useCallback((thread: ThreadDto): { owner: string; repo: string } | null => {
-    const segments = (thread.workingDir ?? '').split('/').filter(Boolean).map(s => s.toLowerCase());
+    const segments = (thread.activeTask?.workingDir ?? '').split('/').filter(Boolean).map((s: string) => s.toLowerCase());
     if (segments.length === 0) return null;
     for (const wr of watchedRepos) {
       if (segments.includes(wr.repo.toLowerCase())) {
@@ -226,7 +226,7 @@ export default function ThreadsPage({
   const onTileOpenPr = useCallback((thread: ThreadDto, prNumber: number) => {
     const ctx = resolveTaskRepo(thread);
     if (ctx === null) {
-      setError(`Couldn't resolve owner/repo for thread in ${thread.workingDir}. Add the repo under Settings → Watched repos.`);
+      setError(`Couldn't resolve owner/repo for thread in ${thread.activeTask?.workingDir ?? '(no working dir)'}. Add the repo under Settings → Watched repos.`);
       return;
     }
     onOpenPr(ctx.owner, ctx.repo, prNumber);
@@ -235,7 +235,7 @@ export default function ThreadsPage({
   const onTileOpenIssue = useCallback((thread: ThreadDto, _issueNumber: number) => {
     const ctx = resolveTaskRepo(thread);
     if (ctx === null) {
-      setError(`Couldn't resolve owner/repo for thread in ${thread.workingDir}. Add the repo under Settings → Watched repos.`);
+      setError(`Couldn't resolve owner/repo for thread in ${thread.activeTask?.workingDir ?? '(no working dir)'}. Add the repo under Settings → Watched repos.`);
       return;
     }
     void _issueNumber; // no deep-link route per issue yet — land on the list
@@ -340,7 +340,7 @@ export default function ThreadsPage({
       }
       if (provider && (t.provider || '').toLowerCase() !== provider) return false;
       if (groupId && !(groupIdsByTaskId.get(t.id) ?? []).includes(groupId)) return false;
-      if (repo && repoKey(t.workingDir) !== repo) return false;
+      if (repo && repoKey(t.activeTask?.workingDir ?? '') !== repo) return false;
       return true;
     });
   }, [threads, filter, provider, groupId, repo, groupIdsByTaskId, activeTurnsByThreadId, autoThreadIds]);
@@ -780,7 +780,7 @@ function ThreadCard({ thread, scheduler, groups, currentGroupIds, busy, hasUnrea
   onToggleGroup: (threadId: string, groupId: string, present: boolean) => void | Promise<void>;
 }) {
   const isTerminal = thread.status === 'COMPLETED' || thread.status === 'ERRORED';
-  const repoName = repoKey(thread.workingDir);
+  const repoName = repoKey(thread.activeTask?.workingDir ?? '');
   const provider = (thread.provider || '').toLowerCase();
   const glyph = provider.startsWith('codex') ? 'X' : 'C';
   const glyphBg = glyph === 'X'

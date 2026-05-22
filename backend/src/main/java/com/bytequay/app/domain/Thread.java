@@ -20,17 +20,15 @@ import java.time.Instant;
  * top-level record for an AI coding thread. Lifecycle, ownership of the
  * agent loop, persistent metadata.
  *
- * <p><b>Bridge fields.</b> V72 moved the work-unit columns
- * ({@code working_dir}, {@code branch_name}, {@code worktree_path})
- * out of {@code threads} and onto {@code tasks}. Until callers
- * migrate to reading the active task directly through {@link
- * com.bytequay.app.repository.TaskStore},
- * {@link com.bytequay.app.repository.sqlite.SqliteThreadStore#toThread}
- * still synthesises those fields from the thread's active task
- * row. Treat them as a temporary read projection; new code should
- * read off {@link #activeTask} (also populated by the same
- * projection) instead of the flattened scalars. The bridge is
- * being torn down field by field in follow-up commits.
+ * <p>Bridge teardown complete: the work-unit columns that V72
+ * moved onto {@code tasks} ({@code working_dir}, {@code branch_name},
+ * {@code worktree_path}, {@code process_pid}, {@code log_path},
+ * {@code task_type}, {@code linked_pr_number},
+ * {@code linked_issue_number}, {@code metadata_json}) are no longer
+ * surfaced as flattened scalars on Thread. Readers go through
+ * {@link #activeTask} (a projected {@link Task}) for those, or
+ * through {@link com.bytequay.app.repository.TaskStore} directly
+ * when they need more than the active task.
  *
  * <p>Several fields are conditional on {@link #kind}:
  * <ul>
@@ -39,28 +37,21 @@ import java.time.Instant;
  *       is alive, and {@code null} for {@link ThreadKind#LOGIC_LOOP}.
  *       Per-process diagnostics ({@code process_pid}, {@code log_path})
  *       live on the active {@code tasks} row now, not here.</li>
- *   <li>{@code branchName} currently mirrors the active task's branch
- *       (post-V72). The pre-V72 semantics — "the branch the user had
- *       checked out at thread-create time" — no longer hold; callers
- *       wanting that data have to look elsewhere or live without it.</li>
  *   <li>{@code endedAt} / {@code errorMessage} only set on terminal
  *       transitions (COMPLETED / ERRORED).</li>
- *   <li>{@code worktreePath} is populated when ByteQuay created a
- *       dedicated worktree for the active task.</li>
  * </ul>
  *
  * @param costUsdMilli running cost in USD × 1000; divide on read so
  *                     SQLite's lack of fixed-precision decimal type
  *                     doesn't cause display drift.
- * @param worktreePath absolute path to the git worktree the agent runs in.
- * Null when no worktree was created for this thread (legacy rows, fallback
- * for non-git working dirs).
  * @param flow structural discriminator. Set at creation, never silently
  * flipped — the persistence layer refuses to rewrite it on an existing
  * row.
  * @param activeTask the most recent non-terminal {@link Task} for the
  * thread, projected at read time. Null on 0-Task brainstorm threads.
- * Preferred over the flattened bridge scalars above for new readers.
+ * Carries the per-task execution surface (working dir, branch,
+ * worktree path, PR/issue links, etc.) that used to be flattened
+ * onto Thread before the bridge teardown.
  */
 public record Thread(
         String id,
@@ -69,8 +60,6 @@ public record Thread(
         String agentSessionId,
         String title,
         ThreadStatus status,
-        String workingDir,
-        String branchName,
         String model,
         long costUsdMilli,
         long tokensIn,
@@ -79,19 +68,17 @@ public record Thread(
         Instant updatedAt,
         Instant endedAt,
         String errorMessage,
-        String worktreePath,
         ThreadFlow flow,
         Task activeTask)
 {
     /**
-     * Resolves the directory the agent process should be spawned in.
-     * When a worktree was created for this thread, that's where the agent
-     * runs. Otherwise we fall back to the user-supplied
-     * {@link #workingDir()} (the repo root for coding threads, or any
-     * directory for legacy / non-git threads).
+     * Resolves the directory the agent process should be spawned in
+     * by delegating to {@link Task#agentCwd} on the {@link #activeTask}.
+     * Returns null for 0-Task brainstorm threads — there's no agent
+     * to spawn for those, so the caller has to handle the null.
      */
     public String agentCwd()
     {
-        return worktreePath != null && !worktreePath.isBlank() ? worktreePath : workingDir;
+        return activeTask == null ? null : activeTask.agentCwd();
     }
 }

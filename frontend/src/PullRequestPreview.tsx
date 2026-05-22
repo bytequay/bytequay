@@ -936,7 +936,7 @@ function PullRequestPreview({ pr, onOpenReview, onInspectDiffs, onMarkHandled, o
           // Repo match via path-segment scan (worktrees live at
           // `<repo>/.worktrees/<branch>`, so basename-only matching
           // misses them).
-          const segs = (t.workingDir ?? '').split('/').filter(Boolean).map(s => s.toLowerCase());
+          const segs = (t.activeTask?.workingDir ?? '').split('/').filter(Boolean).map((s: string) => s.toLowerCase());
           return segs.includes(repoLower);
         });
         setLinkedTasks(matched);

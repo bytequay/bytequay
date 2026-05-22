@@ -226,11 +226,9 @@ class TestAutomationCoordinatorAutoFix
         return new Thread(
                 id, ThreadKind.CLI_AGENT, "claude-code", /* agentSessionId */ null,
                 "Auto-fix test thread", status,
-                /* workingDir */ CLONE_PATH,
-                /* branchName */ "auto-fix/" + id,
                 "claude-sonnet-4.6",
                 0L, 0L, 0L,
                 now, now, null, null,
-                null, ThreadFlow.BUILD, null);
+                ThreadFlow.BUILD, null);
     }
 }

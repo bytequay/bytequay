@@ -183,11 +183,8 @@ class TestSqliteThreadCheckpointStore
     void listActiveForTaskReturnsOnlyTheNamedTaskSegmentsNewestFirst()
     {
         String threadId = newTask();
-        // SqliteThreadStore.saveThread auto-materialises a seq=1 task
-        // when the thread carries execution state — start our explicit
-        // task seqs at 2 to avoid colliding with that row.
-        String taskA = persistTask(threadId, 2);
-        String taskB = persistTask(threadId, 3);
+        String taskA = persistTask(threadId, 1);
+        String taskB = persistTask(threadId, 2);
 
         // Two segments for taskA, one for taskB, and one thread-scoped
         // segment from the 0-Task brainstorm prefix. Only taskA's two
@@ -229,12 +226,10 @@ class TestSqliteThreadCheckpointStore
                 /* agentSessionId */ null,
                 "Checkpoints test thread",
                 ThreadStatus.RUNNING,
-                "/tmp",
-                /* branchName */ "main",
                 "claude-sonnet-4.6",
                 0L, 0L, 0L,
                 now, now, null, null,
-                null, ThreadFlow.BUILD, null);
+                ThreadFlow.BUILD, null);
         threads.saveThread(t);
         return t.id();
     }

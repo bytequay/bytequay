@@ -13,19 +13,24 @@
  */
 import type { ThreadDto } from '../types';
 
-type ThreadCwdFields = Pick<ThreadDto, 'workingDir' | 'worktreePath'>;
-type ThreadBranchFields = Pick<ThreadDto, 'branchName'>;
+type ThreadActiveTaskFields = Pick<ThreadDto, 'activeTask'>;
 
-export function threadAgentCwd(thread: ThreadCwdFields): string {
-  return nonBlank(thread.worktreePath) ?? thread.workingDir;
+/** Directory the agent process would be spawned in for this thread —
+ *  delegates to the active task's worktree (or its workingDir if no
+ *  worktree). Empty string when the thread has no active task; that's
+ *  a 0-Task brainstorm thread that no agent can attach to. */
+export function threadAgentCwd(thread: ThreadActiveTaskFields): string {
+  const active = thread.activeTask;
+  if (active === null) return '';
+  return nonBlank(active.worktreePath) ?? active.workingDir ?? '';
 }
 
-export function threadDisplayBranch(thread: ThreadBranchFields): string | null {
-  return nonBlank(thread.branchName);
+export function threadDisplayBranch(thread: ThreadActiveTaskFields): string | null {
+  return nonBlank(thread.activeTask?.branchName ?? null);
 }
 
-export function isWorktreeBackedTask(thread: Pick<ThreadDto, 'worktreePath'>): boolean {
-  return nonBlank(thread.worktreePath) !== null;
+export function isWorktreeBackedTask(thread: ThreadActiveTaskFields): boolean {
+  return nonBlank(thread.activeTask?.worktreePath ?? null) !== null;
 }
 
 export function threadModelLabel(model: string | null | undefined): string {

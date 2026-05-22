@@ -16,6 +16,7 @@ package com.bytequay.app.service.threads;
 import com.bytequay.app.domain.AgentMetrics;
 import com.bytequay.app.domain.PermissionDecision;
 import com.bytequay.app.domain.StreamEvent;
+import com.bytequay.app.domain.Task;
 import com.bytequay.app.domain.Thread;
 import com.bytequay.app.domain.ThreadFile;
 import com.bytequay.app.domain.ThreadKind;
@@ -166,11 +167,6 @@ public class ClaudeCodeCliThreadAgent
         this.kind = thread.kind();
         this.provider = thread.provider();
         this.model.set(thread.model() == null ? "" : thread.model());
-        // Run inside the thread's worktree when one was created; falls
-        // back to the user-supplied workingDir when no worktree exists
-        // (legacy rows, or worktree creation failed at thread-create).
-        this.workingDir = thread.agentCwd();
-        this.branchName = thread.branchName();
         this.store = requireNonNull(store, "store is null");
         this.parser = requireNonNull(parser, "parser is null");
         this.fileOps = new ToolFileOps(requireNonNull(mapper, "mapper is null"));
@@ -180,6 +176,19 @@ public class ClaudeCodeCliThreadAgent
         this.workspaceMemoryProvider = requireNonNull(workspaceMemoryProvider, "workspaceMemoryProvider is null");
         requireNonNull(taskStore, "taskStore is null");
         this.binary = requireNonNull(binary, "binary is null");
+        // Look up the active task directly from TaskStore so the
+        // ctor works whether the caller built the Thread record via
+        // SqliteThreadStore (where activeTask is projected) or hand-
+        // assembled it (where it may be null). The agent can't run
+        // without a working directory; if there's no active task,
+        // refuse to construct.
+        Task active = taskStore.findActiveTaskForThread(thread.id())
+                .orElseThrow(() -> new IllegalStateException(
+                        "thread " + thread.id()
+                                + " has no active task; cannot spawn CLI agent"));
+        this.workingDir = requireNonNull(active.agentCwd(),
+                "active task " + active.id() + " has no working dir; cannot spawn CLI agent");
+        this.branchName = active.branchName();
         this.status.set(thread.status());
         this.agentSessionId.set(thread.agentSessionId());
         this.runningCostUsdMilli.set(thread.costUsdMilli());
@@ -346,12 +355,11 @@ public class ClaudeCodeCliThreadAgent
             }
             store.saveThread(new Thread(
                     current.id(), current.kind(), current.provider(), agentSessionId.get(),
-                    current.title(), ThreadStatus.IDLE, current.workingDir(), current.branchName(),
+                    current.title(), ThreadStatus.IDLE,
                     model.get(),
                     runningCostUsdMilli.get(), runningTokensIn.get(), runningTokensOut.get(),
                     current.createdAt(), Instant.now(),
                     /* endedAt */ null, /* errorMessage */ null,
-                    current.worktreePath(),
                     current.flow(),
                     current.activeTask()));
         }
@@ -876,13 +884,12 @@ public class ClaudeCodeCliThreadAgent
         }
         Thread next = new Thread(
                 current.id(), current.kind(), current.provider(), agentSessionId.get(),
-                current.title(), status.get(), current.workingDir(), current.branchName(),
+                current.title(), status.get(),
                 model.get(),
                 runningCostUsdMilli.get(), runningTokensIn.get(), runningTokensOut.get(),
                 current.createdAt(), Instant.now(),
                 endedAt != null ? endedAt : current.endedAt(),
                 current.errorMessage(),
-                current.worktreePath(),
                 current.flow(),
                 current.activeTask());
         store.saveThread(next);

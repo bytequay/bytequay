@@ -1197,8 +1197,6 @@ export type ThreadDto = {
   agentSessionId: string | null;
   title: string;
   status: ThreadStatusDto;
-  workingDir: string;
-  branchName: string | null;
   model: string;
   costUsdMilli: number;
   tokensIn: number;
@@ -1207,18 +1205,11 @@ export type ThreadDto = {
   updatedAt: string;
   endedAt: string | null;
   errorMessage: string | null;
-  /** Absolute path to the linked git worktree the agent runs in.
-   *  {@code null} for legacy threads created before the worktree feature
-   *  shipped, or for threads where worktree creation failed (non-git
-   *  working dir, etc.) — the agent falls back to running in the
-   *  user-supplied {@code workingDir} in that case. */
-  worktreePath: string | null;
-  /** The most recent non-terminal work-unit task for this thread,
-   *  projected at read time. Null on 0-Task brainstorm threads.
-   *  Carries the per-task GitHub linkage ({@code linkedPrNumber},
-   *  {@code linkedIssueNumber}), worktree path, status, branch,
-   *  etc. — readers should prefer this over any flattened bridge
-   *  scalars still hanging off the Thread record. */
+  /** The most recent non-terminal work-unit task for this thread.
+   *  Null on 0-Task brainstorm threads. Carries the per-task
+   *  execution surface (workingDir, branchName, worktreePath,
+   *  linkedPrNumber, etc.) that used to live as flattened scalars
+   *  on Thread before the bridge teardown. */
   activeTask: WorkUnitTaskDto | null;
 };
 
@@ -1420,6 +1411,10 @@ export type WorkUnitTaskDto = {
   branchName: string | null;
   worktreePath: string | null;
   baseBranch: string | null;
+  /** Repo root the worktree was cut from. The thread's repo identity
+   *  derives from this; readers that used to read {@code thread.workingDir}
+   *  now go through here. */
+  workingDir: string | null;
   prNumber: number | null;
   prState: string | null;
   ciState: string | null;

@@ -396,9 +396,10 @@ type RepoMeta = {
 function buildRepoList(threads: ThreadDto[]): RepoMeta[] {
   const acc = new Map<string, { label: string; fullPath: string; count: number }>();
   for (const t of threads) {
-    const k = repoKey(t.workingDir);
+    const wd = t.activeTask?.workingDir ?? '';
+    const k = repoKey(wd);
     if (!k) continue;
-    const trimmed = (t.workingDir ?? '').replace(/\/+$/, '');
+    const trimmed = wd.replace(/\/+$/, '');
     const idx = trimmed.lastIndexOf('/');
     const display = idx < 0 ? trimmed : trimmed.slice(idx + 1);
     const existing = acc.get(k);

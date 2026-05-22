@@ -131,25 +131,22 @@ class TestThreadServiceJumpIn
                 /* agentSessionId */ null,
                 "JumpIn test thread",
                 status,
-                /* workingDir */ "/tmp/jump-in-repo",
-                /* branchName */ "main",
                 "claude-sonnet-4.6",
                 0L, 0L, 0L,
                 now, now, null, null,
-                null, ThreadFlow.BUILD, null);
+                ThreadFlow.BUILD, null);
         threadStore.saveThread(t);
         return t.id();
     }
 
     private Task newTask(String threadId)
     {
-        // V72's saveThread auto-materialises a seq=1 task; promote our
-        // explicit task to seq=2 to avoid the unique(thread_id, seq)
-        // collision the SQLite store enforces.
+        // Bridge teardown dropped saveThread's auto-create branch;
+        // the explicit task is the only one for this thread, so seq=1.
         return new Task(
                 UUID.randomUUID().toString(),
                 threadId,
-                /* seq */ 2L,
+                /* seq */ 1L,
                 TaskStatus.IDLE,
                 /* branchName */ "auto-fix/jump-in",
                 /* worktreePath */ "/tmp/jump-in-repo/.worktrees/jump-in-task",

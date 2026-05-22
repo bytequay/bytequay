@@ -65,12 +65,11 @@ public class ThreadStartupReconciler
             for (Thread thread : orphaned) {
                 store.saveThread(new Thread(
                         thread.id(), thread.kind(), thread.provider(), thread.agentSessionId(),
-                        thread.title(), ThreadStatus.IDLE, thread.workingDir(), thread.branchName(),
+                        thread.title(), ThreadStatus.IDLE,
                         thread.model(),
                         thread.costUsdMilli(), thread.tokensIn(), thread.tokensOut(),
                         thread.createdAt(), now,
                         thread.endedAt(), thread.errorMessage(),
-                        thread.worktreePath(),
                         thread.flow(),
                         thread.activeTask()));
             }

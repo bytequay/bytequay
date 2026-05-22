@@ -33,7 +33,6 @@ import java.util.ArrayList;
 import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
-import java.util.UUID;
 
 import static com.bytequay.app.repository.sqlite.SqlitePageRequests.firstPage;
 import static java.util.Objects.requireNonNull;
@@ -115,77 +114,29 @@ class SqliteThreadStore
         }
         threads.save(entity);
 
-        // Flow execution fields to the active task. We treat the active
-        // task as the home for branchName / worktreePath / processPid /
-        // logPath / linked PR/issue / per-task spend; the existing
-        // callers still pass these through the Thread record.
-        if (hasExecutionState(thread)) {
-            Optional<Task> active = taskStore.findActiveTaskForThread(thread.id());
-            Task next;
-            if (active.isPresent()) {
-                Task t = active.get();
-                next = new Task(
-                        t.id(),
-                        t.threadId(),
-                        t.seq(),
-                        mapStatus(thread.status()),
-                        coalesce(thread.branchName(), t.branchName()),
-                        coalesce(thread.worktreePath(), t.worktreePath()),
-                        t.baseBranch(),
-                        coalesce(thread.workingDir(), t.workingDir()),
-                        // processPid + logPath are owned by the task
-                        // now (V72). Saving via Thread doesn't carry
-                        // them anymore; preserve whatever the task
-                        // row already holds.
-                        t.processPid(),
-                        t.logPath(),
-                        t.prNumber(),
-                        t.prState(),
-                        t.ciState(),
-                        // taskType / linkedPrNumber / linkedIssueNumber
-                        // live on the Task only now; Thread no longer
-                        // carries them so the split path preserves
-                        // what the task already holds.
-                        t.taskType(),
-                        t.linkedPrNumber(),
-                        t.linkedIssueNumber(),
-                        thread.costUsdMilli(),
-                        thread.tokensIn(),
-                        thread.tokensOut(),
-                        t.firstMsgSeq(),
-                        t.lastMsgSeq(),
-                        t.createdAt(),
-                        thread.endedAt() != null ? thread.endedAt() : t.endedAt(),
-                        thread.errorMessage() != null ? thread.errorMessage() : t.errorMessage());
-            }
-            else {
-                // First save for this thread — materialise a seq=1 task.
-                next = new Task(
-                        UUID.randomUUID().toString(),
-                        thread.id(),
-                        1L,
-                        mapStatus(thread.status()),
-                        thread.branchName(),
-                        thread.worktreePath(),
-                        "main",
-                        thread.workingDir(),
-                        /* processPid */ null,
-                        /* logPath */ null,
-                        /* prNumber */ null, /* prState */ null, /* ciState */ null,
-                        // Auto-create defaults to DEVELOP; ThreadService.create
-                        // overrides with the request task_type right after.
-                        "DEVELOP",
-                        /* linkedPrNumber */ null, /* linkedIssueNumber */ null,
-                        thread.costUsdMilli(),
-                        thread.tokensIn(),
-                        thread.tokensOut(),
-                        /* firstMsgSeq */ null, /* lastMsgSeq */ null,
-                        thread.createdAt(),
-                        thread.endedAt(),
-                        thread.errorMessage());
-            }
+        // Mirror Thread-level state (status, running cost / tokens,
+        // endedAt, errorMessage) onto the active task so a reader of
+        // the task row sees a consistent picture. branchName /
+        // worktreePath / workingDir / linked PR/issue / taskType
+        // live on the task and are no longer overridden via Thread —
+        // callers that want to change them go through TaskStore
+        // directly. ThreadService.create materialises the first task
+        // explicitly; this method no longer auto-creates one.
+        taskStore.findActiveTaskForThread(thread.id()).ifPresent(t -> {
+            Task next = new Task(
+                    t.id(), t.threadId(), t.seq(),
+                    mapStatus(thread.status()),
+                    t.branchName(), t.worktreePath(), t.baseBranch(), t.workingDir(),
+                    t.processPid(), t.logPath(),
+                    t.prNumber(), t.prState(), t.ciState(),
+                    t.taskType(), t.linkedPrNumber(), t.linkedIssueNumber(),
+                    thread.costUsdMilli(), thread.tokensIn(), thread.tokensOut(),
+                    t.firstMsgSeq(), t.lastMsgSeq(),
+                    t.createdAt(),
+                    thread.endedAt() != null ? thread.endedAt() : t.endedAt(),
+                    thread.errorMessage() != null ? thread.errorMessage() : t.errorMessage());
             taskStore.saveTask(next);
-        }
+        });
     }
 
     @Override
@@ -357,14 +308,11 @@ class SqliteThreadStore
 
     private static Thread toThread(ThreadEntity e, Task active)
     {
-        // Bridge projection: V72 moved the work-unit columns onto
-        // tasks. The active Task rides along on the Thread payload
-        // so new readers can use thread.activeTask().X — flattened
-        // bridge scalars are kept for older readers and shrink as
-        // the teardown progresses.
-        String workingDir = active != null ? active.workingDir() : null;
-        String branchName = active != null ? active.branchName() : null;
-        String worktreePath = active != null ? active.worktreePath() : null;
+        // Bridge teardown complete: the work-unit fields are reached
+        // exclusively via the activeTask projection now. Older
+        // readers that wanted thread.workingDir / thread.branchName /
+        // thread.worktreePath have been pivoted to
+        // thread.activeTask().X.
         return new Thread(
                 e.getId(),
                 ThreadKind.valueOf(e.getKind()),
@@ -372,8 +320,6 @@ class SqliteThreadStore
                 e.getAgentSessionId(),
                 e.getTitle(),
                 ThreadStatus.valueOf(e.getStatus()),
-                workingDir,
-                branchName,
                 e.getModel(),
                 e.getCostUsdMilli(),
                 e.getTokensIn(),
@@ -382,7 +328,6 @@ class SqliteThreadStore
                 Instant.ofEpochMilli(e.getUpdatedAtMs()),
                 e.getEndedAtMs() == null ? null : Instant.ofEpochMilli(e.getEndedAtMs()),
                 e.getErrorMessage(),
-                worktreePath,
                 ThreadFlow.fromDbValue(e.getFlow()),
                 active);
     }
@@ -403,26 +348,8 @@ class SqliteThreadStore
                 Instant.ofEpochMilli(e.getTsMs()));
     }
 
-    private static boolean hasExecutionState(Thread thread)
-    {
-        return thread.worktreePath() != null
-                || thread.branchName() != null
-                || thread.workingDir() != null;
-    }
-
     private static TaskStatus mapStatus(ThreadStatus status)
     {
         return TaskStatus.valueOf(status.name());
-    }
-
-    @SafeVarargs
-    private static <T> T coalesce(T... values)
-    {
-        for (T v : values) {
-            if (v != null) {
-                return v;
-            }
-        }
-        return null;
     }
 }

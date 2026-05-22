@@ -147,15 +147,19 @@ class TestThreadRegistryLease
     }
 
     @Test
-    void getOrCreateSkipsLeaseWhenThreadHasNoActiveTask()
+    void getOrCreateRefusesABrainstormThreadAndLeavesLeaseStoreUntouched()
     {
-        // 0-Task brainstorm thread — no worktree to protect, so no
-        // lease should be acquired and no store mutations happen.
+        // 0-Task brainstorm thread — no worktree to protect and no
+        // agent to spawn. The agent ctor refuses to build, the lease
+        // never gets a chance to land, and the lease store stays
+        // empty.
         when(threadStore.listMessages(anyString())).thenReturn(List.of());
         when(taskStore.findActiveTaskForThread("thread-1")).thenReturn(Optional.empty());
         ThreadRegistry registry = newRegistry();
 
-        registry.getOrCreate(thread("thread-1"));
+        assertThatThrownBy(() -> registry.getOrCreate(thread("thread-1")))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("no active task");
 
         assertThat(leaseStore.rows).isEmpty();
     }
@@ -171,8 +175,11 @@ class TestThreadRegistryLease
         registry.getOrCreate(thread("thread-1"));
         registry.getOrCreate(thread("thread-1"));
 
-        // Two calls, exactly one lookup + one acquire.
-        verify(taskStore, times(1)).findActiveTaskForThread("thread-1");
+        // Two getOrCreate calls — the first looks up the active task
+        // twice (once for the lease acquire, once inside the agent
+        // ctor), the second returns the cached session without
+        // touching the task store again.
+        verify(taskStore, times(2)).findActiveTaskForThread("thread-1");
         assertThat(leaseService.isHeld(WORKTREE)).isTrue();
     }
 
@@ -197,12 +204,10 @@ class TestThreadRegistryLease
         return new Thread(
                 id, ThreadKind.CLI_AGENT, "claude-code", /* agentSessionId */ null,
                 "Registry lease test", ThreadStatus.IDLE,
-                /* workingDir */ "/tmp/repo",
-                /* branchName */ "main",
                 "claude-sonnet-4.6",
                 0L, 0L, 0L,
                 now, now, null, null,
-                null, ThreadFlow.BUILD, null);
+                ThreadFlow.BUILD, null);
     }
 
     private static Task task(String id, String threadId, String worktreePath)

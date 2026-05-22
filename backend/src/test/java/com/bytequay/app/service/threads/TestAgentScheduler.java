@@ -379,8 +379,6 @@ class TestAgentScheduler
                 /* agentSessionId */ null,
                 "Thread " + id,
                 ThreadStatus.IDLE,
-                "/tmp/work",
-                "main",
                 "model",
                 /* costUsdMilli */ 0L,
                 /* tokensIn */ 0L,
@@ -389,7 +387,6 @@ class TestAgentScheduler
                 now,
                 /* endedAt */ null,
                 /* errorMessage */ null,
-                /* worktreePath */ null,
                 ThreadFlow.BUILD,
                 /* activeTask */ null);
     }
@@ -713,13 +710,13 @@ class TestAgentScheduler
         @Override
         public String workingDir()
         {
-            return thread.workingDir();
+            return thread.activeTask() == null ? null : thread.activeTask().workingDir();
         }
 
         @Override
         public String branchName()
         {
-            return thread.branchName();
+            return thread.activeTask() == null ? null : thread.activeTask().branchName();
         }
 
         @Override

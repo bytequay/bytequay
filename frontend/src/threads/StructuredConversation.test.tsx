@@ -116,6 +116,7 @@ function task(overrides: TaskOverrides): WorkUnitTaskDto {
     branchName: null,
     worktreePath: null,
     baseBranch: 'main',
+    workingDir: null,
     prNumber: null,
     prState: null,
     ciState: null,

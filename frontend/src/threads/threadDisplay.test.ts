@@ -12,6 +12,7 @@
  * limitations under the License.
  */
 import { describe, expect, it } from 'vitest';
+import type { WorkUnitTaskDto } from '../types';
 import {
   isWorktreeBackedTask,
   threadAgentCwd,
@@ -21,37 +22,56 @@ import {
   threadTokenLabel,
 } from './threadDisplay';
 
+function task(overrides: Partial<WorkUnitTaskDto>): WorkUnitTaskDto {
+  return {
+    id: 't', threadId: 'thread-1', seq: 1, status: 'IDLE',
+    branchName: null, worktreePath: null, baseBranch: 'main',
+    workingDir: null,
+    prNumber: null, prState: null, ciState: null,
+    taskType: 'DEVELOP',
+    linkedPrNumber: null, linkedIssueNumber: null,
+    ...overrides,
+  };
+}
+
 describe('threadDisplay', () => {
   it('prefers the worktree path for the agent cwd', () => {
     expect(threadAgentCwd({
-      workingDir: '/repo/main',
-      worktreePath: '/repo/main/.bytequay/worktrees/dev/thread-1',
+      activeTask: task({ workingDir: '/repo/main',
+        worktreePath: '/repo/main/.bytequay/worktrees/dev/thread-1' }),
     })).toBe('/repo/main/.bytequay/worktrees/dev/thread-1');
   });
 
-  it('falls back to the original working dir for legacy threads', () => {
+  it('falls back to the active task working dir when no worktree', () => {
     expect(threadAgentCwd({
-      workingDir: '/repo/main',
-      worktreePath: null,
+      activeTask: task({ workingDir: '/repo/main', worktreePath: null }),
     })).toBe('/repo/main');
+  });
+
+  it('returns empty string for a 0-Task brainstorm thread', () => {
+    expect(threadAgentCwd({ activeTask: null })).toBe('');
   });
 
   it('returns the active task branch name as-is', () => {
     expect(threadDisplayBranch({
-      branchName: 'dev/thread-1',
+      activeTask: task({ branchName: 'dev/thread-1' }),
     })).toBe('dev/thread-1');
   });
 
   it('returns null when the active task has no branch', () => {
     expect(threadDisplayBranch({
-      branchName: null,
+      activeTask: task({ branchName: null }),
     })).toBeNull();
+    expect(threadDisplayBranch({ activeTask: null })).toBeNull();
   });
 
   it('detects worktree-backed threads', () => {
-    expect(isWorktreeBackedTask({ worktreePath: '/repo/.bytequay/worktrees/dev/thread-1' })).toBe(true);
-    expect(isWorktreeBackedTask({ worktreePath: '' })).toBe(false);
-    expect(isWorktreeBackedTask({ worktreePath: null })).toBe(false);
+    expect(isWorktreeBackedTask({
+      activeTask: task({ worktreePath: '/repo/.bytequay/worktrees/dev/thread-1' }),
+    })).toBe(true);
+    expect(isWorktreeBackedTask({ activeTask: task({ worktreePath: '' }) })).toBe(false);
+    expect(isWorktreeBackedTask({ activeTask: task({ worktreePath: null }) })).toBe(false);
+    expect(isWorktreeBackedTask({ activeTask: null })).toBe(false);
   });
 
   it('formats pending model labels', () => {

@@ -71,8 +71,6 @@ function threadRow(status: ThreadDto['status']): ThreadDto {
     agentSessionId: null,
     title: 'Thread',
     status,
-    workingDir: '/tmp/repo',
-    branchName: null,
     model: 'claude-sonnet-4.6',
     costUsdMilli: 0,
     tokensIn: 0,
@@ -81,7 +79,6 @@ function threadRow(status: ThreadDto['status']): ThreadDto {
     updatedAt: '2026-05-18T12:00:00Z',
     endedAt: null,
     errorMessage: null,
-    worktreePath: null,
     activeTask: null,
   };
 }

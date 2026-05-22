@@ -309,12 +309,11 @@ public class ThreadService
 
         Thread next = new Thread(
                 current.id(), current.kind(), current.provider(), current.agentSessionId(),
-                nextTitle, current.status(), current.workingDir(), current.branchName(),
+                nextTitle, current.status(),
                 current.model(),
                 current.costUsdMilli(), current.tokensIn(), current.tokensOut(),
                 current.createdAt(), Instant.now(),
                 current.endedAt(), current.errorMessage(),
-                current.worktreePath(),
                 current.flow(),
                 current.activeTask());
         store.saveThread(next);
@@ -364,7 +363,7 @@ public class ThreadService
                         ? Optional.empty()
                         : worktreeService.create(
                                 Path.of(request.workingDir()), firstTaskId, request.title());
-        // branchName flows to the active task row. Prefer the
+        // branchName flows to the active task row below. Prefer the
         // worktree's dev branch (the actual branch the agent will be
         // on) over the user's pre-worktree checkout; the latter
         // hasn't survived V72's column drops anyway.
@@ -378,8 +377,6 @@ public class ThreadService
                 /* agentSessionId */ null,
                 request.title(),
                 ThreadStatus.PENDING,
-                request.workingDir(),
-                taskBranchName,
                 request.model(),
                 /* costUsdMilli */ 0L,
                 /* tokensIn */ 0L,
@@ -388,38 +385,20 @@ public class ThreadService
                 now,
                 /* endedAt */ null,
                 /* errorMessage */ null,
-                handle.map(h -> h.worktreePath().toString()).orElse(null),
                 request.flow() == null ? ThreadFlow.BUILD : request.flow(),
-                /* activeTask — populated on read after saveThread + the
-                 *               explicit first-task materialisation below
-                 *               leave a real task row in place. */ null);
+                /* activeTask — populated on read after the explicit
+                 *               first-task materialisation below leaves
+                 *               a real task row in place. */ null);
         store.saveThread(thread);
-        // Materialise the first task row with a chosen id so the on-disk
-        // worktree dir name (which used firstTaskId) matches it. The
-        // saveThread call above's transparent task-create branch would
-        // have done this with an auto-generated id; we override that by
-        // creating the row explicitly here.
-        Task existing = taskStore.findActiveTaskForThread(threadId).orElse(null);
-        if (existing != null && !existing.id().equals(firstTaskId)) {
-            Task aligned = new Task(
-                    firstTaskId, threadId, existing.seq(), existing.status(),
-                    existing.branchName(), existing.worktreePath(), existing.baseBranch(),
-                    existing.workingDir(), existing.processPid(), existing.logPath(),
-                    existing.prNumber(), existing.prState(), existing.ciState(),
-                    existing.taskType(), existing.linkedPrNumber(), existing.linkedIssueNumber(),
-                    existing.costUsdMilli(), existing.tokensIn(), existing.tokensOut(),
-                    existing.firstMsgSeq(), existing.lastMsgSeq(),
-                    existing.createdAt(), existing.endedAt(), existing.errorMessage());
-            taskStore.deleteTask(existing.id());
-            taskStore.saveTask(aligned);
-        }
-        else if (existing == null && handle.isPresent()) {
-            // saveThread didn't auto-create (no execution state for the
-            // store to spot) but we have a worktree — record it anyway.
+        // Materialise the first task row with the chosen id so the
+        // on-disk worktree dir name (which used firstTaskId) matches.
+        // Bridge teardown moved the auto-create branch off SqliteThreadStore
+        // entirely; this is now the only path that creates the first task.
+        if (handle.isPresent() || request.workingDir() != null) {
             taskStore.saveTask(new Task(
                     firstTaskId, threadId, 1L, TaskStatus.PENDING,
-                    handle.get().branchName(),
-                    handle.get().worktreePath().toString(),
+                    handle.map(WorktreeService.WorktreeHandle::branchName).orElse(taskBranchName),
+                    handle.map(h -> h.worktreePath().toString()).orElse(null),
                     "main",
                     request.workingDir(),
                     /* processPid */ null, /* logPath */ null,
@@ -432,10 +411,14 @@ public class ThreadService
         for (String groupId : initialGroupIds) {
             groupStore.addMember(thread.id(), groupId);
         }
+        // Re-read so the scheduler + caller see a Thread with the
+        // active task projected onto it (saveThread above wrote a
+        // bare row; the projection runs on findThreadById).
+        Thread persisted = store.findThreadById(thread.id()).orElse(thread);
         if (request.initialPrompt() != null && !request.initialPrompt().isBlank()) {
-            scheduler.enqueueTurn(thread, request.initialPrompt());
+            scheduler.enqueueTurn(persisted, request.initialPrompt());
         }
-        return store.findThreadById(thread.id()).orElse(thread);
+        return persisted;
     }
 
     public Optional<Thread> find(String threadId)
@@ -594,14 +577,14 @@ public class ThreadService
         // gone or git can't remove it cleanly — the thread row going
         // away is the authoritative signal.
         Thread thread = existing.get();
-        if (thread.worktreePath() != null && !thread.worktreePath().isBlank()
-                && thread.workingDir() != null && !thread.workingDir().isBlank()) {
-            // branchName is the worktree dev branch post-V72 (see the
-            // bridge note on the Thread record); pass it as the
-            // branch-to-prune argument so worktree cleanup deletes
-            // the right ref.
-            worktreeService.remove(Path.of(thread.workingDir()),
-                    thread.worktreePath(), thread.branchName());
+        Task active = thread.activeTask() != null
+                ? thread.activeTask()
+                : taskStore.findActiveTaskForThread(threadId).orElse(null);
+        if (active != null
+                && active.worktreePath() != null && !active.worktreePath().isBlank()
+                && active.workingDir() != null && !active.workingDir().isBlank()) {
+            worktreeService.remove(Path.of(active.workingDir()),
+                    active.worktreePath(), active.branchName());
         }
         store.deleteThread(threadId);
     }
@@ -707,9 +690,23 @@ public class ThreadService
                 .orElseThrow(() -> new ResponseStatusException(HttpStatusCode.valueOf(404), "no thread: " + threadId));
     }
 
-    private static Path agentCwd(Thread thread)
+    private Path agentCwd(Thread thread)
     {
-        return Path.of(thread.agentCwd());
+        // Prefer the projected activeTask (set by SqliteThreadStore.toThread)
+        // but fall back to a fresh TaskStore lookup. The bridge teardown
+        // means thread.activeTask() can be null on Thread records that
+        // weren't built via the SQLite store (e.g. some in-memory test
+        // doubles); going through TaskStore makes those keep working.
+        Task active = thread.activeTask();
+        if (active == null) {
+            active = taskStore.findActiveTaskForThread(thread.id()).orElse(null);
+        }
+        if (active == null || active.agentCwd() == null) {
+            throw new ResponseStatusException(
+                    HttpStatusCode.valueOf(409),
+                    "thread " + thread.id() + " has no active task with a working dir");
+        }
+        return Path.of(active.agentCwd());
     }
 
     private static List<String> distinctCopy(List<String> values)

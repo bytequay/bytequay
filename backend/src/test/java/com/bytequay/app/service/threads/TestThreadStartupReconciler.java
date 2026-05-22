@@ -89,8 +89,6 @@ class TestThreadStartupReconciler
                 /* agentSessionId */ "sess-" + UUID.randomUUID(),
                 "Reconciler test thread",
                 status,
-                "/tmp/work",
-                /* branchName */ null,
                 "claude-sonnet-4.6",
                 /* costUsdMilli */ 0L,
                 /* tokensIn */ 0L,
@@ -99,7 +97,6 @@ class TestThreadStartupReconciler
                 now,
                 /* endedAt */ status == ThreadStatus.COMPLETED ? now : null,
                 /* errorMessage */ null,
-                /* worktreePath */ null,
                 ThreadFlow.BUILD,
                 /* activeTask */ null);
     }

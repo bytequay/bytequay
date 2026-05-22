@@ -137,6 +137,7 @@ function task(overrides: Partial<WorkUnitTaskDto>): WorkUnitTaskDto {
     branchName: null,
     worktreePath: null,
     baseBranch: 'main',
+    workingDir: null,
     prNumber: null,
     prState: null,
     ciState: null,

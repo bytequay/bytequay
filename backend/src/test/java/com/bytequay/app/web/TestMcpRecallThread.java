@@ -167,12 +167,10 @@ class TestMcpRecallThread
                 /* agentSessionId */ null,
                 title,
                 ThreadStatus.RUNNING,
-                /* workingDir */ "/tmp",
-                /* branchName */ "main",
                 "claude-sonnet-4.6",
                 0L, 0L, 0L,
                 now, now, null, null,
-                null, ThreadFlow.BUILD, null);
+                ThreadFlow.BUILD, null);
         threads.saveThread(t);
         return t.id();
     }

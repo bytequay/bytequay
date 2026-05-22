@@ -100,7 +100,7 @@ function NotificationsScreen({ onOpenThread, onOpenReviewThread }: Props) {
   };
 
   return (
-    <section className="notifications-screen">
+    <section className="notifications-screen calm-page">
       <header className="notifications-screen__head">
         <h1 className="notifications-screen__title">Notifications</h1>
         <p className="notifications-screen__subtitle">

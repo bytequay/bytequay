@@ -583,6 +583,51 @@ class TestReviewPassService
     }
 
     @Test
+    void debateLoopPersistsAtLeastOneRoundOfMessagesAndEarlyStopsOnConvergence()
+    {
+        // Two reviewers that produce identical outputs on every call
+        // — that's a stable anchor set, so the loop's convergence
+        // check fires on the first round (round 1 = previous matches).
+        // The first round must still land in the transcript so the
+        // user sees the LLM's defence.
+        LlmReviewer claude = mock(LlmReviewer.class);
+        LlmReviewer openai = mock(LlmReviewer.class);
+        when(claude.providerId()).thenReturn("claude");
+        when(claude.displayName()).thenReturn("Claude");
+        when(claude.isConfigured()).thenReturn(true);
+        when(openai.providerId()).thenReturn("openai");
+        when(openai.displayName()).thenReturn("GPT-5");
+        when(openai.isConfigured()).thenReturn(true);
+        when(registry.all()).thenReturn(List.of(claude, openai));
+        ReviewOutput claudeOut = new ReviewOutput(
+                "Claude take.", List.of(
+                        new ReviewOutput.LineComment("src/a.ts", 1, "Solo.", "nit")),
+                "claude", "claude-sonnet-4.6");
+        ReviewOutput openaiOut = new ReviewOutput(
+                "GPT take.", List.of(
+                        new ReviewOutput.LineComment("src/b.ts", 2, "Solo.", "nit")),
+                "openai", "gpt-5");
+        when(claude.review(any(ReviewRequest.class))).thenReturn(claudeOut);
+        when(openai.review(any(ReviewRequest.class))).thenReturn(openaiOut);
+
+        ReviewPassDetail detail = service.startReviewOnPr("acme/widget", 42);
+
+        // INDEPENDENT messages (2) + CROSS_REVIEW announcement (1) +
+        // at least one DEBATE round (2 messages). The convergence
+        // check on round 1 sees identical anchor sets and stops.
+        long debateMessages = recording.messages.stream()
+                .filter(m -> m.phase() == ReviewPhase.DEBATE)
+                .count();
+        assertThat(debateMessages).isBetween(2L, 6L);
+        // DEBATE phase transition lands in the pass history.
+        assertThat(recording.passHistory).extracting(ReviewPass::phase)
+                .contains(ReviewPhase.DEBATE);
+        // Pass still parks at ARBITRATE — debate is transcript-only;
+        // disputed findings still need the human ballot.
+        assertThat(detail.pass().phase()).isEqualTo(ReviewPhase.ARBITRATE);
+    }
+
+    @Test
     void multiReviewerPanelPicksCommentVerdictWhenOnlyDisputedFindingsExist()
     {
         LlmReviewer claude = mock(LlmReviewer.class);

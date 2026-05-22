@@ -330,8 +330,6 @@ public class ReviewPassService
                         afterReviewer));
             }
             // CROSS_REVIEW phase + moderator announcement message.
-            // The LLM-driven cross-review round and Haiku semantic
-            // check land in Phase 3 of Phase 8.
             pass = withPhase(pass, ReviewPhase.CROSS_REVIEW, /* endedAt */ null);
             reviewStore.savePass(pass);
             reviewStore.saveMessage(new ReviewMessage(
@@ -347,6 +345,16 @@ public class ReviewPassService
                     /* refs */ List.of(),
                     /* costUsdMilli */ 0L,
                     Instant.now()));
+
+            // Bounded LLM debate over the disputed items, capped at
+            // pass.roundCap(). Each round each reviewer responds to
+            // the others' positions; the loop early-stops when no
+            // reviewer changes which anchors they flag. Findings
+            // aren't mutated — the debate enriches the transcript so
+            // the user has more context at the ballot.
+            if (!consensus.disputed().isEmpty()) {
+                runDebateLoop(pass, panel, reviewerSeats, request, outputs, consensus.disputed());
+            }
             suggested = suggestedVerdictForConsensus(consensus);
         }
 
@@ -498,6 +506,135 @@ public class ReviewPassService
         finally {
             executor.shutdown();
         }
+    }
+
+    /** Bounded debate loop: up to {@code pass.roundCap()} rounds of
+     *  reviewers responding to the others' disputed findings.
+     *  Convergence early-stop fires when no reviewer's anchor set
+     *  changes round-over-round. Persists one DEBATE message per
+     *  reviewer per round so the transcript carries the back-and-
+     *  forth into the arbitration UI. Doesn't mutate finding rows —
+     *  the ballot still drives final resolution.
+     *
+     *  <p>Cost tracking is best-effort: the existing LlmReviewer API
+     *  doesn't expose per-call token counts so the loop only enforces
+     *  the round cap. A future commit can thread token usage through
+     *  ReviewOutput and add cost-cap honouring here. */
+    private void runDebateLoop(
+            ReviewPass pass,
+            List<LlmReviewer> panel,
+            List<ReviewParticipant> seats,
+            ReviewRequest baseRequest,
+            Map<ReviewParticipant, ReviewOutput> independentOutputs,
+            List<ConsensusFinding> initialDisputed)
+    {
+        ReviewPass debatePass = withPhase(pass, ReviewPhase.DEBATE, /* endedAt */ null);
+        reviewStore.savePass(debatePass);
+
+        // Per-reviewer anchor set from the latest round, seeded from
+        // INDEPENDENT. Convergence early-stop compares the new round's
+        // sets to this and breaks when every reviewer stays put.
+        Map<ReviewParticipant, Set<AnchorKey>> previousAnchors = new LinkedHashMap<>();
+        for (ReviewParticipant seat : seats) {
+            previousAnchors.put(seat, anchorsOf(independentOutputs.get(seat)));
+        }
+
+        String debateContext = buildDebateContext(initialDisputed);
+        ReviewRequest debateRequest = new ReviewRequest(
+                baseRequest.repo(),
+                baseRequest.number(),
+                baseRequest.title(),
+                baseRequest.body(),
+                baseRequest.headSha(),
+                baseRequest.diff(),
+                debateContext);
+
+        int roundCap = pass.roundCap();
+        for (int round = 1; round <= roundCap; round++) {
+            Map<ReviewParticipant, ReviewOutput> debateOutputs;
+            try {
+                debateOutputs = runIndependentInParallel(seats, panel, debateRequest);
+            }
+            catch (RuntimeException e) {
+                // A provider blip mid-debate shouldn't tear down the
+                // whole pass — log, break, fall through to ARBITRATE
+                // on the disputed set from INDEPENDENT. The transcript
+                // captures the rounds that did complete.
+                log.warn("Review pass {} DEBATE round {} failed: {}",
+                        pass.id(), round, e.getMessage());
+                break;
+            }
+
+            Instant roundAt = Instant.now();
+            for (ReviewParticipant seat : seats) {
+                ReviewOutput out = debateOutputs.get(seat);
+                reviewStore.saveMessage(new ReviewMessage(
+                        UUID.randomUUID().toString(),
+                        pass.id(),
+                        seat.id(),
+                        ReviewPhase.DEBATE,
+                        round,
+                        out.summary() == null ? "" : out.summary(),
+                        /* mentions */ List.of(),
+                        /* refs */ List.of(),
+                        /* costUsdMilli */ 0L,
+                        roundAt));
+            }
+
+            // Convergence check: every reviewer holds the same anchor
+            // set as the previous round. The first stable round ends
+            // the loop — further LLM calls only burn tokens.
+            Map<ReviewParticipant, Set<AnchorKey>> currentAnchors = new LinkedHashMap<>();
+            for (ReviewParticipant seat : seats) {
+                currentAnchors.put(seat, anchorsOf(debateOutputs.get(seat)));
+            }
+            boolean converged = currentAnchors.equals(previousAnchors);
+            if (converged) {
+                log.info("Review pass {} DEBATE converged after round {}", pass.id(), round);
+                break;
+            }
+            previousAnchors = currentAnchors;
+        }
+    }
+
+    private static Set<AnchorKey> anchorsOf(ReviewOutput out)
+    {
+        if (out == null || out.comments() == null) {
+            return Set.of();
+        }
+        Set<AnchorKey> set = new LinkedHashSet<>();
+        for (ReviewOutput.LineComment c : out.comments()) {
+            Integer line = c.line() > 0 ? c.line() : null;
+            set.add(new AnchorKey(c.file(), line));
+        }
+        return set;
+    }
+
+    /** Build the augmented skillContext for a debate round. Lists
+     *  the disputed findings + which reviewer flagged each so the
+     *  model knows what to weigh in on. Stuffed into the existing
+     *  {@code ReviewRequest.skillContext} slot — the prompt builder
+     *  surfaces it under the "Repository-specific review context"
+     *  header, which is a bit of an overload but means no new
+     *  LlmReviewer API surface to land in this commit. */
+    private static String buildDebateContext(List<ConsensusFinding> disputed)
+    {
+        StringBuilder sb = new StringBuilder();
+        sb.append("PANEL DEBATE ROUND. You are part of a review panel; ");
+        sb.append("the panel did not reach consensus on the findings below. ");
+        sb.append("For each item, reaffirm if you still believe it should be ");
+        sb.append("raised on this PR, or omit it from your output. Findings ");
+        sb.append("you don't mention will be treated as withdrawn. Don't add ");
+        sb.append("new findings — focus only on the disputed list.\n\n");
+        for (ConsensusFinding f : disputed) {
+            sb.append("- ").append(f.path() == null ? "(whole PR)" : f.path());
+            if (f.line() != null) {
+                sb.append(":").append(f.line());
+            }
+            sb.append(" — [").append(f.reporterPersona()).append("] ")
+                    .append(f.body()).append('\n');
+        }
+        return sb.toString();
     }
 
     /** Heuristic consensus dedup. Groups raw findings by

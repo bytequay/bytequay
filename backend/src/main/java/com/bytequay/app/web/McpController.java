@@ -346,6 +346,25 @@ public class McpController
             return;
         }
 
+        // Structural park-guard. Once a task on this thread is at
+        // AWAITING_REVIEW or NEEDS_ATTENTION the agent has finished
+        // its turn from the user's perspective — further built-in
+        // tool calls (Edit, Write, Bash, …) must not silently fire a
+        // permission prompt as if work were still in progress, and a
+        // pre-approved budget must not let one slip through either.
+        // The MCP-native tools dispatched above (request_review /
+        // push / post_comment / recall_thread) have their own
+        // handling and aren't reached here.
+        if (isThreadParked(threadId)) {
+            deferred.setResult(toolResponse(id, deny(
+                    "This thread is parked at the publish gate. The user must "
+                            + "approve or discard the proposed change before further "
+                            + "tool calls are accepted. STOP NOW: end the turn "
+                            + "immediately, do not attempt further tools, do not "
+                            + "apologize.")));
+            return;
+        }
+
         // AskUserQuestion is Claude asking the user something. The CLI
         // runs in non-interactive mode, so the built-in tool returns
         // an empty answer immediately. We render the question as a
@@ -776,6 +795,21 @@ public class McpController
             }
         }
         return out.toString();
+    }
+
+    /** True when any task on this thread is currently parked
+     *  ({@code AWAITING_REVIEW} or {@code NEEDS_ATTENTION}). The
+     *  publish-gate flow only transitions out of those states on
+     *  user approve/discard, so while a parked task exists the
+     *  agent's turn is logically over and the gate refuses further
+     *  built-in tool calls. {@code NEEDS_ATTENTION} isn't written by
+     *  any code today; the second check is cheap future-proofing
+     *  against the second parked state landing later. */
+    private boolean isThreadParked(String threadId)
+    {
+        return taskStore.listTasksByThread(threadId).stream()
+                .anyMatch(t -> t.status() == TaskStatus.AWAITING_REVIEW
+                        || t.status() == TaskStatus.NEEDS_ATTENTION);
     }
 
     /** Resolves a task's linked PR into a PullRequestRef by matching

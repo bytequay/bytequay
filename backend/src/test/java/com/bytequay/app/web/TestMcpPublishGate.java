@@ -225,6 +225,81 @@ class TestMcpPublishGate
         assertThat(payload.path("source").asText()).isEqualTo("mcp:request_review");
     }
 
+    @Test
+    void approvalPromptIsDeniedOnceTheThreadHasAnAwaitingReviewTask()
+            throws Exception
+    {
+        // Once request_review (or push / post_comment) parks the
+        // active task, the agent's turn is logically over. A
+        // misbehaving agent that follows up with Bash / Edit / Write
+        // must be refused structurally — the generic permission gate
+        // doesn't otherwise look at task status and would happily
+        // surface a prompt as if work were still in progress.
+        String threadId = newThread("Parked-thread guard fixture");
+        tasks.saveTask(parkedTask(threadId, TaskStatus.AWAITING_REVIEW));
+
+        JsonNode response = invokeApprovalPrompt(threadId, "Bash", "call-bash-1");
+
+        JsonNode envelope = parseToolEnvelope(response);
+        assertThat(envelope.path("behavior").asText()).isEqualTo("deny");
+        assertThat(envelope.path("message").asText())
+                .contains("parked at the publish gate");
+    }
+
+    @Test
+    void approvalPromptIsDeniedOnceTheThreadHasANeedsAttentionTask()
+            throws Exception
+    {
+        // NEEDS_ATTENTION isn't written by any code today, but it's a
+        // parked state per the design and the guard treats it the
+        // same. Cheap future-proofing against the second parked state
+        // landing in a later change.
+        String threadId = newThread("Parked NEEDS_ATTENTION fixture");
+        tasks.saveTask(parkedTask(threadId, TaskStatus.NEEDS_ATTENTION));
+
+        JsonNode response = invokeApprovalPrompt(threadId, "Edit", "call-edit-1");
+
+        JsonNode envelope = parseToolEnvelope(response);
+        assertThat(envelope.path("behavior").asText()).isEqualTo("deny");
+        assertThat(envelope.path("message").asText())
+                .contains("parked at the publish gate");
+    }
+
+    @Test
+    void recallThreadStillWorksWhenTheThreadIsParked()
+            throws Exception
+    {
+        // recall_thread is read-only — the design row puts it explicitly
+        // outside the gate. It must still resolve so the agent can pull
+        // cross-thread context even while a parked proposal is open.
+        String threadId = newThread("Parked thread recall");
+        tasks.saveTask(parkedTask(threadId, TaskStatus.AWAITING_REVIEW));
+
+        JsonNode response = invokeRecallThread(threadId, "anything");
+
+        // recall_thread returns text content; the parked-guard deny
+        // shape (tool envelope with behavior=deny) is conspicuously
+        // absent.
+        assertThat(textOf(response)).isNotBlank();
+        assertThat(textOf(response)).doesNotContain("parked at the publish gate");
+    }
+
+    @Test
+    void requestReviewStillRunsWhenTheThreadIsAlreadyParked()
+            throws Exception
+    {
+        // The agent shouldn't normally re-park, but request_review
+        // is dispatched ahead of the structural guard so an
+        // unexpected double-call lands a second notification rather
+        // than blowing up. Idempotency check.
+        String threadId = newThread("Double-park request_review");
+        tasks.saveTask(parkedTask(threadId, TaskStatus.AWAITING_REVIEW));
+
+        JsonNode response = invokeRequestReview(threadId, "Already parked.", "");
+
+        assertThat(textOf(response)).startsWith("Parked at AWAITING_REVIEW.");
+    }
+
     private JsonNode invokePush(String threadId)
             throws Exception
     {
@@ -237,6 +312,58 @@ class TestMcpPublishGate
                 }
                 """;
         return resolved(controller.handle(threadId, mapper.readTree(rpc)));
+    }
+
+    private JsonNode invokeApprovalPrompt(String threadId, String toolName, String callId)
+            throws Exception
+    {
+        String rpc = """
+                {
+                  "jsonrpc": "2.0",
+                  "id": 1,
+                  "method": "tools/call",
+                  "params": {
+                    "name": "approval_prompt",
+                    "arguments": {
+                      "tool_name": %s,
+                      "tool_use_id": %s,
+                      "input": {}
+                    }
+                  }
+                }
+                """.formatted(
+                        mapper.writeValueAsString(toolName),
+                        mapper.writeValueAsString(callId));
+        return resolved(controller.handle(threadId, mapper.readTree(rpc)));
+    }
+
+    private JsonNode invokeRecallThread(String threadId, String query)
+            throws Exception
+    {
+        String rpc = """
+                {
+                  "jsonrpc": "2.0",
+                  "id": 1,
+                  "method": "tools/call",
+                  "params": {
+                    "name": "recall_thread",
+                    "arguments": { "query": %s, "limit": 5 }
+                  }
+                }
+                """.formatted(mapper.writeValueAsString(query));
+        return resolved(controller.handle(threadId, mapper.readTree(rpc)));
+    }
+
+    /** The approval_prompt path returns the gate envelope (allow/deny)
+     *  wrapped as JSON text inside the MCP content array — unwrap so
+     *  the test can assert on {@code behavior} / {@code message}. */
+    private JsonNode parseToolEnvelope(JsonNode rpcResponse)
+            throws Exception
+    {
+        JsonNode content = rpcResponse.path("result").path("content");
+        assertThat(content.isArray()).isTrue();
+        String envelopeJson = content.get(0).path("text").asText();
+        return mapper.readTree(envelopeJson);
     }
 
     private JsonNode invokePostComment(String threadId, String body)
@@ -323,6 +450,25 @@ class TestMcpPublishGate
                 worktreePath,
                 /* baseBranch */ "main",
                 /* workingDir */ worktreePath == null ? "/tmp/bytequay-test-fake" : worktreePath,
+                /* processPid */ null, /* logPath */ null,
+                /* prNumber */ null, /* prState */ null, /* ciState */ null,
+                /* taskType */ "DEVELOP",
+                /* linkedPrNumber */ null, /* linkedIssueNumber */ null,
+                0L, 0L, 0L,
+                /* firstMsgSeq */ null, /* lastMsgSeq */ null,
+                now, /* endedAt */ null, /* errorMessage */ null);
+    }
+
+    /** Builds a task pre-parked at the given status so the parked-
+     *  thread guard tests don't have to drive a full request_review /
+     *  push flow to get there. */
+    private static Task parkedTask(String threadId, TaskStatus status)
+    {
+        Instant now = Instant.parse("2026-05-22T12:00:00Z");
+        return new Task(
+                UUID.randomUUID().toString(), threadId, 1L, status,
+                "feature/parked", "/tmp/bytequay-test-parked", "main",
+                "/tmp/bytequay-test-parked",
                 /* processPid */ null, /* logPath */ null,
                 /* prNumber */ null, /* prState */ null, /* ciState */ null,
                 /* taskType */ "DEVELOP",

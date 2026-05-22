@@ -119,7 +119,7 @@ function ReviewsAnalyticsView({ onOpenPr, view, onChangeView }: ReviewsProps) {
   }, [data]);
 
   return (
-    <div className="analytics-page">
+    <div className="analytics-page calm-page">
       <header className="analytics-page__header">
         <div className="analytics-page__crumbs">
           <span className="analytics-page__crumb-back">Pull requests</span>

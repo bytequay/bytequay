@@ -173,16 +173,56 @@ export const ACTION_CATALOG: ControlAction[] = [
   },
 ];
 
+/** Verbs the bar understands as the first token. Per the
+ *  main-control-bar design, verbs are {@code :}-prefixed and
+ *  selectively constrain which actions are considered.
+ *
+ *  <ul>
+ *    <li>{@code :go} — navigation only</li>
+ *    <li>{@code :open} — same as {@code :go} for now; design
+ *        distinguishes "open in pane" from "navigate fully" but
+ *        we don't have panes yet</li>
+ *    <li>{@code :create} — creation actions only</li>
+ *  </ul>
+ *
+ *  <p>Anything not prefixed by a known verb falls through to
+ *  fuzzy substring search across the full catalog. */
+const VERBS: Record<string, ControlAction['source'][]> = {
+  ':go': ['navigation'],
+  ':open': ['navigation'],
+  ':create': ['create'],
+};
+
 /** Substring-then-keyword filter. Returns an ordered subset of the
  *  catalog; unmatched queries return everything in catalog order so
- *  the bar still shows the user something to navigate. */
+ *  the bar still shows the user something to navigate.
+ *
+ *  <p>A leading {@code :go} / {@code :open} / {@code :create} verb
+ *  narrows the catalog by source before the substring filter runs,
+ *  so {@code ":go threads"} only returns nav rows and
+ *  {@code ":create"} surfaces just the creation row(s). */
 export function filterCatalog(query: string): ControlAction[] {
-  const q = query.trim().toLowerCase();
-  if (q.length === 0) return ACTION_CATALOG;
+  const raw = query.trim();
+  if (raw.length === 0) return ACTION_CATALOG;
+  // Verb prefix: strip the verb and constrain the catalog by source.
+  let catalog = ACTION_CATALOG;
+  let body = raw;
+  if (body.startsWith(':')) {
+    const space = body.indexOf(' ');
+    const verb = (space === -1 ? body : body.slice(0, space)).toLowerCase();
+    if (VERBS[verb]) {
+      const sources = new Set(VERBS[verb]);
+      catalog = ACTION_CATALOG.filter(a => sources.has(a.source));
+      body = space === -1 ? '' : body.slice(space + 1).trim();
+      // Bare verb (no body) returns the verb-narrowed catalog as-is.
+      if (body.length === 0) return catalog;
+    }
+  }
+  const q = body.toLowerCase();
   const tokens = q.split(/\s+/).filter(t => t.length > 0);
   type Scored = { action: ControlAction; score: number };
   const scored: Scored[] = [];
-  for (const action of ACTION_CATALOG) {
+  for (const action of catalog) {
     const label = action.label.toLowerCase();
     const keywords = action.keywords.map(k => k.toLowerCase());
     const description = action.description.toLowerCase();

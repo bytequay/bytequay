@@ -116,7 +116,7 @@ function ControlBar({ open, onClose, onDispatch }: Props) {
             type="text"
             value={query}
             onChange={e => setQuery(e.target.value)}
-            placeholder="navigate, open, create…"
+            placeholder=":go threads · :open memory · :create thread …"
             style={inputStyle}
             aria-label="Command bar input"
             aria-controls="control-bar-results"
@@ -125,6 +125,32 @@ function ControlBar({ open, onClose, onDispatch }: Props) {
           />
           <span style={escHintStyle}>Esc to close</span>
         </div>
+        {query.trim().length === 0 && (
+          <div style={verbHintsRowStyle}>
+            <span style={verbHintLabelStyle}>verbs</span>
+            <button
+              type="button"
+              style={verbChipStyle}
+              onClick={() => setQuery(':go ')}
+            >
+              :go
+            </button>
+            <button
+              type="button"
+              style={verbChipStyle}
+              onClick={() => setQuery(':open ')}
+            >
+              :open
+            </button>
+            <button
+              type="button"
+              style={verbChipStyle}
+              onClick={() => setQuery(':create ')}
+            >
+              :create
+            </button>
+          </div>
+        )}
 
         <ResultList
           results={results}
@@ -247,6 +273,33 @@ const escHintStyle: React.CSSProperties = {
   fontSize: 10,
   color: '#7a7388',
   fontFamily: 'ui-monospace, SFMono-Regular, monospace',
+};
+
+const verbHintsRowStyle: React.CSSProperties = {
+  display: 'flex',
+  alignItems: 'center',
+  gap: 6,
+  padding: '8px 14px 0',
+};
+
+const verbHintLabelStyle: React.CSSProperties = {
+  fontSize: 9,
+  fontWeight: 600,
+  textTransform: 'uppercase',
+  letterSpacing: '0.06em',
+  color: '#7a7388',
+};
+
+const verbChipStyle: React.CSSProperties = {
+  padding: '3px 9px',
+  fontSize: 11,
+  fontWeight: 600,
+  fontFamily: 'ui-monospace, SFMono-Regular, monospace',
+  border: '1px solid rgba(124, 58, 237, 0.18)',
+  borderRadius: 999,
+  background: 'rgba(124, 58, 237, 0.06)',
+  color: '#6d28d9',
+  cursor: 'pointer',
 };
 
 const listStyle: React.CSSProperties = {

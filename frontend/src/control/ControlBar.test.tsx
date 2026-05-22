@@ -41,6 +41,30 @@ describe('filterCatalog', () => {
     expect(filterCatalog('zzz-no-match')).toEqual([]);
   });
 
+  it(':go verb narrows to navigation actions only', () => {
+    const result = filterCatalog(':go');
+    expect(result.length).toBeGreaterThan(0);
+    expect(result.every(r => r.source === 'navigation')).toBe(true);
+    // ":go" alone surfaces all nav actions; no create rows leak in.
+    expect(result.some(r => r.source === 'create')).toBe(false);
+  });
+
+  it(':create verb narrows to creation actions only', () => {
+    const result = filterCatalog(':create');
+    expect(result.length).toBeGreaterThan(0);
+    expect(result.every(r => r.source === 'create')).toBe(true);
+  });
+
+  it(':go threads finds nav row even though "threads" is in many descriptions', () => {
+    const result = filterCatalog(':go threads');
+    expect(result[0].id).toBe('nav.threads');
+  });
+
+  it(':open memory narrows + filters to the workspace memory row', () => {
+    const result = filterCatalog(':open memory');
+    expect(result[0].id).toBe('nav.workspace.memory');
+  });
+
   it('weights label hits over keyword/description hits', () => {
     // "settings" appears in the workspace-settings keywords AND in the
     // app-settings label. App settings should NOT outrank workspace

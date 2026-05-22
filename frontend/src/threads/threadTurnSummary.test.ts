@@ -82,8 +82,7 @@ function threadRow(status: ThreadDto['status']): ThreadDto {
     endedAt: null,
     errorMessage: null,
     taskType: 'DEVELOP',
-    linkedPrNumber: null,
-    linkedIssueNumber: null,
     worktreePath: null,
+    activeTask: null,
   };
 }

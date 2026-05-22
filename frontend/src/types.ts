@@ -1217,13 +1217,13 @@ export type ThreadDto = {
    *  working dir, etc.) — the agent falls back to running in the
    *  user-supplied {@code workingDir} in that case. */
   worktreePath: string | null;
-  /** GitHub PR number this thread is associated with — scoped to the
-   *  thread's own repo. {@code null} when the thread isn't tied to a
-   *  remote PR yet. */
-  linkedPrNumber: number | null;
-  /** GitHub issue number this thread is associated with — scoped to
-   *  the thread's own repo. Optional. */
-  linkedIssueNumber: number | null;
+  /** The most recent non-terminal work-unit task for this thread,
+   *  projected at read time. Null on 0-Task brainstorm threads.
+   *  Carries the per-task GitHub linkage ({@code linkedPrNumber},
+   *  {@code linkedIssueNumber}), worktree path, status, branch,
+   *  etc. — readers should prefer this over any flattened bridge
+   *  scalars still hanging off the Thread record. */
+  activeTask: WorkUnitTaskDto | null;
 };
 
 export type ThreadGroupDto = {

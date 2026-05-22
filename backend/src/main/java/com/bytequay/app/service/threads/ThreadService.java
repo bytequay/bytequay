@@ -314,9 +314,10 @@ public class ThreadService
                 current.costUsdMilli(), current.tokensIn(), current.tokensOut(),
                 current.createdAt(), Instant.now(),
                 current.endedAt(), current.errorMessage(),
-                current.taskType(), current.linkedPrNumber(), current.linkedIssueNumber(),
+                current.taskType(),
                 current.worktreePath(),
-                current.flow());
+                current.flow(),
+                current.activeTask());
         store.saveThread(next);
         return store.findThreadById(threadId).orElse(next);
     }
@@ -389,10 +390,11 @@ public class ThreadService
                 /* endedAt */ null,
                 /* errorMessage */ null,
                 taskType,
-                request.linkedPrNumber(),
-                request.linkedIssueNumber(),
                 handle.map(h -> h.worktreePath().toString()).orElse(null),
-                request.flow() == null ? ThreadFlow.BUILD : request.flow());
+                request.flow() == null ? ThreadFlow.BUILD : request.flow(),
+                /* activeTask — populated on read after saveThread + the
+                 *               explicit first-task materialisation below
+                 *               leave a real task row in place. */ null);
         store.saveThread(thread);
         // Materialise the first task row with a chosen id so the on-disk
         // worktree dir name (which used firstTaskId) matches it. The

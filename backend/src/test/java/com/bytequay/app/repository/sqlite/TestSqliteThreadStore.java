@@ -86,9 +86,10 @@ class TestSqliteThreadStore
                 /* costUsdMilli */ 12_345L, /* tokensIn */ 1_000L, /* tokensOut */ 2_000L,
                 initial.createdAt(), Instant.parse("2026-05-15T13:00:00Z"),
                 /* endedAt */ null, /* errorMessage */ null,
-                initial.taskType(), initial.linkedPrNumber(), initial.linkedIssueNumber(),
+                initial.taskType(),
                 initial.worktreePath(),
-                initial.flow());
+                initial.flow(),
+                initial.activeTask());
         store.saveThread(updated);
 
         Thread got = store.findThreadById(initial.id()).orElseThrow();
@@ -117,9 +118,10 @@ class TestSqliteThreadStore
                 original.costUsdMilli(), original.tokensIn(), original.tokensOut(),
                 original.createdAt(), original.updatedAt(),
                 original.endedAt(), original.errorMessage(),
-                original.taskType(), original.linkedPrNumber(), original.linkedIssueNumber(),
+                original.taskType(),
                 original.worktreePath(),
-                ThreadFlow.REVIEW);
+                ThreadFlow.REVIEW,
+                original.activeTask());
         assertThatThrownBy(() -> store.saveThread(flipped))
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("set-once");
@@ -220,10 +222,9 @@ class TestSqliteThreadStore
                 /* endedAt */ null,
                 /* errorMessage */ null,
                 /* taskType */ "DEVELOP",
-                /* linkedPrNumber */ null,
-                /* linkedIssueNumber */ null,
                 /* worktreePath */ null,
-                ThreadFlow.BUILD);
+                ThreadFlow.BUILD,
+                /* activeTask */ null);
     }
 
     private static Thread withTimestamps(Thread source, Instant created, Instant updated)
@@ -234,9 +235,10 @@ class TestSqliteThreadStore
                 source.model(), source.costUsdMilli(), source.tokensIn(), source.tokensOut(),
                 created, updated,
                 source.endedAt(), source.errorMessage(),
-                source.taskType(), source.linkedPrNumber(), source.linkedIssueNumber(),
+                source.taskType(),
                 source.worktreePath(),
-                source.flow());
+                source.flow(),
+                source.activeTask());
     }
 
     private static ThreadMessage message(String threadId, long seq, String role, String type, String contentJson)

@@ -932,7 +932,7 @@ function PullRequestPreview({ pr, onOpenReview, onInspectDiffs, onMarkHandled, o
         const all = await window.bridge.listTasks();
         if (cancelled) return;
         const matched = all.filter(t => {
-          if (t.linkedPrNumber !== pr.number) return false;
+          if (t.activeTask?.linkedPrNumber !== pr.number) return false;
           // Repo match via path-segment scan (worktrees live at
           // `<repo>/.worktrees/<branch>`, so basename-only matching
           // misses them).

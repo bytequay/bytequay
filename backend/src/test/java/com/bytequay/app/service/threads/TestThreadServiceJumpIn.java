@@ -136,7 +136,7 @@ class TestThreadServiceJumpIn
                 "claude-sonnet-4.6",
                 0L, 0L, 0L,
                 now, now, null, null,
-                "DEVELOP", null, null, null, ThreadFlow.BUILD);
+                "DEVELOP", null, ThreadFlow.BUILD, null);
         threadStore.saveThread(t);
         return t.id();
     }

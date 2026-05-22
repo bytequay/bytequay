@@ -390,10 +390,9 @@ class TestAgentScheduler
                 /* endedAt */ null,
                 /* errorMessage */ null,
                 "DEVELOP",
-                /* linkedPrNumber */ null,
-                /* linkedIssueNumber */ null,
                 /* worktreePath */ null,
-                ThreadFlow.BUILD);
+                ThreadFlow.BUILD,
+                /* activeTask */ null);
     }
 
     private static final class TestHarness

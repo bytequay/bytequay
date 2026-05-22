@@ -143,8 +143,12 @@ class SqliteThreadStore
                         t.prState(),
                         t.ciState(),
                         coalesce(thread.taskType(), t.taskType()),
-                        coalesce(thread.linkedPrNumber(), t.linkedPrNumber()),
-                        coalesce(thread.linkedIssueNumber(), t.linkedIssueNumber()),
+                        // linkedPrNumber / linkedIssueNumber live on
+                        // the Task only now; Thread no longer carries
+                        // them so the split path preserves what the
+                        // task already holds.
+                        t.linkedPrNumber(),
+                        t.linkedIssueNumber(),
                         thread.costUsdMilli(),
                         thread.tokensIn(),
                         thread.tokensOut(),
@@ -169,8 +173,7 @@ class SqliteThreadStore
                         /* logPath */ null,
                         /* prNumber */ null, /* prState */ null, /* ciState */ null,
                         thread.taskType() != null ? thread.taskType() : "DEVELOP",
-                        thread.linkedPrNumber(),
-                        thread.linkedIssueNumber(),
+                        /* linkedPrNumber */ null, /* linkedIssueNumber */ null,
                         thread.costUsdMilli(),
                         thread.tokensIn(),
                         thread.tokensOut(),
@@ -353,17 +356,14 @@ class SqliteThreadStore
     private static Thread toThread(ThreadEntity e, Task active)
     {
         // Bridge projection: V72 moved the work-unit columns onto
-        // tasks. Until callers stop reading them off the Thread
-        // record, we synthesise them from the active task. Null on
-        // 0-Task brainstorm threads — including taskType, which used
-        // to default to "DEVELOP" here and masked the no-task state
-        // from readers.
+        // tasks. The active Task rides along on the Thread payload
+        // so new readers can use thread.activeTask().X — flattened
+        // bridge scalars are kept for older readers and shrink as
+        // the teardown progresses.
         String workingDir = active != null ? active.workingDir() : null;
         String branchName = active != null ? active.branchName() : null;
         String worktreePath = active != null ? active.worktreePath() : null;
         String taskType = active != null ? active.taskType() : null;
-        Integer linkedPr = active != null ? active.linkedPrNumber() : null;
-        Integer linkedIssue = active != null ? active.linkedIssueNumber() : null;
         return new Thread(
                 e.getId(),
                 ThreadKind.valueOf(e.getKind()),
@@ -382,10 +382,9 @@ class SqliteThreadStore
                 e.getEndedAtMs() == null ? null : Instant.ofEpochMilli(e.getEndedAtMs()),
                 e.getErrorMessage(),
                 taskType,
-                linkedPr,
-                linkedIssue,
                 worktreePath,
-                ThreadFlow.fromDbValue(e.getFlow()));
+                ThreadFlow.fromDbValue(e.getFlow()),
+                active);
     }
 
     private static ThreadMessage toMessage(ThreadMessageEntity e)

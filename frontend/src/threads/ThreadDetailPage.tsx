@@ -1368,31 +1368,31 @@ function ThreadWindowSidebar({
               wrap
             />
           )}
-          {thread.linkedPrNumber !== null && (
+          {thread.activeTask?.linkedPrNumber != null && (
             <div style={metricRowStyle}>
               <span style={metricLabelStyle}>PR</span>
               <span style={{ ...metricValueStyle, textAlign: 'right' }}>
                 {onOpenPr ? (
                   <button
                     type="button"
-                    onClick={() => onOpenPr(thread.linkedPrNumber as number)}
+                    onClick={() => onOpenPr(thread.activeTask!.linkedPrNumber as number)}
                     style={prChipBtnStyle}
-                    title={`Open PR #${thread.linkedPrNumber}`}
+                    title={`Open PR #${thread.activeTask.linkedPrNumber}`}
                   >
-                    #{thread.linkedPrNumber}
+                    #{thread.activeTask.linkedPrNumber}
                   </button>
                 ) : (
                   <span style={{ fontFamily: '"SF Mono", Menlo, monospace', fontSize: 12 }}>
-                    #{thread.linkedPrNumber}
+                    #{thread.activeTask.linkedPrNumber}
                   </span>
                 )}
               </span>
             </div>
           )}
-          {thread.linkedIssueNumber !== null && (
+          {thread.activeTask?.linkedIssueNumber != null && (
             <Metric
               label="Issue"
-              value={`#${thread.linkedIssueNumber}`}
+              value={`#${thread.activeTask.linkedIssueNumber}`}
               mono
             />
           )}

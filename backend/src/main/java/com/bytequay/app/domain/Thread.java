@@ -22,15 +22,15 @@ import java.time.Instant;
  *
  * <p><b>Bridge fields.</b> V72 moved the work-unit columns
  * ({@code working_dir}, {@code branch_name}, {@code worktree_path},
- * {@code task_type}, {@code linked_pr_number},
- * {@code linked_issue_number}) out of {@code threads} and onto
+ * {@code task_type}) out of {@code threads} and onto
  * {@code tasks}. Until callers migrate to reading the active task
  * directly through {@link com.bytequay.app.repository.TaskStore},
  * {@link com.bytequay.app.repository.sqlite.SqliteThreadStore#toThread}
  * still synthesises those fields from the thread's active task
  * row. Treat them as a temporary read projection; new code should
- * go through TaskStore. The bridge is being torn down field by
- * field in follow-up commits.
+ * read off {@link #activeTask} (also populated by the same
+ * projection) instead of the flattened scalars. The bridge is
+ * being torn down field by field in follow-up commits.
  *
  * <p>Several fields are conditional on {@link #kind}:
  * <ul>
@@ -56,16 +56,15 @@ import java.time.Instant;
  *                 or {@code "FIX"}. Null when the thread has no active
  *                 task (0-Task brainstorm threads); callers must
  *                 handle the null rather than assume a default.
- * @param linkedPrNumber GitHub PR number the active task is linked to.
- *                       Null when no active task or no link.
- * @param linkedIssueNumber GitHub issue number the active task is linked to.
- *                          Null when no active task or no link.
  * @param worktreePath absolute path to the git worktree the agent runs in.
  * Null when no worktree was created for this thread (legacy rows, fallback
  * for non-git working dirs).
  * @param flow structural discriminator. Set at creation, never silently
  * flipped — the persistence layer refuses to rewrite it on an existing
  * row.
+ * @param activeTask the most recent non-terminal {@link Task} for the
+ * thread, projected at read time. Null on 0-Task brainstorm threads.
+ * Preferred over the flattened bridge scalars above for new readers.
  */
 public record Thread(
         String id,
@@ -85,10 +84,9 @@ public record Thread(
         Instant endedAt,
         String errorMessage,
         String taskType,
-        Integer linkedPrNumber,
-        Integer linkedIssueNumber,
         String worktreePath,
-        ThreadFlow flow)
+        ThreadFlow flow,
+        Task activeTask)
 {
     /**
      * Resolves the directory the agent process should be spawned in.

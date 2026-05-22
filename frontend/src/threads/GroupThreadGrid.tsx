@@ -501,24 +501,24 @@ function ThreadTile({
             the thread domain and the PR domain in-app. Each
             stopPropagation so the tile's click handler doesn't
             also fire selection / focus side-effects. */}
-        {thread.linkedPrNumber !== null && (
+        {thread.activeTask?.linkedPrNumber != null && (
           <button
             type="button"
-            onClick={e => { e.stopPropagation(); onOpenPr(thread, thread.linkedPrNumber as number); }}
+            onClick={e => { e.stopPropagation(); onOpenPr(thread, thread.activeTask!.linkedPrNumber as number); }}
             style={isTerm ? { ...slimChipStyle, ...slimChipPrTerminalStyle } : slimChipStyle}
-            title={`Open PR #${thread.linkedPrNumber}`}
+            title={`Open PR #${thread.activeTask.linkedPrNumber}`}
           >
-            #{thread.linkedPrNumber}
+            #{thread.activeTask.linkedPrNumber}
           </button>
         )}
-        {thread.linkedIssueNumber !== null && (
+        {thread.activeTask?.linkedIssueNumber != null && (
           <button
             type="button"
-            onClick={e => { e.stopPropagation(); onOpenIssue(thread, thread.linkedIssueNumber as number); }}
+            onClick={e => { e.stopPropagation(); onOpenIssue(thread, thread.activeTask!.linkedIssueNumber as number); }}
             style={isTerm ? { ...slimChipIssueStyle, ...slimChipIssueTerminalStyle } : slimChipIssueStyle}
-            title={`Open Issue #${thread.linkedIssueNumber}`}
+            title={`Open Issue #${thread.activeTask.linkedIssueNumber}`}
           >
-            !{thread.linkedIssueNumber}
+            !{thread.activeTask.linkedIssueNumber}
           </button>
         )}
         {immersive ? (

@@ -1339,10 +1339,9 @@ class TestThreadServiceScheduler
                 /* endedAt */ null,
                 /* errorMessage */ null,
                 "DEVELOP",
-                /* linkedPrNumber */ null,
-                /* linkedIssueNumber */ null,
                 /* worktreePath */ null,
-                ThreadFlow.BUILD);
+                ThreadFlow.BUILD,
+                /* activeTask */ null);
     }
 
     private static Thread threadWithWorktree(String id)
@@ -1366,9 +1365,8 @@ class TestThreadServiceScheduler
                 /* endedAt */ now,
                 /* errorMessage */ null,
                 "DEVELOP",
-                /* linkedPrNumber */ null,
-                /* linkedIssueNumber */ null,
                 "/tmp/work/.bytequay/worktrees/dev/thread-1",
-                ThreadFlow.BUILD);
+                ThreadFlow.BUILD,
+                /* activeTask */ null);
     }
 }

@@ -100,9 +100,8 @@ class TestThreadStartupReconciler
                 /* endedAt */ status == ThreadStatus.COMPLETED ? now : null,
                 /* errorMessage */ null,
                 /* taskType */ "DEVELOP",
-                /* linkedPrNumber */ null,
-                /* linkedIssueNumber */ null,
                 /* worktreePath */ null,
-                ThreadFlow.BUILD);
+                ThreadFlow.BUILD,
+                /* activeTask */ null);
     }
 }

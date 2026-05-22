@@ -12,6 +12,7 @@
  * limitations under the License.
  */
 import { useCallback, useEffect, useState } from 'react';
+import PublishGatePane from './PublishGatePane';
 import type { NotificationDto, NotificationKindDto } from './types';
 
 type Props = {
@@ -27,6 +28,11 @@ function NotificationsScreen({ onOpenThread }: Props) {
   const [items, setItems] = useState<NotificationDto[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  /** Id of the AWAITING_REVIEW row whose publish pane is open. Only
+   *  one expands at a time — the alternative (multiple open panes
+   *  with editable textareas) just confuses the user about which
+   *  Approve they're about to click. */
+  const [expandedId, setExpandedId] = useState<string | null>(null);
 
   const refresh = useCallback(async () => {
     try {
@@ -101,32 +107,76 @@ function NotificationsScreen({ onOpenThread }: Props) {
         </div>
       ) : (
         <ul className="notifications-list">
-          {items.map(n => (
-            <li
-              key={n.id}
-              className={`notifications-list__row notifications-list__row--${n.status.toLowerCase()}`}
-              onClick={() => { void handleOpen(n); }}
-            >
-              <div className="notifications-list__icon">{kindIcon(n.kind)}</div>
-              <div className="notifications-list__body">
-                <div className="notifications-list__title">{titleFor(n)}</div>
-                <div className="notifications-list__meta">{previewFor(n)}</div>
-                <div className="notifications-list__time">{relativeTime(n.createdAt)}</div>
-              </div>
-              <button
-                type="button"
-                className="notifications-list__dismiss"
-                onClick={e => { void handleDismiss(n, e); }}
-                title="Dismiss"
+          {items.map(n => {
+            const reviewable = isPublishGateNotification(n);
+            const expanded = expandedId === n.id;
+            return (
+              <li
+                key={n.id}
+                className={`notifications-list__row notifications-list__row--${n.status.toLowerCase()}`}
+                onClick={() => { void handleOpen(n); }}
               >
-                ✕
-              </button>
-            </li>
-          ))}
+                <div style={{ display: 'flex', alignItems: 'flex-start', gap: 10 }}>
+                  <div className="notifications-list__icon">{kindIcon(n.kind)}</div>
+                  <div className="notifications-list__body" style={{ flex: 1 }}>
+                    <div className="notifications-list__title">{titleFor(n)}</div>
+                    <div className="notifications-list__meta">{previewFor(n)}</div>
+                    <div className="notifications-list__time">{relativeTime(n.createdAt)}</div>
+                  </div>
+                  {reviewable && (
+                    <button
+                      type="button"
+                      onClick={e => {
+                        e.stopPropagation();
+                        setExpandedId(expanded ? null : n.id);
+                      }}
+                    >
+                      {expanded ? 'Hide' : 'Review'}
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    className="notifications-list__dismiss"
+                    onClick={e => { void handleDismiss(n, e); }}
+                    title="Dismiss"
+                  >
+                    ✕
+                  </button>
+                </div>
+                {reviewable && expanded && (
+                  <div onClick={e => e.stopPropagation()}>
+                    <PublishGatePane
+                      notification={n}
+                      onResolved={() => {
+                        setExpandedId(null);
+                        void refresh();
+                      }}
+                    />
+                  </div>
+                )}
+              </li>
+            );
+          })}
         </ul>
       )}
     </section>
   );
+}
+
+/** True when the row should show a Review button that expands the
+ *  publish gate pane. AWAITING_REVIEW notifications without a
+ *  recognised action (e.g. a plain request_review summary) keep the
+ *  current click-to-thread behaviour. */
+function isPublishGateNotification(n: NotificationDto): boolean {
+  if (n.kind !== 'AWAITING_REVIEW') return false;
+  if (!n.payloadJson) return false;
+  try {
+    const raw = JSON.parse(n.payloadJson) as { action?: unknown };
+    return raw.action === 'push' || raw.action === 'post_comment';
+  }
+  catch {
+    return false;
+  }
 }
 
 function kindIcon(kind: NotificationKindDto): string {

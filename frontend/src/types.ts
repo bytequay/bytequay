@@ -1498,6 +1498,48 @@ export type NotificationKindDto =
 
 export type NotificationStatusDto = 'UNREAD' | 'READ' | 'DISMISSED';
 
+/** Payload shape for an AWAITING_REVIEW notification produced by the
+ *  `push` MCP tool. The agent parked here so the user can review the
+ *  unified diff before any branch hits the remote. `diff` is null when
+ *  git couldn't produce one (no base ref, fetch needed); `diffError`
+ *  carries the human-readable reason so the pane can still let the
+ *  user approve or discard. */
+export type PushParkedPayload = {
+  action: 'push';
+  branch: string | null;
+  baseBranch: string | null;
+  worktreePath: string;
+  diffBase?: string;
+  diff: string | null;
+  diffError?: string;
+  source: string;
+};
+
+/** Payload shape for an AWAITING_REVIEW notification produced by the
+ *  `post_comment` MCP tool. The parked body is editable in the review
+ *  pane so the user can tweak copy before it posts to GitHub. */
+export type PostCommentParkedPayload = {
+  action: 'post_comment';
+  body: string;
+  pr: { owner: string; repo: string; number: number };
+  source: string;
+};
+
+export type ParkedPublishPayload =
+  | PushParkedPayload
+  | PostCommentParkedPayload;
+
+/** Server response from POST /api/notifications/{id}/approve and
+ *  /discard. Mirrors PublishService.PublishResult on the backend.
+ *  {@code resolution} is what the frontend dispatches on for toast
+ *  colour / inline copy. */
+export type PublishResultDto = {
+  ok: boolean;
+  resolution: 'approved' | 'discarded' | 'failed';
+  message: string;
+  action: string;
+};
+
 export type NotificationDto = {
   id: string;
   kind: NotificationKindDto;
@@ -2253,6 +2295,15 @@ export type Bridge = {
   dismissNotification: (id: string) => Promise<NotificationDto>;
   /** Hard delete — the row is gone. */
   deleteNotification: (id: string) => Promise<void>;
+  /** Approve a parked AWAITING_REVIEW publish: the backend runs the
+   *  deferred git push / createIssueComment, flips the task to
+   *  COMPLETED, dismisses the parked row, and writes an audit row.
+   *  {@code editedBody} only applies to post_comment — push has no
+   *  editable surface. */
+  approveNotification: (id: string, editedBody?: string | null) => Promise<PublishResultDto>;
+  /** Discard a parked AWAITING_REVIEW publish — no side effect runs.
+   *  Same task/notification housekeeping as approve. */
+  discardNotification: (id: string) => Promise<PublishResultDto>;
 
   /** Open a Server-Sent Events subscription to the backend for one
    *  thread. Each {@link StreamEvent} the session emits is delivered

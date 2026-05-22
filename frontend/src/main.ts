@@ -2668,6 +2668,48 @@ const url = new URL(`${BACKEND_BASE}/api/search/repos`);
     }
   });
 
+  ipcMain.handle('notifications:approve', async (_event, args: unknown) => {
+    if (typeof args !== 'object' || args === null) {
+      throw new Error('approve args must be an object');
+    }
+    const a = args as { id?: unknown; editedBody?: unknown };
+    if (typeof a.id !== 'string' || a.id.trim().length === 0) {
+      throw new Error('id must be a non-empty string');
+    }
+    // editedBody is optional and post_comment-only; the backend
+    // falls back to the parked body when it's null/blank.
+    const body: Record<string, unknown> = {};
+    if (typeof a.editedBody === 'string' && a.editedBody.length > 0) {
+      body.editedBody = a.editedBody;
+    }
+    const res = await fetch(
+      `${BACKEND_BASE}/api/notifications/${encodeURIComponent(a.id)}/approve`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+    if (!res.ok) {
+      const text = await res.text().catch(() => '');
+      throw new Error(`backend POST /api/notifications/${a.id}/approve returned ${res.status}: ${text}`);
+    }
+    return res.json();
+  });
+
+  ipcMain.handle('notifications:discard', async (_event, id: unknown) => {
+    if (typeof id !== 'string' || id.trim().length === 0) {
+      throw new Error('id must be a non-empty string');
+    }
+    const res = await fetch(
+      `${BACKEND_BASE}/api/notifications/${encodeURIComponent(id)}/discard`,
+      { method: 'POST' });
+    if (!res.ok) {
+      const text = await res.text().catch(() => '');
+      throw new Error(`backend POST /api/notifications/${id}/discard returned ${res.status}: ${text}`);
+    }
+    return res.json();
+  });
+
   ipcMain.handle('threads:workingChanges', async (_event, id: unknown) => {
     if (typeof id !== 'string' || id.trim().length === 0) {
       throw new Error('id must be a non-empty string');

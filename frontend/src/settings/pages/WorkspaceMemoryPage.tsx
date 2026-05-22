@@ -39,6 +39,10 @@ function WorkspaceMemoryPage({ onOpenThread }: Props) {
   const [distilling, setDistilling] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [statusMsg, setStatusMsg] = useState<string | null>(null);
+  /** id → title for the back-link chips on bullets that carry a
+   *  "[thread:id]" marker. Missing ids fall back to a short id stub
+   *  on the chip — the link still works either way. */
+  const [threadTitles, setThreadTitles] = useState<Map<string, string>>(new Map());
   /** Default is the parsed section view; edit drops the user into the
    *  textarea. Save returns to view so the new sections are visible
    *  without an extra click. */
@@ -63,6 +67,18 @@ function WorkspaceMemoryPage({ onOpenThread }: Props) {
   };
 
   useEffect(() => { void load(); }, []);
+
+  // Fan-out fetch for the thread-title chip labels. Single bridge call
+  // — listTasks() already returns the full list with titles — so this
+  // is cheap and stays in sync with the Home rail's own fetch.
+  useEffect(() => {
+    let cancelled = false;
+    window.bridge.listTasks().then(threads => {
+      if (cancelled) return;
+      setThreadTitles(new Map(threads.map(t => [t.id, t.title])));
+    }).catch(() => {});
+    return () => { cancelled = true; };
+  }, []);
 
   const dirty = memory !== original;
   const overBudget = memory.length > TARGET_CHARS;
@@ -193,7 +209,22 @@ function WorkspaceMemoryPage({ onOpenThread }: Props) {
                 </div>
                 <ul style={sectionBulletsStyle}>
                   {s.bullets.map((b, i) => (
-                    <li key={i} style={bulletStyleFor(s.heading)}>{b}</li>
+                    <li key={i} style={bulletStyleFor(s.heading)}>
+                      <div style={bulletRowStyle}>
+                        <span style={bulletTextStyle}>{b.text}</span>
+                        {b.threadId !== null && (
+                          <button
+                            type="button"
+                            style={chipStyle}
+                            onClick={() => onOpenThread?.(b.threadId!)}
+                            disabled={!onOpenThread}
+                            title="Open the thread this entry came from"
+                          >
+                            from &quot;{threadTitles.get(b.threadId) ?? b.threadId.slice(0, 8)}&quot;
+                          </button>
+                        )}
+                      </div>
+                    </li>
                   ))}
                 </ul>
               </section>
@@ -250,14 +281,17 @@ function WorkspaceMemoryPage({ onOpenThread }: Props) {
   );
 }
 
+type MemoryBullet = { text: string; threadId: string | null };
+type MemorySection = { heading: string; bullets: MemoryBullet[] };
+
 /** Parse a markdown blob into top-level "##" sections, capturing each
- *  bullet underneath. Trailing "[thread:id]" back-link markers are
- *  stripped from the bullet text — Home renders the chip there, and
- *  this page treats them as noise inside the bullet body. */
-function parseMemorySections(md: string): { heading: string; bullets: string[] }[] {
+ *  bullet underneath. A trailing "[thread:id]" marker is pulled off
+ *  into the bullet's {@code threadId} field so the section view can
+ *  render a clickable back-link chip while keeping the prose clean. */
+function parseMemorySections(md: string): MemorySection[] {
   if (md.length === 0) return [];
-  const sections: { heading: string; bullets: string[] }[] = [];
-  let cur: { heading: string; bullets: string[] } | null = null;
+  const sections: MemorySection[] = [];
+  let cur: MemorySection | null = null;
   for (const line of md.split('\n')) {
     const heading = /^##\s+(.+?)\s*$/.exec(line);
     if (heading !== null) {
@@ -268,7 +302,19 @@ function parseMemorySections(md: string): { heading: string; bullets: string[] }
     if (cur === null) continue;
     const bullet = /^\s*[-*]\s+(.+)$/.exec(line);
     if (bullet !== null) {
-      cur.bullets.push(bullet[1].replace(/\s*\[thread:[A-Za-z0-9_-]+\]/g, '').trim());
+      const raw = bullet[1];
+      // The marker is anchored at end-of-line so a bullet with a
+      // brace-enclosed sentence in the middle stays untouched.
+      const marker = /\s*\[thread:([A-Za-z0-9_-]+)\]\s*$/.exec(raw);
+      if (marker !== null) {
+        cur.bullets.push({
+          text: raw.slice(0, marker.index).trim(),
+          threadId: marker[1],
+        });
+      }
+      else {
+        cur.bullets.push({ text: raw.trim(), threadId: null });
+      }
     }
   }
   return sections;
@@ -350,6 +396,40 @@ const blockerBulletStyle: React.CSSProperties = {
   fontSize: 13,
   color: '#dc2626',
   lineHeight: 1.55,
+};
+
+// Inner flex row inside each <li> so the back-link chip floats to the
+// right of the text while the disc marker (rendered by the browser
+// off the <li>) stays put on the left. flex-wrap lets the chip drop
+// to a new line on a narrow card.
+const bulletRowStyle: React.CSSProperties = {
+  display: 'flex',
+  alignItems: 'baseline',
+  gap: 8,
+  flexWrap: 'wrap',
+};
+
+const bulletTextStyle: React.CSSProperties = {
+  flex: 1,
+  minWidth: 0,
+};
+
+const chipStyle: React.CSSProperties = {
+  display: 'inline-flex',
+  alignItems: 'center',
+  padding: '2px 8px',
+  fontSize: 11,
+  color: 'var(--ws-accent-deep)',
+  background: 'rgba(124, 58, 237, 0.10)',
+  border: 'none',
+  borderRadius: 999,
+  cursor: 'pointer',
+  fontFamily: 'inherit',
+  flexShrink: 0,
+  maxWidth: '50%',
+  overflow: 'hidden',
+  textOverflow: 'ellipsis',
+  whiteSpace: 'nowrap',
 };
 
 const emptyStateStyle: React.CSSProperties = {

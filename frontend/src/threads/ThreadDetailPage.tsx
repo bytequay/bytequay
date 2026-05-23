@@ -710,6 +710,7 @@ export default function ThreadDetailPage({
                   liveUsage={liveUsage}
                   threadId={threadId}
                   convIndexSseRef={convIndexSseRef}
+                  threadTasks={threadTasks}
                 />
               </div>
             )}
@@ -1753,7 +1754,7 @@ function TerminalWrap({
   changeStats, diffOpen, onReview,
   diffMode, onChangeDiffMode, workingCount, commitsCount,
   liveText, liveUsage,
-  threadId, convIndexSseRef,
+  threadId, convIndexSseRef, threadTasks,
 }: {
   thread: ThreadDto;
   modelName: string;
@@ -1794,6 +1795,11 @@ function TerminalWrap({
   liveUsage: { tokensIn: number; tokensOut: number } | null;
   threadId: string;
   convIndexSseRef: React.MutableRefObject<((name: string) => void) | null>;
+  /** Work-unit task sequence — forwarded into ConversationPane so the
+   *  terminal scrollback can draw a tmux-styled task-boundary marker
+   *  between successive tasks (the rollover seam from ship-&-continue).
+   *  Null during the brief window before the first /tasks fetch lands. */
+  threadTasks: import('../types').WorkUnitTaskDto[] | null;
 }) {
   // Anchor for the floating ConvIndex rail. Sized to wrap the
   // ConversationPane so the rail's "absolute" coordinates resolve
@@ -1860,6 +1866,7 @@ function TerminalWrap({
             sessionStartedAtIso: thread.createdAt,
           }}
           liveText={liveText}
+          tasks={threadTasks ?? undefined}
         />
         {/* Floating right-edge index rail. Collapsed by default to a
             strip of "−" markers; hover expands to full previews.

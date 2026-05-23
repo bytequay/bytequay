@@ -12,7 +12,7 @@
  * limitations under the License.
  */
 import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState, type ReactElement } from 'react';
-import type { ThreadMessageDto } from '../types';
+import type { ThreadMessageDto, WorkUnitTaskDto } from '../types';
 import { AskQuestionCard } from './AskQuestionCard';
 import { MarkdownProse } from './MarkdownProse';
 import { PermissionCard } from './PermissionCard';
@@ -53,6 +53,11 @@ type Props = {
    *  chunk-by-chunk; the parent clears it once the canonical
    *  AssistantText lands. */
   liveText?: string;
+  /** Work-unit task sequence in the thread, oldest-seq first. Used to
+   *  inject a tmux-styled task-boundary marker at the seam where
+   *  ship-&-continue rolled one task into the next. Optional — when
+   *  the thread has 0 or 1 tasks no markers render. */
+  tasks?: WorkUnitTaskDto[];
 };
 
 /** Tools we color-code per the design legend. Anything else falls
@@ -94,7 +99,7 @@ const TOOL_COLOR: Record<ToolKind, string> = {
  * resizing it.
  */
 export function ConversationPane({
-  messages, pendingPermission, onDecide, banner, liveText = '',
+  messages, pendingPermission, onDecide, banner, liveText = '', tasks,
 }: Props) {
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const stickToBottomRef = useRef(true);
@@ -135,6 +140,11 @@ export function ConversationPane({
   // outcome together, the way the mockup groups them.
   const rendered = useMemo(() => groupToolCalls(window.visible), [window.visible]);
 
+  // seq → boundary descriptor for the rollover marker. Drawn inline
+  // just before the first message of each task ≥ 2. Empty when the
+  // thread has 0 or 1 tasks (no rollover seam to mark).
+  const boundaries = useMemo(() => computeTaskBoundaries(tasks ?? []), [tasks]);
+
   return (
     <div style={scrollStyle} ref={scrollRef} onScroll={onScroll}>
       <Banner banner={banner} />
@@ -153,7 +163,7 @@ export function ConversationPane({
           ⏵ waiting for the first turn — send a prompt below to kick off
         </div>
       )}
-      {rendered.map(item => renderItem(item))}
+      {rendered.flatMap(item => renderItemWithBoundary(item, boundaries))}
       {liveText.length > 0 && <StreamingBlock text={liveText} />}
       {pendingPermission && (
         <PermissionCard permission={pendingPermission} onDecide={onDecide} />
@@ -165,6 +175,89 @@ export function ConversationPane({
 // ────────────────────────────────────────────────────────────────────
 // Render dispatch
 // ────────────────────────────────────────────────────────────────────
+
+/** Tmux-styled rollover marker between two consecutive tasks. Mirrors
+ *  the chat-bubble TaskBoundaryDivider in StructuredConversation, but
+ *  rendered in the terminal's green-on-dark palette so it reads as
+ *  part of the scrollback rather than a chat element. */
+function TaskBoundaryLine({ from, to }: { from: WorkUnitTaskDto; to: WorkUnitTaskDto }) {
+  const fromBranch = from.branchName ? `branch ${from.branchName}` : `task ${from.seq}`;
+  const toBranch = to.branchName ? ` on ${to.branchName}` : '';
+  const prPart = from.prNumber != null
+      ? ` · PR #${from.prNumber} ${stateForLabel(from.prState)}`
+      : '';
+  return (
+    <div style={taskBoundaryRowStyle} aria-label="task rollover marker">
+      <span style={taskBoundaryRuleStyle} />
+      <span style={taskBoundaryLabelStyle}>
+        ━ ✓ Shipped Task {from.seq}{prPart} · started Task {to.seq}{toBranch} ━
+      </span>
+      <span style={taskBoundaryRuleStyle} />
+    </div>
+  );
+}
+
+/** "Merged" / "open" / "draft" → short phrase the marker prefixes
+ *  with so the user reads `PR #123 merged` rather than the raw enum. */
+function stateForLabel(prState: string | null | undefined): string {
+  if (!prState) return 'open';
+  switch (prState.toLowerCase()) {
+    case 'merged':   return 'merged';
+    case 'closed':   return 'closed';
+    case 'draft':    return 'draft';
+    default:         return 'open';
+  }
+}
+
+function computeTaskBoundaries(
+    tasks: WorkUnitTaskDto[]): Map<number, { from: WorkUnitTaskDto; to: WorkUnitTaskDto }> {
+  const out = new Map<number, { from: WorkUnitTaskDto; to: WorkUnitTaskDto }>();
+  if (tasks.length < 2) {
+    return out;
+  }
+  // Sort by seq ascending so consecutive pairs line up. Each `to`
+  // task with a known firstMsgSeq pegs the marker just before its
+  // first message in the scrollback.
+  const sorted = [...tasks].sort((a, b) => a.seq - b.seq);
+  for (let i = 1; i < sorted.length; i++) {
+    const from = sorted[i - 1];
+    const to = sorted[i];
+    const seq = (to as WorkUnitTaskDto & { firstMsgSeq?: number | null }).firstMsgSeq;
+    if (seq != null) {
+      out.set(seq, { from, to });
+    }
+  }
+  return out;
+}
+
+/** Returns the seq of the first message a render item carries — used
+ *  by the boundary loop to decide where to inject the rollover marker.
+ *  Tool calls report their call's seq (the result lives later but the
+ *  group renders at the call's slot). */
+function seqOf(item: RenderItem): number {
+  if (item.kind === 'tool') {
+    return item.call.seq;
+  }
+  return item.message.seq;
+}
+
+function renderItemWithBoundary(
+    item: RenderItem,
+    boundaries: Map<number, { from: WorkUnitTaskDto; to: WorkUnitTaskDto }>): ReactElement[] {
+  const out: ReactElement[] = [];
+  const boundary = boundaries.get(seqOf(item));
+  if (boundary) {
+    out.push(
+      <TaskBoundaryLine
+        key={`boundary-${boundary.to.id}`}
+        from={boundary.from}
+        to={boundary.to}
+      />,
+    );
+  }
+  out.push(renderItem(item));
+  return out;
+}
 
 function renderItem(item: RenderItem): ReactElement {
   if (item.kind === 'lifecycle') {
@@ -651,6 +744,30 @@ const scrollStyle: React.CSSProperties = {
 };
 const emptyHintStyle: React.CSSProperties = {
   color: 'var(--term-text-dim)', textAlign: 'center', padding: '40px 0',
+};
+
+/* Task-boundary marker rendered between two consecutive tasks in
+ * terminal mode. tmux-styled rule + a centred label in the terminal
+ * green so it reads as part of the scrollback, not a chat element. */
+const taskBoundaryRowStyle: React.CSSProperties = {
+  display: 'flex',
+  alignItems: 'center',
+  gap: 10,
+  margin: '14px 0 12px',
+  fontFamily: monoFont,
+  fontSize: 12,
+  color: 'var(--term-ok)',
+  letterSpacing: '0.02em',
+};
+const taskBoundaryRuleStyle: React.CSSProperties = {
+  flex: 1,
+  height: 1,
+  background: 'var(--term-text-dim)',
+  opacity: 0.45,
+};
+const taskBoundaryLabelStyle: React.CSSProperties = {
+  flexShrink: 0,
+  whiteSpace: 'nowrap',
 };
 const loadMoreRowStyle: React.CSSProperties = {
   display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 10,

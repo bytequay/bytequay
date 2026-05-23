@@ -96,6 +96,12 @@ export function TasksInThreadSection({ threadId }: Props) {
     }
   };
 
+  // Single-task threads drop the "Task N" sequence pill entirely —
+  // the number is only meaningful when there are siblings to compare
+  // against. Multi-task threads keep it as a small badge next to the
+  // human label so the user can still see which task in the sequence
+  // they're looking at.
+  const showSeqBadge = ordered.length > 1;
   return (
     <div>
       <ul style={listStyle}>
@@ -103,8 +109,15 @@ export function TasksInThreadSection({ threadId }: Props) {
           <li key={task.id} style={rowStyle}>
             <span style={glyphFor(task)} aria-hidden>{glyphChar(task)}</span>
             <span style={labelStyle}>
-              <span style={titleStyle}>Task {task.seq}</span>
-              {task.branchName !== null && (
+              <span style={titleRowStyle}>
+                <span style={titleStyle}>{taskLabel(task)}</span>
+                {showSeqBadge && (
+                  <span style={seqBadgeStyle}>Task {task.seq}</span>
+                )}
+              </span>
+              {task.branchName !== null
+                  && humanizeBranch(task.branchName) !== task.branchName
+                  && (
                 <span style={branchStyle}>{task.branchName}</span>
               )}
             </span>
@@ -287,4 +300,66 @@ const shipBtnStyle: React.CSSProperties = {
   borderRadius: 4,
   color: 'var(--text-2)',
   cursor: 'pointer',
+};
+
+/* ── Label helpers ───────────────────────────────────────────────────
+ *
+ * The DTO doesn't carry a per-task title yet; until that lands the
+ * branch name is the most informative thing we can show. `taskLabel`
+ * picks the best human string for a task; `humanizeBranch` strips
+ * common prefixes and separators so a slug reads as English. */
+
+function taskLabel(task: WorkUnitTaskDto): string {
+  if (task.branchName !== null && task.branchName.length > 0) {
+    return humanizeBranch(task.branchName);
+  }
+  // No branch means the task never materialised on disk (worktree
+  // creation failed, or a legacy row). Fall back to "Task N" so the
+  // user still has something to click.
+  return `Task ${task.seq}`;
+}
+
+/** Turns a branch slug like {@code dev/abc123-fix-cost-pipeline} into
+ *  the more readable {@code "Fix cost pipeline"}. Specifically:
+ *  - strip a known prefix segment (everything up to and including the
+ *    last {@code /}),
+ *  - strip a hex id segment leading the rest ({@code abc123-}),
+ *  - replace remaining dashes / underscores with spaces,
+ *  - title-case the first word so the label reads as a label, not a
+ *    code identifier. */
+function humanizeBranch(branch: string): string {
+  let rest = branch;
+  const slash = rest.lastIndexOf('/');
+  if (slash >= 0 && slash < rest.length - 1) {
+    rest = rest.slice(slash + 1);
+  }
+  // Drop a leading hex-id segment (8+ hex chars followed by `-`).
+  const hexMatch = rest.match(/^[a-f0-9]{8,}-(.+)$/i);
+  if (hexMatch !== null) {
+    rest = hexMatch[1];
+  }
+  const spaced = rest.replace(/[-_]+/g, ' ').trim();
+  if (spaced.length === 0) {
+    return branch;
+  }
+  return spaced.charAt(0).toUpperCase() + spaced.slice(1);
+}
+
+const titleRowStyle: React.CSSProperties = {
+  display: 'flex',
+  alignItems: 'baseline',
+  gap: 8,
+  minWidth: 0,
+};
+
+const seqBadgeStyle: React.CSSProperties = {
+  fontSize: 9,
+  padding: '1px 6px',
+  borderRadius: 999,
+  background: 'rgba(124, 58, 237, 0.10)',
+  color: 'var(--accent-dark, #6d28d9)',
+  fontWeight: 600,
+  letterSpacing: '0.04em',
+  whiteSpace: 'nowrap',
+  flexShrink: 0,
 };

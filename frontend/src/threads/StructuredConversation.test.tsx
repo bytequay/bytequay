@@ -80,6 +80,7 @@ function userMessage(args: { seq: number; ts: string; text: string }): ThreadMes
   return {
     id: `m-${args.seq}`,
     threadId: 'thread-1',
+    taskId: null,
     seq: args.seq,
     role: 'user',
     type: 'text',

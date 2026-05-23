@@ -58,6 +58,7 @@ function message(type: string, content: Record<string, unknown>): ThreadMessageD
   return {
     id: `${type}-${String(content.callId ?? 'none')}`,
     threadId: 'thread-1',
+    taskId: null,
     seq: 1,
     role: 'system',
     type,

@@ -24,6 +24,7 @@ import type { ControlDispatch } from './control/actionCatalog';
 import ReviewThreadPage from './review/ReviewThreadPage';
 import ThreadDetailPage from './threads/ThreadDetailPage';
 import ThreadTrunkPage from './threads/ThreadTrunkPage';
+import TaskDetailPage from './threads/TaskDetailPage';
 import WorkspaceShell, { type WorkspaceSection } from './workspace/WorkspaceShell';
 import WorkspacesLandingPage from './workspace/WorkspacesLandingPage';
 import type {
@@ -692,29 +693,12 @@ function App() {
           />
         )}
         {nav.view === 'thread-detail' && nav.taskId !== undefined && (
-          <ThreadDetailPage
+          <TaskDetailPage
             threadId={nav.threadId}
-            onBack={() => setNav({ view: 'thread-detail', threadId: nav.threadId })}
-            onFilterChange={filter => setNav({
-              view: 'workspace', section: 'threads', threadsFilter: filter,
+            taskId={nav.taskId}
+            onBackToTrunk={() => setNav({
+              view: 'thread-detail', threadId: nav.threadId,
             })}
-            onProviderChange={provider => setNav({
-              view: 'workspace', section: 'threads', threadsProvider: provider,
-            })}
-            onGroupChange={groupId => setNav({
-              view: 'workspace', section: 'threads',
-              threadsGroupId: groupId ?? undefined,
-            })}
-            onRepoChange={repo => setNav({
-              view: 'workspace', section: 'threads',
-              threadsRepo: repo ?? undefined,
-            })}
-            onSelectTask={id => setNav({ view: 'thread-detail', threadId: id })}
-            onOpenPr={(owner, repo, prNumber) => setNav({
-              view: 'repo', owner, repo, prNumber,
-              back: { view: 'thread-detail', threadId: nav.threadId, taskId: nav.taskId },
-            })}
-            onOpenSettings={() => setNav({ view: 'settings', section: 'integrations' })}
           />
         )}
         {nav.view === 'notifications' && (

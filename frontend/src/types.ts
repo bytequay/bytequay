@@ -1506,6 +1506,11 @@ export type ConvIndexPageDto = {
 export type ThreadMessageDto = {
   id: string;
   threadId: string;
+  /** FK to the Task this row was written for; {@code null} marks a
+   *  trunk planning row. Used by the task-detail conversation to
+   *  scope its scrollback ({@code WHERE task_id = :task}), and by the
+   *  trunk to render only the planning slice ({@code IS NULL}). */
+  taskId: string | null;
   seq: number;
   /** {@code user} | {@code assistant} | {@code tool} | {@code system} */
   role: string;

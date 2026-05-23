@@ -1531,6 +1531,19 @@ export type ThreadMessageDto = {
   ts: string;
 };
 
+/** Per-thread scope settings — the resolved view the trunk shows.
+ *  {@code overriddenAt} is null for zero-config threads (silent
+ *  inheritance); a timestamp means the thread tightens or relaxes one
+ *  of the inherited values. */
+export type ThreadSettingsDto = {
+  threadId: string;
+  maxRunningTasks: number;
+  softCostUsdMilli: number;
+  hardCostUsdMilli: number;
+  promptAddendum: string | null;
+  overriddenAt: string | null;
+};
+
 export type NewTaskRequestDto = {
   kind: ThreadKindDto;
   provider?: string;
@@ -2507,6 +2520,23 @@ export type Bridge = {
     taskId: string,
     opts?: { nextTitle?: string | null; baseMode?: 'MAIN' | 'STACKED' },
   ) => Promise<WorkUnitTaskDto>;
+  /** Effective per-thread scope settings — global merged with the
+   *  thread's overrides (caps, prompt addendum). Always returns a
+   *  payload, even for zero-config threads. */
+  getThreadSettings: (threadId: string) => Promise<ThreadSettingsDto>;
+  /** Upsert this thread's overrides. {@code null} fields clear the
+   *  override and revert to inheritance. Returns the post-merge view. */
+  putThreadSettings: (
+    threadId: string,
+    body: {
+      maxRunningTasks?: number | null;
+      softCostUsdMilli?: number | null;
+      hardCostUsdMilli?: number | null;
+      promptAddendum?: string | null;
+    },
+  ) => Promise<ThreadSettingsDto>;
+  /** Drop the thread's settings row — reverts to silent inheritance. */
+  clearThreadSettings: (threadId: string) => Promise<void>;
   /** Active checkpoints for a thread — Overall first, then segments by
    *  descending seq. Drives the sidebar Checkpoints section and the
    *  cross-thread seed loader. */

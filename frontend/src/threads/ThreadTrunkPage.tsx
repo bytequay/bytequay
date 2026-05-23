@@ -12,7 +12,12 @@
  * limitations under the License.
  */
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import type { ThreadDto, ThreadTurnDto, WorkUnitTaskDto } from '../types';
+import type {
+  ThreadDto,
+  ThreadSettingsDto,
+  ThreadTurnDto,
+  WorkUnitTaskDto,
+} from '../types';
 import { useThreadTasks } from './useThreadTasks';
 
 type Props = {
@@ -233,6 +238,8 @@ export default function ThreadTrunkPage({ threadId, onBack, onOpenTask }: Props)
               </div>
               <SchedulerTable summary={scheduler} />
             </section>
+
+            <SettingsSection threadId={threadId} />
           </aside>
 
           <main style={mainStyle}>
@@ -282,6 +289,289 @@ export default function ThreadTrunkPage({ threadId, onBack, onOpenTask }: Props)
     </div>
   );
 }
+
+function SettingsSection({ threadId }: { threadId: string }) {
+  const [settings, setSettings] = useState<ThreadSettingsDto | null>(null);
+  const [editing, setEditing] = useState(false);
+  const [maxRunning, setMaxRunning] = useState<string>('');
+  const [softCost, setSoftCost] = useState<string>('');
+  const [hardCost, setHardCost] = useState<string>('');
+  const [promptAddendum, setPromptAddendum] = useState<string>('');
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const refresh = useCallback(async () => {
+    try {
+      const s = await window.bridge.getThreadSettings(threadId);
+      setSettings(s);
+      if (s.overriddenAt === null) {
+        setMaxRunning('');
+        setSoftCost('');
+        setHardCost('');
+        setPromptAddendum('');
+      }
+      else {
+        setMaxRunning(String(s.maxRunningTasks));
+        setSoftCost(String(s.softCostUsdMilli));
+        setHardCost(String(s.hardCostUsdMilli));
+        setPromptAddendum(s.promptAddendum ?? '');
+      }
+    }
+    catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    }
+  }, [threadId]);
+
+  useEffect(() => { void refresh(); }, [refresh]);
+
+  const onSave = useCallback(async () => {
+    setSaving(true);
+    setError(null);
+    try {
+      await window.bridge.putThreadSettings(threadId, {
+        maxRunningTasks: maxRunning.trim() === '' ? null : Number(maxRunning),
+        softCostUsdMilli: softCost.trim() === '' ? null : Number(softCost),
+        hardCostUsdMilli: hardCost.trim() === '' ? null : Number(hardCost),
+        promptAddendum: promptAddendum.trim() === '' ? null : promptAddendum,
+      });
+      await refresh();
+      setEditing(false);
+    }
+    catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    }
+    finally {
+      setSaving(false);
+    }
+  }, [threadId, maxRunning, softCost, hardCost, promptAddendum, refresh]);
+
+  const onReset = useCallback(async () => {
+    setSaving(true);
+    setError(null);
+    try {
+      await window.bridge.clearThreadSettings(threadId);
+      await refresh();
+      setEditing(false);
+    }
+    catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    }
+    finally {
+      setSaving(false);
+    }
+  }, [threadId, refresh]);
+
+  return (
+    <section style={railSectionStyle}>
+      <div style={railHeadStyle}>
+        <span>THREAD SETTINGS</span>
+        <span style={railHeadMutedStyle}>
+          {settings === null ? '…' : settings.overriddenAt === null ? 'inherited' : 'overridden'}
+        </span>
+      </div>
+      {!editing && settings !== null && (
+        <>
+          <dl style={{ margin: 0, padding: 0, display: 'grid', gap: 4 }}>
+            <SettingsRow label="Max running tasks" value={String(settings.maxRunningTasks)} />
+            <SettingsRow label="Soft cost cap" value={`$${(settings.softCostUsdMilli / 1000).toFixed(2)}`} />
+            <SettingsRow label="Hard cost cap" value={`$${(settings.hardCostUsdMilli / 1000).toFixed(2)}`} />
+          </dl>
+          {settings.promptAddendum !== null && (
+            <div style={addendumPreviewStyle} title={settings.promptAddendum}>
+              prompt: {settings.promptAddendum.length > 40
+                ? settings.promptAddendum.slice(0, 40) + '…'
+                : settings.promptAddendum}
+            </div>
+          )}
+          <button
+            type="button"
+            onClick={() => setEditing(true)}
+            style={settingsEditBtnStyle}
+          >
+            Edit
+          </button>
+        </>
+      )}
+      {editing && (
+        <div style={settingsFormStyle}>
+          <label style={settingsLabelStyle}>
+            Max running tasks
+            <input
+              type="number"
+              min={1}
+              value={maxRunning}
+              onChange={e => setMaxRunning(e.target.value)}
+              placeholder="inherit"
+              style={settingsInputStyle}
+            />
+          </label>
+          <label style={settingsLabelStyle}>
+            Soft cost cap (milli-USD)
+            <input
+              type="number"
+              min={0}
+              value={softCost}
+              onChange={e => setSoftCost(e.target.value)}
+              placeholder="inherit"
+              style={settingsInputStyle}
+            />
+          </label>
+          <label style={settingsLabelStyle}>
+            Hard cost cap (milli-USD)
+            <input
+              type="number"
+              min={0}
+              value={hardCost}
+              onChange={e => setHardCost(e.target.value)}
+              placeholder="inherit"
+              style={settingsInputStyle}
+            />
+          </label>
+          <label style={settingsLabelStyle}>
+            Prompt addendum
+            <textarea
+              value={promptAddendum}
+              onChange={e => setPromptAddendum(e.target.value)}
+              placeholder="appended onto workspace memory"
+              rows={3}
+              style={{ ...settingsInputStyle, fontFamily: 'inherit' }}
+            />
+          </label>
+          <div style={settingsBtnRowStyle}>
+            <button
+              type="button"
+              onClick={() => { void onSave(); }}
+              disabled={saving}
+              style={settingsSaveBtnStyle}
+            >
+              {saving ? 'Saving…' : 'Save'}
+            </button>
+            <button
+              type="button"
+              onClick={() => setEditing(false)}
+              disabled={saving}
+              style={settingsCancelBtnStyle}
+            >
+              Cancel
+            </button>
+            {settings?.overriddenAt !== null && (
+              <button
+                type="button"
+                onClick={() => { void onReset(); }}
+                disabled={saving}
+                style={settingsResetBtnStyle}
+                title="Clear overrides and revert to inheritance"
+              >
+                Reset
+              </button>
+            )}
+          </div>
+        </div>
+      )}
+      {error !== null && (
+        <div style={errStyle}>{error}</div>
+      )}
+    </section>
+  );
+}
+
+function SettingsRow({ label, value }: { label: string; value: string }) {
+  return (
+    <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12 }}>
+      <dt style={{ margin: 0, color: 'var(--text-3)' }}>{label}</dt>
+      <dd style={{ margin: 0, color: 'var(--text-1)', fontVariantNumeric: 'tabular-nums' }}>
+        {value}
+      </dd>
+    </div>
+  );
+}
+
+const addendumPreviewStyle: React.CSSProperties = {
+  marginTop: 6,
+  padding: '4px 8px',
+  background: 'rgba(0,0,0,0.04)',
+  borderRadius: 6,
+  fontSize: 10,
+  color: 'var(--text-3)',
+  whiteSpace: 'nowrap',
+  overflow: 'hidden',
+  textOverflow: 'ellipsis',
+};
+
+const settingsEditBtnStyle: React.CSSProperties = {
+  marginTop: 8,
+  width: '100%',
+  padding: '5px 8px',
+  fontSize: 11,
+  border: '1px dashed rgba(0,0,0,0.12)',
+  background: 'transparent',
+  borderRadius: 6,
+  color: 'var(--text-2)',
+  cursor: 'pointer',
+};
+
+const settingsFormStyle: React.CSSProperties = {
+  display: 'grid',
+  gap: 8,
+};
+
+const settingsLabelStyle: React.CSSProperties = {
+  display: 'flex',
+  flexDirection: 'column',
+  gap: 2,
+  fontSize: 10,
+  color: 'var(--text-3)',
+  fontWeight: 600,
+  letterSpacing: '0.04em',
+};
+
+const settingsInputStyle: React.CSSProperties = {
+  padding: '4px 6px',
+  fontSize: 12,
+  border: '1px solid rgba(0,0,0,0.10)',
+  borderRadius: 6,
+  background: '#fff',
+  outline: 'none',
+};
+
+const settingsBtnRowStyle: React.CSSProperties = {
+  display: 'flex',
+  gap: 6,
+  marginTop: 4,
+};
+
+const settingsSaveBtnStyle: React.CSSProperties = {
+  flex: 1,
+  padding: '5px 8px',
+  fontSize: 11,
+  border: 'none',
+  background: 'linear-gradient(135deg, #7c3aed, #6366f1)',
+  color: '#fff',
+  borderRadius: 6,
+  cursor: 'pointer',
+  fontWeight: 600,
+};
+
+const settingsCancelBtnStyle: React.CSSProperties = {
+  flex: 1,
+  padding: '5px 8px',
+  fontSize: 11,
+  border: '1px solid rgba(0,0,0,0.10)',
+  background: '#fff',
+  color: 'var(--text-2)',
+  borderRadius: 6,
+  cursor: 'pointer',
+};
+
+const settingsResetBtnStyle: React.CSSProperties = {
+  padding: '5px 8px',
+  fontSize: 11,
+  border: '1px solid rgba(220, 38, 38, 0.30)',
+  background: '#fff',
+  color: '#dc2626',
+  borderRadius: 6,
+  cursor: 'pointer',
+};
 
 function newestActiveTask(tasks: WorkUnitTaskDto[]): WorkUnitTaskDto | null {
   return tasks

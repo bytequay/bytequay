@@ -3263,6 +3263,61 @@ const url = new URL(`${BACKEND_BASE}/api/search/repos`);
     return res.json();
   });
 
+  ipcMain.handle('threads:settings:get', async (_event, threadId: unknown) => {
+    if (typeof threadId !== 'string' || threadId.trim().length === 0) {
+      throw new Error('threadId must be a non-empty string');
+    }
+    const res = await fetch(
+      `${BACKEND_BASE}/api/threads/${encodeURIComponent(threadId)}/settings`);
+    if (!res.ok) {
+      const text = await res.text().catch(() => '');
+      throw new Error(`backend GET /settings returned ${res.status}: ${text}`);
+    }
+    return res.json();
+  });
+
+  ipcMain.handle('threads:settings:put', async (_event, args: unknown) => {
+    const params = args as {
+      threadId?: unknown;
+      body?: {
+        maxRunningTasks?: number | null;
+        softCostUsdMilli?: number | null;
+        hardCostUsdMilli?: number | null;
+        promptAddendum?: string | null;
+      };
+    };
+    const threadId = params?.threadId;
+    if (typeof threadId !== 'string' || threadId.trim().length === 0) {
+      throw new Error('threadId must be a non-empty string');
+    }
+    const res = await fetch(
+      `${BACKEND_BASE}/api/threads/${encodeURIComponent(threadId)}/settings`,
+      {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(params.body ?? {}),
+      });
+    if (!res.ok) {
+      const text = await res.text().catch(() => '');
+      throw new Error(`backend PUT /settings returned ${res.status}: ${text}`);
+    }
+    return res.json();
+  });
+
+  ipcMain.handle('threads:settings:clear', async (_event, threadId: unknown) => {
+    if (typeof threadId !== 'string' || threadId.trim().length === 0) {
+      throw new Error('threadId must be a non-empty string');
+    }
+    const res = await fetch(
+      `${BACKEND_BASE}/api/threads/${encodeURIComponent(threadId)}/settings`,
+      { method: 'DELETE' });
+    if (!res.ok) {
+      const text = await res.text().catch(() => '');
+      throw new Error(`backend DELETE /settings returned ${res.status}: ${text}`);
+    }
+    return undefined;
+  });
+
   ipcMain.handle('workspaces:repos:autoFix', async (_event, args: unknown) => {
     const params = args as { workspaceId?: unknown; owner?: unknown; repo?: unknown; enabled?: unknown };
     const workspaceId = params?.workspaceId;

@@ -45,6 +45,7 @@ import type {
   NewTaskRequestDto,
   SyncSettingsDto,
   ThreadDto,
+  ThreadSettingsDto,
   ThreadFileDto,
   ThreadGroupDto,
   ThreadGroupMembershipDto,
@@ -563,6 +564,20 @@ const bridge: Bridge = {
     opts?: { nextTitle?: string | null; baseMode?: 'MAIN' | 'STACKED' },
   ): Promise<WorkUnitTaskDto> =>
     ipcRenderer.invoke('threads:tasks:next', { threadId, taskId, opts }),
+  getThreadSettings: (threadId: string): Promise<ThreadSettingsDto> =>
+    ipcRenderer.invoke('threads:settings:get', threadId),
+  putThreadSettings: (
+    threadId: string,
+    body: {
+      maxRunningTasks?: number | null;
+      softCostUsdMilli?: number | null;
+      hardCostUsdMilli?: number | null;
+      promptAddendum?: string | null;
+    },
+  ): Promise<ThreadSettingsDto> =>
+    ipcRenderer.invoke('threads:settings:put', { threadId, body }),
+  clearThreadSettings: (threadId: string): Promise<void> =>
+    ipcRenderer.invoke('threads:settings:clear', threadId),
   getTaskCheckpoints: (id: string): Promise<ThreadCheckpointDto[]> =>
     ipcRenderer.invoke('threads:checkpoints:list', id),
   generateTaskCheckpoint: (id: string): Promise<ThreadCheckpointDto | null> =>

@@ -104,7 +104,11 @@ export default function ThreadTrunkPage({ threadId, onBack, onOpenTask }: Props)
     () => tasks === null ? 0 : tasks.filter(
       t => t.status === 'AWAITING_REVIEW' || t.status === 'NEEDS_ATTENTION').length,
     [tasks]);
+  const needsAttention = useMemo(
+    () => tasks === null ? [] : tasks.filter(t => t.status === 'NEEDS_ATTENTION'),
+    [tasks]);
   const scheduler = useMemo(() => summariseScheduler(turns), [turns]);
+  const isReviewFlow = thread?.flow === 'review';
 
   const onAdvance = useCallback(async (mode: 'next' | 'ship') => {
     if (foreground === null || advancing !== null) return;
@@ -158,11 +162,49 @@ export default function ThreadTrunkPage({ threadId, onBack, onOpenTask }: Props)
         <div style={altitudeBandStyle}>
           <span style={bandGlyphStyle}>◆ THREAD</span>
           <span style={bandTitleStyle}>{title}</span>
-          <span style={bandHintStyle}>planning &amp; orchestration · no branch</span>
+          <span style={bandHintStyle}>
+            {thread?.flow === 'review'
+              ? 'review flow · references a PR · multi-agent panel'
+              : 'planning & orchestration · no branch · build flow'}
+          </span>
+          {thread !== null && (
+            <span style={flowBadgeStyle(thread.flow)}>
+              {thread.flow === 'review' ? 'REVIEW' : 'BUILD'}
+            </span>
+          )}
         </div>
 
         <div style={bodyGridStyle}>
           <aside style={railStyle}>
+            {needsAttention.length > 0 && (
+              <section style={attentionBannerStyle}>
+                <div style={attentionTitleStyle}>
+                  ⚠ {needsAttention.length} task{needsAttention.length === 1 ? '' : 's'} need{needsAttention.length === 1 ? 's' : ''} you
+                </div>
+                <ul style={attentionListStyle}>
+                  {needsAttention.map(t => (
+                    <li key={t.id} style={attentionRowStyle}>
+                      <span style={attentionLabelStyle}>
+                        {taskLabel(t)} · seq {t.seq}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => onOpenTask(t.id)}
+                        style={attentionJumpBtnStyle}
+                        title="Jump into this task and take the lease"
+                      >
+                        Jump in →
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+                <div style={attentionHintStyle}>
+                  Automation parked these at NEEDS_ATTENTION. Jump in to take
+                  the lease from the headless worker.
+                </div>
+              </section>
+            )}
+
             <section style={railSectionStyle}>
               <div style={railHeadStyle}>
                 <span>TASKS IN THIS THREAD</span>
@@ -191,33 +233,42 @@ export default function ThreadTrunkPage({ threadId, onBack, onOpenTask }: Props)
                   ))}
                 </ul>
               )}
-              <div style={advanceRowStyle}>
-                <button
-                  type="button"
-                  onClick={() => { void onAdvance('next'); }}
-                  disabled={foreground === null || advancing !== null}
-                  style={nextBtnStyle}
-                  title={foreground === null
-                    ? 'No foreground task — Next needs a task to park'
-                    : `Next: park task ${foreground.seq} at AWAITING_REVIEW and start the next from main`}
-                >
-                  {advancing === 'next' ? 'Parking…' : 'Next →'}
-                </button>
-                <button
-                  type="button"
-                  onClick={() => { void onAdvance('ship'); }}
-                  disabled={foreground === null || advancing !== null}
-                  style={shipBtnStyle}
-                  title={foreground === null
-                    ? 'No foreground task — Ship needs a task to finalise'
-                    : `Ship: finalise task ${foreground.seq} (worktree reaps)`}
-                >
-                  {advancing === 'ship' ? 'Shipping…' : 'Ship'}
-                </button>
-              </div>
-              <div style={advanceHintStyle}>
-                Next parks &amp; starts next · Ship finalises this task
-              </div>
+              {isReviewFlow ? (
+                <div style={reviewFlowNoticeStyle}>
+                  This is a review thread — the panel reviews a PR rather than
+                  cutting branches. Next / Ship apply only to build flows.
+                </div>
+              ) : (
+                <>
+                  <div style={advanceRowStyle}>
+                    <button
+                      type="button"
+                      onClick={() => { void onAdvance('next'); }}
+                      disabled={foreground === null || advancing !== null}
+                      style={nextBtnStyle}
+                      title={foreground === null
+                        ? 'No foreground task — Next needs a task to park'
+                        : `Next: park task ${foreground.seq} at AWAITING_REVIEW and start the next from main`}
+                    >
+                      {advancing === 'next' ? 'Parking…' : 'Next →'}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => { void onAdvance('ship'); }}
+                      disabled={foreground === null || advancing !== null}
+                      style={shipBtnStyle}
+                      title={foreground === null
+                        ? 'No foreground task — Ship needs a task to finalise'
+                        : `Ship: finalise task ${foreground.seq} (worktree reaps)`}
+                    >
+                      {advancing === 'ship' ? 'Shipping…' : 'Ship'}
+                    </button>
+                  </div>
+                  <div style={advanceHintStyle}>
+                    Next parks &amp; starts next · Ship finalises this task
+                  </div>
+                </>
+              )}
               {advanceError !== null && (
                 <div style={errStyle}>{advanceError}</div>
               )}
@@ -1020,6 +1071,91 @@ function taskStatusPillStyle(status: string): React.CSSProperties {
     textTransform: 'lowercase',
   };
 }
+
+function flowBadgeStyle(flow: 'build' | 'review'): React.CSSProperties {
+  const isReview = flow === 'review';
+  return {
+    marginLeft: 'auto',
+    fontSize: 10,
+    padding: '2px 8px',
+    borderRadius: 999,
+    fontWeight: 700,
+    letterSpacing: '0.06em',
+    background: isReview ? 'rgba(37, 99, 235, 0.10)' : SLATE_BG,
+    color: isReview ? '#1d4ed8' : SLATE,
+    border: `1px solid ${isReview ? 'rgba(37,99,235,0.30)' : SLATE_BORDER}`,
+  };
+}
+
+const reviewFlowNoticeStyle: React.CSSProperties = {
+  marginTop: 10,
+  padding: 10,
+  fontSize: 11,
+  color: '#1d4ed8',
+  background: 'rgba(37, 99, 235, 0.06)',
+  border: '1px solid rgba(37,99,235,0.20)',
+  borderRadius: 8,
+  lineHeight: 1.5,
+};
+
+const attentionBannerStyle: React.CSSProperties = {
+  background: 'rgba(217, 119, 6, 0.10)',
+  border: '1px solid rgba(217, 119, 6, 0.30)',
+  borderRadius: 14,
+  padding: 12,
+  boxShadow: '0 4px 18px rgba(217,119,6,0.10)',
+};
+
+const attentionTitleStyle: React.CSSProperties = {
+  fontSize: 12,
+  fontWeight: 700,
+  color: '#9a3412',
+  marginBottom: 8,
+};
+
+const attentionListStyle: React.CSSProperties = {
+  margin: 0,
+  padding: 0,
+  listStyle: 'none',
+  display: 'flex',
+  flexDirection: 'column',
+  gap: 6,
+};
+
+const attentionRowStyle: React.CSSProperties = {
+  display: 'flex',
+  alignItems: 'center',
+  gap: 8,
+  fontSize: 11,
+};
+
+const attentionLabelStyle: React.CSSProperties = {
+  flex: 1,
+  color: '#9a3412',
+  fontWeight: 600,
+  overflow: 'hidden',
+  textOverflow: 'ellipsis',
+  whiteSpace: 'nowrap',
+};
+
+const attentionJumpBtnStyle: React.CSSProperties = {
+  padding: '4px 10px',
+  fontSize: 10,
+  border: 'none',
+  background: '#d97706',
+  color: '#fff',
+  borderRadius: 6,
+  cursor: 'pointer',
+  fontWeight: 700,
+  letterSpacing: '0.04em',
+};
+
+const attentionHintStyle: React.CSSProperties = {
+  marginTop: 8,
+  fontSize: 10,
+  color: '#9a3412',
+  lineHeight: 1.5,
+};
 
 const advanceRowStyle: React.CSSProperties = {
   display: 'grid',

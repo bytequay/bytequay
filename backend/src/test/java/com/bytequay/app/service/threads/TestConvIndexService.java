@@ -124,7 +124,7 @@ class TestConvIndexService
     private static ThreadMessage userMsg(long seq, String text)
     {
         return new ThreadMessage(
-                "m-" + seq, "thread", seq, "user", "text",
+                "m-" + seq, "thread", /* taskId */ null, seq, "user", "text",
                 "{\"text\":\"" + text + "\"}",
                 null, null, null, null, Instant.ofEpochMilli(seq * 1000L));
     }
@@ -132,7 +132,7 @@ class TestConvIndexService
     private static ThreadMessage assistantMsg(long seq, String text)
     {
         return new ThreadMessage(
-                "m-" + seq, "thread", seq, "assistant", "text",
+                "m-" + seq, "thread", /* taskId */ null, seq, "assistant", "text",
                 "{\"text\":\"" + text + "\"}",
                 null, null, null, null, Instant.ofEpochMilli(seq * 1000L));
     }
@@ -142,7 +142,7 @@ class TestConvIndexService
     private static ThreadMessage toolResultUserMsg(long seq, String text)
     {
         return new ThreadMessage(
-                "m-" + seq, "thread", seq, "user", "tool_result",
+                "m-" + seq, "thread", /* taskId */ null, seq, "user", "tool_result",
                 "{\"text\":\"" + text + "\"}",
                 null, null, null, null, Instant.ofEpochMilli(seq * 1000L));
     }

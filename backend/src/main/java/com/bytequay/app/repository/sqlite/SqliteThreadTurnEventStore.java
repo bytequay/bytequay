@@ -44,7 +44,8 @@ class SqliteThreadTurnEventStore
         ThreadTurnEventEntity entity = new ThreadTurnEventEntity();
         entity.setId(event.id());
         entity.setTurnId(event.turnId());
-        entity.setTaskId(event.threadId());
+        entity.setThreadId(event.threadId());
+        entity.setTaskId(event.taskId());
         entity.setEvent(event.event().name());
         entity.setCreatedAtMs(event.createdAt().toEpochMilli());
         entity.setMessage(event.message());
@@ -66,6 +67,7 @@ class SqliteThreadTurnEventStore
         return new ThreadTurnEvent(
                 e.getId(),
                 e.getTurnId(),
+                e.getThreadId(),
                 e.getTaskId(),
                 ThreadTurnEventType.valueOf(e.getEvent()),
                 Instant.ofEpochMilli(e.getCreatedAtMs()),

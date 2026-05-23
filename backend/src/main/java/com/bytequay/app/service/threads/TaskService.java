@@ -254,7 +254,7 @@ public class TaskService
                     /* linkedPrNumber */ prNumber != null ? prNumber : current.linkedPrNumber(),
                     current.linkedIssueNumber(),
                     current.costUsdMilli(), current.tokensIn(), current.tokensOut(),
-                    current.firstMsgSeq(), current.lastMsgSeq(),
+                    current.agentSessionId(),
                     current.createdAt(), now, current.errorMessage()));
 
             // 5. Resolve next base + cut a new worktree. MAIN mode
@@ -283,7 +283,7 @@ public class TaskService
                     current.taskType(),
                     /* linkedPrNumber */ null, /* linkedIssueNumber */ null,
                     /* costUsdMilli */ 0L, /* tokensIn */ 0L, /* tokensOut */ 0L,
-                    /* firstMsgSeq */ null, /* lastMsgSeq */ null,
+                    /* agentSessionId — captured on the new task's first turn */ null,
                     now, /* endedAt */ null, /* errorMessage */ null);
             taskStore.saveTask(next);
 

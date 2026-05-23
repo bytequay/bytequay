@@ -455,7 +455,7 @@ class TestMcpPublishGate
                 /* taskType */ "DEVELOP",
                 /* linkedPrNumber */ null, /* linkedIssueNumber */ null,
                 0L, 0L, 0L,
-                /* firstMsgSeq */ null, /* lastMsgSeq */ null,
+                /* agentSessionId */ null,
                 now, /* endedAt */ null, /* errorMessage */ null);
     }
 
@@ -474,7 +474,7 @@ class TestMcpPublishGate
                 /* taskType */ "DEVELOP",
                 /* linkedPrNumber */ null, /* linkedIssueNumber */ null,
                 0L, 0L, 0L,
-                /* firstMsgSeq */ null, /* lastMsgSeq */ null,
+                /* agentSessionId */ null,
                 now, /* endedAt */ null, /* errorMessage */ null);
     }
 
@@ -492,7 +492,7 @@ class TestMcpPublishGate
                 /* taskType */ "DEVELOP",
                 linkedPrNumber, /* linkedIssueNumber */ null,
                 0L, 0L, 0L,
-                /* firstMsgSeq */ null, /* lastMsgSeq */ null,
+                /* agentSessionId */ null,
                 now, /* endedAt */ null, /* errorMessage */ null);
     }
 }

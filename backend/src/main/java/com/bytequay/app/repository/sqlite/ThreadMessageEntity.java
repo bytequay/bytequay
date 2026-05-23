@@ -29,6 +29,9 @@ class ThreadMessageEntity
     @Column(name = "thread_id", nullable = false)
     private String threadId;
 
+    @Column(name = "task_id")
+    private String taskId;
+
     @Column(name = "seq", nullable = false)
     private long seq;
 
@@ -59,8 +62,11 @@ class ThreadMessageEntity
     String getId() { return id; }
     void setId(String id) { this.id = id; }
 
-    String getTaskId() { return threadId; }
-    void setTaskId(String threadId) { this.threadId = threadId; }
+    String getThreadId() { return threadId; }
+    void setThreadId(String threadId) { this.threadId = threadId; }
+
+    String getTaskId() { return taskId; }
+    void setTaskId(String taskId) { this.taskId = taskId; }
 
     long getSeq() { return seq; }
     void setSeq(long seq) { this.seq = seq; }

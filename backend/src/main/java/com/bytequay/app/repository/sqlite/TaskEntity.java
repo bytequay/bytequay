@@ -80,11 +80,8 @@ class TaskEntity
     @Column(name = "tokens_out", nullable = false)
     private long tokensOut;
 
-    @Column(name = "first_msg_seq")
-    private Long firstMsgSeq;
-
-    @Column(name = "last_msg_seq")
-    private Long lastMsgSeq;
+    @Column(name = "agent_session_id")
+    private String agentSessionId;
 
     @Column(name = "created_at_ms", nullable = false)
     private long createdAtMs;
@@ -152,11 +149,8 @@ class TaskEntity
     long getTokensOut() { return tokensOut; }
     void setTokensOut(long tokensOut) { this.tokensOut = tokensOut; }
 
-    Long getFirstMsgSeq() { return firstMsgSeq; }
-    void setFirstMsgSeq(Long firstMsgSeq) { this.firstMsgSeq = firstMsgSeq; }
-
-    Long getLastMsgSeq() { return lastMsgSeq; }
-    void setLastMsgSeq(Long lastMsgSeq) { this.lastMsgSeq = lastMsgSeq; }
+    String getAgentSessionId() { return agentSessionId; }
+    void setAgentSessionId(String agentSessionId) { this.agentSessionId = agentSessionId; }
 
     long getCreatedAtMs() { return createdAtMs; }
     void setCreatedAtMs(long createdAtMs) { this.createdAtMs = createdAtMs; }

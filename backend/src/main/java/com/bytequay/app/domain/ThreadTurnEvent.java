@@ -17,11 +17,16 @@ import java.time.Instant;
 
 /**
  * Durable scheduler observability for one thread turn.
+ *
+ * <p>{@code taskId} mirrors the turn's task: an event inherits the
+ * Task its parent turn was bound to, or {@code null} for a trunk
+ * planning turn.
  */
 public record ThreadTurnEvent(
         String id,
         String turnId,
         String threadId,
+        String taskId,
         ThreadTurnEventType event,
         Instant createdAt,
         String message)

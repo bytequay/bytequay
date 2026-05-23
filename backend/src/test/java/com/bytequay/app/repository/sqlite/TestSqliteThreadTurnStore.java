@@ -145,6 +145,7 @@ class TestSqliteThreadTurnStore
         return new ThreadTurn(
                 id(threadId, suffix),
                 threadId,
+                /* taskId */ null,
                 ThreadResourceLane.CLI,
                 status,
                 "input",
@@ -161,6 +162,7 @@ class TestSqliteThreadTurnStore
                 id(threadId, suffix),
                 turnId,
                 threadId,
+                /* taskId */ null,
                 ThreadTurnEventType.TURN_QUEUED,
                 createdAt,
                 /* message */ null);

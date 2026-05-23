@@ -405,7 +405,7 @@ public class ThreadService
                     null, null, null,
                     taskType, request.linkedPrNumber(), request.linkedIssueNumber(),
                     0L, 0L, 0L,
-                    null, null,
+                    /* agentSessionId */ null,
                     now, null, null));
         }
         for (String groupId : initialGroupIds) {

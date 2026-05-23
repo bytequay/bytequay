@@ -21,10 +21,17 @@ import java.time.Instant;
  * <p>A thread can be idle while its next turn is waiting for scheduler
  * capacity. Keeping that state here avoids overloading
  * {@link ThreadStatus} with queue details.
+ *
+ * <p>{@code taskId} is the focused Task when the turn was enqueued;
+ * {@code null} marks a trunk planning turn (no task focused, no
+ * worktree). The agent scheduler routes the turn to the matching
+ * Task's session, or to the Thread trunk session if {@code taskId}
+ * is {@code null}.
  */
 public record ThreadTurn(
         String id,
         String threadId,
+        String taskId,
         ThreadResourceLane lane,
         ThreadTurnStatus status,
         String input,

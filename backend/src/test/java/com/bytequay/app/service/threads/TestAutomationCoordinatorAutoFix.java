@@ -216,7 +216,7 @@ class TestAutomationCoordinatorAutoFix
                 /* linkedPrNumber */ PR_NUMBER,
                 /* linkedIssueNumber */ null,
                 /* costUsdMilli */ 0L, /* tokensIn */ 0L, /* tokensOut */ 0L,
-                /* firstMsgSeq */ null, /* lastMsgSeq */ null,
+                /* agentSessionId */ null,
                 now, /* endedAt */ null, /* errorMessage */ null);
     }
 

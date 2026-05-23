@@ -639,7 +639,7 @@ class TestThreadServiceScheduler
                 "/tmp/work/.bytequay/worktrees/dev/thread-1",
                 "main", "/tmp/work",
                 null, null, null, null, null, "DEVELOP", null, null,
-                0L, 0L, 0L, null, null,
+                0L, 0L, 0L, /* agentSessionId */ null,
                 Instant.parse("2026-05-18T12:00:00Z"), null, null));
         RecordingWorktreeService worktrees = new RecordingWorktreeService(Optional.empty());
         ThreadService service = new ThreadService(
@@ -678,7 +678,7 @@ class TestThreadServiceScheduler
                 "/tmp/work/.bytequay/worktrees/dev/thread-1",
                 "main", "/tmp/work",
                 null, null, null, null, null, "DEVELOP", null, null,
-                0L, 0L, 0L, null, null,
+                0L, 0L, 0L, /* agentSessionId */ null,
                 Instant.parse("2026-05-18T12:00:00Z"), null, null);
         SingleTaskStore tasks = new SingleTaskStore(active);
         RecordingGitRunner git = new RecordingGitRunner();
@@ -1438,6 +1438,7 @@ class TestThreadServiceScheduler
         return new ThreadTurn(
                 id,
                 threadId,
+                /* taskId */ null,
                 ThreadResourceLane.CLI,
                 status,
                 "input",
@@ -1454,6 +1455,7 @@ class TestThreadServiceScheduler
                 id,
                 turnId,
                 threadId,
+                /* taskId */ null,
                 ThreadTurnEventType.TURN_QUEUED,
                 createdAt,
                 /* message */ null);

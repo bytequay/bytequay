@@ -114,6 +114,12 @@ public class ClaudeCodeCliThreadAgent
 
     private final AtomicReference<ThreadStatus> status = new AtomicReference<>();
     private final AtomicReference<String> agentSessionId = new AtomicReference<>();
+    /** Id of the Task this agent is bound to (= the foreground task at
+     *  spawn time). Every persisted ThreadMessage and every captured
+     *  session-id flow back to this task, so jumping back to a parked
+     *  sibling — which creates a fresh agent against the other task —
+     *  never mixes histories. */
+    private final String activeTaskId;
     private final AtomicReference<String> model = new AtomicReference<>("");
     private final AtomicReference<Process> currentProcess = new AtomicReference<>();
     /** Set true by {@link #interrupt} just before {@code destroy()} so
@@ -205,8 +211,13 @@ public class ClaudeCodeCliThreadAgent
         this.workingDir = requireNonNull(active.agentCwd(),
                 "active task " + active.id() + " has no working dir; cannot spawn CLI agent");
         this.branchName = active.branchName();
+        this.activeTaskId = active.id();
         this.status.set(thread.status());
-        this.agentSessionId.set(thread.agentSessionId());
+        // Resume from the focused task's session, not the thread's.
+        // The Thread carries the trunk/planning session; each Task owns
+        // its own forked session that --resume must hit so we land back
+        // in this Task's worktree conversation.
+        this.agentSessionId.set(active.agentSessionId());
         this.runningCostUsdMilli.set(thread.costUsdMilli());
         this.runningTokensIn.set(thread.tokensIn());
         this.runningTokensOut.set(thread.tokensOut());
@@ -390,13 +401,16 @@ public class ClaudeCodeCliThreadAgent
                             t.prNumber(), t.prState(), t.ciState(),
                             t.taskType(), t.linkedPrNumber(), t.linkedIssueNumber(),
                             t.costUsdMilli(), t.tokensIn(), t.tokensOut(),
-                            t.firstMsgSeq(), t.lastMsgSeq(),
+                            agentSessionId.get(),
                             t.createdAt(), /* endedAt */ null,
                             /* errorMessage */ null));
                 }
             });
+            // Preserve the trunk planning session id on the Thread row;
+            // the captured agent session id belongs on the Task and was
+            // persisted via taskStore above.
             store.saveThread(new Thread(
-                    current.id(), current.kind(), current.provider(), agentSessionId.get(),
+                    current.id(), current.kind(), current.provider(), current.agentSessionId(),
                     current.title(), ThreadStatus.IDLE,
                     model.get(),
                     runningCostUsdMilli.get(), runningTokensIn.get(), runningTokensOut.get(),
@@ -818,16 +832,16 @@ public class ClaudeCodeCliThreadAgent
         Instant ts = event.timestamp();
         return switch (event) {
             case StreamEvent.SessionStarted e -> new ThreadMessage(
-                    id, threadId, seq, "system", "session_started",
+                    id, threadId, activeTaskId, seq, "system", "session_started",
                     String.format("{\"sessionId\":\"%s\",\"cwd\":\"%s\",\"model\":\"%s\"}",
                             jsonEscape(e.sessionId()), jsonEscape(e.cwd()), jsonEscape(e.model())),
                     null, null, null, null, ts);
             case StreamEvent.UserMessage e -> new ThreadMessage(
-                    id, threadId, seq, "user", "text",
+                    id, threadId, activeTaskId, seq, "user", "text",
                     "{\"text\":\"" + jsonEscape(e.text()) + "\"}",
                     null, null, null, null, ts);
             case StreamEvent.AssistantText e -> new ThreadMessage(
-                    id, threadId, seq, "assistant", "text",
+                    id, threadId, activeTaskId, seq, "assistant", "text",
                     "{\"text\":\"" + jsonEscape(e.text()) + "\"}",
                     null, null, null, null, ts);
             // Live-only — deltas reach SSE subscribers and feed the
@@ -836,38 +850,38 @@ public class ClaudeCodeCliThreadAgent
             // the conversation table by ~1 row per token.
             case StreamEvent.AssistantTextDelta ignored -> null;
             case StreamEvent.ThinkingStarted e -> new ThreadMessage(
-                    id, threadId, seq, "assistant", "thinking",
+                    id, threadId, activeTaskId, seq, "assistant", "thinking",
                     "{\"summary\":\"" + jsonEscape(e.summary()) + "\"}",
                     null, null, null, null, ts);
             case StreamEvent.ThinkingDone ignored -> null;
             case StreamEvent.ToolCallStarted e -> new ThreadMessage(
-                    id, threadId, seq, "tool", "tool_call",
+                    id, threadId, activeTaskId, seq, "tool", "tool_call",
                     String.format("{\"callId\":\"%s\",\"toolName\":\"%s\",\"input\":%s}",
                             jsonEscape(e.callId()),
                             jsonEscape(e.toolName()),
                             e.inputJson().isEmpty() ? "null" : e.inputJson()),
                     null, null, null, null, ts);
             case StreamEvent.ToolCallDone e -> new ThreadMessage(
-                    id, threadId, seq, "tool", "tool_result",
+                    id, threadId, activeTaskId, seq, "tool", "tool_result",
                     String.format("{\"callId\":\"%s\",\"isError\":%s,\"output\":%s}",
                             jsonEscape(e.callId()),
                             e.isError(),
                             e.outputJson().isEmpty() ? "null" : e.outputJson()),
                     null, null, null, null, ts);
             case StreamEvent.PermissionRequested e -> new ThreadMessage(
-                    id, threadId, seq, "system", "permission_request",
+                    id, threadId, activeTaskId, seq, "system", "permission_request",
                     String.format("{\"callId\":\"%s\",\"toolName\":\"%s\",\"summary\":\"%s\"}",
                             jsonEscape(e.callId()),
                             jsonEscape(e.toolName()),
                             jsonEscape(e.summary())),
                     null, null, null, null, ts);
             case StreamEvent.PermissionDecided e -> new ThreadMessage(
-                    id, threadId, seq, "system", "permission_decision",
+                    id, threadId, activeTaskId, seq, "system", "permission_decision",
                     String.format("{\"callId\":\"%s\",\"decision\":\"%s\"}",
                             jsonEscape(e.callId()), e.decision().name()),
                     null, null, null, null, ts);
             case StreamEvent.PermissionAutoAllowed e -> new ThreadMessage(
-                    id, threadId, seq, "system", "permission_auto_allowed",
+                    id, threadId, activeTaskId, seq, "system", "permission_auto_allowed",
                     String.format("{\"callId\":\"%s\",\"toolName\":\"%s\",\"remaining\":%d}",
                             jsonEscape(e.callId()),
                             jsonEscape(e.toolName()),
@@ -878,15 +892,15 @@ public class ClaudeCodeCliThreadAgent
             // durable accounting row.
             case StreamEvent.UsageUpdated ignored -> null;
             case StreamEvent.TurnDone e -> new ThreadMessage(
-                    id, threadId, seq, "system", "turn_done", "{}",
+                    id, threadId, activeTaskId, seq, "system", "turn_done", "{}",
                     e.durationMs(), e.tokensIn(), e.tokensOut(), e.costUsdMilli(), ts);
             case StreamEvent.ErrorOccurred e -> new ThreadMessage(
-                    id, threadId, seq, "system", "error",
+                    id, threadId, activeTaskId, seq, "system", "error",
                     String.format("{\"message\":\"%s\",\"recoverable\":%s}",
                             jsonEscape(e.message()), e.recoverable()),
                     null, null, null, null, ts);
             case StreamEvent.SessionEnded e -> new ThreadMessage(
-                    id, threadId, seq, "system", "session_ended",
+                    id, threadId, activeTaskId, seq, "system", "session_ended",
                     String.format("{\"exitCode\":%d,\"errorMessage\":%s}",
                             e.exitCode(),
                             e.errorMessage() == null
@@ -924,8 +938,28 @@ public class ClaudeCodeCliThreadAgent
         if (current == null) {
             return;
         }
+        // Push the captured session id down to the active task; the
+        // Thread row keeps its trunk/planning session id. This is the
+        // post-Pass-4 invariant: each Task owns its own --resume id,
+        // and the Thread.agent_session_id is only ever the trunk.
+        String capturedSession = agentSessionId.get();
+        if (capturedSession != null && !capturedSession.isBlank()) {
+            taskStore.findTaskById(activeTaskId).ifPresent(t -> {
+                if (!capturedSession.equals(t.agentSessionId())) {
+                    taskStore.saveTask(new Task(
+                            t.id(), t.threadId(), t.seq(), t.status(),
+                            t.branchName(), t.worktreePath(), t.baseBranch(),
+                            t.workingDir(), t.processPid(), t.logPath(),
+                            t.prNumber(), t.prState(), t.ciState(),
+                            t.taskType(), t.linkedPrNumber(), t.linkedIssueNumber(),
+                            t.costUsdMilli(), t.tokensIn(), t.tokensOut(),
+                            capturedSession,
+                            t.createdAt(), t.endedAt(), t.errorMessage()));
+                }
+            });
+        }
         Thread next = new Thread(
-                current.id(), current.kind(), current.provider(), agentSessionId.get(),
+                current.id(), current.kind(), current.provider(), current.agentSessionId(),
                 current.title(), status.get(),
                 model.get(),
                 runningCostUsdMilli.get(), runningTokensIn.get(), runningTokensOut.get(),

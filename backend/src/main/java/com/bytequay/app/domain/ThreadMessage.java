@@ -35,10 +35,17 @@ import java.time.Instant;
  * <p>{@code durationMs} / {@code tokensIn} / {@code tokensOut} /
  * {@code costUsdMilli} are populated for the rows where they apply
  * (tool calls, turn completions) and {@code null} elsewhere.
+ *
+ * <p>{@code taskId} is the focused Task at the time this row was
+ * written. {@code null} marks a trunk planning row — talk that
+ * happens at the Thread level with no task focused. The Task slice
+ * for a thread is {@code WHERE task_id = :task}; the trunk is
+ * {@code WHERE task_id IS NULL}.
  */
 public record ThreadMessage(
         String id,
         String threadId,
+        String taskId,
         long seq,
         String role,
         String type,

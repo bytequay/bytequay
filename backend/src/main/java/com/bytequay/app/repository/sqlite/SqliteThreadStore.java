@@ -131,7 +131,7 @@ class SqliteThreadStore
                     t.prNumber(), t.prState(), t.ciState(),
                     t.taskType(), t.linkedPrNumber(), t.linkedIssueNumber(),
                     thread.costUsdMilli(), thread.tokensIn(), thread.tokensOut(),
-                    t.firstMsgSeq(), t.lastMsgSeq(),
+                    t.agentSessionId(),
                     t.createdAt(),
                     thread.endedAt() != null ? thread.endedAt() : t.endedAt(),
                     thread.errorMessage() != null ? thread.errorMessage() : t.errorMessage());
@@ -192,7 +192,8 @@ class SqliteThreadStore
     {
         ThreadMessageEntity entity = new ThreadMessageEntity();
         entity.setId(message.id());
-        entity.setTaskId(message.threadId());
+        entity.setThreadId(message.threadId());
+        entity.setTaskId(message.taskId());
         entity.setSeq(message.seq());
         entity.setRole(message.role());
         entity.setType(message.type());
@@ -345,6 +346,7 @@ class SqliteThreadStore
     {
         return new ThreadMessage(
                 e.getId(),
+                e.getThreadId(),
                 e.getTaskId(),
                 e.getSeq(),
                 e.getRole(),

@@ -46,7 +46,8 @@ class SqliteThreadTurnStore
     {
         ThreadTurnEntity entity = turns.findById(turn.id()).orElseGet(ThreadTurnEntity::new);
         entity.setId(turn.id());
-        entity.setTaskId(turn.threadId());
+        entity.setThreadId(turn.threadId());
+        entity.setTaskId(turn.taskId());
         entity.setLane(turn.lane().name());
         entity.setStatus(turn.status().name());
         entity.setInput(turn.input());
@@ -133,6 +134,7 @@ class SqliteThreadTurnStore
     {
         return new ThreadTurn(
                 e.getId(),
+                e.getThreadId(),
                 e.getTaskId(),
                 ThreadResourceLane.valueOf(e.getLane()),
                 ThreadTurnStatus.valueOf(e.getStatus()),

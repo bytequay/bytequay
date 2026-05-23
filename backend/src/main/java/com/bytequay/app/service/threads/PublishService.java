@@ -244,7 +244,7 @@ public class PublishService
                     t.prNumber(), t.prState(), t.ciState(),
                     t.taskType(), t.linkedPrNumber(), t.linkedIssueNumber(),
                     t.costUsdMilli(), t.tokensIn(), t.tokensOut(),
-                    t.firstMsgSeq(), t.lastMsgSeq(),
+                    t.agentSessionId(),
                     t.createdAt(), t.endedAt(), t.errorMessage()));
         });
     }

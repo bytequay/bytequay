@@ -111,9 +111,14 @@ public class AgentScheduler
             throw new IllegalArgumentException("input is blank");
         }
         Instant now = Instant.now();
+        // Tag the turn with the foreground task so resume/scheduler
+        // routing later can pick its session + worktree. A trunk
+        // planning turn (no active task) lands with task_id = null.
+        String taskId = thread.activeTask() == null ? null : thread.activeTask().id();
         ThreadTurn turn = new ThreadTurn(
                 UUID.randomUUID().toString(),
                 thread.id(),
+                taskId,
                 laneFor(thread),
                 QUEUED,
                 input,
@@ -394,6 +399,7 @@ public class AgentScheduler
                 UUID.randomUUID().toString(),
                 turn.id(),
                 turn.threadId(),
+                turn.taskId(),
                 event,
                 Instant.now(),
                 message));
@@ -410,6 +416,7 @@ public class AgentScheduler
         return new ThreadTurn(
                 turn.id(),
                 turn.threadId(),
+                turn.taskId(),
                 turn.lane(),
                 status,
                 turn.input(),

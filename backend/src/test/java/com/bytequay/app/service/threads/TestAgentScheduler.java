@@ -669,6 +669,7 @@ class TestAgentScheduler
         return new ThreadTurn(
                 id,
                 threadId,
+                /* taskId */ null,
                 ThreadResourceLane.CLI,
                 status,
                 "input",

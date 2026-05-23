@@ -260,7 +260,7 @@ class TestCheckpointScheduler
     private static ThreadMessage msg(long seq, long tokens)
     {
         return new ThreadMessage(
-                "m-" + seq, "t1", seq,
+                "m-" + seq, "t1", /* taskId */ null, seq,
                 seq % 2 == 1 ? "user" : "assistant",
                 "text",
                 "{\"text\":\"msg " + seq + "\"}",

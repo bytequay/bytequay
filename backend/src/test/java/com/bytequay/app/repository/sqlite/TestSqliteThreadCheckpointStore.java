@@ -257,8 +257,7 @@ class TestSqliteThreadCheckpointStore
                 /* costUsdMilli */ 0L,
                 /* tokensIn */ 0L,
                 /* tokensOut */ 0L,
-                /* firstMsgSeq */ null,
-                /* lastMsgSeq */ null,
+                /* agentSessionId */ null,
                 /* createdAt */ now,
                 /* endedAt */ null,
                 /* errorMessage */ null);

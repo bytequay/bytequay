@@ -21,28 +21,31 @@ import java.time.Instant;
  * commits the agent makes there, and (once opened) a PR + CI status.
  *
  * <p>A thread accumulates tasks over its lifetime; at most one task
- * is "active" at a time (non-terminal status with the highest seq).
- * "Ship & continue" closes the current task and starts the next,
- * keeping the conversation continuous while the agent's cwd swaps to
- * the new worktree.
+ * is foreground at a time (the others are parked but alive). "Next →"
+ * parks the foreground task at AWAITING_REVIEW and starts a sibling
+ * cut from a fresh main; Ship finalizes a task and returns to the
+ * thread trunk.
  *
  * <p>Per-execution fields ({@code processPid}, {@code logPath}) are
  * populated while a CLI agent subprocess is alive and cleared on
- * exit. The CLI's {@code --resume} id lives one level up on the
- * {@link Thread} — the conversation persists across task switches,
- * so the resume id does too.
+ * exit. The CLI's {@code --resume} id lives <strong>on this Task</strong>
+ * — each Task forks from the trunk planning session at creation and
+ * thereafter owns its own conversation. {@link Thread#agentSessionId}
+ * is the trunk planning session, which the foreground Task's session
+ * forks from but never shares.
  *
  * @param seq monotonically increasing within the thread (1, 2, 3...)
  * @param baseBranch the branch this task was cut from — 'main',
- *                   'upstream/master', or the previous task's branch
- *                   when stacked.
+ *                   'upstream/master', or a sibling task's branch when
+ *                   stacked (rare escape hatch).
  * @param workingDir the repo root that {@code worktreePath} was cut
  *                   from; useful when the worktree itself is reaped
  *                   after the PR opens.
- * @param firstMsgSeq inclusive lower bound of {@code thread_messages.seq}
- *                    this task covers (the first prompt sent after the
- *                    task was created).
- * @param lastMsgSeq inclusive upper bound — set when the task closes.
+ * @param agentSessionId the CLI {@code --resume} id for this task's
+ *                       worktree. {@code null} until the first turn
+ *                       captures a session_started event; thereafter
+ *                       sticky for the life of the task so reopens
+ *                       continue the same conversation.
  */
 public record Task(
         String id,
@@ -64,8 +67,7 @@ public record Task(
         long costUsdMilli,
         long tokensIn,
         long tokensOut,
-        Long firstMsgSeq,
-        Long lastMsgSeq,
+        String agentSessionId,
         Instant createdAt,
         Instant endedAt,
         String errorMessage)

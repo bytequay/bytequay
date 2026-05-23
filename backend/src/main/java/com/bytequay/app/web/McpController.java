@@ -515,7 +515,7 @@ public class McpController
                 task.prNumber(), task.prState(), task.ciState(),
                 task.taskType(), task.linkedPrNumber(), task.linkedIssueNumber(),
                 task.costUsdMilli(), task.tokensIn(), task.tokensOut(),
-                task.firstMsgSeq(), task.lastMsgSeq(),
+                task.agentSessionId(),
                 task.createdAt(), task.endedAt(), task.errorMessage()));
     }
 
@@ -774,7 +774,7 @@ public class McpController
         for (ThreadCheckpoint cp : matches) {
             String title = threads.find(cp.threadId())
                     .map(com.bytequay.app.domain.Thread::title)
-                    .filter(s -> s != null && !s.isBlank())
+                    .filter(s -> !s.isBlank())
                     .orElse("(untitled)");
             out.append("\n— thread ").append(cp.threadId())
                     .append(" · ").append(title).append('\n');

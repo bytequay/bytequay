@@ -28,6 +28,9 @@ class ThreadTurnEntity
     @Column(name = "thread_id", nullable = false)
     private String threadId;
 
+    @Column(name = "task_id")
+    private String taskId;
+
     @Column(name = "lane", nullable = false)
     private String lane;
 
@@ -62,14 +65,24 @@ class ThreadTurnEntity
         this.id = id;
     }
 
-    String getTaskId()
+    String getThreadId()
     {
         return threadId;
     }
 
-    void setTaskId(String threadId)
+    void setThreadId(String threadId)
     {
         this.threadId = threadId;
+    }
+
+    String getTaskId()
+    {
+        return taskId;
+    }
+
+    void setTaskId(String taskId)
+    {
+        this.taskId = taskId;
     }
 
     String getLane()

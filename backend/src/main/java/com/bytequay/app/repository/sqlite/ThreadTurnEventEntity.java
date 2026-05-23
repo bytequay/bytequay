@@ -31,6 +31,9 @@ class ThreadTurnEventEntity
     @Column(name = "thread_id", nullable = false)
     private String threadId;
 
+    @Column(name = "task_id")
+    private String taskId;
+
     @Column(name = "event", nullable = false)
     private String event;
 
@@ -60,14 +63,24 @@ class ThreadTurnEventEntity
         this.turnId = turnId;
     }
 
-    String getTaskId()
+    String getThreadId()
     {
         return threadId;
     }
 
-    void setTaskId(String threadId)
+    void setThreadId(String threadId)
     {
         this.threadId = threadId;
+    }
+
+    String getTaskId()
+    {
+        return taskId;
+    }
+
+    void setTaskId(String taskId)
+    {
+        this.taskId = taskId;
     }
 
     String getEvent()

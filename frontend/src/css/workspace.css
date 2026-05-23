@@ -27,6 +27,11 @@
  *  --ws-fast       micro-interaction transition (~140ms easing)
  */
 
+/* Default theme — Purple. The remaining themes (Light, Dark, Warm)
+ * live below and override these same tokens via [data-theme="<name>"]
+ * on <html> so anyone can switch with
+ *   document.documentElement.dataset.theme = 'dark'
+ * No UI wires this yet; the system is CSS-only for now. */
 :root {
   --ws-bg-base: #fafafe;
   --ws-mesh-purple: rgba(167, 139, 250, 0.22);
@@ -43,8 +48,97 @@
   --ws-text-1: #1f1b2e;
   --ws-text-2: #4b455e;
   --ws-text-3: #7a7388;
+  /* Surfaces — kept separate from the mesh so a dark theme can swap
+   * them to "translucent dark" without losing the pastel mesh effect. */
+  --ws-rail-bg: rgba(255, 255, 255, 0.45);
+  --ws-rail-edge: rgba(255, 255, 255, 0.5);
+  --ws-commandbar-bg: rgba(255, 255, 255, 0.7);
+  --ws-commandbar-hover-bg: #fff;
+  --ws-brand-bg: #fff;
+  /* Sticky-header gradient mask stops. The pageheader fades from
+   * strong → soft → transparent so content slides cleanly under. */
+  --ws-header-mask-strong: rgba(243, 240, 255, 0.95);
+  --ws-header-mask-soft:   rgba(243, 240, 255, 0.70);
   --ws-fast: 140ms ease;
   --ws-rail-width: 220px;
+}
+
+/* ── Light theme — cooler, more neutral, blue accent ─────────────── */
+:root[data-theme="light"] {
+  --ws-bg-base: #fdfdfd;
+  --ws-mesh-purple: rgba(148, 163, 184, 0.10);
+  --ws-mesh-sky:    rgba(125, 211, 252, 0.10);
+  --ws-mesh-pink:   rgba(203, 213, 225, 0.12);
+  --ws-mesh-mint:   rgba(190, 242, 100, 0.06);
+  --ws-glass: rgba(255, 255, 255, 0.84);
+  --ws-glass-edge: rgba(226, 232, 240, 0.60);
+  --ws-card-border: rgba(15, 23, 42, 0.06);
+  --ws-card-shadow: 0 1px 2px rgba(15, 23, 42, 0.04), 0 4px 18px rgba(15, 23, 42, 0.05);
+  --ws-accent: #2563eb;
+  --ws-accent-deep: #1d4ed8;
+  --ws-accent-soft: rgba(37, 99, 235, 0.08);
+  --ws-text-1: #0f172a;
+  --ws-text-2: #334155;
+  --ws-text-3: #64748b;
+  --ws-rail-bg: rgba(255, 255, 255, 0.62);
+  --ws-rail-edge: rgba(226, 232, 240, 0.60);
+  --ws-commandbar-bg: rgba(255, 255, 255, 0.84);
+  --ws-commandbar-hover-bg: #fff;
+  --ws-brand-bg: #fff;
+  --ws-header-mask-strong: rgba(253, 253, 253, 0.95);
+  --ws-header-mask-soft:   rgba(253, 253, 253, 0.70);
+}
+
+/* ── Dark theme — deep slate base, brighter accents ──────────────── */
+:root[data-theme="dark"] {
+  --ws-bg-base: #0f0f1a;
+  --ws-mesh-purple: rgba(167, 139, 250, 0.20);
+  --ws-mesh-sky:    rgba(96, 165, 250, 0.14);
+  --ws-mesh-pink:   rgba(244, 114, 182, 0.12);
+  --ws-mesh-mint:   rgba(74, 222, 128, 0.10);
+  --ws-glass: rgba(30, 27, 46, 0.70);
+  --ws-glass-edge: rgba(167, 139, 250, 0.18);
+  --ws-card-border: rgba(167, 139, 250, 0.16);
+  --ws-card-shadow: 0 1px 2px rgba(0, 0, 0, 0.30), 0 8px 24px rgba(124, 58, 237, 0.16);
+  --ws-accent: #a78bfa;
+  --ws-accent-deep: #c4b5fd;
+  --ws-accent-soft: rgba(167, 139, 250, 0.18);
+  --ws-text-1: #f0eff5;
+  --ws-text-2: #c4c1d4;
+  --ws-text-3: #8b859b;
+  --ws-rail-bg: rgba(20, 18, 32, 0.62);
+  --ws-rail-edge: rgba(167, 139, 250, 0.15);
+  --ws-commandbar-bg: rgba(30, 27, 46, 0.80);
+  --ws-commandbar-hover-bg: rgba(48, 42, 70, 1);
+  --ws-brand-bg: rgba(30, 27, 46, 0.95);
+  --ws-header-mask-strong: rgba(15, 15, 26, 0.95);
+  --ws-header-mask-soft:   rgba(15, 15, 26, 0.70);
+}
+
+/* ── Warm theme — amber/peach/rose mesh, warm orange accent ──────── */
+:root[data-theme="warm"] {
+  --ws-bg-base: #fffaf3;
+  --ws-mesh-purple: rgba(253, 186, 116, 0.22);
+  --ws-mesh-sky:    rgba(254, 215, 170, 0.18);
+  --ws-mesh-pink:   rgba(251, 113, 133, 0.14);
+  --ws-mesh-mint:   rgba(254, 240, 138, 0.18);
+  --ws-glass: rgba(255, 251, 245, 0.66);
+  --ws-glass-edge: rgba(254, 215, 170, 0.50);
+  --ws-card-border: rgba(194, 65, 12, 0.10);
+  --ws-card-shadow: 0 1px 2px rgba(120, 53, 15, 0.05), 0 4px 18px rgba(234, 88, 12, 0.08);
+  --ws-accent: #ea580c;
+  --ws-accent-deep: #c2410c;
+  --ws-accent-soft: rgba(234, 88, 12, 0.08);
+  --ws-text-1: #2c1810;
+  --ws-text-2: #5a3d2e;
+  --ws-text-3: #8a6e5d;
+  --ws-rail-bg: rgba(255, 251, 245, 0.50);
+  --ws-rail-edge: rgba(254, 215, 170, 0.55);
+  --ws-commandbar-bg: rgba(255, 251, 245, 0.78);
+  --ws-commandbar-hover-bg: #fff;
+  --ws-brand-bg: #fffefa;
+  --ws-header-mask-strong: rgba(255, 250, 243, 0.95);
+  --ws-header-mask-soft:   rgba(255, 250, 243, 0.70);
 }
 
 .workspace-shell {
@@ -85,9 +179,9 @@
   display: flex;
   flex-direction: column;
   padding: 16px 12px;
-  background: rgba(255, 255, 255, 0.45);
+  background: var(--ws-rail-bg);
   backdrop-filter: blur(12px);
-  border-right: 1px solid rgba(255, 255, 255, 0.5);
+  border-right: 1px solid var(--ws-rail-edge);
   box-sizing: border-box;
 }
 
@@ -101,7 +195,7 @@
   gap: 10px;
   padding: 10px 12px;
   margin: 0 0 14px;
-  background: #fff;
+  background: var(--ws-brand-bg);
   border: 1px solid var(--ws-card-border);
   border-radius: 12px;
   box-shadow:
@@ -148,7 +242,7 @@
   padding: 7px 10px;
   font-size: 12px;
   color: var(--ws-text-3);
-  background: rgba(255, 255, 255, 0.7);
+  background: var(--ws-commandbar-bg);
   border: 1px solid var(--ws-card-border);
   border-radius: 8px;
   display: flex;
@@ -159,7 +253,7 @@
 }
 
 .workspace-rail__commandbar:hover {
-  background: #fff;
+  background: var(--ws-commandbar-hover-bg);
   border-color: rgba(124, 58, 237, 0.18);
 }
 
@@ -318,10 +412,10 @@
    * Bottom margin gives the breathing room before the first card. */
   margin: 0 -28px 22px;
   padding: 14px 28px;
-  background: rgba(255, 255, 255, 0.88);
+  background: var(--ws-header-mask-strong);
   backdrop-filter: blur(14px) saturate(125%);
   -webkit-backdrop-filter: blur(14px) saturate(125%);
-  border-bottom: 1px solid rgba(124, 58, 237, 0.08);
+  border-bottom: 1px solid var(--ws-card-border);
   box-shadow: 0 1px 2px rgba(67, 56, 202, 0.04);
 }
 

@@ -67,9 +67,11 @@
   position: sticky;
   top: 0;
   z-index: 2;
+  /* Gradient mask uses the theme-aware --ws-header-mask-* tokens so a
+   * dark theme fades from near-black instead of near-white. */
   background: linear-gradient(to bottom,
-    rgba(250, 250, 254, 0.95),
-    rgba(250, 250, 254, 0.7) 70%,
+    var(--ws-header-mask-strong),
+    var(--ws-header-mask-soft) 70%,
     transparent);
   backdrop-filter: blur(6px);
   -webkit-backdrop-filter: blur(6px);

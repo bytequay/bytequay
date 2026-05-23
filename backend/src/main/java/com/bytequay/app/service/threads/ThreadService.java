@@ -697,14 +697,24 @@ public class ThreadService
         // means thread.activeTask() can be null on Thread records that
         // weren't built via the SQLite store (e.g. some in-memory test
         // doubles); going through TaskStore makes those keep working.
+        //
+        // The final fallback to findLatestTaskForThread covers the
+        // resume-from-terminal path: a COMPLETED thread's latest task
+        // is also terminal so findActiveTaskForThread returns empty,
+        // but the worktree is still on disk and the diff / commits
+        // surfaces should keep working — the user wants to look at
+        // what was shipped, not edit it.
         Task active = thread.activeTask();
         if (active == null) {
             active = taskStore.findActiveTaskForThread(thread.id()).orElse(null);
         }
+        if (active == null) {
+            active = taskStore.findLatestTaskForThread(thread.id()).orElse(null);
+        }
         if (active == null || active.agentCwd() == null) {
             throw new ResponseStatusException(
                     HttpStatusCode.valueOf(409),
-                    "thread " + thread.id() + " has no active task with a working dir");
+                    "thread " + thread.id() + " has no task with a working dir");
         }
         return Path.of(active.agentCwd());
     }

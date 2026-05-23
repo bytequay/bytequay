@@ -2492,6 +2492,16 @@ export type Bridge = {
     taskId: string,
     opts?: { nextTitle?: string | null; baseMode?: 'MAIN' | 'STACKED' },
   ) => Promise<WorkUnitTaskDto>;
+  /** Next → park the current task at AWAITING_REVIEW (worktree
+   *  preserved) and start a fresh task cut from main. The trunk
+   *  window's Next button calls this; differs from
+   *  {@link shipAndContinue} which is terminal — task closes,
+   *  worktree reaps. */
+  parkAndStartNext: (
+    threadId: string,
+    taskId: string,
+    opts?: { nextTitle?: string | null; baseMode?: 'MAIN' | 'STACKED' },
+  ) => Promise<WorkUnitTaskDto>;
   /** Active checkpoints for a thread — Overall first, then segments by
    *  descending seq. Drives the sidebar Checkpoints section and the
    *  cross-thread seed loader. */

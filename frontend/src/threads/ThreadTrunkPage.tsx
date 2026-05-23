@@ -1,0 +1,911 @@
+/*
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import type { ThreadDto, ThreadTurnDto, WorkUnitTaskDto } from '../types';
+import { useThreadTasks } from './useThreadTasks';
+
+type Props = {
+  threadId: string;
+  onBack: () => void;
+  /** Enter a specific task's window (Open → / double-click). Phase 3
+   *  replaces the current ThreadDetailPage with the proper task-detail
+   *  shell; until then this still routes to that page with the focused
+   *  taskId so the user can pick up the agent conversation. */
+  onOpenTask: (taskId: string) => void;
+};
+
+const ACTIVE_STATUSES = new Set([
+  'PENDING', 'RUNNING', 'AWAITING', 'IDLE',
+  'AWAITING_REVIEW', 'NEEDS_ATTENTION',
+]);
+
+/**
+ * Trunk window for a Thread — the planning altitude. Owns no branch
+ * and no diff; the conversation here is the cross-task plan, and the
+ * left rail is the orchestration surface (tasks lane, Next/Ship,
+ * vitals, scheduler). Per the workspace/thread/task design doc, this
+ * is one of two configurations of the same shell — the other is the
+ * task-detail window (Phase 3).
+ *
+ * <p>Identity trio (per the design's "made unmistakable at a glance"
+ * rule): full-height slate spine, slate altitude band, and a
+ * "Replying in the thread · planning" composer anchor.
+ */
+export default function ThreadTrunkPage({ threadId, onBack, onOpenTask }: Props) {
+  const [thread, setThread] = useState<ThreadDto | null>(null);
+  const [threadError, setThreadError] = useState<string | null>(null);
+  const { tasks, error: tasksError, refresh: refreshTasks } = useThreadTasks(threadId);
+  const [turns, setTurns] = useState<ThreadTurnDto[] | null>(null);
+  const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
+  const [advancing, setAdvancing] = useState<'next' | 'ship' | null>(null);
+  const [advanceError, setAdvanceError] = useState<string | null>(null);
+
+  const loadThread = useCallback(async () => {
+    try {
+      const t = await window.bridge.getTask(threadId);
+      setThread(t);
+      setThreadError(null);
+    }
+    catch (e) {
+      setThreadError(e instanceof Error ? e.message : String(e));
+    }
+  }, [threadId]);
+
+  useEffect(() => {
+    void loadThread();
+  }, [loadThread]);
+
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      try {
+        const list = await window.bridge.getTaskTurns(threadId);
+        if (!cancelled) setTurns(list);
+      }
+      catch {
+        if (!cancelled) setTurns([]);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [threadId]);
+
+  // Pre-select the foreground (newest non-terminal) task so Next/Ship
+  // have a target without the user having to click first.
+  useEffect(() => {
+    if (tasks === null || selectedTaskId !== null) return;
+    const foreground = newestActiveTask(tasks);
+    if (foreground !== null) {
+      setSelectedTaskId(foreground.id);
+    }
+  }, [tasks, selectedTaskId]);
+
+  const orderedTasks = useMemo(
+    () => tasks === null ? [] : [...tasks].sort((a, b) => b.seq - a.seq),
+    [tasks]);
+  const foreground = useMemo(
+    () => tasks === null ? null : newestActiveTask(tasks), [tasks]);
+  const parkedCount = useMemo(
+    () => tasks === null ? 0 : tasks.filter(
+      t => t.status === 'AWAITING_REVIEW' || t.status === 'NEEDS_ATTENTION').length,
+    [tasks]);
+  const scheduler = useMemo(() => summariseScheduler(turns), [turns]);
+
+  const onAdvance = useCallback(async (mode: 'next' | 'ship') => {
+    if (foreground === null || advancing !== null) return;
+    const verb = mode === 'next' ? 'Park & start next' : 'Ship';
+    const ok = window.confirm(
+      `${verb}: task ${foreground.seq}`
+      + (foreground.branchName !== null ? ` (${foreground.branchName})` : '')
+      + (mode === 'next'
+        ? ' — parked at AWAITING_REVIEW; new task cut from main.'
+        : ' — closes the task and reaps the worktree.'));
+    if (!ok) return;
+    setAdvancing(mode);
+    setAdvanceError(null);
+    try {
+      if (mode === 'next') {
+        await window.bridge.parkAndStartNext(threadId, foreground.id);
+      }
+      else {
+        await window.bridge.shipAndContinue(threadId, foreground.id);
+      }
+      await Promise.all([loadThread(), refreshTasks()]);
+    }
+    catch (e) {
+      setAdvanceError(e instanceof Error ? e.message : String(e));
+    }
+    finally {
+      setAdvancing(null);
+    }
+  }, [foreground, advancing, threadId, loadThread, refreshTasks]);
+
+  const title = thread?.title ?? 'Loading…';
+  const taskCount = tasks?.length ?? 0;
+
+  return (
+    <div style={pageStyle}>
+      <div style={meshBgStyle} aria-hidden />
+      <div style={noiseBgStyle} aria-hidden />
+      <div style={spineStyle} aria-hidden />
+
+      <div style={contentColStyle}>
+        <header style={headerStyle}>
+          <button type="button" onClick={onBack} style={backBtnStyle}>← Threads</button>
+          <span style={titleStyle}>{title}</span>
+          {thread !== null && (
+            <span style={statusBadgeStyle(thread.status)}>
+              {thread.status}{taskCount > 0 && ` · ${taskCount} task${taskCount === 1 ? '' : 's'}`}
+            </span>
+          )}
+        </header>
+
+        <div style={altitudeBandStyle}>
+          <span style={bandGlyphStyle}>◆ THREAD</span>
+          <span style={bandTitleStyle}>{title}</span>
+          <span style={bandHintStyle}>planning &amp; orchestration · no branch</span>
+        </div>
+
+        <div style={bodyGridStyle}>
+          <aside style={railStyle}>
+            <section style={railSectionStyle}>
+              <div style={railHeadStyle}>
+                <span>TASKS IN THIS THREAD</span>
+                {parkedCount > 0 && <span style={railHeadMutedStyle}>{parkedCount} parked</span>}
+              </div>
+              {tasksError !== null && (
+                <div style={errStyle}>Could not load tasks: {tasksError}</div>
+              )}
+              {tasks !== null && tasks.length === 0 && (
+                <div style={emptyStyle}>
+                  No tasks yet — this thread is in brainstorm mode. The first
+                  coding turn will materialise <em>Task 1</em>.
+                </div>
+              )}
+              {orderedTasks.length > 0 && (
+                <ul style={listStyle}>
+                  {orderedTasks.map(t => (
+                    <TaskCard
+                      key={t.id}
+                      task={t}
+                      selected={t.id === selectedTaskId}
+                      isForeground={foreground?.id === t.id}
+                      onSelect={() => setSelectedTaskId(t.id)}
+                      onOpen={() => onOpenTask(t.id)}
+                    />
+                  ))}
+                </ul>
+              )}
+              <div style={advanceRowStyle}>
+                <button
+                  type="button"
+                  onClick={() => { void onAdvance('next'); }}
+                  disabled={foreground === null || advancing !== null}
+                  style={nextBtnStyle}
+                  title={foreground === null
+                    ? 'No foreground task — Next needs a task to park'
+                    : `Next: park task ${foreground.seq} at AWAITING_REVIEW and start the next from main`}
+                >
+                  {advancing === 'next' ? 'Parking…' : 'Next →'}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => { void onAdvance('ship'); }}
+                  disabled={foreground === null || advancing !== null}
+                  style={shipBtnStyle}
+                  title={foreground === null
+                    ? 'No foreground task — Ship needs a task to finalise'
+                    : `Ship: finalise task ${foreground.seq} (worktree reaps)`}
+                >
+                  {advancing === 'ship' ? 'Shipping…' : 'Ship'}
+                </button>
+              </div>
+              <div style={advanceHintStyle}>
+                Next parks &amp; starts next · Ship finalises this task
+              </div>
+              {advanceError !== null && (
+                <div style={errStyle}>{advanceError}</div>
+              )}
+            </section>
+
+            <section style={railSectionStyle}>
+              <div style={railHeadStyle}>
+                <span>THREAD VITALS</span>
+                <span style={railHeadMutedStyle}>aggregated</span>
+              </div>
+              <VitalsTable thread={thread} />
+            </section>
+
+            <section style={railSectionStyle}>
+              <div style={railHeadStyle}>
+                <span>SCHEDULER</span>
+                <span style={railHeadMutedStyle}>fair-share</span>
+              </div>
+              <SchedulerTable summary={scheduler} />
+            </section>
+          </aside>
+
+          <main style={mainStyle}>
+            <div style={planningPlaceholderStyle}>
+              <h2 style={planningTitleStyle}>Trunk planning</h2>
+              <p style={planningBodyStyle}>
+                This is the thread's planning altitude — the map across all
+                tasks. The trunk owns no branch and no diff; talk here is the
+                cross-task plan, and each task forks from this conversation
+                at creation.
+              </p>
+              <p style={planningBodyStyle}>
+                {tasks === null
+                  ? 'Loading tasks…'
+                  : tasks.length === 0
+                    ? 'No tasks yet. Open a task once one materialises, or start one from your next prompt.'
+                    : foreground !== null
+                      ? <>Foreground task: <strong>{taskLabel(foreground)}</strong> (seq {foreground.seq}). Use <kbd>Open →</kbd> on a card to enter its window.</>
+                      : 'No foreground task — every task in this thread is parked or shipped.'}
+              </p>
+            </div>
+          </main>
+        </div>
+
+        <footer style={composerStyle}>
+          <div style={composerAnchorStyle}>
+            ↻ Replying in the thread · planning
+          </div>
+          <div style={composerInputStyle}>
+            <span style={composerHintStyle}>
+              ▸ Thread — trunk-session agent ships in a later phase. Open a
+              task to talk to its agent now.
+            </span>
+          </div>
+          <div style={composerFooterStyle}>
+            <span style={composerScopeStyle}>▸ Thread</span>
+            <span style={composerFooterHintStyle}>
+              no branch here — the trunk plans; tasks do the work
+            </span>
+          </div>
+        </footer>
+      </div>
+
+      {threadError !== null && (
+        <div style={floatErrStyle}>Could not load thread: {threadError}</div>
+      )}
+    </div>
+  );
+}
+
+function newestActiveTask(tasks: WorkUnitTaskDto[]): WorkUnitTaskDto | null {
+  return tasks
+    .filter(t => ACTIVE_STATUSES.has(t.status))
+    .reduce<WorkUnitTaskDto | null>(
+      (acc, t) => acc === null || t.seq > acc.seq ? t : acc, null);
+}
+
+function summariseScheduler(turns: ThreadTurnDto[] | null) {
+  if (turns === null) return { running: 0, queued: 0, cli: 0, api: 0 };
+  let running = 0;
+  let queued = 0;
+  let cli = 0;
+  let api = 0;
+  for (const t of turns) {
+    if (t.status === 'RUNNING') {
+      running++;
+      if (t.lane === 'CLI') cli++; else api++;
+    }
+    else if (t.status === 'QUEUED') {
+      queued++;
+    }
+  }
+  return { running, queued, cli, api };
+}
+
+function TaskCard({
+  task, selected, isForeground, onSelect, onOpen,
+}: {
+  task: WorkUnitTaskDto;
+  selected: boolean;
+  isForeground: boolean;
+  onSelect: () => void;
+  onOpen: () => void;
+}) {
+  const labelText = taskLabel(task);
+  return (
+    <li
+      onClick={onSelect}
+      onDoubleClick={onOpen}
+      style={taskCardStyle(selected, isForeground)}
+    >
+      <div style={taskCardHeadStyle}>
+        <span style={glyphStyle(task)} aria-hidden>{glyphChar(task)}</span>
+        <span style={taskCardTitleStyle}>{labelText}</span>
+        <button
+          type="button"
+          onClick={(e) => { e.stopPropagation(); onOpen(); }}
+          style={openBtnStyle(selected)}
+          title={`Enter Task ${task.seq}'s window`}
+        >
+          Open →
+        </button>
+      </div>
+      <div style={taskCardMetaStyle}>
+        {task.branchName !== null && (
+          <span style={branchStyle}>{task.branchName}</span>
+        )}
+        {task.prNumber !== null && (
+          <span style={prStyle}>PR #{task.prNumber}</span>
+        )}
+        <span style={taskStatusPillStyle(task.status)}>{statusLabel(task.status)}</span>
+      </div>
+    </li>
+  );
+}
+
+function VitalsTable({ thread }: { thread: ThreadDto | null }) {
+  if (thread === null) {
+    return <div style={emptyStyle}>—</div>;
+  }
+  const cost = formatCost(thread.costUsdMilli);
+  const tokens = `${formatTokens(thread.tokensIn)} → ${formatTokens(thread.tokensOut)}`;
+  const runtime = formatRuntime(thread.createdAt, thread.endedAt);
+  return (
+    <dl style={vitalsListStyle}>
+      <VitalRow label="Cost (all tasks)" value={cost} />
+      <VitalRow label="Tokens" value={tokens} />
+      <VitalRow label="Runtime" value={runtime} />
+    </dl>
+  );
+}
+
+function VitalRow({ label, value }: { label: string; value: string }) {
+  return (
+    <div style={vitalsRowStyle}>
+      <dt style={vitalsLabelStyle}>{label}</dt>
+      <dd style={vitalsValueStyle}>{value}</dd>
+    </div>
+  );
+}
+
+function SchedulerTable({
+  summary,
+}: {
+  summary: { running: number; queued: number; cli: number; api: number };
+}) {
+  return (
+    <dl style={vitalsListStyle}>
+      <VitalRow label="Running" value={String(summary.running)} />
+      <VitalRow label="Queued" value={String(summary.queued)} />
+      <VitalRow label="CLI lane" value={String(summary.cli)} />
+      <VitalRow label="API lane" value={String(summary.api)} />
+    </dl>
+  );
+}
+
+function taskLabel(task: WorkUnitTaskDto): string {
+  if (task.branchName !== null && task.branchName.length > 0) {
+    return humanizeBranch(task.branchName);
+  }
+  return `Task ${task.seq}`;
+}
+
+function humanizeBranch(branch: string): string {
+  let rest = branch;
+  const slash = rest.lastIndexOf('/');
+  if (slash >= 0 && slash < rest.length - 1) rest = rest.slice(slash + 1);
+  const hex = rest.match(/^[a-f0-9]{8,}-(.+)$/i);
+  if (hex !== null) rest = hex[1];
+  const spaced = rest.replace(/[-_]+/g, ' ').trim();
+  if (spaced.length === 0) return branch;
+  return spaced.charAt(0).toUpperCase() + spaced.slice(1);
+}
+
+function glyphChar(task: WorkUnitTaskDto): string {
+  if (task.status === 'COMPLETED') return '✓';
+  if (task.status === 'ERRORED') return '⨯';
+  if (task.status === 'AWAITING_REVIEW' || task.status === 'NEEDS_ATTENTION') return '⏸';
+  if (task.status === 'RUNNING' || task.status === 'AWAITING') return '●';
+  return '○';
+}
+
+function statusLabel(status: string): string {
+  if (status === 'AWAITING_REVIEW') return 'awaiting';
+  if (status === 'NEEDS_ATTENTION') return 'needs you';
+  return status.toLowerCase();
+}
+
+function formatCost(milli: number): string {
+  return `$${(milli / 1000).toFixed(2)}`;
+}
+
+function formatTokens(n: number): string {
+  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
+  if (n >= 1_000) return `${(n / 1_000).toFixed(1)}k`;
+  return String(n);
+}
+
+function formatRuntime(createdAt: string, endedAt: string | null): string {
+  const start = Date.parse(createdAt);
+  const end = endedAt !== null ? Date.parse(endedAt) : Date.now();
+  if (!Number.isFinite(start) || !Number.isFinite(end) || end < start) return '—';
+  const secs = Math.floor((end - start) / 1000);
+  const h = Math.floor(secs / 3600);
+  const m = Math.floor((secs % 3600) / 60);
+  const s = secs % 60;
+  if (h > 0) return `${h}h ${m}m ${s}s`;
+  if (m > 0) return `${m}m ${s.toString().padStart(2, '0')}s`;
+  return `${s}s`;
+}
+
+/* ── Styles ────────────────────────────────────────────────────────── */
+
+const pageStyle: React.CSSProperties = {
+  position: 'relative',
+  minHeight: '100vh',
+  background: '#fafafe',
+  color: 'var(--text-1)',
+  overflow: 'hidden',
+};
+
+const meshBgStyle: React.CSSProperties = {
+  position: 'fixed',
+  inset: 0,
+  pointerEvents: 'none',
+  background: [
+    'radial-gradient(circle at 18% 16%, rgba(124, 58, 237, 0.10), transparent 45%)',
+    'radial-gradient(circle at 82% 22%, rgba(56, 189, 248, 0.10), transparent 45%)',
+    'radial-gradient(circle at 12% 86%, rgba(244, 114, 182, 0.08), transparent 50%)',
+    'radial-gradient(circle at 86% 78%, rgba(74, 222, 128, 0.08), transparent 50%)',
+  ].join(','),
+  zIndex: 0,
+};
+
+const noiseBgStyle: React.CSSProperties = {
+  position: 'fixed',
+  inset: 0,
+  pointerEvents: 'none',
+  opacity: 0.045,
+  mixBlendMode: 'overlay',
+  backgroundImage:
+    'url("data:image/svg+xml;utf8,'
+    + '<svg xmlns=\'http://www.w3.org/2000/svg\' width=\'160\' height=\'160\'>'
+    + '<filter id=\'n\'><feTurbulence type=\'fractalNoise\' baseFrequency=\'0.8\' numOctaves=\'2\' stitchTiles=\'stitch\'/></filter>'
+    + '<rect width=\'100%\' height=\'100%\' filter=\'url(%23n)\'/></svg>")',
+  zIndex: 0,
+};
+
+const SLATE = '#475569';
+const SLATE_BG = 'rgba(71, 85, 105, 0.10)';
+const SLATE_BORDER = 'rgba(71, 85, 105, 0.30)';
+
+const spineStyle: React.CSSProperties = {
+  position: 'fixed',
+  top: 0,
+  bottom: 0,
+  left: 0,
+  width: 4,
+  background: SLATE,
+  zIndex: 2,
+};
+
+const contentColStyle: React.CSSProperties = {
+  position: 'relative',
+  zIndex: 1,
+  paddingLeft: 12,
+  display: 'flex',
+  flexDirection: 'column',
+  minHeight: '100vh',
+};
+
+const headerStyle: React.CSSProperties = {
+  position: 'sticky',
+  top: 0,
+  zIndex: 3,
+  display: 'flex',
+  alignItems: 'center',
+  gap: 12,
+  padding: '10px 18px',
+  background: 'rgba(255, 255, 255, 0.66)',
+  backdropFilter: 'blur(14px) saturate(125%)',
+  WebkitBackdropFilter: 'blur(14px) saturate(125%)',
+  borderBottom: '1px solid rgba(0,0,0,0.05)',
+};
+
+const backBtnStyle: React.CSSProperties = {
+  border: '1px solid rgba(0,0,0,0.08)',
+  background: 'rgba(255,255,255,0.6)',
+  padding: '4px 10px',
+  fontSize: 12,
+  borderRadius: 6,
+  cursor: 'pointer',
+  color: 'var(--text-2)',
+};
+
+const titleStyle: React.CSSProperties = {
+  fontSize: 14,
+  fontWeight: 600,
+  letterSpacing: '0.005em',
+  flex: 1,
+  whiteSpace: 'nowrap',
+  overflow: 'hidden',
+  textOverflow: 'ellipsis',
+};
+
+function statusBadgeStyle(status: string): React.CSSProperties {
+  const tone = status === 'RUNNING' ? '#16a34a' : status === 'ERRORED' ? '#b91c1c' : '#475569';
+  return {
+    fontSize: 10,
+    padding: '2px 8px',
+    borderRadius: 999,
+    border: `1px solid ${tone}55`,
+    color: tone,
+    background: `${tone}10`,
+    fontWeight: 700,
+    letterSpacing: '0.04em',
+  };
+}
+
+const altitudeBandStyle: React.CSSProperties = {
+  display: 'flex',
+  alignItems: 'center',
+  gap: 14,
+  padding: '8px 18px',
+  background: SLATE_BG,
+  borderBottom: `1px solid ${SLATE_BORDER}`,
+  fontSize: 12,
+};
+
+const bandGlyphStyle: React.CSSProperties = {
+  fontWeight: 700,
+  letterSpacing: '0.08em',
+  color: SLATE,
+};
+
+const bandTitleStyle: React.CSSProperties = {
+  fontWeight: 600,
+  color: 'var(--text-1)',
+};
+
+const bandHintStyle: React.CSSProperties = {
+  color: 'var(--text-3)',
+};
+
+const bodyGridStyle: React.CSSProperties = {
+  display: 'grid',
+  gridTemplateColumns: '260px 1fr',
+  gap: 14,
+  padding: '14px 18px',
+  flex: 1,
+  alignItems: 'start',
+};
+
+const railStyle: React.CSSProperties = {
+  display: 'flex',
+  flexDirection: 'column',
+  gap: 14,
+  position: 'sticky',
+  top: 72,
+};
+
+const railSectionStyle: React.CSSProperties = {
+  background: 'rgba(255,255,255,0.72)',
+  backdropFilter: 'blur(14px) saturate(125%)',
+  WebkitBackdropFilter: 'blur(14px) saturate(125%)',
+  border: '1px solid rgba(0,0,0,0.06)',
+  borderRadius: 14,
+  padding: 12,
+  boxShadow: '0 4px 18px rgba(0,0,0,0.04)',
+};
+
+const railHeadStyle: React.CSSProperties = {
+  display: 'flex',
+  justifyContent: 'space-between',
+  alignItems: 'baseline',
+  fontSize: 10,
+  fontWeight: 700,
+  letterSpacing: '0.06em',
+  color: 'var(--text-2)',
+  marginBottom: 6,
+};
+
+const railHeadMutedStyle: React.CSSProperties = {
+  fontWeight: 500,
+  color: 'var(--text-4)',
+  letterSpacing: '0.04em',
+};
+
+const listStyle: React.CSSProperties = {
+  margin: 0,
+  padding: 0,
+  listStyle: 'none',
+  display: 'flex',
+  flexDirection: 'column',
+  gap: 6,
+};
+
+function taskCardStyle(selected: boolean, isForeground: boolean): React.CSSProperties {
+  return {
+    padding: '8px 10px',
+    border: selected ? '2px solid #7c3aed' : '1px solid rgba(0,0,0,0.08)',
+    background: selected ? 'rgba(124,58,237,0.06)' : isForeground ? 'rgba(22,163,74,0.04)' : '#fff',
+    borderRadius: 10,
+    cursor: 'pointer',
+    transition: 'background 140ms ease, transform 140ms ease',
+    boxShadow: selected ? '0 2px 8px rgba(124,58,237,0.10)' : undefined,
+  };
+}
+
+const taskCardHeadStyle: React.CSSProperties = {
+  display: 'flex',
+  alignItems: 'center',
+  gap: 6,
+};
+
+function glyphStyle(task: WorkUnitTaskDto): React.CSSProperties {
+  const base: React.CSSProperties = {
+    width: 14,
+    fontSize: 12,
+    textAlign: 'center',
+  };
+  if (task.status === 'COMPLETED') return { ...base, color: '#16a34a' };
+  if (task.status === 'ERRORED') return { ...base, color: '#b91c1c' };
+  if (task.status === 'AWAITING_REVIEW' || task.status === 'NEEDS_ATTENTION') return { ...base, color: '#d97706' };
+  if (task.status === 'RUNNING' || task.status === 'AWAITING') return { ...base, color: '#2563eb' };
+  return { ...base, color: 'var(--text-4)' };
+}
+
+const taskCardTitleStyle: React.CSSProperties = {
+  flex: 1,
+  fontSize: 12,
+  fontWeight: 600,
+  color: 'var(--text-1)',
+  overflow: 'hidden',
+  textOverflow: 'ellipsis',
+  whiteSpace: 'nowrap',
+};
+
+function openBtnStyle(selected: boolean): React.CSSProperties {
+  return {
+    fontSize: 10,
+    padding: '2px 6px',
+    border: '1px solid ' + (selected ? '#7c3aed55' : 'rgba(0,0,0,0.10)'),
+    background: selected ? 'rgba(124,58,237,0.10)' : '#fff',
+    color: selected ? '#6d28d9' : 'var(--text-2)',
+    borderRadius: 6,
+    cursor: 'pointer',
+    fontWeight: 600,
+  };
+}
+
+const taskCardMetaStyle: React.CSSProperties = {
+  display: 'flex',
+  alignItems: 'center',
+  gap: 6,
+  marginTop: 4,
+  flexWrap: 'wrap',
+};
+
+const branchStyle: React.CSSProperties = {
+  fontSize: 10,
+  color: 'var(--text-4)',
+  fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
+  overflow: 'hidden',
+  textOverflow: 'ellipsis',
+  whiteSpace: 'nowrap',
+  maxWidth: '60%',
+};
+
+const prStyle: React.CSSProperties = {
+  fontSize: 10,
+  padding: '1px 6px',
+  background: 'rgba(0, 0, 0, 0.06)',
+  borderRadius: 999,
+  color: 'var(--text-2)',
+};
+
+function taskStatusPillStyle(status: string): React.CSSProperties {
+  let bg = 'rgba(0,0,0,0.06)';
+  let color = 'var(--text-2)';
+  if (status === 'COMPLETED') { bg = 'rgba(22,163,74,0.12)'; color = '#15803d'; }
+  else if (status === 'ERRORED') { bg = 'rgba(185,28,28,0.12)'; color = '#991b1b'; }
+  else if (status === 'AWAITING_REVIEW' || status === 'NEEDS_ATTENTION') {
+    bg = 'rgba(217,119,6,0.14)'; color = '#9a3412';
+  }
+  else if (status === 'RUNNING') { bg = 'rgba(37,99,235,0.12)'; color = '#1d4ed8'; }
+  return {
+    fontSize: 9,
+    padding: '1px 6px',
+    borderRadius: 999,
+    background: bg,
+    color,
+    fontWeight: 700,
+    letterSpacing: '0.04em',
+    textTransform: 'lowercase',
+  };
+}
+
+const advanceRowStyle: React.CSSProperties = {
+  display: 'grid',
+  gridTemplateColumns: '1fr 1fr',
+  gap: 6,
+  marginTop: 10,
+};
+
+const nextBtnStyle: React.CSSProperties = {
+  padding: '6px 8px',
+  fontSize: 12,
+  border: 'none',
+  background: 'linear-gradient(135deg, #7c3aed, #6366f1)',
+  color: '#fff',
+  borderRadius: 8,
+  fontWeight: 600,
+  cursor: 'pointer',
+};
+
+const shipBtnStyle: React.CSSProperties = {
+  padding: '6px 8px',
+  fontSize: 12,
+  border: '1px solid rgba(0,0,0,0.10)',
+  background: '#fff',
+  color: 'var(--text-1)',
+  borderRadius: 8,
+  fontWeight: 600,
+  cursor: 'pointer',
+};
+
+const advanceHintStyle: React.CSSProperties = {
+  fontSize: 10,
+  color: 'var(--text-4)',
+  marginTop: 6,
+  textAlign: 'center',
+};
+
+const vitalsListStyle: React.CSSProperties = {
+  margin: 0,
+  padding: 0,
+  display: 'grid',
+  gap: 4,
+};
+
+const vitalsRowStyle: React.CSSProperties = {
+  display: 'flex',
+  justifyContent: 'space-between',
+  alignItems: 'baseline',
+  fontSize: 12,
+};
+
+const vitalsLabelStyle: React.CSSProperties = {
+  margin: 0,
+  color: 'var(--text-3)',
+};
+
+const vitalsValueStyle: React.CSSProperties = {
+  margin: 0,
+  color: 'var(--text-1)',
+  fontFeatureSettings: '"tnum"',
+  fontVariantNumeric: 'tabular-nums',
+};
+
+const mainStyle: React.CSSProperties = {
+  display: 'flex',
+  flexDirection: 'column',
+  gap: 14,
+};
+
+const planningPlaceholderStyle: React.CSSProperties = {
+  background: 'rgba(255,255,255,0.72)',
+  backdropFilter: 'blur(14px) saturate(125%)',
+  WebkitBackdropFilter: 'blur(14px) saturate(125%)',
+  border: '1px solid rgba(0,0,0,0.06)',
+  borderRadius: 14,
+  padding: 18,
+  boxShadow: '0 4px 18px rgba(0,0,0,0.04)',
+  minHeight: 200,
+};
+
+const planningTitleStyle: React.CSSProperties = {
+  margin: '0 0 8px',
+  fontSize: 14,
+  fontWeight: 700,
+  letterSpacing: '0.02em',
+  color: SLATE,
+};
+
+const planningBodyStyle: React.CSSProperties = {
+  margin: '8px 0',
+  fontSize: 13,
+  lineHeight: 1.55,
+  color: 'var(--text-2)',
+};
+
+const composerStyle: React.CSSProperties = {
+  position: 'sticky',
+  bottom: 0,
+  background: 'rgba(255,255,255,0.86)',
+  backdropFilter: 'blur(14px) saturate(125%)',
+  WebkitBackdropFilter: 'blur(14px) saturate(125%)',
+  borderTop: '1px solid rgba(0,0,0,0.06)',
+  padding: '8px 18px 12px',
+  zIndex: 2,
+};
+
+const composerAnchorStyle: React.CSSProperties = {
+  fontSize: 10,
+  letterSpacing: '0.04em',
+  color: SLATE,
+  fontWeight: 600,
+  marginBottom: 4,
+};
+
+const composerInputStyle: React.CSSProperties = {
+  padding: '10px 12px',
+  border: `1px dashed ${SLATE_BORDER}`,
+  borderRadius: 10,
+  background: 'rgba(255,255,255,0.6)',
+  fontSize: 12,
+  color: 'var(--text-3)',
+  fontStyle: 'italic',
+};
+
+const composerHintStyle: React.CSSProperties = {
+  color: 'var(--text-3)',
+};
+
+const composerFooterStyle: React.CSSProperties = {
+  display: 'flex',
+  justifyContent: 'space-between',
+  alignItems: 'center',
+  marginTop: 4,
+  fontSize: 10,
+  color: 'var(--text-4)',
+};
+
+const composerScopeStyle: React.CSSProperties = {
+  padding: '1px 6px',
+  background: SLATE_BG,
+  borderRadius: 6,
+  color: SLATE,
+  fontWeight: 600,
+  letterSpacing: '0.04em',
+};
+
+const composerFooterHintStyle: React.CSSProperties = {
+  fontStyle: 'italic',
+};
+
+const emptyStyle: React.CSSProperties = {
+  padding: '6px 2px',
+  fontSize: 11,
+  color: 'var(--text-3)',
+  lineHeight: 1.5,
+};
+
+const errStyle: React.CSSProperties = {
+  padding: '6px 8px',
+  marginTop: 6,
+  fontSize: 11,
+  color: '#b91c1c',
+  background: 'rgba(185, 28, 28, 0.06)',
+  border: '1px solid rgba(185,28,28,0.18)',
+  borderRadius: 6,
+};
+
+const floatErrStyle: React.CSSProperties = {
+  position: 'fixed',
+  bottom: 12,
+  right: 12,
+  padding: '8px 12px',
+  background: '#fee2e2',
+  border: '1px solid #fecaca',
+  color: '#991b1b',
+  fontSize: 12,
+  borderRadius: 8,
+  zIndex: 4,
+};

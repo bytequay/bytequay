@@ -23,6 +23,7 @@ import ControlBar, { type PageContextTag } from './control/ControlBar';
 import type { ControlDispatch } from './control/actionCatalog';
 import ReviewThreadPage from './review/ReviewThreadPage';
 import ThreadDetailPage from './threads/ThreadDetailPage';
+import ThreadTrunkPage from './threads/ThreadTrunkPage';
 import WorkspaceShell, { type WorkspaceSection } from './workspace/WorkspaceShell';
 import WorkspacesLandingPage from './workspace/WorkspacesLandingPage';
 import type {
@@ -55,7 +56,11 @@ type Nav =
   | { view: 'team-kanban'; teamId: number }
   | { view: 'email' }
   | { view: 'thread-create'; initialGroupId?: string }
-  | { view: 'thread-detail'; threadId: string }
+  /** When {@code taskId} is omitted the nav lands on the thread's
+   *  trunk window (planning altitude); when set, it lands on that
+   *  specific task's detail window (the old monolithic detail page
+   *  for now — Phase 3 redesigns it as the proper task-detail shell). */
+  | { view: 'thread-detail'; threadId: string; taskId?: string }
   | { view: 'review-thread'; threadId: string; back?: Nav }
   | { view: 'notifications' }
   | { view: 'repos' }
@@ -677,10 +682,19 @@ function App() {
               : { view: 'thread-detail', threadId })}
           />
         )}
-        {nav.view === 'thread-detail' && (
-          <ThreadDetailPage
+        {nav.view === 'thread-detail' && nav.taskId === undefined && (
+          <ThreadTrunkPage
             threadId={nav.threadId}
             onBack={() => setNav({ view: 'workspace', section: 'threads' })}
+            onOpenTask={taskId => setNav({
+              view: 'thread-detail', threadId: nav.threadId, taskId,
+            })}
+          />
+        )}
+        {nav.view === 'thread-detail' && nav.taskId !== undefined && (
+          <ThreadDetailPage
+            threadId={nav.threadId}
+            onBack={() => setNav({ view: 'thread-detail', threadId: nav.threadId })}
             onFilterChange={filter => setNav({
               view: 'workspace', section: 'threads', threadsFilter: filter,
             })}
@@ -698,7 +712,7 @@ function App() {
             onSelectTask={id => setNav({ view: 'thread-detail', threadId: id })}
             onOpenPr={(owner, repo, prNumber) => setNav({
               view: 'repo', owner, repo, prNumber,
-              back: { view: 'thread-detail', threadId: nav.threadId },
+              back: { view: 'thread-detail', threadId: nav.threadId, taskId: nav.taskId },
             })}
             onOpenSettings={() => setNav({ view: 'settings', section: 'integrations' })}
           />

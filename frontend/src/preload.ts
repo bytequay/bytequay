@@ -557,6 +557,12 @@ const bridge: Bridge = {
     opts?: { nextTitle?: string | null; baseMode?: 'MAIN' | 'STACKED' },
   ): Promise<WorkUnitTaskDto> =>
     ipcRenderer.invoke('threads:tasks:ship', { threadId, taskId, opts }),
+  parkAndStartNext: (
+    threadId: string,
+    taskId: string,
+    opts?: { nextTitle?: string | null; baseMode?: 'MAIN' | 'STACKED' },
+  ): Promise<WorkUnitTaskDto> =>
+    ipcRenderer.invoke('threads:tasks:next', { threadId, taskId, opts }),
   getTaskCheckpoints: (id: string): Promise<ThreadCheckpointDto[]> =>
     ipcRenderer.invoke('threads:checkpoints:list', id),
   generateTaskCheckpoint: (id: string): Promise<ThreadCheckpointDto | null> =>

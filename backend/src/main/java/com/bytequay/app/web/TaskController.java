@@ -98,4 +98,20 @@ public class TaskController
                 : new TaskService.ShipRequest(null, TaskService.BaseMode.MAIN);
         return taskService.shipAndContinue(threadId, taskId, request);
     }
+
+    /** Next → park the current task at AWAITING_REVIEW (worktree
+     *  preserved) and start a fresh task cut from main. The trunk
+     *  window's Next button calls this. See
+     *  {@link TaskService#parkAndStartNext}. */
+    @PostMapping("/{taskId}/next")
+    public Task next(
+            @PathVariable String threadId,
+            @PathVariable String taskId,
+            @RequestBody(required = false) TaskService.ShipRequest body)
+    {
+        TaskService.ShipRequest request = body != null
+                ? body
+                : new TaskService.ShipRequest(null, TaskService.BaseMode.MAIN);
+        return taskService.parkAndStartNext(threadId, taskId, request);
+    }
 }

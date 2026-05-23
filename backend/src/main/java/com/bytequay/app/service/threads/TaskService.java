@@ -167,7 +167,28 @@ public class TaskService
     @Transactional
     public Task shipAndContinue(String threadId, String taskId, ShipRequest request)
     {
+        return shipOrParkAndStartNext(threadId, taskId, request, ParkMode.SHIP);
+    }
+
+    /**
+     * Next → park & advance. Same flow as {@link #shipAndContinue} but
+     * parks the current task at {@code AWAITING_REVIEW} (not closed)
+     * with its worktree preserved, so jump-back keeps the branch +
+     * worktree + agent session id alive. Per the workspace/thread/task
+     * design's "Next / Ship / jump-back" section, Next is the common
+     * day-to-day move; Ship is the terminal move when the PR merges.
+     */
+    @Transactional
+    public Task parkAndStartNext(String threadId, String taskId, ShipRequest request)
+    {
+        return shipOrParkAndStartNext(threadId, taskId, request, ParkMode.NEXT);
+    }
+
+    private Task shipOrParkAndStartNext(
+            String threadId, String taskId, ShipRequest request, ParkMode mode)
+    {
         requireNonNull(request, "request is null");
+        requireNonNull(mode, "mode is null");
         Thread thread = requireThread(threadId);
         Task current = requireTask(threadId, taskId);
         Task active = taskStore.findActiveTaskForThread(threadId)
@@ -234,17 +255,23 @@ public class TaskService
                 }
             }
 
-            // 4. Close the current task. worktreePath clears to null
-            //    because the worktree is about to be reaped (step 8) —
-            //    leaving the path on the row would point at a directory
-            //    that no longer exists, and a future "reopen this task"
-            //    flow should re-cut a worktree from origin/<branch>
-            //    rather than trust a stale pointer.
+            // 4. Park the current task. SHIP marks it terminal and
+            //    nulls worktreePath ahead of the worktree reap in step 8;
+            //    NEXT keeps the row alive at AWAITING_REVIEW with the
+            //    worktree preserved so jump-back doesn't have to re-cut
+            //    a worktree from origin/<branch> on a wake.
             Instant now = Instant.now();
+            TaskStatus parkedStatus = mode == ParkMode.SHIP
+                    ? TaskStatus.COMPLETED
+                    : TaskStatus.AWAITING_REVIEW;
+            String parkedWorktreePath = mode == ParkMode.SHIP
+                    ? null
+                    : current.worktreePath();
+            Instant parkedEndedAt = mode == ParkMode.SHIP ? now : null;
             taskStore.saveTask(new Task(
-                    current.id(), current.threadId(), current.seq(), TaskStatus.COMPLETED,
+                    current.id(), current.threadId(), current.seq(), parkedStatus,
                     current.branchName(),
-                    /* worktreePath */ null,
+                    parkedWorktreePath,
                     current.baseBranch(),
                     current.workingDir(),
                     /* processPid */ null,
@@ -255,7 +282,7 @@ public class TaskService
                     current.linkedIssueNumber(),
                     current.costUsdMilli(), current.tokensIn(), current.tokensOut(),
                     current.agentSessionId(),
-                    current.createdAt(), now, current.errorMessage()));
+                    current.createdAt(), parkedEndedAt, current.errorMessage()));
 
             // 5. Resolve next base + cut a new worktree. MAIN mode
             //    uses the same per-repo merge-target as the PR base;
@@ -325,14 +352,17 @@ public class TaskService
                         threadId, e.getMessage());
             }
 
-            // 8. Reap the shipped task's worktree + local branch.
-            //    The PR is on the remote; the local refs are an inert
-            //    cache from this point on. Done last and best-effort —
-            //    if the remove fails (concurrent rm -rf, locked file)
-            //    we've still completed the ship; the directory is a
-            //    disk leak the operator can clean up by hand or a
-            //    future orphan-sweep can pick up.
-            worktreeService.remove(workingDir, worktreePath.toString(), current.branchName());
+            // 8. SHIP-only: reap the shipped task's worktree + local
+            //    branch. The PR is on the remote; the local refs are an
+            //    inert cache from this point on. Done last and best-
+            //    effort — if the remove fails (concurrent rm -rf, locked
+            //    file) we've still completed the ship; the directory is
+            //    a disk leak the operator can clean up by hand or a
+            //    future orphan-sweep can pick up. NEXT preserves the
+            //    worktree so jump-back lands back in it without a re-cut.
+            if (mode == ParkMode.SHIP) {
+                worktreeService.remove(workingDir, worktreePath.toString(), current.branchName());
+            }
 
             return next;
         }
@@ -414,6 +444,17 @@ public class TaskService
     {
         MAIN,
         STACKED,
+    }
+
+    /** How to leave the current task when the user advances. Ship is
+     *  terminal — the task closes, worktree reaps, the row is sealed.
+     *  Next parks the task at AWAITING_REVIEW with the worktree alive
+     *  so jump-back can resume the same conversation without re-cutting
+     *  the worktree. */
+    private enum ParkMode
+    {
+        SHIP,
+        NEXT,
     }
 
     /** Request body for {@code POST /api/threads/{id}/tasks/{id}/ship}. */

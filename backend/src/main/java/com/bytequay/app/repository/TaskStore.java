@@ -54,6 +54,14 @@ public interface TaskStore
      *  Empty for a 0-Task thread (brainstorm / Q&A with no branch). */
     Optional<Task> findActiveTaskForThread(String threadId);
 
+    /** Latest task on a thread by seq, regardless of status. Used by
+     *  the resume-from-terminal path: a COMPLETED thread's most-recent
+     *  task is also terminal, so {@link #findActiveTaskForThread}
+     *  returns empty, but we still need the task to recover the
+     *  worktree + branch when the user picks the conversation back up.
+     *  Empty for a 0-Task thread. */
+    Optional<Task> findLatestTaskForThread(String threadId);
+
     /** Highest seq currently assigned in the thread. Used to compute
      *  the next seq on "ship & continue". Empty when no tasks exist. */
     Optional<Long> maxSeqForThread(String threadId);

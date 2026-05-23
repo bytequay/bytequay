@@ -115,6 +115,13 @@ class SqliteTaskStore
     }
 
     @Override
+    public Optional<Task> findLatestTaskForThread(String threadId)
+    {
+        return tasks.findFirstByThreadIdOrderBySeqDesc(threadId)
+                .map(SqliteTaskStore::toTask);
+    }
+
+    @Override
     public Optional<Long> maxSeqForThread(String threadId)
     {
         return tasks.findFirstByThreadIdOrderBySeqDesc(threadId).map(TaskEntity::getSeq);

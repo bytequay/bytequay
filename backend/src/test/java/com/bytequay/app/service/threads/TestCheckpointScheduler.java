@@ -299,6 +299,7 @@ class TestCheckpointScheduler
         @Override public void deleteTask(String id) {}
         @Override public List<Task> listTasksByThread(String threadId) { return List.of(); }
         @Override public Optional<Task> findActiveTaskForThread(String threadId) { return Optional.empty(); }
+        @Override public Optional<Task> findLatestTaskForThread(String threadId) { return Optional.empty(); }
         @Override public Optional<Long> maxSeqForThread(String threadId) { return Optional.empty(); }
         @Override public List<Task> listByStatus(TaskStatus status, int limit) { return List.of(); }
         @Override public List<Task> listWithLinkedPr(int limit) { return List.of(); }

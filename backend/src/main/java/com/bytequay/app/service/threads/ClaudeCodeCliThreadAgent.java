@@ -17,6 +17,7 @@ import com.bytequay.app.domain.AgentMetrics;
 import com.bytequay.app.domain.PermissionDecision;
 import com.bytequay.app.domain.StreamEvent;
 import com.bytequay.app.domain.Task;
+import com.bytequay.app.domain.TaskStatus;
 import com.bytequay.app.domain.Thread;
 import com.bytequay.app.domain.ThreadFile;
 import com.bytequay.app.domain.ThreadKind;
@@ -87,6 +88,13 @@ public class ClaudeCodeCliThreadAgent
     private final String branchName;
     private final String binary;
     private final ThreadStore store;
+    /** Retained from the ctor so resume() can flip the latest task's
+     *  status alongside the thread's. The thread-side cascade in
+     *  SqliteThreadStore.saveThread only fires for non-terminal active
+     *  tasks; when we're reviving a fully-COMPLETED thread the active
+     *  lookup is empty, so the agent has to explicitly flip the
+     *  underlying task row through TaskStore. */
+    private final TaskStore taskStore;
     private final StreamJsonParser parser;
     private final ToolFileOps fileOps;
     private final McpPermissionGate gate;
@@ -174,18 +182,26 @@ public class ClaudeCodeCliThreadAgent
         this.executor = requireNonNull(executor, "executor is null");
         this.checkpointTrigger = requireNonNull(checkpointTrigger, "checkpointTrigger is null");
         this.workspaceMemoryProvider = requireNonNull(workspaceMemoryProvider, "workspaceMemoryProvider is null");
-        requireNonNull(taskStore, "taskStore is null");
+        this.taskStore = requireNonNull(taskStore, "taskStore is null");
         this.binary = requireNonNull(binary, "binary is null");
         // Look up the active task directly from TaskStore so the
         // ctor works whether the caller built the Thread record via
         // SqliteThreadStore (where activeTask is projected) or hand-
         // assembled it (where it may be null). The agent can't run
-        // without a working directory; if there's no active task,
-        // refuse to construct.
+        // without a working directory.
+        //
+        // The fallback to findLatestTaskForThread covers the resume-
+        // from-terminal path: a COMPLETED thread's most-recent task
+        // is also terminal, so the active lookup returns empty, but
+        // we still need that task's worktree + branch when the user
+        // picks the conversation back up. resume() will flip the
+        // thread (and via persistThreadSnapshot, the task) back to
+        // IDLE before the first send() actually spawns the CLI.
         Task active = taskStore.findActiveTaskForThread(thread.id())
+                .or(() -> taskStore.findLatestTaskForThread(thread.id()))
                 .orElseThrow(() -> new IllegalStateException(
                         "thread " + thread.id()
-                                + " has no active task; cannot spawn CLI agent"));
+                                + " has no task; cannot spawn CLI agent"));
         this.workingDir = requireNonNull(active.agentCwd(),
                 "active task " + active.id() + " has no working dir; cannot spawn CLI agent");
         this.branchName = active.branchName();
@@ -357,6 +373,28 @@ public class ClaudeCodeCliThreadAgent
             if (current == null) {
                 return;
             }
+            // Flip the latest task back to IDLE first so the
+            // thread-side saveThread cascade sees a non-terminal
+            // active task and the two stay in sync. Without this, a
+            // resumed-from-terminal thread would carry a COMPLETED /
+            // ERRORED task forever — findActiveTaskForThread filters
+            // those out, so the UI would render activeTask=null even
+            // though the agent is running again.
+            taskStore.findLatestTaskForThread(threadId).ifPresent(t -> {
+                if (t.status() == TaskStatus.COMPLETED
+                        || t.status() == TaskStatus.ERRORED) {
+                    taskStore.saveTask(new Task(
+                            t.id(), t.threadId(), t.seq(), TaskStatus.IDLE,
+                            t.branchName(), t.worktreePath(), t.baseBranch(),
+                            t.workingDir(), t.processPid(), t.logPath(),
+                            t.prNumber(), t.prState(), t.ciState(),
+                            t.taskType(), t.linkedPrNumber(), t.linkedIssueNumber(),
+                            t.costUsdMilli(), t.tokensIn(), t.tokensOut(),
+                            t.firstMsgSeq(), t.lastMsgSeq(),
+                            t.createdAt(), /* endedAt */ null,
+                            /* errorMessage */ null));
+                }
+            });
             store.saveThread(new Thread(
                     current.id(), current.kind(), current.provider(), agentSessionId.get(),
                     current.title(), ThreadStatus.IDLE,

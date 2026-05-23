@@ -1120,6 +1120,7 @@ class TestThreadServiceScheduler
         @Override public void deleteTask(String id) {}
         @Override public List<Task> listTasksByThread(String threadId) { return List.of(); }
         @Override public Optional<Task> findActiveTaskForThread(String threadId) { return Optional.empty(); }
+        @Override public Optional<Task> findLatestTaskForThread(String threadId) { return Optional.empty(); }
         @Override public Optional<Long> maxSeqForThread(String threadId) { return Optional.empty(); }
         @Override public List<Task> listByStatus(TaskStatus status, int limit) { return List.of(); }
         @Override public List<Task> listWithLinkedPr(int limit) { return List.of(); }
@@ -1145,6 +1146,11 @@ class TestThreadServiceScheduler
             return byId.values().stream().filter(t -> t.threadId().equals(threadId)).toList();
         }
         @Override public Optional<Task> findActiveTaskForThread(String threadId) {
+            return byId.values().stream()
+                    .filter(t -> t.threadId().equals(threadId))
+                    .max(Comparator.comparingLong(Task::seq));
+        }
+        @Override public Optional<Task> findLatestTaskForThread(String threadId) {
             return byId.values().stream()
                     .filter(t -> t.threadId().equals(threadId))
                     .max(Comparator.comparingLong(Task::seq));
@@ -1228,6 +1234,9 @@ class TestThreadServiceScheduler
             return task.threadId().equals(threadId) ? List.of(task) : List.of();
         }
         @Override public Optional<Task> findActiveTaskForThread(String threadId) {
+            return task.threadId().equals(threadId) ? Optional.of(task) : Optional.empty();
+        }
+        @Override public Optional<Task> findLatestTaskForThread(String threadId) {
             return task.threadId().equals(threadId) ? Optional.of(task) : Optional.empty();
         }
         @Override public Optional<Long> maxSeqForThread(String threadId) {

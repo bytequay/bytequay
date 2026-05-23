@@ -159,7 +159,7 @@ class TestThreadRegistryLease
 
         assertThatThrownBy(() -> registry.getOrCreate(thread("thread-1")))
                 .isInstanceOf(IllegalStateException.class)
-                .hasMessageContaining("no active task");
+                .hasMessageContaining("no task");
 
         assertThat(leaseStore.rows).isEmpty();
     }

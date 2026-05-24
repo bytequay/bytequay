@@ -578,8 +578,9 @@ function DangerZoneSection({
     const ok = window.confirm(
       'Permanently delete this thread?\n\n'
       + 'This drops the conversation, every per-task row, and any '
-      + 'live worktrees. Threads with shipped tasks (PRs out) are '
-      + 'refused server-side. This cannot be undone.');
+      + 'live worktrees. Only threads whose every task has completed '
+      + 'are eligible — anything still in flight is refused server-side. '
+      + 'This cannot be undone.');
     if (!ok) return;
     setDeleting(true);
     setError(null);
@@ -622,7 +623,7 @@ function DangerZoneSection({
       )}
       {!blocked && eligibility?.deletable === true && (
         <div style={dangerHintStyle}>
-          No shipped tasks — deletion is permitted.
+          Every task has completed — deletion is permitted.
         </div>
       )}
       {error !== null && (

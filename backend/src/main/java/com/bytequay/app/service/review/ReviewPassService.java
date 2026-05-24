@@ -129,13 +129,26 @@ public class ReviewPassService
     @Transactional
     public ReviewPassDetail startReviewOnPr(String repoFullName, int prNumber)
     {
+        return startReviewOnPr(repoFullName, prNumber, StartOptions.DEFAULT);
+    }
+
+    /**
+     * Variant of {@link #startReviewOnPr(String, int)} that honours
+     * caller-specified panel selection + caps. The mockup-facing
+     * "Assign review task" dialog calls this; the scheduled / one-
+     * click paths keep the 2-arg overload with the registry defaults.
+     */
+    @Transactional
+    public ReviewPassDetail startReviewOnPr(String repoFullName, int prNumber, StartOptions opts)
+    {
         requireNonNull(repoFullName, "repoFullName is null");
+        requireNonNull(opts, "opts is null");
         if (prNumber <= 0) {
             throw new ResponseStatusException(HttpStatusCode.valueOf(400),
                     "prNumber must be a positive integer");
         }
 
-        List<LlmReviewer> panel = resolvePanel();
+        List<LlmReviewer> panel = resolvePanel(opts.panelProviderIds());
 
         // 1. Pull the PR + diff via the existing GitHub bindings so
         //    the new flow reuses the cached raw-detail / diff paths
@@ -171,7 +184,7 @@ public class ReviewPassService
         threadStore.saveThread(thread);
 
         // 3. Pass row at KICKOFF — a later step transitions it as the
-        //    panel runs. round 0, round_cap 3, default cost cap.
+        //    panel runs. round 0; caps honour the request when set.
         ReviewPass pass = new ReviewPass(
                 UUID.randomUUID().toString(),
                 thread.id(),
@@ -180,8 +193,8 @@ public class ReviewPassService
                 raw.headSha(),
                 ReviewPhase.KICKOFF,
                 /* round */ 0,
-                /* roundCap */ 3,
-                /* costCapMilli */ 500L,
+                opts.roundCap(),
+                opts.costCapMilli(),
                 /* costUsdMilli */ 0L,
                 /* verdict */ null,
                 now,
@@ -460,8 +473,15 @@ public class ReviewPassService
     /** Configured reviewers form the panel. Capped at 3 — design
      *  open-decision lands at "2 sweet spot, 3 high-stakes, more
      *  rarely worth it". Panel-of-1 falls back to the Phase 1 single-
-     *  reviewer path through the same {@code startReviewOnPr}. */
-    private List<LlmReviewer> resolvePanel()
+     *  reviewer path through the same {@code startReviewOnPr}.
+     *
+     *  <p>When {@code explicitIds} is non-empty, only reviewers whose
+     *  {@code providerId()} appears in that list are seated (still
+     *  capped at 3 and still only configured ones). An empty/null
+     *  list reverts to "all configured reviewers" — the scheduled +
+     *  one-click paths use that default.
+     */
+    private List<LlmReviewer> resolvePanel(List<String> explicitIds)
     {
         List<LlmReviewer> configured = reviewers.all().stream()
                 .filter(LlmReviewer::isConfigured)
@@ -472,7 +492,23 @@ public class ReviewPassService
                     "No LLM provider has an API key configured. "
                             + "Add one in Settings → AI review.");
         }
-        return configured.size() > 3 ? configured.subList(0, 3) : configured;
+        List<LlmReviewer> selected;
+        if (explicitIds == null || explicitIds.isEmpty()) {
+            selected = configured;
+        }
+        else {
+            Set<String> wanted = new LinkedHashSet<>(explicitIds);
+            selected = configured.stream()
+                    .filter(r -> wanted.contains(r.providerId()))
+                    .toList();
+            if (selected.isEmpty()) {
+                throw new ResponseStatusException(
+                        HttpStatusCode.valueOf(412),
+                        "None of the requested reviewers are configured. "
+                                + "Pick configured ones in the dialog or add a key in Settings → AI review.");
+            }
+        }
+        return selected.size() > 3 ? selected.subList(0, 3) : selected;
     }
 
     /** Threshold above which a single reviewer call gets split per
@@ -1074,4 +1110,59 @@ public class ReviewPassService
     private record ConsensusResult(
             List<ConsensusFinding> agreed,
             List<ConsensusFinding> disputed) {}
+
+    /**
+     * Caller-supplied options for {@link #startReviewOnPr(String, int, StartOptions)}.
+     * All fields are optional via {@link #DEFAULT} — the scheduled
+     * + one-click paths use the defaults and the dialog overrides
+     * the ones the user touched.
+     *
+     * @param panelProviderIds explicit panel roster (provider ids).
+     *                         Empty/null = use every configured
+     *                         reviewer (capped at 3).
+     * @param roundCap         maximum debate rounds before forcing
+     *                         arbitration. {@code 3} matches the prior
+     *                         hard-coded value.
+     * @param costCapMilli     halt + summarise once this milli-USD
+     *                         spend is reached. {@code 500} matches
+     *                         the prior hard-coded value.
+     * @param independentFirst when true (the design default), each
+     *                         reviewer drafts before seeing peers'
+     *                         takes. False would anchor on a shared
+     *                         draft — currently informational; the
+     *                         INDEPENDENT phase always runs first.
+     */
+    public record StartOptions(
+            List<String> panelProviderIds,
+            int roundCap,
+            long costCapMilli,
+            boolean independentFirst)
+    {
+        public static final StartOptions DEFAULT = new StartOptions(List.of(), 3, 500L, true);
+    }
+
+    /**
+     * Roster entry surfaced to the assign-review-task dialog so the
+     * frontend can render the panel chips without leaking provider-
+     * specific shapes. {@code configured} mirrors the API-key check
+     * that gates a reviewer from running.
+     */
+    public record RosterEntry(String providerId, String displayName, boolean configured) {}
+
+    /** List every reviewer the registry knows about (configured
+     *  first, alphabetised within each group) so the dialog can show
+     *  unconfigured ones disabled with a hint. */
+    public List<RosterEntry> roster()
+    {
+        return reviewers.all().stream()
+                .map(r -> new RosterEntry(r.providerId(), r.displayName(), r.isConfigured()))
+                .sorted((a, b) -> {
+                    int byConfig = Boolean.compare(!a.configured(), !b.configured());
+                    if (byConfig != 0) {
+                        return byConfig;
+                    }
+                    return a.displayName().compareToIgnoreCase(b.displayName());
+                })
+                .toList();
+    }
 }

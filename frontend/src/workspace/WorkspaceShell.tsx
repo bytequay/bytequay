@@ -19,6 +19,7 @@ import type {
   RepoFilter as ThreadsRepoFilter,
   StatusFilter as ThreadsStatusFilter,
 } from '../threads/ThreadsLeftRail';
+import AssignReviewTaskDialog from './AssignReviewTaskDialog';
 import NewThreadDialog from './NewThreadDialog';
 import NewWorkspaceDialog from './NewWorkspaceDialog';
 import WorkspaceHomePage from './WorkspaceHomePage';
@@ -89,6 +90,7 @@ function WorkspaceShell({
   const [newThreadOpen, setNewThreadOpen] = useState(false);
   const [newThreadInitialGroupId, setNewThreadInitialGroupId] = useState<string | undefined>(undefined);
   const [newWorkspaceOpen, setNewWorkspaceOpen] = useState(false);
+  const [assignReviewOpen, setAssignReviewOpen] = useState(false);
   const { hasLiveThread, hasUnreadThread } = useRailThreadSignals();
 
   return (
@@ -112,6 +114,7 @@ function WorkspaceShell({
           <WorkspaceHomePage
             onSelectSection={onSelectSection}
             onNewThread={() => setNewThreadOpen(true)}
+            onAssignReview={() => setAssignReviewOpen(true)}
             onOpenThread={onOpenThread}
           />
         )}
@@ -159,6 +162,15 @@ function WorkspaceShell({
       )}
       {newWorkspaceOpen && (
         <NewWorkspaceDialog onClose={() => setNewWorkspaceOpen(false)} />
+      )}
+      {assignReviewOpen && (
+        <AssignReviewTaskDialog
+          onClose={() => setAssignReviewOpen(false)}
+          onStarted={(threadId) => {
+            setAssignReviewOpen(false);
+            onOpenThread?.(threadId);
+          }}
+        />
       )}
     </section>
   );

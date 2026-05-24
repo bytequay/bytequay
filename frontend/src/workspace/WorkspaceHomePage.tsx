@@ -22,6 +22,9 @@ type Props = {
   /** Open the new-thread modal. The shell owns the modal state so
    *  the dialog can also be triggered from other surfaces later. */
   onNewThread?: () => void;
+  /** Open the assign-review-task modal — picks a PR awaiting review
+   *  + the panel + caps, then spins up a review-flow thread. */
+  onAssignReview?: () => void;
   /** Navigate to a thread's detail page. Wired so each Active threads
    *  / Tasks-in-flight row is a clickable target. */
   onOpenThread?: (threadId: string) => void;
@@ -44,7 +47,7 @@ const CHARS_PER_TOKEN = 4;
  *  markdown body for excerpts and the budget bar. Spend today is a
  *  rough estimate summed from threads updated today — proper
  *  aggregation lands with Insights (commit 3). */
-function WorkspaceHomePage({ onSelectSection, onNewThread, onOpenThread }: Props) {
+function WorkspaceHomePage({ onSelectSection, onNewThread, onAssignReview, onOpenThread }: Props) {
   const [threads, setThreads] = useState<ThreadDto[]>([]);
   const [memoryMd, setMemoryMd] = useState<string>('');
   const [loading, setLoading] = useState(true);
@@ -102,15 +105,28 @@ function WorkspaceHomePage({ onSelectSection, onNewThread, onOpenThread }: Props
             </span>
           )}
         </div>
-        <button
-          type="button"
-          className="workspace-pageheader__action"
-          onClick={onNewThread}
-          disabled={!onNewThread}
-        >
-          + New thread
-          <span className="workspace-pageheader__action-kbd" aria-hidden>⌘N</span>
-        </button>
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center' }}>
+          {onAssignReview && (
+            <button
+              type="button"
+              className="workspace-pageheader__action"
+              onClick={onAssignReview}
+              style={assignReviewBtnStyle}
+              title="Spin up a multi-agent review panel on a PR awaiting your review"
+            >
+              ⎈ Assign review
+            </button>
+          )}
+          <button
+            type="button"
+            className="workspace-pageheader__action"
+            onClick={onNewThread}
+            disabled={!onNewThread}
+          >
+            + New thread
+            <span className="workspace-pageheader__action-kbd" aria-hidden>⌘N</span>
+          </button>
+        </div>
       </header>
 
       {error !== null && <div style={errorStyle} role="alert">{error}</div>}
@@ -697,6 +713,12 @@ const errorStyle: React.CSSProperties = {
   borderRadius: 8,
   color: '#cf1322',
   fontSize: 12,
+};
+
+const assignReviewBtnStyle: React.CSSProperties = {
+  background: '#fff',
+  color: 'var(--ws-accent-deep, #5b21b6)',
+  border: '1px solid var(--ws-accent-soft, rgba(124,58,237,0.32))',
 };
 
 export default WorkspaceHomePage;

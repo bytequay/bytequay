@@ -1699,6 +1699,15 @@ export type ReviewPassDetailDto = {
   findings: ReviewFindingDto[];
 };
 
+/** One LLM reviewer the assign-review-task dialog renders as a
+ *  panel chip. {@code configured} mirrors whether an API key is set
+ *  — unconfigured rows surface as disabled chips with a hint. */
+export type ReviewRosterEntryDto = {
+  providerId: string;
+  displayName: string;
+  configured: boolean;
+};
+
 /** A pending workspace-memory edit the Haiku distiller wants the
  *  user to approve before {@code memory_md} actually changes. Mirrors
  *  the backend WorkspaceMemoryProposal record. The banner inside
@@ -2480,7 +2489,19 @@ export type Bridge = {
    *  in {@code repoFullName}. Creates a {@code flow=REVIEW} thread,
    *  runs the active LLM reviewer synchronously, and returns the
    *  populated panel state. */
-  startReview: (repoFullName: string, prNumber: number) => Promise<ReviewPassDetailDto>;
+  startReview: (
+    repoFullName: string,
+    prNumber: number,
+    opts?: {
+      panelProviderIds?: string[];
+      roundCap?: number;
+      costCapMilli?: number;
+      independentFirst?: boolean;
+    },
+  ) => Promise<ReviewPassDetailDto>;
+  /** List configured LLM reviewers (and unconfigured ones the
+   *  assign-review-task dialog surfaces as disabled chips). */
+  listReviewRoster: () => Promise<ReviewRosterEntryDto[]>;
   /** Read a review pass by id with the full transcript + findings. */
   getReviewPass: (passId: string) => Promise<ReviewPassDetailDto | null>;
   /** Read the latest pass on a review thread — the URL the panel UI

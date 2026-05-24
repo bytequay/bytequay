@@ -85,7 +85,21 @@ public class ReviewController
     @PostMapping("/start")
     public ReviewPassDetail start(@RequestBody StartReviewRequest body)
     {
-        return reviews.startReviewOnPr(body.repoFullName(), body.prNumber());
+        if (body == null) {
+            throw new ResponseStatusException(HttpStatusCode.valueOf(400), "body is required");
+        }
+        ReviewPassService.StartOptions opts = body.toOptions();
+        return reviews.startReviewOnPr(body.repoFullName(), body.prNumber(), opts);
+    }
+
+    /** Roster of LLM reviewers the dialog renders as panel chips.
+     *  Configured ones come first; unconfigured ones surface so the
+     *  user sees the option but the chip stays disabled until they
+     *  add a key in Settings → AI review. */
+    @GetMapping("/roster")
+    public List<ReviewPassService.RosterEntry> roster()
+    {
+        return reviews.roster();
     }
 
     @GetMapping("/{passId}")
@@ -170,7 +184,31 @@ public class ReviewController
         return Map.of("enabled", scheduledReviews.isEnabled());
     }
 
-    public record StartReviewRequest(String repoFullName, int prNumber) {}
+    /**
+     * Start-review body. {@code panelProviderIds}, {@code roundCap},
+     * {@code costCapMilli}, and {@code independentFirst} are optional
+     * — null/zero means "use the registry defaults" so the older
+     * one-click callers don't need to change. Today only the
+     * assign-review-task dialog populates them.
+     */
+    public record StartReviewRequest(
+            String repoFullName,
+            int prNumber,
+            List<String> panelProviderIds,
+            Integer roundCap,
+            Long costCapMilli,
+            Boolean independentFirst)
+    {
+        public ReviewPassService.StartOptions toOptions()
+        {
+            ReviewPassService.StartOptions defaults = ReviewPassService.StartOptions.DEFAULT;
+            return new ReviewPassService.StartOptions(
+                    panelProviderIds == null ? List.of() : panelProviderIds,
+                    roundCap == null || roundCap <= 0 ? defaults.roundCap() : roundCap,
+                    costCapMilli == null || costCapMilli <= 0 ? defaults.costCapMilli() : costCapMilli,
+                    independentFirst == null ? defaults.independentFirst() : independentFirst);
+        }
+    }
 
     public record PublishReviewRequest(String verdict, List<String> findingIds) {}
 

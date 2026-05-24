@@ -68,6 +68,7 @@ import type {
   UserStatsDto,
   WatchedRepoDto,
   WorkUnitTaskDto,
+  ReviewRosterEntryDto,
   WorkspaceCardDto,
   WorkspaceDto,
   WorkspaceRepoDto,
@@ -525,8 +526,19 @@ const bridge: Bridge = {
   discardWorkspaceMemoryProposal: (workspaceId: string): Promise<void> =>
     ipcRenderer.invoke('workspaces:memory:proposal:discard', workspaceId),
 
-  startReview: (repoFullName: string, prNumber: number) =>
-    ipcRenderer.invoke('reviews:start', { repoFullName, prNumber }),
+  startReview: (
+    repoFullName: string,
+    prNumber: number,
+    opts?: {
+      panelProviderIds?: string[];
+      roundCap?: number;
+      costCapMilli?: number;
+      independentFirst?: boolean;
+    },
+  ) =>
+    ipcRenderer.invoke('reviews:start', { repoFullName, prNumber, ...(opts ?? {}) }),
+  listReviewRoster: (): Promise<ReviewRosterEntryDto[]> =>
+    ipcRenderer.invoke('reviews:roster'),
   getReviewPass: (passId: string) =>
     ipcRenderer.invoke('reviews:get', passId),
   getReviewPassByThread: (threadId: string) =>

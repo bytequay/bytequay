@@ -60,22 +60,23 @@ function ReviewThreadPage({ threadId, onBack }: Props) {
     return map;
   }, [detail]);
 
+  // Split findings into Agreed / Open. AGREED + RESOLVED + POSTED
+  // are "done"; DISPUTED + ARBITRATED + DROPPED are still in flight
+  // for the right rail's "Open" pane.
+  const agreedFindings = useMemo(
+    () => (detail?.findings ?? []).filter(f =>
+        f.status === 'AGREED' || f.status === 'RESOLVED' || f.status === 'POSTED'),
+    [detail]);
+  const openFindings = useMemo(
+    () => (detail?.findings ?? []).filter(f => f.status === 'DISPUTED'),
+    [detail]);
+
   return (
     <section style={pageStyle}>
-      <header style={headerStyle}>
-        <button type="button" className="button" onClick={onBack}>← Back</button>
-        <h1 style={titleStyle}>
-          {detail
-              ? `Review · ${detail.pass.repoFullName}#${detail.pass.prNumber}`
-              : 'Review thread'}
-        </h1>
-        {detail && (
-          <div style={metaStyle}>
-            <PhasePill phase={detail.pass.phase} />
-            {detail.pass.verdict && <VerdictPill verdict={detail.pass.verdict} />}
-          </div>
-        )}
-      </header>
+      <TopBar
+        detail={detail}
+        onBack={onBack}
+      />
 
       {error !== null && (
         <div style={errorStyle} role="alert">{error}</div>
@@ -92,27 +93,254 @@ function ReviewThreadPage({ threadId, onBack }: Props) {
       )}
 
       {detail !== null && (
-        <>
-          <RosterSection participants={detail.participants} />
-          <TranscriptSection
-            messages={detail.messages}
-            participantsById={participantsById}
-          />
-          <FindingsSection findings={detail.findings} />
-          {detail.pass.phase === 'ARBITRATE' ? (
-            <ArbitrationBallotSection
-              detail={detail}
-              onResolved={(next) => setDetail(next)}
+        <div style={bodyGridStyle}>
+          <aside style={leftRailStyle}>
+            <ReviewingCard detail={detail} />
+            <RosterSection participants={detail.participants} />
+            <FlowStepper currentPhase={detail.pass.phase} />
+            <BudgetCard detail={detail} />
+          </aside>
+          <main style={centerColStyle}>
+            <TranscriptSection
+              messages={detail.messages}
+              participantsById={participantsById}
             />
-          ) : (
-            <PublishSection
-              detail={detail}
-              onPublished={(next) => setDetail(next)}
+            <SteerComposerPlaceholder
+              prNumber={detail.pass.prNumber}
+              published={detail.pass.phase === 'PUBLISHED'}
             />
-          )}
-        </>
+          </main>
+          <aside style={rightRailStyle}>
+            <FindingsByStatusSection
+              title={`Agreed findings (${agreedFindings.length})`}
+              findings={agreedFindings}
+              emptyHint="Nothing locked in yet."
+            />
+            <FindingsByStatusSection
+              title={`Open (${openFindings.length})`}
+              findings={openFindings}
+              emptyHint="All disagreements resolved or arbitrated."
+            />
+            {detail.pass.phase === 'ARBITRATE' ? (
+              <ArbitrationBallotSection
+                detail={detail}
+                onResolved={(next) => setDetail(next)}
+              />
+            ) : (
+              <PublishSection
+                detail={detail}
+                onPublished={(next) => setDetail(next)}
+              />
+            )}
+          </aside>
+        </div>
       )}
     </section>
+  );
+}
+
+/** Top bar — Back chevron · panel-title · PR ref · phase / round /
+ *  cost meters on the right. Matches the panel mockup's header strip. */
+function TopBar({ detail, onBack }: { detail: ReviewPassDetailDto | null; onBack: () => void }) {
+  const round = detail?.pass.round ?? 0;
+  const roundCap = detail?.pass.roundCap ?? 0;
+  const costMilli = detail?.pass.costUsdMilli ?? 0;
+  const costCapMilli = detail?.pass.costCapMilli ?? 0;
+  return (
+    <header style={topBarStyle}>
+      <button type="button" className="button" onClick={onBack} style={backBtnStyle}>← Back</button>
+      <span style={panelBadgeStyle}>Review panel</span>
+      <h1 style={titleStyle}>
+        {detail
+            ? `Review · ${detail.pass.repoFullName}#${detail.pass.prNumber}`
+            : 'Review thread'}
+      </h1>
+      {detail && (
+        <div style={metaStyle}>
+          <Meter label="Phase">
+            <PhasePill phase={detail.pass.phase} />
+          </Meter>
+          {roundCap > 0 && (
+            <Meter label="Round">
+              <span style={meterValueStyle}>{round} / {roundCap}</span>
+            </Meter>
+          )}
+          {costCapMilli > 0 && (
+            <Meter label="Cost">
+              <span style={meterValueStyle}>
+                ${(costMilli / 1000).toFixed(2)} / ${(costCapMilli / 1000).toFixed(2)}
+              </span>
+            </Meter>
+          )}
+          {detail.pass.verdict && <VerdictPill verdict={detail.pass.verdict} />}
+        </div>
+      )}
+    </header>
+  );
+}
+
+function Meter({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <span style={meterCellStyle}>
+      <span style={meterLabelStyle}>{label}</span>
+      {children}
+    </span>
+  );
+}
+
+/** Left-rail "Reviewing" card — a compact PR summary so the user can
+ *  see which PR the panel is working on without scrolling away to
+ *  the PR detail page. */
+function ReviewingCard({ detail }: { detail: ReviewPassDetailDto }) {
+  return (
+    <section style={cardStyle} aria-label="Reviewing">
+      <h2 style={cardTitleStyle}>Reviewing</h2>
+      <div style={reviewingTitleStyle}>
+        <span style={prNumStyle}>#{detail.pass.prNumber}</span>{' '}
+        {detail.pass.repoFullName}
+      </div>
+      <div style={reviewingMetaStyle}>
+        <span style={shaChipStyle}>{detail.pass.headSha.slice(0, 8)}</span>
+      </div>
+    </section>
+  );
+}
+
+/** Left-rail "Flow" stepper — visualises the panel's phase machine.
+ *  The current phase glows; completed phases get a check; future
+ *  phases stay muted. Pure presentation, no actions. */
+const FLOW_PHASES: { id: string; label: string }[] = [
+  { id: 'KICKOFF', label: 'Kickoff' },
+  { id: 'INDEPENDENT', label: 'Independent review' },
+  { id: 'CROSS_REVIEW', label: 'Cross-review' },
+  { id: 'CONSENSUS', label: 'Consensus' },
+  { id: 'DEBATE', label: 'Debate' },
+  { id: 'ARBITRATE', label: 'Arbitrate' },
+  { id: 'PUBLISHED', label: 'Publish' },
+];
+
+function FlowStepper({ currentPhase }: { currentPhase: string }) {
+  const currentIdx = FLOW_PHASES.findIndex(p => p.id === currentPhase);
+  return (
+    <section style={cardStyle} aria-label="Flow">
+      <h2 style={cardTitleStyle}>Flow</h2>
+      <ol style={flowListStyle}>
+        {FLOW_PHASES.map((phase, idx) => {
+          const state: 'done' | 'current' | 'next' = idx < currentIdx ? 'done'
+              : idx === currentIdx ? 'current'
+              : 'next';
+          return (
+            <li key={phase.id} style={flowRowStyle}>
+              <span style={flowGlyphStyle(state)} aria-hidden>
+                {state === 'done' ? '✓' : state === 'current' ? '●' : '○'}
+              </span>
+              <span style={flowLabelStyle(state)}>{phase.label}</span>
+            </li>
+          );
+        })}
+      </ol>
+    </section>
+  );
+}
+
+/** Left-rail "Budget" card — debate-rounds + cost progress bars. */
+function BudgetCard({ detail }: { detail: ReviewPassDetailDto }) {
+  const roundPct = detail.pass.roundCap > 0
+      ? Math.min(100, Math.round((detail.pass.round / detail.pass.roundCap) * 100))
+      : 0;
+  const costPct = detail.pass.costCapMilli > 0
+      ? Math.min(100, Math.round((detail.pass.costUsdMilli / detail.pass.costCapMilli) * 100))
+      : 0;
+  return (
+    <section style={cardStyle} aria-label="Budget">
+      <h2 style={cardTitleStyle}>Budget</h2>
+      <div style={budgetRowStyle}>
+        <div style={budgetTopRowStyle}>
+          <span style={budgetLabelStyle}>Debate rounds</span>
+          <span style={budgetValueStyle}>{detail.pass.round} / {detail.pass.roundCap}</span>
+        </div>
+        <div style={progressTrackStyle}>
+          <div style={progressFillStyle(roundPct, '#7c3aed')} />
+        </div>
+      </div>
+      <div style={budgetRowStyle}>
+        <div style={budgetTopRowStyle}>
+          <span style={budgetLabelStyle}>Cost</span>
+          <span style={budgetValueStyle}>
+            ${(detail.pass.costUsdMilli / 1000).toFixed(2)} / ${(detail.pass.costCapMilli / 1000).toFixed(2)}
+          </span>
+        </div>
+        <div style={progressTrackStyle}>
+          <div style={progressFillStyle(costPct, costPct > 80 ? '#cf1322' : '#0d9488')} />
+        </div>
+      </div>
+    </section>
+  );
+}
+
+/** Right-rail findings list partitioned by status. Same shape as
+ *  the legacy FindingsSection but rendered twice — Agreed (locked-in)
+ *  and Open (still in flight). */
+function FindingsByStatusSection({
+  title, findings, emptyHint,
+}: {
+  title: string;
+  findings: ReviewFindingDto[];
+  emptyHint: string;
+}) {
+  return (
+    <section style={cardStyle} aria-label={title}>
+      <h2 style={cardTitleStyle}>{title}</h2>
+      {findings.length === 0 ? (
+        <div style={emptyInlineStyle}>{emptyHint}</div>
+      ) : (
+        <ul style={findingsListStyle}>
+          {findings.map(f => (
+            <li key={f.id} style={findingRowStyle}>
+              <SeverityChip severity={f.severity} />
+              <StatusChip status={f.status} />
+              <div style={findingBodyStyle}>
+                <div style={findingAnchorStyle}>
+                  {f.path !== null
+                      ? `${f.path}${f.line !== null ? `:${f.line}` : ''}`
+                      : 'Whole PR'}
+                </div>
+                <div>{f.body}</div>
+              </div>
+            </li>
+          ))}
+        </ul>
+      )}
+    </section>
+  );
+}
+
+/** Bottom composer placeholder — surfaces the "steer the panel"
+ *  affordance from the mockup. The backend hook for sending a user
+ *  message into the panel isn't wired yet, so the textarea is
+ *  disabled with a "decision pending" cue. */
+function SteerComposerPlaceholder({
+  prNumber, published,
+}: {
+  prNumber: number;
+  published: boolean;
+}) {
+  return (
+    <div style={composerCardStyle}>
+      <textarea
+        placeholder="Steer the panel, @mention a reviewer, or arbitrate the open item…"
+        disabled
+        rows={2}
+        style={composerTextareaStyle}
+      />
+      <div style={composerFooterStyle}>
+        <span style={composerHintStyle}>
+          {published
+            ? `Posted to PR #${prNumber}.`
+            : 'Steering the panel from the UI is a follow-up; arbitrate from the ballot for now.'}
+        </span>
+      </div>
+    </div>
   );
 }
 
@@ -474,11 +702,237 @@ function kindLabel(kind: ReviewParticipantDto['kind']): string {
 const pageStyle: React.CSSProperties = {
   height: '100%',
   overflowY: 'auto',
-  padding: '24px 32px',
+  padding: '20px 24px 40px',
   background: 'var(--bg-base)',
-  maxWidth: 960,
   margin: '0 auto',
+  maxWidth: 1280,
   boxSizing: 'border-box',
+};
+
+const topBarStyle: React.CSSProperties = {
+  display: 'flex',
+  alignItems: 'center',
+  gap: 12,
+  marginBottom: 16,
+  padding: '10px 14px',
+  background: 'rgba(255,255,255,0.85)',
+  border: '1px solid var(--border)',
+  borderRadius: 12,
+  boxShadow: '0 2px 8px rgba(0,0,0,0.04)',
+};
+
+const backBtnStyle: React.CSSProperties = {
+  fontSize: 12,
+  padding: '4px 8px',
+};
+
+const panelBadgeStyle: React.CSSProperties = {
+  fontSize: 10,
+  fontWeight: 700,
+  letterSpacing: '0.08em',
+  textTransform: 'uppercase',
+  color: '#5b21b6',
+  background: 'rgba(124, 58, 237, 0.12)',
+  border: '1px solid rgba(124, 58, 237, 0.22)',
+  borderRadius: 999,
+  padding: '3px 10px',
+};
+
+const meterCellStyle: React.CSSProperties = {
+  display: 'inline-flex',
+  flexDirection: 'column',
+  alignItems: 'flex-end',
+  gap: 2,
+  paddingLeft: 12,
+  borderLeft: '1px solid var(--border)',
+};
+
+const meterLabelStyle: React.CSSProperties = {
+  fontSize: 9,
+  fontWeight: 700,
+  letterSpacing: '0.08em',
+  textTransform: 'uppercase',
+  color: 'var(--text-3)',
+};
+
+const meterValueStyle: React.CSSProperties = {
+  fontSize: 12,
+  fontWeight: 600,
+  color: 'var(--text-1)',
+  fontVariantNumeric: 'tabular-nums',
+};
+
+const bodyGridStyle: React.CSSProperties = {
+  display: 'grid',
+  gridTemplateColumns: '240px minmax(0, 1fr) 320px',
+  gap: 14,
+  alignItems: 'flex-start',
+};
+
+const leftRailStyle: React.CSSProperties = {
+  display: 'flex',
+  flexDirection: 'column',
+  gap: 10,
+};
+
+const centerColStyle: React.CSSProperties = {
+  display: 'flex',
+  flexDirection: 'column',
+  gap: 10,
+  minWidth: 0,
+};
+
+const rightRailStyle: React.CSSProperties = {
+  display: 'flex',
+  flexDirection: 'column',
+  gap: 10,
+};
+
+const reviewingTitleStyle: React.CSSProperties = {
+  fontSize: 12,
+  fontWeight: 600,
+  color: 'var(--text-1)',
+  lineHeight: 1.35,
+};
+
+const prNumStyle: React.CSSProperties = {
+  color: 'var(--text-3)',
+  fontVariantNumeric: 'tabular-nums',
+};
+
+const reviewingMetaStyle: React.CSSProperties = {
+  marginTop: 6,
+  display: 'flex',
+  gap: 6,
+  flexWrap: 'wrap',
+};
+
+const shaChipStyle: React.CSSProperties = {
+  fontSize: 10,
+  fontFamily: 'ui-monospace, SFMono-Regular, monospace',
+  padding: '2px 6px',
+  border: '1px solid var(--border)',
+  borderRadius: 4,
+  color: 'var(--text-3)',
+  background: 'rgba(0,0,0,0.02)',
+};
+
+const flowListStyle: React.CSSProperties = {
+  margin: 0,
+  padding: 0,
+  listStyle: 'none',
+  display: 'flex',
+  flexDirection: 'column',
+  gap: 6,
+};
+
+const flowRowStyle: React.CSSProperties = {
+  display: 'flex',
+  alignItems: 'center',
+  gap: 8,
+};
+
+function flowGlyphStyle(state: 'done' | 'current' | 'next'): React.CSSProperties {
+  const color = state === 'done' ? '#16a34a'
+      : state === 'current' ? '#7c3aed'
+      : 'var(--text-4)';
+  return {
+    width: 16,
+    height: 16,
+    borderRadius: 999,
+    border: state === 'current' ? '2px solid #7c3aed' : '1px solid var(--border)',
+    color,
+    display: 'inline-flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    fontSize: 9,
+    fontWeight: 700,
+    flexShrink: 0,
+    background: state === 'current' ? 'rgba(124,58,237,0.08)' : 'transparent',
+  };
+}
+
+function flowLabelStyle(state: 'done' | 'current' | 'next'): React.CSSProperties {
+  return {
+    fontSize: 12,
+    color: state === 'next' ? 'var(--text-3)' : 'var(--text-1)',
+    fontWeight: state === 'current' ? 600 : 400,
+  };
+}
+
+const budgetRowStyle: React.CSSProperties = {
+  marginTop: 8,
+};
+
+const budgetTopRowStyle: React.CSSProperties = {
+  display: 'flex',
+  justifyContent: 'space-between',
+  alignItems: 'baseline',
+  marginBottom: 4,
+};
+
+const budgetLabelStyle: React.CSSProperties = {
+  fontSize: 11,
+  color: 'var(--text-3)',
+};
+
+const budgetValueStyle: React.CSSProperties = {
+  fontSize: 11,
+  fontWeight: 600,
+  color: 'var(--text-1)',
+  fontVariantNumeric: 'tabular-nums',
+};
+
+const progressTrackStyle: React.CSSProperties = {
+  height: 4,
+  background: 'rgba(0,0,0,0.06)',
+  borderRadius: 999,
+  overflow: 'hidden',
+};
+
+function progressFillStyle(pct: number, color: string): React.CSSProperties {
+  return {
+    width: `${pct}%`,
+    height: '100%',
+    background: color,
+    transition: 'width 240ms ease',
+  };
+}
+
+const composerCardStyle: React.CSSProperties = {
+  marginTop: 6,
+  padding: 12,
+  background: '#fff',
+  border: '1px solid var(--border)',
+  borderRadius: 12,
+  boxShadow: '0 2px 8px rgba(0,0,0,0.04)',
+};
+
+const composerTextareaStyle: React.CSSProperties = {
+  width: '100%',
+  padding: '8px 10px',
+  fontSize: 13,
+  lineHeight: 1.45,
+  border: '1px solid var(--border)',
+  borderRadius: 8,
+  resize: 'none',
+  fontFamily: 'inherit',
+  background: 'rgba(0,0,0,0.02)',
+  color: 'var(--text-2)',
+  boxSizing: 'border-box',
+};
+
+const composerFooterStyle: React.CSSProperties = {
+  marginTop: 6,
+  display: 'flex',
+  justifyContent: 'space-between',
+  alignItems: 'center',
+};
+
+const composerHintStyle: React.CSSProperties = {
+  fontSize: 11,
+  color: 'var(--text-3)',
+  fontStyle: 'italic',
 };
 
 const headerStyle: React.CSSProperties = {

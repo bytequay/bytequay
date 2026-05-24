@@ -3038,21 +3038,53 @@ const url = new URL(`${BACKEND_BASE}/api/search/repos`);
     if (typeof args !== 'object' || args === null) {
       throw new Error('reviews:start args must be an object');
     }
-    const a = args as { repoFullName?: unknown; prNumber?: unknown };
+    const a = args as {
+      repoFullName?: unknown;
+      prNumber?: unknown;
+      panelProviderIds?: unknown;
+      roundCap?: unknown;
+      costCapMilli?: unknown;
+      independentFirst?: unknown;
+    };
     if (typeof a.repoFullName !== 'string' || a.repoFullName.trim().length === 0) {
       throw new Error('repoFullName must be a non-empty string');
     }
     if (typeof a.prNumber !== 'number' || !Number.isInteger(a.prNumber) || a.prNumber <= 0) {
       throw new Error('prNumber must be a positive integer');
     }
+    const body: Record<string, unknown> = {
+      repoFullName: a.repoFullName,
+      prNumber: a.prNumber,
+    };
+    if (Array.isArray(a.panelProviderIds)) {
+      body.panelProviderIds = a.panelProviderIds.filter((s): s is string => typeof s === 'string');
+    }
+    if (typeof a.roundCap === 'number' && Number.isInteger(a.roundCap) && a.roundCap > 0) {
+      body.roundCap = a.roundCap;
+    }
+    if (typeof a.costCapMilli === 'number' && a.costCapMilli > 0) {
+      body.costCapMilli = a.costCapMilli;
+    }
+    if (typeof a.independentFirst === 'boolean') {
+      body.independentFirst = a.independentFirst;
+    }
     const res = await fetch(`${BACKEND_BASE}/api/reviews/start`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ repoFullName: a.repoFullName, prNumber: a.prNumber }),
+      body: JSON.stringify(body),
     });
     if (!res.ok) {
       const text = await res.text().catch(() => '');
       throw new Error(`backend POST /api/reviews/start returned ${res.status}: ${text}`);
+    }
+    return res.json();
+  });
+
+  ipcMain.handle('reviews:roster', async () => {
+    const res = await fetch(`${BACKEND_BASE}/api/reviews/roster`);
+    if (!res.ok) {
+      const text = await res.text().catch(() => '');
+      throw new Error(`backend GET /api/reviews/roster returned ${res.status}: ${text}`);
     }
     return res.json();
   });

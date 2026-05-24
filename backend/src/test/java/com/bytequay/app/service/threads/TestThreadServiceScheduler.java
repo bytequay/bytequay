@@ -64,7 +64,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 class TestThreadServiceScheduler
 {
     @Test
-    void createQueuesInitialPromptThroughScheduler()
+    void createDoesNotEnqueueTrunkTurnFromInitialPrompt()
     {
         InMemoryTaskStore store = new InMemoryTaskStore();
         RecordingScheduler scheduler = new RecordingScheduler();
@@ -82,14 +82,17 @@ class TestThreadServiceScheduler
                 new GitRunner(),
                 noopWorktreeService());
 
-        service.create(new ThreadService.NewTaskRequest(
+        // initialPrompt feeds title derivation but is treated as
+        // context the create dialog will stage in the trunk composer,
+        // not as a turn to fire at the agent.
+        Thread created = service.create(new ThreadService.NewTaskRequest(
                 ThreadKind.CLI_AGENT,
                 "claude-code",
                 "claude-sonnet-4.6",
-                "Fix tests",
+                /* title */ null,
                 "/tmp/work",
                 "main",
-                "please fix",
+                "please fix the broken tests",
                 List.of(),
                 "DEVELOP",
                 /* linkedPrNumber */ null,
@@ -97,10 +100,9 @@ class TestThreadServiceScheduler
                 /* flow */ null));
 
         assertThat(store.threads).hasSize(1);
-        assertThat(scheduler.requests).hasSize(1);
-        assertThat(scheduler.requests.get(0).thread()).isEqualTo(store.threads.values().iterator().next());
-        assertThat(scheduler.requests.get(0).input()).isEqualTo("please fix");
+        assertThat(scheduler.requests).isEmpty();
         assertThat(registry.used).isFalse();
+        assertThat(created.title()).isEqualTo("Please fix the broken tests");
         // A NewTaskRequest with no flow defaults to BUILD per the
         // V74 column default and the design's "BUILD threads are the
         // overwhelming majority" guidance.

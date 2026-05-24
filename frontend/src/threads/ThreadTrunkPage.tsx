@@ -59,7 +59,22 @@ export default function ThreadTrunkPage({ threadId, onBack, onOpenTask }: Props)
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
   const [advancing, setAdvancing] = useState<'next' | 'ship' | null>(null);
   const [advanceError, setAdvanceError] = useState<string | null>(null);
-  const [composerInput, setComposerInput] = useState('');
+  const [composerInput, setComposerInput] = useState<string>(() => {
+    // Seed once on mount from a sessionStorage draft the
+    // create-thread dialog may have stashed for this thread. The
+    // dialog uses the same key shape; clearing here keeps a reload
+    // from re-staging the same text.
+    try {
+      const key = `bq:trunk-draft:${threadId}`;
+      const stash = window.sessionStorage.getItem(key);
+      if (stash !== null) {
+        window.sessionStorage.removeItem(key);
+        return stash;
+      }
+    }
+    catch { /* private mode / no storage — fall through */ }
+    return '';
+  });
   const [sending, setSending] = useState(false);
   const [sendError, setSendError] = useState<string | null>(null);
   const [profile, setProfile] = useState<UserProfileDto | null>(null);

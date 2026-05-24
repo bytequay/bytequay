@@ -381,14 +381,13 @@ public class ThreadService
         for (String groupId : initialGroupIds) {
             groupStore.addMember(thread.id(), groupId);
         }
-        Thread persisted = store.findThreadById(thread.id()).orElse(thread);
-        if (request.initialPrompt() != null && !request.initialPrompt().isBlank()) {
-            // Route the opening message through the trunk runtime so
-            // the row lands with task_id = null and the planning agent
-            // answers without a worktree lease.
-            scheduler.enqueueTrunkTurn(persisted, request.initialPrompt());
-        }
-        return persisted;
+        // initialPrompt — if present — feeds the title derivation
+        // above but is NOT enqueued as a trunk turn. Treat it as
+        // setup context the user prepared in the create dialog; the
+        // trunk page stages it in the composer so the user reviews
+        // before pressing Send. Nothing reaches the planning agent
+        // until they do.
+        return store.findThreadById(thread.id()).orElse(thread);
     }
 
     /**

@@ -82,29 +82,27 @@ function NewThreadDialog({ onClose, onCreated, initialGroupId }: Props) {
     setSubmitting(true);
     setError(null);
     try {
-      // 0-Task thread: no workingDir, no branchName, no title. The
-      // backend auto-titles from the opening message and the prompt
-      // is sent as a separate trunk turn so it lands with
-      // task_id = null and the planning agent answers.
+      // 0-Task thread: no workingDir, no branchName. initialPrompt
+      // feeds the server's auto-title derivation but is NOT enqueued
+      // as a turn — the text is context the user prepared in the
+      // dialog, staged below into the trunk composer so they review
+      // and press Send when ready.
       const created = await window.bridge.createTask({
         kind: selectedAgent.kind,
         provider: selectedAgent.id,
         model: '',
+        initialPrompt: trimmed === '' ? undefined : trimmed,
         initialGroupIds: initialGroupId !== undefined ? [initialGroupId] : undefined,
       });
-      // Auto-send the opening message on Start — lower-friction default
-      // than staging it in the trunk composer; the user can always edit
-      // their next turn if they need to course-correct.
       if (trimmed.length > 0) {
+        // Hand the text to the trunk page via sessionStorage — the
+        // ThreadTrunkPage reads + clears this key on mount and seeds
+        // its composer with the value. sessionStorage scopes the
+        // draft to this app window so a reload won't replay it.
         try {
-          await window.bridge.sendTrunkMessage(created.id, trimmed);
+          window.sessionStorage.setItem(`bq:trunk-draft:${created.id}`, trimmed);
         }
-        catch (sendErr) {
-          // Thread already exists at this point — surface the send
-          // error but don't unwind the create; user lands on the
-          // trunk with no first turn rather than seeing a half-state.
-          setError(sendErr instanceof Error ? sendErr.message : String(sendErr));
-        }
+        catch { /* private mode / quota — composer just starts empty */ }
       }
       onCreated(created.id);
     }

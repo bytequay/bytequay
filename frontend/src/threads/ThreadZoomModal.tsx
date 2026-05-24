@@ -160,6 +160,15 @@ export default function ThreadZoomModal({
               onBackToTrunk={onBackToTrunk}
             />
           )}
+          {/* Floating "reopens here next time" pill — sits on top-right
+              of the embedded shell to echo the zoom-task mockup's
+              persistence affordance. The actual pointer is written by
+              the focusKey localStorage helper at the top of the file. */}
+          {taskId !== null && (
+            <div style={reopensHerePillStyle} aria-hidden>
+              ↗ reopens here next time
+            </div>
+          )}
         </div>
         <div style={bottomHintStyle}>
           {taskId === null
@@ -294,6 +303,23 @@ const ctxCloseStyle: React.CSSProperties = {
   borderRadius: 6,
   cursor: 'pointer',
   color: 'var(--text-3)',
+};
+
+const reopensHerePillStyle: React.CSSProperties = {
+  position: 'absolute',
+  top: 90,
+  right: 14,
+  zIndex: 5,
+  padding: '3px 10px',
+  fontSize: 10,
+  fontWeight: 600,
+  letterSpacing: '0.02em',
+  borderRadius: 999,
+  background: 'rgba(13, 148, 136, 0.12)',
+  color: '#0d9488',
+  border: '1px solid rgba(13, 148, 136, 0.30)',
+  pointerEvents: 'none',
+  fontStyle: 'italic',
 };
 
 const bottomHintStyle: React.CSSProperties = {

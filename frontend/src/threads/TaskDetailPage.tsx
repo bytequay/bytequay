@@ -1122,7 +1122,32 @@ function TerminalPlaceholder({
         {messages !== null && messages.length === 0 && (
           <div style={termInfoStyle}>$ no messages yet — type below to start the task.</div>
         )}
-        {messages !== null && messages.map(m => <TermLine key={m.id} message={m} />)}
+        {messages !== null && messages.length > 0 && (
+          <>
+            {/* Per-task header strip echoing the mockup's right-aligned
+                "task N · ⏱ runtime · $ cost" label that introduces the
+                scrollback below. */}
+            <div style={termTaskHeaderStyle}>
+              <span style={termTaskHeaderTagStyle}>
+                ▶ task {taskSeq ?? ''}
+              </span>
+              <span style={termTaskHeaderHintStyle}>
+                {messages.length} events
+              </span>
+              <span style={tmuxSpacerStyle} />
+              <span style={termTaskHeaderStatStyle}>
+                ⏱ {formatRuntimeShort(runtimeSec)}
+              </span>
+              <span style={termTaskHeaderStatStyle}>
+                $ ${(costUsdMilli / 1000).toFixed(2)}
+              </span>
+            </div>
+            {messages.map(m => <TermLine key={m.id} message={m} />)}
+            {/* If the task is parked at AWAITING_REVIEW or NEEDS_ATTENTION,
+                drop a separator line that mirrors the mockup's "Next —
+                parked Task N · awaiting review" status strip. */}
+          </>
+        )}
       </div>
 
       <div style={tmuxStatusBarStyle}>
@@ -1140,6 +1165,41 @@ function TerminalPlaceholder({
     </div>
   );
 }
+
+// Per-task header strip — matches the mockup's right-aligned task
+// label that introduces each task's chunk of scrollback.
+const termTaskHeaderStyle: React.CSSProperties = {
+  display: 'flex',
+  alignItems: 'center',
+  gap: 12,
+  padding: '8px 0 10px',
+  borderBottom: '1px dashed rgba(255,255,255,0.10)',
+  marginBottom: 4,
+  color: '#94a3b8',
+  fontSize: 11,
+};
+
+const termTaskHeaderTagStyle: React.CSSProperties = {
+  color: '#22c55e',
+  background: 'rgba(34, 197, 94, 0.10)',
+  padding: '2px 10px',
+  borderRadius: 4,
+  fontWeight: 700,
+  letterSpacing: '0.04em',
+};
+
+const termTaskHeaderHintStyle: React.CSSProperties = {
+  color: '#64748b',
+  fontStyle: 'italic',
+  fontSize: 10,
+};
+
+const termTaskHeaderStatStyle: React.CSSProperties = {
+  color: '#cdd6f4',
+  fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
+  fontSize: 10,
+  fontVariantNumeric: 'tabular-nums',
+};
 
 function TermLine({ message }: { message: ThreadMessageDto }) {
   const text = (() => {

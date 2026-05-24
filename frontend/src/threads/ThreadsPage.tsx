@@ -552,6 +552,39 @@ export default function ThreadsPage({
           </button>
         </header>
 
+        {view === 'group' && groups.length > 0 && (
+          <div style={groupTabsBarStyle}>
+            {groups.map(g => {
+              const count = memberships.filter(m => m.groupId === g.id).length;
+              const isActive = g.id === groupId;
+              return (
+                <button
+                  key={g.id}
+                  type="button"
+                  onClick={() => onGroupChange(g.id)}
+                  style={groupTabChipStyle(isActive)}
+                  title={`Open the ${g.name} board`}
+                >
+                  <span style={groupTabDotStyle(g.color)} aria-hidden />
+                  <span style={groupTabLabelStyle}>{g.name}</span>
+                  <span style={groupTabCountStyle}>{count}/4</span>
+                </button>
+              );
+            })}
+            <button
+              type="button"
+              onClick={() => onGroupChange(null)}
+              style={newGroupChipStyle}
+              title="Start a new monitoring board"
+            >
+              + New group
+            </button>
+            <span style={groupTabsHintStyle}>
+              tmux-tight · up to 4 panes · ⌘K jump
+            </span>
+          </div>
+        )}
+
         <FilterChipsRow
           threads={threads ?? []}
           autoIds={autoThreadIds}
@@ -919,6 +952,88 @@ const layoutStyle: React.CSSProperties = {
   display: 'flex',
   alignItems: 'stretch',
   minHeight: 'calc(100vh - 56px)',
+};
+
+// Group-board top tabs row: appears when the user has switched to
+// the Group view. Picks up the mockup's "● Today 4/4 · Launch work
+// 3/4 · Bug triage 2/4 · + New group" tab strip plus the tmux-tight
+// hint copy on the right.
+const groupTabsBarStyle: React.CSSProperties = {
+  display: 'flex',
+  alignItems: 'center',
+  gap: 8,
+  margin: '0 0 16px',
+  paddingBottom: 12,
+  borderBottom: '1px solid rgba(0,0,0,0.06)',
+  flexWrap: 'wrap',
+};
+
+function groupTabChipStyle(active: boolean): React.CSSProperties {
+  return {
+    display: 'inline-flex',
+    alignItems: 'center',
+    gap: 6,
+    padding: '5px 12px',
+    fontSize: 12,
+    border: '1px solid ' + (active ? 'rgba(124, 58, 237, 0.40)' : 'rgba(0,0,0,0.08)'),
+    background: active ? 'rgba(124, 58, 237, 0.10)' : '#fff',
+    color: active ? '#6d28d9' : 'var(--text-2)',
+    borderRadius: 8,
+    cursor: 'pointer',
+    fontWeight: active ? 600 : 500,
+  };
+}
+
+function groupTabDotStyle(color: string): React.CSSProperties {
+  // Map the workspace's named color hint to a dot tone. Fall back to
+  // slate when the color is unfamiliar so the chip still reads clean.
+  const swatch: Record<string, string> = {
+    purple: '#7c3aed',
+    teal: '#0d9488',
+    blue: '#2563eb',
+    amber: '#d97706',
+    pink: '#db2777',
+    green: '#16a34a',
+    slate: '#475569',
+  };
+  return {
+    width: 7,
+    height: 7,
+    borderRadius: 999,
+    background: swatch[color.toLowerCase()] ?? '#7c3aed',
+    flexShrink: 0,
+  };
+}
+
+const groupTabLabelStyle: React.CSSProperties = {
+  fontWeight: 600,
+};
+
+const groupTabCountStyle: React.CSSProperties = {
+  fontSize: 10,
+  color: 'var(--text-4)',
+  marginLeft: 2,
+  fontVariantNumeric: 'tabular-nums',
+};
+
+const newGroupChipStyle: React.CSSProperties = {
+  display: 'inline-flex',
+  alignItems: 'center',
+  padding: '5px 12px',
+  fontSize: 12,
+  border: '1px dashed rgba(0,0,0,0.18)',
+  background: 'transparent',
+  color: 'var(--text-3)',
+  borderRadius: 8,
+  cursor: 'pointer',
+  fontWeight: 500,
+};
+
+const groupTabsHintStyle: React.CSSProperties = {
+  marginLeft: 'auto',
+  fontSize: 10,
+  color: 'var(--text-4)',
+  fontStyle: 'italic',
 };
 const mainStyle: React.CSSProperties = {
   flex: 1,

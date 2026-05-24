@@ -43,6 +43,7 @@ import com.bytequay.app.domain.RepoRef;
 import com.bytequay.app.domain.RequestReviewersCommand;
 import com.bytequay.app.domain.SuggestedReviewer;
 import com.bytequay.app.domain.UpdatePullRequestCommand;
+import com.bytequay.app.domain.UserCommitSummary;
 import com.bytequay.app.domain.UserOrg;
 import com.bytequay.app.domain.UserProfile;
 import com.bytequay.app.domain.UserRepo;
@@ -2330,6 +2331,94 @@ public class GitHubClient
 
     @JsonIgnoreProperties(ignoreUnknown = true)
     record ContributionGqlDay(String date, Integer contributionCount, String color) {}
+
+    @Override
+    public List<UserCommitSummary> fetchUserCommitsOnDate(String pat, String login, String isoDate)
+    {
+        // GitHub's /search/commits backs the heatmap-cube popover: list
+        // commits authored by {login} on a single UTC calendar day. We
+        // ask for a tight window (author-date:DATE..DATE) and the
+        // newest-first ordering so the popover reads as "what did I
+        // ship today" rather than a sorted blob. per_page=30 is a
+        // glance, not an audit log — anything past that, the user can
+        // click through to GitHub.
+        if (pat == null || pat.isBlank()) {
+            throw new ResponseStatusException(HttpStatusCode.valueOf(401), "GitHub PAT missing");
+        }
+        String query = "author:" + login + " author-date:" + isoDate;
+        try {
+            CommitSearchResponse response = gitHubRestClient.get()
+                    .uri(u -> u.path("/search/commits")
+                            .queryParam("q", query)
+                            .queryParam("per_page", 30)
+                            .queryParam("sort", "author-date")
+                            .queryParam("order", "desc")
+                            .build())
+                    .header("Authorization", "Bearer " + pat)
+                    .header("Accept", "application/vnd.github+json")
+                    .retrieve()
+                    .body(CommitSearchResponse.class);
+            if (response == null || response.items() == null) {
+                return ImmutableList.of();
+            }
+            return response.items().stream()
+                    .map(GitHubClient::toUserCommitSummary)
+                    .collect(toImmutableList());
+        }
+        catch (RestClientResponseException e) {
+            // Non-essential affordance — degrade silently rather than
+            // breaking the home-page click; the popover renders an
+            // empty list.
+            log.warn("commit search for {} on {} failed: {}", login, isoDate, e.getMessage());
+            return ImmutableList.of();
+        }
+    }
+
+    private static UserCommitSummary toUserCommitSummary(CommitSearchItem item)
+    {
+        String repoFullName = item.repository() != null ? item.repository().fullName() : "";
+        String rawMessage = item.commit() != null && item.commit().message() != null
+                ? item.commit().message() : "";
+        // Only the first line — the cube popover is one row per commit.
+        int newline = rawMessage.indexOf('\n');
+        String shortMessage = newline >= 0 ? rawMessage.substring(0, newline) : rawMessage;
+        Instant authoredAt = null;
+        if (item.commit() != null && item.commit().author() != null && item.commit().author().date() != null) {
+            try {
+                authoredAt = Instant.parse(item.commit().author().date());
+            }
+            catch (Exception ignored) {
+                // Bad timestamp from GitHub is non-fatal — list still renders.
+            }
+        }
+        return new UserCommitSummary(
+                item.sha() == null ? "" : item.sha(),
+                repoFullName,
+                shortMessage,
+                item.htmlUrl() == null ? "" : item.htmlUrl(),
+                authoredAt);
+    }
+
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    record CommitSearchResponse(
+            @JsonProperty("total_count") Integer totalCount,
+            List<CommitSearchItem> items) {}
+
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    record CommitSearchItem(
+            String sha,
+            @JsonProperty("html_url") String htmlUrl,
+            CommitSearchCommit commit,
+            CommitSearchRepo repository) {}
+
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    record CommitSearchCommit(String message, CommitSearchAuthor author) {}
+
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    record CommitSearchAuthor(String name, String email, String date) {}
+
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    record CommitSearchRepo(@JsonProperty("full_name") String fullName) {}
 
     @Override
     public List<UserRepo> fetchUserRepos(String pat)

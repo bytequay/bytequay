@@ -571,6 +571,17 @@ export type ContributionCalendarDto = {
   weeks: ContributionWeekDto[];
 };
 
+/** One commit attributed to a user on one calendar day. Powers the
+ *  heatmap-cube popover that unfolds a count into its actual commits. */
+export type UserCommitDto = {
+  sha: string;
+  repoFullName: string;
+  shortMessage: string;
+  htmlUrl: string;
+  /** ISO instant or null when GitHub omitted the timestamp. */
+  authoredAt: string | null;
+};
+
 export type IssueDto = {
   id: number;
   number: number;
@@ -1902,6 +1913,9 @@ export type Bridge = {
   getUserProfile: () => Promise<UserProfileDto>;
   /** Last-12-months contribution heatmap for the home-page card. */
   getContributionCalendar: (login: string) => Promise<ContributionCalendarDto>;
+  /** Commits authored by {@code login} on one UTC calendar day. Powers
+   *  the cube-click popover on the heatmap. Date is {@code yyyy-MM-dd}. */
+  getUserCommitsOnDate: (login: string, date: string) => Promise<UserCommitDto[]>;
   getRepoPulls: (owner: string, repo: string) => Promise<PullRequestDto[]>;
   /** Single-PR fetch — used by the deep-link fallback when a PR isn't in
    *  the (capped) repo list response. */

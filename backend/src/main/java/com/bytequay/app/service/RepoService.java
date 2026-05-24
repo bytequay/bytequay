@@ -27,6 +27,7 @@ import com.bytequay.app.domain.RepoIssue;
 import com.bytequay.app.domain.RepoMeta;
 import com.bytequay.app.domain.RepoRef;
 import com.bytequay.app.domain.StoredRepoMeta;
+import com.bytequay.app.domain.UserCommitSummary;
 import com.bytequay.app.domain.UserOrg;
 import com.bytequay.app.domain.UserProfile;
 import com.bytequay.app.domain.UserRepo;
@@ -56,6 +57,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.Executor;
+import java.util.regex.Pattern;
 
 import static com.bytequay.app.config.AsyncConfig.IO_EXECUTOR;
 import static com.google.common.collect.ImmutableList.toImmutableList;
@@ -139,6 +141,26 @@ public class RepoService
         }
         return gitHub.fetchContributionCalendar(pat, login);
     }
+
+    /**
+     * Commits authored by {@code login} on a UTC calendar day, used to
+     * unfold one cube of the contribution heatmap into the actual
+     * commits behind its count. {@code isoDate} must match
+     * {@code yyyy-MM-dd}; anything else is rejected before we even hit
+     * GitHub since the search-commits qualifier is strict.
+     */
+    public List<UserCommitSummary> getUserCommitsOnDate(String pat, String login, String isoDate)
+    {
+        if (login == null || login.isBlank()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "login must not be blank");
+        }
+        if (isoDate == null || !ISO_DATE.matcher(isoDate).matches()) {
+            throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "date must be yyyy-MM-dd");
+        }
+        return gitHub.fetchUserCommitsOnDate(pat, login, isoDate);
+    }
+
+    private static final Pattern ISO_DATE = Pattern.compile("^\\d{4}-\\d{2}-\\d{2}$");
 
     /**
      * Reads the cached profile from the local DB. Pure-DB read — no GitHub

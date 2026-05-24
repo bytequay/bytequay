@@ -766,6 +766,110 @@
   stroke: rgba(0, 0, 0, 0.4);
 }
 
+.home-heatmap__cell--has-commits {
+  cursor: pointer;
+}
+
+/* Click-to-unfold commits popover. Anchored to the cell's viewport
+   coords (position:fixed) and clamped to stay inside the window in
+   YearInCodeHeatmap.tsx. */
+.home-heatmap__popover {
+  position: fixed;
+  z-index: 70;
+  background: var(--bg-elevated);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  box-shadow: 0 10px 28px rgba(0, 0, 0, 0.18);
+  padding: 0;
+  max-height: 320px;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+.home-heatmap__popover-head {
+  display: flex;
+  align-items: baseline;
+  gap: var(--space-2);
+  padding: var(--space-2) var(--space-3);
+  border-bottom: 1px solid var(--border);
+  background: var(--bg-card);
+}
+.home-heatmap__popover-title {
+  font-weight: 600;
+  font-size: var(--font-size-sm);
+  color: var(--text-1);
+}
+.home-heatmap__popover-date {
+  flex: 1;
+  font-size: var(--font-size-xs);
+  color: var(--text-3);
+}
+.home-heatmap__popover-close {
+  background: transparent;
+  border: none;
+  font-size: 16px;
+  line-height: 1;
+  color: var(--text-3);
+  cursor: pointer;
+  padding: 0 4px;
+}
+.home-heatmap__popover-close:hover {
+  color: var(--text-1);
+}
+.home-heatmap__popover-empty {
+  padding: var(--space-3);
+  font-size: var(--font-size-sm);
+  color: var(--text-3);
+}
+.home-heatmap__popover-list {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  overflow-y: auto;
+}
+.home-heatmap__popover-row {
+  width: 100%;
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: baseline;
+  gap: 4px 8px;
+  padding: var(--space-2) var(--space-3);
+  background: transparent;
+  border: none;
+  border-bottom: 1px solid var(--border);
+  text-align: left;
+  cursor: pointer;
+  font: inherit;
+}
+.home-heatmap__popover-row:last-child {
+  border-bottom: none;
+}
+.home-heatmap__popover-row:hover {
+  background: var(--bg-hover, rgba(0, 0, 0, 0.04));
+}
+.home-heatmap__popover-repo {
+  grid-column: 1 / 2;
+  font-size: var(--font-size-xs);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  color: var(--text-3);
+}
+.home-heatmap__popover-sha {
+  grid-column: 2 / 3;
+  grid-row: 1 / 3;
+  align-self: center;
+  font-size: var(--font-size-xs);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  color: var(--text-3);
+}
+.home-heatmap__popover-msg {
+  grid-column: 1 / 2;
+  font-size: var(--font-size-sm);
+  color: var(--text-1);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
 /* Instant React-driven tooltip — pinned at the cursor via clientX/Y
    + position:fixed so it doesn't fight the SVG viewBox / fluid
    width. Native <title> stays in place for screen-readers but the

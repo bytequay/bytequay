@@ -21,6 +21,7 @@ import com.bytequay.app.domain.RecentEvent;
 import com.bytequay.app.domain.RepoActivityItem;
 import com.bytequay.app.domain.RepoIssue;
 import com.bytequay.app.domain.RepoMeta;
+import com.bytequay.app.domain.UserCommitSummary;
 import com.bytequay.app.domain.UserOrg;
 import com.bytequay.app.domain.UserProfile;
 import com.bytequay.app.domain.UserRepo;
@@ -109,6 +110,20 @@ public class RepoController
     public ContributionCalendar getContributionGraph(@RequestParam("login") String login)
     {
         return repoService.getContributionCalendar(patResolver.resolve(), login);
+    }
+
+    /**
+     * Commits authored by {@code login} on one UTC calendar day, used
+     * by the heatmap-cube popover to unfold a count into the actual
+     * commits. {@code date} is {@code yyyy-MM-dd}.
+     * GET /api/contribution-graph/day?login=...&date=YYYY-MM-DD
+     */
+    @GetMapping("/contribution-graph/day")
+    public List<UserCommitSummary> getContributionGraphDay(
+            @RequestParam("login") String login,
+            @RequestParam("date") String date)
+    {
+        return repoService.getUserCommitsOnDate(patResolver.resolve(), login, date);
     }
 
     /**

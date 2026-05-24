@@ -1027,6 +1027,18 @@ const url = new URL(`${BACKEND_BASE}/prs/comment`);
     return res.json();
   });
 
+  ipcMain.handle('repos:contributionGraphDay', async (_event, login: string, date: string) => {
+    const url = new URL(`${BACKEND_BASE}/api/contribution-graph/day`);
+    url.searchParams.set('login', login);
+    url.searchParams.set('date', date);
+    const res = await fetch(url);
+    if (!res.ok) {
+      const body = await res.text().catch(() => '');
+      throw new Error(`backend contribution-graph/day returned ${res.status}: ${body}`);
+    }
+    return res.json();
+  });
+
   ipcMain.handle('repos:pulls', async (_event, owner: string, repo: string) => {
     const res = await fetch(
       `${BACKEND_BASE}/api/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/pulls`,

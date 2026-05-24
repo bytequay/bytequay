@@ -11,8 +11,8 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import { useEffect, useState } from 'react';
-import type { ContributionCalendarDto, ContributionDayDto } from './types';
+import { forwardRef, useCallback, useEffect, useRef, useState } from 'react';
+import type { ContributionCalendarDto, ContributionDayDto, UserCommitDto } from './types';
 import { getCached, setCached } from './dataCache';
 
 const CELL = 12;
@@ -61,6 +61,53 @@ export default function YearInCodeHeatmap({ login }: { login: string }) {
   // pair with position:fixed CSS so we don't have to map SVG coords
   // back into DOM space when the heatmap is laid out fluidly.
   const [hover, setHover] = useState<{ day: ContributionDayDto; clientX: number; clientY: number } | null>(null);
+
+  // Click → unfold a day into the commits that produced it. The
+  // popover is anchored to the cell with viewport coords (its own
+  // position:fixed), and the commit list is cached per-date for the
+  // session so re-opening the same day doesn't re-hit GitHub's
+  // search-commits rate limit (30/min authenticated).
+  const [selected, setSelected] = useState<{ day: ContributionDayDto; clientX: number; clientY: number } | null>(null);
+  const [commitsByDate, setCommitsByDate] = useState<Record<string, UserCommitDto[] | 'loading' | 'error'>>({});
+  const popoverRef = useRef<HTMLDivElement | null>(null);
+
+  const closePopover = useCallback(() => setSelected(null), []);
+
+  useEffect(() => {
+    if (selected === null) return;
+    const date = selected.day.date;
+    if (commitsByDate[date] !== undefined) return;
+    setCommitsByDate(prev => ({ ...prev, [date]: 'loading' }));
+    let cancelled = false;
+    void window.bridge.getUserCommitsOnDate(login, date)
+      .then((list) => {
+        if (cancelled) return;
+        setCommitsByDate(prev => ({ ...prev, [date]: list }));
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setCommitsByDate(prev => ({ ...prev, [date]: 'error' }));
+      });
+    return () => { cancelled = true; };
+  }, [selected, login, commitsByDate]);
+
+  // Dismiss on outside click + Escape. The popover stops propagation
+  // on its own click so a click *inside* (e.g. on a commit row) doesn't
+  // immediately close it before openExternal fires.
+  useEffect(() => {
+    if (selected === null) return;
+    const onDown = (e: MouseEvent) => {
+      if (popoverRef.current && e.target instanceof Node && popoverRef.current.contains(e.target)) return;
+      closePopover();
+    };
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') closePopover(); };
+    document.addEventListener('mousedown', onDown);
+    document.addEventListener('keydown', onKey);
+    return () => {
+      document.removeEventListener('mousedown', onDown);
+      document.removeEventListener('keydown', onKey);
+    };
+  }, [selected, closePopover]);
 
   useEffect(() => {
     let cancelled = false;
@@ -170,10 +217,21 @@ export default function YearInCodeHeatmap({ login }: { login: string }) {
                 rx={2}
                 ry={2}
                 fill={day.color || '#ebedf0'}
-                className="home-heatmap__cell"
+                className={day.contributionCount > 0
+                  ? 'home-heatmap__cell home-heatmap__cell--has-commits'
+                  : 'home-heatmap__cell'}
                 onMouseEnter={(e) => setHover({ day, clientX: e.clientX, clientY: e.clientY })}
                 onMouseMove={(e) => setHover({ day, clientX: e.clientX, clientY: e.clientY })}
                 onMouseLeave={() => setHover(null)}
+                onClick={(e) => {
+                  // Zero-commit cubes have nothing to unfold — skip
+                  // the network roundtrip and the empty popover.
+                  if (day.contributionCount === 0) return;
+                  // The hover tooltip would float on top of the
+                  // popover; close it so we don't double-render.
+                  setHover(null);
+                  setSelected({ day, clientX: e.clientX, clientY: e.clientY });
+                }}
               >
                 {/* Kept for screen-readers + a graceful fallback if
                     the React state-driven tooltip misses an event
@@ -186,7 +244,7 @@ export default function YearInCodeHeatmap({ login }: { login: string }) {
         )}
       </svg>
 
-      {hover && (
+      {hover && selected === null && (
         <div
           className="home-heatmap__tip"
           // Offset above and slightly right of the cursor so the cell
@@ -203,6 +261,17 @@ export default function YearInCodeHeatmap({ login }: { login: string }) {
             {formatTipDate(hover.day.date)}
           </span>
         </div>
+      )}
+
+      {selected && (
+        <CommitPopover
+          ref={popoverRef}
+          day={selected.day}
+          clientX={selected.clientX}
+          clientY={selected.clientY}
+          state={commitsByDate[selected.day.date] ?? 'loading'}
+          onClose={closePopover}
+        />
       )}
 
       <div className="home-heatmap__footer">
@@ -222,3 +291,83 @@ export default function YearInCodeHeatmap({ login }: { login: string }) {
     </div>
   );
 }
+
+type PopoverState = UserCommitDto[] | 'loading' | 'error';
+
+/** Floating list of commits for one cube. Anchored by the click's
+ *  viewport coords (position:fixed) and clamped to stay inside the
+ *  window. Each row opens the commit on github.com via the bridge's
+ *  shell.openExternal — keeps the embedded WebContentsView free for
+ *  the PR review surfaces. */
+const CommitPopover = forwardRef<HTMLDivElement, {
+  day: ContributionDayDto;
+  clientX: number;
+  clientY: number;
+  state: PopoverState;
+  onClose: () => void;
+}>(function CommitPopover({ day, clientX, clientY, state, onClose }, ref) {
+  // Anchor below-and-right of the click, then clamp to the viewport
+  // so a click near the right edge of the card doesn't render the
+  // popover off-screen.
+  const WIDTH = 360;
+  const left = Math.max(8, Math.min(window.innerWidth - WIDTH - 8, clientX + 8));
+  const top = Math.min(window.innerHeight - 80, clientY + 12);
+  return (
+    <div
+      ref={ref}
+      className="home-heatmap__popover"
+      style={{ left, top, width: WIDTH }}
+      role="dialog"
+      aria-label={`Commits on ${formatTipDate(day.date)}`}
+    >
+      <div className="home-heatmap__popover-head">
+        <span className="home-heatmap__popover-title">
+          {day.contributionCount} contribution{day.contributionCount === 1 ? '' : 's'}
+        </span>
+        <span className="home-heatmap__popover-date">{formatTipDate(day.date)}</span>
+        <button
+          type="button"
+          className="home-heatmap__popover-close"
+          onClick={onClose}
+          aria-label="Close"
+        >
+          ×
+        </button>
+      </div>
+      {state === 'loading' && (
+        <div className="home-heatmap__popover-empty">Loading commits…</div>
+      )}
+      {state === 'error' && (
+        <div className="home-heatmap__popover-empty">
+          Couldn't load commits — search-commits may be rate-limited.
+        </div>
+      )}
+      {Array.isArray(state) && state.length === 0 && (
+        <div className="home-heatmap__popover-empty">
+          No commits visible to your PAT on this day.
+          {/* The contribution graph counts more than commits — PRs,
+              issues, code reviews — so a cube can be green even when
+              /search/commits returns nothing for the same day. */}
+        </div>
+      )}
+      {Array.isArray(state) && state.length > 0 && (
+        <ul className="home-heatmap__popover-list">
+          {state.map((c) => (
+            <li key={c.sha}>
+              <button
+                type="button"
+                className="home-heatmap__popover-row"
+                onClick={() => { void window.bridge.openExternal(c.htmlUrl); }}
+                title={`${c.repoFullName} · ${c.sha}`}
+              >
+                <span className="home-heatmap__popover-repo">{c.repoFullName}</span>
+                <span className="home-heatmap__popover-msg">{c.shortMessage}</span>
+                <span className="home-heatmap__popover-sha">{c.sha.slice(0, 7)}</span>
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+    </div>
+  );
+});

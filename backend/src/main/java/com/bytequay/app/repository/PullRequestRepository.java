@@ -43,6 +43,7 @@ import com.bytequay.app.domain.RequestReviewersCommand;
 import com.bytequay.app.domain.RequestedReviewers;
 import com.bytequay.app.domain.SuggestedReviewer;
 import com.bytequay.app.domain.UpdatePullRequestCommand;
+import com.bytequay.app.domain.UserCommitSummary;
 import com.bytequay.app.domain.UserOrg;
 import com.bytequay.app.domain.UserProfile;
 import com.bytequay.app.domain.UserRepo;
@@ -694,6 +695,19 @@ public interface PullRequestRepository
     default ContributionCalendar fetchContributionCalendar(String pat, String login)
     {
         throw new UnsupportedOperationException("fetchContributionCalendar not implemented");
+    }
+
+    /**
+     * Lists commits authored by {@code login} on a specific calendar
+     * day (UTC ISO {@code yyyy-MM-dd}). Powers the click-through from
+     * the home-page heatmap to the day's actual commits. Maps to the
+     * REST {@code /search/commits?q=author:LOGIN+author-date:DATE}
+     * endpoint; implementations cap at one page (~30 rows) — the cube
+     * popover is meant to be a glance, not a full transcript.
+     */
+    default List<UserCommitSummary> fetchUserCommitsOnDate(String pat, String login, String isoDate)
+    {
+        throw new UnsupportedOperationException("fetchUserCommitsOnDate not implemented");
     }
 
     /**

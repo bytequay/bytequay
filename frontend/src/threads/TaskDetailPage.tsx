@@ -290,13 +290,13 @@ export default function TaskDetailPage({
                 )}
               </div>
 
-              <div style={composerAnchorStyle}>
-                ↻ Replying in Task {taskSeq ?? ''} {taskBranch !== null && (
-                  <span style={composerBranchStyle}>· {taskBranch}</span>
-                )}
-              </div>
               <div style={composerCardStyle}>
                 <div style={composerTopStyle}>
+                  <div style={composerAnchorStyle}>
+                    ↻ Replying in Task {taskSeq ?? ''} {taskBranch !== null && (
+                      <span style={composerBranchStyle}>· {taskBranch}</span>
+                    )}
+                  </div>
                   <textarea
                     ref={composerRef}
                     value={input}
@@ -1953,15 +1953,11 @@ const composerStyle: React.CSSProperties = {
 };
 
 const composerAnchorStyle: React.CSSProperties = {
-  // Sits above the composer card as a caption, not inside it — so
-  // the anchor reads as a label for the input rather than chrome on
-  // top of the chrome.
-  fontSize: 11,
+  fontSize: 10,
   letterSpacing: '0.04em',
   color: TEAL,
   fontWeight: 600,
-  padding: '0 4px',
-  marginBottom: -2,
+  marginBottom: 4,
 };
 
 const composerBranchStyle: React.CSSProperties = {

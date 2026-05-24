@@ -508,6 +508,8 @@ const bridge: Bridge = {
     ipcRenderer.invoke('threads:jumpIn', threadId),
   listWorkspaces: (): Promise<WorkspaceCardDto[]> =>
     ipcRenderer.invoke('workspaces:list'),
+  renameWorkspace: (workspaceId: string, name: string): Promise<WorkspaceDto> =>
+    ipcRenderer.invoke('workspaces:rename', { workspaceId, name }),
   listWorkspaceRepos: (workspaceId: string): Promise<WorkspaceRepoDto[]> =>
     ipcRenderer.invoke('workspaces:repos:list', workspaceId),
   getWorkspaceMemory: (workspaceId: string): Promise<{ memoryMd: string }> =>

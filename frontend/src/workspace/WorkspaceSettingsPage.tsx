@@ -12,7 +12,7 @@
  * limitations under the License.
  */
 import { useCallback, useEffect, useState } from 'react';
-import type { WatchedRepoDto, WorkspaceBehaviorDto } from '../types';
+import type { WatchedRepoDto, WorkspaceBehaviorDto, WorkspaceCardDto } from '../types';
 
 const ARCHIVE_OPTIONS: { value: string; label: string }[] = [
   { value: '1h', label: 'After 1h' },
@@ -42,17 +42,26 @@ const DEFAULT_BEHAVIOR: WorkspaceBehaviorDto = {
 function WorkspaceSettingsPage() {
   const [repos, setRepos] = useState<WatchedRepoDto[]>([]);
   const [behavior, setBehavior] = useState<WorkspaceBehaviorDto>(DEFAULT_BEHAVIOR);
+  const [workspace, setWorkspace] = useState<WorkspaceCardDto | null>(null);
+  const [nameDraft, setNameDraft] = useState<string>('');
+  const [renamingState, setRenamingState] = useState<'idle' | 'saving'>('idle');
+  const [renameError, setRenameError] = useState<string | null>(null);
+  const [renameNotice, setRenameNotice] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   const refresh = useCallback(async () => {
     try {
-      const [repoList, behaviorRecord] = await Promise.all([
+      const [repoList, behaviorRecord, workspaces] = await Promise.all([
         window.bridge.getWatchedRepos(),
         window.bridge.getWorkspaceBehavior(),
+        window.bridge.listWorkspaces(),
       ]);
       setRepos(repoList);
       setBehavior(behaviorRecord);
+      const current = workspaces[0] ?? null;
+      setWorkspace(current);
+      setNameDraft(current?.name ?? '');
       setError(null);
     }
     catch (e) {
@@ -62,6 +71,36 @@ function WorkspaceSettingsPage() {
       setLoading(false);
     }
   }, []);
+
+  const onRename = async (e?: React.FormEvent) => {
+    if (e !== undefined) e.preventDefault();
+    if (workspace === null) return;
+    const trimmed = nameDraft.trim();
+    if (trimmed.length === 0) {
+      setRenameError('Name is required');
+      return;
+    }
+    if (trimmed === workspace.name) {
+      setRenameError(null);
+      setRenameNotice(null);
+      return;
+    }
+    setRenamingState('saving');
+    setRenameError(null);
+    setRenameNotice(null);
+    try {
+      await window.bridge.renameWorkspace(workspace.id, trimmed);
+      setWorkspace({ ...workspace, name: trimmed });
+      setNameDraft(trimmed);
+      setRenameNotice('Saved');
+    }
+    catch (err) {
+      setRenameError(err instanceof Error ? err.message : String(err));
+    }
+    finally {
+      setRenamingState('idle');
+    }
+  };
 
   const persistBehavior = async (next: WorkspaceBehaviorDto) => {
     // Optimistic local update — the optimistic value persists if the
@@ -94,6 +133,51 @@ function WorkspaceSettingsPage() {
       </header>
 
       {error !== null && <div style={errorStyle} role="alert">{error}</div>}
+
+      <section className="workspace-card" style={sectionStyle} aria-label="Workspace identity">
+        <div className="workspace-card__head">
+          <div className="workspace-card__title">Identity</div>
+          <span style={mutedHintStyle}>display name · used on the rail and landing cards</span>
+        </div>
+        <p style={sectionDescStyle}>
+          The workspace id is stable; only the display name changes.
+        </p>
+        {workspace === null ? (
+          <div style={mutedHintStyle}>{loading ? 'Loading…' : 'No workspace.'}</div>
+        ) : (
+          <form onSubmit={onRename} style={identityFormStyle}>
+            <label style={identityLabelStyle}>
+              <span style={identityLabelTextStyle}>Workspace name</span>
+              <input
+                type="text"
+                value={nameDraft}
+                onChange={e => { setNameDraft(e.target.value); setRenameNotice(null); }}
+                disabled={renamingState === 'saving'}
+                maxLength={80}
+                style={identityInputStyle}
+                placeholder={workspace.name}
+              />
+            </label>
+            <div style={identityActionsStyle}>
+              <button
+                type="submit"
+                disabled={renamingState === 'saving' || nameDraft.trim().length === 0 || nameDraft.trim() === workspace.name}
+                style={renamingState === 'saving' || nameDraft.trim() === workspace.name
+                  ? identitySaveDisabledStyle
+                  : identitySaveStyle}
+              >
+                {renamingState === 'saving' ? 'Saving…' : 'Save'}
+              </button>
+              {renameError !== null && (
+                <span style={renameErrorStyle}>{renameError}</span>
+              )}
+              {renameError === null && renameNotice !== null && (
+                <span style={renameNoticeStyle}>{renameNotice}</span>
+              )}
+            </div>
+          </form>
+        )}
+      </section>
 
       <section className="workspace-card" style={sectionStyle} aria-label="Repositories">
         <div className="workspace-card__head">
@@ -501,6 +585,73 @@ const errorStyle: React.CSSProperties = {
   borderRadius: 8,
   color: '#cf1322',
   fontSize: 12,
+};
+
+const identityFormStyle: React.CSSProperties = {
+  display: 'flex',
+  flexDirection: 'column',
+  gap: 10,
+  marginTop: 4,
+};
+
+const identityLabelStyle: React.CSSProperties = {
+  display: 'flex',
+  flexDirection: 'column',
+  gap: 4,
+};
+
+const identityLabelTextStyle: React.CSSProperties = {
+  fontSize: 11,
+  fontWeight: 600,
+  letterSpacing: '0.04em',
+  textTransform: 'uppercase',
+  color: 'var(--text-3)',
+};
+
+const identityInputStyle: React.CSSProperties = {
+  padding: '8px 10px',
+  fontSize: 13,
+  border: '1px solid rgba(0,0,0,0.10)',
+  borderRadius: 8,
+  background: '#fff',
+  outline: 'none',
+  color: 'var(--text-1)',
+  maxWidth: 380,
+};
+
+const identityActionsStyle: React.CSSProperties = {
+  display: 'flex',
+  alignItems: 'center',
+  gap: 10,
+};
+
+const identitySaveStyle: React.CSSProperties = {
+  padding: '6px 14px',
+  fontSize: 12,
+  fontWeight: 600,
+  border: 'none',
+  borderRadius: 8,
+  background: 'linear-gradient(135deg, #7c3aed, #6366f1)',
+  color: '#fff',
+  cursor: 'pointer',
+};
+
+const identitySaveDisabledStyle: React.CSSProperties = {
+  ...identitySaveStyle,
+  background: 'rgba(124, 58, 237, 0.22)',
+  color: 'rgba(255,255,255,0.85)',
+  cursor: 'not-allowed',
+  opacity: 0.7,
+};
+
+const renameErrorStyle: React.CSSProperties = {
+  fontSize: 12,
+  color: '#cf1322',
+};
+
+const renameNoticeStyle: React.CSSProperties = {
+  fontSize: 12,
+  color: '#15803d',
 };
 
 export default WorkspaceSettingsPage;

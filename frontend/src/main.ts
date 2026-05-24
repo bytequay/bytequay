@@ -2917,6 +2917,28 @@ const url = new URL(`${BACKEND_BASE}/api/search/repos`);
     return res.json();
   });
 
+  ipcMain.handle('workspaces:rename', async (_event, args: unknown) => {
+    const { workspaceId, name } = (args ?? {}) as { workspaceId?: unknown; name?: unknown };
+    if (typeof workspaceId !== 'string' || workspaceId.trim().length === 0) {
+      throw new Error('workspaceId must be a non-empty string');
+    }
+    if (typeof name !== 'string') {
+      throw new Error('name must be a string');
+    }
+    const res = await fetch(
+      `${BACKEND_BASE}/api/workspaces/${encodeURIComponent(workspaceId)}`,
+      {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name }),
+      });
+    if (!res.ok) {
+      const text = await res.text().catch(() => '');
+      throw new Error(`backend PATCH /api/workspaces/${workspaceId} returned ${res.status}: ${text}`);
+    }
+    return res.json();
+  });
+
   ipcMain.handle('workspaces:memory:get', async (_event, workspaceId: unknown) => {
     if (typeof workspaceId !== 'string' || workspaceId.trim().length === 0) {
       throw new Error('workspaceId must be a non-empty string');

@@ -25,6 +25,7 @@ import com.bytequay.app.service.workspaces.WorkspaceService;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
@@ -91,6 +92,15 @@ public class WorkspaceController
     public Workspace get(@PathVariable String id)
     {
         return workspaces.require(id);
+    }
+
+    /** PATCH /api/workspaces/{id} — partial update. Today only the
+     *  display {@code name} is editable; the id is stable. */
+    @PatchMapping("/{id}")
+    public Workspace patch(@PathVariable String id, @RequestBody PatchBody body)
+    {
+        requireNonNull(body, "body is null");
+        return workspaces.rename(id, body.name());
     }
 
     @GetMapping("/{id}/memory")
@@ -199,4 +209,6 @@ public class WorkspaceController
     public record DefaultBaseBranchBody(String defaultBaseBranch) {}
 
     public record AutoFixEnabledBody(boolean autoFixEnabled) {}
+
+    public record PatchBody(String name) {}
 }

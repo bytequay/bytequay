@@ -2443,6 +2443,9 @@ export type Bridge = {
    *  with all the aggregates the landing renders (counts, today's
    *  spend, memory summary). Read-only. */
   listWorkspaces: () => Promise<WorkspaceCardDto[]>;
+  /** Rename a workspace. The display name surfaces on the landing
+   *  card and the rail; the id is stable. Trimmed server-side. */
+  renameWorkspace: (workspaceId: string, name: string) => Promise<WorkspaceDto>;
   /** List the repos attached to a workspace. Used by the watched-repos
    *  settings page to read each repo's auto-fix flag — the data lives
    *  on workspace_repos, not on the watched-repos table itself. */

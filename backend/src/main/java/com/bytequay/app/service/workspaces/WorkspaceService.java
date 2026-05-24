@@ -237,6 +237,38 @@ public class WorkspaceService
                         HttpStatusCode.valueOf(404), "no workspace: " + workspaceId));
     }
 
+    /** Soft cap on the display name. Trimmed; blank rejected. */
+    private static final int NAME_MAX_CHARS = 80;
+
+    /**
+     * Rename a workspace. The display name surfaces on the landing
+     * card and the rail; the id is stable. Trims the value and
+     * rejects blank or oversized payloads up front.
+     */
+    public Workspace rename(String workspaceId, String newName)
+    {
+        requireNonNull(workspaceId, "workspaceId is null");
+        if (newName == null || newName.isBlank()) {
+            throw new ResponseStatusException(
+                    HttpStatusCode.valueOf(400), "name is required");
+        }
+        String trimmed = newName.trim();
+        if (trimmed.length() > NAME_MAX_CHARS) {
+            throw new ResponseStatusException(
+                    HttpStatusCode.valueOf(413),
+                    "workspace name exceeds " + NAME_MAX_CHARS + " chars");
+        }
+        Workspace current = require(workspaceId);
+        if (trimmed.equals(current.name())) {
+            return current;
+        }
+        Workspace next = new Workspace(
+                current.id(), trimmed, current.memoryMd(),
+                current.isScratch(), current.createdAt(), Instant.now());
+        store.saveWorkspace(next);
+        return next;
+    }
+
     public String getMemory(String workspaceId)
     {
         return require(workspaceId).memoryMd();

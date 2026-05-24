@@ -564,7 +564,7 @@ class TestThreadServiceScheduler
     }
 
     @Test
-    void createStoresWorktreeHandleAndQueuesAgentAgainstIt()
+    void materialiseTaskCutsAWorktreeAndQueuesAgentAgainstIt()
     {
         InMemoryTaskStore store = new InMemoryTaskStore();
         RecordingScheduler scheduler = new RecordingScheduler();
@@ -589,7 +589,25 @@ class TestThreadServiceScheduler
                 new GitRunner(),
                 worktrees);
 
+        // Step 1 — create is a 0-Task path: no worktree, no Task.
         Thread thread = service.create(new ThreadService.NewTaskRequest(
+                ThreadKind.CLI_AGENT,
+                "claude-code",
+                "claude-sonnet-4.6",
+                "Fix tests",
+                /* workingDir */ null,
+                /* branchName */ null,
+                /* initialPrompt */ null,
+                List.of(),
+                "DEVELOP",
+                /* linkedPrNumber */ null,
+                /* linkedIssueNumber */ null,
+                /* flow */ null));
+        assertThat(worktrees.createRequests).isEmpty();
+        assertThat(tasks.byId).isEmpty();
+
+        // Step 2 — materialiseTask is the branch-worthy step.
+        service.materialiseTask(thread.id(), new ThreadService.NewTaskRequest(
                 ThreadKind.CLI_AGENT,
                 "claude-code",
                 "claude-sonnet-4.6",
@@ -603,20 +621,14 @@ class TestThreadServiceScheduler
                 /* linkedIssueNumber */ null,
                 /* flow */ null));
 
-        // Per-task fields live on the active task projection now;
-        // Thread.agentCwd() delegates to it.
-        assertThat(thread.activeTask()).isNotNull();
-        assertThat(thread.activeTask().worktreePath()).isEqualTo("/tmp/repo/.worktrees/task-1");
-        assertThat(thread.activeTask().branchName()).isEqualTo("dev/task-1");
-        assertThat(thread.agentCwd()).isEqualTo(thread.activeTask().worktreePath());
+        Thread refreshed = projecting.findThreadById(thread.id()).orElseThrow();
+        assertThat(refreshed.activeTask()).isNotNull();
+        assertThat(refreshed.activeTask().worktreePath()).isEqualTo("/tmp/repo/.worktrees/task-1");
+        assertThat(refreshed.activeTask().branchName()).isEqualTo("dev/task-1");
+        assertThat(refreshed.agentCwd()).isEqualTo(refreshed.activeTask().worktreePath());
         assertThat(scheduler.requests)
                 .extracting(request -> request.thread().agentCwd())
-                .containsExactly(thread.activeTask().worktreePath());
-        // WorktreeService is now keyed by task-id (per the model doc:
-        // <repo>/.worktrees/<task-id>/), not thread-id. The exact id is
-        // generated inside ThreadService, so we just check the call's
-        // repoRoot + title — the worktree handle path returned above is
-        // the contract that matters to the rest of the system.
+                .containsExactly(refreshed.activeTask().worktreePath());
         assertThat(worktrees.createRequests)
                 .singleElement()
                 .extracting(WorktreeCreateRequest::repoRoot, WorktreeCreateRequest::title)
@@ -629,12 +641,13 @@ class TestThreadServiceScheduler
         Thread thread = threadWithWorktree("thread-1");
         InMemoryTaskStore store = new InMemoryTaskStore();
         store.saveThread(thread);
-        // Seed an active task with the worktree path the test expects
-        // to be pruned. After the bridge teardown the delete path
-        // reads the worktree off thread.activeTask() rather than off
-        // a flattened Thread scalar.
+        // Seed a completed task with the worktree path the test
+        // expects to be pruned. {@link ThreadService#delete} now refuses
+        // unless every task has reached COMPLETED; an idle task here
+        // would correctly trigger the new pre-flight check instead of
+        // exercising the worktree-reaper path this test cares about.
         SingleTaskStore tasks = new SingleTaskStore(new Task(
-                "task-1", thread.id(), 1L, TaskStatus.IDLE,
+                "task-1", thread.id(), 1L, TaskStatus.COMPLETED,
                 "dev/thread-1",
                 "/tmp/work/.bytequay/worktrees/dev/thread-1",
                 "main", "/tmp/work",

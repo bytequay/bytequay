@@ -1576,8 +1576,12 @@ export type NewTaskRequestDto = {
   kind: ThreadKindDto;
   provider?: string;
   model: string;
-  title: string;
-  workingDir: string;
+  /** Optional — when omitted, the backend auto-titles from the first
+   *  trunk message. Threads are never named by the user up front. */
+  title?: string;
+  /** Optional — a 0-Task thread has no working directory because it
+   *  has no worktree. Only the materialise-task path needs this. */
+  workingDir?: string;
   branchName?: string | null;
   initialPrompt?: string;
   /** Optional — pin the new thread into one or more existing groups.

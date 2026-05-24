@@ -325,12 +325,20 @@ public class ThreadService
     }
 
     /**
-     * Create + start a thread. Optionally pin it into one or more
-     * existing groups via {@link NewTaskRequest#initialGroupIds}; each
+     * Create a 0-Task thread. The thread lands on the trunk
+     * (planning) — no branch, no worktree, no Task row. If the caller
+     * supplied a non-blank {@code initialPrompt} it is routed as a
+     * trunk turn so the planning agent answers without a worktree
+     * lease; the title is derived from that prompt when the caller
+     * left it null/blank. A Task only materialises later, when work
+     * turns branch-worthy — see {@link #materialiseTask}.
+     *
+     * <p>Optionally pin the new thread into one or more existing
+     * groups via {@link NewTaskRequest#initialGroupIds}; each
      * referenced group must exist and have room (the
-     * {@link #GROUP_MAX_MEMBERS} cap). The persistence of the thread
-     * and its memberships happens in one transaction so a half-pinned
-     * thread can't survive a mid-flight failure.
+     * {@link #GROUP_MAX_MEMBERS} cap). Group memberships persist in
+     * the same transaction as the thread so a half-pinned thread
+     * can't survive a mid-flight failure.
      */
     @Transactional
     public Thread create(NewTaskRequest request)
@@ -350,36 +358,14 @@ public class ThreadService
             }
         }
         Instant now = Instant.now();
-        String taskType = request.taskType() == null || request.taskType().isBlank()
-                ? "DEVELOP"
-                : request.taskType().trim();
         String threadId = UUID.randomUUID().toString();
-        // The new model names the worktree directory after the task id
-        // (one worktree per task), so we generate the first task's id
-        // up-front and reuse it as the on-disk name.
-        String firstTaskId = UUID.randomUUID().toString();
-        // Best-effort worktree creation. Failures fall through to a
-        // null handle so the agent runs in the main checkout — keeps
-        // threads against non-git working dirs or read-only repos
-        // working without a special-case.
-        Optional<WorktreeService.WorktreeHandle> handle =
-                request.workingDir() == null || request.workingDir().isBlank()
-                        ? Optional.empty()
-                        : worktreeService.create(
-                                Path.of(request.workingDir()), firstTaskId, request.title());
-        // branchName flows to the active task row below. Prefer the
-        // worktree's dev branch (the actual branch the agent will be
-        // on) over the user's pre-worktree checkout; the latter
-        // hasn't survived V72's column drops anyway.
-        String taskBranchName = handle
-                .map(WorktreeService.WorktreeHandle::branchName)
-                .orElse(request.branchName());
+        String title = deriveTitle(request.title(), request.initialPrompt());
         Thread thread = new Thread(
                 threadId,
                 request.kind(),
                 request.provider(),
                 /* agentSessionId */ null,
-                request.title(),
+                title,
                 ThreadStatus.PENDING,
                 request.model(),
                 /* costUsdMilli */ 0L,
@@ -390,40 +376,103 @@ public class ThreadService
                 /* endedAt */ null,
                 /* errorMessage */ null,
                 request.flow() == null ? ThreadFlow.BUILD : request.flow(),
-                /* activeTask — populated on read after the explicit
-                 *               first-task materialisation below leaves
-                 *               a real task row in place. */ null);
+                /* activeTask */ null);
         store.saveThread(thread);
-        // Materialise the first task row with the chosen id so the
-        // on-disk worktree dir name (which used firstTaskId) matches.
-        // Bridge teardown moved the auto-create branch off SqliteThreadStore
-        // entirely; this is now the only path that creates the first task.
-        if (handle.isPresent() || request.workingDir() != null) {
-            taskStore.saveTask(new Task(
-                    firstTaskId, threadId, 1L, TaskStatus.PENDING,
-                    handle.map(WorktreeService.WorktreeHandle::branchName).orElse(taskBranchName),
-                    handle.map(h -> h.worktreePath().toString()).orElse(null),
-                    "main",
-                    request.workingDir(),
-                    /* processPid */ null, /* logPath */ null,
-                    null, null, null,
-                    taskType, request.linkedPrNumber(), request.linkedIssueNumber(),
-                    0L, 0L, 0L,
-                    /* agentSessionId */ null,
-                    now, null, null,
-                    /* name */ null));
-        }
         for (String groupId : initialGroupIds) {
             groupStore.addMember(thread.id(), groupId);
         }
-        // Re-read so the scheduler + caller see a Thread with the
-        // active task projected onto it (saveThread above wrote a
-        // bare row; the projection runs on findThreadById).
         Thread persisted = store.findThreadById(thread.id()).orElse(thread);
         if (request.initialPrompt() != null && !request.initialPrompt().isBlank()) {
-            scheduler.enqueueTurn(persisted, request.initialPrompt());
+            // Route the opening message through the trunk runtime so
+            // the row lands with task_id = null and the planning agent
+            // answers without a worktree lease.
+            scheduler.enqueueTrunkTurn(persisted, request.initialPrompt());
         }
         return persisted;
+    }
+
+    /**
+     * Materialise a Task under an existing thread — cuts a dev branch
+     * + worktree and (if {@code request.initialPrompt} is non-blank)
+     * enqueues a task-scope turn against it. Use this when work turns
+     * branch-worthy from the trunk's planning conversation, or when an
+     * assign-dev-task action attaches a build Task to a thread.
+     *
+     * <p>decision pending: today this is an explicit caller-driven
+     * path. The trunk's agent-proposed "looks like it'll touch code,
+     * start a task?" prompt should call into this method once that
+     * proposal UI lands.
+     */
+    @Transactional
+    public Task materialiseTask(String threadId, NewTaskRequest request)
+    {
+        requireNonNull(request, "request is null");
+        Thread thread = requireTask(threadId);
+        if (request.workingDir() == null || request.workingDir().isBlank()) {
+            throw new IllegalArgumentException("workingDir is required to materialise a task");
+        }
+        Instant now = Instant.now();
+        String taskType = request.taskType() == null || request.taskType().isBlank()
+                ? "DEVELOP"
+                : request.taskType().trim();
+        String taskId = UUID.randomUUID().toString();
+        // The new model names the worktree directory after the task id
+        // (one worktree per task), so the on-disk dir matches the row.
+        Optional<WorktreeService.WorktreeHandle> handle = worktreeService.create(
+                Path.of(request.workingDir()), taskId, thread.title());
+        String branchName = handle
+                .map(WorktreeService.WorktreeHandle::branchName)
+                .orElse(request.branchName());
+        long seq = taskStore.maxSeqForThread(threadId).orElse(0L) + 1L;
+        Task task = new Task(
+                taskId, threadId, seq, TaskStatus.PENDING,
+                branchName,
+                handle.map(h -> h.worktreePath().toString()).orElse(null),
+                "main",
+                request.workingDir(),
+                /* processPid */ null, /* logPath */ null,
+                null, null, null,
+                taskType, request.linkedPrNumber(), request.linkedIssueNumber(),
+                0L, 0L, 0L,
+                /* agentSessionId */ null,
+                now, null, null,
+                /* name */ null);
+        taskStore.saveTask(task);
+        Thread refreshed = store.findThreadById(threadId).orElse(thread);
+        if (request.initialPrompt() != null && !request.initialPrompt().isBlank()) {
+            scheduler.enqueueTurn(refreshed, request.initialPrompt());
+        }
+        return task;
+    }
+
+    private static String deriveTitle(String supplied, String firstMessage)
+    {
+        if (supplied != null && !supplied.isBlank()) {
+            return supplied.trim();
+        }
+        if (firstMessage == null || firstMessage.isBlank()) {
+            return "New thread";
+        }
+        // Pick the first non-empty line, take up to ~6 words, cap at
+        // 60 chars. Cheap auto-title until the agent rewrites it.
+        String firstLine = firstMessage.strip().lines().findFirst().orElse("").strip();
+        if (firstLine.isEmpty()) {
+            return "New thread";
+        }
+        String[] words = firstLine.split("\\s+");
+        StringBuilder out = new StringBuilder();
+        int limit = Math.min(6, words.length);
+        for (int i = 0; i < limit; i++) {
+            if (i > 0) {
+                out.append(' ');
+            }
+            out.append(words[i]);
+        }
+        String summary = out.toString();
+        if (summary.length() > 60) {
+            summary = summary.substring(0, 57) + "…";
+        }
+        return Character.toUpperCase(summary.charAt(0)) + summary.substring(1);
     }
 
     public Optional<Thread> find(String threadId)
@@ -587,20 +636,21 @@ public class ThreadService
         if (existing.isEmpty()) {
             return;
         }
-        // Refuse if any task has shipped — those have PRs out and
-        // deletion would strand them with no thread/conversation
-        // context. The user must abandon or revert before the thread
-        // becomes deletable.
+        // Refuse while any task is still in flight — running / queued
+        // tasks hold worktrees and live agent processes, and deleting
+        // out from under them would strand both. A zero-task
+        // brainstorm thread is fine to drop. Once every task is
+        // COMPLETED the user can clean up the thread.
         List<Task> allTasks = taskStore.listTasksByThread(threadId);
-        long completedCount = allTasks.stream()
-                .filter(t -> t.status() == TaskStatus.COMPLETED)
+        long unfinished = allTasks.stream()
+                .filter(t -> t.status() != TaskStatus.COMPLETED)
                 .count();
-        if (completedCount > 0) {
+        if (unfinished > 0) {
             throw new ResponseStatusException(HttpStatusCode.valueOf(409),
-                    "Thread " + threadId + " has " + completedCount
-                            + " shipped task" + (completedCount == 1 ? "" : "s")
-                            + " — abandon or revert those PRs before deleting"
-                            + " the thread.");
+                    "Thread " + threadId + " has " + unfinished
+                            + " task" + (unfinished == 1 ? "" : "s")
+                            + " that haven't completed — finish or stop them"
+                            + " before deleting the thread.");
         }
         // Stop the live agent + drop any queued turns so we don't
         // leave a subprocess running against a deleted row.
@@ -640,12 +690,16 @@ public class ThreadService
         if (store.findThreadById(threadId).isEmpty()) {
             return Optional.of("Thread doesn't exist.");
         }
-        long completed = taskStore.listTasksByThread(threadId).stream()
-                .filter(t -> t.status() == TaskStatus.COMPLETED)
+        // Mirror {@link #delete}: a thread is deletable only when every
+        // task it owns has reached COMPLETED. Anything else — RUNNING,
+        // PENDING, AWAITING, IDLE, AWAITING_REVIEW, NEEDS_ATTENTION,
+        // ERRORED — counts as still in flight and blocks the button.
+        long unfinished = taskStore.listTasksByThread(threadId).stream()
+                .filter(t -> t.status() != TaskStatus.COMPLETED)
                 .count();
-        if (completed > 0) {
-            return Optional.of(completed + " task" + (completed == 1 ? " has" : "s have")
-                    + " shipped — abandon or revert those PRs before deleting.");
+        if (unfinished > 0) {
+            return Optional.of(unfinished + " task" + (unfinished == 1 ? " is" : "s are")
+                    + " still in flight — finish or stop them before deleting.");
         }
         return Optional.empty();
     }

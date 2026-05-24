@@ -15,6 +15,7 @@ package com.bytequay.app.web;
 
 import com.bytequay.app.domain.ConvIndexPage;
 import com.bytequay.app.domain.PermissionDecision;
+import com.bytequay.app.domain.Task;
 import com.bytequay.app.domain.Thread;
 import com.bytequay.app.domain.ThreadCheckpoint;
 import com.bytequay.app.domain.ThreadFile;
@@ -132,9 +133,49 @@ public class ThreadController
         return threads.activeTurns(limit);
     }
 
-    /** POST /api/threads — create + start. Returns the persisted row. */
+    /**
+     * POST /api/threads — create a 0-Task thread. The thread lands
+     * on the trunk (planning); the optional {@code initialPrompt} is
+     * routed as a trunk turn and the title is derived from it when
+     * omitted. No worktree, no branch, no Task. Use
+     * {@code POST /api/threads/{id}/tasks} to materialise a Task
+     * later when work turns branch-worthy.
+     */
     @PostMapping
     public Thread create(@RequestBody NewTaskBody body)
+    {
+        requireNonNull(body, "body is null");
+        if (body.kind() == null) {
+            throw new IllegalArgumentException("kind is required");
+        }
+        return threads.create(new ThreadService.NewTaskRequest(
+                body.kind(),
+                body.provider() == null ? "claude-code" : body.provider(),
+                body.model(),
+                body.title(),
+                body.workingDir(),
+                body.branchName(),
+                body.initialPrompt(),
+                body.initialGroupIds() == null ? List.of() : body.initialGroupIds(),
+                body.taskType(),
+                body.linkedPrNumber(),
+                body.linkedIssueNumber(),
+                /* flow */ null));
+    }
+
+    /**
+     * POST /api/threads/{id}/tasks — materialise a Task under an
+     * existing thread (cuts a dev branch + worktree). The body
+     * carries the same shape as the thread-create body but {@code
+     * workingDir} is required here. Used by the assign-dev-task
+     * action today; the trunk's agent-proposed "looks like it'll
+     * touch code, start a task?" prompt will route through here too
+     * once it lands.
+     */
+    @PostMapping("/{id}/tasks")
+    public Task materialiseTask(
+            @PathVariable String id,
+            @RequestBody NewTaskBody body)
     {
         requireNonNull(body, "body is null");
         if (body.kind() == null) {
@@ -143,10 +184,7 @@ public class ThreadController
         if (body.workingDir() == null || body.workingDir().isBlank()) {
             throw new IllegalArgumentException("workingDir is required");
         }
-        if (body.title() == null || body.title().isBlank()) {
-            throw new IllegalArgumentException("title is required");
-        }
-        return threads.create(new ThreadService.NewTaskRequest(
+        return threads.materialiseTask(id, new ThreadService.NewTaskRequest(
                 body.kind(),
                 body.provider() == null ? "claude-code" : body.provider(),
                 body.model(),

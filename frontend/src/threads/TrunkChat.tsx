@@ -154,7 +154,14 @@ function buildTimeline(
       items.push({ kind: 'user', message: m, text: extractText(m), ts });
     }
     else if (m.role === 'assistant' && (m.type === 'text' || m.type === 'thinking')) {
-      items.push({ kind: 'assistant', message: m, text: extractText(m), ts });
+      // Drop empty assistant rows. Thinking messages occasionally
+      // persist with no body, and an in-flight text turn lands in
+      // the ledger before the first delta arrives — rendering them
+      // as empty bubbles is just noise next to the live thinking
+      // pulse below.
+      const text = extractText(m);
+      if (text.trim().length === 0) continue;
+      items.push({ kind: 'assistant', message: m, text, ts });
     }
     // tool_call / tool_result / lifecycle: skip — trunk chat is planning,
     // not transcripts of tool I/O (those live in the task window).

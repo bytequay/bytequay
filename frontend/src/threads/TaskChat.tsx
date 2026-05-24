@@ -172,10 +172,17 @@ function buildItems(messages: ThreadMessageDto[]): Item[] {
       out.push({ kind: 'user', message: m, text: extractText(m), ts });
     }
     else if (m.role === 'assistant' && m.type === 'text') {
-      out.push({ kind: 'assistant', message: m, text: extractText(m), ts });
+      // Skip empty assistant rows — an in-flight turn lands in the
+      // ledger before the first delta arrives; the live thinking
+      // pulse covers that interval, so an empty bubble is noise.
+      const text = extractText(m);
+      if (text.trim().length === 0) continue;
+      out.push({ kind: 'assistant', message: m, text, ts });
     }
     else if (m.role === 'assistant' && m.type === 'thinking') {
-      out.push({ kind: 'thinking', message: m, text: extractText(m), ts });
+      const text = extractText(m);
+      if (text.trim().length === 0) continue;
+      out.push({ kind: 'thinking', message: m, text, ts });
     }
     else if (m.role === 'tool' && m.type === 'tool_call') {
       const toolName = (extract(m, 'toolName') as string | undefined) ?? 'tool';

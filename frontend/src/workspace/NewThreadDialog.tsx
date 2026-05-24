@@ -44,7 +44,7 @@ type Props = {
 // disables a row when it can't actually create a thread of that kind so
 // the user sees the option but doesn't get a broken thread out of it.
 const AGENT_OPTIONS = [
-  { id: 'claude-code', label: 'Claude Code', meta: 'CLI · sonnet-4.6', kind: 'CLI_AGENT' as const, enabled: true },
+  { id: 'claude-code', label: 'Claude Code', meta: 'CLI', kind: 'CLI_AGENT' as const, enabled: true },
   { id: 'codex',       label: 'Codex',        meta: 'CLI · gpt-5',    kind: 'CLI_AGENT' as const, enabled: false },
   { id: 'logic-loop',  label: 'Logic loop',   meta: 'in-JVM · api',   kind: 'LOGIC_LOOP' as const, enabled: false },
 ] as const;
@@ -79,26 +79,33 @@ function NewThreadDialog({ onClose, onCreated, initialGroupId }: Props) {
   const handleSubmit = async () => {
     const trimmed = prompt.trim();
     if (submitting) return;
-    if (selectedRepo === null || selectedRepo.localClonePath == null || selectedRepo.localClonePath.trim() === '') {
-      setError('Add a watched repo with a local clone path before creating a thread.');
-      return;
-    }
     setSubmitting(true);
     setError(null);
     try {
+      // 0-Task thread: no workingDir, no branchName, no title. The
+      // backend auto-titles from the opening message and the prompt
+      // is sent as a separate trunk turn so it lands with
+      // task_id = null and the planning agent answers.
       const created = await window.bridge.createTask({
         kind: selectedAgent.kind,
         provider: selectedAgent.id,
         model: '',
-        // Threads auto-title from the first prompt per the mockup
-        // hint; use a placeholder until the agent rewrites it.
-        title: trimmed.length > 0
-          ? trimmed.slice(0, 80)
-          : 'New thread',
-        workingDir: selectedRepo.localClonePath,
-        initialPrompt: trimmed === '' ? undefined : trimmed,
         initialGroupIds: initialGroupId !== undefined ? [initialGroupId] : undefined,
       });
+      // Auto-send the opening message on Start — lower-friction default
+      // than staging it in the trunk composer; the user can always edit
+      // their next turn if they need to course-correct.
+      if (trimmed.length > 0) {
+        try {
+          await window.bridge.sendTrunkMessage(created.id, trimmed);
+        }
+        catch (sendErr) {
+          // Thread already exists at this point — surface the send
+          // error but don't unwind the create; user lands on the
+          // trunk with no first turn rather than seeing a half-state.
+          setError(sendErr instanceof Error ? sendErr.message : String(sendErr));
+        }
+      }
       onCreated(created.id);
     }
     catch (e) {
@@ -107,11 +114,7 @@ function NewThreadDialog({ onClose, onCreated, initialGroupId }: Props) {
     }
   };
 
-  const submitDisabled = submitting
-      || repos === null
-      || selectedRepo === null
-      || selectedRepo.localClonePath == null
-      || selectedRepo.localClonePath.trim() === '';
+  const submitDisabled = submitting || repos === null;
 
   return (
     <div

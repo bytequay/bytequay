@@ -2607,6 +2607,19 @@ const url = new URL(`${BACKEND_BASE}/api/search/repos`);
     }
   });
 
+  ipcMain.handle('threads:deleteEligibility', async (_event, id: unknown) => {
+    if (typeof id !== 'string' || id.trim().length === 0) {
+      throw new Error('id must be a non-empty string');
+    }
+    const res = await fetch(
+      `${BACKEND_BASE}/api/threads/${encodeURIComponent(id)}/delete-eligibility`);
+    if (!res.ok) {
+      const text = await res.text().catch(() => '');
+      throw new Error(`backend GET /delete-eligibility returned ${res.status}: ${text}`);
+    }
+    return res.json();
+  });
+
   // ── Notifications ───────────────────────────────────────────────────────
   ipcMain.handle('notifications:list', async () => {
     const res = await fetch(`${BACKEND_BASE}/api/notifications`);

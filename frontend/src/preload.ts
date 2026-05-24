@@ -613,6 +613,8 @@ const bridge: Bridge = {
   stopTask: (id: string): Promise<void> => ipcRenderer.invoke('threads:stop', id),
   resumeTask: (id: string): Promise<void> => ipcRenderer.invoke('threads:resume', id),
   deleteTask: (id: string): Promise<void> => ipcRenderer.invoke('threads:delete', id),
+  getThreadDeleteEligibility: (id: string): Promise<{ deletable: boolean; reason?: string }> =>
+    ipcRenderer.invoke('threads:deleteEligibility', id),
 
   listNotifications: () => ipcRenderer.invoke('notifications:list'),
   listUnreadNotifications: () => ipcRenderer.invoke('notifications:listUnread'),

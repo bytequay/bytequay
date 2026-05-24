@@ -389,6 +389,8 @@ export default function ThreadTrunkPage({ threadId, onBack, onOpenTask }: Props)
             <CheckpointsSection threadId={threadId} />
 
             <SettingsSection threadId={threadId} />
+
+            <DangerZoneSection threadId={threadId} onDeleted={onBack} />
           </aside>
 
           <main style={mainStyle}>
@@ -548,6 +550,91 @@ function previewBlurb(md: string): string {
   const line = md.split('\n').map(l => l.trim()).find(l => l.length > 0) ?? '';
   const stripped = line.replace(/^[-*•]\s*/, '').replace(/^#+\s*/, '');
   return stripped.length > 140 ? stripped.slice(0, 137) + '…' : stripped;
+}
+
+function DangerZoneSection({
+  threadId, onDeleted,
+}: {
+  threadId: string;
+  onDeleted: () => void;
+}) {
+  const [eligibility, setEligibility] = useState<
+    { deletable: boolean; reason?: string } | null
+  >(null);
+  const [deleting, setDeleting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      try {
+        const e = await window.bridge.getThreadDeleteEligibility(threadId);
+        if (!cancelled) setEligibility(e);
+      }
+      catch (e) {
+        if (!cancelled) setError(e instanceof Error ? e.message : String(e));
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [threadId]);
+
+  const onDelete = useCallback(async () => {
+    if (eligibility?.deletable !== true || deleting) return;
+    const ok = window.confirm(
+      'Permanently delete this thread?\n\n'
+      + 'This drops the conversation, every per-task row, and any '
+      + 'live worktrees. Threads with shipped tasks (PRs out) are '
+      + 'refused server-side. This cannot be undone.');
+    if (!ok) return;
+    setDeleting(true);
+    setError(null);
+    try {
+      await window.bridge.deleteTask(threadId);
+      onDeleted();
+    }
+    catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+      setDeleting(false);
+    }
+  }, [eligibility, deleting, threadId, onDeleted]);
+
+  const blocked = eligibility !== null && eligibility.deletable === false;
+
+  return (
+    <section style={dangerSectionStyle}>
+      <div style={dangerHeadStyle}>
+        <span>DANGER ZONE</span>
+        <span style={railHeadMutedStyle}>not undoable</span>
+      </div>
+      <button
+        type="button"
+        onClick={() => { void onDelete(); }}
+        disabled={eligibility === null || blocked || deleting}
+        style={blocked || eligibility === null ? deleteBtnDisabledStyle : deleteBtnStyle}
+        title={blocked
+            ? eligibility.reason
+            : eligibility === null
+                ? 'Checking eligibility…'
+                : 'Permanently delete this thread'}
+      >
+        <span aria-hidden style={{ marginRight: 6 }}>⌫</span>
+        {deleting ? 'Deleting…' : 'Delete thread'}
+      </button>
+      {blocked && eligibility.reason !== undefined && (
+        <div style={dangerHintStyle}>
+          {eligibility.reason}
+        </div>
+      )}
+      {!blocked && eligibility?.deletable === true && (
+        <div style={dangerHintStyle}>
+          No shipped tasks — deletion is permitted.
+        </div>
+      )}
+      {error !== null && (
+        <div style={errStyle}>{error}</div>
+      )}
+    </section>
+  );
 }
 
 function SettingsSection({ threadId }: { threadId: string }) {
@@ -842,6 +929,56 @@ function initialsFor(profile: UserProfileDto | null): string {
   }
   return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
 }
+
+const dangerSectionStyle: React.CSSProperties = {
+  background: 'rgba(220, 38, 38, 0.04)',
+  border: '1px solid rgba(220, 38, 38, 0.18)',
+  borderRadius: 14,
+  padding: 12,
+  boxShadow: '0 2px 10px rgba(220, 38, 38, 0.06)',
+};
+
+const dangerHeadStyle: React.CSSProperties = {
+  display: 'flex',
+  justifyContent: 'space-between',
+  alignItems: 'baseline',
+  fontSize: 10,
+  fontWeight: 700,
+  letterSpacing: '0.06em',
+  color: '#991b1b',
+  marginBottom: 8,
+};
+
+const deleteBtnStyle: React.CSSProperties = {
+  width: '100%',
+  padding: '8px 12px',
+  border: '1px solid rgba(220, 38, 38, 0.40)',
+  background: '#fff',
+  color: '#dc2626',
+  borderRadius: 8,
+  fontSize: 12,
+  fontWeight: 600,
+  cursor: 'pointer',
+};
+
+const deleteBtnDisabledStyle: React.CSSProperties = {
+  width: '100%',
+  padding: '8px 12px',
+  border: '1px solid rgba(0,0,0,0.08)',
+  background: 'rgba(0,0,0,0.04)',
+  color: 'var(--text-4)',
+  borderRadius: 8,
+  fontSize: 12,
+  fontWeight: 600,
+  cursor: 'not-allowed',
+};
+
+const dangerHintStyle: React.CSSProperties = {
+  marginTop: 6,
+  fontSize: 10,
+  color: 'var(--text-3)',
+  lineHeight: 1.5,
+};
 
 function newestActiveTask(tasks: WorkUnitTaskDto[]): WorkUnitTaskDto | null {
   return tasks

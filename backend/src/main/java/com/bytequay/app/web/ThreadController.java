@@ -48,6 +48,7 @@ import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 import java.io.IOException;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 
 import static java.util.Objects.requireNonNull;
 
@@ -434,6 +435,22 @@ public class ThreadController
     {
         threads.delete(id);
         return ImmutableMap.of("status", "deleted");
+    }
+
+    /** Pre-flight eligibility — returns {@code deletable: true} when
+     *  the thread can be removed, or a human-readable {@code reason}
+     *  when blocked (e.g. shipped tasks). The trunk's Delete button
+     *  calls this on mount to surface the block reason inline. */
+    @GetMapping("/{id}/delete-eligibility")
+    public Map<String, Object> deleteEligibility(@PathVariable String id)
+    {
+        Optional<String> blocked = threads.deleteBlockedReason(id);
+        if (blocked.isPresent()) {
+            return ImmutableMap.of(
+                    "deletable", false,
+                    "reason", blocked.get());
+        }
+        return ImmutableMap.of("deletable", true);
     }
 
     @PostMapping("/{id}/decisions")

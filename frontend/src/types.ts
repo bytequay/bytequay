@@ -2630,6 +2630,11 @@ export type Bridge = {
    *  Rejects with an error from the backend if the thread is still
    *  live. */
   deleteTask: (id: string) => Promise<void>;
+  /** Pre-flight check: returns {@code deletable: true} when the
+   *  thread can be removed, or a {@code reason} string when blocked
+   *  (e.g. shipped tasks). The trunk's Delete button uses this to
+   *  surface the block reason without making the user click first. */
+  getThreadDeleteEligibility: (id: string) => Promise<{ deletable: boolean; reason?: string }>;
 
   /** All notifications, newest-first. Drives the bell dropdown +
    *  notification center. */

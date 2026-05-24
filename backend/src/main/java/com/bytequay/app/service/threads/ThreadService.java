@@ -37,6 +37,8 @@ import com.bytequay.app.repository.ThreadStore;
 import com.bytequay.app.repository.ThreadTurnEventStore;
 import com.bytequay.app.repository.ThreadTurnStore;
 import com.bytequay.app.service.local.GitRunner;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatusCode;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -63,6 +65,8 @@ import static java.util.Objects.requireNonNull;
 @Service
 public class ThreadService
 {
+    private static final Logger log = LoggerFactory.getLogger(ThreadService.class);
+
     /** Cap on any single diff payload — 256 KB lets a couple-thousand-
      *  line file through, and stops a misclick on a generated artifact
      *  from blowing up the IPC channel. Matches the spirit of caps used
@@ -558,11 +562,22 @@ public class ThreadService
 
     /**
      * Permanently removes a thread and its conversation / file history.
-     * Only terminal threads ({@code COMPLETED} / {@code ERRORED}) are
-     * eligible — live sessions must be {@link #stop stopped} first
-     * so we never delete a row that has an in-flight subprocess
-     * holding a session id. Idempotent on missing ids: a delete-then-
-     * delete from a racing tab just returns silently.
+     *
+     * <p>Deletion is blocked when any Task on the thread has already
+     * shipped (status {@code COMPLETED}). Shipped tasks have PRs on
+     * GitHub and represent real merged work — silently nuking the
+     * thread row would orphan that history and lose the audit trail
+     * back to the conversation that produced it. The user has to
+     * abandon or revert the PR first; until then this returns 409.
+     *
+     * <p>For threads with no shipped tasks (in-flight, idle, errored,
+     * or parked-but-not-merged), deletion is allowed. A live agent
+     * is stopped + evicted and any queued turns are cancelled before
+     * the row is removed so we never leave a subprocess running
+     * against a deleted row.
+     *
+     * <p>Idempotent on missing ids: a delete-then-delete from a
+     * racing tab just returns silently.
      */
     public void delete(String threadId)
     {
@@ -571,21 +586,38 @@ public class ThreadService
         if (existing.isEmpty()) {
             return;
         }
-        ThreadStatus status = existing.get().status();
-        if (status != ThreadStatus.COMPLETED && status != ThreadStatus.ERRORED) {
+        // Refuse if any task has shipped — those have PRs out and
+        // deletion would strand them with no thread/conversation
+        // context. The user must abandon or revert before the thread
+        // becomes deletable.
+        List<Task> allTasks = taskStore.listTasksByThread(threadId);
+        long completedCount = allTasks.stream()
+                .filter(t -> t.status() == TaskStatus.COMPLETED)
+                .count();
+        if (completedCount > 0) {
             throw new ResponseStatusException(HttpStatusCode.valueOf(409),
-                    "Thread " + threadId + " is " + status + "; only COMPLETED or ERRORED threads can be deleted");
+                    "Thread " + threadId + " has " + completedCount
+                            + " shipped task" + (completedCount == 1 ? "" : "s")
+                            + " — abandon or revert those PRs before deleting"
+                            + " the thread.");
         }
-        // Defensive — if a session got registered post-completion
-        // (e.g. resumed and re-terminated), evict it before removing
-        // the row. No-op when nothing's cached.
+        // Stop the live agent + drop any queued turns so we don't
+        // leave a subprocess running against a deleted row.
+        Thread thread = existing.get();
+        registry.find(threadId).ifPresent(agent -> {
+            try {
+                agent.stop();
+            }
+            catch (RuntimeException e) {
+                log.warn("agent stop on delete threw for {}: {}", threadId, e.getMessage());
+            }
+        });
         scheduler.cancelQueuedTurns(threadId);
         registry.evict(threadId);
         // Best-effort worktree cleanup. Errors are logged inside the
         // service; we don't fail the delete if the worktree is already
         // gone or git can't remove it cleanly — the thread row going
         // away is the authoritative signal.
-        Thread thread = existing.get();
         Task active = thread.activeTask() != null
                 ? thread.activeTask()
                 : taskStore.findActiveTaskForThread(threadId).orElse(null);
@@ -596,6 +628,25 @@ public class ThreadService
                     active.worktreePath(), active.branchName());
         }
         store.deleteThread(threadId);
+    }
+
+    /** Whether the thread is eligible for deletion right now — the
+     *  UI uses this to greying out the Delete button and explain why
+     *  before the user clicks it. Returns null when allowed, or a
+     *  human-readable reason when blocked. */
+    public Optional<String> deleteBlockedReason(String threadId)
+    {
+        if (store.findThreadById(threadId).isEmpty()) {
+            return Optional.of("Thread doesn't exist.");
+        }
+        long completed = taskStore.listTasksByThread(threadId).stream()
+                .filter(t -> t.status() == TaskStatus.COMPLETED)
+                .count();
+        if (completed > 0) {
+            return Optional.of(completed + " task" + (completed == 1 ? " has" : "s have")
+                    + " shipped — abandon or revert those PRs before deleting.");
+        }
+        return Optional.empty();
     }
 
     // ── Working-tree + commit views for the Tasks UI tabs ────────────

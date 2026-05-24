@@ -282,6 +282,18 @@ const shellStyle: React.CSSProperties = {
   height: 'calc(100vh - 56px)',
   background: 'var(--bg-base)',
   position: 'relative',
+  // Lock the page to the viewport — internal tile scrollback
+  // handles its own scroll. Without this the document grows when a
+  // tile's content overflows, surfacing a page-level scrollbar that
+  // doesn't belong on the board.
+  overflow: 'hidden',
+  // Escape .workspace-content's 28/32 padding so the tile grid butts
+  // flush against the viewport's left/right/bottom edges (the mockup
+  // is explicit: tmux-tight, no surrounding gutter on the board).
+  // The same trick the page header uses (negative margins to reach
+  // the edge of the workspace area).
+  margin: '0 -28px -32px',
+  width: 'calc(100% + 56px)',
 };
 
 const immersiveTopBarStyle: React.CSSProperties = {
@@ -381,8 +393,10 @@ const immExitBtnStyle: React.CSSProperties = {
 const mainStyle: React.CSSProperties = {
   flex: 1,
   minWidth: 0,
+  minHeight: 0,
   display: 'flex',
   flexDirection: 'column',
+  overflow: 'hidden',
   // No padding — the mockup is explicit that tiles butt right up
   // against the rail and screen edges like tmux panes.
 };

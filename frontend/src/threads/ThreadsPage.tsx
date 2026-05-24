@@ -169,6 +169,16 @@ export default function ThreadsPage({
     onGroupChange(groups[0].id);
   }, [view, groupId, groups, onGroupChange]);
 
+  // Flipping the segmented control back to List should drop any
+  // group filter that auto-pick set, so the list isn't stuck on a
+  // single group's threads. The user clicked List explicitly, so
+  // the page-wide list is what they want to see.
+  useEffect(() => {
+    if (view === 'list' && groupId !== null) {
+      onGroupChange(null);
+    }
+  }, [view, groupId, onGroupChange]);
+
   // ⌘T toggles Chat ↔ Terminal whenever a group page is showing.
   // We DO fire even when an input is focused — chord shortcuts
   // (⌘+letter) are unambiguous, and skipping would make the toggle
@@ -475,8 +485,11 @@ export default function ThreadsPage({
   // Inside a group → render the redesigned group page (compact
   // sidebar + tmux-style tile grid). Falls through to the default
   // list view when no group is selected or while the initial fetch
-  // is still in flight.
-  if (activeGroup && threads !== null) {
+  // is still in flight. Gating on view==='group' too so that the
+  // List segmented-control always shows the list even if a groupId
+  // is still set in the URL state (the user can flip back to the
+  // list view without first clearing the group filter).
+  if (view === 'group' && activeGroup && threads !== null) {
     return (
       <>
         <ThreadGroupPage

@@ -39,12 +39,25 @@ type Props = {
  * trunk *is* the discussion altitude, and tasks materialise from the
  * first branch-worthy turn rather than an up-front choice.
  */
+// Agent options exposed in the picker. CLI is wired today; LOGIC_LOOP
+// rows are scaffold for the in-JVM runtime that lands later. The dialog
+// disables a row when it can't actually create a thread of that kind so
+// the user sees the option but doesn't get a broken thread out of it.
+const AGENT_OPTIONS = [
+  { id: 'claude-code', label: 'Claude Code', meta: 'CLI · sonnet-4.6', kind: 'CLI_AGENT' as const, enabled: true },
+  { id: 'codex',       label: 'Codex',        meta: 'CLI · gpt-5',    kind: 'CLI_AGENT' as const, enabled: false },
+  { id: 'logic-loop',  label: 'Logic loop',   meta: 'in-JVM · api',   kind: 'LOGIC_LOOP' as const, enabled: false },
+] as const;
+type AgentOption = typeof AGENT_OPTIONS[number];
+
 function NewThreadDialog({ onClose, onCreated, initialGroupId }: Props) {
   const [prompt, setPrompt] = useState('');
   const [repos, setRepos] = useState<WatchedRepoDto[] | null>(null);
   const [selectedRepo, setSelectedRepo] = useState<WatchedRepoDto | null>(null);
+  const [selectedAgent, setSelectedAgent] = useState<AgentOption>(AGENT_OPTIONS[0]);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [openMenu, setOpenMenu] = useState<'repo' | 'agent' | null>(null);
 
   useEffect(() => {
     let cancelled = false;
@@ -74,8 +87,8 @@ function NewThreadDialog({ onClose, onCreated, initialGroupId }: Props) {
     setError(null);
     try {
       const created = await window.bridge.createTask({
-        kind: 'CLI_AGENT',
-        provider: 'claude-code',
+        kind: selectedAgent.kind,
+        provider: selectedAgent.id,
         model: '',
         // Threads auto-title from the first prompt per the mockup
         // hint; use a placeholder until the agent rewrites it.
@@ -159,24 +172,120 @@ function NewThreadDialog({ onClose, onCreated, initialGroupId }: Props) {
           <span style={advancedOverrideHintStyle}>— override if needed</span>
         </div>
         <div style={advancedRowStyle}>
-          <button type="button" style={advancedChipStyle} disabled>
-            <span style={advChipGlyphStyle('repo')} aria-hidden>●</span>
-            <span style={advChipLabelStyle}>
-              {selectedRepo === null
-                ? (repos === null ? 'loading repos…' : 'no watched repo')
-                : selectedRepo.repo}
-            </span>
-            {selectedRepo !== null && selectedRepo.owner !== '' && (
-              <span style={advChipMetaStyle}>· {selectedRepo.owner}</span>
+          <div style={pickerWrapStyle}>
+            <button
+              type="button"
+              style={advancedChipStyle}
+              onClick={() => setOpenMenu(openMenu === 'repo' ? null : 'repo')}
+              aria-haspopup="listbox"
+              aria-expanded={openMenu === 'repo'}
+            >
+              <span style={advChipGlyphStyle('repo')} aria-hidden>●</span>
+              <span style={advChipLabelStyle}>
+                {selectedRepo === null
+                  ? (repos === null ? 'loading repos…' : 'no watched repo')
+                  : selectedRepo.repo}
+              </span>
+              {selectedRepo !== null && selectedRepo.owner !== '' && (
+                <span style={advChipMetaStyle}>· {selectedRepo.owner}</span>
+              )}
+              <span style={advChipCaretStyle}>▾</span>
+            </button>
+            {openMenu === 'repo' && (
+              <>
+                <div style={pickerScrimStyle} onClick={() => setOpenMenu(null)} />
+                <ul style={pickerMenuStyle} role="listbox">
+                  {repos !== null && repos.length === 0 && (
+                    <li style={pickerEmptyStyle}>
+                      No watched repos. Add one in Repos before creating a thread.
+                    </li>
+                  )}
+                  {repos !== null && repos.map(r => {
+                    const hasClone = r.localClonePath != null
+                        && r.localClonePath.trim() !== '';
+                    const isActive = selectedRepo?.id === r.id;
+                    return (
+                      <li key={r.id}>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (!hasClone) return;
+                            setSelectedRepo(r);
+                            setOpenMenu(null);
+                          }}
+                          style={pickerItemStyle(isActive, !hasClone)}
+                          disabled={!hasClone}
+                          title={hasClone
+                            ? `${r.owner}/${r.repo}`
+                            : `${r.owner}/${r.repo} — clone it locally before using it as a thread cwd`}
+                        >
+                          <span style={pickerItemDotStyle('repo')} aria-hidden />
+                          <span style={pickerItemTitleStyle}>{r.repo}</span>
+                          <span style={pickerItemMetaStyle}>{r.owner}</span>
+                          {!hasClone && (
+                            <span style={pickerItemBadgeStyle}>no local clone</span>
+                          )}
+                        </button>
+                      </li>
+                    );
+                  })}
+                </ul>
+              </>
             )}
-            <span style={advChipCaretStyle}>▾</span>
-          </button>
-          <button type="button" style={advancedChipStyle} disabled>
-            <span style={advChipGlyphStyle('agent')} aria-hidden>C</span>
-            <span style={advChipLabelStyle}>Claude Code</span>
-            <span style={advChipMetaStyle}>CLI · sonnet-4.6</span>
-            <span style={advChipCaretStyle}>▾</span>
-          </button>
+          </div>
+
+          <div style={pickerWrapStyle}>
+            <button
+              type="button"
+              style={advancedChipStyle}
+              onClick={() => setOpenMenu(openMenu === 'agent' ? null : 'agent')}
+              aria-haspopup="listbox"
+              aria-expanded={openMenu === 'agent'}
+            >
+              <span style={advChipGlyphStyle('agent')} aria-hidden>
+                {selectedAgent.label.charAt(0)}
+              </span>
+              <span style={advChipLabelStyle}>{selectedAgent.label}</span>
+              <span style={advChipMetaStyle}>{selectedAgent.meta}</span>
+              <span style={advChipCaretStyle}>▾</span>
+            </button>
+            {openMenu === 'agent' && (
+              <>
+                <div style={pickerScrimStyle} onClick={() => setOpenMenu(null)} />
+                <ul style={pickerMenuStyle} role="listbox">
+                  {AGENT_OPTIONS.map(a => {
+                    const isActive = selectedAgent.id === a.id;
+                    return (
+                      <li key={a.id}>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (!a.enabled) return;
+                            setSelectedAgent(a);
+                            setOpenMenu(null);
+                          }}
+                          style={pickerItemStyle(isActive, !a.enabled)}
+                          disabled={!a.enabled}
+                          title={a.enabled
+                            ? `${a.label} · ${a.meta}`
+                            : `${a.label} lands in a later phase`}
+                        >
+                          <span style={pickerItemAgentGlyphStyle(a.enabled)} aria-hidden>
+                            {a.label.charAt(0)}
+                          </span>
+                          <span style={pickerItemTitleStyle}>{a.label}</span>
+                          <span style={pickerItemMetaStyle}>{a.meta}</span>
+                          {!a.enabled && (
+                            <span style={pickerItemBadgeStyle}>soon</span>
+                          )}
+                        </button>
+                      </li>
+                    );
+                  })}
+                </ul>
+              </>
+            )}
+          </div>
         </div>
 
         {error !== null && (
@@ -205,6 +314,111 @@ function NewThreadDialog({ onClose, onCreated, initialGroupId }: Props) {
     </div>
   );
 }
+
+const pickerWrapStyle: React.CSSProperties = {
+  position: 'relative',
+  display: 'inline-block',
+};
+
+const pickerScrimStyle: React.CSSProperties = {
+  position: 'fixed',
+  inset: 0,
+  zIndex: 1,
+  background: 'transparent',
+};
+
+const pickerMenuStyle: React.CSSProperties = {
+  position: 'absolute',
+  zIndex: 2,
+  top: 'calc(100% + 6px)',
+  left: 0,
+  minWidth: 260,
+  margin: 0,
+  padding: 6,
+  listStyle: 'none',
+  background: '#fff',
+  border: '1px solid rgba(0,0,0,0.10)',
+  borderRadius: 10,
+  boxShadow: '0 12px 28px rgba(0,0,0,0.18)',
+  maxHeight: 240,
+  overflowY: 'auto',
+};
+
+function pickerItemStyle(active: boolean, disabled: boolean): React.CSSProperties {
+  return {
+    display: 'flex',
+    alignItems: 'center',
+    gap: 8,
+    width: '100%',
+    padding: '8px 10px',
+    border: 'none',
+    background: active ? 'rgba(124, 58, 237, 0.10)' : 'transparent',
+    color: disabled ? 'var(--ws-text-4)' : 'var(--ws-text-1)',
+    fontSize: 12,
+    borderRadius: 6,
+    cursor: disabled ? 'not-allowed' : 'pointer',
+    textAlign: 'left',
+    fontFamily: 'inherit',
+  };
+}
+
+const pickerEmptyStyle: React.CSSProperties = {
+  padding: '10px 12px',
+  fontSize: 11,
+  color: 'var(--ws-text-3)',
+  fontStyle: 'italic',
+};
+
+function pickerItemDotStyle(_kind: 'repo'): React.CSSProperties {
+  return {
+    width: 7,
+    height: 7,
+    borderRadius: 999,
+    background: '#7c3aed',
+    flexShrink: 0,
+  };
+}
+
+function pickerItemAgentGlyphStyle(enabled: boolean): React.CSSProperties {
+  return {
+    width: 18,
+    height: 18,
+    borderRadius: 999,
+    background: enabled ? '#ea580c' : 'rgba(0,0,0,0.10)',
+    color: enabled ? '#fff' : 'var(--ws-text-4)',
+    display: 'inline-flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    fontSize: 10,
+    fontWeight: 700,
+    flexShrink: 0,
+  };
+}
+
+const pickerItemTitleStyle: React.CSSProperties = {
+  flex: 1,
+  fontWeight: 600,
+  overflow: 'hidden',
+  textOverflow: 'ellipsis',
+  whiteSpace: 'nowrap',
+};
+
+const pickerItemMetaStyle: React.CSSProperties = {
+  color: 'var(--ws-text-3)',
+  fontSize: 11,
+  flexShrink: 0,
+};
+
+const pickerItemBadgeStyle: React.CSSProperties = {
+  fontSize: 9,
+  letterSpacing: '0.04em',
+  padding: '1px 6px',
+  background: 'rgba(0,0,0,0.06)',
+  borderRadius: 999,
+  color: 'var(--ws-text-4)',
+  fontWeight: 600,
+  flexShrink: 0,
+};
 
 const errorBannerStyle: React.CSSProperties = {
   marginTop: 10,

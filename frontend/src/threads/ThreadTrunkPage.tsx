@@ -1584,15 +1584,20 @@ const vitalsValueStyle: React.CSSProperties = {
 
 const mainStyle: React.CSSProperties = {
   // Main column is its own bounded box — chat grows to fill, composer
-  // sits anchored at the bottom of the column (not the viewport), so
-  // the layout reads as the previous task window: clear vertical
-  // boundary, composer scoped to the conversation it answers.
+  // sits anchored at the bottom of the column (not the viewport).
+  // The maxHeight reserve is bumped to 116px (was 96) and the bottom
+  // padding to 28 (was 14) so the composer card clears the viewport
+  // edge with a comfortable gap instead of sitting flush with it —
+  // mirrors the task-detail window's tuning.
   display: 'flex',
   flexDirection: 'column',
   gap: 12,
-  padding: 14,
+  paddingTop: 14,
+  paddingLeft: 14,
+  paddingRight: 14,
+  paddingBottom: 28,
   minHeight: 0,
-  maxHeight: 'calc(100vh - 96px)',
+  maxHeight: 'calc(100vh - 116px)',
   overflow: 'hidden',
 };
 

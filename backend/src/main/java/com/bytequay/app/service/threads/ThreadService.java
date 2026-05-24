@@ -466,6 +466,15 @@ public class ThreadService
         return scheduler.enqueueTurn(requireTask(threadId), input);
     }
 
+    /** Trunk-scope counterpart of {@link #send} — drives the trunk
+     *  planning agent for cross-task talk. The row lands with
+     *  {@code task_id = null} so it filters into the trunk slice
+     *  rather than any Task's segment. */
+    public String sendTrunk(String threadId, String input)
+    {
+        return scheduler.enqueueTrunkTurn(requireTask(threadId), input);
+    }
+
     public void interrupt(String threadId)
     {
         sessionOrThrow(threadId).interrupt();

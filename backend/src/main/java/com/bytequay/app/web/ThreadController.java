@@ -374,6 +374,21 @@ public class ThreadController
         return ImmutableMap.of("status", "queued", "turnId", turnId);
     }
 
+    /** POST /api/threads/{id}/trunk-turns — send a trunk-scope (planning)
+     *  turn. Differs from {@code /messages} in that the persisted row is
+     *  tagged {@code task_id = null}, routing the agent through the
+     *  trunk-mode runtime (no worktree lease, planning altitude). */
+    @PostMapping("/{id}/trunk-turns")
+    public Map<String, String> sendTrunk(@PathVariable String id, @RequestBody SendBody body)
+    {
+        requireNonNull(body, "body is null");
+        if (body.input() == null || body.input().isBlank()) {
+            throw new IllegalArgumentException("input is required");
+        }
+        String turnId = threads.sendTrunk(id, body.input());
+        return ImmutableMap.of("status", "queued", "turnId", turnId);
+    }
+
     @PostMapping("/{id}/interrupt")
     public Map<String, String> interrupt(@PathVariable String id)
     {

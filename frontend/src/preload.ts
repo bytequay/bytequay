@@ -564,6 +564,11 @@ const bridge: Bridge = {
     opts?: { nextTitle?: string | null; baseMode?: 'MAIN' | 'STACKED' },
   ): Promise<WorkUnitTaskDto> =>
     ipcRenderer.invoke('threads:tasks:next', { threadId, taskId, opts }),
+  sendTrunkMessage: (
+    threadId: string,
+    input: string,
+  ): Promise<ThreadSendResultDto> =>
+    ipcRenderer.invoke('threads:trunk:send', { threadId, input }),
   getThreadSettings: (threadId: string): Promise<ThreadSettingsDto> =>
     ipcRenderer.invoke('threads:settings:get', threadId),
   putThreadSettings: (

@@ -2269,6 +2269,20 @@ public class GitHubClient
                     || response.data().user() == null
                     || response.data().user().contributionsCollection() == null
                     || response.data().user().contributionsCollection().contributionCalendar() == null) {
+                // GitHub's GraphQL hop signals failure with HTTP 200 +
+                // {data:null, errors:[...]}, so RestClientResponseException
+                // never fires here. The two we see in practice are
+                // FORBIDDEN (classic PAT missing read:user, or a
+                // fine-grained PAT — contributionsCollection isn't
+                // exposed to fine-grained tokens at all) and
+                // NOT_FOUND for renamed/deleted logins.
+                List<ContributionGqlError> errors = response == null ? null : response.errors();
+                if (errors != null && !errors.isEmpty()) {
+                    log.warn("contribution calendar for {} returned GraphQL errors: {}", login, errors);
+                }
+                else {
+                    log.warn("contribution calendar for {} returned no data and no errors", login);
+                }
                 return new ContributionCalendar(0, ImmutableList.of());
             }
             ContributionGqlCalendar cal = response.data().user().contributionsCollection().contributionCalendar();
@@ -2294,7 +2308,10 @@ public class GitHubClient
     }
 
     @JsonIgnoreProperties(ignoreUnknown = true)
-    record ContributionGqlResponse(ContributionGqlData data) {}
+    record ContributionGqlResponse(ContributionGqlData data, List<ContributionGqlError> errors) {}
+
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    record ContributionGqlError(String type, String message) {}
 
     @JsonIgnoreProperties(ignoreUnknown = true)
     record ContributionGqlData(ContributionGqlUser user) {}

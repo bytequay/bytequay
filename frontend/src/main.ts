@@ -3263,6 +3263,30 @@ const url = new URL(`${BACKEND_BASE}/api/search/repos`);
     return res.json();
   });
 
+  ipcMain.handle('threads:trunk:send', async (_event, args: unknown) => {
+    const params = args as { threadId?: unknown; input?: unknown };
+    const threadId = params?.threadId;
+    const input = params?.input;
+    if (typeof threadId !== 'string' || threadId.trim().length === 0) {
+      throw new Error('threadId must be a non-empty string');
+    }
+    if (typeof input !== 'string' || input.trim().length === 0) {
+      throw new Error('input must be a non-empty string');
+    }
+    const res = await fetch(
+      `${BACKEND_BASE}/api/threads/${encodeURIComponent(threadId)}/trunk-turns`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ input }),
+      });
+    if (!res.ok) {
+      const text = await res.text().catch(() => '');
+      throw new Error(`backend POST /trunk-turns returned ${res.status}: ${text}`);
+    }
+    return res.json();
+  });
+
   ipcMain.handle('threads:settings:get', async (_event, threadId: unknown) => {
     if (typeof threadId !== 'string' || threadId.trim().length === 0) {
       throw new Error('threadId must be a non-empty string');

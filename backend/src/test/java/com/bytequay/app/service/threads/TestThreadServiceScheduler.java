@@ -817,6 +817,15 @@ class TestThreadServiceScheduler
         }
 
         @Override
+        public String enqueueTrunkTurn(Thread thread, String input)
+        {
+            // The recording surface doesn't distinguish trunk vs task —
+            // turn ids are still issued in arrival order.
+            requests.add(new QueuedRequest(thread, input));
+            return "trunk-turn-" + requests.size();
+        }
+
+        @Override
         public int cancelQueuedTurns(String threadId)
         {
             cancelledTaskIds.add(threadId);

@@ -14,10 +14,12 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import type {
   ThreadDto,
+  ThreadMessageDto,
   ThreadSettingsDto,
   ThreadTurnDto,
   WorkUnitTaskDto,
 } from '../types';
+import { StructuredConversation } from './StructuredConversation';
 import { useThreadTasks } from './useThreadTasks';
 
 type Props = {
@@ -52,9 +54,13 @@ export default function ThreadTrunkPage({ threadId, onBack, onOpenTask }: Props)
   const [threadError, setThreadError] = useState<string | null>(null);
   const { tasks, error: tasksError, refresh: refreshTasks } = useThreadTasks(threadId);
   const [turns, setTurns] = useState<ThreadTurnDto[] | null>(null);
+  const [messages, setMessages] = useState<ThreadMessageDto[] | null>(null);
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
   const [advancing, setAdvancing] = useState<'next' | 'ship' | null>(null);
   const [advanceError, setAdvanceError] = useState<string | null>(null);
+  const [composerInput, setComposerInput] = useState('');
+  const [sending, setSending] = useState(false);
+  const [sendError, setSendError] = useState<string | null>(null);
 
   const loadThread = useCallback(async () => {
     try {
@@ -85,6 +91,30 @@ export default function ThreadTrunkPage({ threadId, onBack, onOpenTask }: Props)
     return () => { cancelled = true; };
   }, [threadId]);
 
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      try {
+        const list = await window.bridge.getTaskMessages(threadId);
+        if (!cancelled) setMessages(list);
+      }
+      catch {
+        if (!cancelled) setMessages([]);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [threadId]);
+
+  // Trunk-planning slice of the transcript. {@code taskId === null}
+  // is the documented marker for cross-task planning rows; per-task
+  // rows belong to the task-detail window, not the trunk.
+  const trunkMessages = useMemo(
+    () => messages === null ? [] : messages.filter(m => m.taskId === null),
+    [messages]);
+  const orderedTasksAsc = useMemo(
+    () => tasks === null ? [] : [...tasks].sort((a, b) => a.seq - b.seq),
+    [tasks]);
+
   // Pre-select the foreground (newest non-terminal) task so Next/Ship
   // have a target without the user having to click first.
   useEffect(() => {
@@ -109,6 +139,32 @@ export default function ThreadTrunkPage({ threadId, onBack, onOpenTask }: Props)
     [tasks]);
   const scheduler = useMemo(() => summariseScheduler(turns), [turns]);
   const isReviewFlow = thread?.flow === 'review';
+
+  const refreshMessages = useCallback(async () => {
+    try {
+      const list = await window.bridge.getTaskMessages(threadId);
+      setMessages(list);
+    }
+    catch { /* keep last good list */ }
+  }, [threadId]);
+
+  const onSendTrunk = useCallback(async () => {
+    const text = composerInput.trim();
+    if (text.length === 0 || sending) return;
+    setSending(true);
+    setSendError(null);
+    try {
+      await window.bridge.sendTrunkMessage(threadId, text);
+      setComposerInput('');
+      await refreshMessages();
+    }
+    catch (e) {
+      setSendError(e instanceof Error ? e.message : String(e));
+    }
+    finally {
+      setSending(false);
+    }
+  }, [composerInput, sending, threadId, refreshMessages]);
 
   const onAdvance = useCallback(async (mode: 'next' | 'ship') => {
     if (foreground === null || advancing !== null) return;
@@ -290,28 +346,47 @@ export default function ThreadTrunkPage({ threadId, onBack, onOpenTask }: Props)
               <SchedulerTable summary={scheduler} />
             </section>
 
+            <CheckpointsSection threadId={threadId} />
+
             <SettingsSection threadId={threadId} />
           </aside>
 
           <main style={mainStyle}>
-            <div style={planningPlaceholderStyle}>
-              <h2 style={planningTitleStyle}>Trunk planning</h2>
-              <p style={planningBodyStyle}>
-                This is the thread's planning altitude — the map across all
-                tasks. The trunk owns no branch and no diff; talk here is the
-                cross-task plan, and each task forks from this conversation
-                at creation.
-              </p>
-              <p style={planningBodyStyle}>
-                {tasks === null
-                  ? 'Loading tasks…'
-                  : tasks.length === 0
-                    ? 'No tasks yet. Open a task once one materialises, or start one from your next prompt.'
-                    : foreground !== null
-                      ? <>Foreground task: <strong>{taskLabel(foreground)}</strong> (seq {foreground.seq}). Use <kbd>Open →</kbd> on a card to enter its window.</>
-                      : 'No foreground task — every task in this thread is parked or shipped.'}
-              </p>
-            </div>
+            {messages === null ? (
+              <div style={planningPlaceholderStyle}>
+                <h2 style={planningTitleStyle}>Trunk planning</h2>
+                <p style={planningBodyStyle}>Loading planning conversation…</p>
+              </div>
+            ) : trunkMessages.length === 0 ? (
+              <div style={planningPlaceholderStyle}>
+                <h2 style={planningTitleStyle}>Trunk planning</h2>
+                <p style={planningBodyStyle}>
+                  This is the thread's planning altitude — the map across all
+                  tasks. The trunk owns no branch and no diff; talk here is
+                  the cross-task plan, and each task forks from this
+                  conversation at creation.
+                </p>
+                <p style={planningBodyStyle}>
+                  {tasks === null
+                    ? 'Loading tasks…'
+                    : tasks.length === 0
+                      ? 'No tasks yet. Open a task once one materialises, or start one from your next prompt.'
+                      : foreground !== null
+                        ? <>Foreground task: <strong>{taskLabel(foreground)}</strong> (seq {foreground.seq}). Use <kbd>Open →</kbd> on a card to enter its window.</>
+                        : 'No foreground task — every task in this thread is parked or shipped.'}
+                </p>
+              </div>
+            ) : (
+              <div style={planningScrollStyle}>
+                <StructuredConversation
+                  messages={trunkMessages}
+                  pendingPermission={null}
+                  onDecide={noopDecide}
+                  modelName={thread?.model ?? ''}
+                  tasks={orderedTasksAsc}
+                />
+              </div>
+            )}
           </main>
         </div>
 
@@ -319,18 +394,37 @@ export default function ThreadTrunkPage({ threadId, onBack, onOpenTask }: Props)
           <div style={composerAnchorStyle}>
             ↻ Replying in the thread · planning
           </div>
-          <div style={composerInputStyle}>
-            <span style={composerHintStyle}>
-              ▸ Thread — trunk-session agent ships in a later phase. Open a
-              task to talk to its agent now.
-            </span>
-          </div>
+          <textarea
+            value={composerInput}
+            onChange={e => setComposerInput(e.target.value)}
+            onKeyDown={e => {
+              if (e.key === 'Enter' && (e.metaKey || e.ctrlKey) && !sending) {
+                e.preventDefault();
+                void onSendTrunk();
+              }
+            }}
+            placeholder="Plan the next slice, ask about the feature, or start a new task…"
+            disabled={sending}
+            rows={3}
+            style={composerTextareaStyle}
+          />
           <div style={composerFooterStyle}>
             <span style={composerScopeStyle}>▸ Thread</span>
             <span style={composerFooterHintStyle}>
-              no branch here — the trunk plans; tasks do the work
+              ⌘↵ send · no branch here — the trunk plans; tasks do the work
             </span>
+            <button
+              type="button"
+              onClick={() => { void onSendTrunk(); }}
+              disabled={sending || composerInput.trim().length === 0}
+              style={composerSendBtnStyle}
+            >
+              {sending ? 'Sending…' : 'Send'}
+            </button>
           </div>
+          {sendError !== null && (
+            <div style={errStyle}>{sendError}</div>
+          )}
         </footer>
       </div>
 
@@ -339,6 +433,87 @@ export default function ThreadTrunkPage({ threadId, onBack, onOpenTask }: Props)
       )}
     </div>
   );
+}
+
+function CheckpointsSection({ threadId }: { threadId: string }) {
+  const [checkpoints, setCheckpoints] = useState<
+    import('../types').ThreadCheckpointDto[] | null
+  >(null);
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      try {
+        const list = await window.bridge.getTaskCheckpoints(threadId);
+        if (!cancelled) setCheckpoints(list);
+      }
+      catch (e) {
+        if (!cancelled) setError(e instanceof Error ? e.message : String(e));
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [threadId]);
+
+  // Overall + the most-recent segments, capped to keep the rail tight.
+  const overall = checkpoints?.find(c => c.isOverall) ?? null;
+  const segments = (checkpoints ?? [])
+    .filter(c => !c.isOverall && c.supersededAt === null)
+    .sort((a, b) => b.seq - a.seq)
+    .slice(0, 4);
+
+  return (
+    <section style={railSectionStyle}>
+      <div style={railHeadStyle}>
+        <span>CHECKPOINTS</span>
+        <span style={railHeadMutedStyle}>
+          {checkpoints === null
+            ? '…'
+            : `thread × ${(overall ? 1 : 0) + segments.length}`}
+        </span>
+      </div>
+      {error !== null && <div style={errStyle}>{error}</div>}
+      {checkpoints !== null && checkpoints.length === 0 && (
+        <div style={emptyStyle}>
+          No checkpoints yet. The summariser writes one once enough tokens
+          have accumulated in the conversation.
+        </div>
+      )}
+      {(overall !== null || segments.length > 0) && (
+        <ul style={checkpointListStyle}>
+          {overall !== null && (
+            <li style={checkpointRowStyle}>
+              <span style={{ ...checkpointDotStyle, background: SLATE }} aria-hidden />
+              <div style={checkpointBodyStyle}>
+                <div style={checkpointTitleStyle}>Thread summary</div>
+                <div style={checkpointBlurbStyle} title={overall.summaryMd}>
+                  {previewBlurb(overall.summaryMd)}
+                </div>
+              </div>
+            </li>
+          )}
+          {segments.map(seg => (
+            <li key={seg.id} style={checkpointRowStyle}>
+              <span style={{ ...checkpointDotStyle, background: '#7c3aed' }} aria-hidden />
+              <div style={checkpointBodyStyle}>
+                <div style={checkpointTitleStyle}>cp · seq {seg.seq}</div>
+                <div style={checkpointBlurbStyle} title={seg.summaryMd}>
+                  {previewBlurb(seg.summaryMd)}
+                </div>
+              </div>
+            </li>
+          ))}
+        </ul>
+      )}
+    </section>
+  );
+}
+
+function previewBlurb(md: string): string {
+  // Take the first non-empty line, trim markdown bullets, cap at 140.
+  const line = md.split('\n').map(l => l.trim()).find(l => l.length > 0) ?? '';
+  const stripped = line.replace(/^[-*•]\s*/, '').replace(/^#+\s*/, '');
+  return stripped.length > 140 ? stripped.slice(0, 137) + '…' : stripped;
 }
 
 function SettingsSection({ threadId }: { threadId: string }) {
@@ -1236,6 +1411,71 @@ const planningPlaceholderStyle: React.CSSProperties = {
   minHeight: 200,
 };
 
+// The transcript scroll container. StructuredConversation walks up to
+// find the nearest scrolling ancestor for its stick-to-bottom logic, so
+// this wrapper supplies overflow:auto and a bounded max-height anchored
+// to the viewport. The composer is sticky at the page bottom and the
+// header/altitude band sit at the top, so this max-height keeps the
+// chat from pushing the composer off-screen on long histories.
+const planningScrollStyle: React.CSSProperties = {
+  background: 'rgba(255,255,255,0.72)',
+  backdropFilter: 'blur(14px) saturate(125%)',
+  WebkitBackdropFilter: 'blur(14px) saturate(125%)',
+  border: '1px solid rgba(0,0,0,0.06)',
+  borderRadius: 14,
+  padding: '12px 14px',
+  boxShadow: '0 4px 18px rgba(0,0,0,0.04)',
+  maxHeight: 'calc(100vh - 240px)',
+  overflow: 'auto',
+};
+
+const noopDecide = () => { /* trunk view is read-only in this phase */ };
+
+const checkpointListStyle: React.CSSProperties = {
+  margin: 0,
+  padding: 0,
+  listStyle: 'none',
+  display: 'flex',
+  flexDirection: 'column',
+  gap: 8,
+};
+
+const checkpointRowStyle: React.CSSProperties = {
+  display: 'flex',
+  gap: 8,
+  alignItems: 'flex-start',
+  fontSize: 11,
+};
+
+const checkpointDotStyle: React.CSSProperties = {
+  width: 6,
+  height: 6,
+  borderRadius: 999,
+  marginTop: 6,
+  flexShrink: 0,
+};
+
+const checkpointBodyStyle: React.CSSProperties = {
+  flex: 1,
+  minWidth: 0,
+};
+
+const checkpointTitleStyle: React.CSSProperties = {
+  fontWeight: 600,
+  color: 'var(--text-1)',
+};
+
+const checkpointBlurbStyle: React.CSSProperties = {
+  color: 'var(--text-3)',
+  fontSize: 10,
+  lineHeight: 1.4,
+  marginTop: 2,
+  overflow: 'hidden',
+  display: '-webkit-box',
+  WebkitLineClamp: 2,
+  WebkitBoxOrient: 'vertical',
+};
+
 const planningTitleStyle: React.CSSProperties = {
   margin: '0 0 8px',
   fontSize: 14,
@@ -1252,8 +1492,17 @@ const planningBodyStyle: React.CSSProperties = {
 };
 
 const composerStyle: React.CSSProperties = {
-  position: 'sticky',
-  bottom: 0,
+  // Pinned directly to the viewport bottom. {@code position:sticky}
+  // anchored against the column's bottom edge, and when the column
+  // grew taller than 100vh the composer slid past the viewport and
+  // got clipped by the page's overflow:hidden. {@code fixed} sidesteps
+  // that — the composer always sits at the visible bottom regardless
+  // of how tall the rail or transcript above it gets. {@code left:4}
+  // clears the 4px slate spine that runs the full window height.
+  position: 'fixed',
+  left: 4,
+  right: 0,
+  bottom: 40,
   background: 'rgba(255,255,255,0.86)',
   backdropFilter: 'blur(14px) saturate(125%)',
   WebkitBackdropFilter: 'blur(14px) saturate(125%)',
@@ -1270,18 +1519,29 @@ const composerAnchorStyle: React.CSSProperties = {
   marginBottom: 4,
 };
 
-const composerInputStyle: React.CSSProperties = {
+const composerTextareaStyle: React.CSSProperties = {
+  width: '100%',
   padding: '10px 12px',
-  border: `1px dashed ${SLATE_BORDER}`,
+  border: `1px solid ${SLATE_BORDER}`,
   borderRadius: 10,
-  background: 'rgba(255,255,255,0.6)',
-  fontSize: 12,
-  color: 'var(--text-3)',
-  fontStyle: 'italic',
+  background: 'rgba(255,255,255,0.86)',
+  fontSize: 13,
+  fontFamily: 'inherit',
+  color: 'var(--text-1)',
+  resize: 'vertical',
+  outline: 'none',
+  boxSizing: 'border-box',
 };
 
-const composerHintStyle: React.CSSProperties = {
-  color: 'var(--text-3)',
+const composerSendBtnStyle: React.CSSProperties = {
+  padding: '4px 14px',
+  fontSize: 12,
+  border: 'none',
+  background: SLATE,
+  color: '#fff',
+  borderRadius: 6,
+  cursor: 'pointer',
+  fontWeight: 600,
 };
 
 const composerFooterStyle: React.CSSProperties = {

@@ -158,8 +158,37 @@ public class ClaudeCodeCliThreadAgent
             Supplier<String> workspaceMemoryProvider)
     {
         this(thread, store, taskStore, parser, mapper, gate, executor, checkpointTrigger,
-                workspaceMemoryProvider, DEFAULT_BINARY);
+                workspaceMemoryProvider, DEFAULT_BINARY, (String) null);
     }
+
+    /**
+     * Trunk-mode constructor: the agent runs without a focused Task,
+     * cwd defaulting to {@code trunkCwd} (a watched-repo clone root),
+     * with {@code thread.agentSessionId} as the {@code --resume} id.
+     * Persisted messages and the captured session id flow back to the
+     * Thread row instead of any Task, so cross-task planning history
+     * stays in the trunk slice ({@code task_id IS NULL}).
+     */
+    public ClaudeCodeCliThreadAgent(
+            Thread thread,
+            ThreadStore store,
+            TaskStore taskStore,
+            StreamJsonParser parser,
+            ObjectMapper mapper,
+            McpPermissionGate gate,
+            ExecutorService executor,
+            CheckpointTrigger checkpointTrigger,
+            Supplier<String> workspaceMemoryProvider,
+            String trunkCwd,
+            @SuppressWarnings("unused") TrunkMode trunkMode)
+    {
+        this(thread, store, taskStore, parser, mapper, gate, executor, checkpointTrigger,
+                workspaceMemoryProvider, DEFAULT_BINARY, trunkCwd);
+    }
+
+    /** Marker enum disambiguating the two-argument trailing-string
+     *  constructor overloads. {@link #ENABLED} = trunk mode. */
+    public enum TrunkMode { ENABLED }
 
     ClaudeCodeCliThreadAgent(
             Thread thread,
@@ -172,6 +201,23 @@ public class ClaudeCodeCliThreadAgent
             CheckpointTrigger checkpointTrigger,
             Supplier<String> workspaceMemoryProvider,
             String binary)
+    {
+        this(thread, store, taskStore, parser, mapper, gate, executor, checkpointTrigger,
+                workspaceMemoryProvider, binary, (String) null);
+    }
+
+    private ClaudeCodeCliThreadAgent(
+            Thread thread,
+            ThreadStore store,
+            TaskStore taskStore,
+            StreamJsonParser parser,
+            ObjectMapper mapper,
+            McpPermissionGate gate,
+            ExecutorService executor,
+            CheckpointTrigger checkpointTrigger,
+            Supplier<String> workspaceMemoryProvider,
+            String binary,
+            String trunkCwd)
     {
         requireNonNull(thread, "thread is null");
         if (thread.kind() != ThreadKind.CLI_AGENT) {
@@ -203,21 +249,35 @@ public class ClaudeCodeCliThreadAgent
         // picks the conversation back up. resume() will flip the
         // thread (and via persistThreadSnapshot, the task) back to
         // IDLE before the first send() actually spawns the CLI.
-        Task active = taskStore.findActiveTaskForThread(thread.id())
-                .or(() -> taskStore.findLatestTaskForThread(thread.id()))
-                .orElseThrow(() -> new IllegalStateException(
-                        "thread " + thread.id()
-                                + " has no task; cannot spawn CLI agent"));
-        this.workingDir = requireNonNull(active.agentCwd(),
-                "active task " + active.id() + " has no working dir; cannot spawn CLI agent");
-        this.branchName = active.branchName();
-        this.activeTaskId = active.id();
-        this.status.set(thread.status());
-        // Resume from the focused task's session, not the thread's.
-        // The Thread carries the trunk/planning session; each Task owns
-        // its own forked session that --resume must hit so we land back
-        // in this Task's worktree conversation.
-        this.agentSessionId.set(active.agentSessionId());
+        // Trunk-mode short-circuit: no focused Task, no worktree lease.
+        // cwd is a watched-repo clone root supplied by the registry so
+        // the CLI still has a sane place to read files from. The Thread
+        // carries the trunk planning session id (threads.agent_session_id);
+        // captured ids flow back to that column, not a task row.
+        if (trunkCwd != null) {
+            this.workingDir = trunkCwd;
+            this.branchName = null;
+            this.activeTaskId = null;
+            this.status.set(thread.status());
+            this.agentSessionId.set(thread.agentSessionId());
+        }
+        else {
+            Task active = taskStore.findActiveTaskForThread(thread.id())
+                    .or(() -> taskStore.findLatestTaskForThread(thread.id()))
+                    .orElseThrow(() -> new IllegalStateException(
+                            "thread " + thread.id()
+                                    + " has no task; cannot spawn CLI agent"));
+            this.workingDir = requireNonNull(active.agentCwd(),
+                    "active task " + active.id() + " has no working dir; cannot spawn CLI agent");
+            this.branchName = active.branchName();
+            this.activeTaskId = active.id();
+            this.status.set(thread.status());
+            // Resume from the focused task's session, not the thread's.
+            // The Thread carries the trunk/planning session; each Task owns
+            // its own forked session that --resume must hit so we land back
+            // in this Task's worktree conversation.
+            this.agentSessionId.set(active.agentSessionId());
+        }
         this.runningCostUsdMilli.set(thread.costUsdMilli());
         this.runningTokensIn.set(thread.tokensIn());
         this.runningTokensOut.set(thread.tokensOut());
@@ -938,12 +998,14 @@ public class ClaudeCodeCliThreadAgent
         if (current == null) {
             return;
         }
-        // Push the captured session id down to the active task; the
-        // Thread row keeps its trunk/planning session id. This is the
-        // post-Pass-4 invariant: each Task owns its own --resume id,
-        // and the Thread.agent_session_id is only ever the trunk.
         String capturedSession = agentSessionId.get();
-        if (capturedSession != null && !capturedSession.isBlank()) {
+        // Task mode: push the captured session id down to the active
+        // task and keep the Thread row's trunk session id untouched.
+        // Trunk mode: the captured session IS the trunk session, so
+        // it lands on threads.agent_session_id directly.
+        if (activeTaskId != null
+                && capturedSession != null
+                && !capturedSession.isBlank()) {
             taskStore.findTaskById(activeTaskId).ifPresent(t -> {
                 if (!capturedSession.equals(t.agentSessionId())) {
                     taskStore.saveTask(new Task(
@@ -958,8 +1020,13 @@ public class ClaudeCodeCliThreadAgent
                 }
             });
         }
+        String threadSessionId = activeTaskId == null
+                && capturedSession != null
+                && !capturedSession.isBlank()
+                ? capturedSession
+                : current.agentSessionId();
         Thread next = new Thread(
-                current.id(), current.kind(), current.provider(), current.agentSessionId(),
+                current.id(), current.kind(), current.provider(), threadSessionId,
                 current.title(), status.get(),
                 model.get(),
                 runningCostUsdMilli.get(), runningTokensIn.get(), runningTokensOut.get(),

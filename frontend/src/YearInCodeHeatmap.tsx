@@ -80,6 +80,21 @@ export default function YearInCodeHeatmap({ login }: { login: string }) {
 
   const weeks = data.weeks;
   const weekCount = weeks.length;
+
+  // GitHub's GraphQL hop can come back empty (transient 4xx/5xx, an
+  // account with no public contributions, or an offline first paint).
+  // The SVG's viewBox is computed from {@code weekCount}, so a zero
+  // here would collapse it to a near-square aspect ratio. With
+  // {@code width: 100%; height: auto}, the card would then balloon
+  // vertically and the 9px day-of-week labels would render at card
+  // height. Bail to a placeholder instead.
+  if (weekCount === 0) {
+    return (
+      <div className="home-heatmap home-heatmap--empty">
+        No contributions in the last year.
+      </div>
+    );
+  }
   const gridWidth = weekCount * STRIDE - GAP;
   const gridHeight = 7 * STRIDE - GAP;
   const totalWidth = COL_PAD + gridWidth;

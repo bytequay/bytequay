@@ -730,6 +730,19 @@
   aspect-ratio: 770 / 130;
 }
 
+.home-heatmap--empty {
+  /* Mirrors the loading placeholder's footprint so the card doesn't
+     collapse when GraphQL returns no weeks, but tells the reader why
+     the chart isn't there. Centered so the copy reads as a deliberate
+     empty state, not a clipped first paint. */
+  aspect-ratio: 770 / 130;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--text-3);
+  font-size: var(--font-size-sm);
+}
+
 .home-heatmap__svg {
   display: block;
   width: 100%;

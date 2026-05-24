@@ -16,9 +16,11 @@ package com.bytequay.app.service.threads;
 import com.bytequay.app.domain.Task;
 import com.bytequay.app.domain.Thread;
 import com.bytequay.app.domain.ThreadKind;
+import com.bytequay.app.domain.WatchedRepo;
 import com.bytequay.app.domain.WorktreeLease;
 import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.repository.ThreadStore;
+import com.bytequay.app.repository.WatchedRepoStore;
 import com.bytequay.app.service.workspaces.WorkspaceService;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.annotation.PreDestroy;
@@ -72,7 +74,13 @@ public class ThreadRegistry
     private final CheckpointTrigger checkpointTrigger;
     private final Supplier<String> workspaceMemoryProvider;
     private final WorktreeLeaseService leaseService;
+    private final Supplier<String> trunkCwdResolver;
     private final ConcurrentHashMap<String, ThreadAgent> sessions = new ConcurrentHashMap<>();
+    /** Per-thread trunk-mode agent — the planning-altitude runtime
+     *  that runs without a focused Task. Lives alongside (not instead
+     *  of) the task-scope {@link #sessions} so switching trunk ↔ task
+     *  inside one Thread doesn't tear down either session. */
+    private final ConcurrentHashMap<String, ThreadAgent> trunkSessions = new ConcurrentHashMap<>();
     /** Worktree path each live session holds the lease against, so
      *  {@link #evict} can release the exact path acquired in
      *  {@link #getOrCreate} even after the underlying task rolled
@@ -88,12 +96,23 @@ public class ThreadRegistry
             McpPermissionGate gate,
             CheckpointTrigger checkpointTrigger,
             WorkspaceService workspaces,
-            WorktreeLeaseService leaseService)
+            WorktreeLeaseService leaseService,
+            WatchedRepoStore watchedRepos)
     {
         this(store, taskStore, new StreamJsonParser(mapper), mapper, gate,
                 ClaudeCodeCliThreadAgent.defaultExecutor(), checkpointTrigger,
                 () -> workspaces.getMemory(WorkspaceService.DEFAULT_WORKSPACE_ID),
-                leaseService);
+                leaseService,
+                () -> resolveTrunkCwdFrom(watchedRepos));
+    }
+
+    private static String resolveTrunkCwdFrom(WatchedRepoStore watchedRepos)
+    {
+        return watchedRepos.findAll().stream()
+                .map(WatchedRepo::localClonePath)
+                .filter(p -> p != null && !p.isBlank())
+                .findFirst()
+                .orElseGet(() -> System.getProperty("java.io.tmpdir"));
     }
 
     ThreadRegistry(
@@ -107,6 +126,23 @@ public class ThreadRegistry
             Supplier<String> workspaceMemoryProvider,
             WorktreeLeaseService leaseService)
     {
+        this(store, taskStore, parser, mapper, gate, executor, checkpointTrigger,
+                workspaceMemoryProvider, leaseService,
+                () -> System.getProperty("java.io.tmpdir"));
+    }
+
+    ThreadRegistry(
+            ThreadStore store,
+            TaskStore taskStore,
+            StreamJsonParser parser,
+            ObjectMapper mapper,
+            McpPermissionGate gate,
+            ExecutorService executor,
+            CheckpointTrigger checkpointTrigger,
+            Supplier<String> workspaceMemoryProvider,
+            WorktreeLeaseService leaseService,
+            Supplier<String> trunkCwdResolver)
+    {
         this.store = requireNonNull(store, "store is null");
         this.taskStore = requireNonNull(taskStore, "taskStore is null");
         this.parser = requireNonNull(parser, "parser is null");
@@ -116,11 +152,37 @@ public class ThreadRegistry
         this.checkpointTrigger = requireNonNull(checkpointTrigger, "checkpointTrigger is null");
         this.workspaceMemoryProvider = requireNonNull(workspaceMemoryProvider, "workspaceMemoryProvider is null");
         this.leaseService = requireNonNull(leaseService, "leaseService is null");
+        this.trunkCwdResolver = requireNonNull(trunkCwdResolver, "trunkCwdResolver is null");
     }
 
     public Optional<ThreadAgent> find(String threadId)
     {
         return Optional.ofNullable(sessions.get(threadId));
+    }
+
+    /** Trunk-scope counterpart of {@link #find(String)} — the
+     *  planning-altitude runtime, present only when the user has
+     *  driven at least one turn on the trunk in this JVM. */
+    public Optional<ThreadAgent> findTrunk(String threadId)
+    {
+        return Optional.ofNullable(trunkSessions.get(threadId));
+    }
+
+    /**
+     * Build (or return) the trunk-scope agent for this thread. Unlike
+     * {@link #getOrCreate} no worktree lease is acquired — the trunk
+     * holds no branch and no worktree of its own. The cwd is the
+     * first watched-repo clone path so the CLI can still read files.
+     */
+    public ThreadAgent getOrCreateTrunk(Thread thread)
+    {
+        requireNonNull(thread, "thread is null");
+        return trunkSessions.computeIfAbsent(thread.id(), id -> buildTrunk(thread));
+    }
+
+    public void evictTrunk(String threadId)
+    {
+        trunkSessions.remove(threadId);
     }
 
     /**
@@ -214,6 +276,18 @@ public class ThreadRegistry
                     workspaceMemoryProvider);
             case LOGIC_LOOP -> throw new UnsupportedOperationException(
                     "LOGIC_LOOP sessions land in a later slice");
+        };
+    }
+
+    private ThreadAgent buildTrunk(Thread thread)
+    {
+        return switch (thread.kind()) {
+            case CLI_AGENT -> new ClaudeCodeCliThreadAgent(
+                    thread, store, taskStore, parser, mapper, gate, executor, checkpointTrigger,
+                    workspaceMemoryProvider, trunkCwdResolver.get(),
+                    ClaudeCodeCliThreadAgent.TrunkMode.ENABLED);
+            case LOGIC_LOOP -> throw new UnsupportedOperationException(
+                    "LOGIC_LOOP trunk sessions land in a later slice");
         };
     }
 

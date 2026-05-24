@@ -23,6 +23,11 @@ public interface ThreadTurnScheduler
     /** Queue a user turn and return its durable turn id. */
     String enqueueTurn(Thread thread, String input);
 
+    /** Queue a trunk-scope turn — forces {@code task_id = null} on the
+     *  persisted row so the trunk planning agent picks it up regardless
+     *  of any foreground Task on the thread. */
+    String enqueueTrunkTurn(Thread thread, String input);
+
     /** Cancel queued turns for one thread and return the number cancelled. */
     int cancelQueuedTurns(String threadId);
 }

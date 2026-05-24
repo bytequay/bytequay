@@ -441,6 +441,14 @@ class TestAgentScheduler
             }
             return session;
         }
+
+        @Override
+        public ThreadAgent getOrCreateTrunk(Thread thread)
+        {
+            // The scheduler tests don't distinguish trunk vs task agents.
+            // Both return the recorded session for the thread.
+            return getOrCreate(thread);
+        }
     }
 
     /** Empty TaskStore — the scheduler tests don't exercise the

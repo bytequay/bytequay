@@ -2520,6 +2520,14 @@ export type Bridge = {
     taskId: string,
     opts?: { nextTitle?: string | null; baseMode?: 'MAIN' | 'STACKED' },
   ) => Promise<WorkUnitTaskDto>;
+  /** Trunk-scope counterpart of {@link sendTaskMessage} — drives the
+   *  trunk planning agent for cross-task talk. The persisted row lands
+   *  with {@code task_id = null} so it filters into the trunk slice
+   *  rather than any Task's segment. */
+  sendTrunkMessage: (
+    threadId: string,
+    input: string,
+  ) => Promise<ThreadSendResultDto>;
   /** Effective per-thread scope settings — global merged with the
    *  thread's overrides (caps, prompt addendum). Always returns a
    *  payload, even for zero-config threads. */

@@ -100,10 +100,29 @@ public class AgentScheduler
 
     /**
      * Queue a user turn and start it immediately when the lane has
-     * capacity.
+     * capacity. Routes to the foreground Task when one exists; sends a
+     * trunk planning turn otherwise.
      */
     @Override
     public String enqueueTurn(Thread thread, String input)
+    {
+        return enqueueTurnInternal(thread, input,
+                thread.activeTask() == null ? null : thread.activeTask().id());
+    }
+
+    /**
+     * Queue a trunk-scope turn — forces {@code task_id = null} on the
+     * row even when the thread has a foreground Task. The trunk window's
+     * composer calls this so cross-task planning never pollutes a task's
+     * conversation slice.
+     */
+    @Override
+    public String enqueueTrunkTurn(Thread thread, String input)
+    {
+        return enqueueTurnInternal(thread, input, /* taskId */ null);
+    }
+
+    private String enqueueTurnInternal(Thread thread, String input, String taskId)
     {
         requireNonNull(thread, "thread is null");
         requireNonNull(input, "input is null");
@@ -111,10 +130,6 @@ public class AgentScheduler
             throw new IllegalArgumentException("input is blank");
         }
         Instant now = Instant.now();
-        // Tag the turn with the foreground task so resume/scheduler
-        // routing later can pick its session + worktree. A trunk
-        // planning turn (no active task) lands with task_id = null.
-        String taskId = thread.activeTask() == null ? null : thread.activeTask().id();
         ThreadTurn turn = new ThreadTurn(
                 UUID.randomUUID().toString(),
                 thread.id(),
@@ -322,7 +337,12 @@ public class AgentScheduler
 
         ThreadAgent session;
         try {
-            session = sessions.getOrCreate(thread);
+            // Trunk turn (task_id IS NULL) routes to the trunk-scope
+            // agent — no worktree lease, planning altitude. Task turns
+            // keep going through the worktree-leased task agent.
+            session = runningTurn.taskId() == null
+                    ? sessions.getOrCreateTrunk(thread)
+                    : sessions.getOrCreate(thread);
         }
         catch (RuntimeException e) {
             completeTurn(runningTurn, null, e);

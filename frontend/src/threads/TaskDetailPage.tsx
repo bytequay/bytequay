@@ -13,14 +13,17 @@
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type {
+  ThreadCheckpointDto,
   ThreadCommitDto,
   ThreadCommitFileDto,
   ThreadDto,
   ThreadMessageDto,
   ThreadWorkingFileDto,
+  UserProfileDto,
   WorkUnitTaskDto,
 } from '../types';
 import { parseUnifiedDiff, type DiffHunk } from '../diffParse';
+import TaskChat from './TaskChat';
 import { useThreadTasks } from './useThreadTasks';
 
 type Props = {
@@ -68,6 +71,38 @@ export default function TaskDetailPage({
   const [error, setError] = useState<string | null>(null);
   const { tasks } = useThreadTasks(threadId);
   const composerRef = useRef<HTMLTextAreaElement | null>(null);
+  const [commits, setCommits] = useState<ThreadCommitDto[] | null>(null);
+  const [checkpoints, setCheckpoints] = useState<ThreadCheckpointDto[] | null>(null);
+  const [profile, setProfile] = useState<UserProfileDto | null>(null);
+
+  useEffect(() => {
+    void window.bridge.getUserProfile()
+      .then(p => setProfile(p))
+      .catch(() => { /* fall back to JC */ });
+  }, []);
+
+  useEffect(() => {
+    let cancelled = false;
+    void (async () => {
+      try {
+        const list = await window.bridge.listTaskCommits(threadId);
+        if (!cancelled) setCommits(list);
+      }
+      catch {
+        if (!cancelled) setCommits([]);
+      }
+      try {
+        const list = await window.bridge.getTaskCheckpoints(threadId);
+        if (!cancelled) setCheckpoints(list);
+      }
+      catch {
+        if (!cancelled) setCheckpoints([]);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [threadId]);
+
+  const userInitials = useMemo(() => initialsFor(profile), [profile]);
 
   const task = useMemo(
     () => tasks?.find(t => t.id === taskId) ?? null,
@@ -149,6 +184,21 @@ export default function TaskDetailPage({
   const taskPr = task?.prNumber ?? null;
   const taskSeq = task?.seq ?? null;
 
+  // Aggregate diff counts for the top-bar "⇄ +N -M" button. Sum from
+  // the loaded commits so the badge mirrors what View-diff will show.
+  const totalAdds = useMemo(
+    () => (commits ?? []).reduce(
+      (s, c) => s + estimateCommitInsertions(c), 0),
+    [commits]);
+  const totalDels = useMemo(
+    () => (commits ?? []).reduce(
+      (s, c) => s + estimateCommitDeletions(c), 0),
+    [commits]);
+
+  const toolCallCount = useMemo(
+    () => (messages ?? []).filter(m => m.role === 'tool' && m.type === 'tool_call').length,
+    [messages]);
+
   return (
     <div style={pageStyle}>
       <div style={meshBgStyle} aria-hidden />
@@ -157,73 +207,141 @@ export default function TaskDetailPage({
 
       <div style={contentColStyle}>
         <header style={headerStyle}>
-          <button type="button" onClick={onBackToTrunk} style={backBtnStyle}>
-            ↑ Thread
+          <div style={brandStyle} aria-hidden>B</div>
+          <button
+            type="button"
+            onClick={onBackToTrunk}
+            style={crumbThreadBtnStyle}
+            title="Back to the thread trunk"
+          >
+            {thread?.title ?? 'Thread'}
           </button>
-          <span style={breadcrumbStyle}>
-            <span style={crumbWorkspaceStyle}>Workspace</span>
-            <span style={crumbSepStyle}>›</span>
-            <span style={crumbThreadStyle}>{thread?.title ?? 'Thread'}</span>
-            <span style={crumbSepStyle}>›</span>
-            <span style={crumbTaskStyle}>{taskTitle}</span>
-          </span>
+          <div style={headerSpacerStyle} />
           <ModeToggle mode={mode} onChange={setMode} />
+          <button
+            type="button"
+            style={topDiffBtnStyle(mode === 'diff')}
+            onClick={() => setMode(mode === 'diff' ? 'conversation' : 'diff')}
+            title={mode === 'diff'
+              ? 'Close diff and return to the conversation'
+              : 'Open the three-column diff'}
+          >
+            ⇄ +{totalAdds} -{totalDels}
+          </button>
+          {thread !== null && (
+            <span style={statusPillStyle(thread.status)}>
+              <span style={statusDotStyle(thread.status)} aria-hidden />
+              {thread.status}
+            </span>
+          )}
+          <button type="button" style={menuDotsStyle} title="More" aria-label="More">⋯</button>
         </header>
 
         <div style={altitudeBandStyle}>
           <span style={bandGlyphStyle}>● TASK{taskSeq !== null && ` ${taskSeq}`}</span>
           <span style={bandTitleStyle}>{taskTitle}</span>
           {taskBranch !== null && (
-            <span style={bandBranchStyle}>⎇ {taskBranch}</span>
+            <span style={bandBranchStyle}>↗ {taskBranch}</span>
           )}
           {taskPr !== null && (
-            <span style={bandPrStyle}>⊜ PR #{taskPr}</span>
+            <span style={bandPrStyle}>⊕ PR #{taskPr}</span>
+          )}
+          {task !== null && (
+            <span style={bandStatusStyle}>· {task.status.toLowerCase()}</span>
           )}
           <div style={bandSpacerStyle} />
-          <button
-            type="button"
-            style={diffBtnStyle(mode === 'diff')}
-            onClick={() => setMode(mode === 'diff' ? 'conversation' : 'diff')}
-            title={mode === 'diff'
-              ? 'Close diff and return to the conversation'
-              : 'Open the three-column diff (conversation · navigator · code)'}
-          >
-            ⇄ Diff
-          </button>
         </div>
 
         {mode !== 'diff' && (
           <div style={bodyGridStyle}>
             <main style={mainStyle}>
-              {mode === 'conversation' && (
-                <ConversationView messages={messages} threadTitle={thread?.title ?? null} />
-              )}
-              {mode === 'terminal' && (
-                <TerminalPlaceholder
-                  messages={messages}
-                  cwd={task?.workingDir ?? null}
-                  branch={taskBranch}
+              <div style={chatCardStyle}>
+                {mode === 'conversation' && (
+                  messages === null ? (
+                    <div style={loadingCenterStyle}>Loading conversation…</div>
+                  ) : (
+                    <TaskChat
+                      messages={messages}
+                      taskSeq={taskSeq}
+                      baseBranch={task?.baseBranch ?? null}
+                      userInitials={userInitials}
+                    />
+                  )
+                )}
+                {mode === 'terminal' && (
+                  <TerminalPlaceholder
+                    messages={messages}
+                    cwd={task?.workingDir ?? null}
+                    branch={taskBranch}
+                  />
+                )}
+              </div>
+
+              <div style={composerCardStyle}>
+                <div style={composerAnchorStyle}>
+                  ↻ Replying in Task {taskSeq ?? ''} {taskBranch !== null && (
+                    <span style={composerBranchStyle}>· {taskBranch}</span>
+                  )}
+                </div>
+                <textarea
+                  ref={composerRef}
+                  value={input}
+                  onChange={e => setInput(e.target.value)}
+                  onKeyDown={e => {
+                    if (e.key === 'Enter' && (e.metaKey || e.ctrlKey) && !sending) {
+                      e.preventDefault();
+                      void onSend();
+                    }
+                  }}
+                  placeholder={`Continue Task ${taskSeq ?? ''} — describe a change, ask the agent, or paste an error.`}
+                  style={composerInputStyle}
+                  rows={3}
+                  disabled={sending}
                 />
-              )}
+                <div style={composerFooterStyle}>
+                  <span style={composerScopeStyle}>▸ Task {taskSeq ?? ''}</span>
+                  <span style={composerGlyphStyle} title="Previous prompt">↑</span>
+                  <span style={composerGlyphStyle} title="Next prompt">↓</span>
+                  <span style={composerFooterHintStyle}>
+                    send · commands · files
+                  </span>
+                  <span style={composerAutoTagStyle} title="Agent auto-accepts safe tool calls">Auto</span>
+                  <button
+                    type="button"
+                    onClick={() => { void onSend(); }}
+                    disabled={sending || input.trim().length === 0}
+                    style={sendBtnStyle}
+                  >
+                    {sending ? 'Sending…' : 'Send'}
+                  </button>
+                </div>
+                {thread?.status === 'RUNNING' && (
+                  <div style={queuedHintStyle}>queued — sends after current turn</div>
+                )}
+              </div>
             </main>
 
             <aside style={railStyle}>
+              <div style={railThreadAnchorStyle}>
+                Thread · {thread?.title ?? '—'}
+              </div>
+
               <section style={railSectionStyle}>
                 <div style={railHeadStyle}>
                   <span>COMMITS</span>
-                  <button
-                    type="button"
-                    style={railLinkBtnStyle2}
-                    onClick={() => setMode('diff')}
-                    title="Open the three-column diff"
-                  >
-                    ⇄ View diff
-                  </button>
+                  <span style={railHeadMutedStyle}>
+                    this task{commits !== null && ` · ${commits.length}`}
+                  </span>
                 </div>
-                <div style={emptyStyle}>
-                  Click <em>View diff</em> to open the commits / changed-files
-                  navigator alongside the code diff.
-                </div>
+                <CommitsListSection commits={commits} />
+                <button
+                  type="button"
+                  onClick={() => setMode('diff')}
+                  style={viewDiffBtnStyle}
+                  title="Open the three-column diff"
+                >
+                  ⇄ View code diff
+                </button>
               </section>
 
               <section style={railSectionStyle}>
@@ -231,27 +349,28 @@ export default function TaskDetailPage({
                   <span>TASK METRICS</span>
                   <span style={railHeadMutedStyle}>this task</span>
                 </div>
-                <MetricsTable task={task} />
+                <TaskMetricsTable task={task} toolCallCount={toolCallCount} />
               </section>
 
               <section style={railSectionStyle}>
                 <div style={railHeadStyle}>
-                  <span>CONTEXT</span>
+                  <span>CONTEXT WINDOW</span>
                 </div>
-                <div style={contextRowsStyle}>
-                  <ContextRow label="Branch" value={taskBranch ?? '—'} mono />
-                  <ContextRow label="Base" value={task?.baseBranch ?? '—'} mono />
-                  <ContextRow label="Worktree" value={task?.worktreePath ?? '—'} mono truncate />
-                </div>
+                <ContextWindowMeter
+                  tokensIn={task?.tokensIn ?? 0}
+                  tokensOut={task?.tokensOut ?? 0}
+                />
               </section>
 
               <section style={railSectionStyle}>
                 <div style={railHeadStyle}>
-                  <span>REWIND CHECKPOINTS</span>
+                  <span>CHECKPOINTS</span>
+                  <span style={railHeadMutedStyle}>
+                    rewind{checkpoints !== null
+                      && ` · ${checkpoints.filter(c => !c.isOverall).length}`}
+                  </span>
                 </div>
-                <div style={emptyStyle}>
-                  Per-task rewind checkpoints land in a later phase.
-                </div>
+                <CheckpointsListSection checkpoints={checkpoints} />
               </section>
 
               <section style={railSectionStyle}>
@@ -259,15 +378,17 @@ export default function TaskDetailPage({
                   type="button"
                   onClick={() => { void onShip(); }}
                   disabled={task === null || shipping}
-                  style={shipBtnStyle}
+                  style={shipPrimaryStyle}
                   title={task === null
                     ? 'No task loaded yet'
                     : `Ship Task ${task.seq} and return to the thread trunk`}
                 >
-                  {shipping ? 'Shipping…' : `Ship Task ${task?.seq ?? ''}`.trim()}
+                  <span aria-hidden style={{ marginRight: 8 }}>☁︎↑</span>
+                  {shipping ? 'Shipping…' : 'Ship — finalize & merge'}
                 </button>
                 <div style={shipHintStyle}>
-                  Ship finalises the task and returns to the trunk.
+                  Finalises &amp; merges this task, then takes you back to the
+                  thread — where the next task starts.
                 </div>
               </section>
             </aside>
@@ -281,43 +402,6 @@ export default function TaskDetailPage({
             threadTitle={thread?.title ?? null}
           />
         )}
-
-        <footer style={composerStyle}>
-          <div style={composerAnchorStyle}>
-            ↻ Replying in → Task {taskSeq ?? ''} {taskBranch !== null && (
-              <span style={composerBranchStyle}>· ⎇ {taskBranch}</span>
-            )}
-          </div>
-          <textarea
-            ref={composerRef}
-            value={input}
-            onChange={e => setInput(e.target.value)}
-            onKeyDown={e => {
-              if (e.key === 'Enter' && (e.metaKey || e.ctrlKey) && !sending) {
-                e.preventDefault();
-                void onSend();
-              }
-            }}
-            placeholder={`Continue Task ${taskSeq ?? ''} — describe a change, ask the agent, or paste an error.`}
-            style={composerInputStyle}
-            rows={3}
-            disabled={sending}
-          />
-          <div style={composerFooterStyle}>
-            <span style={composerScopeStyle}>● Task {taskSeq ?? ''}</span>
-            <span style={composerFooterHintStyle}>
-              ⌘↵ send · the trunk plans, this task does the work
-            </span>
-            <button
-              type="button"
-              onClick={() => { void onSend(); }}
-              disabled={sending || input.trim().length === 0}
-              style={sendBtnStyle}
-            >
-              {sending ? 'Sending…' : 'Send'}
-            </button>
-          </div>
-        </footer>
       </div>
 
       {error !== null && (
@@ -325,6 +409,165 @@ export default function TaskDetailPage({
       )}
     </div>
   );
+}
+
+function initialsFor(profile: UserProfileDto | null): string {
+  const source = profile?.name ?? profile?.login ?? '';
+  if (source.length === 0) return 'JC';
+  const parts = source.trim().split(/\s+/);
+  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
+  return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
+}
+
+function estimateCommitInsertions(_c: ThreadCommitDto): number {
+  // Backend ThreadCommitDto today doesn't carry +/- counts at the
+  // commit level; the totals are summed inside the diff view. Return
+  // 0 so the top-bar pill stays honest until /commits surfaces stats.
+  return 0;
+}
+
+function estimateCommitDeletions(_c: ThreadCommitDto): number {
+  return 0;
+}
+
+function CommitsListSection({ commits }: { commits: ThreadCommitDto[] | null }) {
+  if (commits === null) return <div style={emptyStyle}>Loading…</div>;
+  if (commits.length === 0) return <div style={emptyStyle}>No commits on this branch yet.</div>;
+  return (
+    <ul style={commitsListStyle}>
+      {commits.slice(0, 5).map(c => (
+        <li key={c.sha} style={commitRowStyle}>
+          <div style={commitTitleStyle} title={c.subject}>{c.subject}</div>
+          <div style={commitMetaStyle}>
+            <span style={commitShaStyle}>{c.shortSha}</span>
+            <span style={commitTimeStyle}>{relativeShort(c.authoredAt)}</span>
+          </div>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+function CheckpointsListSection({
+  checkpoints,
+}: {
+  checkpoints: ThreadCheckpointDto[] | null;
+}) {
+  if (checkpoints === null) return <div style={emptyStyle}>Loading…</div>;
+  const segments = checkpoints
+    .filter(c => !c.isOverall && c.supersededAt === null)
+    .sort((a, b) => b.seq - a.seq)
+    .slice(0, 4);
+  if (segments.length === 0) {
+    return (
+      <div style={emptyStyle}>
+        No rewind points yet. The summariser writes one once enough
+        tokens have accumulated.
+      </div>
+    );
+  }
+  return (
+    <ul style={checkpointsListStyle}>
+      {segments.map(cp => (
+        <li key={cp.id} style={checkpointRowStyle}>
+          <span style={checkpointDotStyle} aria-hidden />
+          <div style={{ flex: 1, minWidth: 0 }}>
+            <div style={checkpointTitleStyle}>cp-{cp.seq} · rewind point</div>
+            <div style={checkpointBlurbStyle} title={cp.summaryMd}>
+              {previewBlurb(cp.summaryMd)}
+            </div>
+          </div>
+        </li>
+      ))}
+    </ul>
+  );
+}
+
+function previewBlurb(md: string): string {
+  const line = md.split('\n').map(l => l.trim()).find(l => l.length > 0) ?? '';
+  const stripped = line.replace(/^[-*•]\s*/, '').replace(/^#+\s*/, '');
+  return stripped.length > 90 ? stripped.slice(0, 87) + '…' : stripped;
+}
+
+function ContextWindowMeter({
+  tokensIn, tokensOut,
+}: {
+  tokensIn: number;
+  tokensOut: number;
+}) {
+  // Estimate against a 200k context window (Sonnet 4.x default). The
+  // bar surfaces *consumed input* — tokensIn is the dominant signal
+  // for "how full is the window"; tokensOut don't count against it.
+  const cap = 200_000;
+  const used = tokensIn;
+  const pct = Math.min(100, Math.round((used / cap) * 100));
+  const tone = pct < 60 ? '#16a34a' : pct < 85 ? '#d97706' : '#dc2626';
+  const safety = pct < 60 ? 'safe' : pct < 85 ? 'tight' : 'critical';
+  return (
+    <div>
+      <div style={ctxLabelRowStyle}>
+        <span style={{ color: tone, fontWeight: 700 }}>{pct}% {safety}</span>
+        <span style={ctxNumStyle}>
+          {formatTokensCompact(used)} / {formatTokensCompact(cap)}
+        </span>
+      </div>
+      <div style={ctxTrackStyle}>
+        <div style={{ ...ctxFillStyle, width: `${pct}%`, background: tone }} />
+      </div>
+    </div>
+  );
+}
+
+function TaskMetricsTable({
+  task, toolCallCount,
+}: {
+  task: WorkUnitTaskDto | null;
+  toolCallCount: number;
+}) {
+  if (task === null) {
+    return <div style={emptyStyle}>—</div>;
+  }
+  return (
+    <dl style={vitalsListStyle}>
+      <VitalRow label="Cost" value={`$${(task.costUsdMilli / 1000).toFixed(2)}`} />
+      <VitalRow
+        label="Tokens"
+        value={`${formatTokensCompact(task.tokensIn)} → ${formatTokensCompact(task.tokensOut)}`}
+      />
+      <VitalRow label="Runtime" value={formatRuntime(task.createdAt)} />
+      <VitalRow label="Tool calls" value={String(toolCallCount)} />
+    </dl>
+  );
+}
+
+function formatTokensCompact(n: number): string {
+  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
+  if (n >= 1_000) return `${(n / 1_000).toFixed(1)}k`;
+  return String(n);
+}
+
+function formatRuntime(createdAt: string): string {
+  const start = Date.parse(createdAt);
+  if (!Number.isFinite(start)) return '—';
+  const secs = Math.floor((Date.now() - start) / 1000);
+  const h = Math.floor(secs / 3600);
+  const m = Math.floor((secs % 3600) / 60);
+  const s = secs % 60;
+  if (h > 0) return `${h}h ${m}m ${s}s`;
+  if (m > 0) return `${m}m ${s.toString().padStart(2, '0')}s`;
+  return `${s}s`;
+}
+
+function relativeShort(iso: string): string {
+  const start = Date.parse(iso);
+  if (!Number.isFinite(start)) return '';
+  const diff = Date.now() - start;
+  if (diff < 60_000) return 'just now';
+  const mins = Math.floor(diff / 60_000);
+  if (mins < 60) return `${mins}m ago`;
+  const hrs = Math.floor(mins / 60);
+  if (hrs < 24) return `${hrs}h ago`;
+  return `${Math.floor(hrs / 24)}d ago`;
 }
 
 function ModeToggle({
@@ -1080,19 +1323,321 @@ const railLinkBtnStyle2: React.CSSProperties = {
 
 const bodyGridStyle: React.CSSProperties = {
   display: 'grid',
-  gridTemplateColumns: '1fr 280px',
-  gap: 14,
-  padding: '14px 18px',
+  gridTemplateColumns: '1fr 320px',
+  gap: 0,
+  padding: 0,
   flex: 1,
-  alignItems: 'start',
+  alignItems: 'stretch',
+  minHeight: 0,
 };
 
 const railStyle: React.CSSProperties = {
   display: 'flex',
   flexDirection: 'column',
   gap: 14,
-  position: 'sticky',
-  top: 72,
+  padding: '14px 16px 14px 16px',
+  borderLeft: '1px solid rgba(0,0,0,0.08)',
+  background: 'rgba(248, 247, 252, 0.5)',
+  overflowY: 'auto',
+  maxHeight: 'calc(100vh - 96px)',
+};
+
+const brandStyle: React.CSSProperties = {
+  width: 22,
+  height: 22,
+  borderRadius: 6,
+  background: 'linear-gradient(135deg, #16a34a, #15803d)',
+  color: '#fff',
+  display: 'flex',
+  alignItems: 'center',
+  justifyContent: 'center',
+  fontSize: 12,
+  fontWeight: 800,
+  letterSpacing: '0.04em',
+  flexShrink: 0,
+};
+
+const crumbThreadBtnStyle: React.CSSProperties = {
+  background: 'transparent',
+  border: 'none',
+  padding: 0,
+  fontSize: 13,
+  fontWeight: 600,
+  color: 'var(--text-2)',
+  cursor: 'pointer',
+  whiteSpace: 'nowrap',
+  overflow: 'hidden',
+  textOverflow: 'ellipsis',
+  maxWidth: 280,
+};
+
+const headerSpacerStyle: React.CSSProperties = { flex: 1 };
+
+function topDiffBtnStyle(active: boolean): React.CSSProperties {
+  return {
+    padding: '4px 10px',
+    fontSize: 11,
+    border: '1px solid rgba(0,0,0,0.10)',
+    background: active ? TEAL : '#fff',
+    color: active ? '#fff' : 'var(--text-2)',
+    borderRadius: 6,
+    fontWeight: 600,
+    cursor: 'pointer',
+    fontFeatureSettings: '"tnum"',
+    fontVariantNumeric: 'tabular-nums',
+  };
+}
+
+function statusPillStyle(status: string): React.CSSProperties {
+  const tone = status === 'RUNNING' ? '#16a34a' : status === 'ERRORED' ? '#b91c1c' : '#475569';
+  return {
+    display: 'inline-flex',
+    alignItems: 'center',
+    gap: 6,
+    fontSize: 10,
+    padding: '3px 10px',
+    borderRadius: 999,
+    border: `1px solid ${tone}40`,
+    color: tone,
+    background: `${tone}14`,
+    fontWeight: 700,
+    letterSpacing: '0.06em',
+  };
+}
+
+function statusDotStyle(status: string): React.CSSProperties {
+  const tone = status === 'RUNNING' ? '#16a34a' : status === 'ERRORED' ? '#b91c1c' : '#475569';
+  return {
+    width: 6,
+    height: 6,
+    borderRadius: 999,
+    background: tone,
+    boxShadow: status === 'RUNNING' ? `0 0 0 2px ${tone}30` : 'none',
+  };
+}
+
+const menuDotsStyle: React.CSSProperties = {
+  width: 24,
+  height: 24,
+  borderRadius: 6,
+  border: 'none',
+  background: 'transparent',
+  color: 'var(--text-3)',
+  fontSize: 16,
+  cursor: 'pointer',
+};
+
+const bandStatusStyle: React.CSSProperties = {
+  color: 'var(--text-4)',
+  fontStyle: 'italic',
+  fontSize: 11,
+};
+
+const chatCardStyle: React.CSSProperties = {
+  flex: 1,
+  display: 'flex',
+  flexDirection: 'column',
+  background: 'rgba(255,255,255,0.78)',
+  border: '1px solid rgba(0,0,0,0.08)',
+  borderRadius: 14,
+  boxShadow: '0 4px 18px rgba(0,0,0,0.04)',
+  overflow: 'hidden',
+  minHeight: 0,
+};
+
+const loadingCenterStyle: React.CSSProperties = {
+  flex: 1,
+  display: 'flex',
+  alignItems: 'center',
+  justifyContent: 'center',
+  fontSize: 12,
+  color: 'var(--text-3)',
+  fontStyle: 'italic',
+};
+
+const composerCardStyle: React.CSSProperties = {
+  display: 'flex',
+  flexDirection: 'column',
+  gap: 6,
+  padding: '10px 14px 12px',
+  background: 'rgba(255,255,255,0.92)',
+  border: '1px solid rgba(0,0,0,0.08)',
+  borderRadius: 14,
+  boxShadow: '0 4px 14px rgba(0,0,0,0.04)',
+  flexShrink: 0,
+};
+
+const composerGlyphStyle: React.CSSProperties = {
+  fontSize: 11,
+  color: 'var(--text-4)',
+  padding: '0 2px',
+  cursor: 'default',
+};
+
+const composerAutoTagStyle: React.CSSProperties = {
+  fontSize: 10,
+  padding: '2px 8px',
+  background: 'rgba(13, 148, 136, 0.10)',
+  color: TEAL,
+  border: `1px solid ${TEAL_BORDER}`,
+  borderRadius: 999,
+  fontWeight: 700,
+  letterSpacing: '0.04em',
+  marginRight: 6,
+};
+
+const queuedHintStyle: React.CSSProperties = {
+  fontSize: 10,
+  color: 'var(--text-4)',
+  fontStyle: 'italic',
+  textAlign: 'right',
+  marginTop: 2,
+};
+
+const railThreadAnchorStyle: React.CSSProperties = {
+  fontSize: 11,
+  fontWeight: 600,
+  color: 'var(--text-3)',
+  letterSpacing: '0.02em',
+  padding: '0 4px',
+  marginBottom: -4,
+};
+
+const viewDiffBtnStyle: React.CSSProperties = {
+  marginTop: 10,
+  width: '100%',
+  padding: '6px 10px',
+  fontSize: 11,
+  border: `1px solid ${TEAL_BORDER}`,
+  background: '#fff',
+  color: TEAL,
+  borderRadius: 8,
+  cursor: 'pointer',
+  fontWeight: 600,
+};
+
+const shipPrimaryStyle: React.CSSProperties = {
+  width: '100%',
+  padding: '12px 14px',
+  fontSize: 13,
+  border: 'none',
+  background: 'linear-gradient(135deg, #0d9488, #0891b2)',
+  color: '#fff',
+  borderRadius: 10,
+  fontWeight: 700,
+  letterSpacing: '0.02em',
+  cursor: 'pointer',
+  boxShadow:
+    '0 6px 18px rgba(13,148,136,0.25),'
+    + ' 0 1px 2px rgba(0,0,0,0.04),'
+    + ' inset 0 1px 0 rgba(255,255,255,0.2)',
+};
+
+const commitsListStyle: React.CSSProperties = {
+  margin: 0,
+  padding: 0,
+  listStyle: 'none',
+  display: 'flex',
+  flexDirection: 'column',
+  gap: 8,
+};
+
+const commitRowStyle: React.CSSProperties = {
+  display: 'flex',
+  flexDirection: 'column',
+  gap: 2,
+  fontSize: 12,
+};
+
+const commitTitleStyle: React.CSSProperties = {
+  color: 'var(--text-1)',
+  fontWeight: 500,
+  overflow: 'hidden',
+  textOverflow: 'ellipsis',
+  whiteSpace: 'nowrap',
+};
+
+const commitMetaStyle: React.CSSProperties = {
+  display: 'flex',
+  gap: 8,
+  fontSize: 10,
+};
+
+const commitShaStyle: React.CSSProperties = {
+  fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
+  color: 'var(--text-3)',
+};
+
+const commitTimeStyle: React.CSSProperties = {
+  color: 'var(--text-4)',
+};
+
+const checkpointsListStyle: React.CSSProperties = {
+  margin: 0,
+  padding: 0,
+  listStyle: 'none',
+  display: 'flex',
+  flexDirection: 'column',
+  gap: 8,
+};
+
+const checkpointRowStyle: React.CSSProperties = {
+  display: 'flex',
+  gap: 8,
+  alignItems: 'flex-start',
+  fontSize: 11,
+};
+
+const checkpointDotStyle: React.CSSProperties = {
+  width: 6,
+  height: 6,
+  borderRadius: 999,
+  background: TEAL,
+  marginTop: 6,
+  flexShrink: 0,
+};
+
+const checkpointTitleStyle: React.CSSProperties = {
+  fontWeight: 600,
+  color: 'var(--text-1)',
+};
+
+const checkpointBlurbStyle: React.CSSProperties = {
+  color: 'var(--text-3)',
+  fontSize: 10,
+  lineHeight: 1.4,
+  marginTop: 2,
+  overflow: 'hidden',
+  display: '-webkit-box',
+  WebkitLineClamp: 2,
+  WebkitBoxOrient: 'vertical',
+};
+
+const ctxLabelRowStyle: React.CSSProperties = {
+  display: 'flex',
+  justifyContent: 'space-between',
+  alignItems: 'baseline',
+  fontSize: 11,
+  marginBottom: 6,
+};
+
+const ctxNumStyle: React.CSSProperties = {
+  color: 'var(--text-4)',
+  fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
+  fontVariantNumeric: 'tabular-nums',
+};
+
+const ctxTrackStyle: React.CSSProperties = {
+  height: 6,
+  background: 'rgba(0,0,0,0.06)',
+  borderRadius: 999,
+  overflow: 'hidden',
+};
+
+const ctxFillStyle: React.CSSProperties = {
+  height: '100%',
+  borderRadius: 999,
+  transition: 'width 140ms ease',
 };
 
 const railSectionStyle: React.CSSProperties = {
@@ -1124,9 +1669,16 @@ const railHeadMutedStyle: React.CSSProperties = {
 
 
 const mainStyle: React.CSSProperties = {
+  // Bounded main column: chat card grows to fill, composer card
+  // sits anchored to the bottom of the column (matches the trunk
+  // window's "rail | main with stacked card + composer" layout).
   display: 'flex',
   flexDirection: 'column',
-  gap: 14,
+  gap: 12,
+  padding: 14,
+  minHeight: 0,
+  maxHeight: 'calc(100vh - 96px)',
+  overflow: 'hidden',
 };
 
 const conversationScrollStyle: React.CSSProperties = {

@@ -479,6 +479,9 @@ function ThreadTile({
         }}
       >
         <span style={{ ...slimDotStyle, background: dotColor(displayStatus) }} aria-hidden />
+        <span style={flowChipStyle(thread.flow)} aria-label={`flow ${thread.flow}`}>
+          {thread.flow === 'review' ? 'REVIEW' : 'BUILD'}
+        </span>
         {immersive ? (
           <span
             style={isTerm ? { ...slimTitleStyle, color: '#8b949e' } : slimTitleStyle}
@@ -784,6 +787,22 @@ const slimDotStyle: React.CSSProperties = {
   borderRadius: '50%',
   flexShrink: 0,
 };
+
+function flowChipStyle(flow: 'build' | 'review'): React.CSSProperties {
+  const isReview = flow === 'review';
+  return {
+    fontSize: 8,
+    fontWeight: 700,
+    letterSpacing: '0.08em',
+    padding: '1px 5px',
+    borderRadius: 3,
+    color: isReview ? '#1d4ed8' : '#7c3aed',
+    background: isReview ? 'rgba(37, 99, 235, 0.10)' : 'rgba(124, 58, 237, 0.10)',
+    border: `1px solid ${isReview ? 'rgba(37,99,235,0.30)' : 'rgba(124,58,237,0.30)'}`,
+    flexShrink: 0,
+    textTransform: 'uppercase',
+  };
+}
 // Immersive head: title is plain text, centred per the design.
 const slimTitleStyle: React.CSSProperties = {
   flex: 1,

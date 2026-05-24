@@ -286,6 +286,17 @@ export default function TaskDetailPage({
                     messages={messages}
                     cwd={task?.workingDir ?? null}
                     branch={taskBranch}
+                    taskSeq={taskSeq}
+                    threadTitle={thread?.title ?? null}
+                    model={thread?.model ?? null}
+                    costUsdMilli={task?.costUsdMilli ?? 0}
+                    tokensIn={task?.tokensIn ?? 0}
+                    runtimeSec={task !== null
+                      ? Math.max(0, Math.floor((Date.now() - Date.parse(task.createdAt)) / 1000))
+                      : 0}
+                    ctxPct={task !== null
+                      ? Math.min(100, Math.round((task.tokensIn / 200_000) * 100))
+                      : 0}
                   />
                 )}
               </div>
@@ -1061,33 +1072,134 @@ function previewBody(m: ThreadMessageDto): string {
   return m.contentJson.slice(0, 240);
 }
 
+/**
+ * Terminal-mode rendering of the task scrollback per
+ * docs/mockups/design/tasks/thread-detail-terminal.png — dark
+ * background, monospace, colourised per-event lines that mirror the
+ * raw stream-json the CLI emits. tmux-style window bar on top with
+ * the workspace + task labels; status bar on the bottom with the
+ * task counters; everything else is the conversation rendered as a
+ * straight log of bullets + bold key tokens + tool deltas.
+ */
 function TerminalPlaceholder({
-  messages, cwd, branch,
+  messages, cwd, branch, taskSeq, threadTitle, model, costUsdMilli, tokensIn, runtimeSec, ctxPct,
 }: {
   messages: ThreadMessageDto[] | null;
   cwd: string | null;
   branch: string | null;
+  taskSeq: number | null;
+  threadTitle: string | null;
+  model: string | null;
+  costUsdMilli: number;
+  tokensIn: number;
+  runtimeSec: number;
+  ctxPct: number;
 }) {
+  const scrollRef = useRef<HTMLDivElement | null>(null);
+  useEffect(() => {
+    const el = scrollRef.current;
+    if (el !== null) el.scrollTop = el.scrollHeight;
+  }, [messages]);
   return (
-    <div style={terminalStyle}>
-      <div style={terminalBannerStyle}>
-        $ task scrollback · {cwd ?? '—'} · {branch ?? '—'}
+    <div style={terminalShellStyle}>
+      <div style={tmuxTopBarStyle}>
+        <span style={tmuxBrandStyle}>ByteQuay</span>
+        <span style={tmuxPaneStyle('inactive')}>1:cost-parser</span>
+        <span style={tmuxPaneStyle('active')}>{taskSeq !== null ? `${taskSeq}:` : ''}{shortPaneLabel(threadTitle)}</span>
+        <span style={tmuxSpacerStyle} />
+        <span style={tmuxRightHintStyle}>{model ?? 'claude'}  ctx {ctxPct}%</span>
       </div>
-      {messages === null ? (
-        <div style={terminalLineStyle}>loading…</div>
-      ) : messages.length === 0 ? (
-        <div style={terminalLineStyle}>(no messages yet)</div>
-      ) : (
-        <pre style={terminalScrollStyle}>
-          {messages.map(m => `[${m.role}/${m.type}] ${previewBody(m).slice(0, 200)}`).join('\n')}
-        </pre>
-      )}
-      <div style={terminalNoteStyle}>
-        Terminal-styled chrome ports onto this shell in a later polish
-        pass; for now this is a faithful scrollback dump.
+
+      <div style={terminalTitleStyle}>
+        <span style={terminalThreadTitleStyle}>{threadTitle ?? 'Thread'}</span>
+        {branch !== null && (
+          <span style={terminalBranchStyle}>↗ {branch}</span>
+        )}
       </div>
+
+      <div ref={scrollRef} style={terminalScrollStyle}>
+        {messages === null && <div style={termInfoStyle}>loading…</div>}
+        {messages !== null && messages.length === 0 && (
+          <div style={termInfoStyle}>$ no messages yet — type below to start the task.</div>
+        )}
+        {messages !== null && messages.map(m => <TermLine key={m.id} message={m} />)}
+      </div>
+
+      <div style={tmuxStatusBarStyle}>
+        <span style={tmuxBrandStyle}>[ByteQuay]</span>
+        <span style={tmuxPaneStyle('inactive')}>1:cost-parser</span>
+        <span style={tmuxPaneStyle('activeAlt')}>{taskSeq !== null ? `${taskSeq}:` : ''}{shortPaneLabel(threadTitle)}</span>
+        <span style={tmuxSpacerStyle} />
+        <span style={tmuxStatNumStyle}>↑↓ {(messages ?? []).filter(m => m.type === 'turn_done').length}</span>
+        <span style={tmuxStatNumStyle}>$ ${(costUsdMilli / 1000).toFixed(2)}</span>
+        <span style={tmuxStatNumStyle}>RUN · {formatRuntimeShort(runtimeSec)} · ctx {ctxPct}%</span>
+      </div>
+
+      {/* cwd is rendered in a tooltip on the title so it doesn't crowd the bar */}
+      <div style={termCwdHintStyle} title={cwd ?? '—'}>{cwd ?? '—'}</div>
     </div>
   );
+}
+
+function TermLine({ message }: { message: ThreadMessageDto }) {
+  const text = (() => {
+    try {
+      const p = JSON.parse(message.contentJson) as Record<string, unknown>;
+      if (typeof p.text === 'string') return p.text;
+      if (typeof p.summary === 'string') return p.summary;
+      if (message.type === 'tool_call') {
+        const tool = p.toolName ?? '';
+        const input = p.input ?? {};
+        const inObj = typeof input === 'object' && input !== null ? input as Record<string, unknown> : {};
+        const path = inObj.file_path ?? inObj.path ?? inObj.command ?? '';
+        return `${tool} ${path}`.trim();
+      }
+      if (message.type === 'tool_result') {
+        const out = p.output;
+        if (typeof out === 'string') return out.split('\n')[0].slice(0, 200);
+        return '(tool result)';
+      }
+      if (message.type === 'turn_done') {
+        return `turn done · ${p.tokensIn ?? 0}→${p.tokensOut ?? 0}t · ${(((p.costUsdMilli as number) ?? 0) / 1000).toFixed(2)}$`;
+      }
+      if (message.type === 'session_started') return `session_started · ${p.sessionId ?? ''}`;
+      if (message.type === 'session_ended') return `session_ended · exit ${p.exitCode ?? '?'}`;
+    }
+    catch { /* fall through */ }
+    return message.contentJson;
+  })();
+  return (
+    <div style={termRowStyle(message)}>
+      <span style={termGlyphStyle(message)}>{glyphFor(message)}</span>
+      <span style={termContentStyle(message)}>{text}</span>
+    </div>
+  );
+}
+
+function glyphFor(m: ThreadMessageDto): string {
+  if (m.role === 'user') return '›';
+  if (m.role === 'assistant' && m.type === 'thinking') return '*';
+  if (m.role === 'assistant') return '◆';
+  if (m.type === 'tool_call') return '◐';
+  if (m.type === 'tool_result') return '◑';
+  if (m.type === 'turn_done') return '✓';
+  if (m.type === 'session_started') return '$';
+  if (m.type === 'session_ended') return '·';
+  return '·';
+}
+
+function shortPaneLabel(title: string | null): string {
+  if (title === null) return 'task';
+  return title.toLowerCase().split(/\s+/).slice(0, 2).join('-').slice(0, 16);
+}
+
+function formatRuntimeShort(secs: number): string {
+  if (secs < 60) return `${secs}s`;
+  const m = Math.floor(secs / 60);
+  const s = secs % 60;
+  if (m < 60) return `${m}m ${s.toString().padStart(2, '0')}s`;
+  const h = Math.floor(m / 60);
+  return `${h}h ${(m % 60).toString().padStart(2, '0')}m`;
 }
 
 function MetricsTable({ task }: { task: WorkUnitTaskDto | null }) {
@@ -1852,41 +1964,178 @@ function bubbleStyle(role: 'user' | 'assistant' | 'tool' | 'system'): React.CSSP
   return { ...base, background: 'rgba(0,0,0,0.04)', color: 'var(--text-3)', fontStyle: 'italic' };
 }
 
-const terminalStyle: React.CSSProperties = {
+/* ── Terminal-mode styles (thread-detail-terminal.png) ─────────── */
+
+const terminalShellStyle: React.CSSProperties = {
+  flex: 1,
+  display: 'flex',
+  flexDirection: 'column',
   background: '#0a0e14',
   color: '#cdd6f4',
-  borderRadius: 14,
-  padding: 14,
-  border: '1px solid rgba(0,0,0,0.18)',
   fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
   fontSize: 12,
-  maxHeight: 'calc(100vh - 320px)',
-  overflow: 'auto',
+  minHeight: 0,
+  position: 'relative',
 };
 
-const terminalBannerStyle: React.CSSProperties = {
+const tmuxTopBarStyle: React.CSSProperties = {
+  display: 'flex',
+  alignItems: 'center',
+  gap: 2,
+  background: '#1a1f29',
+  padding: '4px 8px',
+  fontSize: 11,
+  borderBottom: '1px solid #0f1318',
+};
+
+function tmuxPaneStyle(state: 'active' | 'activeAlt' | 'inactive'): React.CSSProperties {
+  if (state === 'active') {
+    return {
+      background: '#16a34a',
+      color: '#0a0e14',
+      padding: '2px 10px',
+      fontWeight: 700,
+    };
+  }
+  if (state === 'activeAlt') {
+    return {
+      background: '#22c55e',
+      color: '#0a0e14',
+      padding: '2px 10px',
+      fontWeight: 700,
+    };
+  }
+  return {
+    background: 'transparent',
+    color: '#94a3b8',
+    padding: '2px 10px',
+  };
+}
+
+const tmuxBrandStyle: React.CSSProperties = {
+  background: '#0d9488',
+  color: '#0a0e14',
+  padding: '2px 8px',
+  fontWeight: 700,
+  marginRight: 4,
+};
+
+const tmuxSpacerStyle: React.CSSProperties = { flex: 1 };
+
+const tmuxRightHintStyle: React.CSSProperties = {
   color: '#94a3b8',
-  paddingBottom: 8,
-  borderBottom: '1px solid rgba(255,255,255,0.06)',
-  marginBottom: 8,
+  fontSize: 10,
+  letterSpacing: '0.02em',
 };
 
-const terminalLineStyle: React.CSSProperties = {
-  color: '#cdd6f4',
+const tmuxStatusBarStyle: React.CSSProperties = {
+  display: 'flex',
+  alignItems: 'center',
+  gap: 2,
+  background: '#0d9488',
+  padding: '4px 8px',
+  fontSize: 10,
+  borderTop: '1px solid #0f1318',
+  color: '#0a0e14',
+};
+
+const tmuxStatNumStyle: React.CSSProperties = {
+  color: '#0a0e14',
+  background: 'rgba(10, 14, 20, 0.18)',
+  padding: '1px 8px',
+  marginLeft: 4,
+  fontWeight: 600,
+};
+
+const terminalTitleStyle: React.CSSProperties = {
+  display: 'flex',
+  alignItems: 'center',
+  gap: 10,
+  padding: '10px 14px',
+  borderBottom: '1px solid rgba(255,255,255,0.04)',
+};
+
+const terminalThreadTitleStyle: React.CSSProperties = {
+  color: '#f8fafc',
+  fontWeight: 700,
+  fontSize: 13,
+};
+
+const terminalBranchStyle: React.CSSProperties = {
+  color: '#22c55e',
+  background: 'rgba(34, 197, 94, 0.10)',
+  padding: '1px 8px',
+  borderRadius: 4,
+  fontSize: 11,
 };
 
 const terminalScrollStyle: React.CSSProperties = {
-  margin: 0,
-  whiteSpace: 'pre-wrap',
-  overflowWrap: 'anywhere',
+  flex: 1,
+  overflowY: 'auto',
+  padding: '10px 14px 14px',
+  display: 'flex',
+  flexDirection: 'column',
+  gap: 6,
+  minHeight: 0,
 };
 
-const terminalNoteStyle: React.CSSProperties = {
-  marginTop: 12,
-  paddingTop: 8,
-  borderTop: '1px solid rgba(255,255,255,0.06)',
+const termInfoStyle: React.CSSProperties = {
   color: '#64748b',
   fontStyle: 'italic',
+};
+
+function termRowStyle(_m: ThreadMessageDto): React.CSSProperties {
+  return {
+    display: 'flex',
+    gap: 8,
+    lineHeight: 1.5,
+    whiteSpace: 'pre-wrap',
+    overflowWrap: 'anywhere',
+  };
+}
+
+function termGlyphStyle(m: ThreadMessageDto): React.CSSProperties {
+  let color = '#64748b';
+  if (m.role === 'user') color = '#22c55e';
+  else if (m.role === 'assistant') color = '#fb923c';
+  else if (m.type === 'tool_call' || m.type === 'tool_result') color = '#60a5fa';
+  else if (m.type === 'turn_done') color = '#22c55e';
+  return {
+    color,
+    width: 14,
+    flexShrink: 0,
+    fontWeight: 700,
+  };
+}
+
+function termContentStyle(m: ThreadMessageDto): React.CSSProperties {
+  let color = '#cdd6f4';
+  if (m.role === 'user') color = '#dcfce7';
+  else if (m.role === 'assistant' && m.type === 'thinking') color = '#94a3b8';
+  else if (m.role === 'assistant') color = '#fed7aa';
+  else if (m.type === 'tool_call') color = '#bfdbfe';
+  else if (m.type === 'tool_result') color = '#94a3b8';
+  else if (m.type === 'turn_done') color = '#86efac';
+  else if (m.type === 'error') color = '#fca5a5';
+  return {
+    color,
+    flex: 1,
+    minWidth: 0,
+    fontStyle: m.type === 'thinking' ? 'italic' : 'normal',
+  };
+}
+
+const termCwdHintStyle: React.CSSProperties = {
+  position: 'absolute',
+  bottom: 28,
+  left: 14,
+  color: '#475569',
+  fontSize: 10,
+  pointerEvents: 'none',
+  overflow: 'hidden',
+  textOverflow: 'ellipsis',
+  whiteSpace: 'nowrap',
+  maxWidth: '60%',
 };
 
 const vitalsListStyle: React.CSSProperties = {

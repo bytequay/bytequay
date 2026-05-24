@@ -28,19 +28,25 @@ type Props = {
   onContinueFullForm: (params: { prompt: string; startMode: StartMode }) => void;
 };
 
-/** Workspace-scoped new-thread modal. Matches the create-thread
- *  mockup's two-step shape: a free-form prompt at the top, a
- *  Discussion / Start-a-task picker beneath it, and "Start thread"
- *  drops the user into the existing full create page with the
- *  intent pre-set. The repo + agent + skills picker continues to
- *  live on the full page — bringing them into the modal is a
- *  follow-up commit. */
+/**
+ * Workspace-scoped new-thread modal per
+ * docs/mockups/design/tasks/create-thread.png — a free-form prompt
+ * at the top, a chip row for Add files / Reference a PR / Skills, a
+ * "Lands on the thread's trunk — plan here; a task begins when work
+ * turns branch-worthy" hint with the word "trunk" picked out, and an
+ * ADVANCED · INHERITS BYTEQUAY DEFAULTS section that exposes the
+ * repo + agent picks as inline chips with the workspace defaults
+ * pre-filled. The Discussion / Start-a-task picker is removed — the
+ * trunk *is* the discussion altitude, and tasks materialise from the
+ * first branch-worthy turn rather than an up-front choice.
+ */
 function NewThreadDialog({ onClose, onContinueFullForm }: Props) {
   const [prompt, setPrompt] = useState('');
-  const [startMode, setStartMode] = useState<StartMode>('discussion');
 
   const handleSubmit = () => {
-    onContinueFullForm({ prompt: prompt.trim(), startMode });
+    // Trunk-first creation: the thread lands on the trunk; the agent
+    // proposes materialising a task on the first branch-worthy turn.
+    onContinueFullForm({ prompt: prompt.trim(), startMode: 'discussion' });
   };
 
   return (
@@ -59,7 +65,10 @@ function NewThreadDialog({ onClose, onContinueFullForm }: Props) {
         <header style={dialogStyles.header}>
           <h2 id="new-thread-title" style={dialogStyles.title}>
             New thread
-            <span style={dialogStyles.workspaceChip}>ByteQuay</span>
+            <span style={dialogStyles.workspaceChip}>
+              <span style={brandSquareStyle} aria-hidden>B</span>
+              ByteQuay
+            </span>
           </h2>
           <button
             type="button"
@@ -82,36 +91,40 @@ function NewThreadDialog({ onClose, onContinueFullForm }: Props) {
         <div style={dialogStyles.chipRow}>
           <button type="button" style={dialogStyles.chip} disabled>📎 Add files</button>
           <button type="button" style={dialogStyles.chip} disabled>↗ Reference a PR</button>
-          <button type="button" style={dialogStyles.chip} disabled>+ Skills</button>
+          <button type="button" style={dialogStyles.chip} disabled>✦ Skills</button>
         </div>
 
-        <div style={dialogStyles.helperRow}>
-          Threads <strong>auto-title</strong> from your first message — no
-          naming needed.
+        <div style={trunkHintRowStyle}>
+          <span style={trunkHintBulletStyle} aria-hidden>●</span>
+          <span style={trunkHintTextStyle}>
+            Lands on the thread's <span style={trunkLinkStyle}>trunk</span> —
+            plan here; a task begins when work turns branch-worthy.
+            Auto-titled from your first message.
+          </span>
         </div>
 
-        <div style={dialogStyles.modeSectionLabel}>Start as</div>
-        <div style={dialogStyles.modeRow}>
-          <ModeCard
-            label="Discussion"
-            description="No branch yet. Brainstorm, read code, plan. A task materialises only when work gets branch-worthy."
-            icon="💬"
-            active={startMode === 'discussion'}
-            onClick={() => setStartMode('discussion')}
-          />
-          <ModeCard
-            label="Start a task"
-            description="Cut a branch + worktree now on a chosen repo and begin building immediately."
-            icon="↗"
-            active={startMode === 'task'}
-            onClick={() => setStartMode('task')}
-          />
+        <div style={advancedHeaderStyle}>
+          ADVANCED <span style={advancedMutedStyle}>· INHERITS BYTEQUAY DEFAULTS</span>
+          <span style={advancedOverrideHintStyle}>— override if needed</span>
+        </div>
+        <div style={advancedRowStyle}>
+          <button type="button" style={advancedChipStyle} disabled>
+            <span style={advChipGlyphStyle('repo')} aria-hidden>●</span>
+            <span style={advChipLabelStyle}>bytequay</span>
+            <span style={advChipMetaStyle}>· backend, docs</span>
+            <span style={advChipCaretStyle}>▾</span>
+          </button>
+          <button type="button" style={advancedChipStyle} disabled>
+            <span style={advChipGlyphStyle('agent')} aria-hidden>C</span>
+            <span style={advChipLabelStyle}>Claude Code</span>
+            <span style={advChipMetaStyle}>CLI · sonnet-4.6</span>
+            <span style={advChipCaretStyle}>▾</span>
+          </button>
         </div>
 
         <footer style={dialogStyles.footer}>
           <div style={dialogStyles.footerNote}>
-            Repo + agent picks land on the full create page next — the
-            modal hands off so the heavy form keeps one home.
+            Lands on the trunk · inherits ByteQuay's memory &amp; skills
           </div>
           <div style={dialogStyles.footerButtons}>
             <button type="button" style={dialogStyles.secondaryBtn} onClick={onClose}>
@@ -122,7 +135,7 @@ function NewThreadDialog({ onClose, onContinueFullForm }: Props) {
               style={dialogStyles.primaryBtn}
               onClick={handleSubmit}
             >
-              Start thread ⏎
+              Start thread <span style={{ marginLeft: 4 }}>⏎</span>
             </button>
           </div>
         </footer>
@@ -131,27 +144,126 @@ function NewThreadDialog({ onClose, onContinueFullForm }: Props) {
   );
 }
 
-function ModeCard({ label, description, icon, active, onClick }: {
-  label: string;
-  description: string;
-  icon: string;
-  active: boolean;
-  onClick: () => void;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      style={dialogStyles.modeCard(active)}
-      aria-pressed={active}
-    >
-      <div style={dialogStyles.modeCardLabel}>
-        <span style={{ marginRight: 6 }} aria-hidden>{icon}</span>
-        {label}
-      </div>
-      <div style={dialogStyles.modeCardDesc}>{description}</div>
-    </button>
-  );
+const brandSquareStyle: React.CSSProperties = {
+  width: 16,
+  height: 16,
+  borderRadius: 4,
+  background: 'linear-gradient(135deg, #7c3aed, #6366f1)',
+  color: '#fff',
+  display: 'inline-flex',
+  alignItems: 'center',
+  justifyContent: 'center',
+  fontSize: 10,
+  fontWeight: 700,
+  marginRight: 6,
+};
+
+const trunkHintRowStyle: React.CSSProperties = {
+  display: 'flex',
+  alignItems: 'flex-start',
+  gap: 8,
+  marginTop: 14,
+  fontSize: 11,
+  color: 'var(--ws-text-3)',
+  lineHeight: 1.55,
+};
+
+const trunkHintBulletStyle: React.CSSProperties = {
+  color: '#7c3aed',
+  fontSize: 10,
+  marginTop: 2,
+  flexShrink: 0,
+};
+
+const trunkHintTextStyle: React.CSSProperties = {
+  flex: 1,
+};
+
+const trunkLinkStyle: React.CSSProperties = {
+  color: '#7c3aed',
+  fontWeight: 600,
+  borderBottom: '1px dotted rgba(124,58,237,0.5)',
+  cursor: 'help',
+};
+
+const advancedHeaderStyle: React.CSSProperties = {
+  marginTop: 14,
+  fontSize: 10,
+  fontWeight: 700,
+  letterSpacing: '0.06em',
+  color: 'var(--ws-text-2)',
+};
+
+const advancedMutedStyle: React.CSSProperties = {
+  fontWeight: 500,
+  color: 'var(--ws-text-3)',
+};
+
+const advancedOverrideHintStyle: React.CSSProperties = {
+  marginLeft: 8,
+  fontWeight: 500,
+  color: 'var(--ws-text-4)',
+  letterSpacing: '0.02em',
+  textTransform: 'none',
+  fontStyle: 'italic',
+};
+
+const advancedRowStyle: React.CSSProperties = {
+  display: 'flex',
+  gap: 8,
+  marginTop: 8,
+  flexWrap: 'wrap',
+};
+
+const advancedChipStyle: React.CSSProperties = {
+  display: 'inline-flex',
+  alignItems: 'center',
+  gap: 6,
+  padding: '6px 12px',
+  border: '1px solid var(--ws-card-border)',
+  background: 'rgba(255,255,255,0.86)',
+  borderRadius: 10,
+  fontSize: 12,
+  color: 'var(--ws-text-1)',
+  cursor: 'pointer',
+};
+
+function advChipGlyphStyle(kind: 'repo' | 'agent'): React.CSSProperties {
+  if (kind === 'agent') {
+    return {
+      width: 18,
+      height: 18,
+      borderRadius: 999,
+      background: '#ea580c',
+      color: '#fff',
+      display: 'inline-flex',
+      alignItems: 'center',
+      justifyContent: 'center',
+      fontSize: 11,
+      fontWeight: 700,
+      flexShrink: 0,
+    };
+  }
+  return {
+    color: '#7c3aed',
+    fontSize: 10,
+    flexShrink: 0,
+  };
 }
+
+const advChipLabelStyle: React.CSSProperties = {
+  fontWeight: 600,
+};
+
+const advChipMetaStyle: React.CSSProperties = {
+  color: 'var(--ws-text-3)',
+  fontSize: 11,
+};
+
+const advChipCaretStyle: React.CSSProperties = {
+  color: 'var(--ws-text-4)',
+  fontSize: 10,
+  marginLeft: 4,
+};
 
 export default NewThreadDialog;

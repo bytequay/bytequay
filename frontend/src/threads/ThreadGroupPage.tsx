@@ -184,6 +184,48 @@ export default function ThreadGroupPage(props: ThreadGroupPageProps) {
         />
       )}
       <main style={mainStyle}>
+        {immersive && (
+          <div style={immersiveTopBarStyle}>
+            <span style={immBrandStyle}>ByteQuay</span>
+            <span style={immGroupChipStyle}>
+              <span style={immGroupDotStyle} aria-hidden />
+              {group.name}
+              <span style={immGroupCountStyle}>
+                {threads.length}/{GROUP_MAX_MEMBERS}
+              </span>
+            </span>
+            <div style={immModeTogStyle}>
+              <button
+                type="button"
+                onClick={() => onChangeTileMode('chat')}
+                style={immModeBtnStyle(tileMode === 'chat')}
+              >
+                Conversation
+              </button>
+              <button
+                type="button"
+                onClick={() => onChangeTileMode('terminal')}
+                style={immModeBtnStyle(tileMode === 'terminal')}
+              >
+                Terminal
+              </button>
+            </div>
+            <span style={immSpacerStyle} />
+            <span style={immHintStyle}>
+              <kbd style={immKbdStyle}>↑↓</kbd> {threads.length} panes
+              <span style={{ margin: '0 6px', opacity: 0.4 }}>·</span>
+              <kbd style={immKbdStyle}>⌘K</kbd> jump
+            </span>
+            <button
+              type="button"
+              onClick={() => onChangeImmersive(false)}
+              style={immExitBtnStyle}
+              title="Exit immersive (esc)"
+            >
+              ✕ Exit immersive
+            </button>
+          </div>
+        )}
         <GroupThreadGrid
           threads={threads}
           activeTurnsByThreadId={activeTurnsByThreadId}
@@ -240,6 +282,100 @@ const shellStyle: React.CSSProperties = {
   height: 'calc(100vh - 56px)',
   background: 'var(--bg-base)',
   position: 'relative',
+};
+
+const immersiveTopBarStyle: React.CSSProperties = {
+  // Slim dark bar across the top of the immersive board — replaces
+  // the workspace rail + top-nav while the user is driving N agents
+  // in parallel. Matches docs/mockups/design/tasks/thread-group-immersive.png.
+  display: 'flex',
+  alignItems: 'center',
+  gap: 10,
+  padding: '6px 14px',
+  background: '#0d1117',
+  color: '#cdd6f4',
+  borderBottom: '1px solid #1f2937',
+  fontSize: 11,
+  flexShrink: 0,
+};
+
+const immBrandStyle: React.CSSProperties = {
+  fontWeight: 700,
+  color: '#22c55e',
+  letterSpacing: '0.02em',
+};
+
+const immGroupChipStyle: React.CSSProperties = {
+  display: 'inline-flex',
+  alignItems: 'center',
+  gap: 6,
+  padding: '2px 8px',
+  background: 'rgba(124, 58, 237, 0.15)',
+  border: '1px solid rgba(124, 58, 237, 0.40)',
+  borderRadius: 6,
+  color: '#c4b5fd',
+  fontSize: 11,
+};
+
+const immGroupDotStyle: React.CSSProperties = {
+  width: 6,
+  height: 6,
+  borderRadius: 999,
+  background: '#7c3aed',
+};
+
+const immGroupCountStyle: React.CSSProperties = {
+  color: '#94a3b8',
+  fontSize: 10,
+  marginLeft: 4,
+};
+
+const immModeTogStyle: React.CSSProperties = {
+  display: 'inline-flex',
+  gap: 2,
+  background: '#1f2937',
+  padding: 2,
+  borderRadius: 6,
+};
+
+function immModeBtnStyle(active: boolean): React.CSSProperties {
+  return {
+    padding: '2px 10px',
+    fontSize: 11,
+    border: 'none',
+    background: active ? '#0d9488' : 'transparent',
+    color: active ? '#0a0e14' : '#94a3b8',
+    borderRadius: 4,
+    cursor: 'pointer',
+    fontWeight: active ? 700 : 500,
+  };
+}
+
+const immSpacerStyle: React.CSSProperties = { flex: 1 };
+
+const immHintStyle: React.CSSProperties = {
+  color: '#94a3b8',
+  fontSize: 10,
+};
+
+const immKbdStyle: React.CSSProperties = {
+  background: '#1f2937',
+  color: '#cdd6f4',
+  padding: '1px 6px',
+  borderRadius: 3,
+  fontSize: 9,
+  fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
+};
+
+const immExitBtnStyle: React.CSSProperties = {
+  border: '1px solid rgba(34, 197, 94, 0.30)',
+  background: 'rgba(34, 197, 94, 0.12)',
+  color: '#22c55e',
+  padding: '3px 10px',
+  fontSize: 11,
+  borderRadius: 6,
+  cursor: 'pointer',
+  fontWeight: 600,
 };
 
 const mainStyle: React.CSSProperties = {

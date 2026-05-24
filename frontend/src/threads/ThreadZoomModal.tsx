@@ -101,31 +101,37 @@ export default function ThreadZoomModal({
         onClick={e => e.stopPropagation()}
       >
         <div style={contextBarStyle}>
-          <button
-            type="button"
-            style={ctxBtnStyle}
-            onClick={() => setTaskId(null)}
-            disabled={taskId === null}
-            title="Jump to the thread trunk"
-          >
-            ↑ Thread
-          </button>
-          <span style={ctxPathStyle}>
-            <span style={ctxThreadStyle}>{thread.title}</span>
-            {taskId !== null && <span style={ctxSepStyle}>›</span>}
-            {taskId !== null && (
-              <span style={ctxTaskStyle}>
-                Task {thread.activeTask?.id === taskId
-                  ? `${thread.activeTask?.seq ?? ''}` : ''}
-              </span>
-            )}
-            <span style={ctxModeStyle}>
-              {taskId === null ? '· planning' : '· working'}
+          {taskId === null ? (
+            <span style={ctxTypeBadgeStyle('thread')}>◆ THREAD</span>
+          ) : (
+            <span style={ctxTypeBadgeStyle('task')}>
+              ● TASK {thread.activeTask?.id === taskId ? thread.activeTask?.seq ?? '' : ''}
             </span>
+          )}
+          {taskId !== null && (
+            <button
+              type="button"
+              style={ctxLinkBtnStyle}
+              onClick={() => setTaskId(null)}
+              title="Back to the trunk (still zoomed)"
+            >
+              ← Thread
+            </button>
+          )}
+          <span style={ctxTitleStyle}>{thread.title}</span>
+          <span style={ctxHintStyle}>
+            {taskId === null ? 'zoomed from the board' : 'switched in from the trunk'}
           </span>
+          <span style={ctxSpacerStyle} />
+          <span style={ctxPaneIndicatorStyle} title="Pane on the board">
+            pane 1 of 4
+            <span style={paneDotsStyle}>●●●●</span>
+          </span>
+          <button type="button" style={ctxArrowBtnStyle} title="Previous pane (←)">‹</button>
+          <button type="button" style={ctxArrowBtnStyle} title="Next pane (→)">›</button>
           <button
             type="button"
-            style={ctxBtnStyle}
+            style={ctxOpenFullStyle}
             onClick={() => { onClose(); onExpandToDetail(thread.id); }}
             title="Open the full window (leave the board)"
           >
@@ -133,7 +139,7 @@ export default function ThreadZoomModal({
           </button>
           <button
             type="button"
-            style={ctxBtnStyle}
+            style={ctxCloseStyle}
             onClick={onClose}
             title="Return to the board (esc)"
           >
@@ -154,6 +160,11 @@ export default function ThreadZoomModal({
               onBackToTrunk={onBackToTrunk}
             />
           )}
+        </div>
+        <div style={bottomHintStyle}>
+          {taskId === null
+            ? '← → walk threads on the board · click a task → its detail (also zoomed) · esc back to board'
+            : '↑ Thread · back to the trunk (zoomed) · esc back to board · this thread reopens here next time'}
         </div>
       </div>
     </div>
@@ -188,14 +199,31 @@ const frameStyle: React.CSSProperties = {
 const contextBarStyle: React.CSSProperties = {
   display: 'flex',
   alignItems: 'center',
-  gap: 8,
-  padding: '6px 12px',
-  borderBottom: '1px solid rgba(0,0,0,0.06)',
-  background: 'rgba(15, 23, 42, 0.04)',
+  gap: 10,
+  padding: '7px 14px',
+  borderBottom: '1px solid rgba(0,0,0,0.08)',
+  background: 'rgba(255, 255, 255, 0.96)',
   fontSize: 11,
 };
 
-const ctxBtnStyle: React.CSSProperties = {
+function ctxTypeBadgeStyle(kind: 'thread' | 'task'): React.CSSProperties {
+  const isTask = kind === 'task';
+  return {
+    display: 'inline-flex',
+    alignItems: 'center',
+    gap: 4,
+    fontSize: 10,
+    fontWeight: 700,
+    letterSpacing: '0.06em',
+    padding: '3px 8px',
+    borderRadius: 6,
+    color: isTask ? '#0d9488' : '#475569',
+    background: isTask ? 'rgba(13,148,136,0.10)' : 'rgba(71,85,105,0.10)',
+    border: `1px solid ${isTask ? 'rgba(13,148,136,0.30)' : 'rgba(71,85,105,0.30)'}`,
+  };
+}
+
+const ctxLinkBtnStyle: React.CSSProperties = {
   border: '1px solid rgba(0,0,0,0.10)',
   background: '#fff',
   padding: '3px 8px',
@@ -205,16 +233,80 @@ const ctxBtnStyle: React.CSSProperties = {
   color: 'var(--text-2)',
 };
 
-const ctxPathStyle: React.CSSProperties = {
-  flex: 1,
-  display: 'flex',
-  gap: 6,
-  alignItems: 'center',
-  overflow: 'hidden',
+const ctxTitleStyle: React.CSSProperties = {
+  fontWeight: 600,
+  color: 'var(--text-1)',
   whiteSpace: 'nowrap',
+  overflow: 'hidden',
+  textOverflow: 'ellipsis',
+  maxWidth: 320,
 };
 
-const ctxThreadStyle: React.CSSProperties = {
+const ctxHintStyle: React.CSSProperties = {
+  color: 'var(--text-4)',
+  fontStyle: 'italic',
+  fontSize: 11,
+};
+
+const ctxSpacerStyle: React.CSSProperties = { flex: 1 };
+
+const ctxPaneIndicatorStyle: React.CSSProperties = {
+  display: 'inline-flex',
+  alignItems: 'center',
+  gap: 6,
+  color: 'var(--text-3)',
+  fontSize: 11,
+};
+
+const paneDotsStyle: React.CSSProperties = {
+  color: 'var(--text-4)',
+  letterSpacing: '2px',
+  fontSize: 8,
+};
+
+const ctxArrowBtnStyle: React.CSSProperties = {
+  width: 22,
+  height: 22,
+  border: '1px solid rgba(0,0,0,0.10)',
+  background: '#fff',
+  borderRadius: 6,
+  fontSize: 12,
+  color: 'var(--text-3)',
+  cursor: 'pointer',
+};
+
+const ctxOpenFullStyle: React.CSSProperties = {
+  border: '1px solid rgba(13,148,136,0.30)',
+  background: '#fff',
+  color: '#0d9488',
+  padding: '3px 10px',
+  fontSize: 11,
+  borderRadius: 6,
+  cursor: 'pointer',
+  fontWeight: 600,
+};
+
+const ctxCloseStyle: React.CSSProperties = {
+  border: '1px solid rgba(0,0,0,0.10)',
+  background: '#fff',
+  padding: '3px 8px',
+  fontSize: 12,
+  borderRadius: 6,
+  cursor: 'pointer',
+  color: 'var(--text-3)',
+};
+
+const bottomHintStyle: React.CSSProperties = {
+  padding: '6px 14px',
+  background: 'rgba(15, 23, 42, 0.06)',
+  borderTop: '1px solid rgba(0,0,0,0.06)',
+  color: 'var(--text-3)',
+  fontSize: 10,
+  textAlign: 'center',
+  fontStyle: 'italic',
+};
+
+const _legacyCtxThreadStyle: React.CSSProperties = {
   fontWeight: 600,
   color: 'var(--text-1)',
   overflow: 'hidden',

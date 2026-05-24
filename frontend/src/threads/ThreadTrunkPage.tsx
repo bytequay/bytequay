@@ -1030,7 +1030,7 @@ function TaskCard({
             <span style={taskCardTitleStyle} title={labelText}>{labelText}</span>
           </div>
         </div>
-        {selected ? (
+        {selected && (
           <button
             type="button"
             onClick={(e) => { e.stopPropagation(); onOpen(); }}
@@ -1039,8 +1039,6 @@ function TaskCard({
           >
             Open →
           </button>
-        ) : (
-          <span style={taskStatusPillStyle(task.status)}>{statusLabel(task.status)}</span>
         )}
       </div>
       <div style={taskMetaRowStyle}>
@@ -1060,6 +1058,7 @@ function TaskCard({
         <span style={metaChipStyle} title={`Created ${task.createdAt}`}>
           <span style={metaIconStyle}>◷</span>{relativeTime(task.createdAt)}
         </span>
+        <span style={taskStatusPillStyle(task.status)}>{statusLabel(task.status)}</span>
       </div>
     </li>
   );

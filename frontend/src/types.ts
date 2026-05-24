@@ -1480,6 +1480,10 @@ export type WorkUnitTaskDto = {
   taskType: string;
   linkedPrNumber: number | null;
   linkedIssueNumber: number | null;
+  /** ISO instant when the task row was first inserted. Surfaces in
+   *  the trunk chat as the timestamp on the inline "Started Task N"
+   *  launch card. */
+  createdAt: string;
 };
 
 /** Conversation-index window response. Carries both the user-prompt

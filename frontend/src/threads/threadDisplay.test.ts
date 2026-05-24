@@ -30,6 +30,7 @@ function task(overrides: Partial<WorkUnitTaskDto>): WorkUnitTaskDto {
     prNumber: null, prState: null, ciState: null,
     taskType: 'DEVELOP',
     linkedPrNumber: null, linkedIssueNumber: null,
+    createdAt: '2026-05-15T12:00:00Z',
     ...overrides,
   };
 }

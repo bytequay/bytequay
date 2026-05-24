@@ -17,9 +17,10 @@ import type {
   ThreadMessageDto,
   ThreadSettingsDto,
   ThreadTurnDto,
+  UserProfileDto,
   WorkUnitTaskDto,
 } from '../types';
-import { StructuredConversation } from './StructuredConversation';
+import TrunkChat from './TrunkChat';
 import { useThreadTasks } from './useThreadTasks';
 
 type Props = {
@@ -61,6 +62,14 @@ export default function ThreadTrunkPage({ threadId, onBack, onOpenTask }: Props)
   const [composerInput, setComposerInput] = useState('');
   const [sending, setSending] = useState(false);
   const [sendError, setSendError] = useState<string | null>(null);
+  const [profile, setProfile] = useState<UserProfileDto | null>(null);
+
+  useEffect(() => {
+    void window.bridge.getUserProfile()
+      .then(p => setProfile(p))
+      .catch(() => { /* avatars fall back to "??" */ });
+  }, []);
+  const userInitials = useMemo(() => initialsFor(profile), [profile]);
 
   const loadThread = useCallback(async () => {
     try {
@@ -209,25 +218,22 @@ export default function ThreadTrunkPage({ threadId, onBack, onOpenTask }: Props)
           <button type="button" onClick={onBack} style={backBtnStyle}>← Threads</button>
           <span style={titleStyle}>{title}</span>
           {thread !== null && (
-            <span style={statusBadgeStyle(thread.status)}>
-              {thread.status}{taskCount > 0 && ` · ${taskCount} task${taskCount === 1 ? '' : 's'}`}
+            <span style={statusPillStyle(thread.status)}>
+              <span style={statusDotStyle(thread.status)} aria-hidden />
+              {thread.status}
+              {taskCount > 0 && ` · ${taskCount} task${taskCount === 1 ? '' : 's'}`}
             </span>
           )}
         </header>
 
         <div style={altitudeBandStyle}>
-          <span style={bandGlyphStyle}>◆ THREAD</span>
+          <span style={bandGlyphStyle}>◆ THREAD · trunk</span>
           <span style={bandTitleStyle}>{title}</span>
           <span style={bandHintStyle}>
             {thread?.flow === 'review'
               ? 'review flow · references a PR · multi-agent panel'
-              : 'planning & orchestration · no branch · build flow'}
+              : 'planning & orchestration · no branch'}
           </span>
-          {thread !== null && (
-            <span style={flowBadgeStyle(thread.flow)}>
-              {thread.flow === 'review' ? 'REVIEW' : 'BUILD'}
-            </span>
-          )}
         </div>
 
         <div style={bodyGridStyle}>
@@ -276,18 +282,23 @@ export default function ThreadTrunkPage({ threadId, onBack, onOpenTask }: Props)
                 </div>
               )}
               {orderedTasks.length > 0 && (
-                <ul style={listStyle}>
-                  {orderedTasks.map(t => (
-                    <TaskCard
-                      key={t.id}
-                      task={t}
-                      selected={t.id === selectedTaskId}
-                      isForeground={foreground?.id === t.id}
-                      onSelect={() => setSelectedTaskId(t.id)}
-                      onOpen={() => onOpenTask(t.id)}
-                    />
-                  ))}
-                </ul>
+                <>
+                  <ul style={listStyle}>
+                    {orderedTasks.map(t => (
+                      <TaskCard
+                        key={t.id}
+                        task={t}
+                        selected={t.id === selectedTaskId}
+                        isForeground={foreground?.id === t.id}
+                        onSelect={() => setSelectedTaskId(t.id)}
+                        onOpen={() => onOpenTask(t.id)}
+                      />
+                    ))}
+                  </ul>
+                  <div style={selectHintStyle}>
+                    Click a card to select · <kbd style={kbdStyle}>Open →</kbd> to enter its window
+                  </div>
+                </>
               )}
               {isReviewFlow ? (
                 <div style={reviewFlowNoticeStyle}>
@@ -354,38 +365,24 @@ export default function ThreadTrunkPage({ threadId, onBack, onOpenTask }: Props)
           <main style={mainStyle}>
             {messages === null ? (
               <div style={planningPlaceholderStyle}>
-                <h2 style={planningTitleStyle}>Trunk planning</h2>
                 <p style={planningBodyStyle}>Loading planning conversation…</p>
               </div>
-            ) : trunkMessages.length === 0 ? (
+            ) : trunkMessages.length === 0 && orderedTasksAsc.length === 0 ? (
               <div style={planningPlaceholderStyle}>
-                <h2 style={planningTitleStyle}>Trunk planning</h2>
                 <p style={planningBodyStyle}>
-                  This is the thread's planning altitude — the map across all
-                  tasks. The trunk owns no branch and no diff; talk here is
-                  the cross-task plan, and each task forks from this
-                  conversation at creation.
-                </p>
-                <p style={planningBodyStyle}>
-                  {tasks === null
-                    ? 'Loading tasks…'
-                    : tasks.length === 0
-                      ? 'No tasks yet. Open a task once one materialises, or start one from your next prompt.'
-                      : foreground !== null
-                        ? <>Foreground task: <strong>{taskLabel(foreground)}</strong> (seq {foreground.seq}). Use <kbd>Open →</kbd> on a card to enter its window.</>
-                        : 'No foreground task — every task in this thread is parked or shipped.'}
+                  This is the thread's planning altitude. Talk here to map
+                  out the work across tasks — each task forks from this
+                  conversation at creation. Start typing below.
                 </p>
               </div>
             ) : (
-              <div style={planningScrollStyle}>
-                <StructuredConversation
-                  messages={trunkMessages}
-                  pendingPermission={null}
-                  onDecide={noopDecide}
-                  modelName={thread?.model ?? ''}
-                  tasks={orderedTasksAsc}
-                />
-              </div>
+              <TrunkChat
+                messages={trunkMessages}
+                tasks={orderedTasksAsc}
+                foregroundTaskId={foreground?.id ?? null}
+                userInitials={userInitials}
+                onOpenTask={onOpenTask}
+              />
             )}
           </main>
         </div>
@@ -410,8 +407,13 @@ export default function ThreadTrunkPage({ threadId, onBack, onOpenTask }: Props)
           />
           <div style={composerFooterStyle}>
             <span style={composerScopeStyle}>▸ Thread</span>
+            <span style={composerGlyphStyle} title="Cancel current input">⊘</span>
+            <span style={composerGlyphStyle} title="Slash commands">/</span>
             <span style={composerFooterHintStyle}>
-              ⌘↵ send · no branch here — the trunk plans; tasks do the work
+              send · commands
+            </span>
+            <span style={composerNoBranchHintStyle}>
+              no branch here — the trunk plans; tasks do the work
             </span>
             <button
               type="button"
@@ -799,6 +801,16 @@ const settingsResetBtnStyle: React.CSSProperties = {
   cursor: 'pointer',
 };
 
+function initialsFor(profile: UserProfileDto | null): string {
+  const source = profile?.name ?? profile?.login ?? '';
+  if (source.length === 0) return 'JC';
+  const parts = source.trim().split(/\s+/);
+  if (parts.length === 1) {
+    return parts[0].slice(0, 2).toUpperCase();
+  }
+  return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
+}
+
 function newestActiveTask(tasks: WorkUnitTaskDto[]): WorkUnitTaskDto | null {
   return tasks
     .filter(t => ACTIVE_STATUSES.has(t.status))
@@ -834,6 +846,11 @@ function TaskCard({
   onOpen: () => void;
 }) {
   const labelText = taskLabel(task);
+  // Compact sub-line per the mockup: branch · PR # · short name.
+  const subParts: string[] = [];
+  if (task.branchName !== null) subParts.push(task.branchName);
+  if (task.prNumber !== null) subParts.push(`PR #${task.prNumber}`);
+  const sub = subParts.join(' · ');
   return (
     <li
       onClick={onSelect}
@@ -842,24 +859,24 @@ function TaskCard({
     >
       <div style={taskCardHeadStyle}>
         <span style={glyphStyle(task)} aria-hidden>{glyphChar(task)}</span>
-        <span style={taskCardTitleStyle}>{labelText}</span>
-        <button
-          type="button"
-          onClick={(e) => { e.stopPropagation(); onOpen(); }}
-          style={openBtnStyle(selected)}
-          title={`Enter Task ${task.seq}'s window`}
-        >
-          Open →
-        </button>
-      </div>
-      <div style={taskCardMetaStyle}>
-        {task.branchName !== null && (
-          <span style={branchStyle}>{task.branchName}</span>
+        <div style={{ flex: 1, minWidth: 0 }}>
+          <div style={taskCardTitleStyle}>{labelText}</div>
+          {sub.length > 0 && (
+            <div style={taskCardSubStyle} title={sub}>{sub}</div>
+          )}
+        </div>
+        {selected ? (
+          <button
+            type="button"
+            onClick={(e) => { e.stopPropagation(); onOpen(); }}
+            style={openBtnStyle(true)}
+            title={`Enter Task ${task.seq}'s window`}
+          >
+            Open →
+          </button>
+        ) : (
+          <span style={taskStatusPillStyle(task.status)}>{statusLabel(task.status)}</span>
         )}
-        {task.prNumber !== null && (
-          <span style={prStyle}>PR #{task.prNumber}</span>
-        )}
-        <span style={taskStatusPillStyle(task.status)}>{statusLabel(task.status)}</span>
       </div>
     </li>
   );
@@ -895,13 +912,52 @@ function SchedulerTable({
 }: {
   summary: { running: number; queued: number; cli: number; api: number };
 }) {
+  // The lanes are hard-capped by Spring properties — match the
+  // defaults in AgentScheduler (4 / 4). A future commit can pull
+  // these through a /api/scheduler/lanes endpoint.
+  const CLI_CAP = 4;
+  const API_CAP = 4;
   return (
-    <dl style={vitalsListStyle}>
-      <VitalRow label="Running" value={String(summary.running)} />
-      <VitalRow label="Queued" value={String(summary.queued)} />
-      <VitalRow label="CLI lane" value={String(summary.cli)} />
-      <VitalRow label="API lane" value={String(summary.api)} />
-    </dl>
+    <>
+      <dl style={vitalsListStyle}>
+        <VitalRow label="Running" value={String(summary.running)} />
+        <VitalRow label="Queued" value={String(summary.queued)} />
+      </dl>
+      <div style={{ marginTop: 8, display: 'grid', gap: 6 }}>
+        <LaneBar label="CLI lane" used={summary.cli} cap={CLI_CAP} color="#7c3aed" />
+        <LaneBar label="API lane" used={summary.api} cap={API_CAP} color="#0d9488" />
+      </div>
+      <div style={schedulerFooterStyle}>
+        within the workspace budget · interleaved across threads
+      </div>
+    </>
+  );
+}
+
+function LaneBar({
+  label, used, cap, color,
+}: {
+  label: string;
+  used: number;
+  cap: number;
+  color: string;
+}) {
+  const pct = Math.min(100, Math.round((used / Math.max(1, cap)) * 100));
+  return (
+    <div>
+      <div style={laneRowStyle}>
+        <span style={{ fontSize: 11, color: 'var(--text-3)' }}>{label}</span>
+        <span style={{
+          fontSize: 11, fontVariantNumeric: 'tabular-nums',
+          color: 'var(--text-1)',
+        }}>
+          {used} / {cap}
+        </span>
+      </div>
+      <div style={laneTrackStyle}>
+        <div style={{ ...laneFillStyle, width: `${pct}%`, background: color }} />
+      </div>
+    </div>
   );
 }
 
@@ -1054,17 +1110,31 @@ const titleStyle: React.CSSProperties = {
   textOverflow: 'ellipsis',
 };
 
-function statusBadgeStyle(status: string): React.CSSProperties {
-  const tone = status === 'RUNNING' ? '#16a34a' : status === 'ERRORED' ? '#b91c1c' : '#475569';
+function statusPillStyle(status: string): React.CSSProperties {
+  const tone = status === 'RUNNING' ? '#16a34a' : status === 'ERRORED' ? '#b91c1c' : SLATE;
   return {
+    display: 'inline-flex',
+    alignItems: 'center',
+    gap: 6,
     fontSize: 10,
-    padding: '2px 8px',
+    padding: '3px 10px',
     borderRadius: 999,
-    border: `1px solid ${tone}55`,
+    border: `1px solid ${tone}40`,
     color: tone,
-    background: `${tone}10`,
+    background: `${tone}14`,
     fontWeight: 700,
-    letterSpacing: '0.04em',
+    letterSpacing: '0.06em',
+  };
+}
+
+function statusDotStyle(status: string): React.CSSProperties {
+  const tone = status === 'RUNNING' ? '#16a34a' : status === 'ERRORED' ? '#b91c1c' : SLATE;
+  return {
+    width: 6,
+    height: 6,
+    borderRadius: 999,
+    background: tone,
+    boxShadow: status === 'RUNNING' ? `0 0 0 2px ${tone}30` : 'none',
   };
 }
 
@@ -1178,13 +1248,81 @@ function glyphStyle(task: WorkUnitTaskDto): React.CSSProperties {
 }
 
 const taskCardTitleStyle: React.CSSProperties = {
-  flex: 1,
   fontSize: 12,
   fontWeight: 600,
   color: 'var(--text-1)',
   overflow: 'hidden',
   textOverflow: 'ellipsis',
   whiteSpace: 'nowrap',
+};
+
+const taskCardSubStyle: React.CSSProperties = {
+  fontSize: 10,
+  color: 'var(--text-4)',
+  fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
+  overflow: 'hidden',
+  textOverflow: 'ellipsis',
+  whiteSpace: 'nowrap',
+  marginTop: 1,
+};
+
+const selectHintStyle: React.CSSProperties = {
+  marginTop: 8,
+  fontSize: 10,
+  color: 'var(--text-4)',
+  textAlign: 'center',
+};
+
+const kbdStyle: React.CSSProperties = {
+  fontSize: 9,
+  padding: '1px 4px',
+  border: '1px solid rgba(0,0,0,0.10)',
+  borderRadius: 4,
+  background: '#fff',
+  fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
+};
+
+const laneRowStyle: React.CSSProperties = {
+  display: 'flex',
+  justifyContent: 'space-between',
+  marginBottom: 2,
+};
+
+const laneTrackStyle: React.CSSProperties = {
+  height: 4,
+  background: 'rgba(0,0,0,0.06)',
+  borderRadius: 999,
+  overflow: 'hidden',
+};
+
+const laneFillStyle: React.CSSProperties = {
+  height: '100%',
+  borderRadius: 999,
+  transition: 'width 140ms ease',
+};
+
+const schedulerFooterStyle: React.CSSProperties = {
+  marginTop: 8,
+  fontSize: 9,
+  color: 'var(--text-4)',
+  fontStyle: 'italic',
+  textAlign: 'center',
+};
+
+const composerGlyphStyle: React.CSSProperties = {
+  fontSize: 11,
+  color: 'var(--text-4)',
+  padding: '0 2px',
+  cursor: 'default',
+};
+
+const composerNoBranchHintStyle: React.CSSProperties = {
+  flex: 1,
+  fontSize: 10,
+  color: 'var(--text-4)',
+  fontStyle: 'italic',
+  textAlign: 'right',
+  marginRight: 6,
 };
 
 function openBtnStyle(selected: boolean): React.CSSProperties {
@@ -1244,21 +1382,6 @@ function taskStatusPillStyle(status: string): React.CSSProperties {
     fontWeight: 700,
     letterSpacing: '0.04em',
     textTransform: 'lowercase',
-  };
-}
-
-function flowBadgeStyle(flow: 'build' | 'review'): React.CSSProperties {
-  const isReview = flow === 'review';
-  return {
-    marginLeft: 'auto',
-    fontSize: 10,
-    padding: '2px 8px',
-    borderRadius: 999,
-    fontWeight: 700,
-    letterSpacing: '0.06em',
-    background: isReview ? 'rgba(37, 99, 235, 0.10)' : SLATE_BG,
-    color: isReview ? '#1d4ed8' : SLATE,
-    border: `1px solid ${isReview ? 'rgba(37,99,235,0.30)' : SLATE_BORDER}`,
   };
 }
 
@@ -1417,20 +1540,6 @@ const planningPlaceholderStyle: React.CSSProperties = {
 // to the viewport. The composer is sticky at the page bottom and the
 // header/altitude band sit at the top, so this max-height keeps the
 // chat from pushing the composer off-screen on long histories.
-const planningScrollStyle: React.CSSProperties = {
-  background: 'rgba(255,255,255,0.72)',
-  backdropFilter: 'blur(14px) saturate(125%)',
-  WebkitBackdropFilter: 'blur(14px) saturate(125%)',
-  border: '1px solid rgba(0,0,0,0.06)',
-  borderRadius: 14,
-  padding: '12px 14px',
-  boxShadow: '0 4px 18px rgba(0,0,0,0.04)',
-  maxHeight: 'calc(100vh - 240px)',
-  overflow: 'auto',
-};
-
-const noopDecide = () => { /* trunk view is read-only in this phase */ };
-
 const checkpointListStyle: React.CSSProperties = {
   margin: 0,
   padding: 0,
@@ -1474,14 +1583,6 @@ const checkpointBlurbStyle: React.CSSProperties = {
   display: '-webkit-box',
   WebkitLineClamp: 2,
   WebkitBoxOrient: 'vertical',
-};
-
-const planningTitleStyle: React.CSSProperties = {
-  margin: '0 0 8px',
-  fontSize: 14,
-  fontWeight: 700,
-  letterSpacing: '0.02em',
-  color: SLATE,
 };
 
 const planningBodyStyle: React.CSSProperties = {

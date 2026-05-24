@@ -207,6 +207,15 @@ export default function TaskDetailPage({
 
       <div style={contentColStyle}>
         <header style={headerStyle}>
+          <button
+            type="button"
+            onClick={onBackToTrunk}
+            style={backArrowBtnStyle}
+            title="Back to the thread trunk"
+            aria-label="Back to thread"
+          >
+            ←
+          </button>
           <div style={brandStyle} aria-hidden>B</div>
           <button
             type="button"
@@ -238,8 +247,12 @@ export default function TaskDetailPage({
         </header>
 
         <div style={altitudeBandStyle}>
-          <span style={bandGlyphStyle}>● TASK{taskSeq !== null && ` ${taskSeq}`}</span>
-          <span style={bandTitleStyle}>{taskTitle}</span>
+          <span style={bandGlyphStyle}>● TASK</span>
+          <span style={bandTitleStyle}>
+            {taskSeq !== null && <span style={bandSeqStyle}>{taskSeq}.</span>}
+            {' '}
+            {taskTitle}
+          </span>
           {taskBranch !== null && (
             <span style={bandBranchStyle}>↗ {taskBranch}</span>
           )}
@@ -278,26 +291,28 @@ export default function TaskDetailPage({
               </div>
 
               <div style={composerCardStyle}>
-                <div style={composerAnchorStyle}>
-                  ↻ Replying in Task {taskSeq ?? ''} {taskBranch !== null && (
-                    <span style={composerBranchStyle}>· {taskBranch}</span>
-                  )}
+                <div style={composerTopStyle}>
+                  <div style={composerAnchorStyle}>
+                    ↻ Replying in Task {taskSeq ?? ''} {taskBranch !== null && (
+                      <span style={composerBranchStyle}>· {taskBranch}</span>
+                    )}
+                  </div>
+                  <textarea
+                    ref={composerRef}
+                    value={input}
+                    onChange={e => setInput(e.target.value)}
+                    onKeyDown={e => {
+                      if (e.key === 'Enter' && (e.metaKey || e.ctrlKey) && !sending) {
+                        e.preventDefault();
+                        void onSend();
+                      }
+                    }}
+                    placeholder={`Continue Task ${taskSeq ?? ''} — describe a change, ask the agent, or paste an error.`}
+                    style={composerInputStyle}
+                    rows={3}
+                    disabled={sending}
+                  />
                 </div>
-                <textarea
-                  ref={composerRef}
-                  value={input}
-                  onChange={e => setInput(e.target.value)}
-                  onKeyDown={e => {
-                    if (e.key === 'Enter' && (e.metaKey || e.ctrlKey) && !sending) {
-                      e.preventDefault();
-                      void onSend();
-                    }
-                  }}
-                  placeholder={`Continue Task ${taskSeq ?? ''} — describe a change, ask the agent, or paste an error.`}
-                  style={composerInputStyle}
-                  rows={3}
-                  disabled={sending}
-                />
                 <div style={composerFooterStyle}>
                   <span style={composerScopeStyle}>▸ Task {taskSeq ?? ''}</span>
                   <span style={composerGlyphStyle} title="Previous prompt">↑</span>
@@ -374,22 +389,43 @@ export default function TaskDetailPage({
               </section>
 
               <section style={railSectionStyle}>
-                <button
-                  type="button"
-                  onClick={() => { void onShip(); }}
-                  disabled={task === null || shipping}
-                  style={shipPrimaryStyle}
-                  title={task === null
-                    ? 'No task loaded yet'
-                    : `Ship Task ${task.seq} and return to the thread trunk`}
-                >
-                  <span aria-hidden style={{ marginRight: 8 }}>☁︎↑</span>
-                  {shipping ? 'Shipping…' : 'Ship — finalize & merge'}
-                </button>
-                <div style={shipHintStyle}>
-                  Finalises &amp; merges this task, then takes you back to the
-                  thread — where the next task starts.
-                </div>
+                {(() => {
+                  const isShipped = task?.status === 'COMPLETED';
+                  const isTerminal = isShipped || task?.status === 'ERRORED';
+                  return (
+                    <>
+                      <button
+                        type="button"
+                        onClick={() => { void onShip(); }}
+                        disabled={task === null || shipping || isTerminal}
+                        style={isTerminal ? shipShippedStyle : shipPrimaryStyle}
+                        title={task === null
+                          ? 'No task loaded yet'
+                          : isShipped
+                            ? 'This task has already shipped'
+                            : task.status === 'ERRORED'
+                              ? 'This task ended in an error; recover from the thread trunk'
+                              : `Ship Task ${task.seq} and return to the thread trunk`}
+                      >
+                        <span aria-hidden style={{ marginRight: 8 }}>
+                          {isShipped ? '✓' : isTerminal ? '⨯' : '☁︎↑'}
+                        </span>
+                        {isShipped
+                          ? 'Shipped'
+                          : task?.status === 'ERRORED'
+                            ? 'Errored — no ship'
+                            : shipping ? 'Shipping…' : 'Ship — finalize & merge'}
+                      </button>
+                      <div style={shipHintStyle}>
+                        {isShipped
+                          ? 'Already merged. Open the trunk to start the next task.'
+                          : task?.status === 'ERRORED'
+                            ? 'Recover or abandon this task from the trunk; Ship is disabled while a task is in an errored state.'
+                            : 'Finalises & merges this task, then takes you back to the thread — where the next task starts.'}
+                      </div>
+                    </>
+                  );
+                })()}
               </section>
             </aside>
           </div>
@@ -1342,6 +1378,22 @@ const railStyle: React.CSSProperties = {
   maxHeight: 'calc(100vh - 96px)',
 };
 
+const backArrowBtnStyle: React.CSSProperties = {
+  width: 28,
+  height: 28,
+  border: '1px solid rgba(0,0,0,0.10)',
+  background: '#fff',
+  borderRadius: 8,
+  fontSize: 14,
+  color: 'var(--text-2)',
+  cursor: 'pointer',
+  display: 'inline-flex',
+  alignItems: 'center',
+  justifyContent: 'center',
+  flexShrink: 0,
+  transition: 'background 140ms ease, transform 140ms ease',
+};
+
 const brandStyle: React.CSSProperties = {
   width: 22,
   height: 22,
@@ -1433,6 +1485,13 @@ const bandStatusStyle: React.CSSProperties = {
   fontSize: 11,
 };
 
+const bandSeqStyle: React.CSSProperties = {
+  color: 'var(--text-4)',
+  fontVariantNumeric: 'tabular-nums',
+  fontWeight: 500,
+  marginRight: 2,
+};
+
 const chatCardStyle: React.CSSProperties = {
   flex: 1,
   display: 'flex',
@@ -1456,15 +1515,27 @@ const loadingCenterStyle: React.CSSProperties = {
 };
 
 const composerCardStyle: React.CSSProperties = {
+  // Two-zone card: top region holds the anchor + textarea on a white
+  // background; the footer row sits inside a tinted bottom band with
+  // its own top divider so the glyph row reads as dedicated chrome
+  // instead of bleeding into the textarea below it.
+  display: 'flex',
+  flexDirection: 'column',
+  background: '#ffffff',
+  border: '1px solid rgba(0,0,0,0.10)',
+  borderRadius: 14,
+  boxShadow:
+    '0 4px 14px rgba(0,0,0,0.04),'
+    + ' inset 0 1px 0 rgba(255,255,255,0.8)',
+  flexShrink: 0,
+  overflow: 'hidden',
+};
+
+const composerTopStyle: React.CSSProperties = {
   display: 'flex',
   flexDirection: 'column',
   gap: 6,
-  padding: '10px 14px 12px',
-  background: 'rgba(255,255,255,0.92)',
-  border: '1px solid rgba(0,0,0,0.08)',
-  borderRadius: 14,
-  boxShadow: '0 4px 14px rgba(0,0,0,0.04)',
-  flexShrink: 0,
+  padding: '10px 14px 8px',
 };
 
 const composerGlyphStyle: React.CSSProperties = {
@@ -1531,6 +1602,22 @@ const shipPrimaryStyle: React.CSSProperties = {
     '0 6px 18px rgba(13,148,136,0.25),'
     + ' 0 1px 2px rgba(0,0,0,0.04),'
     + ' inset 0 1px 0 rgba(255,255,255,0.2)',
+};
+
+// Terminal-state Ship: the task already merged (or errored), so the
+// button reads as a static "Shipped" / "Errored" pill rather than a
+// CTA — flat surface, no shadow, not-allowed cursor.
+const shipShippedStyle: React.CSSProperties = {
+  width: '100%',
+  padding: '12px 14px',
+  fontSize: 13,
+  border: '1px solid rgba(0,0,0,0.08)',
+  background: 'rgba(0,0,0,0.04)',
+  color: 'var(--text-3)',
+  borderRadius: 10,
+  fontWeight: 700,
+  letterSpacing: '0.02em',
+  cursor: 'not-allowed',
 };
 
 const commitsListStyle: React.CSSProperties = {
@@ -1891,9 +1978,14 @@ const composerFooterStyle: React.CSSProperties = {
   justifyContent: 'space-between',
   alignItems: 'center',
   gap: 8,
-  marginTop: 6,
   fontSize: 10,
   color: 'var(--text-4)',
+  // Dedicated chrome strip — tinted background and a top divider so
+  // the glyph row visually anchors to the bottom of the card and the
+  // "Replying in Task n" line above the textarea has room to breathe.
+  padding: '8px 14px 10px',
+  background: 'rgba(248, 250, 252, 0.85)',
+  borderTop: '1px solid rgba(0,0,0,0.06)',
 };
 
 const composerScopeStyle: React.CSSProperties = {

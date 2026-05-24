@@ -61,6 +61,7 @@ import type {
   TeamSummaryDto,
   UpdateTeamRequest,
   UpsertCredentialRequest,
+  UserCommitDto,
   UserProfileDto,
   UserOrgDto,
   UserRepoDto,
@@ -158,6 +159,8 @@ const bridge: Bridge = {
   getUserProfile: (): Promise<UserProfileDto> => ipcRenderer.invoke('repos:profile'),
   getContributionCalendar: (login: string): Promise<ContributionCalendarDto> =>
     ipcRenderer.invoke('repos:contributionGraph', login),
+  getUserCommitsOnDate: (login: string, date: string): Promise<UserCommitDto[]> =>
+    ipcRenderer.invoke('repos:contributionGraphDay', login, date),
   getRepoPulls: (owner: string, repo: string): Promise<PullRequestDto[]> =>
     ipcRenderer.invoke('repos:pulls', owner, repo),
   getRepoPull: (owner: string, repo: string, number: number): Promise<PullRequestDto> =>

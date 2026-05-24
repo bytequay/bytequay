@@ -1225,57 +1225,110 @@ const listStyle: React.CSSProperties = {
   listStyle: 'none',
   display: 'flex',
   flexDirection: 'column',
-  gap: 6,
+  gap: 10,
 };
 
 function taskCardStyle(selected: boolean, isForeground: boolean): React.CSSProperties {
-  return {
-    padding: '8px 10px',
-    border: selected ? '2px solid #7c3aed' : '1px solid rgba(0,0,0,0.08)',
-    background: selected ? 'rgba(124,58,237,0.06)' : isForeground ? 'rgba(22,163,74,0.04)' : '#fff',
-    borderRadius: 10,
+  // Refined-texture treatment: a soft gradient base (white → off-white)
+  // gives the card surface a hint of dimensionality without the flat
+  // look of a single solid colour; the foreground card layers a
+  // green-tinted gradient so it reads as "live"; the selected card
+  // upgrades to a purple-tinted gradient with a stronger shadow + a
+  // tiny inner highlight at the top edge for a lifted feel.
+  const base: React.CSSProperties = {
+    position: 'relative',
+    padding: '12px 14px',
+    borderRadius: 12,
     cursor: 'pointer',
-    transition: 'background 140ms ease, transform 140ms ease',
-    boxShadow: selected ? '0 2px 8px rgba(124,58,237,0.10)' : undefined,
+    transition: 'transform 160ms ease, box-shadow 160ms ease, background 160ms ease',
+    overflow: 'hidden',
+  };
+  if (selected) {
+    return {
+      ...base,
+      border: '1px solid rgba(124, 58, 237, 0.45)',
+      background: 'linear-gradient(180deg, rgba(124,58,237,0.10) 0%, rgba(124,58,237,0.04) 100%), #ffffff',
+      boxShadow:
+        '0 8px 24px rgba(124,58,237,0.18),'
+        + ' 0 2px 6px rgba(124,58,237,0.10),'
+        + ' inset 0 1px 0 rgba(255,255,255,0.7)',
+      transform: 'translateY(-1px)',
+    };
+  }
+  if (isForeground) {
+    return {
+      ...base,
+      border: '1px solid rgba(22, 163, 74, 0.30)',
+      background: 'linear-gradient(180deg, rgba(22,163,74,0.07) 0%, rgba(22,163,74,0.02) 100%), #ffffff',
+      boxShadow:
+        '0 4px 14px rgba(22,163,74,0.08),'
+        + ' 0 1px 3px rgba(0,0,0,0.04),'
+        + ' inset 0 1px 0 rgba(255,255,255,0.6)',
+    };
+  }
+  return {
+    ...base,
+    border: '1px solid rgba(0,0,0,0.07)',
+    background: 'linear-gradient(180deg, #ffffff 0%, #fafafe 100%)',
+    boxShadow:
+      '0 1px 3px rgba(0,0,0,0.04),'
+      + ' inset 0 1px 0 rgba(255,255,255,0.8)',
   };
 }
 
 const taskCardHeadStyle: React.CSSProperties = {
   display: 'flex',
   alignItems: 'center',
-  gap: 6,
+  gap: 10,
 };
 
 function glyphStyle(task: WorkUnitTaskDto): React.CSSProperties {
-  const base: React.CSSProperties = {
-    width: 14,
-    fontSize: 12,
-    textAlign: 'center',
+  // Coloured dot in a soft tinted disc — same hue as the status pill,
+  // so the card carries a single accent colour across glyph + pill.
+  let color = 'var(--text-4)';
+  let bg = 'rgba(100, 116, 139, 0.10)';
+  if (task.status === 'COMPLETED') { color = '#16a34a'; bg = 'rgba(22, 163, 74, 0.12)'; }
+  else if (task.status === 'ERRORED') { color = '#b91c1c'; bg = 'rgba(185, 28, 28, 0.12)'; }
+  else if (task.status === 'AWAITING_REVIEW' || task.status === 'NEEDS_ATTENTION') {
+    color = '#d97706'; bg = 'rgba(217, 119, 6, 0.14)';
+  }
+  else if (task.status === 'RUNNING' || task.status === 'AWAITING') {
+    color = '#2563eb'; bg = 'rgba(37, 99, 235, 0.12)';
+  }
+  return {
+    width: 22,
+    height: 22,
+    borderRadius: 999,
+    background: bg,
+    color,
+    display: 'inline-flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    fontSize: 13,
+    flexShrink: 0,
+    fontWeight: 700,
   };
-  if (task.status === 'COMPLETED') return { ...base, color: '#16a34a' };
-  if (task.status === 'ERRORED') return { ...base, color: '#b91c1c' };
-  if (task.status === 'AWAITING_REVIEW' || task.status === 'NEEDS_ATTENTION') return { ...base, color: '#d97706' };
-  if (task.status === 'RUNNING' || task.status === 'AWAITING') return { ...base, color: '#2563eb' };
-  return { ...base, color: 'var(--text-4)' };
 }
 
 const taskCardTitleStyle: React.CSSProperties = {
-  fontSize: 12,
+  fontSize: 13,
   fontWeight: 600,
   color: 'var(--text-1)',
   overflow: 'hidden',
   textOverflow: 'ellipsis',
   whiteSpace: 'nowrap',
+  letterSpacing: '-0.005em',
 };
 
 const taskCardSubStyle: React.CSSProperties = {
-  fontSize: 10,
+  fontSize: 11,
   color: 'var(--text-4)',
   fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
   overflow: 'hidden',
   textOverflow: 'ellipsis',
   whiteSpace: 'nowrap',
-  marginTop: 1,
+  marginTop: 4,
+  letterSpacing: '-0.01em',
 };
 
 const selectHintStyle: React.CSSProperties = {

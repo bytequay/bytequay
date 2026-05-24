@@ -273,15 +273,13 @@ function relativeTime(ts: number): string {
 /* ── Styles ────────────────────────────────────────────────────────── */
 
 const scrollStyle: React.CSSProperties = {
-  background: 'rgba(255,255,255,0.72)',
-  backdropFilter: 'blur(14px) saturate(125%)',
-  WebkitBackdropFilter: 'blur(14px) saturate(125%)',
-  border: '1px solid rgba(0,0,0,0.06)',
-  borderRadius: 14,
+  // Lives inside ThreadTrunkPage.chatCardStyle (bg, border, shadow);
+  // this is just the inner scroll surface — fill the parent and
+  // scroll within it so the chat card's boundary stays visible.
+  flex: 1,
+  minHeight: 0,
+  overflowY: 'auto',
   padding: '18px 22px',
-  boxShadow: '0 4px 18px rgba(0,0,0,0.04)',
-  maxHeight: 'calc(100vh - 240px)',
-  overflow: 'auto',
   display: 'flex',
   flexDirection: 'column',
   gap: 14,

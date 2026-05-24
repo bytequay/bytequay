@@ -363,71 +363,73 @@ export default function ThreadTrunkPage({ threadId, onBack, onOpenTask }: Props)
           </aside>
 
           <main style={mainStyle}>
-            {messages === null ? (
-              <div style={planningPlaceholderStyle}>
-                <p style={planningBodyStyle}>Loading planning conversation…</p>
+            <div style={chatCardStyle}>
+              {messages === null ? (
+                <div style={planningPlaceholderStyle}>
+                  <p style={planningBodyStyle}>Loading planning conversation…</p>
+                </div>
+              ) : trunkMessages.length === 0 && orderedTasksAsc.length === 0 ? (
+                <div style={planningPlaceholderStyle}>
+                  <p style={planningBodyStyle}>
+                    This is the thread's planning altitude. Talk here to map
+                    out the work across tasks — each task forks from this
+                    conversation at creation. Start typing below.
+                  </p>
+                </div>
+              ) : (
+                <TrunkChat
+                  messages={trunkMessages}
+                  tasks={orderedTasksAsc}
+                  foregroundTaskId={foreground?.id ?? null}
+                  userInitials={userInitials}
+                  onOpenTask={onOpenTask}
+                />
+              )}
+            </div>
+
+            <div style={composerCardStyle}>
+              <div style={composerAnchorStyle}>
+                ↻ Replying in the thread · planning
               </div>
-            ) : trunkMessages.length === 0 && orderedTasksAsc.length === 0 ? (
-              <div style={planningPlaceholderStyle}>
-                <p style={planningBodyStyle}>
-                  This is the thread's planning altitude. Talk here to map
-                  out the work across tasks — each task forks from this
-                  conversation at creation. Start typing below.
-                </p>
-              </div>
-            ) : (
-              <TrunkChat
-                messages={trunkMessages}
-                tasks={orderedTasksAsc}
-                foregroundTaskId={foreground?.id ?? null}
-                userInitials={userInitials}
-                onOpenTask={onOpenTask}
+              <textarea
+                value={composerInput}
+                onChange={e => setComposerInput(e.target.value)}
+                onKeyDown={e => {
+                  if (e.key === 'Enter' && (e.metaKey || e.ctrlKey) && !sending) {
+                    e.preventDefault();
+                    void onSendTrunk();
+                  }
+                }}
+                placeholder="Plan the next slice, ask about the feature, or start a new task…"
+                disabled={sending}
+                rows={3}
+                style={composerTextareaStyle}
               />
-            )}
+              <div style={composerFooterStyle}>
+                <span style={composerScopeStyle}>▸ Thread</span>
+                <span style={composerGlyphStyle} title="Cancel current input">⊘</span>
+                <span style={composerGlyphStyle} title="Slash commands">/</span>
+                <span style={composerFooterHintStyle}>
+                  send · commands
+                </span>
+                <span style={composerNoBranchHintStyle}>
+                  no branch here — the trunk plans; tasks do the work
+                </span>
+                <button
+                  type="button"
+                  onClick={() => { void onSendTrunk(); }}
+                  disabled={sending || composerInput.trim().length === 0}
+                  style={composerSendBtnStyle}
+                >
+                  {sending ? 'Sending…' : 'Send'}
+                </button>
+              </div>
+              {sendError !== null && (
+                <div style={errStyle}>{sendError}</div>
+              )}
+            </div>
           </main>
         </div>
-
-        <footer style={composerStyle}>
-          <div style={composerAnchorStyle}>
-            ↻ Replying in the thread · planning
-          </div>
-          <textarea
-            value={composerInput}
-            onChange={e => setComposerInput(e.target.value)}
-            onKeyDown={e => {
-              if (e.key === 'Enter' && (e.metaKey || e.ctrlKey) && !sending) {
-                e.preventDefault();
-                void onSendTrunk();
-              }
-            }}
-            placeholder="Plan the next slice, ask about the feature, or start a new task…"
-            disabled={sending}
-            rows={3}
-            style={composerTextareaStyle}
-          />
-          <div style={composerFooterStyle}>
-            <span style={composerScopeStyle}>▸ Thread</span>
-            <span style={composerGlyphStyle} title="Cancel current input">⊘</span>
-            <span style={composerGlyphStyle} title="Slash commands">/</span>
-            <span style={composerFooterHintStyle}>
-              send · commands
-            </span>
-            <span style={composerNoBranchHintStyle}>
-              no branch here — the trunk plans; tasks do the work
-            </span>
-            <button
-              type="button"
-              onClick={() => { void onSendTrunk(); }}
-              disabled={sending || composerInput.trim().length === 0}
-              style={composerSendBtnStyle}
-            >
-              {sending ? 'Sending…' : 'Send'}
-            </button>
-          </div>
-          {sendError !== null && (
-            <div style={errStyle}>{sendError}</div>
-          )}
-        </footer>
       </div>
 
       {threadError !== null && (
@@ -1165,19 +1167,29 @@ const bandHintStyle: React.CSSProperties = {
 
 const bodyGridStyle: React.CSSProperties = {
   display: 'grid',
-  gridTemplateColumns: '260px 1fr',
-  gap: 14,
-  padding: '14px 18px',
+  // Two-column layout — rail on the left, conversation column on the
+  // right. The 1px gap renders as a visible vertical divider thanks to
+  // the rail's borderRight, giving the page a clean "rail | main"
+  // column split per the mockup.
+  gridTemplateColumns: '280px 1fr',
+  gap: 0,
+  padding: 0,
   flex: 1,
-  alignItems: 'start',
+  alignItems: 'stretch',
+  minHeight: 0,
 };
 
 const railStyle: React.CSSProperties = {
   display: 'flex',
   flexDirection: 'column',
   gap: 14,
-  position: 'sticky',
-  top: 72,
+  padding: '14px 14px 14px 18px',
+  // Visible divider between rail and main column.
+  borderRight: '1px solid rgba(0,0,0,0.08)',
+  // The rail scrolls independently of the conversation column so a
+  // long checkpoint/scheduler list never pushes the chat off-screen.
+  overflowY: 'auto',
+  maxHeight: 'calc(100vh - 96px)',
 };
 
 const railSectionStyle: React.CSSProperties = {
@@ -1518,20 +1530,56 @@ const vitalsValueStyle: React.CSSProperties = {
 };
 
 const mainStyle: React.CSSProperties = {
+  // Main column is its own bounded box — chat grows to fill, composer
+  // sits anchored at the bottom of the column (not the viewport), so
+  // the layout reads as the previous task window: clear vertical
+  // boundary, composer scoped to the conversation it answers.
   display: 'flex',
   flexDirection: 'column',
-  gap: 14,
+  gap: 12,
+  padding: 14,
+  minHeight: 0,
+  maxHeight: 'calc(100vh - 96px)',
+  overflow: 'hidden',
+};
+
+const chatCardStyle: React.CSSProperties = {
+  flex: 1,
+  display: 'flex',
+  flexDirection: 'column',
+  background: 'rgba(255,255,255,0.78)',
+  backdropFilter: 'blur(14px) saturate(125%)',
+  WebkitBackdropFilter: 'blur(14px) saturate(125%)',
+  border: '1px solid rgba(0,0,0,0.08)',
+  borderRadius: 14,
+  boxShadow: '0 4px 18px rgba(0,0,0,0.04)',
+  overflow: 'hidden',
+  minHeight: 0,
+};
+
+const composerCardStyle: React.CSSProperties = {
+  // Bordered card pinned under the chat. Width tracks the chat
+  // column (no fixed/sticky positioning) so the composer never
+  // spans the whole page like the previous footer-anchored version.
+  display: 'flex',
+  flexDirection: 'column',
+  gap: 6,
+  padding: '10px 14px 12px',
+  background: 'rgba(255,255,255,0.92)',
+  border: '1px solid rgba(0,0,0,0.08)',
+  borderRadius: 14,
+  boxShadow: '0 4px 14px rgba(0,0,0,0.04)',
+  flexShrink: 0,
 };
 
 const planningPlaceholderStyle: React.CSSProperties = {
-  background: 'rgba(255,255,255,0.72)',
-  backdropFilter: 'blur(14px) saturate(125%)',
-  WebkitBackdropFilter: 'blur(14px) saturate(125%)',
-  border: '1px solid rgba(0,0,0,0.06)',
-  borderRadius: 14,
-  padding: 18,
-  boxShadow: '0 4px 18px rgba(0,0,0,0.04)',
-  minHeight: 200,
+  // Inside chatCardStyle — fill the card without re-applying the
+  // border/shadow chrome the card already supplies.
+  flex: 1,
+  display: 'flex',
+  alignItems: 'center',
+  justifyContent: 'center',
+  padding: 24,
 };
 
 // The transcript scroll container. StructuredConversation walks up to
@@ -1590,26 +1638,6 @@ const planningBodyStyle: React.CSSProperties = {
   fontSize: 13,
   lineHeight: 1.55,
   color: 'var(--text-2)',
-};
-
-const composerStyle: React.CSSProperties = {
-  // Pinned directly to the viewport bottom. {@code position:sticky}
-  // anchored against the column's bottom edge, and when the column
-  // grew taller than 100vh the composer slid past the viewport and
-  // got clipped by the page's overflow:hidden. {@code fixed} sidesteps
-  // that — the composer always sits at the visible bottom regardless
-  // of how tall the rail or transcript above it gets. {@code left:4}
-  // clears the 4px slate spine that runs the full window height.
-  position: 'fixed',
-  left: 4,
-  right: 0,
-  bottom: 40,
-  background: 'rgba(255,255,255,0.86)',
-  backdropFilter: 'blur(14px) saturate(125%)',
-  WebkitBackdropFilter: 'blur(14px) saturate(125%)',
-  borderTop: '1px solid rgba(0,0,0,0.06)',
-  padding: '8px 18px 12px',
-  zIndex: 2,
 };
 
 const composerAnchorStyle: React.CSSProperties = {

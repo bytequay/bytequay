@@ -69,9 +69,9 @@ export default function ThreadsGroupSidebar({
         type="button"
         onClick={onBackToAll}
         style={backLinkStyle}
-        title="Back to all threads"
+        title="Leave the group board — back to the all-threads list"
       >
-        ← All threads
+        <span aria-hidden>←</span> All threads
       </button>
       <div style={identityRowStyle}>
         <span style={{ ...identityIconStyle, background: groupColorBg(group.color) }}>
@@ -340,17 +340,23 @@ const sidebarStyle: React.CSSProperties = {
 };
 
 const backLinkStyle: React.CSSProperties = {
+  // Discoverable back affordance — a bordered pill at the very top
+  // of the rail so the user can always find the way home from a
+  // group board. Hover lifts it onto the workspace accent.
   display: 'inline-flex',
   alignItems: 'center',
+  gap: 6,
   alignSelf: 'flex-start',
-  padding: '2px 4px',
-  background: 'transparent',
-  border: 'none',
-  color: 'var(--text-3)',
-  fontSize: 11,
-  fontWeight: 500,
+  padding: '5px 10px',
+  background: '#fff',
+  border: '1px solid rgba(0,0,0,0.10)',
+  borderRadius: 8,
+  color: 'var(--text-2)',
+  fontSize: 12,
+  fontWeight: 600,
   cursor: 'pointer',
   letterSpacing: '-0.005em',
+  boxShadow: '0 1px 2px rgba(0,0,0,0.04)',
 };
 const identityRowStyle: React.CSSProperties = {
   display: 'flex', alignItems: 'center', gap: 8,

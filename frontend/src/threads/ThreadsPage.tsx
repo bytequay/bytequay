@@ -511,7 +511,15 @@ export default function ThreadsPage({
           onChangeTileMode={setTileMode}
           onOpenPr={onTileOpenPr}
           onOpenIssue={onTileOpenIssue}
-          onBackToAll={() => onGroupChange(null)}
+          onBackToAll={() => {
+            // Switching back to the all-threads home means "leave
+            // group view altogether" — drop the group filter AND
+            // flip the segmented control back to List, otherwise
+            // the auto-pick effect would immediately re-select a
+            // group and the user would never escape the board.
+            onGroupChange(null);
+            setView('list');
+          }}
         />
 
         {error && (

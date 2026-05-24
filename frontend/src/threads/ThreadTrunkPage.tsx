@@ -22,6 +22,7 @@ import type {
 } from '../types';
 import TrunkChat from './TrunkChat';
 import { useThreadTasks } from './useThreadTasks';
+import { ConfirmDialog } from '../workspace/ConfirmDialog';
 
 type Props = {
   threadId: string;
@@ -571,6 +572,7 @@ function DangerZoneSection({
   const [eligibility, setEligibility] = useState<
     { deletable: boolean; reason?: string } | null
   >(null);
+  const [confirmOpen, setConfirmOpen] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -588,26 +590,27 @@ function DangerZoneSection({
     return () => { cancelled = true; };
   }, [threadId]);
 
-  const onDelete = useCallback(async () => {
+  const openConfirm = useCallback(() => {
     if (eligibility?.deletable !== true || deleting) return;
-    const ok = window.confirm(
-      'Permanently delete this thread?\n\n'
-      + 'This drops the conversation, every per-task row, and any '
-      + 'live worktrees. Only threads whose every task has completed '
-      + 'are eligible — anything still in flight is refused server-side. '
-      + 'This cannot be undone.');
-    if (!ok) return;
+    setError(null);
+    setConfirmOpen(true);
+  }, [eligibility, deleting]);
+
+  const runDelete = useCallback(async () => {
+    if (deleting) return;
     setDeleting(true);
     setError(null);
     try {
       await window.bridge.deleteTask(threadId);
+      setConfirmOpen(false);
       onDeleted();
     }
     catch (e) {
       setError(e instanceof Error ? e.message : String(e));
       setDeleting(false);
+      setConfirmOpen(false);
     }
-  }, [eligibility, deleting, threadId, onDeleted]);
+  }, [deleting, threadId, onDeleted]);
 
   const blocked = eligibility !== null && eligibility.deletable === false;
 
@@ -619,7 +622,7 @@ function DangerZoneSection({
       </div>
       <button
         type="button"
-        onClick={() => { void onDelete(); }}
+        onClick={openConfirm}
         disabled={eligibility === null || blocked || deleting}
         style={blocked || eligibility === null ? deleteBtnDisabledStyle : deleteBtnStyle}
         title={blocked
@@ -643,6 +646,20 @@ function DangerZoneSection({
       )}
       {error !== null && (
         <div style={errStyle}>{error}</div>
+      )}
+      {confirmOpen && (
+        <ConfirmDialog
+          title="Permanently delete this thread?"
+          body={'This drops the conversation, every per-task row, and any '
+              + 'live worktrees. Only threads whose every task has completed '
+              + 'are eligible — anything still in flight is refused '
+              + 'server-side.\n\nThis cannot be undone.'}
+          confirmLabel={deleting ? 'Deleting…' : 'Delete thread'}
+          destructive
+          busy={deleting}
+          onConfirm={() => { void runDelete(); }}
+          onCancel={() => setConfirmOpen(false)}
+        />
       )}
     </section>
   );

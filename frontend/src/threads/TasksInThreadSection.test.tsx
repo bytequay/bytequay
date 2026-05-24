@@ -105,7 +105,9 @@ describe('TasksInThreadSection', () => {
     ]);
 
     render(<TasksInThreadSection threadId="thread-1" />);
-    await waitFor(() => expect(screen.getByText('Task 1')).toBeTruthy());
+    // Single-task threads drop the "Task N" badge — fall back to the
+    // humanised branch label the component renders ("First").
+    await waitFor(() => expect(screen.getByText('First')).toBeTruthy());
 
     const button = screen.getByRole('button', { name: /Ship & continue/i });
     expect(button.hasAttribute('disabled')).toBe(true);
@@ -148,6 +150,7 @@ function task(overrides: Partial<WorkUnitTaskDto>): WorkUnitTaskDto {
     tokensIn: 0,
     tokensOut: 0,
     createdAt: '2026-05-15T12:00:00Z',
+    name: null,
     ...overrides,
   };
 }

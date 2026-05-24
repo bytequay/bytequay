@@ -640,7 +640,7 @@ class TestThreadServiceScheduler
                 "main", "/tmp/work",
                 null, null, null, null, null, "DEVELOP", null, null,
                 0L, 0L, 0L, /* agentSessionId */ null,
-                Instant.parse("2026-05-18T12:00:00Z"), null, null));
+                Instant.parse("2026-05-18T12:00:00Z"), null, null, null));
         RecordingWorktreeService worktrees = new RecordingWorktreeService(Optional.empty());
         ThreadService service = new ThreadService(
                 store,
@@ -679,7 +679,7 @@ class TestThreadServiceScheduler
                 "main", "/tmp/work",
                 null, null, null, null, null, "DEVELOP", null, null,
                 0L, 0L, 0L, /* agentSessionId */ null,
-                Instant.parse("2026-05-18T12:00:00Z"), null, null);
+                Instant.parse("2026-05-18T12:00:00Z"), null, null, null);
         SingleTaskStore tasks = new SingleTaskStore(active);
         RecordingGitRunner git = new RecordingGitRunner();
         ThreadService service = new ThreadService(

@@ -32,6 +32,7 @@ function task(overrides: Partial<WorkUnitTaskDto>): WorkUnitTaskDto {
     linkedPrNumber: null, linkedIssueNumber: null,
     costUsdMilli: 0, tokensIn: 0, tokensOut: 0,
     createdAt: '2026-05-15T12:00:00Z',
+    name: null,
     ...overrides,
   };
 }

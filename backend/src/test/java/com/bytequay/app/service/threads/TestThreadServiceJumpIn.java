@@ -159,7 +159,7 @@ class TestThreadServiceJumpIn
                 /* costUsdMilli */ 0L, /* tokensIn */ 0L, /* tokensOut */ 0L,
                 /* agentSessionId */ null,
                 Instant.now(),
-                /* endedAt */ null, /* errorMessage */ null);
+                /* endedAt */ null, /* errorMessage */ null, /* name */ null);
     }
 
     @SuppressWarnings("unused")

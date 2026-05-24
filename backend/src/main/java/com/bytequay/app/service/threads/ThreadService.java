@@ -410,7 +410,8 @@ public class ThreadService
                     taskType, request.linkedPrNumber(), request.linkedIssueNumber(),
                     0L, 0L, 0L,
                     /* agentSessionId */ null,
-                    now, null, null));
+                    now, null, null,
+                    /* name */ null));
         }
         for (String groupId : initialGroupIds) {
             groupStore.addMember(thread.id(), groupId);

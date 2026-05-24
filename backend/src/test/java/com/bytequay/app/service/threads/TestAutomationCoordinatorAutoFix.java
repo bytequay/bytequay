@@ -217,7 +217,7 @@ class TestAutomationCoordinatorAutoFix
                 /* linkedIssueNumber */ null,
                 /* costUsdMilli */ 0L, /* tokensIn */ 0L, /* tokensOut */ 0L,
                 /* agentSessionId */ null,
-                now, /* endedAt */ null, /* errorMessage */ null);
+                now, /* endedAt */ null, /* errorMessage */ null, /* name */ null);
     }
 
     private static Thread newThread(String id, ThreadStatus status)

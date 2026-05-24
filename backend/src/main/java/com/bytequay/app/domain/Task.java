@@ -70,7 +70,10 @@ public record Task(
         String agentSessionId,
         Instant createdAt,
         Instant endedAt,
-        String errorMessage)
+        String errorMessage,
+        /** User-supplied rename, e.g. "Cost & tokens parser". Null
+         *  means fall back to the humanised branch name. */
+        String name)
 {
     /**
      * Resolves the directory the agent process should run in for this

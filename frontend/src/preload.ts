@@ -567,6 +567,12 @@ const bridge: Bridge = {
     opts?: { nextTitle?: string | null; baseMode?: 'MAIN' | 'STACKED' },
   ): Promise<WorkUnitTaskDto> =>
     ipcRenderer.invoke('threads:tasks:next', { threadId, taskId, opts }),
+  renameTaskUnit: (
+    threadId: string,
+    taskId: string,
+    name: string,
+  ): Promise<WorkUnitTaskDto> =>
+    ipcRenderer.invoke('threads:tasks:rename', { threadId, taskId, name }),
   sendTrunkMessage: (
     threadId: string,
     input: string,

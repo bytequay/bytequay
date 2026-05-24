@@ -311,23 +311,18 @@ export default function ThreadTrunkPage({ threadId, onBack, onOpenTask }: Props)
                 </div>
               )}
               {orderedTasks.length > 0 && (
-                <>
-                  <ul style={listStyle}>
-                    {orderedTasks.map(t => (
-                      <TaskCard
-                        key={t.id}
-                        task={t}
-                        selected={t.id === selectedTaskId}
-                        isForeground={foreground?.id === t.id}
-                        onSelect={() => setSelectedTaskId(t.id)}
-                        onOpen={() => onOpenTask(t.id)}
-                      />
-                    ))}
-                  </ul>
-                  <div style={selectHintStyle}>
-                    Click a card to select · <kbd style={kbdStyle}>Open →</kbd> to enter its window
-                  </div>
-                </>
+                <ul style={listStyle}>
+                  {orderedTasks.map(t => (
+                    <TaskCard
+                      key={t.id}
+                      task={t}
+                      selected={t.id === selectedTaskId}
+                      isForeground={foreground?.id === t.id}
+                      onSelect={() => setSelectedTaskId(t.id)}
+                      onOpen={() => onOpenTask(t.id)}
+                    />
+                  ))}
+                </ul>
               )}
               {isReviewFlow ? (
                 <div style={reviewFlowNoticeStyle}>
@@ -1015,11 +1010,13 @@ function TaskCard({
   onOpen: () => void;
 }) {
   const labelText = taskLabel(task);
-  // Compact sub-line per the mockup: branch · PR # · short name.
-  const subParts: string[] = [];
-  if (task.branchName !== null) subParts.push(task.branchName);
-  if (task.prNumber !== null) subParts.push(`PR #${task.prNumber}`);
-  const sub = subParts.join(' · ');
+  // Re-render every 60s so "created N ago" stays roughly current.
+  const [, setTick] = useState<number>(0);
+  useEffect(() => {
+    const id = window.setInterval(() => setTick(n => n + 1), 60_000);
+    return () => window.clearInterval(id);
+  }, []);
+
   return (
     <li
       onClick={onSelect}
@@ -1029,10 +1026,9 @@ function TaskCard({
       <div style={taskCardHeadStyle}>
         <span style={glyphStyle(task)} aria-hidden>{glyphChar(task)}</span>
         <div style={{ flex: 1, minWidth: 0 }}>
-          <div style={taskCardTitleStyle}>{labelText}</div>
-          {sub.length > 0 && (
-            <div style={taskCardSubStyle} title={sub}>{sub}</div>
-          )}
+          <div style={taskCardTitleRowStyle}>
+            <span style={taskCardTitleStyle} title={labelText}>{labelText}</span>
+          </div>
         </div>
         {selected ? (
           <button
@@ -1046,6 +1042,24 @@ function TaskCard({
         ) : (
           <span style={taskStatusPillStyle(task.status)}>{statusLabel(task.status)}</span>
         )}
+      </div>
+      <div style={taskMetaRowStyle}>
+        {task.branchName !== null && (
+          <span style={metaChipStyle} title={task.branchName}>
+            <span style={metaIconStyle}>⌥</span>{task.branchName}
+          </span>
+        )}
+        {task.prNumber !== null && (
+          <span style={metaChipStyle} title={`PR #${task.prNumber} · ${task.prState ?? 'unknown'}`}>
+            <span style={metaIconStyle}>⌗</span>PR #{task.prNumber}
+            {task.prState !== null && task.prState !== '' && (
+              <span style={metaDimStyle}>{` · ${task.prState}`}</span>
+            )}
+          </span>
+        )}
+        <span style={metaChipStyle} title={`Created ${task.createdAt}`}>
+          <span style={metaIconStyle}>◷</span>{relativeTime(task.createdAt)}
+        </span>
       </div>
     </li>
   );
@@ -1131,10 +1145,26 @@ function LaneBar({
 }
 
 function taskLabel(task: WorkUnitTaskDto): string {
+  if (task.name !== null && task.name.length > 0) {
+    return task.name;
+  }
   if (task.branchName !== null && task.branchName.length > 0) {
     return humanizeBranch(task.branchName);
   }
   return `Task ${task.seq}`;
+}
+
+function relativeTime(iso: string): string {
+  const t = Date.parse(iso);
+  if (!Number.isFinite(t)) return '—';
+  const delta = Math.max(0, Math.floor((Date.now() - t) / 1000));
+  if (delta < 60) return `${delta}s ago`;
+  const m = Math.floor(delta / 60);
+  if (m < 60) return `${m}m ago`;
+  const h = Math.floor(m / 60);
+  if (h < 24) return `${h}h ago`;
+  const d = Math.floor(h / 24);
+  return `${d}d ago`;
 }
 
 function humanizeBranch(branch: string): string {
@@ -1392,7 +1422,7 @@ const listStyle: React.CSSProperties = {
   listStyle: 'none',
   display: 'flex',
   flexDirection: 'column',
-  gap: 10,
+  gap: 12,
 };
 
 function taskCardStyle(selected: boolean, isForeground: boolean): React.CSSProperties {
@@ -1404,8 +1434,8 @@ function taskCardStyle(selected: boolean, isForeground: boolean): React.CSSPrope
   // tiny inner highlight at the top edge for a lifted feel.
   const base: React.CSSProperties = {
     position: 'relative',
-    padding: '12px 14px',
-    borderRadius: 12,
+    padding: '14px 16px',
+    borderRadius: 14,
     cursor: 'pointer',
     transition: 'transform 160ms ease, box-shadow 160ms ease, background 160ms ease',
     overflow: 'hidden',
@@ -1413,33 +1443,37 @@ function taskCardStyle(selected: boolean, isForeground: boolean): React.CSSPrope
   if (selected) {
     return {
       ...base,
-      border: '1px solid rgba(124, 58, 237, 0.45)',
-      background: 'linear-gradient(180deg, rgba(124,58,237,0.10) 0%, rgba(124,58,237,0.04) 100%), #ffffff',
+      border: '1px solid rgba(124, 58, 237, 0.55)',
+      background:
+        'linear-gradient(180deg, rgba(124,58,237,0.16) 0%, rgba(99,102,241,0.07) 100%), #ffffff',
       boxShadow:
-        '0 8px 24px rgba(124,58,237,0.18),'
-        + ' 0 2px 6px rgba(124,58,237,0.10),'
-        + ' inset 0 1px 0 rgba(255,255,255,0.7)',
+        '0 12px 32px rgba(124,58,237,0.22),'
+        + ' 0 2px 6px rgba(124,58,237,0.12),'
+        + ' inset 0 1px 0 rgba(255,255,255,0.8)',
       transform: 'translateY(-1px)',
     };
   }
   if (isForeground) {
     return {
       ...base,
-      border: '1px solid rgba(22, 163, 74, 0.30)',
-      background: 'linear-gradient(180deg, rgba(22,163,74,0.07) 0%, rgba(22,163,74,0.02) 100%), #ffffff',
+      border: '1px solid rgba(22, 163, 74, 0.38)',
+      background:
+        'linear-gradient(180deg, rgba(22,163,74,0.11) 0%, rgba(22,163,74,0.03) 100%), #ffffff',
       boxShadow:
-        '0 4px 14px rgba(22,163,74,0.08),'
+        '0 6px 18px rgba(22,163,74,0.10),'
         + ' 0 1px 3px rgba(0,0,0,0.04),'
-        + ' inset 0 1px 0 rgba(255,255,255,0.6)',
+        + ' inset 0 1px 0 rgba(255,255,255,0.7)',
     };
   }
   return {
     ...base,
-    border: '1px solid rgba(0,0,0,0.07)',
-    background: 'linear-gradient(180deg, #ffffff 0%, #fafafe 100%)',
+    border: '1px solid rgba(99, 102, 241, 0.14)',
+    background:
+      'linear-gradient(180deg, rgba(124,58,237,0.05) 0%, rgba(255,255,255,0.95) 100%), #ffffff',
     boxShadow:
-      '0 1px 3px rgba(0,0,0,0.04),'
-      + ' inset 0 1px 0 rgba(255,255,255,0.8)',
+      '0 3px 10px rgba(76, 29, 149, 0.06),'
+      + ' 0 1px 2px rgba(0,0,0,0.04),'
+      + ' inset 0 1px 0 rgba(255,255,255,0.85)',
   };
 }
 
@@ -1477,41 +1511,58 @@ function glyphStyle(task: WorkUnitTaskDto): React.CSSProperties {
   };
 }
 
+const taskCardTitleRowStyle: React.CSSProperties = {
+  display: 'flex',
+  alignItems: 'center',
+  gap: 6,
+  minWidth: 0,
+};
+
 const taskCardTitleStyle: React.CSSProperties = {
-  fontSize: 13,
+  fontSize: 14,
   fontWeight: 600,
   color: 'var(--text-1)',
   overflow: 'hidden',
   textOverflow: 'ellipsis',
   whiteSpace: 'nowrap',
-  letterSpacing: '-0.005em',
+  letterSpacing: '-0.01em',
+  minWidth: 0,
+  flex: 1,
 };
 
-const taskCardSubStyle: React.CSSProperties = {
-  fontSize: 11,
-  color: 'var(--text-4)',
-  fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
+const taskMetaRowStyle: React.CSSProperties = {
+  marginTop: 10,
+  paddingLeft: 32,
+  display: 'flex',
+  flexWrap: 'wrap',
+  alignItems: 'center',
+  gap: 6,
+};
+
+const metaChipStyle: React.CSSProperties = {
+  display: 'inline-flex',
+  alignItems: 'center',
+  gap: 4,
+  fontSize: 10,
+  color: 'var(--text-3)',
+  background: 'rgba(15, 23, 42, 0.04)',
+  border: '1px solid rgba(15, 23, 42, 0.06)',
+  borderRadius: 999,
+  padding: '2px 7px',
+  fontVariantNumeric: 'tabular-nums',
+  maxWidth: '100%',
   overflow: 'hidden',
   textOverflow: 'ellipsis',
   whiteSpace: 'nowrap',
-  marginTop: 4,
-  letterSpacing: '-0.01em',
 };
 
-const selectHintStyle: React.CSSProperties = {
-  marginTop: 8,
+const metaIconStyle: React.CSSProperties = {
   fontSize: 10,
-  color: 'var(--text-4)',
-  textAlign: 'center',
+  opacity: 0.75,
 };
 
-const kbdStyle: React.CSSProperties = {
-  fontSize: 9,
-  padding: '1px 4px',
-  border: '1px solid rgba(0,0,0,0.10)',
-  borderRadius: 4,
-  background: '#fff',
-  fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
+const metaDimStyle: React.CSSProperties = {
+  color: 'var(--text-4)',
 };
 
 const laneRowStyle: React.CSSProperties = {

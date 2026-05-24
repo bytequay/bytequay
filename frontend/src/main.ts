@@ -3257,6 +3257,33 @@ const url = new URL(`${BACKEND_BASE}/api/search/repos`);
     return res.json();
   });
 
+  ipcMain.handle('threads:tasks:rename', async (_event, args: unknown) => {
+    const params = args as {
+      threadId?: unknown;
+      taskId?: unknown;
+      name?: unknown;
+    };
+    const threadId = params?.threadId;
+    const taskId = params?.taskId;
+    if (typeof threadId !== 'string' || threadId.trim().length === 0
+        || typeof taskId !== 'string' || taskId.trim().length === 0) {
+      throw new Error('threadId and taskId must be non-empty strings');
+    }
+    const res = await fetch(
+      `${BACKEND_BASE}/api/threads/${encodeURIComponent(threadId)}`
+        + `/tasks/${encodeURIComponent(taskId)}/name`,
+      {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: typeof params.name === 'string' ? params.name : '' }),
+      });
+    if (!res.ok) {
+      const text = await res.text().catch(() => '');
+      throw new Error(`backend PATCH /tasks/${taskId}/name returned ${res.status}: ${text}`);
+    }
+    return res.json();
+  });
+
   ipcMain.handle('threads:tasks:next', async (_event, args: unknown) => {
     const params = args as {
       threadId?: unknown;

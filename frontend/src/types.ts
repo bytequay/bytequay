@@ -1505,6 +1505,9 @@ export type WorkUnitTaskDto = {
    *  the trunk chat as the timestamp on the inline "Started Task N"
    *  launch card and as the task's runtime start. */
   createdAt: string;
+  /** User-supplied rename, e.g. "Cost & tokens parser". Null means
+   *  fall back to the humanised branch name. */
+  name: string | null;
 };
 
 /** Conversation-index window response. Carries both the user-prompt
@@ -2547,6 +2550,13 @@ export type Bridge = {
     threadId: string,
     taskId: string,
     opts?: { nextTitle?: string | null; baseMode?: 'MAIN' | 'STACKED' },
+  ) => Promise<WorkUnitTaskDto>;
+  /** Rename a task. Trims the value; an empty string clears the
+   *  override and reverts to the humanised branch label. */
+  renameTaskUnit: (
+    threadId: string,
+    taskId: string,
+    name: string,
   ) => Promise<WorkUnitTaskDto>;
   /** Trunk-scope counterpart of {@link sendTaskMessage} — drives the
    *  trunk planning agent for cross-task talk. The persisted row lands

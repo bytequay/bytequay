@@ -225,7 +225,7 @@ class TestThreadRegistryLease
                 /* linkedPrNumber */ null, /* linkedIssueNumber */ null,
                 0L, 0L, 0L,
                 /* agentSessionId */ null,
-                now, null, null);
+                now, null, null, null);
     }
 
     private static int deadPid()

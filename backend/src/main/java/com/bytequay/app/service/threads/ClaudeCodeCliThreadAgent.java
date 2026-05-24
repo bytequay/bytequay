@@ -474,7 +474,8 @@ public class ClaudeCodeCliThreadAgent
                             t.costUsdMilli(), t.tokensIn(), t.tokensOut(),
                             agentSessionId.get(),
                             t.createdAt(), /* endedAt */ null,
-                            /* errorMessage */ null));
+                            /* errorMessage */ null,
+                            t.name()));
                 }
             });
             // Preserve the trunk planning session id on the Thread row;
@@ -1027,7 +1028,8 @@ public class ClaudeCodeCliThreadAgent
                             t.taskType(), t.linkedPrNumber(), t.linkedIssueNumber(),
                             t.costUsdMilli(), t.tokensIn(), t.tokensOut(),
                             capturedSession,
-                            t.createdAt(), t.endedAt(), t.errorMessage()));
+                            t.createdAt(), t.endedAt(), t.errorMessage(),
+                            t.name()));
                 }
             });
         }

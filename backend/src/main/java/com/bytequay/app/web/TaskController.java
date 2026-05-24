@@ -18,6 +18,7 @@ import com.bytequay.app.domain.TaskFile;
 import com.bytequay.app.service.threads.TaskService;
 import org.springframework.http.HttpStatusCode;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
@@ -97,6 +98,22 @@ public class TaskController
                 ? body
                 : new TaskService.ShipRequest(null, TaskService.BaseMode.MAIN);
         return taskService.shipAndContinue(threadId, taskId, request);
+    }
+
+    /** Rename a task. Trimmed; an empty / null body clears the
+     *  rename and reverts to the humanised branch-derived label. */
+    @PatchMapping("/{taskId}/name")
+    public Task rename(
+            @PathVariable String threadId,
+            @PathVariable String taskId,
+            @RequestBody RenameBody body)
+    {
+        return taskService.renameTask(threadId, taskId, body == null ? null : body.name());
+    }
+
+    /** Body for {@link #rename}. */
+    public record RenameBody(String name)
+    {
     }
 
     /** Next → park the current task at AWAITING_REVIEW (worktree

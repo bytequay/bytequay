@@ -83,6 +83,9 @@ class TaskEntity
     @Column(name = "agent_session_id")
     private String agentSessionId;
 
+    @Column(name = "name")
+    private String name;
+
     @Column(name = "created_at_ms", nullable = false)
     private long createdAtMs;
 
@@ -151,6 +154,9 @@ class TaskEntity
 
     String getAgentSessionId() { return agentSessionId; }
     void setAgentSessionId(String agentSessionId) { this.agentSessionId = agentSessionId; }
+
+    String getName() { return name; }
+    void setName(String name) { this.name = name; }
 
     long getCreatedAtMs() { return createdAtMs; }
     void setCreatedAtMs(long createdAtMs) { this.createdAtMs = createdAtMs; }

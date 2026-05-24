@@ -516,7 +516,7 @@ public class McpController
                 task.taskType(), task.linkedPrNumber(), task.linkedIssueNumber(),
                 task.costUsdMilli(), task.tokensIn(), task.tokensOut(),
                 task.agentSessionId(),
-                task.createdAt(), task.endedAt(), task.errorMessage()));
+                task.createdAt(), task.endedAt(), task.errorMessage(), task.name()));
     }
 
     /** Serialises {@code payload} and writes an AWAITING_REVIEW

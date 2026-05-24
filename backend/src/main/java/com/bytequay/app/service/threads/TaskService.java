@@ -170,6 +170,31 @@ public class TaskService
         return shipOrParkAndStartNext(threadId, taskId, request, ParkMode.SHIP);
     }
 
+    /** Rename a task. Trims the supplied label; an empty string clears
+     *  the override so the auto-derived humanised branch name takes over
+     *  again. Returns the updated row so the caller can refresh its UI
+     *  without an extra fetch. */
+    @Transactional
+    public Task renameTask(String threadId, String taskId, String newName)
+    {
+        Task current = requireTask(threadId, taskId);
+        String trimmed = newName == null ? null : newName.trim();
+        String stored = (trimmed == null || trimmed.isEmpty()) ? null : trimmed;
+        Task next = new Task(
+                current.id(), current.threadId(), current.seq(), current.status(),
+                current.branchName(), current.worktreePath(), current.baseBranch(),
+                current.workingDir(),
+                current.processPid(), current.logPath(),
+                current.prNumber(), current.prState(), current.ciState(),
+                current.taskType(), current.linkedPrNumber(), current.linkedIssueNumber(),
+                current.costUsdMilli(), current.tokensIn(), current.tokensOut(),
+                current.agentSessionId(),
+                current.createdAt(), current.endedAt(), current.errorMessage(),
+                stored);
+        taskStore.saveTask(next);
+        return next;
+    }
+
     /**
      * Next → park & advance. Same flow as {@link #shipAndContinue} but
      * parks the current task at {@code AWAITING_REVIEW} (not closed)
@@ -282,7 +307,7 @@ public class TaskService
                     current.linkedIssueNumber(),
                     current.costUsdMilli(), current.tokensIn(), current.tokensOut(),
                     current.agentSessionId(),
-                    current.createdAt(), parkedEndedAt, current.errorMessage()));
+                    current.createdAt(), parkedEndedAt, current.errorMessage(), current.name()));
 
             // 5. Resolve next base + cut a new worktree. MAIN mode
             //    uses the same per-repo merge-target as the PR base;
@@ -311,7 +336,8 @@ public class TaskService
                     /* linkedPrNumber */ null, /* linkedIssueNumber */ null,
                     /* costUsdMilli */ 0L, /* tokensIn */ 0L, /* tokensOut */ 0L,
                     /* agentSessionId — captured on the new task's first turn */ null,
-                    now, /* endedAt */ null, /* errorMessage */ null);
+                    now, /* endedAt */ null, /* errorMessage */ null,
+                    /* name */ null);
             taskStore.saveTask(next);
 
             // 7. Drop the in-memory agent for this thread. The next

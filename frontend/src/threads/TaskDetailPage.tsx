@@ -69,7 +69,7 @@ export default function TaskDetailPage({
   const [sending, setSending] = useState(false);
   const [shipping, setShipping] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const { tasks } = useThreadTasks(threadId);
+  const { tasks, refresh: refreshTasks } = useThreadTasks(threadId);
   const composerRef = useRef<HTMLTextAreaElement | null>(null);
   const [commits, setCommits] = useState<ThreadCommitDto[] | null>(null);
   const [checkpoints, setCheckpoints] = useState<ThreadCheckpointDto[] | null>(null);
@@ -184,6 +184,53 @@ export default function TaskDetailPage({
   const taskPr = task?.prNumber ?? null;
   const taskSeq = task?.seq ?? null;
 
+  // Inline rename in the altitude band — pencil opens an input,
+  // Enter PATCHes /tasks/{id}/name and refreshes the rail.
+  const [renaming, setRenaming] = useState<boolean>(false);
+  const [renameDraft, setRenameDraft] = useState<string>('');
+  const [renameSaving, setRenameSaving] = useState<boolean>(false);
+  const [renameError, setRenameError] = useState<string | null>(null);
+  const renameInputRef = useRef<HTMLInputElement | null>(null);
+  useEffect(() => {
+    if (renaming && renameInputRef.current !== null) {
+      renameInputRef.current.focus();
+      renameInputRef.current.select();
+    }
+  }, [renaming]);
+  const startRename = (): void => {
+    if (task === null) return;
+    setRenameDraft(task.name ?? taskTitle);
+    setRenameError(null);
+    setRenaming(true);
+  };
+  const cancelRename = (): void => {
+    setRenaming(false);
+    setRenameDraft('');
+    setRenameError(null);
+  };
+  const saveRename = async (): Promise<void> => {
+    if (task === null) return;
+    const trimmed = renameDraft.trim();
+    if (trimmed === (task.name ?? '')) {
+      cancelRename();
+      return;
+    }
+    setRenameSaving(true);
+    try {
+      await window.bridge.renameTaskUnit(task.threadId, task.id, trimmed);
+      await refreshTasks();
+      setRenaming(false);
+      setRenameDraft('');
+      setRenameError(null);
+    }
+    catch (err) {
+      setRenameError(err instanceof Error ? err.message : String(err));
+    }
+    finally {
+      setRenameSaving(false);
+    }
+  };
+
   // Aggregate diff counts for the top-bar "⇄ +N -M" button. Sum from
   // the loaded commits so the badge mirrors what View-diff will show.
   const totalAdds = useMemo(
@@ -292,11 +339,58 @@ export default function TaskDetailPage({
         {!isTerminal && (
           <div style={altitudeBandStyle}>
             <span style={bandGlyphStyle}>● TASK</span>
-            <span style={bandTitleStyle}>
-              {taskSeq !== null && <span style={bandSeqStyle}>{taskSeq}.</span>}
-              {' '}
-              {taskTitle}
-            </span>
+            {renaming ? (
+              <span style={bandTitleStyle}>
+                <input
+                  ref={renameInputRef}
+                  value={renameDraft}
+                  onChange={e => setRenameDraft(e.target.value)}
+                  onKeyDown={e => {
+                    if (e.key === 'Enter') { e.preventDefault(); void saveRename(); }
+                    else if (e.key === 'Escape') { e.preventDefault(); cancelRename(); }
+                  }}
+                  disabled={renameSaving}
+                  placeholder={taskBranch !== null ? humanizeBranch(taskBranch) : `Task ${taskSeq ?? ''}`}
+                  style={bandRenameInputStyle}
+                />
+                <button
+                  type="button"
+                  onClick={() => { void saveRename(); }}
+                  disabled={renameSaving}
+                  style={bandRenameSaveStyle}
+                  title="Save"
+                >
+                  {renameSaving ? '…' : '✓'}
+                </button>
+                <button
+                  type="button"
+                  onClick={cancelRename}
+                  disabled={renameSaving}
+                  style={bandRenameCancelStyle}
+                  title="Cancel"
+                >
+                  ✕
+                </button>
+                {renameError !== null && (
+                  <span style={bandRenameErrorStyle}>{renameError}</span>
+                )}
+              </span>
+            ) : (
+              <>
+                <span style={bandTitleStyle}>{taskTitle}</span>
+                {task !== null && (
+                  <button
+                    type="button"
+                    onClick={startRename}
+                    style={bandRenameBtnStyle}
+                    title="Rename this task"
+                    aria-label="Rename task"
+                  >
+                    ✎
+                  </button>
+                )}
+              </>
+            )}
             {taskBranch !== null && (
               <span style={bandBranchStyle}>↗ {taskBranch}</span>
             )}
@@ -455,7 +549,12 @@ export default function TaskDetailPage({
                         type="button"
                         onClick={() => { void onShip(); }}
                         disabled={task === null || shipping || isTerminal}
-                        style={isTerminal ? shipShippedStyle : shipPrimaryStyle}
+                        style={
+                          isShipped
+                            ? shipShippedDoneStyle
+                            : isTerminal
+                              ? shipShippedStyle
+                              : shipPrimaryStyle}
                         title={task === null
                           ? 'No task loaded yet'
                           : isShipped
@@ -1361,6 +1460,9 @@ function ContextRow({
 }
 
 function taskLabel(task: WorkUnitTaskDto): string {
+  if (task.name !== null && task.name.length > 0) {
+    return task.name;
+  }
   if (task.branchName !== null && task.branchName.length > 0) {
     return humanizeBranch(task.branchName);
   }
@@ -1550,6 +1652,61 @@ const bandPrStyle: React.CSSProperties = {
 };
 
 const bandSpacerStyle: React.CSSProperties = { flex: 1 };
+
+const bandRenameBtnStyle: React.CSSProperties = {
+  border: '1px solid rgba(15, 118, 110, 0.18)',
+  background: 'rgba(15, 118, 110, 0.06)',
+  color: TEAL,
+  cursor: 'pointer',
+  padding: '2px 6px',
+  fontSize: 11,
+  lineHeight: 1,
+  borderRadius: 6,
+  flexShrink: 0,
+};
+
+const bandRenameInputStyle: React.CSSProperties = {
+  fontWeight: 600,
+  fontSize: 13,
+  padding: '4px 8px',
+  borderRadius: 8,
+  border: `1px solid ${TEAL}`,
+  background: '#fff',
+  outline: 'none',
+  color: 'var(--text-1)',
+  minWidth: 220,
+};
+
+const bandRenameSaveStyle: React.CSSProperties = {
+  border: 'none',
+  background: TEAL,
+  color: '#fff',
+  cursor: 'pointer',
+  padding: '3px 8px',
+  fontSize: 11,
+  fontWeight: 700,
+  borderRadius: 6,
+};
+
+const bandRenameCancelStyle: React.CSSProperties = {
+  border: '1px solid rgba(0,0,0,0.10)',
+  background: '#fff',
+  color: 'var(--text-2)',
+  cursor: 'pointer',
+  padding: '3px 8px',
+  fontSize: 11,
+  borderRadius: 6,
+};
+
+const bandRenameErrorStyle: React.CSSProperties = {
+  fontSize: 11,
+  color: '#b91c1c',
+  marginLeft: 6,
+  overflow: 'hidden',
+  textOverflow: 'ellipsis',
+  whiteSpace: 'nowrap',
+  maxWidth: 240,
+};
 
 function diffBtnStyle(active: boolean): React.CSSProperties {
   return {
@@ -1860,13 +2017,6 @@ const bandStatusStyle: React.CSSProperties = {
   fontSize: 11,
 };
 
-const bandSeqStyle: React.CSSProperties = {
-  color: 'var(--text-4)',
-  fontVariantNumeric: 'tabular-nums',
-  fontWeight: 500,
-  marginRight: 2,
-};
-
 const chatCardStyle: React.CSSProperties = {
   flex: 1,
   display: 'flex',
@@ -1993,6 +2143,25 @@ const shipShippedStyle: React.CSSProperties = {
   fontWeight: 700,
   letterSpacing: '0.02em',
   cursor: 'not-allowed',
+};
+
+// Shipped variant — a calm but distinct deep-purple wash so the
+// task's terminal-success state is visible at a glance without
+// reading like a fresh CTA. Errored keeps the neutral grey pill.
+const shipShippedDoneStyle: React.CSSProperties = {
+  width: '100%',
+  padding: '12px 14px',
+  fontSize: 13,
+  border: '1px solid rgba(91, 33, 182, 0.42)',
+  background: 'linear-gradient(135deg, #5b21b6 0%, #6d28d9 100%)',
+  color: '#f5f3ff',
+  borderRadius: 10,
+  fontWeight: 700,
+  letterSpacing: '0.02em',
+  cursor: 'not-allowed',
+  boxShadow:
+    '0 6px 18px rgba(91,33,182,0.28),'
+    + ' inset 0 1px 0 rgba(255,255,255,0.18)',
 };
 
 const commitsListStyle: React.CSSProperties = {

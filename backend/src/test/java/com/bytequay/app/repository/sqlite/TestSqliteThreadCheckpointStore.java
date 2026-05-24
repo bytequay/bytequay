@@ -260,7 +260,8 @@ class TestSqliteThreadCheckpointStore
                 /* agentSessionId */ null,
                 /* createdAt */ now,
                 /* endedAt */ null,
-                /* errorMessage */ null);
+                /* errorMessage */ null,
+                /* name */ null);
         tasks.saveTask(task);
         return task.id();
     }

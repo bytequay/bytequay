@@ -164,7 +164,7 @@ class TestTaskServiceShipAndContinue
                 /* linkedPrNumber */ null, /* linkedIssueNumber */ null,
                 0L, 0L, 0L,
                 /* agentSessionId */ null,
-                now, /* endedAt */ null, /* errorMessage */ null);
+                now, /* endedAt */ null, /* errorMessage */ null, /* name */ null);
     }
 
     private static PullRequest prWithNumber(int number)

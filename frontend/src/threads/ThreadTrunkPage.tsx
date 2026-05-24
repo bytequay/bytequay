@@ -157,6 +157,33 @@ export default function ThreadTrunkPage({ threadId, onBack, onOpenTask }: Props)
     catch { /* keep last good list */ }
   }, [threadId]);
 
+  const refreshTurns = useCallback(async () => {
+    try {
+      const list = await window.bridge.getTaskTurns(threadId);
+      setTurns(list);
+    }
+    catch { /* keep last good list */ }
+  }, [threadId]);
+
+  // Tail poll while a turn is in flight: the trunk send returns as
+  // soon as the row is queued, but the CLI subprocess takes a few
+  // seconds to spawn + respond. Without this, the user only ever
+  // sees the messages on screen at the moment they hit Send and the
+  // AI response never appears until they navigate away and back.
+  // Stops as soon as there are no QUEUED or RUNNING turns.
+  const hasInFlight = useMemo(
+    () => (turns ?? []).some(t => t.status === 'QUEUED' || t.status === 'RUNNING'),
+    [turns]);
+  useEffect(() => {
+    if (!hasInFlight && !sending) return;
+    const handle = window.setInterval(() => {
+      void refreshMessages();
+      void refreshTurns();
+      void loadThread();
+    }, 2_500);
+    return () => window.clearInterval(handle);
+  }, [hasInFlight, sending, refreshMessages, refreshTurns, loadThread]);
+
   const onSendTrunk = useCallback(async () => {
     const text = composerInput.trim();
     if (text.length === 0 || sending) return;
@@ -165,7 +192,9 @@ export default function ThreadTrunkPage({ threadId, onBack, onOpenTask }: Props)
     try {
       await window.bridge.sendTrunkMessage(threadId, text);
       setComposerInput('');
-      await refreshMessages();
+      // Pull both lists so the tail poll's hasInFlight check sees
+      // the freshly-enqueued QUEUED turn and kicks the interval in.
+      await Promise.all([refreshMessages(), refreshTurns()]);
     }
     catch (e) {
       setSendError(e instanceof Error ? e.message : String(e));

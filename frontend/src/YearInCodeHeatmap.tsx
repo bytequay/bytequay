@@ -12,6 +12,7 @@
  * limitations under the License.
  */
 import { forwardRef, useCallback, useEffect, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import type { ContributionCalendarDto, ContributionDayDto, UserCommitDto } from './types';
 import { getCached, setCached } from './dataCache';
 
@@ -244,7 +245,14 @@ export default function YearInCodeHeatmap({ login }: { login: string }) {
         )}
       </svg>
 
-      {hover && selected === null && (
+      {/* Portal both the hover tooltip and the click popover to
+          {@code document.body} so they escape the home-card's
+          stacking context. {@code .home-card:hover} promotes the
+          card with {@code transform: translateY(-1px)}, which makes
+          the card the containing block for every fixed-position
+          descendant — without the portal the tip + popover would be
+          trapped behind the next card ("Your recent activity"). */}
+      {hover && selected === null && createPortal(
         <div
           className="home-heatmap__tip"
           // Offset above and slightly right of the cursor so the cell
@@ -260,10 +268,11 @@ export default function YearInCodeHeatmap({ login }: { login: string }) {
           <span className="home-heatmap__tip-date">
             {formatTipDate(hover.day.date)}
           </span>
-        </div>
+        </div>,
+        document.body,
       )}
 
-      {selected && (
+      {selected && createPortal(
         <CommitPopover
           ref={popoverRef}
           day={selected.day}
@@ -271,7 +280,8 @@ export default function YearInCodeHeatmap({ login }: { login: string }) {
           clientY={selected.clientY}
           state={commitsByDate[selected.day.date] ?? 'loading'}
           onClose={closePopover}
-        />
+        />,
+        document.body,
       )}
 
       <div className="home-heatmap__footer">

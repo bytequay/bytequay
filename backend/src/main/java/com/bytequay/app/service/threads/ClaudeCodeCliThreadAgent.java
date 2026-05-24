@@ -254,11 +254,22 @@ public class ClaudeCodeCliThreadAgent
         // the CLI still has a sane place to read files from. The Thread
         // carries the trunk planning session id (threads.agent_session_id);
         // captured ids flow back to that column, not a task row.
+        //
+        // The trunk session is independent of the thread's task
+        // lifecycle: a COMPLETED / ERRORED thread (its last task shipped
+        // or errored) must still accept trunk planning turns, since
+        // planning at the trunk is what the user does to figure out
+        // the next slice. Normalise a terminal inherited status to
+        // IDLE so send() doesn't refuse the very first turn.
         if (trunkCwd != null) {
             this.workingDir = trunkCwd;
             this.branchName = null;
             this.activeTaskId = null;
-            this.status.set(thread.status());
+            ThreadStatus inherited = thread.status();
+            this.status.set(
+                    inherited == ThreadStatus.COMPLETED
+                            || inherited == ThreadStatus.ERRORED
+                            ? ThreadStatus.IDLE : inherited);
             this.agentSessionId.set(thread.agentSessionId());
         }
         else {

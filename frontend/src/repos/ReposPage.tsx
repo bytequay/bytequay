@@ -80,7 +80,9 @@ function ReposPage({ onSelectRepo }: Props) {
   // local-repos list already contains every watched repo, so we synthesise
   // the minimum shape rather than firing a second backend call.
   const watchedSynthetic = useMemo<WatchedRepoDto[]>(() =>
-    (repos ?? []).map((r, i) => ({ id: i, owner: r.owner, repo: r.repo, displayOrder: i })),
+    (repos ?? []).map((r, i): WatchedRepoDto => ({
+      id: i, owner: r.owner, repo: r.repo, displayOrder: i, localClonePath: null,
+    })),
   [repos]);
 
   // GIT_UNAVAILABLE on any row implies git itself is missing — every

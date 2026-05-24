@@ -157,6 +157,18 @@ export default function ThreadsPage({
     catch { /* private browsing — fine to skip */ }
   }, []);
 
+  // When the user switches to Group view but hasn't picked a board
+  // yet, auto-select the first one so the body renders the actual
+  // 2x2 grid instead of the "Lands in a follow-up" placeholder. If
+  // no groups exist, the placeholder still shows so the user knows
+  // to create one — handled separately below.
+  useEffect(() => {
+    if (view !== 'group') return;
+    if (groupId !== null) return;
+    if (groups.length === 0) return;
+    onGroupChange(groups[0].id);
+  }, [view, groupId, groups, onGroupChange]);
+
   // ⌘T toggles Chat ↔ Terminal whenever a group page is showing.
   // We DO fire even when an input is focused — chord shortcuts
   // (⌘+letter) are unambiguous, and skipping would make the toggle

@@ -87,6 +87,7 @@ function WorkspaceShell({
   immersive, onChangeImmersive,
 }: Props) {
   const [newThreadOpen, setNewThreadOpen] = useState(false);
+  const [newThreadInitialGroupId, setNewThreadInitialGroupId] = useState<string | undefined>(undefined);
   const [newWorkspaceOpen, setNewWorkspaceOpen] = useState(false);
   const { hasLiveThread, hasUnreadThread } = useRailThreadSignals();
 
@@ -128,7 +129,12 @@ function WorkspaceShell({
             onOpenPr={onOpenPr}
             onOpenIssues={onOpenIssues}
             onOpenSettings={onOpenSettings}
-            onNewTask={(initialGroupId) => onOpenThreadCreate?.({ initialGroupId })}
+            onNewTask={(initialGroupId) => {
+              if (initialGroupId !== undefined) {
+                setNewThreadInitialGroupId(initialGroupId);
+              }
+              setNewThreadOpen(true);
+            }}
             immersive={immersive}
             onChangeImmersive={onChangeImmersive}
           />
@@ -139,15 +145,16 @@ function WorkspaceShell({
       </div>
       {newThreadOpen && (
         <NewThreadDialog
-          onClose={() => setNewThreadOpen(false)}
-          onContinueFullForm={({ prompt }) => {
+          onClose={() => {
             setNewThreadOpen(false);
-            // The full create page owns repo + agent + skills + linked
-            // PR/issue; the dialog hands off the prompt it captured.
-            // start-mode is informational for now — the full page
-            // surfaces both modes through its own toggles.
-            onOpenThreadCreate?.({ initialPrompt: prompt });
+            setNewThreadInitialGroupId(undefined);
           }}
+          onCreated={(threadId) => {
+            setNewThreadOpen(false);
+            setNewThreadInitialGroupId(undefined);
+            onOpenThread?.(threadId);
+          }}
+          initialGroupId={newThreadInitialGroupId}
         />
       )}
       {newWorkspaceOpen && (

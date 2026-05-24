@@ -11,21 +11,20 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
+import type { WatchedRepoDto } from '../types';
 import { WS_DIALOG_OVERLAY, WS_DIALOG_PANEL, dialogStyles } from './dialogStyles';
-
-type StartMode = 'discussion' | 'task';
 
 type Props = {
   /** Close without taking any action — fired on Cancel and the
    *  backdrop. */
   onClose: () => void;
-  /** Punch out to the existing full create page so the user can
-   *  fill in repo + agent + skills + linked PR/issue. The dialog
-   *  keeps the minimum-friction "prompt + mode" picker; everything
-   *  beyond is owned by the full page (a polish pass can inline
-   *  more of it here once the dialog has proven the shape). */
-  onContinueFullForm: (params: { prompt: string; startMode: StartMode }) => void;
+  /** Open the freshly-created thread in the detail view. The dialog
+   *  fires this once createTask returns; the parent owns navigation. */
+  onCreated: (threadId: string) => void;
+  /** Pre-pin the new thread into a group when the dialog is opened
+   *  from a group's `+ Add` button. Defaults to no group. */
+  initialGroupId?: string;
 };
 
 /**
@@ -40,14 +39,66 @@ type Props = {
  * trunk *is* the discussion altitude, and tasks materialise from the
  * first branch-worthy turn rather than an up-front choice.
  */
-function NewThreadDialog({ onClose, onContinueFullForm }: Props) {
+function NewThreadDialog({ onClose, onCreated, initialGroupId }: Props) {
   const [prompt, setPrompt] = useState('');
+  const [repos, setRepos] = useState<WatchedRepoDto[] | null>(null);
+  const [selectedRepo, setSelectedRepo] = useState<WatchedRepoDto | null>(null);
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
 
-  const handleSubmit = () => {
-    // Trunk-first creation: the thread lands on the trunk; the agent
-    // proposes materialising a task on the first branch-worthy turn.
-    onContinueFullForm({ prompt: prompt.trim(), startMode: 'discussion' });
+  useEffect(() => {
+    let cancelled = false;
+    void window.bridge.getWatchedRepos()
+      .then(list => {
+        if (cancelled) return;
+        setRepos(list);
+        // Pre-select the first repo with a local clone path. The
+        // workspace default is whatever the user pinned first; if
+        // they have nothing yet, the create button stays disabled
+        // and the chip surfaces an inline hint.
+        const withClone = list.find(r => r.localClonePath != null && r.localClonePath.trim() !== '');
+        setSelectedRepo(withClone ?? list[0] ?? null);
+      })
+      .catch(() => { /* leave repos null; create disabled */ });
+    return () => { cancelled = true; };
+  }, []);
+
+  const handleSubmit = async () => {
+    const trimmed = prompt.trim();
+    if (submitting) return;
+    if (selectedRepo === null || selectedRepo.localClonePath == null || selectedRepo.localClonePath.trim() === '') {
+      setError('Add a watched repo with a local clone path before creating a thread.');
+      return;
+    }
+    setSubmitting(true);
+    setError(null);
+    try {
+      const created = await window.bridge.createTask({
+        kind: 'CLI_AGENT',
+        provider: 'claude-code',
+        model: '',
+        // Threads auto-title from the first prompt per the mockup
+        // hint; use a placeholder until the agent rewrites it.
+        title: trimmed.length > 0
+          ? trimmed.slice(0, 80)
+          : 'New thread',
+        workingDir: selectedRepo.localClonePath,
+        initialPrompt: trimmed === '' ? undefined : trimmed,
+        initialGroupIds: initialGroupId !== undefined ? [initialGroupId] : undefined,
+      });
+      onCreated(created.id);
+    }
+    catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+      setSubmitting(false);
+    }
   };
+
+  const submitDisabled = submitting
+      || repos === null
+      || selectedRepo === null
+      || selectedRepo.localClonePath == null
+      || selectedRepo.localClonePath.trim() === '';
 
   return (
     <div
@@ -110,8 +161,14 @@ function NewThreadDialog({ onClose, onContinueFullForm }: Props) {
         <div style={advancedRowStyle}>
           <button type="button" style={advancedChipStyle} disabled>
             <span style={advChipGlyphStyle('repo')} aria-hidden>●</span>
-            <span style={advChipLabelStyle}>bytequay</span>
-            <span style={advChipMetaStyle}>· backend, docs</span>
+            <span style={advChipLabelStyle}>
+              {selectedRepo === null
+                ? (repos === null ? 'loading repos…' : 'no watched repo')
+                : selectedRepo.repo}
+            </span>
+            {selectedRepo !== null && selectedRepo.owner !== '' && (
+              <span style={advChipMetaStyle}>· {selectedRepo.owner}</span>
+            )}
             <span style={advChipCaretStyle}>▾</span>
           </button>
           <button type="button" style={advancedChipStyle} disabled>
@@ -121,6 +178,10 @@ function NewThreadDialog({ onClose, onContinueFullForm }: Props) {
             <span style={advChipCaretStyle}>▾</span>
           </button>
         </div>
+
+        {error !== null && (
+          <div style={errorBannerStyle}>{error}</div>
+        )}
 
         <footer style={dialogStyles.footer}>
           <div style={dialogStyles.footerNote}>
@@ -133,9 +194,10 @@ function NewThreadDialog({ onClose, onContinueFullForm }: Props) {
             <button
               type="button"
               style={dialogStyles.primaryBtn}
-              onClick={handleSubmit}
+              onClick={() => { void handleSubmit(); }}
+              disabled={submitDisabled}
             >
-              Start thread <span style={{ marginLeft: 4 }}>⏎</span>
+              {submitting ? 'Starting…' : 'Start thread'} <span style={{ marginLeft: 4 }}>⏎</span>
             </button>
           </div>
         </footer>
@@ -143,6 +205,16 @@ function NewThreadDialog({ onClose, onContinueFullForm }: Props) {
     </div>
   );
 }
+
+const errorBannerStyle: React.CSSProperties = {
+  marginTop: 10,
+  padding: '8px 12px',
+  fontSize: 11,
+  color: '#991b1b',
+  background: '#fee2e2',
+  border: '1px solid #fecaca',
+  borderRadius: 8,
+};
 
 const brandSquareStyle: React.CSSProperties = {
   width: 16,

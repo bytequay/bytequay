@@ -427,6 +427,10 @@ export type WatchedRepoDto = {
   owner: string;
   repo: string;
   displayOrder: number;
+  /** Absolute path to the local clone. Set when the user has cloned
+   *  the repo locally; null when the repo is watched read-only. The
+   *  new-thread dialog uses this as the agent's working directory. */
+  localClonePath: string | null;
 };
 
 /** Repo-level metadata served by /api/repos/{owner}/{repo}/meta.

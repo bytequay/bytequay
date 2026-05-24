@@ -181,6 +181,9 @@ export default function ThreadGroupPage(props: ThreadGroupPageProps) {
           onToggleImmersive={() => onChangeImmersive(!immersive)}
           immersive={immersive}
           onBackToAll={onBackToAll}
+          selectedThreadId={selectedId}
+          onSelectThread={setSelectedId}
+          onZoomThread={(threadId) => setZoomedTaskId(threadId)}
         />
       )}
       <main style={mainStyle}>

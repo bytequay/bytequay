@@ -323,6 +323,7 @@ export default function TaskDetailPage({
                       taskSeq={taskSeq}
                       baseBranch={task?.baseBranch ?? null}
                       userInitials={userInitials}
+                      isInFlight={thread?.status === 'RUNNING' || sending}
                     />
                   )
                 )}

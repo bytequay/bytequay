@@ -27,6 +27,15 @@ import { threadCompactNumber } from './threadDisplay';
  * (immersive toggle, group settings, refresh) round out the rail.
  */
 export type ThreadsGroupSidebarProps = {
+  /** Currently-selected tile id, so the rail's matching nav row can
+   *  highlight. Null when no tile is selected. */
+  selectedThreadId?: string | null;
+  /** Select a tile from the rail. Mirrors what clicking the tile in
+   *  the grid does (focuses its input, ready for type-to-reply). */
+  onSelectThread?: (threadId: string) => void;
+  /** Zoom into a thread from the rail (double-click style). Opens
+   *  the modal embedding the trunk / task-detail. */
+  onZoomThread?: (threadId: string) => void;
   group: ThreadGroupDto;
   /** Threads that belong to this group. The sidebar derives all
    *  status counts and aggregated metrics from this list — the
@@ -50,6 +59,7 @@ export default function ThreadsGroupSidebar({
   group, threads, canAddTask,
   onAddTask, onOpenGroupSettings, onRefresh,
   onToggleImmersive, immersive, onBackToAll,
+  selectedThreadId = null, onSelectThread, onZoomThread,
 }: ThreadsGroupSidebarProps) {
   const counts = useMemo(() => deriveStatusCounts(threads), [threads]);
   const vitals = useMemo(() => deriveAggregates(threads), [threads]);
@@ -89,6 +99,45 @@ export default function ThreadsGroupSidebar({
           <VitalsRow label="Tokens"        value={`${vitals.tokensIn} → ${vitals.tokensOut}`} />
           <VitalsRow label="Burn rate"     value={vitals.burnRate} />
         </div>
+      </div>
+
+      <div>
+        <div style={sectionHeaderStyle}>
+          <span>In this group</span>
+          <span style={sectionHeaderRightStyle}>
+            {threads.length}/4
+          </span>
+        </div>
+        <ul style={threadNavListStyle}>
+          {threads.length === 0 && (
+            <li style={threadNavEmptyStyle}>
+              No threads pinned yet. + Add thread below.
+            </li>
+          )}
+          {threads.map((t, idx) => (
+            <li key={t.id}>
+              <button
+                type="button"
+                onClick={() => onSelectThread?.(t.id)}
+                onDoubleClick={() => onZoomThread?.(t.id)}
+                style={threadNavRowStyle(t.id === selectedThreadId)}
+                title={`${t.title}${t.activeTask?.branchName != null
+                    ? ` · ${t.activeTask.branchName}` : ''}`}
+              >
+                <span
+                  style={threadNavDotStyle(t.status)}
+                  aria-label={t.status.toLowerCase()}
+                  aria-hidden
+                />
+                <span style={threadNavSlotStyle}>{idx + 1}</span>
+                <span style={threadNavTitleStyle}>{t.title}</span>
+                <span style={threadNavStatusStyle(t.status)}>
+                  {humanizeNavStatus(t.status)}
+                </span>
+              </button>
+            </li>
+          ))}
+        </ul>
       </div>
 
       <div style={{ flex: 1 }} />
@@ -139,6 +188,16 @@ function StatusCell({ label, value, tone }: {
       <span style={statusCellLabelStyle}>{label}</span>
     </div>
   );
+}
+
+function humanizeNavStatus(status: string): string {
+  if (status === 'AWAITING_REVIEW') return 'awaiting';
+  if (status === 'NEEDS_ATTENTION') return 'needs you';
+  if (status === 'RUNNING') return 'running';
+  if (status === 'IDLE') return 'idle';
+  if (status === 'COMPLETED') return 'done';
+  if (status === 'ERRORED') return 'errored';
+  return status.toLowerCase();
 }
 
 function VitalsRow({ label, value, live }: { label: string; value: string; live?: boolean }) {
@@ -369,6 +428,89 @@ const vitalsStyle: React.CSSProperties = {
   borderRadius: 6,
   padding: '2px 10px',
 };
+const threadNavListStyle: React.CSSProperties = {
+  margin: '6px 0 0',
+  padding: 0,
+  listStyle: 'none',
+  display: 'flex',
+  flexDirection: 'column',
+  gap: 4,
+};
+
+const threadNavEmptyStyle: React.CSSProperties = {
+  padding: '8px 10px',
+  fontSize: 11,
+  color: 'var(--text-4)',
+  fontStyle: 'italic',
+};
+
+function threadNavRowStyle(active: boolean): React.CSSProperties {
+  return {
+    display: 'flex',
+    alignItems: 'center',
+    gap: 8,
+    width: '100%',
+    padding: '6px 8px',
+    border: '1px solid ' + (active ? 'rgba(124,58,237,0.40)' : 'transparent'),
+    background: active
+        ? 'rgba(124, 58, 237, 0.10)'
+        : 'transparent',
+    borderRadius: 6,
+    fontSize: 12,
+    color: active ? '#6d28d9' : 'var(--text-1)',
+    cursor: 'pointer',
+    textAlign: 'left',
+    fontFamily: 'inherit',
+    fontWeight: active ? 600 : 500,
+  };
+}
+
+function threadNavDotStyle(status: string): React.CSSProperties {
+  let bg = '#94a3b8';
+  if (status === 'RUNNING') bg = '#22c55e';
+  else if (status === 'AWAITING_REVIEW') bg = '#d97706';
+  else if (status === 'NEEDS_ATTENTION') bg = '#dc2626';
+  else if (status === 'COMPLETED') bg = '#0ea5e9';
+  else if (status === 'ERRORED') bg = '#dc2626';
+  return {
+    width: 6,
+    height: 6,
+    borderRadius: 999,
+    background: bg,
+    flexShrink: 0,
+  };
+}
+
+const threadNavSlotStyle: React.CSSProperties = {
+  fontSize: 10,
+  fontWeight: 600,
+  color: 'var(--text-4)',
+  fontVariantNumeric: 'tabular-nums',
+  width: 12,
+  flexShrink: 0,
+};
+
+const threadNavTitleStyle: React.CSSProperties = {
+  flex: 1,
+  overflow: 'hidden',
+  textOverflow: 'ellipsis',
+  whiteSpace: 'nowrap',
+};
+
+function threadNavStatusStyle(status: string): React.CSSProperties {
+  let color = 'var(--text-4)';
+  if (status === 'RUNNING') color = '#15803d';
+  else if (status === 'AWAITING_REVIEW') color = '#9a3412';
+  else if (status === 'NEEDS_ATTENTION') color = '#991b1b';
+  return {
+    fontSize: 9,
+    color,
+    fontWeight: 600,
+    letterSpacing: '0.02em',
+    flexShrink: 0,
+  };
+}
+
 const vitalsRowStyle: React.CSSProperties = {
   display: 'flex', alignItems: 'baseline',
   padding: '5px 0',

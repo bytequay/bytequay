@@ -412,6 +412,7 @@ export default function ThreadTrunkPage({ threadId, onBack, onOpenTask }: Props)
                   foregroundTaskId={foreground?.id ?? null}
                   userInitials={userInitials}
                   onOpenTask={onOpenTask}
+                  isInFlight={hasInFlight || sending}
                 />
               )}
             </div>

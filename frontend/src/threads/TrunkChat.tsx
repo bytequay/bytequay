@@ -29,6 +29,10 @@ type Props = {
   userInitials: string;
   /** Click-through on a task-launch card. */
   onOpenTask: (taskId: string) => void;
+  /** When true, a thinking-pulse card renders at the bottom of the
+   *  scrollback so the user has a visible "the agent is working"
+   *  cue while the CLI subprocess spawns + spins up. */
+  isInFlight?: boolean;
 };
 
 /**
@@ -42,7 +46,7 @@ type Props = {
  * task's window.
  */
 export default function TrunkChat({
-  messages, tasks, foregroundTaskId, userInitials, onOpenTask,
+  messages, tasks, foregroundTaskId, userInitials, onOpenTask, isInFlight = false,
 }: Props) {
   const scrollRef = useRef<HTMLDivElement | null>(null);
   // Stick to the bottom on new content — the trunk chat is short by
@@ -93,9 +97,41 @@ export default function TrunkChat({
         }
         return <SystemLine key={`sys-${i}`} text={item.text} />;
       })}
+      {isInFlight && <ThinkingCard />}
     </div>
   );
 }
+
+function ThinkingCard() {
+  return (
+    <div style={thinkingRowStyle}>
+      <div style={claudeAvatarStyle}>C</div>
+      <div style={assistantColStyle}>
+        <div style={assistantHeaderStyle}>
+          <span style={assistantNameStyle}>Claude</span>
+          <span style={assistantMetaStyle}>trunk</span>
+          <span style={assistantMetaStyle}>· thinking</span>
+        </div>
+        <div style={thinkingBubbleStyle}>
+          <span style={thinkingDotsStyle} aria-hidden>
+            <span style={{ ...thinkingDotStyle, animationDelay: '0ms' }} />
+            <span style={{ ...thinkingDotStyle, animationDelay: '180ms' }} />
+            <span style={{ ...thinkingDotStyle, animationDelay: '360ms' }} />
+          </span>
+          <span style={thinkingTextStyle}>working…</span>
+        </div>
+      </div>
+      <style>{thinkingKeyframes}</style>
+    </div>
+  );
+}
+
+const thinkingKeyframes = `
+@keyframes bq-thinking-pulse {
+  0%, 80%, 100% { transform: scale(0.4); opacity: 0.4; }
+  40%           { transform: scale(1);   opacity: 1; }
+}
+`;
 
 type TimelineItem =
   | { kind: 'date'; label: string; ts: number }
@@ -340,6 +376,46 @@ const assistantRowStyle: React.CSSProperties = {
   display: 'flex',
   alignItems: 'flex-start',
   gap: 8,
+};
+
+const thinkingRowStyle: React.CSSProperties = {
+  display: 'flex',
+  alignItems: 'flex-start',
+  gap: 8,
+  paddingTop: 4,
+};
+
+const thinkingBubbleStyle: React.CSSProperties = {
+  maxWidth: '60%',
+  padding: '10px 14px',
+  background: 'linear-gradient(180deg, rgba(234, 88, 12, 0.10), rgba(234, 88, 12, 0.04))',
+  border: '1px solid rgba(234, 88, 12, 0.30)',
+  borderRadius: 14,
+  borderTopLeftRadius: 4,
+  display: 'flex',
+  alignItems: 'center',
+  gap: 8,
+};
+
+const thinkingDotsStyle: React.CSSProperties = {
+  display: 'inline-flex',
+  alignItems: 'center',
+  gap: 4,
+};
+
+const thinkingDotStyle: React.CSSProperties = {
+  width: 6,
+  height: 6,
+  background: '#ea580c',
+  borderRadius: 999,
+  display: 'inline-block',
+  animation: 'bq-thinking-pulse 1.2s ease-in-out infinite',
+};
+
+const thinkingTextStyle: React.CSSProperties = {
+  fontSize: 12,
+  color: '#9a3412',
+  fontStyle: 'italic',
 };
 
 const claudeAvatarStyle: React.CSSProperties = {

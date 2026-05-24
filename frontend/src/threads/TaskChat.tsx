@@ -26,6 +26,10 @@ type Props = {
   baseBranch: string | null;
   /** Initials displayed on the user avatar (right-side bubbles). */
   userInitials: string;
+  /** When true, a thinking-pulse card renders under the scrollback so
+   *  the user has a visible "the agent is working" cue while the CLI
+   *  subprocess spawns + spins up. */
+  isInFlight?: boolean;
 };
 
 /**
@@ -38,7 +42,7 @@ type Props = {
  * thread" badge is pinned at the top of the scrollback.
  */
 export default function TaskChat({
-  messages, taskSeq, baseBranch, userInitials,
+  messages, taskSeq, baseBranch, userInitials, isInFlight = false,
 }: Props) {
   const scrollRef = useRef<HTMLDivElement | null>(null);
   useEffect(() => {
@@ -98,9 +102,39 @@ export default function TaskChat({
         }
         return <SystemNote key={`sys-${i}`} text={item.text} />;
       })}
+      {isInFlight && (
+        <div style={thinkingRowStyle}>
+          <div style={claudeAvatarStyle}>C</div>
+          <div style={assistantColStyle}>
+            <div style={assistantHeaderStyle}>
+              <span style={assistantNameStyle}>Claude</span>
+              {taskSeq !== null && (
+                <span style={assistantMetaStyle}>Task {taskSeq}</span>
+              )}
+              <span style={assistantMetaStyle}>· thinking</span>
+            </div>
+            <div style={thinkingBubbleStyle}>
+              <span style={thinkingDotsStyle} aria-hidden>
+                <span style={{ ...thinkingDotStyle, animationDelay: '0ms' }} />
+                <span style={{ ...thinkingDotStyle, animationDelay: '180ms' }} />
+                <span style={{ ...thinkingDotStyle, animationDelay: '360ms' }} />
+              </span>
+              <span style={thinkingTextStyle}>working…</span>
+            </div>
+          </div>
+        </div>
+      )}
+      <style>{thinkingKeyframes}</style>
     </div>
   );
 }
+
+const thinkingKeyframes = `
+@keyframes bq-thinking-pulse {
+  0%, 80%, 100% { transform: scale(0.4); opacity: 0.4; }
+  40%           { transform: scale(1);   opacity: 1; }
+}
+`;
 
 /* ── Timeline ───────────────────────────────────────────────────────── */
 
@@ -275,7 +309,7 @@ function ThinkingLine({ summary, ts }: { summary: string; ts: number }) {
   const secs = Math.max(1, Math.floor((Date.now() - ts) / 1000));
   return (
     <div style={thinkingLineStyle}>
-      <span style={thinkingDotStyle}>○</span>
+      <span style={thinkingInlineDotStyle}>○</span>
       <span>thinking {secs >= 60 ? `${Math.floor(secs / 60)}m` : `${secs}s`} — {summary || 'working'}</span>
     </div>
   );
@@ -469,6 +503,46 @@ const assistantRowStyle: React.CSSProperties = {
   gap: 10,
 };
 
+const thinkingRowStyle: React.CSSProperties = {
+  display: 'flex',
+  alignItems: 'flex-start',
+  gap: 10,
+  paddingTop: 4,
+};
+
+const thinkingBubbleStyle: React.CSSProperties = {
+  maxWidth: '60%',
+  padding: '10px 14px',
+  background: 'linear-gradient(180deg, rgba(234, 88, 12, 0.10), rgba(234, 88, 12, 0.04))',
+  border: '1px solid rgba(234, 88, 12, 0.30)',
+  borderRadius: 14,
+  borderTopLeftRadius: 4,
+  display: 'flex',
+  alignItems: 'center',
+  gap: 8,
+};
+
+const thinkingDotsStyle: React.CSSProperties = {
+  display: 'inline-flex',
+  alignItems: 'center',
+  gap: 4,
+};
+
+const thinkingDotStyle: React.CSSProperties = {
+  width: 6,
+  height: 6,
+  background: '#ea580c',
+  borderRadius: 999,
+  display: 'inline-block',
+  animation: 'bq-thinking-pulse 1.2s ease-in-out infinite',
+};
+
+const thinkingTextStyle: React.CSSProperties = {
+  fontSize: 12,
+  color: '#9a3412',
+  fontStyle: 'italic',
+};
+
 const claudeAvatarStyle: React.CSSProperties = {
   width: 28,
   height: 28,
@@ -547,7 +621,7 @@ const thinkingLineStyle: React.CSSProperties = {
   fontStyle: 'italic',
 };
 
-const thinkingDotStyle: React.CSSProperties = {
+const thinkingInlineDotStyle: React.CSSProperties = {
   fontSize: 10,
 };
 

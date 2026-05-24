@@ -1757,19 +1757,20 @@ const railHeadMutedStyle: React.CSSProperties = {
 
 const mainStyle: React.CSSProperties = {
   // Bounded main column: chat card grows to fill, composer card
-  // sits anchored to the bottom of the column. The bottom padding is
-  // a deliberate +10 over the side/top padding so the composer card
-  // floats with a small gap above the viewport edge rather than
-  // sitting flush with it.
+  // sits anchored to the bottom of the column. The maxHeight reserve
+  // is bumped to 116px (was 96) so the column ends ~20px above the
+  // viewport bottom, and the bottom padding doubles to 28 — net
+  // effect is the composer card's bottom boundary clears the screen
+  // edge with a comfortable margin instead of being clipped.
   display: 'flex',
   flexDirection: 'column',
   gap: 12,
   paddingTop: 14,
   paddingLeft: 14,
   paddingRight: 14,
-  paddingBottom: 24,
+  paddingBottom: 28,
   minHeight: 0,
-  maxHeight: 'calc(100vh - 96px)',
+  maxHeight: 'calc(100vh - 116px)',
   overflow: 'hidden',
 };
 

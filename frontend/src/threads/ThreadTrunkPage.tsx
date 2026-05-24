@@ -141,12 +141,24 @@ export default function ThreadTrunkPage({ threadId, onBack, onOpenTask }: Props)
     [tasks]);
 
   // Pre-select the foreground (newest non-terminal) task so Next/Ship
-  // have a target without the user having to click first.
+  // have a target without the user having to click first. Clear the
+  // selection again if the list goes empty — a stale id from a deleted
+  // task would otherwise keep the buttons enabled with nothing to act on.
   useEffect(() => {
-    if (tasks === null || selectedTaskId !== null) return;
+    if (tasks === null) return;
+    if (tasks.length === 0) {
+      if (selectedTaskId !== null) setSelectedTaskId(null);
+      return;
+    }
+    if (selectedTaskId !== null && tasks.some(t => t.id === selectedTaskId)) {
+      return;
+    }
     const foreground = newestActiveTask(tasks);
     if (foreground !== null) {
       setSelectedTaskId(foreground.id);
+    }
+    else {
+      setSelectedTaskId(null);
     }
   }, [tasks, selectedTaskId]);
 
@@ -345,28 +357,36 @@ export default function ThreadTrunkPage({ threadId, onBack, onOpenTask }: Props)
                   This is a review thread — the panel reviews a PR rather than
                   cutting branches. Next / Ship apply only to build flows.
                 </div>
-              ) : (
+              ) : (() => {
+                // Both buttons need a target task. Disable whenever the
+                // thread has no foreground (zero tasks, or every task
+                // terminal) or the user hasn't picked one.
+                const noTarget = foreground === null || selectedTaskId === null;
+                const noTargetReason = (tasks?.length ?? 0) === 0
+                  ? 'No tasks yet — start one before parking or shipping'
+                  : 'Select a task to park or ship';
+                return (
                 <>
                   <div style={advanceRowStyle}>
                     <button
                       type="button"
                       onClick={() => { void onAdvance('next'); }}
-                      disabled={foreground === null || advancing !== null}
-                      style={nextBtnStyle}
-                      title={foreground === null
-                        ? 'No foreground task — Next needs a task to park'
-                        : `Next: park task ${foreground.seq} at AWAITING_REVIEW and start the next from main`}
+                      disabled={noTarget || advancing !== null}
+                      style={nextBtnStyle(noTarget || advancing !== null)}
+                      title={noTarget
+                        ? noTargetReason
+                        : `Next: park task ${foreground!.seq} at AWAITING_REVIEW and start the next from main`}
                     >
                       {advancing === 'next' ? 'Parking…' : 'Next →'}
                     </button>
                     <button
                       type="button"
                       onClick={() => { void onAdvance('ship'); }}
-                      disabled={foreground === null || advancing !== null}
-                      style={shipBtnStyle}
-                      title={foreground === null
-                        ? 'No foreground task — Ship needs a task to finalise'
-                        : `Ship: finalise task ${foreground.seq} (worktree reaps)`}
+                      disabled={noTarget || advancing !== null}
+                      style={shipBtnStyle(noTarget || advancing !== null)}
+                      title={noTarget
+                        ? noTargetReason
+                        : `Ship: finalise task ${foreground!.seq} (worktree reaps)`}
                     >
                       {advancing === 'ship' ? 'Shipping…' : 'Ship'}
                     </button>
@@ -375,7 +395,8 @@ export default function ThreadTrunkPage({ threadId, onBack, onOpenTask }: Props)
                     Next parks &amp; starts next · Ship finalises this task
                   </div>
                 </>
-              )}
+                );
+              })()}
               {advanceError !== null && (
                 <div style={errStyle}>{advanceError}</div>
               )}
@@ -1777,27 +1798,35 @@ const advanceRowStyle: React.CSSProperties = {
   marginTop: 10,
 };
 
-const nextBtnStyle: React.CSSProperties = {
-  padding: '6px 8px',
-  fontSize: 12,
-  border: 'none',
-  background: 'linear-gradient(135deg, #7c3aed, #6366f1)',
-  color: '#fff',
-  borderRadius: 8,
-  fontWeight: 600,
-  cursor: 'pointer',
-};
+function nextBtnStyle(disabled: boolean): React.CSSProperties {
+  return {
+    padding: '6px 8px',
+    fontSize: 12,
+    border: 'none',
+    background: disabled
+      ? 'rgba(124, 58, 237, 0.22)'
+      : 'linear-gradient(135deg, #7c3aed, #6366f1)',
+    color: disabled ? 'rgba(255,255,255,0.85)' : '#fff',
+    borderRadius: 8,
+    fontWeight: 600,
+    cursor: disabled ? 'not-allowed' : 'pointer',
+    opacity: disabled ? 0.65 : 1,
+  };
+}
 
-const shipBtnStyle: React.CSSProperties = {
-  padding: '6px 8px',
-  fontSize: 12,
-  border: '1px solid rgba(0,0,0,0.10)',
-  background: '#fff',
-  color: 'var(--text-1)',
-  borderRadius: 8,
-  fontWeight: 600,
-  cursor: 'pointer',
-};
+function shipBtnStyle(disabled: boolean): React.CSSProperties {
+  return {
+    padding: '6px 8px',
+    fontSize: 12,
+    border: '1px solid rgba(0,0,0,0.10)',
+    background: disabled ? 'rgba(0,0,0,0.04)' : '#fff',
+    color: disabled ? 'var(--text-4)' : 'var(--text-1)',
+    borderRadius: 8,
+    fontWeight: 600,
+    cursor: disabled ? 'not-allowed' : 'pointer',
+    opacity: disabled ? 0.7 : 1,
+  };
+}
 
 const advanceHintStyle: React.CSSProperties = {
   fontSize: 10,

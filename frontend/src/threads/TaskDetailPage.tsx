@@ -199,37 +199,78 @@ export default function TaskDetailPage({
     () => (messages ?? []).filter(m => m.role === 'tool' && m.type === 'tool_call').length,
     [messages]);
 
+  // Terminal mode takes over the entire shell with a dark theme per
+  // docs/mockups/design/tasks/thread-detail-terminal.png. The page
+  // background, top bar, altitude band, and composer all switch to
+  // the Warp/tmux palette while the diff/conversation views keep the
+  // existing workspace-language treatment.
+  const isTerminal: boolean = mode === 'terminal';
+  const isDiff: boolean = mode === 'diff';
+
   return (
-    <div style={pageStyle}>
-      <div style={meshBgStyle} aria-hidden />
-      <div style={noiseBgStyle} aria-hidden />
-      <div style={spineStyle} aria-hidden />
+    <div style={isTerminal ? pageDarkStyle : pageStyle}>
+      {!isTerminal && <div style={meshBgStyle} aria-hidden />}
+      {!isTerminal && <div style={noiseBgStyle} aria-hidden />}
+      <div style={isTerminal ? spineDarkStyle : spineStyle} aria-hidden />
 
       <div style={contentColStyle}>
-        <header style={headerStyle}>
+        <header style={isTerminal ? headerDarkStyle : headerStyle}>
           <button
             type="button"
             onClick={onBackToTrunk}
-            style={backArrowBtnStyle}
+            style={isTerminal ? backArrowDarkStyle : backArrowBtnStyle}
             title="Back to the thread trunk"
             aria-label="Back to thread"
           >
             ←
           </button>
-          <div style={brandStyle} aria-hidden>B</div>
+          {!isTerminal && <div style={brandStyle} aria-hidden>B</div>}
+          {isTerminal && (
+            <span style={termBreadcrumbBrandStyle}>Threads</span>
+          )}
+          {isTerminal && <span style={termBreadcrumbSepStyle}>/</span>}
           <button
             type="button"
             onClick={onBackToTrunk}
-            style={crumbThreadBtnStyle}
+            style={isTerminal ? crumbThreadBtnDarkStyle : crumbThreadBtnStyle}
             title="Back to the thread trunk"
           >
             {thread?.title ?? 'Thread'}
           </button>
+          {isTerminal && taskBranch !== null && (
+            <span style={termHeaderBranchChipStyle}>↗ {taskBranch}</span>
+          )}
+          {isTerminal && taskPr !== null && (
+            <span style={termHeaderPrStyle}>● #{taskPr}</span>
+          )}
+          {isTerminal && task !== null && (
+            <span style={termHeaderStatusStyle}>{task.status.toLowerCase()}</span>
+          )}
           <div style={headerSpacerStyle} />
-          <ModeToggle mode={mode} onChange={setMode} />
+          {isTerminal && (
+            <span style={termCtxBadgeStyle}>
+              {thread?.model ?? 'claude'}
+              <span style={{ marginLeft: 8, opacity: 0.7 }}>
+                ctx {task !== null
+                  ? Math.min(100, Math.round((task.tokensIn / 200_000) * 100))
+                  : 0}%
+              </span>
+            </span>
+          )}
+          {!isTerminal && <ModeToggle mode={mode} onChange={setMode} />}
+          {isTerminal && (
+            <button
+              type="button"
+              onClick={() => setMode('conversation')}
+              style={termExitBtnStyle}
+              title="Back to conversation mode"
+            >
+              ✕ Exit terminal
+            </button>
+          )}
           <button
             type="button"
-            style={topDiffBtnStyle(mode === 'diff')}
+            style={isTerminal ? topDiffDarkStyle(isDiff) : topDiffBtnStyle(isDiff)}
             onClick={() => setMode(mode === 'diff' ? 'conversation' : 'diff')}
             title={mode === 'diff'
               ? 'Close diff and return to the conversation'
@@ -237,38 +278,42 @@ export default function TaskDetailPage({
           >
             ⇄ +{totalAdds} -{totalDels}
           </button>
-          {thread !== null && (
+          {thread !== null && !isTerminal && (
             <span style={statusPillStyle(thread.status)}>
               <span style={statusDotStyle(thread.status)} aria-hidden />
               {thread.status}
             </span>
           )}
-          <button type="button" style={menuDotsStyle} title="More" aria-label="More">⋯</button>
+          {!isTerminal && (
+            <button type="button" style={menuDotsStyle} title="More" aria-label="More">⋯</button>
+          )}
         </header>
 
-        <div style={altitudeBandStyle}>
-          <span style={bandGlyphStyle}>● TASK</span>
-          <span style={bandTitleStyle}>
-            {taskSeq !== null && <span style={bandSeqStyle}>{taskSeq}.</span>}
-            {' '}
-            {taskTitle}
-          </span>
-          {taskBranch !== null && (
-            <span style={bandBranchStyle}>↗ {taskBranch}</span>
-          )}
-          {taskPr !== null && (
-            <span style={bandPrStyle}>⊕ PR #{taskPr}</span>
-          )}
-          {task !== null && (
-            <span style={bandStatusStyle}>· {task.status.toLowerCase()}</span>
-          )}
-          <div style={bandSpacerStyle} />
-        </div>
+        {!isTerminal && (
+          <div style={altitudeBandStyle}>
+            <span style={bandGlyphStyle}>● TASK</span>
+            <span style={bandTitleStyle}>
+              {taskSeq !== null && <span style={bandSeqStyle}>{taskSeq}.</span>}
+              {' '}
+              {taskTitle}
+            </span>
+            {taskBranch !== null && (
+              <span style={bandBranchStyle}>↗ {taskBranch}</span>
+            )}
+            {taskPr !== null && (
+              <span style={bandPrStyle}>⊕ PR #{taskPr}</span>
+            )}
+            {task !== null && (
+              <span style={bandStatusStyle}>· {task.status.toLowerCase()}</span>
+            )}
+            <div style={bandSpacerStyle} />
+          </div>
+        )}
 
         {mode !== 'diff' && (
           <div style={bodyGridStyle}>
             <main style={mainStyle}>
-              <div style={chatCardStyle}>
+              <div style={isTerminal ? chatCardDarkStyle : chatCardStyle}>
                 {mode === 'conversation' && (
                   messages === null ? (
                     <div style={loadingCenterStyle}>Loading conversation…</div>
@@ -301,7 +346,7 @@ export default function TaskDetailPage({
                 )}
               </div>
 
-              <div style={composerCardStyle}>
+              <div style={isTerminal ? composerCardDarkStyle : composerCardStyle}>
                 <div style={composerTopStyle}>
                   <div style={composerAnchorStyle}>
                     ↻ Replying in Task {taskSeq ?? ''} {taskBranch !== null && (
@@ -1548,6 +1593,163 @@ const railStyle: React.CSSProperties = {
   background: 'rgba(248, 247, 252, 0.5)',
   overflowY: 'auto',
   maxHeight: 'calc(100vh - 96px)',
+};
+
+/* ── Terminal-mode dark shell styles (whole-page takeover) ────── */
+
+const pageDarkStyle: React.CSSProperties = {
+  position: 'relative',
+  minHeight: '100vh',
+  background: '#0a0e14',
+  color: '#cdd6f4',
+  overflow: 'hidden',
+};
+
+const spineDarkStyle: React.CSSProperties = {
+  position: 'fixed',
+  top: 0,
+  bottom: 0,
+  left: 0,
+  width: 4,
+  background: '#0d9488',
+  zIndex: 2,
+};
+
+const headerDarkStyle: React.CSSProperties = {
+  position: 'sticky',
+  top: 0,
+  zIndex: 3,
+  display: 'flex',
+  alignItems: 'center',
+  gap: 10,
+  padding: '8px 18px',
+  background: '#1a1f29',
+  borderBottom: '1px solid #0f1318',
+  color: '#cdd6f4',
+};
+
+const backArrowDarkStyle: React.CSSProperties = {
+  width: 28,
+  height: 28,
+  border: '1px solid #2a2f3a',
+  background: '#0d1117',
+  borderRadius: 6,
+  fontSize: 14,
+  color: '#cdd6f4',
+  cursor: 'pointer',
+  display: 'inline-flex',
+  alignItems: 'center',
+  justifyContent: 'center',
+  flexShrink: 0,
+};
+
+const termBreadcrumbBrandStyle: React.CSSProperties = {
+  color: '#94a3b8',
+  fontSize: 12,
+};
+
+const termBreadcrumbSepStyle: React.CSSProperties = {
+  color: '#475569',
+  fontSize: 12,
+};
+
+const crumbThreadBtnDarkStyle: React.CSSProperties = {
+  background: 'transparent',
+  border: 'none',
+  padding: 0,
+  fontSize: 13,
+  fontWeight: 600,
+  color: '#f8fafc',
+  cursor: 'pointer',
+  whiteSpace: 'nowrap',
+  overflow: 'hidden',
+  textOverflow: 'ellipsis',
+  maxWidth: 320,
+};
+
+const termHeaderBranchChipStyle: React.CSSProperties = {
+  fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
+  fontSize: 11,
+  color: '#22c55e',
+  background: 'rgba(34, 197, 94, 0.10)',
+  border: '1px solid rgba(34, 197, 94, 0.25)',
+  padding: '2px 8px',
+  borderRadius: 6,
+};
+
+const termHeaderPrStyle: React.CSSProperties = {
+  fontSize: 11,
+  color: '#7c3aed',
+  background: 'rgba(124, 58, 237, 0.10)',
+  border: '1px solid rgba(124, 58, 237, 0.25)',
+  padding: '2px 8px',
+  borderRadius: 6,
+  fontWeight: 600,
+};
+
+const termHeaderStatusStyle: React.CSSProperties = {
+  fontSize: 11,
+  color: '#fb923c',
+  fontStyle: 'italic',
+};
+
+const termCtxBadgeStyle: React.CSSProperties = {
+  fontSize: 10,
+  color: '#94a3b8',
+  background: '#0d1117',
+  border: '1px solid #2a2f3a',
+  padding: '3px 10px',
+  borderRadius: 6,
+  fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
+};
+
+const termExitBtnStyle: React.CSSProperties = {
+  border: '1px solid rgba(34, 197, 94, 0.30)',
+  background: 'rgba(34, 197, 94, 0.12)',
+  color: '#22c55e',
+  padding: '4px 10px',
+  fontSize: 11,
+  borderRadius: 6,
+  cursor: 'pointer',
+  fontWeight: 600,
+};
+
+function topDiffDarkStyle(active: boolean): React.CSSProperties {
+  return {
+    padding: '4px 10px',
+    fontSize: 11,
+    border: '1px solid #2a2f3a',
+    background: active ? '#0d9488' : '#0d1117',
+    color: active ? '#0a0e14' : '#cdd6f4',
+    borderRadius: 6,
+    fontWeight: 600,
+    cursor: 'pointer',
+    fontFeatureSettings: '"tnum"',
+    fontVariantNumeric: 'tabular-nums',
+  };
+}
+
+const chatCardDarkStyle: React.CSSProperties = {
+  flex: 1,
+  display: 'flex',
+  flexDirection: 'column',
+  background: '#0a0e14',
+  border: '1px solid #1f2937',
+  borderRadius: 14,
+  overflow: 'hidden',
+  minHeight: 0,
+  color: '#cdd6f4',
+};
+
+const composerCardDarkStyle: React.CSSProperties = {
+  display: 'flex',
+  flexDirection: 'column',
+  background: '#0d1117',
+  border: '1px solid #1f2937',
+  borderRadius: 14,
+  overflow: 'hidden',
+  flexShrink: 0,
+  color: '#cdd6f4',
 };
 
 const backArrowBtnStyle: React.CSSProperties = {

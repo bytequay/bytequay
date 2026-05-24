@@ -542,6 +542,19 @@ export default function ThreadsPage({
           <h1 className="threads-pageheader__title">Threads</h1>
           <ThreadsViewToggle value={view} onChange={setView} />
           <div className="threads-pageheader__spacer" />
+          {view === 'group' && (
+            <button
+              type="button"
+              onClick={() => onChangeImmersive(!immersive)}
+              style={immersiveQuickBtnStyle(immersive)}
+              title={immersive
+                ? 'Exit immersive mode (esc)'
+                : 'Enter immersive mode — drop the rail and topnav (⌘\\)'}
+            >
+              <span aria-hidden style={{ marginRight: 4 }}>⛶</span>
+              {immersive ? 'Exit immersive' : 'Immersive'}
+            </button>
+          )}
           <button
             type="button"
             className="threads-pageheader__new"
@@ -953,6 +966,28 @@ const layoutStyle: React.CSSProperties = {
   alignItems: 'stretch',
   minHeight: 'calc(100vh - 56px)',
 };
+
+// Standalone Immersive quick toggle that lives in the threads header
+// next to + New thread. Distinct from the segmented View toggle —
+// this one is a one-click switch that hides the workspace rail and
+// the top nav so the user can drive N agents at once.
+function immersiveQuickBtnStyle(active: boolean): React.CSSProperties {
+  return {
+    display: 'inline-flex',
+    alignItems: 'center',
+    padding: '6px 12px',
+    fontSize: 12,
+    border: '1px solid ' + (active
+        ? 'rgba(13, 148, 136, 0.40)'
+        : 'rgba(0,0,0,0.10)'),
+    background: active ? 'rgba(13, 148, 136, 0.10)' : '#fff',
+    color: active ? '#0d9488' : 'var(--text-2)',
+    borderRadius: 8,
+    cursor: 'pointer',
+    fontWeight: 500,
+    marginRight: 8,
+  };
+}
 
 // Group-board top tabs row: appears when the user has switched to
 // the Group view. Picks up the mockup's "● Today 4/4 · Launch work

@@ -459,10 +459,27 @@ export default function ThreadTrunkPage({ threadId, onBack, onOpenTask }: Props)
                 value={composerInput}
                 onChange={e => setComposerInput(e.target.value)}
                 onKeyDown={e => {
-                  if (e.key === 'Enter' && (e.metaKey || e.ctrlKey) && !sending) {
+                  if (e.key !== 'Enter' || e.nativeEvent.isComposing) return;
+                  // Shift+Enter: textarea default — a newline.
+                  if (e.shiftKey) return;
+                  // Cmd/Ctrl+Enter: insert a newline at the cursor.
+                  // (The browser's default for Cmd+Enter in a textarea
+                  // doesn't insert one, so we do it ourselves.)
+                  if (e.metaKey || e.ctrlKey) {
                     e.preventDefault();
-                    void onSendTrunk();
+                    const ta = e.currentTarget;
+                    const start = ta.selectionStart;
+                    const end = ta.selectionEnd;
+                    setComposerInput(ta.value.slice(0, start) + '\n' + ta.value.slice(end));
+                    requestAnimationFrame(() => {
+                      ta.selectionStart = ta.selectionEnd = start + 1;
+                    });
+                    return;
                   }
+                  // Plain Enter: send.
+                  if (sending) return;
+                  e.preventDefault();
+                  void onSendTrunk();
                 }}
                 placeholder="Plan the next slice, ask about the feature, or start a new task…"
                 disabled={sending}
@@ -474,7 +491,7 @@ export default function ThreadTrunkPage({ threadId, onBack, onOpenTask }: Props)
                 <span style={composerGlyphStyle} title="Cancel current input">⊘</span>
                 <span style={composerGlyphStyle} title="Slash commands">/</span>
                 <span style={composerFooterHintStyle}>
-                  send · commands
+                  ↵ send · ⌘↵ newline · / commands
                 </span>
                 <span style={composerNoBranchHintStyle}>
                   no branch here — the trunk plans; tasks do the work

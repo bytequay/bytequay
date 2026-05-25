@@ -453,10 +453,25 @@ export default function TaskDetailPage({
                     value={input}
                     onChange={e => setInput(e.target.value)}
                     onKeyDown={e => {
-                      if (e.key === 'Enter' && (e.metaKey || e.ctrlKey) && !sending) {
+                      if (e.key !== 'Enter' || e.nativeEvent.isComposing) return;
+                      // Shift+Enter: textarea default — newline.
+                      if (e.shiftKey) return;
+                      // Cmd/Ctrl+Enter: explicit newline at cursor.
+                      if (e.metaKey || e.ctrlKey) {
                         e.preventDefault();
-                        void onSend();
+                        const ta = e.currentTarget;
+                        const start = ta.selectionStart;
+                        const end = ta.selectionEnd;
+                        setInput(ta.value.slice(0, start) + '\n' + ta.value.slice(end));
+                        requestAnimationFrame(() => {
+                          ta.selectionStart = ta.selectionEnd = start + 1;
+                        });
+                        return;
                       }
+                      // Plain Enter: send.
+                      if (sending) return;
+                      e.preventDefault();
+                      void onSend();
                     }}
                     placeholder={`Continue Task ${taskSeq ?? ''} — describe a change, ask the agent, or paste an error.`}
                     style={composerInputStyle}
@@ -469,7 +484,7 @@ export default function TaskDetailPage({
                   <span style={composerGlyphStyle} title="Previous prompt">↑</span>
                   <span style={composerGlyphStyle} title="Next prompt">↓</span>
                   <span style={composerFooterHintStyle}>
-                    send · commands · files
+                    ↵ send · ⌘↵ newline · / commands · files
                   </span>
                   <span style={composerAutoTagStyle} title="Agent auto-accepts safe tool calls">Auto</span>
                   <button

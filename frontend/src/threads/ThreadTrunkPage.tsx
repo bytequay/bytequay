@@ -512,6 +512,8 @@ export default function ThreadTrunkPage({ threadId, onBack, onOpenTask }: Props)
                   userInitials={userInitials}
                   onOpenTask={onOpenTask}
                   isInFlight={hasInFlight || sending}
+                  onInterrupt={() => { void onInterrupt(); }}
+                  interrupting={interrupting}
                 />
               )}
             </div>

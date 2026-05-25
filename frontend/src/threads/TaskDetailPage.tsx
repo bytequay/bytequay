@@ -143,6 +143,24 @@ export default function TaskDetailPage({
     return () => window.clearInterval(handle);
   }, [thread?.status, loadMessages, loadThread]);
 
+  const [interrupting, setInterrupting] = useState<boolean>(false);
+
+  const onInterrupt = useCallback(async () => {
+    if (interrupting) return;
+    setInterrupting(true);
+    setError(null);
+    try {
+      await window.bridge.interruptTask(threadId);
+      await Promise.all([loadMessages(), loadThread()]);
+    }
+    catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    }
+    finally {
+      setInterrupting(false);
+    }
+  }, [interrupting, threadId, loadMessages, loadThread]);
+
   const onSend = useCallback(async () => {
     if (sending || input.trim().length === 0) return;
     setSending(true);
@@ -418,6 +436,8 @@ export default function TaskDetailPage({
                       baseBranch={task?.baseBranch ?? null}
                       userInitials={userInitials}
                       isInFlight={thread?.status === 'RUNNING' || sending}
+                      onInterrupt={() => { void onInterrupt(); }}
+                      interrupting={interrupting}
                     />
                   )
                 )}
@@ -487,14 +507,26 @@ export default function TaskDetailPage({
                     ↵ send · ⌘↵ newline · / commands · files
                   </span>
                   <span style={composerAutoTagStyle} title="Agent auto-accepts safe tool calls">Auto</span>
-                  <button
-                    type="button"
-                    onClick={() => { void onSend(); }}
-                    disabled={sending || input.trim().length === 0}
-                    style={sendBtnStyle}
-                  >
-                    {sending ? 'Sending…' : 'Send'}
-                  </button>
+                  {thread?.status === 'RUNNING' ? (
+                    <button
+                      type="button"
+                      onClick={() => { void onInterrupt(); }}
+                      disabled={interrupting}
+                      style={interruptBtnStyle}
+                      title="Stop the in-progress agent turn"
+                    >
+                      {interrupting ? 'Stopping…' : '⊘ Stop'}
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => { void onSend(); }}
+                      disabled={sending || input.trim().length === 0}
+                      style={sendBtnStyle}
+                    >
+                      {sending ? 'Sending…' : 'Send'}
+                    </button>
+                  )}
                 </div>
                 {thread?.status === 'RUNNING' && (
                   <div style={queuedHintStyle}>queued — sends after current turn</div>
@@ -2669,7 +2701,7 @@ const composerInputStyle: React.CSSProperties = {
   border: `1px solid ${TEAL_BORDER}`,
   borderRadius: 10,
   background: 'rgba(255,255,255,0.86)',
-  fontSize: 15,
+  fontSize: 17,
   lineHeight: 1.5,
   fontFamily: 'inherit',
   resize: 'vertical',
@@ -2711,6 +2743,17 @@ const sendBtnStyle: React.CSSProperties = {
   border: 'none',
   background: TEAL,
   color: '#fff',
+  borderRadius: 6,
+  cursor: 'pointer',
+  fontWeight: 600,
+};
+
+const interruptBtnStyle: React.CSSProperties = {
+  padding: '4px 14px',
+  fontSize: 12,
+  border: '1px solid rgba(207, 19, 34, 0.55)',
+  background: '#fff',
+  color: '#cf1322',
   borderRadius: 6,
   cursor: 'pointer',
   fontWeight: 600,

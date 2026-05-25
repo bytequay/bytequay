@@ -12,6 +12,7 @@
  * limitations under the License.
  */
 import { useEffect, useMemo, useRef } from 'react';
+import { renderChatMarkdown } from '../markdown';
 import type { ThreadMessageDto, WorkUnitTaskDto } from '../types';
 
 const SLATE = '#475569';
@@ -33,6 +34,15 @@ type Props = {
    *  scrollback so the user has a visible "the agent is working"
    *  cue while the CLI subprocess spawns + spins up. */
   isInFlight?: boolean;
+  /** Fired from the Stop button inside the working… card. The parent
+   *  owns the actual interrupt call so optimistic UI + error states
+   *  stay co-located with the composer's send flow. Omit to hide
+   *  the button (e.g., on a read-only viewer). */
+  onInterrupt?: () => void;
+  /** True while the interrupt request is in flight — flips the Stop
+   *  button label to "Stopping…" and disables it to prevent double-
+   *  presses. */
+  interrupting?: boolean;
 };
 
 /**
@@ -47,6 +57,7 @@ type Props = {
  */
 export default function TrunkChat({
   messages, tasks, foregroundTaskId, userInitials, onOpenTask, isInFlight = false,
+  onInterrupt, interrupting = false,
 }: Props) {
   const scrollRef = useRef<HTMLDivElement | null>(null);
   // Stick to the bottom on new content — the trunk chat is short by
@@ -97,12 +108,17 @@ export default function TrunkChat({
         }
         return <SystemLine key={`sys-${i}`} text={item.text} />;
       })}
-      {isInFlight && <ThinkingCard />}
+      {isInFlight && <ThinkingCard onInterrupt={onInterrupt} interrupting={interrupting} />}
     </div>
   );
 }
 
-function ThinkingCard() {
+function ThinkingCard({
+  onInterrupt, interrupting,
+}: {
+  onInterrupt?: () => void;
+  interrupting: boolean;
+}) {
   return (
     <div style={thinkingRowStyle}>
       <div style={claudeAvatarStyle}>C</div>
@@ -119,6 +135,17 @@ function ThinkingCard() {
             <span style={{ ...thinkingDotStyle, animationDelay: '360ms' }} />
           </span>
           <span style={thinkingTextStyle}>working…</span>
+          {onInterrupt !== undefined && (
+            <button
+              type="button"
+              onClick={onInterrupt}
+              disabled={interrupting}
+              style={thinkingStopBtnStyle}
+              title="Stop the in-progress agent turn"
+            >
+              {interrupting ? 'Stopping…' : '⊘ Stop'}
+            </button>
+          )}
         </div>
       </div>
       <style>{thinkingKeyframes}</style>
@@ -228,7 +255,11 @@ function DateDivider({ label }: { label: string }) {
 function UserBubble({ text, initials }: { text: string; initials: string }) {
   return (
     <div style={userRowStyle}>
-      <div style={userBubbleStyle}>{text}</div>
+      <div
+        className="bq-chat-md bq-chat-md--user"
+        style={userBubbleStyle}
+        dangerouslySetInnerHTML={{ __html: renderChatMarkdown(text) }}
+      />
       <div style={userAvatarStyle}>{initials}</div>
     </div>
   );
@@ -244,7 +275,11 @@ function AssistantBlock({ text, ts }: { text: string; ts: number }) {
           <span style={assistantMetaStyle}>trunk</span>
           <span style={assistantMetaStyle}>· {relativeTime(ts)}</span>
         </div>
-        <div style={assistantBubbleStyle}>{text}</div>
+        <div
+          className="bq-chat-md"
+          style={assistantBubbleStyle}
+          dangerouslySetInnerHTML={{ __html: renderChatMarkdown(text) }}
+        />
       </div>
     </div>
   );
@@ -357,9 +392,9 @@ const userBubbleStyle: React.CSSProperties = {
   color: '#fff',
   borderRadius: 14,
   borderTopRightRadius: 4,
-  fontSize: 13,
-  lineHeight: 1.55,
-  whiteSpace: 'pre-wrap',
+  fontSize: 15,
+  // line-height comes from .bq-chat-md so the markdown helper can
+  // tighten it without fighting an inline style.
   overflowWrap: 'anywhere',
   boxShadow: '0 1px 2px rgba(0,0,0,0.04)',
 };
@@ -393,7 +428,9 @@ const thinkingRowStyle: React.CSSProperties = {
 };
 
 const thinkingBubbleStyle: React.CSSProperties = {
-  maxWidth: '60%',
+  // Stretch so the Stop button can sit flush against the right edge.
+  maxWidth: '90%',
+  minWidth: 240,
   padding: '10px 14px',
   background: 'linear-gradient(180deg, rgba(234, 88, 12, 0.10), rgba(234, 88, 12, 0.04))',
   border: '1px solid rgba(234, 88, 12, 0.30)',
@@ -402,6 +439,18 @@ const thinkingBubbleStyle: React.CSSProperties = {
   display: 'flex',
   alignItems: 'center',
   gap: 8,
+};
+
+const thinkingStopBtnStyle: React.CSSProperties = {
+  marginLeft: 'auto',
+  padding: '3px 10px',
+  fontSize: 11,
+  fontWeight: 600,
+  border: '1px solid rgba(207, 19, 34, 0.55)',
+  background: '#fff',
+  color: '#cf1322',
+  borderRadius: 6,
+  cursor: 'pointer',
 };
 
 const thinkingDotsStyle: React.CSSProperties = {
@@ -471,9 +520,8 @@ const assistantBubbleStyle: React.CSSProperties = {
   border: '1px solid rgba(0,0,0,0.08)',
   borderRadius: 14,
   borderTopLeftRadius: 4,
-  fontSize: 13,
-  lineHeight: 1.6,
-  whiteSpace: 'pre-wrap',
+  fontSize: 15,
+  // line-height comes from .bq-chat-md.
   overflowWrap: 'anywhere',
   color: 'var(--text-1)',
 };

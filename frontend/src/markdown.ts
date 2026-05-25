@@ -47,6 +47,36 @@ export function renderMarkdown(text: string | null | undefined, repoContext?: Ma
   return decorateRefsAndMentions(html, repoContext);
 }
 
+/**
+ * Chat-flavoured variant of {@link renderMarkdown}. Differs in one
+ * place: {@code breaks: false}. AI-generated chat text already uses
+ * blank lines to mark paragraphs and single newlines as soft wraps
+ * inside one — the GitHub-style {@code breaks: true} would render
+ * every soft wrap as a {@code <br>} and double the apparent line
+ * spacing inside the bubble. Use this for the trunk + task chat
+ * surfaces; keep the breaks-on default for PR / issue bodies the
+ * user typed by hand on GitHub.
+ */
+export function renderChatMarkdown(text: string | null | undefined, repoContext?: MarkdownRepoContext): string {
+  if (!text) return '';
+  const normalised = text
+      .replace(/\r\n/g, '\n')
+      // Collapse runs of 2+ blank lines down to a single paragraph
+      // break — agents occasionally double-blank between paragraphs
+      // and marked emits an extra <p></p> in that case.
+      .replace(/\n[ \t]*\n[ \t]*\n+/g, '\n\n')
+      .trim();
+  if (normalised.length === 0) return '';
+  const html = marked.parse(normalised, { gfm: true, breaks: false, async: false }) as string;
+  // Drop empty paragraphs marked emits for trailing whitespace —
+  // they render as a full line of gap thanks to the bubble's
+  // line-height and visually look like a missing message.
+  const stripped = html
+      .replace(/<p>\s*<\/p>/g, '')
+      .replace(/<p>(?:\s|&nbsp;|<br\s*\/?>)*<\/p>/g, '');
+  return decorateRefsAndMentions(stripped, repoContext);
+}
+
 /** Walks the rendered HTML, finds bare `@user` / `#N` tokens in text
  *  nodes, and wraps them in `<span class="md-ref-…">` chips. Skips
  *  text inside `<a>`, `<code>`, `<pre>` and friends so we don't

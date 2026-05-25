@@ -287,6 +287,8 @@ const bridge: Bridge = {
     ipcRenderer.invoke('credentials:delete', type, name, instanceName),
   testCredential: (type: CredentialType, name: string, instanceName: string): Promise<CredentialTestResult> =>
     ipcRenderer.invoke('credentials:test', type, name, instanceName),
+  setDefaultCredential: (type: CredentialType, name: string, instanceName: string): Promise<CredentialDto> =>
+    ipcRenderer.invoke('credentials:setDefault', type, name, instanceName),
   listAiProviders: (): Promise<AiProviderInfo[]> => ipcRenderer.invoke('ai:providers'),
   getAiSettings: (): Promise<AiSettingsDto> => ipcRenderer.invoke('ai:getSettings'),
   setAiSettings: (provider: string, model: string | null): Promise<AiSettingsDto> =>

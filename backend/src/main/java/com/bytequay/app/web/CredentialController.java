@@ -23,6 +23,7 @@ import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
@@ -145,6 +146,38 @@ public class CredentialController
             @PathVariable String instanceName)
     {
         return credentialTester.test(parseType(type), name, instanceName);
+    }
+
+    /**
+     * PUT /api/credentials/{type}/{name}/{instanceName}/default —
+     * promote this instance to the ★ default for its (type, name)
+     * group. Resolvers that name only the provider/host (PatResolver,
+     * AI key lookup) follow this flag; explicit instanceName lookups
+     * still bypass it. The service clears the previous default in the
+     * same transaction so the single-default invariant holds.
+     */
+    @PutMapping("/api/credentials/{type}/{name}/{instanceName}/default")
+    public Credential setDefault(
+            @PathVariable String type,
+            @PathVariable String name,
+            @PathVariable String instanceName)
+    {
+        try {
+            return credentialService.setDefault(parseType(type), name, instanceName);
+        }
+        catch (RuntimeException e) {
+            // The store throws IllegalArgumentException; Spring's JPA
+            // boundary may rewrap it in InvalidDataAccessApiUsageException
+            // — both translate to "instance not found" for the API.
+            Throwable cause = e;
+            while (cause != null) {
+                if (cause instanceof IllegalArgumentException) {
+                    throw new ResponseStatusException(HttpStatusCode.valueOf(404), cause.getMessage());
+                }
+                cause = cause.getCause();
+            }
+            throw e;
+        }
     }
 
     private static String resolveInstanceName(String fromRequest)

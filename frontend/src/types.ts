@@ -876,6 +876,9 @@ export type CredentialDto = {
   label: string | null;
   preview: string;
   notes: string | null;
+  /** True when this row is the ★ default for its (type, name)
+   *  group. Resolvers that don't name an instance pick this one. */
+  isDefault: boolean;
   createdAt: string;
   updatedAt: string;
   lastUsedAt: string | null;
@@ -2236,6 +2239,10 @@ export type Bridge = {
   /** Verify a stored credential against its upstream by firing a
    *  lightweight probe. Powers the Settings → AI review → "Test" button. */
   testCredential: (type: CredentialType, name: string, instanceName: string) => Promise<CredentialTestResult>;
+  /** Promote (type, name, instanceName) to the ★ default for its
+   *  group. The backend clears the previous default in the same
+   *  transaction; unnamed lookups (PatResolver, AI key) follow it. */
+  setDefaultCredential: (type: CredentialType, name: string, instanceName: string) => Promise<CredentialDto>;
   // AI review
   listAiProviders: () => Promise<AiProviderInfo[]>;
   getAiSettings: () => Promise<AiSettingsDto>;

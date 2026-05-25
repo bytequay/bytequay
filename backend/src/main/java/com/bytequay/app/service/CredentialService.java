@@ -94,6 +94,23 @@ public class CredentialService
         return credentialStore.find(type, name, instanceName);
     }
 
+    /** Resolve the user's ★ default instance for (type, name). Used
+     *  by callers that name only a provider/host (e.g. PatResolver,
+     *  the AI reviewer key lookup) so a workspace pick of "Anthropic"
+     *  picks up the right account. */
+    public Optional<Credential> getDefault(CredentialType type, String name)
+    {
+        return credentialStore.findDefault(type, name);
+    }
+
+    /** Promote {@code (type, name, instanceName)} to the group's
+     *  default — the store clears the previous default in the same
+     *  transaction so the single-default invariant holds. */
+    public Credential setDefault(CredentialType type, String name, String instanceName)
+    {
+        return credentialStore.setDefault(type, name, instanceName);
+    }
+
     /** Earliest-created decrypted value for (type, name). */
     public Optional<String> getSecret(CredentialType type, String name)
     {

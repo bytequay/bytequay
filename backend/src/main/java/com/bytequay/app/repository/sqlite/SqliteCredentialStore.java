@@ -100,6 +100,52 @@ public class SqliteCredentialStore
     }
 
     @Override
+    public Optional<Credential> findDefault(CredentialType type, String name)
+    {
+        requireNonNull(type, "type is null");
+        requireNonNull(name, "name is null");
+        Optional<CredentialEntity> defaulted = jpaRepository.findByTypeAndNameAndIsDefault(type, name, 1);
+        if (defaulted.isPresent()) {
+            return defaulted.map(SqliteCredentialStore::toDomain);
+        }
+        // Legacy fallback: V84 backfilled every existing (type, name)
+        // group, so this only triggers on installs that somehow lost
+        // the default. Returning the earliest row matches the pre-V84
+        // resolver behaviour callers were relying on.
+        return jpaRepository.findFirstByTypeAndNameOrderByIdAsc(type, name)
+                .map(SqliteCredentialStore::toDomain);
+    }
+
+    @Override
+    @Transactional
+    public Credential setDefault(CredentialType type, String name, String instanceName)
+    {
+        requireNonNull(type, "type is null");
+        requireNonNull(name, "name is null");
+        requireNonNull(instanceName, "instanceName is null");
+        CredentialEntity target = jpaRepository.findByTypeAndNameAndInstanceName(type, name, instanceName)
+                .orElseThrow(() -> new IllegalArgumentException(
+                        "no credential for " + type + "/" + name + "/" + instanceName));
+        if (target.isDefault()) {
+            return toDomain(target);
+        }
+        // Clear the previous default first to dodge the partial unique
+        // index in V84 — SQLite enforces it at flush time, so two
+        // saves of "is_default = 1" in the same TX would still
+        // collide if the first save lands before the clear.
+        jpaRepository.findByTypeAndNameAndIsDefault(type, name, 1).ifPresent(prev -> {
+            prev.setDefault(false);
+            jpaRepository.saveAndFlush(prev);
+        });
+        target.setDefault(true);
+        CredentialEntity saved = jpaRepository.saveAndFlush(target);
+        // Wildcard cache resolves to the new default now; bust it so
+        // the next unnamed read returns the just-promoted row.
+        secretCache.remove(cacheKey(type, name, null));
+        return toDomain(saved);
+    }
+
+    @Override
     @Transactional(readOnly = true)
     public Optional<String> getSecret(CredentialType type, String name)
     {
@@ -110,8 +156,13 @@ public class SqliteCredentialStore
         if (cached != null) {
             return Optional.of(cached);
         }
-        return jpaRepository.findFirstByTypeAndNameOrderByIdAsc(type, name).map(entity -> {
-            String plain = cipher.decrypt(entity.getCiphertext());
+        // Resolve through the default flag (with the same earliest-
+        // created fallback findDefault uses) so unnamed callers always
+        // pick up the user's ★ choice.
+        Optional<CredentialEntity> entity = jpaRepository.findByTypeAndNameAndIsDefault(type, name, 1)
+                .or(() -> jpaRepository.findFirstByTypeAndNameOrderByIdAsc(type, name));
+        return entity.map(e -> {
+            String plain = cipher.decrypt(e.getCiphertext());
             secretCache.put(key, plain);
             return plain;
         });
@@ -160,12 +211,16 @@ public class SqliteCredentialStore
         if (trimmed.isEmpty()) {
             throw new IllegalArgumentException("credential value must not be blank");
         }
+        boolean isFreshGroup = jpaRepository.findFirstByTypeAndNameOrderByIdAsc(type, name).isEmpty();
         CredentialEntity entity = jpaRepository.findByTypeAndNameAndInstanceName(type, name, instanceName)
                 .orElseGet(() -> {
                     CredentialEntity fresh = new CredentialEntity();
                     fresh.setType(type);
                     fresh.setName(name);
                     fresh.setInstanceName(instanceName);
+                    // First row in a (type, name) group is the default —
+                    // there is nothing else to disambiguate against.
+                    fresh.setDefault(isFreshGroup);
                     return fresh;
                 });
         entity.setCiphertext(cipher.encrypt(trimmed));
@@ -187,7 +242,20 @@ public class SqliteCredentialStore
         requireNonNull(type, "type is null");
         requireNonNull(name, "name is null");
         requireNonNull(instanceName, "instanceName is null");
-        jpaRepository.findByTypeAndNameAndInstanceName(type, name, instanceName).ifPresent(jpaRepository::delete);
+        jpaRepository.findByTypeAndNameAndInstanceName(type, name, instanceName).ifPresent(entity -> {
+            boolean wasDefault = entity.isDefault();
+            jpaRepository.delete(entity);
+            jpaRepository.flush();
+            // Promote a sibling to default when the removed row held
+            // the flag; the partial unique index would otherwise leave
+            // the group with no resolver target.
+            if (wasDefault) {
+                jpaRepository.findFirstByTypeAndNameOrderByIdAsc(type, name).ifPresent(next -> {
+                    next.setDefault(true);
+                    jpaRepository.saveAndFlush(next);
+                });
+            }
+        });
         secretCache.remove(cacheKey(type, name, instanceName));
         secretCache.remove(cacheKey(type, name, null));
     }
@@ -207,6 +275,7 @@ public class SqliteCredentialStore
                 e.getLabel(),
                 e.getPreview(),
                 e.getNotes(),
+                e.isDefault(),
                 e.getCreatedAt(),
                 e.getUpdatedAt(),
                 e.getLastUsedAt());

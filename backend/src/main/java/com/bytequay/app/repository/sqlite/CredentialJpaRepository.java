@@ -30,11 +30,16 @@ interface CredentialJpaRepository
     List<CredentialEntity> findByTypeAndNameOrderByIdAsc(CredentialType type, String name);
 
     /**
-     * Lowest-id (earliest-created) instance for (type, name). Used by
-     * resolvers and reviewers that don't care which instance is active —
-     * they pick whichever was created first as the canonical one.
+     * Lowest-id (earliest-created) instance for (type, name). Used as
+     * a fallback when no default is set (legacy installs that pre-date
+     * V84) — the migration backfills the same row so reads converge.
      */
     Optional<CredentialEntity> findFirstByTypeAndNameOrderByIdAsc(CredentialType type, String name);
+
+    /** The single default instance for (type, name), if any. The
+     *  partial unique index in V84 guarantees at most one. */
+    Optional<CredentialEntity> findByTypeAndNameAndIsDefault(
+            CredentialType type, String name, int isDefault);
 
     List<CredentialEntity> findByType(CredentialType type);
 }

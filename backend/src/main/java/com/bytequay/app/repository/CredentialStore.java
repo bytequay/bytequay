@@ -49,10 +49,24 @@ public interface CredentialStore
     /** Exact lookup. */
     Optional<Credential> find(CredentialType type, String name, String instanceName);
 
+    /** Resolve the default instance for (type, name). Falls back to
+     *  the earliest-created row only when V84's backfill hasn't run
+     *  (defensive path — production rows always carry a default). */
+    Optional<Credential> findDefault(CredentialType type, String name);
+
     /**
-     * Earliest-created decrypted value for (type, name) — used by reviewers /
-     * PAT resolvers that don't care which instance is active. Stamps
-     * last_used_at on the matched row.
+     * Mark {@code (type, name, instanceName)} as the group's default,
+     * clearing the previous default in the same transaction. No-op
+     * (returns the matching row) when the targeted row is already
+     * the default. Throws when the targeted row doesn't exist.
+     */
+    Credential setDefault(CredentialType type, String name, String instanceName);
+
+    /**
+     * Default-instance decrypted value for (type, name) — used by
+     * reviewers / PAT resolvers that name only the provider/host.
+     * Falls back to the earliest-created instance on legacy rows that
+     * pre-date V84's backfill.
      */
     Optional<String> getSecret(CredentialType type, String name);
 

@@ -3761,6 +3761,17 @@ const url = new URL(`${BACKEND_BASE}/api/search/repos`);
     return res.json();
   });
 
+  ipcMain.handle('credentials:setDefault', async (_event, type: string, name: string, instanceName: string) => {
+    const target = instanceName && instanceName.length > 0 ? instanceName : 'default api';
+    const url = `${BACKEND_BASE}/api/credentials/${encodeURIComponent(type)}/${encodeURIComponent(name)}/${encodeURIComponent(target)}/default`;
+    const res = await fetch(url, { method: 'PUT' });
+    if (!res.ok) {
+      const text = await res.text().catch(() => '');
+      throw new Error(`Set default credential failed (${res.status})${text ? ': ' + text : ''}`);
+    }
+    return res.json();
+  });
+
   // ── AI review ───────────────────────────────────────────────────────────
   ipcMain.handle('ai:providers', async () => {
     const res = await fetch(`${BACKEND_BASE}/ai/providers`);

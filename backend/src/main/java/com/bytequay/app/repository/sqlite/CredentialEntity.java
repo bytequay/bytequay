@@ -58,6 +58,11 @@ class CredentialEntity
     @Column
     private String notes;
 
+    /** Default flag for (type, name) resolution. SQLite has no native
+     *  boolean — stored as INTEGER 0/1 to match V84's column type. */
+    @Column(name = "is_default", nullable = false)
+    private int isDefault;
+
     @Column(name = "created_at", nullable = false, updatable = false)
     @Convert(converter = InstantToTextConverter.class)
     private Instant createdAt;
@@ -108,6 +113,9 @@ class CredentialEntity
 
     String getNotes() { return notes; }
     void setNotes(String notes) { this.notes = notes; }
+
+    boolean isDefault() { return isDefault != 0; }
+    void setDefault(boolean value) { this.isDefault = value ? 1 : 0; }
 
     Instant getCreatedAt() { return createdAt; }
 

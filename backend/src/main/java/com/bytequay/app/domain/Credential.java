@@ -31,6 +31,10 @@ public record Credential(
         String label,
         String preview,
         String notes,
+        /** True when this is the resolved default for its
+         *  (type, name) group. Exactly one row per group carries
+         *  this; an unnamed scope resolves to it. */
+        boolean isDefault,
         Instant createdAt,
         Instant updatedAt,
         Instant lastUsedAt) {}

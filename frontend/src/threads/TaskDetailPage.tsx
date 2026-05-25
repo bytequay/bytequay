@@ -2665,11 +2665,12 @@ const composerBranchStyle: React.CSSProperties = {
 
 const composerInputStyle: React.CSSProperties = {
   width: '100%',
-  padding: '10px 12px',
+  padding: '12px 14px',
   border: `1px solid ${TEAL_BORDER}`,
   borderRadius: 10,
   background: 'rgba(255,255,255,0.86)',
-  fontSize: 13,
+  fontSize: 15,
+  lineHeight: 1.5,
   fontFamily: 'inherit',
   resize: 'vertical',
   outline: 'none',

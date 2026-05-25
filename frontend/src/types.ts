@@ -1235,6 +1235,10 @@ export type ThreadDto = {
   updatedAt: string;
   endedAt: string | null;
   errorMessage: string | null;
+  /** Owning workspace id. Drives the workspace-scoped thread list and
+   *  the trunk cwd resolver — never null for threads created after
+   *  the workspaceId-required write path landed. */
+  workspaceId: string;
   /** The most recent non-terminal work-unit task for this thread.
    *  Null on 0-Task brainstorm threads. Carries the per-task
    *  execution surface (workingDir, branchName, worktreePath,

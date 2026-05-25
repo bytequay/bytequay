@@ -80,6 +80,7 @@ function threadRow(status: ThreadDto['status']): ThreadDto {
     updatedAt: '2026-05-18T12:00:00Z',
     endedAt: null,
     errorMessage: null,
+    workspaceId: 'ws-default',
     activeTask: null,
   };
 }

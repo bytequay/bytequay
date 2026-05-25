@@ -54,6 +54,12 @@ const ACTIVE_STATUSES = new Set([
 export default function ThreadTrunkPage({ threadId, onBack, onOpenTask }: Props) {
   const [thread, setThread] = useState<ThreadDto | null>(null);
   const [threadError, setThreadError] = useState<string | null>(null);
+  // Resolved cwd the trunk session will spawn the CLI in — first
+  // pinned-repo local clone path in the active workspace. Mirrors
+  // the backend resolver in ThreadRegistry; shown in the altitude
+  // band so the user can confirm the agent is rooted in the right
+  // repo at a glance.
+  const [trunkCwd, setTrunkCwd] = useState<string | null>(null);
   const { tasks, error: tasksError, refresh: refreshTasks } = useThreadTasks(threadId);
   const [turns, setTurns] = useState<ThreadTurnDto[] | null>(null);
   const [messages, setMessages] = useState<ThreadMessageDto[] | null>(null);
@@ -101,6 +107,38 @@ export default function ThreadTrunkPage({ threadId, onBack, onOpenTask }: Props)
   useEffect(() => {
     void loadThread();
   }, [loadThread]);
+
+  // Resolve the trunk cwd from the thread's workspace once we know it.
+  // Mirrors backend logic in ThreadRegistry.resolveTrunkCwdForWorkspace:
+  // pick the first repo pinned to this workspace whose watched-repo
+  // row has a non-blank localClonePath.
+  useEffect(() => {
+    const workspaceId = thread?.workspaceId;
+    if (workspaceId === undefined || workspaceId === null) {
+      setTrunkCwd(null);
+      return;
+    }
+    let cancelled = false;
+    void (async () => {
+      try {
+        const [pinned, watched] = await Promise.all([
+          window.bridge.listWorkspaceRepos(workspaceId),
+          window.bridge.getWatchedRepos(),
+        ]);
+        if (cancelled) return;
+        const pinnedSet = new Set(pinned.map(p => p.repoFullName));
+        const match = watched.find(wr =>
+            pinnedSet.has(`${wr.owner}/${wr.repo}`)
+            && wr.localClonePath != null
+            && wr.localClonePath.trim().length > 0);
+        setTrunkCwd(match?.localClonePath ?? null);
+      }
+      catch {
+        if (!cancelled) setTrunkCwd(null);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [thread?.workspaceId]);
 
   useEffect(() => {
     let cancelled = false;
@@ -286,6 +324,12 @@ export default function ThreadTrunkPage({ threadId, onBack, onOpenTask }: Props)
         <div style={altitudeBandStyle}>
           <span style={bandGlyphStyle}>◆ THREAD · trunk</span>
           <span style={bandTitleStyle}>{title}</span>
+          {trunkCwd !== null && (
+            <span style={bandCwdStyle} title={trunkCwd}>
+              <span style={bandCwdLabelStyle}>cwd</span>
+              <span style={bandCwdPathStyle}>{shortCwd(trunkCwd)}</span>
+            </span>
+          )}
           <span style={bandHintStyle}>
             {thread?.flow === 'review'
               ? 'review flow · references a PR · multi-agent panel'
@@ -1432,6 +1476,54 @@ const bandHintStyle: React.CSSProperties = {
   color: 'var(--text-3)',
 };
 
+const bandCwdStyle: React.CSSProperties = {
+  display: 'inline-flex',
+  alignItems: 'center',
+  gap: 6,
+  padding: '2px 8px',
+  borderRadius: 6,
+  border: '1px solid rgba(0,0,0,0.08)',
+  background: 'rgba(0,0,0,0.03)',
+  fontSize: 11,
+  maxWidth: 360,
+  overflow: 'hidden',
+};
+
+const bandCwdLabelStyle: React.CSSProperties = {
+  fontSize: 9,
+  fontWeight: 700,
+  letterSpacing: '0.08em',
+  textTransform: 'uppercase',
+  color: 'var(--text-4)',
+};
+
+const bandCwdPathStyle: React.CSSProperties = {
+  fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
+  color: 'var(--text-2)',
+  overflow: 'hidden',
+  textOverflow: 'ellipsis',
+  whiteSpace: 'nowrap',
+  minWidth: 0,
+};
+
+/** Shorten a long absolute path for the band: collapse the user's
+ *  home prefix to "~" and keep just the trailing segments if the
+ *  full path is still too long. Falls back to the raw path. */
+function shortCwd(cwd: string): string {
+  if (cwd.length === 0) return cwd;
+  let p = cwd;
+  // Trim trailing slash for a cleaner display.
+  if (p.endsWith('/') && p.length > 1) p = p.slice(0, -1);
+  // Best-effort home collapse — the path comes from the backend's
+  // resolved local clone, so the leading segments mirror $HOME.
+  const homeMatch = p.match(/^\/Users\/[^/]+\//);
+  if (homeMatch !== null) p = '~/' + p.slice(homeMatch[0].length);
+  if (p.length <= 48) return p;
+  const segs = p.split('/');
+  if (segs.length <= 3) return p;
+  return '…/' + segs.slice(-2).join('/');
+}
+
 const bodyGridStyle: React.CSSProperties = {
   display: 'grid',
   // Two-column layout — rail on the left, conversation column on the
@@ -2004,11 +2096,12 @@ const composerAnchorStyle: React.CSSProperties = {
 
 const composerTextareaStyle: React.CSSProperties = {
   width: '100%',
-  padding: '10px 12px',
+  padding: '12px 14px',
   border: `1px solid ${SLATE_BORDER}`,
   borderRadius: 10,
   background: 'rgba(255,255,255,0.86)',
-  fontSize: 13,
+  fontSize: 15,
+  lineHeight: 1.5,
   fontFamily: 'inherit',
   color: 'var(--text-1)',
   resize: 'vertical',

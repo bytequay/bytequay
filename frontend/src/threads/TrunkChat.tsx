@@ -18,6 +18,13 @@ import type { ThreadMessageDto, WorkUnitTaskDto } from '../types';
 const SLATE = '#475569';
 
 type Props = {
+  /** Optional ref forwarded onto the chat's scroll container so the
+   *  floating ConvIndex panel can call scrollIntoView on the
+   *  data-seq-tagged user bubbles inside it. Owning the ref in the
+   *  parent (rather than {@code forwardRef} on this component) keeps
+   *  the parent's "find a user row by seq" lookup co-located with
+   *  the mount that hosts the index panel. */
+  outerRef?: React.MutableRefObject<HTMLDivElement | null>;
   /** Messages already filtered to the trunk slice ({@code task_id IS NULL}). */
   messages: ThreadMessageDto[];
   /** Every task on the thread so we can interleave task-launch cards
@@ -43,6 +50,16 @@ type Props = {
    *  button label to "Stopping…" and disables it to prevent double-
    *  presses. */
   interrupting?: boolean;
+  /** Whether older messages exist on the server that the parent
+   *  hasn't fetched yet. When true, a "↑ Load earlier" button renders
+   *  at the top of the scrollback. */
+  canLoadOlder?: boolean;
+  /** Load-older request in flight — disables the button + flips the
+   *  label so a double-click can't fire two windows in parallel. */
+  loadingOlder?: boolean;
+  /** Fired when the user clicks the "Load earlier" button. The parent
+   *  owns the cursor + merge logic; this is the trigger. */
+  onLoadOlder?: () => void;
 };
 
 /**
@@ -57,9 +74,17 @@ type Props = {
  */
 export default function TrunkChat({
   messages, tasks, foregroundTaskId, userInitials, onOpenTask, isInFlight = false,
-  onInterrupt, interrupting = false,
+  onInterrupt, interrupting = false, outerRef,
+  canLoadOlder = false, loadingOlder = false, onLoadOlder,
 }: Props) {
   const scrollRef = useRef<HTMLDivElement | null>(null);
+  // Assign to both the local ref (used by the stick-to-bottom effect)
+  // and the optional ref the parent supplied so ConvIndex can scroll
+  // into specific user rows from outside this component.
+  const assignScrollRef = (el: HTMLDivElement | null) => {
+    scrollRef.current = el;
+    if (outerRef !== undefined) outerRef.current = el;
+  };
   // Stick to the bottom on new content — the trunk chat is short by
   // design (planning, not transcripts) so the chat-style stick suffices.
   useEffect(() => {
@@ -71,8 +96,41 @@ export default function TrunkChat({
     () => buildTimeline(messages, tasks),
     [messages, tasks]);
 
+  // Preserve the user's scroll position when older messages are
+  // prepended — without anchoring, the scroll container jumps because
+  // its scrollHeight grows above the current viewport. Snapshot the
+  // height + top before the click; after layout settles, restore the
+  // delta so the rows the user was reading stay put.
+  const beforeLoadRef = useRef<{ height: number; top: number } | null>(null);
+  const handleLoadOlder = () => {
+    if (loadingOlder || onLoadOlder === undefined) return;
+    const el = scrollRef.current;
+    if (el !== null) {
+      beforeLoadRef.current = { height: el.scrollHeight, top: el.scrollTop };
+    }
+    onLoadOlder();
+  };
+  useEffect(() => {
+    const snap = beforeLoadRef.current;
+    if (snap === null) return;
+    const el = scrollRef.current;
+    if (el === null) return;
+    el.scrollTop = snap.top + (el.scrollHeight - snap.height);
+    beforeLoadRef.current = null;
+  }, [messages.length]);
+
   return (
-    <div ref={scrollRef} style={scrollStyle}>
+    <div ref={assignScrollRef} style={scrollStyle}>
+      {canLoadOlder && (
+        <button
+          type="button"
+          onClick={handleLoadOlder}
+          disabled={loadingOlder}
+          style={loadOlderBtnStyle}
+        >
+          {loadingOlder ? 'Loading earlier…' : '↑ Load earlier messages'}
+        </button>
+      )}
       {timeline.map((item, i) => {
         if (item.kind === 'date') {
           return <DateDivider key={`date-${item.label}`} label={item.label} />;
@@ -83,6 +141,7 @@ export default function TrunkChat({
               key={item.message.id}
               text={item.text}
               initials={userInitials}
+              seq={item.message.seq}
             />
           );
         }
@@ -252,9 +311,13 @@ function DateDivider({ label }: { label: string }) {
   );
 }
 
-function UserBubble({ text, initials }: { text: string; initials: string }) {
+function UserBubble({ text, initials, seq }: { text: string; initials: string; seq: number }) {
   return (
-    <div style={userRowStyle}>
+    // data-seq lets the floating ConvIndex rail find this row when
+    // the user clicks an index entry. Scoped to the chat's scroll
+    // container in the parent so collisions across pages can't hijack
+    // the lookup.
+    <div style={userRowStyle} data-seq={seq}>
       <div
         className="bq-chat-md bq-chat-md--user"
         style={userBubbleStyle}
@@ -349,6 +412,19 @@ function relativeTime(ts: number): string {
 }
 
 /* ── Styles ────────────────────────────────────────────────────────── */
+
+const loadOlderBtnStyle: React.CSSProperties = {
+  alignSelf: 'center',
+  margin: '0 auto 4px',
+  padding: '4px 12px',
+  fontSize: 11,
+  border: '1px solid rgba(0,0,0,0.10)',
+  background: 'rgba(255,255,255,0.85)',
+  color: 'var(--text-2)',
+  borderRadius: 999,
+  cursor: 'pointer',
+  fontFamily: 'inherit',
+};
 
 const scrollStyle: React.CSSProperties = {
   // Lives inside ThreadTrunkPage.chatCardStyle (bg, border, shadow);

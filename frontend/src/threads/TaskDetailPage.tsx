@@ -24,6 +24,7 @@ import type {
 } from '../types';
 import { parseUnifiedDiff, type DiffHunk } from '../diffParse';
 import TaskChat from './TaskChat';
+import { ConvIndex } from './ConvIndex';
 import { useThreadTasks } from './useThreadTasks';
 
 type Props = {
@@ -59,6 +60,27 @@ type DiffSelection =
  * bottom — and there is no task-switcher or Next (advancing to the
  * next task happens at the trunk; the task only Ships).
  */
+
+/** Tail-window size for the task transcript fetch. Tasks log lots of
+ *  tool I/O so 300 is roomy enough that a fresh task usually fits in
+ *  one page; older windows arrive via the "Load earlier" button. */
+const TASK_INITIAL_LIMIT = 300;
+
+/** Merge two ordered-by-seq message lists, deduping by seq. Both the
+ *  task-detail and the trunk pages use this shape; defined locally
+ *  to keep dependency on a single shared util minimal. */
+function mergeTaskMessages(
+  older: ThreadMessageDto[],
+  newer: ThreadMessageDto[],
+): ThreadMessageDto[] {
+  if (older.length === 0) return newer;
+  if (newer.length === 0) return older;
+  const bySeq = new Map<number, ThreadMessageDto>();
+  for (const m of older) bySeq.set(m.seq, m);
+  for (const m of newer) bySeq.set(m.seq, m);
+  return Array.from(bySeq.values()).sort((a, b) => a.seq - b.seq);
+}
+
 export default function TaskDetailPage({
   threadId, taskId, onBackToTrunk,
 }: Props) {
@@ -71,6 +93,15 @@ export default function TaskDetailPage({
   const [error, setError] = useState<string | null>(null);
   const { tasks, refresh: refreshTasks } = useThreadTasks(threadId);
   const composerRef = useRef<HTMLTextAreaElement | null>(null);
+  // Captured from TaskChat via its {@code outerRef} prop so the
+  // floating ConvIndex panel can scroll specific user rows into view.
+  const chatScrollRef = useRef<HTMLDivElement | null>(null);
+  // Pagination cursor for the transcript — tracks the smallest seq
+  // currently loaded. The chat starts with a tail window and the
+  // user expands history via the "Load earlier" button.
+  const [loadedFromSeq, setLoadedFromSeq] = useState<number | null>(null);
+  const [canLoadOlder, setCanLoadOlder] = useState(false);
+  const [loadingOlder, setLoadingOlder] = useState(false);
   const [commits, setCommits] = useState<ThreadCommitDto[] | null>(null);
   const [checkpoints, setCheckpoints] = useState<ThreadCheckpointDto[] | null>(null);
   const [profile, setProfile] = useState<UserProfileDto | null>(null);
@@ -120,13 +151,58 @@ export default function TaskDetailPage({
 
   const loadMessages = useCallback(async () => {
     try {
-      const all = await window.bridge.getTaskMessages(threadId);
-      setMessages(all.filter(m => m.taskId === taskId));
+      // Tail window via the paginated index endpoint. The task
+      // transcript is filtered to this task's rows on the client —
+      // the backend ships the full message list for the window;
+      // taskId scoping happens here so a single page can serve both
+      // the trunk and the task views without two endpoints.
+      const page = await window.bridge.getTaskIndex(threadId, {
+        direction: 'initial',
+        limit: TASK_INITIAL_LIMIT,
+      });
+      setMessages(prev => mergeTaskMessages(
+        prev ?? [],
+        page.messages.filter(m => m.taskId === taskId)));
+      setLoadedFromSeq(prev => prev === null
+        ? page.loadedFromSeq
+        : prev);
+      setCanLoadOlder(page.loadedFromSeq !== null && page.loadedFromSeq > 1);
     }
     catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     }
   }, [threadId, taskId]);
+
+  const loadOlderMessages = useCallback(async () => {
+    if (loadedFromSeq === null || loadingOlder) return;
+    setLoadingOlder(true);
+    try {
+      const page = await window.bridge.getTaskIndex(threadId, {
+        direction: 'before',
+        cursor: loadedFromSeq,
+        limit: TASK_INITIAL_LIMIT,
+      });
+      setMessages(prev => mergeTaskMessages(
+        page.messages.filter(m => m.taskId === taskId),
+        prev ?? []));
+      setLoadedFromSeq(page.loadedFromSeq);
+      setCanLoadOlder(page.nextCursor !== null);
+    }
+    catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    }
+    finally {
+      setLoadingOlder(false);
+    }
+  }, [threadId, taskId, loadedFromSeq, loadingOlder]);
+
+  // Reset pagination state when the task changes — a stale cursor
+  // from a previous task would otherwise mis-window the new one.
+  useEffect(() => {
+    setMessages(null);
+    setLoadedFromSeq(null);
+    setCanLoadOlder(false);
+  }, [taskId]);
 
   useEffect(() => { void loadThread(); }, [loadThread]);
   useEffect(() => { void loadMessages(); }, [loadMessages]);
@@ -438,8 +514,21 @@ export default function TaskDetailPage({
                       isInFlight={thread?.status === 'RUNNING' || sending}
                       onInterrupt={() => { void onInterrupt(); }}
                       interrupting={interrupting}
+                      outerRef={chatScrollRef}
+                      canLoadOlder={canLoadOlder}
+                      loadingOlder={loadingOlder}
+                      onLoadOlder={() => { void loadOlderMessages(); }}
                     />
                   )
+                )}
+                {mode === 'conversation' && messages !== null && (
+                  // Floating right-edge index. Self-hides when the
+                  // task has no user prompts yet, so an early-state
+                  // task doesn't get a stray empty rail.
+                  <ConvIndex
+                    threadId={threadId}
+                    scrollContainerRef={chatScrollRef}
+                  />
                 )}
                 {mode === 'terminal' && (
                   <TerminalPlaceholder
@@ -1944,6 +2033,9 @@ const chatCardDarkStyle: React.CSSProperties = {
   overflow: 'hidden',
   minHeight: 0,
   color: '#cdd6f4',
+  // Same positioning context as the light variant — ConvIndex
+  // sometimes lives inside terminal mode if we extend it later.
+  position: 'relative',
 };
 
 const composerCardDarkStyle: React.CSSProperties = {
@@ -2074,6 +2166,10 @@ const chatCardStyle: React.CSSProperties = {
   boxShadow: '0 4px 18px rgba(0,0,0,0.04)',
   overflow: 'hidden',
   minHeight: 0,
+  // Anchors the floating ConvIndex panel mounted as a sibling of
+  // TaskChat — without this it'd absolutely-position against the
+  // viewport instead of the chat card.
+  position: 'relative',
 };
 
 const loadingCenterStyle: React.CSSProperties = {

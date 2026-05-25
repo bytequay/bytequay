@@ -49,12 +49,24 @@ type Props = {
  * <p>The "current" row is whatever index entry has the highest seq
  * — i.e. the most recent prompt — highlighted with the accent colour.
  */
+/** Auto-expand threshold — short threads default to the open panel
+ *  so a small list of prompts isn't hidden behind a narrow strip
+ *  the user has to discover by hovering. Above this many entries the
+ *  rail starts collapsed and waits for hover/focus like before. */
+const AUTO_EXPAND_THRESHOLD = 10;
+
 export function ConvIndex({
   threadId, scrollContainerRef, onSseEvent, variant = 'light',
 }: Props) {
   const idx = useConvIndex(threadId);
   const { tasks } = useThreadTasks(threadId);
-  const [expanded, setExpanded] = useState(false);
+  // Manual expansion driven by hover / focus. Sits *next to* the
+  // auto-expand state so a small thread renders open by default and
+  // the user can still hover the rail when it's a tall thread.
+  const [manuallyExpanded, setManuallyExpanded] = useState(false);
+  const autoExpanded = idx.entries.length > 0
+      && idx.entries.length <= AUTO_EXPAND_THRESHOLD;
+  const expanded = manuallyExpanded || autoExpanded;
 
   // Expose the hook's SSE callback to the parent without forcing a
   // prop-callback re-render cycle. The parent stashes the callback
@@ -101,14 +113,14 @@ export function ConvIndex({
   return (
     <aside
       style={expanded ? panelExpandedStyle(palette) : panelCollapsedStyle(palette)}
-      onMouseEnter={() => setExpanded(true)}
-      onMouseLeave={() => setExpanded(false)}
-      onFocusCapture={() => setExpanded(true)}
+      onMouseEnter={() => setManuallyExpanded(true)}
+      onMouseLeave={() => setManuallyExpanded(false)}
+      onFocusCapture={() => setManuallyExpanded(true)}
       onBlurCapture={e => {
         // Only collapse when focus leaves the rail entirely; child
         // tab moves between rows should keep us open.
         if (!e.currentTarget.contains(e.relatedTarget as Node | null)) {
-          setExpanded(false);
+          setManuallyExpanded(false);
         }
       }}
       aria-label="Conversation index"

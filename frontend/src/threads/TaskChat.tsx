@@ -16,6 +16,10 @@ import { renderChatMarkdown } from '../markdown';
 import type { ThreadMessageDto } from '../types';
 
 type Props = {
+  /** Optional ref forwarded onto the chat's scroll container so the
+   *  floating ConvIndex panel mounted by TaskDetailPage can run
+   *  scrollIntoView on the data-seq-tagged user bubbles inside. */
+  outerRef?: React.MutableRefObject<HTMLDivElement | null>;
   /** Messages already filtered to this task's slice
    *  ({@code task_id = :task}). */
   messages: ThreadMessageDto[];
@@ -37,6 +41,15 @@ type Props = {
   /** True while the interrupt request is in flight — flips the
    *  button to "Stopping…" and disables it. */
   interrupting?: boolean;
+  /** Whether older messages exist on the server that the parent
+   *  hasn't fetched yet. When true a "↑ Load earlier" button renders
+   *  at the top of the scrollback. */
+  canLoadOlder?: boolean;
+  /** Load-older request in flight — disables the button + flips its
+   *  label so a double-click can't fire two windows in parallel. */
+  loadingOlder?: boolean;
+  /** Fired when the user clicks the "Load earlier" button. */
+  onLoadOlder?: () => void;
 };
 
 /**
@@ -50,12 +63,39 @@ type Props = {
  */
 export default function TaskChat({
   messages, taskSeq, baseBranch, userInitials, isInFlight = false,
-  onInterrupt, interrupting = false,
+  onInterrupt, interrupting = false, outerRef,
+  canLoadOlder = false, loadingOlder = false, onLoadOlder,
 }: Props) {
   const scrollRef = useRef<HTMLDivElement | null>(null);
-  useEffect(() => {
+  const assignScrollRef = (el: HTMLDivElement | null) => {
+    scrollRef.current = el;
+    if (outerRef !== undefined) outerRef.current = el;
+  };
+  // Pin the stick-to-bottom only when the user is already near the
+  // bottom of the scrollback; otherwise a stream-in would yank them
+  // away from older content they're reading. The "Load earlier"
+  // click paths set the snap ref so the post-prepend layout effect
+  // can restore scroll position.
+  const beforeLoadRef = useRef<{ height: number; top: number } | null>(null);
+  const handleLoadOlder = () => {
+    if (loadingOlder || onLoadOlder === undefined) return;
     const el = scrollRef.current;
-    if (el !== null) el.scrollTop = el.scrollHeight;
+    if (el !== null) {
+      beforeLoadRef.current = { height: el.scrollHeight, top: el.scrollTop };
+    }
+    onLoadOlder();
+  };
+  useEffect(() => {
+    const snap = beforeLoadRef.current;
+    const el = scrollRef.current;
+    if (el === null) return;
+    if (snap !== null) {
+      el.scrollTop = snap.top + (el.scrollHeight - snap.height);
+      beforeLoadRef.current = null;
+      return;
+    }
+    // Default stream-in behaviour: stick to the bottom.
+    el.scrollTop = el.scrollHeight;
   }, [messages.length]);
 
   // Pair tool_call rows with their matching tool_result so the
@@ -67,11 +107,22 @@ export default function TaskChat({
     ? `off ${baseBranch}` : 'off main';
 
   return (
-    <div ref={scrollRef} style={scrollStyle}>
+    <div ref={assignScrollRef} style={scrollStyle}>
       <div style={forkedRowStyle}>
         <span style={forkedBadgeStyle}>⑂ forked from the thread</span>
         <span style={forkedHintStyle}>seeded with the plan · {baseLabel}</span>
       </div>
+
+      {canLoadOlder && (
+        <button
+          type="button"
+          onClick={handleLoadOlder}
+          disabled={loadingOlder}
+          style={loadOlderBtnStyle}
+        >
+          {loadingOlder ? 'Loading earlier…' : '↑ Load earlier messages'}
+        </button>
+      )}
 
       {items.map((item, i) => {
         if (item.kind === 'user') {
@@ -80,6 +131,7 @@ export default function TaskChat({
               key={item.message.id}
               text={item.text}
               initials={userInitials}
+              seq={item.message.seq}
             />
           );
         }
@@ -298,9 +350,11 @@ function extractText(m: ThreadMessageDto): string {
 
 /* ── Subcomponents ──────────────────────────────────────────────────── */
 
-function UserBubble({ text, initials }: { text: string; initials: string }) {
+function UserBubble({ text, initials, seq }: { text: string; initials: string; seq: number }) {
   return (
-    <div style={userRowStyle}>
+    // data-seq lets the floating ConvIndex rail scroll this row into
+    // view when the user clicks an index entry.
+    <div style={userRowStyle} data-seq={seq}>
       <div
         className="bq-chat-md bq-chat-md--user"
         style={userBubbleStyle}
@@ -457,6 +511,19 @@ function relativeTime(ts: number): string {
 const TEAL = '#0d9488';
 const TEAL_BG = 'rgba(13, 148, 136, 0.10)';
 const TEAL_BORDER = 'rgba(13, 148, 136, 0.32)';
+
+const loadOlderBtnStyle: React.CSSProperties = {
+  alignSelf: 'center',
+  margin: '0 auto 4px',
+  padding: '4px 12px',
+  fontSize: 11,
+  border: '1px solid rgba(0,0,0,0.10)',
+  background: 'rgba(255,255,255,0.85)',
+  color: 'var(--text-2)',
+  borderRadius: 999,
+  cursor: 'pointer',
+  fontFamily: 'inherit',
+};
 
 const scrollStyle: React.CSSProperties = {
   flex: 1,

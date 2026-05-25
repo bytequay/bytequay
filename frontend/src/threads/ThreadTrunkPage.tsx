@@ -11,7 +11,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type {
   ThreadDto,
   ThreadMessageDto,
@@ -21,6 +21,7 @@ import type {
   WorkUnitTaskDto,
 } from '../types';
 import TrunkChat from './TrunkChat';
+import { ConvIndex } from './ConvIndex';
 import { useThreadTasks } from './useThreadTasks';
 import { ConfirmDialog } from '../workspace/ConfirmDialog';
 
@@ -38,6 +39,27 @@ const ACTIVE_STATUSES = new Set([
   'PENDING', 'RUNNING', 'AWAITING', 'IDLE',
   'AWAITING_REVIEW', 'NEEDS_ATTENTION',
 ]);
+
+/** Tail-window size for the trunk transcript fetch. Trunk threads
+ *  are short by design (planning altitude) so a 200-message window
+ *  covers most cases on the first paint; the "Load earlier" button
+ *  pulls another window backward when needed. */
+const TRUNK_INITIAL_LIMIT = 200;
+
+/** Merge two ordered-by-seq message lists, deduping by seq. Used by
+ *  the paginated transcript: refresh overwrites tail entries; load-
+ *  older prepends. */
+function mergeMessages(
+  older: ThreadMessageDto[],
+  newer: ThreadMessageDto[],
+): ThreadMessageDto[] {
+  if (older.length === 0) return newer;
+  if (newer.length === 0) return older;
+  const bySeq = new Map<number, ThreadMessageDto>();
+  for (const m of older) bySeq.set(m.seq, m);
+  for (const m of newer) bySeq.set(m.seq, m);
+  return Array.from(bySeq.values()).sort((a, b) => a.seq - b.seq);
+}
 
 /**
  * Trunk window for a Thread — the planning altitude. Owns no branch
@@ -63,6 +85,16 @@ export default function ThreadTrunkPage({ threadId, onBack, onOpenTask }: Props)
   const { tasks, error: tasksError, refresh: refreshTasks } = useThreadTasks(threadId);
   const [turns, setTurns] = useState<ThreadTurnDto[] | null>(null);
   const [messages, setMessages] = useState<ThreadMessageDto[] | null>(null);
+  // Pagination cursor for the transcript — tracks the smallest seq
+  // currently loaded. The chat starts with a tail window and the
+  // user expands the history via the "Load earlier" button.
+  const [loadedFromSeq, setLoadedFromSeq] = useState<number | null>(null);
+  const [canLoadOlder, setCanLoadOlder] = useState(false);
+  const [loadingOlder, setLoadingOlder] = useState(false);
+  // Captured from TrunkChat via its {@code outerRef} prop so the
+  // floating ConvIndex panel can scroll specific user rows into view
+  // without TrunkChat having to know about the index panel.
+  const chatScrollRef = useRef<HTMLDivElement | null>(null);
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
   const [advancing, setAdvancing] = useState<'next' | 'ship' | null>(null);
   const [advanceError, setAdvanceError] = useState<string | null>(null);
@@ -157,10 +189,21 @@ export default function ThreadTrunkPage({ threadId, onBack, onOpenTask }: Props)
 
   useEffect(() => {
     let cancelled = false;
+    // Reset pagination state on thread switch so stale rows from the
+    // previous thread can't briefly render against the new one.
+    setMessages(null);
+    setLoadedFromSeq(null);
+    setCanLoadOlder(false);
     void (async () => {
       try {
-        const list = await window.bridge.getTaskMessages(threadId);
-        if (!cancelled) setMessages(list);
+        const page = await window.bridge.getTaskIndex(threadId, {
+          direction: 'initial',
+          limit: TRUNK_INITIAL_LIMIT,
+        });
+        if (cancelled) return;
+        setMessages(page.messages);
+        setLoadedFromSeq(page.loadedFromSeq);
+        setCanLoadOlder(page.loadedFromSeq !== null && page.loadedFromSeq > 1);
       }
       catch {
         if (!cancelled) setMessages([]);
@@ -218,11 +261,36 @@ export default function ThreadTrunkPage({ threadId, onBack, onOpenTask }: Props)
 
   const refreshMessages = useCallback(async () => {
     try {
-      const list = await window.bridge.getTaskMessages(threadId);
-      setMessages(list);
+      // Refresh only re-fetches the tail window. Older rows already
+      // loaded via "Load earlier" are preserved via mergeMessages;
+      // the latest tail just overwrites by seq.
+      const page = await window.bridge.getTaskIndex(threadId, {
+        direction: 'initial',
+        limit: TRUNK_INITIAL_LIMIT,
+      });
+      setMessages(prev => mergeMessages(prev ?? [], page.messages));
     }
     catch { /* keep last good list */ }
   }, [threadId]);
+
+  const loadOlderMessages = useCallback(async () => {
+    if (loadedFromSeq === null || loadingOlder) return;
+    setLoadingOlder(true);
+    try {
+      const page = await window.bridge.getTaskIndex(threadId, {
+        direction: 'before',
+        cursor: loadedFromSeq,
+        limit: TRUNK_INITIAL_LIMIT,
+      });
+      setMessages(prev => mergeMessages(page.messages, prev ?? []));
+      setLoadedFromSeq(page.loadedFromSeq);
+      setCanLoadOlder(page.nextCursor !== null);
+    }
+    catch { /* keep last good list */ }
+    finally {
+      setLoadingOlder(false);
+    }
+  }, [threadId, loadedFromSeq, loadingOlder]);
 
   const refreshTurns = useCallback(async () => {
     try {
@@ -514,8 +582,20 @@ export default function ThreadTrunkPage({ threadId, onBack, onOpenTask }: Props)
                   isInFlight={hasInFlight || sending}
                   onInterrupt={() => { void onInterrupt(); }}
                   interrupting={interrupting}
+                  outerRef={chatScrollRef}
+                  canLoadOlder={canLoadOlder}
+                  loadingOlder={loadingOlder}
+                  onLoadOlder={() => { void loadOlderMessages(); }}
                 />
               )}
+              {/* Floating right-edge conversation index. Anchored
+                  inside the chat card via position:relative on the
+                  card; ConvIndex itself self-hides while the thread
+                  has no prompts. */}
+              <ConvIndex
+                threadId={threadId}
+                scrollContainerRef={chatScrollRef}
+              />
             </div>
 
             <div style={composerCardStyle}>
@@ -2007,6 +2087,10 @@ const chatCardStyle: React.CSSProperties = {
   boxShadow: '0 4px 18px rgba(0,0,0,0.04)',
   overflow: 'hidden',
   minHeight: 0,
+  // Containing block for the absolutely-positioned floating ConvIndex
+  // panel mounted as a sibling of TrunkChat — without this it'd
+  // anchor to the viewport instead of the chat card.
+  position: 'relative',
 };
 
 const composerCardStyle: React.CSSProperties = {

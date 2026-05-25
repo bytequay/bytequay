@@ -39,6 +39,9 @@ type Props = {
    *  nav item grows a static purple dot at its right edge. Ignored
    *  when {@link hasLiveThread} is also set — live wins. */
   hasUnreadThread?: boolean;
+  /** Active workspace's display name. Shown next to the brand badge
+   *  so the rail reflects which workspace the user is inside. */
+  workspaceName?: string;
 };
 
 type Item = { id: WorkspaceSection; label: string; icon: ReactNode };
@@ -104,7 +107,12 @@ const ITEMS: Item[] = [
 function WorkspaceLeftRail({
   active, onSelect, onOpenWorkspaceSwitcher, onOpenNewWorkspace, onOpenControlBar,
   hasLiveThread = false, hasUnreadThread = false,
+  workspaceName,
 }: Props) {
+  const displayName = workspaceName !== undefined && workspaceName.length > 0
+      ? workspaceName
+      : 'ByteQuay';
+  const brandInitial = displayName.slice(0, 1).toUpperCase();
   // Prefer the new switcher hook; fall back to the legacy
   // new-workspace dialog for callers that haven't migrated yet.
   const brandClick = onOpenWorkspaceSwitcher ?? onOpenNewWorkspace;
@@ -121,8 +129,8 @@ function WorkspaceLeftRail({
         title={brandTitle}
         style={brandButtonStyle}
       >
-        <span className="workspace-rail__brand-badge" aria-hidden>B</span>
-        <span className="workspace-rail__brand-name">ByteQuay</span>
+        <span className="workspace-rail__brand-badge" aria-hidden>{brandInitial}</span>
+        <span className="workspace-rail__brand-name">{displayName}</span>
         <span className="workspace-rail__brand-chevron" aria-hidden>▾</span>
       </button>
       <button
@@ -186,9 +194,12 @@ const commandbarButtonStyle: React.CSSProperties = {
   textAlign: 'left',
 };
 
+/* The brand chip used to have an inline `background: transparent`
+ * override. The design treats it as a card so the background, border
+ * and shadow now live in workspace.css; this style only keeps the
+ * reset-button hygiene (no native button chrome, full-width hit area). */
 const brandButtonStyle: React.CSSProperties = {
   border: 'none',
-  background: 'transparent',
   width: '100%',
   cursor: 'pointer',
   font: 'inherit',

@@ -2436,11 +2436,28 @@ const url = new URL(`${BACKEND_BASE}/api/search/repos`);
   // statuses; the page does its own grouping. Create kicks off the first
   // turn synchronously so the returned row already carries the agent
   // session id where available.
-  ipcMain.handle('threads:list', async (_event, groupId: unknown) => {
-    let url = `${BACKEND_BASE}/api/threads`;
-    if (typeof groupId === 'string' && groupId.trim().length > 0) {
-      url += `?groupId=${encodeURIComponent(groupId)}`;
+  ipcMain.handle('threads:list', async (_event, args: unknown) => {
+    // Back-compat: an older preload passed the groupId positionally
+    // as a bare string. The new shape is { groupId?, workspaceId? }.
+    let groupId: string | null = null;
+    let workspaceId: string | null = null;
+    if (typeof args === 'string') {
+      groupId = args;
     }
+    else if (args !== null && typeof args === 'object') {
+      const obj = args as { groupId?: unknown; workspaceId?: unknown };
+      if (typeof obj.groupId === 'string' && obj.groupId.trim().length > 0) {
+        groupId = obj.groupId;
+      }
+      if (typeof obj.workspaceId === 'string' && obj.workspaceId.trim().length > 0) {
+        workspaceId = obj.workspaceId;
+      }
+    }
+    let url = `${BACKEND_BASE}/api/threads`;
+    const params: string[] = [];
+    if (groupId !== null) params.push(`groupId=${encodeURIComponent(groupId)}`);
+    if (workspaceId !== null) params.push(`workspaceId=${encodeURIComponent(workspaceId)}`);
+    if (params.length > 0) url += `?${params.join('&')}`;
     const res = await fetch(url);
     if (!res.ok) {
       const text = await res.text().catch(() => '');
@@ -2913,6 +2930,20 @@ const url = new URL(`${BACKEND_BASE}/api/search/repos`);
     if (!res.ok) {
       const text = await res.text().catch(() => '');
       throw new Error(`backend GET /api/workspaces returned ${res.status}: ${text}`);
+    }
+    return res.json();
+  });
+
+  ipcMain.handle('workspaces:get', async (_event, workspaceId: unknown) => {
+    if (typeof workspaceId !== 'string' || workspaceId.trim().length === 0) {
+      throw new Error('workspaceId must be a non-empty string');
+    }
+    const res = await fetch(
+      `${BACKEND_BASE}/api/workspaces/${encodeURIComponent(workspaceId)}`);
+    if (res.status === 404) return null;
+    if (!res.ok) {
+      const text = await res.text().catch(() => '');
+      throw new Error(`backend GET /api/workspaces/${workspaceId} returned ${res.status}: ${text}`);
     }
     return res.json();
   });

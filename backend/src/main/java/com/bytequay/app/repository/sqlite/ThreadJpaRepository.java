@@ -26,6 +26,13 @@ interface ThreadJpaRepository
      *  page size for the list view. */
     List<ThreadEntity> findByStatusOrderByUpdatedAtMsDesc(String status, Pageable pageable);
 
+    /** Workspace-scoped variant of the above. The thread list reaches
+     *  for this when the caller supplied a workspaceId query param so
+     *  a freshly-created workspace doesn't render the default's
+     *  threads. */
+    List<ThreadEntity> findByStatusAndWorkspaceIdOrderByUpdatedAtMsDesc(
+            String status, String workspaceId, Pageable pageable);
+
     /** Batched id lookup used by group membership reads — turns a
      *  list of thread ids returned from {@code thread_group_members} into
      *  the actual rows in one query, newest-first by updated_at_ms. */

@@ -16,6 +16,12 @@ import type { ThreadDto, WorkUnitTaskDto } from '../types';
 import type { WorkspaceSection } from './WorkspaceShell';
 
 type Props = {
+  /** Active workspace id. Routes the thread-list + memory fetches so
+   *  a workspace switch shows the right slice. */
+  workspaceId: string;
+  /** Active workspace's display name — rendered as the page title.
+   *  Pass through from the shell so the title tracks renames + switches. */
+  workspaceName: string;
   /** Routes the "View all →" / "Open →" affordances directly into
    *  the matching workspace section. */
   onSelectSection: (section: WorkspaceSection) => void;
@@ -30,7 +36,6 @@ type Props = {
   onOpenThread?: (threadId: string) => void;
 };
 
-const WORKSPACE_ID = 'ws-default';
 const ACTIVE_THREADS_PREVIEW = 3;
 const TASKS_PREVIEW = 4;
 const MEMORY_TOKEN_CAP = 4_000;
@@ -47,7 +52,7 @@ const CHARS_PER_TOKEN = 4;
  *  markdown body for excerpts and the budget bar. Spend today is a
  *  rough estimate summed from threads updated today — proper
  *  aggregation lands with Insights (commit 3). */
-function WorkspaceHomePage({ onSelectSection, onNewThread, onAssignReview, onOpenThread }: Props) {
+function WorkspaceHomePage({ workspaceId, workspaceName, onSelectSection, onNewThread, onAssignReview, onOpenThread }: Props) {
   const [threads, setThreads] = useState<ThreadDto[]>([]);
   const [memoryMd, setMemoryMd] = useState<string>('');
   const [loading, setLoading] = useState(true);
@@ -56,8 +61,8 @@ function WorkspaceHomePage({ onSelectSection, onNewThread, onAssignReview, onOpe
   const refresh = useCallback(async () => {
     try {
       const [threadList, memory] = await Promise.all([
-        window.bridge.listTasks(),
-        window.bridge.getWorkspaceMemory(WORKSPACE_ID),
+        window.bridge.listTasks({ workspaceId }),
+        window.bridge.getWorkspaceMemory(workspaceId),
       ]);
       setThreads(threadList);
       setMemoryMd(memory.memoryMd);
@@ -69,7 +74,7 @@ function WorkspaceHomePage({ onSelectSection, onNewThread, onAssignReview, onOpe
     finally {
       setLoading(false);
     }
-  }, []);
+  }, [workspaceId]);
 
   useEffect(() => { void refresh(); }, [refresh]);
 
@@ -89,7 +94,7 @@ function WorkspaceHomePage({ onSelectSection, onNewThread, onAssignReview, onOpe
     <>
       <header className="workspace-pageheader">
         <div className="workspace-pageheader__heading">
-          <h1 className="workspace-pageheader__title">ByteQuay</h1>
+          <h1 className="workspace-pageheader__title">{workspaceName}</h1>
           {loading ? (
             <span className="workspace-pageheader__meta">loading…</span>
           ) : (

@@ -11,7 +11,8 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
+import type { WorkspaceDto } from '../types';
 import WorkspaceMemoryPage from '../settings/pages/WorkspaceMemoryPage';
 import ThreadsPage from '../threads/ThreadsPage';
 import type {
@@ -32,6 +33,15 @@ export type WorkspaceSection = 'home' | 'threads' | 'memory' | 'insights' | 'set
 type Props = {
   section: WorkspaceSection;
   onSelectSection: (section: WorkspaceSection) => void;
+  /** Id of the workspace the user is currently inside. Threads,
+   *  memory, insights, and Settings all scope to this id; passed
+   *  down to the per-section pages so a workspace switch shows the
+   *  right slice. App.tsx owns the value. */
+  workspaceId: string;
+  /** Fired after the user creates a new workspace from the inline
+   *  dialog so App.tsx can flip the active id without making the
+   *  user round-trip through the landing grid. */
+  onWorkspaceCreated?: (workspaceId: string) => void;
   /** Callback for back-link chips inside the memory proposal banner.
    *  Routes to a review/build thread detail at the app level. */
   onOpenThread?: (threadId: string) => void;
@@ -80,7 +90,8 @@ type Props = {
  *  renders the existing ThreadsPage inline rather than punching out to
  *  a top-level page. */
 function WorkspaceShell({
-  section, onSelectSection, onOpenThread, onOpenThreadCreate, onOpenControlBar,
+  section, onSelectSection, workspaceId, onWorkspaceCreated,
+  onOpenThread, onOpenThreadCreate, onOpenControlBar,
   onOpenWorkspaceSwitcher,
   threadsFilter, threadsProvider, threadsGroupId, threadsRepo,
   onThreadsFilterChange, onThreadsProviderChange, onThreadsGroupChange, onThreadsRepoChange,
@@ -92,6 +103,21 @@ function WorkspaceShell({
   const [newWorkspaceOpen, setNewWorkspaceOpen] = useState(false);
   const [assignReviewOpen, setAssignReviewOpen] = useState(false);
   const { hasLiveThread, hasUnreadThread } = useRailThreadSignals();
+
+  // Track the active workspace so the rail brand + home page title
+  // reflect the workspace the user is inside (and update on rename
+  // without a reload). The shell is the single fetcher; pages
+  // receive name + id as props.
+  const [workspace, setWorkspace] = useState<WorkspaceDto | null>(null);
+  const loadWorkspace = useCallback(async () => {
+    try {
+      const next = await window.bridge.getWorkspace(workspaceId);
+      setWorkspace(next);
+    }
+    catch { /* keep stale name on transient failure */ }
+  }, [workspaceId]);
+  useEffect(() => { void loadWorkspace(); }, [loadWorkspace]);
+  const workspaceName = workspace?.name ?? '';
 
   return (
     <section className="workspace-shell">
@@ -108,10 +134,13 @@ function WorkspaceShell({
         onOpenControlBar={onOpenControlBar}
         hasLiveThread={hasLiveThread}
         hasUnreadThread={hasUnreadThread}
+        workspaceName={workspaceName}
       />
       <div className="workspace-content">
         {section === 'home' && (
           <WorkspaceHomePage
+            workspaceId={workspaceId}
+            workspaceName={workspaceName === '' ? 'Workspace' : workspaceName}
             onSelectSection={onSelectSection}
             onNewThread={() => setNewThreadOpen(true)}
             onAssignReview={() => setAssignReviewOpen(true)}
@@ -161,7 +190,13 @@ function WorkspaceShell({
         />
       )}
       {newWorkspaceOpen && (
-        <NewWorkspaceDialog onClose={() => setNewWorkspaceOpen(false)} />
+        <NewWorkspaceDialog
+          onClose={() => setNewWorkspaceOpen(false)}
+          onCreated={(newId) => {
+            setNewWorkspaceOpen(false);
+            onWorkspaceCreated?.(newId);
+          }}
+        />
       )}
       {assignReviewOpen && (
         <AssignReviewTaskDialog

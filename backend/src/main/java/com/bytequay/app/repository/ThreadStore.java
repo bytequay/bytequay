@@ -58,6 +58,20 @@ public interface ThreadStore
      */
     List<Thread> listTasksByStatus(ThreadStatus status, int limit);
 
+    /** Workspace-scoped variant of {@link #listTasksByStatus} — only
+     *  rows whose {@code workspace_id} matches. The /api/threads
+     *  endpoint routes here when the caller passes a workspaceId so
+     *  per-workspace pages don't read the default workspace's data.
+     *
+     *  <p>Default implementation falls back to {@link #listTasksByStatus}
+     *  and ignores the workspaceId. The real SQLite store overrides
+     *  this; in-memory test stubs (which don't track workspace_id on
+     *  their thread rows) inherit the unfiltered behaviour. */
+    default List<Thread> listTasksByWorkspaceAndStatus(String workspaceId, ThreadStatus status, int limit)
+    {
+        return listTasksByStatus(status, limit);
+    }
+
     /**
      * Fetch a batch of threads by id, newest-{@code updated_at_ms}
      * first. Used by the group membership read path

@@ -2393,7 +2393,11 @@ export type Bridge = {
   /** All threads across every status, newest-updated first; the page
    *  groups by status itself. Pass {@code groupId} to restrict to a
    *  single group (drives the group detail view). */
-  listTasks: (groupId?: string) => Promise<ThreadDto[]>;
+  /** List threads. Backward-compatible: a plain string is treated
+   *  as a groupId, or an options object can specify groupId +
+   *  workspaceId. When workspaceId is passed, only threads pinned
+   *  to that workspace are returned. */
+  listTasks: (opts?: string | { groupId?: string; workspaceId?: string }) => Promise<ThreadDto[]>;
   /** Queued/running turns across all threads, oldest first. Lets list
    *  and group pages show scheduler pressure without N+1 reads. */
   listActiveTaskTurns: () => Promise<ThreadTurnDto[]>;
@@ -2452,6 +2456,10 @@ export type Bridge = {
    *  with all the aggregates the landing renders (counts, today's
    *  spend, memory summary). Read-only. */
   listWorkspaces: () => Promise<WorkspaceCardDto[]>;
+  /** Fetch one workspace by id. Null when no row matches — drives
+   *  the shell's title + rail brand so a workspace switch updates
+   *  the visible name. */
+  getWorkspace: (workspaceId: string) => Promise<WorkspaceDto | null>;
   /** Rename a workspace. The display name surfaces on the landing
    *  card and the rail; the id is stable. Trimmed server-side. */
   renameWorkspace: (workspaceId: string, name: string) => Promise<WorkspaceDto>;

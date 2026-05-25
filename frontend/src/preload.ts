@@ -476,8 +476,11 @@ const bridge: Bridge = {
     ipcRenderer.invoke('email:deleteTag', { id }),
   listArchivedEmailThreads: (account: string): Promise<EmailTagArchiveEntryDto[]> =>
     ipcRenderer.invoke('email:listArchived', { account }),
-  listTasks: (groupId?: string): Promise<ThreadDto[]> =>
-    ipcRenderer.invoke('threads:list', groupId ?? null),
+  listTasks: (
+    opts?: string | { groupId?: string; workspaceId?: string },
+  ): Promise<ThreadDto[]> =>
+    ipcRenderer.invoke('threads:list',
+      typeof opts === 'string' ? { groupId: opts } : (opts ?? null)),
   listActiveTaskTurns: (): Promise<ThreadTurnDto[]> =>
     ipcRenderer.invoke('threads:activeTurns'),
   createTask: (request: NewTaskRequestDto): Promise<ThreadDto> =>
@@ -509,6 +512,8 @@ const bridge: Bridge = {
     ipcRenderer.invoke('threads:jumpIn', threadId),
   listWorkspaces: (): Promise<WorkspaceCardDto[]> =>
     ipcRenderer.invoke('workspaces:list'),
+  getWorkspace: (workspaceId: string): Promise<WorkspaceDto | null> =>
+    ipcRenderer.invoke('workspaces:get', workspaceId),
   renameWorkspace: (workspaceId: string, name: string): Promise<WorkspaceDto> =>
     ipcRenderer.invoke('workspaces:rename', { workspaceId, name }),
   createWorkspace: (

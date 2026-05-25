@@ -100,11 +100,12 @@ public class ThreadController
         this.checkpointTrigger = requireNonNull(checkpointTrigger, "checkpointTrigger is null");
     }
 
-    /** GET /api/threads?status=RUNNING&limit=50&groupId=... */
+    /** GET /api/threads?status=RUNNING&limit=50&groupId=...&workspaceId=... */
     @GetMapping
     public List<Thread> list(
             @RequestParam(required = false) ThreadStatus status,
             @RequestParam(required = false) String groupId,
+            @RequestParam(required = false) String workspaceId,
             @RequestParam(required = false, defaultValue = "" + DEFAULT_LIMIT) int limit)
     {
         int cap = Math.min(limit, DEFAULT_LIMIT);
@@ -115,14 +116,19 @@ public class ThreadController
             }
             return page.stream().filter(t -> t.status() == status).toList();
         }
+        boolean wsScoped = workspaceId != null && !workspaceId.isBlank();
         if (status == null) {
             ImmutableList.Builder<Thread> all = ImmutableList.builder();
             for (ThreadStatus s : ThreadStatus.values()) {
-                all.addAll(threads.listByStatus(s, cap));
+                all.addAll(wsScoped
+                        ? threads.listByWorkspaceAndStatus(workspaceId, s, cap)
+                        : threads.listByStatus(s, cap));
             }
             return all.build();
         }
-        return threads.listByStatus(status, cap);
+        return wsScoped
+                ? threads.listByWorkspaceAndStatus(workspaceId, status, cap)
+                : threads.listByStatus(status, cap);
     }
 
     /** GET /api/threads/turns/active — queued/running turns across threads. */

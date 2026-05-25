@@ -133,6 +133,18 @@ public class ThreadService
         return store.listTasksByStatus(status, limit);
     }
 
+    /** Workspace-scoped variant of {@link #listByStatus}. The thread
+     *  list endpoint routes here whenever the caller passes a
+     *  {@code workspaceId} so a newly-created workspace doesn't
+     *  render the default workspace's threads. */
+    public List<Thread> listByWorkspaceAndStatus(String workspaceId, ThreadStatus status, int limit)
+    {
+        if (limit <= 0) {
+            return List.of();
+        }
+        return store.listTasksByWorkspaceAndStatus(workspaceId, status, limit);
+    }
+
     public List<Thread> listByGroup(String groupId, int limit)
     {
         if (limit <= 0) {

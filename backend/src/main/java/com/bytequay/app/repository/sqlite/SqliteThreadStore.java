@@ -168,6 +168,17 @@ class SqliteThreadStore
     }
 
     @Override
+    public List<Thread> listTasksByWorkspaceAndStatus(String workspaceId, ThreadStatus status, int limit)
+    {
+        requireNonNull(workspaceId, "workspaceId is null");
+        return threads.findByStatusAndWorkspaceIdOrderByUpdatedAtMsDesc(
+                        status.name(), workspaceId, firstPage(limit))
+                .stream()
+                .map(this::merge)
+                .toList();
+    }
+
+    @Override
     public List<Thread> listTasksByIds(Collection<String> ids)
     {
         if (ids.isEmpty()) {

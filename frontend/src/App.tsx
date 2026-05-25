@@ -728,6 +728,15 @@ function App() {
         {nav.view === 'workspace' && (
           <WorkspaceShell
             section={nav.section ?? 'home'}
+            workspaceId={activeWorkspaceId ?? 'ws-default'}
+            onWorkspaceCreated={(newId) => {
+              // A workspace created from the inline dialog becomes the
+              // active one immediately so the user lands in its empty
+              // home rather than the previous workspace's data.
+              setActiveWorkspaceId(newId);
+              writeActiveWorkspaceId(newId);
+              setNav({ view: 'workspace', section: 'home' });
+            }}
             onSelectSection={section => setNav({ view: 'workspace', section })}
             onOpenThread={threadId => setNav({ view: 'thread-detail', threadId })}
             onOpenThreadCreate={(params) => setNav({

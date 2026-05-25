@@ -388,6 +388,7 @@ class TestAgentScheduler
                 /* endedAt */ null,
                 /* errorMessage */ null,
                 ThreadFlow.BUILD,
+                "ws-default",
                 /* activeTask */ null);
     }
 

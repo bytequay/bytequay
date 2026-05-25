@@ -92,6 +92,7 @@ class TestSqliteThreadStore
                 initial.createdAt(), Instant.parse("2026-05-15T13:00:00Z"),
                 /* endedAt */ null, /* errorMessage */ null,
                 initial.flow(),
+                "ws-default",
                 initial.activeTask());
         store.saveThread(updated);
 
@@ -122,6 +123,7 @@ class TestSqliteThreadStore
                 original.createdAt(), original.updatedAt(),
                 original.endedAt(), original.errorMessage(),
                 ThreadFlow.REVIEW,
+                "ws-default",
                 original.activeTask());
         assertThatThrownBy(() -> store.saveThread(flipped))
                 .isInstanceOf(IllegalStateException.class)
@@ -230,6 +232,7 @@ class TestSqliteThreadStore
                 /* endedAt */ null,
                 /* errorMessage */ null,
                 ThreadFlow.BUILD,
+                "ws-default",
                 /* activeTask */ null);
     }
 
@@ -242,6 +245,7 @@ class TestSqliteThreadStore
                 created, updated,
                 source.endedAt(), source.errorMessage(),
                 source.flow(),
+                "ws-default",
                 source.activeTask());
     }
 

@@ -436,7 +436,7 @@ class TestMcpPublishGate
                 "claude-sonnet-4.6",
                 0L, 0L, 0L,
                 now, now, null, null,
-                ThreadFlow.BUILD, null);
+                ThreadFlow.BUILD, "ws-default", null);
         threads.saveThread(t);
         return t.id();
     }

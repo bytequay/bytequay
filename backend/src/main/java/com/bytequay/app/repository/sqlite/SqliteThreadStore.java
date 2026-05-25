@@ -95,8 +95,17 @@ class SqliteThreadStore
         entity.setUpdatedAtMs(thread.updatedAt().toEpochMilli());
         entity.setEndedAtMs(thread.endedAt() == null ? null : thread.endedAt().toEpochMilli());
         entity.setErrorMessage(thread.errorMessage());
-        if (entity.getWorkspaceId() == null) {
-            entity.setWorkspaceId(DEFAULT_WORKSPACE_ID);
+        // Honour the caller's workspace assignment when set. Existing
+        // rows keep their stored workspaceId — the create path is what
+        // routes the new thread into the right workspace; later
+        // saveThread calls just update mutable fields. The "ws-default"
+        // fallback only kicks in for legacy callers that left the
+        // field null on a brand-new row.
+        if (existing.isEmpty()) {
+            String desired = thread.workspaceId();
+            entity.setWorkspaceId(desired != null && !desired.isBlank()
+                    ? desired
+                    : DEFAULT_WORKSPACE_ID);
         }
         // Flow is set-once: write it on INSERT, refuse to silently
         // flip it on UPDATE. The build vs review discriminator is a
@@ -351,6 +360,7 @@ class SqliteThreadStore
                 e.getEndedAtMs() == null ? null : Instant.ofEpochMilli(e.getEndedAtMs()),
                 e.getErrorMessage(),
                 ThreadFlow.fromDbValue(e.getFlow()),
+                e.getWorkspaceId(),
                 active);
     }
 

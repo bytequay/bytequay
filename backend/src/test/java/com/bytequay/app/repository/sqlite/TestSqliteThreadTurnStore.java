@@ -136,6 +136,7 @@ class TestSqliteThreadTurnStore
                 /* endedAt */ null,
                 /* errorMessage */ null,
                 ThreadFlow.BUILD,
+                "ws-default",
                 /* activeTask */ null));
         return threadId;
     }

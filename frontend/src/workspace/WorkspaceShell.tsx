@@ -149,6 +149,7 @@ function WorkspaceShell({
         )}
         {section === 'threads' && (
           <ThreadsPage
+            workspaceId={workspaceId}
             filter={threadsFilter}
             provider={threadsProvider}
             groupId={threadsGroupId}
@@ -177,6 +178,7 @@ function WorkspaceShell({
       </div>
       {newThreadOpen && (
         <NewThreadDialog
+          workspaceId={workspaceId}
           onClose={() => {
             setNewThreadOpen(false);
             setNewThreadInitialGroupId(undefined);

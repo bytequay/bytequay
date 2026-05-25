@@ -71,6 +71,7 @@ public class ThreadStartupReconciler
                         thread.createdAt(), now,
                         thread.endedAt(), thread.errorMessage(),
                         thread.flow(),
+                        thread.workspaceId(),
                         thread.activeTask()));
             }
             reconciled += orphaned.size();

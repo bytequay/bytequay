@@ -180,6 +180,11 @@ public class ReviewPassService
                 now, now,
                 /* endedAt */ null, /* errorMessage */ null,
                 ThreadFlow.REVIEW,
+                // Review threads stay in the default workspace today —
+                // they're addressed by PR, not by workspace. When the
+                // assign-review dialog grows a workspace picker this
+                // becomes the chosen workspace.
+                "ws-default",
                 /* activeTask */ null);
         threadStore.saveThread(thread);
 

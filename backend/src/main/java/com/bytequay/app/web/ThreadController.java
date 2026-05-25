@@ -154,6 +154,9 @@ public class ThreadController
         if (body.kind() == null) {
             throw new IllegalArgumentException("kind is required");
         }
+        if (body.workspaceId() == null || body.workspaceId().isBlank()) {
+            throw new IllegalArgumentException("workspaceId is required");
+        }
         return threads.create(new ThreadService.NewTaskRequest(
                 body.kind(),
                 body.provider() == null ? "claude-code" : body.provider(),
@@ -166,7 +169,8 @@ public class ThreadController
                 body.taskType(),
                 body.linkedPrNumber(),
                 body.linkedIssueNumber(),
-                /* flow */ null));
+                /* flow */ null,
+                body.workspaceId()));
     }
 
     /**
@@ -202,7 +206,11 @@ public class ThreadController
                 body.taskType(),
                 body.linkedPrNumber(),
                 body.linkedIssueNumber(),
-                /* flow */ null));
+                /* flow */ null,
+                // materialiseTask doesn't read workspaceId on the request,
+                // but the record requires it — surface the body value
+                // anyway so a future code path picks it up.
+                body.workspaceId()));
     }
 
     /** GET /api/threads/{id} */
@@ -573,7 +581,10 @@ public class ThreadController
             List<String> initialGroupIds,
             String taskType,
             Integer linkedPrNumber,
-            Integer linkedIssueNumber) {}
+            Integer linkedIssueNumber,
+            /** Owning workspace id — required. Threads belong to a
+             *  workspace; the service rejects the create when null/blank. */
+            String workspaceId) {}
 
     public record SendBody(String input) {}
 

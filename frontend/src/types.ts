@@ -1576,6 +1576,10 @@ export type NewTaskRequestDto = {
   kind: ThreadKindDto;
   provider?: string;
   model: string;
+  /** Owning workspace's id — required. The backend rejects the
+   *  create when null/blank so the thread always lands in the right
+   *  workspace's slice. */
+  workspaceId: string;
   /** Optional — when omitted, the backend auto-titles from the first
    *  trunk message. Threads are never named by the user up front. */
   title?: string;

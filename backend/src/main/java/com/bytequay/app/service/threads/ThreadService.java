@@ -331,6 +331,7 @@ public class ThreadService
                 current.createdAt(), Instant.now(),
                 current.endedAt(), current.errorMessage(),
                 current.flow(),
+                current.workspaceId(),
                 current.activeTask());
         store.saveThread(next);
         return store.findThreadById(threadId).orElse(next);
@@ -356,6 +357,10 @@ public class ThreadService
     public Thread create(NewTaskRequest request)
     {
         requireNonNull(request, "request is null");
+        if (request.workspaceId() == null || request.workspaceId().isBlank()) {
+            throw new ResponseStatusException(HttpStatusCode.valueOf(400),
+                    "workspaceId is required — every thread belongs to a workspace");
+        }
         List<String> initialGroupIds = request.initialGroupIds() == null
                 ? List.of()
                 : distinctCopy(request.initialGroupIds());
@@ -388,6 +393,7 @@ public class ThreadService
                 /* endedAt */ null,
                 /* errorMessage */ null,
                 request.flow() == null ? ThreadFlow.BUILD : request.flow(),
+                request.workspaceId().trim(),
                 /* activeTask */ null);
         store.saveThread(thread);
         for (String groupId : initialGroupIds) {
@@ -941,7 +947,10 @@ public class ThreadService
             String taskType,
             Integer linkedPrNumber,
             Integer linkedIssueNumber,
-            ThreadFlow flow) {}
+            ThreadFlow flow,
+            /** Owning workspace's id — required. The thread row lands
+             *  here and the workspace-scoped lists filter by it. */
+            String workspaceId) {}
 
     /** Inputs from the create-group dialog. The redesign requires
      *  a non-empty group, so {@code initialTaskIds} is required (≥1

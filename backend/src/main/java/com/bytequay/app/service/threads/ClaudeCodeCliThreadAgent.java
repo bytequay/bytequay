@@ -489,6 +489,7 @@ public class ClaudeCodeCliThreadAgent
                     current.createdAt(), Instant.now(),
                     /* endedAt */ null, /* errorMessage */ null,
                     current.flow(),
+                    current.workspaceId(),
                     current.activeTask()));
         }
     }
@@ -1047,6 +1048,7 @@ public class ClaudeCodeCliThreadAgent
                 endedAt != null ? endedAt : current.endedAt(),
                 current.errorMessage(),
                 current.flow(),
+                current.workspaceId(),
                 current.activeTask());
         store.saveThread(next);
     }

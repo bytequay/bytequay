@@ -38,6 +38,9 @@ import type {
  * working tree or index.
  */
 export type ThreadCreatePageProps = {
+  /** Active workspace's id — required. The created thread is
+   *  stamped with it so the workspace-scoped list picks it up. */
+  workspaceId: string;
   /** Optional — pre-fills the Group dropdown. Set when the page is
    *  entered from a group page's "+ Add thread" button so the new
    *  thread lands in that group by default. */
@@ -53,7 +56,7 @@ type TaskType = 'DEVELOP' | 'FIX';
 type Provider = 'claude-code' | 'codex';
 
 export default function ThreadCreatePage({
-  initialGroupId, onBack, onCreated,
+  workspaceId, initialGroupId, onBack, onCreated,
 }: ThreadCreatePageProps) {
   const [taskType, setTaskType] = useState<TaskType>('DEVELOP');
   const [provider, setProvider] = useState<Provider>('claude-code');
@@ -409,6 +412,7 @@ export default function ThreadCreatePage({
         // the stream — the detail page surfaces the real value once
         // the session emits its first event.
         model: '',
+        workspaceId,
         title: trimmedTitle,
         workingDir,
         initialPrompt: trimmedPrompt === '' ? undefined : trimmedPrompt,

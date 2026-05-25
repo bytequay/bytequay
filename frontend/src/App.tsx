@@ -669,6 +669,7 @@ function App() {
         )}
         {nav.view === 'thread-create' && (
           <ThreadCreatePage
+            workspaceId={activeWorkspaceId ?? 'ws-default'}
             initialGroupId={nav.initialGroupId ?? null}
             onBack={() => setNav({
               view: 'workspace', section: 'threads',

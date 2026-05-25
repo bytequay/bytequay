@@ -97,7 +97,7 @@ class TestThreadServiceScheduler
                 "DEVELOP",
                 /* linkedPrNumber */ null,
                 /* linkedIssueNumber */ null,
-                /* flow */ null));
+                /* flow */ null, "ws-default"));
 
         assertThat(store.threads).hasSize(1);
         assertThat(scheduler.requests).isEmpty();
@@ -139,7 +139,7 @@ class TestThreadServiceScheduler
                 "DEVELOP",
                 /* linkedPrNumber */ 42,
                 /* linkedIssueNumber */ null,
-                ThreadFlow.REVIEW));
+                ThreadFlow.REVIEW, "ws-default"));
 
         assertThat(store.threads).hasSize(1);
         assertThat(store.threads.values().iterator().next().flow())
@@ -177,7 +177,7 @@ class TestThreadServiceScheduler
                 "DEVELOP",
                 /* linkedPrNumber */ null,
                 /* linkedIssueNumber */ null,
-                /* flow */ null));
+                /* flow */ null, "ws-default"));
 
         assertThat(scheduler.requests).isEmpty();
         assertThat(registry.used).isFalse();
@@ -475,7 +475,7 @@ class TestThreadServiceScheduler
                 "DEVELOP",
                 /* linkedPrNumber */ null,
                 /* linkedIssueNumber */ null,
-                /* flow */ null));
+                /* flow */ null, "ws-default"));
 
         assertThat(groups.listMembers("group-1"))
                 .extracting(ThreadGroupMembership::threadId)
@@ -604,7 +604,7 @@ class TestThreadServiceScheduler
                 "DEVELOP",
                 /* linkedPrNumber */ null,
                 /* linkedIssueNumber */ null,
-                /* flow */ null));
+                /* flow */ null, "ws-default"));
         assertThat(worktrees.createRequests).isEmpty();
         assertThat(tasks.byId).isEmpty();
 
@@ -621,7 +621,7 @@ class TestThreadServiceScheduler
                 "DEVELOP",
                 /* linkedPrNumber */ null,
                 /* linkedIssueNumber */ null,
-                /* flow */ null));
+                /* flow */ null, "ws-default"));
 
         Thread refreshed = projecting.findThreadById(thread.id()).orElseThrow();
         assertThat(refreshed.activeTask()).isNotNull();
@@ -1235,7 +1235,7 @@ class TestThreadServiceScheduler
                     t.title(), t.status(), t.model(),
                     t.costUsdMilli(), t.tokensIn(), t.tokensOut(),
                     t.createdAt(), t.updatedAt(), t.endedAt(), t.errorMessage(),
-                    t.flow(), active);
+                    t.flow(), t.workspaceId(), active);
         }
     }
 
@@ -1520,6 +1520,7 @@ class TestThreadServiceScheduler
                 /* endedAt */ null,
                 /* errorMessage */ null,
                 ThreadFlow.BUILD,
+                "ws-default",
                 /* activeTask */ null);
     }
 
@@ -1542,6 +1543,7 @@ class TestThreadServiceScheduler
                 /* endedAt */ now,
                 /* errorMessage */ null,
                 ThreadFlow.BUILD,
+                "ws-default",
                 /* activeTask */ null);
     }
 }

@@ -25,6 +25,10 @@ type Props = {
   /** Pre-pin the new thread into a group when the dialog is opened
    *  from a group's `+ Add` button. Defaults to no group. */
   initialGroupId?: string;
+  /** Active workspace's id. The repo picker is filtered to repos
+   *  pinned to this workspace — picking a repo that belongs to
+   *  another workspace would land the thread in the wrong scope. */
+  workspaceId: string;
 };
 
 /**
@@ -50,7 +54,7 @@ const AGENT_OPTIONS = [
 ] as const;
 type AgentOption = typeof AGENT_OPTIONS[number];
 
-function NewThreadDialog({ onClose, onCreated, initialGroupId }: Props) {
+function NewThreadDialog({ onClose, onCreated, initialGroupId, workspaceId }: Props) {
   const [prompt, setPrompt] = useState('');
   const [repos, setRepos] = useState<WatchedRepoDto[] | null>(null);
   const [selectedRepo, setSelectedRepo] = useState<WatchedRepoDto | null>(null);
@@ -61,20 +65,32 @@ function NewThreadDialog({ onClose, onCreated, initialGroupId }: Props) {
 
   useEffect(() => {
     let cancelled = false;
-    void window.bridge.getWatchedRepos()
-      .then(list => {
+    void (async () => {
+      try {
+        // Pull the global watched-repo set (carries localClonePath
+        // and the other rich fields) and the per-workspace pin set,
+        // then intersect by repoFullName so the picker only shows
+        // repos pinned to the active workspace.
+        const [all, pinned] = await Promise.all([
+          window.bridge.getWatchedRepos(),
+          window.bridge.listWorkspaceRepos(workspaceId),
+        ]);
         if (cancelled) return;
-        setRepos(list);
-        // Pre-select the first repo with a local clone path. The
-        // workspace default is whatever the user pinned first; if
-        // they have nothing yet, the create button stays disabled
-        // and the chip surfaces an inline hint.
-        const withClone = list.find(r => r.localClonePath != null && r.localClonePath.trim() !== '');
-        setSelectedRepo(withClone ?? list[0] ?? null);
-      })
-      .catch(() => { /* leave repos null; create disabled */ });
+        const pinnedSet = new Set(pinned.map(p => p.repoFullName));
+        const scoped = all.filter(r => pinnedSet.has(`${r.owner}/${r.repo}`));
+        setRepos(scoped);
+        // Pre-select the first scoped repo with a local clone path.
+        // If none qualifies, the create button stays disabled and the
+        // chip surfaces an inline hint.
+        const withClone = scoped.find(r => r.localClonePath != null && r.localClonePath.trim() !== '');
+        setSelectedRepo(withClone ?? scoped[0] ?? null);
+      }
+      catch {
+        if (!cancelled) setRepos([]);
+      }
+    })();
     return () => { cancelled = true; };
-  }, []);
+  }, [workspaceId]);
 
   const handleSubmit = async () => {
     const trimmed = prompt.trim();
@@ -91,6 +107,7 @@ function NewThreadDialog({ onClose, onCreated, initialGroupId }: Props) {
         kind: selectedAgent.kind,
         provider: selectedAgent.id,
         model: '',
+        workspaceId,
         initialPrompt: trimmed === '' ? undefined : trimmed,
         initialGroupIds: initialGroupId !== undefined ? [initialGroupId] : undefined,
       });
@@ -198,7 +215,8 @@ function NewThreadDialog({ onClose, onCreated, initialGroupId }: Props) {
                 <ul style={pickerMenuStyle} role="listbox">
                   {repos !== null && repos.length === 0 && (
                     <li style={pickerEmptyStyle}>
-                      No watched repos. Add one in Repos before creating a thread.
+                      No repos pinned to this workspace. Pin one in Workspace
+                      Settings → Repositories before creating a thread.
                     </li>
                   )}
                   {repos !== null && repos.map(r => {

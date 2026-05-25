@@ -69,6 +69,11 @@ public record Thread(
         Instant endedAt,
         String errorMessage,
         ThreadFlow flow,
+        /** Owning workspace's id. The store stamps this on INSERT
+         *  from the caller's NewTaskRequest; legacy rows are
+         *  back-filled to "ws-default" by V73, and the store's
+         *  fallback covers any null sneaking through. */
+        String workspaceId,
         Task activeTask)
 {
     /**

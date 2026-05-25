@@ -67,10 +67,11 @@ class ThreadEntity
 
     // FK on workspaces.id, added in V73. Every existing thread was
     // backfilled to the ambient "ws-default" workspace by that
-    // migration; SqliteThreadStore defaults it to the same value on
-    // INSERT so new rows don't drift to NULL. Multi-workspace
-    // creation will route this through the create request later.
-    @Column(name = "workspace_id")
+    // migration. Multi-workspace creation routes the active workspace
+    // through NewTaskRequest.workspaceId; the service rejects the
+    // create when null/blank so this column is effectively NOT NULL
+    // in practice (V82 also enforces it at the DB level).
+    @Column(name = "workspace_id", nullable = false)
     private String workspaceId;
 
     // Structural discriminator: 'build' or 'review'. V74 carries the

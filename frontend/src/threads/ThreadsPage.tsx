@@ -56,6 +56,9 @@ function loadTileMode(): TileMode {
 }
 
 type Props = {
+  /** Active workspace's id. Scopes the thread-list fetch so a workspace
+   *  switch shows only its threads. */
+  workspaceId: string;
   /** Status filter the left rail is highlighting; drives which threads
    *  appear in the main pane. */
   filter: StatusFilter;
@@ -100,6 +103,7 @@ type Props = {
  * {@code docs/mockups/design/threads/threads-list.png}.
  */
 export default function ThreadsPage({
+  workspaceId,
   filter, onFilterChange, provider, onProviderChange,
   groupId, onGroupChange,
   repo, onRepoChange,
@@ -218,7 +222,7 @@ export default function ThreadsPage({
   const refresh = useCallback(async () => {
     try {
       const [list, ats, gs, ms, wrs] = await Promise.all([
-        window.bridge.listTasks(),
+        window.bridge.listTasks({ workspaceId }),
         window.bridge.listActiveTaskTurns().catch(() => [] as ThreadTurnDto[]),
         window.bridge.listTaskGroups().catch(() => [] as ThreadGroupDto[]),
         window.bridge.listTaskGroupMemberships().catch(() => [] as ThreadGroupMembershipDto[]),
@@ -234,7 +238,7 @@ export default function ThreadsPage({
     catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     }
-  }, []);
+  }, [workspaceId]);
 
   /** Map a thread's working dir into an owner/repo by scanning the
    *  user's watched repos for a path segment that matches the repo

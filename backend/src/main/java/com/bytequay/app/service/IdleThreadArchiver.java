@@ -132,6 +132,7 @@ public class IdleThreadArchiver
                 /* endedAt */ now,
                 t.errorMessage(),
                 t.flow(),
+                t.workspaceId(),
                 t.activeTask());
     }
 }

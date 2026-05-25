@@ -98,6 +98,7 @@ class TestThreadStartupReconciler
                 /* endedAt */ status == ThreadStatus.COMPLETED ? now : null,
                 /* errorMessage */ null,
                 ThreadFlow.BUILD,
+                "ws-default",
                 /* activeTask */ null);
     }
 }

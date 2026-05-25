@@ -2917,6 +2917,38 @@ const url = new URL(`${BACKEND_BASE}/api/search/repos`);
     return res.json();
   });
 
+  ipcMain.handle('workspaces:create', async (_event, args: unknown) => {
+    const a = (args ?? {}) as {
+      name?: unknown;
+      isScratch?: unknown;
+      promptContext?: unknown;
+      repoFullNames?: unknown;
+    };
+    if (typeof a.name !== 'string' || a.name.trim().length === 0) {
+      throw new Error('name must be a non-empty string');
+    }
+    const body: Record<string, unknown> = {
+      name: a.name,
+      isScratch: typeof a.isScratch === 'boolean' ? a.isScratch : false,
+    };
+    if (typeof a.promptContext === 'string') {
+      body.promptContext = a.promptContext;
+    }
+    if (Array.isArray(a.repoFullNames)) {
+      body.repoFullNames = a.repoFullNames.filter((s): s is string => typeof s === 'string');
+    }
+    const res = await fetch(`${BACKEND_BASE}/api/workspaces`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    if (!res.ok) {
+      const text = await res.text().catch(() => '');
+      throw new Error(`backend POST /api/workspaces returned ${res.status}: ${text}`);
+    }
+    return res.json();
+  });
+
   ipcMain.handle('workspaces:rename', async (_event, args: unknown) => {
     const { workspaceId, name } = (args ?? {}) as { workspaceId?: unknown; name?: unknown };
     if (typeof workspaceId !== 'string' || workspaceId.trim().length === 0) {

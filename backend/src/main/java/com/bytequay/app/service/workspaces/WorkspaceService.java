@@ -28,6 +28,7 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
 import java.util.Optional;
+import java.util.UUID;
 
 import static java.util.Objects.requireNonNull;
 
@@ -235,6 +236,75 @@ public class WorkspaceService
         return store.findWorkspaceById(workspaceId)
                 .orElseThrow(() -> new ResponseStatusException(
                         HttpStatusCode.valueOf(404), "no workspace: " + workspaceId));
+    }
+
+    /**
+     * Create a new workspace. Name is required; an optional
+     * {@code promptContext} block is appended to {@code memoryMd}
+     * (it lands at the top of WORKSPACE.md so every thread in the
+     * workspace reads it first), and the picked {@code repoFullNames}
+     * are pinned via {@code workspace_repos}. The id is generated
+     * server-side so concurrent creates can't collide.
+     */
+    public Workspace create(NewWorkspaceRequest request)
+    {
+        requireNonNull(request, "request is null");
+        if (request.name() == null || request.name().isBlank()) {
+            throw new ResponseStatusException(
+                    HttpStatusCode.valueOf(400), "name is required");
+        }
+        String trimmedName = request.name().trim();
+        if (trimmedName.length() > 80) {
+            throw new ResponseStatusException(
+                    HttpStatusCode.valueOf(413),
+                    "workspace name exceeds 80 chars");
+        }
+        String memoryMd = request.promptContext() == null
+                ? ""
+                : request.promptContext().trim();
+        if (memoryMd.length() > MEMORY_MD_HARD_CAP_CHARS) {
+            throw new ResponseStatusException(
+                    HttpStatusCode.valueOf(413),
+                    "prompt context exceeds " + MEMORY_MD_HARD_CAP_CHARS + " chars");
+        }
+        Instant now = Instant.now();
+        Workspace workspace = new Workspace(
+                "ws-" + UUID.randomUUID().toString().substring(0, 8),
+                trimmedName,
+                memoryMd,
+                request.isScratch(),
+                now,
+                now);
+        store.saveWorkspace(workspace);
+        List<String> repos = request.repoFullNames() == null
+                ? List.of()
+                : request.repoFullNames();
+        for (String repoFullName : repos) {
+            if (repoFullName == null || repoFullName.isBlank()) {
+                continue;
+            }
+            store.addRepo(new WorkspaceRepo(
+                    workspace.id(),
+                    repoFullName.trim(),
+                    /* defaultBaseBranch */ null,
+                    /* autoFixEnabled */ false,
+                    now));
+        }
+        return store.findWorkspaceById(workspace.id()).orElse(workspace);
+    }
+
+    /**
+     * Create-workspace inputs. {@code promptContext} is rendered
+     * verbatim into {@code memoryMd} — the create dialog interpolates
+     * the repo names + workspace name before sending so the backend
+     * doesn't need to know the template.
+     */
+    public record NewWorkspaceRequest(
+            String name,
+            boolean isScratch,
+            String promptContext,
+            List<String> repoFullNames)
+    {
     }
 
     /** Soft cap on the display name. Trimmed; blank rejected. */

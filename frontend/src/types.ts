@@ -2455,6 +2455,15 @@ export type Bridge = {
   /** Rename a workspace. The display name surfaces on the landing
    *  card and the rail; the id is stable. Trimmed server-side. */
   renameWorkspace: (workspaceId: string, name: string) => Promise<WorkspaceDto>;
+  /** Create a new workspace. The optional {@code promptContext} is
+   *  appended to {@code memoryMd} so every thread reads it first;
+   *  {@code repoFullNames} pins the picked watched repos. */
+  createWorkspace: (req: {
+    name: string;
+    isScratch?: boolean;
+    promptContext?: string;
+    repoFullNames?: string[];
+  }) => Promise<WorkspaceDto>;
   /** List the repos attached to a workspace. Used by the watched-repos
    *  settings page to read each repo's auto-fix flag — the data lives
    *  on workspace_repos, not on the watched-repos table itself. */

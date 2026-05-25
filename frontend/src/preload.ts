@@ -511,6 +511,10 @@ const bridge: Bridge = {
     ipcRenderer.invoke('workspaces:list'),
   renameWorkspace: (workspaceId: string, name: string): Promise<WorkspaceDto> =>
     ipcRenderer.invoke('workspaces:rename', { workspaceId, name }),
+  createWorkspace: (
+    req: { name: string; isScratch?: boolean; promptContext?: string; repoFullNames?: string[] },
+  ): Promise<WorkspaceDto> =>
+    ipcRenderer.invoke('workspaces:create', req),
   listWorkspaceRepos: (workspaceId: string): Promise<WorkspaceRepoDto[]> =>
     ipcRenderer.invoke('workspaces:repos:list', workspaceId),
   getWorkspaceMemory: (workspaceId: string): Promise<{ memoryMd: string }> =>

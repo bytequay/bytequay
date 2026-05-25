@@ -94,6 +94,21 @@ public class WorkspaceController
         return workspaces.require(id);
     }
 
+    /** POST /api/workspaces — create a new workspace. The dialog
+     *  composes the prompt-context block client-side and sends it as
+     *  {@code promptContext}; the service writes it to memoryMd so
+     *  every thread in the workspace reads it. */
+    @PostMapping
+    public Workspace create(@RequestBody NewWorkspaceBody body)
+    {
+        requireNonNull(body, "body is null");
+        return workspaces.create(new WorkspaceService.NewWorkspaceRequest(
+                body.name(),
+                body.isScratch(),
+                body.promptContext(),
+                body.repoFullNames() == null ? List.of() : body.repoFullNames()));
+    }
+
     /** PATCH /api/workspaces/{id} — partial update. Today only the
      *  display {@code name} is editable; the id is stable. */
     @PatchMapping("/{id}")
@@ -209,6 +224,12 @@ public class WorkspaceController
     public record DefaultBaseBranchBody(String defaultBaseBranch) {}
 
     public record AutoFixEnabledBody(boolean autoFixEnabled) {}
+
+    public record NewWorkspaceBody(
+            String name,
+            boolean isScratch,
+            String promptContext,
+            List<String> repoFullNames) {}
 
     public record PatchBody(String name) {}
 }

@@ -17,6 +17,10 @@ import { WS_DIALOG_OVERLAY, WS_DIALOG_PANEL, dialogStyles } from './dialogStyles
 
 type Props = {
   onClose: () => void;
+  /** Fires after the workspace is created; the parent typically
+   *  reloads its workspace list (and may route the user into the
+   *  new workspace). Optional — the dialog still closes either way. */
+  onCreated?: (workspaceId: string) => void;
 };
 
 /** New-workspace modal. UI-first; the Create button is disabled
@@ -26,12 +30,30 @@ type Props = {
  *  workspace migration. The form structure lives here now so when
  *  the backend lands, the only change is flipping the button on +
  *  forwarding the payload through a new bridge method. */
-function NewWorkspaceDialog({ onClose }: Props) {
+/** Word cap on the optional prompt-context box that gets appended
+ *  to WORKSPACE.md on creation. Small on purpose — it's a per-
+ *  workspace nudge, not the workspace brain itself. */
+const PROMPT_CONTEXT_WORD_CAP = 100;
+const CODING_AGENT_OPTIONS = [
+  { value: 'claude-code', label: 'Claude Code' },
+  { value: 'codex', label: 'Codex' },
+  { value: 'deepseek', label: 'DeepSeek API' },
+] as const;
+
+function NewWorkspaceDialog({ onClose, onCreated }: Props) {
   const [name, setName] = useState('');
   const [repos, setRepos] = useState<WatchedRepoDto[]>([]);
   const [picked, setPicked] = useState<Set<number>>(new Set());
   const [seedMemory, setSeedMemory] = useState(true);
+  const [codingAgent, setCodingAgent] = useState<string>(CODING_AGENT_OPTIONS[0].value);
+  // Empty string = "use the default". Non-empty = the user's
+  // override. We never auto-seed the textarea so the user's choice
+  // not to type stays a choice, not a hidden side-effect.
+  const [promptContext, setPromptContext] = useState<string>('');
+  const [promptExpanded, setPromptExpanded] = useState<boolean>(false);
   const [loading, setLoading] = useState(true);
+  const [submitting, setSubmitting] = useState(false);
+  const [submitError, setSubmitError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
     try {
@@ -55,6 +77,52 @@ function NewWorkspaceDialog({ onClose }: Props) {
       if (next.has(id)) next.delete(id); else next.add(id);
       return next;
     });
+  };
+
+  // The default prompt is computed from the typed name + picked
+  // repos. It's never written into the textarea — it shows up as
+  // the placeholder (when expanded) and the collapsed preview, so
+  // an empty textarea unambiguously means "use the default".
+  const pickedNames = repos
+      .filter(r => picked.has(r.id))
+      .map(r => r.repo);
+  const defaultPrompt = buildDefaultPrompt(name, pickedNames);
+  // The string that actually appends to WORKSPACE.md on create:
+  // user override if they typed one, otherwise the live default.
+  const effectivePrompt = promptContext.trim().length > 0
+      ? promptContext
+      : defaultPrompt;
+  const usingDefault = promptContext.trim().length === 0;
+  const promptWordCount = countWords(effectivePrompt);
+  const promptOverCap = promptWordCount > PROMPT_CONTEXT_WORD_CAP;
+
+  const trimmedName = name.trim();
+  const canCreate = trimmedName.length > 0
+      && picked.size > 0
+      && !promptOverCap
+      && !submitting;
+
+  const onSubmit = async () => {
+    if (!canCreate) return;
+    setSubmitting(true);
+    setSubmitError(null);
+    try {
+      const pickedRepoFullNames = repos
+          .filter(r => picked.has(r.id))
+          .map(r => `${r.owner}/${r.repo}`);
+      const created = await window.bridge.createWorkspace({
+        name: trimmedName,
+        isScratch: false,
+        promptContext: effectivePrompt,
+        repoFullNames: pickedRepoFullNames,
+      });
+      onCreated?.(created.id);
+      onClose();
+    }
+    catch (e) {
+      setSubmitError(e instanceof Error ? e.message : String(e));
+      setSubmitting(false);
+    }
   };
 
   return (
@@ -151,26 +219,74 @@ function NewWorkspaceDialog({ onClose }: Props) {
           <SeedToggle checked={seedMemory} onToggle={() => setSeedMemory(s => !s)} />
         </div>
 
-        <div style={twoFieldRowStyle}>
-          <div style={dialogStyles.field}>
-            <label style={dialogStyles.fieldLabel}>Default coding agent</label>
-            <select style={dialogStyles.input} defaultValue="claude" disabled>
-              <option value="claude">Claude Code — sonnet-4.6</option>
-            </select>
-          </div>
-          <div style={dialogStyles.field}>
-            <label style={dialogStyles.fieldLabel}>Default review panel</label>
-            <select style={dialogStyles.input} defaultValue="gpt-claude" disabled>
-              <option value="gpt-claude">GPT-5 + Claude</option>
-            </select>
-          </div>
+        <div style={dialogStyles.field}>
+          <label style={dialogStyles.fieldLabel}>Default coding agent</label>
+          <select
+            style={dialogStyles.input}
+            value={codingAgent}
+            onChange={e => setCodingAgent(e.target.value)}
+          >
+            {CODING_AGENT_OPTIONS.map(opt => (
+              <option key={opt.value} value={opt.value}>{opt.label}</option>
+            ))}
+          </select>
         </div>
+
+        <div style={dialogStyles.field}>
+          <button
+            type="button"
+            onClick={() => setPromptExpanded(v => !v)}
+            style={promptDisclosureStyle}
+            aria-expanded={promptExpanded}
+          >
+            <span style={promptDisclosureChevronStyle(promptExpanded)} aria-hidden>▸</span>
+            <span style={promptDisclosureLabelStyle}>Prompt context</span>
+            <span style={promptDisclosureMetaStyle}>
+              optional ·{' '}
+              {promptExpanded && !usingDefault && (
+                <span style={promptCounterStyle(promptOverCap)}>
+                  {promptWordCount}/{PROMPT_CONTEXT_WORD_CAP} words ·{' '}
+                </span>
+              )}
+              appended to <code style={inlineCodeStyle}>WORKSPACE.md</code>
+            </span>
+          </button>
+          {promptExpanded && (
+            <>
+              <textarea
+                value={promptContext}
+                onChange={e => setPromptContext(e.target.value)}
+                placeholder={defaultPrompt}
+                rows={4}
+                style={{ ...dialogStyles.textarea, marginTop: 8 }}
+              />
+              <div style={promptHelperRowStyle}>
+                <span style={mutedStyle}>
+                  Leave empty to use the default shown above. Typing
+                  overrides it.
+                </span>
+                {!usingDefault && (
+                  <button
+                    type="button"
+                    onClick={() => setPromptContext('')}
+                    style={promptResetBtnStyle}
+                  >
+                    Clear (use default)
+                  </button>
+                )}
+              </div>
+            </>
+          )}
+        </div>
+
+        {submitError !== null && (
+          <div style={errorStyle} role="alert">{submitError}</div>
+        )}
 
         <footer style={dialogStyles.footer}>
           <div style={dialogStyles.footerNote}>
             Workspaces are deliberate &amp; long-lived — you'll have only a
-            handful. One-offs can stay in the scratch workspace. Multi-
-            workspace creation isn't wired yet.
+            handful. One-offs can stay in the scratch workspace.
           </div>
           <div style={dialogStyles.footerButtons}>
             <button type="button" style={dialogStyles.secondaryBtn} onClick={onClose}>
@@ -178,11 +294,20 @@ function NewWorkspaceDialog({ onClose }: Props) {
             </button>
             <button
               type="button"
-              style={dialogStyles.primaryBtnDisabled}
-              disabled
-              title="Multi-workspace creation isn't wired yet"
+              style={canCreate ? dialogStyles.primaryBtn : dialogStyles.primaryBtnDisabled}
+              disabled={!canCreate}
+              onClick={() => { void onSubmit(); }}
+              title={canCreate
+                ? undefined
+                : trimmedName.length === 0
+                  ? 'Name is required'
+                  : picked.size === 0
+                    ? 'Pick at least one repo'
+                    : promptOverCap
+                      ? `Prompt context must be ≤${PROMPT_CONTEXT_WORD_CAP} words`
+                      : undefined}
             >
-              ◆ Create workspace
+              ◆ {submitting ? 'Creating…' : 'Create workspace'}
             </button>
           </div>
         </footer>
@@ -317,6 +442,16 @@ const mutedStyle: React.CSSProperties = {
   color: 'var(--ws-text-3)',
 };
 
+const errorStyle: React.CSSProperties = {
+  marginTop: 12,
+  padding: 10,
+  background: 'rgba(207, 19, 34, 0.06)',
+  border: '1px solid rgba(207, 19, 34, 0.4)',
+  borderRadius: 8,
+  color: '#cf1322',
+  fontSize: 12,
+};
+
 const emptyStyle: React.CSSProperties = {
   padding: 14,
   textAlign: 'center',
@@ -353,10 +488,87 @@ const inlineCodeStyle: React.CSSProperties = {
   color: 'var(--ws-accent-deep)',
 };
 
-const twoFieldRowStyle: React.CSSProperties = {
-  display: 'grid',
-  gridTemplateColumns: '1fr 1fr',
-  gap: 10,
+const promptDisclosureStyle: React.CSSProperties = {
+  display: 'flex',
+  alignItems: 'center',
+  gap: 8,
+  width: '100%',
+  padding: '6px 4px',
+  background: 'transparent',
+  border: 'none',
+  cursor: 'pointer',
+  color: 'var(--ws-text-2)',
+  textAlign: 'left',
 };
+
+function promptDisclosureChevronStyle(expanded: boolean): React.CSSProperties {
+  return {
+    fontSize: 10,
+    color: 'var(--ws-text-3)',
+    display: 'inline-block',
+    transform: expanded ? 'rotate(90deg)' : 'rotate(0deg)',
+    transition: 'transform var(--ws-fast)',
+    width: 12,
+  };
+}
+
+const promptDisclosureLabelStyle: React.CSSProperties = {
+  fontSize: 10,
+  fontWeight: 600,
+  textTransform: 'uppercase',
+  letterSpacing: '0.06em',
+  color: 'var(--ws-text-3)',
+};
+
+const promptDisclosureMetaStyle: React.CSSProperties = {
+  fontSize: 10,
+  color: 'var(--ws-text-3)',
+  marginLeft: 'auto',
+};
+
+const promptHelperRowStyle: React.CSSProperties = {
+  display: 'flex',
+  justifyContent: 'space-between',
+  alignItems: 'center',
+  gap: 10,
+  marginTop: 4,
+};
+
+function promptCounterStyle(over: boolean): React.CSSProperties {
+  return {
+    fontWeight: 600,
+    color: over ? '#cf1322' : 'var(--ws-text-3)',
+    fontVariantNumeric: 'tabular-nums',
+  };
+}
+
+const promptResetBtnStyle: React.CSSProperties = {
+  fontSize: 10,
+  padding: '2px 8px',
+  border: '1px solid var(--ws-card-border)',
+  borderRadius: 6,
+  background: '#fff',
+  color: 'var(--ws-text-2)',
+  cursor: 'pointer',
+};
+
+/** Default workspace-context nudge. Interpolates the selected repo
+ *  short names and the typed workspace name; falls back to inline
+ *  placeholders when the user hasn't picked / named anything yet so
+ *  the textarea still hints at the shape. */
+function buildDefaultPrompt(workspaceName: string, repoNames: string[]): string {
+  const trimmedName = workspaceName.trim();
+  const wsLabel = trimmedName.length > 0 ? `"${trimmedName}"` : '"<workspace name>"';
+  const repoLabel = repoNames.length > 0
+      ? repoNames.map(r => `"${r}"`).join(', ')
+      : '"<repo>"';
+  return `You are working inside ByteQuay app, assisting the user with development of the repo: ${repoLabel}. You are always inside the ByteQuay workspace ${wsLabel}.`;
+}
+
+function countWords(text: string): number {
+  const trimmed = text.trim();
+  if (trimmed.length === 0) return 0;
+  return trimmed.split(/\s+/).length;
+}
 
 export default NewWorkspaceDialog;

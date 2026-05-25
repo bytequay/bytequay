@@ -47,8 +47,32 @@ function WorkspaceSettingsPage() {
   const [renamingState, setRenamingState] = useState<'idle' | 'saving'>('idle');
   const [renameError, setRenameError] = useState<string | null>(null);
   const [renameNotice, setRenameNotice] = useState<string | null>(null);
+  const [deleting, setDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+
+  const onDelete = async () => {
+    if (workspace === null || deleting) return;
+    const ok = window.confirm(
+      `Permanently delete workspace "${workspace.name}"?\n\n`
+      + 'This drops the workspace row and its repo pins. Threads '
+      + 'still pointing at it are left orphaned. This cannot be undone.');
+    if (!ok) return;
+    setDeleting(true);
+    setDeleteError(null);
+    try {
+      await window.bridge.deleteWorkspace(workspace.id);
+      // Route the user up to the workspaces landing once the row is
+      // gone; activeWorkspaceId in App will fall back to ws-default
+      // (or whatever survives) next time they enter a workspace.
+      window.location.reload();
+    }
+    catch (err) {
+      setDeleteError(err instanceof Error ? err.message : String(err));
+      setDeleting(false);
+    }
+  };
 
   const refresh = useCallback(async () => {
     try {
@@ -319,17 +343,14 @@ function WorkspaceSettingsPage() {
       <section className="workspace-card" style={dangerSectionStyle} aria-label="Danger zone">
         <div className="workspace-card__head">
           <div className="workspace-card__title" style={{ color: '#cf1322' }}>Danger zone</div>
-          <span style={mutedHintStyle}>
-            multi-workspace not enabled — single-workspace mode
-          </span>
         </div>
         <ul style={dangerListStyle}>
           <li style={dangerRowStyle}>
             <div>
               <div style={dangerLabelStyle}>Archive workspace</div>
               <div style={mutedHintStyle}>
-                hide ByteQuay and release its agents. Threads + memory are
-                kept and restorable.
+                hide this workspace and release its agents. Threads +
+                memory are kept and restorable. (not wired yet)
               </div>
             </div>
             <button type="button" style={dangerButtonStyle} disabled>
@@ -340,12 +361,21 @@ function WorkspaceSettingsPage() {
             <div>
               <div style={dangerLabelStyle}>Delete workspace</div>
               <div style={mutedHintStyle}>
-                permanently remove the workspace, its memory, and thread
-                history. Worktrees + PRs on GitHub are untouched.
+                permanently remove the workspace and its repo pins.
+                Threads pointing at it are left orphaned; worktrees
+                + PRs on GitHub are untouched.
               </div>
+              {deleteError !== null && (
+                <div style={{ ...errorStyle, marginTop: 8 }} role="alert">{deleteError}</div>
+              )}
             </div>
-            <button type="button" style={dangerButtonStyle} disabled>
-              Delete…
+            <button
+              type="button"
+              style={deleting ? { ...dangerButtonStyle, opacity: 0.6, cursor: 'not-allowed' } : dangerButtonStyle}
+              onClick={onDelete}
+              disabled={workspace === null || deleting}
+            >
+              {deleting ? 'Deleting…' : 'Delete…'}
             </button>
           </li>
         </ul>

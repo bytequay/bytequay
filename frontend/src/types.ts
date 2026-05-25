@@ -2467,6 +2467,9 @@ export type Bridge = {
   /** Rename a workspace. The display name surfaces on the landing
    *  card and the rail; the id is stable. Trimmed server-side. */
   renameWorkspace: (workspaceId: string, name: string) => Promise<WorkspaceDto>;
+  /** Drop a workspace entirely. Threads pointing at it are left
+   *  orphaned — the UI warns the user before calling this. */
+  deleteWorkspace: (workspaceId: string) => Promise<void>;
   /** Create a new workspace. The optional {@code promptContext} is
    *  appended to {@code memoryMd} so every thread reads it first;
    *  {@code repoFullNames} pins the picked watched repos. */

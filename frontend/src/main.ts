@@ -2980,6 +2980,19 @@ const url = new URL(`${BACKEND_BASE}/api/search/repos`);
     return res.json();
   });
 
+  ipcMain.handle('workspaces:delete', async (_event, workspaceId: unknown) => {
+    if (typeof workspaceId !== 'string' || workspaceId.trim().length === 0) {
+      throw new Error('workspaceId must be a non-empty string');
+    }
+    const res = await fetch(
+      `${BACKEND_BASE}/api/workspaces/${encodeURIComponent(workspaceId)}`,
+      { method: 'DELETE' });
+    if (!res.ok) {
+      const text = await res.text().catch(() => '');
+      throw new Error(`backend DELETE /api/workspaces/${workspaceId} returned ${res.status}: ${text}`);
+    }
+  });
+
   ipcMain.handle('workspaces:rename', async (_event, args: unknown) => {
     const { workspaceId, name } = (args ?? {}) as { workspaceId?: unknown; name?: unknown };
     if (typeof workspaceId !== 'string' || workspaceId.trim().length === 0) {

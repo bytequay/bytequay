@@ -118,6 +118,16 @@ public class WorkspaceController
         return workspaces.rename(id, body.name());
     }
 
+    /** DELETE /api/workspaces/{id} — drop the workspace row. The
+     *  store cascades workspace_repos via FK; threads pointing at
+     *  the workspace are left orphaned (the frontend's
+     *  Delete-workspace button warns the user). */
+    @DeleteMapping("/{id}")
+    public void delete(@PathVariable String id)
+    {
+        workspaces.delete(id);
+    }
+
     @GetMapping("/{id}/memory")
     public Map<String, String> getMemory(@PathVariable String id)
     {

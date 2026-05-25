@@ -179,6 +179,7 @@ function WorkspaceShell({
       {newThreadOpen && (
         <NewThreadDialog
           workspaceId={workspaceId}
+          workspaceName={workspaceName === '' ? 'Workspace' : workspaceName}
           onClose={() => {
             setNewThreadOpen(false);
             setNewThreadInitialGroupId(undefined);

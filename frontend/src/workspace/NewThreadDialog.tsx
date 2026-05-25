@@ -29,6 +29,10 @@ type Props = {
    *  pinned to this workspace — picking a repo that belongs to
    *  another workspace would land the thread in the wrong scope. */
   workspaceId: string;
+  /** Active workspace's display name — surfaces on the dialog chip
+   *  + the "inherits X defaults" hints so a thread created from
+   *  workspace X doesn't show "ByteQuay" everywhere. */
+  workspaceName: string;
 };
 
 /**
@@ -54,7 +58,9 @@ const AGENT_OPTIONS = [
 ] as const;
 type AgentOption = typeof AGENT_OPTIONS[number];
 
-function NewThreadDialog({ onClose, onCreated, initialGroupId, workspaceId }: Props) {
+function NewThreadDialog({ onClose, onCreated, initialGroupId, workspaceId, workspaceName }: Props) {
+  const wsLabel = workspaceName.length > 0 ? workspaceName : 'Workspace';
+  const wsInitial = wsLabel.slice(0, 1).toUpperCase();
   const [prompt, setPrompt] = useState('');
   const [repos, setRepos] = useState<WatchedRepoDto[] | null>(null);
   const [selectedRepo, setSelectedRepo] = useState<WatchedRepoDto | null>(null);
@@ -148,8 +154,8 @@ function NewThreadDialog({ onClose, onCreated, initialGroupId, workspaceId }: Pr
           <h2 id="new-thread-title" style={dialogStyles.title}>
             New thread
             <span style={dialogStyles.workspaceChip}>
-              <span style={brandSquareStyle} aria-hidden>B</span>
-              ByteQuay
+              <span style={brandSquareStyle} aria-hidden>{wsInitial}</span>
+              {wsLabel}
             </span>
           </h2>
           <button
@@ -186,7 +192,7 @@ function NewThreadDialog({ onClose, onCreated, initialGroupId, workspaceId }: Pr
         </div>
 
         <div style={advancedHeaderStyle}>
-          ADVANCED <span style={advancedMutedStyle}>· INHERITS BYTEQUAY DEFAULTS</span>
+          ADVANCED <span style={advancedMutedStyle}>· INHERITS {wsLabel.toUpperCase()} DEFAULTS</span>
           <span style={advancedOverrideHintStyle}>— override if needed</span>
         </div>
         <div style={advancedRowStyle}>
@@ -313,7 +319,7 @@ function NewThreadDialog({ onClose, onCreated, initialGroupId, workspaceId }: Pr
 
         <footer style={dialogStyles.footer}>
           <div style={dialogStyles.footerNote}>
-            Lands on the trunk · inherits ByteQuay's memory &amp; skills
+            Lands on the trunk · inherits {wsLabel}'s memory &amp; skills
           </div>
           <div style={dialogStyles.footerButtons}>
             <button type="button" style={dialogStyles.secondaryBtn} onClick={onClose}>

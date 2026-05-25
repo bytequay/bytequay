@@ -239,6 +239,19 @@ public class WorkspaceService
     }
 
     /**
+     * Delete a workspace. Drops the row plus its workspace_repos
+     * (FK cascade) and the memory-proposal row. Threads pointing at
+     * it are left orphaned — callers should re-home them first (the
+     * frontend warns the user when the workspace still has threads).
+     */
+    public void delete(String workspaceId)
+    {
+        requireNonNull(workspaceId, "workspaceId is null");
+        require(workspaceId);
+        store.deleteWorkspace(workspaceId);
+    }
+
+    /**
      * Create a new workspace. Name is required; an optional
      * {@code promptContext} block is appended to {@code memoryMd}
      * (it lands at the top of WORKSPACE.md so every thread in the

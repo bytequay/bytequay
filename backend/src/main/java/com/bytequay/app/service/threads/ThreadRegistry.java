@@ -32,9 +32,12 @@ import org.springframework.stereotype.Component;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.util.Optional;
+import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
+import java.util.function.Function;
 import java.util.function.Supplier;
+import java.util.stream.Collectors;
 
 import static java.util.Objects.requireNonNull;
 
@@ -74,7 +77,11 @@ public class ThreadRegistry
     private final CheckpointTrigger checkpointTrigger;
     private final Supplier<String> workspaceMemoryProvider;
     private final WorktreeLeaseService leaseService;
-    private final Supplier<String> trunkCwdResolver;
+    /** Resolves the cwd a trunk session should be spawned in. Takes
+     *  the Thread because the trunk's working dir is workspace-
+     *  scoped: it must be one of the active workspace's pinned
+     *  repos, never an arbitrary watched repo from another workspace. */
+    private final Function<Thread, String> trunkCwdResolver;
     private final ConcurrentHashMap<String, ThreadAgent> sessions = new ConcurrentHashMap<>();
     /** Per-thread trunk-mode agent — the planning-altitude runtime
      *  that runs without a focused Task. Lives alongside (not instead
@@ -103,11 +110,53 @@ public class ThreadRegistry
                 ClaudeCodeCliThreadAgent.defaultExecutor(), checkpointTrigger,
                 () -> workspaces.getMemory(WorkspaceService.DEFAULT_WORKSPACE_ID),
                 leaseService,
-                () -> resolveTrunkCwdFrom(watchedRepos));
+                thread -> resolveTrunkCwdForWorkspace(workspaces, watchedRepos, thread));
     }
 
-    private static String resolveTrunkCwdFrom(WatchedRepoStore watchedRepos)
+    /**
+     * Resolve the cwd a trunk planning session should run in. The
+     * trunk has no worktree of its own, but the CLI still needs a
+     * working directory — we want it to be one of the active
+     * workspace's pinned repos so a thread in workspace X doesn't
+     * end up rooted in a repo from workspace Y.
+     *
+     * <p>Resolution order:
+     * <ol>
+     *   <li>If the thread carries a workspaceId, walk its pinned
+     *       {@code workspace_repos}, match each by {@code
+     *       repo_full_name = owner/repo} against {@code watched_repos},
+     *       and return the first non-blank {@code localClonePath}.</li>
+     *   <li>If no pinned repo has a local clone path, fall back to
+     *       the first watched repo with a local clone path (legacy
+     *       single-workspace behaviour).</li>
+     *   <li>Last resort: the JVM tmpdir so the CLI still launches.</li>
+     * </ol>
+     */
+    private static String resolveTrunkCwdForWorkspace(
+            WorkspaceService workspaces, WatchedRepoStore watchedRepos, Thread thread)
     {
+        String workspaceId = thread == null ? null : thread.workspaceId();
+        if (workspaceId != null && !workspaceId.isBlank()) {
+            try {
+                Set<String> pinned = workspaces.listRepos(workspaceId).stream()
+                        .map(r -> r.repoFullName())
+                        .collect(Collectors.toSet());
+                if (!pinned.isEmpty()) {
+                    Optional<String> match = watchedRepos.findAll().stream()
+                            .filter(wr -> pinned.contains(wr.fullName()))
+                            .map(WatchedRepo::localClonePath)
+                            .filter(p -> p != null && !p.isBlank())
+                            .findFirst();
+                    if (match.isPresent()) {
+                        return match.get();
+                    }
+                }
+            }
+            catch (RuntimeException ignored) {
+                // Workspace lookup failed (deleted mid-session?) — drop
+                // to the legacy fallback rather than aborting the turn.
+            }
+        }
         return watchedRepos.findAll().stream()
                 .map(WatchedRepo::localClonePath)
                 .filter(p -> p != null && !p.isBlank())
@@ -128,7 +177,7 @@ public class ThreadRegistry
     {
         this(store, taskStore, parser, mapper, gate, executor, checkpointTrigger,
                 workspaceMemoryProvider, leaseService,
-                () -> System.getProperty("java.io.tmpdir"));
+                thread -> System.getProperty("java.io.tmpdir"));
     }
 
     ThreadRegistry(
@@ -141,7 +190,7 @@ public class ThreadRegistry
             CheckpointTrigger checkpointTrigger,
             Supplier<String> workspaceMemoryProvider,
             WorktreeLeaseService leaseService,
-            Supplier<String> trunkCwdResolver)
+            Function<Thread, String> trunkCwdResolver)
     {
         this.store = requireNonNull(store, "store is null");
         this.taskStore = requireNonNull(taskStore, "taskStore is null");
@@ -284,7 +333,7 @@ public class ThreadRegistry
         return switch (thread.kind()) {
             case CLI_AGENT -> new ClaudeCodeCliThreadAgent(
                     thread, store, taskStore, parser, mapper, gate, executor, checkpointTrigger,
-                    workspaceMemoryProvider, trunkCwdResolver.get(),
+                    workspaceMemoryProvider, trunkCwdResolver.apply(thread),
                     ClaudeCodeCliThreadAgent.TrunkMode.ENABLED);
             case LOGIC_LOOP -> throw new UnsupportedOperationException(
                     "LOGIC_LOOP trunk sessions land in a later slice");

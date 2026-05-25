@@ -66,6 +66,7 @@ export default function ThreadTrunkPage({ threadId, onBack, onOpenTask }: Props)
   const [selectedTaskId, setSelectedTaskId] = useState<string | null>(null);
   const [advancing, setAdvancing] = useState<'next' | 'ship' | null>(null);
   const [advanceError, setAdvanceError] = useState<string | null>(null);
+  const [interrupting, setInterrupting] = useState<boolean>(false);
   const [composerInput, setComposerInput] = useState<string>(() => {
     // Seed once on mount from a sessionStorage draft the
     // create-thread dialog may have stashed for this thread. The
@@ -249,6 +250,26 @@ export default function ThreadTrunkPage({ threadId, onBack, onOpenTask }: Props)
     }, 2_500);
     return () => window.clearInterval(handle);
   }, [hasInFlight, sending, refreshMessages, refreshTurns, loadThread]);
+
+  const onInterrupt = useCallback(async () => {
+    if (interrupting) return;
+    setInterrupting(true);
+    setSendError(null);
+    try {
+      await window.bridge.interruptTask(threadId);
+      // The interrupt is asynchronous on the backend — the agent
+      // process gets SIGINT and the turn flips to a terminal state
+      // soon after. Pull the latest turn+message lists so the
+      // thinking pulse drops as the in-flight count goes to zero.
+      await Promise.all([refreshMessages(), refreshTurns(), loadThread()]);
+    }
+    catch (e) {
+      setSendError(e instanceof Error ? e.message : String(e));
+    }
+    finally {
+      setInterrupting(false);
+    }
+  }, [interrupting, threadId, refreshMessages, refreshTurns, loadThread]);
 
   const onSendTrunk = useCallback(async () => {
     const text = composerInput.trim();
@@ -532,7 +553,6 @@ export default function ThreadTrunkPage({ threadId, onBack, onOpenTask }: Props)
               />
               <div style={composerFooterStyle}>
                 <span style={composerScopeStyle}>▸ Thread</span>
-                <span style={composerGlyphStyle} title="Cancel current input">⊘</span>
                 <span style={composerGlyphStyle} title="Slash commands">/</span>
                 <span style={composerFooterHintStyle}>
                   ↵ send · ⌘↵ newline · / commands
@@ -540,14 +560,26 @@ export default function ThreadTrunkPage({ threadId, onBack, onOpenTask }: Props)
                 <span style={composerNoBranchHintStyle}>
                   no branch here — the trunk plans; tasks do the work
                 </span>
-                <button
-                  type="button"
-                  onClick={() => { void onSendTrunk(); }}
-                  disabled={sending || composerInput.trim().length === 0}
-                  style={composerSendBtnStyle}
-                >
-                  {sending ? 'Sending…' : 'Send'}
-                </button>
+                {hasInFlight ? (
+                  <button
+                    type="button"
+                    onClick={() => { void onInterrupt(); }}
+                    disabled={interrupting}
+                    style={composerInterruptBtnStyle}
+                    title="Stop the in-progress agent turn"
+                  >
+                    {interrupting ? 'Stopping…' : '⊘ Stop'}
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => { void onSendTrunk(); }}
+                    disabled={sending || composerInput.trim().length === 0}
+                    style={composerSendBtnStyle}
+                  >
+                    {sending ? 'Sending…' : 'Send'}
+                  </button>
+                )}
               </div>
               {sendError !== null && (
                 <div style={errStyle}>{sendError}</div>
@@ -751,8 +783,6 @@ function SettingsSection({ threadId }: { threadId: string }) {
   const [settings, setSettings] = useState<ThreadSettingsDto | null>(null);
   const [editing, setEditing] = useState(false);
   const [maxRunning, setMaxRunning] = useState<string>('');
-  const [softCost, setSoftCost] = useState<string>('');
-  const [hardCost, setHardCost] = useState<string>('');
   const [promptAddendum, setPromptAddendum] = useState<string>('');
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -763,14 +793,10 @@ function SettingsSection({ threadId }: { threadId: string }) {
       setSettings(s);
       if (s.overriddenAt === null) {
         setMaxRunning('');
-        setSoftCost('');
-        setHardCost('');
         setPromptAddendum('');
       }
       else {
         setMaxRunning(String(s.maxRunningTasks));
-        setSoftCost(String(s.softCostUsdMilli));
-        setHardCost(String(s.hardCostUsdMilli));
         setPromptAddendum(s.promptAddendum ?? '');
       }
     }
@@ -785,10 +811,12 @@ function SettingsSection({ threadId }: { threadId: string }) {
     setSaving(true);
     setError(null);
     try {
+      // Cost-cap fields are intentionally omitted — the app doesn't
+      // gate work on spend, so we leave the soft / hard caps to
+      // inherit from the workspace defaults rather than surface them
+      // on the per-thread settings card.
       await window.bridge.putThreadSettings(threadId, {
         maxRunningTasks: maxRunning.trim() === '' ? null : Number(maxRunning),
-        softCostUsdMilli: softCost.trim() === '' ? null : Number(softCost),
-        hardCostUsdMilli: hardCost.trim() === '' ? null : Number(hardCost),
         promptAddendum: promptAddendum.trim() === '' ? null : promptAddendum,
       });
       await refresh();
@@ -800,7 +828,7 @@ function SettingsSection({ threadId }: { threadId: string }) {
     finally {
       setSaving(false);
     }
-  }, [threadId, maxRunning, softCost, hardCost, promptAddendum, refresh]);
+  }, [threadId, maxRunning, promptAddendum, refresh]);
 
   const onReset = useCallback(async () => {
     setSaving(true);
@@ -830,8 +858,6 @@ function SettingsSection({ threadId }: { threadId: string }) {
         <>
           <dl style={{ margin: 0, padding: 0, display: 'grid', gap: 4 }}>
             <SettingsRow label="Max running tasks" value={String(settings.maxRunningTasks)} />
-            <SettingsRow label="Soft cost cap" value={`$${(settings.softCostUsdMilli / 1000).toFixed(2)}`} />
-            <SettingsRow label="Hard cost cap" value={`$${(settings.hardCostUsdMilli / 1000).toFixed(2)}`} />
           </dl>
           {settings.promptAddendum !== null && (
             <div style={addendumPreviewStyle} title={settings.promptAddendum}>
@@ -858,28 +884,6 @@ function SettingsSection({ threadId }: { threadId: string }) {
               min={1}
               value={maxRunning}
               onChange={e => setMaxRunning(e.target.value)}
-              placeholder="inherit"
-              style={settingsInputStyle}
-            />
-          </label>
-          <label style={settingsLabelStyle}>
-            Soft cost cap (milli-USD)
-            <input
-              type="number"
-              min={0}
-              value={softCost}
-              onChange={e => setSoftCost(e.target.value)}
-              placeholder="inherit"
-              style={settingsInputStyle}
-            />
-          </label>
-          <label style={settingsLabelStyle}>
-            Hard cost cap (milli-USD)
-            <input
-              type="number"
-              min={0}
-              value={hardCost}
-              onChange={e => setHardCost(e.target.value)}
               placeholder="inherit"
               style={settingsInputStyle}
             />
@@ -2100,7 +2104,7 @@ const composerTextareaStyle: React.CSSProperties = {
   border: `1px solid ${SLATE_BORDER}`,
   borderRadius: 10,
   background: 'rgba(255,255,255,0.86)',
-  fontSize: 15,
+  fontSize: 17,
   lineHeight: 1.5,
   fontFamily: 'inherit',
   color: 'var(--text-1)',
@@ -2115,6 +2119,17 @@ const composerSendBtnStyle: React.CSSProperties = {
   border: 'none',
   background: SLATE,
   color: '#fff',
+  borderRadius: 6,
+  cursor: 'pointer',
+  fontWeight: 600,
+};
+
+const composerInterruptBtnStyle: React.CSSProperties = {
+  padding: '4px 14px',
+  fontSize: 12,
+  border: '1px solid rgba(207, 19, 34, 0.55)',
+  background: '#fff',
+  color: '#cf1322',
   borderRadius: 6,
   cursor: 'pointer',
   fontWeight: 600,

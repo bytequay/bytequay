@@ -12,23 +12,24 @@
  * limitations under the License.
  */
 import { useState } from 'react';
-import CredentialsTab from '../../CredentialsTab';
 import AiSkillsTab from '../../AiSkillsTab';
 import ComingSoon from '../shared/ComingSoon';
 
-type Tab = 'credentials' | 'skills' | 'usage';
+type Tab = 'skills' | 'usage';
+
+// decision pending: model/provider selection moves to the config
+// cascade. The Credentials inner tab and its inline provider/model
+// pickers used to live here; that surface moved to Settings →
+// Credentials. Active-provider/active-model selection belongs to a
+// later config-cascade page and isn't rebuilt on this surface.
 
 /**
- * The "AI" settings surface per docs/mockups/design/tasks/settings-ai-skills.png.
- * One page in the sidebar hosts three inner tabs:
- *  • Credentials — provider connections + defaults (the existing CredentialsTab)
- *  • Skills — reusable system-prompt fragments, scoped global / per-repo /
- *    per-domain (the focus of the redesign)
- *  • Usage — placeholder for the spending-cap + per-provider call ledger view
+ * The "AI" settings surface. Hosts Skills + Usage now that Credentials
+ * has its own kind-navigated vault under Settings → Credentials.
  *
- * The old "Automation" tab from the previous AI-review surface was rolled
- * into other places (per-thread settings, workspace defaults) and is gone
- * from the mockup, so it's gone here too.
+ * <p>Skills are reusable system-prompt fragments (global / per-repo /
+ * per-domain). Usage is still a placeholder until the call-ledger view
+ * lands.
  */
 function AiReviewPage() {
   const [tab, setTab] = useState<Tab>('skills');
@@ -44,20 +45,12 @@ function AiReviewPage() {
             <strong>per-repo</strong> (loaded when working in that repo's worktree),
             or <strong>per-domain</strong> (loaded when the AI is operating in a
             specific role — reviewer, reviewee, task scheduler, GitHub events, etc.).
+            Provider keys live under Settings → Credentials.
           </div>
         </div>
       </div>
 
       <div className="settings-page-tabs" role="tablist">
-        <button
-          type="button"
-          role="tab"
-          aria-selected={tab === 'credentials'}
-          className={`settings-page-tab${tab === 'credentials' ? ' settings-page-tab--active' : ''}`}
-          onClick={() => setTab('credentials')}
-        >
-          Credentials
-        </button>
         <button
           type="button"
           role="tab"
@@ -78,7 +71,6 @@ function AiReviewPage() {
         </button>
       </div>
 
-      {tab === 'credentials' && <CredentialsTab filterType="AI" />}
       {tab === 'skills' && <AiSkillsTab />}
       {tab === 'usage' && (
         <ComingSoon

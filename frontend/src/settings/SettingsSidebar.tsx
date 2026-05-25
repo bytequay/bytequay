@@ -25,7 +25,7 @@ const GROUPS: GroupDef[] = [
     links: [
       { id: 'account', label: 'Account', icon: '👤' },
       { id: 'appearance', label: 'Appearance', icon: '🎨' },
-      { id: 'github-token', label: 'GitHub token', icon: '🔑' },
+      { id: 'credentials', label: 'Credentials', icon: '🔑' },
     ],
   },
   {

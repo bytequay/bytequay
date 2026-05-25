@@ -17,8 +17,8 @@ import type { SettingsSection } from './types';
 import AccountPage from './pages/AccountPage';
 import AppearancePage from './pages/AppearancePage';
 import AiReviewPage from './pages/AiReviewPage';
+import CredentialsPage from './pages/CredentialsPage';
 import EmailSettingsPage from './pages/EmailPage';
-import GitHubTokenPage from './pages/GitHubTokenPage';
 import HelpPage from './pages/HelpPage';
 import IntegrationsPage from './pages/IntegrationsPage';
 import TeamsPage from './pages/TeamsPage';
@@ -38,21 +38,25 @@ type Props = {
 };
 
 function SettingsShell({ section, onSelectSection, onClearPat, onOpenTeam, onOpenThread }: Props) {
+  // 'github-token' is kept in the section union so existing onboarding
+  // deep links resolve cleanly; the Credentials → Git PAT tab owns the
+  // PAT now, so we alias the old id at render time.
+  const resolved = section === 'github-token' ? 'credentials' : section;
   return (
     <section className="settings-shell">
       <div className="settings-shell__layout">
-        <SettingsSidebar active={section} onSelect={onSelectSection} />
+        <SettingsSidebar active={resolved} onSelect={onSelectSection} />
         <div className="settings-shell__content">
-          {section === 'account' && <AccountPage onClearPat={onClearPat} />}
-          {section === 'appearance' && <AppearancePage />}
-          {section === 'github-token' && <GitHubTokenPage />}
-          {section === 'teams' && <TeamsPage onOpenTeam={onOpenTeam} />}
-          {section === 'ai-review' && <AiReviewPage />}
-          {section === 'watched-repos' && <WatchedReposPage />}
-          {section === 'workspace-memory' && <WorkspaceMemoryPage onOpenThread={onOpenThread} />}
-          {section === 'integrations' && <IntegrationsPage />}
-          {section === 'email' && <EmailSettingsPage />}
-          {section === 'help' && <HelpPage />}
+          {resolved === 'account' && <AccountPage onClearPat={onClearPat} />}
+          {resolved === 'appearance' && <AppearancePage />}
+          {resolved === 'credentials' && <CredentialsPage />}
+          {resolved === 'teams' && <TeamsPage onOpenTeam={onOpenTeam} />}
+          {resolved === 'ai-review' && <AiReviewPage />}
+          {resolved === 'watched-repos' && <WatchedReposPage />}
+          {resolved === 'workspace-memory' && <WorkspaceMemoryPage onOpenThread={onOpenThread} />}
+          {resolved === 'integrations' && <IntegrationsPage />}
+          {resolved === 'email' && <EmailSettingsPage />}
+          {resolved === 'help' && <HelpPage />}
         </div>
       </div>
     </section>

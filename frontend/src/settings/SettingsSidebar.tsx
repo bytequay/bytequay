@@ -29,10 +29,18 @@ const GROUPS: GroupDef[] = [
     ],
   },
   {
-    label: 'Review',
+    // Single-entry AI group per docs/mockups/design/tasks/settings-ai-skills.png —
+    // the "AI" surface owns Credentials / Skills / Usage as inner tabs,
+    // not as sidebar entries, so the rail stays shallow.
+    label: 'AI',
+    links: [
+      { id: 'ai-review', label: 'AI', icon: '✦' },
+    ],
+  },
+  {
+    label: 'Team',
     links: [
       { id: 'teams', label: 'Teams', icon: '👥' },
-      { id: 'ai-review', label: 'AI review', icon: '✨' },
       { id: 'watched-repos', label: 'Watched repos', icon: '📦' },
       { id: 'workspace-memory', label: 'Workspace memory', icon: '🧠' },
     ],

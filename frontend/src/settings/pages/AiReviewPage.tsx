@@ -13,22 +13,37 @@
  */
 import { useState } from 'react';
 import CredentialsTab from '../../CredentialsTab';
-import ReviewSkillsTab from '../../ReviewSkillsTab';
+import AiSkillsTab from '../../AiSkillsTab';
 import ComingSoon from '../shared/ComingSoon';
-import AutomationTab from './AutomationTab';
 
-type Tab = 'credentials' | 'skills' | 'automation' | 'usage';
+type Tab = 'credentials' | 'skills' | 'usage';
 
+/**
+ * The "AI" settings surface per docs/mockups/design/tasks/settings-ai-skills.png.
+ * One page in the sidebar hosts three inner tabs:
+ *  • Credentials — provider connections + defaults (the existing CredentialsTab)
+ *  • Skills — reusable system-prompt fragments, scoped global / per-repo /
+ *    per-domain (the focus of the redesign)
+ *  • Usage — placeholder for the spending-cap + per-provider call ledger view
+ *
+ * The old "Automation" tab from the previous AI-review surface was rolled
+ * into other places (per-thread settings, workspace defaults) and is gone
+ * from the mockup, so it's gone here too.
+ */
 function AiReviewPage() {
-  const [tab, setTab] = useState<Tab>('credentials');
+  const [tab, setTab] = useState<Tab>('skills');
 
   return (
     <>
       <div className="settings-shell-page__head">
         <div>
-          <h2 className="settings-shell-page__title">AI review</h2>
+          <h2 className="settings-shell-page__title">AI</h2>
           <div className="settings-shell-page__subtitle">
-            Connect a model provider and configure what the AI does when it reviews a PR.
+            Skills are reusable instructions the AI loads alongside every prompt.
+            Skills can be <strong>global</strong> (apply everywhere),{' '}
+            <strong>per-repo</strong> (loaded when working in that repo's worktree),
+            or <strong>per-domain</strong> (loaded when the AI is operating in a
+            specific role — reviewer, reviewee, task scheduler, GitHub events, etc.).
           </div>
         </div>
       </div>
@@ -50,16 +65,7 @@ function AiReviewPage() {
           className={`settings-page-tab${tab === 'skills' ? ' settings-page-tab--active' : ''}`}
           onClick={() => setTab('skills')}
         >
-          Review skills
-        </button>
-        <button
-          type="button"
-          role="tab"
-          aria-selected={tab === 'automation'}
-          className={`settings-page-tab${tab === 'automation' ? ' settings-page-tab--active' : ''}`}
-          onClick={() => setTab('automation')}
-        >
-          Automation
+          Skills
         </button>
         <button
           type="button"
@@ -73,8 +79,7 @@ function AiReviewPage() {
       </div>
 
       {tab === 'credentials' && <CredentialsTab filterType="AI" />}
-      {tab === 'skills' && <ReviewSkillsTab />}
-      {tab === 'automation' && <AutomationTab />}
+      {tab === 'skills' && <AiSkillsTab />}
       {tab === 'usage' && (
         <ComingSoon
           title="Usage"

@@ -21,6 +21,7 @@ import com.bytequay.app.domain.WorktreeLease;
 import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.repository.ThreadStore;
 import com.bytequay.app.repository.WatchedRepoStore;
+import com.bytequay.app.service.skills.SkillMaterializer;
 import com.bytequay.app.service.workspaces.WorkspaceService;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.annotation.PreDestroy;
@@ -76,6 +77,10 @@ public class ThreadRegistry
     private final ExecutorService executor;
     private final CheckpointTrigger checkpointTrigger;
     private final Supplier<String> workspaceMemoryProvider;
+    /** Resolves the skills the CLI lane materializes for each session.
+     *  May be null on legacy / test paths that don't care about skill
+     *  materialization. */
+    private final SkillMaterializer skillMaterializer;
     private final WorktreeLeaseService leaseService;
     /** Resolves the cwd a trunk session should be spawned in. Takes
      *  the Thread because the trunk's working dir is workspace-
@@ -104,13 +109,15 @@ public class ThreadRegistry
             CheckpointTrigger checkpointTrigger,
             WorkspaceService workspaces,
             WorktreeLeaseService leaseService,
-            WatchedRepoStore watchedRepos)
+            WatchedRepoStore watchedRepos,
+            SkillMaterializer skillMaterializer)
     {
         this(store, taskStore, new StreamJsonParser(mapper), mapper, gate,
                 ClaudeCodeCliThreadAgent.defaultExecutor(), checkpointTrigger,
                 () -> workspaces.getMemory(WorkspaceService.DEFAULT_WORKSPACE_ID),
                 leaseService,
-                thread -> resolveTrunkCwdForWorkspace(workspaces, watchedRepos, thread));
+                thread -> resolveTrunkCwdForWorkspace(workspaces, watchedRepos, thread),
+                skillMaterializer);
     }
 
     /**
@@ -177,7 +184,8 @@ public class ThreadRegistry
     {
         this(store, taskStore, parser, mapper, gate, executor, checkpointTrigger,
                 workspaceMemoryProvider, leaseService,
-                thread -> System.getProperty("java.io.tmpdir"));
+                thread -> System.getProperty("java.io.tmpdir"),
+                null);
     }
 
     ThreadRegistry(
@@ -190,7 +198,8 @@ public class ThreadRegistry
             CheckpointTrigger checkpointTrigger,
             Supplier<String> workspaceMemoryProvider,
             WorktreeLeaseService leaseService,
-            Function<Thread, String> trunkCwdResolver)
+            Function<Thread, String> trunkCwdResolver,
+            SkillMaterializer skillMaterializer)
     {
         this.store = requireNonNull(store, "store is null");
         this.taskStore = requireNonNull(taskStore, "taskStore is null");
@@ -202,6 +211,7 @@ public class ThreadRegistry
         this.workspaceMemoryProvider = requireNonNull(workspaceMemoryProvider, "workspaceMemoryProvider is null");
         this.leaseService = requireNonNull(leaseService, "leaseService is null");
         this.trunkCwdResolver = requireNonNull(trunkCwdResolver, "trunkCwdResolver is null");
+        this.skillMaterializer = skillMaterializer;
     }
 
     public Optional<ThreadAgent> find(String threadId)
@@ -322,7 +332,7 @@ public class ThreadRegistry
         return switch (thread.kind()) {
             case CLI_AGENT -> new ClaudeCodeCliThreadAgent(
                     thread, store, taskStore, parser, mapper, gate, executor, checkpointTrigger,
-                    workspaceMemoryProvider);
+                    workspaceMemoryProvider, skillMaterializer);
             case LOGIC_LOOP -> throw new UnsupportedOperationException(
                     "LOGIC_LOOP sessions land in a later slice");
         };
@@ -333,7 +343,7 @@ public class ThreadRegistry
         return switch (thread.kind()) {
             case CLI_AGENT -> new ClaudeCodeCliThreadAgent(
                     thread, store, taskStore, parser, mapper, gate, executor, checkpointTrigger,
-                    workspaceMemoryProvider, trunkCwdResolver.apply(thread),
+                    workspaceMemoryProvider, skillMaterializer, trunkCwdResolver.apply(thread),
                     ClaudeCodeCliThreadAgent.TrunkMode.ENABLED);
             case LOGIC_LOOP -> throw new UnsupportedOperationException(
                     "LOGIC_LOOP trunk sessions land in a later slice");

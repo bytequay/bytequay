@@ -25,6 +25,8 @@ import com.bytequay.app.domain.ThreadMessage;
 import com.bytequay.app.domain.ThreadStatus;
 import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.repository.ThreadStore;
+import com.bytequay.app.service.skills.SkillMaterializer;
+import com.bytequay.app.service.tools.ToolContext;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.collect.ImmutableList;
 import org.slf4j.Logger;
@@ -112,6 +114,13 @@ public class ClaudeCodeCliThreadAgent
      *  session; cleaned up on {@link #stop}. */
     private final AtomicReference<Path> mcpConfigPath = new AtomicReference<>();
 
+    /** Materializes the resolved skills for this session into a
+     *  session-scoped temp dir on first turn; cleaned up on
+     *  {@link #stop}. The DB stays the source of truth — these
+     *  files are ephemeral and re-derived on every fresh session. */
+    private final SkillMaterializer skillMaterializer;
+    private final AtomicReference<Path> skillsDir = new AtomicReference<>();
+
     private final AtomicReference<ThreadStatus> status = new AtomicReference<>();
     private final AtomicReference<String> agentSessionId = new AtomicReference<>();
     /** Id of the Task this agent is bound to (= the foreground task at
@@ -155,10 +164,11 @@ public class ClaudeCodeCliThreadAgent
             McpPermissionGate gate,
             ExecutorService executor,
             CheckpointTrigger checkpointTrigger,
-            Supplier<String> workspaceMemoryProvider)
+            Supplier<String> workspaceMemoryProvider,
+            SkillMaterializer skillMaterializer)
     {
         this(thread, store, taskStore, parser, mapper, gate, executor, checkpointTrigger,
-                workspaceMemoryProvider, DEFAULT_BINARY, (String) null);
+                workspaceMemoryProvider, skillMaterializer, DEFAULT_BINARY, (String) null);
     }
 
     /**
@@ -179,11 +189,12 @@ public class ClaudeCodeCliThreadAgent
             ExecutorService executor,
             CheckpointTrigger checkpointTrigger,
             Supplier<String> workspaceMemoryProvider,
+            SkillMaterializer skillMaterializer,
             String trunkCwd,
             @SuppressWarnings("unused") TrunkMode trunkMode)
     {
         this(thread, store, taskStore, parser, mapper, gate, executor, checkpointTrigger,
-                workspaceMemoryProvider, DEFAULT_BINARY, trunkCwd);
+                workspaceMemoryProvider, skillMaterializer, DEFAULT_BINARY, trunkCwd);
     }
 
     /** Marker enum disambiguating the two-argument trailing-string
@@ -200,10 +211,11 @@ public class ClaudeCodeCliThreadAgent
             ExecutorService executor,
             CheckpointTrigger checkpointTrigger,
             Supplier<String> workspaceMemoryProvider,
+            SkillMaterializer skillMaterializer,
             String binary)
     {
         this(thread, store, taskStore, parser, mapper, gate, executor, checkpointTrigger,
-                workspaceMemoryProvider, binary, (String) null);
+                workspaceMemoryProvider, skillMaterializer, binary, (String) null);
     }
 
     private ClaudeCodeCliThreadAgent(
@@ -216,6 +228,7 @@ public class ClaudeCodeCliThreadAgent
             ExecutorService executor,
             CheckpointTrigger checkpointTrigger,
             Supplier<String> workspaceMemoryProvider,
+            SkillMaterializer skillMaterializer,
             String binary,
             String trunkCwd)
     {
@@ -234,6 +247,10 @@ public class ClaudeCodeCliThreadAgent
         this.executor = requireNonNull(executor, "executor is null");
         this.checkpointTrigger = requireNonNull(checkpointTrigger, "checkpointTrigger is null");
         this.workspaceMemoryProvider = requireNonNull(workspaceMemoryProvider, "workspaceMemoryProvider is null");
+        // skillMaterializer is allowed to be null on legacy / test
+        // paths that don't care about skill materialization. The
+        // buildCommand hook gates I/O behind a null check.
+        this.skillMaterializer = skillMaterializer;
         this.taskStore = requireNonNull(taskStore, "taskStore is null");
         this.binary = requireNonNull(binary, "binary is null");
         // Look up the active task directly from TaskStore so the
@@ -503,6 +520,7 @@ public class ClaudeCodeCliThreadAgent
             handle(new StreamEvent.SessionEnded(Instant.now(), 0, null));
         }
         cleanupMcpConfig();
+        cleanupSkillsDir();
     }
 
     @Override
@@ -733,6 +751,15 @@ public class ClaudeCodeCliThreadAgent
                 "NODE_OPTIONS",
                 "--max-old-space-size=512",
                 (existing, ours) -> existing.contains("--max-old-space-size") ? existing : existing + " " + ours);
+        // Resolve + materialize the skill manifest into a session-
+        // scoped temp dir. The CLI lane reads SKILL.md folders from
+        // disk through its own discovery loop; the path lives in an
+        // env var the integration picks up (no flag wiring yet — the
+        // CLI's skill-discovery contract is still being firmed up).
+        Path skills = ensureSkillsDir();
+        if (skills != null) {
+            pb.environment().put("BYTEQUAY_SKILLS_DIR", skills.toString());
+        }
         return pb;
     }
 
@@ -772,6 +799,66 @@ public class ClaudeCodeCliThreadAgent
                 // Best-effort — temp file gets cleaned on JVM exit anyway.
             }
         }
+    }
+
+    /** Re-materialize the resolved skills into a session-scoped temp
+     *  dir on every buildCommand. Idempotent: the materializer
+     *  overwrites SKILL.md files in place so a re-spawn picks up edits
+     *  the user made between turns. Silently no-ops when no
+     *  materializer was wired in (legacy / test paths). */
+    private Path ensureSkillsDir()
+    {
+        if (skillMaterializer == null) {
+            return null;
+        }
+        Path existing = skillsDir.get();
+        if (existing == null) {
+            try {
+                existing = Files.createTempDirectory("bytequay-skills-" + threadId + "-");
+                existing.toFile().deleteOnExit();
+                skillsDir.set(existing);
+            }
+            catch (IOException e) {
+                log.warn("Failed to create skills temp dir for thread {}: {}", threadId, e.getMessage());
+                return null;
+            }
+        }
+        try {
+            skillMaterializer.materialize(existing, ToolContext.forRepo(repoFromWorkingDir(), null));
+        }
+        catch (RuntimeException e) {
+            log.warn("Skill materialization failed for thread {}: {}", threadId, e.getMessage());
+        }
+        return existing;
+    }
+
+    private void cleanupSkillsDir()
+    {
+        Path p = skillsDir.getAndSet(null);
+        if (p != null && skillMaterializer != null) {
+            skillMaterializer.cleanup(p);
+        }
+    }
+
+    /** Best-effort owner/repo extraction from the working dir. Returns
+     *  null when the cwd doesn't follow the watched-repo convention —
+     *  the manifest query then falls back to global-only rows. */
+    private String repoFromWorkingDir()
+    {
+        if (workingDir == null) {
+            return null;
+        }
+        Path path = Path.of(workingDir);
+        Path name = path.getFileName();
+        if (name == null) {
+            return null;
+        }
+        Path parent = path.getParent();
+        Path owner = parent == null ? null : parent.getFileName();
+        if (owner == null) {
+            return null;
+        }
+        return owner + "/" + name;
     }
 
     private void consumeStdout(Process process)

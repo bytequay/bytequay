@@ -18,9 +18,9 @@ package com.bytequay.app.domain;
  * The {@code diff} is the unified patch text for the whole PR; implementations
  * are expected to keep total input within model context limits.
  *
- * @param skillContext extra system-prompt content from a matching review
- *                     skill (see {@link ReviewSkill}). May be null when no
- *                     skill targets the repo.
+ * @param skillContext extra system-prompt content from a matching
+ *                     rubric skill (see {@link Skill}). May be null when
+ *                     no row targets the repo.
  */
 public record ReviewRequest(
         String repo,

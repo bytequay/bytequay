@@ -39,8 +39,9 @@ import type {
   PullRequestDetailDto,
   PullRequestDto,
   RecentEventDto,
-  ReviewSkillDto,
   SkillDraftDto,
+  SkillDto,
+  SkillInput,
   SuggestedReviewerDto,
   NewTaskGroupRequestDto,
   NewTaskRequestDto,
@@ -294,12 +295,12 @@ const bridge: Bridge = {
   getAiSettings: (): Promise<AiSettingsDto> => ipcRenderer.invoke('ai:getSettings'),
   setAiSettings: (provider: string, model: string | null): Promise<AiSettingsDto> =>
     ipcRenderer.invoke('ai:setSettings', provider, model),
-  listReviewSkills: (): Promise<ReviewSkillDto[]> => ipcRenderer.invoke('skills:list'),
-  createReviewSkill: (input): Promise<ReviewSkillDto> => ipcRenderer.invoke('skills:create', input),
-  updateReviewSkill: (id: number, input): Promise<ReviewSkillDto> =>
+  listSkills: (): Promise<SkillDto[]> => ipcRenderer.invoke('skills:list'),
+  createSkill: (input: SkillInput): Promise<SkillDto> => ipcRenderer.invoke('skills:create', input),
+  updateSkill: (id: number, input: SkillInput): Promise<SkillDto> =>
     ipcRenderer.invoke('skills:update', id, input),
-  deleteReviewSkill: (id: number): Promise<void> => ipcRenderer.invoke('skills:delete', id),
-  setSkillEnabled: (id: number, enabled: boolean): Promise<ReviewSkillDto> =>
+  deleteSkill: (id: number): Promise<void> => ipcRenderer.invoke('skills:delete', id),
+  setSkillEnabled: (id: number, enabled: boolean): Promise<SkillDto> =>
     ipcRenderer.invoke('skills:setEnabled', id, enabled),
   draftSkill: (prompt: string, scope: string): Promise<SkillDraftDto> =>
     ipcRenderer.invoke('skills:draft', prompt, scope),

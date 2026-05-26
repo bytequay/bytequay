@@ -12,105 +12,72 @@
  * limitations under the License.
  */
 import { useEffect, useState } from 'react';
-import type { AiProviderInfo, ReviewSkillDto } from '../../../types';
+import type { SkillDto, SkillInput } from '../../../types';
 
-/** Scope picker shape — maps onto the repo field's sentinel values
- *  the legacy AiSkillsTab used so the new modal can save through
- *  the existing create/update endpoints without a schema bump:
- *  - global → repo = '*'
- *  - repos  → repo = 'owner/name'
- *  - role   → repo = 'domain:<role>'
- */
-export type Scope = 'global' | 'repos' | 'role';
+/** UI-side scope picker — three buckets the user thinks in. Maps onto the
+ *  backend's (scope, roleTag) pair: 'global' / 'role' both store scope =
+ *  'global' on the row, with roleTag null vs. set. */
+export type ScopeBucket = 'global' | 'repos' | 'role';
 
-const GLOBAL_SENTINEL = '*';
-const ROLE_PREFIX = 'domain:';
+type Kind = 'library' | 'persona' | 'rubric';
 
 type Mode = 'manual' | 'draft';
 
 export type SkillEditorModalProps = {
-  /** Closes the modal without saving. */
   onClose: () => void;
-  /** Persist the manually-entered or AI-drafted skill. */
-  onSave: (input: {
-    skillName: string;
-    repo: string;
-    llmProvider: string | null;
-    description: string | null;
-    context: string | null;
-  }) => Promise<void>;
+  onSave: (input: SkillInput) => Promise<void>;
   /** Locked scope passed in from the active SkillsPage tab so the
-   *  modal opens with the right radio + form layout. The user can
-   *  still flip the scope mid-edit (the picker stays interactive)
-   *  — useful when the AI drafts a global skill from the Repos tab. */
-  initialScope: Scope;
+   *  modal opens with the right radio + form layout. */
+  initialScope: ScopeBucket;
   /** Pre-populated repo slug when the user opened the modal from a
-   *  specific Repos group (the Add button on that group header). */
+   *  specific Repos group. */
   initialRepo?: string;
   /** Edit-mode existing row, or undefined for Add. */
-  existing?: ReviewSkillDto;
-  /** Provider list for the "lock to provider" picker — same shape
-   *  the credentials surface uses. */
-  providers: AiProviderInfo[];
+  existing?: SkillDto;
 };
 
 /**
- * Add / Edit modal for a library skill, with two modes:
- * - Write manually: fields the legacy editor had, restyled as a
- *   modal and labelled to make the trigger nature of the description
- *   clear ("loads when …").
+ * Add / Edit modal for a skill, with two modes:
+ * - Write manually: the same fields the legacy editor had, restyled and
+ *   labelled to make the trigger nature of the description clear.
  * - Draft with AI: a single prompt textarea + scope picker; the
- *   draftSkill endpoint proposes name + trigger + body for the user
- *   to review-and-edit before saving. Propose-then-confirm, no auto-
- *   save.
+ *   draftSkill endpoint proposes name + trigger + body. The proposal
+ *   lands in the manual fields for review-and-edit; nothing is saved
+ *   until the user presses Create.
  */
 function SkillEditorModal({
-  onClose, onSave, initialScope, initialRepo, existing, providers,
+  onClose, onSave, initialScope, initialRepo, existing,
 }: SkillEditorModalProps) {
   const [mode, setMode] = useState<Mode>('manual');
 
-  const [scope, setScope] = useState<Scope>(() => {
-    if (existing !== undefined) return classify(existing.repo);
+  const [scope, setScope] = useState<ScopeBucket>(() => {
+    if (existing !== undefined) return classify(existing);
     return initialScope;
   });
-  const [skillName, setSkillName] = useState(existing?.skillName ?? '');
-  const [repo, setRepo] = useState<string>(() => {
-    if (existing !== undefined) {
-      const sc = classify(existing.repo);
-      if (sc === 'repos') return existing.repo;
-      return '';
-    }
-    return initialRepo ?? '';
-  });
-  const [role, setRole] = useState<string>(() => {
-    if (existing !== undefined && classify(existing.repo) === 'role') {
-      return existing.repo.slice(ROLE_PREFIX.length);
-    }
-    return '';
-  });
-  const [llmProvider, setLlmProvider] = useState<string>(existing?.llmProvider ?? '');
+  const [name, setName] = useState(existing?.name ?? '');
+  const [repo, setRepo] = useState<string>(existing?.repo ?? initialRepo ?? '');
+  const [role, setRole] = useState<string>(existing?.roleTag ?? '');
   const [description, setDescription] = useState(existing?.description ?? '');
-  const [body, setBody] = useState(existing?.context ?? '');
+  const [body, setBody] = useState(existing?.body ?? '');
+  const [kind, setKind] = useState<Kind>(existing?.kind ?? defaultKindFor(initialScope));
+  const [isDefault, setIsDefault] = useState(existing?.isDefault ?? false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // AI draft state.
   const [draftPrompt, setDraftPrompt] = useState('');
   const [drafting, setDrafting] = useState(false);
   const [draftError, setDraftError] = useState<string | null>(null);
 
-  // Auto-focus the first input when the modal opens.
   const [autoFocusKey, setAutoFocusKey] = useState(0);
   useEffect(() => { setAutoFocusKey(k => k + 1); }, [mode]);
 
-  const resolvedRepo = (): string => {
-    if (scope === 'global') return GLOBAL_SENTINEL;
-    if (scope === 'role') return ROLE_PREFIX + role.trim();
-    return repo.trim();
-  };
+  useEffect(() => {
+    if (existing !== undefined) return;
+    setKind(defaultKindFor(scope));
+  }, [scope, existing]);
 
   const validate = (): string | null => {
-    if (skillName.trim() === '') return 'Skill name is required.';
+    if (name.trim() === '') return 'Skill name is required.';
     if (scope === 'repos' && repo.trim() === '') return 'Repo is required for a per-repo skill.';
     if (scope === 'role' && role.trim() === '') return 'Role is required for a role skill.';
     return null;
@@ -122,13 +89,11 @@ function SkillEditorModal({
     setSaving(true);
     setError(null);
     try {
-      await onSave({
-        skillName: skillName.trim(),
-        repo: resolvedRepo(),
-        llmProvider: llmProvider === '' ? null : llmProvider,
-        description: description.trim() === '' ? null : description.trim(),
-        context: body.trim() === '' ? null : body.trim(),
-      });
+      await onSave(toPayload({
+        scope, repo: repo.trim(), role: role.trim(),
+        name: name.trim(), description: description.trim(),
+        body: body.trim(), kind, isDefault,
+      }));
     }
     catch (e) {
       setError(e instanceof Error ? e.message : String(e));
@@ -145,9 +110,7 @@ function SkillEditorModal({
     setDraftError(null);
     try {
       const draft = await window.bridge.draftSkill(draftPrompt.trim(), scope);
-      // Land the proposal in the manual fields so the user reviews
-      // and edits before pressing Save.
-      setSkillName(draft.name);
+      setName(draft.name);
       setDescription(draft.description);
       setBody(draft.body);
       setMode('manual');
@@ -208,7 +171,7 @@ function SkillEditorModal({
             ))}
           </div>
           <p style={hintStyle}>
-            Global = loaded for every prompt the workspace runs.
+            Global = available to every workspace + agent.
             Per-repo = loaded when the agent's cwd matches the repo
             below. Per-role = always-on identity for an agent role
             (trunk / task / reviewer / lead).
@@ -291,8 +254,8 @@ function SkillEditorModal({
                 key={`name-${autoFocusKey}`}
                 style={inputStyle}
                 type="text"
-                value={skillName}
-                onChange={e => setSkillName(e.target.value)}
+                value={name}
+                onChange={e => setName(e.target.value)}
                 placeholder="e.g. Backend uses Java 25"
                 autoFocus
               />
@@ -316,17 +279,25 @@ function SkillEditorModal({
             </div>
 
             <div style={fieldStyle}>
-              <label style={labelStyle}>Lock to provider (optional)</label>
-              <select
-                style={selectStyle}
-                value={llmProvider}
-                onChange={e => setLlmProvider(e.target.value)}
-              >
-                <option value="">(Any provider)</option>
-                {providers.map(p => (
-                  <option key={p.providerId} value={p.providerId}>{p.displayName}</option>
+              <label style={labelStyle}>Kind</label>
+              <div style={segmentRowStyle}>
+                {(['library', 'persona', 'rubric'] as const).map(k => (
+                  <button
+                    key={k}
+                    type="button"
+                    style={segmentBtnStyle(kind === k)}
+                    onClick={() => setKind(k)}
+                  >
+                    {k === 'library' ? 'Library' : k === 'persona' ? 'Persona' : 'Rubric'}
+                  </button>
                 ))}
-              </select>
+              </div>
+              <p style={hintStyle}>
+                Library = the model picks it up via list_skills /
+                load_skill. Persona = always-on identity for a role.
+                Rubric = deterministic review-time rule the review
+                path always applies.
+              </p>
             </div>
 
             <div style={fieldStyle}>
@@ -338,6 +309,23 @@ function SkillEditorModal({
                 onChange={e => setBody(e.target.value)}
                 placeholder="The actual instructions the agent loads when the trigger fires."
               />
+            </div>
+
+            <div style={fieldStyle}>
+              <label style={checkboxLabelStyle}>
+                <input
+                  type="checkbox"
+                  checked={isDefault}
+                  onChange={e => setIsDefault(e.target.checked)}
+                />
+                <span>Default for this scope</span>
+              </label>
+              <p style={hintStyle}>
+                When several rows match the same (scope, repo, kind, role),
+                the default-marked row wins. Useful when you keep an
+                "off-the-shelf" persona around but want a custom one in
+                front of it.
+              </p>
             </div>
 
             {error !== null && <p style={errorStyle}>{error}</p>}
@@ -363,10 +351,47 @@ function SkillEditorModal({
   );
 }
 
-export function classify(repo: string | null | undefined): Scope {
-  if (repo === null || repo === undefined || repo === '' || repo === GLOBAL_SENTINEL) return 'global';
-  if (repo.startsWith(ROLE_PREFIX)) return 'role';
-  return 'repos';
+export function classify(row: { scope: string; roleTag: string | null }): ScopeBucket {
+  if (row.scope === 'repo') return 'repos';
+  if (row.roleTag !== null && row.roleTag !== '') return 'role';
+  return 'global';
+}
+
+function defaultKindFor(scope: ScopeBucket): Kind {
+  if (scope === 'role') return 'persona';
+  if (scope === 'repos') return 'rubric';
+  return 'library';
+}
+
+function toPayload(state: {
+  scope: ScopeBucket; repo: string; role: string;
+  name: string; description: string; body: string;
+  kind: Kind; isDefault: boolean;
+}): SkillInput {
+  if (state.scope === 'repos') {
+    return {
+      scope: 'repo',
+      repo: state.repo,
+      threadId: null,
+      name: state.name,
+      description: state.description,
+      body: state.body,
+      kind: state.kind,
+      roleTag: null,
+      isDefault: state.isDefault,
+    };
+  }
+  return {
+    scope: 'global',
+    repo: null,
+    threadId: null,
+    name: state.name,
+    description: state.description,
+    body: state.body,
+    kind: state.kind,
+    roleTag: state.scope === 'role' ? state.role : null,
+    isDefault: state.isDefault,
+  };
 }
 
 const scrimStyle: React.CSSProperties = {
@@ -447,6 +472,14 @@ const labelStyle: React.CSSProperties = {
   letterSpacing: '0.06em',
   color: 'var(--text-3)',
   marginBottom: 4,
+};
+
+const checkboxLabelStyle: React.CSSProperties = {
+  display: 'inline-flex',
+  alignItems: 'center',
+  gap: 6,
+  fontSize: 12,
+  color: 'var(--text-2)',
 };
 
 const inputStyle: React.CSSProperties = {

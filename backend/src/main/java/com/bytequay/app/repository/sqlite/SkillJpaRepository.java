@@ -18,12 +18,15 @@ import org.springframework.data.jpa.repository.JpaRepository;
 import java.util.List;
 import java.util.Optional;
 
-interface ReviewSkillJpaRepository
-        extends JpaRepository<ReviewSkillEntity, Long>
+interface SkillJpaRepository
+        extends JpaRepository<SkillEntity, Long>
 {
-    List<ReviewSkillEntity> findAllByOrderBySkillNameAsc();
+    List<SkillEntity> findAllByOrderByNameAsc();
 
-    Optional<ReviewSkillEntity> findByRepo(String repo);
+    List<SkillEntity> findByScopeAndRepoAndEnabledTrueOrderByIsDefaultDescNameAsc(
+            String scope, String repo);
 
-    Optional<ReviewSkillEntity> findBySkillName(String skillName);
+    List<SkillEntity> findByScopeAndEnabledTrueOrderByNameAsc(String scope);
+
+    Optional<SkillEntity> findByName(String name);
 }

@@ -1073,22 +1073,56 @@ export type DailyCardDto = {
   date: string;
 };
 
-/** A per-repo "skill" — additional system-prompt context the AI reviewer
- *  applies when running against a matching repo. {@link llmProvider} may
- *  be null (skill applies to every provider) or a provider id to lock
- *  the run to a specific reviewer. */
-export type ReviewSkillDto = {
+/** A skill row — the model-triggered chunk of context the agent
+ *  loads on demand via the list_skills / load_skill tools, or — for
+ *  rubrics — an always-applied hint the review path resolves up front.
+ *
+ *  - scope='global' rows are loaded for every workspace.
+ *  - scope='repo' carries a non-null repo (owner/name) so the rubric
+ *    lookup can target it.
+ *  - scope='thread' carries a non-null threadId so it lives with one
+ *    specific thread.
+ *  - roleTag binds the row to a specific agent role independently of
+ *    scope so a global persona can target "reviewer" without inventing
+ *    a sentinel.
+ *  - kind separates library skills (model picks them up), personas
+ *    (always-on identity per role), and rubrics (deterministic review-
+ *    time rules).
+ */
+export type SkillDto = {
   id: number;
-  skillName: string;
-  repo: string;
-  llmProvider: string | null;
-  description: string | null;
-  context: string | null;
+  scope: 'global' | 'repo' | 'thread';
+  repo: string | null;
+  threadId: string | null;
+  name: string;
+  description: string;
+  body: string;
+  kind: 'library' | 'persona' | 'rubric';
+  roleTag: string | null;
   /** Persisted enable toggle. The Skills surface mutes disabled
-   *  rows; the review-time lookup skips them. */
+   *  rows; the runtime lookups skip them. */
   enabled: boolean;
+  /** When true the row is the default for its (scope, repo, kind,
+   *  roleTag) group — used to pick a persona per repo. */
+  isDefault: boolean;
+  source: 'authored' | 'ai_drafted';
+  provenance: string | null;
+  contentHash: string;
   createdAt: string;
   updatedAt: string;
+};
+
+/** Payload for POST /skills and PUT /skills/{id}. */
+export type SkillInput = {
+  scope: 'global' | 'repo' | 'thread';
+  repo: string | null;
+  threadId: string | null;
+  name: string;
+  description: string;
+  body: string;
+  kind: 'library' | 'persona' | 'rubric';
+  roleTag: string | null;
+  isDefault: boolean;
 };
 
 /** Result of POST /skills/draft — a proposed name + trigger
@@ -2289,27 +2323,16 @@ export type Bridge = {
   listAiProviders: () => Promise<AiProviderInfo[]>;
   getAiSettings: () => Promise<AiSettingsDto>;
   setAiSettings: (provider: string, model: string | null) => Promise<AiSettingsDto>;
-  /** List every configured per-repo review skill, alphabetised. */
-  listReviewSkills: () => Promise<ReviewSkillDto[]>;
-  createReviewSkill: (input: {
-    skillName: string;
-    repo: string;
-    llmProvider: string | null;
-    description: string | null;
-    context: string | null;
-  }) => Promise<ReviewSkillDto>;
-  updateReviewSkill: (id: number, input: {
-    skillName: string;
-    repo: string;
-    llmProvider: string | null;
-    description: string | null;
-    context: string | null;
-  }) => Promise<ReviewSkillDto>;
-  deleteReviewSkill: (id: number) => Promise<void>;
+  /** List every configured skill, alphabetised by name. The Settings
+   *  → Skills page slices client-side on scope / roleTag. */
+  listSkills: () => Promise<SkillDto[]>;
+  createSkill: (input: SkillInput) => Promise<SkillDto>;
+  updateSkill: (id: number, input: SkillInput) => Promise<SkillDto>;
+  deleteSkill: (id: number) => Promise<void>;
   /** Flip the per-skill enable toggle. The backend filters review-
    *  time consumption by the flag; the row stays in the vault when
    *  disabled so it can be flipped back on later. */
-  setSkillEnabled: (id: number, enabled: boolean) => Promise<ReviewSkillDto>;
+  setSkillEnabled: (id: number, enabled: boolean) => Promise<SkillDto>;
   /** Ask the active LLM provider to draft a skill from a short user
    *  prompt. Returns name + trigger + body for the modal to render
    *  pre-filled — the user confirms / edits before saving. */

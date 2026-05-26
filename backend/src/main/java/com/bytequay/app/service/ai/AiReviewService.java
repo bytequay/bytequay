@@ -21,12 +21,12 @@ import com.bytequay.app.domain.PullRequest;
 import com.bytequay.app.domain.PullRequestRef;
 import com.bytequay.app.domain.ReviewOutput;
 import com.bytequay.app.domain.ReviewRequest;
-import com.bytequay.app.domain.ReviewSkill;
+import com.bytequay.app.domain.Skill;
 import com.bytequay.app.repository.AiReviewDraftStore;
 import com.bytequay.app.repository.PullRequestRepository;
 import com.bytequay.app.repository.PullRequestStore;
 import com.bytequay.app.service.pr.PullRequestDetailInvalidator;
-import com.bytequay.app.service.skills.ReviewSkillService;
+import com.bytequay.app.service.skills.SkillService;
 import org.springframework.http.HttpStatusCode;
 import org.springframework.stereotype.Service;
 import org.springframework.web.server.ResponseStatusException;
@@ -53,7 +53,7 @@ public class AiReviewService
     private final PullRequestRepository gitHub;
     private final LlmReviewerRegistry registry;
     private final AiReviewDraftStore draftStore;
-    private final ReviewSkillService skillService;
+    private final SkillService skillService;
     private final PullRequestDetailInvalidator detailInvalidator;
 
     public AiReviewService(
@@ -61,7 +61,7 @@ public class AiReviewService
             PullRequestRepository gitHub,
             LlmReviewerRegistry registry,
             AiReviewDraftStore draftStore,
-            ReviewSkillService skillService,
+            SkillService skillService,
             PullRequestDetailInvalidator detailInvalidator)
     {
         this.pullRequestStore = requireNonNull(pullRequestStore, "pullRequestStore is null");
@@ -73,20 +73,6 @@ public class AiReviewService
     }
 
     /**
-     * Resolves which reviewer to use for {@code repo}: prefers the
-     * provider locked to the repo's review skill (if any) over the
-     * globally-active provider. Returns the active reviewer when no
-     * skill matches or the skill is provider-agnostic.
-     */
-    private LlmReviewer reviewerFor(ReviewSkill skill)
-    {
-        if (skill != null && skill.llmProvider() != null && !skill.llmProvider().isBlank()) {
-            return registry.byId(skill.llmProvider()).orElseGet(registry::active);
-        }
-        return registry.active();
-    }
-
-    /**
      * Runs a review against the active LLM and stores the result. The caller
      * passes the GitHub PR id directly so the run works on PRs that aren't
      * in the local pull_requests table (watched-repo browse, team filter,
@@ -95,8 +81,8 @@ public class AiReviewService
      */
     public AiReviewDraft runReview(String pat, long prId, String repo, int number)
     {
-        ReviewSkill skill = skillService.forRepo(repo).orElse(null);
-        LlmReviewer reviewer = reviewerFor(skill);
+        Skill skill = skillService.forRepo(repo).orElse(null);
+        LlmReviewer reviewer = registry.active();
         if (!reviewer.isConfigured()) {
             throw new ResponseStatusException(
                     HttpStatusCode.valueOf(412),
@@ -118,7 +104,7 @@ public class AiReviewService
                 raw.body(),
                 raw.headSha(),
                 diff,
-                skill != null ? skill.context() : null);
+                skill != null ? skill.body() : null);
         ReviewOutput output = reviewer.review(request);
         return draftStore.save(prId, repo, number, raw.headSha(), output);
     }
@@ -138,8 +124,8 @@ public class AiReviewService
             Consumer<String> onDelta)
     {
         requireNonNull(onDelta, "onDelta is null");
-        ReviewSkill skill = skillService.forRepo(repo).orElse(null);
-        LlmReviewer reviewer = reviewerFor(skill);
+        Skill skill = skillService.forRepo(repo).orElse(null);
+        LlmReviewer reviewer = registry.active();
         if (!reviewer.isConfigured()) {
             throw new ResponseStatusException(
                     HttpStatusCode.valueOf(412),
@@ -161,7 +147,7 @@ public class AiReviewService
                 raw.body(),
                 raw.headSha(),
                 diff,
-                skill != null ? skill.context() : null);
+                skill != null ? skill.body() : null);
         ReviewOutput output = reviewer.reviewStream(request, onDelta);
         return draftStore.save(prId, repo, number, raw.headSha(), output);
     }

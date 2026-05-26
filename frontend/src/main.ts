@@ -3825,20 +3825,14 @@ const url = new URL(`${BACKEND_BASE}/api/search/repos`);
     return res.json();
   });
 
-  // ── Review skills CRUD ────────────────────────────────────────────────
+  // ── Skills CRUD ────────────────────────────────────────────────────
   ipcMain.handle('skills:list', async () => {
     const res = await fetch(`${BACKEND_BASE}/skills`);
     if (!res.ok) throw new Error(`backend /skills returned ${res.status}`);
     return res.json();
   });
 
-  ipcMain.handle('skills:create', async (_event, input: {
-    skillName: string;
-    repo: string;
-    llmProvider: string | null;
-    description: string | null;
-    context: string | null;
-  }) => {
+  ipcMain.handle('skills:create', async (_event, input: Record<string, unknown>) => {
     const res = await fetch(`${BACKEND_BASE}/skills`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -3851,13 +3845,7 @@ const url = new URL(`${BACKEND_BASE}/api/search/repos`);
     return res.json();
   });
 
-  ipcMain.handle('skills:update', async (_event, id: number, input: {
-    skillName: string;
-    repo: string;
-    llmProvider: string | null;
-    description: string | null;
-    context: string | null;
-  }) => {
+  ipcMain.handle('skills:update', async (_event, id: number, input: Record<string, unknown>) => {
     const res = await fetch(`${BACKEND_BASE}/skills/${id}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },

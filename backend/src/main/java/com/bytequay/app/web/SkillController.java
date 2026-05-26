@@ -13,10 +13,10 @@
  */
 package com.bytequay.app.web;
 
-import com.bytequay.app.domain.ReviewSkill;
+import com.bytequay.app.domain.Skill;
 import com.bytequay.app.service.ai.LlmReviewerRegistry;
-import com.bytequay.app.service.skills.ReviewSkillService;
 import com.bytequay.app.service.skills.SkillDraft;
+import com.bytequay.app.service.skills.SkillService;
 import com.google.common.collect.ImmutableMap;
 import org.springframework.http.HttpStatusCode;
 import org.springframework.web.bind.annotation.DeleteMapping;
@@ -35,67 +35,75 @@ import java.util.Map;
 import static java.util.Objects.requireNonNull;
 
 @RestController
-public class ReviewSkillController
+public class SkillController
 {
-    private final ReviewSkillService service;
+    private final SkillService service;
     private final LlmReviewerRegistry reviewers;
 
-    public ReviewSkillController(ReviewSkillService service, LlmReviewerRegistry reviewers)
+    public SkillController(SkillService service, LlmReviewerRegistry reviewers)
     {
         this.service = requireNonNull(service, "service is null");
         this.reviewers = requireNonNull(reviewers, "reviewers is null");
     }
 
+    /** Mirror of the controller fields the Settings UI sends. */
     public record SkillRequest(
-            String skillName,
+            String scope,
             String repo,
-            String llmProvider,
+            String threadId,
+            String name,
             String description,
-            String context)
+            String body,
+            String kind,
+            String roleTag,
+            Boolean isDefault)
     {}
 
-    /** GET /skills — all configured skills, alphabetised by name. */
     @GetMapping("/skills")
-    public List<ReviewSkill> list()
+    public List<Skill> list()
     {
         return service.list();
     }
 
-    /** GET /skills/{id} — single skill by primary key. */
     @GetMapping("/skills/{id}")
-    public ReviewSkill get(@PathVariable long id)
+    public Skill get(@PathVariable long id)
     {
         return service.get(id);
     }
 
-    /** POST /skills — create a skill. Returns 400 when skill_name or repo
-     *  is blank, 409 when either collides with an existing row. */
     @PostMapping("/skills")
-    public ReviewSkill create(@RequestBody SkillRequest req)
+    public Skill create(@RequestBody SkillRequest req)
     {
         return service.create(
-                req.skillName(),
+                req.scope(),
                 req.repo(),
-                req.llmProvider(),
+                req.threadId(),
+                req.name(),
                 req.description(),
-                req.context());
+                req.body(),
+                req.kind(),
+                req.roleTag(),
+                Boolean.TRUE.equals(req.isDefault()),
+                "authored",
+                null);
     }
 
-    /** PUT /skills/{id} — update an existing skill. Same validation as
-     *  create; 404 when the id is missing. */
     @PutMapping("/skills/{id}")
-    public ReviewSkill update(@PathVariable long id, @RequestBody SkillRequest req)
+    public Skill update(@PathVariable long id, @RequestBody SkillRequest req)
     {
         return service.update(
                 id,
-                req.skillName(),
+                req.scope(),
                 req.repo(),
-                req.llmProvider(),
+                req.threadId(),
+                req.name(),
                 req.description(),
-                req.context());
+                req.body(),
+                req.kind(),
+                req.roleTag(),
+                Boolean.TRUE.equals(req.isDefault()));
     }
 
-    /** DELETE /skills/{id} — drop a skill. */
     @DeleteMapping("/skills/{id}")
     public Map<String, String> delete(@PathVariable long id)
     {
@@ -103,11 +111,8 @@ public class ReviewSkillController
         return ImmutableMap.of("result", "deleted");
     }
 
-    /** PATCH /skills/{id}/enabled — flip the enable toggle. Returns
-     *  the updated row so the UI can re-render the muted state in
-     *  one round-trip. */
     @PatchMapping("/skills/{id}/enabled")
-    public ReviewSkill setEnabled(@PathVariable long id, @RequestBody EnabledRequest body)
+    public Skill setEnabled(@PathVariable long id, @RequestBody EnabledRequest body)
     {
         if (body == null) {
             throw new ResponseStatusException(HttpStatusCode.valueOf(400), "body is required");
@@ -117,10 +122,9 @@ public class ReviewSkillController
 
     /**
      * POST /skills/draft — propose a name + description + body for
-     * the user to confirm before saving. Uses the workspace's active
-     * LLM provider; the response is editable in the modal before the
-     * user hits Save. One cheap call — same pattern as the polish /
-     * diagnose endpoints.
+     * the user to confirm before saving. One cheap call against the
+     * active LLM provider; same propose-then-confirm pattern as
+     * polish / diagnose.
      */
     @PostMapping("/skills/draft")
     public SkillDraft draft(@RequestBody DraftRequest body)

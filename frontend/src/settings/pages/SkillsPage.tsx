@@ -12,8 +12,8 @@
  * limitations under the License.
  */
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import type { AiProviderInfo, ReviewSkillDto } from '../../types';
-import SkillEditorModal, { classify, type Scope } from './skills/SkillEditorModal';
+import type { SkillDto, SkillInput } from '../../types';
+import SkillEditorModal, { classify, type ScopeBucket } from './skills/SkillEditorModal';
 
 type Tab = 'global' | 'repos' | 'roles';
 
@@ -28,7 +28,7 @@ const TAB_DEFS: { id: Tab; label: string; meta: string; addLabel: string; emptyH
   {
     id: 'repos',
     label: 'Repos',
-    meta: 'live in-repo, versioned alongside the code',
+    meta: 'scoped to a single owner/name',
     addLabel: '+ New skill',
     emptyHint: 'No per-repo skills yet. Add one tied to a watched repo.',
   },
@@ -43,8 +43,7 @@ const TAB_DEFS: { id: Tab; label: string; meta: string; addLabel: string; emptyH
 
 /** Read-mostly role catalogue rendered on the Roles tab so the
  *  surface is informative even before the role-generation work
- *  lands. Each card carries can/can't permission chips so the
- *  boundary is visible at a glance — pure presentation today. */
+ *  lands. */
 const ROLE_CARDS: { id: string; label: string; kind: string; can: string[]; cant: string[]; blurb: string }[] = [
   {
     id: 'trunk',
@@ -80,9 +79,6 @@ const ROLE_CARDS: { id: string; label: string; kind: string; can: string[]; cant
   },
 ];
 
-const ROLE_PREFIX = 'domain:';
-const GLOBAL_SENTINEL = '*';
-
 type RowMenuState = number | null;
 
 /**
@@ -94,12 +90,11 @@ type RowMenuState = number | null;
  */
 function SkillsPage() {
   const [tab, setTab] = useState<Tab>('global');
-  const [skills, setSkills] = useState<ReviewSkillDto[]>([]);
-  const [providers, setProviders] = useState<AiProviderInfo[]>([]);
+  const [skills, setSkills] = useState<SkillDto[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [editing, setEditing] = useState<ReviewSkillDto | 'new' | null>(null);
-  const [editingScope, setEditingScope] = useState<Scope>('global');
+  const [editing, setEditing] = useState<SkillDto | 'new' | null>(null);
+  const [editingScope, setEditingScope] = useState<ScopeBucket>('global');
   const [editingRepo, setEditingRepo] = useState<string | undefined>(undefined);
   const [rowMenu, setRowMenu] = useState<RowMenuState>(null);
 
@@ -107,12 +102,8 @@ function SkillsPage() {
     setLoading(true);
     setError(null);
     try {
-      const [list, provs] = await Promise.all([
-        window.bridge.listReviewSkills(),
-        window.bridge.listAiProviders(),
-      ]);
+      const list = await window.bridge.listSkills();
       setSkills(list);
-      setProviders(provs);
     }
     catch (e) {
       setError(e instanceof Error ? e.message : String(e));
@@ -127,25 +118,25 @@ function SkillsPage() {
   const counts = useMemo(() => {
     const c = { global: 0, repos: 0, roles: ROLE_CARDS.length };
     for (const s of skills) {
-      const sc = classify(s.repo);
+      const sc = classify(s);
       if (sc === 'global') c.global++;
       else if (sc === 'repos') c.repos++;
+      else if (sc === 'role') c.roles++;
     }
     return c;
   }, [skills]);
 
   const visible = useMemo(() => {
     if (tab === 'roles') return [];
-    const wanted: Scope = tab === 'global' ? 'global' : 'repos';
-    return skills.filter(s => classify(s.repo) === wanted);
+    const wanted: ScopeBucket = tab === 'global' ? 'global' : 'repos';
+    return skills.filter(s => classify(s) === wanted);
   }, [skills, tab]);
 
-  // Repos tab groups rows by owner/name so the legacy single-skill-
-  // per-repo invariant still reads cleanly even when several land.
   const grouped = useMemo(() => {
     if (tab !== 'repos') return [];
-    const byKey = new Map<string, { label: string; sublabel: string; rows: ReviewSkillDto[] }>();
+    const byKey = new Map<string, { label: string; sublabel: string; rows: SkillDto[] }>();
     for (const s of visible) {
+      if (s.repo === null) continue;
       const key = s.repo;
       const label = s.repo.includes('/') ? s.repo.split('/')[1] : s.repo;
       let bucket = byKey.get(key);
@@ -158,30 +149,24 @@ function SkillsPage() {
     return Array.from(byKey.entries()).map(([key, v]) => ({ key, ...v }));
   }, [visible, tab]);
 
-  const openAdd = (scope: Scope, repo?: string) => {
+  const openAdd = (scope: ScopeBucket, repo?: string) => {
     setEditingScope(scope);
     setEditingRepo(repo);
     setEditing('new');
   };
 
-  const openEdit = (row: ReviewSkillDto) => {
-    setEditingScope(classify(row.repo));
+  const openEdit = (row: SkillDto) => {
+    setEditingScope(classify(row));
     setEditingRepo(undefined);
     setEditing(row);
   };
 
-  const handleSave = async (input: {
-    skillName: string;
-    repo: string;
-    llmProvider: string | null;
-    description: string | null;
-    context: string | null;
-  }) => {
+  const handleSave = async (input: SkillInput) => {
     if (editing === 'new') {
-      await window.bridge.createReviewSkill(input);
+      await window.bridge.createSkill(input);
     }
     else if (editing !== null) {
-      await window.bridge.updateReviewSkill(editing.id, input);
+      await window.bridge.updateSkill(editing.id, input);
     }
     setEditing(null);
     await reload();
@@ -190,7 +175,7 @@ function SkillsPage() {
   const handleDelete = async (id: number) => {
     if (!confirm('Delete this skill? This cannot be undone.')) return;
     try {
-      await window.bridge.deleteReviewSkill(id);
+      await window.bridge.deleteSkill(id);
       await reload();
     }
     catch (e) {
@@ -198,7 +183,7 @@ function SkillsPage() {
     }
   };
 
-  const handleToggleEnabled = async (row: ReviewSkillDto) => {
+  const handleToggleEnabled = async (row: SkillDto) => {
     try {
       const next = await window.bridge.setSkillEnabled(row.id, !row.enabled);
       setSkills(prev => prev.map(s => s.id === row.id ? next : s));
@@ -273,7 +258,6 @@ function SkillsPage() {
             <SkillRow
               key={row.id}
               row={row}
-              providers={providers}
               menuOpen={rowMenu === row.id}
               onMenu={() => setRowMenu(rowMenu === row.id ? null : row.id)}
               onCloseMenu={() => setRowMenu(null)}
@@ -287,7 +271,6 @@ function SkillsPage() {
             <div key={group.key} style={groupStyle}>
               <div style={groupHeadStyle}>
                 <span style={groupNameStyle}>{group.label}</span>
-                <span style={groupBadgeStyle}>in-repo · versioned</span>
                 <span style={groupMetaStyle}>{group.sublabel}</span>
                 <button
                   type="button"
@@ -302,7 +285,6 @@ function SkillsPage() {
                 <SkillRow
                   key={row.id}
                   row={row}
-                  providers={providers}
                   menuOpen={rowMenu === row.id}
                   onMenu={() => setRowMenu(rowMenu === row.id ? null : row.id)}
                   onCloseMenu={() => setRowMenu(null)}
@@ -350,7 +332,6 @@ function SkillsPage() {
           initialScope={editingScope}
           initialRepo={editingRepo}
           existing={editing === 'new' ? undefined : editing}
-          providers={providers}
         />
       )}
     </>
@@ -358,10 +339,9 @@ function SkillsPage() {
 }
 
 function SkillRow({
-  row, providers, menuOpen, onMenu, onCloseMenu, onToggle, onEdit, onDelete,
+  row, menuOpen, onMenu, onCloseMenu, onToggle, onEdit, onDelete,
 }: {
-  row: ReviewSkillDto;
-  providers: AiProviderInfo[];
+  row: SkillDto;
   menuOpen: boolean;
   onMenu: () => void;
   onCloseMenu: () => void;
@@ -369,8 +349,8 @@ function SkillRow({
   onEdit: () => void;
   onDelete: () => void;
 }) {
-  const provLabel = providers.find(p => p.providerId === row.llmProvider)?.displayName ?? row.llmProvider;
-  const triggerText = row.description !== null && row.description !== ''
+  const bucket = classify(row);
+  const triggerText = row.description !== ''
       ? row.description
       : 'no trigger set — add one so the agent knows when to load this';
   return (
@@ -386,21 +366,21 @@ function SkillRow({
       </button>
       <div style={rowMainStyle}>
         <div style={rowTitleStyle}>
-          <span style={rowNameStyle}>{row.skillName}</span>
-          <span style={rowScopeBadgeStyle(classify(row.repo))}>
-            {scopeLabel(classify(row.repo), row.repo)}
-          </span>
+          <span style={rowNameStyle}>{row.name}</span>
+          <span style={rowScopeBadgeStyle(bucket)}>{scopeLabel(row, bucket)}</span>
+          <span style={kindChipStyle(row.kind)}>{row.kind}</span>
+          {row.isDefault && <span style={defaultChipStyle}>default</span>}
           {!row.enabled && <span style={mutedChipStyle}>disabled</span>}
         </div>
         <div style={rowTriggerStyle}>
           ▸ loads when <span style={triggerEmphasisStyle}>«{triggerText}»</span>
         </div>
         <div style={rowMetaStyle}>
-          <span>{formatBytes((row.context ?? '').length)}</span>
-          {row.llmProvider !== null && (
+          <span>{formatBytes(row.body.length)}</span>
+          {row.source === 'ai_drafted' && (
             <>
               <span style={dotStyle}>·</span>
-              <span>locked to <code style={kbdStyle}>{provLabel}</code></span>
+              <span>AI-drafted</span>
             </>
           )}
           <span style={dotStyle}>·</span>
@@ -444,9 +424,9 @@ function SkillRow({
   );
 }
 
-function scopeLabel(sc: Scope, raw: string): string {
-  if (sc === 'global') return 'Global';
-  if (sc === 'role') return 'Role · ' + raw.slice(ROLE_PREFIX.length);
+function scopeLabel(row: SkillDto, bucket: ScopeBucket): string {
+  if (bucket === 'global') return 'Global';
+  if (bucket === 'role') return 'Role · ' + (row.roleTag ?? '');
   return 'Repo';
 }
 
@@ -468,9 +448,6 @@ function relativeTime(iso: string): string {
   const d = Math.floor(h / 24);
   return `${d}d ago`;
 }
-
-// Suppress an unused-variable warning for the const we re-export.
-void GLOBAL_SENTINEL;
 
 const layoutStyle: React.CSSProperties = {
   display: 'grid',
@@ -579,15 +556,6 @@ const groupNameStyle: React.CSSProperties = {
   color: 'var(--text-1)',
 };
 
-const groupBadgeStyle: React.CSSProperties = {
-  fontSize: 10,
-  fontWeight: 600,
-  padding: '1px 8px',
-  borderRadius: 999,
-  background: 'rgba(124, 58, 237, 0.10)',
-  color: '#5b21b6',
-};
-
 const groupMetaStyle: React.CSSProperties = {
   fontSize: 11,
   color: 'var(--text-3)',
@@ -650,8 +618,8 @@ const rowNameStyle: React.CSSProperties = {
   color: 'var(--text-1)',
 };
 
-function rowScopeBadgeStyle(sc: Scope): React.CSSProperties {
-  const palette: Record<Scope, { fg: string; bg: string }> = {
+function rowScopeBadgeStyle(sc: ScopeBucket): React.CSSProperties {
+  const palette: Record<ScopeBucket, { fg: string; bg: string }> = {
     global: { fg: '#5b21b6', bg: 'rgba(124, 58, 237, 0.10)' },
     repos: { fg: '#0d9488', bg: 'rgba(13, 148, 136, 0.10)' },
     role: { fg: '#d97706', bg: 'rgba(217, 119, 6, 0.10)' },
@@ -667,6 +635,32 @@ function rowScopeBadgeStyle(sc: Scope): React.CSSProperties {
     background: p.bg,
   };
 }
+
+function kindChipStyle(kind: string): React.CSSProperties {
+  const palette: Record<string, { fg: string; bg: string }> = {
+    library: { fg: '#0369a1', bg: 'rgba(3, 105, 161, 0.10)' },
+    persona: { fg: '#d97706', bg: 'rgba(217, 119, 6, 0.10)' },
+    rubric: { fg: '#15803d', bg: 'rgba(22, 163, 74, 0.10)' },
+  };
+  const p = palette[kind] ?? { fg: 'var(--text-3)', bg: 'rgba(0,0,0,0.06)' };
+  return {
+    fontSize: 10,
+    fontWeight: 600,
+    padding: '1px 6px',
+    borderRadius: 4,
+    color: p.fg,
+    background: p.bg,
+  };
+}
+
+const defaultChipStyle: React.CSSProperties = {
+  fontSize: 10,
+  fontWeight: 600,
+  padding: '1px 6px',
+  borderRadius: 4,
+  background: 'rgba(124, 58, 237, 0.10)',
+  color: '#5b21b6',
+};
 
 const mutedChipStyle: React.CSSProperties = {
   fontSize: 10,
@@ -700,14 +694,6 @@ const rowMetaStyle: React.CSSProperties = {
 };
 
 const dotStyle: React.CSSProperties = { color: 'rgba(0,0,0,0.20)' };
-
-const kbdStyle: React.CSSProperties = {
-  fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
-  fontSize: 10,
-  padding: '1px 5px',
-  background: 'rgba(0,0,0,0.04)',
-  borderRadius: 4,
-};
 
 const rowActionsStyle: React.CSSProperties = {
   display: 'flex',

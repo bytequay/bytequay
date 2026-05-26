@@ -13,7 +13,7 @@
  */
 package com.bytequay.app.service.skills;
 
-import com.bytequay.app.domain.ReviewSkill;
+import com.bytequay.app.domain.Skill;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
@@ -26,31 +26,37 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
- * End-to-end exercise of the {@code enabled} column V86 added — a
- * fresh skill defaults to enabled, the toggle persists, and the
- * review-time lookup ({@link ReviewSkillService#forRepo}) skips
+ * End-to-end exercise of the {@code enabled} column on the skill
+ * table — a fresh skill defaults to enabled, the toggle persists,
+ * and the review-time lookup ({@link SkillService#forRepo}) skips
  * disabled rows so the review path's behaviour follows the user's
- * choice. Runs against the real Flyway-migrated SQLite schema so a
- * stray default-clause / NOT NULL drift would surface here.
+ * choice. Runs against the real Flyway-migrated SQLite schema so
+ * a stray default-clause / NOT NULL drift would surface here.
  */
 @SpringBootTest
 @TestExecutionListeners(
         listeners = DependencyInjectionTestExecutionListener.class,
         mergeMode = TestExecutionListeners.MergeMode.REPLACE_DEFAULTS)
-class TestReviewSkillEnabled
+class TestSkillEnabled
 {
     @Autowired
-    private ReviewSkillService service;
+    private SkillService service;
 
     @Test
     void newSkillIsEnabledByDefault()
     {
-        ReviewSkill row = service.create(
-                uniqueName("default-on"),
+        Skill row = service.create(
+                "repo",
                 "acme/" + UUID.randomUUID(),
-                /* llmProvider */ null,
+                null,
+                uniqueName("default-on"),
                 "loads when reviewing a backend PR",
-                "Prefer constructor injection over field injection.");
+                "Prefer constructor injection over field injection.",
+                "rubric",
+                null,
+                false,
+                "authored",
+                null);
 
         assertThat(row.enabled()).isTrue();
     }
@@ -58,18 +64,26 @@ class TestReviewSkillEnabled
     @Test
     void setEnabledFlipsTheFlagAndPersists()
     {
-        ReviewSkill row = service.create(
-                uniqueName("toggle"),
+        Skill row = service.create(
+                "repo",
                 "acme/" + UUID.randomUUID(),
-                null, "loads when reviewing a frontend PR", "Avoid `any` in new code.");
+                null,
+                uniqueName("toggle"),
+                "loads when reviewing a frontend PR",
+                "Avoid `any` in new code.",
+                "rubric",
+                null,
+                false,
+                "authored",
+                null);
 
-        ReviewSkill off = service.setEnabled(row.id(), false);
+        Skill off = service.setEnabled(row.id(), false);
         assertThat(off.enabled()).isFalse();
 
-        ReviewSkill again = service.get(row.id());
+        Skill again = service.get(row.id());
         assertThat(again.enabled()).isFalse();
 
-        ReviewSkill back = service.setEnabled(row.id(), true);
+        Skill back = service.setEnabled(row.id(), true);
         assertThat(back.enabled()).isTrue();
     }
 
@@ -77,12 +91,20 @@ class TestReviewSkillEnabled
     void forRepoSkipsDisabledSkill()
     {
         String repo = "acme/" + UUID.randomUUID();
-        ReviewSkill row = service.create(
-                uniqueName("skip"), repo, null,
+        Skill row = service.create(
+                "repo",
+                repo,
+                null,
+                uniqueName("skip"),
                 "loads when reviewing a PR on this repo",
-                "House style: prefer expression-bodied lambdas.");
+                "House style: prefer expression-bodied lambdas.",
+                "rubric",
+                null,
+                false,
+                "authored",
+                null);
 
-        assertThat(service.forRepo(repo)).map(ReviewSkill::id).hasValue(row.id());
+        assertThat(service.forRepo(repo)).map(Skill::id).hasValue(row.id());
 
         service.setEnabled(row.id(), false);
         assertThat(service.forRepo(repo)).isEmpty();

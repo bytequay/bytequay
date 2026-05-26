@@ -21,17 +21,17 @@ import com.bytequay.app.domain.PullRequestDetail;
 import com.bytequay.app.domain.PullRequestRef;
 import com.bytequay.app.domain.PullRequestReview;
 import com.bytequay.app.domain.ReviewOutput;
-import com.bytequay.app.domain.ReviewSkill;
+import com.bytequay.app.domain.Skill;
 import com.bytequay.app.domain.StoredPrDetail;
 import com.bytequay.app.repository.AiReviewDraftStore;
 import com.bytequay.app.repository.AppSettingsStore;
 import com.bytequay.app.repository.PrDetailStore;
 import com.bytequay.app.repository.PullRequestRepository;
 import com.bytequay.app.repository.PullRequestStore;
-import com.bytequay.app.repository.ReviewSkillStore;
+import com.bytequay.app.repository.SkillStore;
 import com.bytequay.app.service.pr.GitHubResponseCache;
 import com.bytequay.app.service.pr.PullRequestDetailInvalidator;
-import com.bytequay.app.service.skills.ReviewSkillService;
+import com.bytequay.app.service.skills.SkillService;
 import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.Test;
 
@@ -60,7 +60,7 @@ class TestAiReviewService
                 gitHub,
                 new LlmReviewerRegistry(List.of(), new EmptyAppSettingsStore()),
                 draftStore,
-                new ReviewSkillService(new EmptyReviewSkillStore()),
+                new SkillService(new EmptySkillStore()),
                 detailInvalidator);
         Function<String, String> patForRepo = repo -> "pat";
 
@@ -187,16 +187,18 @@ class TestAiReviewService
         @Override public void set(String key, String value) { throw new UnsupportedOperationException(); }
     }
 
-    private static final class EmptyReviewSkillStore
-            implements ReviewSkillStore
+    private static final class EmptySkillStore
+            implements SkillStore
     {
-        @Override public List<ReviewSkill> list() { return List.of(); }
-        @Override public Optional<ReviewSkill> byId(long id) { return Optional.empty(); }
-        @Override public Optional<ReviewSkill> findByRepo(String repo) { return Optional.empty(); }
-        @Override public ReviewSkill create(String skillName, String repo, String llmProvider, String description, String context) { throw new UnsupportedOperationException(); }
-        @Override public ReviewSkill update(long id, String skillName, String repo, String llmProvider, String description, String context) { throw new UnsupportedOperationException(); }
+        @Override public List<Skill> list() { return List.of(); }
+        @Override public Optional<Skill> byId(long id) { return Optional.empty(); }
+        @Override public List<Skill> findGlobal() { return List.of(); }
+        @Override public List<Skill> findByRepo(String repo) { return List.of(); }
+        @Override public Optional<Skill> findRubricForRepo(String repo) { return Optional.empty(); }
+        @Override public Skill create(String scope, String repo, String threadId, String name, String description, String body, String kind, String roleTag, boolean isDefault, String source, String provenance) { throw new UnsupportedOperationException(); }
+        @Override public Skill update(long id, String scope, String repo, String threadId, String name, String description, String body, String kind, String roleTag, boolean isDefault) { throw new UnsupportedOperationException(); }
         @Override public void delete(long id) { throw new UnsupportedOperationException(); }
-        @Override public ReviewSkill setEnabled(long id, boolean enabled) { throw new UnsupportedOperationException(); }
+        @Override public Skill setEnabled(long id, boolean enabled) { throw new UnsupportedOperationException(); }
     }
 
     private static final class UnsupportedPullRequestStore

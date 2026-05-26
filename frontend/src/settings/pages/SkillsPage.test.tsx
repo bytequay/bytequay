@@ -13,7 +13,7 @@
  */
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { Bridge, ReviewSkillDto } from '../../types';
+import type { Bridge, SkillDto } from '../../types';
 import SkillsPage from './SkillsPage';
 
 (globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -30,7 +30,7 @@ beforeEach(() => {
 describe('SkillsPage', () => {
   it('renders the trigger line and the not-always-on banner on each row', async () => {
     installBridge([
-      mkSkill({ id: 1, repo: '*', description: 'reviewing a PR touching auth' }),
+      mkSkill({ id: 1, scope: 'global', description: 'reviewing a PR touching auth' }),
     ]);
 
     render(<SkillsPage />);
@@ -83,12 +83,11 @@ describe('SkillsPage', () => {
 });
 
 function installBridge(
-  initial: ReviewSkillDto[],
+  initial: SkillDto[],
   overrides?: Partial<Bridge>,
 ): void {
   let snapshot = [...initial];
-  const listReviewSkills = vi.fn(async () => snapshot);
-  const listAiProviders = vi.fn(async () => []);
+  const listSkills = vi.fn(async () => snapshot);
   const setSkillEnabled = overrides?.setSkillEnabled ?? vi.fn(async (id: number, enabled: boolean) => {
     snapshot = snapshot.map(s => s.id === id ? { ...s, enabled } : s);
     return snapshot.find(s => s.id === id)!;
@@ -97,24 +96,30 @@ function installBridge(
     name: '', description: '', body: '',
   }));
   (window as unknown as {
-    bridge: Pick<Bridge, 'listReviewSkills' | 'listAiProviders' | 'setSkillEnabled' | 'draftSkill'>;
+    bridge: Pick<Bridge, 'listSkills' | 'setSkillEnabled' | 'draftSkill'>;
   }).bridge = {
-    listReviewSkills,
-    listAiProviders,
+    listSkills,
     setSkillEnabled,
     draftSkill,
   };
 }
 
-function mkSkill(overrides: Partial<ReviewSkillDto>): ReviewSkillDto {
+function mkSkill(overrides: Partial<SkillDto>): SkillDto {
   return {
     id: 1,
-    skillName: 'Always-on style skill',
-    repo: '*',
-    llmProvider: null,
+    scope: 'global',
+    repo: null,
+    threadId: null,
+    name: 'Always-on style skill',
     description: 'reviewing any PR',
-    context: 'House style notes.',
+    body: 'House style notes.',
+    kind: 'library',
+    roleTag: null,
     enabled: true,
+    isDefault: false,
+    source: 'authored',
+    provenance: null,
+    contentHash: 'deadbeef',
     createdAt: '2026-05-25T12:00:00Z',
     updatedAt: '2026-05-25T12:00:00Z',
     ...overrides,

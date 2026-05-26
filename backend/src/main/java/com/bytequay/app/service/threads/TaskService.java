@@ -27,6 +27,7 @@ import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.repository.ThreadStore;
 import com.bytequay.app.repository.WatchedRepoStore;
 import com.bytequay.app.service.local.GitRunner;
+import com.bytequay.app.service.skills.RoleSkillService;
 import com.bytequay.app.service.workspaces.WorkspaceService;
 import com.bytequay.app.web.PatResolver;
 import com.fasterxml.jackson.core.JsonProcessingException;
@@ -72,6 +73,7 @@ public class TaskService
     private final WorkspaceService workspaceService;
     private final NotificationService notificationService;
     private final ObjectMapper mapper;
+    private final RoleSkillService roleSkillService;
 
     public TaskService(
             ThreadStore threadStore,
@@ -84,7 +86,8 @@ public class TaskService
             ThreadRegistry registry,
             WorkspaceService workspaceService,
             NotificationService notificationService,
-            ObjectMapper mapper)
+            ObjectMapper mapper,
+            RoleSkillService roleSkillService)
     {
         this.threadStore = requireNonNull(threadStore, "threadStore is null");
         this.taskStore = requireNonNull(taskStore, "taskStore is null");
@@ -97,6 +100,7 @@ public class TaskService
         this.workspaceService = requireNonNull(workspaceService, "workspaceService is null");
         this.notificationService = requireNonNull(notificationService, "notificationService is null");
         this.mapper = requireNonNull(mapper, "mapper is null");
+        this.roleSkillService = requireNonNull(roleSkillService, "roleSkillService is null");
     }
 
     /** All tasks for a thread, ordered by seq ascending. 404 if the
@@ -190,7 +194,7 @@ public class TaskService
                 current.costUsdMilli(), current.tokensIn(), current.tokensOut(),
                 current.agentSessionId(),
                 current.createdAt(), current.endedAt(), current.errorMessage(),
-                stored);
+                stored, current.roleSkill());
         taskStore.saveTask(next);
         return next;
     }
@@ -307,7 +311,8 @@ public class TaskService
                     current.linkedIssueNumber(),
                     current.costUsdMilli(), current.tokensIn(), current.tokensOut(),
                     current.agentSessionId(),
-                    current.createdAt(), parkedEndedAt, current.errorMessage(), current.name()));
+                    current.createdAt(), parkedEndedAt, current.errorMessage(),
+                    current.name(), current.roleSkill()));
 
             // 5. Resolve next base + cut a new worktree. MAIN mode
             //    uses the same per-repo merge-target as the PR base;
@@ -324,9 +329,14 @@ public class TaskService
                     worktreeService.create(workingDir, nextTaskId, nextTitle);
 
             // 6. Persist the new task at seq+1, PENDING.
+            String nextBranchName = nextHandle
+                    .map(WorktreeService.WorktreeHandle::branchName)
+                    .orElse(null);
+            String nextRoleSkill = roleSkillService.generateForTask(
+                    repoFullName, nextBranchName, nextTaskId, nextBase);
             Task next = new Task(
                     nextTaskId, threadId, nextSeq, TaskStatus.PENDING,
-                    nextHandle.map(WorktreeService.WorktreeHandle::branchName).orElse(null),
+                    nextBranchName,
                     nextHandle.map(h -> h.worktreePath().toString()).orElse(null),
                     nextBase,
                     current.workingDir(),
@@ -337,7 +347,8 @@ public class TaskService
                     /* costUsdMilli */ 0L, /* tokensIn */ 0L, /* tokensOut */ 0L,
                     /* agentSessionId — captured on the new task's first turn */ null,
                     now, /* endedAt */ null, /* errorMessage */ null,
-                    /* name */ null);
+                    /* name */ null,
+                    nextRoleSkill);
             taskStore.saveTask(next);
 
             // 7. Drop the in-memory agent for this thread. The next

@@ -37,6 +37,7 @@ import com.bytequay.app.repository.ThreadStore;
 import com.bytequay.app.repository.ThreadTurnEventStore;
 import com.bytequay.app.repository.ThreadTurnStore;
 import com.bytequay.app.service.local.GitRunner;
+import com.bytequay.app.service.skills.RoleSkillService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatusCode;
@@ -98,6 +99,7 @@ public class ThreadService
     private final NotificationService notifications;
     private final GitRunner git;
     private final WorktreeService worktreeService;
+    private final RoleSkillService roleSkillService;
 
     public ThreadService(
             ThreadStore store,
@@ -110,7 +112,8 @@ public class ThreadService
             WorktreeLeaseService leases,
             NotificationService notifications,
             GitRunner git,
-            WorktreeService worktreeService)
+            WorktreeService worktreeService,
+            RoleSkillService roleSkillService)
     {
         this.store = requireNonNull(store, "store is null");
         this.taskStore = requireNonNull(taskStore, "taskStore is null");
@@ -123,6 +126,7 @@ public class ThreadService
         this.notifications = requireNonNull(notifications, "notifications is null");
         this.git = requireNonNull(git, "git is null");
         this.worktreeService = requireNonNull(worktreeService, "worktreeService is null");
+        this.roleSkillService = requireNonNull(roleSkillService, "roleSkillService is null");
     }
 
     public List<Thread> listByStatus(ThreadStatus status, int limit)
@@ -441,6 +445,9 @@ public class ThreadService
                 .map(WorktreeService.WorktreeHandle::branchName)
                 .orElse(request.branchName());
         long seq = taskStore.maxSeqForThread(threadId).orElse(0L) + 1L;
+        String roleSkillText = roleSkillService.generateForTask(
+                /* repo — derivable from workingDir later */ null,
+                branchName, taskId, "main");
         Task task = new Task(
                 taskId, threadId, seq, TaskStatus.PENDING,
                 branchName,
@@ -453,7 +460,8 @@ public class ThreadService
                 0L, 0L, 0L,
                 /* agentSessionId */ null,
                 now, null, null,
-                /* name */ null);
+                /* name */ null,
+                roleSkillText);
         taskStore.saveTask(task);
         Thread refreshed = store.findThreadById(threadId).orElse(thread);
         if (request.initialPrompt() != null && !request.initialPrompt().isBlank()) {

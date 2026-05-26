@@ -107,6 +107,13 @@ public class ClaudeCodeCliThreadAgent
      *  workspace). The CLI sees the result via --append-system-prompt
      *  on each session bootstrap. */
     private final Supplier<String> workspaceMemoryProvider;
+    /** Role skill text resolved at session construction. Trunk uses
+     *  the fixed template; task mode uses the task's frozen
+     *  {@code role_skill} column. Null when no role block applies —
+     *  the buildCommand step then skips the --append-system-prompt
+     *  entry. Resolved once so the system prefix stays byte-stable
+     *  for the lifetime of the session. */
+    private final String roleSkillText;
     private final CopyOnWriteArrayList<Consumer<StreamEvent>> listeners = new CopyOnWriteArrayList<>();
 
     /** Lazily-written MCP config file Claude reads via
@@ -165,10 +172,11 @@ public class ClaudeCodeCliThreadAgent
             ExecutorService executor,
             CheckpointTrigger checkpointTrigger,
             Supplier<String> workspaceMemoryProvider,
-            SkillMaterializer skillMaterializer)
+            SkillMaterializer skillMaterializer,
+            String roleSkillText)
     {
         this(thread, store, taskStore, parser, mapper, gate, executor, checkpointTrigger,
-                workspaceMemoryProvider, skillMaterializer, DEFAULT_BINARY, (String) null);
+                workspaceMemoryProvider, skillMaterializer, roleSkillText, DEFAULT_BINARY, (String) null);
     }
 
     /**
@@ -190,11 +198,12 @@ public class ClaudeCodeCliThreadAgent
             CheckpointTrigger checkpointTrigger,
             Supplier<String> workspaceMemoryProvider,
             SkillMaterializer skillMaterializer,
+            String roleSkillText,
             String trunkCwd,
             @SuppressWarnings("unused") TrunkMode trunkMode)
     {
         this(thread, store, taskStore, parser, mapper, gate, executor, checkpointTrigger,
-                workspaceMemoryProvider, skillMaterializer, DEFAULT_BINARY, trunkCwd);
+                workspaceMemoryProvider, skillMaterializer, roleSkillText, DEFAULT_BINARY, trunkCwd);
     }
 
     /** Marker enum disambiguating the two-argument trailing-string
@@ -212,10 +221,11 @@ public class ClaudeCodeCliThreadAgent
             CheckpointTrigger checkpointTrigger,
             Supplier<String> workspaceMemoryProvider,
             SkillMaterializer skillMaterializer,
+            String roleSkillText,
             String binary)
     {
         this(thread, store, taskStore, parser, mapper, gate, executor, checkpointTrigger,
-                workspaceMemoryProvider, skillMaterializer, binary, (String) null);
+                workspaceMemoryProvider, skillMaterializer, roleSkillText, binary, (String) null);
     }
 
     private ClaudeCodeCliThreadAgent(
@@ -229,6 +239,7 @@ public class ClaudeCodeCliThreadAgent
             CheckpointTrigger checkpointTrigger,
             Supplier<String> workspaceMemoryProvider,
             SkillMaterializer skillMaterializer,
+            String roleSkillText,
             String binary,
             String trunkCwd)
     {
@@ -251,6 +262,7 @@ public class ClaudeCodeCliThreadAgent
         // paths that don't care about skill materialization. The
         // buildCommand hook gates I/O behind a null check.
         this.skillMaterializer = skillMaterializer;
+        this.roleSkillText = roleSkillText;
         this.taskStore = requireNonNull(taskStore, "taskStore is null");
         this.binary = requireNonNull(binary, "binary is null");
         // Look up the active task directly from TaskStore so the
@@ -492,7 +504,7 @@ public class ClaudeCodeCliThreadAgent
                             agentSessionId.get(),
                             t.createdAt(), /* endedAt */ null,
                             /* errorMessage */ null,
-                            t.name()));
+                            t.name(), t.roleSkill()));
                 }
             });
             // Preserve the trunk planning session id on the Thread row;
@@ -722,6 +734,13 @@ public class ClaudeCodeCliThreadAgent
                 .add("--include-partial-messages")
                 .add("--mcp-config", ensureMcpConfig().toString())
                 .add("--permission-prompt-tool", "mcp__bytequay__approval_prompt");
+        // Inject the role skill body as the system role block. Frozen
+        // at session construction so the prefix stays byte-stable for
+        // the lifetime of the session — that's what keeps the cache
+        // warm across turns. Skipped when null (legacy rows).
+        if (roleSkillText != null && !roleSkillText.isBlank()) {
+            argv.add("--append-system-prompt", roleSkillText.strip());
+        }
         // Inject the workspace memory as an appended system prompt so
         // every turn sees the distilled project brain (architecture
         // decisions, conventions, blockers). Skip the flag when memory
@@ -1117,7 +1136,7 @@ public class ClaudeCodeCliThreadAgent
                             t.costUsdMilli(), t.tokensIn(), t.tokensOut(),
                             capturedSession,
                             t.createdAt(), t.endedAt(), t.errorMessage(),
-                            t.name()));
+                            t.name(), t.roleSkill()));
                 }
             });
         }

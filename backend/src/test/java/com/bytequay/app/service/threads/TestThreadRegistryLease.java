@@ -176,10 +176,11 @@ class TestThreadRegistryLease
         registry.getOrCreate(thread("thread-1"));
 
         // Two getOrCreate calls — the first looks up the active task
-        // twice (once for the lease acquire, once inside the agent
+        // three times (once for the lease acquire, once to resolve
+        // the role-skill text for the session, once inside the agent
         // ctor), the second returns the cached session without
         // touching the task store again.
-        verify(taskStore, times(2)).findActiveTaskForThread("thread-1");
+        verify(taskStore, times(3)).findActiveTaskForThread("thread-1");
         assertThat(leaseService.isHeld(WORKTREE)).isTrue();
     }
 
@@ -225,7 +226,7 @@ class TestThreadRegistryLease
                 /* linkedPrNumber */ null, /* linkedIssueNumber */ null,
                 0L, 0L, 0L,
                 /* agentSessionId */ null,
-                now, null, null, null);
+                now, null, null, null, null);
     }
 
     private static int deadPid()

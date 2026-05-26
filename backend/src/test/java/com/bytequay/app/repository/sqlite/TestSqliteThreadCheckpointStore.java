@@ -261,7 +261,8 @@ class TestSqliteThreadCheckpointStore
                 /* createdAt */ now,
                 /* endedAt */ null,
                 /* errorMessage */ null,
-                /* name */ null);
+                /* name */ null,
+                /* roleSkill */ null);
         tasks.saveTask(task);
         return task.id();
     }

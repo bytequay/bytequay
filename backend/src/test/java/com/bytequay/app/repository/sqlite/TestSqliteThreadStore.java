@@ -194,7 +194,7 @@ class TestSqliteThreadStore
                 UUID.randomUUID().toString(), thread.id(), 1L, TaskStatus.RUNNING,
                 "main", null, "main", "/tmp",
                 null, null, null, null, null, "DEVELOP", null, null,
-                0L, 0L, 0L, /* agentSessionId */ null, taskCreated, null, null, null));
+                0L, 0L, 0L, /* agentSessionId */ null, taskCreated, null, null, null, null));
 
         Instant first = Instant.parse("2026-05-15T12:00:00Z");
         Instant second = Instant.parse("2026-05-15T12:05:00Z");

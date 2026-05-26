@@ -334,6 +334,6 @@ class TestPublishService
                 "DEVELOP", null, null,
                 0L, 0L, 0L,
                 /* agentSessionId */ null,
-                now, null, null, null);
+                now, null, null, null, null);
     }
 }

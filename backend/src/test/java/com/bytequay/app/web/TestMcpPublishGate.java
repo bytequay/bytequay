@@ -456,7 +456,8 @@ class TestMcpPublishGate
                 /* linkedPrNumber */ null, /* linkedIssueNumber */ null,
                 0L, 0L, 0L,
                 /* agentSessionId */ null,
-                now, /* endedAt */ null, /* errorMessage */ null, /* name */ null);
+                now, /* endedAt */ null, /* errorMessage */ null,
+                /* name */ null, /* roleSkill */ null);
     }
 
     /** Builds a task pre-parked at the given status so the parked-
@@ -475,7 +476,8 @@ class TestMcpPublishGate
                 /* linkedPrNumber */ null, /* linkedIssueNumber */ null,
                 0L, 0L, 0L,
                 /* agentSessionId */ null,
-                now, /* endedAt */ null, /* errorMessage */ null, /* name */ null);
+                now, /* endedAt */ null, /* errorMessage */ null,
+                /* name */ null, /* roleSkill */ null);
     }
 
     private static Task newTaskWithLinkedPr(String threadId, String workingDir, int linkedPrNumber)
@@ -493,6 +495,7 @@ class TestMcpPublishGate
                 linkedPrNumber, /* linkedIssueNumber */ null,
                 0L, 0L, 0L,
                 /* agentSessionId */ null,
-                now, /* endedAt */ null, /* errorMessage */ null, /* name */ null);
+                now, /* endedAt */ null, /* errorMessage */ null,
+                /* name */ null, /* roleSkill */ null);
     }
 }

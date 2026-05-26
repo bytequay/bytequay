@@ -73,7 +73,12 @@ public record Task(
         String errorMessage,
         /** User-supplied rename, e.g. "Cost & tokens parser". Null
          *  means fall back to the humanised branch name. */
-        String name)
+        String name,
+        /** Role skill body composed + frozen at task creation —
+         *  loaded as the system role block on every turn so the
+         *  cached prefix stays byte-stable for the lifetime of the
+         *  task. Null on legacy rows (no role block injected). */
+        String roleSkill)
 {
     /**
      * Resolves the directory the agent process should run in for this

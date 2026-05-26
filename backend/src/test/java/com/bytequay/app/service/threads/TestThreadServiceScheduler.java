@@ -40,6 +40,7 @@ import com.bytequay.app.repository.ThreadTurnEventStore;
 import com.bytequay.app.repository.ThreadTurnStore;
 import com.bytequay.app.repository.WorktreeLeaseStore;
 import com.bytequay.app.service.local.GitRunner;
+import com.bytequay.app.service.skills.RoleSkillService;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
 import org.mockito.Mockito;
@@ -80,7 +81,8 @@ class TestThreadServiceScheduler
                 Mockito.mock(WorktreeLeaseService.class),
                 Mockito.mock(NotificationService.class),
                 new GitRunner(),
-                noopWorktreeService());
+                noopWorktreeService(),
+                new RoleSkillService());
 
         // initialPrompt feeds title derivation but is treated as
         // context the create dialog will stage in the trunk composer,
@@ -125,7 +127,8 @@ class TestThreadServiceScheduler
                 Mockito.mock(WorktreeLeaseService.class),
                 Mockito.mock(NotificationService.class),
                 new GitRunner(),
-                noopWorktreeService());
+                noopWorktreeService(),
+                new RoleSkillService());
 
         service.create(new ThreadService.NewTaskRequest(
                 ThreadKind.CLI_AGENT,
@@ -163,7 +166,8 @@ class TestThreadServiceScheduler
                 Mockito.mock(WorktreeLeaseService.class),
                 Mockito.mock(NotificationService.class),
                 new GitRunner(),
-                noopWorktreeService());
+                noopWorktreeService(),
+                new RoleSkillService());
 
         service.create(new ThreadService.NewTaskRequest(
                 ThreadKind.CLI_AGENT,
@@ -202,7 +206,8 @@ class TestThreadServiceScheduler
                 Mockito.mock(WorktreeLeaseService.class),
                 Mockito.mock(NotificationService.class),
                 new GitRunner(),
-                noopWorktreeService());
+                noopWorktreeService(),
+                new RoleSkillService());
 
         String turnId = service.send(thread.id(), "next");
 
@@ -237,7 +242,8 @@ class TestThreadServiceScheduler
                 Mockito.mock(WorktreeLeaseService.class),
                 Mockito.mock(NotificationService.class),
                 new GitRunner(),
-                noopWorktreeService());
+                noopWorktreeService(),
+                new RoleSkillService());
 
         assertThat(service.turns(thread.id()))
                 .extracting(ThreadTurn::id)
@@ -269,7 +275,8 @@ class TestThreadServiceScheduler
                 Mockito.mock(WorktreeLeaseService.class),
                 Mockito.mock(NotificationService.class),
                 new GitRunner(),
-                noopWorktreeService());
+                noopWorktreeService(),
+                new RoleSkillService());
 
         assertThat(service.turns(thread.id()))
                 .extracting(ThreadTurn::id)
@@ -302,7 +309,8 @@ class TestThreadServiceScheduler
                 Mockito.mock(WorktreeLeaseService.class),
                 Mockito.mock(NotificationService.class),
                 new GitRunner(),
-                noopWorktreeService());
+                noopWorktreeService(),
+                new RoleSkillService());
 
         assertThat(service.turnEvents(thread.id()))
                 .extracting(ThreadTurnEvent::id)
@@ -333,7 +341,8 @@ class TestThreadServiceScheduler
                 Mockito.mock(WorktreeLeaseService.class),
                 Mockito.mock(NotificationService.class),
                 new GitRunner(),
-                noopWorktreeService());
+                noopWorktreeService(),
+                new RoleSkillService());
 
         assertThat(service.turnEvents(thread.id()))
                 .extracting(ThreadTurnEvent::id)
@@ -360,7 +369,8 @@ class TestThreadServiceScheduler
                 Mockito.mock(WorktreeLeaseService.class),
                 Mockito.mock(NotificationService.class),
                 new GitRunner(),
-                noopWorktreeService());
+                noopWorktreeService(),
+                new RoleSkillService());
 
         assertThat(service.activeTurns(50))
                 .extracting(ThreadTurn::id)
@@ -383,7 +393,8 @@ class TestThreadServiceScheduler
                 Mockito.mock(WorktreeLeaseService.class),
                 Mockito.mock(NotificationService.class),
                 new GitRunner(),
-                noopWorktreeService());
+                noopWorktreeService(),
+                new RoleSkillService());
 
         assertThat(service.listByStatus(ThreadStatus.IDLE, 0)).isEmpty();
         assertThat(service.listByStatus(ThreadStatus.IDLE, -1)).isEmpty();
@@ -407,7 +418,8 @@ class TestThreadServiceScheduler
                 Mockito.mock(WorktreeLeaseService.class),
                 Mockito.mock(NotificationService.class),
                 new GitRunner(),
-                noopWorktreeService());
+                noopWorktreeService(),
+                new RoleSkillService());
 
         assertThat(service.listByGroup("group-1", 0)).isEmpty();
         assertThat(service.listByGroup("group-1", -1)).isEmpty();
@@ -431,7 +443,8 @@ class TestThreadServiceScheduler
                 Mockito.mock(WorktreeLeaseService.class),
                 Mockito.mock(NotificationService.class),
                 new GitRunner(),
-                noopWorktreeService());
+                noopWorktreeService(),
+                new RoleSkillService());
 
         ThreadGroup group = service.createGroup(new ThreadService.NewGroupRequest(
                 "Backend",
@@ -461,7 +474,8 @@ class TestThreadServiceScheduler
                 Mockito.mock(WorktreeLeaseService.class),
                 Mockito.mock(NotificationService.class),
                 new GitRunner(),
-                noopWorktreeService());
+                noopWorktreeService(),
+                new RoleSkillService());
 
         Thread thread = service.create(new ThreadService.NewTaskRequest(
                 ThreadKind.CLI_AGENT,
@@ -502,7 +516,8 @@ class TestThreadServiceScheduler
                 Mockito.mock(WorktreeLeaseService.class),
                 Mockito.mock(NotificationService.class),
                 new GitRunner(),
-                noopWorktreeService());
+                noopWorktreeService(),
+                new RoleSkillService());
 
         service.stop(thread.id());
 
@@ -531,7 +546,8 @@ class TestThreadServiceScheduler
                 Mockito.mock(WorktreeLeaseService.class),
                 Mockito.mock(NotificationService.class),
                 new GitRunner(),
-                noopWorktreeService());
+                noopWorktreeService(),
+                new RoleSkillService());
 
         service.stop(thread.id());
 
@@ -557,7 +573,8 @@ class TestThreadServiceScheduler
                 Mockito.mock(WorktreeLeaseService.class),
                 Mockito.mock(NotificationService.class),
                 new GitRunner(),
-                noopWorktreeService());
+                noopWorktreeService(),
+                new RoleSkillService());
 
         service.delete(thread.id());
 
@@ -589,7 +606,8 @@ class TestThreadServiceScheduler
                 Mockito.mock(WorktreeLeaseService.class),
                 Mockito.mock(NotificationService.class),
                 new GitRunner(),
-                worktrees);
+                worktrees,
+                new RoleSkillService());
 
         // Step 1 — create is a 0-Task path: no worktree, no Task.
         Thread thread = service.create(new ThreadService.NewTaskRequest(
@@ -655,7 +673,7 @@ class TestThreadServiceScheduler
                 "main", "/tmp/work",
                 null, null, null, null, null, "DEVELOP", null, null,
                 0L, 0L, 0L, /* agentSessionId */ null,
-                Instant.parse("2026-05-18T12:00:00Z"), null, null, null));
+                Instant.parse("2026-05-18T12:00:00Z"), null, null, null, null));
         RecordingWorktreeService worktrees = new RecordingWorktreeService(Optional.empty());
         ThreadService service = new ThreadService(
                 store,
@@ -668,7 +686,8 @@ class TestThreadServiceScheduler
                 Mockito.mock(WorktreeLeaseService.class),
                 Mockito.mock(NotificationService.class),
                 new GitRunner(),
-                worktrees);
+                worktrees,
+                new RoleSkillService());
 
         service.delete(thread.id());
 
@@ -694,7 +713,7 @@ class TestThreadServiceScheduler
                 "main", "/tmp/work",
                 null, null, null, null, null, "DEVELOP", null, null,
                 0L, 0L, 0L, /* agentSessionId */ null,
-                Instant.parse("2026-05-18T12:00:00Z"), null, null, null);
+                Instant.parse("2026-05-18T12:00:00Z"), null, null, null, null);
         SingleTaskStore tasks = new SingleTaskStore(active);
         RecordingGitRunner git = new RecordingGitRunner();
         ThreadService service = new ThreadService(
@@ -708,7 +727,8 @@ class TestThreadServiceScheduler
                 Mockito.mock(WorktreeLeaseService.class),
                 Mockito.mock(NotificationService.class),
                 git,
-                noopWorktreeService());
+                noopWorktreeService(),
+                new RoleSkillService());
 
         service.listWorkingChanges(thread.id());
         service.getWorkingDiff(thread.id(), "src/App.java");

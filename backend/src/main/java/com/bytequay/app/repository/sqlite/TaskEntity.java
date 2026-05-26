@@ -86,6 +86,9 @@ class TaskEntity
     @Column(name = "name")
     private String name;
 
+    @Column(name = "role_skill", columnDefinition = "TEXT")
+    private String roleSkill;
+
     @Column(name = "created_at_ms", nullable = false)
     private long createdAtMs;
 
@@ -157,6 +160,9 @@ class TaskEntity
 
     String getName() { return name; }
     void setName(String name) { this.name = name; }
+
+    String getRoleSkill() { return roleSkill; }
+    void setRoleSkill(String roleSkill) { this.roleSkill = roleSkill; }
 
     long getCreatedAtMs() { return createdAtMs; }
     void setCreatedAtMs(long createdAtMs) { this.createdAtMs = createdAtMs; }

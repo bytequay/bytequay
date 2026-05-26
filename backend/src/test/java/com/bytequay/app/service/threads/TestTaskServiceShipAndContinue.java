@@ -28,6 +28,7 @@ import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.repository.ThreadStore;
 import com.bytequay.app.repository.WatchedRepoStore;
 import com.bytequay.app.service.local.GitRunner;
+import com.bytequay.app.service.skills.RoleSkillService;
 import com.bytequay.app.service.workspaces.WorkspaceService;
 import com.bytequay.app.web.PatResolver;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -75,7 +76,8 @@ class TestTaskServiceShipAndContinue
     private final TaskService service = new TaskService(
             threadStore, taskStore, watchedRepoStore, worktreeService,
             git, pullRequests, patResolver,
-            registry, workspaces, notifications, mapper);
+            registry, workspaces, notifications, mapper,
+            new RoleSkillService());
 
     @Test
     void shipAndContinueReapsTheShippedWorktreeAndClearsItsPathOnTheRow()
@@ -164,7 +166,8 @@ class TestTaskServiceShipAndContinue
                 /* linkedPrNumber */ null, /* linkedIssueNumber */ null,
                 0L, 0L, 0L,
                 /* agentSessionId */ null,
-                now, /* endedAt */ null, /* errorMessage */ null, /* name */ null);
+                now, /* endedAt */ null, /* errorMessage */ null,
+                /* name */ null, /* roleSkill */ null);
     }
 
     private static PullRequest prWithNumber(int number)

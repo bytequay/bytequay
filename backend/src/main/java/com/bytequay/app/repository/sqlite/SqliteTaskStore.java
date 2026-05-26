@@ -66,6 +66,7 @@ class SqliteTaskStore
         entity.setTokensOut(task.tokensOut());
         entity.setAgentSessionId(task.agentSessionId());
         entity.setName(task.name());
+        entity.setRoleSkill(task.roleSkill());
         entity.setCreatedAtMs(task.createdAt().toEpochMilli());
         entity.setEndedAtMs(task.endedAt() == null ? null : task.endedAt().toEpochMilli());
         entity.setErrorMessage(task.errorMessage());
@@ -195,7 +196,8 @@ class SqliteTaskStore
                 Instant.ofEpochMilli(e.getCreatedAtMs()),
                 e.getEndedAtMs() == null ? null : Instant.ofEpochMilli(e.getEndedAtMs()),
                 e.getErrorMessage(),
-                e.getName());
+                e.getName(),
+                e.getRoleSkill());
     }
 
     private static TaskFile toFile(TaskFileEntity e)

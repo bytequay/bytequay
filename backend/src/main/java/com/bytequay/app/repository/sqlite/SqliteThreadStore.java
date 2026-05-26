@@ -144,7 +144,7 @@ class SqliteThreadStore
                     t.createdAt(),
                     thread.endedAt() != null ? thread.endedAt() : t.endedAt(),
                     thread.errorMessage() != null ? thread.errorMessage() : t.errorMessage(),
-                    t.name());
+                    t.name(), t.roleSkill());
             taskStore.saveTask(next);
         });
     }

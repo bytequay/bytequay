@@ -21,6 +21,7 @@ import com.bytequay.app.domain.WorktreeLease;
 import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.repository.ThreadStore;
 import com.bytequay.app.repository.WatchedRepoStore;
+import com.bytequay.app.service.skills.RoleSkillService;
 import com.bytequay.app.service.skills.SkillMaterializer;
 import com.bytequay.app.service.workspaces.WorkspaceService;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -81,6 +82,10 @@ public class ThreadRegistry
      *  May be null on legacy / test paths that don't care about skill
      *  materialization. */
     private final SkillMaterializer skillMaterializer;
+    /** Resolves the trunk role skill template. Task role skills come
+     *  from each task's frozen {@code role_skill} column. May be null
+     *  on legacy / test paths. */
+    private final RoleSkillService roleSkillService;
     private final WorktreeLeaseService leaseService;
     /** Resolves the cwd a trunk session should be spawned in. Takes
      *  the Thread because the trunk's working dir is workspace-
@@ -110,14 +115,16 @@ public class ThreadRegistry
             WorkspaceService workspaces,
             WorktreeLeaseService leaseService,
             WatchedRepoStore watchedRepos,
-            SkillMaterializer skillMaterializer)
+            SkillMaterializer skillMaterializer,
+            RoleSkillService roleSkillService)
     {
         this(store, taskStore, new StreamJsonParser(mapper), mapper, gate,
                 ClaudeCodeCliThreadAgent.defaultExecutor(), checkpointTrigger,
                 () -> workspaces.getMemory(WorkspaceService.DEFAULT_WORKSPACE_ID),
                 leaseService,
                 thread -> resolveTrunkCwdForWorkspace(workspaces, watchedRepos, thread),
-                skillMaterializer);
+                skillMaterializer,
+                roleSkillService);
     }
 
     /**
@@ -185,6 +192,7 @@ public class ThreadRegistry
         this(store, taskStore, parser, mapper, gate, executor, checkpointTrigger,
                 workspaceMemoryProvider, leaseService,
                 thread -> System.getProperty("java.io.tmpdir"),
+                null,
                 null);
     }
 
@@ -199,7 +207,8 @@ public class ThreadRegistry
             Supplier<String> workspaceMemoryProvider,
             WorktreeLeaseService leaseService,
             Function<Thread, String> trunkCwdResolver,
-            SkillMaterializer skillMaterializer)
+            SkillMaterializer skillMaterializer,
+            RoleSkillService roleSkillService)
     {
         this.store = requireNonNull(store, "store is null");
         this.taskStore = requireNonNull(taskStore, "taskStore is null");
@@ -212,6 +221,7 @@ public class ThreadRegistry
         this.leaseService = requireNonNull(leaseService, "leaseService is null");
         this.trunkCwdResolver = requireNonNull(trunkCwdResolver, "trunkCwdResolver is null");
         this.skillMaterializer = skillMaterializer;
+        this.roleSkillService = roleSkillService;
     }
 
     public Optional<ThreadAgent> find(String threadId)
@@ -332,7 +342,8 @@ public class ThreadRegistry
         return switch (thread.kind()) {
             case CLI_AGENT -> new ClaudeCodeCliThreadAgent(
                     thread, store, taskStore, parser, mapper, gate, executor, checkpointTrigger,
-                    workspaceMemoryProvider, skillMaterializer);
+                    workspaceMemoryProvider, skillMaterializer,
+                    resolveTaskRoleSkill(thread));
             case LOGIC_LOOP -> throw new UnsupportedOperationException(
                     "LOGIC_LOOP sessions land in a later slice");
         };
@@ -343,11 +354,24 @@ public class ThreadRegistry
         return switch (thread.kind()) {
             case CLI_AGENT -> new ClaudeCodeCliThreadAgent(
                     thread, store, taskStore, parser, mapper, gate, executor, checkpointTrigger,
-                    workspaceMemoryProvider, skillMaterializer, trunkCwdResolver.apply(thread),
+                    workspaceMemoryProvider, skillMaterializer,
+                    roleSkillService == null ? null : roleSkillService.trunkTemplate(),
+                    trunkCwdResolver.apply(thread),
                     ClaudeCodeCliThreadAgent.TrunkMode.ENABLED);
             case LOGIC_LOOP -> throw new UnsupportedOperationException(
                     "LOGIC_LOOP trunk sessions land in a later slice");
         };
+    }
+
+    /** Resolve the active task's frozen role skill body for the CLI
+     *  agent's session role block. The active lookup mirrors the
+     *  agent's own resolution so we hand it the same row. */
+    private String resolveTaskRoleSkill(Thread thread)
+    {
+        return taskStore.findActiveTaskForThread(thread.id())
+                .or(() -> taskStore.findLatestTaskForThread(thread.id()))
+                .map(Task::roleSkill)
+                .orElse(null);
     }
 
     @PreDestroy

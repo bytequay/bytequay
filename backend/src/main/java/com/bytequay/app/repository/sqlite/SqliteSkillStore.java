@@ -55,6 +55,15 @@ public class SqliteSkillStore
     }
 
     @Override
+    public Optional<Skill> byName(String name)
+    {
+        if (name == null || name.isBlank()) {
+            return Optional.empty();
+        }
+        return repo.findByName(name).map(SqliteSkillStore::toDomain);
+    }
+
+    @Override
     public List<Skill> findGlobal()
     {
         return repo.findByScopeAndEnabledTrueOrderByNameAsc("global").stream()

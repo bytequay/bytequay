@@ -27,6 +27,9 @@ public interface SkillStore
     /** Lookup by primary key. */
     Optional<Skill> byId(long id);
 
+    /** Lookup by unique name. Used by {@code load_skill} at runtime. */
+    Optional<Skill> byName(String name);
+
     /** All enabled global rows. */
     List<Skill> findGlobal();
 

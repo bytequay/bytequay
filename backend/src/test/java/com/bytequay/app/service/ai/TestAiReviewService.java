@@ -192,6 +192,7 @@ class TestAiReviewService
     {
         @Override public List<Skill> list() { return List.of(); }
         @Override public Optional<Skill> byId(long id) { return Optional.empty(); }
+        @Override public Optional<Skill> byName(String name) { return Optional.empty(); }
         @Override public List<Skill> findGlobal() { return List.of(); }
         @Override public List<Skill> findByRepo(String repo) { return List.of(); }
         @Override public Optional<Skill> findRubricForRepo(String repo) { return Optional.empty(); }

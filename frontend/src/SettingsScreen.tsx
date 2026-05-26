@@ -13,7 +13,10 @@
  */
 import React, { useEffect, useState } from 'react';
 import CredentialsTab from './CredentialsTab';
-import ReviewSkillsTab from './ReviewSkillsTab';
+// The legacy "Review skills" tab moved to its own top-level
+// Settings → Skills section (handled by the new SkillsPage).
+// This screen is the first-run + tabbed legacy surface — left here
+// for the first-run PAT gate; the review-skills tab dropped out.
 import { THEMES, applyTheme, loadTheme, type ThemeId } from './themes';
 
 const THEME_DOT_COLORS: Record<ThemeId, React.CSSProperties> = {
@@ -23,7 +26,7 @@ const THEME_DOT_COLORS: Record<ThemeId, React.CSSProperties> = {
   'purple': { background: '#7c3aed' },
 };
 
-type Tab = 'general' | 'credentials' | 'review-skills';
+type Tab = 'general' | 'credentials';
 
 type Props = {
   onSaved: () => void;
@@ -156,18 +159,10 @@ function SettingsScreen({ onSaved, onClearPat, firstRun = false }: Props) {
         >
           Credentials
         </button>
-        <button
-          className={`settings-tab${tab === 'review-skills' ? ' settings-tab--active' : ''}`}
-          onClick={() => setTab('review-skills')}
-          type="button"
-        >
-          Review skills
-        </button>
       </div>
 
       {tab === 'general' && <GeneralTab />}
       {tab === 'credentials' && <CredentialsTab />}
-      {tab === 'review-skills' && <ReviewSkillsTab />}
 
       {onClearPat && tab === 'general' && (
         <>

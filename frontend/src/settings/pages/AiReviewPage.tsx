@@ -11,73 +11,38 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import { useState } from 'react';
-import AiSkillsTab from '../../AiSkillsTab';
 import ComingSoon from '../shared/ComingSoon';
 
-type Tab = 'skills' | 'usage';
-
 // decision pending: model/provider selection moves to the config
-// cascade. The Credentials inner tab and its inline provider/model
-// pickers used to live here; that surface moved to Settings →
-// Credentials. Active-provider/active-model selection belongs to a
-// later config-cascade page and isn't rebuilt on this surface.
+// cascade. The Credentials and Skills inner tabs used to live here;
+// each moved to its own top-level Settings section. Active-provider/
+// active-model selection belongs to a later config-cascade page and
+// isn't rebuilt on this surface.
 
 /**
- * The "AI" settings surface. Hosts Skills + Usage now that Credentials
- * has its own kind-navigated vault under Settings → Credentials.
- *
- * <p>Skills are reusable system-prompt fragments (global / per-repo /
- * per-domain). Usage is still a placeholder until the call-ledger view
- * lands.
+ * The "AI" settings surface. Reduced to Usage now that Credentials
+ * and Skills each have their own sections in the sidebar; left in
+ * place so existing deep-links keep landing somewhere and the Usage
+ * placeholder has a home.
  */
 function AiReviewPage() {
-  const [tab, setTab] = useState<Tab>('skills');
-
   return (
     <>
       <div className="settings-shell-page__head">
         <div>
           <h2 className="settings-shell-page__title">AI</h2>
           <div className="settings-shell-page__subtitle">
-            Skills are reusable instructions the AI loads alongside every prompt.
-            Skills can be <strong>global</strong> (apply everywhere),{' '}
-            <strong>per-repo</strong> (loaded when working in that repo's worktree),
-            or <strong>per-domain</strong> (loaded when the AI is operating in a
-            specific role — reviewer, reviewee, task scheduler, GitHub events, etc.).
-            Provider keys live under Settings → Credentials.
+            Provider keys live under Settings → Credentials. Reusable
+            skills live under Settings → Skills. This page holds the
+            spend / call ledger view (placeholder for now).
           </div>
         </div>
       </div>
 
-      <div className="settings-page-tabs" role="tablist">
-        <button
-          type="button"
-          role="tab"
-          aria-selected={tab === 'skills'}
-          className={`settings-page-tab${tab === 'skills' ? ' settings-page-tab--active' : ''}`}
-          onClick={() => setTab('skills')}
-        >
-          Skills
-        </button>
-        <button
-          type="button"
-          role="tab"
-          aria-selected={tab === 'usage'}
-          className={`settings-page-tab${tab === 'usage' ? ' settings-page-tab--active' : ''}`}
-          onClick={() => setTab('usage')}
-        >
-          Usage
-        </button>
-      </div>
-
-      {tab === 'skills' && <AiSkillsTab />}
-      {tab === 'usage' && (
-        <ComingSoon
-          title="Usage"
-          description="Calls used this month, per-provider breakdown, and a configurable cap."
-        />
-      )}
+      <ComingSoon
+        title="Usage"
+        description="Calls used this month, per-provider breakdown, and a configurable cap."
+      />
     </>
   );
 }

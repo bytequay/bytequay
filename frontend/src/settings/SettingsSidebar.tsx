@@ -29,12 +29,13 @@ const GROUPS: GroupDef[] = [
     ],
   },
   {
-    // Single-entry AI group per docs/mockups/design/tasks/settings-ai-skills.png —
-    // the "AI" surface owns Credentials / Skills / Usage as inner tabs,
-    // not as sidebar entries, so the rail stays shallow.
+    // Single-entry AI group — the "AI" surface owns Usage as an inner
+    // tab now that Credentials moved to its own section and Skills
+    // moved to its own section. The rail stays shallow.
     label: 'AI',
     links: [
       { id: 'ai-review', label: 'AI', icon: '✦' },
+      { id: 'skills', label: 'Skills', icon: '◆' },
     ],
   },
   {

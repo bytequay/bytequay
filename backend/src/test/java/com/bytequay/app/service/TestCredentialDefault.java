@@ -139,6 +139,21 @@ class TestCredentialDefault
                 .hasMessageContaining("no credential for AI");
     }
 
+    @Test
+    void mcpRowRoundtripsItsConfigJson()
+    {
+        String name = uniqueName("slack");
+        String cfg = "{\"transport\":\"remote\",\"authKind\":\"bearer\",\"serverUrl\":\"https://mcp.example/v1\"}";
+        Credential row = service.upsert(
+                CredentialType.MCP, name, "personal", "xoxb-test", null, null, cfg);
+
+        assertThat(row.type()).isEqualTo(CredentialType.MCP);
+        assertThat(row.configJson()).isEqualTo(cfg);
+
+        Credential read = service.get(CredentialType.MCP, name, "personal").orElseThrow();
+        assertThat(read.configJson()).isEqualTo(cfg);
+    }
+
     /** Each test uses a fresh provider name so it doesn't collide
      *  with the V84-backfilled rows or other tests running in the same
      *  Spring context. */

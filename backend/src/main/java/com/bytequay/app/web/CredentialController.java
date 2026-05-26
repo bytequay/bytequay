@@ -67,7 +67,10 @@ public class CredentialController
             String instanceName,
             String value,
             String label,
-            String notes)
+            String notes,
+            /** MCP-only structured config (transport, authKind,
+             *  serverUrl, envVarName). Null for the other kinds. */
+            String configJson)
     {}
 
     /**
@@ -108,7 +111,8 @@ public class CredentialController
                 resolveInstanceName(req.instanceName()),
                 req.value(),
                 req.label(),
-                req.notes());
+                req.notes(),
+                req.configJson());
     }
 
     /**

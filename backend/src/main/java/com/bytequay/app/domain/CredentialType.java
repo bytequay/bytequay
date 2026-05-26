@@ -27,6 +27,10 @@ package com.bytequay.app.domain;
  *       {@code "openai"}, {@code "local"}).</li>
  *   <li>{@link #INTEGRATION} — name is the integration id
  *       (e.g., {@code "github-oauth-app"} for the OAuth app credentials).</li>
+ *   <li>{@link #MCP}         — name is the MCP service id
+ *       ({@code "slack"}, {@code "linear"}, etc.); per-service
+ *       extra fields (transport, auth-kind, server URL, env-var
+ *       name) ride along in the row's {@code configJson}.</li>
  * </ul>
  */
 public enum CredentialType
@@ -34,5 +38,6 @@ public enum CredentialType
     ACCOUNT,
     REPO,
     AI,
-    INTEGRATION
+    INTEGRATION,
+    MCP
 }

@@ -195,7 +195,8 @@ public class SqliteCredentialStore
             String instanceName,
             String rawValue,
             String label,
-            String notes)
+            String notes,
+            String configJson)
     {
         requireNonNull(type, "type is null");
         requireNonNull(name, "name is null");
@@ -227,6 +228,7 @@ public class SqliteCredentialStore
         entity.setPreview(CredentialCipher.preview(trimmed));
         entity.setLabel(label);
         entity.setNotes(notes);
+        entity.setConfigJson(configJson);
         Credential saved = toDomain(jpaRepository.save(entity));
         // Bust both cache shapes ("/instanceName" and the wildcard "/*") so
         // subsequent reads pick up the new value.
@@ -276,6 +278,7 @@ public class SqliteCredentialStore
                 e.getPreview(),
                 e.getNotes(),
                 e.isDefault(),
+                e.getConfigJson(),
                 e.getCreatedAt(),
                 e.getUpdatedAt(),
                 e.getLastUsedAt());

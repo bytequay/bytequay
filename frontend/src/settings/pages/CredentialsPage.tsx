@@ -18,6 +18,7 @@ import {
   type CredentialTemplate,
   type CredentialTestResult,
   type CredentialType,
+  type McpCredentialConfig,
 } from '../../types';
 import CredentialEditorModal from './credentials/CredentialEditorModal';
 
@@ -74,6 +75,7 @@ function CredentialsPage({ onFirstCredentialAdded }: Props) {
 
   const tabType: CredentialType | null = tab === 'llm' ? 'AI'
       : tab === 'pat' ? 'ACCOUNT'
+      : tab === 'tools' ? 'MCP'
       : null;
 
   const visible = useMemo(
@@ -85,7 +87,7 @@ function CredentialsPage({ onFirstCredentialAdded }: Props) {
   const counts = useMemo(() => ({
     llm: credentials.filter(c => c.type === 'AI').length,
     pat: credentials.filter(c => c.type === 'ACCOUNT').length,
-    tools: 0,
+    tools: credentials.filter(c => c.type === 'MCP').length,
   }), [credentials]);
 
   const load = async () => {
@@ -116,11 +118,14 @@ function CredentialsPage({ onFirstCredentialAdded }: Props) {
     label: string | null;
     notes: string | null;
     setAsDefault: boolean;
+    configJson: string | null;
   }) => {
     const wasEmpty = credentials.length === 0;
     // Editing without a fresh secret keeps the existing one — the
     // backend's upsert needs a value, so we only call it when the
-    // user actually typed something.
+    // user actually typed something. OAuth MCP rows never carry a
+    // secret value on this surface, so the modal stamps a "·"
+    // placeholder there to keep the existing row.
     if (input.value.length > 0) {
       await window.bridge.upsertCredential({
         type: input.type,
@@ -129,6 +134,7 @@ function CredentialsPage({ onFirstCredentialAdded }: Props) {
         value: input.value,
         label: input.label,
         notes: input.notes,
+        configJson: input.configJson,
       });
     }
     if (input.setAsDefault) {
@@ -226,15 +232,6 @@ function CredentialsPage({ onFirstCredentialAdded }: Props) {
 
           {error !== null && <div className="repo-error">{error}</div>}
 
-          {tab === 'tools' && (
-            <div style={comingSoonStyle}>
-              <strong>Tools / MCP credentials are a follow-up.</strong>{' '}
-              The row format will mirror the LLM tab — provider/host
-              groups, ★ default per service, OAuth or token auth —
-              plus a remote/local transport switch. Use the legacy
-              integrations page in the meantime for OAuth installs.
-            </div>
-          )}
 
           {tabType !== null && loading && <div className="settings-loading">Loading…</div>}
 
@@ -253,6 +250,8 @@ function CredentialsPage({ onFirstCredentialAdded }: Props) {
               <ul style={listStyle}>
                 {group.rows.map(c => {
                   const t = testStates[c.id];
+                  const mcp = c.type === 'MCP' ? parseMcpConfigSafe(c.configJson) : null;
+                  const isOAuth = mcp !== null && mcp.transport === 'remote' && mcp.authKind === 'oauth';
                   return (
                     <li key={c.id} style={rowStyle(c.isDefault)}>
                       <div style={rowMainStyle}>
@@ -271,9 +270,20 @@ function CredentialsPage({ onFirstCredentialAdded }: Props) {
                           {c.label !== null && c.label !== '' && (
                             <span style={rowLabelStyle}>{c.label}</span>
                           )}
-                          <span style={authBadgeStyle(c.type)}>{authLabel(c.type)}</span>
-                          <span style={previewStyle}>{c.preview}</span>
+                          <span style={authBadgeStyle(c.type)}>{mcp !== null ? mcpAuthLabel(mcp) : authLabel(c.type)}</span>
+                          {isOAuth ? (
+                            <span style={connectedChipStyle}>⬡ connected</span>
+                          ) : (
+                            <span style={previewStyle}>{c.preview}</span>
+                          )}
                         </div>
+                        {mcp !== null && (
+                          <div style={mcpMetaStyle}>
+                            {mcp.transport === 'remote'
+                                ? `remote · ${mcp.serverUrl ?? '<no url>'}`
+                                : `local · ${mcp.command ?? '<no command>'} · env ${mcp.envVarName ?? '?'}`}
+                          </div>
+                        )}
                         {c.notes !== null && c.notes !== '' && (
                           <div style={rowNotesStyle}>{c.notes}</div>
                         )}
@@ -290,14 +300,25 @@ function CredentialsPage({ onFirstCredentialAdded }: Props) {
                         )}
                       </div>
                       <div style={rowActionsStyle}>
-                        <button
-                          type="button"
-                          className="button button--secondary button--small"
-                          onClick={() => { void handleTest(c); }}
-                          disabled={t?.loading === true}
-                        >
-                          {t?.loading ? 'Testing…' : 'Test'}
-                        </button>
+                        {isOAuth ? (
+                          <button
+                            type="button"
+                            className="button button--secondary button--small"
+                            onClick={() => setEditing(c)}
+                            title="Re-run the OAuth dance (placeholder — opens the editor)."
+                          >
+                            Re-auth
+                          </button>
+                        ) : (
+                          <button
+                            type="button"
+                            className="button button--secondary button--small"
+                            onClick={() => { void handleTest(c); }}
+                            disabled={t?.loading === true}
+                          >
+                            {t?.loading ? 'Testing…' : 'Test'}
+                          </button>
+                        )}
                         <button
                           type="button"
                           className="button button--secondary button--small"
@@ -348,6 +369,32 @@ function authLabel(type: CredentialType): string {
     case 'ACCOUNT': return 'PAT';
     case 'REPO': return 'PAT';
     case 'INTEGRATION': return 'OAuth';
+    case 'MCP': return 'MCP';
+  }
+}
+
+function mcpAuthLabel(cfg: McpCredentialConfig): string {
+  if (cfg.transport === 'local') return 'MCP · local';
+  return cfg.authKind === 'oauth' ? 'MCP · OAuth' : 'MCP · bearer';
+}
+
+/** Lenient parse — bad JSON or a missing column falls back to null so
+ *  the row still renders. */
+function parseMcpConfigSafe(raw: string | null): McpCredentialConfig | null {
+  if (raw === null || raw === '') return null;
+  try {
+    const obj = JSON.parse(raw) as Partial<McpCredentialConfig>;
+    if (obj.transport !== 'remote' && obj.transport !== 'local') return null;
+    return {
+      transport: obj.transport,
+      authKind: obj.authKind === 'oauth' ? 'oauth' : obj.authKind === 'bearer' ? 'bearer' : undefined,
+      serverUrl: typeof obj.serverUrl === 'string' ? obj.serverUrl : undefined,
+      command: typeof obj.command === 'string' ? obj.command : undefined,
+      envVarName: typeof obj.envVarName === 'string' ? obj.envVarName : undefined,
+    };
+  }
+  catch {
+    return null;
   }
 }
 
@@ -584,6 +631,7 @@ function authBadgeStyle(type: CredentialType): React.CSSProperties {
     ACCOUNT: { fg: '#15803d', bg: 'rgba(22, 163, 74, 0.10)' },
     REPO: { fg: '#15803d', bg: 'rgba(22, 163, 74, 0.10)' },
     INTEGRATION: { fg: '#1d4ed8', bg: 'rgba(37, 99, 235, 0.10)' },
+    MCP: { fg: '#0d9488', bg: 'rgba(13, 148, 136, 0.10)' },
   };
   const p = palette[type];
   return {
@@ -639,6 +687,23 @@ const testFailStyle: React.CSSProperties = {
   color: '#cf1322',
   fontSize: 11,
   fontWeight: 500,
+};
+
+const connectedChipStyle: React.CSSProperties = {
+  fontSize: 10,
+  fontWeight: 600,
+  padding: '1px 8px',
+  borderRadius: 999,
+  background: 'rgba(13, 148, 136, 0.10)',
+  color: '#0d9488',
+  letterSpacing: '0.02em',
+};
+
+const mcpMetaStyle: React.CSSProperties = {
+  marginTop: 4,
+  fontSize: 11,
+  fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
+  color: 'var(--text-3)',
 };
 
 export default CredentialsPage;

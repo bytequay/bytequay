@@ -863,7 +863,30 @@ export type UserStatsDto = {
 //   REPO        — name is the repo full slug "owner/repo"
 //   AI          — name is the provider id ("anthropic", "openai", "local", ...)
 //   INTEGRATION — name is the integration id ("github-oauth-app", etc.)
-export type CredentialType = 'ACCOUNT' | 'REPO' | 'AI' | 'INTEGRATION';
+//   MCP         — name is the MCP service id ("slack", "linear", …);
+//                 per-service extras (transport / auth-kind / URL /
+//                 env-var) ride along in {@code configJson}.
+export type CredentialType = 'ACCOUNT' | 'REPO' | 'AI' | 'INTEGRATION' | 'MCP';
+
+/** Structured payload that lives in {@code CredentialDto.configJson}
+ *  for MCP rows. Encoded as a JSON string on the wire so the
+ *  existing credentials table can keep one column for all kinds;
+ *  the frontend serializes + parses around the bridge boundary. */
+export type McpCredentialConfig = {
+  /** Remote = network MCP server (HTTP + auth). Local = stdio
+   *  subprocess; the secret is injected into the child's env. */
+  transport: 'remote' | 'local';
+  /** Remote only — how the server authenticates the bearer. OAuth
+   *  rows are status-only (no Test, Re-auth from the row); bearer
+   *  rows show the standard ✓/⚠ probe. */
+  authKind?: 'oauth' | 'bearer';
+  /** Remote only — server endpoint URL. */
+  serverUrl?: string;
+  /** Local only — launch command (e.g., "mcp-server-slack"). */
+  command?: string;
+  /** Local only — env var name the secret value gets injected as. */
+  envVarName?: string;
+};
 
 export type CredentialDto = {
   id: number;
@@ -879,6 +902,10 @@ export type CredentialDto = {
   /** True when this row is the ★ default for its (type, name)
    *  group. Resolvers that don't name an instance pick this one. */
   isDefault: boolean;
+  /** Kind-specific structured config (raw JSON string, may be
+   *  parsed with {@link McpCredentialConfig} for MCP rows). Null
+   *  for ACCOUNT / AI / REPO / INTEGRATION rows. */
+  configJson: string | null;
   createdAt: string;
   updatedAt: string;
   lastUsedAt: string | null;
@@ -892,6 +919,9 @@ export type UpsertCredentialRequest = {
   value: string;
   label?: string | null;
   notes?: string | null;
+  /** MCP-only structured config (serialised as JSON). Null / omit
+   *  for the other kinds. */
+  configJson?: string | null;
 };
 
 // Display metadata for the canned credential templates the editor offers.

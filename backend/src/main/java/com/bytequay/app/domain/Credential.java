@@ -35,6 +35,11 @@ public record Credential(
          *  (type, name) group. Exactly one row per group carries
          *  this; an unnamed scope resolves to it. */
         boolean isDefault,
+        /** Kind-specific structured config (raw JSON string), or
+         *  null for kinds that don't need it. MCP rows pack their
+         *  transport / auth-kind / server-url / env-var name in
+         *  here; ACCOUNT / AI / REPO ignore the column. */
+        String configJson,
         Instant createdAt,
         Instant updatedAt,
         Instant lastUsedAt) {}

@@ -73,14 +73,17 @@ public interface CredentialStore
     /** Exact decrypted value. */
     Optional<String> getSecret(CredentialType type, String name, String instanceName);
 
-    /** Upserts by (type, name, instanceName). */
+    /** Upserts by (type, name, instanceName). MCP rows pass a JSON
+     *  config blob through {@code configJson} (transport / authKind
+     *  / serverUrl / envVarName); other kinds leave it null. */
     Credential upsert(
             CredentialType type,
             String name,
             String instanceName,
             String rawValue,
             String label,
-            String notes);
+            String notes,
+            String configJson);
 
     void delete(CredentialType type, String name, String instanceName);
 }

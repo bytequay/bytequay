@@ -131,7 +131,21 @@ public class CredentialService
             String label,
             String notes)
     {
-        return credentialStore.upsert(type, name, instanceName, rawValue, label, notes);
+        return upsert(type, name, instanceName, rawValue, label, notes, null);
+    }
+
+    /** Upsert with a structured config blob (MCP rows). The legacy
+     *  six-arg overload above leaves {@code configJson} null. */
+    public Credential upsert(
+            CredentialType type,
+            String name,
+            String instanceName,
+            String rawValue,
+            String label,
+            String notes,
+            String configJson)
+    {
+        return credentialStore.upsert(type, name, instanceName, rawValue, label, notes, configJson);
     }
 
     public void delete(CredentialType type, String name, String instanceName)
@@ -147,7 +161,8 @@ public class CredentialService
                 DEFAULT_INSTANCE_NAME,
                 legacyPat,
                 null,
-                "Migrated from legacy app_settings on first boot.");
+                "Migrated from legacy app_settings on first boot.",
+                /* configJson */ null);
         appSettingsStore.set(GITHUB_PAT, "");
         log.info("Migrated legacy GitHub PAT from app_settings into credentials table");
     }

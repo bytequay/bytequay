@@ -17,6 +17,7 @@ import {
   type CredentialDto,
   type CredentialTemplate,
   type CredentialType,
+  type McpCredentialConfig,
 } from '../../../types';
 
 /** Default sub-name on the backend when the user doesn't pick one. */
@@ -46,6 +47,7 @@ export type CredentialEditorModalProps = {
     label: string | null;
     notes: string | null;
     setAsDefault: boolean;
+    configJson: string | null;
   }) => Promise<void>;
   /** Run the upstream probe against the just-typed inputs (Edit only —
    *  Add can't test until Save lands the row). Returns the result so
@@ -67,13 +69,25 @@ function templateFor(type: CredentialType, name: string): CredentialTemplate | u
  * doesn't show even a partial key.
  */
 function CredentialEditorModal({ filterType, existing, onClose, onSave, onTest }: CredentialEditorModalProps) {
+  const isMcp = filterType === 'MCP' || existing?.type === 'MCP';
   const templates = filterType
       ? CREDENTIAL_TEMPLATES.filter(t => t.type === filterType)
       : CREDENTIAL_TEMPLATES;
   const initialKey = existing
       ? `${existing.type}/${existing.name}`
-      : `${templates[0]?.type ?? 'ACCOUNT'}/${templates[0]?.name ?? 'github'}`;
+      : isMcp
+        ? 'MCP/'
+        : `${templates[0]?.type ?? 'ACCOUNT'}/${templates[0]?.name ?? 'github'}`;
   const [templateKey, setTemplateKey] = useState(initialKey);
+  // MCP-specific: a free-text service id (slack / linear / …). The
+  // modal lifts this into the (type, name) pair on save so the row
+  // groups behave the same as the templated kinds.
+  const initialMcpName = existing?.type === 'MCP' ? existing.name : '';
+  const [mcpName, setMcpName] = useState<string>(initialMcpName);
+  // MCP-specific: structured config. Parsed back from existing rows
+  // so Edit pre-fills correctly; defaults to a remote+bearer add.
+  const initialMcpConfig = parseMcpConfig(existing?.configJson ?? null);
+  const [mcp, setMcp] = useState<McpCredentialConfig>(initialMcpConfig);
   const [instanceName, setInstanceName] = useState(existing?.instanceName ?? DEFAULT_INSTANCE_NAME);
   const [value, setValue] = useState('');
   const [label, setLabel] = useState(existing?.label ?? '');
@@ -86,26 +100,62 @@ function CredentialEditorModal({ filterType, existing, onClose, onSave, onTest }
 
   const [tType, tName] = templateKey.split('/') as [CredentialType, string];
   const template = templateFor(tType, tName);
+  // OAuth MCP rows don't have a raw key to paste — the "secret" we
+  // store is just a placeholder so the row exists; Re-auth is what
+  // actually exchanges tokens.
+  const isOAuth = isMcp && mcp.transport === 'remote' && mcp.authKind === 'oauth';
 
   const handleSave = async () => {
-    // Edit allows blank (label/notes/default-only updates); Add must
-    // carry a value.
-    if (!existing && !value.trim()) {
+    let effectiveName = tName;
+    if (isMcp) {
+      const trimmedService = mcpName.trim();
+      if (!existing && trimmedService.length === 0) {
+        setError('Service id must not be blank (e.g. "slack", "linear").');
+        return;
+      }
+      effectiveName = existing?.name ?? trimmedService;
+      if (mcp.transport === 'remote') {
+        if (!mcp.serverUrl || mcp.serverUrl.trim().length === 0) {
+          setError('Server URL is required for a remote MCP server.');
+          return;
+        }
+      }
+      else {
+        if (!mcp.command || mcp.command.trim().length === 0) {
+          setError('Launch command is required for a local MCP server.');
+          return;
+        }
+        if (!mcp.envVarName || mcp.envVarName.trim().length === 0) {
+          setError('Env var name is required so the launcher knows where to inject the secret.');
+          return;
+        }
+      }
+    }
+    // OAuth MCP rows don't carry a raw secret to test/paste — stamp a
+    // placeholder so the row persists. Re-auth would exchange the
+    // real token (out of scope for this surface).
+    const requireValue = !existing && !(isMcp && isOAuth);
+    if (requireValue && !value.trim()) {
       setError('Value must not be blank.');
       return;
     }
     const finalInstance = instanceName.trim() || DEFAULT_INSTANCE_NAME;
+    const finalValue = value.trim()
+        || (existing?.preview ?? '')
+        || (isMcp && isOAuth ? 'oauth' : '');
+    const finalConfigJson = isMcp ? serialiseMcpConfig(mcp) : null;
     setSaving(true);
     setError(null);
     try {
       await onSave({
         type: tType,
-        name: tName,
+        name: effectiveName,
         instanceName: finalInstance,
-        value: value.trim() || (existing?.preview ?? ''),
+        value: finalValue,
         label: label.trim() || null,
         notes: notes.trim() || null,
         setAsDefault,
+        configJson: finalConfigJson,
       });
     }
     catch (e) {
@@ -150,7 +200,7 @@ function CredentialEditorModal({ filterType, existing, onClose, onSave, onTest }
         {/* Type only shown when the modal isn't kind-locked. The
             CredentialsPage tabs always lock — the legacy flow that
             opens this without a filter still gets the picker. */}
-        {filterType === undefined && (
+        {filterType === undefined && !isMcp && (
           <div style={fieldStyle}>
             <label style={labelStyle}>Type</label>
             <select
@@ -169,7 +219,7 @@ function CredentialEditorModal({ filterType, existing, onClose, onSave, onTest }
           </div>
         )}
 
-        {filterType !== undefined && templates.length > 1 && (
+        {!isMcp && filterType !== undefined && templates.length > 1 && (
           <div style={fieldStyle}>
             <label style={labelStyle}>Provider</label>
             <select
@@ -188,8 +238,118 @@ function CredentialEditorModal({ filterType, existing, onClose, onSave, onTest }
           </div>
         )}
 
+        {isMcp && (
+          <div style={fieldStyle}>
+            <label style={labelStyle}>Service id</label>
+            <input
+              style={inputStyle}
+              type="text"
+              value={mcpName}
+              onChange={e => setMcpName(e.target.value)}
+              placeholder="e.g. slack, linear, github"
+              disabled={!!existing}
+            />
+            <p style={hintStyle}>
+              Short identifier for the MCP service. Multiple accounts of
+              the same service share this id and get distinguished by
+              the instance name below (e.g. <code>slack</code> ×{' '}
+              <code>personal</code> + <code>work</code>).
+            </p>
+          </div>
+        )}
+
+        {isMcp && (
+          <div style={fieldStyle}>
+            <label style={labelStyle}>Transport</label>
+            <div style={segmentRowStyle}>
+              <button
+                type="button"
+                style={segmentBtnStyle(mcp.transport === 'remote')}
+                onClick={() => setMcp(prev => ({ ...prev, transport: 'remote' }))}
+              >
+                Remote (HTTP)
+              </button>
+              <button
+                type="button"
+                style={segmentBtnStyle(mcp.transport === 'local')}
+                onClick={() => setMcp(prev => ({ ...prev, transport: 'local' }))}
+              >
+                Local (stdio)
+              </button>
+            </div>
+          </div>
+        )}
+
+        {isMcp && mcp.transport === 'remote' && (
+          <>
+            <div style={fieldStyle}>
+              <label style={labelStyle}>Server URL</label>
+              <input
+                style={inputStyle}
+                type="text"
+                value={mcp.serverUrl ?? ''}
+                onChange={e => setMcp(prev => ({ ...prev, serverUrl: e.target.value }))}
+                placeholder="https://mcp.example.com/v1"
+              />
+            </div>
+            <div style={fieldStyle}>
+              <label style={labelStyle}>Auth kind</label>
+              <div style={segmentRowStyle}>
+                <button
+                  type="button"
+                  style={segmentBtnStyle(mcp.authKind === 'oauth')}
+                  onClick={() => setMcp(prev => ({ ...prev, authKind: 'oauth' }))}
+                >
+                  OAuth
+                </button>
+                <button
+                  type="button"
+                  style={segmentBtnStyle(mcp.authKind === 'bearer' || mcp.authKind === undefined)}
+                  onClick={() => setMcp(prev => ({ ...prev, authKind: 'bearer' }))}
+                >
+                  Bearer token
+                </button>
+              </div>
+              <p style={hintStyle}>
+                OAuth rows show <strong>⬡ connected</strong> + a Re-auth
+                action; bearer rows show <strong>✓/⚠</strong> + Test.
+              </p>
+            </div>
+          </>
+        )}
+
+        {isMcp && mcp.transport === 'local' && (
+          <>
+            <div style={fieldStyle}>
+              <label style={labelStyle}>Launch command</label>
+              <input
+                style={inputStyle}
+                type="text"
+                value={mcp.command ?? ''}
+                onChange={e => setMcp(prev => ({ ...prev, command: e.target.value }))}
+                placeholder="e.g. mcp-server-slack"
+              />
+            </div>
+            <div style={fieldStyle}>
+              <label style={labelStyle}>Env var name</label>
+              <input
+                style={inputStyle}
+                type="text"
+                value={mcp.envVarName ?? ''}
+                onChange={e => setMcp(prev => ({ ...prev, envVarName: e.target.value }))}
+                placeholder="e.g. SLACK_BOT_TOKEN"
+              />
+              <p style={hintStyle}>
+                The secret value below is injected into the child
+                process under this env var at launch — never written
+                to disk in plaintext.
+              </p>
+            </div>
+          </>
+        )}
+
         <div style={fieldStyle}>
-          <label style={labelStyle}>Name</label>
+          <label style={labelStyle}>{isMcp ? 'Account / instance' : 'Name'}</label>
           <input
             style={inputStyle}
             type="text"
@@ -199,26 +359,38 @@ function CredentialEditorModal({ filterType, existing, onClose, onSave, onTest }
             disabled={!!existing}
           />
           <p style={hintStyle}>
-            Sub-name within the provider — e.g. "personal" / "work". Must be
-            unique within this group. Defaults to "{DEFAULT_INSTANCE_NAME}".
+            Sub-name within the {isMcp ? 'service' : 'provider'} — e.g.
+            "personal" / "work". Must be unique within this group.
+            Defaults to "{DEFAULT_INSTANCE_NAME}".
           </p>
         </div>
 
-        <div style={fieldStyle}>
-          <label style={labelStyle}>Value</label>
-          <input
-            style={inputStyle}
-            type="password"
-            value={value}
-            onChange={e => setValue(e.target.value)}
-            placeholder={existing ? '•••• stored — paste to replace' : 'Paste the key or token'}
-            autoFocus
-          />
-          <p style={hintStyle}>
-            Encrypted at rest on this machine (AES-256-GCM). Config files only
-            reference it by name — never the key.
-          </p>
-        </div>
+        {!isOAuth && (
+          <div style={fieldStyle}>
+            <label style={labelStyle}>{isMcp ? 'Secret' : 'Value'}</label>
+            <input
+              style={inputStyle}
+              type="password"
+              value={value}
+              onChange={e => setValue(e.target.value)}
+              placeholder={existing ? '•••• stored — paste to replace' : 'Paste the key or token'}
+              autoFocus
+            />
+            <p style={hintStyle}>
+              Encrypted at rest on this machine (AES-256-GCM). Config files
+              only reference it by name — never the key.
+            </p>
+          </div>
+        )}
+
+        {isOAuth && (
+          <div style={oauthHintStyle}>
+            ⬡ OAuth flow — the actual token exchange happens on Re-auth
+            (from the row). This dialog just registers the row so the
+            launcher knows the service id, server URL and instance
+            name. No raw key to paste.
+          </div>
+        )}
 
         <div style={fieldStyle}>
           <label style={labelStyle}>Label (optional)</label>
@@ -292,8 +464,52 @@ function CredentialEditorModal({ filterType, existing, onClose, onSave, onTest }
 }
 
 function provLabel(type: CredentialType, name: string): string {
+  if (type === 'MCP') {
+    return name.length > 0 ? `${name} (MCP)` : 'this MCP service';
+  }
   const tpl = templateFor(type, name);
   return tpl?.displayName ?? `${type.toLowerCase()} / ${name}`;
+}
+
+/** Default MCP config used when adding a fresh row. Remote + bearer
+ *  is the common case for hosted MCP servers behind an API token. */
+function defaultMcpConfig(): McpCredentialConfig
+{
+  return { transport: 'remote', authKind: 'bearer', serverUrl: '' };
+}
+
+function parseMcpConfig(raw: string | null): McpCredentialConfig
+{
+  if (raw === null || raw === '') return defaultMcpConfig();
+  try {
+    const obj = JSON.parse(raw) as Partial<McpCredentialConfig>;
+    return {
+      transport: obj.transport === 'local' ? 'local' : 'remote',
+      authKind: obj.authKind === 'oauth' ? 'oauth' : 'bearer',
+      serverUrl: typeof obj.serverUrl === 'string' ? obj.serverUrl : '',
+      command: typeof obj.command === 'string' ? obj.command : '',
+      envVarName: typeof obj.envVarName === 'string' ? obj.envVarName : '',
+    };
+  }
+  catch {
+    return defaultMcpConfig();
+  }
+}
+
+function serialiseMcpConfig(cfg: McpCredentialConfig): string
+{
+  // Drop empty transport-specific fields so the persisted blob
+  // doesn't carry stale fields when the user flips remote ↔ local.
+  const out: McpCredentialConfig = { transport: cfg.transport };
+  if (cfg.transport === 'remote') {
+    out.authKind = cfg.authKind === 'oauth' ? 'oauth' : 'bearer';
+    if (cfg.serverUrl !== undefined && cfg.serverUrl.length > 0) out.serverUrl = cfg.serverUrl.trim();
+  }
+  else {
+    if (cfg.command !== undefined && cfg.command.length > 0) out.command = cfg.command.trim();
+    if (cfg.envVarName !== undefined && cfg.envVarName.length > 0) out.envVarName = cfg.envVarName.trim();
+  }
+  return JSON.stringify(out);
 }
 
 const scrimStyle: React.CSSProperties = {
@@ -474,6 +690,36 @@ const secondaryBtnStyle: React.CSSProperties = {
   background: '#fff',
   color: 'var(--text-2)',
   cursor: 'pointer',
+};
+
+const segmentRowStyle: React.CSSProperties = {
+  display: 'inline-flex',
+  border: '1px solid rgba(0,0,0,0.10)',
+  borderRadius: 8,
+  overflow: 'hidden',
+  background: '#fff',
+};
+
+function segmentBtnStyle(active: boolean): React.CSSProperties {
+  return {
+    padding: '6px 12px',
+    fontSize: 12,
+    fontWeight: active ? 600 : 500,
+    border: 'none',
+    background: active ? 'rgba(13, 148, 136, 0.10)' : '#fff',
+    color: active ? '#0d9488' : 'var(--text-2)',
+    cursor: 'pointer',
+  };
+}
+
+const oauthHintStyle: React.CSSProperties = {
+  marginBottom: 12,
+  padding: '10px 12px',
+  fontSize: 12,
+  border: '1px dashed rgba(13, 148, 136, 0.30)',
+  borderRadius: 8,
+  background: 'rgba(13, 148, 136, 0.05)',
+  color: 'var(--text-2)',
 };
 
 export default CredentialEditorModal;

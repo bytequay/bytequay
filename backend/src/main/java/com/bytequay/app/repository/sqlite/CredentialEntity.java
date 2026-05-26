@@ -63,6 +63,12 @@ class CredentialEntity
     @Column(name = "is_default", nullable = false)
     private int isDefault;
 
+    /** Kind-specific structured config blob. JSON for MCP rows
+     *  (transport / authKind / serverUrl / envVarName); null for
+     *  every other kind. */
+    @Column(name = "config_json")
+    private String configJson;
+
     @Column(name = "created_at", nullable = false, updatable = false)
     @Convert(converter = InstantToTextConverter.class)
     private Instant createdAt;
@@ -116,6 +122,9 @@ class CredentialEntity
 
     boolean isDefault() { return isDefault != 0; }
     void setDefault(boolean value) { this.isDefault = value ? 1 : 0; }
+
+    String getConfigJson() { return configJson; }
+    void setConfigJson(String configJson) { this.configJson = configJson; }
 
     Instant getCreatedAt() { return createdAt; }
 

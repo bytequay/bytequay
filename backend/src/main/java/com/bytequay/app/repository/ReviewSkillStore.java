@@ -52,4 +52,8 @@ public interface ReviewSkillStore
 
     /** Hard-delete. No-op when the id doesn't exist. */
     void delete(long id);
+
+    /** Flip the enable flag on a row. Throws when the id is missing
+     *  so the controller can map it to 404. */
+    ReviewSkill setEnabled(long id, boolean enabled);
 }

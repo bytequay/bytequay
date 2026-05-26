@@ -16,6 +16,7 @@ package com.bytequay.app.service.ai;
 import com.bytequay.app.domain.PullRequestDraft;
 import com.bytequay.app.domain.ReviewOutput;
 import com.bytequay.app.domain.ReviewRequest;
+import com.bytequay.app.service.skills.SkillDraft;
 
 import java.util.function.Consumer;
 
@@ -124,5 +125,28 @@ public interface LlmReviewer
     {
         throw new UnsupportedOperationException(
                 providerId() + " doesn't support PR drafting yet. Switch to a provider that does in Settings → AI.");
+    }
+
+    /**
+     * Drafts a library skill from a short user prompt — the
+     * Skills modal's "Draft with AI" path. Returns a structured
+     * {@link SkillDraft} (name + description + body) for the user
+     * to review + edit before saving; the propose-then-confirm
+     * pattern keeps an AI mistake from silently landing in the
+     * vault.
+     *
+     * @param userPrompt the user's description of the skill ("describe
+     *                   the skill, or paste instructions you repeat")
+     * @param scope      one of "global" / "repo" / "role" — feeds the
+     *                   prompt so the description is framed for the
+     *                   right trigger surface
+     *
+     * <p>Default implementation throws so callers can detect providers
+     * that haven't implemented this yet.
+     */
+    default SkillDraft draftSkill(String userPrompt, String scope)
+    {
+        throw new UnsupportedOperationException(
+                providerId() + " doesn't support skill drafting yet. Switch to a provider that does in Settings → AI.");
     }
 }

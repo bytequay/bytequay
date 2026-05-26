@@ -196,6 +196,7 @@ class TestAiReviewService
         @Override public ReviewSkill create(String skillName, String repo, String llmProvider, String description, String context) { throw new UnsupportedOperationException(); }
         @Override public ReviewSkill update(long id, String skillName, String repo, String llmProvider, String description, String context) { throw new UnsupportedOperationException(); }
         @Override public void delete(long id) { throw new UnsupportedOperationException(); }
+        @Override public ReviewSkill setEnabled(long id, boolean enabled) { throw new UnsupportedOperationException(); }
     }
 
     private static final class UnsupportedPullRequestStore

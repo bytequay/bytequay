@@ -35,5 +35,10 @@ public record ReviewSkill(
         String llmProvider,
         String description,
         String context,
+        /** When false the row stays in the vault but no
+         *  consumer applies it. Today the review prompt only
+         *  reads enabled skills; future runtime lanes follow
+         *  the same flag. */
+        boolean enabled,
         Instant createdAt,
         Instant updatedAt) {}

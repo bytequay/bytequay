@@ -119,6 +119,16 @@ public class SqliteReviewSkillStore
         this.repo.deleteById(id);
     }
 
+    @Override
+    @Transactional
+    public ReviewSkill setEnabled(long id, boolean enabled)
+    {
+        ReviewSkillEntity e = this.repo.findById(id)
+                .orElseThrow(() -> new IllegalStateException("skill " + id + " not found"));
+        e.setEnabled(enabled);
+        return toDomain(this.repo.save(e));
+    }
+
     private static String blankToNull(String s)
     {
         return s == null || s.isBlank() ? null : s.strip();
@@ -133,6 +143,7 @@ public class SqliteReviewSkillStore
                 e.getLlmProvider(),
                 e.getDescription(),
                 e.getContext(),
+                e.isEnabled(),
                 e.getCreatedAt(),
                 e.getUpdatedAt());
     }

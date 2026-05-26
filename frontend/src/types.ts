@@ -1084,8 +1084,20 @@ export type ReviewSkillDto = {
   llmProvider: string | null;
   description: string | null;
   context: string | null;
+  /** Persisted enable toggle. The Skills surface mutes disabled
+   *  rows; the review-time lookup skips them. */
+  enabled: boolean;
   createdAt: string;
   updatedAt: string;
+};
+
+/** Result of POST /skills/draft — a proposed name + trigger
+ *  description + body the user reviews + edits in the modal before
+ *  saving. The trigger is a "loads when …" condition, not a title. */
+export type SkillDraftDto = {
+  name: string;
+  description: string;
+  body: string;
 };
 
 /** One row of the Repos page. Mirrors the backend
@@ -2294,6 +2306,14 @@ export type Bridge = {
     context: string | null;
   }) => Promise<ReviewSkillDto>;
   deleteReviewSkill: (id: number) => Promise<void>;
+  /** Flip the per-skill enable toggle. The backend filters review-
+   *  time consumption by the flag; the row stays in the vault when
+   *  disabled so it can be flipped back on later. */
+  setSkillEnabled: (id: number, enabled: boolean) => Promise<ReviewSkillDto>;
+  /** Ask the active LLM provider to draft a skill from a short user
+   *  prompt. Returns name + trigger + body for the modal to render
+   *  pre-filled — the user confirms / edits before saving. */
+  draftSkill: (prompt: string, scope: string) => Promise<SkillDraftDto>;
   runAiReview: (prId: number, repo: string, number: number) => Promise<AiReviewDraftDto>;
   /** Sends the user's draft comment text to the active LLM and returns
    *  a polished rewrite. Used by the "Better words" button — UI replaces

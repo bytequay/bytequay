@@ -14,15 +14,20 @@
 package com.bytequay.app.web;
 
 import com.bytequay.app.domain.ReviewSkill;
+import com.bytequay.app.service.ai.LlmReviewerRegistry;
 import com.bytequay.app.service.skills.ReviewSkillService;
+import com.bytequay.app.service.skills.SkillDraft;
 import com.google.common.collect.ImmutableMap;
+import org.springframework.http.HttpStatusCode;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.server.ResponseStatusException;
 
 import java.util.List;
 import java.util.Map;
@@ -33,10 +38,12 @@ import static java.util.Objects.requireNonNull;
 public class ReviewSkillController
 {
     private final ReviewSkillService service;
+    private final LlmReviewerRegistry reviewers;
 
-    public ReviewSkillController(ReviewSkillService service)
+    public ReviewSkillController(ReviewSkillService service, LlmReviewerRegistry reviewers)
     {
         this.service = requireNonNull(service, "service is null");
+        this.reviewers = requireNonNull(reviewers, "reviewers is null");
     }
 
     public record SkillRequest(
@@ -95,4 +102,42 @@ public class ReviewSkillController
         service.delete(id);
         return ImmutableMap.of("result", "deleted");
     }
+
+    /** PATCH /skills/{id}/enabled — flip the enable toggle. Returns
+     *  the updated row so the UI can re-render the muted state in
+     *  one round-trip. */
+    @PatchMapping("/skills/{id}/enabled")
+    public ReviewSkill setEnabled(@PathVariable long id, @RequestBody EnabledRequest body)
+    {
+        if (body == null) {
+            throw new ResponseStatusException(HttpStatusCode.valueOf(400), "body is required");
+        }
+        return service.setEnabled(id, body.enabled());
+    }
+
+    /**
+     * POST /skills/draft — propose a name + description + body for
+     * the user to confirm before saving. Uses the workspace's active
+     * LLM provider; the response is editable in the modal before the
+     * user hits Save. One cheap call — same pattern as the polish /
+     * diagnose endpoints.
+     */
+    @PostMapping("/skills/draft")
+    public SkillDraft draft(@RequestBody DraftRequest body)
+    {
+        if (body == null || body.prompt() == null || body.prompt().isBlank()) {
+            throw new ResponseStatusException(HttpStatusCode.valueOf(400),
+                    "prompt must not be blank");
+        }
+        try {
+            return reviewers.active().draftSkill(body.prompt(), body.scope());
+        }
+        catch (UnsupportedOperationException e) {
+            throw new ResponseStatusException(HttpStatusCode.valueOf(501), e.getMessage());
+        }
+    }
+
+    public record EnabledRequest(boolean enabled) {}
+
+    public record DraftRequest(String prompt, String scope) {}
 }

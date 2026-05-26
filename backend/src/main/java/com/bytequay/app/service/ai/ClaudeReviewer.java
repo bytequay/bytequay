@@ -19,6 +19,7 @@ import com.bytequay.app.domain.ReviewOutput;
 import com.bytequay.app.domain.ReviewRequest;
 import com.bytequay.app.repository.AppSettingsStore;
 import com.bytequay.app.service.CredentialService;
+import com.bytequay.app.service.skills.SkillDraft;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.databind.JsonNode;
@@ -423,6 +424,74 @@ public class ClaudeReviewer
         }
         catch (IOException e) {
             throw new IllegalStateException("Claude returned malformed PR draft JSON: " + e.getMessage(), e);
+        }
+    }
+
+    @Override
+    public SkillDraft draftSkill(String userPrompt, String scope)
+    {
+        if (userPrompt == null || userPrompt.isBlank()) {
+            throw new IllegalStateException("Prompt is required to draft a skill.");
+        }
+        String apiKey = credentialService.getSecret(CredentialType.AI, ANTHROPIC_NAME)
+                .orElseThrow(() -> new IllegalStateException(
+                        "Anthropic API key not configured. Add it in Settings → AI review."));
+        String model = appSettings.get(AppSettingsStore.Key.LLM_MODEL)
+                .filter(s -> !s.isBlank())
+                .orElse(DEFAULT_MODEL);
+
+        // Strict-JSON contract — name + trigger description + body.
+        // The description is the trigger ("loads when …"), so it must
+        // read as a condition, not a title. Body is markdown the agent
+        // will load whole when the trigger fires.
+        String resolvedScope = scope == null || scope.isBlank() ? "global" : scope.trim().toLowerCase(Locale.ROOT);
+        String system = """
+                You draft a single library "skill" for an AI coding agent. \
+                A skill is model-triggered: the agent decides whether to load \
+                it based on the trigger description. Output STRICT JSON: \
+                {"name": string, "description": string, "body": string}. \
+                Constraints: \
+                - "name" is short, ≤ 6 words, no punctuation other than dashes. \
+                - "description" reads as a TRIGGER — a "when X" or "loads when …" \
+                  condition the agent matches on. Not a title; not "this skill". \
+                - "body" is markdown — the actual instructions the agent loads \
+                  when the trigger fires. Keep it focused; one screen at most. \
+                Output ONLY the JSON object — no preamble, no markdown fences.""";
+        String user = "Scope: " + resolvedScope + ".\n"
+                + "User prompt:\n" + userPrompt.trim();
+
+        MessagesRequest body = new MessagesRequest(
+                model,
+                /* maxTokens */ 800,
+                system,
+                ImmutableList.of(new MessagesRequest.Message("user", user)),
+                false);
+
+        try {
+            MessagesResponse response = client.post()
+                    .uri("/v1/messages")
+                    .header("x-api-key", apiKey)
+                    .body(body)
+                    .retrieve()
+                    .body(MessagesResponse.class);
+            String text = extractText(response).trim();
+            String json = extractJsonObject(text);
+            JsonNode node = objectMapper.readTree(json);
+            String name = node.path("name").asText("").trim();
+            String description = node.path("description").asText("").trim();
+            String skillBody = node.path("body").asText("").trim();
+            if (name.isEmpty() || description.isEmpty() || skillBody.isEmpty()) {
+                throw new IllegalStateException("Claude returned an incomplete skill draft.");
+            }
+            return new SkillDraft(name, description, skillBody);
+        }
+        catch (RestClientResponseException e) {
+            log.warn("Anthropic draftSkill returned {}: {}", e.getStatusCode().value(), e.getResponseBodyAsString());
+            throw new IllegalStateException(
+                    "Claude skill draft failed (" + e.getStatusCode().value() + "). Check your API key and try again.", e);
+        }
+        catch (IOException e) {
+            throw new IllegalStateException("Claude returned malformed skill draft JSON: " + e.getMessage(), e);
         }
     }
 

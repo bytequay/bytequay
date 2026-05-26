@@ -40,6 +40,7 @@ import type {
   PullRequestDto,
   RecentEventDto,
   ReviewSkillDto,
+  SkillDraftDto,
   SuggestedReviewerDto,
   NewTaskGroupRequestDto,
   NewTaskRequestDto,
@@ -298,6 +299,10 @@ const bridge: Bridge = {
   updateReviewSkill: (id: number, input): Promise<ReviewSkillDto> =>
     ipcRenderer.invoke('skills:update', id, input),
   deleteReviewSkill: (id: number): Promise<void> => ipcRenderer.invoke('skills:delete', id),
+  setSkillEnabled: (id: number, enabled: boolean): Promise<ReviewSkillDto> =>
+    ipcRenderer.invoke('skills:setEnabled', id, enabled),
+  draftSkill: (prompt: string, scope: string): Promise<SkillDraftDto> =>
+    ipcRenderer.invoke('skills:draft', prompt, scope),
   runAiReview: (prId: number, repo: string, number: number): Promise<AiReviewDraftDto> =>
     ipcRenderer.invoke('ai:run', prId, repo, number),
   polishCommentText: (text: string): Promise<string> =>

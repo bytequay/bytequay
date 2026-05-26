@@ -48,6 +48,12 @@ class ReviewSkillEntity
     @Column(columnDefinition = "TEXT")
     private String context;
 
+    /** Persisted enable toggle. SQLite stores boolean as INTEGER 0/1
+     *  — V86 added the column with default 1 so existing rows stay
+     *  active and the review path's behaviour doesn't shift. */
+    @Column(name = "enabled", nullable = false)
+    private int enabled = 1;
+
     @Column(name = "created_at", nullable = false, updatable = false)
     @Convert(converter = InstantToTextConverter.class)
     private Instant createdAt;
@@ -90,6 +96,9 @@ class ReviewSkillEntity
 
     String getContext() { return context; }
     void setContext(String context) { this.context = context; }
+
+    boolean isEnabled() { return enabled != 0; }
+    void setEnabled(boolean value) { this.enabled = value ? 1 : 0; }
 
     Instant getCreatedAt() { return createdAt; }
 

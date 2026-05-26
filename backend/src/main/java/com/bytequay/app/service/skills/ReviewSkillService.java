@@ -46,11 +46,12 @@ public class ReviewSkillService
                         HttpStatusCode.valueOf(404), "skill " + id + " not found"));
     }
 
-    /** Lookup by repo at review-time. Returns empty when no skill targets
-     *  the repo (the AI run then proceeds with no extra context). */
+    /** Lookup by repo at review-time. Returns empty when no skill
+     *  targets the repo OR the targeted row is disabled — the
+     *  review prompt then proceeds with no extra context. */
     public Optional<ReviewSkill> forRepo(String repo)
     {
-        return store.findByRepo(repo);
+        return store.findByRepo(repo).filter(ReviewSkill::enabled);
     }
 
     public ReviewSkill create(
@@ -95,6 +96,18 @@ public class ReviewSkillService
     public void delete(long id)
     {
         store.delete(id);
+    }
+
+    /** Persist the enable toggle. Wrapped here so the controller can
+     *  map the store's IllegalStateException to a 404. */
+    public ReviewSkill setEnabled(long id, boolean enabled)
+    {
+        try {
+            return store.setEnabled(id, enabled);
+        }
+        catch (IllegalStateException e) {
+            throw new ResponseStatusException(HttpStatusCode.valueOf(404), e.getMessage());
+        }
     }
 
     private static void validateRequiredFields(String skillName, String repo)

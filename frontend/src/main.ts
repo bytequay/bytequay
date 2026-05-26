@@ -3879,6 +3879,32 @@ const url = new URL(`${BACKEND_BASE}/api/search/repos`);
     return res.json();
   });
 
+  ipcMain.handle('skills:setEnabled', async (_event, id: number, enabled: boolean) => {
+    const res = await fetch(`${BACKEND_BASE}/skills/${id}/enabled`, {
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ enabled }),
+    });
+    if (!res.ok) {
+      const body = await res.text().catch(() => '');
+      throw new Error(`Set skill enabled failed (${res.status}): ${body}`);
+    }
+    return res.json();
+  });
+
+  ipcMain.handle('skills:draft', async (_event, prompt: string, scope: string) => {
+    const res = await fetch(`${BACKEND_BASE}/skills/draft`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ prompt, scope }),
+    });
+    if (!res.ok) {
+      const body = await res.text().catch(() => '');
+      throw new Error(`Draft skill failed (${res.status}): ${body}`);
+    }
+    return res.json();
+  });
+
   ipcMain.handle('ai:run', async (_event, prId: number, repo: string, number: number) => {
     const url = new URL(`${BACKEND_BASE}/ai/review`);
     url.searchParams.set('prId', String(prId));

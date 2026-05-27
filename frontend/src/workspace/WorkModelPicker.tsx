@@ -217,6 +217,11 @@ function CliRow({
     : agent.installed
       ? <span style={chipWarnStyle}>installed · not authed</span>
       : <span style={chipMutedStyle}>set up →</span>;
+  // Whether the active model is one the catalog knows about. If not,
+  // we surface it in the "Other" row so the user sees the custom id
+  // they typed instead of it appearing unselected.
+  const activeIsCustom = activeModel !== null
+      && !agent.models.some(m => m.id === activeModel);
   return (
     <div style={rowStyle(selected)}>
       <button type="button" onClick={onToggle} style={rowHeadStyle}>
@@ -242,6 +247,12 @@ function CliRow({
               {m.isDefault && <span style={defaultTagStyle}>Default</span>}
             </button>
           ))}
+          <OtherModelRow
+            disabled={!agent.installed}
+            active={activeIsCustom}
+            value={activeIsCustom && activeModel !== null ? activeModel : ''}
+            onCommit={(value) => onPick(value)}
+          />
         </div>
       )}
     </div>
@@ -287,6 +298,13 @@ function ApiRow({
               </button>
             );
           })}
+          <OtherModelRow
+            active={activeModel !== null && !provider.models.some(m => m.id === activeModel)}
+            value={activeModel !== null
+                && !provider.models.some(m => m.id === activeModel)
+                  ? activeModel : ''}
+            onCommit={(value) => onPick(value, activeAccount)}
+          />
           {provider.accounts.length > 1 && (
             <div style={accountsRowStyle}>
               <span style={mutedStyle}>Account:</span>
@@ -309,6 +327,49 @@ function ApiRow({
           )}
         </div>
       )}
+    </div>
+  );
+}
+
+/** Free-text input for a model id the catalog doesn't list yet.
+ *  Commits on blur or Enter; passing an empty value commits null
+ *  (which reads as "use the agent / provider default" on the parent). */
+function OtherModelRow({
+  active, value, onCommit, disabled = false,
+}: {
+  active: boolean;
+  value: string;
+  onCommit: (next: string | null) => void;
+  disabled?: boolean;
+}) {
+  const [draft, setDraft] = useState(value);
+  // Sync the draft when the parent's active model changes (e.g. the
+  // user picked a catalog row after typing) so the input doesn't
+  // hold stale text.
+  useEffect(() => { setDraft(value); }, [value]);
+  const commit = () => {
+    const trimmed = draft.trim();
+    onCommit(trimmed.length === 0 ? null : trimmed);
+  };
+  return (
+    <div style={otherRowStyle(active)}>
+      <span style={otherLabelStyle}>Other…</span>
+      <input
+        type="text"
+        value={draft}
+        onChange={(e) => setDraft(e.target.value)}
+        onBlur={commit}
+        onKeyDown={(e) => {
+          if (e.key === 'Enter') {
+            e.preventDefault();
+            commit();
+            (e.target as HTMLInputElement).blur();
+          }
+        }}
+        disabled={disabled}
+        placeholder="e.g. claude-opus-5"
+        style={otherInputStyle}
+      />
     </div>
   );
 }
@@ -541,4 +602,34 @@ const footnoteStyle: React.CSSProperties = {
   color: 'var(--text-3)',
   lineHeight: 1.55,
   margin: '4px 0 0',
+};
+
+function otherRowStyle(active: boolean): React.CSSProperties {
+  return {
+    display: 'flex',
+    alignItems: 'center',
+    gap: 8,
+    padding: '6px 12px',
+    border: active ? '1px dashed rgba(124,58,237,0.40)' : '1px dashed transparent',
+    borderRadius: 6,
+    background: active ? 'rgba(124,58,237,0.04)' : 'transparent',
+  };
+}
+
+const otherLabelStyle: React.CSSProperties = {
+  fontSize: 11,
+  color: 'var(--text-3)',
+  fontStyle: 'italic',
+  flexShrink: 0,
+};
+
+const otherInputStyle: React.CSSProperties = {
+  flex: 1,
+  padding: '4px 8px',
+  fontSize: 11,
+  border: '1px solid var(--border)',
+  borderRadius: 6,
+  background: '#fff',
+  color: 'var(--text-1)',
+  fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
 };

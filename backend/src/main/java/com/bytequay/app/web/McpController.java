@@ -25,6 +25,7 @@ import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.repository.ThreadCheckpointStore;
 import com.bytequay.app.repository.WatchedRepoStore;
 import com.bytequay.app.service.local.GitRunner;
+import com.bytequay.app.service.local.ShellRunner;
 import com.bytequay.app.service.threads.McpPermissionGate;
 import com.bytequay.app.service.threads.NotificationService;
 import com.bytequay.app.service.threads.TaskService;
@@ -64,6 +65,7 @@ import java.util.Map;
 import java.util.Optional;
 import java.util.OptionalInt;
 import java.util.Set;
+import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 
 import static java.util.Objects.requireNonNull;
@@ -200,6 +202,11 @@ public class McpController
      *  before the push + PR open + close fires. */
     private static final String SHIP_TASK_TOOL = "ship_task";
 
+    /** Escape-hatch tool — runs a bounded shell command in the
+     *  active task's worktreePath, gated on each call via the user-
+     *  approval prompt. See {@link ShellRunner} for the policy. */
+    private static final String RUN_SHELL_TOOL = "run_shell";
+
     /** Hard upper bound on the {@code limit} arg of {@code recall_thread}
      *  — the result is inlined into the agent's context, so we cap it
      *  so a too-eager caller can't blow up a single turn. */
@@ -242,6 +249,7 @@ public class McpController
     private final PullRequestStore prStore;
     private final WorkspaceService workspaces;
     private final TaskService taskService;
+    private final ShellRunner shellRunner;
 
     public McpController(
             ThreadService threads,
@@ -257,7 +265,8 @@ public class McpController
             SkillTools skillTools,
             PullRequestStore prStore,
             WorkspaceService workspaces,
-            TaskService taskService)
+            TaskService taskService,
+            ShellRunner shellRunner)
     {
         this.threads = requireNonNull(threads, "threads is null");
         this.taskStore = requireNonNull(taskStore, "taskStore is null");
@@ -273,6 +282,7 @@ public class McpController
         this.prStore = requireNonNull(prStore, "prStore is null");
         this.workspaces = requireNonNull(workspaces, "workspaces is null");
         this.taskService = requireNonNull(taskService, "taskService is null");
+        this.shellRunner = requireNonNull(shellRunner, "shellRunner is null");
     }
 
     @PostMapping
@@ -908,6 +918,30 @@ public class McpController
         // Dispatched via handleToolCall.
     }
 
+    /** Args record for {@code run_shell}. */
+    public record RunShellArgs(
+            @ToolParam(description = "Plain argv command line — no pipes, redirects, "
+                    + "command substitution, or background forks. The runner refuses any "
+                    + "of | & ; > < ` $(. Use task tools (request_review / ship_task) for "
+                    + "anything bigger than a quick probe.",
+                    required = true) String command) {}
+
+    @AgentTool(
+            name = RUN_SHELL_TOOL,
+            description = "Run a bounded shell command in the active task's worktree. "
+                    + "Each call surfaces a permission prompt to the user — no command "
+                    + "runs without an explicit click. Policy: 60-second timeout, 256 KB "
+                    + "output cap, plain argv only, no shell operators. Use as an escape "
+                    + "hatch for ad-hoc probes; prefer the test runner / ship_task / "
+                    + "request_review for longer flows.",
+            security = SecurityType.CODE_EXEC,
+            gating = Gating.GATED,
+            roles = AgentRole.TASK)
+    public void declareRunShell(@SuppressWarnings("unused") RunShellArgs args)
+    {
+        // Dispatched via handleToolCall.
+    }
+
     private void handleToolCall(String threadId, JsonNode id, JsonNode request, DeferredResult<JsonNode> deferred)
     {
         JsonNode params = request.path("params");
@@ -1033,6 +1067,10 @@ public class McpController
         }
         if (SHIP_TASK_TOOL.equals(name)) {
             handleShipTask(threadId, id, params.path("arguments"), deferred);
+            return;
+        }
+        if (RUN_SHELL_TOOL.equals(name)) {
+            handleRunShell(threadId, id, params.path("arguments"), deferred);
             return;
         }
         if (!TOOL_NAME.equals(name)) {
@@ -2236,6 +2274,79 @@ public class McpController
         deferred.setResult(plainText(id,
                 "Parked at AWAITING_REVIEW (ship_task). The user will review the "
                         + "proposed ship and approve, edit, or discard from the thread."));
+    }
+
+    /**
+     * Handles {@code run_shell}: the escape hatch. Routes the call
+     * through the same permission gate the CLI's built-in tools use
+     * for approval_prompt — a per-call user click. On Allow the
+     * runner spawns the process in the active task's worktreePath
+     * under the policy enumerated in {@link ShellRunner}; on Deny
+     * the agent gets a deny envelope.
+     */
+    private void handleRunShell(
+            String threadId, JsonNode id, JsonNode args, DeferredResult<JsonNode> deferred)
+    {
+        String command = args.path("command").asText("").trim();
+        if (command.isEmpty()) {
+            deferred.setResult(toolResponse(id, deny("command is required")));
+            return;
+        }
+        Optional<Task> active = taskStore.findActiveTaskForThread(threadId);
+        if (active.isEmpty() || active.get().worktreePath() == null
+                || active.get().worktreePath().isBlank()) {
+            deferred.setResult(toolResponse(id,
+                    deny("run_shell requires an active task with a worktree")));
+            return;
+        }
+        Path worktree = Path.of(active.get().worktreePath());
+        String callId = UUID.randomUUID().toString();
+
+        // Surface a permission card in the conversation pane so the
+        // user sees the exact cmdline before deciding. Same shape the
+        // approval_prompt path uses for built-in Bash / Edit prompts.
+        CompletableFuture<PermissionDecision> decisionFuture = gate.register(callId, RUN_SHELL_TOOL);
+        decisionFuture.whenComplete((decision, ex) -> {
+            if (ex != null) {
+                deferred.setResult(toolResponse(id, deny("interrupted: " + ex.getMessage())));
+                return;
+            }
+            if (decision != PermissionDecision.ALLOW) {
+                deferred.setResult(toolResponse(id, deny("user denied")));
+                return;
+            }
+            try {
+                ShellRunner.Result result = shellRunner.run(worktree, command);
+                ObjectNode out = mapper.createObjectNode();
+                out.put("ran", result.ran());
+                out.put("exitCode", result.exitCode());
+                out.put("truncated", result.truncated());
+                out.put("output", result.output());
+                if (result.error() != null) {
+                    out.put("error", result.error());
+                }
+                deferred.setResult(plainText(id, toJsonString(out)));
+            }
+            catch (InterruptedException ie) {
+                Thread.currentThread().interrupt();
+                deferred.setResult(toolResponse(id, deny("interrupted: " + ie.getMessage())));
+            }
+            catch (RuntimeException e) {
+                deferred.setResult(toolResponse(id, deny("run_shell failed: " + e.getMessage())));
+            }
+        });
+        try {
+            threads.notifyPermissionRequested(threadId, callId, RUN_SHELL_TOOL,
+                    "cmd: " + (command.length() > 200 ? command.substring(0, 197) + "…" : command));
+        }
+        catch (RuntimeException e) {
+            log.warn("Failed to surface run_shell prompt for thread {}: {}", threadId, e.getMessage());
+        }
+        deferred.onTimeout(() -> {
+            gate.cancel(callId);
+            deferred.setResult(toolResponse(id, deny("timed out waiting for the user")));
+        });
+        deferred.onCompletion(() -> gate.cancel(callId));
     }
 
     /** Resolves a watched repo from the task's workingDir by matching

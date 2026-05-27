@@ -14,8 +14,13 @@
 package com.bytequay.app.service.daily;
 
 import com.bytequay.app.domain.DailyCard;
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.google.common.collect.ImmutableList;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.stereotype.Service;
+import org.springframework.web.client.RestClient;
 
 import java.time.LocalDate;
 import java.time.ZoneId;
@@ -23,33 +28,98 @@ import java.util.List;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ConcurrentMap;
 
+import static java.util.Objects.requireNonNull;
+
 /**
- * Picks a daily card deterministically from a curated pool, caches the
- * choice for the calendar day, and returns the same card for every
- * request that day. The pool only contains real, attributed quotes plus
- * a small handful of non-quote tips so the model isn't asked to invent
- * anything (per the docs/mockups/v2/home/quote.md "must be from a real
- * person, must include correct author attribution" rule).
+ * Picks a daily card and caches it for the calendar day so every
+ * request on that day returns the same card. The primary source is
+ * the public quotable.io API — one random quote per day, attributed
+ * to a real person; when the call fails (offline, rate-limited,
+ * upstream outage) we fall back to an in-process curated pool of
+ * attributed quotes plus a handful of non-quote tips so the home
+ * card always renders something real.
+ *
+ * <p>The cache is per-server-lifetime: a backend restart mid-day
+ * re-picks (a fresh remote call, or the same fallback index). The
+ * fallback uses {@code date.toEpochDay() % POOL.size()} so a date
+ * always maps to the same offline card.
  */
 @Service
 public class DailyCardService
 {
+    private static final Logger log = LoggerFactory.getLogger(DailyCardService.class);
+
+    /** Quote categories we ask quotable for. Filters out
+     *  "religion" / "famous-quotes" / etc that don't fit a software
+     *  engineer's daily card. {@code |} is OR per the quotable API. */
+    private static final String QUOTE_TAGS = "technology|wisdom|inspirational|success";
+
     /** Per-date cache. Bounded in practice — entries that aren't today
      *  stop being read; we don't bother evicting. */
     private final ConcurrentMap<LocalDate, DailyCard> byDate = new ConcurrentHashMap<>();
 
+    private final RestClient quotableClient;
+
+    public DailyCardService(@Qualifier("quotableRestClient") RestClient quotableClient)
+    {
+        this.quotableClient = requireNonNull(quotableClient, "quotableClient is null");
+    }
+
     /**
-     * Returns today's card. Deterministic for a given day so the user
-     * sees the same card all day even if the backend restarts (the
-     * selection only depends on the day-of-year hash + the pool).
+     * Returns today's card. Deterministic-within-a-server-lifetime:
+     * the first call of each calendar day picks; later calls reuse the
+     * cached result. A restart re-picks once.
      */
     public DailyCard today()
     {
         LocalDate today = LocalDate.now(ZoneId.systemDefault());
-        return byDate.computeIfAbsent(today, DailyCardService::pick);
+        return byDate.computeIfAbsent(today, this::pick);
     }
 
-    private static DailyCard pick(LocalDate date)
+    private DailyCard pick(LocalDate date)
+    {
+        DailyCard remote = fetchRemote(date);
+        return remote != null ? remote : pickFromPool(date);
+    }
+
+    /** Calls quotable.io for a single random quote in our tag set.
+     *  Returns null on any failure — the caller falls back to the
+     *  curated pool. We log a warn so the failure mode is visible
+     *  without breaking the home card. */
+    private DailyCard fetchRemote(LocalDate date)
+    {
+        try {
+            QuotableResponse body = quotableClient.get()
+                    .uri(uri -> uri.path("/random")
+                            .queryParam("tags", QUOTE_TAGS)
+                            .build())
+                    .retrieve()
+                    .body(QuotableResponse.class);
+            if (body == null
+                    || body.content() == null || body.content().isBlank()
+                    || body.author() == null || body.author().isBlank()) {
+                return null;
+            }
+            return new DailyCard(
+                    "quote",
+                    body.content(),
+                    body.author(),
+                    // quotable's tags aren't author-role labels (they
+                    // describe quote categories like "technology"), so
+                    // we leave role null when sourcing remotely — the
+                    // hand-curated pool fills it; the API can't.
+                    /* role */ null,
+                    date);
+        }
+        catch (RuntimeException e) {
+            // Network failure, rate limit, malformed payload — any of
+            // these should degrade silently to the curated pool.
+            log.warn("quotable.io fetch failed; falling back to local pool: {}", e.getMessage());
+            return null;
+        }
+    }
+
+    private static DailyCard pickFromPool(LocalDate date)
     {
         // Stable rotation: same date → same card. Use toEpochDay so the
         // sequence advances by 1 each day rather than reshuffling.
@@ -57,6 +127,9 @@ public class DailyCardService
         Seed seed = POOL.get(idx);
         return new DailyCard(seed.type(), seed.text(), seed.author(), seed.role(), date);
     }
+
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    record QuotableResponse(String content, String author, List<String> tags) {}
 
     private record Seed(String type, String text, String author, String role) {}
 
@@ -75,7 +148,9 @@ public class DailyCardService
         return new Seed("open_source_tip", text, null, null);
     }
 
-    /** Curated pool. Quotes are real and attribution-checked. Order is
+    /** Fallback pool used when the remote quote feed is unreachable.
+     *  Quotes are real and attribution-checked; the tip rows are
+     *  uniquely ByteQuay so they aren't sourced remotely. Order is
      *  irrelevant — the rotation keys off date so reordering doesn't
      *  surface old cards out-of-order; just append new ones. */
     private static final List<Seed> POOL = ImmutableList.of(

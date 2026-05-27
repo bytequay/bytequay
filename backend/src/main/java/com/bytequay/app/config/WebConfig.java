@@ -38,6 +38,7 @@ public class WebConfig
     private static final String DEEPSEEK_API_BASE_URL = "https://api.deepseek.com";
     private static final String OPENAI_API_BASE_URL = "https://api.openai.com/v1";
     private static final String GITHUB_GRAPHQL_API_URL = "https://api.github.com/graphql";
+    private static final String QUOTABLE_API_BASE_URL = "https://api.quotable.io";
 
     // Outbound-HTTP timeouts. Without these a stuck GitHub call (rate-limited,
     // TCP dead connection, network blip) ties up a Tomcat worker until Node's
@@ -125,6 +126,21 @@ public class WebConfig
                 .defaultHeader("Content-Type", "application/json")
                 .defaultHeader("User-Agent", USER_AGENT)
                 .requestFactory(newTimeoutRequestFactory(CONNECT_TIMEOUT, Duration.ofMinutes(2)))
+                .build();
+    }
+
+    @Bean
+    public RestClient quotableRestClient()
+    {
+        // Public, no-auth quote feed used by the home-page "daily card".
+        // We hit it at most once per calendar day per backend lifetime —
+        // a short read timeout is plenty, and on any failure the daily
+        // card falls back to the in-process curated pool.
+        return RestClient.builder()
+                .baseUrl(QUOTABLE_API_BASE_URL)
+                .defaultHeader("Accept", "application/json")
+                .defaultHeader("User-Agent", USER_AGENT)
+                .requestFactory(newTimeoutRequestFactory(CONNECT_TIMEOUT, Duration.ofSeconds(8)))
                 .build();
     }
 

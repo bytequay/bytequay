@@ -152,6 +152,15 @@ public class McpController
      *  Approve click. */
     private static final String REPLY_REVIEW_THREAD_TOOL = "reply_review_thread";
 
+    /** Parked publisher — submits an APPROVE review on the active
+     *  task's linked PR. The optional body is the review summary
+     *  shown alongside the green checkmark on GitHub. */
+    private static final String APPROVE_PR_TOOL = "approve_pr";
+
+    /** Parked publisher — merges the active task's linked PR with
+     *  the user-selected strategy (squash by default). */
+    private static final String MERGE_PR_TOOL = "merge_pr";
+
     /** Hard upper bound on the {@code limit} arg of {@code recall_thread}
      *  — the result is inlined into the agent's context, so we cap it
      *  so a too-eager caller can't blow up a single turn. */
@@ -579,6 +588,45 @@ public class McpController
         // Dispatched via handleToolCall.
     }
 
+    /** Args record for {@code approve_pr}. */
+    public record ApprovePrArgs(
+            @ToolParam(description = "Optional review summary shown alongside the approval. "
+                    + "Empty submits an approval with no body — GitHub allows this.")
+            String body) {}
+
+    @AgentTool(
+            name = APPROVE_PR_TOOL,
+            description = "Submit an APPROVE review on the active task's linked PR. "
+                    + "The proposed approval (and any body) is parked at AWAITING_REVIEW; "
+                    + "on Approve the server fires a GitHub review create with event=APPROVE.",
+            security = SecurityType.VCS_PUBLISH,
+            gating = Gating.PARKED,
+            roles = AgentRole.TASK)
+    public void declareApprovePr(@SuppressWarnings("unused") ApprovePrArgs args)
+    {
+        // Dispatched via handleToolCall.
+    }
+
+    /** Args record for {@code merge_pr}. */
+    public record MergePrArgs(
+            @ToolParam(description = "Merge method — one of 'squash' (default), 'merge', or "
+                    + "'rebase'. Repos that don't allow the chosen method will surface that "
+                    + "as a publish failure on the Approve step.")
+            String strategy) {}
+
+    @AgentTool(
+            name = MERGE_PR_TOOL,
+            description = "Merge the active task's linked PR. The proposed merge is parked "
+                    + "at AWAITING_REVIEW with the chosen strategy; on Approve the server "
+                    + "fires the GitHub merge endpoint.",
+            security = SecurityType.VCS_PUBLISH,
+            gating = Gating.PARKED,
+            roles = AgentRole.TASK)
+    public void declareMergePr(@SuppressWarnings("unused") MergePrArgs args)
+    {
+        // Dispatched via handleToolCall.
+    }
+
     private void handleToolCall(String threadId, JsonNode id, JsonNode request, DeferredResult<JsonNode> deferred)
     {
         JsonNode params = request.path("params");
@@ -660,6 +708,14 @@ public class McpController
         }
         if (REPLY_REVIEW_THREAD_TOOL.equals(name)) {
             handleReplyReviewThread(threadId, id, params.path("arguments"), deferred);
+            return;
+        }
+        if (APPROVE_PR_TOOL.equals(name)) {
+            handleApprovePr(threadId, id, params.path("arguments"), deferred);
+            return;
+        }
+        if (MERGE_PR_TOOL.equals(name)) {
+            handleMergePr(threadId, id, params.path("arguments"), deferred);
             return;
         }
         if (!TOOL_NAME.equals(name)) {
@@ -1337,6 +1393,98 @@ public class McpController
         deferred.setResult(plainText(id,
                 "Parked at AWAITING_REVIEW. The user will review the reply and "
                         + "approve, edit, or discard from the thread."));
+    }
+
+    /**
+     * Handles {@code approve_pr}: parks an APPROVE review on the
+     * active task's linked PR. The user reviews the approval body
+     * in the gate; the GitHub call happens in PublishService on
+     * Approve.
+     */
+    private void handleApprovePr(
+            String threadId, JsonNode id, JsonNode args, DeferredResult<JsonNode> deferred)
+    {
+        Optional<Task> active = taskStore.findActiveTaskForThread(threadId);
+        if (active.isEmpty()) {
+            deferred.setResult(plainText(id,
+                    "no active task on this thread — nothing to approve"));
+            return;
+        }
+        Optional<PullRequestRef> prRef = resolvePrRefFromTask(active.get());
+        if (prRef.isEmpty()) {
+            deferred.setResult(plainText(id,
+                    "no PR linked to the active task — set linked_pr_number first"));
+            return;
+        }
+        String body = args.path("body").asText("");
+
+        parkActiveTaskAtAwaitingReview(active.get());
+        Map<String, Object> payload = new LinkedHashMap<>();
+        payload.put("action", "approve_pr");
+        payload.put("body", body);
+        Map<String, Object> pr = new LinkedHashMap<>();
+        pr.put("owner", prRef.get().owner());
+        pr.put("repo", prRef.get().repo());
+        pr.put("number", prRef.get().number());
+        payload.put("pr", pr);
+        payload.put("source", "mcp:approve_pr");
+        emitAwaitingReviewNotification(threadId, active.get().id(), payload, "mcp:approve_pr");
+
+        deferred.setResult(plainText(id,
+                "Parked at AWAITING_REVIEW. The user will review the approval and "
+                        + "approve, edit, or discard from the thread."));
+    }
+
+    /**
+     * Handles {@code merge_pr}: parks a merge request with the
+     * chosen strategy. The user picks Approve / Edit (which can
+     * change the body but not the strategy today) / Discard; on
+     * Approve the server fires the GitHub merge endpoint.
+     */
+    private void handleMergePr(
+            String threadId, JsonNode id, JsonNode args, DeferredResult<JsonNode> deferred)
+    {
+        Optional<Task> active = taskStore.findActiveTaskForThread(threadId);
+        if (active.isEmpty()) {
+            deferred.setResult(plainText(id,
+                    "no active task on this thread — nothing to merge"));
+            return;
+        }
+        Optional<PullRequestRef> prRef = resolvePrRefFromTask(active.get());
+        if (prRef.isEmpty()) {
+            deferred.setResult(plainText(id,
+                    "no PR linked to the active task — set linked_pr_number first"));
+            return;
+        }
+        String strategy = normaliseMergeStrategy(args.path("strategy").asText(""));
+
+        parkActiveTaskAtAwaitingReview(active.get());
+        Map<String, Object> payload = new LinkedHashMap<>();
+        payload.put("action", "merge_pr");
+        payload.put("strategy", strategy);
+        Map<String, Object> pr = new LinkedHashMap<>();
+        pr.put("owner", prRef.get().owner());
+        pr.put("repo", prRef.get().repo());
+        pr.put("number", prRef.get().number());
+        payload.put("pr", pr);
+        payload.put("source", "mcp:merge_pr");
+        emitAwaitingReviewNotification(threadId, active.get().id(), payload, "mcp:merge_pr");
+
+        deferred.setResult(plainText(id,
+                "Parked at AWAITING_REVIEW (merge_pr, strategy=" + strategy + "). "
+                        + "The user will approve, edit, or discard from the thread."));
+    }
+
+    private static String normaliseMergeStrategy(String raw)
+    {
+        if (raw == null) {
+            return "squash";
+        }
+        return switch (raw.trim().toLowerCase(Locale.ROOT)) {
+            case "merge" -> "merge";
+            case "rebase" -> "rebase";
+            default -> "squash";
+        };
     }
 
     /** Serialise a JSON node to its compact string form; falls back

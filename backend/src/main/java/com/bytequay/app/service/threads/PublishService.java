@@ -13,6 +13,8 @@
  */
 package com.bytequay.app.service.threads;
 
+import com.bytequay.app.domain.CreateReviewCommand;
+import com.bytequay.app.domain.MergePullRequestCommand;
 import com.bytequay.app.domain.Notification;
 import com.bytequay.app.domain.NotificationKind;
 import com.bytequay.app.domain.PullRequestRef;
@@ -25,6 +27,7 @@ import com.bytequay.app.web.PatResolver;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.google.common.collect.ImmutableList;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatusCode;
@@ -35,6 +38,7 @@ import java.io.IOException;
 import java.nio.file.Path;
 import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.Optional;
 
 import static java.util.Objects.requireNonNull;
 
@@ -97,6 +101,8 @@ public class PublishService
                 case "push" -> doPush(payload);
                 case "post_comment" -> doPostComment(payload, editedBody);
                 case "reply_review_thread" -> doReplyReviewThread(payload, editedBody);
+                case "approve_pr" -> doApprovePr(payload, editedBody);
+                case "merge_pr" -> doMergePr(payload);
                 default -> throw new ResponseStatusException(
                         HttpStatusCode.valueOf(400), "unsupported action: " + action);
             };
@@ -258,6 +264,73 @@ public class PublishService
         return new PublishResult(true, "approved",
                 "Replied in review thread on " + owner + "/" + repo + "#" + number + ".",
                 "reply_review_thread");
+    }
+
+    private PublishResult doApprovePr(JsonNode payload, String editedBody)
+    {
+        PrRefFromPayload ref = readPrRef(payload, "approve_pr");
+        String parkedBody = payload.path("body").asText("");
+        String effectiveBody = (editedBody == null || editedBody.isBlank())
+                ? parkedBody
+                : editedBody;
+        String pat = patResolver.resolve(ref.owner() + "/" + ref.repo());
+        // GitHub's review-create endpoint accepts an empty body for
+        // an APPROVE; the SDK uses Optional<String> so pass empty
+        // when the user didn't type anything.
+        CreateReviewCommand command = new CreateReviewCommand(
+                Optional.empty(),
+                effectiveBody.isBlank() ? Optional.empty() : Optional.of(effectiveBody),
+                "APPROVE",
+                ImmutableList.of());
+        pullRequests.createReview(pat, ref.toRef(), command);
+        return new PublishResult(true, "approved",
+                "Approved " + ref.owner() + "/" + ref.repo() + "#" + ref.number() + ".",
+                "approve_pr");
+    }
+
+    private PublishResult doMergePr(JsonNode payload)
+    {
+        PrRefFromPayload ref = readPrRef(payload, "merge_pr");
+        String strategy = payload.path("strategy").asText("squash");
+        MergePullRequestCommand command = switch (strategy) {
+            case "merge" -> MergePullRequestCommand.mergeCommit();
+            case "rebase" -> MergePullRequestCommand.rebase();
+            default -> MergePullRequestCommand.squash();
+        };
+        String pat = patResolver.resolve(ref.owner() + "/" + ref.repo());
+        pullRequests.mergePullRequest(pat, ref.toRef(), command);
+        return new PublishResult(true, "approved",
+                "Merged " + ref.owner() + "/" + ref.repo() + "#" + ref.number()
+                        + " (" + strategy + ").",
+                "merge_pr");
+    }
+
+    /** Reads (owner, repo, number) out of a parked payload's "pr"
+     *  block, validating that all three are present. Centralises the
+     *  shape so the publisher branches stay short. */
+    private static PrRefFromPayload readPrRef(JsonNode payload, String action)
+    {
+        JsonNode pr = payload.path("pr");
+        if (pr.isMissingNode() || pr.isNull()) {
+            throw new ResponseStatusException(HttpStatusCode.valueOf(400),
+                    "parked " + action + " notification has no pr ref");
+        }
+        String owner = pr.path("owner").asText("");
+        String repo = pr.path("repo").asText("");
+        int number = pr.path("number").asInt(0);
+        if (owner.isBlank() || repo.isBlank() || number <= 0) {
+            throw new ResponseStatusException(HttpStatusCode.valueOf(400),
+                    "parked " + action + " notification has incomplete pr ref");
+        }
+        return new PrRefFromPayload(owner, repo, number);
+    }
+
+    private record PrRefFromPayload(String owner, String repo, int number)
+    {
+        PullRequestRef toRef()
+        {
+            return new PullRequestRef(owner, repo, number);
+        }
     }
 
     /** Move the task off AWAITING_REVIEW to COMPLETED. No-op when the

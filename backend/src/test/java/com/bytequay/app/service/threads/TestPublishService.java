@@ -200,16 +200,20 @@ class TestPublishService
     @Test
     void approveRefusesWithBadRequestForUnsupportedAction()
     {
+        // "fly_drone" is not in the dispatch switch — any unknown
+        // action name produces the 400. (merge_pr / approve_pr have
+        // since landed as real cases; pick a name that no future
+        // catalog entry is likely to claim.)
         Notification parked = new Notification(
                 "notif-bad", NotificationKind.AWAITING_REVIEW, "thread-x", "task-x",
                 NotificationStatus.UNREAD,
-                "{\"action\":\"merge_pr\"}",
+                "{\"action\":\"fly_drone\"}",
                 Instant.now(), null);
         when(notifications.find("notif-bad")).thenReturn(Optional.of(parked));
 
         assertThatThrownBy(() -> service.approve("notif-bad", null))
                 .isInstanceOf(ResponseStatusException.class)
-                .hasMessageContaining("unsupported action: merge_pr");
+                .hasMessageContaining("unsupported action: fly_drone");
     }
 
     @Test

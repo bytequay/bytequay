@@ -18,6 +18,7 @@ import com.bytequay.app.domain.MergePullRequestCommand;
 import com.bytequay.app.domain.Notification;
 import com.bytequay.app.domain.NotificationKind;
 import com.bytequay.app.domain.PullRequestRef;
+import com.bytequay.app.domain.RepoRef;
 import com.bytequay.app.domain.RequestReviewersCommand;
 import com.bytequay.app.domain.Task;
 import com.bytequay.app.domain.TaskStatus;
@@ -108,6 +109,8 @@ public class PublishService
                 case "create_review_comment" -> doCreateReviewComment(payload, editedBody);
                 case "update_pr_body" -> doUpdatePrBody(payload, editedBody);
                 case "request_reviewer" -> doRequestReviewer(payload);
+                case "comment_on_issue" -> doCommentOnIssue(payload, editedBody);
+                case "set_issue_state" -> doSetIssueState(payload);
                 default -> throw new ResponseStatusException(
                         HttpStatusCode.valueOf(400), "unsupported action: " + action);
             };
@@ -387,6 +390,63 @@ public class PublishService
                         + ref.repo() + "#" + ref.number() + ".",
                 "request_reviewer");
     }
+
+    private PublishResult doCommentOnIssue(JsonNode payload, String editedBody)
+    {
+        IssueRefFromPayload ref = readIssueRef(payload, "comment_on_issue");
+        String parkedBody = payload.path("body").asText("");
+        String effectiveBody = (editedBody == null || editedBody.isBlank())
+                ? parkedBody
+                : editedBody;
+        if (effectiveBody.isBlank()) {
+            throw new ResponseStatusException(HttpStatusCode.valueOf(400),
+                    "comment body is blank — nothing to post");
+        }
+        // GitHub's issue-comment endpoint is the same for issues and
+        // PRs — PullRequestRef carries the (owner, repo, number)
+        // triple either way.
+        PullRequestRef forApi = new PullRequestRef(ref.owner(), ref.repo(), ref.number());
+        String pat = patResolver.resolve(ref.owner() + "/" + ref.repo());
+        pullRequests.createIssueComment(pat, forApi, effectiveBody);
+        return new PublishResult(true, "approved",
+                "Posted comment on " + ref.owner() + "/" + ref.repo() + "#" + ref.number() + ".",
+                "comment_on_issue");
+    }
+
+    private PublishResult doSetIssueState(JsonNode payload)
+    {
+        IssueRefFromPayload ref = readIssueRef(payload, "set_issue_state");
+        String state = payload.path("state").asText("");
+        if (!"open".equals(state) && !"closed".equals(state)) {
+            throw new ResponseStatusException(HttpStatusCode.valueOf(400),
+                    "parked set_issue_state notification has invalid state: " + state);
+        }
+        String pat = patResolver.resolve(ref.owner() + "/" + ref.repo());
+        pullRequests.setIssueState(pat, new RepoRef(ref.owner(), ref.repo()), ref.number(), state);
+        return new PublishResult(true, "approved",
+                "Set " + ref.owner() + "/" + ref.repo() + "#" + ref.number()
+                        + " to " + state + ".",
+                "set_issue_state");
+    }
+
+    private static IssueRefFromPayload readIssueRef(JsonNode payload, String action)
+    {
+        JsonNode issue = payload.path("issue");
+        if (issue.isMissingNode() || issue.isNull()) {
+            throw new ResponseStatusException(HttpStatusCode.valueOf(400),
+                    "parked " + action + " notification has no issue ref");
+        }
+        String owner = issue.path("owner").asText("");
+        String repo = issue.path("repo").asText("");
+        int number = issue.path("number").asInt(0);
+        if (owner.isBlank() || repo.isBlank() || number <= 0) {
+            throw new ResponseStatusException(HttpStatusCode.valueOf(400),
+                    "parked " + action + " notification has incomplete issue ref");
+        }
+        return new IssueRefFromPayload(owner, repo, number);
+    }
+
+    private record IssueRefFromPayload(String owner, String repo, int number) {}
 
     /** Reads (owner, repo, number) out of a parked payload's "pr"
      *  block, validating that all three are present. Centralises the

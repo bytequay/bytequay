@@ -173,6 +173,14 @@ public class McpController
      *  linked PR. */
     private static final String REQUEST_REVIEWER_TOOL = "request_reviewer";
 
+    /** Parked publisher — posts a comment on an issue in the active
+     *  task's repo. */
+    private static final String COMMENT_ON_ISSUE_TOOL = "comment_on_issue";
+
+    /** Parked publisher — flips an issue between 'open' and 'closed'
+     *  in the active task's repo. */
+    private static final String SET_ISSUE_STATE_TOOL = "set_issue_state";
+
     /** Hard upper bound on the {@code limit} arg of {@code recall_thread}
      *  — the result is inlined into the agent's context, so we cap it
      *  so a too-eager caller can't blow up a single turn. */
@@ -711,6 +719,47 @@ public class McpController
         // Dispatched via handleToolCall.
     }
 
+    /** Args record for {@code comment_on_issue}. */
+    public record CommentOnIssueArgs(
+            @ToolParam(description = "Issue number to comment on. The repo is the active "
+                    + "task's repo (the same one the task's worktree was cut from).",
+                    required = true, wireName = "issue_number") Integer issueNumber,
+            @ToolParam(description = "Markdown body of the comment.",
+                    required = true) String body) {}
+
+    @AgentTool(
+            name = COMMENT_ON_ISSUE_TOOL,
+            description = "Post a comment on an issue in the active task's repo. The body "
+                    + "is parked at AWAITING_REVIEW; on Approve the server posts via the "
+                    + "GitHub issue-comment endpoint.",
+            security = SecurityType.VCS_PUBLISH,
+            gating = Gating.PARKED,
+            roles = AgentRole.TASK)
+    public void declareCommentOnIssue(@SuppressWarnings("unused") CommentOnIssueArgs args)
+    {
+        // Dispatched via handleToolCall.
+    }
+
+    /** Args record for {@code set_issue_state}. */
+    public record SetIssueStateArgs(
+            @ToolParam(description = "Issue number to flip. The repo is the active task's repo.",
+                    required = true, wireName = "issue_number") Integer issueNumber,
+            @ToolParam(description = "Target state — 'open' or 'closed'.",
+                    required = true) String state) {}
+
+    @AgentTool(
+            name = SET_ISSUE_STATE_TOOL,
+            description = "Flip an issue between 'open' and 'closed' in the active task's "
+                    + "repo. The proposed flip is parked at AWAITING_REVIEW; on Approve the "
+                    + "server PATCHes via the GitHub issue endpoint.",
+            security = SecurityType.VCS_PUBLISH,
+            gating = Gating.PARKED,
+            roles = AgentRole.TASK)
+    public void declareSetIssueState(@SuppressWarnings("unused") SetIssueStateArgs args)
+    {
+        // Dispatched via handleToolCall.
+    }
+
     private void handleToolCall(String threadId, JsonNode id, JsonNode request, DeferredResult<JsonNode> deferred)
     {
         JsonNode params = request.path("params");
@@ -812,6 +861,14 @@ public class McpController
         }
         if (REQUEST_REVIEWER_TOOL.equals(name)) {
             handleRequestReviewer(threadId, id, params.path("arguments"), deferred);
+            return;
+        }
+        if (COMMENT_ON_ISSUE_TOOL.equals(name)) {
+            handleCommentOnIssue(threadId, id, params.path("arguments"), deferred);
+            return;
+        }
+        if (SET_ISSUE_STATE_TOOL.equals(name)) {
+            handleSetIssueState(threadId, id, params.path("arguments"), deferred);
             return;
         }
         if (!TOOL_NAME.equals(name)) {
@@ -1717,6 +1774,122 @@ public class McpController
         deferred.setResult(plainText(id,
                 "Parked at AWAITING_REVIEW. The user will approve or discard the reviewer "
                         + "request from the thread."));
+    }
+
+    /**
+     * Handles {@code comment_on_issue}: parks a comment on an issue
+     * in the active task's repo. PublishService fires the GitHub
+     * issue-comment endpoint on Approve.
+     */
+    private void handleCommentOnIssue(
+            String threadId, JsonNode id, JsonNode args, DeferredResult<JsonNode> deferred)
+    {
+        Optional<Task> active = taskStore.findActiveTaskForThread(threadId);
+        if (active.isEmpty()) {
+            deferred.setResult(plainText(id,
+                    "no active task on this thread — nothing to comment on"));
+            return;
+        }
+        Optional<WatchedRepo> repo = resolveRepoFromTask(active.get());
+        if (repo.isEmpty()) {
+            deferred.setResult(plainText(id,
+                    "active task's workingDir doesn't match any watched repo"));
+            return;
+        }
+        int issueNumber = args.path("issue_number").asInt(0);
+        String body = args.path("body").asText("");
+        if (issueNumber <= 0) {
+            deferred.setResult(plainText(id, "issue_number is required"));
+            return;
+        }
+        if (body.isBlank()) {
+            deferred.setResult(plainText(id, "body is required"));
+            return;
+        }
+
+        parkActiveTaskAtAwaitingReview(active.get());
+        Map<String, Object> payload = new LinkedHashMap<>();
+        payload.put("action", "comment_on_issue");
+        payload.put("body", body);
+        Map<String, Object> issue = new LinkedHashMap<>();
+        issue.put("owner", repo.get().owner());
+        issue.put("repo", repo.get().repo());
+        issue.put("number", issueNumber);
+        payload.put("issue", issue);
+        payload.put("source", "mcp:comment_on_issue");
+        emitAwaitingReviewNotification(threadId, active.get().id(), payload,
+                "mcp:comment_on_issue");
+
+        deferred.setResult(plainText(id,
+                "Parked at AWAITING_REVIEW. The user will review the issue comment and "
+                        + "approve, edit, or discard from the thread."));
+    }
+
+    /**
+     * Handles {@code set_issue_state}: parks an open/closed flip on
+     * an issue in the active task's repo.
+     */
+    private void handleSetIssueState(
+            String threadId, JsonNode id, JsonNode args, DeferredResult<JsonNode> deferred)
+    {
+        Optional<Task> active = taskStore.findActiveTaskForThread(threadId);
+        if (active.isEmpty()) {
+            deferred.setResult(plainText(id,
+                    "no active task on this thread — nothing to flip"));
+            return;
+        }
+        Optional<WatchedRepo> repo = resolveRepoFromTask(active.get());
+        if (repo.isEmpty()) {
+            deferred.setResult(plainText(id,
+                    "active task's workingDir doesn't match any watched repo"));
+            return;
+        }
+        int issueNumber = args.path("issue_number").asInt(0);
+        String state = args.path("state").asText("").trim().toLowerCase(Locale.ROOT);
+        if (issueNumber <= 0) {
+            deferred.setResult(plainText(id, "issue_number is required"));
+            return;
+        }
+        if (!"open".equals(state) && !"closed".equals(state)) {
+            deferred.setResult(plainText(id, "state must be 'open' or 'closed'"));
+            return;
+        }
+
+        parkActiveTaskAtAwaitingReview(active.get());
+        Map<String, Object> payload = new LinkedHashMap<>();
+        payload.put("action", "set_issue_state");
+        payload.put("state", state);
+        Map<String, Object> issue = new LinkedHashMap<>();
+        issue.put("owner", repo.get().owner());
+        issue.put("repo", repo.get().repo());
+        issue.put("number", issueNumber);
+        payload.put("issue", issue);
+        payload.put("source", "mcp:set_issue_state");
+        emitAwaitingReviewNotification(threadId, active.get().id(), payload,
+                "mcp:set_issue_state");
+
+        deferred.setResult(plainText(id,
+                "Parked at AWAITING_REVIEW (set_issue_state, " + state + "). "
+                        + "The user will approve or discard from the thread."));
+    }
+
+    /** Resolves a watched repo from the task's workingDir by matching
+     *  localClonePath. Returns empty when the task's directory isn't
+     *  a known clone. */
+    private Optional<WatchedRepo> resolveRepoFromTask(Task task)
+    {
+        if (task.workingDir() == null || task.workingDir().isBlank()) {
+            return Optional.empty();
+        }
+        Path needle = Path.of(task.workingDir());
+        for (WatchedRepo r : watchedRepos.findAll()) {
+            if (r.localClonePath() != null
+                    && !r.localClonePath().isBlank()
+                    && Path.of(r.localClonePath()).equals(needle)) {
+                return Optional.of(r);
+            }
+        }
+        return Optional.empty();
     }
 
     private static String normaliseMergeStrategy(String raw)

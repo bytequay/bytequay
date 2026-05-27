@@ -16,12 +16,13 @@ package com.bytequay.app.service.tools;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
-import jakarta.annotation.PostConstruct;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.aop.support.AopUtils;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.ApplicationContext;
+import org.springframework.context.event.ContextRefreshedEvent;
+import org.springframework.context.event.EventListener;
 import org.springframework.stereotype.Component;
 
 import java.lang.reflect.Method;
@@ -78,9 +79,21 @@ public class AgentToolRegistry
         this.context = requireNonNull(context, "context is null");
     }
 
-    @PostConstruct
+    /** Scan beans only once the whole context has refreshed.
+     *
+     *  <p>{@code @PostConstruct} would run before every other bean
+     *  is ready, so {@code context.getBean} on a not-yet-initialized
+     *  peer throws BeanCurrentlyInCreation and the bean gets silently
+     *  skipped. Listening for ContextRefreshedEvent guarantees the
+     *  full bean graph is wired. */
+    @EventListener(ContextRefreshedEvent.class)
     void scan()
     {
+        // Idempotent — ContextRefreshedEvent can fire more than once
+        // in some test setups; only rescan when we haven't yet.
+        if (!specs.isEmpty()) {
+            return;
+        }
         List<ToolSpec> built = new ArrayList<>();
         for (String beanName : context.getBeanDefinitionNames()) {
             Object bean;

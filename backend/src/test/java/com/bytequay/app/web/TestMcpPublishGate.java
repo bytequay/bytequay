@@ -109,9 +109,14 @@ class TestMcpPublishGate
 
         JsonNode response = invokePush(threadId);
 
-        assertThat(textOf(response)).contains("no active task on this thread");
-        // No task to flip, no notification to write — the refusal is a
-        // straight error message and the data plane stays untouched.
+        // A 0-task thread resolves to the TRUNK role, which has no
+        // GIT_PUSH grant — the registry-driven dispatch denies the
+        // call before the per-tool handler runs. The exact message
+        // is the capability-deny envelope rather than handlePush's
+        // legacy "no active task" string; both refuse the call and
+        // produce no notification, which is the invariant we care
+        // about here.
+        assertThat(textOf(response)).contains("not granted").contains("TRUNK");
         assertThat(notifications.listForThread(threadId)).isEmpty();
     }
 

@@ -30,6 +30,7 @@ import com.bytequay.app.service.tools.AgentRole;
 import com.bytequay.app.service.tools.AgentTool;
 import com.bytequay.app.service.tools.AgentToolRegistry;
 import com.bytequay.app.service.tools.Gating;
+import com.bytequay.app.service.tools.PermissionResolver;
 import com.bytequay.app.service.tools.SecurityType;
 import com.bytequay.app.service.tools.ToolParam;
 import com.bytequay.app.service.tools.ToolSpec;
@@ -55,6 +56,7 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.Optional;
 import java.util.OptionalInt;
+import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 
 import static java.util.Objects.requireNonNull;
@@ -151,6 +153,7 @@ public class McpController
     private final GitRunner git;
     private final ObjectMapper mapper;
     private final AgentToolRegistry registry;
+    private final PermissionResolver permissions;
 
     public McpController(
             ThreadService threads,
@@ -161,7 +164,8 @@ public class McpController
             WatchedRepoStore watchedRepos,
             GitRunner git,
             ObjectMapper mapper,
-            AgentToolRegistry registry)
+            AgentToolRegistry registry,
+            PermissionResolver permissions)
     {
         this.threads = requireNonNull(threads, "threads is null");
         this.taskStore = requireNonNull(taskStore, "taskStore is null");
@@ -172,6 +176,7 @@ public class McpController
         this.git = requireNonNull(git, "git is null");
         this.mapper = requireNonNull(mapper, "mapper is null");
         this.registry = requireNonNull(registry, "registry is null");
+        this.permissions = requireNonNull(permissions, "permissions is null");
     }
 
     @PostMapping
@@ -185,7 +190,7 @@ public class McpController
             JsonNode id = request.path("id");
             switch (method) {
                 case "initialize" -> deferred.setResult(initialize(id));
-                case "tools/list" -> deferred.setResult(listTools(id));
+                case "tools/list" -> deferred.setResult(listTools(threadId, id));
                 case "tools/call" -> handleToolCall(threadId, id, request, deferred);
                 case "notifications/initialized", "notifications/cancelled" ->
                         // Notifications carry no id and need no response — Spring
@@ -213,15 +218,17 @@ public class McpController
         return ok(id, result);
     }
 
-    private JsonNode listTools(JsonNode id)
+    private JsonNode listTools(String threadId, JsonNode id)
     {
         // Tools are declared via @AgentTool on the stub methods below;
         // the registry scans them at startup, sorts by name, and emits
         // a deterministic spec list. The MCP envelope just wraps each
-        // spec into the wire shape.
+        // spec into the wire shape, filtered to the caller's role so
+        // a trunk agent doesn't even see task-only tools.
+        AgentRole role = permissions.roleFor(threadId);
         ObjectNode result = mapper.createObjectNode();
         var tools = result.putArray("tools");
-        for (ToolSpec spec : registry.all()) {
+        for (ToolSpec spec : registry.visibleTo(role)) {
             ObjectNode tool = mapper.createObjectNode();
             tool.put("name", spec.name());
             tool.put("description", spec.description());
@@ -356,6 +363,26 @@ public class McpController
     {
         JsonNode params = request.path("params");
         String name = params.path("name").asText();
+        // Look the tool up in the registry first — that's the single
+        // source of truth for what exists, what role may discover it,
+        // and what capability it exercises. An unknown name fails the
+        // call the same way the legacy "unknown tool" branch did; a
+        // known name whose security isn't in the caller's grants
+        // returns a clean deny envelope so the model ends the turn
+        // gracefully rather than retrying.
+        ToolSpec spec = registry.byName(name).orElse(null);
+        if (spec == null) {
+            deferred.setResult(error(id, -32602, "unknown tool: " + name));
+            return;
+        }
+        Set<SecurityType> grants = permissions.grants(threadId);
+        if (!grants.contains(spec.security())) {
+            deferred.setResult(toolResponse(id, deny(
+                    "tool '" + name + "' requires capability " + spec.security()
+                            + " which is not granted to the current role ("
+                            + permissions.roleFor(threadId) + ")")));
+            return;
+        }
         if (REQUEST_REVIEW_TOOL.equals(name)) {
             handleRequestReview(threadId, id, params.path("arguments"), deferred);
             return;
@@ -373,7 +400,12 @@ public class McpController
             return;
         }
         if (!TOOL_NAME.equals(name)) {
-            deferred.setResult(error(id, -32602, "unknown tool: " + name));
+            // Registry knew the tool but this controller doesn't have a
+            // hand-coded handler for it yet (the gating dispatcher
+            // lands in a later commit). Today the only registered tool
+            // without a per-name branch above is approval_prompt
+            // (TOOL_NAME) — anything else is a registry-only stub.
+            deferred.setResult(error(id, -32602, "no handler for tool: " + name));
             return;
         }
         JsonNode args = params.path("arguments");

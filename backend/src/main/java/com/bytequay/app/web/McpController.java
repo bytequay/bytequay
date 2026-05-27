@@ -142,6 +142,10 @@ public class McpController
     /** Read tool — returns the active workspace's memory_md. */
     private static final String READ_WORKSPACE_MEMORY_TOOL = "read_workspace_memory";
 
+    /** Orchestration tool — trunk-only; materialises the first task
+     *  on a 0-task thread via the existing ThreadService entry point. */
+    private static final String CREATE_TASK_TOOL = "create_task";
+
     /** Hard upper bound on the {@code limit} arg of {@code recall_thread}
      *  — the result is inlined into the agent's context, so we cap it
      *  so a too-eager caller can't blow up a single turn. */
@@ -511,6 +515,41 @@ public class McpController
         // Dispatched via handleToolCall.
     }
 
+    /** Args record for {@code create_task}. */
+    public record CreateTaskArgs(
+            @ToolParam(description = "owner/name of the watched repo the task should be cut from. "
+                    + "Must already be a watched repo with a local clone path; the task's "
+                    + "worktree is cut from that clone.",
+                    required = true) String repo,
+            @ToolParam(description = "Optional first user prompt to seed the new task's "
+                    + "conversation. When set, the task starts running this turn immediately; "
+                    + "when omitted, the task lands at PENDING and waits for the user.",
+                    wireName = "initial_prompt") String initialPrompt,
+            @ToolParam(description = "Task type — 'DEVELOP' (default), 'REVIEW', etc. "
+                    + "Free-form so future task types don't need a schema bump.",
+                    wireName = "task_type") String taskType,
+            @ToolParam(description = "Optional GitHub PR number to link the task to "
+                    + "(for review / fix-up tasks bound to an existing PR).",
+                    wireName = "linked_pr_number") Integer linkedPrNumber,
+            @ToolParam(description = "Optional GitHub issue number to link the task to.",
+                    wireName = "linked_issue_number") Integer linkedIssueNumber) {}
+
+    @AgentTool(
+            name = CREATE_TASK_TOOL,
+            description = "Cut a new task on this thread. Trunk-only — the trunk role "
+                    + "plans + cuts tasks; task / reviewer roles can't reach this. "
+                    + "Returns the new task's id, branch, worktree path, and seq. "
+                    + "The first task on a 0-task thread runs through ThreadService's "
+                    + "materialiseTask path; an attempt on a thread that already has "
+                    + "tasks fails — use next_task / ship_task instead.",
+            security = SecurityType.TASK_MANAGE,
+            gating = Gating.AUTO,
+            roles = AgentRole.TRUNK)
+    public void declareCreateTask(@SuppressWarnings("unused") CreateTaskArgs args)
+    {
+        // Dispatched via handleToolCall.
+    }
+
     private void handleToolCall(String threadId, JsonNode id, JsonNode request, DeferredResult<JsonNode> deferred)
     {
         JsonNode params = request.path("params");
@@ -527,12 +566,23 @@ public class McpController
             deferred.setResult(error(id, -32602, "unknown tool: " + name));
             return;
         }
+        AgentRole role = permissions.roleFor(threadId);
+        if (!spec.availableTo(role)) {
+            // The roles array on @AgentTool is both a discovery filter
+            // (tools/list hides tools the role can't see) and a call-
+            // time guard (so a hand-crafted RPC can't reach a tool that
+            // the catalog wouldn't have offered to this role).
+            deferred.setResult(toolResponse(id, deny(
+                    "tool '" + name + "' is not available to the current role ("
+                            + role + ")")));
+            return;
+        }
         Set<SecurityType> grants = permissions.grants(threadId);
         if (!grants.contains(spec.security())) {
             deferred.setResult(toolResponse(id, deny(
                     "tool '" + name + "' requires capability " + spec.security()
                             + " which is not granted to the current role ("
-                            + permissions.roleFor(threadId) + ")")));
+                            + role + ")")));
             return;
         }
         if (REQUEST_REVIEW_TOOL.equals(name)) {
@@ -573,6 +623,10 @@ public class McpController
         }
         if (READ_WORKSPACE_MEMORY_TOOL.equals(name)) {
             handleReadWorkspaceMemory(threadId, id, deferred);
+            return;
+        }
+        if (CREATE_TASK_TOOL.equals(name)) {
+            handleCreateTask(threadId, id, params.path("arguments"), deferred);
             return;
         }
         if (!TOOL_NAME.equals(name)) {
@@ -1115,6 +1169,89 @@ public class McpController
         catch (RuntimeException e) {
             deferred.setResult(toolResponse(id, deny(
                     "could not read memory for workspace " + workspaceId + ": " + e.getMessage())));
+        }
+    }
+
+    /**
+     * Handles {@code create_task}: cuts a new task on this thread via
+     * the trunk-only path. Refuses when the thread already has tasks
+     * (the agent should call next_task / ship_task instead), when the
+     * named repo isn't watched, or when the watched repo has no local
+     * clone path. On success returns id + branch + worktreePath so
+     * the agent can immediately reason about where its work will land.
+     */
+    private void handleCreateTask(String threadId, JsonNode id, JsonNode args, DeferredResult<JsonNode> deferred)
+    {
+        String repo = args.path("repo").asText("");
+        if (repo.isBlank()) {
+            deferred.setResult(toolResponse(id, deny("repo (owner/name) is required")));
+            return;
+        }
+        Optional<com.bytequay.app.domain.Thread> threadOpt = threads.find(threadId);
+        if (threadOpt.isEmpty()) {
+            deferred.setResult(toolResponse(id, deny("thread not found: " + threadId)));
+            return;
+        }
+        com.bytequay.app.domain.Thread thread = threadOpt.get();
+        if (!taskStore.listTasksByThread(threadId).isEmpty()) {
+            deferred.setResult(toolResponse(id, deny(
+                    "thread already has tasks — use next_task or ship_task to spawn a sibling. "
+                            + "create_task is for 0-task threads only.")));
+            return;
+        }
+        WatchedRepo watched = watchedRepos.findAll().stream()
+                .filter(r -> repo.equals(r.fullName()))
+                .findFirst()
+                .orElse(null);
+        if (watched == null) {
+            deferred.setResult(toolResponse(id, deny(
+                    "repo not in watched repos: " + repo
+                            + " — add it under Repos before cutting a task.")));
+            return;
+        }
+        if (watched.localClonePath() == null || watched.localClonePath().isBlank()) {
+            deferred.setResult(toolResponse(id, deny(
+                    "watched repo " + repo + " has no local clone path — set it under Repos.")));
+            return;
+        }
+        String initialPrompt = args.path("initial_prompt").asText("");
+        String taskType = args.path("task_type").asText("");
+        Integer linkedPrNumber = args.path("linked_pr_number").isNumber()
+                ? args.path("linked_pr_number").asInt()
+                : null;
+        Integer linkedIssueNumber = args.path("linked_issue_number").isNumber()
+                ? args.path("linked_issue_number").asInt()
+                : null;
+        ThreadService.NewTaskRequest request = new ThreadService.NewTaskRequest(
+                thread.kind(),
+                thread.provider(),
+                thread.model(),
+                /* title — reuse the thread title */ thread.title(),
+                /* workingDir */ watched.localClonePath(),
+                /* branchName — let worktree create derive it */ null,
+                initialPrompt.isBlank() ? null : initialPrompt,
+                /* initialGroupIds */ List.of(),
+                taskType.isBlank() ? null : taskType,
+                linkedPrNumber,
+                linkedIssueNumber,
+                thread.flow(),
+                thread.workspaceId());
+        try {
+            Task created = threads.materialiseTask(threadId, request);
+            ObjectNode out = mapper.createObjectNode();
+            out.put("id", created.id());
+            out.put("threadId", created.threadId());
+            out.put("seq", created.seq());
+            out.put("status", created.status() == null ? null : created.status().name());
+            out.put("branchName", created.branchName());
+            out.put("worktreePath", created.worktreePath());
+            out.put("workingDir", created.workingDir());
+            out.put("baseBranch", created.baseBranch());
+            deferred.setResult(plainText(id, toJsonString(out)));
+        }
+        catch (IllegalArgumentException | IllegalStateException e) {
+            deferred.setResult(toolResponse(id, deny(
+                    "create_task failed: " + e.getMessage())));
         }
     }
 

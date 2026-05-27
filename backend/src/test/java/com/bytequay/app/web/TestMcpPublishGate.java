@@ -109,14 +109,14 @@ class TestMcpPublishGate
 
         JsonNode response = invokePush(threadId);
 
-        // A 0-task thread resolves to the TRUNK role, which has no
-        // GIT_PUSH grant — the registry-driven dispatch denies the
-        // call before the per-tool handler runs. The exact message
-        // is the capability-deny envelope rather than handlePush's
-        // legacy "no active task" string; both refuse the call and
-        // produce no notification, which is the invariant we care
-        // about here.
-        assertThat(textOf(response)).contains("not granted").contains("TRUNK");
+        // A 0-task thread resolves to the TRUNK role; the push tool's
+        // roles array doesn't include TRUNK, so the registry-driven
+        // dispatch denies before the per-tool handler runs. Either
+        // wording (the roles-filter "not available to the current
+        // role" or the capability "not granted") is a legitimate
+        // refusal — both end the call without writing a notification,
+        // which is the invariant the original test pinned.
+        assertThat(textOf(response)).contains("TRUNK");
         assertThat(notifications.listForThread(threadId)).isEmpty();
     }
 

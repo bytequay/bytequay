@@ -36,6 +36,7 @@ public class SkillService
 {
     public static final Set<String> SCOPES = ImmutableSet.of("global", "repo", "thread");
     public static final Set<String> KINDS = ImmutableSet.of("library", "persona", "rubric");
+    public static final Set<String> SOURCES = ImmutableSet.of("authored", "ai_drafted");
 
     private final SkillStore store;
 
@@ -81,6 +82,8 @@ public class SkillService
         validateKind(kind);
         validateName(name);
         validateScopeFields(scope, repo, threadId);
+        String resolvedSource = source == null || source.isBlank() ? "authored" : source;
+        validateSource(resolvedSource);
         try {
             return store.create(
                     scope,
@@ -92,7 +95,7 @@ public class SkillService
                     kind,
                     roleTag,
                     isDefault,
-                    source == null || source.isBlank() ? "authored" : source,
+                    resolvedSource,
                     provenance);
         }
         catch (IllegalStateException e) {
@@ -168,6 +171,15 @@ public class SkillService
             throw new ResponseStatusException(
                     HttpStatusCode.valueOf(400),
                     "kind must be one of " + KINDS + ", got: " + kind);
+        }
+    }
+
+    private static void validateSource(String source)
+    {
+        if (!SOURCES.contains(source)) {
+            throw new ResponseStatusException(
+                    HttpStatusCode.valueOf(400),
+                    "source must be one of " + SOURCES + ", got: " + source);
         }
     }
 

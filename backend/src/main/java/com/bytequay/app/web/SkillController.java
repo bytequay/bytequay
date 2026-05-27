@@ -46,7 +46,14 @@ public class SkillController
         this.reviewers = requireNonNull(reviewers, "reviewers is null");
     }
 
-    /** Mirror of the controller fields the Settings UI sends. */
+    /** Mirror of the controller fields the Settings UI sends.
+     *
+     *  {@code source} and {@code provenance} are only consulted at
+     *  create time. The UI sets {@code source='ai_drafted'} +
+     *  {@code provenance=<the prompt>} after a /skills/draft proposal
+     *  lands in the modal, so the row keeps a paper trail of where it
+     *  came from. Both are null on a manual write — the controller
+     *  defaults the source column to 'authored' in that case. */
     public record SkillRequest(
             String scope,
             String repo,
@@ -56,7 +63,9 @@ public class SkillController
             String body,
             String kind,
             String roleTag,
-            Boolean isDefault)
+            Boolean isDefault,
+            String source,
+            String provenance)
     {}
 
     @GetMapping("/skills")
@@ -84,8 +93,8 @@ public class SkillController
                 req.kind(),
                 req.roleTag(),
                 Boolean.TRUE.equals(req.isDefault()),
-                "authored",
-                null);
+                req.source(),
+                req.provenance());
     }
 
     @PutMapping("/skills/{id}")

@@ -67,6 +67,11 @@ function SkillEditorModal({
   const [draftPrompt, setDraftPrompt] = useState('');
   const [drafting, setDrafting] = useState(false);
   const [draftError, setDraftError] = useState<string | null>(null);
+  /** When the user lands a /skills/draft proposal into the manual
+   *  fields and then hits Save, we tag the new row source='ai_drafted'
+   *  and stash the prompt as provenance. Cleared when the user types
+   *  manually so a heavily-edited draft still saves as authored. */
+  const [draftedFromPrompt, setDraftedFromPrompt] = useState<string | null>(null);
 
   const [autoFocusKey, setAutoFocusKey] = useState(0);
   useEffect(() => { setAutoFocusKey(k => k + 1); }, [mode]);
@@ -93,6 +98,7 @@ function SkillEditorModal({
         scope, repo: repo.trim(), role: role.trim(),
         name: name.trim(), description: description.trim(),
         body: body.trim(), kind, isDefault,
+        draftedFromPrompt,
       }));
     }
     catch (e) {
@@ -113,6 +119,7 @@ function SkillEditorModal({
       setName(draft.name);
       setDescription(draft.description);
       setBody(draft.body);
+      setDraftedFromPrompt(draftPrompt.trim());
       setMode('manual');
     }
     catch (e) {
@@ -367,7 +374,11 @@ function toPayload(state: {
   scope: ScopeBucket; repo: string; role: string;
   name: string; description: string; body: string;
   kind: Kind; isDefault: boolean;
+  draftedFromPrompt: string | null;
 }): SkillInput {
+  const sourceFields = state.draftedFromPrompt === null
+      ? {}
+      : { source: 'ai_drafted' as const, provenance: state.draftedFromPrompt };
   if (state.scope === 'repos') {
     return {
       scope: 'repo',
@@ -379,6 +390,7 @@ function toPayload(state: {
       kind: state.kind,
       roleTag: null,
       isDefault: state.isDefault,
+      ...sourceFields,
     };
   }
   return {
@@ -391,6 +403,7 @@ function toPayload(state: {
     kind: state.kind,
     roleTag: state.scope === 'role' ? state.role : null,
     isDefault: state.isDefault,
+    ...sourceFields,
   };
 }
 

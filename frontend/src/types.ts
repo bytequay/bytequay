@@ -1112,7 +1112,13 @@ export type SkillDto = {
   updatedAt: string;
 };
 
-/** Payload for POST /skills and PUT /skills/{id}. */
+/** Payload for POST /skills and PUT /skills/{id}.
+ *
+ *  {@link source} and {@link provenance} are only consulted at create
+ *  time. Set source to 'ai_drafted' + provenance to the user's prompt
+ *  when saving an AI-drafted proposal so the row keeps a paper trail
+ *  of where it came from. Both default to undefined on a manual write
+ *  (the backend stamps source='authored', provenance=null). */
 export type SkillInput = {
   scope: 'global' | 'repo' | 'thread';
   repo: string | null;
@@ -1123,6 +1129,8 @@ export type SkillInput = {
   kind: 'library' | 'persona' | 'rubric';
   roleTag: string | null;
   isDefault: boolean;
+  source?: 'authored' | 'ai_drafted';
+  provenance?: string | null;
 };
 
 /** Result of POST /skills/draft — a proposed name + trigger

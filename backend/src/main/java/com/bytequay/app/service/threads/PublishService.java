@@ -13,6 +13,7 @@
  */
 package com.bytequay.app.service.threads;
 
+import com.bytequay.app.domain.CreatePullRequestCommand;
 import com.bytequay.app.domain.CreateReviewCommand;
 import com.bytequay.app.domain.MergePullRequestCommand;
 import com.bytequay.app.domain.Notification;
@@ -111,6 +112,8 @@ public class PublishService
                 case "request_reviewer" -> doRequestReviewer(payload);
                 case "comment_on_issue" -> doCommentOnIssue(payload, editedBody);
                 case "set_issue_state" -> doSetIssueState(payload);
+                case "open_pr" -> doOpenPr(payload, editedBody);
+                case "publish_review" -> doPublishReview(payload, editedBody);
                 default -> throw new ResponseStatusException(
                         HttpStatusCode.valueOf(400), "unsupported action: " + action);
             };
@@ -427,6 +430,92 @@ public class PublishService
                 "Set " + ref.owner() + "/" + ref.repo() + "#" + ref.number()
                         + " to " + state + ".",
                 "set_issue_state");
+    }
+
+    private PublishResult doOpenPr(JsonNode payload, String editedBody)
+    {
+        JsonNode repo = payload.path("repo");
+        if (repo.isMissingNode() || repo.isNull()) {
+            throw new ResponseStatusException(HttpStatusCode.valueOf(400),
+                    "parked open_pr notification has no repo ref");
+        }
+        String owner = repo.path("owner").asText("");
+        String repoName = repo.path("repo").asText("");
+        if (owner.isBlank() || repoName.isBlank()) {
+            throw new ResponseStatusException(HttpStatusCode.valueOf(400),
+                    "parked open_pr notification has incomplete repo ref");
+        }
+        String title = payload.path("title").asText("");
+        String head = payload.path("head").asText("");
+        String base = payload.path("base").asText("");
+        if (title.isBlank() || head.isBlank() || base.isBlank()) {
+            throw new ResponseStatusException(HttpStatusCode.valueOf(400),
+                    "parked open_pr notification is missing title / head / base");
+        }
+        String parkedBody = payload.path("body").asText("");
+        String effectiveBody = (editedBody == null || editedBody.isBlank())
+                ? parkedBody
+                : editedBody;
+        boolean draft = payload.path("draft").asBoolean(false);
+        CreatePullRequestCommand command = new CreatePullRequestCommand(
+                head,
+                base,
+                title,
+                effectiveBody.isBlank() ? Optional.empty() : Optional.of(effectiveBody),
+                draft ? Optional.of(true) : Optional.empty(),
+                Optional.empty());
+        String pat = patResolver.resolve(owner + "/" + repoName);
+        pullRequests.createPullRequest(pat, new RepoRef(owner, repoName), command);
+        return new PublishResult(true, "approved",
+                "Opened PR " + owner + "/" + repoName + " · " + head + " → " + base
+                        + (draft ? " (draft)" : "") + ".",
+                "open_pr");
+    }
+
+    private PublishResult doPublishReview(JsonNode payload, String editedBody)
+    {
+        PrRefFromPayload ref = readPrRef(payload, "publish_review");
+        String event = payload.path("event").asText("COMMENT");
+        if (!"APPROVE".equals(event) && !"REQUEST_CHANGES".equals(event) && !"COMMENT".equals(event)) {
+            event = "COMMENT";
+        }
+        String parkedBody = payload.path("body").asText("");
+        String effectiveBody = (editedBody == null || editedBody.isBlank())
+                ? parkedBody
+                : editedBody;
+        JsonNode commentsNode = payload.path("comments");
+        ImmutableList.Builder<CreateReviewCommand.ReviewLineComment> commentsBuilder = ImmutableList.builder();
+        if (commentsNode.isArray()) {
+            for (JsonNode c : commentsNode) {
+                String filePath = c.path("file_path").asText("");
+                int line = c.path("line").asInt(0);
+                String body = c.path("body").asText("");
+                if (filePath.isBlank() || line <= 0 || body.isBlank()) {
+                    throw new ResponseStatusException(HttpStatusCode.valueOf(400),
+                            "publish_review comment is missing file_path / line / body");
+                }
+                String side = c.path("side").asText("RIGHT");
+                Optional<Integer> startLine = c.path("start_line").isNumber()
+                        ? Optional.of(c.path("start_line").asInt())
+                        : Optional.empty();
+                Optional<String> startSide = c.path("start_side").isTextual() && !c.path("start_side").asText().isBlank()
+                        ? Optional.of(c.path("start_side").asText())
+                        : Optional.empty();
+                commentsBuilder.add(new CreateReviewCommand.ReviewLineComment(
+                        filePath, Optional.empty(), Optional.of(line), side, body, startLine, startSide));
+            }
+        }
+        CreateReviewCommand command = new CreateReviewCommand(
+                Optional.empty(),
+                effectiveBody.isBlank() ? Optional.empty() : Optional.of(effectiveBody),
+                event,
+                commentsBuilder.build());
+        String pat = patResolver.resolve(ref.owner() + "/" + ref.repo());
+        pullRequests.createReview(pat, ref.toRef(), command);
+        return new PublishResult(true, "approved",
+                "Published review on " + ref.owner() + "/" + ref.repo()
+                        + "#" + ref.number() + " (" + event + ").",
+                "publish_review");
     }
 
     private static IssueRefFromPayload readIssueRef(JsonNode payload, String action)

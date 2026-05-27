@@ -36,6 +36,11 @@ public record Workspace(
         String name,
         String memoryMd,
         boolean isScratch,
+        /** The workspace's default pick on the work-model cascade. A
+         *  null here means no override is set and the resolver falls
+         *  back to the global default. Threads / tasks / review seats
+         *  inherit this unless they declare their own (Phase 2). */
+        WorkModel workModel,
         Instant createdAt,
         Instant updatedAt)
 {

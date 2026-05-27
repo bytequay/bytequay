@@ -13,6 +13,7 @@
  */
 package com.bytequay.app.web;
 
+import com.bytequay.app.domain.WorkModel;
 import com.bytequay.app.domain.Workspace;
 import com.bytequay.app.domain.WorkspaceCardDto;
 import com.bytequay.app.domain.WorkspaceMemoryProposal;
@@ -139,6 +140,23 @@ public class WorkspaceController
     {
         return workspaces.setMemory(id, body.memoryMd() == null ? "" : body.memoryMd());
     }
+
+    /**
+     * PUT /api/workspaces/{id}/work-model — set (or clear) the
+     * workspace's default pick on the work-model cascade. A null body
+     * field for {@code workModel} clears the override so the resolver
+     * falls back to the global default.
+     */
+    @PutMapping("/{id}/work-model")
+    public Workspace setWorkModel(@PathVariable String id, @RequestBody WorkModelBody body)
+    {
+        return workspaces.setWorkModel(id, body == null ? null : body.workModel());
+    }
+
+    /** Request body for {@link #setWorkModel} — wraps the optional
+     *  {@link com.bytequay.app.domain.WorkModel} so a {@code null}
+     *  field maps cleanly to "clear the override". */
+    public record WorkModelBody(WorkModel workModel) {}
 
     /** Force a fresh distillation pass of the workspace memory from
      *  the active Thread Overalls. The scheduled job runs every 30

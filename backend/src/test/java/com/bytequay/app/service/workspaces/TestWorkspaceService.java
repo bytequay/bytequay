@@ -135,11 +135,13 @@ class TestWorkspaceService
                 "ws-default", "ByteQuay",
                 "## Decisions\n- decision a\n\n## Blockers\n- blocker x\n",
                 /* isScratch */ false,
+                /* workModel */ null,
                 Instant.parse("2026-05-22T08:00:00Z"),
                 Instant.parse("2026-05-22T09:00:00Z"));
         Workspace scratch = new Workspace(
                 "ws-scratch", "Scratch", "",
                 /* isScratch */ true,
+                /* workModel */ null,
                 Instant.parse("2026-05-22T08:00:00Z"),
                 Instant.parse("2026-05-22T09:00:00Z"));
         when(store.listWorkspaces()).thenReturn(List.of(one, scratch));
@@ -189,6 +191,7 @@ class TestWorkspaceService
         Workspace fresh = new Workspace(
                 "ws-fresh", "Trino-trace", "",
                 /* isScratch */ false,
+                /* workModel */ null,
                 Instant.parse("2026-05-22T08:00:00Z"),
                 Instant.parse("2026-05-22T08:00:00Z"));
         when(store.listWorkspaces()).thenReturn(List.of(fresh));

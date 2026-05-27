@@ -13,6 +13,7 @@
  */
 package com.bytequay.app.service.workspaces;
 
+import com.bytequay.app.domain.WorkModel;
 import com.bytequay.app.domain.Workspace;
 import com.bytequay.app.domain.WorkspaceCardDto;
 import com.bytequay.app.domain.WorkspaceRepo;
@@ -286,6 +287,7 @@ public class WorkspaceService
                 trimmedName,
                 memoryMd,
                 request.isScratch(),
+                /* workModel */ null,
                 now,
                 now);
         store.saveWorkspace(workspace);
@@ -347,7 +349,8 @@ public class WorkspaceService
         }
         Workspace next = new Workspace(
                 current.id(), trimmed, current.memoryMd(),
-                current.isScratch(), current.createdAt(), Instant.now());
+                current.isScratch(), current.workModel(),
+                current.createdAt(), Instant.now());
         store.saveWorkspace(next);
         return next;
     }
@@ -373,7 +376,25 @@ public class WorkspaceService
         Workspace current = require(workspaceId);
         Workspace next = new Workspace(
                 current.id(), current.name(), memoryMd,
-                current.isScratch(), current.createdAt(), Instant.now());
+                current.isScratch(), current.workModel(),
+                current.createdAt(), Instant.now());
+        store.saveWorkspace(next);
+        return next;
+    }
+
+    /**
+     * Set (or clear) the workspace's default pick on the work-model
+     * cascade. Pass {@code null} to remove the override, after which
+     * the resolver falls back to the global default.
+     */
+    public Workspace setWorkModel(String workspaceId, WorkModel workModel)
+    {
+        requireNonNull(workspaceId, "workspaceId is null");
+        Workspace current = require(workspaceId);
+        Workspace next = new Workspace(
+                current.id(), current.name(), current.memoryMd(),
+                current.isScratch(), workModel,
+                current.createdAt(), Instant.now());
         store.saveWorkspace(next);
         return next;
     }

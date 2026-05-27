@@ -15,9 +15,12 @@ package com.bytequay.app.repository.sqlite;
 
 import com.bytequay.app.domain.TaskStatus;
 import com.bytequay.app.domain.ThreadStatus;
+import com.bytequay.app.domain.WorkModel;
 import com.bytequay.app.domain.Workspace;
 import com.bytequay.app.domain.WorkspaceRepo;
 import com.bytequay.app.repository.WorkspaceStore;
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.PersistenceContext;
 import org.springframework.stereotype.Component;
@@ -64,14 +67,19 @@ class SqliteWorkspaceStore
 
     private final WorkspaceJpaRepository workspaces;
     private final WorkspaceRepoJpaRepository repos;
+    private final ObjectMapper objectMapper;
 
     @PersistenceContext
     private EntityManager entityManager;
 
-    SqliteWorkspaceStore(WorkspaceJpaRepository workspaces, WorkspaceRepoJpaRepository repos)
+    SqliteWorkspaceStore(
+            WorkspaceJpaRepository workspaces,
+            WorkspaceRepoJpaRepository repos,
+            ObjectMapper objectMapper)
     {
         this.workspaces = requireNonNull(workspaces, "workspaces is null");
         this.repos = requireNonNull(repos, "repos is null");
+        this.objectMapper = requireNonNull(objectMapper, "objectMapper is null");
     }
 
     @Override
@@ -83,6 +91,7 @@ class SqliteWorkspaceStore
         entity.setName(workspace.name());
         entity.setMemoryMd(workspace.memoryMd());
         entity.setIsScratch(workspace.isScratch() ? 1 : 0);
+        entity.setWorkModelJson(serialiseWorkModel(workspace.workModel()));
         entity.setCreatedAtMs(workspace.createdAt().toEpochMilli());
         entity.setUpdatedAtMs(workspace.updatedAt().toEpochMilli());
         workspaces.save(entity);
@@ -91,14 +100,14 @@ class SqliteWorkspaceStore
     @Override
     public Optional<Workspace> findWorkspaceById(String id)
     {
-        return workspaces.findById(id).map(SqliteWorkspaceStore::toWorkspace);
+        return workspaces.findById(id).map(this::toWorkspace);
     }
 
     @Override
     public List<Workspace> listWorkspaces()
     {
         return workspaces.findAllByOrderByUpdatedAtMsDesc().stream()
-                .map(SqliteWorkspaceStore::toWorkspace)
+                .map(this::toWorkspace)
                 .toList();
     }
 
@@ -235,15 +244,46 @@ class SqliteWorkspaceStore
      *  native-query result has a name instead of an opaque int[3]. */
     private record TaskAggregates(int inFlight, int parked, long spendMilliUsd) {}
 
-    private static Workspace toWorkspace(WorkspaceEntity e)
+    private Workspace toWorkspace(WorkspaceEntity e)
     {
         return new Workspace(
                 e.getId(),
                 e.getName(),
                 e.getMemoryMd(),
                 e.getIsScratch() != 0,
+                deserialiseWorkModel(e.getWorkModelJson()),
                 Instant.ofEpochMilli(e.getCreatedAtMs()),
                 Instant.ofEpochMilli(e.getUpdatedAtMs()));
+    }
+
+    private String serialiseWorkModel(WorkModel m)
+    {
+        if (m == null) {
+            return null;
+        }
+        try {
+            return objectMapper.writeValueAsString(m);
+        }
+        catch (JsonProcessingException e) {
+            // The record is plain-object-mapper-friendly, so a failure
+            // here means a programming error — surface it loudly.
+            throw new IllegalStateException("WorkModel JSON serialise failed", e);
+        }
+    }
+
+    private WorkModel deserialiseWorkModel(String json)
+    {
+        if (json == null || json.isBlank()) {
+            return null;
+        }
+        try {
+            return objectMapper.readValue(json, WorkModel.class);
+        }
+        catch (JsonProcessingException e) {
+            // Bad row → treat as "no override". The resolver falls back
+            // to global default. Don't break the whole workspace load.
+            return null;
+        }
     }
 
     private static WorkspaceRepo toRepo(WorkspaceRepoEntity e)

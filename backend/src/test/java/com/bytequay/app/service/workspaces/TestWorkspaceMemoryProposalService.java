@@ -71,12 +71,13 @@ class TestWorkspaceMemoryProposalService
                 .thenReturn(Optional.of("true"));
         Workspace ws = new Workspace("ws-1", "Default", "Current memory text.",
                 /* archived */ false,
+                /* workModel */ null,
                 Instant.parse("2026-01-01T00:00:00Z"),
                 Instant.parse("2026-01-01T00:00:00Z"));
         when(workspaces.require("ws-1")).thenReturn(ws);
         when(workspaces.setMemory(eq("ws-1"), eq("## Architecture\n…fresh…")))
                 .thenReturn(new Workspace("ws-1", "Default", "## Architecture\n…fresh…",
-                        /* archived */ false, ws.createdAt(), Instant.now()));
+                        /* archived */ false, /* workModel */ null, ws.createdAt(), Instant.now()));
 
         Optional<WorkspaceMemoryProposal> queued = service.propose(
                 "ws-1", "Current memory text.", summaryResult("## Architecture\n…fresh…"));
@@ -101,6 +102,7 @@ class TestWorkspaceMemoryProposalService
                 .thenReturn(Optional.of("true"));
         Workspace drifted = new Workspace("ws-1", "Default", "User hand-edit landed in between",
                 /* archived */ false,
+                /* workModel */ null,
                 Instant.parse("2026-01-01T00:00:00Z"),
                 Instant.parse("2026-01-01T00:00:00Z"));
         when(workspaces.require("ws-1")).thenReturn(drifted);
@@ -231,7 +233,7 @@ class TestWorkspaceMemoryProposalService
     private static Workspace workspace(String id, String memoryMd)
     {
         Instant now = Instant.parse("2026-05-15T12:00:00Z");
-        return new Workspace(id, "ByteQuay", memoryMd, /* isScratch */ false, now, now);
+        return new Workspace(id, "ByteQuay", memoryMd, /* isScratch */ false, /* workModel */ null, now, now);
     }
 
     private static final class InMemoryProposalStore

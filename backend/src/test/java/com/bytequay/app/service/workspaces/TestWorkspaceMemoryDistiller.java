@@ -169,6 +169,6 @@ class TestWorkspaceMemoryDistiller
     private static Workspace newWorkspace(String id, String memory, boolean scratch)
     {
         Instant now = Instant.parse("2026-05-15T12:00:00Z");
-        return new Workspace(id, "ByteQuay", memory, scratch, now, now);
+        return new Workspace(id, "ByteQuay", memory, scratch, /* workModel */ null, now, now);
     }
 }

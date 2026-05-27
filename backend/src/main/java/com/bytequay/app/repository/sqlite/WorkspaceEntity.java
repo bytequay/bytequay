@@ -35,6 +35,12 @@ class WorkspaceEntity
     @Column(name = "is_scratch", nullable = false)
     private int isScratch;
 
+    /** Raw JSON for the workspace's work-model default. Nullable —
+     *  the resolver treats absent as "fall back to global default".
+     *  See {@link com.bytequay.app.domain.WorkModel}. */
+    @Column(name = "work_model_json")
+    private String workModelJson;
+
     @Column(name = "created_at_ms", nullable = false)
     private long createdAtMs;
 
@@ -52,6 +58,9 @@ class WorkspaceEntity
 
     int getIsScratch() { return isScratch; }
     void setIsScratch(int isScratch) { this.isScratch = isScratch; }
+
+    String getWorkModelJson() { return workModelJson; }
+    void setWorkModelJson(String workModelJson) { this.workModelJson = workModelJson; }
 
     long getCreatedAtMs() { return createdAtMs; }
     void setCreatedAtMs(long createdAtMs) { this.createdAtMs = createdAtMs; }

@@ -31,7 +31,10 @@ import com.bytequay.app.service.tools.AgentTool;
 import com.bytequay.app.service.tools.AgentToolRegistry;
 import com.bytequay.app.service.tools.Gating;
 import com.bytequay.app.service.tools.PermissionResolver;
+import com.bytequay.app.service.tools.RuntimeToolInvocation;
 import com.bytequay.app.service.tools.SecurityType;
+import com.bytequay.app.service.tools.SkillTools;
+import com.bytequay.app.service.tools.ToolContext;
 import com.bytequay.app.service.tools.ToolParam;
 import com.bytequay.app.service.tools.ToolSpec;
 import com.fasterxml.jackson.core.JsonProcessingException;
@@ -116,6 +119,17 @@ public class McpController
      *  no GitHub mutation. */
     private static final String RECALL_THREAD_TOOL = "recall_thread";
 
+    /** Discovery tool name — returns the registry's catalog filtered
+     *  to the caller's role. */
+    private static final String LIST_TOOLS_TOOL = "list_tools";
+
+    /** Skills-runtime tool name — returns the manifest projection for
+     *  the caller's scope. */
+    private static final String LIST_SKILLS_TOOL = "list_skills";
+
+    /** Skills-runtime tool name — loads the body of one named skill. */
+    private static final String LOAD_SKILL_TOOL = "load_skill";
+
     /** Hard upper bound on the {@code limit} arg of {@code recall_thread}
      *  — the result is inlined into the agent's context, so we cap it
      *  so a too-eager caller can't blow up a single turn. */
@@ -154,6 +168,7 @@ public class McpController
     private final ObjectMapper mapper;
     private final AgentToolRegistry registry;
     private final PermissionResolver permissions;
+    private final SkillTools skillTools;
 
     public McpController(
             ThreadService threads,
@@ -165,7 +180,8 @@ public class McpController
             GitRunner git,
             ObjectMapper mapper,
             AgentToolRegistry registry,
-            PermissionResolver permissions)
+            PermissionResolver permissions,
+            SkillTools skillTools)
     {
         this.threads = requireNonNull(threads, "threads is null");
         this.taskStore = requireNonNull(taskStore, "taskStore is null");
@@ -177,6 +193,7 @@ public class McpController
         this.mapper = requireNonNull(mapper, "mapper is null");
         this.registry = requireNonNull(registry, "registry is null");
         this.permissions = requireNonNull(permissions, "permissions is null");
+        this.skillTools = requireNonNull(skillTools, "skillTools is null");
     }
 
     @PostMapping
@@ -359,6 +376,62 @@ public class McpController
         // Dispatched via handleToolCall.
     }
 
+    /** Args record for {@code list_tools} — no args. */
+    public record ListToolsArgs() {}
+
+    @AgentTool(
+            name = LIST_TOOLS_TOOL,
+            description = "List every tool available this turn, filtered to the "
+                    + "caller's role. Returns a JSON array of {name, description, "
+                    + "gating, security} entries — useful when picking the right "
+                    + "verb for the next action.",
+            security = SecurityType.TOOL_DISCOVER,
+            gating = Gating.AUTO,
+            roles = {AgentRole.TRUNK, AgentRole.TASK, AgentRole.REVIEWER})
+    public void declareListTools(@SuppressWarnings("unused") ListToolsArgs args)
+    {
+        // Dispatched via handleToolCall.
+    }
+
+    /** Args record for {@code list_skills}. */
+    public record ListSkillsArgs(
+            @ToolParam(description = "Optional scope filter — one of global, repo, thread. "
+                    + "Omit to see all skills visible to this thread.") String scope,
+            @ToolParam(description = "Optional substring match against the trigger description. "
+                    + "Case-insensitive.") String query) {}
+
+    @AgentTool(
+            name = LIST_SKILLS_TOOL,
+            description = "List the skills available for this turn. Returns a JSON array "
+                    + "of {id, name, description, scope, repo, role_tag, kind} entries. "
+                    + "Skills are model-triggered — read the \"loads when …\" description "
+                    + "and decide whether to load the body via load_skill.",
+            security = SecurityType.SKILL_USE,
+            gating = Gating.AUTO,
+            roles = {AgentRole.TRUNK, AgentRole.TASK, AgentRole.REVIEWER})
+    public void declareListSkills(@SuppressWarnings("unused") ListSkillsArgs args)
+    {
+        // Dispatched via handleToolCall.
+    }
+
+    /** Args record for {@code load_skill}. */
+    public record LoadSkillArgs(
+            @ToolParam(description = "Unique skill name from a prior list_skills entry.",
+                    required = true) String name) {}
+
+    @AgentTool(
+            name = LOAD_SKILL_TOOL,
+            description = "Load the body of one skill by name. Returns a JSON object "
+                    + "{name, body}. Pair with list_skills: list to find the trigger "
+                    + "that matches the task, load to fetch the instructions.",
+            security = SecurityType.SKILL_USE,
+            gating = Gating.AUTO,
+            roles = {AgentRole.TRUNK, AgentRole.TASK, AgentRole.REVIEWER})
+    public void declareLoadSkill(@SuppressWarnings("unused") LoadSkillArgs args)
+    {
+        // Dispatched via handleToolCall.
+    }
+
     private void handleToolCall(String threadId, JsonNode id, JsonNode request, DeferredResult<JsonNode> deferred)
     {
         JsonNode params = request.path("params");
@@ -397,6 +470,18 @@ public class McpController
         }
         if (RECALL_THREAD_TOOL.equals(name)) {
             handleRecallThread(threadId, id, params.path("arguments"), deferred);
+            return;
+        }
+        if (LIST_TOOLS_TOOL.equals(name)) {
+            handleListTools(threadId, id, deferred);
+            return;
+        }
+        if (LIST_SKILLS_TOOL.equals(name)) {
+            handleSkillToolsDispatch(threadId, id, LIST_SKILLS_TOOL, params.path("arguments"), deferred);
+            return;
+        }
+        if (LOAD_SKILL_TOOL.equals(name)) {
+            handleSkillToolsDispatch(threadId, id, LOAD_SKILL_TOOL, params.path("arguments"), deferred);
             return;
         }
         if (!TOOL_NAME.equals(name)) {
@@ -769,6 +854,57 @@ public class McpController
                     worktree, e.getMessage());
         }
         return null;
+    }
+
+    /**
+     * Handles {@code list_tools}: walks the registry filtered by the
+     * caller's role and returns a JSON array digest with the tool's
+     * name, description, security type, and gating mode. Pure
+     * metadata — no side effects.
+     */
+    private void handleListTools(String threadId, JsonNode id, DeferredResult<JsonNode> deferred)
+    {
+        AgentRole role = permissions.roleFor(threadId);
+        ObjectNode result = mapper.createObjectNode();
+        var arr = result.putArray("tools");
+        for (ToolSpec spec : registry.visibleTo(role)) {
+            ObjectNode entry = mapper.createObjectNode();
+            entry.put("name", spec.name());
+            entry.put("description", spec.description());
+            entry.put("gating", spec.gating().name().toLowerCase(Locale.ROOT));
+            entry.put("security", spec.security().name().toLowerCase(Locale.ROOT));
+            arr.add(entry);
+        }
+        try {
+            deferred.setResult(plainText(id, mapper.writeValueAsString(result.get("tools"))));
+        }
+        catch (JsonProcessingException e) {
+            deferred.setResult(error(id, -32603, "failed to serialise tool catalog"));
+        }
+    }
+
+    /**
+     * Handles {@code list_skills} / {@code load_skill}: both route into
+     * the shared {@link SkillTools} dispatcher with a {@link ToolContext}
+     * built from the thread's resolved role. The dispatcher's JSON
+     * result lands in the MCP plain-text envelope verbatim; an error
+     * (e.g. unknown skill name) is surfaced as a deny envelope so the
+     * model treats it as a tool failure.
+     */
+    private void handleSkillToolsDispatch(
+            String threadId, JsonNode id, String toolName, JsonNode args, DeferredResult<JsonNode> deferred)
+    {
+        AgentRole role = permissions.roleFor(threadId);
+        ToolContext ctx = new ToolContext(
+                Set.of(),
+                Optional.of(threadId),
+                Optional.of(role.name().toLowerCase(Locale.ROOT)));
+        RuntimeToolInvocation out = skillTools.dispatch(toolName, args, ctx);
+        if (out.isError()) {
+            deferred.setResult(toolResponse(id, deny(out.result())));
+            return;
+        }
+        deferred.setResult(plainText(id, out.result()));
     }
 
     /**

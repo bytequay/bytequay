@@ -382,7 +382,8 @@ public class McpController
             security = SecurityType.MCP,
             gating = Gating.AUTO,
             roles = {AgentRole.TRUNK, AgentRole.TASK, AgentRole.REVIEWER})
-    public void declareApprovalPrompt(@SuppressWarnings("unused") ApprovalPromptArgs args)
+    @SuppressWarnings("unused")
+    public void declareApprovalPrompt(ApprovalPromptArgs args)
     {
         // Dispatched via handleToolCall.
     }
@@ -402,7 +403,8 @@ public class McpController
             security = SecurityType.TASK_MANAGE,
             gating = Gating.PARKED,
             roles = AgentRole.TASK)
-    public void declareRequestReview(@SuppressWarnings("unused") RequestReviewArgs args)
+    @SuppressWarnings("unused")
+    public void declareRequestReview(RequestReviewArgs args)
     {
         // Dispatched via handleToolCall.
     }
@@ -420,7 +422,8 @@ public class McpController
             security = SecurityType.VCS_PUBLISH,
             gating = Gating.PARKED,
             roles = AgentRole.TASK)
-    public void declarePostComment(@SuppressWarnings("unused") PostCommentArgs args)
+    @SuppressWarnings("unused")
+    public void declarePostComment(PostCommentArgs args)
     {
         // Dispatched via handleToolCall.
     }
@@ -436,7 +439,8 @@ public class McpController
             security = SecurityType.GIT_PUSH,
             gating = Gating.PARKED,
             roles = AgentRole.TASK)
-    public void declarePush(@SuppressWarnings("unused") PushArgs args)
+    @SuppressWarnings("unused")
+    public void declarePush(PushArgs args)
     {
         // Dispatched via handleToolCall.
     }
@@ -460,7 +464,8 @@ public class McpController
             security = SecurityType.TASK_READ,
             gating = Gating.AUTO,
             roles = {AgentRole.TRUNK, AgentRole.TASK, AgentRole.REVIEWER})
-    public void declareRecallThread(@SuppressWarnings("unused") RecallThreadArgs args)
+    @SuppressWarnings("unused")
+    public void declareRecallThread(RecallThreadArgs args)
     {
         // Dispatched via handleToolCall.
     }
@@ -477,7 +482,8 @@ public class McpController
             security = SecurityType.TOOL_DISCOVER,
             gating = Gating.AUTO,
             roles = {AgentRole.TRUNK, AgentRole.TASK, AgentRole.REVIEWER})
-    public void declareListTools(@SuppressWarnings("unused") ListToolsArgs args)
+    @SuppressWarnings("unused")
+    public void declareListTools(ListToolsArgs args)
     {
         // Dispatched via handleToolCall.
     }
@@ -498,7 +504,8 @@ public class McpController
             security = SecurityType.SKILL_USE,
             gating = Gating.AUTO,
             roles = {AgentRole.TRUNK, AgentRole.TASK, AgentRole.REVIEWER})
-    public void declareListSkills(@SuppressWarnings("unused") ListSkillsArgs args)
+    @SuppressWarnings("unused")
+    public void declareListSkills(ListSkillsArgs args)
     {
         // Dispatched via handleToolCall.
     }
@@ -516,7 +523,8 @@ public class McpController
             security = SecurityType.SKILL_USE,
             gating = Gating.AUTO,
             roles = {AgentRole.TRUNK, AgentRole.TASK, AgentRole.REVIEWER})
-    public void declareLoadSkill(@SuppressWarnings("unused") LoadSkillArgs args)
+    @SuppressWarnings("unused")
+    public void declareLoadSkill(LoadSkillArgs args)
     {
         // Dispatched via handleToolCall.
     }
@@ -536,7 +544,8 @@ public class McpController
             security = SecurityType.TASK_READ,
             gating = Gating.AUTO,
             roles = {AgentRole.TRUNK, AgentRole.TASK, AgentRole.REVIEWER})
-    public void declareReadTask(@SuppressWarnings("unused") ReadTaskArgs args)
+    @SuppressWarnings("unused")
+    public void declareReadTask(ReadTaskArgs args)
     {
         // Dispatched via handleToolCall.
     }
@@ -559,7 +568,8 @@ public class McpController
             security = SecurityType.VCS_READ,
             gating = Gating.AUTO,
             roles = {AgentRole.TRUNK, AgentRole.TASK, AgentRole.REVIEWER})
-    public void declareReadPr(@SuppressWarnings("unused") ReadPrArgs args)
+    @SuppressWarnings("unused")
+    public void declareReadPr(ReadPrArgs args)
     {
         // Dispatched via handleToolCall.
     }
@@ -577,7 +587,8 @@ public class McpController
             security = SecurityType.MEMORY_READ,
             gating = Gating.AUTO,
             roles = {AgentRole.TRUNK, AgentRole.TASK, AgentRole.REVIEWER})
-    public void declareReadWorkspaceMemory(@SuppressWarnings("unused") ReadWorkspaceMemoryArgs args)
+    @SuppressWarnings("unused")
+    public void declareReadWorkspaceMemory(ReadWorkspaceMemoryArgs args)
     {
         // Dispatched via handleToolCall.
     }
@@ -612,7 +623,8 @@ public class McpController
             security = SecurityType.TASK_MANAGE,
             gating = Gating.AUTO,
             roles = AgentRole.TRUNK)
-    public void declareCreateTask(@SuppressWarnings("unused") CreateTaskArgs args)
+    @SuppressWarnings("unused")
+    public void declareCreateTask(CreateTaskArgs args)
     {
         // Dispatched via handleToolCall.
     }
@@ -635,7 +647,8 @@ public class McpController
             security = SecurityType.VCS_PUBLISH,
             gating = Gating.PARKED,
             roles = AgentRole.TASK)
-    public void declareReplyReviewThread(@SuppressWarnings("unused") ReplyReviewThreadArgs args)
+    @SuppressWarnings("unused")
+    public void declareReplyReviewThread(ReplyReviewThreadArgs args)
     {
         // Dispatched via handleToolCall.
     }
@@ -654,7 +667,8 @@ public class McpController
             security = SecurityType.VCS_PUBLISH,
             gating = Gating.PARKED,
             roles = AgentRole.TASK)
-    public void declareApprovePr(@SuppressWarnings("unused") ApprovePrArgs args)
+    @SuppressWarnings("unused")
+    public void declareApprovePr(ApprovePrArgs args)
     {
         // Dispatched via handleToolCall.
     }
@@ -674,7 +688,8 @@ public class McpController
             security = SecurityType.VCS_PUBLISH,
             gating = Gating.PARKED,
             roles = AgentRole.TASK)
-    public void declareMergePr(@SuppressWarnings("unused") MergePrArgs args)
+    @SuppressWarnings("unused")
+    public void declareMergePr(MergePrArgs args)
     {
         // Dispatched via handleToolCall.
     }
@@ -708,7 +723,8 @@ public class McpController
             security = SecurityType.VCS_PUBLISH,
             gating = Gating.PARKED,
             roles = AgentRole.TASK)
-    public void declareCreateReviewComment(@SuppressWarnings("unused") CreateReviewCommentArgs args)
+    @SuppressWarnings("unused")
+    public void declareCreateReviewComment(CreateReviewCommentArgs args)
     {
         // Dispatched via handleToolCall.
     }
@@ -727,7 +743,8 @@ public class McpController
             security = SecurityType.VCS_PUBLISH,
             gating = Gating.PARKED,
             roles = AgentRole.TASK)
-    public void declareUpdatePrBody(@SuppressWarnings("unused") UpdatePrBodyArgs args)
+    @SuppressWarnings("unused")
+    public void declareUpdatePrBody(UpdatePrBodyArgs args)
     {
         // Dispatched via handleToolCall.
     }
@@ -746,7 +763,8 @@ public class McpController
             security = SecurityType.VCS_PUBLISH,
             gating = Gating.PARKED,
             roles = AgentRole.TASK)
-    public void declareRequestReviewer(@SuppressWarnings("unused") RequestReviewerArgs args)
+    @SuppressWarnings("unused")
+    public void declareRequestReviewer(RequestReviewerArgs args)
     {
         // Dispatched via handleToolCall.
     }
@@ -767,7 +785,8 @@ public class McpController
             security = SecurityType.VCS_PUBLISH,
             gating = Gating.PARKED,
             roles = AgentRole.TASK)
-    public void declareCommentOnIssue(@SuppressWarnings("unused") CommentOnIssueArgs args)
+    @SuppressWarnings("unused")
+    public void declareCommentOnIssue(CommentOnIssueArgs args)
     {
         // Dispatched via handleToolCall.
     }
@@ -787,7 +806,8 @@ public class McpController
             security = SecurityType.VCS_PUBLISH,
             gating = Gating.PARKED,
             roles = AgentRole.TASK)
-    public void declareSetIssueState(@SuppressWarnings("unused") SetIssueStateArgs args)
+    @SuppressWarnings("unused")
+    public void declareSetIssueState(SetIssueStateArgs args)
     {
         // Dispatched via handleToolCall.
     }
@@ -817,27 +837,11 @@ public class McpController
             security = SecurityType.VCS_PUBLISH,
             gating = Gating.PARKED,
             roles = AgentRole.TASK)
-    public void declareOpenPr(@SuppressWarnings("unused") OpenPrArgs args)
+    @SuppressWarnings("unused")
+    public void declareOpenPr(OpenPrArgs args)
     {
         // Dispatched via handleToolCall.
     }
-
-    /** Args record for one inline comment inside a {@code publish_review}
-     *  request. Mirrors the createReview command's ReviewLineComment
-     *  but with optional fields kept as plain Java for serialisation. */
-    public record PublishReviewComment(
-            @ToolParam(description = "Repo-relative file path the comment anchors to.",
-                    required = true, wireName = "file_path") String filePath,
-            @ToolParam(description = "Line in the file the comment anchors to.",
-                    required = true) Integer line,
-            @ToolParam(description = "Markdown body of the inline comment.",
-                    required = true) String body,
-            @ToolParam(description = "'RIGHT' (default) or 'LEFT'.")
-            String side,
-            @ToolParam(description = "Optional first line of a multi-line range.",
-                    wireName = "start_line") Integer startLine,
-            @ToolParam(description = "Side of start_line — 'LEFT' or 'RIGHT'.",
-                    wireName = "start_side") String startSide) {}
 
     /** Args record for {@code publish_review}. */
     public record PublishReviewArgs(
@@ -862,7 +866,8 @@ public class McpController
             security = SecurityType.VCS_PUBLISH,
             gating = Gating.PARKED,
             roles = AgentRole.TASK)
-    public void declarePublishReview(@SuppressWarnings("unused") PublishReviewArgs args)
+    @SuppressWarnings("unused")
+    public void declarePublishReview(PublishReviewArgs args)
     {
         // Dispatched via handleToolCall.
     }
@@ -888,7 +893,8 @@ public class McpController
             security = SecurityType.TASK_MANAGE,
             gating = Gating.AUTO,
             roles = AgentRole.TASK)
-    public void declareNextTask(@SuppressWarnings("unused") NextTaskArgs args)
+    @SuppressWarnings("unused")
+    public void declareNextTask(NextTaskArgs args)
     {
         // Dispatched via handleToolCall.
     }
@@ -913,7 +919,8 @@ public class McpController
             security = SecurityType.VCS_PUBLISH,
             gating = Gating.PARKED,
             roles = AgentRole.TASK)
-    public void declareShipTask(@SuppressWarnings("unused") ShipTaskArgs args)
+    @SuppressWarnings("unused")
+    public void declareShipTask(ShipTaskArgs args)
     {
         // Dispatched via handleToolCall.
     }
@@ -937,7 +944,8 @@ public class McpController
             security = SecurityType.CODE_EXEC,
             gating = Gating.GATED,
             roles = AgentRole.TASK)
-    public void declareRunShell(@SuppressWarnings("unused") RunShellArgs args)
+    @SuppressWarnings("unused")
+    public void declareRunShell(RunShellArgs args)
     {
         // Dispatched via handleToolCall.
     }

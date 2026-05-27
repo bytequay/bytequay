@@ -146,6 +146,12 @@ public class McpController
      *  on a 0-task thread via the existing ThreadService entry point. */
     private static final String CREATE_TASK_TOOL = "create_task";
 
+    /** Parked publisher — replies in an existing review thread on the
+     *  active task's linked PR. The reply is captured into the parked
+     *  notification; PublishService.approve posts it on the user's
+     *  Approve click. */
+    private static final String REPLY_REVIEW_THREAD_TOOL = "reply_review_thread";
+
     /** Hard upper bound on the {@code limit} arg of {@code recall_thread}
      *  — the result is inlined into the agent's context, so we cap it
      *  so a too-eager caller can't blow up a single turn. */
@@ -550,6 +556,29 @@ public class McpController
         // Dispatched via handleToolCall.
     }
 
+    /** Args record for {@code reply_review_thread}. */
+    public record ReplyReviewThreadArgs(
+            @ToolParam(description = "Id of the root review comment whose thread you're "
+                    + "replying to. Find it via list_pr_review_threads / the diff view.",
+                    required = true, wireName = "root_comment_id") Long rootCommentId,
+            @ToolParam(description = "Markdown body of the reply. Shown to the user before "
+                    + "sending; on Approve the server posts it via the per-repo PAT.",
+                    required = true) String body) {}
+
+    @AgentTool(
+            name = REPLY_REVIEW_THREAD_TOOL,
+            description = "Reply inside an existing review thread on the active task's "
+                    + "linked PR. The body is parked at AWAITING_REVIEW; the user reviews "
+                    + "it in the publish gate and the server posts via the GitHub reply-to-"
+                    + "review-comment API on Approve.",
+            security = SecurityType.VCS_PUBLISH,
+            gating = Gating.PARKED,
+            roles = AgentRole.TASK)
+    public void declareReplyReviewThread(@SuppressWarnings("unused") ReplyReviewThreadArgs args)
+    {
+        // Dispatched via handleToolCall.
+    }
+
     private void handleToolCall(String threadId, JsonNode id, JsonNode request, DeferredResult<JsonNode> deferred)
     {
         JsonNode params = request.path("params");
@@ -627,6 +656,10 @@ public class McpController
         }
         if (CREATE_TASK_TOOL.equals(name)) {
             handleCreateTask(threadId, id, params.path("arguments"), deferred);
+            return;
+        }
+        if (REPLY_REVIEW_THREAD_TOOL.equals(name)) {
+            handleReplyReviewThread(threadId, id, params.path("arguments"), deferred);
             return;
         }
         if (!TOOL_NAME.equals(name)) {
@@ -1253,6 +1286,57 @@ public class McpController
             deferred.setResult(toolResponse(id, deny(
                     "create_task failed: " + e.getMessage())));
         }
+    }
+
+    /**
+     * Handles {@code reply_review_thread}: parks the active task at
+     * AWAITING_REVIEW with the proposed reply body + root comment id
+     * captured in the notification payload. The actual GitHub call
+     * lands in PublishService when the user clicks Approve — same
+     * propose-then-confirm pattern as post_comment.
+     */
+    private void handleReplyReviewThread(
+            String threadId, JsonNode id, JsonNode args, DeferredResult<JsonNode> deferred)
+    {
+        long rootCommentId = args.path("root_comment_id").asLong(0L);
+        String body = args.path("body").asText("");
+        if (rootCommentId <= 0L) {
+            deferred.setResult(plainText(id, "root_comment_id is required"));
+            return;
+        }
+        if (body.isBlank()) {
+            deferred.setResult(plainText(id, "body is required"));
+            return;
+        }
+        Optional<Task> active = taskStore.findActiveTaskForThread(threadId);
+        if (active.isEmpty()) {
+            deferred.setResult(plainText(id,
+                    "no active task on this thread — nothing to reply on"));
+            return;
+        }
+        Optional<PullRequestRef> prRef = resolvePrRefFromTask(active.get());
+        if (prRef.isEmpty()) {
+            deferred.setResult(plainText(id,
+                    "no PR linked to the active task — set linked_pr_number first"));
+            return;
+        }
+
+        parkActiveTaskAtAwaitingReview(active.get());
+        Map<String, Object> payload = new LinkedHashMap<>();
+        payload.put("action", "reply_review_thread");
+        payload.put("rootCommentId", rootCommentId);
+        payload.put("body", body);
+        Map<String, Object> pr = new LinkedHashMap<>();
+        pr.put("owner", prRef.get().owner());
+        pr.put("repo", prRef.get().repo());
+        pr.put("number", prRef.get().number());
+        payload.put("pr", pr);
+        payload.put("source", "mcp:reply_review_thread");
+        emitAwaitingReviewNotification(threadId, active.get().id(), payload, "mcp:reply_review_thread");
+
+        deferred.setResult(plainText(id,
+                "Parked at AWAITING_REVIEW. The user will review the reply and "
+                        + "approve, edit, or discard from the thread."));
     }
 
     /** Serialise a JSON node to its compact string form; falls back

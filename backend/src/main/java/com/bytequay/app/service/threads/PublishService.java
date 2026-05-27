@@ -96,6 +96,7 @@ public class PublishService
             result = switch (action) {
                 case "push" -> doPush(payload);
                 case "post_comment" -> doPostComment(payload, editedBody);
+                case "reply_review_thread" -> doReplyReviewThread(payload, editedBody);
                 default -> throw new ResponseStatusException(
                         HttpStatusCode.valueOf(400), "unsupported action: " + action);
             };
@@ -222,6 +223,41 @@ public class PublishService
         return new PublishResult(true, "approved",
                 "Posted comment on " + owner + "/" + repo + "#" + number + ".",
                 "post_comment");
+    }
+
+    private PublishResult doReplyReviewThread(JsonNode payload, String editedBody)
+    {
+        JsonNode pr = payload.path("pr");
+        if (pr.isMissingNode() || pr.isNull()) {
+            throw new ResponseStatusException(HttpStatusCode.valueOf(400),
+                    "parked reply_review_thread notification has no pr ref");
+        }
+        String owner = pr.path("owner").asText("");
+        String repo = pr.path("repo").asText("");
+        int number = pr.path("number").asInt(0);
+        if (owner.isBlank() || repo.isBlank() || number <= 0) {
+            throw new ResponseStatusException(HttpStatusCode.valueOf(400),
+                    "parked reply_review_thread notification has incomplete pr ref");
+        }
+        long rootCommentId = payload.path("rootCommentId").asLong(0L);
+        if (rootCommentId <= 0L) {
+            throw new ResponseStatusException(HttpStatusCode.valueOf(400),
+                    "parked reply_review_thread notification has no rootCommentId");
+        }
+        String parkedBody = payload.path("body").asText("");
+        String effectiveBody = (editedBody == null || editedBody.isBlank())
+                ? parkedBody
+                : editedBody;
+        if (effectiveBody.isBlank()) {
+            throw new ResponseStatusException(HttpStatusCode.valueOf(400),
+                    "reply body is blank — nothing to post");
+        }
+        PullRequestRef ref = new PullRequestRef(owner, repo, number);
+        String pat = patResolver.resolve(owner + "/" + repo);
+        pullRequests.replyToReviewComment(pat, ref, rootCommentId, effectiveBody);
+        return new PublishResult(true, "approved",
+                "Replied in review thread on " + owner + "/" + repo + "#" + number + ".",
+                "reply_review_thread");
     }
 
     /** Move the task off AWAITING_REVIEW to COMPLETED. No-op when the

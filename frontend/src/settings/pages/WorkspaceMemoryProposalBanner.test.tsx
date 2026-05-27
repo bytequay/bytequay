@@ -63,11 +63,12 @@ describe('WorkspaceMemoryProposalBanner', () => {
 
   it('calls applyWorkspaceMemoryProposal and notifies the parent on Apply', async () => {
     const getProposal = vi.fn(async () => sampleProposal({}));
-    const applyProposal = vi.fn(async () => ({
+    const applyProposal = vi.fn(async (): Promise<WorkspaceDto> => ({
       id: 'ws-default', name: 'ByteQuay', memoryMd: 'Approved.',
       isScratch: false,
+      workModel: null,
       createdAt: '2026-05-22T12:00:00Z', updatedAt: '2026-05-22T12:00:00Z',
-    } satisfies WorkspaceDto));
+    }));
     installBridge({
       getWorkspaceMemoryProposal: getProposal,
       applyWorkspaceMemoryProposal: applyProposal,
@@ -202,6 +203,7 @@ function installBridge(overrides: Partial<Bridge>) {
   const applyNoop = vi.fn(async (): Promise<WorkspaceDto> => ({
     id: 'ws-default', name: 'ByteQuay', memoryMd: '',
     isScratch: false,
+    workModel: null,
     createdAt: '2026-05-22T12:00:00Z', updatedAt: '2026-05-22T12:00:00Z',
   }));
   const discardNoop = vi.fn(async (): Promise<void> => {});

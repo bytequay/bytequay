@@ -3779,6 +3779,41 @@ const url = new URL(`${BACKEND_BASE}/api/search/repos`);
     return res.json();
   });
 
+  // ── Work-model axis ────────────────────────────────────────────────────
+  ipcMain.handle('workModels:options', async () => {
+    const res = await fetch(`${BACKEND_BASE}/api/work-models`);
+    if (!res.ok) throw new Error(`backend /api/work-models returned ${res.status}`);
+    return res.json();
+  });
+
+  ipcMain.handle('workModels:refresh', async () => {
+    const res = await fetch(`${BACKEND_BASE}/api/work-models/refresh`, {
+      method: 'POST',
+    });
+    if (!res.ok) throw new Error(`backend /api/work-models/refresh returned ${res.status}`);
+    return res.json();
+  });
+
+  ipcMain.handle('workspaces:setWorkModel', async (_event, args: unknown) => {
+    const { workspaceId, model } = args as {
+      workspaceId: string;
+      model: unknown;
+    };
+    const res = await fetch(
+      `${BACKEND_BASE}/api/workspaces/${encodeURIComponent(workspaceId)}/work-model`,
+      {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ workModel: model }),
+      },
+    );
+    if (!res.ok) {
+      const detail = await res.text().catch(() => '');
+      throw new Error(detail || `setWorkspaceWorkModel returned ${res.status}`);
+    }
+    return res.json();
+  });
+
   // POST /ai/polish — body { text } → { text }. Uses the active provider
   // to rewrite a developer-authored review comment for clarity / tone.
   ipcMain.handle('ai:polishComment', async (_event, text: string) => {

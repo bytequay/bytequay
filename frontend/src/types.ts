@@ -1062,6 +1062,65 @@ export type AiSettingsDto = {
   model: string;
 };
 
+/* ── Work-model axis ──────────────────────────────────────────────
+ *
+ * One choice on the agent + model cascade. Mirrors the backend
+ * {@code WorkModel} record. Each scope (workspace, thread, task,
+ * review-seat) carries one of these; the resolver walks the cascade
+ * most-specific-wins. */
+
+export type WorkModelKindDto = 'CLI' | 'API';
+
+export type WorkModelDto = {
+  kind: WorkModelKindDto;
+  /** CLI agent id (e.g. {@code "claude-code"}) or API provider id
+   *  (e.g. {@code "anthropic"}). Joins back into the catalog. */
+  agentOrProvider: string;
+  /** Explicit model override, or null to inherit the agent's default. */
+  model: string | null;
+  /** API-only — credential instance name. Null = the ★ default
+   *  account for this provider. Ignored on CLI kinds (the agent
+   *  manages its own auth). */
+  account: string | null;
+};
+
+export type WorkModelEntryDto = {
+  id: string;
+  displayName: string;
+  isDefault: boolean;
+};
+
+export type WorkModelAccountDto = {
+  name: string;
+  isDefault: boolean;
+  /** Cached probe outcome — true reachable, false failed, null
+   *  never probed. The picker renders ✓ / ⚠ / neutral chip from
+   *  this. */
+  valid: boolean | null;
+};
+
+export type WorkModelAgentOptionDto = {
+  id: string;
+  displayName: string;
+  installed: boolean;
+  authed: boolean;
+  defaultModel: string;
+  models: WorkModelEntryDto[];
+};
+
+export type WorkModelProviderOptionDto = {
+  id: string;
+  displayName: string;
+  defaultModel: string;
+  models: WorkModelEntryDto[];
+  accounts: WorkModelAccountDto[];
+};
+
+export type WorkModelOptionsDto = {
+  cliAgents: WorkModelAgentOptionDto[];
+  apiProviders: WorkModelProviderOptionDto[];
+};
+
 /** Home-page daily card. Exactly one per day, picked deterministically
  *  by the backend from a curated pool. {@link author} / {@link role} are
  *  populated for {@code quote} cards and null for the other types. */
@@ -1493,6 +1552,10 @@ export type WorkspaceDto = {
   /** Scratch workspaces never accrue durable memory — the
    *  distillation pass skips them by design. */
   isScratch: boolean;
+  /** The workspace's default pick on the work-model cascade. Null
+   *  means no override is set; the resolver falls back to the
+   *  global default in that case. */
+  workModel: WorkModelDto | null;
   createdAt: string;
   updatedAt: string;
 };
@@ -2331,6 +2394,18 @@ export type Bridge = {
   listAiProviders: () => Promise<AiProviderInfo[]>;
   getAiSettings: () => Promise<AiSettingsDto>;
   setAiSettings: (provider: string, model: string | null) => Promise<AiSettingsDto>;
+  /** Catalog × credentials × CLI detection — the option tree the
+   *  work-model picker walks. Re-fetched when the picker opens so
+   *  newly-added credentials / freshly-installed CLI agents show
+   *  up without an app restart. */
+  getWorkModelOptions: () => Promise<WorkModelOptionsDto>;
+  /** Forces the CLI detector to drop its memo and re-probe every
+   *  binary. Backs the picker's "refresh" affordance. */
+  refreshWorkModelOptions: () => Promise<WorkModelOptionsDto>;
+  /** Set (or clear) the workspace's default work model. Pass null
+   *  to remove the override, after which the resolver falls back
+   *  to the global default. Returns the updated workspace. */
+  setWorkspaceWorkModel: (workspaceId: string, model: WorkModelDto | null) => Promise<WorkspaceDto>;
   /** List every configured skill, alphabetised by name. The Settings
    *  → Skills page slices client-side on scope / roleTag. */
   listSkills: () => Promise<SkillDto[]>;

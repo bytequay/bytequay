@@ -71,6 +71,8 @@ import type {
   WatchedRepoDto,
   WorkUnitTaskDto,
   ReviewRosterEntryDto,
+  WorkModelDto,
+  WorkModelOptionsDto,
   WorkspaceCardDto,
   WorkspaceDto,
   WorkspaceRepoDto,
@@ -295,6 +297,12 @@ const bridge: Bridge = {
   getAiSettings: (): Promise<AiSettingsDto> => ipcRenderer.invoke('ai:getSettings'),
   setAiSettings: (provider: string, model: string | null): Promise<AiSettingsDto> =>
     ipcRenderer.invoke('ai:setSettings', provider, model),
+  getWorkModelOptions: (): Promise<WorkModelOptionsDto> =>
+    ipcRenderer.invoke('workModels:options'),
+  refreshWorkModelOptions: (): Promise<WorkModelOptionsDto> =>
+    ipcRenderer.invoke('workModels:refresh'),
+  setWorkspaceWorkModel: (workspaceId: string, model: WorkModelDto | null): Promise<WorkspaceDto> =>
+    ipcRenderer.invoke('workspaces:setWorkModel', { workspaceId, model }),
   listSkills: (): Promise<SkillDto[]> => ipcRenderer.invoke('skills:list'),
   createSkill: (input: SkillInput): Promise<SkillDto> => ipcRenderer.invoke('skills:create', input),
   updateSkill: (id: number, input: SkillInput): Promise<SkillDto> =>

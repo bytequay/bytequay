@@ -12,7 +12,13 @@
  * limitations under the License.
  */
 import { useCallback, useEffect, useState } from 'react';
-import type { WatchedRepoDto, WorkspaceBehaviorDto, WorkspaceCardDto } from '../types';
+import type {
+  WatchedRepoDto,
+  WorkModelDto,
+  WorkspaceBehaviorDto,
+  WorkspaceCardDto,
+} from '../types';
+import { WorkModelPicker } from './WorkModelPicker';
 
 const ARCHIVE_OPTIONS: { value: string; label: string }[] = [
   { value: '1h', label: 'After 1h' },
@@ -51,6 +57,8 @@ function WorkspaceSettingsPage() {
   const [deleteError, setDeleteError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [workModel, setWorkModel] = useState<WorkModelDto | null>(null);
+  const [workModelError, setWorkModelError] = useState<string | null>(null);
 
   const onDelete = async () => {
     if (workspace === null || deleting) return;
@@ -86,6 +94,16 @@ function WorkspaceSettingsPage() {
       const current = workspaces[0] ?? null;
       setWorkspace(current);
       setNameDraft(current?.name ?? '');
+      if (current !== null) {
+        // Pull the full Workspace record so we know the persisted
+        // work-model override. The landing card DTO doesn't carry it
+        // because most surfaces don't need to know.
+        const full = await window.bridge.getWorkspace(current.id);
+        setWorkModel(full?.workModel ?? null);
+      }
+      else {
+        setWorkModel(null);
+      }
       setError(null);
     }
     catch (e) {
@@ -123,6 +141,23 @@ function WorkspaceSettingsPage() {
     }
     finally {
       setRenamingState('idle');
+    }
+  };
+
+  const persistWorkModel = async (next: WorkModelDto | null) => {
+    if (workspace === null) return;
+    const prev = workModel;
+    // Optimistic update so the picker reflects the new pick
+    // immediately. On failure we snap back + surface the error.
+    setWorkModel(next);
+    setWorkModelError(null);
+    try {
+      const saved = await window.bridge.setWorkspaceWorkModel(workspace.id, next);
+      setWorkModel(saved.workModel);
+    }
+    catch (e) {
+      setWorkModel(prev);
+      setWorkModelError(e instanceof Error ? e.message : String(e));
     }
   };
 
@@ -200,6 +235,35 @@ function WorkspaceSettingsPage() {
               )}
             </div>
           </form>
+        )}
+      </section>
+
+      <section className="workspace-card" style={sectionStyle} aria-label="Work model">
+        <div className="workspace-card__head">
+          <div className="workspace-card__title">Work model</div>
+          <span style={mutedHintStyle}>
+            agent + model the workspace runs by default
+          </span>
+        </div>
+        <p style={sectionDescStyle}>
+          The agent that runs work in this workspace — threads, tasks,
+          and review seats inherit it. Pick an <strong>agent</strong>,
+          then its <strong>model</strong>. CLI agents and API providers
+          are equal peers; a thread or task override (later phase) lands
+          most-specific-wins.
+        </p>
+        {workspace === null ? (
+          <div style={mutedHintStyle}>{loading ? 'Loading…' : 'No workspace.'}</div>
+        ) : (
+          <>
+            <WorkModelPicker
+              value={workModel}
+              onChange={(next) => { void persistWorkModel(next); }}
+            />
+            {workModelError !== null && (
+              <div style={renameErrorStyle}>{workModelError}</div>
+            )}
+          </>
         )}
       </section>
 

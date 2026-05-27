@@ -195,6 +195,11 @@ public class McpController
      *  user's "Next →" button drives. */
     private static final String NEXT_TASK_TOOL = "next_task";
 
+    /** Orchestration tool — ships the active task. Parked at
+     *  AWAITING_REVIEW first so the user reviews the proposed ship
+     *  before the push + PR open + close fires. */
+    private static final String SHIP_TASK_TOOL = "ship_task";
+
     /** Hard upper bound on the {@code limit} arg of {@code recall_thread}
      *  — the result is inlined into the agent's context, so we cap it
      *  so a too-eager caller can't blow up a single turn. */
@@ -878,6 +883,31 @@ public class McpController
         // Dispatched via handleToolCall.
     }
 
+    /** Args record for {@code ship_task}. Same shape as next_task —
+     *  the difference is the user's approval gate. */
+    public record ShipTaskArgs(
+            @ToolParam(description = "Title for the next task. Optional — the new task is "
+                    + "created on Approve and takes 'task N+1' when omitted.",
+                    wireName = "next_title") String nextTitle,
+            @ToolParam(description = "Base mode for the next task's branch — 'main' "
+                    + "(default) or 'stacked' to chain on this task's branch.",
+                    wireName = "base_mode") String baseMode) {}
+
+    @AgentTool(
+            name = SHIP_TASK_TOOL,
+            description = "Ship the active task: park the proposal at AWAITING_REVIEW so "
+                    + "the user reviews the diff + PR state, then on Approve the server "
+                    + "runs the full ship-and-continue flow (push, open or update PR, "
+                    + "mark the task COMPLETED, cut the next task). Use when the unit of "
+                    + "work is genuinely done and ready for human sign-off.",
+            security = SecurityType.VCS_PUBLISH,
+            gating = Gating.PARKED,
+            roles = AgentRole.TASK)
+    public void declareShipTask(@SuppressWarnings("unused") ShipTaskArgs args)
+    {
+        // Dispatched via handleToolCall.
+    }
+
     private void handleToolCall(String threadId, JsonNode id, JsonNode request, DeferredResult<JsonNode> deferred)
     {
         JsonNode params = request.path("params");
@@ -999,6 +1029,10 @@ public class McpController
         }
         if (NEXT_TASK_TOOL.equals(name)) {
             handleNextTask(threadId, id, params.path("arguments"), deferred);
+            return;
+        }
+        if (SHIP_TASK_TOOL.equals(name)) {
+            handleShipTask(threadId, id, params.path("arguments"), deferred);
             return;
         }
         if (!TOOL_NAME.equals(name)) {
@@ -2161,6 +2195,47 @@ public class McpController
             deferred.setResult(toolResponse(id, deny(
                     "next_task failed: " + e.getMessage())));
         }
+    }
+
+    /**
+     * Handles {@code ship_task}: parks a ship proposal on the active
+     * task. PublishService runs the deferred shipAndContinue on
+     * Approve.
+     */
+    private void handleShipTask(
+            String threadId, JsonNode id, JsonNode args, DeferredResult<JsonNode> deferred)
+    {
+        Optional<Task> active = taskStore.findActiveTaskForThread(threadId);
+        if (active.isEmpty()) {
+            deferred.setResult(plainText(id,
+                    "no active task on this thread — nothing to ship"));
+            return;
+        }
+        Task task = active.get();
+        if (task.worktreePath() == null || task.worktreePath().isBlank()) {
+            deferred.setResult(plainText(id,
+                    "the active task has no worktree — ship needs an isolated branch"));
+            return;
+        }
+        String nextTitle = args.path("next_title").asText("").trim();
+        String baseMode = args.path("base_mode").asText("main").trim().toLowerCase(Locale.ROOT);
+        if (!"main".equals(baseMode) && !"stacked".equals(baseMode)) {
+            baseMode = "main";
+        }
+
+        parkActiveTaskAtAwaitingReview(task);
+        Map<String, Object> payload = new LinkedHashMap<>();
+        payload.put("action", "ship_task");
+        payload.put("threadId", threadId);
+        payload.put("taskId", task.id());
+        payload.put("nextTitle", nextTitle);
+        payload.put("baseMode", baseMode);
+        payload.put("source", "mcp:ship_task");
+        emitAwaitingReviewNotification(threadId, task.id(), payload, "mcp:ship_task");
+
+        deferred.setResult(plainText(id,
+                "Parked at AWAITING_REVIEW (ship_task). The user will review the "
+                        + "proposed ship and approve, edit, or discard from the thread."));
     }
 
     /** Resolves a watched repo from the task's workingDir by matching

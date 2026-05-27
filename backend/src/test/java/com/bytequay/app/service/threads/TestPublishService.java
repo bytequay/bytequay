@@ -62,6 +62,7 @@ class TestPublishService
     private PullRequestRepository pullRequests;
     private PatResolver patResolver;
     private ObjectMapper mapper;
+    private TaskService taskService;
     private PublishService service;
 
     @BeforeEach
@@ -73,7 +74,8 @@ class TestPublishService
         pullRequests = mock(PullRequestRepository.class);
         patResolver = mock(PatResolver.class);
         mapper = new ObjectMapper();
-        service = new PublishService(notifications, taskStore, git, pullRequests, patResolver, mapper);
+        taskService = mock(TaskService.class);
+        service = new PublishService(notifications, taskStore, git, pullRequests, patResolver, mapper, taskService);
     }
 
     @Test

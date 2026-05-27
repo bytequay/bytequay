@@ -34,6 +34,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.collect.ImmutableList;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.context.annotation.Lazy;
 import org.springframework.http.HttpStatusCode;
 import org.springframework.stereotype.Service;
 import org.springframework.web.server.ResponseStatusException;
@@ -70,6 +71,12 @@ public class PublishService
     private final PullRequestRepository pullRequests;
     private final PatResolver patResolver;
     private final ObjectMapper mapper;
+    /** Lazy because TaskService transitively depends on services that
+     *  may in turn need PublishService — using {@code @Lazy} keeps the
+     *  bean graph acyclic by deferring the actual lookup to first
+     *  use. The only call site is doShipTask, which fires at most
+     *  once per parked ship notification. */
+    private final TaskService taskService;
 
     public PublishService(
             NotificationService notifications,
@@ -77,7 +84,8 @@ public class PublishService
             GitRunner git,
             PullRequestRepository pullRequests,
             PatResolver patResolver,
-            ObjectMapper mapper)
+            ObjectMapper mapper,
+            @Lazy TaskService taskService)
     {
         this.notifications = requireNonNull(notifications, "notifications is null");
         this.taskStore = requireNonNull(taskStore, "taskStore is null");
@@ -85,6 +93,7 @@ public class PublishService
         this.pullRequests = requireNonNull(pullRequests, "pullRequests is null");
         this.patResolver = requireNonNull(patResolver, "patResolver is null");
         this.mapper = requireNonNull(mapper, "mapper is null");
+        this.taskService = requireNonNull(taskService, "taskService is null");
     }
 
     /**
@@ -114,6 +123,7 @@ public class PublishService
                 case "set_issue_state" -> doSetIssueState(payload);
                 case "open_pr" -> doOpenPr(payload, editedBody);
                 case "publish_review" -> doPublishReview(payload, editedBody);
+                case "ship_task" -> doShipTask(payload, original);
                 default -> throw new ResponseStatusException(
                         HttpStatusCode.valueOf(400), "unsupported action: " + action);
             };
@@ -516,6 +526,54 @@ public class PublishService
                 "Published review on " + ref.owner() + "/" + ref.repo()
                         + "#" + ref.number() + " (" + event + ").",
                 "publish_review");
+    }
+
+    /**
+     * Approves a parked ship_task: flips the task back to RUNNING
+     * (so {@link TaskService#shipAndContinue}'s active-task
+     * precondition holds), then runs the full ship-and-continue
+     * flow. The user's Approve click IS the gate that the task was
+     * parked at — no second check is needed at the TaskService
+     * layer.
+     */
+    private PublishResult doShipTask(JsonNode payload, Notification original)
+    {
+        String threadId = original.threadId();
+        String taskId = original.taskId();
+        if (threadId == null || taskId == null) {
+            throw new ResponseStatusException(HttpStatusCode.valueOf(400),
+                    "parked ship_task notification has no thread / task id");
+        }
+        Task parked = taskStore.findTaskById(taskId)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatusCode.valueOf(400),
+                        "parked ship_task target " + taskId + " not found"));
+        // The user clicking Approve IS the authorisation gate; unpark
+        // so shipAndContinue's active-task lookup finds the row.
+        if (parked.status() == TaskStatus.AWAITING_REVIEW) {
+            taskStore.saveTask(new Task(
+                    parked.id(), parked.threadId(), parked.seq(), TaskStatus.RUNNING,
+                    parked.branchName(), parked.worktreePath(), parked.baseBranch(),
+                    parked.workingDir(),
+                    parked.processPid(), parked.logPath(),
+                    parked.prNumber(), parked.prState(), parked.ciState(),
+                    parked.taskType(), parked.linkedPrNumber(), parked.linkedIssueNumber(),
+                    parked.costUsdMilli(), parked.tokensIn(), parked.tokensOut(),
+                    parked.agentSessionId(),
+                    parked.createdAt(), parked.endedAt(), parked.errorMessage(),
+                    parked.name(), parked.roleSkill()));
+        }
+        String nextTitle = payload.path("nextTitle").asText("");
+        String baseModeRaw = payload.path("baseMode").asText("main");
+        TaskService.BaseMode mode = "stacked".equals(baseModeRaw)
+                ? TaskService.BaseMode.STACKED
+                : TaskService.BaseMode.MAIN;
+        TaskService.ShipRequest request = new TaskService.ShipRequest(
+                nextTitle.isBlank() ? null : nextTitle, mode);
+        Task next = taskService.shipAndContinue(threadId, taskId, request);
+        return new PublishResult(true, "approved",
+                "Shipped task " + taskId + " → created " + next.id() + " on "
+                        + next.branchName() + ".",
+                "ship_task");
     }
 
     private static IssueRefFromPayload readIssueRef(JsonNode payload, String action)

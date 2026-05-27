@@ -116,7 +116,10 @@ function SkillsPage() {
   useEffect(() => { void reload(); }, [reload]);
 
   const counts = useMemo(() => {
-    const c = { global: 0, repos: 0, roles: ROLE_CARDS.length };
+    // counts reflect user-authored data, not the static role-info
+    // cards (those live as a separate informational grid on the Roles
+    // tab and don't make sense as a "you have N" badge).
+    const c = { global: 0, repos: 0, roles: 0 };
     for (const s of skills) {
       const sc = classify(s);
       if (sc === 'global') c.global++;
@@ -127,8 +130,9 @@ function SkillsPage() {
   }, [skills]);
 
   const visible = useMemo(() => {
-    if (tab === 'roles') return [];
-    const wanted: ScopeBucket = tab === 'global' ? 'global' : 'repos';
+    const wanted: ScopeBucket = tab === 'global' ? 'global'
+        : tab === 'repos' ? 'repos'
+        : 'role';
     return skills.filter(s => classify(s) === wanted);
   }, [skills, tab]);
 
@@ -235,22 +239,20 @@ function SkillsPage() {
               <div style={bodyTitleStyle}>{activeDef.label}</div>
               <div style={bodyMetaStyle}>{activeDef.meta}</div>
             </div>
-            {tab !== 'roles' && (
-              <button
-                type="button"
-                className="button button--primary"
-                onClick={() => openAdd(tab === 'global' ? 'global' : 'repos')}
-              >
-                {activeDef.addLabel}
-              </button>
-            )}
+            <button
+              type="button"
+              className="button button--primary"
+              onClick={() => openAdd(tab === 'global' ? 'global' : tab === 'repos' ? 'repos' : 'role')}
+            >
+              {activeDef.addLabel}
+            </button>
           </div>
 
           {error !== null && <div className="repo-error">{error}</div>}
 
-          {tab !== 'roles' && loading && <div className="settings-loading">Loading…</div>}
+          {loading && <div className="settings-loading">Loading…</div>}
 
-          {tab !== 'roles' && !loading && visible.length === 0 && error === null && (
+          {!loading && tab !== 'roles' && visible.length === 0 && error === null && (
             <div style={emptyStyle}>{activeDef.emptyHint}</div>
           )}
 
@@ -297,30 +299,48 @@ function SkillsPage() {
           ))}
 
           {tab === 'roles' && (
-            <div style={rolesGridStyle}>
-              {ROLE_CARDS.map(card => (
-                <article key={card.id} style={roleCardStyle}>
-                  <header style={roleCardHeadStyle}>
-                    <div>
-                      <div style={roleCardLabelStyle}>{card.label}</div>
-                      <div style={roleCardKindStyle}>{card.kind}</div>
+            <>
+              <div style={rolesGridStyle}>
+                {ROLE_CARDS.map(card => (
+                  <article key={card.id} style={roleCardStyle}>
+                    <header style={roleCardHeadStyle}>
+                      <div>
+                        <div style={roleCardLabelStyle}>{card.label}</div>
+                        <div style={roleCardKindStyle}>{card.kind}</div>
+                      </div>
+                      <span style={roleCardTagStyle}>role</span>
+                    </header>
+                    <p style={roleCardBlurbStyle}>{card.blurb}</p>
+                    <div style={chipColStyle}>
+                      <div style={chipRowStyle}>
+                        <span style={chipLabelOkStyle}>can</span>
+                        {card.can.map(c => <span key={c} style={chipOkStyle}>{c}</span>)}
+                      </div>
+                      <div style={chipRowStyle}>
+                        <span style={chipLabelNoStyle}>can't</span>
+                        {card.cant.map(c => <span key={c} style={chipNoStyle}>{c}</span>)}
+                      </div>
                     </div>
-                    <span style={roleCardTagStyle}>role</span>
-                  </header>
-                  <p style={roleCardBlurbStyle}>{card.blurb}</p>
-                  <div style={chipColStyle}>
-                    <div style={chipRowStyle}>
-                      <span style={chipLabelOkStyle}>can</span>
-                      {card.can.map(c => <span key={c} style={chipOkStyle}>{c}</span>)}
-                    </div>
-                    <div style={chipRowStyle}>
-                      <span style={chipLabelNoStyle}>can't</span>
-                      {card.cant.map(c => <span key={c} style={chipNoStyle}>{c}</span>)}
-                    </div>
-                  </div>
-                </article>
+                  </article>
+                ))}
+              </div>
+              <div style={roleSectionHeadStyle}>Your role skills</div>
+              {visible.length === 0 && error === null && (
+                <div style={emptyStyle}>{activeDef.emptyHint}</div>
+              )}
+              {visible.map(row => (
+                <SkillRow
+                  key={row.id}
+                  row={row}
+                  menuOpen={rowMenu === row.id}
+                  onMenu={() => setRowMenu(rowMenu === row.id ? null : row.id)}
+                  onCloseMenu={() => setRowMenu(null)}
+                  onToggle={() => { void handleToggleEnabled(row); }}
+                  onEdit={() => openEdit(row)}
+                  onDelete={() => { void handleDelete(row.id); }}
+                />
               ))}
-            </div>
+            </>
           )}
         </section>
       </div>
@@ -733,6 +753,15 @@ const menuItemDangerStyle: React.CSSProperties = {
   textAlign: 'left',
   cursor: 'pointer',
   borderRadius: 6,
+};
+
+const roleSectionHeadStyle: React.CSSProperties = {
+  marginTop: 6,
+  fontSize: 12,
+  fontWeight: 700,
+  letterSpacing: '0.04em',
+  textTransform: 'uppercase',
+  color: 'var(--text-3)',
 };
 
 const rolesGridStyle: React.CSSProperties = {

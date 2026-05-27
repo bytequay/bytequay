@@ -26,6 +26,7 @@ import com.bytequay.app.repository.ThreadCheckpointStore;
 import com.bytequay.app.repository.WatchedRepoStore;
 import com.bytequay.app.service.local.GitRunner;
 import com.bytequay.app.service.local.ShellRunner;
+import com.bytequay.app.service.local.TestRunnerDetector;
 import com.bytequay.app.service.threads.McpPermissionGate;
 import com.bytequay.app.service.threads.NotificationService;
 import com.bytequay.app.service.threads.TaskService;
@@ -207,6 +208,20 @@ public class McpController
      *  approval prompt. See {@link ShellRunner} for the policy. */
     private static final String RUN_SHELL_TOOL = "run_shell";
 
+    /** Test-runner tool — auto-detects the worktree's ecosystem
+     *  (maven / gradle / npm / cargo / go / pytest) and runs the
+     *  canonical "verify" command. Read-only AUTO. */
+    private static final String RUN_CHECKS_TOOL = "run_checks";
+
+    /** Wall-clock cap on the run_checks process — 5 minutes. Most
+     *  unit / spot-check suites fit comfortably; longer end-to-end
+     *  suites belong to the workspace work-model when it lands. */
+    private static final long RUN_CHECKS_TIMEOUT_SECONDS = 300L;
+
+    /** Output cap on run_checks — same 256 KB as run_shell so the
+     *  result stays inside a sensible model context budget. */
+    private static final int RUN_CHECKS_OUTPUT_BYTES = ShellRunner.MAX_OUTPUT_BYTES;
+
     /** Hard upper bound on the {@code limit} arg of {@code recall_thread}
      *  — the result is inlined into the agent's context, so we cap it
      *  so a too-eager caller can't blow up a single turn. */
@@ -250,6 +265,7 @@ public class McpController
     private final WorkspaceService workspaces;
     private final TaskService taskService;
     private final ShellRunner shellRunner;
+    private final TestRunnerDetector testRunnerDetector;
 
     public McpController(
             ThreadService threads,
@@ -266,7 +282,8 @@ public class McpController
             PullRequestStore prStore,
             WorkspaceService workspaces,
             TaskService taskService,
-            ShellRunner shellRunner)
+            ShellRunner shellRunner,
+            TestRunnerDetector testRunnerDetector)
     {
         this.threads = requireNonNull(threads, "threads is null");
         this.taskStore = requireNonNull(taskStore, "taskStore is null");
@@ -283,6 +300,7 @@ public class McpController
         this.workspaces = requireNonNull(workspaces, "workspaces is null");
         this.taskService = requireNonNull(taskService, "taskService is null");
         this.shellRunner = requireNonNull(shellRunner, "shellRunner is null");
+        this.testRunnerDetector = requireNonNull(testRunnerDetector, "testRunnerDetector is null");
     }
 
     @PostMapping
@@ -950,6 +968,26 @@ public class McpController
         // Dispatched via handleToolCall.
     }
 
+    /** Args record for {@code run_checks} — no args today. */
+    public record RunChecksArgs() {}
+
+    @AgentTool(
+            name = RUN_CHECKS_TOOL,
+            description = "Run the active task's test suite. Auto-detects the ecosystem "
+                    + "from the worktree (maven / gradle / npm / cargo / go / pytest) and "
+                    + "runs the canonical verify command. AUTO — no user prompt, since "
+                    + "tests are read-only and the test runner is a workspace-level trust "
+                    + "boundary. Returns {ran, ecosystem, command, exitCode, output, "
+                    + "truncated}. 5-minute timeout, 256 KB output cap.",
+            security = SecurityType.CODE_EXEC,
+            gating = Gating.AUTO,
+            roles = AgentRole.TASK)
+    @SuppressWarnings("unused")
+    public void declareRunChecks(RunChecksArgs args)
+    {
+        // Dispatched via handleToolCall.
+    }
+
     private void handleToolCall(String threadId, JsonNode id, JsonNode request, DeferredResult<JsonNode> deferred)
     {
         JsonNode params = request.path("params");
@@ -1079,6 +1117,10 @@ public class McpController
         }
         if (RUN_SHELL_TOOL.equals(name)) {
             handleRunShell(threadId, id, params.path("arguments"), deferred);
+            return;
+        }
+        if (RUN_CHECKS_TOOL.equals(name)) {
+            handleRunChecks(threadId, id, deferred);
             return;
         }
         if (!TOOL_NAME.equals(name)) {
@@ -2355,6 +2397,57 @@ public class McpController
             deferred.setResult(toolResponse(id, deny("timed out waiting for the user")));
         });
         deferred.onCompletion(() -> gate.cancel(callId));
+    }
+
+    /**
+     * Handles {@code run_checks}: auto-detects the test runner for
+     * the active task's worktree and runs the canonical verify
+     * command. AUTO — the test runner is a workspace-level trust
+     * boundary the user already opted into when they cloned the
+     * repo, so we don't gate each call.
+     */
+    private void handleRunChecks(String threadId, JsonNode id, DeferredResult<JsonNode> deferred)
+    {
+        Optional<Task> active = taskStore.findActiveTaskForThread(threadId);
+        if (active.isEmpty() || active.get().worktreePath() == null
+                || active.get().worktreePath().isBlank()) {
+            deferred.setResult(toolResponse(id,
+                    deny("run_checks requires an active task with a worktree")));
+            return;
+        }
+        Path worktree = Path.of(active.get().worktreePath());
+        Optional<TestRunnerDetector.Detected> detected = testRunnerDetector.detect(worktree);
+        if (detected.isEmpty()) {
+            deferred.setResult(toolResponse(id, deny(
+                    "no recognised test runner in " + worktree
+                            + " (looked for pom.xml / build.gradle / package.json / "
+                            + "Cargo.toml / go.mod / pyproject.toml). Configure a "
+                            + "workspace-level test command, or use run_shell.")));
+            return;
+        }
+        TestRunnerDetector.Detected runner = detected.get();
+        try {
+            ShellRunner.Result result = shellRunner.runArgv(
+                    worktree, runner.argv(), RUN_CHECKS_TIMEOUT_SECONDS, RUN_CHECKS_OUTPUT_BYTES);
+            ObjectNode out = mapper.createObjectNode();
+            out.put("ran", result.ran());
+            out.put("ecosystem", runner.ecosystem());
+            out.put("command", String.join(" ", runner.argv()));
+            out.put("exitCode", result.exitCode());
+            out.put("truncated", result.truncated());
+            out.put("output", result.output());
+            if (result.error() != null) {
+                out.put("error", result.error());
+            }
+            deferred.setResult(plainText(id, toJsonString(out)));
+        }
+        catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            deferred.setResult(toolResponse(id, deny("interrupted: " + e.getMessage())));
+        }
+        catch (RuntimeException e) {
+            deferred.setResult(toolResponse(id, deny("run_checks failed: " + e.getMessage())));
+        }
     }
 
     /** Resolves a watched repo from the task's workingDir by matching

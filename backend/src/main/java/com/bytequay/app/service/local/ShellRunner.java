@@ -86,6 +86,21 @@ public class ShellRunner
                             + "pipeline, run each stage separately or use a test runner.");
         }
         List<String> argv = List.of(command.trim().split("\\s+"));
+        return runArgv(workingDir, argv, TIMEOUT_SECONDS, MAX_OUTPUT_BYTES);
+    }
+
+    /**
+     * Run a pre-validated argv directly with caller-supplied
+     * timeout and output cap. Skips the forbidden-operator check —
+     * callers building argv themselves (e.g. the test runner) own
+     * the trust boundary.
+     */
+    public Result runArgv(Path workingDir, List<String> argv, long timeoutSeconds, int maxOutputBytes)
+            throws InterruptedException
+    {
+        if (argv == null || argv.isEmpty()) {
+            return Result.refused("argv is empty — nothing to run");
+        }
         ProcessBuilder pb = new ProcessBuilder(argv)
                 .directory(workingDir.toFile())
                 .redirectErrorStream(true);
@@ -103,10 +118,10 @@ public class ShellRunner
             char[] buf = new char[4096];
             int read;
             while ((read = reader.read(buf)) != -1) {
-                if (out.length() + read >= MAX_OUTPUT_BYTES) {
-                    int room = Math.max(0, MAX_OUTPUT_BYTES - out.length());
+                if (out.length() + read >= maxOutputBytes) {
+                    int room = Math.max(0, maxOutputBytes - out.length());
                     out.append(buf, 0, room);
-                    out.append("\n…[truncated at ").append(MAX_OUTPUT_BYTES).append(" bytes]\n");
+                    out.append("\n…[truncated at ").append(maxOutputBytes).append(" bytes]\n");
                     truncated = true;
                     break;
                 }
@@ -116,7 +131,7 @@ public class ShellRunner
         catch (IOException e) {
             log.warn("ShellRunner read failed on {}: {}", argv, e.getMessage());
         }
-        boolean exited = process.waitFor(TIMEOUT_SECONDS, TimeUnit.SECONDS);
+        boolean exited = process.waitFor(timeoutSeconds, TimeUnit.SECONDS);
         if (!exited) {
             process.destroy();
             process.waitFor(2, TimeUnit.SECONDS);
@@ -124,7 +139,7 @@ public class ShellRunner
                 process.destroyForcibly();
             }
             return new Result(false, -1, out.toString(), true, "timed out after "
-                    + TIMEOUT_SECONDS + "s");
+                    + timeoutSeconds + "s");
         }
         return new Result(true, process.exitValue(), out.toString(), truncated, null);
     }

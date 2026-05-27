@@ -18,8 +18,10 @@ import com.bytequay.app.domain.MergePullRequestCommand;
 import com.bytequay.app.domain.Notification;
 import com.bytequay.app.domain.NotificationKind;
 import com.bytequay.app.domain.PullRequestRef;
+import com.bytequay.app.domain.RequestReviewersCommand;
 import com.bytequay.app.domain.Task;
 import com.bytequay.app.domain.TaskStatus;
+import com.bytequay.app.domain.UpdatePullRequestCommand;
 import com.bytequay.app.repository.PullRequestRepository;
 import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.service.local.GitRunner;
@@ -103,6 +105,9 @@ public class PublishService
                 case "reply_review_thread" -> doReplyReviewThread(payload, editedBody);
                 case "approve_pr" -> doApprovePr(payload, editedBody);
                 case "merge_pr" -> doMergePr(payload);
+                case "create_review_comment" -> doCreateReviewComment(payload, editedBody);
+                case "update_pr_body" -> doUpdatePrBody(payload, editedBody);
+                case "request_reviewer" -> doRequestReviewer(payload);
                 default -> throw new ResponseStatusException(
                         HttpStatusCode.valueOf(400), "unsupported action: " + action);
             };
@@ -303,6 +308,84 @@ public class PublishService
                 "Merged " + ref.owner() + "/" + ref.repo() + "#" + ref.number()
                         + " (" + strategy + ").",
                 "merge_pr");
+    }
+
+    private PublishResult doCreateReviewComment(JsonNode payload, String editedBody)
+    {
+        PrRefFromPayload ref = readPrRef(payload, "create_review_comment");
+        String parkedBody = payload.path("body").asText("");
+        String effectiveBody = (editedBody == null || editedBody.isBlank())
+                ? parkedBody
+                : editedBody;
+        if (effectiveBody.isBlank()) {
+            throw new ResponseStatusException(HttpStatusCode.valueOf(400),
+                    "review comment body is blank — nothing to post");
+        }
+        String filePath = payload.path("filePath").asText("");
+        int line = payload.path("line").asInt(0);
+        String commitId = payload.path("commitId").asText("");
+        if (filePath.isBlank() || line <= 0 || commitId.isBlank()) {
+            throw new ResponseStatusException(HttpStatusCode.valueOf(400),
+                    "parked create_review_comment notification is missing filePath / line / commitId");
+        }
+        String side = payload.path("side").asText("RIGHT");
+        Integer startLine = payload.path("startLine").isNumber()
+                ? payload.path("startLine").asInt()
+                : null;
+        String startSide = payload.path("startSide").asText("");
+        String pat = patResolver.resolve(ref.owner() + "/" + ref.repo());
+        pullRequests.createInlineReviewComment(
+                pat, ref.toRef(),
+                effectiveBody, filePath, line, side, commitId,
+                startLine,
+                startSide.isBlank() ? null : startSide);
+        return new PublishResult(true, "approved",
+                "Posted review comment on " + ref.owner() + "/" + ref.repo()
+                        + "#" + ref.number() + " · " + filePath + ":" + line + ".",
+                "create_review_comment");
+    }
+
+    private PublishResult doUpdatePrBody(JsonNode payload, String editedBody)
+    {
+        PrRefFromPayload ref = readPrRef(payload, "update_pr_body");
+        String parkedBody = payload.path("body").asText("");
+        String effectiveBody = (editedBody == null || editedBody.isBlank())
+                ? parkedBody
+                : editedBody;
+        if (effectiveBody.isBlank()) {
+            throw new ResponseStatusException(HttpStatusCode.valueOf(400),
+                    "PR body is blank — nothing to update");
+        }
+        String pat = patResolver.resolve(ref.owner() + "/" + ref.repo());
+        UpdatePullRequestCommand command = new UpdatePullRequestCommand(
+                Optional.empty(),
+                Optional.of(effectiveBody),
+                Optional.empty(),
+                Optional.empty(),
+                Optional.empty());
+        pullRequests.updatePullRequest(pat, ref.toRef(), command);
+        return new PublishResult(true, "approved",
+                "Updated PR body on " + ref.owner() + "/" + ref.repo() + "#" + ref.number() + ".",
+                "update_pr_body");
+    }
+
+    private PublishResult doRequestReviewer(JsonNode payload)
+    {
+        PrRefFromPayload ref = readPrRef(payload, "request_reviewer");
+        String reviewer = payload.path("reviewer").asText("").trim();
+        if (reviewer.isBlank()) {
+            throw new ResponseStatusException(HttpStatusCode.valueOf(400),
+                    "parked request_reviewer notification has no reviewer login");
+        }
+        String pat = patResolver.resolve(ref.owner() + "/" + ref.repo());
+        RequestReviewersCommand command = new RequestReviewersCommand(
+                ImmutableList.of(reviewer),
+                ImmutableList.of());
+        pullRequests.requestReviewers(pat, ref.toRef(), command);
+        return new PublishResult(true, "approved",
+                "Requested " + reviewer + " on " + ref.owner() + "/"
+                        + ref.repo() + "#" + ref.number() + ".",
+                "request_reviewer");
     }
 
     /** Reads (owner, repo, number) out of a parked payload's "pr"

@@ -161,6 +161,18 @@ public class McpController
      *  the user-selected strategy (squash by default). */
     private static final String MERGE_PR_TOOL = "merge_pr";
 
+    /** Parked publisher — posts a line-anchored review comment on
+     *  the active task's linked PR. */
+    private static final String CREATE_REVIEW_COMMENT_TOOL = "create_review_comment";
+
+    /** Parked publisher — rewrites the active task's linked PR
+     *  description (title remains unchanged). */
+    private static final String UPDATE_PR_BODY_TOOL = "update_pr_body";
+
+    /** Parked publisher — requests a reviewer on the active task's
+     *  linked PR. */
+    private static final String REQUEST_REVIEWER_TOOL = "request_reviewer";
+
     /** Hard upper bound on the {@code limit} arg of {@code recall_thread}
      *  — the result is inlined into the agent's context, so we cap it
      *  so a too-eager caller can't blow up a single turn. */
@@ -627,6 +639,78 @@ public class McpController
         // Dispatched via handleToolCall.
     }
 
+    /** Args record for {@code create_review_comment}. */
+    public record CreateReviewCommentArgs(
+            @ToolParam(description = "Repo-relative file path the comment anchors to.",
+                    required = true, wireName = "file_path") String filePath,
+            @ToolParam(description = "Line in the file the comment anchors to (right side, "
+                    + "added lines).",
+                    required = true) Integer line,
+            @ToolParam(description = "Markdown body of the comment.",
+                    required = true) String body,
+            @ToolParam(description = "Head commit SHA the comment anchors to. The agent can "
+                    + "read it from the PR detail or the diff view.",
+                    required = true, wireName = "commit_id") String commitId,
+            @ToolParam(description = "'RIGHT' (added side, default) or 'LEFT' (deleted side).")
+            String side,
+            @ToolParam(description = "Optional first line of a multi-line range. When set, "
+                    + "the comment spans start_line through line.",
+                    wireName = "start_line") Integer startLine,
+            @ToolParam(description = "Side of start_line — 'LEFT' or 'RIGHT'. Required when "
+                    + "start_line is set.",
+                    wireName = "start_side") String startSide) {}
+
+    @AgentTool(
+            name = CREATE_REVIEW_COMMENT_TOOL,
+            description = "Post a line-anchored review comment on the active task's linked "
+                    + "PR. The body + anchor are parked at AWAITING_REVIEW; on Approve the "
+                    + "server fires the GitHub inline-review-comment API.",
+            security = SecurityType.VCS_PUBLISH,
+            gating = Gating.PARKED,
+            roles = AgentRole.TASK)
+    public void declareCreateReviewComment(@SuppressWarnings("unused") CreateReviewCommentArgs args)
+    {
+        // Dispatched via handleToolCall.
+    }
+
+    /** Args record for {@code update_pr_body}. */
+    public record UpdatePrBodyArgs(
+            @ToolParam(description = "New PR description (markdown). Replaces the existing "
+                    + "body wholesale — set it to the full final text, not a diff.",
+                    required = true) String body) {}
+
+    @AgentTool(
+            name = UPDATE_PR_BODY_TOOL,
+            description = "Rewrite the active task's linked PR description. The new body is "
+                    + "parked at AWAITING_REVIEW; on Approve the server PATCHes the PR via "
+                    + "the GitHub update-pull endpoint. Title is left alone.",
+            security = SecurityType.VCS_PUBLISH,
+            gating = Gating.PARKED,
+            roles = AgentRole.TASK)
+    public void declareUpdatePrBody(@SuppressWarnings("unused") UpdatePrBodyArgs args)
+    {
+        // Dispatched via handleToolCall.
+    }
+
+    /** Args record for {@code request_reviewer}. */
+    public record RequestReviewerArgs(
+            @ToolParam(description = "GitHub login (no '@') of the user to request a review "
+                    + "from. Org teams aren't supported through this tool today.",
+                    required = true) String reviewer) {}
+
+    @AgentTool(
+            name = REQUEST_REVIEWER_TOOL,
+            description = "Request a reviewer on the active task's linked PR. The request "
+                    + "is parked at AWAITING_REVIEW; on Approve the server adds the login "
+                    + "via the GitHub request-review endpoint.",
+            security = SecurityType.VCS_PUBLISH,
+            gating = Gating.PARKED,
+            roles = AgentRole.TASK)
+    public void declareRequestReviewer(@SuppressWarnings("unused") RequestReviewerArgs args)
+    {
+        // Dispatched via handleToolCall.
+    }
+
     private void handleToolCall(String threadId, JsonNode id, JsonNode request, DeferredResult<JsonNode> deferred)
     {
         JsonNode params = request.path("params");
@@ -716,6 +800,18 @@ public class McpController
         }
         if (MERGE_PR_TOOL.equals(name)) {
             handleMergePr(threadId, id, params.path("arguments"), deferred);
+            return;
+        }
+        if (CREATE_REVIEW_COMMENT_TOOL.equals(name)) {
+            handleCreateReviewComment(threadId, id, params.path("arguments"), deferred);
+            return;
+        }
+        if (UPDATE_PR_BODY_TOOL.equals(name)) {
+            handleUpdatePrBody(threadId, id, params.path("arguments"), deferred);
+            return;
+        }
+        if (REQUEST_REVIEWER_TOOL.equals(name)) {
+            handleRequestReviewer(threadId, id, params.path("arguments"), deferred);
             return;
         }
         if (!TOOL_NAME.equals(name)) {
@@ -1473,6 +1569,154 @@ public class McpController
         deferred.setResult(plainText(id,
                 "Parked at AWAITING_REVIEW (merge_pr, strategy=" + strategy + "). "
                         + "The user will approve, edit, or discard from the thread."));
+    }
+
+    /**
+     * Handles {@code create_review_comment}: parks a line-anchored
+     * review comment on the active task's linked PR. The publisher
+     * branch fires createInlineReviewComment on Approve.
+     */
+    private void handleCreateReviewComment(
+            String threadId, JsonNode id, JsonNode args, DeferredResult<JsonNode> deferred)
+    {
+        Optional<Task> active = taskStore.findActiveTaskForThread(threadId);
+        if (active.isEmpty()) {
+            deferred.setResult(plainText(id,
+                    "no active task on this thread — nothing to comment on"));
+            return;
+        }
+        Optional<PullRequestRef> prRef = resolvePrRefFromTask(active.get());
+        if (prRef.isEmpty()) {
+            deferred.setResult(plainText(id,
+                    "no PR linked to the active task — set linked_pr_number first"));
+            return;
+        }
+        String filePath = args.path("file_path").asText("");
+        String body = args.path("body").asText("");
+        String commitId = args.path("commit_id").asText("");
+        int line = args.path("line").asInt(0);
+        if (filePath.isBlank() || body.isBlank() || commitId.isBlank() || line <= 0) {
+            deferred.setResult(plainText(id,
+                    "file_path, line, body, commit_id are required"));
+            return;
+        }
+        String side = args.path("side").asText("RIGHT");
+        Integer startLine = args.path("start_line").isNumber() ? args.path("start_line").asInt() : null;
+        String startSide = args.path("start_side").asText("");
+
+        parkActiveTaskAtAwaitingReview(active.get());
+        Map<String, Object> payload = new LinkedHashMap<>();
+        payload.put("action", "create_review_comment");
+        payload.put("body", body);
+        payload.put("filePath", filePath);
+        payload.put("line", line);
+        payload.put("side", side);
+        payload.put("commitId", commitId);
+        if (startLine != null) {
+            payload.put("startLine", startLine);
+        }
+        if (!startSide.isBlank()) {
+            payload.put("startSide", startSide);
+        }
+        Map<String, Object> pr = new LinkedHashMap<>();
+        pr.put("owner", prRef.get().owner());
+        pr.put("repo", prRef.get().repo());
+        pr.put("number", prRef.get().number());
+        payload.put("pr", pr);
+        payload.put("source", "mcp:create_review_comment");
+        emitAwaitingReviewNotification(threadId, active.get().id(), payload,
+                "mcp:create_review_comment");
+
+        deferred.setResult(plainText(id,
+                "Parked at AWAITING_REVIEW. The user will review the inline comment and "
+                        + "approve, edit, or discard from the thread."));
+    }
+
+    /**
+     * Handles {@code update_pr_body}: parks a body-rewrite on the
+     * active task's linked PR. PublishService PATCHes the PR on
+     * Approve.
+     */
+    private void handleUpdatePrBody(
+            String threadId, JsonNode id, JsonNode args, DeferredResult<JsonNode> deferred)
+    {
+        Optional<Task> active = taskStore.findActiveTaskForThread(threadId);
+        if (active.isEmpty()) {
+            deferred.setResult(plainText(id,
+                    "no active task on this thread — nothing to update"));
+            return;
+        }
+        Optional<PullRequestRef> prRef = resolvePrRefFromTask(active.get());
+        if (prRef.isEmpty()) {
+            deferred.setResult(plainText(id,
+                    "no PR linked to the active task — set linked_pr_number first"));
+            return;
+        }
+        String body = args.path("body").asText("");
+        if (body.isBlank()) {
+            deferred.setResult(plainText(id, "body is required"));
+            return;
+        }
+
+        parkActiveTaskAtAwaitingReview(active.get());
+        Map<String, Object> payload = new LinkedHashMap<>();
+        payload.put("action", "update_pr_body");
+        payload.put("body", body);
+        Map<String, Object> pr = new LinkedHashMap<>();
+        pr.put("owner", prRef.get().owner());
+        pr.put("repo", prRef.get().repo());
+        pr.put("number", prRef.get().number());
+        payload.put("pr", pr);
+        payload.put("source", "mcp:update_pr_body");
+        emitAwaitingReviewNotification(threadId, active.get().id(), payload, "mcp:update_pr_body");
+
+        deferred.setResult(plainText(id,
+                "Parked at AWAITING_REVIEW. The user will review the new PR body and "
+                        + "approve, edit, or discard from the thread."));
+    }
+
+    /**
+     * Handles {@code request_reviewer}: parks a reviewer request on
+     * the active task's linked PR. PublishService fires the GitHub
+     * request-reviewers endpoint on Approve.
+     */
+    private void handleRequestReviewer(
+            String threadId, JsonNode id, JsonNode args, DeferredResult<JsonNode> deferred)
+    {
+        Optional<Task> active = taskStore.findActiveTaskForThread(threadId);
+        if (active.isEmpty()) {
+            deferred.setResult(plainText(id,
+                    "no active task on this thread — nothing to request review on"));
+            return;
+        }
+        Optional<PullRequestRef> prRef = resolvePrRefFromTask(active.get());
+        if (prRef.isEmpty()) {
+            deferred.setResult(plainText(id,
+                    "no PR linked to the active task — set linked_pr_number first"));
+            return;
+        }
+        String reviewer = args.path("reviewer").asText("").trim();
+        if (reviewer.isBlank()) {
+            deferred.setResult(plainText(id, "reviewer (GitHub login) is required"));
+            return;
+        }
+
+        parkActiveTaskAtAwaitingReview(active.get());
+        Map<String, Object> payload = new LinkedHashMap<>();
+        payload.put("action", "request_reviewer");
+        payload.put("reviewer", reviewer);
+        Map<String, Object> pr = new LinkedHashMap<>();
+        pr.put("owner", prRef.get().owner());
+        pr.put("repo", prRef.get().repo());
+        pr.put("number", prRef.get().number());
+        payload.put("pr", pr);
+        payload.put("source", "mcp:request_reviewer");
+        emitAwaitingReviewNotification(threadId, active.get().id(), payload,
+                "mcp:request_reviewer");
+
+        deferred.setResult(plainText(id,
+                "Parked at AWAITING_REVIEW. The user will approve or discard the reviewer "
+                        + "request from the thread."));
     }
 
     private static String normaliseMergeStrategy(String raw)

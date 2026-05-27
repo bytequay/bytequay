@@ -27,6 +27,7 @@ import com.bytequay.app.repository.WatchedRepoStore;
 import com.bytequay.app.service.local.GitRunner;
 import com.bytequay.app.service.threads.McpPermissionGate;
 import com.bytequay.app.service.threads.NotificationService;
+import com.bytequay.app.service.threads.TaskService;
 import com.bytequay.app.service.threads.ThreadService;
 import com.bytequay.app.service.tools.AgentRole;
 import com.bytequay.app.service.tools.AgentTool;
@@ -189,6 +190,11 @@ public class McpController
      *  linked PR with summary body + inline comments at once. */
     private static final String PUBLISH_REVIEW_TOOL = "publish_review";
 
+    /** Orchestration tool — parks the active task at AWAITING_REVIEW
+     *  and cuts a sibling task on the same thread. Same flow the
+     *  user's "Next →" button drives. */
+    private static final String NEXT_TASK_TOOL = "next_task";
+
     /** Hard upper bound on the {@code limit} arg of {@code recall_thread}
      *  — the result is inlined into the agent's context, so we cap it
      *  so a too-eager caller can't blow up a single turn. */
@@ -230,6 +236,7 @@ public class McpController
     private final SkillTools skillTools;
     private final PullRequestStore prStore;
     private final WorkspaceService workspaces;
+    private final TaskService taskService;
 
     public McpController(
             ThreadService threads,
@@ -244,7 +251,8 @@ public class McpController
             PermissionResolver permissions,
             SkillTools skillTools,
             PullRequestStore prStore,
-            WorkspaceService workspaces)
+            WorkspaceService workspaces,
+            TaskService taskService)
     {
         this.threads = requireNonNull(threads, "threads is null");
         this.taskStore = requireNonNull(taskStore, "taskStore is null");
@@ -259,6 +267,7 @@ public class McpController
         this.skillTools = requireNonNull(skillTools, "skillTools is null");
         this.prStore = requireNonNull(prStore, "prStore is null");
         this.workspaces = requireNonNull(workspaces, "workspaces is null");
+        this.taskService = requireNonNull(taskService, "taskService is null");
     }
 
     @PostMapping
@@ -843,6 +852,32 @@ public class McpController
         // Dispatched via handleToolCall.
     }
 
+    /** Args record for {@code next_task}. */
+    public record NextTaskArgs(
+            @ToolParam(description = "Title for the new task. Optional — falls back to "
+                    + "'task N+1' when omitted.",
+                    wireName = "next_title") String nextTitle,
+            @ToolParam(description = "Base mode for the new task's branch — 'main' (cut "
+                    + "from the per-repo merge target, default) or 'stacked' (chain on "
+                    + "the current task's branch).",
+                    wireName = "base_mode") String baseMode) {}
+
+    @AgentTool(
+            name = NEXT_TASK_TOOL,
+            description = "Park the current task at AWAITING_REVIEW and cut a sibling task "
+                    + "on this thread. Mirrors the user's 'Next →' button: pushes the "
+                    + "current branch, opens (or finds) the PR, parks the current task, "
+                    + "creates a new worktree, and returns the new task's id + branch. "
+                    + "Use when the current unit of work is reviewable and you want to "
+                    + "start the next slice without waiting for human approval.",
+            security = SecurityType.TASK_MANAGE,
+            gating = Gating.AUTO,
+            roles = AgentRole.TASK)
+    public void declareNextTask(@SuppressWarnings("unused") NextTaskArgs args)
+    {
+        // Dispatched via handleToolCall.
+    }
+
     private void handleToolCall(String threadId, JsonNode id, JsonNode request, DeferredResult<JsonNode> deferred)
     {
         JsonNode params = request.path("params");
@@ -960,6 +995,10 @@ public class McpController
         }
         if (PUBLISH_REVIEW_TOOL.equals(name)) {
             handlePublishReview(threadId, id, params.path("arguments"), deferred);
+            return;
+        }
+        if (NEXT_TASK_TOOL.equals(name)) {
+            handleNextTask(threadId, id, params.path("arguments"), deferred);
             return;
         }
         if (!TOOL_NAME.equals(name)) {
@@ -2081,6 +2120,47 @@ public class McpController
                 "Parked at AWAITING_REVIEW (publish_review · " + event + " · "
                         + commentCount + " inline comment(s)). The user will approve, "
                         + "edit, or discard from the thread."));
+    }
+
+    /**
+     * Handles {@code next_task}: routes to
+     * {@link TaskService#parkAndStartNext} which parks the current
+     * task and cuts a sibling. Returns the new task's id, branch,
+     * and worktree path so the agent can immediately reason about
+     * where its work will land.
+     */
+    private void handleNextTask(
+            String threadId, JsonNode id, JsonNode args, DeferredResult<JsonNode> deferred)
+    {
+        Optional<Task> active = taskStore.findActiveTaskForThread(threadId);
+        if (active.isEmpty()) {
+            deferred.setResult(toolResponse(id, deny("no active task on this thread")));
+            return;
+        }
+        String nextTitle = args.path("next_title").asText("").trim();
+        String baseModeRaw = args.path("base_mode").asText("main").trim().toLowerCase(Locale.ROOT);
+        TaskService.BaseMode baseMode = "stacked".equals(baseModeRaw)
+                ? TaskService.BaseMode.STACKED
+                : TaskService.BaseMode.MAIN;
+        TaskService.ShipRequest request = new TaskService.ShipRequest(
+                nextTitle.isBlank() ? null : nextTitle,
+                baseMode);
+        try {
+            Task next = taskService.parkAndStartNext(threadId, active.get().id(), request);
+            ObjectNode out = mapper.createObjectNode();
+            out.put("id", next.id());
+            out.put("threadId", next.threadId());
+            out.put("seq", next.seq());
+            out.put("branchName", next.branchName());
+            out.put("worktreePath", next.worktreePath());
+            out.put("baseBranch", next.baseBranch());
+            out.put("parkedTaskId", active.get().id());
+            deferred.setResult(plainText(id, toJsonString(out)));
+        }
+        catch (RuntimeException e) {
+            deferred.setResult(toolResponse(id, deny(
+                    "next_task failed: " + e.getMessage())));
+        }
     }
 
     /** Resolves a watched repo from the task's workingDir by matching

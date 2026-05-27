@@ -26,6 +26,13 @@ import com.bytequay.app.service.local.GitRunner;
 import com.bytequay.app.service.threads.McpPermissionGate;
 import com.bytequay.app.service.threads.NotificationService;
 import com.bytequay.app.service.threads.ThreadService;
+import com.bytequay.app.service.tools.AgentRole;
+import com.bytequay.app.service.tools.AgentTool;
+import com.bytequay.app.service.tools.AgentToolRegistry;
+import com.bytequay.app.service.tools.Gating;
+import com.bytequay.app.service.tools.SecurityType;
+import com.bytequay.app.service.tools.ToolParam;
+import com.bytequay.app.service.tools.ToolSpec;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -143,6 +150,7 @@ public class McpController
     private final WatchedRepoStore watchedRepos;
     private final GitRunner git;
     private final ObjectMapper mapper;
+    private final AgentToolRegistry registry;
 
     public McpController(
             ThreadService threads,
@@ -152,7 +160,8 @@ public class McpController
             NotificationService notifications,
             WatchedRepoStore watchedRepos,
             GitRunner git,
-            ObjectMapper mapper)
+            ObjectMapper mapper,
+            AgentToolRegistry registry)
     {
         this.threads = requireNonNull(threads, "threads is null");
         this.taskStore = requireNonNull(taskStore, "taskStore is null");
@@ -162,6 +171,7 @@ public class McpController
         this.watchedRepos = requireNonNull(watchedRepos, "watchedRepos is null");
         this.git = requireNonNull(git, "git is null");
         this.mapper = requireNonNull(mapper, "mapper is null");
+        this.registry = requireNonNull(registry, "registry is null");
     }
 
     @PostMapping
@@ -205,112 +215,141 @@ public class McpController
 
     private JsonNode listTools(JsonNode id)
     {
+        // Tools are declared via @AgentTool on the stub methods below;
+        // the registry scans them at startup, sorts by name, and emits
+        // a deterministic spec list. The MCP envelope just wraps each
+        // spec into the wire shape.
         ObjectNode result = mapper.createObjectNode();
         var tools = result.putArray("tools");
-
-        // approval_prompt — drives Claude's --permission-prompt-tool.
-        ObjectNode approval = mapper.createObjectNode();
-        approval.put("name", TOOL_NAME);
-        approval.put("description", "Asks the user to allow or deny a tool call. "
-                + "Returns a JSON envelope with behavior=allow|deny.");
-        ObjectNode approvalSchema = approval.putObject("inputSchema");
-        approvalSchema.put("type", "object");
-        ObjectNode approvalProperties = approvalSchema.putObject("properties");
-        approvalProperties.putObject("tool_name").put("type", "string");
-        approvalProperties.putObject("input").put("type", "object");
-        approvalProperties.putObject("tool_use_id").put("type", "string");
-        approvalSchema.putArray("required").add("tool_name").add("input").add("tool_use_id");
-        tools.add(approval);
-
-        // request_review — self-park gate. The CLI agent calls this
-        // when it finishes with a proposed diff that needs the human's
-        // eyes before publishing. No user prompt; the side-effect is
-        // a status transition + notification.
-        ObjectNode review = mapper.createObjectNode();
-        review.put("name", REQUEST_REVIEW_TOOL);
-        review.put("description",
-                "Park the current task at AWAITING_REVIEW with a proposed diff + reply. "
-                        + "Use this when you've finished a unit of work and want the human "
-                        + "to review before anything is pushed or commented on GitHub.");
-        ObjectNode reviewSchema = review.putObject("inputSchema");
-        reviewSchema.put("type", "object");
-        ObjectNode reviewProperties = reviewSchema.putObject("properties");
-        reviewProperties.putObject("summary")
-                .put("type", "string")
-                .put("description", "One- or two-sentence summary of what's ready for review.");
-        reviewProperties.putObject("draft_reply")
-                .put("type", "string")
-                .put("description", "Optional reply the human can publish as-is or edit.");
-        reviewSchema.putArray("required").add("summary");
-        tools.add(review);
-
-        // post_comment — gated publish. Posts an issue-style comment
-        // (the timeline-level kind, not a per-line review comment) to
-        // the active task's linked PR, but only after the user clicks
-        // Allow on a permission card showing the body. Resolves the
-        // (owner, repo, number) tuple from the task's workingDir +
-        // linkedPrNumber so the agent only has to write the body.
-        ObjectNode postComment = mapper.createObjectNode();
-        postComment.put("name", POST_COMMENT_TOOL);
-        postComment.put("description",
-                "Ask the user to post a comment on the active task's linked PR. "
-                        + "Body is shown to the user before sending; on Approve the "
-                        + "server makes the GitHub API call with the per-repo PAT.");
-        ObjectNode postSchema = postComment.putObject("inputSchema");
-        postSchema.put("type", "object");
-        ObjectNode postProperties = postSchema.putObject("properties");
-        postProperties.putObject("body")
-                .put("type", "string")
-                .put("description", "Markdown-formatted body of the comment.");
-        postSchema.putArray("required").add("body");
-        tools.add(postComment);
-
-        // push — gated git push. Pushes the active task's worktree
-        // branch to its upstream (sets -u origin <branch> on first
-        // push, per GitRunner). Same user-gate pattern as post_comment;
-        // no silent publish.
-        ObjectNode push = mapper.createObjectNode();
-        push.put("name", PUSH_TOOL);
-        push.put("description",
-                "Push the active task's branch upstream. The user must approve "
-                        + "before the push runs; on Approve the server invokes "
-                        + "`git push` from the task's worktree.");
-        ObjectNode pushSchema = push.putObject("inputSchema");
-        pushSchema.put("type", "object");
-        pushSchema.putObject("properties");
-        tools.add(push);
-
-        // recall_thread — read-only cross-thread lookup. Returns a
-        // digest of matching active Overall checkpoints so the agent
-        // can find an earlier conversation that already covered the
-        // ground it's about to walk. The current thread is excluded
-        // so the agent isn't handed back a summary of the turn it's
-        // in the middle of.
-        ObjectNode recall = mapper.createObjectNode();
-        recall.put("name", RECALL_THREAD_TOOL);
-        recall.put("description",
-                "Search prior threads' Overall summaries for prior context. "
-                        + "Use this before answering an unfamiliar question to see if "
-                        + "a previous thread already worked through the same problem. "
-                        + "Returns title + summary excerpt + bullet titles for each "
-                        + "matching thread; never mutates state.");
-        ObjectNode recallSchema = recall.putObject("inputSchema");
-        recallSchema.put("type", "object");
-        ObjectNode recallProperties = recallSchema.putObject("properties");
-        recallProperties.putObject("query")
-                .put("type", "string")
-                .put("description",
-                        "Optional free-text filter. Matched case-insensitively against "
-                                + "Overall summary text and bullet titles. Omit to get the "
-                                + "most recent threads regardless of content.");
-        recallProperties.putObject("limit")
-                .put("type", "integer")
-                .put("description",
-                        "Max threads to return (default " + RECALL_THREAD_DEFAULT_LIMIT
-                                + ", capped at " + RECALL_THREAD_MAX_LIMIT + ").");
-        tools.add(recall);
-
+        for (ToolSpec spec : registry.all()) {
+            ObjectNode tool = mapper.createObjectNode();
+            tool.put("name", spec.name());
+            tool.put("description", spec.description());
+            try {
+                tool.set("inputSchema", mapper.readTree(spec.inputSchema()));
+            }
+            catch (JsonProcessingException e) {
+                // Generated by the registry from a record schema —
+                // a parse failure here is a bug in the generator, not
+                // the wire. Fail loudly so the next call surfaces it.
+                throw new IllegalStateException(
+                        "registry produced invalid JSON schema for tool " + spec.name(), e);
+            }
+            tools.add(tool);
+        }
         return ok(id, result);
+    }
+
+    // ── @AgentTool declarations ─────────────────────────────────────────
+    // Each annotated method below exists so {@link AgentToolRegistry}
+    // can scan it for the tool's metadata and derived JSON schema.
+    // Dispatch in Phase A still flows through {@link #handleToolCall}
+    // and the hand-written per-tool branches; Phase B unifies the
+    // dispatch through the registry's invoke entry point.
+    //
+    // These methods are deliberately no-ops on direct invocation —
+    // anything calling them straight is bypassing the gating /
+    // approval / park-guard wired in handleToolCall, which is the
+    // safety surface this class is responsible for preserving.
+
+    /** Args record for the {@code approval_prompt} tool — Claude's
+     *  {@code --permission-prompt-tool} target. */
+    public record ApprovalPromptArgs(
+            @ToolParam(description = "The tool the agent is asking permission for.",
+                    required = true, wireName = "tool_name") String toolName,
+            @ToolParam(description = "JSON object of the arguments the agent wants to invoke the tool with.",
+                    required = true) JsonNode input,
+            @ToolParam(description = "Opaque correlation id the CLI uses to match the response back to the pending call.",
+                    required = true, wireName = "tool_use_id") String toolUseId) {}
+
+    @AgentTool(
+            name = TOOL_NAME,
+            description = "Asks the user to allow or deny a tool call. "
+                    + "Returns a JSON envelope with behavior=allow|deny.",
+            security = SecurityType.MCP,
+            gating = Gating.AUTO,
+            roles = {AgentRole.TRUNK, AgentRole.TASK, AgentRole.REVIEWER})
+    public void declareApprovalPrompt(@SuppressWarnings("unused") ApprovalPromptArgs args)
+    {
+        // Dispatched via handleToolCall.
+    }
+
+    /** Args record for {@code request_review}. */
+    public record RequestReviewArgs(
+            @ToolParam(description = "One- or two-sentence summary of what's ready for review.",
+                    required = true) String summary,
+            @ToolParam(description = "Optional reply the human can publish as-is or edit.",
+                    wireName = "draft_reply") String draftReply) {}
+
+    @AgentTool(
+            name = REQUEST_REVIEW_TOOL,
+            description = "Park the current task at AWAITING_REVIEW with a proposed diff + reply. "
+                    + "Use this when you've finished a unit of work and want the human "
+                    + "to review before anything is pushed or commented on GitHub.",
+            security = SecurityType.TASK_MANAGE,
+            gating = Gating.PARKED,
+            roles = AgentRole.TASK)
+    public void declareRequestReview(@SuppressWarnings("unused") RequestReviewArgs args)
+    {
+        // Dispatched via handleToolCall.
+    }
+
+    /** Args record for {@code post_comment}. */
+    public record PostCommentArgs(
+            @ToolParam(description = "Markdown-formatted body of the comment.",
+                    required = true) String body) {}
+
+    @AgentTool(
+            name = POST_COMMENT_TOOL,
+            description = "Ask the user to post a comment on the active task's linked PR. "
+                    + "Body is shown to the user before sending; on Approve the "
+                    + "server makes the GitHub API call with the per-repo PAT.",
+            security = SecurityType.VCS_PUBLISH,
+            gating = Gating.PARKED,
+            roles = AgentRole.TASK)
+    public void declarePostComment(@SuppressWarnings("unused") PostCommentArgs args)
+    {
+        // Dispatched via handleToolCall.
+    }
+
+    /** Args record for {@code push} — currently no-args. */
+    public record PushArgs() {}
+
+    @AgentTool(
+            name = PUSH_TOOL,
+            description = "Push the active task's branch upstream. The user must approve "
+                    + "before the push runs; on Approve the server invokes "
+                    + "`git push` from the task's worktree.",
+            security = SecurityType.GIT_PUSH,
+            gating = Gating.PARKED,
+            roles = AgentRole.TASK)
+    public void declarePush(@SuppressWarnings("unused") PushArgs args)
+    {
+        // Dispatched via handleToolCall.
+    }
+
+    /** Args record for {@code recall_thread}. */
+    public record RecallThreadArgs(
+            @ToolParam(description = "Optional free-text filter. Matched case-insensitively against "
+                    + "Overall summary text and bullet titles. Omit to get the "
+                    + "most recent threads regardless of content.") String query,
+            @ToolParam(description = "Max threads to return (default "
+                    + RECALL_THREAD_DEFAULT_LIMIT + ", capped at "
+                    + RECALL_THREAD_MAX_LIMIT + ").") Integer limit) {}
+
+    @AgentTool(
+            name = RECALL_THREAD_TOOL,
+            description = "Search prior threads' Overall summaries for prior context. "
+                    + "Use this before answering an unfamiliar question to see if "
+                    + "a previous thread already worked through the same problem. "
+                    + "Returns title + summary excerpt + bullet titles for each "
+                    + "matching thread; never mutates state.",
+            security = SecurityType.TASK_READ,
+            gating = Gating.AUTO,
+            roles = {AgentRole.TRUNK, AgentRole.TASK, AgentRole.REVIEWER})
+    public void declareRecallThread(@SuppressWarnings("unused") RecallThreadArgs args)
+    {
+        // Dispatched via handleToolCall.
     }
 
     private void handleToolCall(String threadId, JsonNode id, JsonNode request, DeferredResult<JsonNode> deferred)

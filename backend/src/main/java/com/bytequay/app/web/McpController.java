@@ -17,17 +17,14 @@ import com.bytequay.app.domain.PermissionDecision;
 import com.bytequay.app.domain.PullRequestRef;
 import com.bytequay.app.domain.Task;
 import com.bytequay.app.domain.TaskStatus;
-import com.bytequay.app.domain.ThreadCheckpoint;
 import com.bytequay.app.domain.ThreadTurn;
 import com.bytequay.app.domain.ThreadTurnStatus;
 import com.bytequay.app.domain.WatchedRepo;
 import com.bytequay.app.repository.TaskStore;
-import com.bytequay.app.repository.ThreadCheckpointStore;
 import com.bytequay.app.repository.ThreadTurnStore;
 import com.bytequay.app.repository.WatchedRepoStore;
 import com.bytequay.app.service.local.GitRunner;
 import com.bytequay.app.service.local.ShellRunner;
-import com.bytequay.app.service.local.TestRunnerDetector;
 import com.bytequay.app.service.threads.McpPermissionGate;
 import com.bytequay.app.service.threads.NotificationService;
 import com.bytequay.app.service.threads.ParkedProposalService;
@@ -37,11 +34,8 @@ import com.bytequay.app.service.tools.AgentTool;
 import com.bytequay.app.service.tools.AgentToolRegistry;
 import com.bytequay.app.service.tools.Gating;
 import com.bytequay.app.service.tools.PermissionResolver;
-import com.bytequay.app.service.tools.RuntimeToolInvocation;
 import com.bytequay.app.service.tools.SecurityType;
-import com.bytequay.app.service.tools.SkillTools;
 import com.bytequay.app.service.tools.ToolCall;
-import com.bytequay.app.service.tools.ToolContext;
 import com.bytequay.app.service.tools.ToolOutcome;
 import com.bytequay.app.service.tools.ToolParam;
 import com.bytequay.app.service.tools.ToolSpec;
@@ -60,7 +54,6 @@ import org.springframework.web.context.request.async.DeferredResult;
 
 import java.io.IOException;
 import java.nio.file.Path;
-import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
@@ -121,28 +114,6 @@ public class McpController
      *  {@link #POST_COMMENT_TOOL} — no silent publish. */
     private static final String PUSH_TOOL = "push";
 
-    /** Read-only cross-thread context lookup. The agent calls this
-     *  with a free-text query (or no query at all) and the server
-     *  returns a digest of matching active Overall checkpoints from
-     *  other threads — title, summary excerpt, bullets. No user gate;
-     *  no GitHub mutation. */
-    private static final String RECALL_THREAD_TOOL = "recall_thread";
-
-    /** Discovery tool name — returns the registry's catalog filtered
-     *  to the caller's role. */
-    private static final String LIST_TOOLS_TOOL = "list_tools";
-
-    /** Skills-runtime tool name — returns the manifest projection for
-     *  the caller's scope. */
-    private static final String LIST_SKILLS_TOOL = "list_skills";
-
-    /** Skills-runtime tool name — loads the body of one named skill. */
-    private static final String LOAD_SKILL_TOOL = "load_skill";
-
-    /** Orchestration tool — trunk-only; materialises the first task
-     *  on a 0-task thread via the existing ThreadService entry point. */
-    private static final String CREATE_TASK_TOOL = "create_task";
-
     /** Parked publisher — replies in an existing review thread on the
      *  active task's linked PR. The reply is captured into the parked
      *  notification; PublishService.approve posts it on the user's
@@ -201,34 +172,6 @@ public class McpController
      *  approval prompt. See {@link ShellRunner} for the policy. */
     private static final String RUN_SHELL_TOOL = "run_shell";
 
-    /** Test-runner tool — auto-detects the worktree's ecosystem
-     *  (maven / gradle / npm / cargo / go / pytest) and runs the
-     *  canonical "verify" command. Read-only AUTO. */
-    private static final String RUN_CHECKS_TOOL = "run_checks";
-
-    /** Wall-clock cap on the run_checks process — 5 minutes. Most
-     *  unit / spot-check suites fit comfortably; longer end-to-end
-     *  suites belong to the workspace work-model when it lands. */
-    private static final long RUN_CHECKS_TIMEOUT_SECONDS = 300L;
-
-    /** Output cap on run_checks — same 256 KB as run_shell so the
-     *  result stays inside a sensible model context budget. */
-    private static final int RUN_CHECKS_OUTPUT_BYTES = ShellRunner.MAX_OUTPUT_BYTES;
-
-    /** Hard upper bound on the {@code limit} arg of {@code recall_thread}
-     *  — the result is inlined into the agent's context, so we cap it
-     *  so a too-eager caller can't blow up a single turn. */
-    private static final int RECALL_THREAD_MAX_LIMIT = 20;
-
-    /** Default {@code limit} when the agent doesn't supply one — small
-     *  enough that a typical recall pulls in just the most-relevant
-     *  threads, big enough that fuzzy queries return useful diversity. */
-    private static final int RECALL_THREAD_DEFAULT_LIMIT = 5;
-
-    /** Per-checkpoint summary excerpt cap. Keeps the response readable
-     *  when the matching threads have long Overall summaries. */
-    private static final int RECALL_SUMMARY_EXCERPT_CHARS = 800;
-
     /** How long the agent will wait for the user before we give up
      *  and tell Claude the request was denied. Two minutes is enough
      *  to switch tabs, read the call site, and decide; longer would
@@ -245,7 +188,6 @@ public class McpController
 
     private final ThreadService threads;
     private final TaskStore taskStore;
-    private final ThreadCheckpointStore checkpoints;
     private final McpPermissionGate gate;
     private final ParkedProposalService parkedProposals;
     private final WatchedRepoStore watchedRepos;
@@ -253,16 +195,13 @@ public class McpController
     private final ObjectMapper mapper;
     private final AgentToolRegistry registry;
     private final PermissionResolver permissions;
-    private final SkillTools skillTools;
     private final ShellRunner shellRunner;
-    private final TestRunnerDetector testRunnerDetector;
     private final ThreadTurnStore turnStore;
     private final NotificationService notifications;
 
     public McpController(
             ThreadService threads,
             TaskStore taskStore,
-            ThreadCheckpointStore checkpoints,
             McpPermissionGate gate,
             ParkedProposalService parkedProposals,
             WatchedRepoStore watchedRepos,
@@ -270,15 +209,12 @@ public class McpController
             ObjectMapper mapper,
             AgentToolRegistry registry,
             PermissionResolver permissions,
-            SkillTools skillTools,
             ShellRunner shellRunner,
-            TestRunnerDetector testRunnerDetector,
             ThreadTurnStore turnStore,
             NotificationService notifications)
     {
         this.threads = requireNonNull(threads, "threads is null");
         this.taskStore = requireNonNull(taskStore, "taskStore is null");
-        this.checkpoints = requireNonNull(checkpoints, "checkpoints is null");
         this.gate = requireNonNull(gate, "gate is null");
         this.parkedProposals = requireNonNull(parkedProposals, "parkedProposals is null");
         this.watchedRepos = requireNonNull(watchedRepos, "watchedRepos is null");
@@ -286,9 +222,7 @@ public class McpController
         this.mapper = requireNonNull(mapper, "mapper is null");
         this.registry = requireNonNull(registry, "registry is null");
         this.permissions = requireNonNull(permissions, "permissions is null");
-        this.skillTools = requireNonNull(skillTools, "skillTools is null");
         this.shellRunner = requireNonNull(shellRunner, "shellRunner is null");
-        this.testRunnerDetector = requireNonNull(testRunnerDetector, "testRunnerDetector is null");
         this.turnStore = requireNonNull(turnStore, "turnStore is null");
         this.notifications = requireNonNull(notifications, "notifications is null");
     }
@@ -453,129 +387,10 @@ public class McpController
         // Dispatched via handleToolCall.
     }
 
-    /** Args record for {@code recall_thread}. */
-    public record RecallThreadArgs(
-            @ToolParam(description = "Optional free-text filter. Matched case-insensitively against "
-                    + "Overall summary text and bullet titles. Omit to get the "
-                    + "most recent threads regardless of content.") String query,
-            @ToolParam(description = "Max threads to return (default "
-                    + RECALL_THREAD_DEFAULT_LIMIT + ", capped at "
-                    + RECALL_THREAD_MAX_LIMIT + ").") Integer limit) {}
-
-    @AgentTool(
-            name = RECALL_THREAD_TOOL,
-            description = "Search prior threads' Overall summaries for prior context. "
-                    + "Use this before answering an unfamiliar question to see if "
-                    + "a previous thread already worked through the same problem. "
-                    + "Returns title + summary excerpt + bullet titles for each "
-                    + "matching thread; never mutates state.",
-            security = SecurityType.TASK_READ,
-            gating = Gating.AUTO,
-            roles = {AgentRole.TRUNK, AgentRole.TASK, AgentRole.REVIEWER})
-    @SuppressWarnings("unused")
-    public void declareRecallThread(RecallThreadArgs args)
-    {
-        // Dispatched via handleToolCall.
-    }
-
-    /** Args record for {@code list_tools} — no args. */
-    public record ListToolsArgs() {}
-
-    @AgentTool(
-            name = LIST_TOOLS_TOOL,
-            description = "List every tool available this turn, filtered to the "
-                    + "caller's role. Returns a JSON array of {name, description, "
-                    + "gating, security} entries — useful when picking the right "
-                    + "verb for the next action.",
-            security = SecurityType.TOOL_DISCOVER,
-            gating = Gating.AUTO,
-            roles = {AgentRole.TRUNK, AgentRole.TASK, AgentRole.REVIEWER})
-    @SuppressWarnings("unused")
-    public void declareListTools(ListToolsArgs args)
-    {
-        // Dispatched via handleToolCall.
-    }
-
-    /** Args record for {@code list_skills}. */
-    public record ListSkillsArgs(
-            @ToolParam(description = "Optional scope filter — one of global, repo, thread. "
-                    + "Omit to see all skills visible to this thread.") String scope,
-            @ToolParam(description = "Optional substring match against the trigger description. "
-                    + "Case-insensitive.") String query) {}
-
-    @AgentTool(
-            name = LIST_SKILLS_TOOL,
-            description = "List the skills available for this turn. Returns a JSON array "
-                    + "of {id, name, description, scope, repo, role_tag, kind} entries. "
-                    + "Skills are model-triggered — read the \"loads when …\" description "
-                    + "and decide whether to load the body via load_skill.",
-            security = SecurityType.SKILL_USE,
-            gating = Gating.AUTO,
-            roles = {AgentRole.TRUNK, AgentRole.TASK, AgentRole.REVIEWER})
-    @SuppressWarnings("unused")
-    public void declareListSkills(ListSkillsArgs args)
-    {
-        // Dispatched via handleToolCall.
-    }
-
-    /** Args record for {@code load_skill}. */
-    public record LoadSkillArgs(
-            @ToolParam(description = "Unique skill name from a prior list_skills entry.",
-                    required = true) String name) {}
-
-    @AgentTool(
-            name = LOAD_SKILL_TOOL,
-            description = "Load the body of one skill by name. Returns a JSON object "
-                    + "{name, body}. Pair with list_skills: list to find the trigger "
-                    + "that matches the task, load to fetch the instructions.",
-            security = SecurityType.SKILL_USE,
-            gating = Gating.AUTO,
-            roles = {AgentRole.TRUNK, AgentRole.TASK, AgentRole.REVIEWER})
-    @SuppressWarnings("unused")
-    public void declareLoadSkill(LoadSkillArgs args)
-    {
-        // Dispatched via handleToolCall.
-    }
-
-    // read_task / read_pr / read_workspace_memory now declare + handle
-    // themselves on AgentToolHandlers; they dispatch through
-    // registry.invoke in handleToolCall rather than a stub + branch here.
-
-    /** Args record for {@code create_task}. */
-    public record CreateTaskArgs(
-            @ToolParam(description = "owner/name of the watched repo the task should be cut from. "
-                    + "Must already be a watched repo with a local clone path; the task's "
-                    + "worktree is cut from that clone.",
-                    required = true) String repo,
-            @ToolParam(description = "Optional first user prompt to seed the new task's "
-                    + "conversation. When set, the task starts running this turn immediately; "
-                    + "when omitted, the task lands at PENDING and waits for the user.",
-                    wireName = "initial_prompt") String initialPrompt,
-            @ToolParam(description = "Task type — 'DEVELOP' (default), 'REVIEW', etc. "
-                    + "Free-form so future task types don't need a schema bump.",
-                    wireName = "task_type") String taskType,
-            @ToolParam(description = "Optional GitHub PR number to link the task to "
-                    + "(for review / fix-up tasks bound to an existing PR).",
-                    wireName = "linked_pr_number") Integer linkedPrNumber,
-            @ToolParam(description = "Optional GitHub issue number to link the task to.",
-                    wireName = "linked_issue_number") Integer linkedIssueNumber) {}
-
-    @AgentTool(
-            name = CREATE_TASK_TOOL,
-            description = "Cut a new task on this thread. Trunk-only — the trunk role "
-                    + "plans + cuts tasks; task / reviewer roles can't reach this. "
-                    + "Returns the new task's id, branch, worktree path, and seq. "
-                    + "The first task on a 0-task thread runs through ThreadService's "
-                    + "materialiseTask path; an attempt on a thread that already has "
-                    + "tasks fails — use next_task / ship_task instead.",
-            security = SecurityType.TASK_MANAGE,
-            gating = Gating.AUTO,
-            roles = AgentRole.TRUNK)
-    @SuppressWarnings("unused")
-    public void declareCreateTask(CreateTaskArgs args)
-    {
-        // Dispatched via handleToolCall.
-    }
+    // recall_thread / list_tools / list_skills / load_skill / create_task
+    // and the read_* tools now declare + handle themselves on
+    // AgentToolHandlers; they dispatch through registry.invoke in
+    // handleToolCall rather than a stub + branch here.
 
     /** Args record for {@code reply_review_thread}. */
     public record ReplyReviewThreadArgs(
@@ -895,26 +710,6 @@ public class McpController
         // Dispatched via handleToolCall.
     }
 
-    /** Args record for {@code run_checks} — no args today. */
-    public record RunChecksArgs() {}
-
-    @AgentTool(
-            name = RUN_CHECKS_TOOL,
-            description = "Run the active task's test suite. Auto-detects the ecosystem "
-                    + "from the worktree (maven / gradle / npm / cargo / go / pytest) and "
-                    + "runs the canonical verify command. AUTO — no user prompt, since "
-                    + "tests are read-only and the test runner is a workspace-level trust "
-                    + "boundary. Returns {ran, ecosystem, command, exitCode, output, "
-                    + "truncated}. 5-minute timeout, 256 KB output cap.",
-            security = SecurityType.CODE_EXEC,
-            gating = Gating.AUTO,
-            roles = AgentRole.TASK)
-    @SuppressWarnings("unused")
-    public void declareRunChecks(RunChecksArgs args)
-    {
-        // Dispatched via handleToolCall.
-    }
-
     private void handleToolCall(String threadId, JsonNode id, JsonNode request, DeferredResult<JsonNode> deferred)
     {
         JsonNode params = request.path("params");
@@ -974,26 +769,6 @@ public class McpController
             handlePush(threadId, id, deferred);
             return;
         }
-        if (RECALL_THREAD_TOOL.equals(name)) {
-            handleRecallThread(threadId, id, params.path("arguments"), deferred);
-            return;
-        }
-        if (LIST_TOOLS_TOOL.equals(name)) {
-            handleListTools(threadId, id, deferred);
-            return;
-        }
-        if (LIST_SKILLS_TOOL.equals(name)) {
-            handleSkillToolsDispatch(threadId, id, LIST_SKILLS_TOOL, params.path("arguments"), deferred);
-            return;
-        }
-        if (LOAD_SKILL_TOOL.equals(name)) {
-            handleSkillToolsDispatch(threadId, id, LOAD_SKILL_TOOL, params.path("arguments"), deferred);
-            return;
-        }
-        if (CREATE_TASK_TOOL.equals(name)) {
-            handleCreateTask(threadId, id, params.path("arguments"), deferred);
-            return;
-        }
         if (REPLY_REVIEW_THREAD_TOOL.equals(name)) {
             handleReplyReviewThread(threadId, id, params.path("arguments"), deferred);
             return;
@@ -1044,10 +819,6 @@ public class McpController
         }
         if (RUN_SHELL_TOOL.equals(name)) {
             handleRunShell(threadId, id, params.path("arguments"), deferred);
-            return;
-        }
-        if (RUN_CHECKS_TOOL.equals(name)) {
-            handleRunChecks(threadId, id, deferred);
             return;
         }
         if (!TOOL_NAME.equals(name)) {
@@ -1508,140 +1279,6 @@ public class McpController
                     worktree, e.getMessage());
         }
         return null;
-    }
-
-    /**
-     * Handles {@code list_tools}: walks the registry filtered by the
-     * caller's role and returns a JSON array digest with the tool's
-     * name, description, security type, and gating mode. Pure
-     * metadata — no side effects.
-     */
-    private void handleListTools(String threadId, JsonNode id, DeferredResult<JsonNode> deferred)
-    {
-        AgentRole role = permissions.roleFor(threadId);
-        ObjectNode result = mapper.createObjectNode();
-        var arr = result.putArray("tools");
-        for (ToolSpec spec : registry.visibleTo(role)) {
-            ObjectNode entry = mapper.createObjectNode();
-            entry.put("name", spec.name());
-            entry.put("description", spec.description());
-            entry.put("gating", spec.gating().name().toLowerCase(Locale.ROOT));
-            entry.put("security", spec.security().name().toLowerCase(Locale.ROOT));
-            arr.add(entry);
-        }
-        try {
-            deferred.setResult(plainText(id, mapper.writeValueAsString(result.get("tools"))));
-        }
-        catch (JsonProcessingException e) {
-            deferred.setResult(error(id, -32603, "failed to serialise tool catalog"));
-        }
-    }
-
-    /**
-     * Handles {@code list_skills} / {@code load_skill}: both route into
-     * the shared {@link SkillTools} dispatcher with a {@link ToolContext}
-     * built from the thread's resolved role. The dispatcher's JSON
-     * result lands in the MCP plain-text envelope verbatim; an error
-     * (e.g. unknown skill name) is surfaced as a deny envelope so the
-     * model treats it as a tool failure.
-     */
-    private void handleSkillToolsDispatch(
-            String threadId, JsonNode id, String toolName, JsonNode args, DeferredResult<JsonNode> deferred)
-    {
-        AgentRole role = permissions.roleFor(threadId);
-        ToolContext ctx = new ToolContext(
-                Set.of(),
-                Optional.of(threadId),
-                Optional.of(role.name().toLowerCase(Locale.ROOT)));
-        RuntimeToolInvocation out = skillTools.dispatch(toolName, args, ctx);
-        if (out.isError()) {
-            deferred.setResult(toolResponse(id, deny(out.result())));
-            return;
-        }
-        deferred.setResult(plainText(id, out.result()));
-    }
-
-    /**
-     * Handles {@code create_task}: cuts a new task on this thread via
-     * the trunk-only path. Refuses when the thread already has tasks
-     * (the agent should call next_task / ship_task instead), when the
-     * named repo isn't watched, or when the watched repo has no local
-     * clone path. On success returns id + branch + worktreePath so
-     * the agent can immediately reason about where its work will land.
-     */
-    private void handleCreateTask(String threadId, JsonNode id, JsonNode args, DeferredResult<JsonNode> deferred)
-    {
-        String repo = args.path("repo").asText("");
-        if (repo.isBlank()) {
-            deferred.setResult(toolResponse(id, deny("repo (owner/name) is required")));
-            return;
-        }
-        Optional<com.bytequay.app.domain.Thread> threadOpt = threads.find(threadId);
-        if (threadOpt.isEmpty()) {
-            deferred.setResult(toolResponse(id, deny("thread not found: " + threadId)));
-            return;
-        }
-        com.bytequay.app.domain.Thread thread = threadOpt.get();
-        if (!taskStore.listTasksByThread(threadId).isEmpty()) {
-            deferred.setResult(toolResponse(id, deny(
-                    "thread already has tasks — use next_task or ship_task to spawn a sibling. "
-                            + "create_task is for 0-task threads only.")));
-            return;
-        }
-        WatchedRepo watched = watchedRepos.findAll().stream()
-                .filter(r -> repo.equals(r.fullName()))
-                .findFirst()
-                .orElse(null);
-        if (watched == null) {
-            deferred.setResult(toolResponse(id, deny(
-                    "repo not in watched repos: " + repo
-                            + " — add it under Repos before cutting a task.")));
-            return;
-        }
-        if (watched.localClonePath() == null || watched.localClonePath().isBlank()) {
-            deferred.setResult(toolResponse(id, deny(
-                    "watched repo " + repo + " has no local clone path — set it under Repos.")));
-            return;
-        }
-        String initialPrompt = args.path("initial_prompt").asText("");
-        String taskType = args.path("task_type").asText("");
-        Integer linkedPrNumber = args.path("linked_pr_number").isNumber()
-                ? args.path("linked_pr_number").asInt()
-                : null;
-        Integer linkedIssueNumber = args.path("linked_issue_number").isNumber()
-                ? args.path("linked_issue_number").asInt()
-                : null;
-        ThreadService.NewTaskRequest request = new ThreadService.NewTaskRequest(
-                thread.kind(),
-                thread.provider(),
-                thread.model(),
-                /* title — reuse the thread title */ thread.title(),
-                /* workingDir */ watched.localClonePath(),
-                /* branchName — let worktree create derive it */ null,
-                initialPrompt.isBlank() ? null : initialPrompt,
-                /* initialGroupIds */ List.of(),
-                taskType.isBlank() ? null : taskType,
-                linkedPrNumber,
-                linkedIssueNumber,
-                thread.flow(),
-                thread.workspaceId());
-        try {
-            Task created = threads.materialiseTask(threadId, request);
-            ObjectNode out = mapper.createObjectNode();
-            out.put("id", created.id());
-            out.put("threadId", created.threadId());
-            out.put("seq", created.seq());
-            out.put("status", created.status() == null ? null : created.status().name());
-            out.put("branchName", created.branchName());
-            out.put("worktreePath", created.worktreePath());
-            out.put("workingDir", created.workingDir());
-            out.put("baseBranch", created.baseBranch());
-            deferred.setResult(plainText(id, toJsonString(out)));
-        }
-        catch (IllegalArgumentException | IllegalStateException e) {
-            deferred.setResult(toolResponse(id, deny(
-                    "create_task failed: " + e.getMessage())));
-        }
     }
 
     /**
@@ -2309,57 +1946,6 @@ public class McpController
         deferred.onCompletion(() -> gate.cancel(callId));
     }
 
-    /**
-     * Handles {@code run_checks}: auto-detects the test runner for
-     * the active task's worktree and runs the canonical verify
-     * command. AUTO — the test runner is a workspace-level trust
-     * boundary the user already opted into when they cloned the
-     * repo, so we don't gate each call.
-     */
-    private void handleRunChecks(String threadId, JsonNode id, DeferredResult<JsonNode> deferred)
-    {
-        Optional<Task> active = taskStore.findActiveTaskForThread(threadId);
-        if (active.isEmpty() || active.get().worktreePath() == null
-                || active.get().worktreePath().isBlank()) {
-            deferred.setResult(toolResponse(id,
-                    deny("run_checks requires an active task with a worktree")));
-            return;
-        }
-        Path worktree = Path.of(active.get().worktreePath());
-        Optional<TestRunnerDetector.Detected> detected = testRunnerDetector.detect(worktree);
-        if (detected.isEmpty()) {
-            deferred.setResult(toolResponse(id, deny(
-                    "no recognised test runner in " + worktree
-                            + " (looked for pom.xml / build.gradle / package.json / "
-                            + "Cargo.toml / go.mod / pyproject.toml). Configure a "
-                            + "workspace-level test command, or use run_shell.")));
-            return;
-        }
-        TestRunnerDetector.Detected runner = detected.get();
-        try {
-            ShellRunner.Result result = shellRunner.runArgv(
-                    worktree, runner.argv(), RUN_CHECKS_TIMEOUT_SECONDS, RUN_CHECKS_OUTPUT_BYTES);
-            ObjectNode out = mapper.createObjectNode();
-            out.put("ran", result.ran());
-            out.put("ecosystem", runner.ecosystem());
-            out.put("command", String.join(" ", runner.argv()));
-            out.put("exitCode", result.exitCode());
-            out.put("truncated", result.truncated());
-            out.put("output", result.output());
-            if (result.error() != null) {
-                out.put("error", result.error());
-            }
-            deferred.setResult(plainText(id, toJsonString(out)));
-        }
-        catch (InterruptedException e) {
-            Thread.currentThread().interrupt();
-            deferred.setResult(toolResponse(id, deny("interrupted: " + e.getMessage())));
-        }
-        catch (RuntimeException e) {
-            deferred.setResult(toolResponse(id, deny("run_checks failed: " + e.getMessage())));
-        }
-    }
-
     /** Resolves a watched repo from the task's workingDir by matching
      *  localClonePath. Returns empty when the task's directory isn't
      *  a known clone. */
@@ -2402,104 +1988,6 @@ public class McpController
         catch (JsonProcessingException e) {
             return "{\"error\":\"serialisation failed: " + e.getMessage().replace("\"", "\\\"") + "\"}";
         }
-    }
-
-    /**
-     * Handles {@code recall_thread}: searches active Overall checkpoints
-     * across the database for prior threads whose Overall summary or
-     * bullet titles match the agent's query, then returns a digest as a
-     * single text block.
-     *
-     * <p>Read-only — no user gate. The current thread is excluded so
-     * the agent doesn't read back its own in-flight Overall as if it
-     * were a separate hit. Filtering is plain case-insensitive substring
-     * matching today; a future commit can swap in BM25 or embeddings
-     * once we have a corpus to tune against.
-     */
-    private void handleRecallThread(
-            String threadId, JsonNode id, JsonNode args, DeferredResult<JsonNode> deferred)
-    {
-        String query = args.path("query").asText("").trim();
-        int requestedLimit = args.path("limit").asInt(RECALL_THREAD_DEFAULT_LIMIT);
-        if (requestedLimit <= 0) {
-            requestedLimit = RECALL_THREAD_DEFAULT_LIMIT;
-        }
-        int limit = Math.min(requestedLimit, RECALL_THREAD_MAX_LIMIT);
-
-        // Pull a generous candidate window — we filter in-memory and
-        // the table is local, so an extra factor here costs little but
-        // helps when the query is selective.
-        int scanLimit = Math.min(RECALL_THREAD_MAX_LIMIT * 4, limit * 8);
-        List<ThreadCheckpoint> candidates = checkpoints.listAllActiveOveralls(scanLimit);
-        String needle = query.isEmpty() ? null : query.toLowerCase(Locale.ROOT);
-
-        List<ThreadCheckpoint> matches = new ArrayList<>();
-        for (ThreadCheckpoint cp : candidates) {
-            if (cp.threadId().equals(threadId)) {
-                continue;
-            }
-            if (needle != null && !checkpointMatches(cp, needle)) {
-                continue;
-            }
-            matches.add(cp);
-            if (matches.size() >= limit) {
-                break;
-            }
-        }
-
-        deferred.setResult(plainText(id, renderRecallResult(query, matches)));
-    }
-
-    private static boolean checkpointMatches(ThreadCheckpoint cp, String needle)
-    {
-        String summary = cp.summaryMd();
-        if (summary != null && summary.toLowerCase(Locale.ROOT).contains(needle)) {
-            return true;
-        }
-        for (String bullet : cp.bulletTitles()) {
-            if (bullet != null && bullet.toLowerCase(Locale.ROOT).contains(needle)) {
-                return true;
-            }
-        }
-        return false;
-    }
-
-    private String renderRecallResult(String query, List<ThreadCheckpoint> matches)
-    {
-        if (matches.isEmpty()) {
-            return query.isEmpty()
-                    ? "No prior threads with an Overall summary yet."
-                    : "No prior threads matched: " + query;
-        }
-        StringBuilder out = new StringBuilder();
-        out.append(matches.size())
-                .append(query.isEmpty() ? " recent thread(s):\n" : " match(es) for \"")
-                .append(query.isEmpty() ? "" : query)
-                .append(query.isEmpty() ? "" : "\":\n");
-        for (ThreadCheckpoint cp : matches) {
-            String title = threads.find(cp.threadId())
-                    .map(com.bytequay.app.domain.Thread::title)
-                    .filter(s -> !s.isBlank())
-                    .orElse("(untitled)");
-            out.append("\n— thread ").append(cp.threadId())
-                    .append(" · ").append(title).append('\n');
-            for (String bullet : cp.bulletTitles()) {
-                if (bullet != null && !bullet.isBlank()) {
-                    out.append("  • ").append(bullet).append('\n');
-                }
-            }
-            String summary = cp.summaryMd();
-            if (summary != null && !summary.isBlank()) {
-                String excerpt = summary.length() <= RECALL_SUMMARY_EXCERPT_CHARS
-                        ? summary
-                        : summary.substring(0, RECALL_SUMMARY_EXCERPT_CHARS) + "…";
-                out.append(excerpt);
-                if (!excerpt.endsWith("\n")) {
-                    out.append('\n');
-                }
-            }
-        }
-        return out.toString();
     }
 
     /** True when this thread has an unresolved blocking parked state.

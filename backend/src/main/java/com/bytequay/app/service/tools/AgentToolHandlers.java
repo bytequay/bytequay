@@ -16,16 +16,28 @@ package com.bytequay.app.service.tools;
 import com.bytequay.app.domain.PullRequest;
 import com.bytequay.app.domain.Task;
 import com.bytequay.app.domain.Thread;
+import com.bytequay.app.domain.ThreadCheckpoint;
+import com.bytequay.app.domain.WatchedRepo;
 import com.bytequay.app.repository.PullRequestStore;
 import com.bytequay.app.repository.TaskStore;
+import com.bytequay.app.repository.ThreadCheckpointStore;
 import com.bytequay.app.repository.ThreadStore;
+import com.bytequay.app.repository.WatchedRepoStore;
+import com.bytequay.app.service.local.ShellRunner;
+import com.bytequay.app.service.local.TestRunnerDetector;
+import com.bytequay.app.service.threads.ThreadService;
 import com.bytequay.app.service.workspaces.WorkspaceService;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import org.springframework.stereotype.Component;
 
+import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Locale;
 import java.util.Optional;
+import java.util.Set;
 
 import static java.util.Objects.requireNonNull;
 
@@ -37,21 +49,43 @@ import static java.util.Objects.requireNonNull;
  * the args record from the call's JSON and dispatches here, returning
  * a {@link ToolOutcome} the calling lane adapts to its transport.
  *
- * <p>This is where handlers move as they come off
- * {@code McpController}'s hand-coded dispatch. The read tools live
- * here first because they are pure, synchronous, and touch no
- * approval / park machinery — the lowest-risk slice to prove the
- * registry-dispatch seam end-to-end. The publishers and gated tools
- * follow once their park / approval flow has a lane-neutral
- * representation.
+ * <p>This is where AUTO tools live once they come off
+ * {@code McpController}'s hand-coded dispatch — pure synchronous tools
+ * whose result the lane echoes back. PARKED publishers (which propose
+ * a change for the user to approve) and the gate-coupled tools
+ * ({@code approval_prompt}, {@code run_shell}) keep their lane-specific
+ * handling in the controller, since their flow isn't a plain
+ * request/response.
  */
 @Component
 public class AgentToolHandlers
 {
+    /** Hard upper bound on recall_thread's {@code limit}. */
+    private static final int RECALL_THREAD_MAX_LIMIT = 20;
+
+    /** Default recall_thread {@code limit} when none is supplied. */
+    private static final int RECALL_THREAD_DEFAULT_LIMIT = 5;
+
+    /** Per-checkpoint summary excerpt cap in the recall digest. */
+    private static final int RECALL_SUMMARY_EXCERPT_CHARS = 800;
+
+    /** Wall-clock cap on the run_checks process — 5 minutes. */
+    private static final long RUN_CHECKS_TIMEOUT_SECONDS = 300L;
+
+    /** Output cap on run_checks — same 256 KB as run_shell. */
+    private static final int RUN_CHECKS_OUTPUT_BYTES = ShellRunner.MAX_OUTPUT_BYTES;
+
     private final TaskStore taskStore;
     private final PullRequestStore prStore;
     private final ThreadStore threadStore;
     private final WorkspaceService workspaces;
+    private final AgentToolRegistry registry;
+    private final SkillTools skillTools;
+    private final ThreadCheckpointStore checkpoints;
+    private final TestRunnerDetector testRunnerDetector;
+    private final ShellRunner shellRunner;
+    private final WatchedRepoStore watchedRepos;
+    private final ThreadService threads;
     private final ObjectMapper mapper;
 
     public AgentToolHandlers(
@@ -59,12 +93,26 @@ public class AgentToolHandlers
             PullRequestStore prStore,
             ThreadStore threadStore,
             WorkspaceService workspaces,
+            AgentToolRegistry registry,
+            SkillTools skillTools,
+            ThreadCheckpointStore checkpoints,
+            TestRunnerDetector testRunnerDetector,
+            ShellRunner shellRunner,
+            WatchedRepoStore watchedRepos,
+            ThreadService threads,
             ObjectMapper mapper)
     {
         this.taskStore = requireNonNull(taskStore, "taskStore is null");
         this.prStore = requireNonNull(prStore, "prStore is null");
         this.threadStore = requireNonNull(threadStore, "threadStore is null");
         this.workspaces = requireNonNull(workspaces, "workspaces is null");
+        this.registry = requireNonNull(registry, "registry is null");
+        this.skillTools = requireNonNull(skillTools, "skillTools is null");
+        this.checkpoints = requireNonNull(checkpoints, "checkpoints is null");
+        this.testRunnerDetector = requireNonNull(testRunnerDetector, "testRunnerDetector is null");
+        this.shellRunner = requireNonNull(shellRunner, "shellRunner is null");
+        this.watchedRepos = requireNonNull(watchedRepos, "watchedRepos is null");
+        this.threads = requireNonNull(threads, "threads is null");
         this.mapper = requireNonNull(mapper, "mapper is null");
     }
 
@@ -207,6 +255,341 @@ public class AgentToolHandlers
         catch (RuntimeException e) {
             return ToolOutcome.Completed.error(
                     "could not read memory for workspace " + workspaceId + ": " + e.getMessage());
+        }
+    }
+
+    /** Args record for {@code list_tools} — no args. */
+    public record ListToolsArgs() {}
+
+    @AgentTool(
+            name = "list_tools",
+            description = "List every tool available this turn, filtered to the "
+                    + "caller's role. Returns a JSON array of {name, description, "
+                    + "gating, security} entries — useful when picking the right "
+                    + "verb for the next action.",
+            security = SecurityType.TOOL_DISCOVER,
+            gating = Gating.AUTO,
+            roles = {AgentRole.TRUNK, AgentRole.TASK, AgentRole.REVIEWER})
+    public ToolOutcome listTools(ListToolsArgs args, ToolCall call)
+    {
+        ObjectNode result = mapper.createObjectNode();
+        var arr = result.putArray("tools");
+        for (ToolSpec spec : registry.visibleTo(call.role())) {
+            ObjectNode entry = mapper.createObjectNode();
+            entry.put("name", spec.name());
+            entry.put("description", spec.description());
+            entry.put("gating", spec.gating().name().toLowerCase(Locale.ROOT));
+            entry.put("security", spec.security().name().toLowerCase(Locale.ROOT));
+            arr.add(entry);
+        }
+        try {
+            return ToolOutcome.Completed.ok(mapper.writeValueAsString(result.get("tools")));
+        }
+        catch (JsonProcessingException e) {
+            return ToolOutcome.Completed.error("failed to serialise tool catalog");
+        }
+    }
+
+    /** Args record for {@code list_skills}. */
+    public record ListSkillsArgs(
+            @ToolParam(description = "Optional scope filter — one of global, repo, thread. "
+                    + "Omit to see all skills visible to this thread.") String scope,
+            @ToolParam(description = "Optional substring match against the trigger description. "
+                    + "Case-insensitive.") String query) {}
+
+    @AgentTool(
+            name = "list_skills",
+            description = "List the skills available for this turn. Returns a JSON array "
+                    + "of {id, name, description, scope, repo, role_tag, kind} entries. "
+                    + "Skills are model-triggered — read the \"loads when …\" description "
+                    + "and decide whether to load the body via load_skill.",
+            security = SecurityType.SKILL_USE,
+            gating = Gating.AUTO,
+            roles = {AgentRole.TRUNK, AgentRole.TASK, AgentRole.REVIEWER})
+    public ToolOutcome listSkills(ListSkillsArgs args, ToolCall call)
+    {
+        return dispatchSkillTool("list_skills", call);
+    }
+
+    /** Args record for {@code load_skill}. */
+    public record LoadSkillArgs(
+            @ToolParam(description = "Unique skill name from a prior list_skills entry.",
+                    required = true) String name) {}
+
+    @AgentTool(
+            name = "load_skill",
+            description = "Load the body of one skill by name. Returns a JSON object "
+                    + "{name, body}. Pair with list_skills: list to find the trigger "
+                    + "that matches the task, load to fetch the instructions.",
+            security = SecurityType.SKILL_USE,
+            gating = Gating.AUTO,
+            roles = {AgentRole.TRUNK, AgentRole.TASK, AgentRole.REVIEWER})
+    public ToolOutcome loadSkill(LoadSkillArgs args, ToolCall call)
+    {
+        return dispatchSkillTool("load_skill", call);
+    }
+
+    private ToolOutcome dispatchSkillTool(String toolName, ToolCall call)
+    {
+        ToolContext ctx = new ToolContext(
+                Set.of(),
+                Optional.of(call.threadId()),
+                Optional.of(call.role().name().toLowerCase(Locale.ROOT)));
+        RuntimeToolInvocation out = skillTools.dispatch(toolName, call.arguments(), ctx);
+        return out.isError()
+                ? ToolOutcome.Completed.error(out.result())
+                : ToolOutcome.Completed.ok(out.result());
+    }
+
+    /** Args record for {@code recall_thread}. */
+    public record RecallThreadArgs(
+            @ToolParam(description = "Optional free-text filter. Matched case-insensitively against "
+                    + "Overall summary text and bullet titles. Omit to get the "
+                    + "most recent threads regardless of content.") String query,
+            @ToolParam(description = "Max threads to return (default "
+                    + RECALL_THREAD_DEFAULT_LIMIT + ", capped at "
+                    + RECALL_THREAD_MAX_LIMIT + ").") Integer limit) {}
+
+    @AgentTool(
+            name = "recall_thread",
+            description = "Search prior threads' Overall summaries for prior context. "
+                    + "Use this before answering an unfamiliar question to see if "
+                    + "a previous thread already worked through the same problem. "
+                    + "Returns title + summary excerpt + bullet titles for each "
+                    + "matching thread; never mutates state.",
+            security = SecurityType.TASK_READ,
+            gating = Gating.AUTO,
+            roles = {AgentRole.TRUNK, AgentRole.TASK, AgentRole.REVIEWER})
+    public ToolOutcome recallThread(RecallThreadArgs args, ToolCall call)
+    {
+        String query = args.query() == null ? "" : args.query().trim();
+        int requestedLimit = args.limit() == null ? RECALL_THREAD_DEFAULT_LIMIT : args.limit();
+        if (requestedLimit <= 0) {
+            requestedLimit = RECALL_THREAD_DEFAULT_LIMIT;
+        }
+        int limit = Math.min(requestedLimit, RECALL_THREAD_MAX_LIMIT);
+
+        // Pull a generous candidate window — we filter in-memory and
+        // the table is local, so an extra factor here costs little but
+        // helps when the query is selective.
+        int scanLimit = Math.min(RECALL_THREAD_MAX_LIMIT * 4, limit * 8);
+        List<ThreadCheckpoint> candidates = checkpoints.listAllActiveOveralls(scanLimit);
+        String needle = query.isEmpty() ? null : query.toLowerCase(Locale.ROOT);
+
+        List<ThreadCheckpoint> matches = new ArrayList<>();
+        for (ThreadCheckpoint cp : candidates) {
+            if (cp.threadId().equals(call.threadId())) {
+                continue;
+            }
+            if (needle != null && !checkpointMatches(cp, needle)) {
+                continue;
+            }
+            matches.add(cp);
+            if (matches.size() >= limit) {
+                break;
+            }
+        }
+        return ToolOutcome.Completed.ok(renderRecallResult(query, matches));
+    }
+
+    private static boolean checkpointMatches(ThreadCheckpoint cp, String needle)
+    {
+        String summary = cp.summaryMd();
+        if (summary != null && summary.toLowerCase(Locale.ROOT).contains(needle)) {
+            return true;
+        }
+        for (String bullet : cp.bulletTitles()) {
+            if (bullet != null && bullet.toLowerCase(Locale.ROOT).contains(needle)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private String renderRecallResult(String query, List<ThreadCheckpoint> matches)
+    {
+        if (matches.isEmpty()) {
+            return query.isEmpty()
+                    ? "No prior threads with an Overall summary yet."
+                    : "No prior threads matched: " + query;
+        }
+        StringBuilder out = new StringBuilder();
+        out.append(matches.size())
+                .append(query.isEmpty() ? " recent thread(s):\n" : " match(es) for \"")
+                .append(query.isEmpty() ? "" : query)
+                .append(query.isEmpty() ? "" : "\":\n");
+        for (ThreadCheckpoint cp : matches) {
+            String title = threadStore.findThreadById(cp.threadId())
+                    .map(Thread::title)
+                    .filter(s -> !s.isBlank())
+                    .orElse("(untitled)");
+            out.append("\n— thread ").append(cp.threadId())
+                    .append(" · ").append(title).append('\n');
+            for (String bullet : cp.bulletTitles()) {
+                if (bullet != null && !bullet.isBlank()) {
+                    out.append("  • ").append(bullet).append('\n');
+                }
+            }
+            String summary = cp.summaryMd();
+            if (summary != null && !summary.isBlank()) {
+                String excerpt = summary.length() <= RECALL_SUMMARY_EXCERPT_CHARS
+                        ? summary
+                        : summary.substring(0, RECALL_SUMMARY_EXCERPT_CHARS) + "…";
+                out.append(excerpt);
+                if (!excerpt.endsWith("\n")) {
+                    out.append('\n');
+                }
+            }
+        }
+        return out.toString();
+    }
+
+    /** Args record for {@code run_checks} — no args today. */
+    public record RunChecksArgs() {}
+
+    @AgentTool(
+            name = "run_checks",
+            description = "Run the active task's test suite. Auto-detects the ecosystem "
+                    + "from the worktree (maven / gradle / npm / cargo / go / pytest) and "
+                    + "runs the canonical verify command. AUTO — no user prompt, since "
+                    + "tests are read-only and the test runner is a workspace-level trust "
+                    + "boundary. Returns {ran, ecosystem, command, exitCode, output, "
+                    + "truncated}. 5-minute timeout, 256 KB output cap.",
+            security = SecurityType.CODE_EXEC,
+            gating = Gating.AUTO,
+            roles = AgentRole.TASK)
+    public ToolOutcome runChecks(RunChecksArgs args, ToolCall call)
+    {
+        Optional<Task> active = taskStore.findActiveTaskForThread(call.threadId());
+        if (active.isEmpty() || active.get().worktreePath() == null
+                || active.get().worktreePath().isBlank()) {
+            return ToolOutcome.Completed.error("run_checks requires an active task with a worktree");
+        }
+        Path worktree = Path.of(active.get().worktreePath());
+        Optional<TestRunnerDetector.Detected> detected = testRunnerDetector.detect(worktree);
+        if (detected.isEmpty()) {
+            return ToolOutcome.Completed.error(
+                    "no recognised test runner in " + worktree
+                            + " (looked for pom.xml / build.gradle / package.json / "
+                            + "Cargo.toml / go.mod / pyproject.toml). Configure a "
+                            + "workspace-level test command, or use run_shell.");
+        }
+        TestRunnerDetector.Detected runner = detected.get();
+        try {
+            ShellRunner.Result result = shellRunner.runArgv(
+                    worktree, runner.argv(), RUN_CHECKS_TIMEOUT_SECONDS, RUN_CHECKS_OUTPUT_BYTES);
+            ObjectNode out = mapper.createObjectNode();
+            out.put("ran", result.ran());
+            out.put("ecosystem", runner.ecosystem());
+            out.put("command", String.join(" ", runner.argv()));
+            out.put("exitCode", result.exitCode());
+            out.put("truncated", result.truncated());
+            out.put("output", result.output());
+            if (result.error() != null) {
+                out.put("error", result.error());
+            }
+            return ToolOutcome.Completed.ok(toJson(out));
+        }
+        catch (InterruptedException e) {
+            java.lang.Thread.currentThread().interrupt();
+            return ToolOutcome.Completed.error("interrupted: " + e.getMessage());
+        }
+        catch (RuntimeException e) {
+            return ToolOutcome.Completed.error("run_checks failed: " + e.getMessage());
+        }
+    }
+
+    /** Args record for {@code create_task}. */
+    public record CreateTaskArgs(
+            @ToolParam(description = "owner/name of the watched repo the task should be cut from. "
+                    + "Must already be a watched repo with a local clone path; the task's "
+                    + "worktree is cut from that clone.",
+                    required = true) String repo,
+            @ToolParam(description = "Optional first user prompt to seed the new task's "
+                    + "conversation. When set, the task starts running this turn immediately; "
+                    + "when omitted, the task lands at PENDING and waits for the user.",
+                    wireName = "initial_prompt") String initialPrompt,
+            @ToolParam(description = "Task type — 'DEVELOP' (default), 'REVIEW', etc. "
+                    + "Free-form so future task types don't need a schema bump.",
+                    wireName = "task_type") String taskType,
+            @ToolParam(description = "Optional GitHub PR number to link the task to "
+                    + "(for review / fix-up tasks bound to an existing PR).",
+                    wireName = "linked_pr_number") Integer linkedPrNumber,
+            @ToolParam(description = "Optional GitHub issue number to link the task to.",
+                    wireName = "linked_issue_number") Integer linkedIssueNumber) {}
+
+    @AgentTool(
+            name = "create_task",
+            description = "Cut a new task on this thread. Trunk-only — the trunk role "
+                    + "plans + cuts tasks; task / reviewer roles can't reach this. "
+                    + "Returns the new task's id, branch, worktree path, and seq. "
+                    + "The first task on a 0-task thread runs through ThreadService's "
+                    + "materialiseTask path; an attempt on a thread that already has "
+                    + "tasks fails — use next_task / ship_task instead.",
+            security = SecurityType.TASK_MANAGE,
+            gating = Gating.AUTO,
+            roles = AgentRole.TRUNK)
+    public ToolOutcome createTask(CreateTaskArgs args, ToolCall call)
+    {
+        String threadId = call.threadId();
+        String repo = args.repo() == null ? "" : args.repo();
+        if (repo.isBlank()) {
+            return ToolOutcome.Completed.error("repo (owner/name) is required");
+        }
+        Optional<Thread> threadOpt = threadStore.findThreadById(threadId);
+        if (threadOpt.isEmpty()) {
+            return ToolOutcome.Completed.error("thread not found: " + threadId);
+        }
+        Thread thread = threadOpt.get();
+        if (!taskStore.listTasksByThread(threadId).isEmpty()) {
+            return ToolOutcome.Completed.error(
+                    "thread already has tasks — use next_task or ship_task to spawn a sibling. "
+                            + "create_task is for 0-task threads only.");
+        }
+        WatchedRepo watched = watchedRepos.findAll().stream()
+                .filter(r -> repo.equals(r.fullName()))
+                .findFirst()
+                .orElse(null);
+        if (watched == null) {
+            return ToolOutcome.Completed.error(
+                    "repo not in watched repos: " + repo
+                            + " — add it under Repos before cutting a task.");
+        }
+        if (watched.localClonePath() == null || watched.localClonePath().isBlank()) {
+            return ToolOutcome.Completed.error(
+                    "watched repo " + repo + " has no local clone path — set it under Repos.");
+        }
+        String initialPrompt = args.initialPrompt() == null ? "" : args.initialPrompt();
+        String taskType = args.taskType() == null ? "" : args.taskType();
+        ThreadService.NewTaskRequest request = new ThreadService.NewTaskRequest(
+                thread.kind(),
+                thread.provider(),
+                thread.model(),
+                /* title — reuse the thread title */ thread.title(),
+                /* workingDir */ watched.localClonePath(),
+                /* branchName — let worktree create derive it */ null,
+                initialPrompt.isBlank() ? null : initialPrompt,
+                /* initialGroupIds */ List.of(),
+                taskType.isBlank() ? null : taskType,
+                args.linkedPrNumber(),
+                args.linkedIssueNumber(),
+                thread.flow(),
+                thread.workspaceId());
+        try {
+            Task created = threads.materialiseTask(threadId, request);
+            ObjectNode out = mapper.createObjectNode();
+            out.put("id", created.id());
+            out.put("threadId", created.threadId());
+            out.put("seq", created.seq());
+            out.put("status", created.status() == null ? null : created.status().name());
+            out.put("branchName", created.branchName());
+            out.put("worktreePath", created.worktreePath());
+            out.put("workingDir", created.workingDir());
+            out.put("baseBranch", created.baseBranch());
+            return ToolOutcome.Completed.ok(toJson(out));
+        }
+        catch (IllegalArgumentException | IllegalStateException e) {
+            return ToolOutcome.Completed.error("create_task failed: " + e.getMessage());
         }
     }
 

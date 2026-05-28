@@ -55,6 +55,41 @@ class SqliteNotificationStore
     }
 
     @Override
+    @Transactional
+    public boolean claimResolution(String id, long readAtMs)
+    {
+        return notifications.claimResolution(id, readAtMs) == 1;
+    }
+
+    @Override
+    @Transactional
+    public boolean finishResolution(String id)
+    {
+        return notifications.finishResolution(id) == 1;
+    }
+
+    @Override
+    @Transactional
+    public boolean releaseResolution(String id)
+    {
+        return notifications.releaseResolution(id) == 1;
+    }
+
+    @Override
+    @Transactional
+    public boolean markRead(String id, long readAtMs)
+    {
+        return notifications.markRead(id, readAtMs) == 1;
+    }
+
+    @Override
+    @Transactional
+    public boolean dismiss(String id, long readAtMs)
+    {
+        return notifications.dismiss(id, readAtMs) == 1;
+    }
+
+    @Override
     public Optional<Notification> findById(String id)
     {
         return notifications.findById(id).map(SqliteNotificationStore::toDomain);

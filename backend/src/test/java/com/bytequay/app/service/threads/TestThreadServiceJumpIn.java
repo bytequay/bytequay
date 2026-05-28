@@ -63,7 +63,7 @@ class TestThreadServiceJumpIn
     private WorkspaceService workspaces;
 
     @Test
-    void jumpInReleasesWorktreeLeaseAndMarksParkedNotificationsRead()
+    void jumpInReleasesWorktreeLeaseButLeavesParkedNotificationsVisible()
     {
         String threadId = newThread(ThreadStatus.IDLE);
         Task task = newTask(threadId);
@@ -81,8 +81,13 @@ class TestThreadServiceJumpIn
         assertThat(leases.isHeld(task.worktreePath()))
                 .as("worktree lease must be released so the user's next turn can claim it")
                 .isFalse();
-        assertThat(reload(parked).status()).isEqualTo(NotificationStatus.READ);
-        assertThat(reload(other).status()).isEqualTo(NotificationStatus.READ);
+        // Jump-in transfers the lease but does NOT resolve the parked
+        // work, so both rows stay UNREAD — visible in the bell + strip
+        // until the proposal is approved/discarded or the stuck task is
+        // resolved. Marking them read here would hide unresolved work
+        // and (for the CI-failure row) defeat the auto-fix dedup.
+        assertThat(reload(parked).status()).isEqualTo(NotificationStatus.UNREAD);
+        assertThat(reload(other).status()).isEqualTo(NotificationStatus.UNREAD);
     }
 
     @Test

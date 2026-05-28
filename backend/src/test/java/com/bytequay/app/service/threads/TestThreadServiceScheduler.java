@@ -79,7 +79,6 @@ class TestThreadServiceScheduler
                 registry,
                 scheduler,
                 Mockito.mock(WorktreeLeaseService.class),
-                Mockito.mock(NotificationService.class),
                 new GitRunner(),
                 noopWorktreeService(),
                 new RoleSkillService());
@@ -125,7 +124,6 @@ class TestThreadServiceScheduler
                 new ThrowingRegistry(),
                 new RecordingScheduler(),
                 Mockito.mock(WorktreeLeaseService.class),
-                Mockito.mock(NotificationService.class),
                 new GitRunner(),
                 noopWorktreeService(),
                 new RoleSkillService());
@@ -164,7 +162,6 @@ class TestThreadServiceScheduler
                 registry,
                 scheduler,
                 Mockito.mock(WorktreeLeaseService.class),
-                Mockito.mock(NotificationService.class),
                 new GitRunner(),
                 noopWorktreeService(),
                 new RoleSkillService());
@@ -204,7 +201,6 @@ class TestThreadServiceScheduler
                 registry,
                 scheduler,
                 Mockito.mock(WorktreeLeaseService.class),
-                Mockito.mock(NotificationService.class),
                 new GitRunner(),
                 noopWorktreeService(),
                 new RoleSkillService());
@@ -240,7 +236,6 @@ class TestThreadServiceScheduler
                 registry,
                 scheduler,
                 Mockito.mock(WorktreeLeaseService.class),
-                Mockito.mock(NotificationService.class),
                 new GitRunner(),
                 noopWorktreeService(),
                 new RoleSkillService());
@@ -273,7 +268,6 @@ class TestThreadServiceScheduler
                 registry,
                 scheduler,
                 Mockito.mock(WorktreeLeaseService.class),
-                Mockito.mock(NotificationService.class),
                 new GitRunner(),
                 noopWorktreeService(),
                 new RoleSkillService());
@@ -307,7 +301,6 @@ class TestThreadServiceScheduler
                 registry,
                 new RecordingScheduler(),
                 Mockito.mock(WorktreeLeaseService.class),
-                Mockito.mock(NotificationService.class),
                 new GitRunner(),
                 noopWorktreeService(),
                 new RoleSkillService());
@@ -339,7 +332,6 @@ class TestThreadServiceScheduler
                 registry,
                 new RecordingScheduler(),
                 Mockito.mock(WorktreeLeaseService.class),
-                Mockito.mock(NotificationService.class),
                 new GitRunner(),
                 noopWorktreeService(),
                 new RoleSkillService());
@@ -367,7 +359,6 @@ class TestThreadServiceScheduler
                 new ThrowingRegistry(),
                 new RecordingScheduler(),
                 Mockito.mock(WorktreeLeaseService.class),
-                Mockito.mock(NotificationService.class),
                 new GitRunner(),
                 noopWorktreeService(),
                 new RoleSkillService());
@@ -391,7 +382,6 @@ class TestThreadServiceScheduler
                 new ThrowingRegistry(),
                 new RecordingScheduler(),
                 Mockito.mock(WorktreeLeaseService.class),
-                Mockito.mock(NotificationService.class),
                 new GitRunner(),
                 noopWorktreeService(),
                 new RoleSkillService());
@@ -416,7 +406,6 @@ class TestThreadServiceScheduler
                 new ThrowingRegistry(),
                 new RecordingScheduler(),
                 Mockito.mock(WorktreeLeaseService.class),
-                Mockito.mock(NotificationService.class),
                 new GitRunner(),
                 noopWorktreeService(),
                 new RoleSkillService());
@@ -441,7 +430,6 @@ class TestThreadServiceScheduler
                 new ThrowingRegistry(),
                 new RecordingScheduler(),
                 Mockito.mock(WorktreeLeaseService.class),
-                Mockito.mock(NotificationService.class),
                 new GitRunner(),
                 noopWorktreeService(),
                 new RoleSkillService());
@@ -472,7 +460,6 @@ class TestThreadServiceScheduler
                 new ThrowingRegistry(),
                 new RecordingScheduler(),
                 Mockito.mock(WorktreeLeaseService.class),
-                Mockito.mock(NotificationService.class),
                 new GitRunner(),
                 noopWorktreeService(),
                 new RoleSkillService());
@@ -514,7 +501,6 @@ class TestThreadServiceScheduler
                 registry,
                 scheduler,
                 Mockito.mock(WorktreeLeaseService.class),
-                Mockito.mock(NotificationService.class),
                 new GitRunner(),
                 noopWorktreeService(),
                 new RoleSkillService());
@@ -544,7 +530,6 @@ class TestThreadServiceScheduler
                 registry,
                 scheduler,
                 Mockito.mock(WorktreeLeaseService.class),
-                Mockito.mock(NotificationService.class),
                 new GitRunner(),
                 noopWorktreeService(),
                 new RoleSkillService());
@@ -571,7 +556,6 @@ class TestThreadServiceScheduler
                 new ThrowingRegistry(),
                 scheduler,
                 Mockito.mock(WorktreeLeaseService.class),
-                Mockito.mock(NotificationService.class),
                 new GitRunner(),
                 noopWorktreeService(),
                 new RoleSkillService());
@@ -604,7 +588,6 @@ class TestThreadServiceScheduler
                 new ThrowingRegistry(),
                 scheduler,
                 Mockito.mock(WorktreeLeaseService.class),
-                Mockito.mock(NotificationService.class),
                 new GitRunner(),
                 worktrees,
                 new RoleSkillService());
@@ -684,7 +667,6 @@ class TestThreadServiceScheduler
                 new ThrowingRegistry(),
                 new RecordingScheduler(),
                 Mockito.mock(WorktreeLeaseService.class),
-                Mockito.mock(NotificationService.class),
                 new GitRunner(),
                 worktrees,
                 new RoleSkillService());
@@ -725,7 +707,6 @@ class TestThreadServiceScheduler
                 new ThrowingRegistry(),
                 new RecordingScheduler(),
                 Mockito.mock(WorktreeLeaseService.class),
-                Mockito.mock(NotificationService.class),
                 git,
                 noopWorktreeService(),
                 new RoleSkillService());

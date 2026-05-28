@@ -13,9 +13,6 @@
  */
 package com.bytequay.app.service.threads;
 
-import com.bytequay.app.domain.Notification;
-import com.bytequay.app.domain.NotificationKind;
-import com.bytequay.app.domain.NotificationStatus;
 import com.bytequay.app.domain.PermissionDecision;
 import com.bytequay.app.domain.StreamEvent;
 import com.bytequay.app.domain.Task;
@@ -96,7 +93,6 @@ public class ThreadService
     private final ThreadRegistry registry;
     private final ThreadTurnScheduler scheduler;
     private final WorktreeLeaseService leases;
-    private final NotificationService notifications;
     private final GitRunner git;
     private final WorktreeService worktreeService;
     private final RoleSkillService roleSkillService;
@@ -110,7 +106,6 @@ public class ThreadService
             ThreadRegistry registry,
             ThreadTurnScheduler scheduler,
             WorktreeLeaseService leases,
-            NotificationService notifications,
             GitRunner git,
             WorktreeService worktreeService,
             RoleSkillService roleSkillService)
@@ -123,7 +118,6 @@ public class ThreadService
         this.registry = requireNonNull(registry, "registry is null");
         this.scheduler = requireNonNull(scheduler, "scheduler is null");
         this.leases = requireNonNull(leases, "leases is null");
-        this.notifications = requireNonNull(notifications, "notifications is null");
         this.git = requireNonNull(git, "git is null");
         this.worktreeService = requireNonNull(worktreeService, "worktreeService is null");
         this.roleSkillService = requireNonNull(roleSkillService, "roleSkillService is null");
@@ -570,10 +564,12 @@ public class ThreadService
      *   * defensively release the lease too in case the holder is
      *     already gone but the row wasn't cleaned up (the reaper does
      *     the same thing every minute, but the user clicking Jump in
-     *     shouldn't have to wait for it),
-     *   * mark any UNREAD NEEDS_ATTENTION / AWAITING_REVIEW
-     *     notifications for this thread as read so the bell quiets
-     *     down — the user is *here* now.
+     *     shouldn't have to wait for it).
+     *
+     * <p>It does NOT mark the thread's parked notifications read:
+     * jump-in transfers the lease but doesn't resolve the parked work,
+     * so those rows stay visible until the proposal is approved/discarded
+     * or the stuck task is resolved.
      *
      * <p>Returns the thread snapshot the controller hands back, so the
      * caller sees status / cost / token counts immediately after the
@@ -602,16 +598,14 @@ public class ThreadService
         active.map(Task::worktreePath)
                 .filter(p -> p != null && !p.isBlank())
                 .ifPresent(leases::release);
-        // Quiet the bell for this thread. Parked notifications are
-        // the trigger for jump-in, so leaving them UNREAD after the
-        // user has actively transferred would mis-report attention.
-        for (Notification n : notifications.listForThread(threadId)) {
-            if (n.status() == NotificationStatus.UNREAD
-                    && (n.kind() == NotificationKind.NEEDS_ATTENTION
-                            || n.kind() == NotificationKind.AWAITING_REVIEW)) {
-                notifications.markRead(n.id());
-            }
-        }
+        // Deliberately do NOT mark the thread's parked notifications
+        // read here. Jump-in transfers the lease but does not resolve
+        // the parked work: an AWAITING_REVIEW proposal still needs an
+        // approve/discard, and a NEEDS_ATTENTION task is still stuck.
+        // Quieting them would hide unresolved work from the bell + strip
+        // while the agent stays gated, and (for CI failures) defeat the
+        // auto-fix dedup that keys on the UNREAD row. They clear when
+        // the underlying work is actually resolved.
         return store.findThreadById(threadId).orElse(thread);
     }
 

@@ -13,41 +13,52 @@
  */
 import { useState } from 'react';
 import type {
+  GenericParkedPayload,
+  GenericPublishAction,
   NotificationDto,
+  NextTaskParkedPayload,
   ParkedPublishPayload,
   PostCommentParkedPayload,
   PublishResultDto,
   PushParkedPayload,
+  RequestReviewParkedPayload,
+  ShipTaskParkedPayload,
 } from './types';
 
 type Props = {
   notification: NotificationDto;
   /** Called after the parked notification is resolved (approved or
    *  discarded) so the parent can refresh its list and collapse the
-   *  expansion. Not called on side-effect failure — the row stays
-   *  parked so the user can retry. */
+   *  expansion. Not called on an interrupted approval because the row
+   *  remains available for local-only recovery. */
   onResolved: () => void;
 };
 
-/** Render the diff / body for an AWAITING_REVIEW notification plus
+/** Render reviewable content for an AWAITING_REVIEW notification plus
  *  the Approve / Discard buttons that call the backend's publish
- *  gate. The component only knows two payload shapes — push and
- *  post_comment — and gracefully degrades for anything else (a
- *  request_review notification, say) by telling the user to open the
- *  thread instead. */
+ *  gate. */
 function PublishGatePane({ notification, onResolved }: Props) {
   const parsed = parsePayload(notification.payloadJson);
-  const initialBody = parsed?.action === 'post_comment' ? parsed.body : '';
+  const isResolving = notification.status === 'RESOLVING';
+  // Actions whose parked payload carries an editable body. The user
+  // sees a textarea and the typed value goes into the approve call;
+  // every other action ignores editedBody on the backend.
+  const initialBody = parsed?.action === 'post_comment'
+      ? parsed.body
+      : parsed !== null && hasEditableBody(parsed)
+        ? (parsed.body ?? '')
+        : '';
   const [editedBody, setEditedBody] = useState(initialBody);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [resolution, setResolution] = useState<PublishResultDto | null>(null);
+  const interrupted = isResolving || resolution?.resolution === 'interrupted';
 
   if (!parsed) {
     return (
       <div style={paneStyle} data-testid="publish-gate-pane">
         <div style={{ fontSize: 13, color: 'var(--text-3)' }}>
-          This parked notification doesn't carry a push or comment payload
+          This parked notification doesn't carry a supported review payload
           — open the thread to handle it.
         </div>
       </div>
@@ -61,7 +72,8 @@ function PublishGatePane({ notification, onResolved }: Props) {
     try {
       const result = await window.bridge.approveNotification(
         notification.id,
-        parsed.action === 'post_comment' ? editedBody : null);
+        bodyForApprove(parsed, editedBody),
+        parsed.action);
       setResolution(result);
       if (result.ok) {
         // Give the user a moment to see the success line before the
@@ -85,7 +97,7 @@ function PublishGatePane({ notification, onResolved }: Props) {
     setBusy(true);
     setError(null);
     try {
-      const result = await window.bridge.discardNotification(notification.id);
+      const result = await window.bridge.discardNotification(notification.id, parsed.action);
       setResolution(result);
       window.setTimeout(onResolved, 400);
     }
@@ -97,21 +109,42 @@ function PublishGatePane({ notification, onResolved }: Props) {
     }
   };
 
-  const approveLabel = parsed.action === 'push' ? 'Approve & push' : 'Post comment';
+  const approveLabel = interrupted
+    ? 'Finish locally'
+    : labelForAction(parsed);
   const approveDisabled = busy
       || (parsed.action === 'post_comment' && editedBody.trim().length === 0)
+      || (hasEditableBody(parsed) && requiresEditedBody(parsed.action) && editedBody.trim().length === 0)
       || (resolution?.ok ?? false);
 
   return (
     <div style={paneStyle} data-testid="publish-gate-pane">
-      {parsed.action === 'push'
-        ? <PushReview parsed={parsed} />
-        : <PostCommentReview
+      {isResolving && (
+        <div style={warningStyle} role="status">
+          A previous approval attempt was interrupted. Check remote state first; finishing locally
+          will not repeat the publish action.
+        </div>
+      )}
+      {parsed.action === 'push' && <PushReview parsed={parsed} />}
+      {parsed.action === 'post_comment' && (
+        <PostCommentReview
             parsed={parsed}
             editedBody={editedBody}
             onBodyChange={setEditedBody}
             disabled={busy || (resolution?.ok ?? false)}
-          />}
+          />
+      )}
+      {parsed.action === 'request_review' && <RequestReview parsed={parsed} />}
+      {parsed.action === 'next_task' && <NextTaskReview parsed={parsed} />}
+      {parsed.action === 'ship_task' && <ShipTaskReview parsed={parsed} />}
+      {isGenericAction(parsed) && (
+        <GenericReview
+            parsed={parsed}
+            editedBody={editedBody}
+            onBodyChange={setEditedBody}
+            disabled={busy || (resolution?.ok ?? false)}
+        />
+      )}
 
       {error && (
         <div style={errorStyle} role="alert">{error}</div>
@@ -154,16 +187,88 @@ function PushReview({ parsed }: { parsed: PushParkedPayload }) {
           </>
         )}
       </div>
-      {parsed.diff
-        ? <DiffPre diff={parsed.diff} />
-        : (
-          <div style={diffMissingStyle}>
-            Couldn't compute a diff: {parsed.diffError ?? 'unknown error'}.
-            You can still approve to push, or discard.
-          </div>
-        )}
+      <DiffPreview
+        diff={parsed.diff ?? null}
+        diffError={parsed.diffError}
+        missingSuffix="You can still approve to push, or discard."
+      />
     </div>
   );
+}
+
+function RequestReview({ parsed }: { parsed: RequestReviewParkedPayload }) {
+  return (
+    <div>
+      <div style={summaryLineStyle}>
+        Work is ready for review. Accepting resolves this local task without publishing remotely.
+      </div>
+      <div style={reviewTextStyle}>{parsed.summary || 'No summary supplied.'}</div>
+      {parsed.draftReply && (
+        <div style={draftReplyStyle}>
+          <strong>Draft reply</strong>
+          <div>{parsed.draftReply}</div>
+        </div>
+      )}
+      {(parsed.diff !== undefined || parsed.diffError !== undefined) && (
+        <DiffPreview
+          diff={parsed.diff ?? null}
+          diffError={parsed.diffError}
+          missingSuffix="You can still accept or discard this review request."
+        />
+      )}
+    </div>
+  );
+}
+
+function NextTaskReview({ parsed }: { parsed: NextTaskParkedPayload }) {
+  return (
+    <div>
+      <div style={summaryLineStyle}>
+        Start the next task after publishing <strong>{parsed.branch ?? 'branch'}</strong>
+        {parsed.nextTitle ? <> as <strong>{parsed.nextTitle}</strong></> : null}
+        {' '}({parsed.baseMode} base).
+      </div>
+      <DiffPreview
+        diff={parsed.diff ?? null}
+        diffError={parsed.diffError}
+        missingSuffix="You can still approve advancing, or discard."
+      />
+    </div>
+  );
+}
+
+function ShipTaskReview({ parsed }: { parsed: ShipTaskParkedPayload }) {
+  return (
+    <div>
+      <div style={summaryLineStyle}>
+        Ship and close <strong>{parsed.branch ?? 'branch'}</strong>, then start
+        {parsed.nextTitle ? <> <strong>{parsed.nextTitle}</strong></> : ' the next task'}
+        {' '}({parsed.baseMode} base).
+      </div>
+      <DiffPreview
+        diff={parsed.diff ?? null}
+        diffError={parsed.diffError}
+        missingSuffix="You can still approve shipping, or discard."
+      />
+    </div>
+  );
+}
+
+function DiffPreview({ diff, diffError, missingSuffix }: {
+  diff: string | null;
+  diffError?: string;
+  missingSuffix: string;
+}) {
+  if (diff === '') {
+    return <div style={diffMissingStyle}>No changes to show.</div>;
+  }
+  return diff === null
+    ? (
+      <div style={diffMissingStyle}>
+        Couldn't compute a diff: {diffError ?? 'unknown error'}. {missingSuffix}
+      </div>
+    )
+    : <DiffPre diff={diff} />;
 }
 
 function DiffPre({ diff }: { diff: string }) {
@@ -218,6 +323,133 @@ function PostCommentReview({ parsed, editedBody, onBodyChange, disabled }: {
   );
 }
 
+/** Catch-all review card for the publish-gate actions that don't need
+ *  a bespoke renderer (merge_pr, approve_pr, set_issue_state, …). Reads
+ *  the action's label + ref out of the payload and surfaces an editable
+ *  body when the action accepts one. */
+function GenericReview({ parsed, editedBody, onBodyChange, disabled }: {
+  parsed: GenericParkedPayload;
+  editedBody: string;
+  onBodyChange: (next: string) => void;
+  disabled: boolean;
+}) {
+  const refLabel = parsed.pr !== undefined
+      ? `${parsed.pr.owner}/${parsed.pr.repo}#${parsed.pr.number}`
+      : parsed.issue !== undefined
+        ? `${parsed.issue.owner}/${parsed.issue.repo}#${parsed.issue.number}`
+        : parsed.repo !== undefined
+          ? `${parsed.repo.owner}/${parsed.repo.repo}`
+          : null;
+  return (
+    <div>
+      <div style={summaryLineStyle}>
+        <strong>{describeAction(parsed.action)}</strong>
+        {refLabel !== null && <> on <strong>{refLabel}</strong></>}
+        {parsed.summary !== undefined && parsed.summary.length > 0 && (
+          <> — {parsed.summary}</>
+        )}
+      </div>
+      {/* create_review_comment anchors to a specific file/line — the
+          reviewer must see where the inline comment lands before
+          authorizing the publish, not just the PR ref. */}
+      {parsed.action === 'create_review_comment' && parsed.filePath !== undefined && (
+        <div style={summaryLineStyle}>
+          Anchored to <code style={codeStyle}>{parsed.filePath}</code>
+          {parsed.line !== undefined && <>:{parsed.line}</>}
+          {parsed.side !== undefined && <> ({parsed.side})</>}
+        </div>
+      )}
+      {/* open_pr carries metadata the user needs to see before approving:
+          the proposed title and the head→base ref. Keep this read-only
+          for now (the editable body for open_pr lands below). */}
+      {parsed.action === 'open_pr' && (parsed.title !== undefined || parsed.head !== undefined) && (
+        <div style={summaryLineStyle}>
+          {parsed.title !== undefined && parsed.title.length > 0 && (
+            <>Title: <strong>{parsed.title}</strong>{' · '}</>
+          )}
+          {parsed.head !== undefined && parsed.base !== undefined && (
+            <><code style={codeStyle}>{parsed.head}</code> → <code style={codeStyle}>{parsed.base}</code></>
+          )}
+        </div>
+      )}
+      {hasEditableBody(parsed) && (
+        <textarea
+          value={editedBody}
+          onChange={e => onBodyChange(e.target.value)}
+          disabled={disabled}
+          aria-label={`${parsed.action}-body`}
+          style={textareaStyle}
+        />
+      )}
+    </div>
+  );
+}
+
+function describeAction(action: GenericPublishAction): string {
+  switch (action) {
+    case 'reply_review_thread':   return 'Reply on review thread';
+    case 'approve_pr':            return 'Approve PR';
+    case 'merge_pr':              return 'Merge PR';
+    case 'create_review_comment': return 'Post inline review comment';
+    case 'update_pr_body':        return 'Update PR body';
+    case 'request_reviewer':      return 'Request a reviewer';
+    case 'comment_on_issue':      return 'Comment on issue';
+    case 'set_issue_state':       return 'Set issue state';
+    case 'open_pr':               return 'Open PR';
+    case 'publish_review':        return 'Publish review';
+  }
+}
+
+/** Actions whose backend handler refuses a blank body — Approve must
+ *  stay disabled until the user types something. */
+function requiresEditedBody(action: GenericPublishAction): boolean {
+  return action === 'reply_review_thread'
+      || action === 'create_review_comment'
+      || action === 'update_pr_body'
+      || action === 'comment_on_issue';
+}
+
+/** Actions whose backend handler accepts an editable body — either
+ *  required (above) or optional. PostCommentParkedPayload has its own
+ *  dedicated renderer and is handled separately. */
+function hasEditableBody(parsed: ParkedPublishPayload): parsed is GenericParkedPayload {
+  if (!isGenericAction(parsed)) return false;
+  return requiresEditedBody(parsed.action)
+      || parsed.action === 'approve_pr'
+      || parsed.action === 'open_pr'
+      || parsed.action === 'publish_review';
+}
+
+function isGenericAction(parsed: ParkedPublishPayload): parsed is GenericParkedPayload {
+  return parsed.action !== 'push'
+      && parsed.action !== 'post_comment'
+      && parsed.action !== 'request_review'
+      && parsed.action !== 'next_task'
+      && parsed.action !== 'ship_task';
+}
+
+function bodyForApprove(parsed: ParkedPublishPayload, editedBody: string): string | null {
+  if (parsed.action === 'post_comment') return editedBody;
+  if (hasEditableBody(parsed)) return editedBody;
+  return null;
+}
+
+function labelForAction(parsed: ParkedPublishPayload): string {
+  switch (parsed.action) {
+    case 'push':             return 'Approve & push';
+    case 'post_comment':     return 'Post comment';
+    case 'next_task':        return 'Approve & start next';
+    case 'ship_task':        return 'Approve & ship';
+    case 'request_review':   return 'Accept review';
+    case 'merge_pr':         return 'Approve & merge';
+    case 'approve_pr':       return 'Approve PR';
+    case 'set_issue_state':  return 'Apply state change';
+    case 'open_pr':          return 'Open PR';
+    case 'publish_review':   return 'Publish review';
+    default:                 return 'Approve';
+  }
+}
+
 function parsePayload(json: string | null): ParkedPublishPayload | null {
   if (!json) return null;
   let raw: unknown;
@@ -230,14 +462,101 @@ function parsePayload(json: string | null): ParkedPublishPayload | null {
   if (typeof raw !== 'object' || raw === null) return null;
   const obj = raw as Record<string, unknown>;
   if (obj.action === 'push' && typeof obj.worktreePath === 'string') {
-    return obj as unknown as PushParkedPayload;
+    return normalizedDiffPayload(obj) as PushParkedPayload;
   }
   if (obj.action === 'post_comment'
       && typeof obj.body === 'string'
       && typeof obj.pr === 'object') {
     return obj as unknown as PostCommentParkedPayload;
   }
+  if ((obj.action === 'request_review'
+      || (obj.action === undefined && obj.source === 'mcp:request_review'))
+      && typeof obj.summary === 'string') {
+    return normalizedDiffPayload({ ...obj, action: 'request_review' }) as RequestReviewParkedPayload;
+  }
+  if (obj.action === 'next_task'
+      && typeof obj.worktreePath === 'string'
+      && (obj.baseMode === 'main' || obj.baseMode === 'stacked')) {
+    return normalizedDiffPayload({
+      ...obj,
+      nextTitle: typeof obj.nextTitle === 'string' ? obj.nextTitle : '',
+    }) as NextTaskParkedPayload;
+  }
+  if (obj.action === 'ship_task'
+      && typeof obj.worktreePath === 'string'
+      && (obj.baseMode === 'main' || obj.baseMode === 'stacked')) {
+    return normalizedDiffPayload({
+      ...obj,
+      nextTitle: typeof obj.nextTitle === 'string' ? obj.nextTitle : '',
+    }) as ShipTaskParkedPayload;
+  }
+  // Generic publish actions — every other action PublishService can
+  // resolve. The pane renders a minimal review card (action label +
+  // PR/issue ref + optional editable body) so these actions aren't
+  // stranded in the bell without an Approve / Discard affordance.
+  if (typeof obj.action === 'string'
+      && GENERIC_PUBLISH_ACTIONS.has(obj.action as GenericPublishAction)) {
+    return {
+      action: obj.action as GenericPublishAction,
+      body: typeof obj.body === 'string' ? obj.body : null,
+      pr: parseRef(obj.pr),
+      issue: parseRef(obj.issue),
+      repo: parseRepoRef(obj.repo),
+      title: typeof obj.title === 'string' ? obj.title : undefined,
+      head: typeof obj.head === 'string' ? obj.head : undefined,
+      base: typeof obj.base === 'string' ? obj.base : undefined,
+      filePath: typeof obj.filePath === 'string' ? obj.filePath : undefined,
+      line: typeof obj.line === 'number' ? obj.line : undefined,
+      side: typeof obj.side === 'string' ? obj.side : undefined,
+      summary: typeof obj.summary === 'string' ? obj.summary : undefined,
+      source: typeof obj.source === 'string' ? obj.source : '',
+    };
+  }
   return null;
+}
+
+const GENERIC_PUBLISH_ACTIONS = new Set<GenericPublishAction>([
+  'reply_review_thread',
+  'approve_pr',
+  'merge_pr',
+  'create_review_comment',
+  'update_pr_body',
+  'request_reviewer',
+  'comment_on_issue',
+  'set_issue_state',
+  'open_pr',
+  'publish_review',
+]);
+
+function parseRef(raw: unknown): { owner: string; repo: string; number: number } | undefined {
+  if (typeof raw !== 'object' || raw === null) return undefined;
+  const ref = raw as { owner?: unknown; repo?: unknown; number?: unknown };
+  if (typeof ref.owner === 'string'
+      && typeof ref.repo === 'string'
+      && typeof ref.number === 'number') {
+    return { owner: ref.owner, repo: ref.repo, number: ref.number };
+  }
+  return undefined;
+}
+
+/** Parse a bare repo ref (no PR number). open_pr is the one action
+ *  whose target doesn't exist yet, so its payload carries
+ *  `{ owner, repo }` only. */
+function parseRepoRef(raw: unknown): { owner: string; repo: string } | undefined {
+  if (typeof raw !== 'object' || raw === null) return undefined;
+  const ref = raw as { owner?: unknown; repo?: unknown };
+  if (typeof ref.owner === 'string' && typeof ref.repo === 'string') {
+    return { owner: ref.owner, repo: ref.repo };
+  }
+  return undefined;
+}
+
+function normalizedDiffPayload(obj: Record<string, unknown>): Record<string, unknown> {
+  return {
+    ...obj,
+    diff: typeof obj.diff === 'string' || obj.diff === null ? obj.diff : null,
+    diffError: typeof obj.diffError === 'string' ? obj.diffError : undefined,
+  };
 }
 
 const paneStyle: React.CSSProperties = {
@@ -283,6 +602,39 @@ const diffMissingStyle: React.CSSProperties = {
   borderRadius: 6,
   fontSize: 13,
   color: 'var(--text-2)',
+};
+
+const warningStyle: React.CSSProperties = {
+  marginBottom: 10,
+  padding: 12,
+  background: '#fff7ed',
+  border: '1px solid #fdba74',
+  borderRadius: 6,
+  fontSize: 13,
+  color: '#9a3412',
+};
+
+const reviewTextStyle: React.CSSProperties = {
+  marginBottom: 10,
+  padding: 12,
+  background: 'var(--bg-2)',
+  border: '1px solid var(--border)',
+  borderRadius: 6,
+  fontSize: 13,
+  color: 'var(--text-1)',
+};
+
+const draftReplyStyle: React.CSSProperties = {
+  marginBottom: 10,
+  padding: 12,
+  background: 'var(--bg-2)',
+  border: '1px solid var(--border)',
+  borderRadius: 6,
+  fontSize: 13,
+  color: 'var(--text-1)',
+  display: 'flex',
+  flexDirection: 'column',
+  gap: 6,
 };
 
 const textareaStyle: React.CSSProperties = {

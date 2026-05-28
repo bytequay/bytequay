@@ -28,8 +28,7 @@ import com.bytequay.app.service.local.GitRunner;
 import com.bytequay.app.service.local.ShellRunner;
 import com.bytequay.app.service.local.TestRunnerDetector;
 import com.bytequay.app.service.threads.McpPermissionGate;
-import com.bytequay.app.service.threads.NotificationService;
-import com.bytequay.app.service.threads.TaskService;
+import com.bytequay.app.service.threads.ParkedProposalService;
 import com.bytequay.app.service.threads.ThreadService;
 import com.bytequay.app.service.tools.AgentRole;
 import com.bytequay.app.service.tools.AgentTool;
@@ -254,7 +253,7 @@ public class McpController
     private final TaskStore taskStore;
     private final ThreadCheckpointStore checkpoints;
     private final McpPermissionGate gate;
-    private final NotificationService notifications;
+    private final ParkedProposalService parkedProposals;
     private final WatchedRepoStore watchedRepos;
     private final GitRunner git;
     private final ObjectMapper mapper;
@@ -263,7 +262,6 @@ public class McpController
     private final SkillTools skillTools;
     private final PullRequestStore prStore;
     private final WorkspaceService workspaces;
-    private final TaskService taskService;
     private final ShellRunner shellRunner;
     private final TestRunnerDetector testRunnerDetector;
 
@@ -272,7 +270,7 @@ public class McpController
             TaskStore taskStore,
             ThreadCheckpointStore checkpoints,
             McpPermissionGate gate,
-            NotificationService notifications,
+            ParkedProposalService parkedProposals,
             WatchedRepoStore watchedRepos,
             GitRunner git,
             ObjectMapper mapper,
@@ -281,7 +279,6 @@ public class McpController
             SkillTools skillTools,
             PullRequestStore prStore,
             WorkspaceService workspaces,
-            TaskService taskService,
             ShellRunner shellRunner,
             TestRunnerDetector testRunnerDetector)
     {
@@ -289,7 +286,7 @@ public class McpController
         this.taskStore = requireNonNull(taskStore, "taskStore is null");
         this.checkpoints = requireNonNull(checkpoints, "checkpoints is null");
         this.gate = requireNonNull(gate, "gate is null");
-        this.notifications = requireNonNull(notifications, "notifications is null");
+        this.parkedProposals = requireNonNull(parkedProposals, "parkedProposals is null");
         this.watchedRepos = requireNonNull(watchedRepos, "watchedRepos is null");
         this.git = requireNonNull(git, "git is null");
         this.mapper = requireNonNull(mapper, "mapper is null");
@@ -298,7 +295,6 @@ public class McpController
         this.skillTools = requireNonNull(skillTools, "skillTools is null");
         this.prStore = requireNonNull(prStore, "prStore is null");
         this.workspaces = requireNonNull(workspaces, "workspaces is null");
-        this.taskService = requireNonNull(taskService, "taskService is null");
         this.shellRunner = requireNonNull(shellRunner, "shellRunner is null");
         this.testRunnerDetector = requireNonNull(testRunnerDetector, "testRunnerDetector is null");
     }
@@ -902,14 +898,11 @@ public class McpController
 
     @AgentTool(
             name = NEXT_TASK_TOOL,
-            description = "Park the current task at AWAITING_REVIEW and cut a sibling task "
-                    + "on this thread. Mirrors the user's 'Next →' button: pushes the "
-                    + "current branch, opens (or finds) the PR, parks the current task, "
-                    + "creates a new worktree, and returns the new task's id + branch. "
-                    + "Use when the current unit of work is reviewable and you want to "
-                    + "start the next slice without waiting for human approval.",
-            security = SecurityType.TASK_MANAGE,
-            gating = Gating.AUTO,
+            description = "Propose advancing from the current task. The user reviews the "
+                    + "current diff and must approve before the server pushes the branch, "
+                    + "opens or finds the PR, parks this task, and creates the next worktree.",
+            security = SecurityType.VCS_PUBLISH,
+            gating = Gating.PARKED,
             roles = AgentRole.TASK)
     @SuppressWarnings("unused")
     public void declareNextTask(NextTaskArgs args)
@@ -1268,69 +1261,73 @@ public class McpController
      * uses this to self-park the current task at AWAITING_REVIEW
      * once it has a proposed diff + reply ready. Side effects:
      *
-     *   * the thread's active task transitions to AWAITING_REVIEW
-     *     (no-op when the thread is 0-Task — the notification is
-     *     still emitted so the user sees something happened),
-     *   * an AWAITING_REVIEW notification is written so the bell /
-     *     auto* filter / thread strip light up,
+     *   * the thread's active task and its AWAITING_REVIEW
+     *     notification are written atomically,
      *   * the response is plain text — no allow/deny envelope, since
      *     the agent isn't asking for permission, it's announcing it
      *     is done.
      */
+    /**
+     * Persists a parked proposal, returning {@code true} on success.
+     * The park is transactional: if the notification can't be written
+     * the task is rolled back too (never left at AWAITING_REVIEW without
+     * its actionable row). On failure we resolve the agent's tool call
+     * with a retryable soft message rather than letting the write error
+     * bubble into the central handler as a {@code -32603} protocol error
+     * that the agent reads as a hard tool failure. A retry is safe
+     * precisely because the failed transaction left no partial state.
+     */
+    private boolean tryPark(Task task, Map<String, Object> payload, JsonNode id,
+            DeferredResult<JsonNode> deferred)
+    {
+        try {
+            parkedProposals.park(task, payload);
+            return true;
+        }
+        catch (RuntimeException e) {
+            log.warn("failed to park task {} for review ({}): {}",
+                    task.id(), payload.get("action"), e.getMessage());
+            deferred.setResult(plainText(id,
+                    "Could not save the review notification (" + e.getMessage()
+                            + "). The task was not parked — please retry."));
+            return false;
+        }
+    }
+
     private void handleRequestReview(
             String threadId, JsonNode id, JsonNode args, DeferredResult<JsonNode> deferred)
     {
         String summary = args.path("summary").asText("");
         String draftReply = args.path("draft_reply").asText("");
         Optional<Task> active = taskStore.findActiveTaskForThread(threadId);
-        active.ifPresent(this::parkActiveTaskAtAwaitingReview);
+        if (active.isEmpty()) {
+            deferred.setResult(plainText(id,
+                    "no active task on this thread — nothing to request review for"));
+            return;
+        }
+        Task task = active.get();
+        if (task.worktreePath() == null || task.worktreePath().isBlank()) {
+            deferred.setResult(plainText(id,
+                    "the active task has no worktree — no diff is available for review"));
+            return;
+        }
         Map<String, Object> payload = new LinkedHashMap<>();
+        payload.put("action", "request_review");
         payload.put("summary", summary);
         if (!draftReply.isEmpty()) {
             payload.put("draftReply", draftReply);
         }
+        payload.put("branch", task.branchName());
+        payload.put("baseBranch", task.baseBranch());
+        payload.put("worktreePath", task.worktreePath());
+        attachPushDiffToPayload(payload, Path.of(task.worktreePath()), task);
         payload.put("source", "mcp:request_review");
-        emitAwaitingReviewNotification(threadId, active.map(Task::id).orElse(null), payload,
-                "mcp:request_review");
+        if (!tryPark(task, payload, id, deferred)) {
+            return;
+        }
         deferred.setResult(plainText(id,
                 "Parked at AWAITING_REVIEW. The user will see a notification "
-                        + "and can approve, edit, or discard from the thread."));
-    }
-
-    /** Save {@code task} with its status flipped to AWAITING_REVIEW.
-     *  Mirrors the shape used by {@link #handleRequestReview} so the
-     *  publish gates (push / post_comment) land at the same parked
-     *  state with the same row update. */
-    private void parkActiveTaskAtAwaitingReview(Task task)
-    {
-        taskStore.saveTask(new Task(
-                task.id(), task.threadId(), task.seq(), TaskStatus.AWAITING_REVIEW,
-                task.branchName(), task.worktreePath(), task.baseBranch(), task.workingDir(),
-                task.processPid(), task.logPath(),
-                task.prNumber(), task.prState(), task.ciState(),
-                task.taskType(), task.linkedPrNumber(), task.linkedIssueNumber(),
-                task.costUsdMilli(), task.tokensIn(), task.tokensOut(),
-                task.agentSessionId(),
-                task.createdAt(), task.endedAt(), task.errorMessage(),
-                task.name(), task.roleSkill()));
-    }
-
-    /** Serialises {@code payload} and writes an AWAITING_REVIEW
-     *  notification. Failures only get logged — the notification is the
-     *  audit trail, but if it can't be written we still want the MCP
-     *  call to return a parked result so the agent ends its turn
-     *  cleanly. */
-    private void emitAwaitingReviewNotification(
-            String threadId, String taskId, Map<String, Object> payload, String source)
-    {
-        try {
-            String payloadJson = mapper.writeValueAsString(payload);
-            notifications.notifyAwaitingReview(threadId, taskId, payloadJson);
-        }
-        catch (JsonProcessingException | RuntimeException e) {
-            log.warn("notification emit on {} failed for thread {}: {}",
-                    source, threadId, e.getMessage());
-        }
+                        + "and can accept or discard it from the thread."));
     }
 
     /**
@@ -1363,7 +1360,6 @@ public class McpController
             return;
         }
 
-        parkActiveTaskAtAwaitingReview(active.get());
         Map<String, Object> payload = new LinkedHashMap<>();
         payload.put("action", "post_comment");
         payload.put("body", body);
@@ -1373,7 +1369,9 @@ public class McpController
         pr.put("number", prRef.get().number());
         payload.put("pr", pr);
         payload.put("source", "mcp:post_comment");
-        emitAwaitingReviewNotification(threadId, active.get().id(), payload, "mcp:post_comment");
+        if (!tryPark(active.get(), payload, id, deferred)) {
+            return;
+        }
 
         deferred.setResult(plainText(id,
                 "Parked at AWAITING_REVIEW. The user will review the comment body and "
@@ -1409,7 +1407,6 @@ public class McpController
         }
         Path worktree = Path.of(task.worktreePath());
 
-        parkActiveTaskAtAwaitingReview(task);
         Map<String, Object> payload = new LinkedHashMap<>();
         payload.put("action", "push");
         payload.put("branch", task.branchName());
@@ -1417,7 +1414,9 @@ public class McpController
         payload.put("worktreePath", task.worktreePath());
         attachPushDiffToPayload(payload, worktree, task);
         payload.put("source", "mcp:push");
-        emitAwaitingReviewNotification(threadId, task.id(), payload, "mcp:push");
+        if (!tryPark(task, payload, id, deferred)) {
+            return;
+        }
 
         deferred.setResult(plainText(id,
                 "Parked at AWAITING_REVIEW. The user will review the diff and "
@@ -1432,15 +1431,15 @@ public class McpController
      *  preview. */
     private void attachPushDiffToPayload(Map<String, Object> payload, Path worktree, Task task)
     {
-        String base = chooseDiffBase(worktree, task);
-        if (base == null) {
-            payload.put("diff", null);
-            payload.put("diffError", "no base ref available to diff against; "
-                    + "task.baseBranch is " + (task.baseBranch() == null ? "null" : "not on origin yet"));
-            return;
-        }
-        payload.put("diffBase", base);
         try {
+            String base = chooseDiffBase(worktree, task);
+            if (base == null) {
+                payload.put("diff", null);
+                payload.put("diffError", "no base ref available to diff against; "
+                        + "task.baseBranch is " + (task.baseBranch() == null ? "null" : "not on origin yet"));
+                return;
+            }
+            payload.put("diffBase", base);
             String diff = git.diff(worktree, base, "HEAD", PUSH_DIFF_MAX_BYTES);
             payload.put("diff", diff);
         }
@@ -1455,9 +1454,9 @@ public class McpController
             payload.put("diffError", "git diff interrupted");
         }
         catch (RuntimeException e) {
-            log.warn("push diff for {} rejected: {}", worktree, e.getMessage());
+            log.warn("push diff preview for {} rejected: {}", worktree, e.getMessage());
             payload.put("diff", null);
-            payload.put("diffError", "git diff rejected: " + e.getMessage());
+            payload.put("diffError", "git diff preview rejected: " + e.getMessage());
         }
     }
 
@@ -1485,7 +1484,7 @@ public class McpController
                 }
             }
         }
-        catch (IOException | InterruptedException e) {
+        catch (IOException | InterruptedException | RuntimeException e) {
             if (e instanceof InterruptedException) {
                 Thread.currentThread().interrupt();
             }
@@ -1782,7 +1781,6 @@ public class McpController
             return;
         }
 
-        parkActiveTaskAtAwaitingReview(active.get());
         Map<String, Object> payload = new LinkedHashMap<>();
         payload.put("action", "reply_review_thread");
         payload.put("rootCommentId", rootCommentId);
@@ -1793,7 +1791,9 @@ public class McpController
         pr.put("number", prRef.get().number());
         payload.put("pr", pr);
         payload.put("source", "mcp:reply_review_thread");
-        emitAwaitingReviewNotification(threadId, active.get().id(), payload, "mcp:reply_review_thread");
+        if (!tryPark(active.get(), payload, id, deferred)) {
+            return;
+        }
 
         deferred.setResult(plainText(id,
                 "Parked at AWAITING_REVIEW. The user will review the reply and "
@@ -1823,7 +1823,6 @@ public class McpController
         }
         String body = args.path("body").asText("");
 
-        parkActiveTaskAtAwaitingReview(active.get());
         Map<String, Object> payload = new LinkedHashMap<>();
         payload.put("action", "approve_pr");
         payload.put("body", body);
@@ -1833,7 +1832,9 @@ public class McpController
         pr.put("number", prRef.get().number());
         payload.put("pr", pr);
         payload.put("source", "mcp:approve_pr");
-        emitAwaitingReviewNotification(threadId, active.get().id(), payload, "mcp:approve_pr");
+        if (!tryPark(active.get(), payload, id, deferred)) {
+            return;
+        }
 
         deferred.setResult(plainText(id,
                 "Parked at AWAITING_REVIEW. The user will review the approval and "
@@ -1863,7 +1864,6 @@ public class McpController
         }
         String strategy = normaliseMergeStrategy(args.path("strategy").asText(""));
 
-        parkActiveTaskAtAwaitingReview(active.get());
         Map<String, Object> payload = new LinkedHashMap<>();
         payload.put("action", "merge_pr");
         payload.put("strategy", strategy);
@@ -1873,7 +1873,9 @@ public class McpController
         pr.put("number", prRef.get().number());
         payload.put("pr", pr);
         payload.put("source", "mcp:merge_pr");
-        emitAwaitingReviewNotification(threadId, active.get().id(), payload, "mcp:merge_pr");
+        if (!tryPark(active.get(), payload, id, deferred)) {
+            return;
+        }
 
         deferred.setResult(plainText(id,
                 "Parked at AWAITING_REVIEW (merge_pr, strategy=" + strategy + "). "
@@ -1913,7 +1915,6 @@ public class McpController
         Integer startLine = args.path("start_line").isNumber() ? args.path("start_line").asInt() : null;
         String startSide = args.path("start_side").asText("");
 
-        parkActiveTaskAtAwaitingReview(active.get());
         Map<String, Object> payload = new LinkedHashMap<>();
         payload.put("action", "create_review_comment");
         payload.put("body", body);
@@ -1933,8 +1934,9 @@ public class McpController
         pr.put("number", prRef.get().number());
         payload.put("pr", pr);
         payload.put("source", "mcp:create_review_comment");
-        emitAwaitingReviewNotification(threadId, active.get().id(), payload,
-                "mcp:create_review_comment");
+        if (!tryPark(active.get(), payload, id, deferred)) {
+            return;
+        }
 
         deferred.setResult(plainText(id,
                 "Parked at AWAITING_REVIEW. The user will review the inline comment and "
@@ -1967,7 +1969,6 @@ public class McpController
             return;
         }
 
-        parkActiveTaskAtAwaitingReview(active.get());
         Map<String, Object> payload = new LinkedHashMap<>();
         payload.put("action", "update_pr_body");
         payload.put("body", body);
@@ -1977,7 +1978,9 @@ public class McpController
         pr.put("number", prRef.get().number());
         payload.put("pr", pr);
         payload.put("source", "mcp:update_pr_body");
-        emitAwaitingReviewNotification(threadId, active.get().id(), payload, "mcp:update_pr_body");
+        if (!tryPark(active.get(), payload, id, deferred)) {
+            return;
+        }
 
         deferred.setResult(plainText(id,
                 "Parked at AWAITING_REVIEW. The user will review the new PR body and "
@@ -2010,7 +2013,6 @@ public class McpController
             return;
         }
 
-        parkActiveTaskAtAwaitingReview(active.get());
         Map<String, Object> payload = new LinkedHashMap<>();
         payload.put("action", "request_reviewer");
         payload.put("reviewer", reviewer);
@@ -2020,8 +2022,9 @@ public class McpController
         pr.put("number", prRef.get().number());
         payload.put("pr", pr);
         payload.put("source", "mcp:request_reviewer");
-        emitAwaitingReviewNotification(threadId, active.get().id(), payload,
-                "mcp:request_reviewer");
+        if (!tryPark(active.get(), payload, id, deferred)) {
+            return;
+        }
 
         deferred.setResult(plainText(id,
                 "Parked at AWAITING_REVIEW. The user will approve or discard the reviewer "
@@ -2059,7 +2062,6 @@ public class McpController
             return;
         }
 
-        parkActiveTaskAtAwaitingReview(active.get());
         Map<String, Object> payload = new LinkedHashMap<>();
         payload.put("action", "comment_on_issue");
         payload.put("body", body);
@@ -2069,8 +2071,9 @@ public class McpController
         issue.put("number", issueNumber);
         payload.put("issue", issue);
         payload.put("source", "mcp:comment_on_issue");
-        emitAwaitingReviewNotification(threadId, active.get().id(), payload,
-                "mcp:comment_on_issue");
+        if (!tryPark(active.get(), payload, id, deferred)) {
+            return;
+        }
 
         deferred.setResult(plainText(id,
                 "Parked at AWAITING_REVIEW. The user will review the issue comment and "
@@ -2107,7 +2110,6 @@ public class McpController
             return;
         }
 
-        parkActiveTaskAtAwaitingReview(active.get());
         Map<String, Object> payload = new LinkedHashMap<>();
         payload.put("action", "set_issue_state");
         payload.put("state", state);
@@ -2117,8 +2119,9 @@ public class McpController
         issue.put("number", issueNumber);
         payload.put("issue", issue);
         payload.put("source", "mcp:set_issue_state");
-        emitAwaitingReviewNotification(threadId, active.get().id(), payload,
-                "mcp:set_issue_state");
+        if (!tryPark(active.get(), payload, id, deferred)) {
+            return;
+        }
 
         deferred.setResult(plainText(id,
                 "Parked at AWAITING_REVIEW (set_issue_state, " + state + "). "
@@ -2166,7 +2169,6 @@ public class McpController
         String body = args.path("body").asText("");
         boolean draft = args.path("draft").asBoolean(false);
 
-        parkActiveTaskAtAwaitingReview(active.get());
         Map<String, Object> payload = new LinkedHashMap<>();
         payload.put("action", "open_pr");
         payload.put("title", title);
@@ -2179,7 +2181,9 @@ public class McpController
         repoRef.put("repo", repo.get().repo());
         payload.put("repo", repoRef);
         payload.put("source", "mcp:open_pr");
-        emitAwaitingReviewNotification(threadId, active.get().id(), payload, "mcp:open_pr");
+        if (!tryPark(active.get(), payload, id, deferred)) {
+            return;
+        }
 
         deferred.setResult(plainText(id,
                 "Parked at AWAITING_REVIEW (open_pr · " + head + " → " + base + "). "
@@ -2218,7 +2222,6 @@ public class McpController
             return;
         }
 
-        parkActiveTaskAtAwaitingReview(active.get());
         Map<String, Object> payload = new LinkedHashMap<>();
         payload.put("action", "publish_review");
         payload.put("event", event);
@@ -2235,7 +2238,9 @@ public class McpController
         pr.put("number", prRef.get().number());
         payload.put("pr", pr);
         payload.put("source", "mcp:publish_review");
-        emitAwaitingReviewNotification(threadId, active.get().id(), payload, "mcp:publish_review");
+        if (!tryPark(active.get(), payload, id, deferred)) {
+            return;
+        }
 
         int commentCount = comments.isMissingNode() ? 0 : comments.size();
         deferred.setResult(plainText(id,
@@ -2245,44 +2250,48 @@ public class McpController
     }
 
     /**
-     * Handles {@code next_task}: routes to
-     * {@link TaskService#parkAndStartNext} which parks the current
-     * task and cuts a sibling. Returns the new task's id, branch,
-     * and worktree path so the agent can immediately reason about
-     * where its work will land.
+     * Handles {@code next_task}: parks a proposal for the user rather
+     * than directly pushing and opening a PR. PublishService runs the
+     * deferred advance on Approve.
      */
     private void handleNextTask(
             String threadId, JsonNode id, JsonNode args, DeferredResult<JsonNode> deferred)
     {
         Optional<Task> active = taskStore.findActiveTaskForThread(threadId);
         if (active.isEmpty()) {
-            deferred.setResult(toolResponse(id, deny("no active task on this thread")));
+            deferred.setResult(plainText(id,
+                    "no active task on this thread — nothing to advance"));
+            return;
+        }
+        Task task = active.get();
+        if (task.worktreePath() == null || task.worktreePath().isBlank()) {
+            deferred.setResult(plainText(id,
+                    "the active task has no worktree — next task needs an isolated branch"));
             return;
         }
         String nextTitle = args.path("next_title").asText("").trim();
-        String baseModeRaw = args.path("base_mode").asText("main").trim().toLowerCase(Locale.ROOT);
-        TaskService.BaseMode baseMode = "stacked".equals(baseModeRaw)
-                ? TaskService.BaseMode.STACKED
-                : TaskService.BaseMode.MAIN;
-        TaskService.ShipRequest request = new TaskService.ShipRequest(
-                nextTitle.isBlank() ? null : nextTitle,
-                baseMode);
-        try {
-            Task next = taskService.parkAndStartNext(threadId, active.get().id(), request);
-            ObjectNode out = mapper.createObjectNode();
-            out.put("id", next.id());
-            out.put("threadId", next.threadId());
-            out.put("seq", next.seq());
-            out.put("branchName", next.branchName());
-            out.put("worktreePath", next.worktreePath());
-            out.put("baseBranch", next.baseBranch());
-            out.put("parkedTaskId", active.get().id());
-            deferred.setResult(plainText(id, toJsonString(out)));
+        String baseMode = args.path("base_mode").asText("main").trim().toLowerCase(Locale.ROOT);
+        if (!"main".equals(baseMode) && !"stacked".equals(baseMode)) {
+            baseMode = "main";
         }
-        catch (RuntimeException e) {
-            deferred.setResult(toolResponse(id, deny(
-                    "next_task failed: " + e.getMessage())));
+        Map<String, Object> payload = new LinkedHashMap<>();
+        payload.put("action", "next_task");
+        payload.put("threadId", threadId);
+        payload.put("taskId", task.id());
+        payload.put("branch", task.branchName());
+        payload.put("baseBranch", task.baseBranch());
+        payload.put("worktreePath", task.worktreePath());
+        payload.put("nextTitle", nextTitle);
+        payload.put("baseMode", baseMode);
+        attachPushDiffToPayload(payload, Path.of(task.worktreePath()), task);
+        payload.put("source", "mcp:next_task");
+        if (!tryPark(task, payload, id, deferred)) {
+            return;
         }
+
+        deferred.setResult(plainText(id,
+                "Parked at AWAITING_REVIEW (next_task). The user will review the "
+                        + "diff and approve or discard advancing to the next task."));
     }
 
     /**
@@ -2311,15 +2320,20 @@ public class McpController
             baseMode = "main";
         }
 
-        parkActiveTaskAtAwaitingReview(task);
         Map<String, Object> payload = new LinkedHashMap<>();
         payload.put("action", "ship_task");
         payload.put("threadId", threadId);
         payload.put("taskId", task.id());
+        payload.put("branch", task.branchName());
+        payload.put("baseBranch", task.baseBranch());
+        payload.put("worktreePath", task.worktreePath());
         payload.put("nextTitle", nextTitle);
         payload.put("baseMode", baseMode);
+        attachPushDiffToPayload(payload, Path.of(task.worktreePath()), task);
         payload.put("source", "mcp:ship_task");
-        emitAwaitingReviewNotification(threadId, task.id(), payload, "mcp:ship_task");
+        if (!tryPark(task, payload, id, deferred)) {
+            return;
+        }
 
         deferred.setResult(plainText(id,
                 "Parked at AWAITING_REVIEW (ship_task). The user will review the "
@@ -2592,19 +2606,20 @@ public class McpController
         return out.toString();
     }
 
-    /** True when any task on this thread is currently parked
-     *  ({@code AWAITING_REVIEW} or {@code NEEDS_ATTENTION}). The
-     *  publish-gate flow only transitions out of those states on
-     *  user approve/discard, so while a parked task exists the
-     *  agent's turn is logically over and the gate refuses further
-     *  built-in tool calls. {@code NEEDS_ATTENTION} isn't written by
-     *  any code today; the second check is cheap future-proofing
-     *  against the second parked state landing later. */
+    /** True when this thread has an unresolved blocking parked state.
+     *  A successfully approved {@code next_task} deliberately leaves
+     *  its prior sibling in {@code AWAITING_REVIEW} while work
+     *  continues in the newly active task, so a historical parked row
+     *  must not block prompts from that successor. In contrast,
+     *  NEEDS_ATTENTION remains blocking until the user resolves it. */
     private boolean isThreadParked(String threadId)
     {
-        return taskStore.listTasksByThread(threadId).stream()
-                .anyMatch(t -> t.status() == TaskStatus.AWAITING_REVIEW
-                        || t.status() == TaskStatus.NEEDS_ATTENTION);
+        List<Task> tasks = taskStore.listTasksByThread(threadId);
+        if (tasks.stream().anyMatch(t -> t.status() == TaskStatus.NEEDS_ATTENTION)) {
+            return true;
+        }
+        return taskStore.findActiveTaskForThread(threadId).isEmpty()
+                && tasks.stream().anyMatch(t -> t.status() == TaskStatus.AWAITING_REVIEW);
     }
 
     /** Resolves a task's linked PR into a PullRequestRef by matching

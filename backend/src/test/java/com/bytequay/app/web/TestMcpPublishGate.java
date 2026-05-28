@@ -15,6 +15,8 @@ package com.bytequay.app.web;
 
 import com.bytequay.app.domain.Notification;
 import com.bytequay.app.domain.NotificationKind;
+import com.bytequay.app.domain.NotificationStatus;
+import com.bytequay.app.domain.PermissionDecision;
 import com.bytequay.app.domain.Task;
 import com.bytequay.app.domain.TaskStatus;
 import com.bytequay.app.domain.Thread;
@@ -24,7 +26,9 @@ import com.bytequay.app.domain.ThreadStatus;
 import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.repository.ThreadStore;
 import com.bytequay.app.repository.WatchedRepoStore;
+import com.bytequay.app.service.threads.McpPermissionGate;
 import com.bytequay.app.service.threads.NotificationService;
+import com.bytequay.app.service.threads.PublishService;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
@@ -37,6 +41,7 @@ import java.util.List;
 import java.util.UUID;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 /**
  * End-to-end coverage for the {@code push} / {@code post_comment} MCP
@@ -66,6 +71,12 @@ class TestMcpPublishGate
     private WatchedRepoStore watchedRepos;
     @Autowired
     private NotificationService notifications;
+    @Autowired
+    private PublishService publishes;
+    @Autowired
+    private NotificationController notificationController;
+    @Autowired
+    private McpPermissionGate gate;
     @Autowired
     private ObjectMapper mapper;
 
@@ -225,9 +236,102 @@ class TestMcpPublishGate
 
         Notification latest = newestAwaitingReviewFor(threadId);
         JsonNode payload = mapper.readTree(latest.payloadJson());
+        assertThat(payload.path("action").asText()).isEqualTo("request_review");
         assertThat(payload.path("summary").asText()).isEqualTo("Done, please review.");
         assertThat(payload.path("draftReply").asText()).isEqualTo("Approved with one nit.");
         assertThat(payload.path("source").asText()).isEqualTo("mcp:request_review");
+        assertThatThrownBy(() -> notificationController.dismiss(latest.id()))
+                .hasMessageContaining("must be resolved from its review flow");
+
+        PublishService.PublishResult approved = publishes.approve(latest.id(), null, "request_review");
+        assertThat(approved.action()).isEqualTo("request_review");
+        assertThat(approved.message()).contains("No remote changes");
+        assertThat(tasks.findTaskById(seeded.id()).orElseThrow().status())
+                .isEqualTo(TaskStatus.COMPLETED);
+        assertThat(notifications.find(latest.id()).orElseThrow().status())
+                .isEqualTo(NotificationStatus.RESOLVED);
+        assertThatThrownBy(() -> publishes.approve(latest.id(), null, "request_review"))
+                .hasMessageContaining("already resolved");
+    }
+
+    @Test
+    void requestReviewRefusesWhenActiveTaskHasNoReviewableWorktree()
+            throws Exception
+    {
+        String threadId = newThread("Request-review without worktree");
+        Task seeded = newTask(threadId, /* branchName */ null, /* worktreePath */ null);
+        tasks.saveTask(seeded);
+
+        JsonNode response = invokeRequestReview(threadId, "Done.", "");
+
+        assertThat(textOf(response)).contains("no diff is available for review");
+        assertThat(tasks.findTaskById(seeded.id()).orElseThrow().status())
+                .isEqualTo(TaskStatus.RUNNING);
+        assertThat(notifications.listForThread(threadId)).isEmpty();
+    }
+
+    @Test
+    void approvalWithJsonNullActionReportsMissingDiscriminator()
+            throws Exception
+    {
+        String threadId = newThread("Approval null expected action");
+        Task seeded = newTask(threadId, "feature/null-action", "/tmp/bytequay-test-null-action");
+        tasks.saveTask(seeded);
+        invokeRequestReview(threadId, "Ready.", "");
+        Notification latest = newestAwaitingReviewFor(threadId);
+
+        assertThatThrownBy(() -> notificationController.approve(
+                latest.id(), mapper.readTree("{\"expectedAction\":null}")))
+                .hasMessageContaining("expectedAction is required");
+        assertThat(notifications.find(latest.id()).orElseThrow().status())
+                .isEqualTo(NotificationStatus.UNREAD);
+    }
+
+    @Test
+    void nextTaskParksAProposalWithoutAdvancingUntilApproval()
+            throws Exception
+    {
+        String threadId = newThread("Next task gate fixture");
+        Task seeded = newTask(threadId, "feature/current", "/tmp/bytequay-test-next-current");
+        tasks.saveTask(seeded);
+
+        JsonNode response = invokeNextTask(threadId, "Follow-up", "stacked");
+
+        assertThat(textOf(response)).startsWith("Parked at AWAITING_REVIEW (next_task).");
+        assertThat(tasks.findTaskById(seeded.id()).orElseThrow().status())
+                .isEqualTo(TaskStatus.AWAITING_REVIEW);
+        assertThat(tasks.listTasksByThread(threadId)).extracting(Task::id)
+                .containsExactly(seeded.id());
+
+        JsonNode payload = mapper.readTree(newestAwaitingReviewFor(threadId).payloadJson());
+        assertThat(payload.path("action").asText()).isEqualTo("next_task");
+        assertThat(payload.path("nextTitle").asText()).isEqualTo("Follow-up");
+        assertThat(payload.path("baseMode").asText()).isEqualTo("stacked");
+        assertThat(payload.path("source").asText()).isEqualTo("mcp:next_task");
+    }
+
+    @Test
+    void shipTaskParksAReviewableProposalWithDiffMetadata()
+            throws Exception
+    {
+        String threadId = newThread("Ship task gate fixture");
+        Task seeded = newTask(threadId, "feature/finished", "/tmp/bytequay-test-ship-current");
+        tasks.saveTask(seeded);
+
+        JsonNode response = invokeShipTask(threadId, "After ship", "main");
+
+        assertThat(textOf(response)).startsWith("Parked at AWAITING_REVIEW (ship_task).");
+        assertThat(tasks.findTaskById(seeded.id()).orElseThrow().status())
+                .isEqualTo(TaskStatus.AWAITING_REVIEW);
+        JsonNode payload = mapper.readTree(newestAwaitingReviewFor(threadId).payloadJson());
+        assertThat(payload.path("action").asText()).isEqualTo("ship_task");
+        assertThat(payload.path("branch").asText()).isEqualTo("feature/finished");
+        assertThat(payload.path("worktreePath").asText())
+                .isEqualTo("/tmp/bytequay-test-ship-current");
+        assertThat(payload.path("nextTitle").asText()).isEqualTo("After ship");
+        assertThat(payload.path("baseMode").asText()).isEqualTo("main");
+        assertThat(payload.has("diff") || payload.has("diffError")).isTrue();
+        assertThat(payload.path("source").asText()).isEqualTo("mcp:ship_task");
     }
 
     @Test
@@ -271,6 +375,38 @@ class TestMcpPublishGate
     }
 
     @Test
+    void parkedPriorTaskDoesNotBlockApprovalPromptFromAnActiveSuccessor()
+            throws Exception
+    {
+        String threadId = newThread("Successor prompt fixture");
+        tasks.saveTask(parkedTask(threadId, TaskStatus.AWAITING_REVIEW));
+        tasks.saveTask(newTask(threadId, 2L, "feature/next", "/tmp/bytequay-test-successor"));
+
+        DeferredResult<JsonNode> pending = requestApprovalPrompt(threadId, "Bash", "call-successor");
+
+        assertThat(pending.hasResult()).isFalse();
+        gate.decide("call-successor", PermissionDecision.ALLOW);
+        JsonNode envelope = parseToolEnvelope(resolved(pending));
+        assertThat(envelope.path("behavior").asText()).isEqualTo("allow");
+    }
+
+    @Test
+    void needsAttentionPriorTaskStillBlocksApprovalPromptFromActiveSuccessor()
+            throws Exception
+    {
+        String threadId = newThread("Needs-attention successor fixture");
+        tasks.saveTask(parkedTask(threadId, TaskStatus.NEEDS_ATTENTION));
+        tasks.saveTask(newTask(threadId, 2L, "feature/next", "/tmp/bytequay-test-attention-successor"));
+
+        JsonNode response = invokeApprovalPrompt(threadId, "Bash", "call-attention-successor");
+
+        JsonNode envelope = parseToolEnvelope(response);
+        assertThat(envelope.path("behavior").asText()).isEqualTo("deny");
+        assertThat(envelope.path("message").asText())
+                .contains("parked at the publish gate");
+    }
+
+    @Test
     void recallThreadStillWorksWhenTheThreadIsParked()
             throws Exception
     {
@@ -290,19 +426,66 @@ class TestMcpPublishGate
     }
 
     @Test
-    void requestReviewStillRunsWhenTheThreadIsAlreadyParked()
+    void requestReviewRefusesWhenTheThreadIsAlreadyParked()
             throws Exception
     {
-        // The agent shouldn't normally re-park, but request_review
-        // is dispatched ahead of the structural guard so an
-        // unexpected double-call lands a second notification rather
-        // than blowing up. Idempotency check.
         String threadId = newThread("Double-park request_review");
         tasks.saveTask(parkedTask(threadId, TaskStatus.AWAITING_REVIEW));
 
         JsonNode response = invokeRequestReview(threadId, "Already parked.", "");
 
-        assertThat(textOf(response)).startsWith("Parked at AWAITING_REVIEW.");
+        assertThat(textOf(response)).contains("no active task");
+        assertThat(notifications.listForThread(threadId)).isEmpty();
+    }
+
+    @Test
+    void markReadStillFlipsAnInformationalAuditRow()
+    {
+        // AUTO_FIX_DONE rows are informational; reading one clears it
+        // from the bell as before.
+        String threadId = newThread("Mark-read audit fixture");
+        Task task = newTask(threadId, "feature/audit", "/tmp/bytequay-test-audit");
+        tasks.saveTask(task);
+        Notification audit = notifications.notifyAutoFixDone(threadId, task.id(), "{}");
+
+        Notification next = notificationController.markRead(audit.id());
+
+        assertThat(next.status()).isEqualTo(NotificationStatus.READ);
+        assertThat(next.readAt()).isNotNull();
+    }
+
+    @Test
+    void needsAttentionRowStaysUndismissibleWhileItsTaskIsBlockingTheThread()
+    {
+        // Dismissing a NEEDS_ATTENTION bell row whose task is still
+        // NEEDS_ATTENTION would clear the only affordance pointing at a
+        // stuck task while isThreadParked keeps gating the agent. Block
+        // it until the task is resolved.
+        String threadId = newThread("Needs-attention dismiss guard");
+        Task stuck = parkedTask(threadId, TaskStatus.NEEDS_ATTENTION);
+        tasks.saveTask(stuck);
+        Notification attention = notifications.notifyNeedsAttention(threadId, stuck.id(), "{}");
+
+        assertThatThrownBy(() -> notificationController.dismiss(attention.id()))
+                .hasMessageContaining("still needs attention");
+        assertThat(notifications.find(attention.id()).orElseThrow().status())
+                .isEqualTo(NotificationStatus.UNREAD);
+    }
+
+    @Test
+    void needsAttentionRowIsDismissibleOnceItsTaskNoLongerNeedsAttention()
+    {
+        // A CI-failure NEEDS_ATTENTION row on an already-shipped task is
+        // purely informational — it must stay dismissible so such rows
+        // don't accumulate in the bell forever.
+        String threadId = newThread("Needs-attention dismiss allowed");
+        Task shipped = parkedTask(threadId, TaskStatus.COMPLETED);
+        tasks.saveTask(shipped);
+        Notification attention = notifications.notifyNeedsAttention(threadId, shipped.id(), "{}");
+
+        Notification dismissed = notificationController.dismiss(attention.id());
+
+        assertThat(dismissed.status()).isEqualTo(NotificationStatus.DISMISSED);
     }
 
     private JsonNode invokePush(String threadId)
@@ -322,6 +505,12 @@ class TestMcpPublishGate
     private JsonNode invokeApprovalPrompt(String threadId, String toolName, String callId)
             throws Exception
     {
+        return resolved(requestApprovalPrompt(threadId, toolName, callId));
+    }
+
+    private DeferredResult<JsonNode> requestApprovalPrompt(String threadId, String toolName, String callId)
+            throws Exception
+    {
         String rpc = """
                 {
                   "jsonrpc": "2.0",
@@ -339,7 +528,7 @@ class TestMcpPublishGate
                 """.formatted(
                         mapper.writeValueAsString(toolName),
                         mapper.writeValueAsString(callId));
-        return resolved(controller.handle(threadId, mapper.readTree(rpc)));
+        return controller.handle(threadId, mapper.readTree(rpc));
     }
 
     private JsonNode invokeRecallThread(String threadId, String query)
@@ -402,6 +591,40 @@ class TestMcpPublishGate
         return resolved(controller.handle(threadId, mapper.readTree(rpc)));
     }
 
+    private JsonNode invokeNextTask(String threadId, String nextTitle, String baseMode)
+            throws Exception
+    {
+        String rpc = """
+                {
+                  "jsonrpc": "2.0",
+                  "id": 1,
+                  "method": "tools/call",
+                  "params": {
+                    "name": "next_task",
+                    "arguments": { "next_title": %s, "base_mode": %s }
+                  }
+                }
+                """.formatted(mapper.writeValueAsString(nextTitle), mapper.writeValueAsString(baseMode));
+        return resolved(controller.handle(threadId, mapper.readTree(rpc)));
+    }
+
+    private JsonNode invokeShipTask(String threadId, String nextTitle, String baseMode)
+            throws Exception
+    {
+        String rpc = """
+                {
+                  "jsonrpc": "2.0",
+                  "id": 1,
+                  "method": "tools/call",
+                  "params": {
+                    "name": "ship_task",
+                    "arguments": { "next_title": %s, "base_mode": %s }
+                  }
+                }
+                """.formatted(mapper.writeValueAsString(nextTitle), mapper.writeValueAsString(baseMode));
+        return resolved(controller.handle(threadId, mapper.readTree(rpc)));
+    }
+
     private static JsonNode resolved(DeferredResult<JsonNode> deferred)
     {
         Object got = deferred.getResult();
@@ -448,9 +671,14 @@ class TestMcpPublishGate
 
     private static Task newTask(String threadId, String branchName, String worktreePath)
     {
+        return newTask(threadId, 1L, branchName, worktreePath);
+    }
+
+    private static Task newTask(String threadId, long seq, String branchName, String worktreePath)
+    {
         Instant now = Instant.parse("2026-05-22T12:00:00Z");
         return new Task(
-                UUID.randomUUID().toString(), threadId, 1L, TaskStatus.RUNNING,
+                UUID.randomUUID().toString(), threadId, seq, TaskStatus.RUNNING,
                 branchName,
                 worktreePath,
                 /* baseBranch */ "main",

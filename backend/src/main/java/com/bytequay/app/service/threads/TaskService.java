@@ -171,7 +171,15 @@ public class TaskService
     @Transactional
     public Task shipAndContinue(String threadId, String taskId, ShipRequest request)
     {
-        return shipOrParkAndStartNext(threadId, taskId, request, ParkMode.SHIP);
+        return shipOrParkAndStartNext(threadId, taskId, request, ParkMode.SHIP, false);
+    }
+
+    /** Execute a human-approved parked ship proposal without first
+     *  reopening the task as active work. */
+    @Transactional
+    public Task shipApprovedParkedTask(String threadId, String taskId, ShipRequest request)
+    {
+        return shipOrParkAndStartNext(threadId, taskId, request, ParkMode.SHIP, true);
     }
 
     /** Rename a task. Trims the supplied label; an empty string clears
@@ -210,23 +218,44 @@ public class TaskService
     @Transactional
     public Task parkAndStartNext(String threadId, String taskId, ShipRequest request)
     {
-        return shipOrParkAndStartNext(threadId, taskId, request, ParkMode.NEXT);
+        return shipOrParkAndStartNext(threadId, taskId, request, ParkMode.NEXT, false);
+    }
+
+    /** Execute a human-approved parked Next proposal. The current task
+     *  remains reviewable while the created sibling becomes active. */
+    @Transactional
+    public Task startNextFromApprovedParkedTask(
+            String threadId, String taskId, ShipRequest request)
+    {
+        return shipOrParkAndStartNext(threadId, taskId, request, ParkMode.NEXT, true);
     }
 
     private Task shipOrParkAndStartNext(
-            String threadId, String taskId, ShipRequest request, ParkMode mode)
+            String threadId, String taskId, ShipRequest request, ParkMode mode, boolean approvedParked)
     {
         requireNonNull(request, "request is null");
         requireNonNull(mode, "mode is null");
         Thread thread = requireThread(threadId);
         Task current = requireTask(threadId, taskId);
-        Task active = taskStore.findActiveTaskForThread(threadId)
-                .orElseThrow(() -> new ResponseStatusException(
-                        HttpStatusCode.valueOf(409),
-                        "thread " + threadId + " has no active task"));
-        if (!active.id().equals(taskId)) {
-            throw new ResponseStatusException(HttpStatusCode.valueOf(409),
-                    "task " + taskId + " is not the active task for thread " + threadId);
+        if (approvedParked) {
+            if (current.status() != TaskStatus.AWAITING_REVIEW) {
+                throw new ResponseStatusException(HttpStatusCode.valueOf(409),
+                        "task " + taskId + " is no longer awaiting approval");
+            }
+            if (taskStore.findActiveTaskForThread(threadId).isPresent()) {
+                throw new ResponseStatusException(HttpStatusCode.valueOf(409),
+                        "thread " + threadId + " already has an active successor");
+            }
+        }
+        else {
+            Task active = taskStore.findActiveTaskForThread(threadId)
+                    .orElseThrow(() -> new ResponseStatusException(
+                            HttpStatusCode.valueOf(409),
+                            "thread " + threadId + " has no active task"));
+            if (!active.id().equals(taskId)) {
+                throw new ResponseStatusException(HttpStatusCode.valueOf(409),
+                        "task " + taskId + " is not the active task for thread " + threadId);
+            }
         }
         if (current.workingDir() == null || current.workingDir().isBlank()) {
             throw new ResponseStatusException(HttpStatusCode.valueOf(409),

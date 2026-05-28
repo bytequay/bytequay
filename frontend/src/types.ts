@@ -1763,7 +1763,7 @@ export type NotificationKindDto =
   | 'NEEDS_ATTENTION'
   | 'AUTO_FIX_DONE';
 
-export type NotificationStatusDto = 'UNREAD' | 'READ' | 'DISMISSED';
+export type NotificationStatusDto = 'UNREAD' | 'READ' | 'RESOLVING' | 'RESOLVED' | 'DISMISSED';
 
 /** Phase of a {@link ReviewPassDto} — mirrors the backend
  *  ReviewPhase enum. Phase 1 walks KICKOFF → INDEPENDENT →
@@ -1927,7 +1927,7 @@ export type PushParkedPayload = {
   baseBranch: string | null;
   worktreePath: string;
   diffBase?: string;
-  diff: string | null;
+  diff?: string | null;
   diffError?: string;
   source: string;
 };
@@ -1942,17 +1942,133 @@ export type PostCommentParkedPayload = {
   source: string;
 };
 
+/** Locally resolved review-ready proposal. Approving acknowledges the
+ *  work as reviewed; it does not perform a remote publish. */
+export type RequestReviewParkedPayload = {
+  action: 'request_review';
+  summary: string;
+  draftReply?: string;
+  branch?: string | null;
+  baseBranch?: string | null;
+  worktreePath?: string;
+  diffBase?: string;
+  diff?: string | null;
+  diffError?: string;
+  source: string;
+};
+
+/** Proposal for the user's Next action. Remote push / PR creation and
+ *  next-task creation occur only after approval. */
+export type NextTaskParkedPayload = {
+  action: 'next_task';
+  branch: string | null;
+  baseBranch: string | null;
+  worktreePath: string;
+  diffBase?: string;
+  diff?: string | null;
+  diffError?: string;
+  nextTitle: string;
+  baseMode: 'main' | 'stacked';
+  source: string;
+};
+
+/** Proposal for the user's terminal Ship action. The current branch
+ *  is published and its task is closed only after approval. */
+export type ShipTaskParkedPayload = {
+  action: 'ship_task';
+  branch: string | null;
+  baseBranch: string | null;
+  worktreePath: string;
+  diffBase?: string;
+  diff?: string | null;
+  diffError?: string;
+  nextTitle: string;
+  baseMode: 'main' | 'stacked';
+  source: string;
+};
+
+/** The remaining backend-known publish actions that PublishService
+ *  can resolve. The picker renders a generic review card for them so
+ *  they don't get stranded in the bell with no Approve / Discard
+ *  affordance — each carries enough metadata (a PR or issue ref, an
+ *  optional editable body) to read what the agent intended to do. */
+export type GenericPublishAction =
+  | 'reply_review_thread'
+  | 'approve_pr'
+  | 'merge_pr'
+  | 'create_review_comment'
+  | 'update_pr_body'
+  | 'request_reviewer'
+  | 'comment_on_issue'
+  | 'set_issue_state'
+  | 'open_pr'
+  | 'publish_review';
+
+export type GenericParkedPayload = {
+  action: GenericPublishAction;
+  /** Optional editable copy — set for actions like comment_on_issue /
+   *  update_pr_body / create_review_comment / reply_review_thread that
+   *  let the user tweak the body before posting. */
+  body?: string | null;
+  /** PR or issue context, or a bare repo ref (used by open_pr which
+   *  doesn't have a PR number yet). The fields are loose-typed because
+   *  each action populates a different subset; the gate card renders
+   *  whatever is present. */
+  pr?: { owner: string; repo: string; number: number };
+  issue?: { owner: string; repo: string; number: number };
+  repo?: { owner: string; repo: string };
+  /** open_pr metadata. Populated only when action === 'open_pr'. */
+  title?: string;
+  head?: string;
+  base?: string;
+  /** create_review_comment anchor. Populated only when
+   *  action === 'create_review_comment' so the reviewer can see which
+   *  file/line/side the inline comment lands on before approving. */
+  filePath?: string;
+  line?: number;
+  side?: string;
+  /** Free-form one-liner the backend wrote for human consumption. */
+  summary?: string;
+  source: string;
+};
+
 export type ParkedPublishPayload =
   | PushParkedPayload
-  | PostCommentParkedPayload;
+  | PostCommentParkedPayload
+  | RequestReviewParkedPayload
+  | NextTaskParkedPayload
+  | ShipTaskParkedPayload
+  | GenericParkedPayload;
+
+/** Every action the publish gate knows how to resolve via the
+ *  `/notifications/{id}/approve` and `/discard` endpoints. Used by
+ *  the notification-center allow-list. */
+export const PUBLISH_GATE_ACTIONS = [
+  'push',
+  'post_comment',
+  'request_review',
+  'next_task',
+  'ship_task',
+  'reply_review_thread',
+  'approve_pr',
+  'merge_pr',
+  'create_review_comment',
+  'update_pr_body',
+  'request_reviewer',
+  'comment_on_issue',
+  'set_issue_state',
+  'open_pr',
+  'publish_review',
+] as const;
+export type PublishGateAction = typeof PUBLISH_GATE_ACTIONS[number];
 
 /** Server response from POST /api/notifications/{id}/approve and
  *  /discard. Mirrors PublishService.PublishResult on the backend.
- *  {@code resolution} is what the frontend dispatches on for toast
- *  colour / inline copy. */
+ *  {@code resolution} is what the frontend dispatches on for gate
+ *  recovery and toast colour / inline copy. */
 export type PublishResultDto = {
   ok: boolean;
-  resolution: 'approved' | 'discarded' | 'failed';
+  resolution: 'approved' | 'discarded' | 'failed' | 'interrupted' | 'recovered';
   message: string;
   action: string;
 };
@@ -2878,15 +2994,18 @@ export type Bridge = {
   dismissNotification: (id: string) => Promise<NotificationDto>;
   /** Hard delete — the row is gone. */
   deleteNotification: (id: string) => Promise<void>;
-  /** Approve a parked AWAITING_REVIEW publish: the backend runs the
-   *  deferred git push / createIssueComment, flips the task to
-   *  COMPLETED, dismisses the parked row, and writes an audit row.
-   *  {@code editedBody} only applies to post_comment — push has no
-   *  editable surface. */
-  approveNotification: (id: string, editedBody?: string | null) => Promise<PublishResultDto>;
-  /** Discard a parked AWAITING_REVIEW publish — no side effect runs.
-   *  Same task/notification housekeeping as approve. */
-  discardNotification: (id: string) => Promise<PublishResultDto>;
+  /** Approve a parked AWAITING_REVIEW proposal: the backend claims
+   *  the row once, runs its deferred action, and writes an audit row.
+   *  {@code expectedAction} prevents a rendered approval control from
+   *  resolving a payload that changed after display. */
+  approveNotification: (
+    id: string,
+    editedBody?: string | null,
+    expectedAction?: string | null,
+  ) => Promise<PublishResultDto>;
+  /** Discard a parked AWAITING_REVIEW proposal without running its
+   *  deferred side effect. */
+  discardNotification: (id: string, expectedAction?: string | null) => Promise<PublishResultDto>;
 
   /** Open a Server-Sent Events subscription to the backend for one
    *  thread. Each {@link StreamEvent} the session emits is delivered

@@ -15,7 +15,7 @@ import type { NotificationDto, NotificationKindDto } from './types';
 
 /** Icon glyph for a notification row's leading slot. AUTO_FIX_DONE
  *  rows always get the check; the title/preview differentiate
- *  approved vs discarded vs failed audit rows. */
+ *  approved vs discarded vs interrupted audit rows. */
 export function kindIcon(kind: NotificationKindDto): string {
   switch (kind) {
     case 'AWAITING_REVIEW':  return '\u{1F441}';
@@ -37,12 +37,22 @@ export function titleFor(n: NotificationDto): string {
         ? payload.publishResolution
         : null;
     const action = typeof payload.action === 'string' ? payload.action : null;
-    if (resolution === 'approved') {
+    if (resolution === 'approved' || resolution === 'approved_concurrent') {
       if (action === 'push') return 'Pushed';
       if (action === 'post_comment') return 'Posted comment';
       return 'Approved';
     }
     if (resolution === 'discarded') return 'Discarded';
+    if (resolution === 'discarded_after_interrupt') return 'Interrupted approval discarded';
+    // Two distinct interrupt audits — both render as "Approval
+    // interrupted" so the bell title stays stable; the preview line
+    // carries the publish-outcome detail (confirmed remote vs unknown).
+    if (resolution === 'interrupted'
+        || resolution === 'interrupted_unconfirmed'
+        || resolution === 'interrupted_confirmed') {
+      return 'Approval interrupted';
+    }
+    if (resolution === 'recovered') return 'Resolved locally';
     if (resolution === 'failed') return 'Publish failed';
   }
   return 'Shipped';

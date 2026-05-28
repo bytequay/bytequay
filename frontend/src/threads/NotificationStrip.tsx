@@ -18,17 +18,20 @@ type Props = {
   threadId: string;
 };
 
-/** Compact strip of UNREAD notifications scoped to this thread, shown
- *  above the agent terminal. Each chip carries the same data the bell
- *  dropdown uses, but inline so the user can act without leaving the
- *  thread. Click a chip → mark read (chip disappears). ✕ → dismiss. */
+/** Compact strip of unread or interrupted notifications scoped to this
+ *  thread, shown above the agent terminal. RESOLVING rows remain visible
+ *  until their local cleanup decision is recorded. */
 export default function NotificationStrip({ threadId }: Props) {
   const [items, setItems] = useState<NotificationDto[]>([]);
+  /** Transient hint shown when the backend refuses a dismiss (e.g. a
+   *  task that still needs attention). Cleared on the next refresh. */
+  const [note, setNote] = useState<string | null>(null);
 
   const refresh = useCallback(async () => {
     try {
       const all = await window.bridge.listNotificationsForThread(threadId);
-      setItems(all.filter(n => n.status === 'UNREAD'));
+      setItems(all.filter(n => n.status === 'UNREAD' || n.status === 'RESOLVING'));
+      setNote(null);
     }
     catch { /* non-fatal — leave the previous list */ }
   }, [threadId]);
@@ -40,6 +43,12 @@ export default function NotificationStrip({ threadId }: Props) {
   }, [refresh]);
 
   const onMarkRead = async (n: NotificationDto) => {
+    // Unresolved parked work (an AWAITING_REVIEW proposal or a
+    // NEEDS_ATTENTION task) must not be quieted by a passive click — it
+    // stays in the bell + strip until it's actually resolved
+    // (approve/discard, or fixing the stuck task). Only informational
+    // AUTO_FIX_DONE rows clear on click.
+    if (n.kind !== 'AUTO_FIX_DONE') return;
     try {
       await window.bridge.markNotificationRead(n.id);
     }
@@ -51,9 +60,17 @@ export default function NotificationStrip({ threadId }: Props) {
     e.stopPropagation();
     try {
       await window.bridge.dismissNotification(n.id);
+      void refresh();
     }
-    catch { /* fall through to refresh */ }
-    void refresh();
+    catch {
+      // The backend refuses to dismiss a row that still needs action
+      // (a task stuck in NEEDS_ATTENTION). Surface a hint rather than a
+      // dead click; the row stays so the user can Jump in. Don't
+      // refresh here — nothing changed and refresh would clear the note.
+      setNote(n.kind === 'NEEDS_ATTENTION'
+        ? 'Resolve this task in its thread before dismissing.'
+        : 'Resolve this from its review flow before dismissing.');
+    }
   };
 
   const onJumpIn = async (e: React.MouseEvent) => {
@@ -76,14 +93,21 @@ export default function NotificationStrip({ threadId }: Props) {
           onClick={() => { void onMarkRead(n); }}
           role="button"
           tabIndex={0}
-          title="Click to mark as read"
+          title={n.kind === 'AWAITING_REVIEW'
+            ? 'Awaiting your review — approve or discard from the notification center'
+            : 'Click to mark as read'}
         >
           <span style={chipIconStyle}>{kindIcon(n.kind)}</span>
           <span style={chipBodyStyle}>
             <span style={chipTitleStyle}>{titleFor(n.kind)}</span>
             <span style={chipMetaStyle}>{previewFor(n)}</span>
           </span>
-          {isParked(n.kind) && (
+          {/* Two predicates, not one. NEEDS_ATTENTION rows want
+              both — Jump-in to take the lease, Dismiss to clear
+              the bell badge without acting. AWAITING_REVIEW rows
+              still suppress Dismiss to force the approve/discard
+              flow. AUTO_FIX_DONE shows Dismiss only. */}
+          {hasJumpInAffordance(n) && (
             <button
               type="button"
               style={chipJumpInStyle}
@@ -94,23 +118,41 @@ export default function NotificationStrip({ threadId }: Props) {
               Jump in
             </button>
           )}
-          <button
-            type="button"
-            style={chipDismissStyle}
-            onClick={e => { void onDismiss(n, e); }}
-            title="Dismiss"
-            aria-label="Dismiss notification"
-          >
-            ✕
-          </button>
+          {!isOpenParked(n) && (
+            <button
+              type="button"
+              style={chipDismissStyle}
+              onClick={e => { void onDismiss(n, e); }}
+              title="Dismiss"
+              aria-label="Dismiss notification"
+            >
+              ✕
+            </button>
+          )}
         </div>
       ))}
+      {note && <div style={noteStyle} role="status">{note}</div>}
     </div>
   );
 }
 
-function isParked(kind: NotificationKindDto): boolean {
-  return kind === 'NEEDS_ATTENTION' || kind === 'AWAITING_REVIEW';
+function isOpenParked(n: NotificationDto): boolean {
+  // NEEDS_ATTENTION rows are informational and must be dismissible;
+  // only AWAITING_REVIEW carries the approve/discard flow that the
+  // strip's generic dismiss would side-step.
+  return n.kind === 'AWAITING_REVIEW'
+    && (n.status === 'UNREAD' || n.status === 'READ' || n.status === 'RESOLVING');
+}
+
+/** Jump-in is meaningful for any parked row that's still attached to
+ *  a live agent — both AWAITING_REVIEW (publish gate) and
+ *  NEEDS_ATTENTION (stuck headless run). Distinct from
+ *  {@link isOpenParked} so NEEDS_ATTENTION can carry both Jump-in
+ *  and Dismiss; AWAITING_REVIEW stays Jump-in-only because dismiss
+ *  must go through the approve / discard surface. */
+function hasJumpInAffordance(n: NotificationDto): boolean {
+  return (n.kind === 'AWAITING_REVIEW' || n.kind === 'NEEDS_ATTENTION')
+    && (n.status === 'UNREAD' || n.status === 'READ' || n.status === 'RESOLVING');
 }
 
 function kindIcon(kind: NotificationKindDto): string {
@@ -165,6 +207,12 @@ const stripStyle: React.CSSProperties = {
   padding: '8px 12px',
   borderBottom: '1px solid #e5e7eb',
   background: '#fafaff',
+};
+
+const noteStyle: React.CSSProperties = {
+  flexBasis: '100%',
+  fontSize: 11,
+  color: '#9a3412',
 };
 
 function chipStyle(kind: NotificationKindDto): React.CSSProperties {

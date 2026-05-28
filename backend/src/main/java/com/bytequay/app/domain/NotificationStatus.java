@@ -16,11 +16,16 @@ package com.bytequay.app.domain;
 /**
  * Lifecycle of a {@link Notification} row. The runtime creates it as
  * {@link #UNREAD}; the UI patches to {@link #READ} on click and
- * {@link #DISMISSED} on swipe-away. The bell badge counts UNREAD.
+ * {@link #DISMISSED} on swipe-away. Gated proposals move through
+ * {@link #RESOLVING} while an approve/discard request is executing,
+ * then to {@link #RESOLVED} once local finalization commits. The bell
+ * badge counts UNREAD.
  */
 public enum NotificationStatus
 {
     UNREAD,
     READ,
+    RESOLVING,
+    RESOLVED,
     DISMISSED,
 }

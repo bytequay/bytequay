@@ -141,6 +141,45 @@ class TestTaskServiceShipAndContinue
         assertThat(next.status()).isEqualTo(TaskStatus.PENDING);
     }
 
+    @Test
+    void approvedParkedNextAdvancesWithoutReopeningCurrentTaskAsRunning()
+            throws Exception
+    {
+        String workingDir = "/tmp/acme/widget";
+        Task parked = task("task-parked", "thread-parked", 1L,
+                "dev/task-parked", "/tmp/acme/widget/.worktrees/task-parked",
+                workingDir, TaskStatus.AWAITING_REVIEW);
+        when(threadStore.findThreadById("thread-parked"))
+                .thenReturn(Optional.of(thread("thread-parked")));
+        when(taskStore.findTaskById("task-parked")).thenReturn(Optional.of(parked));
+        when(taskStore.findActiveTaskForThread("thread-parked")).thenReturn(Optional.empty());
+        when(watchedRepoStore.findAll()).thenReturn(List.of(
+                new WatchedRepo(1L, "acme", "widget", 0,
+                        workingDir, /* upstreamRemoteName */ null, /* viewFocus */ null)));
+        when(workspaces.findDefaultBaseBranch(anyString(), anyString())).thenReturn(Optional.empty());
+        when(git.defaultBranch(any(Path.class))).thenReturn(Optional.of("main"));
+        when(git.hasUncommittedChanges(any(Path.class))).thenReturn(false);
+        when(patResolver.resolve("acme/widget")).thenReturn("ghp_secret");
+        when(pullRequests.createPullRequest(eq("ghp_secret"), any(RepoRef.class), any(CreatePullRequestCommand.class)))
+                .thenReturn(prWithNumber(43));
+        when(worktreeService.create(any(Path.class), anyString(), anyString()))
+                .thenReturn(Optional.of(new WorktreeService.WorktreeHandle(
+                        Path.of("/tmp/acme/widget/.worktrees/task-next"), "dev/task-next")));
+        when(registry.find("thread-parked")).thenReturn(Optional.empty());
+
+        Task next = service.startNextFromApprovedParkedTask(
+                "thread-parked", "task-parked",
+                new TaskService.ShipRequest("Next task", TaskService.BaseMode.MAIN));
+
+        ArgumentCaptor<Task> saved = ArgumentCaptor.forClass(Task.class);
+        verify(taskStore, atLeastOnce()).saveTask(saved.capture());
+        assertThat(saved.getAllValues().stream()
+                .filter(t -> t.id().equals("task-parked"))
+                .map(Task::status))
+                .containsExactly(TaskStatus.AWAITING_REVIEW);
+        assertThat(next.status()).isEqualTo(TaskStatus.PENDING);
+    }
+
     private static Thread thread(String id)
     {
         Instant now = Instant.parse("2026-05-15T12:00:00Z");
@@ -156,9 +195,16 @@ class TestTaskServiceShipAndContinue
             String id, String threadId, long seq,
             String branchName, String worktreePath, String workingDir)
     {
+        return task(id, threadId, seq, branchName, worktreePath, workingDir, TaskStatus.RUNNING);
+    }
+
+    private static Task task(
+            String id, String threadId, long seq,
+            String branchName, String worktreePath, String workingDir, TaskStatus status)
+    {
         Instant now = Instant.parse("2026-05-15T12:00:00Z");
         return new Task(
-                id, threadId, seq, TaskStatus.RUNNING,
+                id, threadId, seq, status,
                 branchName, worktreePath, /* baseBranch */ "main", workingDir,
                 /* processPid */ null, /* logPath */ null,
                 /* prNumber */ null, /* prState */ null, /* ciState */ null,

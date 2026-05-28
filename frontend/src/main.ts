@@ -2714,15 +2714,21 @@ const url = new URL(`${BACKEND_BASE}/api/search/repos`);
     if (typeof args !== 'object' || args === null) {
       throw new Error('approve args must be an object');
     }
-    const a = args as { id?: unknown; editedBody?: unknown };
+    const a = args as { id?: unknown; editedBody?: unknown; expectedAction?: unknown };
     if (typeof a.id !== 'string' || a.id.trim().length === 0) {
       throw new Error('id must be a non-empty string');
     }
-    // editedBody is optional and post_comment-only; the backend
-    // falls back to the parked body when it's null/blank.
+    // editedBody is optional. A present string — including "" — is an
+    // explicit override and must be forwarded verbatim: the backend
+    // distinguishes null (no override, use the parked body) from ""
+    // (the user cleared the textarea on purpose). Only omit the field
+    // when the renderer sent no string at all.
     const body: Record<string, unknown> = {};
-    if (typeof a.editedBody === 'string' && a.editedBody.length > 0) {
+    if (typeof a.editedBody === 'string') {
       body.editedBody = a.editedBody;
+    }
+    if (typeof a.expectedAction === 'string' && a.expectedAction.length > 0) {
+      body.expectedAction = a.expectedAction;
     }
     const res = await fetch(
       `${BACKEND_BASE}/api/notifications/${encodeURIComponent(a.id)}/approve`,
@@ -2738,16 +2744,28 @@ const url = new URL(`${BACKEND_BASE}/api/search/repos`);
     return res.json();
   });
 
-  ipcMain.handle('notifications:discard', async (_event, id: unknown) => {
-    if (typeof id !== 'string' || id.trim().length === 0) {
+  ipcMain.handle('notifications:discard', async (_event, args: unknown) => {
+    if (typeof args !== 'object' || args === null) {
+      throw new Error('discard args must be an object');
+    }
+    const a = args as { id?: unknown; expectedAction?: unknown };
+    if (typeof a.id !== 'string' || a.id.trim().length === 0) {
       throw new Error('id must be a non-empty string');
     }
+    const body: Record<string, unknown> = {};
+    if (typeof a.expectedAction === 'string' && a.expectedAction.length > 0) {
+      body.expectedAction = a.expectedAction;
+    }
     const res = await fetch(
-      `${BACKEND_BASE}/api/notifications/${encodeURIComponent(id)}/discard`,
-      { method: 'POST' });
+      `${BACKEND_BASE}/api/notifications/${encodeURIComponent(a.id)}/discard`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
     if (!res.ok) {
       const text = await res.text().catch(() => '');
-      throw new Error(`backend POST /api/notifications/${id}/discard returned ${res.status}: ${text}`);
+      throw new Error(`backend POST /api/notifications/${a.id}/discard returned ${res.status}: ${text}`);
     }
     return res.json();
   });

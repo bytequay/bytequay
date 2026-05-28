@@ -671,10 +671,14 @@ const bridge: Bridge = {
   dismissNotification: (id: string) => ipcRenderer.invoke('notifications:dismiss', id),
   deleteNotification: (id: string): Promise<void> =>
       ipcRenderer.invoke('notifications:delete', id),
-  approveNotification: (id: string, editedBody?: string | null) =>
-      ipcRenderer.invoke('notifications:approve', { id, editedBody: editedBody ?? null }),
-  discardNotification: (id: string) =>
-      ipcRenderer.invoke('notifications:discard', id),
+  approveNotification: (id: string, editedBody?: string | null, expectedAction?: string | null) =>
+      ipcRenderer.invoke('notifications:approve', {
+        id,
+        editedBody: editedBody ?? null,
+        expectedAction: expectedAction ?? null,
+      }),
+  discardNotification: (id: string, expectedAction?: string | null) =>
+      ipcRenderer.invoke('notifications:discard', { id, expectedAction: expectedAction ?? null }),
 
   listTaskWorkingChanges: (id: string) => ipcRenderer.invoke('threads:workingChanges', id),
   getTaskWorkingDiff: (id: string, path: string) => ipcRenderer.invoke('threads:workingDiff', id, path),

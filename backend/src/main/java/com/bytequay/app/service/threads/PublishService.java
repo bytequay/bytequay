@@ -18,6 +18,7 @@ import com.bytequay.app.domain.CreateReviewCommand;
 import com.bytequay.app.domain.MergePullRequestCommand;
 import com.bytequay.app.domain.Notification;
 import com.bytequay.app.domain.NotificationKind;
+import com.bytequay.app.domain.NotificationStatus;
 import com.bytequay.app.domain.PullRequestRef;
 import com.bytequay.app.domain.RepoRef;
 import com.bytequay.app.domain.RequestReviewersCommand;
@@ -40,6 +41,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.io.IOException;
+import java.nio.file.InvalidPathException;
 import java.nio.file.Path;
 import java.util.LinkedHashMap;
 import java.util.Map;
@@ -48,17 +50,19 @@ import java.util.Optional;
 import static java.util.Objects.requireNonNull;
 
 /**
- * Resolves an AWAITING_REVIEW notification: either approve (run the
- * deferred push / createIssueComment, flip the task to COMPLETED, and
- * write an audit row) or discard (skip the side effect, dismiss the
- * row, audit the discard). Side effects only fire here — McpController
- * just parks; this is where the publish-gate contract actually lands.
+ * Resolves an AWAITING_REVIEW notification: either approve (claim the
+ * notification once, run its deferred action, then atomically finalize
+ * local state) or discard (claim it without running the side effect).
+ * Side effects only fire here — McpController just parks; this is where
+ * the publish-gate contract actually lands.
  *
  * <p>Audit rows are AUTO_FIX_DONE notifications carrying the
- * resolution (approved / discarded / failed), the action, the parked
- * notification's id, and a human-readable summary. Failures don't
- * mutate the parked row, so the user can retry from the same
- * AWAITING_REVIEW entry.
+ * resolution (approved / discarded / discarded_after_interrupt /
+ * interrupted / recovered), the action, the parked notification's id,
+ * and a human-readable summary. Structural
+ * validation runs before a proposal is claimed. Once an external
+ * attempt starts, any incomplete resolution stays RESOLVING so the
+ * next user action can close local state without publishing twice.
  */
 @Service
 public class PublishService
@@ -71,11 +75,12 @@ public class PublishService
     private final PullRequestRepository pullRequests;
     private final PatResolver patResolver;
     private final ObjectMapper mapper;
+    private final ParkedProposalService parkedProposals;
     /** Lazy because TaskService transitively depends on services that
      *  may in turn need PublishService — using {@code @Lazy} keeps the
      *  bean graph acyclic by deferring the actual lookup to first
-     *  use. The only call site is doShipTask, which fires at most
-     *  once per parked ship notification. */
+     *  use. The only call sites are approved task-advance proposals,
+     *  which fire at most once per parked notification. */
     private final TaskService taskService;
 
     public PublishService(
@@ -85,6 +90,7 @@ public class PublishService
             PullRequestRepository pullRequests,
             PatResolver patResolver,
             ObjectMapper mapper,
+            ParkedProposalService parkedProposals,
             @Lazy TaskService taskService)
     {
         this.notifications = requireNonNull(notifications, "notifications is null");
@@ -93,6 +99,7 @@ public class PublishService
         this.pullRequests = requireNonNull(pullRequests, "pullRequests is null");
         this.patResolver = requireNonNull(patResolver, "patResolver is null");
         this.mapper = requireNonNull(mapper, "mapper is null");
+        this.parkedProposals = requireNonNull(parkedProposals, "parkedProposals is null");
         this.taskService = requireNonNull(taskService, "taskService is null");
     }
 
@@ -102,72 +109,391 @@ public class PublishService
      * editedBody value is ignored for that action. Returns the
      * resolution shape the controller hands back to the frontend.
      */
-    public PublishResult approve(String notificationId, String editedBody)
+    public PublishResult approve(String notificationId, String editedBody, String expectedAction)
     {
         Notification original = requireParked(notificationId);
         JsonNode payload = parsePayload(original);
-        String action = payload.path("action").asText("");
+        String action = resolveAction(payload);
+        // Recovering an interrupted (RESOLVING) row runs no remote action
+        // — it only finalizes local state — so it must reach the recovery
+        // branch even when the caller can't supply the expectedAction
+        // discriminator the fresh-approve path uses to guard a button
+        // rendered against a since-changed payload.
+        if (original.status() == NotificationStatus.RESOLVING) {
+            return finishInterruptedApproval(original, action);
+        }
+        requireExpectedAction(expectedAction, action);
+        preflightApprovedAction(action, payload, editedBody, original);
+        claimResolution(original);
 
         PublishResult result;
         try {
-            result = switch (action) {
-                case "push" -> doPush(payload);
-                case "post_comment" -> doPostComment(payload, editedBody);
-                case "reply_review_thread" -> doReplyReviewThread(payload, editedBody);
-                case "approve_pr" -> doApprovePr(payload, editedBody);
-                case "merge_pr" -> doMergePr(payload);
-                case "create_review_comment" -> doCreateReviewComment(payload, editedBody);
-                case "update_pr_body" -> doUpdatePrBody(payload, editedBody);
-                case "request_reviewer" -> doRequestReviewer(payload);
-                case "comment_on_issue" -> doCommentOnIssue(payload, editedBody);
-                case "set_issue_state" -> doSetIssueState(payload);
-                case "open_pr" -> doOpenPr(payload, editedBody);
-                case "publish_review" -> doPublishReview(payload, editedBody);
-                case "ship_task" -> doShipTask(payload, original);
-                default -> throw new ResponseStatusException(
-                        HttpStatusCode.valueOf(400), "unsupported action: " + action);
-            };
+            result = runApprovedAction(action, payload, editedBody, original);
         }
         catch (ResponseStatusException e) {
-            // Bad request shape (no worktreePath, no PR ref, etc.) —
-            // surface as 4xx without writing an audit row, the parked
-            // notification is the audit trail for "user tried but it
-            // wasn't actionable".
-            throw e;
+            // A 4xx means the action was rejected before it changed any
+            // remote state — either a local payload/state validation that
+            // slipped past preflight or a GitHub client rejection (not
+            // found, already merged, conflict). For single-remote-call
+            // actions nothing ran, so release the claim and surface the
+            // clean status; the row returns to UNREAD for a retry rather
+            // than pinning in RESOLVING with a misleading "outcome
+            // unknown" audit.
+            //
+            // The advance actions are the exception: next_task / ship_task
+            // push the branch BEFORE the PR-create call that can 4xx, so a
+            // 4xx there does NOT mean "nothing ran" — the branch may
+            // already be on the remote. Treat those conservatively like
+            // any ambiguous failure so a retry can't double-push. 5xx /
+            // unknown errors are always ambiguous and fall through too.
+            if (e.getStatusCode().is4xxClientError() && !isAdvanceAction(action)) {
+                notifications.releaseResolution(notificationId);
+                throw e;
+            }
+            log.warn("publish approve {} ({}) interrupted before remote returned: {}",
+                    notificationId, action, e.getMessage());
+            writeAuditRow(original, "interrupted_unconfirmed", action,
+                    "publish outcome unknown — the remote action may or may not have run: "
+                            + e.getMessage());
+            return interruptedResult(action);
         }
         catch (RuntimeException e) {
-            // The side effect blew up (network, GitHub API, git failed
-            // remote). Don't dismiss the parked row — the user might
-            // retry — but do log the failure so the user can see why.
-            log.warn("publish approve {} ({}) failed: {}",
+            // Any error after the claim may follow an ambiguous remote
+            // outcome (timeouts are especially unsafe to retry). Keep
+            // RESOLVING so the next user action performs local recovery
+            // only, never repeats the publish.
+            log.warn("publish approve {} ({}) interrupted before remote returned: {}",
                     notificationId, action, e.getMessage());
-            writeAuditRow(original, "failed", action,
-                    "publish failed: " + e.getMessage());
-            return new PublishResult(false, "failed",
-                    "publish failed: " + e.getMessage(), action);
+            writeAuditRow(original, "interrupted_unconfirmed", action,
+                    "publish outcome unknown — the remote action may or may not have run: "
+                            + e.getMessage());
+            return interruptedResult(action);
         }
 
-        completeTaskIfStillParked(original.taskId());
-        notifications.dismiss(notificationId);
+        try {
+            boolean taskAlreadyAdvanced = "next_task".equals(action) || "ship_task".equals(action);
+            parkedProposals.finishApproved(original, taskAlreadyAdvanced);
+        }
+        catch (ResponseStatusException e) {
+            // 409 from finishClaim means another concurrent caller
+            // (typically a Discard fired from a second tab while this
+            // approve was mid-remote-call) already resolved the row.
+            // The remote action ran, but the local close was performed
+            // by that other caller — surface the conflict cleanly as
+            // "succeeded but concurrently resolved" instead of leaving
+            // the row stuck-in-RESOLVING with a confusing interrupted
+            // audit. The other caller's audit row already records the
+            // discard / resolution chain.
+            if (e.getStatusCode().value() == 409) {
+                log.warn("publish approve {} ({}) raced a concurrent resolver: {}",
+                        notificationId, action, e.getMessage());
+                writeAuditRow(original, "approved_concurrent", action,
+                        "remote action completed; another resolver finalized this row first: "
+                                + e.getMessage());
+                return result;
+            }
+            log.warn("local finalization of publish {} ({}) failed: {}",
+                    notificationId, action, e.getMessage());
+            writeAuditRow(original, "interrupted_confirmed", action,
+                    "remote action completed; local finalization failed: " + e.getMessage());
+            return interruptedResult(action);
+        }
+        catch (RuntimeException e) {
+            log.warn("local finalization of publish {} ({}) failed: {}",
+                    notificationId, action, e.getMessage());
+            writeAuditRow(original, "interrupted_confirmed", action,
+                    "remote action completed; local finalization failed: " + e.getMessage());
+            return interruptedResult(action);
+        }
         writeAuditRow(original, "approved", action, result.message());
         return result;
     }
 
+    /** Advance actions push the branch and open a PR as a multi-step
+     *  remote sequence, so a failure partway through can leave the push
+     *  applied. They must never auto-release a claim for retry. */
+    private static boolean isAdvanceAction(String action)
+    {
+        return "next_task".equals(action) || "ship_task".equals(action);
+    }
+
+    private static void requireExpectedAction(String expectedAction, String actualAction)
+    {
+        if (expectedAction == null || expectedAction.isBlank()) {
+            throw new ResponseStatusException(
+                    HttpStatusCode.valueOf(400), "expectedAction is required for approval");
+        }
+        if (!expectedAction.equals(actualAction)) {
+            throw new ResponseStatusException(
+                    HttpStatusCode.valueOf(409),
+                    "notification action changed from " + expectedAction + " to " + actualAction);
+        }
+    }
+
+    private PublishResult runApprovedAction(
+            String action, JsonNode payload, String editedBody, Notification original)
+    {
+        return switch (action) {
+            case "push" -> doPush(payload);
+            case "post_comment" -> doPostComment(payload, editedBody);
+            case "reply_review_thread" -> doReplyReviewThread(payload, editedBody);
+            case "approve_pr" -> doApprovePr(payload, editedBody);
+            case "merge_pr" -> doMergePr(payload);
+            case "create_review_comment" -> doCreateReviewComment(payload, editedBody);
+            case "update_pr_body" -> doUpdatePrBody(payload, editedBody);
+            case "request_reviewer" -> doRequestReviewer(payload);
+            case "comment_on_issue" -> doCommentOnIssue(payload, editedBody);
+            case "set_issue_state" -> doSetIssueState(payload);
+            case "open_pr" -> doOpenPr(payload, editedBody);
+            case "publish_review" -> doPublishReview(payload, editedBody);
+            case "request_review" -> doRequestReview();
+            case "next_task" -> doNextTask(payload, original);
+            case "ship_task" -> doShipTask(payload, original);
+            default -> throw new ResponseStatusException(
+                    HttpStatusCode.valueOf(400), "unsupported action: " + action);
+        };
+    }
+
     /**
-     * Drop the parked publish without running its side effect. The
-     * task still transitions to COMPLETED — discard means "this work
-     * is finished, just not shipped" rather than "go back to RUNNING".
+     * Verify payload fields and the parked task target while the
+     * notification is still open. Once the claim is written we never
+     * infer that an exception happened before the remote call.
      */
-    public PublishResult discard(String notificationId)
+    private void preflightApprovedAction(
+            String action, JsonNode payload, String editedBody, Notification original)
+    {
+        switch (action) {
+            case "push" -> {
+                String worktreePath = payload.path("worktreePath").asText("");
+                if (worktreePath.isBlank()) {
+                    throw new ResponseStatusException(HttpStatusCode.valueOf(400),
+                            "parked push notification has no worktreePath");
+                }
+                try {
+                    if (!Path.of(worktreePath).isAbsolute()) {
+                        throw new ResponseStatusException(HttpStatusCode.valueOf(400),
+                                "parked push notification has a non-absolute worktreePath");
+                    }
+                }
+                catch (InvalidPathException e) {
+                    throw new ResponseStatusException(HttpStatusCode.valueOf(400),
+                            "parked push notification has an invalid worktreePath");
+                }
+            }
+            case "post_comment" -> {
+                readPrRef(payload, action);
+                requireEditableBody(payload, editedBody, "comment body is blank — nothing to post");
+            }
+            case "reply_review_thread" -> {
+                readPrRef(payload, action);
+                if (payload.path("rootCommentId").asLong(0L) <= 0L) {
+                    throw new ResponseStatusException(HttpStatusCode.valueOf(400),
+                            "parked reply_review_thread notification has no rootCommentId");
+                }
+                requireEditableBody(payload, editedBody, "reply body is blank — nothing to post");
+            }
+            case "approve_pr", "merge_pr" -> readPrRef(payload, action);
+            case "create_review_comment" -> {
+                readPrRef(payload, action);
+                requireEditableBody(payload, editedBody, "review comment body is blank — nothing to post");
+                String filePath = payload.path("filePath").asText("");
+                int line = payload.path("line").asInt(0);
+                String commitId = payload.path("commitId").asText("");
+                if (filePath.isBlank() || line <= 0 || commitId.isBlank()) {
+                    throw new ResponseStatusException(HttpStatusCode.valueOf(400),
+                            "parked create_review_comment notification is missing filePath / line / commitId");
+                }
+            }
+            case "update_pr_body" -> {
+                readPrRef(payload, action);
+                requireEditableBody(payload, editedBody, "PR body is blank — nothing to update");
+            }
+            case "request_reviewer" -> {
+                readPrRef(payload, action);
+                if (payload.path("reviewer").asText("").trim().isBlank()) {
+                    throw new ResponseStatusException(HttpStatusCode.valueOf(400),
+                            "parked request_reviewer notification has no reviewer login");
+                }
+            }
+            case "comment_on_issue" -> {
+                readIssueRef(payload, action);
+                requireEditableBody(payload, editedBody, "comment body is blank — nothing to post");
+            }
+            case "set_issue_state" -> {
+                readIssueRef(payload, action);
+                String state = payload.path("state").asText("");
+                if (!"open".equals(state) && !"closed".equals(state)) {
+                    throw new ResponseStatusException(HttpStatusCode.valueOf(400),
+                            "parked set_issue_state notification has invalid state: " + state);
+                }
+            }
+            case "open_pr" -> preflightOpenPr(payload);
+            case "publish_review" -> preflightPublishReview(payload);
+            case "request_review" -> {
+                // The MCP park path has already verified it has a diff.
+            }
+            case "next_task", "ship_task" -> preflightAdvance(payload, original, action);
+            default -> throw new ResponseStatusException(
+                    HttpStatusCode.valueOf(400), "unsupported action: " + action);
+        }
+    }
+
+    private static void requireEditableBody(JsonNode payload, String editedBody, String message)
+    {
+        String effectiveBody = (editedBody == null || editedBody.isBlank())
+                ? payload.path("body").asText("")
+                : editedBody;
+        if (effectiveBody.isBlank()) {
+            throw new ResponseStatusException(HttpStatusCode.valueOf(400), message);
+        }
+    }
+
+    private static void preflightOpenPr(JsonNode payload)
+    {
+        JsonNode repo = payload.path("repo");
+        if (repo.isMissingNode() || repo.isNull()
+                || repo.path("owner").asText("").isBlank()
+                || repo.path("repo").asText("").isBlank()) {
+            throw new ResponseStatusException(HttpStatusCode.valueOf(400),
+                    "parked open_pr notification has incomplete repo ref");
+        }
+        if (payload.path("title").asText("").isBlank()
+                || payload.path("head").asText("").isBlank()
+                || payload.path("base").asText("").isBlank()) {
+            throw new ResponseStatusException(HttpStatusCode.valueOf(400),
+                    "parked open_pr notification is missing title / head / base");
+        }
+    }
+
+    private static void preflightPublishReview(JsonNode payload)
+    {
+        readPrRef(payload, "publish_review");
+        JsonNode commentsNode = payload.path("comments");
+        if (!commentsNode.isArray()) {
+            return;
+        }
+        for (JsonNode comment : commentsNode) {
+            if (comment.path("file_path").asText("").isBlank()
+                    || comment.path("line").asInt(0) <= 0
+                    || comment.path("body").asText("").isBlank()) {
+                throw new ResponseStatusException(HttpStatusCode.valueOf(400),
+                        "publish_review comment is missing file_path / line / body");
+            }
+        }
+    }
+
+    private void preflightAdvance(JsonNode payload, Notification original, String action)
+    {
+        String threadId = original.threadId();
+        String taskId = original.taskId();
+        if (threadId == null || taskId == null) {
+            throw new ResponseStatusException(HttpStatusCode.valueOf(400),
+                    "parked " + action + " notification has no thread / task id");
+        }
+        Task parked = taskStore.findTaskById(taskId)
+                .orElseThrow(() -> new ResponseStatusException(HttpStatusCode.valueOf(400),
+                        "parked " + action + " target " + taskId + " not found"));
+        if (parked.status() != TaskStatus.AWAITING_REVIEW) {
+            throw new ResponseStatusException(HttpStatusCode.valueOf(409),
+                    "parked " + action + " target " + taskId + " is no longer awaiting approval");
+        }
+        if (taskStore.findActiveTaskForThread(threadId).isPresent()) {
+            throw new ResponseStatusException(HttpStatusCode.valueOf(409),
+                    "thread " + threadId + " already has an active successor");
+        }
+        if (parked.workingDir() == null || parked.workingDir().isBlank()) {
+            throw new ResponseStatusException(HttpStatusCode.valueOf(409),
+                    "task " + taskId + " has no working dir; nothing to ship");
+        }
+        if (parked.worktreePath() == null || parked.worktreePath().isBlank()) {
+            throw new ResponseStatusException(HttpStatusCode.valueOf(409),
+                    "task " + taskId + " has no worktree; nothing to ship");
+        }
+        if (parked.branchName() == null || parked.branchName().isBlank()) {
+            throw new ResponseStatusException(HttpStatusCode.valueOf(409),
+                    "task " + taskId + " has no branch name; nothing to ship");
+        }
+        JsonNode nextTitleNode = payload.path("nextTitle");
+        if (!nextTitleNode.isMissingNode() && !nextTitleNode.isNull() && !nextTitleNode.isTextual()) {
+            throw new ResponseStatusException(HttpStatusCode.valueOf(400),
+                    "parked " + action + " notification has an invalid nextTitle");
+        }
+        String baseModeRaw = payload.path("baseMode").asText("main");
+        if (!"main".equals(baseModeRaw) && !"stacked".equals(baseModeRaw)) {
+            throw new ResponseStatusException(HttpStatusCode.valueOf(400),
+                    "parked " + action + " notification has an invalid baseMode");
+        }
+    }
+
+    private PublishResult finishInterruptedApproval(Notification original, String action)
+    {
+        parkedProposals.finishInterruptedApproval(original, action);
+        String message = "Closed the interrupted approval locally without repeating "
+                + "its publish action. Check the remote state before proposing it again.";
+        writeAuditRow(original, "recovered", action, message);
+        return new PublishResult(true, "recovered", message, action);
+    }
+
+    private static PublishResult interruptedResult(String action)
+    {
+        return new PublishResult(false, "interrupted",
+                "The approval attempt did not finish cleanly. Check remote state, then "
+                        + "choose Finish locally or Discard; publishing will not be repeated automatically.",
+                action);
+    }
+
+    /**
+     * Drop the parked publish without running its side effect. A
+     * declined task advance that was never attempted returns to local
+     * idle work. Once a publish outcome is uncertain, only next_task
+     * may return to editing; other actions close potentially published
+     * work rather than allowing silent divergence.
+     */
+    public PublishResult discard(String notificationId, String expectedAction)
     {
         Notification original = requireParked(notificationId);
         JsonNode payload = parsePayload(original);
-        String action = payload.path("action").asText("");
-
-        completeTaskIfStillParked(original.taskId());
-        notifications.dismiss(notificationId);
-        writeAuditRow(original, "discarded", action,
-                "user discarded the proposed " + action);
+        String action = resolveAction(payload);
+        boolean interrupted = original.status() == NotificationStatus.RESOLVING;
+        if (!interrupted) {
+            // A fresh discard guards against a payload that changed under
+            // the rendered button. An interrupted-row discard runs no
+            // remote action — it only finalizes local state — so it must
+            // recover even when the caller can't supply the discriminator.
+            requireExpectedAction(expectedAction, action);
+            claimResolution(original);
+        }
+        // Discard semantics:
+        //  UNINTERRUPTED → always resume. The remote side effect never
+        //  ran (Approve was never clicked), so closing the task on
+        //  Discard would silently throw away in-progress work. User
+        //  said "not this proposal" — let the agent keep iterating.
+        //
+        //  INTERRUPTED → branch on whether the remote may have run:
+        //    • request_review: a local-only handoff that never touches
+        //      the remote, so resume is safe even mid-interrupt.
+        //    • everything else, including next_task / ship_task: the
+        //      remote may have already happened — next_task and ship_task
+        //      both push the branch and open a PR inside the approved
+        //      advance — so completing locally is the safe close.
+        //      Resuming could let the agent re-edit work that already
+        //      shipped, and (when the advance produced a successor)
+        //      revive the prior task into a second active sibling.
+        boolean resumeTask = !interrupted
+                || "request_review".equals(action);
+        parkedProposals.finishDiscarded(original, resumeTask);
+        String auditResolution = interrupted ? "discarded_after_interrupt" : "discarded";
+        // For an interrupted discard we deliberately don't reassert
+        // the remote outcome here — the prior `interrupted_unconfirmed`
+        // or `interrupted_confirmed` audit row records what we know,
+        // and overwriting that here with our own claim would
+        // contradict itself in the confirmed case (where the remote
+        // definitely ran). Point readers at the chain instead.
+        String auditMessage = interrupted
+                ? "user discarded an interrupted " + action
+                        + " approval; see the prior interrupted audit row for the remote outcome"
+                : "user discarded the proposed " + action;
+        writeAuditRow(original, auditResolution, action, auditMessage);
         return new PublishResult(true, "discarded",
                 "Discarded.", action);
     }
@@ -183,7 +509,26 @@ public class PublishService
                     HttpStatusCode.valueOf(400),
                     "only AWAITING_REVIEW notifications can be approved or discarded");
         }
+        if (original.status() == NotificationStatus.RESOLVED
+                || original.status() == NotificationStatus.DISMISSED) {
+            throw new ResponseStatusException(
+                    HttpStatusCode.valueOf(409), "notification already resolved: " + notificationId);
+        }
+        if (original.status() != NotificationStatus.UNREAD
+                && original.status() != NotificationStatus.READ
+                && original.status() != NotificationStatus.RESOLVING) {
+            throw new ResponseStatusException(
+                    HttpStatusCode.valueOf(409), "notification cannot be resolved: " + notificationId);
+        }
         return original;
+    }
+
+    private void claimResolution(Notification original)
+    {
+        if (!notifications.claimResolution(original.id())) {
+            throw new ResponseStatusException(
+                    HttpStatusCode.valueOf(409), "notification already resolved: " + original.id());
+        }
     }
 
     private JsonNode parsePayload(Notification original)
@@ -197,6 +542,17 @@ public class PublishService
                     HttpStatusCode.valueOf(400),
                     "notification payload is not valid JSON: " + e.getMessage());
         }
+    }
+
+    private static String resolveAction(JsonNode payload)
+    {
+        String action = payload.path("action").asText("");
+        if (action.isBlank()
+                && "mcp:request_review".equals(payload.path("source").asText(""))
+                && payload.path("summary").isTextual()) {
+            return "request_review";
+        }
+        return action;
     }
 
     private PublishResult doPush(JsonNode payload)
@@ -291,9 +647,14 @@ public class PublishService
     {
         PrRefFromPayload ref = readPrRef(payload, "approve_pr");
         String parkedBody = payload.path("body").asText("");
-        String effectiveBody = (editedBody == null || editedBody.isBlank())
-                ? parkedBody
-                : editedBody;
+        // approve_pr's body is optional. Distinguish "user never
+        // overrode the textarea" (editedBody == null — for callers
+        // that don't render an editor at all) from "user explicitly
+        // cleared the textarea" (editedBody == ""). The latter should
+        // honour the user's blank — the gate's editable textarea
+        // makes clearing a real intent, not an indication to fall
+        // back to the agent's suggestion.
+        String effectiveBody = editedBody == null ? parkedBody : editedBody;
         String pat = patResolver.resolve(ref.owner() + "/" + ref.repo());
         // GitHub's review-create endpoint accepts an empty body for
         // an APPROVE; the SDK uses Optional<String> so pass empty
@@ -463,9 +824,10 @@ public class PublishService
                     "parked open_pr notification is missing title / head / base");
         }
         String parkedBody = payload.path("body").asText("");
-        String effectiveBody = (editedBody == null || editedBody.isBlank())
-                ? parkedBody
-                : editedBody;
+        // open_pr's body is optional. null = no override (use the
+        // agent's parked body); "" = user explicitly cleared the
+        // textarea and wants a blank PR description.
+        String effectiveBody = editedBody == null ? parkedBody : editedBody;
         boolean draft = payload.path("draft").asBoolean(false);
         CreatePullRequestCommand command = new CreatePullRequestCommand(
                 head,
@@ -490,9 +852,10 @@ public class PublishService
             event = "COMMENT";
         }
         String parkedBody = payload.path("body").asText("");
-        String effectiveBody = (editedBody == null || editedBody.isBlank())
-                ? parkedBody
-                : editedBody;
+        // publish_review's review-level body is optional. null = no
+        // override; "" = user explicitly cleared (APPROVE/REQUEST_CHANGES
+        // can land without any review-level text).
+        String effectiveBody = editedBody == null ? parkedBody : editedBody;
         JsonNode commentsNode = payload.path("comments");
         ImmutableList.Builder<CreateReviewCommand.ReviewLineComment> commentsBuilder = ImmutableList.builder();
         if (commentsNode.isArray()) {
@@ -528,52 +891,72 @@ public class PublishService
                 "publish_review");
     }
 
-    /**
-     * Approves a parked ship_task: flips the task back to RUNNING
-     * (so {@link TaskService#shipAndContinue}'s active-task
-     * precondition holds), then runs the full ship-and-continue
-     * flow. The user's Approve click IS the gate that the task was
-     * parked at — no second check is needed at the TaskService
-     * layer.
-     */
+    /** Accepts a review-ready marker without running a remote side
+     *  effect. The user has acknowledged the locally parked result. */
+    private PublishResult doRequestReview()
+    {
+        return new PublishResult(true, "approved",
+                "Accepted review-ready work. No remote changes were published.",
+                "request_review");
+    }
+
+    private PublishResult doNextTask(JsonNode payload, Notification original)
+    {
+        Task next = runApprovedAdvance(payload, original, "next_task");
+        return new PublishResult(true, "approved",
+                "Advanced from task " + original.taskId() + " to " + next.id()
+                        + " on " + next.branchName() + ".",
+                "next_task");
+    }
+
     private PublishResult doShipTask(JsonNode payload, Notification original)
+    {
+        Task next = runApprovedAdvance(payload, original, "ship_task");
+        return new PublishResult(true, "approved",
+                "Shipped task " + original.taskId() + " \u2192 created " + next.id()
+                        + " on " + next.branchName() + ".",
+                "ship_task");
+    }
+
+    /**
+     * Approves a parked task advance without reopening it as live
+     * agent work. The user's Approve click is the publish
+     * authorisation gate.
+     */
+    private Task runApprovedAdvance(JsonNode payload, Notification original, String action)
     {
         String threadId = original.threadId();
         String taskId = original.taskId();
         if (threadId == null || taskId == null) {
             throw new ResponseStatusException(HttpStatusCode.valueOf(400),
-                    "parked ship_task notification has no thread / task id");
+                    "parked " + action + " notification has no thread / task id");
         }
         Task parked = taskStore.findTaskById(taskId)
                 .orElseThrow(() -> new ResponseStatusException(HttpStatusCode.valueOf(400),
-                        "parked ship_task target " + taskId + " not found"));
-        // The user clicking Approve IS the authorisation gate; unpark
-        // so shipAndContinue's active-task lookup finds the row.
-        if (parked.status() == TaskStatus.AWAITING_REVIEW) {
-            taskStore.saveTask(new Task(
-                    parked.id(), parked.threadId(), parked.seq(), TaskStatus.RUNNING,
-                    parked.branchName(), parked.worktreePath(), parked.baseBranch(),
-                    parked.workingDir(),
-                    parked.processPid(), parked.logPath(),
-                    parked.prNumber(), parked.prState(), parked.ciState(),
-                    parked.taskType(), parked.linkedPrNumber(), parked.linkedIssueNumber(),
-                    parked.costUsdMilli(), parked.tokensIn(), parked.tokensOut(),
-                    parked.agentSessionId(),
-                    parked.createdAt(), parked.endedAt(), parked.errorMessage(),
-                    parked.name(), parked.roleSkill()));
+                        "parked " + action + " target " + taskId + " not found"));
+        if (parked.status() != TaskStatus.AWAITING_REVIEW) {
+            throw new ResponseStatusException(HttpStatusCode.valueOf(409),
+                    "parked " + action + " target " + taskId + " is no longer awaiting approval");
         }
-        String nextTitle = payload.path("nextTitle").asText("");
+        JsonNode nextTitleNode = payload.path("nextTitle");
+        if (!nextTitleNode.isMissingNode() && !nextTitleNode.isNull() && !nextTitleNode.isTextual()) {
+            throw new ResponseStatusException(HttpStatusCode.valueOf(400),
+                    "parked " + action + " notification has an invalid nextTitle");
+        }
+        String nextTitle = nextTitleNode.asText("");
         String baseModeRaw = payload.path("baseMode").asText("main");
+        if (!"main".equals(baseModeRaw) && !"stacked".equals(baseModeRaw)) {
+            throw new ResponseStatusException(HttpStatusCode.valueOf(400),
+                    "parked " + action + " notification has an invalid baseMode");
+        }
         TaskService.BaseMode mode = "stacked".equals(baseModeRaw)
                 ? TaskService.BaseMode.STACKED
                 : TaskService.BaseMode.MAIN;
         TaskService.ShipRequest request = new TaskService.ShipRequest(
                 nextTitle.isBlank() ? null : nextTitle, mode);
-        Task next = taskService.shipAndContinue(threadId, taskId, request);
-        return new PublishResult(true, "approved",
-                "Shipped task " + taskId + " → created " + next.id() + " on "
-                        + next.branchName() + ".",
-                "ship_task");
+        return "next_task".equals(action)
+                ? taskService.startNextFromApprovedParkedTask(threadId, taskId, request)
+                : taskService.shipApprovedParkedTask(threadId, taskId, request);
     }
 
     private static IssueRefFromPayload readIssueRef(JsonNode payload, String action)
@@ -623,32 +1006,6 @@ public class PublishService
         }
     }
 
-    /** Move the task off AWAITING_REVIEW to COMPLETED. No-op when the
-     *  task is missing (notification with no taskId, or a stale row)
-     *  or has already moved off the parked state — the second
-     *  approve/discard against the same task is idempotent. */
-    private void completeTaskIfStillParked(String taskId)
-    {
-        if (taskId == null || taskId.isBlank()) {
-            return;
-        }
-        taskStore.findTaskById(taskId).ifPresent(t -> {
-            if (t.status() != TaskStatus.AWAITING_REVIEW) {
-                return;
-            }
-            taskStore.saveTask(new Task(
-                    t.id(), t.threadId(), t.seq(), TaskStatus.COMPLETED,
-                    t.branchName(), t.worktreePath(), t.baseBranch(), t.workingDir(),
-                    t.processPid(), t.logPath(),
-                    t.prNumber(), t.prState(), t.ciState(),
-                    t.taskType(), t.linkedPrNumber(), t.linkedIssueNumber(),
-                    t.costUsdMilli(), t.tokensIn(), t.tokensOut(),
-                    t.agentSessionId(),
-                    t.createdAt(), t.endedAt(), t.errorMessage(),
-                    t.name(), t.roleSkill()));
-        });
-    }
-
     private void writeAuditRow(
             Notification original, String resolution, String action, String message)
     {
@@ -672,10 +1029,10 @@ public class PublishService
 
     /**
      * Resolution shape the controller hands back to the frontend.
-     * {@code ok} is true on success (approved or discarded), false on
-     * a side-effect failure. {@code resolution} is one of "approved",
-     * "discarded", "failed" — the frontend dispatches on it for the
-     * toast / inline copy.
+     * {@code ok} is true on success (approved, discarded, or recovered),
+     * false while an interrupted attempt still needs a local resolution.
+     * {@code resolution} is one of "approved", "discarded",
+     * "interrupted", or "recovered".
      */
     public record PublishResult(boolean ok, String resolution, String message, String action) {}
 }

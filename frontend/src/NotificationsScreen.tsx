@@ -14,7 +14,8 @@
 import { useCallback, useEffect, useState } from 'react';
 import { kindIcon, previewFor, relativeTime, titleFor } from './notificationDisplay';
 import PublishGatePane from './PublishGatePane';
-import type { NotificationDto } from './types';
+import { PUBLISH_GATE_ACTIONS } from './types';
+import type { NotificationDto, PublishGateAction } from './types';
 
 type Props = {
   /** Click-to-thread navigation. The dispatch lives in App.tsx so
@@ -63,7 +64,11 @@ function NotificationsScreen({ onOpenThread, onOpenReviewThread }: Props) {
   }, [refresh]);
 
   const handleOpen = async (n: NotificationDto) => {
-    if (n.status === 'UNREAD') {
+    // Opening a parked row to review it must not quiet it: an
+    // AWAITING_REVIEW proposal stays UNREAD until approved/discarded and
+    // a NEEDS_ATTENTION task until it's resolved. Only informational
+    // AUTO_FIX_DONE rows clear on open.
+    if (n.status === 'UNREAD' && n.kind === 'AUTO_FIX_DONE') {
       try {
         await window.bridge.markNotificationRead(n.id);
       }
@@ -92,11 +97,17 @@ function NotificationsScreen({ onOpenThread, onOpenReviewThread }: Props) {
     e.stopPropagation();
     try {
       await window.bridge.dismissNotification(n.id);
+      void refresh();
     }
-    catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
+    catch {
+      // The backend refuses to dismiss a row that still needs action
+      // (a task stuck in NEEDS_ATTENTION). Show an actionable hint
+      // rather than the raw transport error. Don't refresh on this path
+      // — nothing changed and refresh would immediately clear the note.
+      setError(n.kind === 'NEEDS_ATTENTION'
+        ? 'This task still needs attention — resolve it in its thread before dismissing it.'
+        : 'Resolve this from its review flow before dismissing.');
     }
-    void refresh();
   };
 
   return (
@@ -125,6 +136,7 @@ function NotificationsScreen({ onOpenThread, onOpenReviewThread }: Props) {
         <ul className="notifications-list">
           {items.map(n => {
             const reviewable = isPublishGateNotification(n);
+            const parkedOpen = isOpenParkedNotification(n);
             const expanded = expandedId === n.id;
             return (
               <li
@@ -150,14 +162,16 @@ function NotificationsScreen({ onOpenThread, onOpenReviewThread }: Props) {
                       {expanded ? 'Hide' : 'Review'}
                     </button>
                   )}
-                  <button
-                    type="button"
-                    className="notifications-list__dismiss"
-                    onClick={e => { void handleDismiss(n, e); }}
-                    title="Dismiss"
-                  >
-                    ✕
-                  </button>
+                  {!parkedOpen && (
+                    <button
+                      type="button"
+                      className="notifications-list__dismiss"
+                      onClick={e => { void handleDismiss(n, e); }}
+                      title="Dismiss"
+                    >
+                      ✕
+                    </button>
+                  )}
                 </div>
                 {reviewable && expanded && (
                   <div onClick={e => e.stopPropagation()}>
@@ -196,19 +210,37 @@ function isScheduledReviewNotification(n: NotificationDto): boolean {
 }
 
 /** True when the row should show a Review button that expands the
- *  publish gate pane. AWAITING_REVIEW notifications without a
- *  recognised action (e.g. a plain request_review summary) keep the
- *  current click-to-thread behaviour. */
+ *  publish gate pane. The allow-list mirrors PUBLISH_GATE_ACTIONS so
+ *  every action PublishService can resolve gets an entry point in the
+ *  notification center; a legacy mcp:request_review row without an
+ *  explicit action field is treated as request_review. */
 function isPublishGateNotification(n: NotificationDto): boolean {
   if (n.kind !== 'AWAITING_REVIEW') return false;
+  if (n.status !== 'UNREAD' && n.status !== 'READ' && n.status !== 'RESOLVING') return false;
   if (!n.payloadJson) return false;
   try {
-    const raw = JSON.parse(n.payloadJson) as { action?: unknown };
-    return raw.action === 'push' || raw.action === 'post_comment';
+    const raw = JSON.parse(n.payloadJson) as { action?: unknown; source?: unknown; summary?: unknown };
+    if (typeof raw.action === 'string'
+        && (PUBLISH_GATE_ACTIONS as readonly string[]).includes(raw.action as PublishGateAction)) {
+      return true;
+    }
+    return raw.action === undefined
+      && raw.source === 'mcp:request_review'
+      && typeof raw.summary === 'string';
   }
   catch {
     return false;
   }
+}
+
+/** Unresolved parked rows must go through their review or jump-in
+ *  flow rather than disappearing behind a generic dismiss action.
+ *  NEEDS_ATTENTION rows are informational — there's no approve flow
+ *  for them, so they have to be dismissible from the bell or they
+ *  accumulate forever. */
+function isOpenParkedNotification(n: NotificationDto): boolean {
+  return n.kind === 'AWAITING_REVIEW'
+    && (n.status === 'UNREAD' || n.status === 'READ' || n.status === 'RESOLVING');
 }
 
 export default NotificationsScreen;

@@ -22,9 +22,11 @@ import org.springframework.stereotype.Service;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.time.Instant;
+import java.util.Comparator;
 import java.util.List;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.stream.Stream;
 
 import static java.util.Objects.requireNonNull;
 
@@ -95,11 +97,24 @@ public class NotificationService
         return store.listRecent(DEFAULT_LIMIT);
     }
 
-    /** UNREAD only — drives the bell badge count. */
+    /** Notifications needing attention in the bell badge. A claimed
+     *  publish that did not finalize stays visible as RESOLVING until
+     *  the user explicitly finishes or discards it. RESOLVING rows
+     *  are never dropped by the page cap — a busy UNREAD stream must
+     *  not push an interrupted-approval out of the user's view. */
     public List<Notification> listUnread()
     {
-        return store.listByStatus(NotificationStatus.UNREAD, DEFAULT_LIMIT);
+        List<Notification> resolving = store.listByStatus(NotificationStatus.RESOLVING, INTERRUPTED_VISIBILITY_CAP);
+        List<Notification> unread = store.listByStatus(NotificationStatus.UNREAD, DEFAULT_LIMIT);
+        return Stream.concat(resolving.stream(), unread.stream())
+                .sorted(Comparator.comparing(Notification::createdAt).reversed())
+                .toList();
     }
+
+    /** Hard cap on how many RESOLVING rows the bell can carry. Real
+     *  installs will see single-digit counts; the cap is here to keep
+     *  a runaway storage state from blowing up the bell list. */
+    private static final int INTERRUPTED_VISIBILITY_CAP = 200;
 
     /** Per-thread feed (the {@code auto*} row in the threads list). */
     public List<Notification> listForThread(String threadId)
@@ -107,37 +122,56 @@ public class NotificationService
         return store.listForThread(threadId, DEFAULT_LIMIT);
     }
 
-    /** Patch UNREAD → READ + stamp readAt. No-op when already read. */
+    /** Patch UNREAD to READ and stamp readAt. Legacy READ rows without
+     *  a timestamp are repaired. AWAITING_REVIEW rows and rows holding a
+     *  RESOLVING claim are left untouched — the atomic update can't race
+     *  a concurrent claim into a stale READ. A no-op (terminal/parked
+     *  row) returns the row unchanged; a missing row is a 404. */
     public Notification markRead(String id)
     {
-        Notification existing = require(id);
-        if (existing.status() == NotificationStatus.READ) {
-            return existing;
-        }
-        Notification next = new Notification(
-                existing.id(), existing.kind(), existing.threadId(), existing.taskId(),
-                NotificationStatus.READ,
-                existing.payloadJson(),
-                existing.createdAt(),
-                Instant.now());
-        store.save(next);
-        return next;
+        store.markRead(id, Instant.now().toEpochMilli());
+        return require(id);
     }
 
     /** Patch status → DISMISSED. The row stays around so a swipe
      *  isn't accidentally permanent; use {@link #delete} to drop it
-     *  for real. */
+     *  for real. A row holding an in-flight RESOLVING claim cannot be
+     *  dismissed (409) — it must be finished or discarded through the
+     *  publish gate so the claim isn't silently clobbered. */
     public Notification dismiss(String id)
     {
-        Notification existing = require(id);
-        Notification next = new Notification(
-                existing.id(), existing.kind(), existing.threadId(), existing.taskId(),
-                NotificationStatus.DISMISSED,
-                existing.payloadJson(),
-                existing.createdAt(),
-                existing.readAt() != null ? existing.readAt() : Instant.now());
-        store.save(next);
-        return next;
+        boolean dismissed = store.dismiss(id, Instant.now().toEpochMilli());
+        Notification current = require(id);
+        if (!dismissed && current.status() == NotificationStatus.RESOLVING) {
+            throw new ResponseStatusException(
+                    HttpStatusCode.valueOf(409),
+                    "cannot dismiss a notification while its resolution is in progress: " + id);
+        }
+        return current;
+    }
+
+    /**
+     * Atomically reserve an open notification for approve/discard.
+     * Resolution writes RESOLVING up front so retries cannot repeat a
+     * remote side effect while local finalization is pending.
+     */
+    public boolean claimResolution(String id)
+    {
+        return store.claimResolution(id, Instant.now().toEpochMilli());
+    }
+
+    /** Atomically close an active resolution claim. */
+    public boolean finishResolution(String id)
+    {
+        return store.finishResolution(id);
+    }
+
+    /** Release an active claim back to UNREAD after the approve was
+     *  rejected before touching the remote, so the row stays actionable
+     *  for a retry instead of pinning in RESOLVING. */
+    public boolean releaseResolution(String id)
+    {
+        return store.releaseResolution(id);
     }
 
     public void delete(String id)

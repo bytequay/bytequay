@@ -55,6 +55,12 @@ class ThreadTurnEntity
     @Column(name = "error_message")
     private String errorMessage;
 
+    @Column(name = "initiator_attended", nullable = false)
+    private boolean initiatorAttended = true;
+
+    @Column(name = "initiator_source", nullable = false)
+    private String initiatorSource = "user";
+
     String getId()
     {
         return id;
@@ -163,5 +169,25 @@ class ThreadTurnEntity
     void setErrorMessage(String errorMessage)
     {
         this.errorMessage = errorMessage;
+    }
+
+    boolean isInitiatorAttended()
+    {
+        return initiatorAttended;
+    }
+
+    void setInitiatorAttended(boolean initiatorAttended)
+    {
+        this.initiatorAttended = initiatorAttended;
+    }
+
+    String getInitiatorSource()
+    {
+        return initiatorSource;
+    }
+
+    void setInitiatorSource(String initiatorSource)
+    {
+        this.initiatorSource = initiatorSource;
     }
 }

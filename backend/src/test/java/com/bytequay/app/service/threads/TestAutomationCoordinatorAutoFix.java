@@ -22,6 +22,7 @@ import com.bytequay.app.domain.Thread;
 import com.bytequay.app.domain.ThreadFlow;
 import com.bytequay.app.domain.ThreadKind;
 import com.bytequay.app.domain.ThreadStatus;
+import com.bytequay.app.domain.TurnInitiator;
 import com.bytequay.app.domain.WatchedRepo;
 import com.bytequay.app.domain.WorkspaceRepo;
 import com.bytequay.app.repository.PrDetailStore;
@@ -91,13 +92,18 @@ class TestAutomationCoordinatorAutoFix
 
         ArgumentCaptor<Thread> threadArg = ArgumentCaptor.forClass(Thread.class);
         ArgumentCaptor<String> promptArg = ArgumentCaptor.forClass(String.class);
-        verify(scheduler).enqueueTurn(threadArg.capture(), promptArg.capture());
+        ArgumentCaptor<TurnInitiator> initiatorArg = ArgumentCaptor.forClass(TurnInitiator.class);
+        verify(scheduler).enqueueTurn(threadArg.capture(), promptArg.capture(), initiatorArg.capture());
         assertThat(threadArg.getValue().id()).isEqualTo("thread-1");
         assertThat(promptArg.getValue())
                 .contains("CI is failing")
                 .contains(REPO)
                 .contains("#" + PR_NUMBER)
                 .contains("backend-tests");
+        // An automated trigger marks the turn unattended so the
+        // approval gate escalates rather than waiting for a click.
+        assertThat(initiatorArg.getValue().attended()).isFalse();
+        assertThat(initiatorArg.getValue().source()).isEqualTo("auto-fix-ci-fail");
     }
 
     @Test
@@ -110,7 +116,7 @@ class TestAutomationCoordinatorAutoFix
 
         coordinator.scanForFailingCi();
 
-        verify(scheduler, never()).enqueueTurn(any(), anyString());
+        verify(scheduler, never()).enqueueTurn(any(), anyString(), any());
     }
 
     @Test
@@ -123,7 +129,7 @@ class TestAutomationCoordinatorAutoFix
 
         coordinator.scanForFailingCi();
 
-        verify(scheduler, never()).enqueueTurn(any(), anyString());
+        verify(scheduler, never()).enqueueTurn(any(), anyString(), any());
     }
 
     @Test
@@ -138,7 +144,7 @@ class TestAutomationCoordinatorAutoFix
 
         coordinator.scanForFailingCi();
 
-        verify(scheduler, never()).enqueueTurn(any(), anyString());
+        verify(scheduler, never()).enqueueTurn(any(), anyString(), any());
     }
 
     @Test
@@ -160,7 +166,7 @@ class TestAutomationCoordinatorAutoFix
         coordinator.scanForFailingCi();
 
         // Exactly one enqueueTurn across the two sweeps.
-        verify(scheduler).enqueueTurn(any(), anyString());
+        verify(scheduler).enqueueTurn(any(), anyString(), any());
     }
 
     private AutomationCoordinator newCoordinator()
@@ -187,7 +193,7 @@ class TestAutomationCoordinatorAutoFix
                         autoFixEnabled, Instant.parse("2026-05-15T12:00:00Z"))));
         when(leaseService.isHeld(eq(WORKTREE_PATH))).thenReturn(leaseHeld);
         when(threadStore.findThreadById(eq(thread.id()))).thenReturn(Optional.of(thread));
-        when(scheduler.enqueueTurn(any(), anyString())).thenReturn("turn-mock-id");
+        when(scheduler.enqueueTurn(any(), anyString(), any())).thenReturn("turn-mock-id");
     }
 
     private static StoredPrDetail detailWithFailingCi()

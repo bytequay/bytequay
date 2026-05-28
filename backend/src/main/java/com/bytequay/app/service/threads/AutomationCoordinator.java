@@ -20,6 +20,7 @@ import com.bytequay.app.domain.StoredPrDetail;
 import com.bytequay.app.domain.Task;
 import com.bytequay.app.domain.Thread;
 import com.bytequay.app.domain.ThreadStatus;
+import com.bytequay.app.domain.TurnInitiator;
 import com.bytequay.app.domain.WatchedRepo;
 import com.bytequay.app.domain.WorkspaceRepo;
 import com.bytequay.app.domain.WorktreeLease;
@@ -309,7 +310,7 @@ public class AutomationCoordinator
         }
         String prompt = buildAutoFixPrompt(task, repoFullName, failingChecks);
         try {
-            String turnId = scheduler.enqueueTurn(thread, prompt);
+            String turnId = scheduler.enqueueTurn(thread, prompt, TurnInitiator.unattended("auto-fix-ci-fail"));
             log.info("auto-fix queued: task {} on {} (worktree {}, PR #{}) → turn {}",
                     task.id(), repoFullName, task.worktreePath(),
                     task.linkedPrNumber(), turnId);

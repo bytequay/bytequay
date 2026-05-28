@@ -16,6 +16,7 @@ package com.bytequay.app.repository.sqlite;
 import com.bytequay.app.domain.ThreadResourceLane;
 import com.bytequay.app.domain.ThreadTurn;
 import com.bytequay.app.domain.ThreadTurnStatus;
+import com.bytequay.app.domain.TurnInitiator;
 import com.bytequay.app.repository.ThreadTurnStore;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Component;
@@ -56,6 +57,9 @@ class SqliteThreadTurnStore
         entity.setStartedAtMs(turn.startedAt() == null ? null : turn.startedAt().toEpochMilli());
         entity.setFinishedAtMs(turn.finishedAt() == null ? null : turn.finishedAt().toEpochMilli());
         entity.setErrorMessage(turn.errorMessage());
+        TurnInitiator initiator = turn.initiator() == null ? TurnInitiator.user() : turn.initiator();
+        entity.setInitiatorAttended(initiator.attended());
+        entity.setInitiatorSource(initiator.source());
         turns.save(entity);
     }
 
@@ -143,6 +147,7 @@ class SqliteThreadTurnStore
                 Instant.ofEpochMilli(e.getUpdatedAtMs()),
                 e.getStartedAtMs() == null ? null : Instant.ofEpochMilli(e.getStartedAtMs()),
                 e.getFinishedAtMs() == null ? null : Instant.ofEpochMilli(e.getFinishedAtMs()),
-                e.getErrorMessage());
+                e.getErrorMessage(),
+                new TurnInitiator(e.isInitiatorAttended(), e.getInitiatorSource()));
     }
 }

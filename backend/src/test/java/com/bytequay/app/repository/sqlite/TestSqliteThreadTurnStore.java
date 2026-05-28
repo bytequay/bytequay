@@ -22,6 +22,7 @@ import com.bytequay.app.domain.ThreadTurn;
 import com.bytequay.app.domain.ThreadTurnEvent;
 import com.bytequay.app.domain.ThreadTurnEventType;
 import com.bytequay.app.domain.ThreadTurnStatus;
+import com.bytequay.app.domain.TurnInitiator;
 import com.bytequay.app.repository.ThreadStore;
 import com.bytequay.app.repository.ThreadTurnEventStore;
 import com.bytequay.app.repository.ThreadTurnStore;
@@ -72,6 +73,30 @@ class TestSqliteThreadTurnStore
         assertThat(turns.listTurnsByTaskIdAndStatus(threadId, QUEUED, 10))
                 .extracting(ThreadTurn::id)
                 .containsExactly(id(threadId, "turn-c"), id(threadId, "turn-a"));
+    }
+
+    @Test
+    void turnInitiatorRoundTripsThroughTheStore()
+    {
+        String threadId = newTask();
+        Instant now = Instant.parse("2026-05-19T12:00:00Z");
+        // A user turn keeps the attended default; an automated turn
+        // persists its unattended source so the gate can read it back.
+        turns.saveTurn(turn("attended", threadId, QUEUED, now));
+        ThreadTurn unattended = new ThreadTurn(
+                id(threadId, "auto"), threadId, /* taskId */ null,
+                ThreadResourceLane.CLI, QUEUED, "input", now, now,
+                null, null, null,
+                TurnInitiator.unattended("auto-fix-ci-fail"));
+        turns.saveTurn(unattended);
+
+        ThreadTurn reloadedAttended = turns.findTurnById(id(threadId, "attended")).orElseThrow();
+        assertThat(reloadedAttended.initiator().attended()).isTrue();
+        assertThat(reloadedAttended.initiator().source()).isEqualTo("user");
+
+        ThreadTurn reloadedAuto = turns.findTurnById(id(threadId, "auto")).orElseThrow();
+        assertThat(reloadedAuto.initiator().attended()).isFalse();
+        assertThat(reloadedAuto.initiator().source()).isEqualTo("auto-fix-ci-fail");
     }
 
     @Test
@@ -154,7 +179,8 @@ class TestSqliteThreadTurnStore
                 createdAt,
                 /* startedAt */ null,
                 /* finishedAt */ null,
-                /* errorMessage */ null);
+                /* errorMessage */ null,
+                TurnInitiator.user());
     }
 
     private static ThreadTurnEvent event(String suffix, String turnId, String threadId, Instant createdAt)

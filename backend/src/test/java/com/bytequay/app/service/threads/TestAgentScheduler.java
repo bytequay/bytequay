@@ -29,6 +29,7 @@ import com.bytequay.app.domain.ThreadStatus;
 import com.bytequay.app.domain.ThreadTurn;
 import com.bytequay.app.domain.ThreadTurnEvent;
 import com.bytequay.app.domain.ThreadTurnStatus;
+import com.bytequay.app.domain.TurnInitiator;
 import com.bytequay.app.domain.WorktreeLease;
 import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.repository.ThreadStore;
@@ -686,7 +687,8 @@ class TestAgentScheduler
                 createdAt,
                 /* startedAt */ null,
                 /* finishedAt */ null,
-                /* errorMessage */ null);
+                /* errorMessage */ null,
+                TurnInitiator.user());
     }
 
     private static final class RecordingSession

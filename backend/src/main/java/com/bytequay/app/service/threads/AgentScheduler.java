@@ -20,6 +20,7 @@ import com.bytequay.app.domain.ThreadTurn;
 import com.bytequay.app.domain.ThreadTurnEvent;
 import com.bytequay.app.domain.ThreadTurnEventType;
 import com.bytequay.app.domain.ThreadTurnStatus;
+import com.bytequay.app.domain.TurnInitiator;
 import com.bytequay.app.repository.ThreadStore;
 import com.bytequay.app.repository.ThreadTurnEventStore;
 import com.bytequay.app.repository.ThreadTurnStore;
@@ -106,8 +107,15 @@ public class AgentScheduler
     @Override
     public String enqueueTurn(Thread thread, String input)
     {
+        return enqueueTurn(thread, input, TurnInitiator.user());
+    }
+
+    @Override
+    public String enqueueTurn(Thread thread, String input, TurnInitiator initiator)
+    {
         return enqueueTurnInternal(thread, input,
-                thread.activeTask() == null ? null : thread.activeTask().id());
+                thread.activeTask() == null ? null : thread.activeTask().id(),
+                initiator);
     }
 
     /**
@@ -119,13 +127,14 @@ public class AgentScheduler
     @Override
     public String enqueueTrunkTurn(Thread thread, String input)
     {
-        return enqueueTurnInternal(thread, input, /* taskId */ null);
+        return enqueueTurnInternal(thread, input, /* taskId */ null, TurnInitiator.user());
     }
 
-    private String enqueueTurnInternal(Thread thread, String input, String taskId)
+    private String enqueueTurnInternal(Thread thread, String input, String taskId, TurnInitiator initiator)
     {
         requireNonNull(thread, "thread is null");
         requireNonNull(input, "input is null");
+        requireNonNull(initiator, "initiator is null");
         if (input.isBlank()) {
             throw new IllegalArgumentException("input is blank");
         }
@@ -141,7 +150,8 @@ public class AgentScheduler
                 now,
                 /* startedAt */ null,
                 /* finishedAt */ null,
-                /* errorMessage */ null);
+                /* errorMessage */ null,
+                initiator);
         turns.saveTurn(turn);
         appendEvent(turn, TURN_QUEUED, null);
         enqueuePersistedTurn(turn);
@@ -444,7 +454,8 @@ public class AgentScheduler
                 now,
                 startedAt,
                 finishedAt,
-                errorMessage);
+                errorMessage,
+                turn.initiator());
     }
 
     private static Throwable unwrap(Throwable failure)

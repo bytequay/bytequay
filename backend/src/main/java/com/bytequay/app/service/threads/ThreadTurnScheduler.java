@@ -14,14 +14,20 @@
 package com.bytequay.app.service.threads;
 
 import com.bytequay.app.domain.Thread;
+import com.bytequay.app.domain.TurnInitiator;
 
 /**
  * Boundary ThreadService uses to queue agent work.
  */
 public interface ThreadTurnScheduler
 {
-    /** Queue a user turn and return its durable turn id. */
+    /** Queue a user (attended) turn and return its durable turn id. */
     String enqueueTurn(Thread thread, String input);
+
+    /** Queue a turn stamped with an explicit initiator — automated
+     *  triggers use this to mark the turn unattended so the approval
+     *  gate escalates rather than waits for a human. */
+    String enqueueTurn(Thread thread, String input, TurnInitiator initiator);
 
     /** Queue a trunk-scope turn — forces {@code task_id = null} on the
      *  persisted row so the trunk planning agent picks it up regardless

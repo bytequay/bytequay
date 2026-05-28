@@ -32,6 +32,7 @@ import com.bytequay.app.domain.ThreadTurn;
 import com.bytequay.app.domain.ThreadTurnEvent;
 import com.bytequay.app.domain.ThreadTurnEventType;
 import com.bytequay.app.domain.ThreadTurnStatus;
+import com.bytequay.app.domain.TurnInitiator;
 import com.bytequay.app.domain.WorktreeLease;
 import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.repository.ThreadGroupStore;
@@ -833,6 +834,12 @@ class TestThreadServiceScheduler
         }
 
         @Override
+        public String enqueueTurn(Thread thread, String input, TurnInitiator initiator)
+        {
+            return enqueueTurn(thread, input);
+        }
+
+        @Override
         public String enqueueTrunkTurn(Thread thread, String input)
         {
             // The recording surface doesn't distinguish trunk vs task —
@@ -1471,7 +1478,8 @@ class TestThreadServiceScheduler
                 createdAt,
                 /* startedAt */ null,
                 /* finishedAt */ null,
-                /* errorMessage */ null);
+                /* errorMessage */ null,
+                TurnInitiator.user());
     }
 
     private static ThreadTurnEvent turnEvent(String id, String turnId, String threadId, Instant createdAt)

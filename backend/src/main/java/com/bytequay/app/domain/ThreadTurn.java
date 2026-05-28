@@ -27,6 +27,10 @@ import java.time.Instant;
  * worktree). The agent scheduler routes the turn to the matching
  * Task's session, or to the Thread trunk session if {@code taskId}
  * is {@code null}.
+ *
+ * <p>{@code initiator} records who set the turn in motion — a human
+ * (attended) or an automated trigger (unattended). The tool-approval
+ * gate reads it to decide whether a permission prompt makes sense.
  */
 public record ThreadTurn(
         String id,
@@ -39,6 +43,7 @@ public record ThreadTurn(
         Instant updatedAt,
         Instant startedAt,
         Instant finishedAt,
-        String errorMessage)
+        String errorMessage,
+        TurnInitiator initiator)
 {
 }

@@ -18,14 +18,18 @@ import com.bytequay.app.domain.PullRequestRef;
 import com.bytequay.app.domain.Task;
 import com.bytequay.app.domain.TaskStatus;
 import com.bytequay.app.domain.ThreadCheckpoint;
+import com.bytequay.app.domain.ThreadTurn;
+import com.bytequay.app.domain.ThreadTurnStatus;
 import com.bytequay.app.domain.WatchedRepo;
 import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.repository.ThreadCheckpointStore;
+import com.bytequay.app.repository.ThreadTurnStore;
 import com.bytequay.app.repository.WatchedRepoStore;
 import com.bytequay.app.service.local.GitRunner;
 import com.bytequay.app.service.local.ShellRunner;
 import com.bytequay.app.service.local.TestRunnerDetector;
 import com.bytequay.app.service.threads.McpPermissionGate;
+import com.bytequay.app.service.threads.NotificationService;
 import com.bytequay.app.service.threads.ParkedProposalService;
 import com.bytequay.app.service.threads.ThreadService;
 import com.bytequay.app.service.tools.AgentRole;
@@ -252,6 +256,8 @@ public class McpController
     private final SkillTools skillTools;
     private final ShellRunner shellRunner;
     private final TestRunnerDetector testRunnerDetector;
+    private final ThreadTurnStore turnStore;
+    private final NotificationService notifications;
 
     public McpController(
             ThreadService threads,
@@ -266,7 +272,9 @@ public class McpController
             PermissionResolver permissions,
             SkillTools skillTools,
             ShellRunner shellRunner,
-            TestRunnerDetector testRunnerDetector)
+            TestRunnerDetector testRunnerDetector,
+            ThreadTurnStore turnStore,
+            NotificationService notifications)
     {
         this.threads = requireNonNull(threads, "threads is null");
         this.taskStore = requireNonNull(taskStore, "taskStore is null");
@@ -281,6 +289,8 @@ public class McpController
         this.skillTools = requireNonNull(skillTools, "skillTools is null");
         this.shellRunner = requireNonNull(shellRunner, "shellRunner is null");
         this.testRunnerDetector = requireNonNull(testRunnerDetector, "testRunnerDetector is null");
+        this.turnStore = requireNonNull(turnStore, "turnStore is null");
+        this.notifications = requireNonNull(notifications, "notifications is null");
     }
 
     @PostMapping
@@ -1118,6 +1128,35 @@ public class McpController
             return;
         }
 
+        // Autonomy envelope. An unattended turn (e.g. the CI auto-fix
+        // coordinator) has no human to answer a prompt. Past the
+        // standing budget checked above, decide by capability: if the
+        // built-in tool maps to a capability the thread's grants allow,
+        // it is in-bounds and runs under that standing policy without a
+        // prompt; otherwise it is out-of-bounds, so we escalate to a
+        // needs-attention notification and deny rather than register a
+        // prompt that would only time out. Attended turns fall through
+        // to the unchanged prompt flow below.
+        if (isUnattended(threadId)) {
+            SecurityType capability = capabilityForBuiltinTool(toolName);
+            if (capability != null && grants.contains(capability)) {
+                try {
+                    threads.notifyPermissionAutoAllowed(threadId, callId, toolName, -1);
+                }
+                catch (RuntimeException e) {
+                    log.warn("Failed to record auto-approval notice for thread {}: {}", threadId, e.getMessage());
+                }
+                deferred.setResult(toolResponse(id, allow(toolInput)));
+                return;
+            }
+            escalateUnattendedGate(threadId, toolName, toolInput);
+            deferred.setResult(toolResponse(id, deny(
+                    "This turn is running unattended and '" + toolName + "' is outside its "
+                            + "autonomy envelope. The request has been escalated to the user. "
+                            + "STOP NOW: end the turn immediately, do not retry, do not apologize.")));
+            return;
+        }
+
         // Pass the tool name so a later `Allow next N` grant on the
         // same tool can drain still-pending callIds in one click
         // instead of leaving the user with a backlog of prompts.
@@ -1178,6 +1217,59 @@ public class McpController
         }
         String s = input.toString();
         return s.length() > 240 ? s.substring(0, 237) + "…" : s;
+    }
+
+    /** True when the thread's in-flight turn was started by an
+     *  automated trigger rather than a person. Absent a running turn we
+     *  treat the call as attended — the safe default keeps the existing
+     *  prompt flow rather than auto-allowing or escalating on a guess. */
+    private boolean isUnattended(String threadId)
+    {
+        return runningTurn(threadId)
+                .map(ThreadTurn::initiator)
+                .map(initiator -> !initiator.attended())
+                .orElse(false);
+    }
+
+    private Optional<ThreadTurn> runningTurn(String threadId)
+    {
+        return turnStore.listTurnsByTaskIdAndStatus(threadId, ThreadTurnStatus.RUNNING, 1)
+                .stream()
+                .findFirst();
+    }
+
+    /** Map a Claude built-in tool to the capability it exercises, so an
+     *  unattended turn's grants can decide whether it is in-bounds.
+     *  Returns {@code null} for tools with no capability mapping (web
+     *  access, sub-agents, …) — those are out-of-bounds for an
+     *  unattended turn and escalate. */
+    private static SecurityType capabilityForBuiltinTool(String toolName)
+    {
+        return switch (toolName) {
+            case "Edit", "Write", "MultiEdit", "NotebookEdit" -> SecurityType.CODE_WRITE;
+            case "Read", "Glob", "Grep", "LS" -> SecurityType.CODE_READ;
+            case "Bash", "BashOutput", "KillShell" -> SecurityType.CODE_EXEC;
+            default -> null;
+        };
+    }
+
+    /** Escalate an out-of-bounds tool request on an unattended turn to a
+     *  needs-attention notification so the human can take over. Best
+     *  effort — a failure to persist the notice must not turn into a
+     *  protocol error on the agent's deny response. */
+    private void escalateUnattendedGate(String threadId, String toolName, JsonNode toolInput)
+    {
+        try {
+            String taskId = runningTurn(threadId).map(ThreadTurn::taskId).orElse(null);
+            Map<String, Object> payload = new LinkedHashMap<>();
+            payload.put("reason", "unattended turn requested an out-of-bounds tool");
+            payload.put("tool", toolName);
+            payload.put("summary", summarize(toolName, toolInput));
+            notifications.notifyNeedsAttention(threadId, taskId, mapper.writeValueAsString(payload));
+        }
+        catch (RuntimeException | JsonProcessingException e) {
+            log.warn("Failed to escalate unattended gate for thread {}: {}", threadId, e.getMessage());
+        }
     }
 
     /**

@@ -1678,6 +1678,13 @@ function PullRequestPreview({
         }
       }
       if (matched.length > 0) {
+        // GitHub shows a review's inline comments oldest-first (≈ diff
+        // order, as the reviewer worked top-to-bottom). detail.reviewThreads
+        // can arrive newest-first, and these matched threads bypass the
+        // global raw.sort below — so sort them here by the root comment's
+        // GitHub id, which increases monotonically with creation, to
+        // restore GitHub's order instead of rendering them reversed.
+        matched.sort((a, b) => a.rootGithubId - b.rootGithubId);
         (r as Extract<RawTimelineEntry, { kind: 'activity' }>).attachedThreads = matched;
       }
     }

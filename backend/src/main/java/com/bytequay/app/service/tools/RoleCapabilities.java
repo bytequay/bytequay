@@ -13,44 +13,23 @@
  */
 package com.bytequay.app.service.tools;
 
-import com.bytequay.app.repository.TaskStore;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
-import org.springframework.stereotype.Component;
 
 import java.util.Map;
 import java.util.Set;
 
-import static java.util.Objects.requireNonNull;
-
 /**
- * First-cut permissions: derive the caller's role from the thread's
- * active task and look up the role's grants in a static map. The real
- * permissions cascade replaces this in a later phase.
- *
- * <p>Role derivation mirrors the ThreadRegistry split: trunk and
- * task are thread-shape distinctions, not momentary states.
- * <ul>
- *   <li>thread has any task ever (even if currently parked at
- *       AWAITING_REVIEW or NEEDS_ATTENTION) → {@link AgentRole#TASK}.
- *       The handler still surfaces its own "no active task" /
- *       "no worktree" message when the runtime preconditions aren't
- *       met — the role check just decides whether the agent is even
- *       allowed to discover the tool.</li>
- *   <li>otherwise (0-task thread) → {@link AgentRole#TRUNK}.</li>
- *   <li>reviewer / lead roles are not yet wired through the CLI lane;
- *       they land with the review-panel work.</li>
- * </ul>
- *
- * <p>The grants table is intentionally narrow — every capability axis
- * mentioned anywhere in the catalog has to appear here, and a role
- * absent from the table gets the empty set (deny-by-default).
+ * The inherent capability set each agent role starts with. This is
+ * the <em>base</em> the permission cascade tightens: the resolver
+ * begins with {@code forRole(role)} and removes capabilities denied
+ * at any scope (global → workspace → thread → task). A role can never
+ * gain a capability that isn't in its base — the cascade only
+ * subtracts.
  */
-@Component
-public class RoleBasedPermissionResolver
-        implements PermissionResolver
+public final class RoleCapabilities
 {
-    private static final Map<AgentRole, Set<SecurityType>> GRANTS = ImmutableMap.of(
+    private static final Map<AgentRole, Set<SecurityType>> BASE = ImmutableMap.of(
             // Trunk plans, breaks work into tasks, recalls prior
             // threads, and reads. It never edits code, runs code,
             // pushes branches, or publishes to the forge.
@@ -67,8 +46,7 @@ public class RoleBasedPermissionResolver
             // park themselves at AWAITING_REVIEW (request_review)
             // which exercises TASK_MANAGE. They never create new
             // tasks — that's gated by the tool's roles=TRUNK filter,
-            // not by withholding the capability. Memory writes are
-            // allowed so a task can leave a brain entry.
+            // not by withholding the capability.
             AgentRole.TASK, ImmutableSet.of(
                     SecurityType.CODE_READ,
                     SecurityType.CODE_WRITE,
@@ -95,27 +73,12 @@ public class RoleBasedPermissionResolver
                     SecurityType.TOOL_DISCOVER,
                     SecurityType.MCP));
 
-    private final TaskStore taskStore;
+    private RoleCapabilities() {}
 
-    public RoleBasedPermissionResolver(TaskStore taskStore)
+    /** The base capability set for {@code role}; empty for an
+     *  unrecognised role (deny-by-default). */
+    public static Set<SecurityType> forRole(AgentRole role)
     {
-        this.taskStore = requireNonNull(taskStore, "taskStore is null");
-    }
-
-    @Override
-    public AgentRole roleFor(String threadId)
-    {
-        if (threadId == null || threadId.isBlank()) {
-            return AgentRole.TRUNK;
-        }
-        return taskStore.listTasksByThread(threadId).isEmpty()
-                ? AgentRole.TRUNK
-                : AgentRole.TASK;
-    }
-
-    @Override
-    public Set<SecurityType> grants(String threadId)
-    {
-        return GRANTS.getOrDefault(roleFor(threadId), ImmutableSet.of());
+        return BASE.getOrDefault(role, ImmutableSet.of());
     }
 }

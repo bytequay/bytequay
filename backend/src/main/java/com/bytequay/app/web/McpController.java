@@ -14,13 +14,11 @@
 package com.bytequay.app.web;
 
 import com.bytequay.app.domain.PermissionDecision;
-import com.bytequay.app.domain.PullRequest;
 import com.bytequay.app.domain.PullRequestRef;
 import com.bytequay.app.domain.Task;
 import com.bytequay.app.domain.TaskStatus;
 import com.bytequay.app.domain.ThreadCheckpoint;
 import com.bytequay.app.domain.WatchedRepo;
-import com.bytequay.app.repository.PullRequestStore;
 import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.repository.ThreadCheckpointStore;
 import com.bytequay.app.repository.WatchedRepoStore;
@@ -38,10 +36,11 @@ import com.bytequay.app.service.tools.PermissionResolver;
 import com.bytequay.app.service.tools.RuntimeToolInvocation;
 import com.bytequay.app.service.tools.SecurityType;
 import com.bytequay.app.service.tools.SkillTools;
+import com.bytequay.app.service.tools.ToolCall;
 import com.bytequay.app.service.tools.ToolContext;
+import com.bytequay.app.service.tools.ToolOutcome;
 import com.bytequay.app.service.tools.ToolParam;
 import com.bytequay.app.service.tools.ToolSpec;
-import com.bytequay.app.service.workspaces.WorkspaceService;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -135,15 +134,6 @@ public class McpController
 
     /** Skills-runtime tool name — loads the body of one named skill. */
     private static final String LOAD_SKILL_TOOL = "load_skill";
-
-    /** Read tool — returns one task row by id. */
-    private static final String READ_TASK_TOOL = "read_task";
-
-    /** Read tool — returns one PR's local-cache row by repo + number. */
-    private static final String READ_PR_TOOL = "read_pr";
-
-    /** Read tool — returns the active workspace's memory_md. */
-    private static final String READ_WORKSPACE_MEMORY_TOOL = "read_workspace_memory";
 
     /** Orchestration tool — trunk-only; materialises the first task
      *  on a 0-task thread via the existing ThreadService entry point. */
@@ -260,8 +250,6 @@ public class McpController
     private final AgentToolRegistry registry;
     private final PermissionResolver permissions;
     private final SkillTools skillTools;
-    private final PullRequestStore prStore;
-    private final WorkspaceService workspaces;
     private final ShellRunner shellRunner;
     private final TestRunnerDetector testRunnerDetector;
 
@@ -277,8 +265,6 @@ public class McpController
             AgentToolRegistry registry,
             PermissionResolver permissions,
             SkillTools skillTools,
-            PullRequestStore prStore,
-            WorkspaceService workspaces,
             ShellRunner shellRunner,
             TestRunnerDetector testRunnerDetector)
     {
@@ -293,8 +279,6 @@ public class McpController
         this.registry = requireNonNull(registry, "registry is null");
         this.permissions = requireNonNull(permissions, "permissions is null");
         this.skillTools = requireNonNull(skillTools, "skillTools is null");
-        this.prStore = requireNonNull(prStore, "prStore is null");
-        this.workspaces = requireNonNull(workspaces, "workspaces is null");
         this.shellRunner = requireNonNull(shellRunner, "shellRunner is null");
         this.testRunnerDetector = requireNonNull(testRunnerDetector, "testRunnerDetector is null");
     }
@@ -543,69 +527,9 @@ public class McpController
         // Dispatched via handleToolCall.
     }
 
-    /** Args record for {@code read_task}. */
-    public record ReadTaskArgs(
-            @ToolParam(description = "Task id to look up. Returns the task row as JSON or "
-                    + "an error envelope when missing.",
-                    required = true, wireName = "task_id") String taskId) {}
-
-    @AgentTool(
-            name = READ_TASK_TOOL,
-            description = "Read one task row by id. Returns id, threadId, seq, status, "
-                    + "branchName, worktreePath, baseBranch, workingDir, prNumber, "
-                    + "linkedPrNumber, linkedIssueNumber, taskType, createdAt, endedAt, "
-                    + "errorMessage, name. Pure read — no GitHub call.",
-            security = SecurityType.TASK_READ,
-            gating = Gating.AUTO,
-            roles = {AgentRole.TRUNK, AgentRole.TASK, AgentRole.REVIEWER})
-    @SuppressWarnings("unused")
-    public void declareReadTask(ReadTaskArgs args)
-    {
-        // Dispatched via handleToolCall.
-    }
-
-    /** Args record for {@code read_pr}. */
-    public record ReadPrArgs(
-            @ToolParam(description = "owner/name string of the repo.",
-                    required = true) String repo,
-            @ToolParam(description = "PR number.",
-                    required = true) Integer number) {}
-
-    @AgentTool(
-            name = READ_PR_TOOL,
-            description = "Read one pull request's row from the local cache. "
-                    + "Returns id, repo, number, title, author, state, mergeable, "
-                    + "headRef, baseRef, additions, deletions, commentCount, "
-                    + "attentionReason, snoozedUntil, lastSyncedAt. Pure read against "
-                    + "the local DB — no GitHub API call. Run the regular sync if "
-                    + "you want a fresher snapshot.",
-            security = SecurityType.VCS_READ,
-            gating = Gating.AUTO,
-            roles = {AgentRole.TRUNK, AgentRole.TASK, AgentRole.REVIEWER})
-    @SuppressWarnings("unused")
-    public void declareReadPr(ReadPrArgs args)
-    {
-        // Dispatched via handleToolCall.
-    }
-
-    /** Args record for {@code read_workspace_memory} — no args; the
-     *  workspace is derived from the thread's owning row. */
-    public record ReadWorkspaceMemoryArgs() {}
-
-    @AgentTool(
-            name = READ_WORKSPACE_MEMORY_TOOL,
-            description = "Read the active workspace's memory_md (the distilled brain — "
-                    + "architecture decisions, conventions, blockers). Returns the raw "
-                    + "markdown body so the agent can quote it or use it as context "
-                    + "for the current turn.",
-            security = SecurityType.MEMORY_READ,
-            gating = Gating.AUTO,
-            roles = {AgentRole.TRUNK, AgentRole.TASK, AgentRole.REVIEWER})
-    @SuppressWarnings("unused")
-    public void declareReadWorkspaceMemory(ReadWorkspaceMemoryArgs args)
-    {
-        // Dispatched via handleToolCall.
-    }
+    // read_task / read_pr / read_workspace_memory now declare + handle
+    // themselves on AgentToolHandlers; they dispatch through
+    // registry.invoke in handleToolCall rather than a stub + branch here.
 
     /** Args record for {@code create_task}. */
     public record CreateTaskArgs(
@@ -1016,6 +940,18 @@ public class McpController
                             + role + ")")));
             return;
         }
+        // Tools migrated onto the registry-dispatch path bind their
+        // args and run through the shared handler, returning a lane-
+        // neutral outcome we adapt to the MCP wire. Tools still on the
+        // hand-coded branches below return an empty Optional and fall
+        // through. Permission / role gating already happened above — the
+        // registry trusts the call is authorised.
+        Optional<ToolOutcome> outcome = registry.invoke(
+                name, new ToolCall(threadId, params.path("arguments"), role));
+        if (outcome.isPresent()) {
+            deferred.setResult(adaptOutcome(id, outcome.get()));
+            return;
+        }
         if (REQUEST_REVIEW_TOOL.equals(name)) {
             handleRequestReview(threadId, id, params.path("arguments"), deferred);
             return;
@@ -1042,18 +978,6 @@ public class McpController
         }
         if (LOAD_SKILL_TOOL.equals(name)) {
             handleSkillToolsDispatch(threadId, id, LOAD_SKILL_TOOL, params.path("arguments"), deferred);
-            return;
-        }
-        if (READ_TASK_TOOL.equals(name)) {
-            handleReadTask(id, params.path("arguments"), deferred);
-            return;
-        }
-        if (READ_PR_TOOL.equals(name)) {
-            handleReadPr(id, params.path("arguments"), deferred);
-            return;
-        }
-        if (READ_WORKSPACE_MEMORY_TOOL.equals(name)) {
-            handleReadWorkspaceMemory(threadId, id, deferred);
             return;
         }
         if (CREATE_TASK_TOOL.equals(name)) {
@@ -1543,126 +1467,6 @@ public class McpController
             return;
         }
         deferred.setResult(plainText(id, out.result()));
-    }
-
-    /**
-     * Handles {@code read_task}: looks up a task row by id and returns
-     * the projection as plain-text JSON. Empty / unknown id surfaces
-     * as a deny envelope so the model treats it as a tool failure
-     * rather than a permission error.
-     */
-    private void handleReadTask(JsonNode id, JsonNode args, DeferredResult<JsonNode> deferred)
-    {
-        String taskId = args.path("task_id").asText("");
-        if (taskId.isBlank()) {
-            deferred.setResult(toolResponse(id, deny("task_id is required")));
-            return;
-        }
-        Optional<Task> match = taskStore.findTaskById(taskId);
-        if (match.isEmpty()) {
-            deferred.setResult(toolResponse(id, deny("task not found: " + taskId)));
-            return;
-        }
-        Task task = match.get();
-        ObjectNode out = mapper.createObjectNode();
-        out.put("id", task.id());
-        out.put("threadId", task.threadId());
-        out.put("seq", task.seq());
-        out.put("status", task.status() == null ? null : task.status().name());
-        out.put("branchName", task.branchName());
-        out.put("worktreePath", task.worktreePath());
-        out.put("baseBranch", task.baseBranch());
-        out.put("workingDir", task.workingDir());
-        out.put("prNumber", task.prNumber());
-        out.put("linkedPrNumber", task.linkedPrNumber());
-        out.put("linkedIssueNumber", task.linkedIssueNumber());
-        out.put("taskType", task.taskType());
-        out.put("createdAt", task.createdAt() == null ? null : task.createdAt().toString());
-        out.put("endedAt", task.endedAt() == null ? null : task.endedAt().toString());
-        out.put("errorMessage", task.errorMessage());
-        out.put("name", task.name());
-        deferred.setResult(plainText(id, toJsonString(out)));
-    }
-
-    /**
-     * Handles {@code read_pr}: resolves the (repo, number) pair to a
-     * local pull_requests row and emits its projection. Pure local
-     * read — no PAT, no GitHub call.
-     */
-    private void handleReadPr(JsonNode id, JsonNode args, DeferredResult<JsonNode> deferred)
-    {
-        String repo = args.path("repo").asText("");
-        int number = args.path("number").asInt(0);
-        if (repo.isBlank() || number <= 0) {
-            deferred.setResult(toolResponse(id, deny("repo (owner/name) and number are required")));
-            return;
-        }
-        Optional<Long> prId = prStore.findIdByRepoAndNumber(repo, number);
-        if (prId.isEmpty()) {
-            deferred.setResult(toolResponse(id, deny(
-                    "PR not in local cache: " + repo + "#" + number
-                            + " — run sync or add the repo to watched repos.")));
-            return;
-        }
-        Optional<PullRequest> match = prStore.findById(prId.get());
-        if (match.isEmpty()) {
-            deferred.setResult(toolResponse(id, deny(
-                    "PR row gone after id lookup: " + repo + "#" + number)));
-            return;
-        }
-        PullRequest pr = match.get();
-        ObjectNode out = mapper.createObjectNode();
-        out.put("id", pr.id());
-        out.put("repo", pr.repo());
-        out.put("number", pr.number());
-        out.put("title", pr.title());
-        out.put("author", pr.author());
-        out.put("state", pr.state());
-        out.put("draft", pr.draft());
-        out.put("mergeable", pr.mergeable());
-        out.put("mergeableState", pr.mergeableState());
-        out.put("headRef", pr.headRef());
-        out.put("additions", pr.additions());
-        out.put("deletions", pr.deletions());
-        out.put("commentCount", pr.commentCount());
-        out.put("attentionReason", pr.attentionReason() == null ? null : pr.attentionReason().name());
-        out.put("createdAt", pr.createdAt() == null ? null : pr.createdAt().toString());
-        out.put("updatedAt", pr.updatedAt() == null ? null : pr.updatedAt().toString());
-        out.put("closedAt", pr.closedAt() == null ? null : pr.closedAt().toString());
-        out.put("mergedAt", pr.mergedAt() == null ? null : pr.mergedAt().toString());
-        out.put("snoozedUntil", pr.snoozedUntil() == null ? null : pr.snoozedUntil().toString());
-        deferred.setResult(plainText(id, toJsonString(out)));
-    }
-
-    /**
-     * Handles {@code read_workspace_memory}: derives the workspace id
-     * from the thread row and returns its memory_md body. Returns an
-     * empty string when the workspace has no brain yet (legitimate
-     * pre-populated state).
-     */
-    private void handleReadWorkspaceMemory(String threadId, JsonNode id, DeferredResult<JsonNode> deferred)
-    {
-        Optional<com.bytequay.app.domain.Thread> threadOpt = threads.find(threadId);
-        if (threadOpt.isEmpty()) {
-            deferred.setResult(toolResponse(id, deny("thread not found: " + threadId)));
-            return;
-        }
-        String workspaceId = threadOpt.get().workspaceId();
-        if (workspaceId == null || workspaceId.isBlank()) {
-            deferred.setResult(toolResponse(id, deny("thread has no workspace bound")));
-            return;
-        }
-        try {
-            String body = workspaces.getMemory(workspaceId);
-            ObjectNode out = mapper.createObjectNode();
-            out.put("workspaceId", workspaceId);
-            out.put("memoryMd", body == null ? "" : body);
-            deferred.setResult(plainText(id, toJsonString(out)));
-        }
-        catch (RuntimeException e) {
-            deferred.setResult(toolResponse(id, deny(
-                    "could not read memory for workspace " + workspaceId + ": " + e.getMessage())));
-        }
     }
 
     /**
@@ -2641,6 +2445,19 @@ public class McpController
             }
         }
         return Optional.empty();
+    }
+
+    /** Adapt a registry handler's lane-neutral {@link ToolOutcome} to
+     *  the MCP wire. A successful Completed echoes its text verbatim;
+     *  an error Completed is wrapped as a deny envelope so the model
+     *  reads it as a recoverable tool failure (matching the old hand-
+     *  coded read handlers). */
+    private JsonNode adaptOutcome(JsonNode id, ToolOutcome outcome)
+    {
+        if (outcome instanceof ToolOutcome.Completed(String text, boolean isError)) {
+            return isError ? toolResponse(id, deny(text)) : plainText(id, text);
+        }
+        throw new IllegalStateException("unhandled tool outcome: " + outcome);
     }
 
     /** Plain-text MCP tool response — no allow/deny envelope. */

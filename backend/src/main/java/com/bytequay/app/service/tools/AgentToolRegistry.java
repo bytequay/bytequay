@@ -13,7 +13,10 @@
  */
 package com.bytequay.app.service.tools;
 
+import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import org.slf4j.Logger;
@@ -25,6 +28,7 @@ import org.springframework.context.event.ContextRefreshedEvent;
 import org.springframework.context.event.EventListener;
 import org.springframework.stereotype.Component;
 
+import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Method;
 import java.lang.reflect.RecordComponent;
 import java.util.ArrayList;
@@ -70,13 +74,15 @@ public class AgentToolRegistry
     private static final Logger log = LoggerFactory.getLogger(AgentToolRegistry.class);
 
     private final ApplicationContext context;
+    private final ObjectMapper mapper;
 
     private List<ToolSpec> specs = List.of();
 
     @Autowired
-    public AgentToolRegistry(ApplicationContext context)
+    public AgentToolRegistry(ApplicationContext context, ObjectMapper mapper)
     {
         this.context = requireNonNull(context, "context is null");
+        this.mapper = requireNonNull(mapper, "mapper is null");
     }
 
     /** Scan beans only once the whole context has refreshed.
@@ -155,6 +161,96 @@ public class AgentToolRegistry
         return specs.stream().filter(s -> s.name().equals(name)).findFirst();
     }
 
+    /**
+     * Dispatch a tool call to its handler. The handler's typed args
+     * record is bound from {@code call.arguments()} (wire names from
+     * {@link ToolParam#wireName()} are translated back to record
+     * component names first), then the handler runs and returns a
+     * {@link ToolOutcome} the calling lane adapts to its transport.
+     *
+     * <p>Returns {@link Optional#empty()} when the tool isn't on the
+     * registry-dispatch path yet — either it isn't registered at all,
+     * or its {@link AgentTool} method is still a declaration-only stub
+     * (return type {@code void}) whose behaviour lives in a lane's
+     * hand-coded dispatch. The caller falls back to that path on an
+     * empty result, so tools migrate one at a time without a flag day.
+     *
+     * <p>Permission and role gating is <em>not</em> done here — the
+     * lane enforces it before calling, because the gate (approval
+     * prompt, budget, park-guard) is lane-specific. This method
+     * assumes the call is already authorised.
+     */
+    public Optional<ToolOutcome> invoke(String toolName, ToolCall call)
+    {
+        requireNonNull(call, "call is null");
+        ToolSpec spec = byName(toolName).orElse(null);
+        if (spec == null || spec.handlerMethod().getReturnType() != ToolOutcome.class) {
+            return Optional.empty();
+        }
+        Object boundArgs = bindArgs(spec, call.arguments());
+        Method method = spec.handlerMethod();
+        if (!method.canAccess(spec.handlerBean())) {
+            method.setAccessible(true);
+        }
+        try {
+            return Optional.of((ToolOutcome) method.invoke(spec.handlerBean(), boundArgs, call));
+        }
+        catch (IllegalAccessException e) {
+            throw new IllegalStateException("cannot invoke tool handler " + toolName, e);
+        }
+        catch (InvocationTargetException e) {
+            Throwable cause = e.getCause();
+            if (cause instanceof RuntimeException re) {
+                throw re;
+            }
+            throw new IllegalStateException("tool handler " + toolName + " failed", cause);
+        }
+    }
+
+    /** Bind the call's raw JSON arguments into the handler's args
+     *  record. Void args types bind to {@code null}; otherwise the
+     *  wire keys are remapped onto record component names so the
+     *  {@link ToolParam#wireName()} convention round-trips. */
+    private Object bindArgs(ToolSpec spec, JsonNode rawArgs)
+    {
+        Class<?> argsType = spec.argsType();
+        if (argsType == Void.class || argsType == void.class) {
+            return null;
+        }
+        JsonNode node = (rawArgs == null || rawArgs.isMissingNode() || rawArgs.isNull())
+                ? mapper.createObjectNode()
+                : remapWireNames(argsType, rawArgs);
+        try {
+            return mapper.treeToValue(node, argsType);
+        }
+        catch (JsonProcessingException e) {
+            throw new IllegalArgumentException(
+                    "could not bind arguments for tool " + spec.name() + ": " + e.getMessage(), e);
+        }
+    }
+
+    /** Project the raw arguments onto the record's component-name keys,
+     *  pulling each value from its wire name first (then the component
+     *  name as a fallback). Extra keys the record doesn't declare are
+     *  dropped, so binding never trips on unknown properties. */
+    private ObjectNode remapWireNames(Class<?> argsType, JsonNode rawArgs)
+    {
+        ObjectNode remapped = mapper.createObjectNode();
+        if (!argsType.isRecord() || !rawArgs.isObject()) {
+            return remapped;
+        }
+        for (RecordComponent component : argsType.getRecordComponents()) {
+            String wire = wireNameOf(argsType, component);
+            JsonNode value = rawArgs.has(wire)
+                    ? rawArgs.get(wire)
+                    : rawArgs.get(component.getName());
+            if (value != null) {
+                remapped.set(component.getName(), value);
+            }
+        }
+        return remapped;
+    }
+
     private static ToolSpec buildSpec(Object bean, Method method, AgentTool annotation)
     {
         Class<?>[] paramTypes = method.getParameterTypes();
@@ -198,9 +294,7 @@ public class AgentToolRegistry
         List<String> required = new ArrayList<>();
         for (RecordComponent component : argsType.getRecordComponents()) {
             ToolParam paramAnnotation = readToolParam(argsType, component);
-            String wireName = paramAnnotation == null || paramAnnotation.wireName().isEmpty()
-                    ? component.getName()
-                    : paramAnnotation.wireName();
+            String wireName = wireNameOf(argsType, component);
             String type = jsonTypeFor(component.getType());
             String description = paramAnnotation == null ? "" : paramAnnotation.description();
             StringBuilder prop = new StringBuilder();
@@ -238,6 +332,18 @@ public class AgentToolRegistry
         }
         out.append("]}");
         return out.toString();
+    }
+
+    /** The on-the-wire property name for a record component — the
+     *  {@link ToolParam#wireName()} when set, otherwise the component
+     *  name. Shared by schema generation and argument binding so the
+     *  two never drift. */
+    private static String wireNameOf(Class<?> argsType, RecordComponent component)
+    {
+        ToolParam param = readToolParam(argsType, component);
+        return param == null || param.wireName().isEmpty()
+                ? component.getName()
+                : param.wireName();
     }
 
     /** Reads the {@link ToolParam} annotation off a record component.

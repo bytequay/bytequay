@@ -115,12 +115,18 @@ function WorkspaceInsightsPage() {
             <div className="workspace-card__title">Tasks shipped</div>
             <div style={chartMetaStyle}>
               this {windowKey === '24h' ? 'day' : windowKey === '7d' ? 'week' : 'month'}
-              {' · '}placeholder
             </div>
           </div>
-          <ShippedByRepo windowKey={windowKey} />
-          <div style={{ ...chartMetaStyle, marginTop: 10 }}>
-            Avg time to PR <span style={{ float: 'right' }}>14m / task</span>
+          <div style={shippedTotalStyle}>
+            {loading ? '—' : (insights?.tasksShippedInWindow ?? 0)}
+          </div>
+          <div style={chartMetaStyle}>
+            tasks with a linked PR · {windowKey} window
+          </div>
+          <div style={{ ...chartMetaStyle, marginTop: 14, paddingTop: 10, borderTop: '1px solid rgba(124, 58, 237, 0.08)' }}>
+            Per-repo breakdown is a follow-up — Task doesn't carry an
+            owner/repo column today, so we can't attribute shipped
+            tasks back to their repo cleanly.
           </div>
         </section>
       </div>
@@ -176,45 +182,6 @@ function SpendChart({ series }: { series: WorkspaceInsightsDto['spendByDay'] }) 
     </div>
   );
 }
-
-function ShippedByRepo({ windowKey }: { windowKey: InsightsWindow }) {
-  const rows = windowKey === '30d' ? PLACEHOLDER_SHIPPED_30D : PLACEHOLDER_SHIPPED_7D;
-  const max = Math.max(...rows.map(r => r.count), 1);
-  return (
-    <ul style={shippedListStyle}>
-      {rows.map(r => {
-        const pct = (r.count / max) * 100;
-        return (
-          <li key={r.repo} style={shippedRowStyle}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-              <span style={shippedDotStyle(r.color)} aria-hidden />
-              <span style={shippedRepoStyle}>{r.repo}</span>
-            </div>
-            <div style={shippedBarTrackStyle}>
-              <div style={{ ...shippedBarFillStyle, width: `${pct}%`, background: r.color }} />
-            </div>
-            <span style={shippedCountStyle}>{r.count}</span>
-          </li>
-        );
-      })}
-    </ul>
-  );
-}
-
-/* ── placeholder data ───────────────────────────────────────── */
-
-// Tasks-shipped breakdown stays placeholder until Task carries an
-// owner/repo column — see WorkspaceInsightsService for the matching
-// backend note. Drop these constants when the breakdown wires.
-const PLACEHOLDER_SHIPPED_7D = [
-  { repo: 'ByteQuay', count: 7, color: '#7c3aed' },
-  { repo: 'bytequay-infra', count: 2, color: '#0066cc' },
-];
-const PLACEHOLDER_SHIPPED_30D = [
-  { repo: 'ByteQuay', count: 24, color: '#7c3aed' },
-  { repo: 'bytequay-infra', count: 9, color: '#0066cc' },
-  { repo: 'observability', count: 3, color: '#16a34a' },
-];
 
 /* ── helpers ────────────────────────────────────────────────── */
 
@@ -331,55 +298,13 @@ const chartTickStyle: React.CSSProperties = {
   marginTop: 4,
 };
 
-const shippedListStyle: React.CSSProperties = {
-  listStyle: 'none',
-  margin: 0,
-  padding: 0,
-  display: 'flex',
-  flexDirection: 'column',
-  gap: 8,
-};
-
-const shippedRowStyle: React.CSSProperties = {
-  display: 'grid',
-  gridTemplateColumns: 'minmax(0, auto) 1fr auto',
-  alignItems: 'center',
-  gap: 8,
-  fontSize: 12,
-};
-
-function shippedDotStyle(color: string): React.CSSProperties {
-  return {
-    width: 8,
-    height: 8,
-    borderRadius: 2,
-    background: color,
-    flexShrink: 0,
-  };
-}
-
-const shippedRepoStyle: React.CSSProperties = {
-  color: 'var(--ws-text-2)',
-  whiteSpace: 'nowrap',
-};
-
-const shippedBarTrackStyle: React.CSSProperties = {
-  height: 6,
-  background: 'rgba(124, 58, 237, 0.08)',
-  borderRadius: 999,
-  overflow: 'hidden',
-};
-
-const shippedBarFillStyle: React.CSSProperties = {
-  height: '100%',
-  transition: 'width 140ms ease',
-};
-
-const shippedCountStyle: React.CSSProperties = {
-  fontSize: 12,
+const shippedTotalStyle: React.CSSProperties = {
+  fontSize: 32,
+  fontWeight: 700,
+  letterSpacing: '-0.02em',
   color: 'var(--ws-text-1)',
-  fontWeight: 600,
-  fontFamily: 'ui-monospace, SFMono-Regular, monospace',
+  lineHeight: 1.1,
+  marginBottom: 2,
 };
 
 const errorStyle: React.CSSProperties = {

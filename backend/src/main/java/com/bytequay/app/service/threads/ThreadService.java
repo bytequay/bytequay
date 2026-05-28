@@ -922,7 +922,18 @@ public class ThreadService
     {
         Thread thread = store.findThreadById(threadId)
                 .orElseThrow(() -> new NoSuchElementException("no thread: " + threadId));
-        return registry.getOrCreate(thread);
+        // Route by altitude, the same way AgentScheduler picks the
+        // session for a turn: a 0-task (trunk / planning) thread runs
+        // through the trunk-scope agent, which doesn't need a task.
+        // Resolving via getOrCreate (task mode) here threw
+        // "thread … has no task; cannot spawn CLI agent" for every
+        // session-scoped op at the trunk — interrupt, subscribe, and
+        // (the one users hit) the permission-prompt + tool-budget path
+        // that fires when the trunk agent calls a gated MCP tool like
+        // list_skills.
+        return taskStore.findActiveTaskForThread(threadId).isPresent()
+                ? registry.getOrCreate(thread)
+                : registry.getOrCreateTrunk(thread);
     }
 
     /**

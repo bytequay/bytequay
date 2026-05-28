@@ -24,6 +24,7 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.util.List;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.regex.Pattern;
 
 /**
@@ -111,37 +112,68 @@ public class ShellRunner
         catch (IOException e) {
             return Result.refused("spawn failed: " + e.getMessage());
         }
+
+        // Drain stdout on a separate thread so the wall-clock timeout
+        // actually bounds the process. Reading inline blocks until the
+        // child closes its stdout — which for a no-output runaway is
+        // the whole process lifetime — so the timeout below would only
+        // start counting after the process already finished. With the
+        // drain on its own thread, waitFor(timeout) can fire while the
+        // child is still alive and we destroy it.
         StringBuilder out = new StringBuilder();
-        boolean truncated = false;
+        AtomicBoolean truncated = new AtomicBoolean(false);
+        Thread drain = new Thread(
+                () -> drainStream(process, out, truncated, maxOutputBytes, argv),
+                "shell-drain");
+        drain.setDaemon(true);
+        drain.start();
+
+        boolean exited = process.waitFor(timeoutSeconds, TimeUnit.SECONDS);
+        if (!exited) {
+            process.destroy();
+            if (!process.waitFor(2, TimeUnit.SECONDS)) {
+                process.destroyForcibly();
+                process.waitFor(2, TimeUnit.SECONDS);
+            }
+            drain.join(1_000L);
+            synchronized (out) {
+                return new Result(false, -1, out.toString(), true, "timed out after "
+                        + timeoutSeconds + "s");
+            }
+        }
+        // Process exited within the deadline — let the drain finish
+        // flushing whatever's left in the pipe before we read it.
+        drain.join(2_000L);
+        synchronized (out) {
+            return new Result(true, process.exitValue(), out.toString(), truncated.get(), null);
+        }
+    }
+
+    private void drainStream(
+            Process process, StringBuilder out, AtomicBoolean truncated, int maxOutputBytes, List<String> argv)
+    {
         try (BufferedReader reader = new BufferedReader(
                 new InputStreamReader(process.getInputStream(), StandardCharsets.UTF_8))) {
             char[] buf = new char[4096];
             int read;
             while ((read = reader.read(buf)) != -1) {
-                if (out.length() + read >= maxOutputBytes) {
-                    int room = Math.max(0, maxOutputBytes - out.length());
-                    out.append(buf, 0, room);
-                    out.append("\n…[truncated at ").append(maxOutputBytes).append(" bytes]\n");
-                    truncated = true;
-                    break;
+                synchronized (out) {
+                    if (out.length() + read >= maxOutputBytes) {
+                        int room = Math.max(0, maxOutputBytes - out.length());
+                        out.append(buf, 0, room);
+                        out.append("\n…[truncated at ").append(maxOutputBytes).append(" bytes]\n");
+                        truncated.set(true);
+                        break;
+                    }
+                    out.append(buf, 0, read);
                 }
-                out.append(buf, 0, read);
             }
         }
         catch (IOException e) {
-            log.warn("ShellRunner read failed on {}: {}", argv, e.getMessage());
+            // The stream closes abruptly when we destroy a timed-out
+            // process; that's expected, not a failure worth surfacing.
+            log.debug("ShellRunner drain ended on {}: {}", argv, e.getMessage());
         }
-        boolean exited = process.waitFor(timeoutSeconds, TimeUnit.SECONDS);
-        if (!exited) {
-            process.destroy();
-            process.waitFor(2, TimeUnit.SECONDS);
-            if (process.isAlive()) {
-                process.destroyForcibly();
-            }
-            return new Result(false, -1, out.toString(), true, "timed out after "
-                    + timeoutSeconds + "s");
-        }
-        return new Result(true, process.exitValue(), out.toString(), truncated, null);
     }
 
     /**

@@ -847,32 +847,46 @@
   white-space: nowrap;
 }
 .ai-finding__loc-btn:hover { color: var(--accent); text-decoration: underline; }
+/* Rendered markdown (renderMarkdown output). Tight margins keep the
+   prose compact in the card; the body doubles as a jump-to-line target
+   (cursor + hover hint; links inside still navigate). */
 .ai-finding__body {
   font-size: var(--font-size-sm);
   color: var(--text-1);
   line-height: 1.5;
-}
-/* Body doubles as a "jump to line in diff" button — reset the native
-   button look so the comment text reads as text, but keep cursor:
-   pointer + a hover hint so the affordance is discoverable. */
-.ai-finding__body--clickable {
-  appearance: none;
-  background: transparent;
-  border: 0;
-  padding: 0;
-  margin: 0;
-  width: 100%;
-  text-align: left;
-  font: inherit;
-  font-size: var(--font-size-sm);
-  color: var(--text-1);
-  line-height: 1.5;
-  cursor: pointer;
-  white-space: pre-wrap;
   word-break: break-word;
 }
-.ai-finding__body--clickable:hover {
-  color: var(--accent);
+.ai-finding__body--clickable { cursor: pointer; }
+.ai-finding__body--clickable:hover { color: var(--accent); }
+.ai-finding__body > :first-child { margin-top: 0; }
+.ai-finding__body > :last-child { margin-bottom: 0; }
+.ai-finding__body p { margin: 0 0 6px; }
+.ai-finding__body strong,
+.ai-finding__body b { font-weight: 600; }
+.ai-finding__body ul,
+.ai-finding__body ol { margin: 0 0 6px; padding-left: 18px; }
+.ai-finding__body li { margin: 2px 0; }
+.ai-finding__body code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: var(--font-size-sm);
+  background: var(--bg-base);
+  padding: 1px 5px;
+  border-radius: 3px;
+}
+.ai-finding__body pre {
+  background: var(--bg-base);
+  padding: 8px 10px;
+  border-radius: 6px;
+  overflow-x: auto;
+  margin: 0 0 6px;
+}
+.ai-finding__body pre code { background: transparent; padding: 0; }
+.ai-finding__body a { color: var(--accent); }
+.ai-finding__body blockquote {
+  margin: 0 0 6px;
+  padding-left: 10px;
+  border-left: 2px solid var(--border);
+  color: var(--text-2);
 }
 
 /* Sidebar finding card affordances mirror the inline-finding ones so the
@@ -1850,7 +1864,39 @@
   font-size: 10.5px;
   color: var(--text-3);
 }
-.inline-finding__text { color: var(--text-1); }
+/* Rendered markdown (renderMarkdown output) — compact margins so the
+   prose sits tight inside the inline diff card. */
+.inline-finding__text { color: var(--text-1); word-break: break-word; }
+.inline-finding__text > :first-child { margin-top: 0; }
+.inline-finding__text > :last-child { margin-bottom: 0; }
+.inline-finding__text p { margin: 0 0 6px; }
+.inline-finding__text strong,
+.inline-finding__text b { font-weight: 600; }
+.inline-finding__text ul,
+.inline-finding__text ol { margin: 0 0 6px; padding-left: 18px; }
+.inline-finding__text li { margin: 2px 0; }
+.inline-finding__text code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: var(--font-size-sm);
+  background: var(--bg-base);
+  padding: 1px 5px;
+  border-radius: 3px;
+}
+.inline-finding__text pre {
+  background: var(--bg-base);
+  padding: 8px 10px;
+  border-radius: 6px;
+  overflow-x: auto;
+  margin: 0 0 6px;
+}
+.inline-finding__text pre code { background: transparent; padding: 0; }
+.inline-finding__text a { color: var(--accent); }
+.inline-finding__text blockquote {
+  margin: 0 0 6px;
+  padding-left: 10px;
+  border-left: 2px solid var(--border);
+  color: var(--text-2);
+}
 
 /* Edit affordances on the inline AI finding card. */
 .inline-finding__edited {

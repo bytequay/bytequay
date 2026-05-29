@@ -336,7 +336,13 @@ function InlineFinding({ comment, draftId, draftPublished, onDraftUpdated }: Inl
               </div>
             </>
           ) : (
-            <div className="inline-finding__text">{displayed}</div>
+            // Read mode renders the review prose as GitHub-flavoured
+            // markdown (edit mode keeps the raw textarea above). Matches
+            // how the comment will look once posted to the PR.
+            <div
+              className="inline-finding__text"
+              dangerouslySetInnerHTML={{ __html: renderMarkdown(displayed) }}
+            />
           )}
         </div>
       </div>

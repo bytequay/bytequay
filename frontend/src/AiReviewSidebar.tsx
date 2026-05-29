@@ -12,6 +12,7 @@
  * limitations under the License.
  */
 import { forwardRef, useEffect, useImperativeHandle, useRef, useState } from 'react';
+import { renderMarkdown } from './markdown';
 import type { AiReviewCommentDto, AiReviewDraftDto, PullRequestDto } from './types';
 
 type FindingCardProps = {
@@ -199,14 +200,20 @@ function FindingCard({ c, draftId, draftPublished, onJump, onDraftUpdated }: Fin
       >
         {c.filePath}:{c.lineNumber}
       </button>
-      <button
-        type="button"
+      {/* The comment body renders the model's (or user-edited) review
+          prose as GitHub-flavoured markdown so **bold**, `code`, lists
+          and fenced blocks read the way they will once posted. It's a
+          <div>, not a <button> (markdown emits block/link elements that
+          can't nest in a button), but it stays click-to-jump like
+          before: a click anywhere except on a link navigates to the
+          referenced diff line. Keyboard / a11y jump stays on the
+          location button above. */}
+      <div
         className="ai-finding__body ai-finding__body--clickable"
-        onClick={jump}
         title="Jump to this line in the diff"
-      >
-        {displayed}
-      </button>
+        onClick={(e) => { if (!(e.target as HTMLElement).closest('a')) jump(); }}
+        dangerouslySetInnerHTML={{ __html: renderMarkdown(displayed) }}
+      />
     </div>
   );
 }

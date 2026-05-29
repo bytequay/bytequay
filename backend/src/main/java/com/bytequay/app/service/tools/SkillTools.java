@@ -189,28 +189,33 @@ public class SkillTools
         requireNonNull(context, "context is null");
         JsonNode args = arguments == null ? mapper.createObjectNode() : arguments;
         return switch (toolName) {
-            case "list_skills" -> dispatchListSkills(args, context);
+            case "list_skills" -> listSkills(args.path("scope").asText(""), args.path("query").asText(""), context);
             case "list_tools" -> RuntimeToolInvocation.ok(LIST_TOOLS_CATALOG_JSON);
-            case "load_skill" -> dispatchLoadSkill(args);
+            case "load_skill" -> loadSkill(args.path("name").asText(""));
             default -> RuntimeToolInvocation.error("unknown tool: " + toolName);
         };
     }
 
-    private RuntimeToolInvocation dispatchListSkills(JsonNode args, ToolContext context)
+    /** Project the skill manifest for the turn, narrowed by an optional
+     *  scope and an optional case-insensitive description match. The
+     *  {@code list_skills} tool calls this directly; {@link #dispatch}
+     *  routes to it for the provider lane. */
+    public RuntimeToolInvocation listSkills(String requestedScope, String query, ToolContext context)
     {
-        String requestedScope = args.path("scope").asText("");
-        String query = args.path("query").asText("");
-        Set<String> scopes = requestedScope.isEmpty()
+        requireNonNull(context, "context is null");
+        String scope = requestedScope == null ? "" : requestedScope;
+        String filter = query == null ? "" : query;
+        Set<String> scopes = scope.isEmpty()
                 ? defaultScopes(context)
-                : Set.of(requestedScope);
+                : Set.of(scope);
         SkillManifestQuery manifestQuery = new SkillManifestQuery(
                 scopes,
                 context.touchedRepos(),
                 context.threadId(),
                 context.role());
         List<SkillManifestEntry> entries = manifest.query(manifestQuery);
-        if (!query.isEmpty()) {
-            String needle = query.toLowerCase(Locale.ROOT);
+        if (!filter.isEmpty()) {
+            String needle = filter.toLowerCase(Locale.ROOT);
             entries = entries.stream()
                     .filter(e -> e.description() != null
                             && e.description().toLowerCase(Locale.ROOT).contains(needle))
@@ -231,9 +236,12 @@ public class SkillTools
         return RuntimeToolInvocation.ok(serialise(array));
     }
 
-    private RuntimeToolInvocation dispatchLoadSkill(JsonNode args)
+    /** Load one skill's body by name. The {@code load_skill} tool calls
+     *  this directly; {@link #dispatch} routes to it for the provider
+     *  lane. */
+    public RuntimeToolInvocation loadSkill(String skillName)
     {
-        String name = args.path("name").asText("");
+        String name = skillName == null ? "" : skillName;
         if (name.isBlank()) {
             return RuntimeToolInvocation.error("name argument is required");
         }

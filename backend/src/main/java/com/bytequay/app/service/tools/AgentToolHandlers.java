@@ -308,7 +308,7 @@ public class AgentToolHandlers
             roles = {AgentRole.TRUNK, AgentRole.TASK, AgentRole.REVIEWER})
     public ToolOutcome listSkills(ListSkillsArgs args, ToolCall call)
     {
-        return dispatchSkillTool("list_skills", call);
+        return skillOutcome(skillTools.listSkills(args.scope(), args.query(), skillContext(call)));
     }
 
     /** Args record for {@code load_skill}. */
@@ -326,16 +326,19 @@ public class AgentToolHandlers
             roles = {AgentRole.TRUNK, AgentRole.TASK, AgentRole.REVIEWER})
     public ToolOutcome loadSkill(LoadSkillArgs args, ToolCall call)
     {
-        return dispatchSkillTool("load_skill", call);
+        return skillOutcome(skillTools.loadSkill(args.name()));
     }
 
-    private ToolOutcome dispatchSkillTool(String toolName, ToolCall call)
+    private static ToolContext skillContext(ToolCall call)
     {
-        ToolContext ctx = new ToolContext(
+        return new ToolContext(
                 Set.of(),
                 Optional.of(call.threadId()),
                 Optional.of(call.role().name().toLowerCase(Locale.ROOT)));
-        RuntimeToolInvocation out = skillTools.dispatch(toolName, call.arguments(), ctx);
+    }
+
+    private static ToolOutcome skillOutcome(RuntimeToolInvocation out)
+    {
         return out.isError()
                 ? ToolOutcome.Completed.error(out.result())
                 : ToolOutcome.Completed.ok(out.result());

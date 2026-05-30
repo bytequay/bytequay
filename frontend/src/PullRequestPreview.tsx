@@ -368,6 +368,10 @@ type MergeBarProps = {
    *  wired it; in that case the button falls back to its disabled
    *  "wait for CI" treatment. */
   onEnableAutoMerge?: (strategy: MergeStrategy) => void;
+  /** Removes the PR from its repo's merge queue. Triggered by the
+   *  "Remove from queue" button on the queued-card variant — only
+   *  shown when GitHub reports the PR sits in a queue. */
+  onDequeue?: () => void;
   /** Force-refresh the CI snapshot (status + per-check + viewerCanWrite)
    *  from GitHub. Wired through from the parent's refreshCi so the
    *  refresh button on the CI pill bypasses the focus poll's cadence. */
@@ -381,7 +385,7 @@ type MergeBarProps = {
  *  button to read why. Mirrors the merge-bar GitHub puts on its
  *  Conversation page. Clicking the button opens a confirm dialog —
  *  Yes fires the merge, No closes the dialog with no side effects. */
-function MergeBar({ pr, detail, mergeState, mergeError, mergeQueuedMessage, onMerge, onEnableAutoMerge, onRefreshCi, ciRefreshing }: MergeBarProps) {
+function MergeBar({ pr, detail, mergeState, mergeError, mergeQueuedMessage, onMerge, onEnableAutoMerge, onDequeue, onRefreshCi, ciRefreshing }: MergeBarProps) {
   // Failing-check list is folded by default — the red "CI failing"
   // pill in the middle of the bar is the affordance to expand it.
   const [failuresOpen, setFailuresOpen] = useState(false);
@@ -576,6 +580,54 @@ function MergeBar({ pr, detail, mergeState, mergeError, mergeQueuedMessage, onMe
       title: 'No conflicts with base branch',
       desc: 'Merging can be performed automatically.',
     };
+
+  // PR is in the merge queue — replace the normal merge-card with the
+  // queued treatment (mirrors github.com's amber-bordered "Queued to
+  // merge…" card). Only pivots on detail.mergeQueueState; the
+  // mergeState==='queued' transient is also set by the auto-merge
+  // enablement path (handleEnableAutoMerge) and that case should keep
+  // the regular merge-card with a success notice instead.
+  const isQueued = detail.mergeQueueState !== null;
+  if (isQueued) {
+    return (
+      <div className="merge-card merge-card--queued">
+        <div className="merge-card__icon" aria-hidden="true">
+          <svg viewBox="0 0 16 16" width="16" height="16" fill="currentColor">
+            {/* queue / dependency graph glyph — three nodes joined by
+                short line segments, suggesting "items in line" */}
+            <circle cx="3" cy="3" r="1.6" />
+            <circle cx="13" cy="3" r="1.6" />
+            <circle cx="8" cy="13" r="1.6" />
+            <path d="M3.5 4.5L7.5 11.5M12.5 4.5L8.5 11.5" stroke="currentColor" strokeWidth="0.9" fill="none" />
+          </svg>
+        </div>
+        <div className="merge-card__rows merge-card__queued-rows">
+          <div className="merge-card__queued-content">
+            <div className="merge-card__queued-title">Queued to merge…</div>
+            <div className="merge-card__queued-desc">
+              GitHub will merge this PR through the{' '}
+              <a href={pr.htmlUrl} target="_blank" rel="noreferrer">merge queue</a>
+              {' '}once the items ahead clear.
+            </div>
+            {mergeError && (
+              <div className="merge-card__queued-error" role="alert">{mergeError}</div>
+            )}
+          </div>
+          {onDequeue && (
+            <button
+              type="button"
+              className="merge-card__queued-action"
+              onClick={onDequeue}
+              disabled={mergeState === 'running'}
+              title="Remove this PR from the merge queue"
+            >
+              {mergeState === 'running' ? 'Removing…' : 'Remove from queue'}
+            </button>
+          )}
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className={`merge-card${enabled ? ' merge-card--ready' : ' merge-card--blocked'}`}>
@@ -1246,6 +1298,27 @@ function PullRequestPreview({
     }
   };
 
+  /** Mirror of {@link handleMerge} for the "Remove from queue" path.
+   *  Reuses mergeState/mergeError so the queued card greys out and
+   *  surfaces the same banner as the normal merge button when the
+   *  GraphQL call fails. Detail refresh clears mergeQueueState so the
+   *  next render falls back to the regular merge bar. */
+  const handleDequeue = async () => {
+    if (mergeState === 'running') return;
+    setMergeState('running');
+    setMergeError(null);
+    try {
+      await window.bridge.dequeuePr(pr.id, pr.repo, pr.number);
+      await refreshDetailFromGitHub();
+      setMergeQueuedMessage(null);
+      setMergeState('idle');
+    }
+    catch (e) {
+      setMergeError(e instanceof Error ? e.message : String(e));
+      setMergeState('error');
+    }
+  };
+
   /** Mirror of {@link handleMerge} for the "Merge when ready" path.
    *  Goes straight through the bridge (no parent prop) since the
    *  enable mutation isn't routed through any optimistic list-level
@@ -1535,6 +1608,7 @@ function PullRequestPreview({
                     mergeQueuedMessage={mergeQueuedMessage}
                     onMerge={(strategy) => { void handleMerge(strategy); }}
                     onEnableAutoMerge={(strategy) => { void handleEnableAutoMerge(strategy); }}
+                    onDequeue={() => { void handleDequeue(); }}
                     onRefreshCi={refreshCi}
                     ciRefreshing={ciRefreshing}
                   />
@@ -2059,6 +2133,7 @@ function PullRequestPreview({
                   mergeQueuedMessage={mergeQueuedMessage}
                   onMerge={(strategy) => { void handleMerge(strategy); }}
                   onEnableAutoMerge={(strategy) => { void handleEnableAutoMerge(strategy); }}
+                  onDequeue={() => { void handleDequeue(); }}
                   onRefreshCi={refreshCi}
                   ciRefreshing={ciRefreshing}
                 />

@@ -2175,6 +2175,10 @@ export type Bridge = {
    *  side (no-op when auto-merge isn't enabled), so callers don't have
    *  to track local state. */
   disableAutoMerge: (prId: number, repo: string, number: number) => Promise<{ result: string }>;
+  /** Removes a PR from its repo's merge queue. Mirrors the "Remove
+   *  from queue" button on github.com's merge bar. No-op when the PR
+   *  isn't currently in a queue. */
+  dequeuePr: (prId: number, repo: string, number: number) => Promise<{ result: string }>;
   commentPr: (prId: number, repo: string, number: number, body: string, close: boolean) => Promise<void>;
   /** Adds a single user to the PR's requested reviewers. */
   addRequestedReviewer: (repo: string, number: number, reviewer: string) => Promise<void>;

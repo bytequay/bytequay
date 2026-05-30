@@ -562,6 +562,23 @@ public class PullRequestController
     }
 
     /**
+     * Removes a PR from its repo's merge queue. Mirrors the "Remove from
+     * queue" button on github.com's merge bar. No-op on GitHub's side
+     * when the PR isn't queued.
+     * DELETE /prs/merge-queue
+     */
+    @DeleteMapping("/prs/merge-queue")
+    public Map<String, String> dequeue(
+            @RequestParam("repo") String repo,
+            @RequestParam("number") int number,
+            @RequestParam("id") long prId)
+    {
+        String pat = patResolver.resolve(repo);
+        pullRequestService.dequeuePullRequest(pat, repo, number, prId);
+        return ImmutableMap.of("result", "dequeued");
+    }
+
+    /**
      * Marks a PR as handled with the given action. Purely local state — no GitHub call.
      * Used when the user clicks the "Handled" button on a card without reviewing.
      * POST /prs/handle?id={prId}&action=MANUAL

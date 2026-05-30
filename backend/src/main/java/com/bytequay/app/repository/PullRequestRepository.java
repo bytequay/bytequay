@@ -483,6 +483,19 @@ public interface PullRequestRepository
         throw new UnsupportedOperationException("enqueuePullRequest not implemented");
     }
 
+    /**
+     * Removes a PR from its repo's merge queue. Mirrors github.com's
+     * "Remove from queue" button on the merge bar. Goes through the
+     * GraphQL {@code dequeuePullRequest} mutation, which needs the merge
+     * queue entry's id (not the PR id) — the implementation fetches that
+     * via a small GraphQL query before running the mutation. No-op when
+     * the PR isn't currently in a queue.
+     */
+    default void dequeuePullRequest(String pat, PullRequestRef pr)
+    {
+        throw new UnsupportedOperationException("dequeuePullRequest not implemented");
+    }
+
     /** Result of {@link #probeMergeQueue}. The PR's GraphQL node id is
      *  what {@link #enqueuePullRequest} needs as input. */
     record MergeQueueProbe(String pullRequestNodeId) {}

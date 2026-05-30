@@ -904,6 +904,20 @@ public class PullRequestService
     }
 
     /**
+     * Removes the PR from its repo's merge queue. Mirrors github.com's
+     * "Remove from queue" button. Cache is invalidated so the next
+     * detail fetch reflects the PR's new state (mergeQueueState cleared,
+     * mergeable_state typically flipping back to "blocked").
+     */
+    public void dequeuePullRequest(String pat, String repo, int number, long prId)
+    {
+        PullRequestRef ref = parseRef(repo, number);
+        gitHub.dequeuePullRequest(pat, ref);
+        invalidatePullRequestDetail(repo, number);
+        repoListCache.invalidatePulls(parseRepoRef(repo));
+    }
+
+    /**
      * Maps the wire-level "rebase" / "squash" / "merge" strategy strings
      * (used by /prs/merge for parity with the dropdown) onto GraphQL's
      * PullRequestMergeMethod enum values (REBASE / SQUASH / MERGE).

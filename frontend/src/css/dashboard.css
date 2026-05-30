@@ -1286,6 +1286,66 @@
 .merge-card--blocked .merge-card__icon {
   background: var(--text-3);
 }
+/* Queued — amber treatment mirrors github.com's "Queued to merge…"
+ * card. The rows container becomes a single padded row instead of the
+ * multi-line status breakdown the regular merge-card uses. */
+.merge-card--queued .merge-card__icon {
+  background: #bf8700;
+}
+.merge-card__queued-rows {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  padding: 14px 16px;
+  border-color: #bf8700;
+  background: rgba(191, 135, 0, 0.04);
+}
+.merge-card__queued-content {
+  flex: 1;
+  min-width: 0;
+}
+.merge-card__queued-title {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-1);
+  margin-bottom: 3px;
+}
+.merge-card__queued-desc {
+  font-size: 13px;
+  color: var(--text-2);
+}
+.merge-card__queued-desc a {
+  color: var(--accent);
+  text-decoration: underline;
+}
+.merge-card__queued-action {
+  flex-shrink: 0;
+  padding: 6px 12px;
+  font-size: 13px;
+  font-weight: 500;
+  color: var(--text-1);
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  cursor: pointer;
+  transition: background 120ms ease, border-color 120ms ease;
+}
+.merge-card__queued-action:hover:not(:disabled) {
+  background: rgba(0, 0, 0, 0.04);
+  border-color: var(--text-3);
+}
+.merge-card__queued-action:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+.merge-card__queued-error {
+  margin-top: 6px;
+  padding: 6px 10px;
+  font-size: 12px;
+  color: #cf222e;
+  background: rgba(207, 34, 46, 0.06);
+  border-radius: 4px;
+}
 
 .merge-card__row {
   display: flex;

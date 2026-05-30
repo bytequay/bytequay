@@ -1008,6 +1008,19 @@ const url = new URL(`${BACKEND_BASE}/prs/comment`);
     return res.json();
   });
 
+  ipcMain.handle('backend:dequeuePr', async (_event, prId: number, repo: string, number: number) => {
+    const url = new URL(`${BACKEND_BASE}/prs/merge-queue`);
+    url.searchParams.set('id', String(prId));
+    url.searchParams.set('repo', repo);
+    url.searchParams.set('number', String(number));
+    const res = await fetch(url, { method: 'DELETE' });
+    if (!res.ok) {
+      const body = await res.text().catch(() => '');
+      throw new Error(`Remove from queue failed (${res.status}): ${body}`);
+    }
+    return res.json();
+  });
+
   ipcMain.handle('repos:list', async () => {
     const res = await fetch(`${BACKEND_BASE}/api/repos`);
     if (!res.ok) throw new Error(`backend /api/repos returned ${res.status}`);

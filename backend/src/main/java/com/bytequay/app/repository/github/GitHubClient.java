@@ -1687,6 +1687,86 @@ public class GitHubClient
     record EnqueueGqlEntry(String id, Integer position, String state) {}
 
     @Override
+    public void dequeuePullRequest(String pat, PullRequestRef pr)
+    {
+        // dequeuePullRequest takes the merge queue ENTRY id, not the PR id —
+        // fetch it via a small GraphQL probe first. If the PR isn't currently
+        // in a queue we no-op so a stale "Queued" cache state doesn't error
+        // when the user clicks "Remove from queue" after GitHub already
+        // merged or removed the PR.
+        String entryQuery = "query($owner: String!, $name: String!, $number: Int!) {"
+                + " repository(owner: $owner, name: $name) {"
+                + "   pullRequest(number: $number) {"
+                + "     mergeQueueEntry { id }"
+                + "   }"
+                + " } }";
+        Map<String, Object> queryBody = ImmutableMap.of(
+                "query", entryQuery,
+                "variables", ImmutableMap.of(
+                        "owner", pr.owner(),
+                        "name", pr.repo(),
+                        "number", pr.number()));
+        String entryId;
+        try {
+            DequeueProbeGqlResponse probe = graphqlRestClient.post()
+                    .header("Authorization", "Bearer " + pat)
+                    .body(queryBody)
+                    .retrieve()
+                    .body(DequeueProbeGqlResponse.class);
+            if (probe == null
+                    || probe.data() == null
+                    || probe.data().repository() == null
+                    || probe.data().repository().pullRequest() == null
+                    || probe.data().repository().pullRequest().mergeQueueEntry() == null) {
+                // Not in a queue any more — treat as a successful no-op so the
+                // UI doesn't surface a confusing error for a state the user
+                // already left.
+                return;
+            }
+            entryId = probe.data().repository().pullRequest().mergeQueueEntry().id();
+            if (entryId == null) {
+                return;
+            }
+        }
+        catch (RestClientResponseException e) {
+            throw toReadableException(e);
+        }
+
+        String mutation = "mutation($id: ID!) {"
+                + " dequeuePullRequest(input: { id: $id }) {"
+                + "   mergeQueueEntry { id }"
+                + " } }";
+        Map<String, Object> body = ImmutableMap.of(
+                "query", mutation,
+                "variables", ImmutableMap.of("id", entryId));
+        try {
+            graphqlRestClient.post()
+                    .header("Authorization", "Bearer " + pat)
+                    .body(body)
+                    .retrieve()
+                    .toBodilessEntity();
+        }
+        catch (RestClientResponseException e) {
+            throw toReadableException(e);
+        }
+    }
+
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    record DequeueProbeGqlResponse(DequeueProbeGqlData data) {}
+
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    record DequeueProbeGqlData(DequeueProbeGqlRepo repository) {}
+
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    record DequeueProbeGqlRepo(DequeueProbeGqlPr pullRequest) {}
+
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    record DequeueProbeGqlPr(DequeueProbeGqlEntry mergeQueueEntry) {}
+
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    record DequeueProbeGqlEntry(String id) {}
+
+    @Override
     public List<SuggestedReviewer> fetchSuggestedReviewers(String pat, PullRequestRef pr)
     {
         // GitHub caps suggestedReviewers at 5 today; first(10) is generous

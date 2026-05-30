@@ -1428,6 +1428,147 @@ public class GitHubClient
     @JsonIgnoreProperties(ignoreUnknown = true)
     record PullRequestIdGqlPr(String id) {}
 
+    // ── GraphQL: auto-merge (enable / disable / state) ────────────────────
+    //
+    // REST does not expose any of these — github.com itself uses the same
+    // GraphQL mutations and the autoMergeRequest object on the PR. Each
+    // mutation needs the PR's opaque GraphQL node id, so they all share the
+    // node-id fetch below.
+
+    private String fetchPullRequestNodeId(String pat, PullRequestRef pr)
+    {
+        String idQuery = "query($owner: String!, $name: String!, $number: Int!) {"
+                + " repository(owner: $owner, name: $name) {"
+                + "   pullRequest(number: $number) { id }"
+                + " } }";
+        Map<String, Object> body = ImmutableMap.of(
+                "query", idQuery,
+                "variables", ImmutableMap.of(
+                        "owner", pr.owner(),
+                        "name", pr.repo(),
+                        "number", pr.number()));
+        try {
+            PullRequestIdGqlResponse response = graphqlRestClient.post()
+                    .header("Authorization", "Bearer " + pat)
+                    .body(body)
+                    .retrieve()
+                    .body(PullRequestIdGqlResponse.class);
+            if (response == null
+                    || response.data() == null
+                    || response.data().repository() == null
+                    || response.data().repository().pullRequest() == null
+                    || response.data().repository().pullRequest().id() == null) {
+                throw new ResponseStatusException(HttpStatusCode.valueOf(404),
+                        "PR " + pr.owner() + "/" + pr.repo() + "#" + pr.number() + " not found");
+            }
+            return response.data().repository().pullRequest().id();
+        }
+        catch (RestClientResponseException e) {
+            throw toReadableException(e);
+        }
+    }
+
+    @Override
+    public void enableAutoMerge(String pat, PullRequestRef pr, String mergeMethod)
+    {
+        String nodeId = fetchPullRequestNodeId(pat, pr);
+        String mutation = "mutation($id: ID!, $method: PullRequestMergeMethod!) {"
+                + " enablePullRequestAutoMerge(input: { pullRequestId: $id, mergeMethod: $method }) {"
+                + "   pullRequest { id }"
+                + " } }";
+        Map<String, Object> body = ImmutableMap.of(
+                "query", mutation,
+                "variables", ImmutableMap.of("id", nodeId, "method", mergeMethod));
+        try {
+            graphqlRestClient.post()
+                    .header("Authorization", "Bearer " + pat)
+                    .body(body)
+                    .retrieve()
+                    .toBodilessEntity();
+        }
+        catch (RestClientResponseException e) {
+            throw toReadableException(e);
+        }
+    }
+
+    @Override
+    public void disableAutoMerge(String pat, PullRequestRef pr)
+    {
+        String nodeId = fetchPullRequestNodeId(pat, pr);
+        String mutation = "mutation($id: ID!) {"
+                + " disablePullRequestAutoMerge(input: { pullRequestId: $id }) {"
+                + "   pullRequest { id }"
+                + " } }";
+        Map<String, Object> body = ImmutableMap.of(
+                "query", mutation,
+                "variables", ImmutableMap.of("id", nodeId));
+        try {
+            graphqlRestClient.post()
+                    .header("Authorization", "Bearer " + pat)
+                    .body(body)
+                    .retrieve()
+                    .toBodilessEntity();
+        }
+        catch (RestClientResponseException e) {
+            throw toReadableException(e);
+        }
+    }
+
+    @Override
+    public Optional<AutoMergeStatus> fetchAutoMergeStatus(String pat, PullRequestRef pr)
+    {
+        String query = "query($owner: String!, $name: String!, $number: Int!) {"
+                + " repository(owner: $owner, name: $name) {"
+                + "   pullRequest(number: $number) {"
+                + "     autoMergeRequest { mergeMethod enabledBy { login } }"
+                + "   }"
+                + " } }";
+        Map<String, Object> body = ImmutableMap.of(
+                "query", query,
+                "variables", ImmutableMap.of(
+                        "owner", pr.owner(),
+                        "name", pr.repo(),
+                        "number", pr.number()));
+        try {
+            AutoMergeGqlResponse response = graphqlRestClient.post()
+                    .header("Authorization", "Bearer " + pat)
+                    .body(body)
+                    .retrieve()
+                    .body(AutoMergeGqlResponse.class);
+            if (response == null
+                    || response.data() == null
+                    || response.data().repository() == null
+                    || response.data().repository().pullRequest() == null
+                    || response.data().repository().pullRequest().autoMergeRequest() == null) {
+                return Optional.empty();
+            }
+            AutoMergeGqlRequest req = response.data().repository().pullRequest().autoMergeRequest();
+            String login = req.enabledBy() == null ? null : req.enabledBy().login();
+            return Optional.of(new AutoMergeStatus(req.mergeMethod(), login));
+        }
+        catch (RestClientResponseException e) {
+            throw toReadableException(e);
+        }
+    }
+
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    record AutoMergeGqlResponse(AutoMergeGqlData data) {}
+
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    record AutoMergeGqlData(AutoMergeGqlRepo repository) {}
+
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    record AutoMergeGqlRepo(AutoMergeGqlPr pullRequest) {}
+
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    record AutoMergeGqlPr(AutoMergeGqlRequest autoMergeRequest) {}
+
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    record AutoMergeGqlRequest(String mergeMethod, AutoMergeGqlActor enabledBy) {}
+
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    record AutoMergeGqlActor(String login) {}
+
     // ── GraphQL: merge queue probe + enqueue ─────────────────────────────
 
     @Override

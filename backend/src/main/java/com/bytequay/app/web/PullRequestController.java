@@ -527,6 +527,41 @@ public class PullRequestController
     }
 
     /**
+     * Enables GitHub's auto-merge on the PR. Mirrors github.com's "Merge
+     * when ready" button — GitHub merges automatically once required
+     * checks pass and approvals are in place. Goes through GraphQL.
+     * POST /prs/auto-merge
+     */
+    @PostMapping("/prs/auto-merge")
+    public Map<String, String> enableAutoMerge(
+            @RequestParam("repo") String repo,
+            @RequestParam("number") int number,
+            @RequestParam("id") long prId,
+            @RequestParam(value = "strategy", required = false) String strategy)
+    {
+        String pat = patResolver.resolve(repo);
+        pullRequestService.enableAutoMerge(pat, repo, number, prId, strategy);
+        return ImmutableMap.of("result", "auto-merge-enabled");
+    }
+
+    /**
+     * Cancels a previously-enabled auto-merge. Idempotent on GitHub's side
+     * (no-op when auto-merge wasn't enabled), so the route returns "ok"
+     * either way.
+     * DELETE /prs/auto-merge
+     */
+    @DeleteMapping("/prs/auto-merge")
+    public Map<String, String> disableAutoMerge(
+            @RequestParam("repo") String repo,
+            @RequestParam("number") int number,
+            @RequestParam("id") long prId)
+    {
+        String pat = patResolver.resolve(repo);
+        pullRequestService.disableAutoMerge(pat, repo, number, prId);
+        return ImmutableMap.of("result", "auto-merge-disabled");
+    }
+
+    /**
      * Marks a PR as handled with the given action. Purely local state — no GitHub call.
      * Used when the user clicks the "Handled" button on a card without reviewing.
      * POST /prs/handle?id={prId}&action=MANUAL

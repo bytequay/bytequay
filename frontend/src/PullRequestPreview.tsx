@@ -362,6 +362,12 @@ type MergeBarProps = {
    *  checks)" instead of a generic "merged" affordance. */
   mergeQueuedMessage: string | null;
   onMerge: (strategy: MergeStrategy) => void;
+  /** Click handler for the "Merge when ready" path — enables GitHub's
+   *  auto-merge so the PR merges automatically once required checks
+   *  pass. Optional so this prop can be omitted by callers that haven't
+   *  wired it; in that case the button falls back to its disabled
+   *  "wait for CI" treatment. */
+  onEnableAutoMerge?: (strategy: MergeStrategy) => void;
   /** Force-refresh the CI snapshot (status + per-check + viewerCanWrite)
    *  from GitHub. Wired through from the parent's refreshCi so the
    *  refresh button on the CI pill bypasses the focus poll's cadence. */
@@ -375,7 +381,7 @@ type MergeBarProps = {
  *  button to read why. Mirrors the merge-bar GitHub puts on its
  *  Conversation page. Clicking the button opens a confirm dialog —
  *  Yes fires the merge, No closes the dialog with no side effects. */
-function MergeBar({ pr, detail, mergeState, mergeError, mergeQueuedMessage, onMerge, onRefreshCi, ciRefreshing }: MergeBarProps) {
+function MergeBar({ pr, detail, mergeState, mergeError, mergeQueuedMessage, onMerge, onEnableAutoMerge, onRefreshCi, ciRefreshing }: MergeBarProps) {
   // Failing-check list is folded by default — the red "CI failing"
   // pill in the middle of the bar is the affordance to expand it.
   const [failuresOpen, setFailuresOpen] = useState(false);
@@ -425,7 +431,10 @@ function MergeBar({ pr, detail, mergeState, mergeError, mergeQueuedMessage, onMe
       });
     return () => { cancelled = true; };
   }, [hasConflict, detail.baseRef, pr.repo, pr.number]);
-  const enabled = !closed && ciPassing && detail.viewerCanWrite && mergeState !== 'running' && !hasConflict;
+  // `mergeMode` is computed below, after `requiresMergeQueue` lands,
+  // because the queue heuristic needs `approverLogins`. `enabled`
+  // ultimately follows from it, but the disabled-reason text only
+  // depends on the conditions visible here, so we set the reason now.
   // CI-failing is intentionally NOT in the disabled-reason text anymore —
   // the red "CI failing" pill in the middle of the bar carries that
   // signal, and expanding it shows per-check details. Keeping both would
@@ -475,6 +484,40 @@ function MergeBar({ pr, detail, mergeState, mergeError, mergeQueuedMessage, onMe
       && ciPassing
       && detail.changesRequestedCount === 0
       && approverLogins.length > 0;
+
+  // Three primary modes the button can land in, computed once so label,
+  // click handler, confirm-modal copy, and disabled-reason all pivot off
+  // one variable rather than re-checking the same conditions four times.
+  //   - merge        CI is green; clicking merges now (the default).
+  //   - queue        Repo uses a merge queue (the heuristic above);
+  //                  clicking adds to the queue.
+  //   - when-ready   PR is otherwise mergeable but CI is still pending or
+  //                  github.com marks it "blocked"; clicking enables
+  //                  GitHub's auto-merge so the PR merges automatically
+  //                  once required checks pass. Mirrors github.com's
+  //                  "Merge when ready" button. Only offered when the
+  //                  onEnableAutoMerge prop is wired through.
+  //   - disabled     Something is blocking (closed, no write access,
+  //                  conflicts, mid-merge); button greys out.
+  const mergeMode: 'merge' | 'queue' | 'when-ready' | 'disabled' = (() => {
+    if (closed) return 'disabled';
+    if (!detail.viewerCanWrite) return 'disabled';
+    if (mergeState === 'running') return 'disabled';
+    if (hasConflict) return 'disabled';
+    if (requiresMergeQueue) return 'queue';
+    if (ciPassing) return 'merge';
+    if ((ciPending || pr.mergeableState === 'blocked') && onEnableAutoMerge) {
+      return 'when-ready';
+    }
+    return 'disabled';
+  })();
+  const enabled = mergeMode !== 'disabled';
+  // The pending-CI disabled-reason was set on the assumption that
+  // ciPending was a blocker — in when-ready mode it isn't, so clear it.
+  // (disabledReason only matters when the button is greyed out.)
+  if (mergeMode === 'when-ready') {
+    disabledReason = null;
+  }
   // ── Status-row content (mirrors github.com's merge card) ──────────────
   const totalChecks = detail.checkRuns.length;
   const passingChecks = totalChecks - failingChecks.length;
@@ -656,16 +699,22 @@ function MergeBar({ pr, detail, mergeState, mergeError, mergeQueuedMessage, onMe
               onClick={() => setConfirmOpen(true)}
               disabled={!enabled}
               title={enabled
-                ? (requiresMergeQueue
+                ? (mergeMode === 'queue'
                   ? 'Add this PR to the merge queue'
-                  : `${MERGE_STRATEGY_LABEL[strategy]} this PR on GitHub`)
+                  : mergeMode === 'when-ready'
+                    ? 'Enable auto-merge — GitHub merges this PR once required checks pass'
+                    : `${MERGE_STRATEGY_LABEL[strategy]} this PR on GitHub`)
                 : (disabledReason ?? 'Not ready to merge')}
             >
               {mergeState === 'running'
-                ? (requiresMergeQueue ? 'Enqueuing…' : 'Merging…')
-                : (requiresMergeQueue ? 'Add to merge queue' : MERGE_STRATEGY_LABEL[strategy])}
+                ? (mergeMode === 'queue' ? 'Enqueuing…'
+                  : mergeMode === 'when-ready' ? 'Enabling…'
+                  : 'Merging…')
+                : (mergeMode === 'queue' ? 'Add to merge queue'
+                  : mergeMode === 'when-ready' ? 'Merge when ready'
+                  : MERGE_STRATEGY_LABEL[strategy])}
             </button>
-            {!requiresMergeQueue && (
+            {mergeMode !== 'queue' && (
               <button
                 type="button"
                 className="merge-card__btn merge-card__btn--split-caret"
@@ -768,10 +817,16 @@ function MergeBar({ pr, detail, mergeState, mergeError, mergeQueuedMessage, onMe
             </div>
             <div className="merge-confirm__body">
               <p>
-                {MERGE_STRATEGY_LABEL[strategy]} <b>{pr.repo}#{pr.number}</b> on GitHub?
+                {mergeMode === 'when-ready'
+                  ? <>Enable auto-merge on <b>{pr.repo}#{pr.number}</b>?</>
+                  : <>{MERGE_STRATEGY_LABEL[strategy]} <b>{pr.repo}#{pr.number}</b> on GitHub?</>}
               </p>
               <p className="merge-confirm__sub">{pr.title}</p>
-              <p className="merge-confirm__sub">{MERGE_STRATEGY_HINT[strategy]}</p>
+              <p className="merge-confirm__sub">
+                {mergeMode === 'when-ready'
+                  ? `GitHub will ${MERGE_STRATEGY_LABEL[strategy].toLowerCase()} this PR automatically once required checks pass.`
+                  : MERGE_STRATEGY_HINT[strategy]}
+              </p>
             </div>
             <div className="merge-confirm__actions">
               <button
@@ -787,15 +842,25 @@ function MergeBar({ pr, detail, mergeState, mergeError, mergeQueuedMessage, onMe
                 className="merge-bar__btn"
                 onClick={() => {
                   // Fire the merge then close the dialog. The parent's
-                  // handleMerge surfaces errors via mergeError below.
-                  onMerge(strategy);
+                  // handleMerge / handleEnableAutoMerge surfaces errors
+                  // via mergeError below.
+                  if (mergeMode === 'when-ready' && onEnableAutoMerge) {
+                    onEnableAutoMerge(strategy);
+                  }
+                  else {
+                    onMerge(strategy);
+                  }
                   setConfirmOpen(false);
                 }}
                 disabled={mergeState === 'running'}
               >
                 {mergeState === 'running'
-                  ? (requiresMergeQueue ? 'Enqueuing…' : 'Merging…')
-                  : (requiresMergeQueue ? 'Yes, add to queue' : 'Yes, merge')}
+                  ? (mergeMode === 'queue' ? 'Enqueuing…'
+                    : mergeMode === 'when-ready' ? 'Enabling…'
+                    : 'Merging…')
+                  : (mergeMode === 'queue' ? 'Yes, add to queue'
+                    : mergeMode === 'when-ready' ? 'Yes, enable auto-merge'
+                    : 'Yes, merge')}
               </button>
             </div>
           </div>
@@ -1181,6 +1246,30 @@ function PullRequestPreview({
     }
   };
 
+  /** Mirror of {@link handleMerge} for the "Merge when ready" path.
+   *  Goes straight through the bridge (no parent prop) since the
+   *  enable mutation isn't routed through any optimistic list-level
+   *  state — the PR row doesn't move to Handled until GitHub actually
+   *  merges it, which happens after checks pass. We refresh the detail
+   *  so the next render reflects whatever side-effects the backend
+   *  records (cache invalidation primarily). */
+  const handleEnableAutoMerge = async (strategy: MergeStrategy) => {
+    if (mergeState === 'running') return;
+    setMergeState('running');
+    setMergeError(null);
+    setMergeQueuedMessage(null);
+    try {
+      await window.bridge.enableAutoMerge(pr.id, pr.repo, pr.number, strategy);
+      await refreshDetailFromGitHub();
+      setMergeQueuedMessage('Auto-merge enabled — will merge once checks pass.');
+      setMergeState('queued');
+    }
+    catch (e) {
+      setMergeError(e instanceof Error ? e.message : String(e));
+      setMergeState('error');
+    }
+  };
+
   const handleMarkHandled = async () => {
     setHandledState('running');
     setHandledError(null);
@@ -1445,6 +1534,7 @@ function PullRequestPreview({
                     mergeError={mergeError}
                     mergeQueuedMessage={mergeQueuedMessage}
                     onMerge={(strategy) => { void handleMerge(strategy); }}
+                    onEnableAutoMerge={(strategy) => { void handleEnableAutoMerge(strategy); }}
                     onRefreshCi={refreshCi}
                     ciRefreshing={ciRefreshing}
                   />
@@ -1968,6 +2058,7 @@ function PullRequestPreview({
                   mergeError={mergeError}
                   mergeQueuedMessage={mergeQueuedMessage}
                   onMerge={(strategy) => { void handleMerge(strategy); }}
+                  onEnableAutoMerge={(strategy) => { void handleEnableAutoMerge(strategy); }}
                   onRefreshCi={refreshCi}
                   ciRefreshing={ciRefreshing}
                 />

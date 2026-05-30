@@ -876,6 +876,51 @@ public class PullRequestService
     }
 
     /**
+     * Enables auto-merge for the PR — GitHub will merge it automatically once
+     * required checks pass and approvals are in place. Mirrors github.com's
+     * "Merge when ready" button. Goes through GraphQL; REST has no
+     * equivalent. The detail cache is dropped so the next /prs/detail call
+     * reflects the new state instead of waiting for the background sync.
+     */
+    public void enableAutoMerge(String pat, String repo, int number, long prId, String strategy)
+    {
+        PullRequestRef ref = parseRef(repo, number);
+        gitHub.enableAutoMerge(pat, ref, autoMergeGraphqlEnum(strategy));
+        invalidatePullRequestDetail(repo, number);
+        repoListCache.invalidatePulls(parseRepoRef(repo));
+    }
+
+    /**
+     * Cancels a previously-enabled auto-merge. Idempotent on GitHub's side
+     * — a no-op when auto-merge isn't enabled. Detail cache is invalidated
+     * for the same reason as {@link #enableAutoMerge}.
+     */
+    public void disableAutoMerge(String pat, String repo, int number, long prId)
+    {
+        PullRequestRef ref = parseRef(repo, number);
+        gitHub.disableAutoMerge(pat, ref);
+        invalidatePullRequestDetail(repo, number);
+        repoListCache.invalidatePulls(parseRepoRef(repo));
+    }
+
+    /**
+     * Maps the wire-level "rebase" / "squash" / "merge" strategy strings
+     * (used by /prs/merge for parity with the dropdown) onto GraphQL's
+     * PullRequestMergeMethod enum values (REBASE / SQUASH / MERGE).
+     */
+    private static String autoMergeGraphqlEnum(String strategy)
+    {
+        if (strategy == null) {
+            return "REBASE";
+        }
+        return switch (strategy.toLowerCase(Locale.ROOT)) {
+            case "squash" -> "SQUASH";
+            case "merge" -> "MERGE";
+            default -> "REBASE";
+        };
+    }
+
+    /**
      * Marks a PR as handled with the given action, without calling any GitHub API.
      * Used by the hover "Handled" button on the card.
      */

@@ -981,6 +981,33 @@ const url = new URL(`${BACKEND_BASE}/prs/comment`);
     return res.json();
   });
 
+  ipcMain.handle('backend:enableAutoMerge', async (_event, prId: number, repo: string, number: number, strategy?: string) => {
+    const url = new URL(`${BACKEND_BASE}/prs/auto-merge`);
+    url.searchParams.set('id', String(prId));
+    url.searchParams.set('repo', repo);
+    url.searchParams.set('number', String(number));
+    if (strategy) url.searchParams.set('strategy', strategy);
+    const res = await fetch(url, { method: 'POST' });
+    if (!res.ok) {
+      const body = await res.text().catch(() => '');
+      throw new Error(`Enable auto-merge failed (${res.status}): ${body}`);
+    }
+    return res.json();
+  });
+
+  ipcMain.handle('backend:disableAutoMerge', async (_event, prId: number, repo: string, number: number) => {
+    const url = new URL(`${BACKEND_BASE}/prs/auto-merge`);
+    url.searchParams.set('id', String(prId));
+    url.searchParams.set('repo', repo);
+    url.searchParams.set('number', String(number));
+    const res = await fetch(url, { method: 'DELETE' });
+    if (!res.ok) {
+      const body = await res.text().catch(() => '');
+      throw new Error(`Cancel auto-merge failed (${res.status}): ${body}`);
+    }
+    return res.json();
+  });
+
   ipcMain.handle('repos:list', async () => {
     const res = await fetch(`${BACKEND_BASE}/api/repos`);
     if (!res.ok) throw new Error(`backend /api/repos returned ${res.status}`);

@@ -2166,6 +2166,15 @@ export type Bridge = {
    *  caller can roll back any optimistic "merged" state and show a
    *  queue indicator. */
   mergePr: (prId: number, repo: string, number: number, strategy?: 'rebase' | 'squash' | 'merge') => Promise<{ merged: boolean; message: string; queued: boolean }>;
+  /** Enables GitHub's auto-merge — the PR merges automatically once
+   *  required checks pass and approvals are in place. Mirrors
+   *  github.com's "Merge when ready" button. Goes through a GraphQL
+   *  mutation; rejected by GitHub if the repo doesn't allow auto-merge. */
+  enableAutoMerge: (prId: number, repo: string, number: number, strategy?: 'rebase' | 'squash' | 'merge') => Promise<{ result: string }>;
+  /** Cancels a previously-enabled auto-merge. Idempotent on GitHub's
+   *  side (no-op when auto-merge isn't enabled), so callers don't have
+   *  to track local state. */
+  disableAutoMerge: (prId: number, repo: string, number: number) => Promise<{ result: string }>;
   commentPr: (prId: number, repo: string, number: number, body: string, close: boolean) => Promise<void>;
   /** Adds a single user to the PR's requested reviewers. */
   addRequestedReviewer: (repo: string, number: number, reviewer: string) => Promise<void>;

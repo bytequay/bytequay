@@ -128,6 +128,10 @@ const bridge: Bridge = {
     ipcRenderer.invoke('backend:approvePr', prId, repo, number),
   mergePr: (prId: number, repo: string, number: number, strategy?: 'rebase' | 'squash' | 'merge'): Promise<{ merged: boolean; message: string; queued: boolean }> =>
     ipcRenderer.invoke('backend:mergePr', prId, repo, number, strategy),
+  enableAutoMerge: (prId: number, repo: string, number: number, strategy?: 'rebase' | 'squash' | 'merge'): Promise<{ result: string }> =>
+    ipcRenderer.invoke('backend:enableAutoMerge', prId, repo, number, strategy),
+  disableAutoMerge: (prId: number, repo: string, number: number): Promise<{ result: string }> =>
+    ipcRenderer.invoke('backend:disableAutoMerge', prId, repo, number),
   commentPr: (prId: number, repo: string, number: number, body: string, close: boolean): Promise<void> =>
     ipcRenderer.invoke('backend:commentPr', prId, repo, number, body, close),
   replyToReviewThread: (repo: string, number: number, rootCommentId: number, body: string): Promise<void> =>

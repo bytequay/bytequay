@@ -808,6 +808,50 @@ public interface PullRequestRepository
         throw new UnsupportedOperationException("setPullRequestDraft not implemented");
     }
 
+    /**
+     * Enables GitHub's auto-merge for the given PR. After this returns, GitHub
+     * will merge the PR automatically once required checks pass and approvals
+     * are in place. The chosen {@code mergeMethod} must be one of
+     * {@code MERGE}, {@code SQUASH}, or {@code REBASE} — GraphQL's
+     * {@code PullRequestMergeMethod} enum. Maps to the GraphQL
+     * {@code enablePullRequestAutoMerge} mutation; REST does not expose this.
+     */
+    default void enableAutoMerge(String pat, PullRequestRef pr, String mergeMethod)
+    {
+        throw new UnsupportedOperationException("enableAutoMerge not implemented");
+    }
+
+    /**
+     * Cancels a previously-enabled auto-merge. Idempotent — calling it on a
+     * PR that doesn't have auto-merge enabled is a no-op on GitHub's side.
+     * Maps to the GraphQL {@code disablePullRequestAutoMerge} mutation.
+     */
+    default void disableAutoMerge(String pat, PullRequestRef pr)
+    {
+        throw new UnsupportedOperationException("disableAutoMerge not implemented");
+    }
+
+    /**
+     * Fetches the PR's current auto-merge state, if any. Returns
+     * {@code Optional.empty()} when auto-merge is not enabled. The carrier
+     * exposes the chosen merge method (REBASE / SQUASH / MERGE) and the
+     * login of the user who enabled it, so the UI can render a
+     * "Auto-merge enabled by @login · Cancel" affordance instead of a stale
+     * "Merge when ready" button.
+     */
+    default Optional<AutoMergeStatus> fetchAutoMergeStatus(String pat, PullRequestRef pr)
+    {
+        throw new UnsupportedOperationException("fetchAutoMergeStatus not implemented");
+    }
+
+    /**
+     * Carrier for {@link #fetchAutoMergeStatus} — the data backing the
+     * frontend's "Auto-merge enabled by @{@code enabledByLogin} ({@code mergeMethod})"
+     * status row. Both fields are pulled straight from GraphQL's
+     * {@code autoMergeRequest} object.
+     */
+    record AutoMergeStatus(String mergeMethod, String enabledByLogin) {}
+
     // ── Events ────────────────────────────────────────────────────────────────
 
     /**

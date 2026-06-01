@@ -34,6 +34,9 @@ import com.bytequay.app.service.tools.ToolCall;
 import com.bytequay.app.service.tools.ToolOutcome;
 import com.bytequay.app.service.tools.ToolParam;
 import com.bytequay.app.service.tools.ToolSpec;
+import com.fasterxml.jackson.annotation.JsonInclude;
+import com.fasterxml.jackson.annotation.JsonProperty;
+import com.fasterxml.jackson.annotation.JsonPropertyOrder;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -48,9 +51,7 @@ import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.context.request.async.DeferredResult;
 
 import java.nio.file.Path;
-import java.util.LinkedHashMap;
 import java.util.List;
-import java.util.Map;
 import java.util.Optional;
 import java.util.OptionalInt;
 import java.util.Set;
@@ -523,14 +524,24 @@ public class McpController
     {
         try {
             String taskId = runningTurn(threadId).map(ThreadTurn::taskId).orElse(null);
-            Map<String, Object> payload = new LinkedHashMap<>();
-            payload.put("reason", "unattended turn requested an out-of-bounds tool");
-            payload.put("tool", toolName);
-            payload.put("summary", summarize(toolName, toolInput));
+            UnattendedGatePayload payload = new UnattendedGatePayload(toolName, summarize(toolName, toolInput));
             notifications.notifyNeedsAttention(threadId, taskId, mapper.writeValueAsString(payload));
         }
         catch (RuntimeException | JsonProcessingException e) {
             log.warn("Failed to escalate unattended gate for thread {}: {}", threadId, e.getMessage());
+        }
+    }
+
+    /** Wire shape for the NEEDS_ATTENTION notification emitted when an
+     *  unattended turn requests a tool outside its autonomy envelope.
+     *  {@code reason} is a fixed discriminator so the dashboard can
+     *  route on it. */
+    @JsonPropertyOrder({"reason", "tool", "summary"})
+    private record UnattendedGatePayload(String tool, String summary)
+    {
+        @JsonProperty("reason") public String reason()
+        {
+            return "unattended turn requested an out-of-bounds tool";
         }
     }
 
@@ -575,15 +586,16 @@ public class McpController
             }
             try {
                 ShellRunner.Result result = shellRunner.run(worktree, command);
-                ObjectNode out = mapper.createObjectNode();
-                out.put("ran", result.ran());
-                out.put("exitCode", result.exitCode());
-                out.put("truncated", result.truncated());
-                out.put("output", result.output());
-                if (result.error() != null) {
-                    out.put("error", result.error());
-                }
-                deferred.setResult(plainText(id, toJsonString(out)));
+                RunShellResult out = new RunShellResult(
+                        result.ran(),
+                        result.exitCode(),
+                        result.truncated(),
+                        result.output(),
+                        result.error());
+                deferred.setResult(plainText(id, mapper.writeValueAsString(out)));
+            }
+            catch (JsonProcessingException je) {
+                throw new IllegalStateException("failed to serialise run_shell result", je);
             }
             catch (InterruptedException ie) {
                 Thread.currentThread().interrupt();
@@ -607,18 +619,17 @@ public class McpController
         deferred.onCompletion(() -> gate.cancel(callId));
     }
 
-    /** Serialise a JSON node to its compact string form; falls back
-     *  to an error envelope on the (vanishingly unlikely) Jackson
-     *  failure so the deferred result always carries something. */
-    private String toJsonString(ObjectNode out)
-    {
-        try {
-            return mapper.writeValueAsString(out);
-        }
-        catch (JsonProcessingException e) {
-            return "{\"error\":\"serialisation failed: " + e.getMessage().replace("\"", "\\\"") + "\"}";
-        }
-    }
+    /** Wire shape for {@code run_shell}'s result. Mirrors {@link
+     *  ShellRunner.Result} plus omits {@code error} when null so the
+     *  wire JSON matches the prior conditional {@code put("error", …)}
+     *  semantics. */
+    @JsonInclude(JsonInclude.Include.NON_NULL)
+    private record RunShellResult(
+            boolean ran,
+            int exitCode,
+            boolean truncated,
+            String output,
+            String error) {}
 
     /** True when this thread has an unresolved blocking parked state.
      *  A successfully approved {@code next_task} deliberately leaves

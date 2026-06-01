@@ -16,25 +16,29 @@ package com.bytequay.app.service.tools;
 import com.bytequay.app.service.skills.SkillManifestEntry;
 import com.bytequay.app.service.skills.SkillManifestQuery;
 import com.bytequay.app.service.skills.SkillManifestService;
-import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.SerializationFeature;
-import com.fasterxml.jackson.databind.node.ArrayNode;
-import com.fasterxml.jackson.databind.node.ObjectNode;
+import com.fasterxml.jackson.databind.node.MissingNode;
 import org.springframework.stereotype.Component;
 
 import java.util.List;
 import java.util.Locale;
 import java.util.Optional;
 import java.util.Set;
-import java.util.stream.Collectors;
 
 import static java.util.Objects.requireNonNull;
 
 /**
  * The three always-present runtime tools — {@code list_skills},
  * {@code list_tools}, and {@code load_skill}.
+ *
+ * <h3>Wire contract</h3>
+ *
+ * Each handler returns a Jackson-serialisable record ({@link SkillSummary},
+ * {@link SkillBody}, {@link ToolCatalogEntry}) wrapped in a
+ * {@link RuntimeToolInvocation}. The lane that consumes the outcome
+ * serialises once at the wire boundary, so the bytes the model sees come
+ * from one place and the handlers stay free of JSON plumbing.
  *
  * <h3>Cache-stability contract</h3>
  *
@@ -156,13 +160,17 @@ public class SkillTools
     public static final String OPENAI_DEFINITIONS_JSON =
             "[" + OPENAI_LIST_SKILLS + "," + OPENAI_LIST_TOOLS + "," + OPENAI_LOAD_SKILL + "]";
 
-    private static final String LIST_TOOLS_CATALOG_JSON = ""
-            + "[{\"name\":\"list_skills\",\"description\":\"" + LIST_SKILLS_DESCRIPTION + "\",\"kind\":\"skill\"},"
-            + "{\"name\":\"list_tools\",\"description\":\"" + LIST_TOOLS_DESCRIPTION + "\",\"kind\":\"skill\"},"
-            + "{\"name\":\"load_skill\",\"description\":\"" + LOAD_SKILL_DESCRIPTION + "\",\"kind\":\"skill\"}]";
+    /** Tool catalog the {@code list_tools} handler returns. Reference-
+     *  stable (same {@code List} instance every call) so the wire layer
+     *  can rely on Jackson producing byte-identical output turn over
+     *  turn — the cache-stability rule for tool results at the tail of
+     *  history. */
+    private static final List<ToolCatalogEntry> LIST_TOOLS_CATALOG = List.of(
+            new ToolCatalogEntry("list_skills", LIST_SKILLS_DESCRIPTION, "skill"),
+            new ToolCatalogEntry("list_tools", LIST_TOOLS_DESCRIPTION, "skill"),
+            new ToolCatalogEntry("load_skill", LOAD_SKILL_DESCRIPTION, "skill"));
 
     private final SkillManifestService manifest;
-    private final ObjectMapper mapper = jsonMapper();
 
     public SkillTools(SkillManifestService manifest)
     {
@@ -172,9 +180,9 @@ public class SkillTools
     /**
      * Dispatch one tool call. The model passes the tool name and a
      * JSON object of arguments; we look up the body and return the
-     * JSON the model sees back. The dispatcher is the single entry
-     * point — providers should always go through here so the cache
-     * key is stable regardless of which lane invoked it.
+     * wire-shaped record the lane will serialise. The dispatcher is
+     * the single entry point — providers should always go through here
+     * so the cache key is stable regardless of which lane invoked it.
      *
      * @param toolName  one of {@link #TOOL_NAMES}
      * @param arguments the JSON object the model emitted as the tool's
@@ -187,10 +195,10 @@ public class SkillTools
     {
         requireNonNull(toolName, "toolName is null");
         requireNonNull(context, "context is null");
-        JsonNode args = arguments == null ? mapper.createObjectNode() : arguments;
+        JsonNode args = arguments == null ? MissingNode.getInstance() : arguments;
         return switch (toolName) {
             case "list_skills" -> listSkills(args.path("scope").asText(""), args.path("query").asText(""), context);
-            case "list_tools" -> RuntimeToolInvocation.ok(LIST_TOOLS_CATALOG_JSON);
+            case "list_tools" -> RuntimeToolInvocation.ok(LIST_TOOLS_CATALOG);
             case "load_skill" -> loadSkill(args.path("name").asText(""));
             default -> RuntimeToolInvocation.error("unknown tool: " + toolName);
         };
@@ -214,26 +222,14 @@ public class SkillTools
                 context.threadId(),
                 context.role());
         List<SkillManifestEntry> entries = manifest.query(manifestQuery);
-        if (!filter.isEmpty()) {
-            String needle = filter.toLowerCase(Locale.ROOT);
-            entries = entries.stream()
-                    .filter(e -> e.description() != null
-                            && e.description().toLowerCase(Locale.ROOT).contains(needle))
-                    .collect(Collectors.toUnmodifiableList());
-        }
-        ArrayNode array = mapper.createArrayNode();
-        for (SkillManifestEntry e : entries) {
-            ObjectNode node = mapper.createObjectNode();
-            node.put("id", e.id());
-            node.put("name", e.name());
-            node.put("description", e.description());
-            node.put("scope", e.scope());
-            node.put("repo", e.repo());
-            node.put("role_tag", e.roleTag());
-            node.put("kind", e.kind());
-            array.add(node);
-        }
-        return RuntimeToolInvocation.ok(serialise(array));
+        String needle = filter.toLowerCase(Locale.ROOT);
+        List<SkillSummary> summaries = entries.stream()
+                .filter(e -> needle.isEmpty()
+                        || (e.description() != null
+                                && e.description().toLowerCase(Locale.ROOT).contains(needle)))
+                .map(SkillSummary::from)
+                .toList();
+        return RuntimeToolInvocation.ok(summaries);
     }
 
     /** Load one skill's body by name. The {@code load_skill} tool calls
@@ -249,10 +245,7 @@ public class SkillTools
         if (body.isEmpty()) {
             return RuntimeToolInvocation.error("skill not found or disabled: " + name);
         }
-        ObjectNode node = mapper.createObjectNode();
-        node.put("name", name);
-        node.put("body", body.get());
-        return RuntimeToolInvocation.ok(serialise(node));
+        return RuntimeToolInvocation.ok(new SkillBody(name, body.get()));
     }
 
     private static Set<String> defaultScopes(ToolContext context)
@@ -271,23 +264,30 @@ public class SkillTools
         return Set.of("global");
     }
 
-    private String serialise(JsonNode node)
+    /** Wire shape for one {@code list_skills} entry. Field order is
+     *  fixed by record declaration — the wire layer's Jackson mapper
+     *  follows that order, so a rename or reorder here changes the
+     *  bytes the model sees. */
+    public record SkillSummary(
+            long id,
+            String name,
+            String description,
+            String scope,
+            String repo,
+            @JsonProperty("role_tag") String roleTag,
+            String kind)
     {
-        try {
-            return mapper.writeValueAsString(node);
-        }
-        catch (JsonProcessingException e) {
-            throw new IllegalStateException("failed to serialise tool result", e);
+        static SkillSummary from(SkillManifestEntry e)
+        {
+            return new SkillSummary(
+                    e.id(), e.name(), e.description(), e.scope(),
+                    e.repo(), e.roleTag(), e.kind());
         }
     }
 
-    private static ObjectMapper jsonMapper()
-    {
-        ObjectMapper m = new ObjectMapper();
-        // Keep tool-result bytes byte-stable across calls and Jackson
-        // versions — the model's prefix cache hashes on the previous
-        // turn's bytes verbatim.
-        m.configure(SerializationFeature.ORDER_MAP_ENTRIES_BY_KEYS, false);
-        return m;
-    }
+    /** Wire shape for {@code load_skill}'s result. */
+    public record SkillBody(String name, String body) {}
+
+    /** Wire shape for one entry in the {@code list_tools} catalog. */
+    public record ToolCatalogEntry(String name, String description, String kind) {}
 }

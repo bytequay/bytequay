@@ -337,11 +337,24 @@ public class AgentToolHandlers
                 Optional.of(call.role().name().toLowerCase(Locale.ROOT)));
     }
 
-    private static ToolOutcome skillOutcome(RuntimeToolInvocation out)
+    /** Adapt a {@link RuntimeToolInvocation} (an Object payload + an
+     *  error flag) to a {@link ToolOutcome.Completed} carrying the
+     *  serialised JSON. This is the single place tool results are
+     *  serialised — handlers stay free of JSON plumbing, and the bytes
+     *  the model sees come from one mapper. */
+    private ToolOutcome skillOutcome(RuntimeToolInvocation out)
     {
+        String json;
+        try {
+            json = mapper.writeValueAsString(out.payload());
+        }
+        catch (JsonProcessingException e) {
+            throw new IllegalStateException(
+                    "failed to serialise skill tool payload: " + out.payload(), e);
+        }
         return out.isError()
-                ? ToolOutcome.Completed.error(out.result())
-                : ToolOutcome.Completed.ok(out.result());
+                ? ToolOutcome.Completed.error(json)
+                : ToolOutcome.Completed.ok(json);
     }
 
     /** Args record for {@code recall_thread}. */

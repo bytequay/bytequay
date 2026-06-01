@@ -16,7 +16,6 @@ package com.bytequay.app.service.tools;
 import com.bytequay.app.domain.Skill;
 import com.bytequay.app.repository.SkillStore;
 import com.bytequay.app.service.skills.SkillManifestService;
-import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
 
@@ -63,7 +62,6 @@ class TestSkillTools
 
     @Test
     void listSkillsReturnsEntriesForTheContext()
-            throws Exception
     {
         SkillTools tools = newToolsWith(List.of(
                 skill(1, "auth-review", "global", null, null, true, "rubric"),
@@ -76,18 +74,15 @@ class TestSkillTools
                 ToolContext.forRepo("acme/widgets", null));
 
         assertThat(out.isError()).isFalse();
-        JsonNode parsed = mapper.readTree(out.result());
-        assertThat(parsed.isArray()).isTrue();
-        assertThat(parsed).hasSize(2);
+        List<SkillTools.SkillSummary> summaries = asSummaries(out.payload());
         // The output is ordered (global / name), so the global row
         // comes first.
-        assertThat(parsed.get(0).path("name").asText()).isEqualTo("auth-review");
-        assertThat(parsed.get(1).path("name").asText()).isEqualTo("acme-rubric");
+        assertThat(summaries).extracting(SkillTools.SkillSummary::name)
+                .containsExactly("auth-review", "acme-rubric");
     }
 
     @Test
     void listSkillsAppliesQuerySubstring()
-            throws Exception
     {
         // Two rows with distinct trigger descriptions; only the auth
         // one matches the query and so survives the filter.
@@ -100,9 +95,9 @@ class TestSkillTools
 
         RuntimeToolInvocation out = tools.dispatch("list_skills", args, ToolContext.empty());
 
-        JsonNode parsed = mapper.readTree(out.result());
-        assertThat(parsed).hasSize(1);
-        assertThat(parsed.get(0).path("name").asText()).isEqualTo("auth-row");
+        List<SkillTools.SkillSummary> summaries = asSummaries(out.payload());
+        assertThat(summaries).extracting(SkillTools.SkillSummary::name)
+                .containsExactly("auth-row");
     }
 
     private static Skill skillWithDescription(long id, String name, String description)
@@ -117,6 +112,10 @@ class TestSkillTools
     @Test
     void listToolsCatalogIsConstant()
     {
+        // The catalog must be byte-stable across calls so the model's
+        // prefix cache stays warm. We assert that property at the layer
+        // now responsible for it: dispatch returns the same payload
+        // reference every call, and the wire mapper is deterministic.
         SkillTools tools = newToolsWith(List.of());
 
         RuntimeToolInvocation first = tools.dispatch(
@@ -125,14 +124,14 @@ class TestSkillTools
                 "list_tools", null, ToolContext.empty());
 
         assertThat(first.isError()).isFalse();
-        assertThat(first.result()).isEqualTo(second.result());
-        assertThat(first.result()).contains("\"name\":\"list_skills\"");
-        assertThat(first.result()).contains("\"name\":\"load_skill\"");
+        assertThat(first.payload()).isSameAs(second.payload());
+        assertThat(asCatalog(first.payload()))
+                .extracting(SkillTools.ToolCatalogEntry::name)
+                .containsExactly("list_skills", "list_tools", "load_skill");
     }
 
     @Test
     void loadSkillReturnsBodyForKnownName()
-            throws Exception
     {
         SkillTools tools = newToolsWith(List.of(
                 skill(1, "house-style", "global", null, null, true, "library", "Use 4-space indents.")));
@@ -143,9 +142,10 @@ class TestSkillTools
         RuntimeToolInvocation out = tools.dispatch("load_skill", args, ToolContext.empty());
 
         assertThat(out.isError()).isFalse();
-        JsonNode parsed = mapper.readTree(out.result());
-        assertThat(parsed.path("name").asText()).isEqualTo("house-style");
-        assertThat(parsed.path("body").asText()).isEqualTo("Use 4-space indents.");
+        assertThat(out.payload()).isInstanceOfSatisfying(SkillTools.SkillBody.class, body -> {
+            assertThat(body.name()).isEqualTo("house-style");
+            assertThat(body.body()).isEqualTo("Use 4-space indents.");
+        });
     }
 
     @Test
@@ -159,7 +159,9 @@ class TestSkillTools
         RuntimeToolInvocation out = tools.dispatch("load_skill", args, ToolContext.empty());
 
         assertThat(out.isError()).isTrue();
-        assertThat(out.result()).contains("skill not found or disabled");
+        assertThat(out.payload()).isInstanceOfSatisfying(
+                RuntimeToolInvocation.ErrorPayload.class,
+                err -> assertThat(err.error()).contains("skill not found or disabled"));
     }
 
     @Test
@@ -171,7 +173,23 @@ class TestSkillTools
                 "nonexistent", null, ToolContext.empty());
 
         assertThat(out.isError()).isTrue();
-        assertThat(out.result()).contains("unknown tool");
+        assertThat(out.payload()).isInstanceOfSatisfying(
+                RuntimeToolInvocation.ErrorPayload.class,
+                err -> assertThat(err.error()).contains("unknown tool"));
+    }
+
+    @SuppressWarnings("unchecked")
+    private static List<SkillTools.SkillSummary> asSummaries(Object payload)
+    {
+        assertThat(payload).isInstanceOf(List.class);
+        return (List<SkillTools.SkillSummary>) payload;
+    }
+
+    @SuppressWarnings("unchecked")
+    private static List<SkillTools.ToolCatalogEntry> asCatalog(Object payload)
+    {
+        assertThat(payload).isInstanceOf(List.class);
+        return (List<SkillTools.ToolCatalogEntry>) payload;
     }
 
     private static SkillTools newToolsWith(List<Skill> rows)

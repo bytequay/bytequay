@@ -29,7 +29,6 @@ import com.bytequay.app.service.threads.ThreadService;
 import com.bytequay.app.service.workspaces.WorkspaceService;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.node.ObjectNode;
 import org.springframework.stereotype.Component;
 
 import java.nio.file.Path;
@@ -141,25 +140,48 @@ public class AgentToolHandlers
         if (match.isEmpty()) {
             return ToolOutcome.Completed.error("task not found: " + taskId);
         }
-        Task task = match.get();
-        ObjectNode out = mapper.createObjectNode();
-        out.put("id", task.id());
-        out.put("threadId", task.threadId());
-        out.put("seq", task.seq());
-        out.put("status", task.status() == null ? null : task.status().name());
-        out.put("branchName", task.branchName());
-        out.put("worktreePath", task.worktreePath());
-        out.put("baseBranch", task.baseBranch());
-        out.put("workingDir", task.workingDir());
-        out.put("prNumber", task.prNumber());
-        out.put("linkedPrNumber", task.linkedPrNumber());
-        out.put("linkedIssueNumber", task.linkedIssueNumber());
-        out.put("taskType", task.taskType());
-        out.put("createdAt", task.createdAt() == null ? null : task.createdAt().toString());
-        out.put("endedAt", task.endedAt() == null ? null : task.endedAt().toString());
-        out.put("errorMessage", task.errorMessage());
-        out.put("name", task.name());
-        return ToolOutcome.Completed.ok(toJson(out));
+        return toolOutcome(ReadTaskResult.from(match.get()));
+    }
+
+    /** Wire shape for {@code read_task}'s result. */
+    public record ReadTaskResult(
+            String id,
+            String threadId,
+            long seq,
+            String status,
+            String branchName,
+            String worktreePath,
+            String baseBranch,
+            String workingDir,
+            Integer prNumber,
+            Integer linkedPrNumber,
+            Integer linkedIssueNumber,
+            String taskType,
+            String createdAt,
+            String endedAt,
+            String errorMessage,
+            String name)
+    {
+        static ReadTaskResult from(Task t)
+        {
+            return new ReadTaskResult(
+                    t.id(),
+                    t.threadId(),
+                    t.seq(),
+                    t.status() == null ? null : t.status().name(),
+                    t.branchName(),
+                    t.worktreePath(),
+                    t.baseBranch(),
+                    t.workingDir(),
+                    t.prNumber(),
+                    t.linkedPrNumber(),
+                    t.linkedIssueNumber(),
+                    t.taskType(),
+                    t.createdAt() == null ? null : t.createdAt().toString(),
+                    t.endedAt() == null ? null : t.endedAt().toString(),
+                    t.errorMessage(),
+                    t.name());
+        }
     }
 
     /** Args record for {@code read_pr}. */
@@ -198,28 +220,54 @@ public class AgentToolHandlers
             return ToolOutcome.Completed.error(
                     "PR row gone after id lookup: " + repo + "#" + number);
         }
-        PullRequest pr = match.get();
-        ObjectNode out = mapper.createObjectNode();
-        out.put("id", pr.id());
-        out.put("repo", pr.repo());
-        out.put("number", pr.number());
-        out.put("title", pr.title());
-        out.put("author", pr.author());
-        out.put("state", pr.state());
-        out.put("draft", pr.draft());
-        out.put("mergeable", pr.mergeable());
-        out.put("mergeableState", pr.mergeableState());
-        out.put("headRef", pr.headRef());
-        out.put("additions", pr.additions());
-        out.put("deletions", pr.deletions());
-        out.put("commentCount", pr.commentCount());
-        out.put("attentionReason", pr.attentionReason() == null ? null : pr.attentionReason().name());
-        out.put("createdAt", pr.createdAt() == null ? null : pr.createdAt().toString());
-        out.put("updatedAt", pr.updatedAt() == null ? null : pr.updatedAt().toString());
-        out.put("closedAt", pr.closedAt() == null ? null : pr.closedAt().toString());
-        out.put("mergedAt", pr.mergedAt() == null ? null : pr.mergedAt().toString());
-        out.put("snoozedUntil", pr.snoozedUntil() == null ? null : pr.snoozedUntil().toString());
-        return ToolOutcome.Completed.ok(toJson(out));
+        return toolOutcome(ReadPrResult.from(match.get()));
+    }
+
+    /** Wire shape for {@code read_pr}'s result. */
+    public record ReadPrResult(
+            long id,
+            String repo,
+            int number,
+            String title,
+            String author,
+            String state,
+            boolean draft,
+            Boolean mergeable,
+            String mergeableState,
+            String headRef,
+            int additions,
+            int deletions,
+            int commentCount,
+            String attentionReason,
+            String createdAt,
+            String updatedAt,
+            String closedAt,
+            String mergedAt,
+            String snoozedUntil)
+    {
+        static ReadPrResult from(PullRequest pr)
+        {
+            return new ReadPrResult(
+                    pr.id(),
+                    pr.repo(),
+                    pr.number(),
+                    pr.title(),
+                    pr.author(),
+                    pr.state(),
+                    pr.draft(),
+                    pr.mergeable(),
+                    pr.mergeableState(),
+                    pr.headRef(),
+                    pr.additions(),
+                    pr.deletions(),
+                    pr.commentCount(),
+                    pr.attentionReason() == null ? null : pr.attentionReason().name(),
+                    pr.createdAt() == null ? null : pr.createdAt().toString(),
+                    pr.updatedAt() == null ? null : pr.updatedAt().toString(),
+                    pr.closedAt() == null ? null : pr.closedAt().toString(),
+                    pr.mergedAt() == null ? null : pr.mergedAt().toString(),
+                    pr.snoozedUntil() == null ? null : pr.snoozedUntil().toString());
+        }
     }
 
     /** Args record for {@code read_workspace_memory} — no args; the
@@ -247,16 +295,16 @@ public class AgentToolHandlers
         }
         try {
             String body = workspaces.getMemory(workspaceId);
-            ObjectNode out = mapper.createObjectNode();
-            out.put("workspaceId", workspaceId);
-            out.put("memoryMd", body == null ? "" : body);
-            return ToolOutcome.Completed.ok(toJson(out));
+            return toolOutcome(new WorkspaceMemory(workspaceId, body == null ? "" : body));
         }
         catch (RuntimeException e) {
             return ToolOutcome.Completed.error(
                     "could not read memory for workspace " + workspaceId + ": " + e.getMessage());
         }
     }
+
+    /** Wire shape for {@code read_workspace_memory}'s result. */
+    public record WorkspaceMemory(String workspaceId, String memoryMd) {}
 
     /** Args record for {@code list_tools} — no args. */
     public record ListToolsArgs() {}
@@ -272,23 +320,18 @@ public class AgentToolHandlers
             roles = {AgentRole.TRUNK, AgentRole.TASK, AgentRole.REVIEWER})
     public ToolOutcome listTools(ListToolsArgs args, ToolCall call)
     {
-        ObjectNode result = mapper.createObjectNode();
-        var arr = result.putArray("tools");
-        for (ToolSpec spec : registry.visibleTo(call.role())) {
-            ObjectNode entry = mapper.createObjectNode();
-            entry.put("name", spec.name());
-            entry.put("description", spec.description());
-            entry.put("gating", spec.gating().name().toLowerCase(Locale.ROOT));
-            entry.put("security", spec.security().name().toLowerCase(Locale.ROOT));
-            arr.add(entry);
-        }
-        try {
-            return ToolOutcome.Completed.ok(mapper.writeValueAsString(result.get("tools")));
-        }
-        catch (JsonProcessingException e) {
-            return ToolOutcome.Completed.error("failed to serialise tool catalog");
-        }
+        List<ToolCatalogEntry> entries = registry.visibleTo(call.role()).stream()
+                .map(spec -> new ToolCatalogEntry(
+                        spec.name(),
+                        spec.description(),
+                        spec.gating().name().toLowerCase(Locale.ROOT),
+                        spec.security().name().toLowerCase(Locale.ROOT)))
+                .toList();
+        return toolOutcome(entries);
     }
+
+    /** Wire shape for one {@code list_tools} catalog entry. */
+    public record ToolCatalogEntry(String name, String description, String gating, String security) {}
 
     /** Args record for {@code list_skills}. */
     public record ListSkillsArgs(
@@ -494,17 +537,14 @@ public class AgentToolHandlers
         try {
             ShellRunner.Result result = shellRunner.runArgv(
                     worktree, runner.argv(), RUN_CHECKS_TIMEOUT_SECONDS, RUN_CHECKS_OUTPUT_BYTES);
-            ObjectNode out = mapper.createObjectNode();
-            out.put("ran", result.ran());
-            out.put("ecosystem", runner.ecosystem());
-            out.put("command", String.join(" ", runner.argv()));
-            out.put("exitCode", result.exitCode());
-            out.put("truncated", result.truncated());
-            out.put("output", result.output());
-            if (result.error() != null) {
-                out.put("error", result.error());
-            }
-            return ToolOutcome.Completed.ok(toJson(out));
+            return toolOutcome(new RunChecksResult(
+                    result.ran(),
+                    runner.ecosystem(),
+                    String.join(" ", runner.argv()),
+                    result.exitCode(),
+                    result.truncated(),
+                    result.output(),
+                    result.error()));
         }
         catch (InterruptedException e) {
             java.lang.Thread.currentThread().interrupt();
@@ -514,6 +554,19 @@ public class AgentToolHandlers
             return ToolOutcome.Completed.error("run_checks failed: " + e.getMessage());
         }
     }
+
+    /** Wire shape for {@code run_checks}' result. Mirrors {@link
+     *  ShellRunner.Result} plus the detected ecosystem + the command the
+     *  detector resolved. {@code error} is null on a successful run; the
+     *  field is emitted unconditionally so the wire shape is stable. */
+    public record RunChecksResult(
+            boolean ran,
+            String ecosystem,
+            String command,
+            int exitCode,
+            boolean truncated,
+            String output,
+            String error) {}
 
     /** Args record for {@code create_task}. */
     public record CreateTaskArgs(
@@ -593,29 +646,47 @@ public class AgentToolHandlers
                 thread.workspaceId());
         try {
             Task created = threads.materialiseTask(threadId, request);
-            ObjectNode out = mapper.createObjectNode();
-            out.put("id", created.id());
-            out.put("threadId", created.threadId());
-            out.put("seq", created.seq());
-            out.put("status", created.status() == null ? null : created.status().name());
-            out.put("branchName", created.branchName());
-            out.put("worktreePath", created.worktreePath());
-            out.put("workingDir", created.workingDir());
-            out.put("baseBranch", created.baseBranch());
-            return ToolOutcome.Completed.ok(toJson(out));
+            return toolOutcome(new CreatedTaskResult(
+                    created.id(),
+                    created.threadId(),
+                    created.seq(),
+                    created.status() == null ? null : created.status().name(),
+                    created.branchName(),
+                    created.worktreePath(),
+                    created.workingDir(),
+                    created.baseBranch()));
         }
         catch (IllegalArgumentException | IllegalStateException e) {
             return ToolOutcome.Completed.error("create_task failed: " + e.getMessage());
         }
     }
 
-    private String toJson(ObjectNode out)
+    /** Wire shape for {@code create_task}'s result — the just-cut task's
+     *  identifying fields. */
+    public record CreatedTaskResult(
+            String id,
+            String threadId,
+            long seq,
+            String status,
+            String branchName,
+            String worktreePath,
+            String workingDir,
+            String baseBranch) {}
+
+    /** Adapt a record (or any Jackson-serialisable value) to a {@link
+     *  ToolOutcome.Completed} carrying the JSON bytes. This is the single
+     *  serialisation point for tool results in this class — handlers stay
+     *  free of JSON plumbing, and the bytes the model sees come from one
+     *  mapper. A failure here is a programming bug (a non-serialisable
+     *  payload type), not a tool error, so we raise rather than wrap. */
+    private ToolOutcome toolOutcome(Object payload)
     {
         try {
-            return mapper.writeValueAsString(out);
+            return ToolOutcome.Completed.ok(mapper.writeValueAsString(payload));
         }
         catch (JsonProcessingException e) {
-            return "{\"error\":\"serialisation failed: " + e.getMessage().replace("\"", "\\\"") + "\"}";
+            throw new IllegalStateException(
+                    "failed to serialise tool payload: " + payload, e);
         }
     }
 }

@@ -28,9 +28,7 @@ import org.springframework.stereotype.Component;
 
 import java.io.IOException;
 import java.nio.file.Path;
-import java.util.LinkedHashMap;
 import java.util.Locale;
-import java.util.Map;
 import java.util.Optional;
 
 import static java.util.Objects.requireNonNull;
@@ -108,18 +106,16 @@ public class PublishToolHandlers
         if (task.worktreePath() == null || task.worktreePath().isBlank()) {
             return ToolOutcome.Completed.ok("the active task has no worktree — no diff is available for review");
         }
-        Map<String, Object> payload = new LinkedHashMap<>();
-        payload.put("action", "request_review");
-        payload.put("summary", summary);
-        if (!draftReply.isEmpty()) {
-            payload.put("draftReply", draftReply);
-        }
-        payload.put("branch", task.branchName());
-        payload.put("baseBranch", task.baseBranch());
-        payload.put("worktreePath", task.worktreePath());
-        attachPushDiffToPayload(payload, Path.of(task.worktreePath()), task);
-        payload.put("source", "mcp:request_review");
-        return park(task, payload,
+        DiffBundle bundle = collectDiffBundle(Path.of(task.worktreePath()), task);
+        return park(task, new ParkedProposal.RequestReview(
+                        summary,
+                        draftReply.isEmpty() ? null : draftReply,
+                        task.branchName(),
+                        task.baseBranch(),
+                        task.worktreePath(),
+                        bundle.diffBase(),
+                        bundle.diff(),
+                        bundle.diffError()),
                 "Parked at AWAITING_REVIEW. The user will see a notification "
                         + "and can accept or discard it from the thread.");
     }
@@ -151,12 +147,8 @@ public class PublishToolHandlers
         if (prRef.isEmpty()) {
             return ToolOutcome.Completed.ok("no PR linked to the active task — set linked_pr_number first");
         }
-        Map<String, Object> payload = new LinkedHashMap<>();
-        payload.put("action", "post_comment");
-        payload.put("body", body);
-        payload.put("pr", prMap(prRef.get()));
-        payload.put("source", "mcp:post_comment");
-        return park(active.get(), payload,
+        return park(active.get(),
+                new ParkedProposal.PostComment(body, toPrRef(prRef.get())),
                 "Parked at AWAITING_REVIEW. The user will review the comment body and "
                         + "approve, edit, or discard from the thread.");
     }
@@ -182,14 +174,14 @@ public class PublishToolHandlers
         if (task.worktreePath() == null || task.worktreePath().isBlank()) {
             return ToolOutcome.Completed.ok("the active task has no worktree — push needs an isolated branch");
         }
-        Map<String, Object> payload = new LinkedHashMap<>();
-        payload.put("action", "push");
-        payload.put("branch", task.branchName());
-        payload.put("baseBranch", task.baseBranch());
-        payload.put("worktreePath", task.worktreePath());
-        attachPushDiffToPayload(payload, Path.of(task.worktreePath()), task);
-        payload.put("source", "mcp:push");
-        return park(task, payload,
+        DiffBundle bundle = collectDiffBundle(Path.of(task.worktreePath()), task);
+        return park(task, new ParkedProposal.Push(
+                        task.branchName(),
+                        task.baseBranch(),
+                        task.worktreePath(),
+                        bundle.diffBase(),
+                        bundle.diff(),
+                        bundle.diffError()),
                 "Parked at AWAITING_REVIEW. The user will review the diff and "
                         + "approve or discard from the thread.");
     }
@@ -230,13 +222,8 @@ public class PublishToolHandlers
         if (prRef.isEmpty()) {
             return ToolOutcome.Completed.ok("no PR linked to the active task — set linked_pr_number first");
         }
-        Map<String, Object> payload = new LinkedHashMap<>();
-        payload.put("action", "reply_review_thread");
-        payload.put("rootCommentId", rootCommentId);
-        payload.put("body", body);
-        payload.put("pr", prMap(prRef.get()));
-        payload.put("source", "mcp:reply_review_thread");
-        return park(active.get(), payload,
+        return park(active.get(),
+                new ParkedProposal.ReplyReviewThread(rootCommentId, body, toPrRef(prRef.get())),
                 "Parked at AWAITING_REVIEW. The user will review the reply and "
                         + "approve, edit, or discard from the thread.");
     }
@@ -265,12 +252,8 @@ public class PublishToolHandlers
         if (prRef.isEmpty()) {
             return ToolOutcome.Completed.ok("no PR linked to the active task — set linked_pr_number first");
         }
-        Map<String, Object> payload = new LinkedHashMap<>();
-        payload.put("action", "approve_pr");
-        payload.put("body", orEmpty(args.body()));
-        payload.put("pr", prMap(prRef.get()));
-        payload.put("source", "mcp:approve_pr");
-        return park(active.get(), payload,
+        return park(active.get(),
+                new ParkedProposal.ApprovePr(orEmpty(args.body()), toPrRef(prRef.get())),
                 "Parked at AWAITING_REVIEW. The user will review the approval and "
                         + "approve, edit, or discard from the thread.");
     }
@@ -301,12 +284,8 @@ public class PublishToolHandlers
             return ToolOutcome.Completed.ok("no PR linked to the active task — set linked_pr_number first");
         }
         String strategy = normaliseMergeStrategy(args.strategy());
-        Map<String, Object> payload = new LinkedHashMap<>();
-        payload.put("action", "merge_pr");
-        payload.put("strategy", strategy);
-        payload.put("pr", prMap(prRef.get()));
-        payload.put("source", "mcp:merge_pr");
-        return park(active.get(), payload,
+        return park(active.get(),
+                new ParkedProposal.MergePr(strategy, toPrRef(prRef.get())),
                 "Parked at AWAITING_REVIEW (merge_pr, strategy=" + strategy + "). "
                         + "The user will approve, edit, or discard from the thread.");
     }
@@ -358,24 +337,17 @@ public class PublishToolHandlers
             return ToolOutcome.Completed.ok("file_path, line, body, commit_id are required");
         }
         String side = args.side() == null || args.side().isBlank() ? "RIGHT" : args.side();
-        Integer startLine = args.startLine();
         String startSide = orEmpty(args.startSide());
-        Map<String, Object> payload = new LinkedHashMap<>();
-        payload.put("action", "create_review_comment");
-        payload.put("body", body);
-        payload.put("filePath", filePath);
-        payload.put("line", line);
-        payload.put("side", side);
-        payload.put("commitId", commitId);
-        if (startLine != null) {
-            payload.put("startLine", startLine);
-        }
-        if (!startSide.isBlank()) {
-            payload.put("startSide", startSide);
-        }
-        payload.put("pr", prMap(prRef.get()));
-        payload.put("source", "mcp:create_review_comment");
-        return park(active.get(), payload,
+        return park(active.get(),
+                new ParkedProposal.CreateReviewComment(
+                        body,
+                        filePath,
+                        line,
+                        side,
+                        commitId,
+                        args.startLine(),
+                        startSide.isBlank() ? null : startSide,
+                        toPrRef(prRef.get())),
                 "Parked at AWAITING_REVIEW. The user will review the inline comment and "
                         + "approve, edit, or discard from the thread.");
     }
@@ -408,12 +380,8 @@ public class PublishToolHandlers
         if (body.isBlank()) {
             return ToolOutcome.Completed.ok("body is required");
         }
-        Map<String, Object> payload = new LinkedHashMap<>();
-        payload.put("action", "update_pr_body");
-        payload.put("body", body);
-        payload.put("pr", prMap(prRef.get()));
-        payload.put("source", "mcp:update_pr_body");
-        return park(active.get(), payload,
+        return park(active.get(),
+                new ParkedProposal.UpdatePrBody(body, toPrRef(prRef.get())),
                 "Parked at AWAITING_REVIEW. The user will review the new PR body and "
                         + "approve, edit, or discard from the thread.");
     }
@@ -446,12 +414,8 @@ public class PublishToolHandlers
         if (reviewer.isBlank()) {
             return ToolOutcome.Completed.ok("reviewer (GitHub login) is required");
         }
-        Map<String, Object> payload = new LinkedHashMap<>();
-        payload.put("action", "request_reviewer");
-        payload.put("reviewer", reviewer);
-        payload.put("pr", prMap(prRef.get()));
-        payload.put("source", "mcp:request_reviewer");
-        return park(active.get(), payload,
+        return park(active.get(),
+                new ParkedProposal.RequestReviewer(reviewer, toPrRef(prRef.get())),
                 "Parked at AWAITING_REVIEW. The user will approve or discard the reviewer "
                         + "request from the thread.");
     }
@@ -490,12 +454,8 @@ public class PublishToolHandlers
         if (body.isBlank()) {
             return ToolOutcome.Completed.ok("body is required");
         }
-        Map<String, Object> payload = new LinkedHashMap<>();
-        payload.put("action", "comment_on_issue");
-        payload.put("body", body);
-        payload.put("issue", issueMap(repo.get(), issueNumber));
-        payload.put("source", "mcp:comment_on_issue");
-        return park(active.get(), payload,
+        return park(active.get(),
+                new ParkedProposal.CommentOnIssue(body, toIssueRef(repo.get(), issueNumber)),
                 "Parked at AWAITING_REVIEW. The user will review the issue comment and "
                         + "approve, edit, or discard from the thread.");
     }
@@ -533,12 +493,8 @@ public class PublishToolHandlers
         if (!"open".equals(state) && !"closed".equals(state)) {
             return ToolOutcome.Completed.ok("state must be 'open' or 'closed'");
         }
-        Map<String, Object> payload = new LinkedHashMap<>();
-        payload.put("action", "set_issue_state");
-        payload.put("state", state);
-        payload.put("issue", issueMap(repo.get(), issueNumber));
-        payload.put("source", "mcp:set_issue_state");
-        return park(active.get(), payload,
+        return park(active.get(),
+                new ParkedProposal.SetIssueState(state, toIssueRef(repo.get(), issueNumber)),
                 "Parked at AWAITING_REVIEW (set_issue_state, " + state + "). "
                         + "The user will approve or discard from the thread.");
     }
@@ -595,19 +551,14 @@ public class PublishToolHandlers
         }
         String body = orEmpty(args.body());
         boolean draft = args.draft() != null && args.draft();
-        Map<String, Object> payload = new LinkedHashMap<>();
-        payload.put("action", "open_pr");
-        payload.put("title", title);
-        payload.put("head", head);
-        payload.put("base", base);
-        payload.put("body", body);
-        payload.put("draft", draft);
-        Map<String, Object> repoRef = new LinkedHashMap<>();
-        repoRef.put("owner", repo.get().owner());
-        repoRef.put("repo", repo.get().repo());
-        payload.put("repo", repoRef);
-        payload.put("source", "mcp:open_pr");
-        return park(active.get(), payload,
+        return park(active.get(),
+                new ParkedProposal.OpenPr(
+                        title,
+                        head,
+                        base,
+                        body,
+                        draft,
+                        new ParkedProposal.RepoRef(repo.get().owner(), repo.get().repo())),
                 "Parked at AWAITING_REVIEW (open_pr · " + head + " → " + base + "). "
                         + "The user will review the PR title/body and approve or discard "
                         + "from the thread.");
@@ -658,19 +609,12 @@ public class PublishToolHandlers
         if (comments != null && !comments.isNull() && !comments.isArray()) {
             return ToolOutcome.Completed.ok("comments must be an array");
         }
-        Map<String, Object> payload = new LinkedHashMap<>();
-        payload.put("action", "publish_review");
-        payload.put("event", event);
-        payload.put("body", body);
-        // Re-serialise comments through Jackson so the stored array has a
-        // stable shape regardless of what raw JSON the agent sent.
-        payload.put("comments", comments == null || comments.isNull()
+        JsonNode commentsForWire = comments == null || comments.isNull()
                 ? mapper.createArrayNode()
-                : comments);
-        payload.put("pr", prMap(prRef.get()));
-        payload.put("source", "mcp:publish_review");
+                : comments;
         int commentCount = comments == null ? 0 : comments.size();
-        return park(active.get(), payload,
+        return park(active.get(),
+                new ParkedProposal.PublishReview(event, body, commentsForWire, toPrRef(prRef.get())),
                 "Parked at AWAITING_REVIEW (publish_review · " + event + " · "
                         + commentCount + " inline comment(s)). The user will approve, "
                         + "edit, or discard from the thread.");
@@ -704,18 +648,18 @@ public class PublishToolHandlers
         if (task.worktreePath() == null || task.worktreePath().isBlank()) {
             return ToolOutcome.Completed.ok("the active task has no worktree — next task needs an isolated branch");
         }
-        Map<String, Object> payload = new LinkedHashMap<>();
-        payload.put("action", "next_task");
-        payload.put("threadId", call.threadId());
-        payload.put("taskId", task.id());
-        payload.put("branch", task.branchName());
-        payload.put("baseBranch", task.baseBranch());
-        payload.put("worktreePath", task.worktreePath());
-        payload.put("nextTitle", orEmpty(args.nextTitle()).trim());
-        payload.put("baseMode", normaliseBaseMode(args.baseMode()));
-        attachPushDiffToPayload(payload, Path.of(task.worktreePath()), task);
-        payload.put("source", "mcp:next_task");
-        return park(task, payload,
+        DiffBundle bundle = collectDiffBundle(Path.of(task.worktreePath()), task);
+        return park(task, new ParkedProposal.NextTask(
+                        call.threadId(),
+                        task.id(),
+                        task.branchName(),
+                        task.baseBranch(),
+                        task.worktreePath(),
+                        orEmpty(args.nextTitle()).trim(),
+                        normaliseBaseMode(args.baseMode()),
+                        bundle.diffBase(),
+                        bundle.diff(),
+                        bundle.diffError()),
                 "Parked at AWAITING_REVIEW (next_task). The user will review the "
                         + "diff and approve or discard advancing to the next task.");
     }
@@ -749,18 +693,18 @@ public class PublishToolHandlers
         if (task.worktreePath() == null || task.worktreePath().isBlank()) {
             return ToolOutcome.Completed.ok("the active task has no worktree — ship needs an isolated branch");
         }
-        Map<String, Object> payload = new LinkedHashMap<>();
-        payload.put("action", "ship_task");
-        payload.put("threadId", call.threadId());
-        payload.put("taskId", task.id());
-        payload.put("branch", task.branchName());
-        payload.put("baseBranch", task.baseBranch());
-        payload.put("worktreePath", task.worktreePath());
-        payload.put("nextTitle", orEmpty(args.nextTitle()).trim());
-        payload.put("baseMode", normaliseBaseMode(args.baseMode()));
-        attachPushDiffToPayload(payload, Path.of(task.worktreePath()), task);
-        payload.put("source", "mcp:ship_task");
-        return park(task, payload,
+        DiffBundle bundle = collectDiffBundle(Path.of(task.worktreePath()), task);
+        return park(task, new ParkedProposal.ShipTask(
+                        call.threadId(),
+                        task.id(),
+                        task.branchName(),
+                        task.baseBranch(),
+                        task.worktreePath(),
+                        orEmpty(args.nextTitle()).trim(),
+                        normaliseBaseMode(args.baseMode()),
+                        bundle.diffBase(),
+                        bundle.diff(),
+                        bundle.diffError()),
                 "Parked at AWAITING_REVIEW (ship_task). The user will review the "
                         + "proposed ship and approve, edit, or discard from the thread.");
     }
@@ -771,37 +715,29 @@ public class PublishToolHandlers
      *  agent sees. The park is transactional; on failure we return a
      *  retryable soft message (no partial state was left) rather than a
      *  hard tool error. */
-    private ToolOutcome park(Task task, Map<String, Object> payload, String parkedText)
+    private ToolOutcome park(Task task, ParkedProposal proposal, String parkedText)
     {
         try {
-            parkedProposals.park(task, payload);
+            parkedProposals.park(task, proposal);
             return ToolOutcome.Completed.ok(parkedText);
         }
         catch (RuntimeException e) {
             log.warn("failed to park task {} for review ({}): {}",
-                    task.id(), payload.get("action"), e.getMessage());
+                    task.id(), proposal.action(), e.getMessage());
             return ToolOutcome.Completed.ok(
                     "Could not save the review notification (" + e.getMessage()
                             + "). The task was not parked — please retry.");
         }
     }
 
-    private static Map<String, Object> prMap(PullRequestRef ref)
+    private static ParkedProposal.PrRef toPrRef(PullRequestRef ref)
     {
-        Map<String, Object> pr = new LinkedHashMap<>();
-        pr.put("owner", ref.owner());
-        pr.put("repo", ref.repo());
-        pr.put("number", ref.number());
-        return pr;
+        return new ParkedProposal.PrRef(ref.owner(), ref.repo(), ref.number());
     }
 
-    private static Map<String, Object> issueMap(WatchedRepo repo, int number)
+    private static ParkedProposal.IssueRef toIssueRef(WatchedRepo repo, int number)
     {
-        Map<String, Object> issue = new LinkedHashMap<>();
-        issue.put("owner", repo.owner());
-        issue.put("repo", repo.repo());
-        issue.put("number", number);
-        return issue;
+        return new ParkedProposal.IssueRef(repo.owner(), repo.repo(), number);
     }
 
     private static String orEmpty(String s)
@@ -859,36 +795,41 @@ public class PublishToolHandlers
         return Optional.empty();
     }
 
-    /** Adds the unified diff + companion fields to {@code payload}.
-     *  Failures don't abort the park — the audit trail is still useful
-     *  even without the preview. */
-    private void attachPushDiffToPayload(Map<String, Object> payload, Path worktree, Task task)
+    /** Captured unified-diff preview a {@code request_review} / {@code
+     *  push} / {@code next_task} / {@code ship_task} proposal attaches to
+     *  its parked notification. On success {@link #diffBase} + {@link
+     *  #diff} are populated and {@link #diffError} is null; on failure
+     *  the latter carries the cause and {@link #diff} is null. The
+     *  proposal records embed these three fields directly so the wire
+     *  shape stays flat. */
+    private record DiffBundle(String diffBase, String diff, String diffError) {}
+
+    /** Produce the diff preview for a proposal that wants one. Failures
+     *  don't abort the park — the audit trail is still useful even
+     *  without the preview, so we capture the error in {@link
+     *  DiffBundle#diffError} instead of raising. */
+    private DiffBundle collectDiffBundle(Path worktree, Task task)
     {
         try {
             String base = chooseDiffBase(worktree, task);
             if (base == null) {
-                payload.put("diff", null);
-                payload.put("diffError", "no base ref available to diff against; "
-                        + "task.baseBranch is " + (task.baseBranch() == null ? "null" : "not on origin yet"));
-                return;
+                return new DiffBundle(null, null,
+                        "no base ref available to diff against; task.baseBranch is "
+                                + (task.baseBranch() == null ? "null" : "not on origin yet"));
             }
-            payload.put("diffBase", base);
-            payload.put("diff", git.diff(worktree, base, "HEAD", PUSH_DIFF_MAX_BYTES));
+            return new DiffBundle(base, git.diff(worktree, base, "HEAD", PUSH_DIFF_MAX_BYTES), null);
         }
         catch (IOException e) {
             log.warn("push diff for {} failed: {}", worktree, e.getMessage());
-            payload.put("diff", null);
-            payload.put("diffError", "git diff failed: " + e.getMessage());
+            return new DiffBundle(null, null, "git diff failed: " + e.getMessage());
         }
         catch (InterruptedException e) {
             Thread.currentThread().interrupt();
-            payload.put("diff", null);
-            payload.put("diffError", "git diff interrupted");
+            return new DiffBundle(null, null, "git diff interrupted");
         }
         catch (RuntimeException e) {
             log.warn("push diff preview for {} rejected: {}", worktree, e.getMessage());
-            payload.put("diff", null);
-            payload.put("diffError", "git diff preview rejected: " + e.getMessage());
+            return new DiffBundle(null, null, "git diff preview rejected: " + e.getMessage());
         }
     }
 

@@ -24,8 +24,6 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.server.ResponseStatusException;
 
-import java.util.Map;
-
 import static java.util.Objects.requireNonNull;
 
 /**
@@ -54,7 +52,7 @@ public class ParkedProposalService
     }
 
     @Transactional
-    public Notification park(Task task, Map<String, Object> payload)
+    public Notification park(Task task, Object payload)
     {
         requireNonNull(task, "task is null");
         requireNonNull(payload, "payload is null");

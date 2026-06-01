@@ -31,6 +31,7 @@ import com.bytequay.app.repository.ThreadStore;
 import com.bytequay.app.repository.WatchedRepoStore;
 import com.bytequay.app.repository.WorkspaceStore;
 import com.bytequay.app.service.workspaces.WorkspaceService;
+import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
@@ -41,10 +42,8 @@ import org.springframework.stereotype.Component;
 import java.nio.file.Path;
 import java.time.Instant;
 import java.util.ArrayList;
-import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
-import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
@@ -216,13 +215,8 @@ public class AutomationCoordinator
             return false;
         }
         try {
-            Map<String, Object> payload = new LinkedHashMap<>();
-            payload.put("repoFullName", repoFullName);
-            payload.put("prNumber", task.linkedPrNumber());
-            payload.put("failingChecks", ci.failingNames());
-            payload.put("totalChecks", ci.total());
-            payload.put("reason", "CI failing");
-            String payloadJson = mapper.writeValueAsString(payload);
+            String payloadJson = mapper.writeValueAsString(new CiFailingPayload(
+                    repoFullName, task.linkedPrNumber(), ci.failingNames(), ci.total()));
             notificationService.notifyNeedsAttention(task.threadId(), task.id(), payloadJson);
             log.info("CI failing on {} PR #{} (task {}); emitted NEEDS_ATTENTION",
                     repoFullName, task.linkedPrNumber(), task.id());
@@ -429,4 +423,16 @@ public class AutomationCoordinator
     }
 
     record CiAggregate(boolean isFailing, List<String> failingNames, int total) {}
+
+    /** Wire shape for the NEEDS_ATTENTION payload emitted when a task's
+     *  linked PR is failing CI. {@code reason} is a fixed discriminator
+     *  for this notification kind so the dashboard can route on it. */
+    private record CiFailingPayload(
+            String repoFullName,
+            Integer prNumber,
+            List<String> failingChecks,
+            int totalChecks)
+    {
+        @JsonProperty("reason") public String reason() { return "CI failing"; }
+    }
 }

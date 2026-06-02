@@ -1628,7 +1628,12 @@ const railStyle: React.CSSProperties = {
   display: 'flex',
   flexDirection: 'column',
   gap: 14,
-  padding: '14px 14px 14px 18px',
+  // Bottom padding is intentionally taller than the rest so the last
+  // section's box-shadow + hint line have breathing room when scrolled
+  // all the way down. With a flush 14px the Danger-Zone card (which
+  // carries a 10px red shadow + a marginTop:6 hint) reads as cropped at
+  // the viewport edge — the shadow disappears into the page bottom.
+  padding: '14px 14px 32px 18px',
   // Visible divider between rail and main column.
   borderRight: '1px solid rgba(0,0,0,0.08)',
   // The rail scrolls independently of the conversation column so a

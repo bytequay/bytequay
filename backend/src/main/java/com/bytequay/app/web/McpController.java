@@ -34,13 +34,13 @@ import com.bytequay.app.service.tools.ToolCall;
 import com.bytequay.app.service.tools.ToolOutcome;
 import com.bytequay.app.service.tools.ToolParam;
 import com.bytequay.app.service.tools.ToolSpec;
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.annotation.JsonPropertyOrder;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import com.fasterxml.jackson.databind.node.ObjectNode;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -51,7 +51,9 @@ import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.context.request.async.DeferredResult;
 
 import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.OptionalInt;
 import java.util.Set;
@@ -155,18 +157,25 @@ public class McpController
                 "MCP request timed out after {}ms: thread={}", DECISION_TIMEOUT_MS, threadId));
         deferred.onError(t -> log.warn(
                 "MCP request errored: thread={}: {}", threadId, t.toString()));
+        // Hold the raw "id" path for the failure paths below — if
+        // binding the envelope itself fails, the typed record never
+        // exists, so we fall back to the JsonNode read for the response
+        // id (JSON-RPC IDs can be string, number, or null).
+        JsonNode rawId = request.path("id");
         try {
-            String method = request.path("method").asText();
-            JsonNode id = request.path("id");
-            String callTool = "tools/call".equals(method)
-                    ? request.path("params").path("name").asText("")
+            JsonRpcRequest rpc = mapper.treeToValue(request, JsonRpcRequest.class);
+            String method = rpc.method() == null ? "" : rpc.method();
+            JsonNode id = rpc.id();
+            JsonNode paramsNode = rpc.params();
+            String callTool = "tools/call".equals(method) && paramsNode != null
+                    ? paramsNode.path("name").asText("")
                     : "";
             log.info("MCP request received: thread={} method={}{}", threadId, method,
                     callTool.isEmpty() ? "" : " tool=" + callTool);
             switch (method) {
                 case "initialize" -> deferred.setResult(initialize(id));
                 case "tools/list" -> deferred.setResult(listTools(threadId, id));
-                case "tools/call" -> handleToolCall(threadId, id, request, deferred);
+                case "tools/call" -> handleToolCall(threadId, id, paramsNode, deferred);
                 case "notifications/initialized", "notifications/cancelled" ->
                         // Notifications carry no id and need no response — Spring
                         // returns an empty body when the result is null.
@@ -174,22 +183,23 @@ public class McpController
                 default -> deferred.setResult(error(id, -32601, "method not found: " + method));
             }
         }
+        catch (JsonProcessingException e) {
+            log.warn("MCP request invalid for thread {}: {}", threadId, e.getMessage());
+            deferred.setResult(error(rawId, -32700, "parse error: " + e.getMessage()));
+        }
         catch (RuntimeException e) {
             log.warn("MCP request failed for thread {}: {}", threadId, e.getMessage());
-            deferred.setResult(error(request.path("id"), -32603, e.getMessage()));
+            deferred.setResult(error(rawId, -32603, e.getMessage()));
         }
         return deferred;
     }
 
     private JsonNode initialize(JsonNode id)
     {
-        ObjectNode result = mapper.createObjectNode();
-        result.put("protocolVersion", PROTOCOL_VERSION);
-        ObjectNode capabilities = result.putObject("capabilities");
-        capabilities.putObject("tools");
-        ObjectNode info = result.putObject("serverInfo");
-        info.put("name", "bytequay");
-        info.put("version", "1.0.0");
+        InitializeResult result = new InitializeResult(
+                PROTOCOL_VERSION,
+                new InitializeResult.Capabilities(Map.of()),
+                new InitializeResult.ServerInfo("bytequay", "1.0.0"));
         return ok(id, result);
     }
 
@@ -201,14 +211,11 @@ public class McpController
         // spec into the wire shape, filtered to the caller's role so
         // a trunk agent doesn't even see task-only tools.
         AgentRole role = permissions.roleFor(threadId);
-        ObjectNode result = mapper.createObjectNode();
-        var tools = result.putArray("tools");
+        List<ToolDescriptor> tools = new ArrayList<>();
         for (ToolSpec spec : registry.visibleTo(role)) {
-            ObjectNode tool = mapper.createObjectNode();
-            tool.put("name", spec.name());
-            tool.put("description", spec.description());
+            JsonNode schema;
             try {
-                tool.set("inputSchema", mapper.readTree(spec.inputSchema()));
+                schema = mapper.readTree(spec.inputSchema());
             }
             catch (JsonProcessingException e) {
                 // Generated by the registry from a record schema —
@@ -217,9 +224,9 @@ public class McpController
                 throw new IllegalStateException(
                         "registry produced invalid JSON schema for tool " + spec.name(), e);
             }
-            tools.add(tool);
+            tools.add(new ToolDescriptor(spec.name(), spec.description(), schema));
         }
-        return ok(id, result);
+        return ok(id, new ListToolsResult(tools));
     }
 
     // ── @AgentTool declarations ─────────────────────────────────────────
@@ -235,14 +242,19 @@ public class McpController
     // safety surface this class is responsible for preserving.
 
     /** Args record for the {@code approval_prompt} tool — Claude's
-     *  {@code --permission-prompt-tool} target. */
+     *  {@code --permission-prompt-tool} target. The {@link JsonProperty}
+     *  annotations make the record directly bindable via Jackson
+     *  {@code treeToValue} so the controller's hand-coded dispatch reads
+     *  fields by accessor instead of {@code args.path("tool_name")}. */
     public record ApprovalPromptArgs(
             @ToolParam(description = "The tool the agent is asking permission for.",
-                    required = true, wireName = "tool_name") String toolName,
+                    required = true, wireName = "tool_name")
+            @JsonProperty("tool_name") String toolName,
             @ToolParam(description = "JSON object of the arguments the agent wants to invoke the tool with.",
                     required = true) JsonNode input,
             @ToolParam(description = "Opaque correlation id the CLI uses to match the response back to the pending call.",
-                    required = true, wireName = "tool_use_id") String toolUseId) {}
+                    required = true, wireName = "tool_use_id")
+            @JsonProperty("tool_use_id") String toolUseId) {}
 
     @AgentTool(
             name = TOOL_NAME,
@@ -282,10 +294,19 @@ public class McpController
         // Dispatched via handleToolCall.
     }
 
-    private void handleToolCall(String threadId, JsonNode id, JsonNode request, DeferredResult<JsonNode> deferred)
+    private void handleToolCall(String threadId, JsonNode id, JsonNode paramsNode, DeferredResult<JsonNode> deferred)
     {
-        JsonNode params = request.path("params");
-        String name = params.path("name").asText();
+        ToolCallParams params;
+        try {
+            params = mapper.treeToValue(
+                    paramsNode == null || paramsNode.isMissingNode() ? mapper.createObjectNode() : paramsNode,
+                    ToolCallParams.class);
+        }
+        catch (JsonProcessingException e) {
+            deferred.setResult(error(id, -32602, "invalid tools/call params: " + e.getMessage()));
+            return;
+        }
+        String name = params.name() == null ? "" : params.name();
         // Look the tool up in the registry first — that's the single
         // source of truth for what exists, what role may discover it,
         // and what capability it exercises. An unknown name fails the
@@ -324,13 +345,13 @@ public class McpController
         // through. Permission / role gating already happened above — the
         // registry trusts the call is authorised.
         Optional<ToolOutcome> outcome = registry.invoke(
-                name, new ToolCall(threadId, params.path("arguments"), role));
+                name, new ToolCall(threadId, params.arguments(), role));
         if (outcome.isPresent()) {
             deferred.setResult(adaptOutcome(id, outcome.get()));
             return;
         }
         if (RUN_SHELL_TOOL.equals(name)) {
-            handleRunShell(threadId, id, params.path("arguments"), deferred);
+            handleRunShell(threadId, id, params.arguments(), deferred);
             return;
         }
         if (!TOOL_NAME.equals(name)) {
@@ -342,10 +363,20 @@ public class McpController
             deferred.setResult(error(id, -32602, "no handler for tool: " + name));
             return;
         }
-        JsonNode args = params.path("arguments");
-        String toolName = args.path("tool_name").asText();
-        String callId = args.path("tool_use_id").asText();
-        JsonNode toolInput = args.path("input");
+        ApprovalPromptArgs args;
+        try {
+            JsonNode rawArgs = params.arguments();
+            args = mapper.treeToValue(
+                    rawArgs == null || rawArgs.isMissingNode() ? mapper.createObjectNode() : rawArgs,
+                    ApprovalPromptArgs.class);
+        }
+        catch (JsonProcessingException e) {
+            deferred.setResult(error(id, -32602, "invalid approval_prompt args: " + e.getMessage()));
+            return;
+        }
+        String toolName = args.toolName() == null ? "" : args.toolName();
+        String callId = args.toolUseId() == null ? "" : args.toolUseId();
+        JsonNode toolInput = args.input();
         if (callId.isEmpty()) {
             deferred.setResult(error(id, -32602, "tool_use_id is required"));
             return;
@@ -600,9 +631,19 @@ public class McpController
      * the agent gets a deny envelope.
      */
     private void handleRunShell(
-            String threadId, JsonNode id, JsonNode args, DeferredResult<JsonNode> deferred)
+            String threadId, JsonNode id, JsonNode argsNode, DeferredResult<JsonNode> deferred)
     {
-        String command = args.path("command").asText("").trim();
+        RunShellArgs args;
+        try {
+            args = mapper.treeToValue(
+                    argsNode == null || argsNode.isMissingNode() ? mapper.createObjectNode() : argsNode,
+                    RunShellArgs.class);
+        }
+        catch (JsonProcessingException e) {
+            deferred.setResult(error(id, -32602, "invalid run_shell args: " + e.getMessage()));
+            return;
+        }
+        String command = (args.command() == null ? "" : args.command()).trim();
         if (command.isEmpty()) {
             deferred.setResult(toolResponse(id, deny("command is required")));
             return;
@@ -709,63 +750,125 @@ public class McpController
     /** Plain-text MCP tool response — no allow/deny envelope. */
     private JsonNode plainText(JsonNode id, String text)
     {
-        ObjectNode result = mapper.createObjectNode();
-        ObjectNode item = mapper.createObjectNode();
-        item.put("type", "text");
-        item.put("text", text);
-        result.putArray("content").add(item);
-        return ok(id, result);
+        return ok(id, new ToolCallResult(List.of(ToolContent.text(text))));
     }
 
-    private ObjectNode allow(JsonNode updatedInput)
+    private AllowEnvelope allow(JsonNode updatedInput)
     {
-        ObjectNode env = mapper.createObjectNode();
-        env.put("behavior", "allow");
-        env.set("updatedInput", updatedInput == null || updatedInput.isMissingNode()
+        JsonNode normalised = (updatedInput == null || updatedInput.isMissingNode())
                 ? mapper.createObjectNode()
-                : updatedInput);
-        return env;
+                : updatedInput;
+        return new AllowEnvelope("allow", normalised);
     }
 
-    private ObjectNode deny(String message)
+    private static DenyEnvelope deny(String message)
     {
-        ObjectNode env = mapper.createObjectNode();
-        env.put("behavior", "deny");
-        env.put("message", message);
-        return env;
+        return new DenyEnvelope("deny", message);
     }
 
-    private JsonNode toolResponse(JsonNode id, ObjectNode envelope)
+    /** Wrap an allow/deny envelope (or any Jackson-serialisable value)
+     *  as a {@code tools/call} result. MCP returns tool results as a
+     *  content array whose entries are typed text; here the text is the
+     *  envelope serialised to JSON. */
+    private JsonNode toolResponse(JsonNode id, Object envelope)
     {
-        ObjectNode result = mapper.createObjectNode();
-        ObjectNode item = mapper.createObjectNode();
-        item.put("type", "text");
-        item.put("text", envelope.toString());
-        result.putArray("content").add(item);
-        return ok(id, result);
-    }
-
-    private JsonNode ok(JsonNode id, JsonNode result)
-    {
-        ObjectNode env = mapper.createObjectNode();
-        env.put("jsonrpc", "2.0");
-        if (id != null && !id.isMissingNode()) {
-            env.set("id", id);
+        String envelopeJson;
+        try {
+            envelopeJson = mapper.writeValueAsString(envelope);
         }
-        env.set("result", result);
-        return env;
+        catch (JsonProcessingException e) {
+            throw new IllegalStateException("failed to serialise tool envelope: " + envelope, e);
+        }
+        return ok(id, new ToolCallResult(List.of(ToolContent.text(envelopeJson))));
+    }
+
+    private JsonNode ok(JsonNode id, Object result)
+    {
+        return mapper.valueToTree(new JsonRpcSuccess("2.0", normaliseId(id), result));
     }
 
     private JsonNode error(JsonNode id, int code, String message)
     {
-        ObjectNode env = mapper.createObjectNode();
-        env.put("jsonrpc", "2.0");
-        if (id != null && !id.isMissingNode()) {
-            env.set("id", id);
-        }
-        ObjectNode err = env.putObject("error");
-        err.put("code", code);
-        err.put("message", message);
-        return env;
+        return mapper.valueToTree(new JsonRpcError("2.0", normaliseId(id),
+                new JsonRpcError.ErrorBody(code, message)));
     }
+
+    private static JsonNode normaliseId(JsonNode id)
+    {
+        return (id == null || id.isMissingNode()) ? null : id;
+    }
+
+    // ── Typed wire records ─────────────────────────────────────────────
+    // The JSON-RPC envelopes and MCP response shapes are stable wire
+    // contracts. Building them as records means each helper above hands
+    // back a typed value Jackson serialises once at the boundary, and
+    // adding a field anywhere is a record component (compile-time)
+    // change rather than a hand-edit of an {@code ObjectNode.put} block.
+
+    /** Top-level JSON-RPC request envelope. {@code id} stays {@link
+     *  JsonNode} because JSON-RPC ids are string-or-number-or-null;
+     *  {@code params} stays {@link JsonNode} because the params shape
+     *  is method-specific (typed further inside {@link #handleToolCall}). */
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    private record JsonRpcRequest(String jsonrpc, String method, JsonNode id, JsonNode params) {}
+
+    /** Params for {@code tools/call}: the tool's MCP name plus its raw
+     *  argument tree. Per-tool args are bound inside their handler so a
+     *  schema mismatch surfaces as the tool's own validation error
+     *  rather than a top-level params bind failure. */
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    private record ToolCallParams(String name, JsonNode arguments) {}
+
+    /** JSON-RPC success envelope. {@code id} is null-omitted so
+     *  notifications (id-less requests) don't carry a phantom field. */
+    @JsonInclude(JsonInclude.Include.NON_NULL)
+    private record JsonRpcSuccess(String jsonrpc, JsonNode id, Object result) {}
+
+    /** JSON-RPC error envelope. */
+    @JsonInclude(JsonInclude.Include.NON_NULL)
+    private record JsonRpcError(String jsonrpc, JsonNode id, ErrorBody error)
+    {
+        record ErrorBody(int code, String message) {}
+    }
+
+    /** Result for {@code initialize}: advertise the protocol version,
+     *  an empty (but present) {@code tools} capability bag, and our
+     *  server identity. */
+    private record InitializeResult(
+            String protocolVersion,
+            Capabilities capabilities,
+            ServerInfo serverInfo)
+    {
+        record Capabilities(Map<String, Object> tools) {}
+        record ServerInfo(String name, String version) {}
+    }
+
+    /** Result for {@code tools/list}: each tool's name + description +
+     *  generated input schema, in registry order. */
+    private record ListToolsResult(List<ToolDescriptor> tools) {}
+
+    private record ToolDescriptor(String name, String description, JsonNode inputSchema) {}
+
+    /** Result for {@code tools/call}: MCP wraps tool output in a
+     *  {@code content} array of typed entries. We only ever emit
+     *  {@code type="text"} so the inner record is shaped accordingly. */
+    private record ToolCallResult(List<ToolContent> content) {}
+
+    private record ToolContent(String type, String text)
+    {
+        static ToolContent text(String text)
+        {
+            return new ToolContent("text", text);
+        }
+    }
+
+    /** Allow envelope serialised inside a {@link ToolCallResult}'s
+     *  text payload — Claude Code reads this to know the permission
+     *  prompt is approved and what input to use. */
+    private record AllowEnvelope(String behavior, JsonNode updatedInput) {}
+
+    /** Deny envelope serialised inside a {@link ToolCallResult}'s
+     *  text payload — Claude Code reads this and ends the turn with
+     *  the message rendered as the tool's response. */
+    private record DenyEnvelope(String behavior, String message) {}
 }

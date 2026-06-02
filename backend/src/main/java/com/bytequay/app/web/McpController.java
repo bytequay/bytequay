@@ -96,6 +96,15 @@ public class McpController
      *  approval prompt. See {@link ShellRunner} for the policy. */
     private static final String RUN_SHELL_TOOL = "run_shell";
 
+    /** Claude Code prefixes MCP tool names with {@code mcp__<server>__}
+     *  when passing them to the permission-prompt tool. The bytequay
+     *  server is the only MCP server we expose, so the prefix is fixed.
+     *  Stripping it lets us look the target tool up in the registry by
+     *  its short name. Built-in Claude tools (Bash / Edit / Read) come
+     *  through unprefixed and miss the registry lookup, which is the
+     *  safe fall-through to the normal prompt path. */
+    private static final String MCP_TOOL_PREFIX = "mcp__bytequay__";
+
     /** How long the agent will wait for the user before we give up
      *  and tell Claude the request was denied. Two minutes is enough
      *  to switch tabs, read the call site, and decide; longer would
@@ -140,9 +149,20 @@ public class McpController
             @RequestBody JsonNode request)
     {
         DeferredResult<JsonNode> deferred = new DeferredResult<>(DECISION_TIMEOUT_MS);
+        // Diagnostic: confirm the CLI's MCP request actually reaches us
+        // and whether it resolves or stalls to the decision timeout.
+        deferred.onTimeout(() -> log.warn(
+                "MCP request timed out after {}ms: thread={}", DECISION_TIMEOUT_MS, threadId));
+        deferred.onError(t -> log.warn(
+                "MCP request errored: thread={}: {}", threadId, t.toString()));
         try {
             String method = request.path("method").asText();
             JsonNode id = request.path("id");
+            String callTool = "tools/call".equals(method)
+                    ? request.path("params").path("name").asText("")
+                    : "";
+            log.info("MCP request received: thread={} method={}{}", threadId, method,
+                    callTool.isEmpty() ? "" : " tool=" + callTool);
             switch (method) {
                 case "initialize" -> deferred.setResult(initialize(id));
                 case "tools/list" -> deferred.setResult(listTools(threadId, id));
@@ -374,6 +394,20 @@ public class McpController
             return;
         }
 
+        // Interim "gating dispatcher": honor the target tool's declared
+        // Gating.AUTO so safe read-only tools (list_skills, list_tools,
+        // load_skill, read_*, recall_thread, …) never spin on a prompt
+        // the user has no reason to answer. The full gating dispatcher
+        // the registry-dispatch refactor planned ("lands in a later
+        // commit") will supersede this — kept as a single self-
+        // contained block so it's trivial to remove or reconcile when
+        // that lands.
+        ToolSpec gatingTarget = registry.byName(stripMcpServerPrefix(toolName)).orElse(null);
+        if (gatingTarget != null && gatingTarget.gating() == Gating.AUTO) {
+            deferred.setResult(toolResponse(id, allow(toolInput)));
+            return;
+        }
+
         // If the user has pre-approved this tool ("Allow next 5",
         // "Always for this tool"), drain one slot and resolve without
         // ever showing a prompt. We surface a permission_auto_allowed
@@ -506,6 +540,18 @@ public class McpController
      *  Returns {@code null} for tools with no capability mapping (web
      *  access, sub-agents, …) — those are out-of-bounds for an
      *  unattended turn and escalate. */
+    /** Drop the {@code mcp__bytequay__} prefix Claude Code prepends to
+     *  MCP tool names so the registry lookup matches the short name a
+     *  tool is registered under. Pass-through for built-in tool names
+     *  (Bash / Edit / Read), which don't carry the prefix and aren't in
+     *  the registry — those miss the lookup and fall through cleanly. */
+    private static String stripMcpServerPrefix(String toolName)
+    {
+        return toolName != null && toolName.startsWith(MCP_TOOL_PREFIX)
+                ? toolName.substring(MCP_TOOL_PREFIX.length())
+                : toolName;
+    }
+
     private static SecurityType capabilityForBuiltinTool(String toolName)
     {
         return switch (toolName) {

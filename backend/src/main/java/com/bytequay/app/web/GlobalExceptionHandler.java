@@ -21,6 +21,7 @@ import org.springframework.http.HttpStatusCode;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.context.request.async.AsyncRequestNotUsableException;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.time.Instant;
@@ -46,6 +47,22 @@ public class GlobalExceptionHandler
     public ResponseEntity<ErrorResponse> handleIllegalArgumentException(IllegalArgumentException exception, HttpServletRequest request)
     {
         return errorResponse(HttpStatus.BAD_REQUEST.value(), exception.getMessage(), request.getRequestURI());
+    }
+
+    /**
+     * The client closed the connection before we finished writing the
+     * response (a broken pipe — e.g. the MCP CLI subprocess timed out,
+     * was interrupted, or the user navigated away mid-request). The
+     * socket is already gone, so there's nothing to send and nothing
+     * actionable on our side. Log quietly and return {@code void} so the
+     * resolver doesn't attempt a second write onto the dead socket (which
+     * would just raise the same error again).
+     */
+    @ExceptionHandler(AsyncRequestNotUsableException.class)
+    public void handleClientDisconnect(AsyncRequestNotUsableException exception, HttpServletRequest request)
+    {
+        log.debug("Client disconnected before response was flushed: {} ({})",
+                request.getRequestURI(), exception.getMessage());
     }
 
     @ExceptionHandler(Exception.class)

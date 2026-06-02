@@ -11,27 +11,19 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package com.bytequay.app.web;
+package com.bytequay.app.service.hello;
 
-import com.bytequay.app.service.hello.HelloService;
-import org.springframework.web.bind.annotation.RestController;
+import org.springframework.stereotype.Service;
 
-import static java.util.Objects.requireNonNull;
-
-@RestController
-public class HelloController
+@Service
+public class HelloServiceImpl
         implements HelloService
 {
-    private final HelloService service;
-
-    public HelloController(HelloService service)
-    {
-        this.service = requireNonNull(service, "service is null");
-    }
+    private static final String OK_MESSAGE = "ByteQuay-backend ok";
 
     @Override
     public String hello()
     {
-        return service.hello();
+        return OK_MESSAGE;
     }
 }

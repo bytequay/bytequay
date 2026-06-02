@@ -11,27 +11,19 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package com.bytequay.app.web;
+package com.bytequay.app.service.hello;
 
-import com.bytequay.app.service.hello.HelloService;
-import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.bind.annotation.GetMapping;
 
-import static java.util.Objects.requireNonNull;
-
-@RestController
-public class HelloController
-        implements HelloService
+/**
+ * Liveness probe used by the Electron host to confirm the Java
+ * sidecar is up. Intentionally trivial — the implementation returns a
+ * fixed string. Any failure to bind this endpoint means the bean
+ * graph itself didn't come up, which is exactly what the probe wants
+ * to surface.
+ */
+public interface HelloService
 {
-    private final HelloService service;
-
-    public HelloController(HelloService service)
-    {
-        this.service = requireNonNull(service, "service is null");
-    }
-
-    @Override
-    public String hello()
-    {
-        return service.hello();
-    }
+    @GetMapping("/hello")
+    String hello();
 }

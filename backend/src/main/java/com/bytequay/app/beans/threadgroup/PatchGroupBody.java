@@ -11,27 +11,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package com.bytequay.app.web;
+package com.bytequay.app.beans.threadgroup;
 
-import com.bytequay.app.service.hello.HelloService;
-import org.springframework.web.bind.annotation.RestController;
-
-import static java.util.Objects.requireNonNull;
-
-@RestController
-public class HelloController
-        implements HelloService
-{
-    private final HelloService service;
-
-    public HelloController(HelloService service)
-    {
-        this.service = requireNonNull(service, "service is null");
-    }
-
-    @Override
-    public String hello()
-    {
-        return service.hello();
-    }
-}
+/** Request body for {@code PATCH /api/thread-groups/{id}}. */
+public record PatchGroupBody(String name, String glyph, String color) {}

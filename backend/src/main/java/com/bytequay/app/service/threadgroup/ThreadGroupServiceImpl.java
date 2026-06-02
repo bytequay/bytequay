@@ -11,69 +11,80 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package com.bytequay.app.web;
+package com.bytequay.app.service.threadgroup;
 
 import com.bytequay.app.beans.threadgroup.NewGroupBody;
 import com.bytequay.app.beans.threadgroup.PatchGroupBody;
 import com.bytequay.app.domain.ThreadGroup;
 import com.bytequay.app.domain.ThreadGroupMembership;
-import com.bytequay.app.service.threadgroup.ThreadGroupService;
-import org.springframework.web.bind.annotation.RestController;
+import com.bytequay.app.service.threads.ThreadService;
+import org.springframework.stereotype.Service;
 
 import java.util.List;
 
 import static java.util.Objects.requireNonNull;
 
-@RestController
-public class ThreadGroupController
+@Service
+public class ThreadGroupServiceImpl
         implements ThreadGroupService
 {
-    private final ThreadGroupService service;
+    private final ThreadService threads;
 
-    public ThreadGroupController(ThreadGroupService service)
+    public ThreadGroupServiceImpl(ThreadService threads)
     {
-        this.service = requireNonNull(service, "service is null");
+        this.threads = requireNonNull(threads, "threads is null");
     }
 
     @Override
     public List<ThreadGroup> list()
     {
-        return service.list();
+        return threads.listGroups();
     }
 
     @Override
     public List<ThreadGroupMembership> memberships()
     {
-        return service.memberships();
+        return threads.listAllMemberships();
     }
 
     @Override
     public ThreadGroup create(NewGroupBody body)
     {
-        return service.create(body);
+        requireNonNull(body, "body is null");
+        if (body.name() == null || body.name().isBlank()) {
+            throw new IllegalArgumentException("name is required");
+        }
+        return threads.createGroup(new ThreadService.NewGroupRequest(
+                body.name(),
+                body.glyph(),
+                body.color(),
+                body.sortOrder(),
+                body.initialTaskIds() == null ? List.of() : body.initialTaskIds()));
     }
 
     @Override
     public ThreadGroup update(String id, PatchGroupBody body)
     {
-        return service.update(id, body);
+        requireNonNull(body, "body is required");
+        return threads.updateGroup(id, new ThreadService.GroupPatch(
+                body.name(), body.glyph(), body.color()));
     }
 
     @Override
     public void delete(String id)
     {
-        service.delete(id);
+        threads.deleteGroup(id);
     }
 
     @Override
     public void addMember(String groupId, String threadId)
     {
-        service.addMember(groupId, threadId);
+        threads.addTaskToGroup(threadId, groupId);
     }
 
     @Override
     public void removeMember(String groupId, String threadId)
     {
-        service.removeMember(groupId, threadId);
+        threads.removeTaskFromGroup(threadId, groupId);
     }
 }

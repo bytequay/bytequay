@@ -11,53 +11,62 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package com.bytequay.app.web;
+package com.bytequay.app.service.settings;
 
 import com.bytequay.app.domain.SyncSettings;
+import com.bytequay.app.scheduler.PullRequestSyncJob;
+import com.bytequay.app.service.SyncSettingsService;
+import com.bytequay.app.service.WorkspaceBehaviorService;
 import com.bytequay.app.service.WorkspaceBehaviorService.Settings;
-import com.bytequay.app.service.settings.SettingsService;
-import org.springframework.web.bind.annotation.RestController;
+import org.springframework.stereotype.Service;
 
 import static java.util.Objects.requireNonNull;
 
-@RestController
-public class SettingsController
+@Service
+public class SettingsServiceImpl
         implements SettingsService
 {
-    private final SettingsService service;
+    private final SyncSettingsService syncSettingsService;
+    private final PullRequestSyncJob syncJob;
+    private final WorkspaceBehaviorService workspaceBehavior;
 
-    public SettingsController(SettingsService service)
+    public SettingsServiceImpl(
+            SyncSettingsService syncSettingsService,
+            PullRequestSyncJob syncJob,
+            WorkspaceBehaviorService workspaceBehavior)
     {
-        this.service = requireNonNull(service, "service is null");
+        this.syncSettingsService = requireNonNull(syncSettingsService, "syncSettingsService is null");
+        this.syncJob = requireNonNull(syncJob, "syncJob is null");
+        this.workspaceBehavior = requireNonNull(workspaceBehavior, "workspaceBehavior is null");
     }
 
     @Override
     public Settings getWorkspaceBehavior()
     {
-        return service.getWorkspaceBehavior();
+        return workspaceBehavior.get();
     }
 
     @Override
     public Settings updateWorkspaceBehavior(Settings body)
     {
-        return service.updateWorkspaceBehavior(body);
+        return workspaceBehavior.update(body);
     }
 
     @Override
     public SyncSettings getSyncSettings()
     {
-        return service.getSyncSettings();
+        return syncSettingsService.getSettings();
     }
 
     @Override
     public SyncSettings updateSyncSettings(SyncSettings settings)
     {
-        return service.updateSyncSettings(settings);
+        return syncSettingsService.updateSettings(settings);
     }
 
     @Override
     public void triggerSync()
     {
-        service.triggerSync();
+        syncJob.requestImmediateSync();
     }
 }

@@ -33,6 +33,7 @@ import com.bytequay.app.repository.ThreadGroupStore;
 import com.bytequay.app.repository.ThreadStore;
 import com.bytequay.app.repository.ThreadTurnEventStore;
 import com.bytequay.app.repository.ThreadTurnStore;
+import com.bytequay.app.service.ids.IdGenerator;
 import com.bytequay.app.service.local.GitRunner;
 import com.bytequay.app.service.skills.RoleSkillService;
 import org.slf4j.Logger;
@@ -96,6 +97,7 @@ public class ThreadService
     private final GitRunner git;
     private final WorktreeService worktreeService;
     private final RoleSkillService roleSkillService;
+    private final IdGenerator idGenerator;
 
     public ThreadService(
             ThreadStore store,
@@ -108,7 +110,8 @@ public class ThreadService
             WorktreeLeaseService leases,
             GitRunner git,
             WorktreeService worktreeService,
-            RoleSkillService roleSkillService)
+            RoleSkillService roleSkillService,
+            IdGenerator idGenerator)
     {
         this.store = requireNonNull(store, "store is null");
         this.taskStore = requireNonNull(taskStore, "taskStore is null");
@@ -121,6 +124,7 @@ public class ThreadService
         this.git = requireNonNull(git, "git is null");
         this.worktreeService = requireNonNull(worktreeService, "worktreeService is null");
         this.roleSkillService = requireNonNull(roleSkillService, "roleSkillService is null");
+        this.idGenerator = requireNonNull(idGenerator, "idGenerator is null");
     }
 
     public List<Thread> listByStatus(ThreadStatus status, int limit)
@@ -373,7 +377,11 @@ public class ThreadService
             }
         }
         Instant now = Instant.now();
-        String threadId = UUID.randomUUID().toString();
+        // Human-readable id of the form ws-<slug>.t<ymd>-<seq>-<rand2>
+        // — embeds the workspace, creation day, and per-workspace-per-day
+        // counter so threads in logs and on disk identify themselves.
+        // See service/ids/IdGenerator.
+        String threadId = idGenerator.newThreadId(request.workspaceId().trim(), now);
         String title = deriveTitle(request.title(), request.initialPrompt());
         Thread thread = new Thread(
                 threadId,
@@ -430,7 +438,15 @@ public class ThreadService
         String taskType = request.taskType() == null || request.taskType().isBlank()
                 ? "DEVELOP"
                 : request.taskType().trim();
-        String taskId = UUID.randomUUID().toString();
+        // seq is allocated before the id so the id can embed it as
+        // ".k<seq>". The previous shape generated a UUID and then
+        // computed seq after the worktree existed; the new id format
+        // makes seq a structural part of the name, so it has to land
+        // first. taskStore.maxSeqForThread is monotonic per-thread,
+        // and the surrounding @Transactional keeps two concurrent
+        // materialiseTask calls on the same thread serialised.
+        long seq = taskStore.maxSeqForThread(threadId).orElse(0L) + 1L;
+        String taskId = idGenerator.newTaskId(threadId, seq);
         // The new model names the worktree directory after the task id
         // (one worktree per task), so the on-disk dir matches the row.
         Optional<WorktreeService.WorktreeHandle> handle = worktreeService.create(
@@ -438,7 +454,6 @@ public class ThreadService
         String branchName = handle
                 .map(WorktreeService.WorktreeHandle::branchName)
                 .orElse(request.branchName());
-        long seq = taskStore.maxSeqForThread(threadId).orElse(0L) + 1L;
         String roleSkillText = roleSkillService.generateForTask(
                 /* repo — derivable from workingDir later */ null,
                 branchName, taskId, "main");

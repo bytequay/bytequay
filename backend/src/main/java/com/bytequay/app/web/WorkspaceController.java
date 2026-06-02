@@ -23,6 +23,7 @@ import com.bytequay.app.service.WorkspaceInsightsService.Insights;
 import com.bytequay.app.service.workspaces.WorkspaceMemoryDistiller;
 import com.bytequay.app.service.workspaces.WorkspaceMemoryProposalService;
 import com.bytequay.app.service.workspaces.WorkspaceService;
+import org.springframework.http.HttpStatusCode;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -34,6 +35,7 @@ import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.server.ResponseStatusException;
 
 import java.util.List;
 import java.util.Map;
@@ -102,7 +104,12 @@ public class WorkspaceController
     @PostMapping
     public Workspace create(@RequestBody NewWorkspaceBody body)
     {
-        requireNonNull(body, "body is null");
+        if (body == null) {
+            throw new ResponseStatusException(HttpStatusCode.valueOf(400), "body is required");
+        }
+        if (body.name() == null || body.name().isBlank()) {
+            throw new ResponseStatusException(HttpStatusCode.valueOf(400), "name is required");
+        }
         return workspaces.create(new WorkspaceService.NewWorkspaceRequest(
                 body.name(),
                 body.isScratch(),
@@ -115,7 +122,9 @@ public class WorkspaceController
     @PatchMapping("/{id}")
     public Workspace patch(@PathVariable String id, @RequestBody PatchBody body)
     {
-        requireNonNull(body, "body is null");
+        if (body == null) {
+            throw new ResponseStatusException(HttpStatusCode.valueOf(400), "body is required");
+        }
         return workspaces.rename(id, body.name());
     }
 
@@ -138,6 +147,9 @@ public class WorkspaceController
     @PutMapping("/{id}/memory")
     public Workspace setMemory(@PathVariable String id, @RequestBody MemoryBody body)
     {
+        if (body == null) {
+            throw new ResponseStatusException(HttpStatusCode.valueOf(400), "body is required");
+        }
         return workspaces.setMemory(id, body.memoryMd() == null ? "" : body.memoryMd());
     }
 
@@ -215,6 +227,12 @@ public class WorkspaceController
     @PostMapping("/{id}/repos")
     public WorkspaceRepo addRepo(@PathVariable String id, @RequestBody RepoAttachBody body)
     {
+        if (body == null) {
+            throw new ResponseStatusException(HttpStatusCode.valueOf(400), "body is required");
+        }
+        if (body.repoFullName() == null || body.repoFullName().isBlank()) {
+            throw new ResponseStatusException(HttpStatusCode.valueOf(400), "repoFullName is required");
+        }
         return workspaces.addRepo(id, body.repoFullName(), body.defaultBaseBranch());
     }
 
@@ -230,6 +248,9 @@ public class WorkspaceController
             @PathVariable String owner, @PathVariable String repo,
             @RequestBody DefaultBaseBranchBody body)
     {
+        if (body == null) {
+            throw new ResponseStatusException(HttpStatusCode.valueOf(400), "body is required");
+        }
         return workspaces.setDefaultBaseBranch(id, owner + "/" + repo, body.defaultBaseBranch());
     }
 
@@ -242,6 +263,9 @@ public class WorkspaceController
             @PathVariable String owner, @PathVariable String repo,
             @RequestBody AutoFixEnabledBody body)
     {
+        if (body == null) {
+            throw new ResponseStatusException(HttpStatusCode.valueOf(400), "body is required");
+        }
         return workspaces.setAutoFixEnabled(id, owner + "/" + repo, body.autoFixEnabled());
     }
 

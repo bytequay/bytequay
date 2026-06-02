@@ -14,7 +14,6 @@
 package com.bytequay.app.service.threads;
 
 import com.bytequay.app.domain.StreamEvent;
-import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.google.common.collect.ImmutableList;
 
@@ -36,7 +35,11 @@ import static java.util.Objects.requireNonNull;
  *
  * <p>Unrecognized lines return an empty list rather than throwing —
  * the CLI evolves and we don't want a new event type to crash the
- * parser. Malformed JSON also returns empty (callers log).
+ * parser. Malformed JSON also returns empty (callers log). The
+ * tolerance is structural: the wire shape is deserialised into
+ * {@link StreamLine}, whose polymorphic interfaces all advertise a
+ * {@code defaultImpl = Unknown} so unmapped {@code "type"} values land
+ * on a benign variant instead of throwing.
  */
 public class StreamJsonParser
 {
@@ -60,25 +63,86 @@ public class StreamJsonParser
         if (trimmed.isEmpty()) {
             return ImmutableList.of();
         }
-        JsonNode root;
+        StreamLine streamLine;
         try {
-            root = mapper.readTree(trimmed);
+            streamLine = mapper.readValue(trimmed, StreamLine.class);
         }
         catch (Exception ignored) {
             return ImmutableList.of();
         }
-        if (!root.isObject()) {
+        return switch (streamLine) {
+            case StreamLine.System sys -> parseSystem(sys, now);
+            case StreamLine.User user -> parseUserMessage(user, now);
+            case StreamLine.Assistant assistant -> parseAssistantMessage(assistant, now);
+            case StreamLine.StreamEvent se -> parseStreamEvent(se, now);
+            case StreamLine.Result result -> parseResult(result, now);
+            case StreamLine.Unknown ignored -> ImmutableList.of();
+        };
+    }
+
+    private static List<StreamEvent> parseSystem(StreamLine.System sys, Instant now)
+    {
+        if (!"init".equals(sys.subtype())) {
             return ImmutableList.of();
         }
-        String type = textOrEmpty(root, "type");
-        return switch (type) {
-            case "system" -> parseSystem(root, now);
-            case "user" -> parseUserMessage(root, now);
-            case "assistant" -> parseAssistantMessage(root, now);
-            case "stream_event" -> parseStreamEvent(root, now);
-            case "result" -> parseResult(root, now);
-            default -> ImmutableList.of();
-        };
+        return ImmutableList.of(new StreamEvent.SessionStarted(
+                now,
+                nullToEmpty(sys.sessionId()),
+                nullToEmpty(sys.cwd()),
+                nullToEmpty(sys.model())));
+    }
+
+    private static List<StreamEvent> parseUserMessage(StreamLine.User user, Instant now)
+    {
+        // Claude echoes the user's text back in stream-json. We
+        // persist user text on send() so the conversation pane shows
+        // it instantly — re-emitting from the parser would double up
+        // every prompt. So skip plain-text user messages and only
+        // surface tool_result blocks (which the agent emits to feed
+        // tool output back into the loop).
+        if (user.message() == null || user.message().content() == null) {
+            return ImmutableList.of();
+        }
+        ImmutableList.Builder<StreamEvent> out = ImmutableList.builder();
+        for (StreamLine.ContentBlock block : user.message().content()) {
+            if (block instanceof StreamLine.ContentBlock.ToolResult tr) {
+                String outputJson = tr.content() == null ? "" : tr.content().toString();
+                out.add(new StreamEvent.ToolCallDone(
+                        now, nullToEmpty(tr.toolUseId()), outputJson, tr.isError()));
+            }
+        }
+        return out.build();
+    }
+
+    private static List<StreamEvent> parseAssistantMessage(StreamLine.Assistant assistant, Instant now)
+    {
+        if (assistant.message() == null || assistant.message().content() == null) {
+            return ImmutableList.of();
+        }
+        ImmutableList.Builder<StreamEvent> out = ImmutableList.builder();
+        for (StreamLine.ContentBlock block : assistant.message().content()) {
+            switch (block) {
+                case StreamLine.ContentBlock.Text text ->
+                        out.add(new StreamEvent.AssistantText(now, nullToEmpty(text.text())));
+                case StreamLine.ContentBlock.Thinking thinking -> {
+                    out.add(new StreamEvent.ThinkingStarted(now, nullToEmpty(thinking.thinking())));
+                    out.add(new StreamEvent.ThinkingDone(now));
+                }
+                case StreamLine.ContentBlock.ToolUse tu ->
+                        out.add(new StreamEvent.ToolCallStarted(
+                                now,
+                                nullToEmpty(tu.id()),
+                                nullToEmpty(tu.name()),
+                                tu.input() == null ? "null" : tu.input().toString()));
+                // ToolResult blocks belong in user-role messages; if
+                // the CLI ever emits one inside an assistant envelope
+                // we skip rather than mis-route it. Unknown is the
+                // forward-compat catch-all.
+                case StreamLine.ContentBlock.ToolResult ignored -> {}
+                case StreamLine.ContentBlock.Unknown ignored -> {}
+            }
+        }
+        return out.build();
     }
 
     /**
@@ -90,153 +154,76 @@ public class StreamJsonParser
      *   <li>{@code content_block_delta} with a {@code text_delta} —
      *       the chunk-by-chunk text growth we stream into the UI's
      *       in-flight assistant card.</li>
-     *   <li>{@code message_delta} carrying a running {@code usage}
-     *       object — surfaces in-flight token counts so the metrics
-     *       panel climbs live instead of jumping at turn boundary.</li>
+     *   <li>{@code message_start} / {@code message_delta} carrying a
+     *       running {@code usage} object — surfaces in-flight token
+     *       counts so the metrics panel climbs live instead of jumping
+     *       at turn boundary.</li>
      * </ul>
      *
-     * <p>Other subtypes (message_start/stop, content_block_start/stop,
-     * ping) are ignored here — the full {@code assistant} envelope still
-     * arrives at message_stop and feeds {@link #parseAssistantMessage},
-     * and turn-level cost / tokens still come in via the trailing
-     * {@code result} envelope.
+     * <p>Other subtypes (content_block_start/stop, ping) land on
+     * {@link StreamLine.SseEvent.Unknown} via the {@code defaultImpl}
+     * and produce no events here — the full {@code assistant} envelope
+     * still arrives at message_stop and feeds {@link
+     * #parseAssistantMessage}, and turn-level cost / tokens still come
+     * in via the trailing {@code result} envelope.
      */
-    private static List<StreamEvent> parseStreamEvent(JsonNode root, Instant now)
+    private static List<StreamEvent> parseStreamEvent(StreamLine.StreamEvent line, Instant now)
     {
-        JsonNode event = root.path("event");
-        String eventType = textOrEmpty(event, "type");
-        if ("content_block_delta".equals(eventType)) {
-            JsonNode delta = event.path("delta");
-            if (!"text_delta".equals(textOrEmpty(delta, "type"))) {
-                return ImmutableList.of();
-            }
-            String chunk = textOrEmpty(delta, "text");
-            if (chunk.isEmpty()) {
-                return ImmutableList.of();
-            }
-            int index = event.path("index").asInt(0);
-            return ImmutableList.of(new StreamEvent.AssistantTextDelta(now, index, chunk));
-        }
-        // message_start carries the prompt's input_tokens (typically the
-        // dominant number for any single model invocation) under
-        // {@code event.message.usage}. Without this, the LIVE bar would
-        // sit at "0 tokens" until the trailing message_delta finally
-        // lands — Claude Code's CLI shows the input count immediately
-        // at turn start, which is what users see and expect.
-        if ("message_start".equals(eventType)) {
-            JsonNode usage = event.path("message").path("usage");
-            if (!usage.isObject()) {
-                return ImmutableList.of();
-            }
-            long tokensIn = usage.path("input_tokens").asLong(0L);
-            long tokensOut = usage.path("output_tokens").asLong(0L);
-            if (tokensIn == 0L && tokensOut == 0L) {
-                return ImmutableList.of();
-            }
-            return ImmutableList.of(new StreamEvent.UsageUpdated(now, tokensIn, tokensOut));
-        }
-        if ("message_delta".equals(eventType)) {
-            JsonNode usage = event.path("usage");
-            if (usage.isMissingNode() || !usage.isObject()) {
-                return ImmutableList.of();
-            }
-            long tokensIn = usage.path("input_tokens").asLong(0L);
-            long tokensOut = usage.path("output_tokens").asLong(0L);
-            if (tokensIn == 0L && tokensOut == 0L) {
-                return ImmutableList.of();
-            }
-            return ImmutableList.of(new StreamEvent.UsageUpdated(now, tokensIn, tokensOut));
-        }
-        return ImmutableList.of();
-    }
-
-    private static List<StreamEvent> parseSystem(JsonNode root, Instant now)
-    {
-        if (!"init".equals(textOrEmpty(root, "subtype"))) {
+        StreamLine.SseEvent event = line.event();
+        if (event == null) {
             return ImmutableList.of();
         }
-        return ImmutableList.of(new StreamEvent.SessionStarted(
-                now,
-                textOrEmpty(root, "session_id"),
-                textOrEmpty(root, "cwd"),
-                textOrEmpty(root, "model")));
-    }
-
-    private static List<StreamEvent> parseUserMessage(JsonNode root, Instant now)
-    {
-        // Claude echoes the user's text back in stream-json. We
-        // persist user text on send() so the conversation pane shows
-        // it instantly — re-emitting from the parser would double up
-        // every prompt. So skip plain-text user messages and only
-        // surface tool_result blocks (which the agent emits to feed
-        // tool output back into the loop).
-        JsonNode message = root.path("message");
-        JsonNode content = message.path("content");
-        if (!content.isArray()) {
-            return ImmutableList.of();
-        }
-        ImmutableList.Builder<StreamEvent> out = ImmutableList.builder();
-        for (JsonNode block : content) {
-            String blockType = textOrEmpty(block, "type");
-            if ("tool_result".equals(blockType)) {
-                String callId = textOrEmpty(block, "tool_use_id");
-                JsonNode result = block.path("content");
-                String outputJson = result.isMissingNode() ? "" : result.toString();
-                boolean isError = block.path("is_error").asBoolean(false);
-                out.add(new StreamEvent.ToolCallDone(now, callId, outputJson, isError));
-            }
-        }
-        return out.build();
-    }
-
-    private static List<StreamEvent> parseAssistantMessage(JsonNode root, Instant now)
-    {
-        JsonNode content = root.path("message").path("content");
-        if (!content.isArray()) {
-            return ImmutableList.of();
-        }
-        ImmutableList.Builder<StreamEvent> out = ImmutableList.builder();
-        for (JsonNode block : content) {
-            String blockType = textOrEmpty(block, "type");
-            switch (blockType) {
-                case "text" -> out.add(new StreamEvent.AssistantText(now, textOrEmpty(block, "text")));
-                case "thinking" -> {
-                    out.add(new StreamEvent.ThinkingStarted(now, textOrEmpty(block, "thinking")));
-                    out.add(new StreamEvent.ThinkingDone(now));
+        return switch (event) {
+            case StreamLine.SseEvent.ContentBlockDelta cbd -> {
+                if (cbd.delta() instanceof StreamLine.SseDelta.TextDelta td
+                        && td.text() != null
+                        && !td.text().isEmpty()) {
+                    yield ImmutableList.of(new StreamEvent.AssistantTextDelta(
+                            now, cbd.index(), td.text()));
                 }
-                case "tool_use" -> out.add(new StreamEvent.ToolCallStarted(
-                        now,
-                        textOrEmpty(block, "id"),
-                        textOrEmpty(block, "name"),
-                        block.path("input").toString()));
-                default -> {
-                    // Skip unknown content block types.
-                }
+                yield ImmutableList.of();
             }
-        }
-        return out.build();
+            case StreamLine.SseEvent.MessageStart ms ->
+                    usageEvents(ms.message() == null ? null : ms.message().usage(), now);
+            case StreamLine.SseEvent.MessageDelta md -> usageEvents(md.usage(), now);
+            case StreamLine.SseEvent.Unknown ignored -> ImmutableList.of();
+        };
     }
 
-    private static List<StreamEvent> parseResult(JsonNode root, Instant now)
+    /** Emit a {@link StreamEvent.UsageUpdated} when the running token
+     *  counters have actually moved off zero — otherwise the metrics
+     *  panel would flap on every empty SSE frame. */
+    private static List<StreamEvent> usageEvents(StreamLine.Usage usage, Instant now)
     {
-        long durationMs = root.path("duration_ms").asLong(0L);
-        long tokensIn = root.path("usage").path("input_tokens").asLong(0L);
-        long tokensOut = root.path("usage").path("output_tokens").asLong(0L);
-        long costUsdMilli = Math.round(root.path("total_cost_usd").asDouble(0.0d) * 1000.0d);
-        StreamEvent turn = new StreamEvent.TurnDone(now, durationMs, costUsdMilli, tokensIn, tokensOut);
-        boolean isError = root.path("is_error").asBoolean(false)
-                || "error".equals(textOrEmpty(root, "subtype"));
+        if (usage == null) {
+            return ImmutableList.of();
+        }
+        if (usage.inputTokens() == 0L && usage.outputTokens() == 0L) {
+            return ImmutableList.of();
+        }
+        return ImmutableList.of(new StreamEvent.UsageUpdated(
+                now, usage.inputTokens(), usage.outputTokens()));
+    }
+
+    private static List<StreamEvent> parseResult(StreamLine.Result result, Instant now)
+    {
+        long tokensIn = result.usage() == null ? 0L : result.usage().inputTokens();
+        long tokensOut = result.usage() == null ? 0L : result.usage().outputTokens();
+        long costUsdMilli = Math.round(result.totalCostUsd() * 1000.0d);
+        StreamEvent turn = new StreamEvent.TurnDone(
+                now, result.durationMs(), costUsdMilli, tokensIn, tokensOut);
+        boolean isError = result.isError() || "error".equals(result.subtype());
         if (!isError) {
             return ImmutableList.of(turn);
         }
-        String message = root.has("error") ? root.get("error").asText("turn failed")
-                : "turn failed";
+        String message = result.error() == null || result.error().isEmpty()
+                ? "turn failed"
+                : result.error();
         return ImmutableList.of(turn, new StreamEvent.ErrorOccurred(now, message, true));
     }
 
-    private static String textOrEmpty(JsonNode node, String field)
+    private static String nullToEmpty(String s)
     {
-        JsonNode v = node.path(field);
-        return v.isTextual() ? v.asText() : "";
+        return s == null ? "" : s;
     }
 }

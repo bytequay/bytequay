@@ -20,6 +20,7 @@ import com.bytequay.app.domain.ReviewRequest;
 import com.bytequay.app.repository.AppSettingsStore;
 import com.bytequay.app.service.CredentialService;
 import com.bytequay.app.service.skills.SkillDraft;
+import com.bytequay.app.service.threads.StreamLine;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.databind.JsonNode;
@@ -226,16 +227,14 @@ public class ClaudeReviewer
     String extractTextDelta(String payload)
     {
         try {
-            JsonNode node = objectMapper.readTree(payload);
-            if (!"content_block_delta".equals(node.path("type").asText())) {
-                return null;
+            StreamLine.SseEvent event = objectMapper.readValue(payload, StreamLine.SseEvent.class);
+            if (event instanceof StreamLine.SseEvent.ContentBlockDelta cbd
+                    && cbd.delta() instanceof StreamLine.SseDelta.TextDelta td
+                    && td.text() != null
+                    && !td.text().isEmpty()) {
+                return td.text();
             }
-            JsonNode delta = node.path("delta");
-            if (!"text_delta".equals(delta.path("type").asText())) {
-                return null;
-            }
-            String text = delta.path("text").asText(null);
-            return text == null || text.isEmpty() ? null : text;
+            return null;
         }
         catch (Exception e) {
             // A malformed SSE frame is not fatal — just skip it. Anthropic

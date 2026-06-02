@@ -50,10 +50,11 @@ public class ThreadGroupServiceImpl
     @Override
     public ThreadGroup create(NewGroupBody body)
     {
+        // Defensive only — controller already returned 400 on a null
+        // body or blank name. The requireNonNull guards a cross-service
+        // reuse path, where the caller skipped the HTTP layer; full
+        // input validation belongs at the boundary, not here.
         requireNonNull(body, "body is null");
-        if (body.name() == null || body.name().isBlank()) {
-            throw new IllegalArgumentException("name is required");
-        }
         return threads.createGroup(new ThreadService.NewGroupRequest(
                 body.name(),
                 body.glyph(),
@@ -65,7 +66,8 @@ public class ThreadGroupServiceImpl
     @Override
     public ThreadGroup update(String id, PatchGroupBody body)
     {
-        requireNonNull(body, "body is required");
+        // Defensive only — see {@link #create}.
+        requireNonNull(body, "body is null");
         return threads.updateGroup(id, new ThreadService.GroupPatch(
                 body.name(), body.glyph(), body.color()));
     }

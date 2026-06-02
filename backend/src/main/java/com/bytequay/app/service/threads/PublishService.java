@@ -28,10 +28,12 @@ import com.bytequay.app.domain.UpdatePullRequestCommand;
 import com.bytequay.app.repository.PullRequestRepository;
 import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.service.local.GitRunner;
+import com.bytequay.app.service.tools.ParkedProposal;
 import com.bytequay.app.web.PatResolver;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import com.google.common.collect.ImmutableList;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -43,8 +45,6 @@ import org.springframework.web.server.ResponseStatusException;
 import java.io.IOException;
 import java.nio.file.InvalidPathException;
 import java.nio.file.Path;
-import java.util.LinkedHashMap;
-import java.util.Map;
 import java.util.Optional;
 
 import static java.util.Objects.requireNonNull;
@@ -56,13 +56,22 @@ import static java.util.Objects.requireNonNull;
  * Side effects only fire here — McpController just parks; this is where
  * the publish-gate contract actually lands.
  *
+ * <p>The parked notification body is a typed {@link ParkedProposal} —
+ * Jackson polymorphism on the {@code "action"} discriminator deserialises
+ * the stored JSON straight into the matching variant, and the dispatcher
+ * is a pattern-switch over the sealed type. {@code do*} branches read
+ * fields via record accessors rather than {@code JsonNode.path("...")}
+ * lookups, so missing-field validation lives in one place per field
+ * (constructor + preflight) and the action surface is exhaustively
+ * checked at compile time.
+ *
  * <p>Audit rows are AUTO_FIX_DONE notifications carrying the
  * resolution (approved / discarded / discarded_after_interrupt /
  * interrupted / recovered), the action, the parked notification's id,
- * and a human-readable summary. Structural
- * validation runs before a proposal is claimed. Once an external
- * attempt starts, any incomplete resolution stays RESOLVING so the
- * next user action can close local state without publishing twice.
+ * and a human-readable summary. Structural validation runs before a
+ * proposal is claimed. Once an external attempt starts, any incomplete
+ * resolution stays RESOLVING so the next user action can close local
+ * state without publishing twice.
  */
 @Service
 public class PublishService
@@ -112,8 +121,8 @@ public class PublishService
     public PublishResult approve(String notificationId, String editedBody, String expectedAction)
     {
         Notification original = requireParked(notificationId);
-        JsonNode payload = parsePayload(original);
-        String action = resolveAction(payload);
+        ParkedProposal proposal = parseProposal(original);
+        String action = proposal.action();
         // Recovering an interrupted (RESOLVING) row runs no remote action
         // — it only finalizes local state — so it must reach the recovery
         // branch even when the caller can't supply the expectedAction
@@ -123,12 +132,12 @@ public class PublishService
             return finishInterruptedApproval(original, action);
         }
         requireExpectedAction(expectedAction, action);
-        preflightApprovedAction(action, payload, editedBody, original);
+        preflightApprovedAction(proposal, editedBody, original);
         claimResolution(original);
 
         PublishResult result;
         try {
-            result = runApprovedAction(action, payload, editedBody, original);
+            result = runApprovedAction(proposal, editedBody, original);
         }
         catch (ResponseStatusException e) {
             // A 4xx means the action was rejected before it changed any
@@ -231,26 +240,24 @@ public class PublishService
     }
 
     private PublishResult runApprovedAction(
-            String action, JsonNode payload, String editedBody, Notification original)
+            ParkedProposal proposal, String editedBody, Notification original)
     {
-        return switch (action) {
-            case "push" -> doPush(payload);
-            case "post_comment" -> doPostComment(payload, editedBody);
-            case "reply_review_thread" -> doReplyReviewThread(payload, editedBody);
-            case "approve_pr" -> doApprovePr(payload, editedBody);
-            case "merge_pr" -> doMergePr(payload);
-            case "create_review_comment" -> doCreateReviewComment(payload, editedBody);
-            case "update_pr_body" -> doUpdatePrBody(payload, editedBody);
-            case "request_reviewer" -> doRequestReviewer(payload);
-            case "comment_on_issue" -> doCommentOnIssue(payload, editedBody);
-            case "set_issue_state" -> doSetIssueState(payload);
-            case "open_pr" -> doOpenPr(payload, editedBody);
-            case "publish_review" -> doPublishReview(payload, editedBody);
-            case "request_review" -> doRequestReview();
-            case "next_task" -> doNextTask(payload, original);
-            case "ship_task" -> doShipTask(payload, original);
-            default -> throw new ResponseStatusException(
-                    HttpStatusCode.valueOf(400), "unsupported action: " + action);
+        return switch (proposal) {
+            case ParkedProposal.Push p -> doPush(p);
+            case ParkedProposal.PostComment pc -> doPostComment(pc, editedBody);
+            case ParkedProposal.ReplyReviewThread rrt -> doReplyReviewThread(rrt, editedBody);
+            case ParkedProposal.ApprovePr a -> doApprovePr(a, editedBody);
+            case ParkedProposal.MergePr m -> doMergePr(m);
+            case ParkedProposal.CreateReviewComment c -> doCreateReviewComment(c, editedBody);
+            case ParkedProposal.UpdatePrBody u -> doUpdatePrBody(u, editedBody);
+            case ParkedProposal.RequestReviewer r -> doRequestReviewer(r);
+            case ParkedProposal.CommentOnIssue c -> doCommentOnIssue(c, editedBody);
+            case ParkedProposal.SetIssueState s -> doSetIssueState(s);
+            case ParkedProposal.OpenPr o -> doOpenPr(o, editedBody);
+            case ParkedProposal.PublishReview pr -> doPublishReview(pr, editedBody);
+            case ParkedProposal.RequestReview ignored -> doRequestReview();
+            case ParkedProposal.NextTask n -> doNextTask(n, original);
+            case ParkedProposal.ShipTask s -> doShipTask(s, original);
         };
     }
 
@@ -260,116 +267,115 @@ public class PublishService
      * infer that an exception happened before the remote call.
      */
     private void preflightApprovedAction(
-            String action, JsonNode payload, String editedBody, Notification original)
+            ParkedProposal proposal, String editedBody, Notification original)
     {
-        switch (action) {
-            case "push" -> {
-                String worktreePath = payload.path("worktreePath").asText("");
-                if (worktreePath.isBlank()) {
-                    throw new ResponseStatusException(HttpStatusCode.valueOf(400),
-                            "parked push notification has no worktreePath");
-                }
-                try {
-                    if (!Path.of(worktreePath).isAbsolute()) {
-                        throw new ResponseStatusException(HttpStatusCode.valueOf(400),
-                                "parked push notification has a non-absolute worktreePath");
-                    }
-                }
-                catch (InvalidPathException e) {
-                    throw new ResponseStatusException(HttpStatusCode.valueOf(400),
-                            "parked push notification has an invalid worktreePath");
-                }
+        switch (proposal) {
+            case ParkedProposal.Push p -> preflightPush(p);
+            case ParkedProposal.PostComment pc -> {
+                requirePrRef(pc.pr(), "post_comment");
+                requireEditableBody(pc.body(), editedBody, "comment body is blank — nothing to post");
             }
-            case "post_comment" -> {
-                readPrRef(payload, action);
-                requireEditableBody(payload, editedBody, "comment body is blank — nothing to post");
-            }
-            case "reply_review_thread" -> {
-                readPrRef(payload, action);
-                if (payload.path("rootCommentId").asLong(0L) <= 0L) {
+            case ParkedProposal.ReplyReviewThread rrt -> {
+                requirePrRef(rrt.pr(), "reply_review_thread");
+                if (rrt.rootCommentId() <= 0L) {
                     throw new ResponseStatusException(HttpStatusCode.valueOf(400),
                             "parked reply_review_thread notification has no rootCommentId");
                 }
-                requireEditableBody(payload, editedBody, "reply body is blank — nothing to post");
+                requireEditableBody(rrt.body(), editedBody, "reply body is blank — nothing to post");
             }
-            case "approve_pr", "merge_pr" -> readPrRef(payload, action);
-            case "create_review_comment" -> {
-                readPrRef(payload, action);
-                requireEditableBody(payload, editedBody, "review comment body is blank — nothing to post");
-                String filePath = payload.path("filePath").asText("");
-                int line = payload.path("line").asInt(0);
-                String commitId = payload.path("commitId").asText("");
-                if (filePath.isBlank() || line <= 0 || commitId.isBlank()) {
+            case ParkedProposal.ApprovePr a -> requirePrRef(a.pr(), "approve_pr");
+            case ParkedProposal.MergePr m -> requirePrRef(m.pr(), "merge_pr");
+            case ParkedProposal.CreateReviewComment c -> {
+                requirePrRef(c.pr(), "create_review_comment");
+                requireEditableBody(c.body(), editedBody, "review comment body is blank — nothing to post");
+                if (orEmpty(c.filePath()).isBlank() || c.line() <= 0 || orEmpty(c.commitId()).isBlank()) {
                     throw new ResponseStatusException(HttpStatusCode.valueOf(400),
                             "parked create_review_comment notification is missing filePath / line / commitId");
                 }
             }
-            case "update_pr_body" -> {
-                readPrRef(payload, action);
-                requireEditableBody(payload, editedBody, "PR body is blank — nothing to update");
+            case ParkedProposal.UpdatePrBody u -> {
+                requirePrRef(u.pr(), "update_pr_body");
+                requireEditableBody(u.body(), editedBody, "PR body is blank — nothing to update");
             }
-            case "request_reviewer" -> {
-                readPrRef(payload, action);
-                if (payload.path("reviewer").asText("").trim().isBlank()) {
+            case ParkedProposal.RequestReviewer r -> {
+                requirePrRef(r.pr(), "request_reviewer");
+                if (orEmpty(r.reviewer()).trim().isBlank()) {
                     throw new ResponseStatusException(HttpStatusCode.valueOf(400),
                             "parked request_reviewer notification has no reviewer login");
                 }
             }
-            case "comment_on_issue" -> {
-                readIssueRef(payload, action);
-                requireEditableBody(payload, editedBody, "comment body is blank — nothing to post");
+            case ParkedProposal.CommentOnIssue c -> {
+                requireIssueRef(c.issue(), "comment_on_issue");
+                requireEditableBody(c.body(), editedBody, "comment body is blank — nothing to post");
             }
-            case "set_issue_state" -> {
-                readIssueRef(payload, action);
-                String state = payload.path("state").asText("");
-                if (!"open".equals(state) && !"closed".equals(state)) {
+            case ParkedProposal.SetIssueState s -> {
+                requireIssueRef(s.issue(), "set_issue_state");
+                if (!"open".equals(s.state()) && !"closed".equals(s.state())) {
                     throw new ResponseStatusException(HttpStatusCode.valueOf(400),
-                            "parked set_issue_state notification has invalid state: " + state);
+                            "parked set_issue_state notification has invalid state: " + s.state());
                 }
             }
-            case "open_pr" -> preflightOpenPr(payload);
-            case "publish_review" -> preflightPublishReview(payload);
-            case "request_review" -> {
+            case ParkedProposal.OpenPr o -> preflightOpenPr(o);
+            case ParkedProposal.PublishReview pr -> preflightPublishReview(pr);
+            case ParkedProposal.RequestReview ignored -> {
                 // The MCP park path has already verified it has a diff.
             }
-            case "next_task", "ship_task" -> preflightAdvance(payload, original, action);
-            default -> throw new ResponseStatusException(
-                    HttpStatusCode.valueOf(400), "unsupported action: " + action);
+            case ParkedProposal.NextTask n -> preflightAdvance(n.baseMode(), original, "next_task");
+            case ParkedProposal.ShipTask s -> preflightAdvance(s.baseMode(), original, "ship_task");
         }
     }
 
-    private static void requireEditableBody(JsonNode payload, String editedBody, String message)
+    private static void preflightPush(ParkedProposal.Push p)
+    {
+        String worktreePath = orEmpty(p.worktreePath());
+        if (worktreePath.isBlank()) {
+            throw new ResponseStatusException(HttpStatusCode.valueOf(400),
+                    "parked push notification has no worktreePath");
+        }
+        try {
+            if (!Path.of(worktreePath).isAbsolute()) {
+                throw new ResponseStatusException(HttpStatusCode.valueOf(400),
+                        "parked push notification has a non-absolute worktreePath");
+            }
+        }
+        catch (InvalidPathException e) {
+            throw new ResponseStatusException(HttpStatusCode.valueOf(400),
+                    "parked push notification has an invalid worktreePath");
+        }
+    }
+
+    private static void requireEditableBody(String parkedBody, String editedBody, String message)
     {
         String effectiveBody = (editedBody == null || editedBody.isBlank())
-                ? payload.path("body").asText("")
+                ? orEmpty(parkedBody)
                 : editedBody;
         if (effectiveBody.isBlank()) {
             throw new ResponseStatusException(HttpStatusCode.valueOf(400), message);
         }
     }
 
-    private static void preflightOpenPr(JsonNode payload)
+    private static void preflightOpenPr(ParkedProposal.OpenPr o)
     {
-        JsonNode repo = payload.path("repo");
-        if (repo.isMissingNode() || repo.isNull()
-                || repo.path("owner").asText("").isBlank()
-                || repo.path("repo").asText("").isBlank()) {
+        ParkedProposal.RepoRef repo = o.repo();
+        if (repo == null
+                || orEmpty(repo.owner()).isBlank()
+                || orEmpty(repo.repo()).isBlank()) {
             throw new ResponseStatusException(HttpStatusCode.valueOf(400),
                     "parked open_pr notification has incomplete repo ref");
         }
-        if (payload.path("title").asText("").isBlank()
-                || payload.path("head").asText("").isBlank()
-                || payload.path("base").asText("").isBlank()) {
+        if (orEmpty(o.title()).isBlank()
+                || orEmpty(o.head()).isBlank()
+                || orEmpty(o.base()).isBlank()) {
             throw new ResponseStatusException(HttpStatusCode.valueOf(400),
                     "parked open_pr notification is missing title / head / base");
         }
     }
 
-    private static void preflightPublishReview(JsonNode payload)
+    private static void preflightPublishReview(ParkedProposal.PublishReview pr)
     {
-        readPrRef(payload, "publish_review");
-        JsonNode commentsNode = payload.path("comments");
-        if (!commentsNode.isArray()) {
+        requirePrRef(pr.pr(), "publish_review");
+        JsonNode commentsNode = pr.comments();
+        if (commentsNode == null || !commentsNode.isArray()) {
             return;
         }
         for (JsonNode comment : commentsNode) {
@@ -382,7 +388,7 @@ public class PublishService
         }
     }
 
-    private void preflightAdvance(JsonNode payload, Notification original, String action)
+    private void preflightAdvance(String baseMode, Notification original, String action)
     {
         String threadId = original.threadId();
         String taskId = original.taskId();
@@ -413,13 +419,11 @@ public class PublishService
             throw new ResponseStatusException(HttpStatusCode.valueOf(409),
                     "task " + taskId + " has no branch name; nothing to ship");
         }
-        JsonNode nextTitleNode = payload.path("nextTitle");
-        if (!nextTitleNode.isMissingNode() && !nextTitleNode.isNull() && !nextTitleNode.isTextual()) {
-            throw new ResponseStatusException(HttpStatusCode.valueOf(400),
-                    "parked " + action + " notification has an invalid nextTitle");
-        }
-        String baseModeRaw = payload.path("baseMode").asText("main");
-        if (!"main".equals(baseModeRaw) && !"stacked".equals(baseModeRaw)) {
+        // The original nextTitle JsonNode type check (textual-or-absent)
+        // is now enforced by Jackson at deserialisation — a non-string
+        // value lands the same 400 via parseProposal.
+        String resolvedBaseMode = baseMode == null ? "main" : baseMode;
+        if (!"main".equals(resolvedBaseMode) && !"stacked".equals(resolvedBaseMode)) {
             throw new ResponseStatusException(HttpStatusCode.valueOf(400),
                     "parked " + action + " notification has an invalid baseMode");
         }
@@ -452,8 +456,8 @@ public class PublishService
     public PublishResult discard(String notificationId, String expectedAction)
     {
         Notification original = requireParked(notificationId);
-        JsonNode payload = parsePayload(original);
-        String action = resolveAction(payload);
+        ParkedProposal proposal = parseProposal(original);
+        String action = proposal.action();
         boolean interrupted = original.status() == NotificationStatus.RESOLVING;
         if (!interrupted) {
             // A fresh discard guards against a payload that changed under
@@ -531,39 +535,41 @@ public class PublishService
         }
     }
 
-    private JsonNode parsePayload(Notification original)
+    /** Parse the parked JSON into a typed {@link ParkedProposal}.
+     *
+     *  <p>Legacy back-compat: rows written before {@code "action"} was a
+     *  required field carry only {@code summary} + {@code
+     *  source="mcp:request_review"}. Inject the discriminator before
+     *  Jackson runs so polymorphism can resolve the variant. */
+    private ParkedProposal parseProposal(Notification original)
     {
+        String json = original.payloadJson() == null ? "{}" : original.payloadJson();
         try {
-            String json = original.payloadJson() == null ? "{}" : original.payloadJson();
-            return mapper.readTree(json);
+            JsonNode tree = mapper.readTree(json);
+            if (tree instanceof ObjectNode obj
+                    && obj.path("action").asText("").isBlank()
+                    && "mcp:request_review".equals(obj.path("source").asText(""))
+                    && obj.path("summary").isTextual()) {
+                obj.put("action", "request_review");
+            }
+            return mapper.treeToValue(tree, ParkedProposal.class);
         }
         catch (JsonProcessingException e) {
             throw new ResponseStatusException(
                     HttpStatusCode.valueOf(400),
-                    "notification payload is not valid JSON: " + e.getMessage());
+                    "notification payload is not a known parked proposal: " + e.getMessage());
         }
     }
 
-    private static String resolveAction(JsonNode payload)
+    private PublishResult doPush(ParkedProposal.Push p)
     {
-        String action = payload.path("action").asText("");
-        if (action.isBlank()
-                && "mcp:request_review".equals(payload.path("source").asText(""))
-                && payload.path("summary").isTextual()) {
-            return "request_review";
-        }
-        return action;
-    }
-
-    private PublishResult doPush(JsonNode payload)
-    {
-        String worktreePath = payload.path("worktreePath").asText("");
+        String worktreePath = orEmpty(p.worktreePath());
         if (worktreePath.isBlank()) {
             throw new ResponseStatusException(HttpStatusCode.valueOf(400),
                     "parked push notification has no worktreePath");
         }
         Path worktree = Path.of(worktreePath);
-        String branch = payload.path("branch").asText("the branch");
+        String branch = orElse(p.branch(), "the branch");
         try {
             git.push(worktree);
         }
@@ -578,75 +584,45 @@ public class PublishService
                 "Pushed " + branch + " from " + worktree + ".", "push");
     }
 
-    private PublishResult doPostComment(JsonNode payload, String editedBody)
+    private PublishResult doPostComment(ParkedProposal.PostComment pc, String editedBody)
     {
-        JsonNode pr = payload.path("pr");
-        if (pr.isMissingNode() || pr.isNull()) {
-            throw new ResponseStatusException(HttpStatusCode.valueOf(400),
-                    "parked post_comment notification has no pr ref");
-        }
-        String owner = pr.path("owner").asText("");
-        String repo = pr.path("repo").asText("");
-        int number = pr.path("number").asInt(0);
-        if (owner.isBlank() || repo.isBlank() || number <= 0) {
-            throw new ResponseStatusException(HttpStatusCode.valueOf(400),
-                    "parked post_comment notification has incomplete pr ref");
-        }
-        String parkedBody = payload.path("body").asText("");
-        String effectiveBody = (editedBody == null || editedBody.isBlank())
-                ? parkedBody
-                : editedBody;
+        ParkedProposal.PrRef pr = requirePrRef(pc.pr(), "post_comment");
+        String effectiveBody = effectiveBody(pc.body(), editedBody);
         if (effectiveBody.isBlank()) {
             throw new ResponseStatusException(HttpStatusCode.valueOf(400),
                     "comment body is blank — nothing to post");
         }
-        PullRequestRef ref = new PullRequestRef(owner, repo, number);
-        String pat = patResolver.resolve(owner + "/" + repo);
+        PullRequestRef ref = toPullRequestRef(pr);
+        String pat = patResolver.resolve(pr.owner() + "/" + pr.repo());
         pullRequests.createIssueComment(pat, ref, effectiveBody);
         return new PublishResult(true, "approved",
-                "Posted comment on " + owner + "/" + repo + "#" + number + ".",
+                "Posted comment on " + pr.owner() + "/" + pr.repo() + "#" + pr.number() + ".",
                 "post_comment");
     }
 
-    private PublishResult doReplyReviewThread(JsonNode payload, String editedBody)
+    private PublishResult doReplyReviewThread(ParkedProposal.ReplyReviewThread rrt, String editedBody)
     {
-        JsonNode pr = payload.path("pr");
-        if (pr.isMissingNode() || pr.isNull()) {
-            throw new ResponseStatusException(HttpStatusCode.valueOf(400),
-                    "parked reply_review_thread notification has no pr ref");
-        }
-        String owner = pr.path("owner").asText("");
-        String repo = pr.path("repo").asText("");
-        int number = pr.path("number").asInt(0);
-        if (owner.isBlank() || repo.isBlank() || number <= 0) {
-            throw new ResponseStatusException(HttpStatusCode.valueOf(400),
-                    "parked reply_review_thread notification has incomplete pr ref");
-        }
-        long rootCommentId = payload.path("rootCommentId").asLong(0L);
-        if (rootCommentId <= 0L) {
+        ParkedProposal.PrRef pr = requirePrRef(rrt.pr(), "reply_review_thread");
+        if (rrt.rootCommentId() <= 0L) {
             throw new ResponseStatusException(HttpStatusCode.valueOf(400),
                     "parked reply_review_thread notification has no rootCommentId");
         }
-        String parkedBody = payload.path("body").asText("");
-        String effectiveBody = (editedBody == null || editedBody.isBlank())
-                ? parkedBody
-                : editedBody;
+        String effectiveBody = effectiveBody(rrt.body(), editedBody);
         if (effectiveBody.isBlank()) {
             throw new ResponseStatusException(HttpStatusCode.valueOf(400),
                     "reply body is blank — nothing to post");
         }
-        PullRequestRef ref = new PullRequestRef(owner, repo, number);
-        String pat = patResolver.resolve(owner + "/" + repo);
-        pullRequests.replyToReviewComment(pat, ref, rootCommentId, effectiveBody);
+        PullRequestRef ref = toPullRequestRef(pr);
+        String pat = patResolver.resolve(pr.owner() + "/" + pr.repo());
+        pullRequests.replyToReviewComment(pat, ref, rrt.rootCommentId(), effectiveBody);
         return new PublishResult(true, "approved",
-                "Replied in review thread on " + owner + "/" + repo + "#" + number + ".",
+                "Replied in review thread on " + pr.owner() + "/" + pr.repo() + "#" + pr.number() + ".",
                 "reply_review_thread");
     }
 
-    private PublishResult doApprovePr(JsonNode payload, String editedBody)
+    private PublishResult doApprovePr(ParkedProposal.ApprovePr a, String editedBody)
     {
-        PrRefFromPayload ref = readPrRef(payload, "approve_pr");
-        String parkedBody = payload.path("body").asText("");
+        ParkedProposal.PrRef pr = requirePrRef(a.pr(), "approve_pr");
         // approve_pr's body is optional. Distinguish "user never
         // overrode the textarea" (editedBody == null — for callers
         // that don't render an editor at all) from "user explicitly
@@ -654,8 +630,8 @@ public class PublishService
         // honour the user's blank — the gate's editable textarea
         // makes clearing a real intent, not an indication to fall
         // back to the agent's suggestion.
-        String effectiveBody = editedBody == null ? parkedBody : editedBody;
-        String pat = patResolver.resolve(ref.owner() + "/" + ref.repo());
+        String effectiveBody = editedBody == null ? orEmpty(a.body()) : editedBody;
+        String pat = patResolver.resolve(pr.owner() + "/" + pr.repo());
         // GitHub's review-create endpoint accepts an empty body for
         // an APPROVE; the SDK uses Optional<String> so pass empty
         // when the user didn't type anything.
@@ -664,114 +640,102 @@ public class PublishService
                 effectiveBody.isBlank() ? Optional.empty() : Optional.of(effectiveBody),
                 "APPROVE",
                 ImmutableList.of());
-        pullRequests.createReview(pat, ref.toRef(), command);
+        pullRequests.createReview(pat, toPullRequestRef(pr), command);
         return new PublishResult(true, "approved",
-                "Approved " + ref.owner() + "/" + ref.repo() + "#" + ref.number() + ".",
+                "Approved " + pr.owner() + "/" + pr.repo() + "#" + pr.number() + ".",
                 "approve_pr");
     }
 
-    private PublishResult doMergePr(JsonNode payload)
+    private PublishResult doMergePr(ParkedProposal.MergePr m)
     {
-        PrRefFromPayload ref = readPrRef(payload, "merge_pr");
-        String strategy = payload.path("strategy").asText("squash");
+        ParkedProposal.PrRef pr = requirePrRef(m.pr(), "merge_pr");
+        String strategy = orElse(m.strategy(), "squash");
         MergePullRequestCommand command = switch (strategy) {
             case "merge" -> MergePullRequestCommand.mergeCommit();
             case "rebase" -> MergePullRequestCommand.rebase();
             default -> MergePullRequestCommand.squash();
         };
-        String pat = patResolver.resolve(ref.owner() + "/" + ref.repo());
-        pullRequests.mergePullRequest(pat, ref.toRef(), command);
+        String pat = patResolver.resolve(pr.owner() + "/" + pr.repo());
+        pullRequests.mergePullRequest(pat, toPullRequestRef(pr), command);
         return new PublishResult(true, "approved",
-                "Merged " + ref.owner() + "/" + ref.repo() + "#" + ref.number()
+                "Merged " + pr.owner() + "/" + pr.repo() + "#" + pr.number()
                         + " (" + strategy + ").",
                 "merge_pr");
     }
 
-    private PublishResult doCreateReviewComment(JsonNode payload, String editedBody)
+    private PublishResult doCreateReviewComment(ParkedProposal.CreateReviewComment c, String editedBody)
     {
-        PrRefFromPayload ref = readPrRef(payload, "create_review_comment");
-        String parkedBody = payload.path("body").asText("");
-        String effectiveBody = (editedBody == null || editedBody.isBlank())
-                ? parkedBody
-                : editedBody;
+        ParkedProposal.PrRef pr = requirePrRef(c.pr(), "create_review_comment");
+        String effectiveBody = effectiveBody(c.body(), editedBody);
         if (effectiveBody.isBlank()) {
             throw new ResponseStatusException(HttpStatusCode.valueOf(400),
                     "review comment body is blank — nothing to post");
         }
-        String filePath = payload.path("filePath").asText("");
-        int line = payload.path("line").asInt(0);
-        String commitId = payload.path("commitId").asText("");
+        String filePath = orEmpty(c.filePath());
+        int line = c.line();
+        String commitId = orEmpty(c.commitId());
         if (filePath.isBlank() || line <= 0 || commitId.isBlank()) {
             throw new ResponseStatusException(HttpStatusCode.valueOf(400),
                     "parked create_review_comment notification is missing filePath / line / commitId");
         }
-        String side = payload.path("side").asText("RIGHT");
-        Integer startLine = payload.path("startLine").isNumber()
-                ? payload.path("startLine").asInt()
-                : null;
-        String startSide = payload.path("startSide").asText("");
-        String pat = patResolver.resolve(ref.owner() + "/" + ref.repo());
+        String side = orElse(c.side(), "RIGHT");
+        String startSide = orEmpty(c.startSide());
+        String pat = patResolver.resolve(pr.owner() + "/" + pr.repo());
         pullRequests.createInlineReviewComment(
-                pat, ref.toRef(),
+                pat, toPullRequestRef(pr),
                 effectiveBody, filePath, line, side, commitId,
-                startLine,
+                c.startLine(),
                 startSide.isBlank() ? null : startSide);
         return new PublishResult(true, "approved",
-                "Posted review comment on " + ref.owner() + "/" + ref.repo()
-                        + "#" + ref.number() + " · " + filePath + ":" + line + ".",
+                "Posted review comment on " + pr.owner() + "/" + pr.repo()
+                        + "#" + pr.number() + " · " + filePath + ":" + line + ".",
                 "create_review_comment");
     }
 
-    private PublishResult doUpdatePrBody(JsonNode payload, String editedBody)
+    private PublishResult doUpdatePrBody(ParkedProposal.UpdatePrBody u, String editedBody)
     {
-        PrRefFromPayload ref = readPrRef(payload, "update_pr_body");
-        String parkedBody = payload.path("body").asText("");
-        String effectiveBody = (editedBody == null || editedBody.isBlank())
-                ? parkedBody
-                : editedBody;
+        ParkedProposal.PrRef pr = requirePrRef(u.pr(), "update_pr_body");
+        String effectiveBody = effectiveBody(u.body(), editedBody);
         if (effectiveBody.isBlank()) {
             throw new ResponseStatusException(HttpStatusCode.valueOf(400),
                     "PR body is blank — nothing to update");
         }
-        String pat = patResolver.resolve(ref.owner() + "/" + ref.repo());
+        String pat = patResolver.resolve(pr.owner() + "/" + pr.repo());
         UpdatePullRequestCommand command = new UpdatePullRequestCommand(
                 Optional.empty(),
                 Optional.of(effectiveBody),
                 Optional.empty(),
                 Optional.empty(),
                 Optional.empty());
-        pullRequests.updatePullRequest(pat, ref.toRef(), command);
+        pullRequests.updatePullRequest(pat, toPullRequestRef(pr), command);
         return new PublishResult(true, "approved",
-                "Updated PR body on " + ref.owner() + "/" + ref.repo() + "#" + ref.number() + ".",
+                "Updated PR body on " + pr.owner() + "/" + pr.repo() + "#" + pr.number() + ".",
                 "update_pr_body");
     }
 
-    private PublishResult doRequestReviewer(JsonNode payload)
+    private PublishResult doRequestReviewer(ParkedProposal.RequestReviewer r)
     {
-        PrRefFromPayload ref = readPrRef(payload, "request_reviewer");
-        String reviewer = payload.path("reviewer").asText("").trim();
+        ParkedProposal.PrRef pr = requirePrRef(r.pr(), "request_reviewer");
+        String reviewer = orEmpty(r.reviewer()).trim();
         if (reviewer.isBlank()) {
             throw new ResponseStatusException(HttpStatusCode.valueOf(400),
                     "parked request_reviewer notification has no reviewer login");
         }
-        String pat = patResolver.resolve(ref.owner() + "/" + ref.repo());
+        String pat = patResolver.resolve(pr.owner() + "/" + pr.repo());
         RequestReviewersCommand command = new RequestReviewersCommand(
                 ImmutableList.of(reviewer),
                 ImmutableList.of());
-        pullRequests.requestReviewers(pat, ref.toRef(), command);
+        pullRequests.requestReviewers(pat, toPullRequestRef(pr), command);
         return new PublishResult(true, "approved",
-                "Requested " + reviewer + " on " + ref.owner() + "/"
-                        + ref.repo() + "#" + ref.number() + ".",
+                "Requested " + reviewer + " on " + pr.owner() + "/"
+                        + pr.repo() + "#" + pr.number() + ".",
                 "request_reviewer");
     }
 
-    private PublishResult doCommentOnIssue(JsonNode payload, String editedBody)
+    private PublishResult doCommentOnIssue(ParkedProposal.CommentOnIssue c, String editedBody)
     {
-        IssueRefFromPayload ref = readIssueRef(payload, "comment_on_issue");
-        String parkedBody = payload.path("body").asText("");
-        String effectiveBody = (editedBody == null || editedBody.isBlank())
-                ? parkedBody
-                : editedBody;
+        ParkedProposal.IssueRef issue = requireIssueRef(c.issue(), "comment_on_issue");
+        String effectiveBody = effectiveBody(c.body(), editedBody);
         if (effectiveBody.isBlank()) {
             throw new ResponseStatusException(HttpStatusCode.valueOf(400),
                     "comment body is blank — nothing to post");
@@ -779,56 +743,55 @@ public class PublishService
         // GitHub's issue-comment endpoint is the same for issues and
         // PRs — PullRequestRef carries the (owner, repo, number)
         // triple either way.
-        PullRequestRef forApi = new PullRequestRef(ref.owner(), ref.repo(), ref.number());
-        String pat = patResolver.resolve(ref.owner() + "/" + ref.repo());
+        PullRequestRef forApi = new PullRequestRef(issue.owner(), issue.repo(), issue.number());
+        String pat = patResolver.resolve(issue.owner() + "/" + issue.repo());
         pullRequests.createIssueComment(pat, forApi, effectiveBody);
         return new PublishResult(true, "approved",
-                "Posted comment on " + ref.owner() + "/" + ref.repo() + "#" + ref.number() + ".",
+                "Posted comment on " + issue.owner() + "/" + issue.repo() + "#" + issue.number() + ".",
                 "comment_on_issue");
     }
 
-    private PublishResult doSetIssueState(JsonNode payload)
+    private PublishResult doSetIssueState(ParkedProposal.SetIssueState s)
     {
-        IssueRefFromPayload ref = readIssueRef(payload, "set_issue_state");
-        String state = payload.path("state").asText("");
+        ParkedProposal.IssueRef issue = requireIssueRef(s.issue(), "set_issue_state");
+        String state = orEmpty(s.state());
         if (!"open".equals(state) && !"closed".equals(state)) {
             throw new ResponseStatusException(HttpStatusCode.valueOf(400),
                     "parked set_issue_state notification has invalid state: " + state);
         }
-        String pat = patResolver.resolve(ref.owner() + "/" + ref.repo());
-        pullRequests.setIssueState(pat, new RepoRef(ref.owner(), ref.repo()), ref.number(), state);
+        String pat = patResolver.resolve(issue.owner() + "/" + issue.repo());
+        pullRequests.setIssueState(pat, new RepoRef(issue.owner(), issue.repo()), issue.number(), state);
         return new PublishResult(true, "approved",
-                "Set " + ref.owner() + "/" + ref.repo() + "#" + ref.number()
+                "Set " + issue.owner() + "/" + issue.repo() + "#" + issue.number()
                         + " to " + state + ".",
                 "set_issue_state");
     }
 
-    private PublishResult doOpenPr(JsonNode payload, String editedBody)
+    private PublishResult doOpenPr(ParkedProposal.OpenPr o, String editedBody)
     {
-        JsonNode repo = payload.path("repo");
-        if (repo.isMissingNode() || repo.isNull()) {
+        ParkedProposal.RepoRef repo = o.repo();
+        if (repo == null) {
             throw new ResponseStatusException(HttpStatusCode.valueOf(400),
                     "parked open_pr notification has no repo ref");
         }
-        String owner = repo.path("owner").asText("");
-        String repoName = repo.path("repo").asText("");
+        String owner = orEmpty(repo.owner());
+        String repoName = orEmpty(repo.repo());
         if (owner.isBlank() || repoName.isBlank()) {
             throw new ResponseStatusException(HttpStatusCode.valueOf(400),
                     "parked open_pr notification has incomplete repo ref");
         }
-        String title = payload.path("title").asText("");
-        String head = payload.path("head").asText("");
-        String base = payload.path("base").asText("");
+        String title = orEmpty(o.title());
+        String head = orEmpty(o.head());
+        String base = orEmpty(o.base());
         if (title.isBlank() || head.isBlank() || base.isBlank()) {
             throw new ResponseStatusException(HttpStatusCode.valueOf(400),
                     "parked open_pr notification is missing title / head / base");
         }
-        String parkedBody = payload.path("body").asText("");
         // open_pr's body is optional. null = no override (use the
         // agent's parked body); "" = user explicitly cleared the
         // textarea and wants a blank PR description.
-        String effectiveBody = editedBody == null ? parkedBody : editedBody;
-        boolean draft = payload.path("draft").asBoolean(false);
+        String effectiveBody = editedBody == null ? orEmpty(o.body()) : editedBody;
+        boolean draft = o.draft();
         CreatePullRequestCommand command = new CreatePullRequestCommand(
                 head,
                 base,
@@ -844,21 +807,20 @@ public class PublishService
                 "open_pr");
     }
 
-    private PublishResult doPublishReview(JsonNode payload, String editedBody)
+    private PublishResult doPublishReview(ParkedProposal.PublishReview review, String editedBody)
     {
-        PrRefFromPayload ref = readPrRef(payload, "publish_review");
-        String event = payload.path("event").asText("COMMENT");
+        ParkedProposal.PrRef pr = requirePrRef(review.pr(), "publish_review");
+        String event = orEmpty(review.event());
         if (!"APPROVE".equals(event) && !"REQUEST_CHANGES".equals(event) && !"COMMENT".equals(event)) {
             event = "COMMENT";
         }
-        String parkedBody = payload.path("body").asText("");
         // publish_review's review-level body is optional. null = no
         // override; "" = user explicitly cleared (APPROVE/REQUEST_CHANGES
         // can land without any review-level text).
-        String effectiveBody = editedBody == null ? parkedBody : editedBody;
-        JsonNode commentsNode = payload.path("comments");
+        String effectiveBody = editedBody == null ? orEmpty(review.body()) : editedBody;
+        JsonNode commentsNode = review.comments();
         ImmutableList.Builder<CreateReviewCommand.ReviewLineComment> commentsBuilder = ImmutableList.builder();
-        if (commentsNode.isArray()) {
+        if (commentsNode != null && commentsNode.isArray()) {
             for (JsonNode c : commentsNode) {
                 String filePath = c.path("file_path").asText("");
                 int line = c.path("line").asInt(0);
@@ -883,11 +845,11 @@ public class PublishService
                 effectiveBody.isBlank() ? Optional.empty() : Optional.of(effectiveBody),
                 event,
                 commentsBuilder.build());
-        String pat = patResolver.resolve(ref.owner() + "/" + ref.repo());
-        pullRequests.createReview(pat, ref.toRef(), command);
+        String pat = patResolver.resolve(pr.owner() + "/" + pr.repo());
+        pullRequests.createReview(pat, toPullRequestRef(pr), command);
         return new PublishResult(true, "approved",
-                "Published review on " + ref.owner() + "/" + ref.repo()
-                        + "#" + ref.number() + " (" + event + ").",
+                "Published review on " + pr.owner() + "/" + pr.repo()
+                        + "#" + pr.number() + " (" + event + ").",
                 "publish_review");
     }
 
@@ -900,20 +862,20 @@ public class PublishService
                 "request_review");
     }
 
-    private PublishResult doNextTask(JsonNode payload, Notification original)
+    private PublishResult doNextTask(ParkedProposal.NextTask n, Notification original)
     {
-        Task next = runApprovedAdvance(payload, original, "next_task");
+        Task next = runApprovedAdvance(n.nextTitle(), n.baseMode(), original, "next_task");
         return new PublishResult(true, "approved",
                 "Advanced from task " + original.taskId() + " to " + next.id()
                         + " on " + next.branchName() + ".",
                 "next_task");
     }
 
-    private PublishResult doShipTask(JsonNode payload, Notification original)
+    private PublishResult doShipTask(ParkedProposal.ShipTask s, Notification original)
     {
-        Task next = runApprovedAdvance(payload, original, "ship_task");
+        Task next = runApprovedAdvance(s.nextTitle(), s.baseMode(), original, "ship_task");
         return new PublishResult(true, "approved",
-                "Shipped task " + original.taskId() + " \u2192 created " + next.id()
+                "Shipped task " + original.taskId() + " → created " + next.id()
                         + " on " + next.branchName() + ".",
                 "ship_task");
     }
@@ -923,7 +885,7 @@ public class PublishService
      * agent work. The user's Approve click is the publish
      * authorisation gate.
      */
-    private Task runApprovedAdvance(JsonNode payload, Notification original, String action)
+    private Task runApprovedAdvance(String nextTitleRaw, String baseModeRaw, Notification original, String action)
     {
         String threadId = original.threadId();
         String taskId = original.taskId();
@@ -938,18 +900,13 @@ public class PublishService
             throw new ResponseStatusException(HttpStatusCode.valueOf(409),
                     "parked " + action + " target " + taskId + " is no longer awaiting approval");
         }
-        JsonNode nextTitleNode = payload.path("nextTitle");
-        if (!nextTitleNode.isMissingNode() && !nextTitleNode.isNull() && !nextTitleNode.isTextual()) {
-            throw new ResponseStatusException(HttpStatusCode.valueOf(400),
-                    "parked " + action + " notification has an invalid nextTitle");
-        }
-        String nextTitle = nextTitleNode.asText("");
-        String baseModeRaw = payload.path("baseMode").asText("main");
-        if (!"main".equals(baseModeRaw) && !"stacked".equals(baseModeRaw)) {
+        String nextTitle = orEmpty(nextTitleRaw);
+        String baseMode = baseModeRaw == null ? "main" : baseModeRaw;
+        if (!"main".equals(baseMode) && !"stacked".equals(baseMode)) {
             throw new ResponseStatusException(HttpStatusCode.valueOf(400),
                     "parked " + action + " notification has an invalid baseMode");
         }
-        TaskService.BaseMode mode = "stacked".equals(baseModeRaw)
+        TaskService.BaseMode mode = "stacked".equals(baseMode)
                 ? TaskService.BaseMode.STACKED
                 : TaskService.BaseMode.MAIN;
         TaskService.ShipRequest request = new TaskService.ShipRequest(
@@ -959,63 +916,65 @@ public class PublishService
                 : taskService.shipApprovedParkedTask(threadId, taskId, request);
     }
 
-    private static IssueRefFromPayload readIssueRef(JsonNode payload, String action)
+    /** Validate a {@link ParkedProposal.PrRef} is fully populated and
+     *  hand it back for ergonomic destructuring at the call site. */
+    private static ParkedProposal.PrRef requirePrRef(ParkedProposal.PrRef pr, String action)
     {
-        JsonNode issue = payload.path("issue");
-        if (issue.isMissingNode() || issue.isNull()) {
-            throw new ResponseStatusException(HttpStatusCode.valueOf(400),
-                    "parked " + action + " notification has no issue ref");
-        }
-        String owner = issue.path("owner").asText("");
-        String repo = issue.path("repo").asText("");
-        int number = issue.path("number").asInt(0);
-        if (owner.isBlank() || repo.isBlank() || number <= 0) {
-            throw new ResponseStatusException(HttpStatusCode.valueOf(400),
-                    "parked " + action + " notification has incomplete issue ref");
-        }
-        return new IssueRefFromPayload(owner, repo, number);
-    }
-
-    private record IssueRefFromPayload(String owner, String repo, int number) {}
-
-    /** Reads (owner, repo, number) out of a parked payload's "pr"
-     *  block, validating that all three are present. Centralises the
-     *  shape so the publisher branches stay short. */
-    private static PrRefFromPayload readPrRef(JsonNode payload, String action)
-    {
-        JsonNode pr = payload.path("pr");
-        if (pr.isMissingNode() || pr.isNull()) {
+        if (pr == null) {
             throw new ResponseStatusException(HttpStatusCode.valueOf(400),
                     "parked " + action + " notification has no pr ref");
         }
-        String owner = pr.path("owner").asText("");
-        String repo = pr.path("repo").asText("");
-        int number = pr.path("number").asInt(0);
-        if (owner.isBlank() || repo.isBlank() || number <= 0) {
+        if (orEmpty(pr.owner()).isBlank() || orEmpty(pr.repo()).isBlank() || pr.number() <= 0) {
             throw new ResponseStatusException(HttpStatusCode.valueOf(400),
                     "parked " + action + " notification has incomplete pr ref");
         }
-        return new PrRefFromPayload(owner, repo, number);
+        return pr;
     }
 
-    private record PrRefFromPayload(String owner, String repo, int number)
+    private static ParkedProposal.IssueRef requireIssueRef(ParkedProposal.IssueRef issue, String action)
     {
-        PullRequestRef toRef()
-        {
-            return new PullRequestRef(owner, repo, number);
+        if (issue == null) {
+            throw new ResponseStatusException(HttpStatusCode.valueOf(400),
+                    "parked " + action + " notification has no issue ref");
         }
+        if (orEmpty(issue.owner()).isBlank() || orEmpty(issue.repo()).isBlank() || issue.number() <= 0) {
+            throw new ResponseStatusException(HttpStatusCode.valueOf(400),
+                    "parked " + action + " notification has incomplete issue ref");
+        }
+        return issue;
+    }
+
+    private static PullRequestRef toPullRequestRef(ParkedProposal.PrRef pr)
+    {
+        return new PullRequestRef(pr.owner(), pr.repo(), pr.number());
+    }
+
+    /** Resolves the effective body for an action with the standard
+     *  "edited overrides parked unless blank" precedence — the rule used
+     *  by every comment-style publisher. */
+    private static String effectiveBody(String parkedBody, String editedBody)
+    {
+        return (editedBody == null || editedBody.isBlank())
+                ? orEmpty(parkedBody)
+                : editedBody;
+    }
+
+    private static String orEmpty(String s)
+    {
+        return s == null ? "" : s;
+    }
+
+    private static String orElse(String s, String fallback)
+    {
+        return s == null || s.isBlank() ? fallback : s;
     }
 
     private void writeAuditRow(
             Notification original, String resolution, String action, String message)
     {
         try {
-            Map<String, Object> payload = new LinkedHashMap<>();
-            payload.put("publishResolution", resolution);
-            payload.put("action", action);
-            payload.put("originalNotificationId", original.id());
-            payload.put("message", message);
-            String json = mapper.writeValueAsString(payload);
+            String json = mapper.writeValueAsString(
+                    new AuditRowPayload(resolution, action, original.id(), message));
             notifications.notifyAutoFixDone(original.threadId(), original.taskId(), json);
         }
         catch (JsonProcessingException | RuntimeException e) {
@@ -1026,6 +985,16 @@ public class PublishService
                     original.id(), resolution, e.getMessage());
         }
     }
+
+    /** Wire shape for the AUTO_FIX_DONE audit row written after a
+     *  publish resolves. {@code publishResolution} is one of "approved",
+     *  "discarded", "discarded_after_interrupt", "interrupted_confirmed",
+     *  "interrupted_unconfirmed", "approved_concurrent", or "recovered". */
+    private record AuditRowPayload(
+            String publishResolution,
+            String action,
+            String originalNotificationId,
+            String message) {}
 
     /**
      * Resolution shape the controller hands back to the frontend.

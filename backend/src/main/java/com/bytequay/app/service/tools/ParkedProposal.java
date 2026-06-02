@@ -13,33 +13,64 @@
  */
 package com.bytequay.app.service.tools;
 
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.annotation.JsonProperty;
-import com.fasterxml.jackson.annotation.JsonPropertyOrder;
+import com.fasterxml.jackson.annotation.JsonSubTypes;
+import com.fasterxml.jackson.annotation.JsonTypeInfo;
 import com.fasterxml.jackson.databind.JsonNode;
 
 /**
  * Typed wire shapes for the publish-tool proposals that park a task at
  * {@code AWAITING_REVIEW}. Each variant is a record whose components
  * become top-level JSON fields; the {@code action} discriminator and
- * the {@code source} attribution are derived from the type so handlers
- * don't repeat them as string literals at every call site.
+ * the {@code source} attribution are derived from the type so neither
+ * call sites nor the consumer carry string literals.
  *
- * <p>The interface is purely a marker — {@link ParkedProposalService}
- * accepts any Jackson-serialisable payload and the notification body is
- * stored as JSON text. Today's read path (the publish dispatcher) still
- * reads back as {@link JsonNode}, so wire-shape stability matters: the
- * fields below match the previous {@code LinkedHashMap} construction
- * verbatim, with {@code @JsonInclude(NON_NULL)} carrying the same
- * "omitted when not applicable" semantics the old code had via
- * conditional {@code Map.put} calls.
+ * <h3>Wire round-trip</h3>
+ *
+ * Jackson polymorphism on the {@code "action"} property closes the
+ * loop: {@link com.bytequay.app.service.threads.ParkedProposalService}
+ * serialises the variant a publisher hands it, and {@link
+ * com.bytequay.app.service.threads.PublishService} reads the stored JSON
+ * back as a {@code ParkedProposal} subtype so its dispatcher is a Java
+ * 21 pattern-switch over the sealed type rather than a JsonNode field
+ * lookup. {@code ignoreUnknown = true} lets the round-trip succeed even
+ * though {@code source} is written as a virtual getter on the way out
+ * with no matching constructor parameter on the way in.
  */
-public interface ParkedProposal
+@JsonTypeInfo(use = JsonTypeInfo.Id.NAME, property = "action", include = JsonTypeInfo.As.PROPERTY)
+@JsonSubTypes({
+        @JsonSubTypes.Type(value = ParkedProposal.RequestReview.class, name = "request_review"),
+        @JsonSubTypes.Type(value = ParkedProposal.PostComment.class, name = "post_comment"),
+        @JsonSubTypes.Type(value = ParkedProposal.Push.class, name = "push"),
+        @JsonSubTypes.Type(value = ParkedProposal.ReplyReviewThread.class, name = "reply_review_thread"),
+        @JsonSubTypes.Type(value = ParkedProposal.ApprovePr.class, name = "approve_pr"),
+        @JsonSubTypes.Type(value = ParkedProposal.MergePr.class, name = "merge_pr"),
+        @JsonSubTypes.Type(value = ParkedProposal.CreateReviewComment.class, name = "create_review_comment"),
+        @JsonSubTypes.Type(value = ParkedProposal.UpdatePrBody.class, name = "update_pr_body"),
+        @JsonSubTypes.Type(value = ParkedProposal.RequestReviewer.class, name = "request_reviewer"),
+        @JsonSubTypes.Type(value = ParkedProposal.CommentOnIssue.class, name = "comment_on_issue"),
+        @JsonSubTypes.Type(value = ParkedProposal.SetIssueState.class, name = "set_issue_state"),
+        @JsonSubTypes.Type(value = ParkedProposal.OpenPr.class, name = "open_pr"),
+        @JsonSubTypes.Type(value = ParkedProposal.PublishReview.class, name = "publish_review"),
+        @JsonSubTypes.Type(value = ParkedProposal.NextTask.class, name = "next_task"),
+        @JsonSubTypes.Type(value = ParkedProposal.ShipTask.class, name = "ship_task")
+})
+@JsonIgnoreProperties(ignoreUnknown = true)
+public sealed interface ParkedProposal
+        permits ParkedProposal.RequestReview, ParkedProposal.PostComment, ParkedProposal.Push,
+                ParkedProposal.ReplyReviewThread, ParkedProposal.ApprovePr, ParkedProposal.MergePr,
+                ParkedProposal.CreateReviewComment, ParkedProposal.UpdatePrBody,
+                ParkedProposal.RequestReviewer, ParkedProposal.CommentOnIssue,
+                ParkedProposal.SetIssueState, ParkedProposal.OpenPr, ParkedProposal.PublishReview,
+                ParkedProposal.NextTask, ParkedProposal.ShipTask
 {
     /** Action discriminator, e.g. {@code "request_review"}. Each record
      *  variant returns its own constant so the parking helper can log it
-     *  on failure without inspecting the JSON. Also serialised as the
-     *  wire {@code "action"} field by each implementation. */
+     *  without inspecting JSON. Jackson serialises the discriminator via
+     *  {@link JsonTypeInfo}, so this accessor is for Java callers only —
+     *  it carries no {@code @JsonProperty} annotation. */
     String action();
 
     /** Attribution for where the proposal originated, e.g. {@code
@@ -62,8 +93,6 @@ public interface ParkedProposal
     record RepoRef(String owner, String repo) {}
 
     @JsonInclude(JsonInclude.Include.NON_NULL)
-    @JsonPropertyOrder({"action", "summary", "draftReply", "branch", "baseBranch",
-            "worktreePath", "diffBase", "diff", "diffError", "source"})
     record RequestReview(
             String summary,
             String draftReply,
@@ -75,22 +104,19 @@ public interface ParkedProposal
             String diffError)
             implements ParkedProposal
     {
-        @Override @JsonProperty("action") public String action() { return "request_review"; }
+        @Override public String action() { return "request_review"; }
         @Override @JsonProperty("source") public String source() { return "mcp:request_review"; }
     }
 
     @JsonInclude(JsonInclude.Include.NON_NULL)
-    @JsonPropertyOrder({"action", "body", "pr", "source"})
     record PostComment(String body, PrRef pr)
             implements ParkedProposal
     {
-        @Override @JsonProperty("action") public String action() { return "post_comment"; }
+        @Override public String action() { return "post_comment"; }
         @Override @JsonProperty("source") public String source() { return "mcp:post_comment"; }
     }
 
     @JsonInclude(JsonInclude.Include.NON_NULL)
-    @JsonPropertyOrder({"action", "branch", "baseBranch", "worktreePath",
-            "diffBase", "diff", "diffError", "source"})
     record Push(
             String branch,
             String baseBranch,
@@ -100,40 +126,35 @@ public interface ParkedProposal
             String diffError)
             implements ParkedProposal
     {
-        @Override @JsonProperty("action") public String action() { return "push"; }
+        @Override public String action() { return "push"; }
         @Override @JsonProperty("source") public String source() { return "mcp:push"; }
     }
 
     @JsonInclude(JsonInclude.Include.NON_NULL)
-    @JsonPropertyOrder({"action", "rootCommentId", "body", "pr", "source"})
     record ReplyReviewThread(long rootCommentId, String body, PrRef pr)
             implements ParkedProposal
     {
-        @Override @JsonProperty("action") public String action() { return "reply_review_thread"; }
+        @Override public String action() { return "reply_review_thread"; }
         @Override @JsonProperty("source") public String source() { return "mcp:reply_review_thread"; }
     }
 
     @JsonInclude(JsonInclude.Include.NON_NULL)
-    @JsonPropertyOrder({"action", "body", "pr", "source"})
     record ApprovePr(String body, PrRef pr)
             implements ParkedProposal
     {
-        @Override @JsonProperty("action") public String action() { return "approve_pr"; }
+        @Override public String action() { return "approve_pr"; }
         @Override @JsonProperty("source") public String source() { return "mcp:approve_pr"; }
     }
 
     @JsonInclude(JsonInclude.Include.NON_NULL)
-    @JsonPropertyOrder({"action", "strategy", "pr", "source"})
     record MergePr(String strategy, PrRef pr)
             implements ParkedProposal
     {
-        @Override @JsonProperty("action") public String action() { return "merge_pr"; }
+        @Override public String action() { return "merge_pr"; }
         @Override @JsonProperty("source") public String source() { return "mcp:merge_pr"; }
     }
 
     @JsonInclude(JsonInclude.Include.NON_NULL)
-    @JsonPropertyOrder({"action", "body", "filePath", "line", "side", "commitId",
-            "startLine", "startSide", "pr", "source"})
     record CreateReviewComment(
             String body,
             String filePath,
@@ -145,48 +166,43 @@ public interface ParkedProposal
             PrRef pr)
             implements ParkedProposal
     {
-        @Override @JsonProperty("action") public String action() { return "create_review_comment"; }
+        @Override public String action() { return "create_review_comment"; }
         @Override @JsonProperty("source") public String source() { return "mcp:create_review_comment"; }
     }
 
     @JsonInclude(JsonInclude.Include.NON_NULL)
-    @JsonPropertyOrder({"action", "body", "pr", "source"})
     record UpdatePrBody(String body, PrRef pr)
             implements ParkedProposal
     {
-        @Override @JsonProperty("action") public String action() { return "update_pr_body"; }
+        @Override public String action() { return "update_pr_body"; }
         @Override @JsonProperty("source") public String source() { return "mcp:update_pr_body"; }
     }
 
     @JsonInclude(JsonInclude.Include.NON_NULL)
-    @JsonPropertyOrder({"action", "reviewer", "pr", "source"})
     record RequestReviewer(String reviewer, PrRef pr)
             implements ParkedProposal
     {
-        @Override @JsonProperty("action") public String action() { return "request_reviewer"; }
+        @Override public String action() { return "request_reviewer"; }
         @Override @JsonProperty("source") public String source() { return "mcp:request_reviewer"; }
     }
 
     @JsonInclude(JsonInclude.Include.NON_NULL)
-    @JsonPropertyOrder({"action", "body", "issue", "source"})
     record CommentOnIssue(String body, IssueRef issue)
             implements ParkedProposal
     {
-        @Override @JsonProperty("action") public String action() { return "comment_on_issue"; }
+        @Override public String action() { return "comment_on_issue"; }
         @Override @JsonProperty("source") public String source() { return "mcp:comment_on_issue"; }
     }
 
     @JsonInclude(JsonInclude.Include.NON_NULL)
-    @JsonPropertyOrder({"action", "state", "issue", "source"})
     record SetIssueState(String state, IssueRef issue)
             implements ParkedProposal
     {
-        @Override @JsonProperty("action") public String action() { return "set_issue_state"; }
+        @Override public String action() { return "set_issue_state"; }
         @Override @JsonProperty("source") public String source() { return "mcp:set_issue_state"; }
     }
 
     @JsonInclude(JsonInclude.Include.NON_NULL)
-    @JsonPropertyOrder({"action", "title", "head", "base", "body", "draft", "repo", "source"})
     record OpenPr(
             String title,
             String head,
@@ -196,12 +212,11 @@ public interface ParkedProposal
             RepoRef repo)
             implements ParkedProposal
     {
-        @Override @JsonProperty("action") public String action() { return "open_pr"; }
+        @Override public String action() { return "open_pr"; }
         @Override @JsonProperty("source") public String source() { return "mcp:open_pr"; }
     }
 
     @JsonInclude(JsonInclude.Include.NON_NULL)
-    @JsonPropertyOrder({"action", "event", "body", "comments", "pr", "source"})
     record PublishReview(
             String event,
             String body,
@@ -209,14 +224,11 @@ public interface ParkedProposal
             PrRef pr)
             implements ParkedProposal
     {
-        @Override @JsonProperty("action") public String action() { return "publish_review"; }
+        @Override public String action() { return "publish_review"; }
         @Override @JsonProperty("source") public String source() { return "mcp:publish_review"; }
     }
 
     @JsonInclude(JsonInclude.Include.NON_NULL)
-    @JsonPropertyOrder({"action", "threadId", "taskId", "branch", "baseBranch",
-            "worktreePath", "nextTitle", "baseMode",
-            "diffBase", "diff", "diffError", "source"})
     record NextTask(
             String threadId,
             String taskId,
@@ -230,14 +242,11 @@ public interface ParkedProposal
             String diffError)
             implements ParkedProposal
     {
-        @Override @JsonProperty("action") public String action() { return "next_task"; }
+        @Override public String action() { return "next_task"; }
         @Override @JsonProperty("source") public String source() { return "mcp:next_task"; }
     }
 
     @JsonInclude(JsonInclude.Include.NON_NULL)
-    @JsonPropertyOrder({"action", "threadId", "taskId", "branch", "baseBranch",
-            "worktreePath", "nextTitle", "baseMode",
-            "diffBase", "diff", "diffError", "source"})
     record ShipTask(
             String threadId,
             String taskId,
@@ -251,7 +260,7 @@ public interface ParkedProposal
             String diffError)
             implements ParkedProposal
     {
-        @Override @JsonProperty("action") public String action() { return "ship_task"; }
+        @Override public String action() { return "ship_task"; }
         @Override @JsonProperty("source") public String source() { return "mcp:ship_task"; }
     }
 }

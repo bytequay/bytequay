@@ -505,10 +505,10 @@ class TestPublishService
     @Test
     void approveRefusesWithBadRequestForUnsupportedAction()
     {
-        // "fly_drone" is not in the dispatch switch — any unknown
-        // action name produces the 400. (merge_pr / approve_pr have
-        // since landed as real cases; pick a name that no future
-        // catalog entry is likely to claim.)
+        // "fly_drone" isn't in the sealed ParkedProposal hierarchy, so
+        // Jackson polymorphism rejects the payload at parse time with
+        // a 400 — same outcome as the prior switch's default branch,
+        // surfaced through the typed deserialiser.
         Notification parked = new Notification(
                 "notif-bad", NotificationKind.AWAITING_REVIEW, "thread-x", "task-x",
                 NotificationStatus.UNREAD,
@@ -518,7 +518,8 @@ class TestPublishService
 
         assertThatThrownBy(() -> service.approve("notif-bad", null, "fly_drone"))
                 .isInstanceOf(ResponseStatusException.class)
-                .hasMessageContaining("unsupported action: fly_drone");
+                .hasMessageContaining("fly_drone")
+                .hasMessageContaining("not a known parked proposal");
 
         verify(notifications, never()).claimResolution("notif-bad");
     }

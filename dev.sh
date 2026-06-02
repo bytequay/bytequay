@@ -29,11 +29,18 @@ cleanup() {
 trap cleanup EXIT INT TERM
 
 wait_for_backend() {
-  local attempts=80
+  # 60s total — enough headroom for a cold mvn that still compiles + runs
+  # Error Prone on top of Spring Boot's own ~3s init. checkstyle and
+  # license-check are skipped below so they don't eat into this window.
+  local attempts=240
   local delay=0.25
 
+  # --noproxy '*' bypasses any http_proxy / HTTPS_PROXY env vars the
+  # user may have set globally (corporate networks, local MITM tools
+  # like mitmproxy). Without it, even an up-and-serving backend can
+  # surface as a 502 from the proxy and dev.sh would keep waiting.
   for ((i=1; i<=attempts; i++)); do
-    if curl -fsS "http://127.0.0.1:$BACKEND_PORT/hello" >/dev/null 2>&1; then
+    if curl -fsS --noproxy '*' "http://127.0.0.1:$BACKEND_PORT/hello" >/dev/null 2>&1; then
       return 0
     fi
     sleep "$delay"
@@ -76,8 +83,18 @@ echo "[dev] starting backend (Spring Boot on :$BACKEND_PORT)..."
 # that frontend/src/backendProcess.ts passes in packaged mode, so a
 # leaky session can't eat the whole machine in dev either. Keep the
 # values in sync between this file and backendProcess.ts.
+#
+# -Dcheckstyle.skip + -Dlicense.skip drop the validate-phase plugins
+# bound in backend/pom.xml that otherwise run before every dev start
+# and routinely push mvn past the 60s readiness window above. CI and
+# `mvn verify` still enforce both — these are dev-only shortcuts.
 JVM_ARGS="-Xmx2000m -XX:MaxMetaspaceSize=256m -XX:ReservedCodeCacheSize=128m -XX:+ExitOnOutOfMemoryError"
-( cd "$ROOT/backend" && mvn -q spring-boot:run -Dspring-boot.run.fork=false -Dspring-boot.run.jvmArguments="$JVM_ARGS" ) &
+( cd "$ROOT/backend" \
+    && mvn -q spring-boot:run \
+        -Dspring-boot.run.fork=false \
+        -Dspring-boot.run.jvmArguments="$JVM_ARGS" \
+        -Dcheckstyle.skip=true \
+        -Dlicense.skip=true ) &
 pids+=($!)
 
 if ! wait_for_backend; then

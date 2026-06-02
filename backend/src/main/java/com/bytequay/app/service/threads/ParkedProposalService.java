@@ -33,6 +33,34 @@ import static java.util.Objects.requireNonNull;
  * <p>A task must not be placed at {@code AWAITING_REVIEW} unless its
  * actionable notification is written in the same transaction. Otherwise
  * an MCP failure can leave work parked with no approve/discard path.
+ *
+ * <p>Flow:
+ * <pre>
+ *  Agent turn        Backend                          User
+ *  ─────────         ───────                          ────
+ *   side-effect ──▶  {@link #park park(task, payload)}
+ *   tool call        ┌─ single transaction ──┐
+ *                    │ task   → AWAITING_REV │
+ *                    │ notif  = AWAITING_REV │
+ *                    │ payload = diff + body │
+ *                    └───────────────────────┘
+ *                            │
+ *                            │ SSE push, badge tick
+ *                            ▼
+ *                                              PublishGatePane:
+ *                                                diff + editable reply,
+ *                                                [Approve] [Discard]
+ *                                                    │
+ *           ┌────────────────────────────────────────┤
+ *           ▼                                        ▼
+ *      POST /notifications                    POST /notifications
+ *        /{id}/approve                          /{id}/discard
+ *      PublishService.approve()               PublishService.discard()
+ *      • run deferred side-effect             • skip side-effect
+ *        (push / comment / merge)             • notif  → resolved
+ *      • notif  → resolved                    • task   → closed
+ *      • task   → next state
+ * </pre>
  */
 @Service
 public class ParkedProposalService

@@ -50,6 +50,37 @@ import java.util.function.Consumer;
  * immediately; observable state changes arrive through
  * {@link #subscribeToEvents}. Implementations are expected to be
  * thread-safe.
+ *
+ * <p>Lifecycle:
+ * <pre>
+ *  STATES                       TRANSITIONS
+ *  ──────                       ───────────
+ *  IDLE       waiting for       IDLE     ──{@link #send send()}─────▶ RUNNING
+ *             the next turn     RUNNING  ──turn done──────▶ IDLE
+ *  RUNNING    subprocess        RUNNING  ──{@link #interrupt interrupt()}─▶ IDLE   ☆
+ *             alive; one shot
+ *             per turn          IDLE     ──{@link #pause pause()}────▶ AWAITING
+ *  AWAITING   paused; refuses   AWAITING ──{@link #resume resume()}──▶ IDLE
+ *             new turns         ANY      ──{@link #stop stop()}──────▶ STOPPED
+ *  STOPPED    terminal
+ *
+ *  ☆ interrupt sets the userInterrupted flag BEFORE destroy() so the
+ *    exit handler classifies the result as a user-cancel and lands at
+ *    IDLE — without it the destroy() path is otherwise scored as
+ *    ERRORED, forcing the user to click Resume just to keep typing.
+ * </pre>
+ *
+ * <p>Pause vs interrupt are not interchangeable: pause blocks
+ * <em>future</em> turns (the "stepping away" case), interrupt kills
+ * the <em>current</em> subprocess (the "this agent is going the wrong
+ * way" case). Pause leaves the agent at IDLE; interrupt brings RUNNING
+ * back to IDLE.
+ *
+ * <p>Side-effect tools (push, post_comment, ship) don't transition the
+ * thread directly; they park the active <em>task</em> at
+ * {@code AWAITING_REVIEW} and write a Notification. The user resolves
+ * with approve/discard — see
+ * {@link com.bytequay.app.service.threads.ParkedProposalService}.
  */
 public interface ThreadAgent
 {

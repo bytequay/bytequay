@@ -28,6 +28,7 @@ import org.springframework.stereotype.Component;
 
 import java.io.IOException;
 import java.nio.file.Path;
+import java.util.List;
 import java.util.Locale;
 import java.util.Optional;
 
@@ -605,18 +606,28 @@ public class PublishToolHandlers
             event = "COMMENT";
         }
         String body = orEmpty(args.body());
-        JsonNode comments = args.comments();
-        if (comments != null && !comments.isNull() && !comments.isArray()) {
+        JsonNode commentsRaw = args.comments();
+        List<ParkedProposal.PublishReview.InlineComment> comments;
+        if (commentsRaw == null || commentsRaw.isNull()) {
+            comments = List.of();
+        }
+        else if (!commentsRaw.isArray()) {
             return ToolOutcome.Completed.ok("comments must be an array");
         }
-        JsonNode commentsForWire = comments == null || comments.isNull()
-                ? mapper.createArrayNode()
-                : comments;
-        int commentCount = comments == null ? 0 : comments.size();
+        else {
+            try {
+                comments = mapper.convertValue(commentsRaw,
+                        mapper.getTypeFactory().constructCollectionType(
+                                List.class, ParkedProposal.PublishReview.InlineComment.class));
+            }
+            catch (IllegalArgumentException e) {
+                return ToolOutcome.Completed.ok("comments has an invalid shape: " + e.getMessage());
+            }
+        }
         return park(active.get(),
-                new ParkedProposal.PublishReview(event, body, commentsForWire, toPrRef(prRef.get())),
+                new ParkedProposal.PublishReview(event, body, comments, toPrRef(prRef.get())),
                 "Parked at AWAITING_REVIEW (publish_review · " + event + " · "
-                        + commentCount + " inline comment(s)). The user will approve, "
+                        + comments.size() + " inline comment(s)). The user will approve, "
                         + "edit, or discard from the thread.");
     }
 

@@ -18,7 +18,8 @@ import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import com.fasterxml.jackson.annotation.JsonSubTypes;
 import com.fasterxml.jackson.annotation.JsonTypeInfo;
-import com.fasterxml.jackson.databind.JsonNode;
+
+import java.util.List;
 
 /**
  * Typed wire shapes for the publish-tool proposals that park a task at
@@ -220,12 +221,26 @@ public sealed interface ParkedProposal
     record PublishReview(
             String event,
             String body,
-            JsonNode comments,
+            List<InlineComment> comments,
             PrRef pr)
             implements ParkedProposal
     {
         @Override public String action() { return "publish_review"; }
         @Override @JsonProperty("source") public String source() { return "mcp:publish_review"; }
+
+        /** Wire shape for one inline review comment in a {@code
+         *  publish_review} proposal. The agent emits snake_case keys
+         *  mirroring GitHub's inline review-comment API; {@link
+         *  JsonProperty} maps them to the Java camelCase fields. */
+        @JsonInclude(JsonInclude.Include.NON_NULL)
+        @JsonIgnoreProperties(ignoreUnknown = true)
+        public record InlineComment(
+                @JsonProperty("file_path") String filePath,
+                int line,
+                String body,
+                String side,
+                @JsonProperty("start_line") Integer startLine,
+                @JsonProperty("start_side") String startSide) {}
     }
 
     @JsonInclude(JsonInclude.Include.NON_NULL)

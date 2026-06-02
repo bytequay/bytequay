@@ -45,6 +45,7 @@ import org.springframework.web.server.ResponseStatusException;
 import java.io.IOException;
 import java.nio.file.InvalidPathException;
 import java.nio.file.Path;
+import java.util.List;
 import java.util.Optional;
 
 import static java.util.Objects.requireNonNull;
@@ -374,14 +375,14 @@ public class PublishService
     private static void preflightPublishReview(ParkedProposal.PublishReview pr)
     {
         requirePrRef(pr.pr(), "publish_review");
-        JsonNode commentsNode = pr.comments();
-        if (commentsNode == null || !commentsNode.isArray()) {
+        List<ParkedProposal.PublishReview.InlineComment> comments = pr.comments();
+        if (comments == null) {
             return;
         }
-        for (JsonNode comment : commentsNode) {
-            if (comment.path("file_path").asText("").isBlank()
-                    || comment.path("line").asInt(0) <= 0
-                    || comment.path("body").asText("").isBlank()) {
+        for (ParkedProposal.PublishReview.InlineComment comment : comments) {
+            if (orEmpty(comment.filePath()).isBlank()
+                    || comment.line() <= 0
+                    || orEmpty(comment.body()).isBlank()) {
                 throw new ResponseStatusException(HttpStatusCode.valueOf(400),
                         "publish_review comment is missing file_path / line / body");
             }
@@ -818,24 +819,23 @@ public class PublishService
         // override; "" = user explicitly cleared (APPROVE/REQUEST_CHANGES
         // can land without any review-level text).
         String effectiveBody = editedBody == null ? orEmpty(review.body()) : editedBody;
-        JsonNode commentsNode = review.comments();
+        List<ParkedProposal.PublishReview.InlineComment> reviewComments = review.comments();
         ImmutableList.Builder<CreateReviewCommand.ReviewLineComment> commentsBuilder = ImmutableList.builder();
-        if (commentsNode != null && commentsNode.isArray()) {
-            for (JsonNode c : commentsNode) {
-                String filePath = c.path("file_path").asText("");
-                int line = c.path("line").asInt(0);
-                String body = c.path("body").asText("");
+        if (reviewComments != null) {
+            for (ParkedProposal.PublishReview.InlineComment c : reviewComments) {
+                String filePath = orEmpty(c.filePath());
+                int line = c.line();
+                String body = orEmpty(c.body());
                 if (filePath.isBlank() || line <= 0 || body.isBlank()) {
                     throw new ResponseStatusException(HttpStatusCode.valueOf(400),
                             "publish_review comment is missing file_path / line / body");
                 }
-                String side = c.path("side").asText("RIGHT");
-                Optional<Integer> startLine = c.path("start_line").isNumber()
-                        ? Optional.of(c.path("start_line").asInt())
-                        : Optional.empty();
-                Optional<String> startSide = c.path("start_side").isTextual() && !c.path("start_side").asText().isBlank()
-                        ? Optional.of(c.path("start_side").asText())
-                        : Optional.empty();
+                String side = orElse(c.side(), "RIGHT");
+                Optional<Integer> startLine = Optional.ofNullable(c.startLine());
+                String startSideRaw = orEmpty(c.startSide());
+                Optional<String> startSide = startSideRaw.isBlank()
+                        ? Optional.empty()
+                        : Optional.of(startSideRaw);
                 commentsBuilder.add(new CreateReviewCommand.ReviewLineComment(
                         filePath, Optional.empty(), Optional.of(line), side, body, startLine, startSide));
             }

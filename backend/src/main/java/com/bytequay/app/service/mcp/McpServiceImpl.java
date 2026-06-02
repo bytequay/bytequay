@@ -41,7 +41,6 @@ import com.bytequay.app.service.threads.McpPermissionGate;
 import com.bytequay.app.service.threads.NotificationService;
 import com.bytequay.app.service.threads.ThreadService;
 import com.bytequay.app.service.tools.AgentRole;
-import com.bytequay.app.service.tools.AgentTool;
 import com.bytequay.app.service.tools.AgentToolRegistry;
 import com.bytequay.app.service.tools.Gating;
 import com.bytequay.app.service.tools.PermissionResolver;
@@ -221,44 +220,22 @@ public class McpServiceImpl
         return ok(id, new ListToolsResult(tools));
     }
 
-    // ── @AgentTool declarations ─────────────────────────────────────────
-    // Each annotated method below exists so the registry can scan it
-    // for the tool's metadata and derived JSON schema. Dispatch flows
-    // through {@link #handleToolCall} below and the hand-written
-    // per-tool branches; these declarations are deliberately no-ops on
-    // direct invocation — anything calling them straight is bypassing
-    // the gating / approval / park-guard wired in handleToolCall, which
-    // is the safety surface this class is responsible for preserving.
+    // ── @AgentTool stub overrides ──────────────────────────────────────
+    // The tool catalog entries (name, description, args record,
+    // security, gating, roles) all live on {@link McpService} so the
+    // contract is readable in one place. The registry's startup scan
+    // walks each impl method's interface declarations via Spring's
+    // AnnotatedElementUtils, so the empty overrides below are all that's
+    // needed here — calling them directly is meaningless; dispatch
+    // always flows through {@link #handleToolCall}.
 
-    @AgentTool(
-            name = TOOL_NAME,
-            description = "Asks the user to allow or deny a tool call. "
-                    + "Returns a JSON envelope with behavior=allow|deny.",
-            security = SecurityType.MCP,
-            gating = Gating.AUTO,
-            roles = {AgentRole.TRUNK, AgentRole.TASK, AgentRole.REVIEWER})
+    @Override
     @SuppressWarnings("unused")
-    public void declareApprovalPrompt(ApprovalPromptArgs args)
-    {
-        // Dispatched via handleToolCall.
-    }
+    public void declareApprovalPrompt(ApprovalPromptArgs args) {}
 
-    @AgentTool(
-            name = RUN_SHELL_TOOL,
-            description = "Run a bounded shell command in the active task's worktree. "
-                    + "Each call surfaces a permission prompt to the user — no command "
-                    + "runs without an explicit click. Policy: 60-second timeout, 256 KB "
-                    + "output cap, plain argv only, no shell operators. Use as an escape "
-                    + "hatch for ad-hoc probes; prefer the test runner / ship_task / "
-                    + "request_review for longer flows.",
-            security = SecurityType.CODE_EXEC,
-            gating = Gating.GATED,
-            roles = AgentRole.TASK)
+    @Override
     @SuppressWarnings("unused")
-    public void declareRunShell(RunShellArgs args)
-    {
-        // Dispatched via handleToolCall.
-    }
+    public void declareRunShell(RunShellArgs args) {}
 
     private void handleToolCall(String threadId, JsonNode id, JsonNode paramsNode, DeferredResult<JsonNode> deferred)
     {

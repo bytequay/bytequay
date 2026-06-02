@@ -13,8 +13,6 @@
  */
 package com.bytequay.app.service.hello;
 
-import org.springframework.web.bind.annotation.GetMapping;
-
 /**
  * Liveness probe used by the Electron host to confirm the Java
  * sidecar is up. Intentionally trivial — the implementation returns a
@@ -24,6 +22,5 @@ import org.springframework.web.bind.annotation.GetMapping;
  */
 public interface HelloService
 {
-    @GetMapping("/hello")
     String hello();
 }

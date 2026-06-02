@@ -16,13 +16,20 @@ package com.bytequay.app.web;
 import com.bytequay.app.domain.SyncSettings;
 import com.bytequay.app.service.WorkspaceBehaviorService.Settings;
 import com.bytequay.app.service.settings.SettingsService;
+import org.springframework.http.HttpStatus;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
 
 import static java.util.Objects.requireNonNull;
 
 @RestController
+@RequestMapping("/api/settings")
 public class SettingsController
-        implements SettingsService
 {
     private final SettingsService service;
 
@@ -31,31 +38,32 @@ public class SettingsController
         this.service = requireNonNull(service, "service is null");
     }
 
-    @Override
+    @GetMapping("/workspace-behavior")
     public Settings getWorkspaceBehavior()
     {
         return service.getWorkspaceBehavior();
     }
 
-    @Override
-    public Settings updateWorkspaceBehavior(Settings body)
+    @PutMapping("/workspace-behavior")
+    public Settings updateWorkspaceBehavior(@RequestBody Settings body)
     {
         return service.updateWorkspaceBehavior(body);
     }
 
-    @Override
+    @GetMapping("/sync")
     public SyncSettings getSyncSettings()
     {
         return service.getSyncSettings();
     }
 
-    @Override
-    public SyncSettings updateSyncSettings(SyncSettings settings)
+    @PutMapping("/sync")
+    public SyncSettings updateSyncSettings(@RequestBody SyncSettings settings)
     {
         return service.updateSyncSettings(settings);
     }
 
-    @Override
+    @PostMapping("/sync/trigger")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
     public void triggerSync()
     {
         service.triggerSync();

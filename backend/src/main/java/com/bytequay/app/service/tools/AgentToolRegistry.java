@@ -26,6 +26,7 @@ import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.ApplicationContext;
 import org.springframework.context.event.ContextRefreshedEvent;
 import org.springframework.context.event.EventListener;
+import org.springframework.core.annotation.AnnotatedElementUtils;
 import org.springframework.stereotype.Component;
 
 import java.lang.reflect.InvocationTargetException;
@@ -117,7 +118,14 @@ public class AgentToolRegistry
             // to be wrapped by @Transactional / @Async / etc.
             Class<?> beanClass = AopUtils.getTargetClass(bean);
             for (Method method : beanClass.getDeclaredMethods()) {
-                AgentTool annotation = method.getAnnotation(AgentTool.class);
+                // findMergedAnnotation walks the method's superclass /
+                // interface declarations so @AgentTool can live on a
+                // service interface (where it documents the contract,
+                // independent of the impl) and still be discovered when
+                // the impl overrides without re-annotating. Method
+                // annotations are NOT inherited by default — Spring's
+                // utility is what bridges that.
+                AgentTool annotation = AnnotatedElementUtils.findMergedAnnotation(method, AgentTool.class);
                 if (annotation == null) {
                     continue;
                 }

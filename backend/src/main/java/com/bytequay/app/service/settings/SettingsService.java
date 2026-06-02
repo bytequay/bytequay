@@ -15,43 +15,27 @@ package com.bytequay.app.service.settings;
 
 import com.bytequay.app.domain.SyncSettings;
 import com.bytequay.app.service.WorkspaceBehaviorService.Settings;
-import org.springframework.http.HttpStatus;
-import org.springframework.web.bind.annotation.GetMapping;
-import org.springframework.web.bind.annotation.PostMapping;
-import org.springframework.web.bind.annotation.PutMapping;
-import org.springframework.web.bind.annotation.RequestBody;
-import org.springframework.web.bind.annotation.RequestMapping;
-import org.springframework.web.bind.annotation.ResponseStatus;
 
 /**
  * User-visible app settings — workspace-behavior preferences and the
  * PR sync cadence. The endpoints are thin wrappers over the underlying
- * stores; the REST contract lives on this interface so the controller
- * stays free of business logic.
+ * stores; the controller binds the HTTP surface, this interface
+ * declares only the business contract.
  */
-@RequestMapping("/api/settings")
 public interface SettingsService
 {
-    /** GET /api/settings/workspace-behavior */
-    @GetMapping("/workspace-behavior")
     Settings getWorkspaceBehavior();
 
-    /** PUT /api/settings/workspace-behavior */
-    @PutMapping("/workspace-behavior")
-    Settings updateWorkspaceBehavior(@RequestBody Settings body);
+    Settings updateWorkspaceBehavior(Settings body);
 
-    /** GET /api/settings/sync — current sync configuration. */
-    @GetMapping("/sync")
+    /** Current sync configuration. */
     SyncSettings getSyncSettings();
 
-    /** PUT /api/settings/sync — updates the sync interval. Change takes
-     *  effect within the next scheduler tick (≤ 10 s). */
-    @PutMapping("/sync")
-    SyncSettings updateSyncSettings(@RequestBody SyncSettings settings);
+    /** Update the sync interval. Change takes effect within the next
+     *  scheduler tick (≤ 10 s). */
+    SyncSettings updateSyncSettings(SyncSettings settings);
 
-    /** POST /api/settings/sync/trigger — schedules an immediate sync
-     *  on the next scheduler tick (within 10 s). */
-    @PostMapping("/sync/trigger")
-    @ResponseStatus(HttpStatus.NO_CONTENT)
+    /** Schedule an immediate sync on the next scheduler tick (within
+     *  10 s). */
     void triggerSync();
 }

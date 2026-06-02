@@ -18,6 +18,13 @@ import com.bytequay.app.beans.threadgroup.PatchGroupBody;
 import com.bytequay.app.domain.ThreadGroup;
 import com.bytequay.app.domain.ThreadGroupMembership;
 import com.bytequay.app.service.threadgroup.ThreadGroupService;
+import org.springframework.web.bind.annotation.DeleteMapping;
+import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PatchMapping;
+import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.util.List;
@@ -25,8 +32,8 @@ import java.util.List;
 import static java.util.Objects.requireNonNull;
 
 @RestController
+@RequestMapping("/api/thread-groups")
 public class ThreadGroupController
-        implements ThreadGroupService
 {
     private final ThreadGroupService service;
 
@@ -35,44 +42,44 @@ public class ThreadGroupController
         this.service = requireNonNull(service, "service is null");
     }
 
-    @Override
+    @GetMapping
     public List<ThreadGroup> list()
     {
         return service.list();
     }
 
-    @Override
+    @GetMapping("/memberships")
     public List<ThreadGroupMembership> memberships()
     {
         return service.memberships();
     }
 
-    @Override
-    public ThreadGroup create(NewGroupBody body)
+    @PostMapping
+    public ThreadGroup create(@RequestBody NewGroupBody body)
     {
         return service.create(body);
     }
 
-    @Override
-    public ThreadGroup update(String id, PatchGroupBody body)
+    @PatchMapping("/{id}")
+    public ThreadGroup update(@PathVariable String id, @RequestBody PatchGroupBody body)
     {
         return service.update(id, body);
     }
 
-    @Override
-    public void delete(String id)
+    @DeleteMapping("/{id}")
+    public void delete(@PathVariable String id)
     {
         service.delete(id);
     }
 
-    @Override
-    public void addMember(String groupId, String threadId)
+    @PostMapping("/{groupId}/members/{threadId}")
+    public void addMember(@PathVariable String groupId, @PathVariable String threadId)
     {
         service.addMember(groupId, threadId);
     }
 
-    @Override
-    public void removeMember(String groupId, String threadId)
+    @DeleteMapping("/{groupId}/members/{threadId}")
+    public void removeMember(@PathVariable String groupId, @PathVariable String threadId)
     {
         service.removeMember(groupId, threadId);
     }

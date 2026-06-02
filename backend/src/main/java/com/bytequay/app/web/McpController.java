@@ -15,22 +15,31 @@ package com.bytequay.app.web;
 
 import com.bytequay.app.service.mcp.McpService;
 import com.fasterxml.jackson.databind.JsonNode;
+import org.springframework.web.bind.annotation.PathVariable;
+import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.context.request.async.DeferredResult;
 
 import static java.util.Objects.requireNonNull;
 
 /**
- * HTTP entry point for the MCP server. Implements {@link McpService}
- * so Spring picks up the URL and HTTP-verb annotations from the
- * interface; every method here delegates straight to the injected
- * service impl so the controller layer holds no business logic of its
- * own. Per the service-layer convention, controllers don't depend on
+ * HTTP entry point for the MCP server. Owns the URL surface
+ * ({@code @RequestMapping}) and the HTTP-verb binding
+ * ({@code @PostMapping} / {@code @PathVariable} / {@code @RequestBody})
+ * because those are transport concerns; the
+ * {@link com.bytequay.app.service.mcp.McpService} interface stays
+ * HTTP-agnostic so the same business contract can be exercised by an
+ * in-JVM lane, a CLI dispatcher, or anything else that wants to call
+ * {@code handle(...)} without dragging Spring web along.
+ *
+ * <p>Per the service-layer convention, controllers don't depend on
  * other controllers — wiring goes through services.
  */
 @RestController
+@RequestMapping("/api/threads/{threadId}/mcp")
 public class McpController
-        implements McpService
 {
     private final McpService service;
 
@@ -39,8 +48,10 @@ public class McpController
         this.service = requireNonNull(service, "service is null");
     }
 
-    @Override
-    public DeferredResult<JsonNode> handle(String threadId, JsonNode request)
+    @PostMapping
+    public DeferredResult<JsonNode> handle(
+            @PathVariable String threadId,
+            @RequestBody JsonNode request)
     {
         return service.handle(threadId, request);
     }

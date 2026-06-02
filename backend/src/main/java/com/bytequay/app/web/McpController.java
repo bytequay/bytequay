@@ -15,12 +15,14 @@ package com.bytequay.app.web;
 
 import com.bytequay.app.service.mcp.McpService;
 import com.fasterxml.jackson.databind.JsonNode;
+import org.springframework.http.HttpStatusCode;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.context.request.async.DeferredResult;
+import org.springframework.web.server.ResponseStatusException;
 
 import static java.util.Objects.requireNonNull;
 
@@ -53,6 +55,22 @@ public class McpController
             @PathVariable String threadId,
             @RequestBody JsonNode request)
     {
+        // First-round transport-level validation. Anything deeper —
+        // jsonrpc version, method name catalog, params shape, per-tool
+        // args — stays in the service where it surfaces as the proper
+        // JSON-RPC error envelope (-32600 / -32601 / -32602 / -32700)
+        // rather than an HTTP 4xx, because clients of JSON-RPC expect
+        // protocol errors over HTTP 200 by convention.
+        if (threadId == null || threadId.isBlank()) {
+            throw new ResponseStatusException(HttpStatusCode.valueOf(400), "threadId is required");
+        }
+        if (request == null || request.isMissingNode() || request.isNull()) {
+            throw new ResponseStatusException(HttpStatusCode.valueOf(400), "request body is required");
+        }
+        if (!request.isObject()) {
+            throw new ResponseStatusException(HttpStatusCode.valueOf(400),
+                    "request body must be a JSON-RPC object");
+        }
         return service.handle(threadId, request);
     }
 }

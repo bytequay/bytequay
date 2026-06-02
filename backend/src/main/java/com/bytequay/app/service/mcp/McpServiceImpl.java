@@ -143,6 +143,13 @@ public class McpServiceImpl
     @Override
     public DeferredResult<JsonNode> handle(String threadId, JsonNode request)
     {
+        // Defensive guards for the cross-service reuse path — the
+        // controller already returned 400 on a blank threadId or a
+        // missing/non-object request body. If another internal service
+        // ever calls handle(...) directly with null, fail loudly so the
+        // NPE doesn't surface deep inside the dispatch.
+        requireNonNull(threadId, "threadId is null");
+        requireNonNull(request, "request is null");
         DeferredResult<JsonNode> deferred = new DeferredResult<>(DECISION_TIMEOUT_MS);
         // Diagnostic: confirm the CLI's MCP request actually reaches us
         // and whether it resolves or stalls to the decision timeout.

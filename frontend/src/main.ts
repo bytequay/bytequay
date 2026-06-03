@@ -3009,6 +3009,7 @@ const url = new URL(`${BACKEND_BASE}/api/search/repos`);
   ipcMain.handle('workspaces:create', async (_event, args: unknown) => {
     const a = (args ?? {}) as {
       name?: unknown;
+      slug?: unknown;
       isScratch?: unknown;
       promptContext?: unknown;
       repoFullNames?: unknown;
@@ -3020,6 +3021,9 @@ const url = new URL(`${BACKEND_BASE}/api/search/repos`);
       name: a.name,
       isScratch: typeof a.isScratch === 'boolean' ? a.isScratch : false,
     };
+    if (typeof a.slug === 'string' && a.slug.trim().length > 0) {
+      body.slug = a.slug.trim();
+    }
     if (typeof a.promptContext === 'string') {
       body.promptContext = a.promptContext;
     }

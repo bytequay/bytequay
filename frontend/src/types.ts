@@ -2768,9 +2768,14 @@ export type Bridge = {
   deleteWorkspace: (workspaceId: string) => Promise<void>;
   /** Create a new workspace. The optional {@code promptContext} is
    *  appended to {@code memoryMd} so every thread reads it first;
-   *  {@code repoFullNames} pins the picked watched repos. */
+   *  {@code repoFullNames} pins the picked watched repos. {@code slug}
+   *  is the immutable id segment (without the {@code ws-} prefix); the
+   *  dialog derives it live from {@code name} and lets the user
+   *  override before commit, then locks. Omit to let the backend
+   *  derive from {@code name}. */
   createWorkspace: (req: {
     name: string;
+    slug?: string;
     isScratch?: boolean;
     promptContext?: string;
     repoFullNames?: string[];

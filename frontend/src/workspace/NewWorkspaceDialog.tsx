@@ -40,8 +40,41 @@ const CODING_AGENT_OPTIONS = [
   { value: 'deepseek', label: 'DeepSeek API' },
 ] as const;
 
+/** Frontend mirror of the backend's WorkspaceService.deriveSlug.
+ *  Keep the two in sync — divergence would mean the live preview in
+ *  the dialog disagrees with the slug the backend actually allocates. */
+const SLUG_MAX_CHARS = 24;
+function deriveSlug(name: string): string {
+  if (!name) return '';
+  const lowered = name.toLowerCase();
+  let out = '';
+  let lastDash = true;
+  for (const c of lowered) {
+    if (/[a-z0-9]/.test(c)) {
+      out += c;
+      lastDash = false;
+    }
+    else if (!lastDash) {
+      out += '-';
+      lastDash = true;
+    }
+  }
+  while (out.endsWith('-')) out = out.slice(0, -1);
+  if (out.length > SLUG_MAX_CHARS) {
+    out = out.slice(0, SLUG_MAX_CHARS);
+    while (out.endsWith('-')) out = out.slice(0, -1);
+  }
+  return out;
+}
+
 function NewWorkspaceDialog({ onClose, onCreated }: Props) {
   const [name, setName] = useState('');
+  /** User-edited slug. Empty means "follow the name" — the input
+   *  shows the live-derived value but doesn't write back to state
+   *  until the user actually types here. Once they do, slugTouched
+   *  flips and editing the name no longer overrides their choice. */
+  const [slug, setSlug] = useState('');
+  const [slugTouched, setSlugTouched] = useState(false);
   const [repos, setRepos] = useState<WatchedRepoDto[]>([]);
   const [picked, setPicked] = useState<Set<number>>(new Set());
   const [seedMemory, setSeedMemory] = useState(true);
@@ -97,6 +130,12 @@ function NewWorkspaceDialog({ onClose, onCreated }: Props) {
   const promptOverCap = promptWordCount > PROMPT_CONTEXT_WORD_CAP;
 
   const trimmedName = name.trim();
+  // Effective slug shown in the field and sent to the backend. Follow
+  // the derived slug from the name until the user types in the slug
+  // field themselves — that flips slugTouched and the input becomes
+  // their override. Empty/unsluggable names produce an empty slug; the
+  // backend falls back to a UUID stub in that case.
+  const effectiveSlug = slugTouched ? slug.trim() : deriveSlug(trimmedName);
   const canCreate = trimmedName.length > 0
       && picked.size > 0
       && !promptOverCap
@@ -112,6 +151,7 @@ function NewWorkspaceDialog({ onClose, onCreated }: Props) {
           .map(r => `${r.owner}/${r.repo}`);
       const created = await window.bridge.createWorkspace({
         name: trimmedName,
+        slug: effectiveSlug,
         isScratch: false,
         promptContext: effectivePrompt,
         repoFullNames: pickedRepoFullNames,
@@ -170,6 +210,29 @@ function NewWorkspaceDialog({ onClose, onCreated }: Props) {
               onChange={e => setName(e.target.value)}
               placeholder="e.g. Trino-trace"
               style={{ ...dialogStyles.input, flex: 1 }}
+            />
+          </div>
+        </div>
+
+        <div style={dialogStyles.field}>
+          <label style={dialogStyles.fieldLabel}>
+            Slug
+            <span style={pickHintStyle}>
+              immutable id segment · derived from name unless overridden
+            </span>
+          </label>
+          <div style={slugRowStyle}>
+            <span style={slugPrefixStyle} aria-hidden>ws-</span>
+            <input
+              type="text"
+              value={effectiveSlug}
+              onChange={e => {
+                setSlugTouched(true);
+                setSlug(e.target.value);
+              }}
+              placeholder="bytequay"
+              spellCheck={false}
+              style={{ ...dialogStyles.input, flex: 1, fontFamily: 'ui-monospace, monospace' }}
             />
           </div>
         </div>
@@ -392,6 +455,25 @@ const pickHintStyle: React.CSSProperties = {
   textTransform: 'none',
   letterSpacing: 0,
   color: 'var(--ws-text-3)',
+};
+
+const slugRowStyle: React.CSSProperties = {
+  display: 'flex',
+  alignItems: 'stretch',
+  gap: 0,
+};
+
+const slugPrefixStyle: React.CSSProperties = {
+  display: 'inline-flex',
+  alignItems: 'center',
+  padding: '0 10px',
+  fontSize: 12,
+  fontFamily: 'ui-monospace, monospace',
+  color: 'var(--ws-text-3)',
+  background: 'rgba(124, 58, 237, 0.06)',
+  border: '1px solid var(--ws-card-border)',
+  borderRight: 'none',
+  borderRadius: '8px 0 0 8px',
 };
 
 const repoListStyle: React.CSSProperties = {

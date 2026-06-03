@@ -541,7 +541,13 @@ const bridge: Bridge = {
   deleteWorkspace: (workspaceId: string): Promise<void> =>
     ipcRenderer.invoke('workspaces:delete', workspaceId),
   createWorkspace: (
-    req: { name: string; isScratch?: boolean; promptContext?: string; repoFullNames?: string[] },
+    req: {
+      name: string;
+      slug?: string;
+      isScratch?: boolean;
+      promptContext?: string;
+      repoFullNames?: string[];
+    },
   ): Promise<WorkspaceDto> =>
     ipcRenderer.invoke('workspaces:create', req),
   listWorkspaceRepos: (workspaceId: string): Promise<WorkspaceRepoDto[]> =>

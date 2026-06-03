@@ -37,6 +37,25 @@ import static java.util.Objects.requireNonNull;
  *               e.g.  ws-bytequay.t260603-3-a1.k2
  * </pre>
  *
+ * <p>Reading a task id segment by segment:
+ * <pre>
+ *   ws-bytequay.t260603-3-a1.k2
+ *   └────┬────┘└┬┘└──┬─┘│ │ │ └┬┘
+ *        │     │    │  │ │ │  │
+ *        │     │    │  │ │ │  └─ TASK seq        per-thread (tasks.seq)
+ *        │     │    │  │ │ └──── TASK marker     IdTier.TASK.marker()
+ *        │     │    │  │ └────── random suffix   RAND_SUFFIX_LEN chars from
+ *        │     │    │  │                         RAND_ALPHABET (32 base32
+ *        │     │    │  │                         chars, no i/l/o/u)
+ *        │     │    │  └─────── SEGMENT_SEP
+ *        │     │    └────────── THREAD seq       per-(workspace, day) counter
+ *        │     │                                 from IdSequenceStore
+ *        │     └─────────────── ymd (YYMMDD UTC) day of thread creation
+ *        └─────────────────── THREAD marker      IdTier.THREAD.marker()
+ *   └──── workspaceId   immutable workspace slug, prefixed with
+ *                       IdTier.WORKSPACE.marker() at workspace creation
+ * </pre>
+ *
  * <p>The {@code ymd} segment is YYMMDD in UTC so lexicographic sort
  * yields chronological order within a workspace. The {@code seq} after
  * the date is workspace-and-day scoped and comes from
@@ -47,6 +66,16 @@ import static java.util.Objects.requireNonNull;
  * <p>Task ids reuse the per-thread {@code tasks.seq} the caller is
  * already incrementing in {@code ThreadService.materialiseTask}, so no
  * additional sequence allocator is needed for tasks.
+ *
+ * <p>Properties this layout gives the rest of the system:
+ * <ul>
+ *   <li>Strip a suffix and you get the parent — task → thread → workspace.</li>
+ *   <li>Lexicographic sort within a workspace is chronological by day.</li>
+ *   <li>{@code LIKE 'ws-bytequay.t260603-%'} enumerates one workspace's
+ *       threads cut on one day.</li>
+ *   <li>{@code .worktrees/<task-id>/} on disk encodes the full hierarchy
+ *       in the directory name.</li>
+ * </ul>
  */
 @Service
 public class IdGenerator

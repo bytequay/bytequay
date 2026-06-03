@@ -22,6 +22,29 @@ package com.bytequay.app.repository;
  * stays small (rarely beyond two or three digits) and the resulting
  * thread id is short enough to read at a glance. The day key resets
  * the counter naturally; no truncation logic needed.
+ *
+ * <p>Allocation flow:
+ * <pre>
+ *   nextThreadSeq("ws-bytequay", "260603")
+ *                       │
+ *                       ▼
+ *              ┌────────────────────────┐
+ *              │ row exists for         │
+ *              │ (ws-bytequay, 260603)? │
+ *              └────────┬──────┬────────┘
+ *                    NO │      │ YES
+ *                       │      │
+ *                       ▼      ▼
+ *                  INSERT      UPDATE
+ *                  next_seq    next_seq += 1
+ *                    = 2
+ *                       │      │
+ *                       ▼      ▼
+ *                  return 1    return value before increment
+ *
+ *   In SQLite the whole thing runs as a single UPSERT-with-RETURNING
+ *   statement under the file-level writer lock — see SqliteIdSequenceStore.
+ * </pre>
  */
 public interface IdSequenceStore
 {

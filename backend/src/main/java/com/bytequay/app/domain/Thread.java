@@ -13,6 +13,9 @@
  */
 package com.bytequay.app.domain;
 
+import com.bytequay.app.service.concepts.Concept;
+import com.bytequay.app.service.concepts.ConceptKind;
+
 import java.time.Instant;
 
 /**
@@ -53,6 +56,17 @@ import java.time.Instant;
  * worktree path, PR/issue links, etc.) that used to be flattened
  * onto Thread before the bridge teardown.
  */
+@Concept(
+        name = "thread",
+        kind = ConceptKind.NOUN,
+        definition = "A long-lived AI conversation about one piece of work. Owns the agent "
+                + "loop and persistent metadata; accumulates one or more tasks over its "
+                + "lifetime, only one of which is foreground at a time.",
+        examples = {
+                "A review thread that produces N tasks as the user iterates on feedback.",
+                "A build thread whose trunk plans + delegates each task to a worker."
+        },
+        relatedConcepts = {"task", "trunk"})
 public record Thread(
         String id,
         ThreadKind kind,

@@ -13,6 +13,9 @@
  */
 package com.bytequay.app.domain;
 
+import com.bytequay.app.service.concepts.Concept;
+import com.bytequay.app.service.concepts.ConceptKind;
+
 /**
  * Execution state of a {@link Task} (the unit of work that owns a
  * branch + worktree + PR). Distinct from {@link ThreadStatus} in
@@ -43,11 +46,39 @@ public enum TaskStatus
     /** Parked: the agent finished with a proposed diff + reply and is
      *  holding at the publish gate. Default landing state for headless
      *  auto-fix work — surfaces a notification, never silent publish. */
+    @Concept(
+            name = "awaiting_review",
+            aka = {"parked-for-review", "review-gate"},
+            kind = ConceptKind.STATE,
+            definition = "A task whose agent finished a unit of work and is holding at "
+                    + "the publish gate with a proposed diff + reply. The default landing "
+                    + "state for headless work — a notification surfaces; nothing is "
+                    + "pushed to GitHub until the user explicitly approves.",
+            examples = {
+                    "Next → parks the foreground task at AWAITING_REVIEW before cutting "
+                            + "the sibling.",
+                    "request_review on the active task transitions it to AWAITING_REVIEW."
+            },
+            relatedTools = {"request_review", "ship", "next"},
+            relatedConcepts = {"task", "needs_attention"})
     AWAITING_REVIEW,
 
     /** Parked: the agent is stuck on a conflict, rejected push, or a
      *  judgment-call comment and needs the human to weigh in. The
      *  user's reply takes over the lease into an interactive session. */
+    @Concept(
+            name = "needs_attention",
+            aka = {"blocked", "stuck"},
+            kind = ConceptKind.STATE,
+            definition = "A task whose agent is stuck on a conflict, a rejected push, or "
+                    + "a judgment-call comment and needs the human to weigh in. The user's "
+                    + "reply takes over the agent's lease into an interactive session.",
+            examples = {
+                    "An unattended turn whose tool request falls outside its autonomy "
+                            + "envelope escalates to NEEDS_ATTENTION.",
+                    "A merge conflict on push transitions the task to NEEDS_ATTENTION."
+            },
+            relatedConcepts = {"task", "awaiting_review"})
     NEEDS_ATTENTION,
 
     /** Task finished cleanly. */

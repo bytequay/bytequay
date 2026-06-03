@@ -13,6 +13,9 @@
  */
 package com.bytequay.app.domain;
 
+import com.bytequay.app.service.concepts.Concept;
+import com.bytequay.app.service.concepts.ConceptKind;
+
 import java.time.Instant;
 
 /**
@@ -47,6 +50,18 @@ import java.time.Instant;
  *                       sticky for the life of the task so reopens
  *                       continue the same conversation.
  */
+@Concept(
+        name = "task",
+        kind = ConceptKind.NOUN,
+        definition = "One unit of work within a thread — owns a git branch, a worktree, "
+                + "the commits an agent makes there, and (once opened) a PR + CI status. "
+                + "A thread accumulates tasks over time; at most one is foreground.",
+        examples = {
+                "request_review parks the foreground task at AWAITING_REVIEW.",
+                "next → cuts a sibling task from a fresh main."
+        },
+        relatedTools = {"request_review", "ship", "next"},
+        relatedConcepts = {"thread", "trunk", "awaiting_review"})
 public record Task(
         String id,
         String threadId,

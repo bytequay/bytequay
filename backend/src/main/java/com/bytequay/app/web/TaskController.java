@@ -15,6 +15,8 @@ package com.bytequay.app.web;
 
 import com.bytequay.app.domain.Task;
 import com.bytequay.app.domain.TaskFile;
+import com.bytequay.app.service.concepts.Concept;
+import com.bytequay.app.service.concepts.ConceptKind;
 import com.bytequay.app.service.threads.TaskService;
 import org.springframework.http.HttpStatusCode;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -88,6 +90,15 @@ public class TaskController
     /** Close out the current task (commit + push + open PR) and start
      *  the next one inside the same thread. See
      *  {@link TaskService#shipAndContinue} for the full flow. */
+    @Concept(
+            name = "ship",
+            kind = ConceptKind.VERB,
+            definition = "Finalise the current task — commit, push, open a PR — and start "
+                    + "the next task inside the same thread. The end-of-work transition; "
+                    + "the foreground task moves out of the way and a fresh one cut from "
+                    + "main becomes foreground.",
+            examples = "ship after request_review is approved and the user wants to publish.",
+            relatedConcepts = {"task", "next", "awaiting_review"})
     @PostMapping("/{taskId}/ship")
     public Task ship(
             @PathVariable String threadId,
@@ -120,6 +131,16 @@ public class TaskController
      *  preserved) and start a fresh task cut from main. The trunk
      *  window's Next button calls this. See
      *  {@link TaskService#parkAndStartNext}. */
+    @Concept(
+            name = "next",
+            kind = ConceptKind.VERB,
+            definition = "Park the current task at AWAITING_REVIEW (worktree preserved) "
+                    + "and start a fresh task cut from main. The mid-flight transition "
+                    + "for when one unit of work is done enough to set aside and the "
+                    + "user wants to start the next one without losing context.",
+            examples = "next when the agent's diff is ready to review and the user wants "
+                    + "to start the follow-up without waiting for sign-off.",
+            relatedConcepts = {"task", "ship", "awaiting_review"})
     @PostMapping("/{taskId}/next")
     public Task next(
             @PathVariable String threadId,

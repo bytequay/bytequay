@@ -18,6 +18,8 @@ import com.bytequay.app.domain.Task;
 import com.bytequay.app.domain.WatchedRepo;
 import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.repository.WatchedRepoStore;
+import com.bytequay.app.service.concepts.Concept;
+import com.bytequay.app.service.concepts.ConceptKind;
 import com.bytequay.app.service.local.GitRunner;
 import com.bytequay.app.service.threads.ParkedProposalService;
 import com.fasterxml.jackson.databind.JsonNode;
@@ -95,6 +97,15 @@ public class PublishToolHandlers
             security = SecurityType.TASK_MANAGE,
             gating = Gating.PARKED,
             roles = AgentRole.TASK)
+    @Concept(
+            name = "request_review",
+            kind = ConceptKind.VERB,
+            definition = "Park the active task at AWAITING_REVIEW with a proposed diff + "
+                    + "reply. The agent's way of saying \"I'm done — please look\" "
+                    + "without itself pushing or commenting on GitHub.",
+            examples = "An agent finishes a refactor and calls request_review with the "
+                    + "summary + reply; the user sees a park card and decides.",
+            relatedConcepts = {"task", "awaiting_review", "ship"})
     public ToolOutcome requestReview(RequestReviewArgs args, ToolCall call)
     {
         String summary = orEmpty(args.summary());

@@ -13,6 +13,9 @@
  */
 package com.bytequay.app.domain;
 
+import com.bytequay.app.service.concepts.Concept;
+import com.bytequay.app.service.concepts.ConceptKind;
+
 import java.time.Instant;
 import java.util.List;
 import java.util.Map;
@@ -38,6 +41,18 @@ import java.util.Map;
  * @param snoozeWakeReason populated when an auto-wake fires.
  * @param headRef PR head branch name from GitHub's list response.
  */
+@Concept(
+        name = "pr",
+        aka = {"pull-request", "pull_request"},
+        kind = ConceptKind.NOUN,
+        definition = "A GitHub pull request — a proposed change with a branch, diff, "
+                + "reviewers, CI status, and a state (open / closed / merged). The "
+                + "primary thing the app reasons about on the dashboard.",
+        examples = {
+                "An IN_REVIEW PR awaiting my review counts as awaiting_me.",
+                "A PR with CI failing on the head ref counts as urgent."
+        },
+        relatedConcepts = {"awaiting_review", "urgent"})
 public record PullRequest(
         long id,
         String repo,

@@ -27,7 +27,6 @@ import com.bytequay.app.domain.UserProfile;
 import com.bytequay.app.domain.UserRepo;
 import com.bytequay.app.domain.WatchedRepo;
 import com.bytequay.app.service.RepoService;
-import com.bytequay.app.service.credentials.PatResolver;
 import com.google.common.collect.ImmutableMap;
 import org.springframework.http.HttpStatusCode;
 import org.springframework.web.bind.annotation.DeleteMapping;
@@ -51,11 +50,9 @@ import static java.util.Objects.requireNonNull;
 public class RepoController
 {
     private final RepoService repoService;
-    private final PatResolver patResolver;
 
-    public RepoController(RepoService repoService, PatResolver patResolver)
+    public RepoController(RepoService repoService)
     {
-        this.patResolver = requireNonNull(patResolver, "patResolver is null");
         this.repoService = requireNonNull(repoService, "repoService is null");
     }
 
@@ -121,7 +118,7 @@ public class RepoController
     @GetMapping("/contribution-graph")
     public ContributionCalendar getContributionGraph(@RequestParam("login") String login)
     {
-        return repoService.getContributionCalendar(patResolver.resolve(), login);
+        return repoService.getContributionCalendar(login);
     }
 
     /**
@@ -135,7 +132,7 @@ public class RepoController
             @RequestParam("login") String login,
             @RequestParam("date") String date)
     {
-        return repoService.getUserCommitsOnDate(patResolver.resolve(), login, date);
+        return repoService.getUserCommitsOnDate(login, date);
     }
 
     /**
@@ -147,7 +144,7 @@ public class RepoController
             @PathVariable String owner,
             @PathVariable String repo)
     {
-        return repoService.getRepoPullRequests(patResolver.resolve(owner + "/" + repo), owner, repo);
+        return repoService.getRepoPullRequests(owner, repo);
     }
 
     /**
@@ -162,7 +159,7 @@ public class RepoController
             @PathVariable String repo,
             @PathVariable int number)
     {
-        return repoService.getRepoPullRequest(patResolver.resolve(owner + "/" + repo), owner, repo, number);
+        return repoService.getRepoPullRequest(owner, repo, number);
     }
 
     /**
@@ -180,7 +177,7 @@ public class RepoController
             @RequestParam(name = "q", required = false) String query)
     {
         return repoService.searchRepoPullRequests(
-                patResolver.resolve(owner + "/" + repo), owner, repo, query);
+                owner, repo, query);
     }
 
     /**
@@ -195,7 +192,7 @@ public class RepoController
             @PathVariable String repo,
             @RequestParam(name = "state", defaultValue = "open") String state)
     {
-        return repoService.getRepoIssues(patResolver.resolve(owner + "/" + repo), owner, repo, state);
+        return repoService.getRepoIssues(owner, repo, state);
     }
 
     /**
@@ -209,7 +206,7 @@ public class RepoController
             @PathVariable String repo,
             @PathVariable int number)
     {
-        return repoService.getIssueDetail(patResolver.resolve(owner + "/" + repo), owner, repo, number);
+        return repoService.getIssueDetail(owner, repo, number);
     }
 
     /**
@@ -231,7 +228,7 @@ public class RepoController
             throw new ResponseStatusException(HttpStatusCode.valueOf(400), "body must not be blank");
         }
         return repoService.createIssueComment(
-                patResolver.resolve(owner + "/" + repo), owner, repo, number, request.body());
+                owner, repo, number, request.body());
     }
 
     /** POST body shape for {@link #createIssueComment}. */
@@ -258,7 +255,7 @@ public class RepoController
             throw new ResponseStatusException(HttpStatusCode.valueOf(400), "state is required");
         }
         return repoService.setIssueState(
-                patResolver.resolve(owner + "/" + repo), owner, repo, number, request.state());
+                owner, repo, number, request.state());
     }
 
     /** PATCH body shape for {@link #setIssueState}. */
@@ -285,7 +282,7 @@ public class RepoController
             throw new ResponseStatusException(HttpStatusCode.valueOf(400), "content is required");
         }
         repoService.addIssueCommentReaction(
-                patResolver.resolve(owner + "/" + repo), owner, repo, commentId, request.content());
+                owner, repo, commentId, request.content());
         return ImmutableMap.of("result", "reacted");
     }
 
@@ -311,7 +308,7 @@ public class RepoController
             throw new ResponseStatusException(HttpStatusCode.valueOf(400), "body is required");
         }
         repoService.setIssueSubscription(
-                patResolver.resolve(owner + "/" + repo), owner, repo, number, request.subscribed());
+                owner, repo, number, request.subscribed());
         return ImmutableMap.of("result", request.subscribed() ? "subscribed" : "unsubscribed");
     }
 
@@ -329,7 +326,7 @@ public class RepoController
             @PathVariable String owner,
             @PathVariable String repo)
     {
-        return repoService.getRepoMeta(patResolver.resolve(owner + "/" + repo), owner, repo);
+        return repoService.getRepoMeta(owner, repo);
     }
 
     /**
@@ -342,7 +339,7 @@ public class RepoController
             @PathVariable String owner,
             @PathVariable String repo)
     {
-        return repoService.getRepoActivity(patResolver.resolve(owner + "/" + repo), owner, repo);
+        return repoService.getRepoActivity(owner, repo);
     }
 
     /**
@@ -352,7 +349,7 @@ public class RepoController
     @GetMapping("/user/repos")
     public List<UserRepo> getUserRepos()
     {
-        return repoService.getUserRepos(patResolver.resolve());
+        return repoService.getUserRepos();
     }
 
     /**
@@ -384,7 +381,7 @@ public class RepoController
     @GetMapping("/search/repos")
     public List<UserRepo> searchRepos(@RequestParam("q") String q)
     {
-        return repoService.searchRepos(patResolver.resolve(), q);
+        return repoService.searchRepos(q);
     }
 
     /**
@@ -397,7 +394,7 @@ public class RepoController
     @GetMapping("/search/users")
     public List<GitHubUserMatch> searchUsers(@RequestParam("q") String q)
     {
-        return repoService.searchUsers(patResolver.resolve(), q);
+        return repoService.searchUsers(q);
     }
 
     /**
@@ -422,7 +419,6 @@ public class RepoController
             throw new ResponseStatusException(HttpStatusCode.valueOf(400), "body is required");
         }
         return repoService.updateUserProfile(
-                patResolver.resolve(),
                 request.name(),
                 request.bio(),
                 request.location());

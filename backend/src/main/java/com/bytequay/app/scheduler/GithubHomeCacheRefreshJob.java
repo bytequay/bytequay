@@ -113,20 +113,20 @@ public class GithubHomeCacheRefreshJob
 
         // Profile refresh sets GITHUB_LOGIN as a side-effect, so other feeds
         // can rely on it being populated after a successful first run.
-        String login = refreshProfileIfStale(pat, now)
+        String login = refreshProfileIfStale(now)
                 .orElseGet(() -> settingsStore.get(AppSettingsStore.Key.GITHUB_LOGIN).orElse(null));
         if (login == null) {
             return;
         }
 
-        refreshEventsIfStale(pat, login, EventFeed.RECENT, now);
-        refreshEventsIfStale(pat, login, EventFeed.FOLLOWING, now);
+        refreshEventsIfStale(login, EventFeed.RECENT, now);
+        refreshEventsIfStale(login, EventFeed.FOLLOWING, now);
         refreshStatsIfStale(pat, login, now);
-        refreshOrgsIfStale(pat, login, now);
+        refreshOrgsIfStale(login, now);
     }
 
     /** Returns the freshly-fetched login when it ran, empty otherwise. */
-    private Optional<String> refreshProfileIfStale(String pat, Instant now)
+    private Optional<String> refreshProfileIfStale(Instant now)
     {
         Optional<String> existingLogin = settingsStore.get(AppSettingsStore.Key.GITHUB_LOGIN);
         Optional<Instant> fetchedAt = existingLogin
@@ -136,7 +136,7 @@ public class GithubHomeCacheRefreshJob
             return Optional.empty();
         }
         try {
-            return Optional.of(repoService.refreshUserProfileFromGitHub(pat).login());
+            return Optional.of(repoService.refreshUserProfileFromGitHub().login());
         }
         catch (Exception e) {
             log.warn("Profile refresh failed: {}", e.getMessage());
@@ -144,7 +144,7 @@ public class GithubHomeCacheRefreshJob
         }
     }
 
-    private void refreshEventsIfStale(String pat, String login, EventFeed feed, Instant now)
+    private void refreshEventsIfStale(String login, EventFeed feed, Instant now)
     {
         Instant fetchedAt = homeCache.findEvents(login, feed)
                 .map(GithubHomeCacheStore.TimedValue::fetchedAt)
@@ -154,8 +154,8 @@ public class GithubHomeCacheRefreshJob
         }
         try {
             switch (feed) {
-                case RECENT -> repoService.refreshRecentEventsFromGitHub(pat, login);
-                case FOLLOWING -> repoService.refreshFollowingEventsFromGitHub(pat, login);
+                case RECENT -> repoService.refreshRecentEventsFromGitHub(login);
+                case FOLLOWING -> repoService.refreshFollowingEventsFromGitHub(login);
             }
         }
         catch (Exception e) {
@@ -179,7 +179,7 @@ public class GithubHomeCacheRefreshJob
         }
     }
 
-    private void refreshOrgsIfStale(String pat, String login, Instant now)
+    private void refreshOrgsIfStale(String login, Instant now)
     {
         Instant fetchedAt = homeCache.findOrgs(login)
                 .map(GithubHomeCacheStore.TimedValue::fetchedAt)
@@ -188,7 +188,7 @@ public class GithubHomeCacheRefreshJob
             return;
         }
         try {
-            repoService.refreshUserOrgsFromGitHub(pat, login);
+            repoService.refreshUserOrgsFromGitHub(login);
         }
         catch (Exception e) {
             log.warn("Orgs refresh failed: {}", e.getMessage());

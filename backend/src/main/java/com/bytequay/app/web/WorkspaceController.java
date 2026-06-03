@@ -112,6 +112,7 @@ public class WorkspaceController
         }
         return workspaces.create(new WorkspaceService.NewWorkspaceRequest(
                 body.name(),
+                body.slug(),
                 body.isScratch(),
                 body.promptContext(),
                 body.repoFullNames() == null ? List.of() : body.repoFullNames()));
@@ -277,8 +278,16 @@ public class WorkspaceController
 
     public record AutoFixEnabledBody(boolean autoFixEnabled) {}
 
+    /**
+     * @param slug user's chosen workspace slug (without the {@code ws-}
+     *             prefix). The dialog derives it live from {@code name}
+     *             and lets the user override before commit; passing null
+     *             keeps the service-side derivation. Locked-in once
+     *             created — the slug is part of the workspace id.
+     */
     public record NewWorkspaceBody(
             String name,
+            String slug,
             boolean isScratch,
             String promptContext,
             List<String> repoFullNames) {}

@@ -30,6 +30,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Optional;
 import java.util.UUID;
+import java.util.regex.Pattern;
 
 import static java.util.Objects.requireNonNull;
 
@@ -282,8 +283,9 @@ public class WorkspaceService
                     "prompt context exceeds " + MEMORY_MD_HARD_CAP_CHARS + " chars");
         }
         Instant now = Instant.now();
+        String workspaceId = allocateWorkspaceId(request.slug(), trimmedName);
         Workspace workspace = new Workspace(
-                "ws-" + UUID.randomUUID().toString().substring(0, 8),
+                workspaceId,
                 trimmedName,
                 memoryMd,
                 request.isScratch(),
@@ -313,17 +315,138 @@ public class WorkspaceService
      * verbatim into {@code memoryMd} — the create dialog interpolates
      * the repo names + workspace name before sending so the backend
      * doesn't need to know the template.
+     *
+     * <p>{@code slug} is the user's chosen workspace id segment without
+     * the {@code ws-} prefix (the dialog derives it live from the name
+     * and lets the user override before commit). When null or blank the
+     * service derives the slug from {@code name}. The final stored id
+     * is {@code "ws-" + slug}; the slug is immutable for the lifetime
+     * of the workspace.
      */
     public record NewWorkspaceRequest(
             String name,
+            String slug,
             boolean isScratch,
             String promptContext,
             List<String> repoFullNames)
     {
+        /** Back-compat constructor for callers that haven't migrated to
+         *  passing an explicit slug — the service derives it from name. */
+        public NewWorkspaceRequest(
+                String name,
+                boolean isScratch,
+                String promptContext,
+                List<String> repoFullNames)
+        {
+            this(name, null, isScratch, promptContext, repoFullNames);
+        }
+    }
+
+    /** Maximum length of the slug portion (after the {@code ws-} prefix). */
+    static final int SLUG_MAX_CHARS = 24;
+
+    /** Validated slug character class — lowercase letters, digits, and
+     *  internal dashes. Same alphabet the workspace-thread-task design
+     *  doc spells out; matches URL-safe + branch-safe characters. */
+    private static final Pattern SLUG_PATTERN =
+            Pattern.compile("^[a-z0-9]+(-[a-z0-9]+)*$");
+
+    /**
+     * Derive a slug from a workspace display name.
+     *
+     * <p>Lowercases, replaces runs of non-alphanumerics with a single
+     * dash, trims dashes from both ends, then truncates to
+     * {@link #SLUG_MAX_CHARS} characters (without splitting a dash to a
+     * trailing position). Returns the empty string when the name slugs
+     * to nothing — caller decides the fallback.
+     */
+    static String deriveSlug(String name)
+    {
+        if (name == null) {
+            return "";
+        }
+        String lowered = name.toLowerCase(Locale.ROOT);
+        StringBuilder out = new StringBuilder(lowered.length());
+        boolean lastWasDash = true;
+        for (int i = 0; i < lowered.length(); i++) {
+            char c = lowered.charAt(i);
+            if ((c >= 'a' && c <= 'z') || (c >= '0' && c <= '9')) {
+                out.append(c);
+                lastWasDash = false;
+            }
+            else if (!lastWasDash) {
+                out.append('-');
+                lastWasDash = true;
+            }
+        }
+        String trimmed = out.toString();
+        while (trimmed.endsWith("-")) {
+            trimmed = trimmed.substring(0, trimmed.length() - 1);
+        }
+        if (trimmed.length() > SLUG_MAX_CHARS) {
+            trimmed = trimmed.substring(0, SLUG_MAX_CHARS);
+            while (trimmed.endsWith("-")) {
+                trimmed = trimmed.substring(0, trimmed.length() - 1);
+            }
+        }
+        return trimmed;
     }
 
     /** Soft cap on the display name. Trimmed; blank rejected. */
     private static final int NAME_MAX_CHARS = 80;
+
+    /** Hard cap on the number of slug collisions we resolve with a
+     *  numeric suffix before giving up — beyond this the user picked a
+     *  slug that's almost certainly worth being explicit about. */
+    private static final int MAX_SLUG_COLLISIONS = 9;
+
+    /**
+     * Resolve the slug for a new workspace and return the final
+     * {@code "ws-<slug>"} id, ensuring uniqueness. The caller may
+     * supply an explicit slug; when null/blank, the slug is derived
+     * from the display name. Empty-after-derive falls back to a short
+     * UUID stub so the workspace can still be created. Collisions are
+     * disambiguated by appending {@code -2}, {@code -3}, ... up to
+     * {@link #MAX_SLUG_COLLISIONS}; beyond that the create is rejected
+     * with a 409.
+     */
+    private String allocateWorkspaceId(String requestedSlug, String fallbackName)
+    {
+        String slug = requestedSlug == null || requestedSlug.isBlank()
+                ? deriveSlug(fallbackName)
+                : normaliseSlug(requestedSlug.trim());
+        if (slug.isEmpty()) {
+            slug = "space-" + UUID.randomUUID().toString().substring(0, 6);
+        }
+        if (!SLUG_PATTERN.matcher(slug).matches() || slug.length() > SLUG_MAX_CHARS) {
+            throw new ResponseStatusException(
+                    HttpStatusCode.valueOf(400),
+                    "slug must match [a-z0-9-] (max " + SLUG_MAX_CHARS + " chars): " + slug);
+        }
+        String candidate = "ws-" + slug;
+        if (store.findWorkspaceById(candidate).isEmpty()) {
+            return candidate;
+        }
+        for (int i = 2; i <= MAX_SLUG_COLLISIONS; i++) {
+            String next = candidate + "-" + i;
+            if (store.findWorkspaceById(next).isEmpty()) {
+                return next;
+            }
+        }
+        throw new ResponseStatusException(
+                HttpStatusCode.valueOf(409),
+                "slug already in use (" + MAX_SLUG_COLLISIONS + " variants taken): "
+                        + candidate);
+    }
+
+    /** User-supplied slug normalisation — strip a leading {@code ws-}
+     *  if the caller typed one, then route through {@link #deriveSlug}
+     *  so the remaining validation rules apply uniformly. */
+    private static String normaliseSlug(String supplied)
+    {
+        String stripped = supplied.startsWith("ws-") ? supplied.substring("ws-".length()) : supplied;
+        return deriveSlug(stripped);
+    }
 
     /**
      * Rename a workspace. The display name surfaces on the landing

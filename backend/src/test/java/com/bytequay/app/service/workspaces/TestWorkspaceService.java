@@ -24,12 +24,16 @@ import java.time.Instant;
 import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyLong;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.ArgumentMatchers.startsWith;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
+
+import java.util.Optional;
 
 class TestWorkspaceService
 {
@@ -204,5 +208,146 @@ class TestWorkspaceService
         assertThat(cards).hasSize(1);
         assertThat(cards.get(0).lastActivityMs()).isNull();
         assertThat(cards.get(0).repos()).isEmpty();
+    }
+
+    // ── slug derivation + workspace id allocation ───────────────────
+
+    @Test
+    void deriveSlugLowercasesAndJoinsRunsWithDashes()
+    {
+        assertThat(WorkspaceService.deriveSlug("ByteQuay")).isEqualTo("bytequay");
+        assertThat(WorkspaceService.deriveSlug("My Workspace"))
+                .isEqualTo("my-workspace");
+        assertThat(WorkspaceService.deriveSlug("trino — distributed SQL"))
+                .isEqualTo("trino-distributed-sql");
+    }
+
+    @Test
+    void deriveSlugCollapsesAdjacentSeparators()
+    {
+        // Multiple non-alphanumerics in a row collapse to a single dash
+        // so "a — b" doesn't render as "a---b".
+        assertThat(WorkspaceService.deriveSlug("a — b")).isEqualTo("a-b");
+        assertThat(WorkspaceService.deriveSlug("hello!!!world"))
+                .isEqualTo("hello-world");
+    }
+
+    @Test
+    void deriveSlugStripsLeadingAndTrailingSeparators()
+    {
+        assertThat(WorkspaceService.deriveSlug("  ByteQuay  ")).isEqualTo("bytequay");
+        assertThat(WorkspaceService.deriveSlug("!!ByteQuay!!"))
+                .isEqualTo("bytequay");
+    }
+
+    @Test
+    void deriveSlugReturnsEmptyForUnsluggableInput()
+    {
+        // Caller falls back to a UUID-style stub when the derived slug
+        // is empty (all symbols / blank).
+        assertThat(WorkspaceService.deriveSlug("")).isEmpty();
+        assertThat(WorkspaceService.deriveSlug("   ")).isEmpty();
+        assertThat(WorkspaceService.deriveSlug("!!!")).isEmpty();
+        assertThat(WorkspaceService.deriveSlug(null)).isEmpty();
+    }
+
+    @Test
+    void deriveSlugTruncatesAtTheCharCapWithoutTrailingDash()
+    {
+        // A 30-char-input long-name slugs to 24 chars max; the truncation
+        // must not leave a dangling dash.
+        String result = WorkspaceService.deriveSlug(
+                "this is a very long workspace name");
+        assertThat(result.length()).isLessThanOrEqualTo(WorkspaceService.SLUG_MAX_CHARS);
+        assertThat(result).doesNotEndWith("-");
+    }
+
+    @Test
+    void createDerivesIdFromTheDisplayNameWhenNoSlugProvided()
+    {
+        when(store.findWorkspaceById(any())).thenReturn(Optional.empty());
+
+        Workspace created = service.create(new WorkspaceService.NewWorkspaceRequest(
+                "ByteQuay", null, false, "", List.of()));
+
+        assertThat(created.id()).isEqualTo("ws-bytequay");
+        assertThat(created.name()).isEqualTo("ByteQuay");
+    }
+
+    @Test
+    void createUsesAnExplicitSlugWhenProvided()
+    {
+        when(store.findWorkspaceById(any())).thenReturn(Optional.empty());
+
+        Workspace created = service.create(new WorkspaceService.NewWorkspaceRequest(
+                "ByteQuay — daily review app",
+                "bq", false, "", List.of()));
+
+        assertThat(created.id()).isEqualTo("ws-bq");
+        // Display name is preserved verbatim — slug is independent of name.
+        assertThat(created.name()).isEqualTo("ByteQuay — daily review app");
+    }
+
+    @Test
+    void createStripsAUserSuppliedWsPrefix()
+    {
+        // Users sometimes paste "ws-bytequay" into the slug field; we
+        // strip the prefix so the final id doesn't become "ws-ws-bytequay".
+        when(store.findWorkspaceById(any())).thenReturn(Optional.empty());
+
+        Workspace created = service.create(new WorkspaceService.NewWorkspaceRequest(
+                "ByteQuay", "ws-bytequay", false, "", List.of()));
+
+        assertThat(created.id()).isEqualTo("ws-bytequay");
+    }
+
+    @Test
+    void createAppendsACounterSuffixOnSlugCollision()
+    {
+        // ws-bytequay is taken; next free slot is ws-bytequay-2.
+        when(store.findWorkspaceById("ws-bytequay")).thenReturn(
+                Optional.of(workspace("ws-bytequay", "ByteQuay")));
+        when(store.findWorkspaceById(startsWith("ws-bytequay-"))).thenReturn(Optional.empty());
+
+        Workspace created = service.create(new WorkspaceService.NewWorkspaceRequest(
+                "ByteQuay", null, false, "", List.of()));
+
+        assertThat(created.id()).isEqualTo("ws-bytequay-2");
+    }
+
+    @Test
+    void createFallsBackToARandomSlugWhenTheNameIsUnsluggable()
+    {
+        // Name slugs to "" so the service appends a short UUID stub —
+        // the workspace can still be created but the id is opaque.
+        when(store.findWorkspaceById(any())).thenReturn(Optional.empty());
+
+        Workspace created = service.create(new WorkspaceService.NewWorkspaceRequest(
+                "!!!", null, false, "", List.of()));
+
+        assertThat(created.id()).startsWith("ws-space-");
+        // 6-char base16 stub.
+        assertThat(created.id()).hasSize("ws-space-".length() + 6);
+    }
+
+    @Test
+    void createNormalisesAUserSuppliedSlugWithOutOfAlphabetChars()
+    {
+        // Uppercase + underscore + camelCase get normalised through the
+        // same deriver the name path uses, rather than rejected outright.
+        // The dialog shows the resulting slug live so the user sees what
+        // they're committing to.
+        when(store.findWorkspaceById(any())).thenReturn(Optional.empty());
+
+        Workspace created = service.create(new WorkspaceService.NewWorkspaceRequest(
+                "ByteQuay", "BadSlug_123", false, "", List.of()));
+
+        assertThat(created.id()).isEqualTo("ws-badslug-123");
+    }
+
+    private static Workspace workspace(String id, String name)
+    {
+        Instant now = Instant.now();
+        return new Workspace(id, name, "", false, null, now, now);
     }
 }

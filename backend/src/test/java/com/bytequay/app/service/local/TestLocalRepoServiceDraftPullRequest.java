@@ -20,6 +20,7 @@ import com.bytequay.app.repository.PullRequestStore;
 import com.bytequay.app.repository.WatchedRepoStore;
 import com.bytequay.app.service.ai.LlmReviewer;
 import com.bytequay.app.service.ai.LlmReviewerRegistry;
+import com.bytequay.app.service.credentials.PatResolver;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
 
@@ -93,6 +94,7 @@ class TestLocalRepoServiceDraftPullRequest
         final PullRequestStore pullRequestStore = mock(PullRequestStore.class);
         final LlmReviewerRegistry registry = mock(LlmReviewerRegistry.class);
         final LlmReviewer reviewer = mock(LlmReviewer.class);
+        final PatResolver patResolver = mock(PatResolver.class);
         final LocalRepoService service;
 
         Fixture(Path workingDir)
@@ -103,7 +105,7 @@ class TestLocalRepoServiceDraftPullRequest
                             1L, "trinodb", "trino", 0, workingDir.toString(), null, null)));
             when(registry.active()).thenReturn(reviewer);
             this.service = new LocalRepoService(
-                    watchedRepoStore, gitRunner, gitHub, pullRequestStore, registry);
+                    watchedRepoStore, gitRunner, gitHub, pullRequestStore, registry, patResolver);
         }
     }
 

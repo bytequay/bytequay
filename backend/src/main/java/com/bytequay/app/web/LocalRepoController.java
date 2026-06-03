@@ -24,7 +24,6 @@ import com.bytequay.app.domain.LocalRepoStatus;
 import com.bytequay.app.domain.PullRequest;
 import com.bytequay.app.domain.PullRequestDraft;
 import com.bytequay.app.repository.WatchedRepoStore;
-import com.bytequay.app.service.credentials.PatResolver;
 import com.bytequay.app.service.local.GitRunner;
 import com.bytequay.app.service.local.LocalRepoService;
 import org.springframework.http.HttpStatus;
@@ -56,16 +55,13 @@ public class LocalRepoController
 {
     private final LocalRepoService localRepoService;
     private final WatchedRepoStore watchedRepoStore;
-    private final PatResolver patResolver;
 
     public LocalRepoController(
             LocalRepoService localRepoService,
-            WatchedRepoStore watchedRepoStore,
-            PatResolver patResolver)
+            WatchedRepoStore watchedRepoStore)
     {
         this.localRepoService = requireNonNull(localRepoService, "localRepoService is null");
         this.watchedRepoStore = requireNonNull(watchedRepoStore, "watchedRepoStore is null");
-        this.patResolver = requireNonNull(patResolver, "patResolver is null");
     }
 
     /**
@@ -721,10 +717,9 @@ public class LocalRepoController
         if (body == null || body.title() == null || body.title().isBlank()) {
             throw new ResponseStatusException(HttpStatus.BAD_REQUEST, "title is required");
         }
-        String pat = patResolver.resolve(owner + "/" + repo);
         try {
             PullRequest created = localRepoService.createPullRequest(
-                    pat, owner, repo, body.title(), body.body(),
+                    owner, repo, body.title(), body.body(),
                     body.base(), body.draft());
             return new CreatePrResponse(created.number(), created.htmlUrl());
         }

@@ -30,6 +30,7 @@ import com.bytequay.app.repository.PullRequestRepository;
 import com.bytequay.app.repository.PullRequestStore;
 import com.bytequay.app.repository.WatchedRepoStore;
 import com.bytequay.app.service.ai.LlmReviewerRegistry;
+import com.bytequay.app.service.credentials.PatResolver;
 import com.google.common.collect.ImmutableList;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -70,19 +71,22 @@ public class LocalRepoService
     private final PullRequestRepository gitHub;
     private final PullRequestStore pullRequestStore;
     private final LlmReviewerRegistry llmReviewerRegistry;
+    private final PatResolver patResolver;
 
     public LocalRepoService(
             WatchedRepoStore watchedRepoStore,
             GitRunner gitRunner,
             PullRequestRepository gitHub,
             PullRequestStore pullRequestStore,
-            LlmReviewerRegistry llmReviewerRegistry)
+            LlmReviewerRegistry llmReviewerRegistry,
+            PatResolver patResolver)
     {
         this.watchedRepoStore = requireNonNull(watchedRepoStore, "watchedRepoStore is null");
         this.gitRunner = requireNonNull(gitRunner, "gitRunner is null");
         this.gitHub = requireNonNull(gitHub, "gitHub is null");
         this.pullRequestStore = requireNonNull(pullRequestStore, "pullRequestStore is null");
         this.llmReviewerRegistry = requireNonNull(llmReviewerRegistry, "llmReviewerRegistry is null");
+        this.patResolver = requireNonNull(patResolver, "patResolver is null");
     }
 
     /**
@@ -808,7 +812,6 @@ public class LocalRepoService
      * the new number into the UI without an extra round-trip.
      */
     public PullRequest createPullRequest(
-            String pat,
             String owner,
             String repo,
             String title,
@@ -817,6 +820,7 @@ public class LocalRepoService
             boolean draft)
             throws IOException, InterruptedException
     {
+        String pat = patResolver.resolve(owner + "/" + repo);
         Path path = clonePathOrThrow(owner, repo);
         WatchedRepo watched = refreshWatchedRepo(owner, repo);
         String headBranch = gitRunner.currentBranch(path);

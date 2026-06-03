@@ -24,6 +24,7 @@ import com.bytequay.app.domain.PullRequestCommit;
 import com.bytequay.app.domain.PullRequestDetail;
 import com.bytequay.app.domain.PullRequestHistoryPage;
 import com.bytequay.app.domain.SuggestedReviewer;
+import com.bytequay.app.service.credentials.PatResolver;
 import com.bytequay.app.service.pr.MyActivityService;
 import com.bytequay.app.service.pr.PrAnalyticsService;
 import com.bytequay.app.service.pr.PullRequestService;

@@ -24,6 +24,7 @@ import com.bytequay.app.domain.LocalRepoStatus;
 import com.bytequay.app.domain.PullRequest;
 import com.bytequay.app.domain.PullRequestDraft;
 import com.bytequay.app.repository.WatchedRepoStore;
+import com.bytequay.app.service.credentials.PatResolver;
 import com.bytequay.app.service.local.GitRunner;
 import com.bytequay.app.service.local.LocalRepoService;
 import org.springframework.http.HttpStatus;

@@ -18,6 +18,7 @@ import com.bytequay.app.repository.AppSettingsStore;
 import com.bytequay.app.service.ai.AiReviewService;
 import com.bytequay.app.service.ai.LlmReviewer;
 import com.bytequay.app.service.ai.LlmReviewerRegistry;
+import com.bytequay.app.service.credentials.PatResolver;
 import com.google.common.collect.ImmutableMap;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;

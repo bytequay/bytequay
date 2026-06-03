@@ -40,7 +40,7 @@ import com.bytequay.app.repository.ReviewStore;
 import com.bytequay.app.repository.ThreadStore;
 import com.bytequay.app.service.ai.LlmReviewer;
 import com.bytequay.app.service.ai.LlmReviewerRegistry;
-import com.bytequay.app.web.PatResolver;
+import com.bytequay.app.service.credentials.PatResolver;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatusCode;

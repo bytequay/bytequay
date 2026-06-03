@@ -17,6 +17,7 @@ import com.bytequay.app.domain.MyPrColumn;
 import com.bytequay.app.domain.PullRequest;
 import com.bytequay.app.domain.Team;
 import com.bytequay.app.domain.TeamSummary;
+import com.bytequay.app.service.credentials.PatResolver;
 import com.bytequay.app.service.teams.TeamService;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;

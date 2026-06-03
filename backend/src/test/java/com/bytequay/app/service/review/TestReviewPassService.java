@@ -36,7 +36,7 @@ import com.bytequay.app.repository.ReviewStore;
 import com.bytequay.app.repository.ThreadStore;
 import com.bytequay.app.service.ai.LlmReviewer;
 import com.bytequay.app.service.ai.LlmReviewerRegistry;
-import com.bytequay.app.web.PatResolver;
+import com.bytequay.app.service.credentials.PatResolver;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;

@@ -305,6 +305,23 @@ public class GitRunner
     }
 
     /**
+     * Sets a single git config value in {@code workingDir} —
+     * {@code git config <key> <value>}. Scope is the local config of
+     * the working dir, which for a linked worktree means the per-
+     * worktree {@code .git/config.worktree} (not the shared main
+     * repo config). Used to wire {@code core.hooksPath} so the
+     * worktree picks up ByteQuay's per-task hook directory without
+     * touching the main repo's hooks.
+     */
+    public void setConfig(Path workingDir, String key, String value)
+            throws IOException, InterruptedException
+    {
+        requireNonNull(key, "key is null");
+        requireNonNull(value, "value is null");
+        run(List.of("git", "config", key, value), workingDir).requireSuccess();
+    }
+
+    /**
      * Removes the worktree at {@code worktreePath}. Uses {@code --force}
      * to handle the case where the worktree has uncommitted changes
      * (we own the worktree's lifecycle, so the dirty-tree safety check

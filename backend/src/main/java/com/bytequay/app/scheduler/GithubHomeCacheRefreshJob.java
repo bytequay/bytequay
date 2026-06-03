@@ -103,12 +103,16 @@ public class GithubHomeCacheRefreshJob
 
     private void doRefresh()
     {
-        Optional<String> patOpt = credentialService.getSecret(CredentialType.ACCOUNT, GITHUB_ACCOUNT_NAME)
-                .filter(s -> !s.isBlank());
-        if (patOpt.isEmpty()) {
+        // Early-exit when no GitHub PAT is configured — the downstream
+        // services would each 401 anyway, but skipping here avoids four
+        // failed round-trips per tick. The services resolve their own
+        // PATs via PatResolver from here on.
+        boolean haveGitHubPat = credentialService.getSecret(CredentialType.ACCOUNT, GITHUB_ACCOUNT_NAME)
+                .filter(s -> !s.isBlank())
+                .isPresent();
+        if (!haveGitHubPat) {
             return;
         }
-        String pat = patOpt.get();
         Instant now = Instant.now();
 
         // Profile refresh sets GITHUB_LOGIN as a side-effect, so other feeds
@@ -121,7 +125,7 @@ public class GithubHomeCacheRefreshJob
 
         refreshEventsIfStale(login, EventFeed.RECENT, now);
         refreshEventsIfStale(login, EventFeed.FOLLOWING, now);
-        refreshStatsIfStale(pat, login, now);
+        refreshStatsIfStale(login, now);
         refreshOrgsIfStale(login, now);
     }
 
@@ -163,7 +167,7 @@ public class GithubHomeCacheRefreshJob
         }
     }
 
-    private void refreshStatsIfStale(String pat, String login, Instant now)
+    private void refreshStatsIfStale(String login, Instant now)
     {
         Instant fetchedAt = homeCache.findStats(login)
                 .map(GithubHomeCacheStore.TimedValue::fetchedAt)
@@ -172,7 +176,7 @@ public class GithubHomeCacheRefreshJob
             return;
         }
         try {
-            statsService.refreshFromGitHub(pat, login);
+            statsService.refreshFromGitHub(login);
         }
         catch (Exception e) {
             log.warn("Stats refresh failed: {}", e.getMessage());

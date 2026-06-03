@@ -13,7 +13,6 @@
  */
 package com.bytequay.app.service;
 
-import com.bytequay.app.domain.CredentialType;
 import com.bytequay.app.domain.PrViewState;
 import com.bytequay.app.domain.RecentEvent;
 import com.bytequay.app.domain.UserStats;
@@ -21,6 +20,7 @@ import com.bytequay.app.repository.AppSettingsStore;
 import com.bytequay.app.repository.GithubHomeCacheStore;
 import com.bytequay.app.repository.PrViewStateStore;
 import com.bytequay.app.repository.PullRequestRepository;
+import com.bytequay.app.service.credentials.PatResolver;
 import com.google.common.collect.ImmutableList;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -36,7 +36,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 
-import static com.bytequay.app.service.CredentialService.GITHUB_ACCOUNT_NAME;
 import static java.util.Objects.requireNonNull;
 
 @Service
@@ -52,22 +51,22 @@ public class StatsService
 
     private final PullRequestRepository gitHub;
     private final PrViewStateStore viewStateStore;
-    private final CredentialService credentialService;
     private final AppSettingsStore settingsStore;
     private final GithubHomeCacheStore homeCache;
+    private final PatResolver patResolver;
 
     public StatsService(
             PullRequestRepository gitHub,
             PrViewStateStore viewStateStore,
-            CredentialService credentialService,
             AppSettingsStore settingsStore,
-            GithubHomeCacheStore homeCache)
+            GithubHomeCacheStore homeCache,
+            PatResolver patResolver)
     {
         this.gitHub = requireNonNull(gitHub, "gitHub is null");
         this.viewStateStore = requireNonNull(viewStateStore, "viewStateStore is null");
-        this.credentialService = requireNonNull(credentialService, "credentialService is null");
         this.settingsStore = requireNonNull(settingsStore, "settingsStore is null");
         this.homeCache = requireNonNull(homeCache, "homeCache is null");
+        this.patResolver = requireNonNull(patResolver, "patResolver is null");
     }
 
     /**
@@ -81,15 +80,16 @@ public class StatsService
         if (login != null && !login.isBlank()) {
             settingsStore.set(AppSettingsStore.Key.GITHUB_LOGIN, login);
         }
-        if (force) {
-            Optional<String> pat = credentialService.getSecret(CredentialType.ACCOUNT, GITHUB_ACCOUNT_NAME).filter(s -> !s.isBlank());
-            if (pat.isPresent() && login != null && !login.isBlank()) {
-                try {
-                    return refreshFromGitHub(pat.get(), login);
-                }
-                catch (Exception e) {
-                    log.warn("Force stats refresh failed: {}", e.getMessage());
-                }
+        if (force && login != null && !login.isBlank()) {
+            try {
+                return refreshFromGitHub(login);
+            }
+            catch (Exception e) {
+                // Catches both the 401 from patResolver when no PAT is
+                // configured and any GitHub-side failure on the refresh
+                // path; either way the read-side cache surfaces the
+                // last-known stats.
+                log.warn("Force stats refresh failed: {}", e.getMessage());
             }
         }
         return readFromCache(login);
@@ -125,14 +125,13 @@ public class StatsService
         if (Duration.between(fetchedAt, Instant.now()).compareTo(CACHE_TTL) < 0) {
             return;
         }
-        Optional<String> pat = credentialService.getSecret(CredentialType.ACCOUNT, GITHUB_ACCOUNT_NAME).filter(s -> !s.isBlank());
-        if (pat.isEmpty()) {
-            return;
-        }
         try {
-            refreshFromGitHub(pat.get(), login.get());
+            refreshFromGitHub(login.get());
         }
         catch (Exception e) {
+            // Either PatResolver had no PAT configured (401) or the
+            // refresh itself failed — both fall through to "stale row
+            // stays in the cache."
             log.warn("Stats refresh failed: {}", e.getMessage());
         }
     }
@@ -142,15 +141,16 @@ public class StatsService
      * and persists them. Called from {@link #getStats} on force-refresh and
      * from the scheduler on its TTL tick.
      */
-    public UserStats refreshFromGitHub(String pat, String login)
+    public UserStats refreshFromGitHub(String login)
     {
-        UserStats fresh = compute(pat, login);
+        UserStats fresh = compute(login);
         homeCache.putStats(login, fresh, Instant.now());
         return fresh;
     }
 
-    private UserStats compute(String pat, String login)
+    private UserStats compute(String login)
     {
+        String pat = patResolver.resolve();
         Instant now = Instant.now();
         ZonedDateTime nowUtc = now.atZone(ZoneOffset.UTC);
         Instant todayStart = nowUtc.toLocalDate().atStartOfDay(ZoneOffset.UTC).toInstant();

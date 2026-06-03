@@ -48,16 +48,24 @@ public class SqliteIdSequenceStore
         implements IdSequenceStore
 {
     /**
-     * UPSERT + RETURNING. INSERT lands {@code next_seq = 2} on first
-     * call so the formula {@code next_seq - 1} in RETURNING yields 1.
-     * On conflict the UPDATE bumps next_seq by 1; RETURNING reflects
-     * the post-update value, so {@code next_seq - 1} is the value just
-     * handed out.
+     * The value that {@code next_seq} is seeded to on the first
+     * allocation for a {@code (workspace, ymd)} pair. Set so the
+     * RETURNING formula below yields 1 on first call (the value handed
+     * out) and the row is already primed to hand out 2 on the next.
+     */
+    private static final int INITIAL_NEXT_SEQ = 2;
+
+    /**
+     * UPSERT + RETURNING. INSERT lands {@code next_seq = INITIAL_NEXT_SEQ}
+     * on first call so the formula {@code next_seq - 1} in RETURNING
+     * yields 1. On conflict the UPDATE bumps next_seq by 1; RETURNING
+     * reflects the post-update value, so {@code next_seq - 1} is the
+     * value just handed out.
      */
     private static final String ALLOCATE_SQL = ""
             + "INSERT INTO workspace_thread_day_seq "
             + "    (workspace_id, ymd, next_seq, updated_at_ms) "
-            + "VALUES (?, ?, 2, ?) "
+            + "VALUES (?, ?, " + INITIAL_NEXT_SEQ + ", ?) "
             + "ON CONFLICT(workspace_id, ymd) DO UPDATE "
             + "SET next_seq = next_seq + 1, "
             + "    updated_at_ms = excluded.updated_at_ms "

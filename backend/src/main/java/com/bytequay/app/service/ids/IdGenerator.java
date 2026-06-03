@@ -53,11 +53,23 @@ public class IdGenerator
 {
     /**
      * Base32 alphabet without visually-confusable characters (no
-     * {@code i}, {@code l}, {@code o}, {@code u}). 32 chars; two
-     * positions give 1024 distinct suffixes.
+     * {@code i}, {@code l}, {@code o}, {@code u}). 32 chars; combined
+     * with {@link #RAND_SUFFIX_LEN} this yields 1024 distinct suffixes.
      */
     static final char[] RAND_ALPHABET =
             "0123456789abcdefghjkmnpqrstvwxyz".toCharArray();
+
+    /** Number of random characters appended to a thread id for
+     *  collision-insurance under DB restore + clock skew scenarios. */
+    private static final int RAND_SUFFIX_LEN = 2;
+
+    /** YY in {@code YYMMDD}. Two-digit year wraps at 100 — adequate
+     *  for the app's expected lifetime; documented in the design doc. */
+    private static final int YEAR_MODULO = 100;
+
+    /** Separator between {@code ymd} / {@code seq} / {@code rand2}
+     *  inside a thread id's tail. */
+    private static final String SEGMENT_SEP = "-";
 
     private final IdSequenceStore seqStore;
     private final Random random;
@@ -99,7 +111,10 @@ public class IdGenerator
         requireNonNull(now, "now is null");
         String ymd = formatYmd(now);
         int seq = seqStore.nextThreadSeq(workspaceId, ymd);
-        return workspaceId + ".t" + ymd + "-" + seq + "-" + random2();
+        return workspaceId
+                + IdTier.THREAD.marker() + ymd
+                + SEGMENT_SEP + seq
+                + SEGMENT_SEP + randomSuffix();
     }
 
     /**
@@ -115,20 +130,22 @@ public class IdGenerator
     public String newTaskId(String threadId, long seq)
     {
         requireNonNull(threadId, "threadId is null");
-        return threadId + ".k" + seq;
+        return threadId + IdTier.TASK.marker() + seq;
     }
 
-    private String random2()
+    private String randomSuffix()
     {
-        char a = RAND_ALPHABET[random.nextInt(RAND_ALPHABET.length)];
-        char b = RAND_ALPHABET[random.nextInt(RAND_ALPHABET.length)];
-        return new String(new char[] {a, b});
+        char[] chars = new char[RAND_SUFFIX_LEN];
+        for (int i = 0; i < RAND_SUFFIX_LEN; i++) {
+            chars[i] = RAND_ALPHABET[random.nextInt(RAND_ALPHABET.length)];
+        }
+        return new String(chars);
     }
 
     private static String formatYmd(Instant now)
     {
         LocalDate d = now.atZone(ZoneOffset.UTC).toLocalDate();
         return String.format("%02d%02d%02d",
-                d.getYear() % 100, d.getMonthValue(), d.getDayOfMonth());
+                d.getYear() % YEAR_MODULO, d.getMonthValue(), d.getDayOfMonth());
     }
 }

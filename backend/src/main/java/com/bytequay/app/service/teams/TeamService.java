@@ -25,6 +25,7 @@ import com.bytequay.app.repository.PrViewStateStore;
 import com.bytequay.app.repository.PullRequestRepository;
 import com.bytequay.app.repository.TeamStore;
 import com.bytequay.app.repository.WatchedRepoStore;
+import com.bytequay.app.service.credentials.PatResolver;
 import com.bytequay.app.service.pr.PullRequestService;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
@@ -50,7 +51,6 @@ import java.util.Set;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.Executor;
-import java.util.function.Function;
 
 import static com.google.common.collect.ImmutableList.toImmutableList;
 import static java.util.Objects.requireNonNull;
@@ -87,6 +87,7 @@ public class TeamService
      *  searches in parallel — sequential they used to dominate the
      *  team-detail page latency for any team larger than 5. */
     private final Executor ioExecutor;
+    private final PatResolver patResolver;
     /** Per-team in-memory TTL cache keyed on (teamId, watched-repos
      *  fingerprint). Stores the merged + view-state-overlaid PR list so
      *  per-column pagination can serve from memory without re-running
@@ -99,7 +100,8 @@ public class TeamService
             WatchedRepoStore watchedRepoStore,
             PullRequestRepository gitHub,
             PrViewStateStore viewStateStore,
-            @Qualifier(AsyncConfig.IO_EXECUTOR) Executor ioExecutor)
+            @Qualifier(AsyncConfig.IO_EXECUTOR) Executor ioExecutor,
+            PatResolver patResolver)
     {
         this.teamStore = requireNonNull(teamStore, "teamStore is null");
         this.pullRequestService = requireNonNull(pullRequestService, "pullRequestService is null");
@@ -107,6 +109,7 @@ public class TeamService
         this.gitHub = requireNonNull(gitHub, "gitHub is null");
         this.viewStateStore = requireNonNull(viewStateStore, "viewStateStore is null");
         this.ioExecutor = requireNonNull(ioExecutor, "ioExecutor is null");
+        this.patResolver = requireNonNull(patResolver, "patResolver is null");
     }
 
     public List<TeamSummary> listSummaries()
@@ -166,13 +169,12 @@ public class TeamService
      * + review-requested PRs — a PR by a team member the user is not on
      * would never appear.
      *
-     * <p>{@code patForRepo} is a callback the controller supplies (typically
-     * {@code patResolver::resolve}) so the service stays decoupled from the
-     * web-layer PatResolver while still honouring per-repo PAT overrides.
+     * <p>Per-repo PAT overrides are honoured via {@link PatResolver},
+     * which the service injects itself rather than asking the caller
+     * to supply credentials.
      */
-    public List<PullRequest> listPullRequestsForTeam(Function<String, String> patForRepo, long id)
+    public List<PullRequest> listPullRequestsForTeam(long id)
     {
-        requireNonNull(patForRepo, "patForRepo is null");
         Team team = get(id);
         Set<String> members = team.members();
         if (members.isEmpty()) {
@@ -194,8 +196,14 @@ public class TeamService
         List<Job> jobs = new ArrayList<>();
         for (WatchedRepo repo : watched) {
             String repoFullName = repo.owner() + "/" + repo.repo();
-            String pat = patForRepo.apply(repoFullName);
-            if (pat == null || pat.isBlank()) {
+            String pat;
+            try {
+                pat = patResolver.resolve(repoFullName);
+            }
+            catch (ResponseStatusException e) {
+                // No PAT for this repo — skip it rather than failing the
+                // whole team fan-out. Matches the prior shape where
+                // patForRepo could return null/blank.
                 continue;
             }
             for (List<String> chunk : authorChunks) {
@@ -285,9 +293,8 @@ public class TeamService
      * No backend cache here; with that much frontend-side throttling
      * the upstream load is already minimal.
      */
-    public int countMergedRecently(Function<String, String> patForRepo, long teamId, int days)
+    public int countMergedRecently(long teamId, int days)
     {
-        requireNonNull(patForRepo, "patForRepo is null");
         if (days <= 0) {
             return 0;
         }
@@ -310,8 +317,11 @@ public class TeamService
         List<CompletableFuture<Integer>> jobs = new ArrayList<>();
         for (WatchedRepo repo : watched) {
             String repoFullName = repo.owner() + "/" + repo.repo();
-            String pat = patForRepo.apply(repoFullName);
-            if (pat == null || pat.isBlank()) {
+            String pat;
+            try {
+                pat = patResolver.resolve(repoFullName);
+            }
+            catch (ResponseStatusException e) {
                 continue;
             }
             for (List<String> chunk : authorChunks) {
@@ -381,12 +391,11 @@ public class TeamService
      * (wired to the frontend "↻ Refresh" button).
      */
     public TeamColumnsResponse listPullRequestsForTeamByColumn(
-            Function<String, String> patForRepo,
             long teamId,
             int perColumn,
             boolean force)
     {
-        Map<MyPrColumn, List<PullRequest>> grouped = grouped(patForRepo, teamId, force);
+        Map<MyPrColumn, List<PullRequest>> grouped = grouped(teamId, force);
         Map<MyPrColumn, List<PullRequest>> firstPage = new EnumMap<>(MyPrColumn.class);
         // Tally per-repo PR counts across every column so the team header
         // can render "owner/repo N" chips alongside the cumulative total.
@@ -413,13 +422,12 @@ public class TeamService
      * paginate call.
      */
     public ColumnPage listPullRequestsForTeamColumnPage(
-            Function<String, String> patForRepo,
             long teamId,
             MyPrColumn column,
             int offset,
             int limit)
     {
-        Map<MyPrColumn, List<PullRequest>> grouped = grouped(patForRepo, teamId, /* force */ false);
+        Map<MyPrColumn, List<PullRequest>> grouped = grouped(teamId, /* force */ false);
         List<PullRequest> col = grouped.getOrDefault(column, ImmutableList.of());
         int from = Math.max(0, Math.min(offset, col.size()));
         int to = Math.max(from, Math.min(from + limit, col.size()));
@@ -429,7 +437,6 @@ public class TeamService
     /** Internal: returns the grouped+sorted PR map for a team, served
      *  from the TTL cache when fresh. */
     private Map<MyPrColumn, List<PullRequest>> grouped(
-            Function<String, String> patForRepo,
             long teamId,
             boolean force)
     {
@@ -438,7 +445,7 @@ public class TeamService
             return cached.grouped();
         }
         Instant now = Instant.now();
-        List<PullRequest> all = listPullRequestsForTeam(patForRepo, teamId);
+        List<PullRequest> all = listPullRequestsForTeam(teamId);
         Map<MyPrColumn, List<PullRequest>> grouped = TeamPullCategorizer.groupAndSort(all, now);
         teamPullsCache.put(teamId, new CachedTeamPulls(grouped, now.plus(CACHE_TTL)));
         return grouped;

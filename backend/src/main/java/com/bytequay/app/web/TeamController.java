@@ -17,7 +17,6 @@ import com.bytequay.app.domain.MyPrColumn;
 import com.bytequay.app.domain.PullRequest;
 import com.bytequay.app.domain.Team;
 import com.bytequay.app.domain.TeamSummary;
-import com.bytequay.app.service.credentials.PatResolver;
 import com.bytequay.app.service.teams.TeamService;
 import com.google.common.collect.ImmutableMap;
 import com.google.common.collect.ImmutableSet;
@@ -45,12 +44,10 @@ import static java.util.Objects.requireNonNull;
 public class TeamController
 {
     private final TeamService teamService;
-    private final PatResolver patResolver;
 
-    public TeamController(TeamService teamService, PatResolver patResolver)
+    public TeamController(TeamService teamService)
     {
         this.teamService = requireNonNull(teamService, "teamService is null");
-        this.patResolver = requireNonNull(patResolver, "patResolver is null");
     }
 
     public record CreateTeamRequest(String name, String avatar, String color, String description, List<String> members) {}
@@ -118,7 +115,7 @@ public class TeamController
     @GetMapping("/{id}/pulls")
     public List<PullRequest> pulls(@PathVariable long id)
     {
-        return teamService.listPullRequestsForTeam(patResolver::resolve, id);
+        return teamService.listPullRequestsForTeam(id);
     }
 
     /**
@@ -136,7 +133,7 @@ public class TeamController
             @RequestParam(value = "perColumn", defaultValue = "5") int perColumn,
             @RequestParam(value = "force", defaultValue = "false") boolean force)
     {
-        return teamService.listPullRequestsForTeamByColumn(patResolver::resolve, id, perColumn, force);
+        return teamService.listPullRequestsForTeamByColumn(id, perColumn, force);
     }
 
     public record MergedRecentlyResponse(int count, int days) {}
@@ -157,7 +154,7 @@ public class TeamController
             @RequestParam(value = "days", defaultValue = "7") int days)
     {
         int sanitized = Math.max(1, Math.min(90, days));
-        int count = teamService.countMergedRecently(patResolver::resolve, id, sanitized);
+        int count = teamService.countMergedRecently(id, sanitized);
         return new MergedRecentlyResponse(count, sanitized);
     }
 
@@ -183,7 +180,7 @@ public class TeamController
             @RequestParam(value = "limit", defaultValue = "10") int limit)
     {
         MyPrColumn column = MyPrColumn.fromSlug(columnSlug);
-        return teamService.listPullRequestsForTeamColumnPage(patResolver::resolve, id, column, offset, limit);
+        return teamService.listPullRequestsForTeamColumnPage(id, column, offset, limit);
     }
 
     /**

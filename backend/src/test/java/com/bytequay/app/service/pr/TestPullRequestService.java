@@ -36,13 +36,16 @@ import com.bytequay.app.repository.PullRequestRepository;
 import com.bytequay.app.repository.PullRequestStore;
 import com.bytequay.app.service.CredentialService;
 import com.bytequay.app.service.RepoListCache;
+import com.bytequay.app.service.credentials.PatResolver;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.Lists;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
+import org.mockito.Mockito;
 import org.mockito.junit.jupiter.MockitoExtension;
 import org.springframework.web.server.ResponseStatusException;
 
@@ -102,12 +105,22 @@ class TestPullRequestService
     @Mock
     private RepoListCache repoListCache;
 
+    @Mock
+    private PatResolver patResolver;
+
     @SuppressWarnings("UnusedVariable")
     @Mock
     private Executor executor;
 
     @InjectMocks
     private PullRequestService pullRequestService;
+
+    @BeforeEach
+    void stubPatResolver()
+    {
+        Mockito.lenient().when(patResolver.resolve(anyString())).thenReturn("pat");
+        Mockito.lenient().when(patResolver.resolve()).thenReturn("pat");
+    }
 
     // ── listPullRequests ───────────────────────────────────────────────────────
 
@@ -139,7 +152,7 @@ class TestPullRequestService
     @Test
     void testGetPullRequestDetailNoSlashThrows400()
     {
-        assertThatThrownBy(() -> pullRequestService.getPullRequestDetail("pat", "just-a-name", 1))
+        assertThatThrownBy(() -> pullRequestService.getPullRequestDetail("just-a-name", 1))
                 .isInstanceOf(ResponseStatusException.class)
                 .satisfies(e -> assertThat(((ResponseStatusException) e).getStatusCode().value()).isEqualTo(BAD_REQUEST.value()));
     }
@@ -147,7 +160,7 @@ class TestPullRequestService
     @Test
     void testGetPullRequestDetailBlankOwnerThrows400()
     {
-        assertThatThrownBy(() -> pullRequestService.getPullRequestDetail("pat", "/repo", 1))
+        assertThatThrownBy(() -> pullRequestService.getPullRequestDetail("/repo", 1))
                 .isInstanceOf(ResponseStatusException.class)
                 .satisfies(e -> assertThat(((ResponseStatusException) e).getStatusCode().value()).isEqualTo(BAD_REQUEST.value()));
     }
@@ -155,7 +168,7 @@ class TestPullRequestService
     @Test
     void testGetPullRequestDetailBlankRepoThrows400()
     {
-        assertThatThrownBy(() -> pullRequestService.getPullRequestDetail("pat", "owner/", 1))
+        assertThatThrownBy(() -> pullRequestService.getPullRequestDetail("owner/", 1))
                 .isInstanceOf(ResponseStatusException.class)
                 .satisfies(e -> assertThat(((ResponseStatusException) e).getStatusCode().value()).isEqualTo(BAD_REQUEST.value()));
     }
@@ -180,7 +193,7 @@ class TestPullRequestService
         when(responseCache.getViewerCanWrite(eq("pat"), eq(RepoRef.of("owner", "my-repo")), any()))
                 .thenReturn(true);
 
-        PullRequestDetail result = pullRequestService.getPullRequestDetail("pat", "owner/my-repo", 42);
+        PullRequestDetail result = pullRequestService.getPullRequestDetail("owner/my-repo", 42);
 
         assertThat(result.repo()).isEqualTo("owner/my-repo");
         assertThat(result.number()).isEqualTo(42);
@@ -205,7 +218,7 @@ class TestPullRequestService
         when(responseCache.getViewerCanWrite(eq("pat"), eq(RepoRef.of("owner", "repo")), any()))
                 .thenReturn(true);
 
-        PrCiSnapshot result = pullRequestService.getPullRequestCiSnapshot("pat", "owner/repo", 7);
+        PrCiSnapshot result = pullRequestService.getPullRequestCiSnapshot("owner/repo", 7);
 
         assertThat(result.viewerCanWrite()).isTrue();
         verify(responseCache).getViewerCanWrite(eq("pat"), eq(RepoRef.of("owner", "repo")), any());
@@ -489,7 +502,7 @@ class TestPullRequestService
     @Test
     void testCommentOnPullRequestPostsCommentOnly()
     {
-        pullRequestService.commentOnPullRequest("pat", "owner/repo", 7, 99L, "LGTM", false);
+        pullRequestService.commentOnPullRequest("owner/repo", 7, 99L, "LGTM", false);
 
         verify(gitHub).createIssueComment(eq("pat"), any(PullRequestRef.class), eq("LGTM"));
         verify(gitHub, never()).updatePullRequest(anyString(), any(), any());
@@ -502,7 +515,7 @@ class TestPullRequestService
     @Test
     void testCommentOnPullRequestClosesWithoutCommentWhenBodyBlank()
     {
-        pullRequestService.commentOnPullRequest("pat", "owner/repo", 7, 99L, "   ", true);
+        pullRequestService.commentOnPullRequest("owner/repo", 7, 99L, "   ", true);
 
         verify(gitHub, never()).createIssueComment(anyString(), any(), anyString());
         verify(gitHub).updatePullRequest(eq("pat"), any(PullRequestRef.class), any(UpdatePullRequestCommand.class));
@@ -514,7 +527,7 @@ class TestPullRequestService
     @Test
     void testCommentOnPullRequestPostsCommentThenCloses()
     {
-        pullRequestService.commentOnPullRequest("pat", "owner/repo", 7, 99L, "not needed anymore", true);
+        pullRequestService.commentOnPullRequest("owner/repo", 7, 99L, "not needed anymore", true);
 
         verify(gitHub).createIssueComment(eq("pat"), any(PullRequestRef.class), eq("not needed anymore"));
         verify(gitHub).updatePullRequest(eq("pat"), any(PullRequestRef.class), any(UpdatePullRequestCommand.class));
@@ -526,7 +539,7 @@ class TestPullRequestService
     @Test
     void testCommentOnPullRequestNoOpWhenBlankBodyAndNoClose()
     {
-        pullRequestService.commentOnPullRequest("pat", "owner/repo", 7, 99L, "", false);
+        pullRequestService.commentOnPullRequest("owner/repo", 7, 99L, "", false);
 
         verifyNoInteractions(gitHub);
         verify(viewStateStore, never()).markReviewed(anyLong(), any());
@@ -539,7 +552,7 @@ class TestPullRequestService
     @Test
     void testSetPullRequestDraftInvalidatesDetail()
     {
-        pullRequestService.setPullRequestDraft("pat", "owner/repo", 7, true);
+        pullRequestService.setPullRequestDraft("owner/repo", 7, true);
 
         verify(gitHub).setPullRequestDraft(eq("pat"), eq(PullRequestRef.of("owner", "repo", 7)), eq(true));
         verify(detailInvalidator).invalidate("owner/repo", 7);
@@ -549,7 +562,7 @@ class TestPullRequestService
     @Test
     void testAddRequestedReviewerInvalidatesDetail()
     {
-        pullRequestService.addRequestedReviewer("pat", "owner/repo", 7, " alice ");
+        pullRequestService.addRequestedReviewer("owner/repo", 7, " alice ");
 
         verify(gitHub).requestReviewers(eq("pat"), eq(PullRequestRef.of("owner", "repo", 7)), any());
         verify(detailInvalidator).invalidate("owner/repo", 7);
@@ -559,7 +572,7 @@ class TestPullRequestService
     @Test
     void testRemoveRequestedReviewerInvalidatesDetail()
     {
-        pullRequestService.removeRequestedReviewer("pat", "owner/repo", 7, "alice");
+        pullRequestService.removeRequestedReviewer("owner/repo", 7, "alice");
 
         verify(gitHub).removeRequestedReviewers(eq("pat"), eq(PullRequestRef.of("owner", "repo", 7)), any());
         verify(detailInvalidator).invalidate("owner/repo", 7);
@@ -570,7 +583,6 @@ class TestPullRequestService
     void testCreateInlineReviewCommentInvalidatesDetail()
     {
         pullRequestService.createInlineReviewComment(
-                "pat",
                 "owner/repo",
                 7,
                 "please fix",
@@ -597,7 +609,7 @@ class TestPullRequestService
     @Test
     void testUpdatePullRequestBodyInvalidatesDetail()
     {
-        pullRequestService.updatePullRequestBody("pat", "owner/repo", 7, "new body");
+        pullRequestService.updatePullRequestBody("owner/repo", 7, "new body");
 
         verify(gitHub).updatePullRequest(eq("pat"), eq(PullRequestRef.of("owner", "repo", 7)), any(UpdatePullRequestCommand.class));
         verify(detailInvalidator).invalidate("owner/repo", 7);
@@ -608,7 +620,7 @@ class TestPullRequestService
     @Test
     void testApprovePullRequestMarksReviewedApproved()
     {
-        pullRequestService.approvePullRequest("pat", "owner/repo", 7, 99L);
+        pullRequestService.approvePullRequest("owner/repo", 7, 99L);
 
         verify(gitHub).createReview(eq("pat"), any(PullRequestRef.class), any());
         verify(viewStateStore).markReviewed(99L, HandledAction.APPROVED);
@@ -630,7 +642,7 @@ class TestPullRequestService
                     return null;
                 });
 
-        pullRequestService.mergePullRequest("pat", "owner/repo", 7, 99L, null);
+        pullRequestService.mergePullRequest("owner/repo", 7, 99L, null);
 
         assertThat(matcher.captured).isNotNull();
         assertThat(matcher.captured.mergeMethod()).isEqualTo("rebase");
@@ -649,7 +661,7 @@ class TestPullRequestService
                     return null;
                 });
 
-        pullRequestService.mergePullRequest("pat", "owner/repo", 7, 99L, "squash");
+        pullRequestService.mergePullRequest("owner/repo", 7, 99L, "squash");
 
         assertThat(matcher.captured.mergeMethod()).isEqualTo("squash");
     }
@@ -664,7 +676,7 @@ class TestPullRequestService
                     return null;
                 });
 
-        pullRequestService.mergePullRequest("pat", "owner/repo", 7, 99L, "merge");
+        pullRequestService.mergePullRequest("owner/repo", 7, 99L, "merge");
 
         assertThat(matcher.captured.mergeMethod()).isEqualTo("merge");
     }
@@ -679,7 +691,7 @@ class TestPullRequestService
                     return null;
                 });
 
-        pullRequestService.mergePullRequest("pat", "owner/repo", 7, 99L, "garbage");
+        pullRequestService.mergePullRequest("owner/repo", 7, 99L, "garbage");
 
         assertThat(matcher.captured.mergeMethod()).isEqualTo("rebase");
     }
@@ -730,7 +742,7 @@ class TestPullRequestService
         when(gitHub.fetchPrDiffFiles(eq("pat"), any(PullRequestRef.class)))
                 .thenReturn(ImmutableList.of());
 
-        List<?> result = pullRequestService.getPullRequestDiffFiles("pat", "owner/repo", 7);
+        List<?> result = pullRequestService.getPullRequestDiffFiles("owner/repo", 7);
 
         assertThat(result).isEmpty();
         verify(gitHub).fetchPrDiffFiles(eq("pat"), any(PullRequestRef.class));
@@ -742,7 +754,7 @@ class TestPullRequestService
         when(gitHub.fetchPrCommits(eq("pat"), any(PullRequestRef.class)))
                 .thenReturn(ImmutableList.of());
 
-        List<?> result = pullRequestService.getPullRequestCommits("pat", "owner/repo", 7);
+        List<?> result = pullRequestService.getPullRequestCommits("owner/repo", 7);
 
         assertThat(result).isEmpty();
         verify(gitHub).fetchPrCommits(eq("pat"), any(PullRequestRef.class));
@@ -755,7 +767,7 @@ class TestPullRequestService
         when(responseCache.getCommitDiffFiles(eq("pat"), eq(PullRequestRef.of("owner", "repo", 7)), eq("sha"), any()))
                 .thenReturn(files);
 
-        List<DiffFile> result = pullRequestService.getCommitDiffFiles("pat", "owner/repo", 7, "sha");
+        List<DiffFile> result = pullRequestService.getCommitDiffFiles("owner/repo", 7, "sha");
 
         assertThat(result).isSameAs(files);
         verify(responseCache).getCommitDiffFiles(eq("pat"), eq(PullRequestRef.of("owner", "repo", 7)), eq("sha"), any());
@@ -769,7 +781,7 @@ class TestPullRequestService
         when(responseCache.getFileBlobLines(eq("pat"), eq(RepoRef.of("owner", "repo")), eq("README.md"), eq("sha"), any()))
                 .thenReturn(lines);
 
-        List<String> result = pullRequestService.getFileBlobLines("pat", "owner/repo", "README.md", "sha");
+        List<String> result = pullRequestService.getFileBlobLines("owner/repo", "README.md", "sha");
 
         assertThat(result).isSameAs(lines);
         verify(responseCache).getFileBlobLines(eq("pat"), eq(RepoRef.of("owner", "repo")), eq("README.md"), eq("sha"), any());
@@ -783,7 +795,7 @@ class TestPullRequestService
         when(responseCache.getSuggestedReviewers(eq("pat"), eq(PullRequestRef.of("owner", "repo", 7)), any()))
                 .thenReturn(reviewers);
 
-        List<SuggestedReviewer> result = pullRequestService.getSuggestedReviewers("pat", "owner/repo", 7);
+        List<SuggestedReviewer> result = pullRequestService.getSuggestedReviewers("owner/repo", 7);
 
         assertThat(result).isSameAs(reviewers);
         verify(responseCache).getSuggestedReviewers(eq("pat"), eq(PullRequestRef.of("owner", "repo", 7)), any());
@@ -793,7 +805,7 @@ class TestPullRequestService
     @Test
     void testGetPullRequestDiffFilesRejectsInvalidRepo()
     {
-        assertThatThrownBy(() -> pullRequestService.getPullRequestDiffFiles("pat", "no-slash", 7))
+        assertThatThrownBy(() -> pullRequestService.getPullRequestDiffFiles("no-slash", 7))
                 .isInstanceOf(ResponseStatusException.class);
     }
 
@@ -893,7 +905,7 @@ class TestPullRequestService
                 ImmutableList.of(),
                 ImmutableList.of())));
 
-        pullRequestService.replyToReviewThread("pat", "trinodb/trino", 7, 4357983764L, "thanks");
+        pullRequestService.replyToReviewThread("trinodb/trino", 7, 4357983764L, "thanks");
 
         verify(detailInvalidator, never()).invalidate(anyString(), anyInt());
 
@@ -919,7 +931,7 @@ class TestPullRequestService
                         false, null, null, null, null, "MEMBER", null, null));
         when(store.findIdByRepoAndNumber("trinodb/trino", 7)).thenReturn(Optional.empty());
 
-        pullRequestService.replyToReviewThread("pat", "trinodb/trino", 7, 4357983764L, "thanks");
+        pullRequestService.replyToReviewThread("trinodb/trino", 7, 4357983764L, "thanks");
 
         verify(detailStore, never()).save(anyLong(), any());
     }
@@ -950,7 +962,7 @@ class TestPullRequestService
                 ImmutableList.of(),
                 ImmutableList.of())));
 
-        pullRequestService.editIssueComment("pat", "trinodb/trino", 4357983764L, "updated");
+        pullRequestService.editIssueComment("trinodb/trino", 4357983764L, "updated");
 
         verify(gitHub).editIssueComment("pat", "trinodb", "trino", 4357983764L, "updated");
         verify(detailInvalidator, never()).invalidate(anyString(), anyInt());
@@ -965,7 +977,7 @@ class TestPullRequestService
     {
         when(detailStore.findPrIdByIssueCommentId(4357983764L)).thenReturn(Optional.empty());
 
-        pullRequestService.editIssueComment("pat", "trinodb/trino", 4357983764L, "updated");
+        pullRequestService.editIssueComment("trinodb/trino", 4357983764L, "updated");
 
         verify(gitHub).editIssueComment("pat", "trinodb", "trino", 4357983764L, "updated");
         verify(detailStore, never()).save(anyLong(), any());
@@ -1005,7 +1017,7 @@ class TestPullRequestService
                 ImmutableList.of(message),
                 ImmutableList.of())));
 
-        pullRequestService.editReviewComment("pat", "trinodb/trino", 4357983764L, "updated");
+        pullRequestService.editReviewComment("trinodb/trino", 4357983764L, "updated");
 
         verify(gitHub).editReviewComment("pat", "trinodb", "trino", 4357983764L, "updated");
         verify(detailInvalidator, never()).invalidate(anyString(), anyInt());
@@ -1023,7 +1035,7 @@ class TestPullRequestService
     {
         when(detailStore.findPrIdByReviewCommentId(4357983764L)).thenReturn(Optional.empty());
 
-        pullRequestService.editReviewComment("pat", "trinodb/trino", 4357983764L, "updated");
+        pullRequestService.editReviewComment("trinodb/trino", 4357983764L, "updated");
 
         verify(gitHub).editReviewComment("pat", "trinodb", "trino", 4357983764L, "updated");
         verify(detailStore, never()).save(anyLong(), any());
@@ -1062,7 +1074,7 @@ class TestPullRequestService
                 ImmutableList.of(root),
                 ImmutableList.of())));
 
-        pullRequestService.setReviewThreadResolved("pat", 123L, 4357983764L, true);
+        pullRequestService.setReviewThreadResolved("owner/repo", 123L, 4357983764L, true);
 
         verify(gitHub).resolveReviewThread("pat", "thread-node-id");
         verify(detailInvalidator, never()).invalidate(anyString(), anyInt());
@@ -1108,7 +1120,7 @@ class TestPullRequestService
                 ImmutableList.of(root),
                 ImmutableList.of())));
 
-        pullRequestService.setReviewThreadResolved("pat", 123L, 4357983764L, false);
+        pullRequestService.setReviewThreadResolved("owner/repo", 123L, 4357983764L, false);
 
         verify(gitHub).unresolveReviewThread("pat", "thread-node-id");
 
@@ -1153,7 +1165,7 @@ class TestPullRequestService
                 .when(gitHub).resolveReviewThread("pat", "thread-node-id");
 
         assertThatThrownBy(() ->
-                pullRequestService.setReviewThreadResolved("pat", 123L, 4357983764L, true))
+                pullRequestService.setReviewThreadResolved("owner/repo", 123L, 4357983764L, true))
                 .isInstanceOf(RuntimeException.class);
 
         verify(detailStore, never()).save(anyLong(), any());
@@ -1170,7 +1182,7 @@ class TestPullRequestService
     @Test
     void testAddReviewCommentReactionWithValidRepoForwardsToGitHub()
     {
-        pullRequestService.addReviewCommentReaction("pat", "trinodb/trino", 4357983764L, "+1");
+        pullRequestService.addReviewCommentReaction("trinodb/trino", 4357983764L, "+1");
 
         verify(gitHub).addReviewCommentReaction("pat", "trinodb", "trino", 4357983764L, "+1");
         verify(responseCache, never()).invalidatePullRequest(any());
@@ -1211,7 +1223,7 @@ class TestPullRequestService
                 ImmutableList.of(message),
                 ImmutableList.of())));
 
-        pullRequestService.addReviewCommentReaction("pat", "trinodb/trino", 4357983764L, "heart");
+        pullRequestService.addReviewCommentReaction("trinodb/trino", 4357983764L, "heart");
 
         ArgumentCaptor<StoredPrDetail> captor = ArgumentCaptor.forClass(StoredPrDetail.class);
         verify(detailStore).save(eq(123L), captor.capture());
@@ -1225,7 +1237,7 @@ class TestPullRequestService
     {
         when(detailStore.findPrIdByReviewCommentId(4357983764L)).thenReturn(Optional.empty());
 
-        pullRequestService.addReviewCommentReaction("pat", "trinodb/trino", 4357983764L, "+1");
+        pullRequestService.addReviewCommentReaction("trinodb/trino", 4357983764L, "+1");
 
         verify(detailStore, never()).save(anyLong(), any());
     }
@@ -1233,7 +1245,7 @@ class TestPullRequestService
     @Test
     void testAddIssueCommentReactionWithValidRepoForwardsToGitHub()
     {
-        pullRequestService.addIssueCommentReaction("pat", "trinodb/trino", 4357983764L, "heart");
+        pullRequestService.addIssueCommentReaction("trinodb/trino", 4357983764L, "heart");
 
         verify(gitHub).addIssueCommentReaction("pat", "trinodb", "trino", 4357983764L, "heart");
         verify(responseCache, never()).invalidatePullRequest(any());
@@ -1266,7 +1278,7 @@ class TestPullRequestService
                 ImmutableList.of(),
                 ImmutableList.of())));
 
-        pullRequestService.addIssueCommentReaction("pat", "trinodb/trino", 4357983764L, "rocket");
+        pullRequestService.addIssueCommentReaction("trinodb/trino", 4357983764L, "rocket");
 
         ArgumentCaptor<StoredPrDetail> captor = ArgumentCaptor.forClass(StoredPrDetail.class);
         verify(detailStore).save(eq(123L), captor.capture());
@@ -1280,7 +1292,7 @@ class TestPullRequestService
     {
         when(detailStore.findPrIdByIssueCommentId(4357983764L)).thenReturn(Optional.empty());
 
-        pullRequestService.addIssueCommentReaction("pat", "trinodb/trino", 4357983764L, "heart");
+        pullRequestService.addIssueCommentReaction("trinodb/trino", 4357983764L, "heart");
 
         verify(detailStore, never()).save(anyLong(), any());
     }
@@ -1289,7 +1301,7 @@ class TestPullRequestService
     void testAddReviewCommentReactionRejectsInvalidContent()
     {
         assertThatThrownBy(() ->
-                pullRequestService.addReviewCommentReaction("pat", "trinodb/trino", 1L, "fire"))
+                pullRequestService.addReviewCommentReaction("trinodb/trino", 1L, "fire"))
                 .isInstanceOf(ResponseStatusException.class)
                 .satisfies(e -> assertThat(((ResponseStatusException) e).getStatusCode().value())
                         .isEqualTo(BAD_REQUEST.value()));
@@ -1299,7 +1311,7 @@ class TestPullRequestService
     void testAddReviewCommentReactionRejectsBadRepoShape()
     {
         assertThatThrownBy(() ->
-                pullRequestService.addReviewCommentReaction("pat", "no-slash", 1L, "+1"))
+                pullRequestService.addReviewCommentReaction("no-slash", 1L, "+1"))
                 .isInstanceOf(ResponseStatusException.class)
                 .satisfies(e -> assertThat(((ResponseStatusException) e).getStatusCode().value())
                         .isEqualTo(BAD_REQUEST.value()));
@@ -1309,7 +1321,7 @@ class TestPullRequestService
     void testAddIssueCommentReactionRejectsInvalidContent()
     {
         assertThatThrownBy(() ->
-                pullRequestService.addIssueCommentReaction("pat", "trinodb/trino", 1L, "thumbs"))
+                pullRequestService.addIssueCommentReaction("trinodb/trino", 1L, "thumbs"))
                 .isInstanceOf(ResponseStatusException.class)
                 .satisfies(e -> assertThat(((ResponseStatusException) e).getStatusCode().value())
                         .isEqualTo(BAD_REQUEST.value()));

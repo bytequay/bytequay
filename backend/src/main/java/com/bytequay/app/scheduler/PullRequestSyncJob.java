@@ -114,7 +114,7 @@ public class PullRequestSyncJob
 
         try {
             log.info("Syncing pull requests from GitHub");
-            pullRequestService.syncFromGitHub(pat.orElseThrow());
+            pullRequestService.syncFromGitHub();
             log.info("Sync complete");
             statsService.refreshIfStale();
         }

@@ -17,7 +17,6 @@ import com.bytequay.app.domain.EmailMessageDetail;
 import com.bytequay.app.domain.EmailThreadDetail;
 import com.bytequay.app.domain.EmailThreadMeta;
 import com.bytequay.app.domain.LinkedRef;
-import com.bytequay.app.service.credentials.PatResolver;
 import com.bytequay.app.service.pr.PullRequestService;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -71,7 +70,6 @@ public class EmailService
     private final EmailMuteService muteService;
     private final EmailTagService tagService;
     private final PullRequestService pullRequestService;
-    private final PatResolver patResolver;
     /** "owner/repo#number" → last-refresh-time, dedup for the email
      *  -triggered PR refresh. */
     private final ConcurrentMap<String, Instant> recentPrRefreshes = new ConcurrentHashMap<>();
@@ -84,8 +82,7 @@ public class EmailService
             EmailHtmlEnricher htmlEnricher,
             EmailMuteService muteService,
             EmailTagService tagService,
-            PullRequestService pullRequestService,
-            PatResolver patResolver)
+            PullRequestService pullRequestService)
     {
         this.imapAuth = requireNonNull(imapAuth, "imapAuth is null");
         this.imapClient = requireNonNull(imapClient, "imapClient is null");
@@ -95,7 +92,6 @@ public class EmailService
         this.muteService = requireNonNull(muteService, "muteService is null");
         this.tagService = requireNonNull(tagService, "tagService is null");
         this.pullRequestService = requireNonNull(pullRequestService, "pullRequestService is null");
-        this.patResolver = requireNonNull(patResolver, "patResolver is null");
     }
 
     /**
@@ -238,8 +234,7 @@ public class EmailService
         String repoFull = ref.owner() + "/" + ref.repo();
         CompletableFuture.runAsync(() -> {
             try {
-                String pat = patResolver.resolve(repoFull);
-                pullRequestService.refreshPullRequestDetail(pat, repoFull, number);
+                pullRequestService.refreshPullRequestDetail(repoFull, number);
                 log.debug("Email-triggered PR refresh ok: {}", key);
             }
             catch (Exception e) {

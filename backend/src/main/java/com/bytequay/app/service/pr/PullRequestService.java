@@ -42,6 +42,7 @@ import com.bytequay.app.repository.PullRequestRepository;
 import com.bytequay.app.repository.PullRequestStore;
 import com.bytequay.app.service.CredentialService;
 import com.bytequay.app.service.RepoListCache;
+import com.bytequay.app.service.credentials.PatResolver;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableSet;
 import com.google.common.collect.Maps;
@@ -98,6 +99,7 @@ public class PullRequestService
     private final RepoListCache repoListCache;
     private final Executor executor;
     private final PullRequestDetailFetcher detailFetcher;
+    private final PatResolver patResolver;
     /** prId → last ETag + the timestamp it was returned by GitHub.
      *  Populated by {@link #refreshPullRequestDetail}'s probe path
      *  and consulted on the next probe to short-circuit unchanged
@@ -123,6 +125,7 @@ public class PullRequestService
             GitHubResponseCache responseCache,
             PullRequestDetailInvalidator detailInvalidator,
             RepoListCache repoListCache,
+            PatResolver patResolver,
             @Qualifier(APPLICATION_EXECUTOR) Executor executor,
             @Qualifier(IO_EXECUTOR) Executor ioExecutor)
     {
@@ -135,6 +138,7 @@ public class PullRequestService
         this.responseCache = requireNonNull(responseCache, "responseCache is null");
         this.detailInvalidator = requireNonNull(detailInvalidator, "detailInvalidator is null");
         this.repoListCache = requireNonNull(repoListCache, "repoListCache is null");
+        this.patResolver = requireNonNull(patResolver, "patResolver is null");
         this.executor = requireNonNull(executor, "executor is null");
         this.detailFetcher = new PullRequestDetailFetcher(gitHub, detailStore, requireNonNull(ioExecutor, "ioExecutor is null"));
     }
@@ -165,8 +169,9 @@ public class PullRequestService
      * {@code updatedAt} changed (or is new). Stale detail for removed PRs is cleaned up.
      * All detail fetches run in parallel.
      */
-    public void syncFromGitHub(String pat)
+    public void syncFromGitHub()
     {
+        String pat = patResolver.resolve();
         Map<Long, Instant> existingUpdatedAt = store.findUpdatedAtMap();
         // Rows whose V26 enrichment fields are still null get a forced
         // detail sync below regardless of `updatedAt`. Catches legacy
@@ -244,8 +249,9 @@ public class PullRequestService
      * Returns the full detail for a single PR. Reads from the local cache if available;
      * falls back to a live GitHub fetch (and stores the result) if the cache is cold.
      */
-    public PullRequestDetail getPullRequestDetail(String pat, String repo, int number)
+    public PullRequestDetail getPullRequestDetail(String repo, int number)
     {
+        String pat = patResolver.resolve(repo);
         PullRequestRef ref = parseRef(repo, number);
         RepoRef repoRef = RepoRef.of(ref.owner(), ref.repo());
         boolean viewerCanWrite = responseCache.getViewerCanWrite(
@@ -293,9 +299,9 @@ public class PullRequestService
      * back to the original invalidate-then-refetch path so the caller
      * always gets the freshest data we can produce.
      */
-    public PullRequestDetail refreshPullRequestDetail(String pat, String repo, int number)
+    public PullRequestDetail refreshPullRequestDetail(String repo, int number)
     {
-        return refreshPullRequestDetail(pat, repo, number, 0);
+        return refreshPullRequestDetail(repo, number, 0);
     }
 
     /**
@@ -311,8 +317,9 @@ public class PullRequestService
      * the fast path). The manual ↻ refresh button still passes
      * {@code 0} so it always probes.
      */
-    public PullRequestDetail refreshPullRequestDetail(String pat, String repo, int number, int maxAgeSeconds)
+    public PullRequestDetail refreshPullRequestDetail(String repo, int number, int maxAgeSeconds)
     {
+        String pat = patResolver.resolve(repo);
         log.info("[cache-diag] refreshPullRequestDetail entry: {}#{} maxAge={}s", repo, number, maxAgeSeconds);
         Optional<Long> prId = store.findIdByRepoAndNumber(repo, number);
         if (prId.isPresent()) {
@@ -327,7 +334,7 @@ public class PullRequestService
                             repo, number,
                             Instant.now().getEpochSecond() - entry.lastProbedAt().getEpochSecond(),
                             maxAgeSeconds);
-                    return getPullRequestDetail(pat, repo, number);
+                    return getPullRequestDetail(repo, number);
                 }
                 else {
                     log.info("[cache-diag] maxAge fast-path SKIPPED for {}#{}: entry={} lastProbedAt={}",
@@ -361,7 +368,7 @@ public class PullRequestService
                     // 304: nothing's changed since we last fetched.
                     // Skip the multi-call refetch and serve cached.
                     log.info("[cache-diag] ETag probe 304 for {}#{} — serving cached (no refetch)", repo, number);
-                    return getPullRequestDetail(pat, repo, number);
+                    return getPullRequestDetail(repo, number);
                 }
                 log.info("[cache-diag] ETag probe for {}#{}: hadCachedEtag={} changed={} → invalidate + refetch",
                         repo, number, cachedEtag != null, probe.changed());
@@ -374,7 +381,7 @@ public class PullRequestService
             }
         }
         invalidatePullRequestDetail(repo, number);
-        return getPullRequestDetail(pat, repo, number);
+        return getPullRequestDetail(repo, number);
     }
 
     /**
@@ -383,8 +390,9 @@ public class PullRequestService
      * picks up the synthetic "ready for review" / "marked as draft"
      * event GitHub emits.
      */
-    public void setPullRequestDraft(String pat, String repo, int number, boolean draft)
+    public void setPullRequestDraft(String repo, int number, boolean draft)
     {
+        String pat = patResolver.resolve(repo);
         gitHub.setPullRequestDraft(pat, parseRef(repo, number), draft);
         invalidatePullRequestDetail(repo, number);
         repoListCache.invalidatePulls(parseRepoRef(repo));
@@ -397,8 +405,9 @@ public class PullRequestService
      * (external CI, expired log, missing PAT scope) — the frontend
      * shows a "log unavailable" hint in that case.
      */
-    public String getCheckRunLog(String pat, String repo, long checkRunId)
+    public String getCheckRunLog(String repo, long checkRunId)
     {
+        String pat = patResolver.resolve(repo);
         PullRequestRef refOrNull = parseRef(repo, 1); // PR number not needed for the call
         return gitHub.fetchCheckRunLog(pat, RepoRef.of(refOrNull.owner(), refOrNull.repo()), checkRunId)
                 .map(PullRequestService::trimLogToTail)
@@ -432,8 +441,9 @@ public class PullRequestService
      * button on the detail page reads both from this response so it can
      * react to a CI flip without waiting for the next full-detail load.
      */
-    public PrCiSnapshot getPullRequestCiSnapshot(String pat, String repo, int number)
+    public PrCiSnapshot getPullRequestCiSnapshot(String repo, int number)
     {
+        String pat = patResolver.resolve(repo);
         PullRequestRef ref = parseRef(repo, number);
         PrRawDetail raw = gitHub.fetchPrDetail(pat, ref);
         List<PrCheckRunState> runs = raw != null && raw.headSha() != null
@@ -470,8 +480,9 @@ public class PullRequestService
      * unified-diff patches. Always served fresh from GitHub — patches are not
      * cached (too large + rarely re-read).
      */
-    public List<DiffFile> getPullRequestDiffFiles(String pat, String repo, int number)
+    public List<DiffFile> getPullRequestDiffFiles(String repo, int number)
     {
+        String pat = patResolver.resolve(repo);
         return gitHub.fetchPrDiffFiles(pat, parseRef(repo, number));
     }
 
@@ -479,8 +490,9 @@ public class PullRequestService
      * Fetches the commits in a pull request, oldest first. Also served fresh —
      * commit metadata is small and the sync job doesn't currently retain it.
      */
-    public List<PullRequestCommit> getPullRequestCommits(String pat, String repo, int number)
+    public List<PullRequestCommit> getPullRequestCommits(String repo, int number)
     {
+        String pat = patResolver.resolve(repo);
         return gitHub.fetchPrCommits(pat, parseRef(repo, number));
     }
 
@@ -490,8 +502,9 @@ public class PullRequestService
      * sha introduced. Backs the "select a commit" affordance in the diff
      * viewer for PRs with many commits.
      */
-    public List<DiffFile> getCommitDiffFiles(String pat, String repo, int number, String sha)
+    public List<DiffFile> getCommitDiffFiles(String repo, int number, String sha)
     {
+        String pat = patResolver.resolve(repo);
         PullRequestRef ref = parseRef(repo, number);
         return responseCache.getCommitDiffFiles(
                 pat,
@@ -505,8 +518,9 @@ public class PullRequestService
      * list of lines (1-based by index in the caller's view). Backs the
      * "expand collapsed code" affordance in the diff viewer.
      */
-    public List<String> getFileBlobLines(String pat, String repo, String path, String sha)
+    public List<String> getFileBlobLines(String repo, String path, String sha)
     {
+        String pat = patResolver.resolve(repo);
         RepoRef repoRef = parseRepoRef(repo);
         return responseCache.getFileBlobLines(
                 pat,
@@ -521,8 +535,9 @@ public class PullRequestService
      * PR afterwards (matches github.com's "Comment" / "Close with comment"
      * buttons). Empty body + {@code close=true} just closes.
      */
-    public void commentOnPullRequest(String pat, String repo, int number, long prId, String body, boolean close)
+    public void commentOnPullRequest(String repo, int number, long prId, String body, boolean close)
     {
+        String pat = patResolver.resolve(repo);
         PullRequestRef ref = parseRef(repo, number);
         if (body != null && !body.isBlank()) {
             gitHub.createIssueComment(pat, ref, body);
@@ -545,8 +560,9 @@ public class PullRequestService
      * reply (with its real GitHub id) without waiting for a background
      * sync.
      */
-    public void replyToReviewThread(String pat, String repo, int number, long rootCommentId, String body)
+    public void replyToReviewThread(String repo, int number, long rootCommentId, String body)
     {
+        String pat = patResolver.resolve(repo);
         requireNotBlank(body, "reply body must not be blank");
         PrReviewThreadMessage created = gitHub.replyToReviewComment(pat, parseRef(repo, number), rootCommentId, body);
         store.findIdByRepoAndNumber(repo, number).ifPresent(prId ->
@@ -564,8 +580,9 @@ public class PullRequestService
      * place so the next {@code /prs/detail} read shows the new body
      * immediately.
      */
-    public void editIssueComment(String pat, String repo, long commentId, String body)
+    public void editIssueComment(String repo, long commentId, String body)
     {
+        String pat = patResolver.resolve(repo);
         requireNotBlank(body, "comment body must not be blank");
         RepoRef ref = parseRepoRef(repo);
         gitHub.editIssueComment(pat, ref.owner(), ref.repo(), commentId, body);
@@ -583,8 +600,9 @@ public class PullRequestService
      * place so the next {@code /prs/detail} read shows the new body
      * immediately.
      */
-    public void editReviewComment(String pat, String repo, long commentId, String body)
+    public void editReviewComment(String repo, long commentId, String body)
     {
+        String pat = patResolver.resolve(repo);
         requireNotBlank(body, "comment body must not be blank");
         RepoRef ref = parseRepoRef(repo);
         gitHub.editReviewComment(pat, ref.owner(), ref.repo(), commentId, body);
@@ -607,8 +625,9 @@ public class PullRequestService
      * 30s TTL or the next background sync" behaviour that made
      * unresolve clicks feel like they hadn't taken.
      */
-    public void setReviewThreadResolved(String pat, long prId, long rootCommentId, boolean resolved)
+    public void setReviewThreadResolved(String repo, long prId, long rootCommentId, boolean resolved)
     {
+        String pat = patResolver.resolve(repo);
         StoredPrDetail cached = detailStore.find(prId).orElse(null);
         String nodeId = cached == null ? null : cached.reviewComments().stream()
                 .filter(m -> m.githubId() == rootCommentId && m.graphqlNodeId() != null)
@@ -641,8 +660,9 @@ public class PullRequestService
      * the next background sync. Re-clicks bump the cache count again
      * even though GitHub stays at +1; the next full sync reconciles.
      */
-    public void addReviewCommentReaction(String pat, String repo, long commentId, String content)
+    public void addReviewCommentReaction(String repo, long commentId, String content)
     {
+        String pat = patResolver.resolve(repo);
         if (!PullRequestDetailPatcher.ALLOWED_REACTION_CONTENT.contains(content)) {
             throw new ResponseStatusException(
                     HttpStatusCode.valueOf(400),
@@ -669,8 +689,9 @@ public class PullRequestService
      * review-comment patch path so the next {@code /prs/detail} read
      * shows the new chip without waiting for a background sync.
      */
-    public void addIssueCommentReaction(String pat, String repo, long commentId, String content)
+    public void addIssueCommentReaction(String repo, long commentId, String content)
     {
+        String pat = patResolver.resolve(repo);
         if (!PullRequestDetailPatcher.ALLOWED_REACTION_CONTENT.contains(content)) {
             throw new ResponseStatusException(
                     HttpStatusCode.valueOf(400),
@@ -688,8 +709,9 @@ public class PullRequestService
      * detail so the next fetch reflects the updated reviewer set + the
      * synthetic review_requested timeline event GitHub emits.
      */
-    public void addRequestedReviewer(String pat, String repo, int number, String reviewer)
+    public void addRequestedReviewer(String repo, int number, String reviewer)
     {
+        String pat = patResolver.resolve(repo);
         requireNotBlank(reviewer, "reviewer must not be blank");
         gitHub.requestReviewers(
                 pat,
@@ -700,8 +722,9 @@ public class PullRequestService
     }
 
     /** Removes one user from the PR's requested reviewers. */
-    public void removeRequestedReviewer(String pat, String repo, int number, String reviewer)
+    public void removeRequestedReviewer(String repo, int number, String reviewer)
     {
+        String pat = patResolver.resolve(repo);
         requireNotBlank(reviewer, "reviewer must not be blank");
         gitHub.removeRequestedReviewers(
                 pat,
@@ -717,8 +740,9 @@ public class PullRequestService
      * empty list on auth/network failure since this is a non-essential
      * affordance and shouldn't block the rest of the reviewers panel.
      */
-    public List<SuggestedReviewer> getSuggestedReviewers(String pat, String repo, int number)
+    public List<SuggestedReviewer> getSuggestedReviewers(String repo, int number)
     {
+        String pat = patResolver.resolve(repo);
         PullRequestRef ref = parseRef(repo, number);
         return responseCache.getSuggestedReviewers(
                 pat,
@@ -734,7 +758,6 @@ public class PullRequestService
      * up the new thread.
      */
     public void createInlineReviewComment(
-            String pat,
             String repo,
             int number,
             String body,
@@ -745,6 +768,7 @@ public class PullRequestService
             Integer startLine,
             String startSide)
     {
+        String pat = patResolver.resolve(repo);
         requireNotBlank(body, "comment body must not be blank");
         requireNotBlank(path, "path must not be blank");
         requireNotBlank(commitId, "commitId must not be blank");
@@ -774,8 +798,9 @@ public class PullRequestService
      * author edit this; attempts from anyone else come back as 422 / 403
      * which the client surfaces as an error.
      */
-    public void updatePullRequestBody(String pat, String repo, int number, String body)
+    public void updatePullRequestBody(String repo, int number, String body)
     {
+        String pat = patResolver.resolve(repo);
         gitHub.updatePullRequest(
                 pat,
                 parseRef(repo, number),
@@ -794,8 +819,9 @@ public class PullRequestService
     /**
      * Submits an approval review for the given pull request on GitHub and records a local reviewed state.
      */
-    public void approvePullRequest(String pat, String repo, int number, long prId)
+    public void approvePullRequest(String repo, int number, long prId)
     {
+        String pat = patResolver.resolve(repo);
         gitHub.createReview(pat, parseRef(repo, number), CreateReviewCommand.approve(""));
         viewStateStore.markReviewed(prId, HandledAction.APPROVED);
         // Drop the cached detail so the next /prs/detail call re-pulls the
@@ -830,8 +856,9 @@ public class PullRequestService
      * behavior and worst-case the user just gets the underlying error
      * back instead of an unrelated probe-failure error.
      */
-    public MergeResult mergePullRequest(String pat, String repo, int number, long prId, String strategy)
+    public MergeResult mergePullRequest(String repo, int number, long prId, String strategy)
     {
+        String pat = patResolver.resolve(repo);
         PullRequestRef ref = parseRef(repo, number);
         Optional<PullRequestRepository.MergeQueueProbe> probe;
         try {
@@ -882,8 +909,9 @@ public class PullRequestService
      * equivalent. The detail cache is dropped so the next /prs/detail call
      * reflects the new state instead of waiting for the background sync.
      */
-    public void enableAutoMerge(String pat, String repo, int number, long prId, String strategy)
+    public void enableAutoMerge(String repo, int number, long prId, String strategy)
     {
+        String pat = patResolver.resolve(repo);
         PullRequestRef ref = parseRef(repo, number);
         gitHub.enableAutoMerge(pat, ref, autoMergeGraphqlEnum(strategy));
         invalidatePullRequestDetail(repo, number);
@@ -895,8 +923,9 @@ public class PullRequestService
      * — a no-op when auto-merge isn't enabled. Detail cache is invalidated
      * for the same reason as {@link #enableAutoMerge}.
      */
-    public void disableAutoMerge(String pat, String repo, int number, long prId)
+    public void disableAutoMerge(String repo, int number, long prId)
     {
+        String pat = patResolver.resolve(repo);
         PullRequestRef ref = parseRef(repo, number);
         gitHub.disableAutoMerge(pat, ref);
         invalidatePullRequestDetail(repo, number);
@@ -909,8 +938,9 @@ public class PullRequestService
      * detail fetch reflects the PR's new state (mergeQueueState cleared,
      * mergeable_state typically flipping back to "blocked").
      */
-    public void dequeuePullRequest(String pat, String repo, int number, long prId)
+    public void dequeuePullRequest(String repo, int number, long prId)
     {
+        String pat = patResolver.resolve(repo);
         PullRequestRef ref = parseRef(repo, number);
         gitHub.dequeuePullRequest(pat, ref);
         invalidatePullRequestDetail(repo, number);
@@ -988,8 +1018,9 @@ public class PullRequestService
      * @param page    1-based page index
      * @param perPage per page count (clamped to [1, 100] by the client)
      */
-    public PullRequestHistoryPage searchAuthoredHistory(String pat, int page, int perPage)
+    public PullRequestHistoryPage searchAuthoredHistory(int page, int perPage)
     {
+        String pat = patResolver.resolve();
         return gitHub.searchPullRequestsPaged(
                 pat, "is:pr is:closed author:@me sort:closed-desc", page, perPage);
     }

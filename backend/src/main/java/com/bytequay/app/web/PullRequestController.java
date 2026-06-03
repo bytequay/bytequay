@@ -24,7 +24,6 @@ import com.bytequay.app.domain.PullRequestCommit;
 import com.bytequay.app.domain.PullRequestDetail;
 import com.bytequay.app.domain.PullRequestHistoryPage;
 import com.bytequay.app.domain.SuggestedReviewer;
-import com.bytequay.app.service.credentials.PatResolver;
 import com.bytequay.app.service.pr.MyActivityService;
 import com.bytequay.app.service.pr.PrAnalyticsService;
 import com.bytequay.app.service.pr.PullRequestService;
@@ -52,18 +51,15 @@ public class PullRequestController
     private final PullRequestService pullRequestService;
     private final PrAnalyticsService prAnalyticsService;
     private final MyActivityService myActivityService;
-    private final PatResolver patResolver;
 
     public PullRequestController(
             PullRequestService pullRequestService,
             PrAnalyticsService prAnalyticsService,
-            MyActivityService myActivityService,
-            PatResolver patResolver)
+            MyActivityService myActivityService)
     {
         this.pullRequestService = requireNonNull(pullRequestService, "pullRequestService is null");
         this.prAnalyticsService = requireNonNull(prAnalyticsService, "prAnalyticsService is null");
         this.myActivityService = requireNonNull(myActivityService, "myActivityService is null");
-        this.patResolver = requireNonNull(patResolver, "patResolver is null");
     }
 
     /**
@@ -120,8 +116,7 @@ public class PullRequestController
             @RequestParam("repo") String repo,
             @RequestParam("number") int number)
     {
-        String pat = patResolver.resolve(repo);
-        return pullRequestService.getPullRequestDetail(pat, repo, number);
+        return pullRequestService.getPullRequestDetail(repo, number);
     }
 
     /**
@@ -137,8 +132,7 @@ public class PullRequestController
             @RequestParam("number") int number,
             @RequestParam(value = "maxAgeSeconds", required = false, defaultValue = "0") int maxAgeSeconds)
     {
-        String pat = patResolver.resolve(repo);
-        return pullRequestService.refreshPullRequestDetail(pat, repo, number, maxAgeSeconds);
+        return pullRequestService.refreshPullRequestDetail(repo, number, maxAgeSeconds);
     }
 
     /**
@@ -153,8 +147,7 @@ public class PullRequestController
             @RequestParam("repo") String repo,
             @RequestParam("number") int number)
     {
-        String pat = patResolver.resolve(repo);
-        return pullRequestService.getPullRequestCiSnapshot(pat, repo, number);
+        return pullRequestService.getPullRequestCiSnapshot(repo, number);
     }
 
     /**
@@ -169,8 +162,7 @@ public class PullRequestController
             @RequestParam("repo") String repo,
             @RequestParam("checkRunId") long checkRunId)
     {
-        String pat = patResolver.resolve(repo);
-        return ImmutableMap.of("log", pullRequestService.getCheckRunLog(pat, repo, checkRunId));
+        return ImmutableMap.of("log", pullRequestService.getCheckRunLog(repo, checkRunId));
     }
 
     /**
@@ -186,8 +178,7 @@ public class PullRequestController
             @RequestParam("number") int number,
             @RequestBody SetDraftRequest req)
     {
-        String pat = patResolver.resolve(repo);
-        pullRequestService.setPullRequestDraft(pat, repo, number, req.draft());
+        pullRequestService.setPullRequestDraft(repo, number, req.draft());
         return ImmutableMap.of("result", req.draft() ? "draft" : "ready");
     }
 
@@ -212,8 +203,7 @@ public class PullRequestController
             @RequestParam(value = "page", defaultValue = "1") int page,
             @RequestParam(value = "perPage", defaultValue = "30") int perPage)
     {
-        String pat = patResolver.resolve();
-        return pullRequestService.searchAuthoredHistory(pat, page, perPage);
+        return pullRequestService.searchAuthoredHistory(page, perPage);
     }
 
     /**
@@ -226,8 +216,7 @@ public class PullRequestController
             @RequestParam("repo") String repo,
             @RequestParam("number") int number)
     {
-        String pat = patResolver.resolve(repo);
-        return pullRequestService.getPullRequestDiffFiles(pat, repo, number);
+        return pullRequestService.getPullRequestDiffFiles(repo, number);
     }
 
     /**
@@ -240,8 +229,7 @@ public class PullRequestController
             @RequestParam("repo") String repo,
             @RequestParam("number") int number)
     {
-        String pat = patResolver.resolve(repo);
-        return pullRequestService.getPullRequestCommits(pat, repo, number);
+        return pullRequestService.getPullRequestCommits(repo, number);
     }
 
     /**
@@ -256,8 +244,7 @@ public class PullRequestController
             @RequestParam("number") int number,
             @RequestParam("sha") String sha)
     {
-        String pat = patResolver.resolve(repo);
-        return pullRequestService.getCommitDiffFiles(pat, repo, number, sha);
+        return pullRequestService.getCommitDiffFiles(repo, number, sha);
     }
 
     /**
@@ -272,8 +259,7 @@ public class PullRequestController
             @RequestParam("path") String path,
             @RequestParam("sha") String sha)
     {
-        String pat = patResolver.resolve(repo);
-        List<String> lines = pullRequestService.getFileBlobLines(pat, repo, path, sha);
+        List<String> lines = pullRequestService.getFileBlobLines(repo, path, sha);
         return ImmutableMap.of("lines", lines);
     }
 
@@ -290,8 +276,7 @@ public class PullRequestController
             @RequestParam("number") int number,
             @RequestBody UpdateBodyRequest req)
     {
-        String pat = patResolver.resolve(repo);
-        pullRequestService.updatePullRequestBody(pat, repo, number, req.body());
+        pullRequestService.updatePullRequestBody(repo, number, req.body());
         return ImmutableMap.of("result", "ok");
     }
 
@@ -309,8 +294,7 @@ public class PullRequestController
             @RequestParam("id") long prId,
             @RequestBody CommentRequest req)
     {
-        String pat = patResolver.resolve(repo);
-        pullRequestService.commentOnPullRequest(pat, repo, number, prId, req.body(), req.close());
+        pullRequestService.commentOnPullRequest(repo, number, prId, req.body(), req.close());
         return ImmutableMap.of("result", req.close() ? "closed" : "commented");
     }
 
@@ -328,8 +312,7 @@ public class PullRequestController
             @RequestParam("number") int number,
             @RequestBody ReplyRequest req)
     {
-        String pat = patResolver.resolve(repo);
-        pullRequestService.replyToReviewThread(pat, repo, number, rootCommentId, req.body());
+        pullRequestService.replyToReviewThread(repo, number, rootCommentId, req.body());
         return ImmutableMap.of("result", "replied");
     }
 
@@ -344,8 +327,7 @@ public class PullRequestController
             @RequestParam("repo") String repo,
             @RequestBody UpdateBodyRequest req)
     {
-        String pat = patResolver.resolve(repo);
-        pullRequestService.editIssueComment(pat, repo, commentId, req.body());
+        pullRequestService.editIssueComment(repo, commentId, req.body());
         return ImmutableMap.of("result", "edited");
     }
 
@@ -360,8 +342,7 @@ public class PullRequestController
             @RequestParam("repo") String repo,
             @RequestBody UpdateBodyRequest req)
     {
-        String pat = patResolver.resolve(repo);
-        pullRequestService.editReviewComment(pat, repo, commentId, req.body());
+        pullRequestService.editReviewComment(repo, commentId, req.body());
         return ImmutableMap.of("result", "edited");
     }
 
@@ -375,8 +356,7 @@ public class PullRequestController
             @RequestParam("number") int number,
             @RequestParam("reviewer") String reviewer)
     {
-        String pat = patResolver.resolve(repo);
-        pullRequestService.addRequestedReviewer(pat, repo, number, reviewer);
+        pullRequestService.addRequestedReviewer(repo, number, reviewer);
         return ImmutableMap.of("result", "added");
     }
 
@@ -390,8 +370,7 @@ public class PullRequestController
             @RequestParam("number") int number,
             @RequestParam("reviewer") String reviewer)
     {
-        String pat = patResolver.resolve(repo);
-        pullRequestService.removeRequestedReviewer(pat, repo, number, reviewer);
+        pullRequestService.removeRequestedReviewer(repo, number, reviewer);
         return ImmutableMap.of("result", "removed");
     }
 
@@ -406,8 +385,7 @@ public class PullRequestController
             @RequestParam("repo") String repo,
             @RequestParam("number") int number)
     {
-        String pat = patResolver.resolve(repo);
-        return pullRequestService.getSuggestedReviewers(pat, repo, number);
+        return pullRequestService.getSuggestedReviewers(repo, number);
     }
 
     /**
@@ -435,9 +413,8 @@ public class PullRequestController
             @RequestParam("number") int number,
             @RequestBody InlineCommentRequest req)
     {
-        String pat = patResolver.resolve(repo);
         pullRequestService.createInlineReviewComment(
-                pat, repo, number, req.body(), req.path(), req.line(), req.side(), req.commitId(),
+                repo, number, req.body(), req.path(), req.line(), req.side(), req.commitId(),
                 req.startLine(), req.startSide());
         return ImmutableMap.of("result", "commented");
     }
@@ -455,8 +432,7 @@ public class PullRequestController
             @PathVariable long commentId,
             @RequestBody AddReactionRequest req)
     {
-        String pat = patResolver.resolve(repo);
-        pullRequestService.addReviewCommentReaction(pat, repo, commentId, req.content());
+        pullRequestService.addReviewCommentReaction(repo, commentId, req.content());
         return ImmutableMap.of("result", "reacted");
     }
 
@@ -470,8 +446,7 @@ public class PullRequestController
             @PathVariable long commentId,
             @RequestBody AddReactionRequest req)
     {
-        String pat = patResolver.resolve(repo);
-        pullRequestService.addIssueCommentReaction(pat, repo, commentId, req.content());
+        pullRequestService.addIssueCommentReaction(repo, commentId, req.content());
         return ImmutableMap.of("result", "reacted");
     }
 
@@ -491,8 +466,7 @@ public class PullRequestController
             @PathVariable long rootId,
             @RequestBody SetThreadResolvedRequest req)
     {
-        String pat = patResolver.resolve(repo);
-        pullRequestService.setReviewThreadResolved(pat, prId, rootId, req.resolved());
+        pullRequestService.setReviewThreadResolved(repo, prId, rootId, req.resolved());
         return ImmutableMap.of("result", req.resolved() ? "resolved" : "unresolved");
     }
 
@@ -506,8 +480,7 @@ public class PullRequestController
             @RequestParam("number") int number,
             @RequestParam("id") long prId)
     {
-        String pat = patResolver.resolve(repo);
-        pullRequestService.approvePullRequest(pat, repo, number, prId);
+        pullRequestService.approvePullRequest(repo, number, prId);
         return ImmutableMap.of("result", "approved");
     }
 
@@ -523,8 +496,7 @@ public class PullRequestController
             // Optional so older clients (no dropdown) keep getting rebase.
             @RequestParam(value = "strategy", required = false) String strategy)
     {
-        String pat = patResolver.resolve(repo);
-        return pullRequestService.mergePullRequest(pat, repo, number, prId, strategy);
+        return pullRequestService.mergePullRequest(repo, number, prId, strategy);
     }
 
     /**
@@ -540,8 +512,7 @@ public class PullRequestController
             @RequestParam("id") long prId,
             @RequestParam(value = "strategy", required = false) String strategy)
     {
-        String pat = patResolver.resolve(repo);
-        pullRequestService.enableAutoMerge(pat, repo, number, prId, strategy);
+        pullRequestService.enableAutoMerge(repo, number, prId, strategy);
         return ImmutableMap.of("result", "auto-merge-enabled");
     }
 
@@ -557,8 +528,7 @@ public class PullRequestController
             @RequestParam("number") int number,
             @RequestParam("id") long prId)
     {
-        String pat = patResolver.resolve(repo);
-        pullRequestService.disableAutoMerge(pat, repo, number, prId);
+        pullRequestService.disableAutoMerge(repo, number, prId);
         return ImmutableMap.of("result", "auto-merge-disabled");
     }
 
@@ -574,8 +544,7 @@ public class PullRequestController
             @RequestParam("number") int number,
             @RequestParam("id") long prId)
     {
-        String pat = patResolver.resolve(repo);
-        pullRequestService.dequeuePullRequest(pat, repo, number, prId);
+        pullRequestService.dequeuePullRequest(repo, number, prId);
         return ImmutableMap.of("result", "dequeued");
     }
 

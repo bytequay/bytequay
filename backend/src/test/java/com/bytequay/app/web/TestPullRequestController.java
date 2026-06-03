@@ -15,7 +15,6 @@ package com.bytequay.app.web;
 
 import com.bytequay.app.domain.PullRequest;
 import com.bytequay.app.domain.PullRequestDetail;
-import com.bytequay.app.service.credentials.PatResolver;
 import com.bytequay.app.service.pr.MyActivityService;
 import com.bytequay.app.service.pr.PrAnalyticsService;
 import com.bytequay.app.service.pr.PullRequestService;
@@ -53,9 +52,6 @@ class TestPullRequestController
     @MockitoBean
     private MyActivityService myActivityService;
 
-    @MockitoBean
-    private PatResolver patResolver;
-
     @Test
     void testListReturns200()
             throws Exception
@@ -79,11 +75,8 @@ class TestPullRequestController
     void testDetailReturns200()
             throws Exception
     {
-        // The frontend no longer passes a Bearer header — repo-scoped endpoints
-        // resolve their PAT via PatResolver, which prefers a per-repo
-        // credential and falls back to the account-level one.
-        when(patResolver.resolve("owner/repo")).thenReturn("token123");
-        when(pullRequestService.getPullRequestDetail(eq("token123"), eq("owner/repo"), eq(7))).thenReturn(stubDetail());
+        // PAT is resolved internally by PullRequestService via PatResolver.
+        when(pullRequestService.getPullRequestDetail(eq("owner/repo"), eq(7))).thenReturn(stubDetail());
 
         mvc.perform(get("/prs/detail")
                         .param("repo", "owner/repo")
@@ -96,7 +89,7 @@ class TestPullRequestController
     void testDetailWithoutStoredPatReturns401()
             throws Exception
     {
-        when(patResolver.resolve(any())).thenThrow(new ResponseStatusException(
+        when(pullRequestService.getPullRequestDetail(any(), eq(7))).thenThrow(new ResponseStatusException(
                 HttpStatusCode.valueOf(401), "GitHub PAT not configured"));
 
         mvc.perform(get("/prs/detail").param("repo", "owner/repo").param("number", "7"))

@@ -25,6 +25,7 @@ import com.bytequay.app.domain.Skill;
 import com.bytequay.app.repository.AiReviewDraftStore;
 import com.bytequay.app.repository.PullRequestRepository;
 import com.bytequay.app.repository.PullRequestStore;
+import com.bytequay.app.service.credentials.PatResolver;
 import com.bytequay.app.service.pr.PullRequestDetailInvalidator;
 import com.bytequay.app.service.skills.SkillService;
 import org.springframework.http.HttpStatusCode;
@@ -35,7 +36,6 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Optional;
 import java.util.function.Consumer;
-import java.util.function.Function;
 
 import static com.bytequay.app.utils.PullRequestRefUtil.parseRef;
 import static com.google.common.collect.ImmutableList.toImmutableList;
@@ -55,6 +55,7 @@ public class AiReviewService
     private final AiReviewDraftStore draftStore;
     private final SkillService skillService;
     private final PullRequestDetailInvalidator detailInvalidator;
+    private final PatResolver patResolver;
 
     public AiReviewService(
             PullRequestStore pullRequestStore,
@@ -62,7 +63,8 @@ public class AiReviewService
             LlmReviewerRegistry registry,
             AiReviewDraftStore draftStore,
             SkillService skillService,
-            PullRequestDetailInvalidator detailInvalidator)
+            PullRequestDetailInvalidator detailInvalidator,
+            PatResolver patResolver)
     {
         this.pullRequestStore = requireNonNull(pullRequestStore, "pullRequestStore is null");
         this.gitHub = requireNonNull(gitHub, "gitHub is null");
@@ -70,6 +72,7 @@ public class AiReviewService
         this.draftStore = requireNonNull(draftStore, "draftStore is null");
         this.skillService = requireNonNull(skillService, "skillService is null");
         this.detailInvalidator = requireNonNull(detailInvalidator, "detailInvalidator is null");
+        this.patResolver = requireNonNull(patResolver, "patResolver is null");
     }
 
     /**
@@ -79,7 +82,7 @@ public class AiReviewService
      * external links). repo + number are persisted on the draft so publish
      * doesn't need a second lookup either.
      */
-    public AiReviewDraft runReview(String pat, long prId, String repo, int number)
+    public AiReviewDraft runReview(long prId, String repo, int number)
     {
         Skill skill = skillService.forRepo(repo).orElse(null);
         LlmReviewer reviewer = registry.active();
@@ -90,6 +93,7 @@ public class AiReviewService
                             + "Add it in Settings → Credentials.");
         }
 
+        String pat = patResolver.resolve(repo);
         PullRequestRef ref = parseRef(repo, number);
         PrRawDetail raw = gitHub.fetchPrDetail(pat, ref);
         if (raw == null) {
@@ -117,7 +121,6 @@ public class AiReviewService
      * {@link AiReviewDraft} need no special-casing.
      */
     public AiReviewDraft streamReview(
-            String pat,
             long prId,
             String repo,
             int number,
@@ -133,6 +136,7 @@ public class AiReviewService
                             + "Add it in Settings → AI review.");
         }
 
+        String pat = patResolver.resolve(repo);
         PullRequestRef ref = parseRef(repo, number);
         PrRawDetail raw = gitHub.fetchPrDetail(pat, ref);
         if (raw == null) {
@@ -275,7 +279,6 @@ public class AiReviewService
      * draft so the frontend can clear its tray.
      */
     public AiReviewDraft publishForPr(
-            Function<String, String> patForRepo,
             long prId,
             String repo,
             int number,
@@ -284,12 +287,11 @@ public class AiReviewService
             String bodyOverride)
     {
         AiReviewDraft active = draftStore.findOrCreateActive(prId, repo, number, headSha);
-        return publish(patForRepo, active.id(), event, bodyOverride);
+        return publish(active.id(), event, bodyOverride);
     }
 
-    public AiReviewDraft publish(Function<String, String> patForRepo, long draftId, String event, String bodyOverride)
+    public AiReviewDraft publish(long draftId, String event, String bodyOverride)
     {
-        requireNonNull(patForRepo, "patForRepo is null");
         AiReviewDraft draft = draftStore.byId(draftId)
                 .orElseThrow(() -> new ResponseStatusException(
                         HttpStatusCode.valueOf(404), "draft " + draftId + " not found"));
@@ -313,7 +315,7 @@ public class AiReviewService
             repo = pr.repo();
             number = pr.number();
         }
-        String pat = patForRepo.apply(repo);
+        String pat = patResolver.resolve(repo);
 
         // Dismissed comments stay on the row (so the user can restore them)
         // but never make it into the GitHub payload. Both AI and HUMAN

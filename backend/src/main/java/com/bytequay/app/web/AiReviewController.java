@@ -18,7 +18,6 @@ import com.bytequay.app.repository.AppSettingsStore;
 import com.bytequay.app.service.ai.AiReviewService;
 import com.bytequay.app.service.ai.LlmReviewer;
 import com.bytequay.app.service.ai.LlmReviewerRegistry;
-import com.bytequay.app.service.credentials.PatResolver;
 import com.google.common.collect.ImmutableMap;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -57,7 +56,6 @@ public class AiReviewController
     private static final long STREAM_TIMEOUT_MS = 6 * 60 * 1000L;
 
     private final AiReviewService aiReviewService;
-    private final PatResolver patResolver;
     private final LlmReviewerRegistry registry;
     private final AppSettingsStore appSettings;
     private final Executor executor;
@@ -74,13 +72,11 @@ public class AiReviewController
 
     public AiReviewController(
             AiReviewService aiReviewService,
-            PatResolver patResolver,
             LlmReviewerRegistry registry,
             AppSettingsStore appSettings,
             @Qualifier(APPLICATION_EXECUTOR) Executor executor)
     {
         this.aiReviewService = requireNonNull(aiReviewService, "aiReviewService is null");
-        this.patResolver = requireNonNull(patResolver, "patResolver is null");
         this.registry = requireNonNull(registry, "registry is null");
         this.appSettings = requireNonNull(appSettings, "appSettings is null");
         this.executor = requireNonNull(executor, "executor is null");
@@ -186,10 +182,9 @@ public class AiReviewController
             return ImmutableMap.of("state", "RUNNING");
         }
         running.put(key, new RunState("RUNNING", null));
-        String pat = patResolver.resolve(repo);
         executor.execute(() -> {
             try {
-                aiReviewService.runReview(pat, prId, repo, number);
+                aiReviewService.runReview(prId, repo, number);
                 running.put(key, new RunState("DONE", null));
             }
             catch (Exception e) {
@@ -225,8 +220,7 @@ public class AiReviewController
             @RequestParam("repo") String repo,
             @RequestParam("number") int number)
     {
-        String pat = patResolver.resolve(repo);
-        return aiReviewService.runReview(pat, prId, repo, number);
+        return aiReviewService.runReview(prId, repo, number);
     }
 
     /**
@@ -248,15 +242,14 @@ public class AiReviewController
             @RequestParam("number") int number)
     {
         SseEmitter emitter = new SseEmitter(STREAM_TIMEOUT_MS);
-        String pat = patResolver.resolve(repo);
-        executor.execute(() -> runStream(emitter, pat, prId, repo, number));
+        executor.execute(() -> runStream(emitter, prId, repo, number));
         return emitter;
     }
 
-    private void runStream(SseEmitter emitter, String pat, long prId, String repo, int number)
+    private void runStream(SseEmitter emitter, long prId, String repo, int number)
     {
         try {
-            AiReviewDraft draft = aiReviewService.streamReview(pat, prId, repo, number, chunk -> sendDelta(emitter, chunk));
+            AiReviewDraft draft = aiReviewService.streamReview(prId, repo, number, chunk -> sendDelta(emitter, chunk));
             emitter.send(SseEmitter.event().name("complete").data(draft));
             emitter.complete();
         }
@@ -370,8 +363,8 @@ public class AiReviewController
     /**
      * POST /ai/review/{draftId}/publish?event=COMMENT|APPROVE|REQUEST_CHANGES
      * — turns a stored draft into a real GitHub review. The service resolves
-     * the draft's repo first and then asks the supplied function for the
-     * appropriate PAT (per-repo override falling back to account).
+     * the appropriate PAT (per-repo override falling back to account) from
+     * the draft's repo internally.
      */
     public record PublishRequest(String body) {}
 
@@ -382,7 +375,7 @@ public class AiReviewController
             @RequestBody(required = false) PublishRequest req)
     {
         String body = req != null ? req.body() : null;
-        return aiReviewService.publish(patResolver::resolve, draftId, event, body);
+        return aiReviewService.publish(draftId, event, body);
     }
 
     public record PublishForPrRequest(
@@ -403,7 +396,6 @@ public class AiReviewController
     public AiReviewDraft publishForPr(@RequestBody PublishForPrRequest req)
     {
         return aiReviewService.publishForPr(
-                patResolver::resolve,
                 req.prId(),
                 req.repo(),
                 req.number(),

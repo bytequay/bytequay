@@ -29,11 +29,14 @@ import com.bytequay.app.repository.PrDetailStore;
 import com.bytequay.app.repository.PullRequestRepository;
 import com.bytequay.app.repository.PullRequestStore;
 import com.bytequay.app.repository.SkillStore;
+import com.bytequay.app.service.CredentialService;
+import com.bytequay.app.service.credentials.PatResolver;
 import com.bytequay.app.service.pr.GitHubResponseCache;
 import com.bytequay.app.service.pr.PullRequestDetailInvalidator;
 import com.bytequay.app.service.skills.SkillService;
 import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.Test;
+import org.mockito.Mockito;
 
 import java.time.Instant;
 import java.util.ArrayList;
@@ -42,7 +45,6 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
-import java.util.function.Function;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
@@ -61,10 +63,10 @@ class TestAiReviewService
                 new LlmReviewerRegistry(List.of(), new EmptyAppSettingsStore()),
                 draftStore,
                 new SkillService(new EmptySkillStore()),
-                detailInvalidator);
-        Function<String, String> patForRepo = repo -> "pat";
+                detailInvalidator,
+                new FixedPatResolver("pat"));
 
-        AiReviewDraft published = service.publish(patForRepo, 5L, "APPROVE", "looks good");
+        AiReviewDraft published = service.publish(5L, "APPROVE", "looks good");
 
         assertThat(published.status()).isEqualTo("PUBLISHED");
         assertThat(gitHub.pat).isEqualTo("pat");
@@ -222,5 +224,29 @@ class TestAiReviewService
         @Override public Optional<StoredPrDetail> find(long prId) { throw new UnsupportedOperationException(); }
         @Override public void save(long prId, StoredPrDetail detail) { throw new UnsupportedOperationException(); }
         @Override public void deleteByPrIds(Set<Long> prIds) { throw new UnsupportedOperationException(); }
+    }
+
+    private static final class FixedPatResolver
+            extends PatResolver
+    {
+        private final String token;
+
+        private FixedPatResolver(String token)
+        {
+            super(Mockito.mock(CredentialService.class));
+            this.token = token;
+        }
+
+        @Override
+        public String resolve(String repoFullName)
+        {
+            return token;
+        }
+
+        @Override
+        public String resolve()
+        {
+            return token;
+        }
     }
 }

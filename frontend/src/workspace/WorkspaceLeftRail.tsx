@@ -42,6 +42,11 @@ type Props = {
   /** Active workspace's display name. Shown next to the brand badge
    *  so the rail reflects which workspace the user is inside. */
   workspaceName?: string;
+  /** Active workspace's stable id (the slug-prefixed value embedded
+   *  in every thread/task id). Surfaced as a small mono caption under
+   *  the brand name so users can see and copy the immutable handle —
+   *  the name on top is renameable, the id below is forever. */
+  workspaceId?: string;
 };
 
 type Item = { id: WorkspaceSection; label: string; icon: ReactNode };
@@ -107,7 +112,7 @@ const ITEMS: Item[] = [
 function WorkspaceLeftRail({
   active, onSelect, onOpenWorkspaceSwitcher, onOpenNewWorkspace, onOpenControlBar,
   hasLiveThread = false, hasUnreadThread = false,
-  workspaceName,
+  workspaceName, workspaceId,
 }: Props) {
   const displayName = workspaceName !== undefined && workspaceName.length > 0
       ? workspaceName
@@ -130,7 +135,14 @@ function WorkspaceLeftRail({
         style={brandButtonStyle}
       >
         <span className="workspace-rail__brand-badge" aria-hidden>{brandInitial}</span>
-        <span className="workspace-rail__brand-name">{displayName}</span>
+        <span className="workspace-rail__brand-text">
+          <span className="workspace-rail__brand-name">{displayName}</span>
+          {workspaceId !== undefined && workspaceId.length > 0 && (
+            <span className="workspace-rail__brand-id" title={workspaceId}>
+              {workspaceId}
+            </span>
+          )}
+        </span>
         <span className="workspace-rail__brand-chevron" aria-hidden>▾</span>
       </button>
       <button

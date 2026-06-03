@@ -225,11 +225,37 @@
   letter-spacing: -0.01em;
 }
 
+.workspace-rail__brand-text {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  flex: 1;
+  min-width: 0;
+}
+
 .workspace-rail__brand-name {
   font-size: 14px;
   font-weight: 600;
   color: var(--ws-text-1);
-  flex: 1;
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+/* Immutable workspace id directly under the renameable name. Mono
+ * so it reads as a stable handle, muted so it doesn't compete with
+ * the display name above. Title attribute on the span gives full id
+ * on hover when truncated by ellipsis. */
+.workspace-rail__brand-id {
+  font-size: 10px;
+  font-family: ui-monospace, SFMono-Regular, monospace;
+  color: var(--ws-text-3);
+  max-width: 100%;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  margin-top: 1px;
 }
 
 .workspace-rail__brand-chevron {
@@ -914,6 +940,24 @@
   color: var(--ws-accent-deep);
   text-transform: uppercase;
   flex-shrink: 0;
+}
+
+/* Mono workspace id chip on the landing card — the immutable handle
+ * the user can scan against the rail's brand id and the thread/task
+ * ids in worktree paths / logs. Sits between the renameable name and
+ * the CURRENT chip so the visual order is name → id → state. */
+.workspace-landing-card__id {
+  font-size: 10px;
+  font-family: ui-monospace, SFMono-Regular, monospace;
+  color: var(--ws-text-3);
+  background: var(--ws-accent-soft);
+  padding: 2px 6px;
+  border-radius: 4px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  max-width: 50%;
+  flex-shrink: 1;
 }
 
 .workspace-landing-card__meta {

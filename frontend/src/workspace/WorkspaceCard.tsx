@@ -49,6 +49,9 @@ function WorkspaceCard({ card, isCurrent, onEnter }: Props) {
         <div className="workspace-landing-card__heading">
           <div className="workspace-landing-card__name-row">
             <span className="workspace-landing-card__name">{card.name}</span>
+            <span className="workspace-landing-card__id" title={card.id}>
+              {card.id}
+            </span>
             {isCurrent && (
               <span className="workspace-landing-card__chip">CURRENT</span>
             )}

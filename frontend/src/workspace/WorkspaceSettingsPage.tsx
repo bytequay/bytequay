@@ -217,6 +217,18 @@ function WorkspaceSettingsPage() {
                 placeholder={workspace.name}
               />
             </label>
+            {/* Immutable workspace id — read-only line right under the
+                editable name so the rename/id-stability story is
+                visible in the surface that does the renaming. */}
+            <div style={identityIdRowStyle}>
+              <span style={identityLabelTextStyle}>Workspace id</span>
+              <code style={identityIdValueStyle} title={workspace.id}>
+                {workspace.id}
+              </code>
+              <span style={identityIdHintStyle}>
+                immutable · referenced from thread / task ids, urls, logs
+              </span>
+            </div>
             <div style={identityActionsStyle}>
               <button
                 type="submit"
@@ -711,6 +723,29 @@ const identityInputStyle: React.CSSProperties = {
   outline: 'none',
   color: 'var(--text-1)',
   maxWidth: 380,
+};
+
+const identityIdRowStyle: React.CSSProperties = {
+  display: 'flex',
+  flexDirection: 'column',
+  gap: 4,
+};
+
+const identityIdValueStyle: React.CSSProperties = {
+  padding: '6px 10px',
+  fontSize: 12,
+  fontFamily: 'ui-monospace, SFMono-Regular, monospace',
+  background: 'rgba(124, 58, 237, 0.06)',
+  border: '1px solid rgba(124, 58, 237, 0.12)',
+  borderRadius: 6,
+  color: 'var(--text-1)',
+  maxWidth: 380,
+  width: 'fit-content',
+};
+
+const identityIdHintStyle: React.CSSProperties = {
+  fontSize: 11,
+  color: 'var(--text-3)',
 };
 
 const identityActionsStyle: React.CSSProperties = {

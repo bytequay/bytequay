@@ -135,6 +135,7 @@ function WorkspaceShell({
         hasLiveThread={hasLiveThread}
         hasUnreadThread={hasUnreadThread}
         workspaceName={workspaceName}
+        workspaceId={workspaceId}
       />
       <div className="workspace-content">
         {section === 'home' && (

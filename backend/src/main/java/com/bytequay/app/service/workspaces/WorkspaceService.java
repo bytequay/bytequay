@@ -18,6 +18,13 @@ import com.bytequay.app.domain.Workspace;
 import com.bytequay.app.domain.WorkspaceCardDto;
 import com.bytequay.app.domain.WorkspaceRepo;
 import com.bytequay.app.repository.WorkspaceStore;
+import com.bytequay.app.service.concepts.ConceptKind;
+import com.bytequay.app.service.concepts.ConceptRegistry;
+import com.bytequay.app.service.concepts.ConceptScope;
+import com.bytequay.app.service.concepts.ConceptSpec;
+import com.bytequay.app.service.concepts.WorkspaceGlossaryParser;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.http.HttpStatusCode;
 import org.springframework.stereotype.Service;
 import org.springframework.web.server.ResponseStatusException;
@@ -83,11 +90,20 @@ public class WorkspaceService
             "#7c5cff", "#34c4a8", "#f59e0b", "#ef4444",
             "#3b82f6", "#ec4899", "#10b981", "#f97316");
 
-    private final WorkspaceStore store;
+    private static final Logger log = LoggerFactory.getLogger(WorkspaceService.class);
 
-    public WorkspaceService(WorkspaceStore store)
+    private final WorkspaceStore store;
+    private final WorkspaceGlossaryParser glossaryParser;
+    private final ConceptRegistry concepts;
+
+    public WorkspaceService(
+            WorkspaceStore store,
+            WorkspaceGlossaryParser glossaryParser,
+            ConceptRegistry concepts)
     {
         this.store = requireNonNull(store, "store is null");
+        this.glossaryParser = requireNonNull(glossaryParser, "glossaryParser is null");
+        this.concepts = requireNonNull(concepts, "concepts is null");
     }
 
     public List<Workspace> list()
@@ -502,7 +518,55 @@ public class WorkspaceService
                 current.isScratch(), current.workModel(),
                 current.createdAt(), Instant.now());
         store.saveWorkspace(next);
+        syncGlossaryConcepts(next);
         return next;
+    }
+
+    /**
+     * Re-parse the workspace's {@code ## Glossary} section and
+     * publish the entries to the concept registry under
+     * {@link ConceptScope#WORKSPACE}. Replaces any prior workspace-
+     * scoped concepts wholesale — the .md is the source of truth.
+     *
+     * <p>v1 supports one active workspace at a time, so we
+     * {@link ConceptRegistry#clearScope clearScope(WORKSPACE)} before
+     * loading the new entries. Multi-workspace memory simultaneously
+     * visible to the registry lands when the broader switcher does.
+     */
+    private void syncGlossaryConcepts(Workspace workspace)
+    {
+        try {
+            concepts.clearScope(ConceptScope.WORKSPACE);
+            List<WorkspaceGlossaryParser.Entry> entries = glossaryParser.parse(workspace.memoryMd());
+            for (WorkspaceGlossaryParser.Entry entry : entries) {
+                ConceptSpec spec = new ConceptSpec(
+                        entry.name(),
+                        entry.aka(),
+                        // Workspace glossary entries default to NOUN
+                        // (a vocabulary term) — kind=FILTER user
+                        // concepts come in via Saved Views, not the
+                        // brain glossary parser.
+                        ConceptKind.NOUN,
+                        entry.definition(),
+                        List.of(),
+                        List.of(),
+                        List.of(),
+                        ConceptScope.WORKSPACE,
+                        "workspace://" + workspace.id() + "/memory.md#" + entry.name());
+                concepts.registerRuntime(spec);
+            }
+            if (!entries.isEmpty()) {
+                log.info("Loaded {} workspace glossary concept(s) for {}",
+                        entries.size(), workspace.id());
+            }
+        }
+        catch (RuntimeException e) {
+            // A malformed glossary section shouldn't tank setMemory —
+            // log and continue; the registry just keeps its previous
+            // workspace-scoped entries cleared.
+            log.warn("Failed to sync workspace glossary for {}: {}",
+                    workspace.id(), e.getMessage());
+        }
     }
 
     /**

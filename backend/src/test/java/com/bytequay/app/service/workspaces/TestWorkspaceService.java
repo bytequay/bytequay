@@ -18,6 +18,8 @@ import com.bytequay.app.domain.WorkspaceCardDto;
 import com.bytequay.app.domain.WorkspaceRepo;
 import com.bytequay.app.repository.WorkspaceStore;
 import com.bytequay.app.repository.WorkspaceStore.WorkspaceStats;
+import com.bytequay.app.service.concepts.ConceptRegistry;
+import com.bytequay.app.service.concepts.WorkspaceGlossaryParser;
 import org.junit.jupiter.api.Test;
 
 import java.time.Instant;
@@ -37,7 +39,10 @@ import static org.mockito.Mockito.when;
 class TestWorkspaceService
 {
     private final WorkspaceStore store = mock(WorkspaceStore.class);
-    private final WorkspaceService service = new WorkspaceService(store);
+    private final WorkspaceService service = new WorkspaceService(
+            store,
+            new WorkspaceGlossaryParser(),
+            new ConceptRegistry());
 
     @Test
     void summariseMemoryCountsDecisionAndBlockerBullets()

@@ -87,20 +87,26 @@ class TestWorkspaceMemoryProposalParser
     }
 
     @Test
-    void bulletWithNoBacklinkGetsSyntheticDistillSource()
+    void bulletWithNoBacklinkIsDropped()
     {
+        // Phase E: provenance is non-negotiable. A bullet without
+        // an extractable back-link can't be cited or jumped to, so
+        // it must not enter the registry. A real back-link in a
+        // second bullet survives, proving the section keeps parsing
+        // after a drop.
         String body = """
                 ## Decisions
-                - A decision the distiller didn't attribute.
+                - Unattributed claim — should be dropped.
+                - Real attributed decision. [thread:t-9]
                 """;
 
         List<MemoryItemStore.NewItem> items = parser.parse("ws-bytequay", body);
 
         assertThat(items).hasSize(1);
+        assertThat(items.get(0).text()).isEqualTo("Real attributed decision.");
         assertThat(items.get(0).sources())
-                .as("synthetic distill source keeps the propose-gate happy")
                 .extracting(s -> s.threadId())
-                .containsExactly("distill:ws-bytequay");
+                .containsExactly("t-9");
     }
 
     @Test

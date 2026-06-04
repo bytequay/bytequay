@@ -19,6 +19,8 @@ import com.bytequay.app.domain.MemoryItemOrigin;
 import com.bytequay.app.domain.MemoryItemScopeKind;
 import com.bytequay.app.domain.MemoryItemSource;
 import com.bytequay.app.repository.MemoryItemStore;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Component;
 
 import java.util.ArrayList;
@@ -45,16 +47,18 @@ import java.util.regex.Pattern;
  *
  * <h3>Provenance</h3>
  *
- * The summariser is instructed to append a {@code [thread:id]}
- * back-link to each bullet it promotes from a thread Overall; the
- * parser extracts it and attaches it as a {@link MemoryItemSource}.
- * Bullets with no extractable back-link still produce a row, but
- * with a synthetic distill-pass source so the propose-gate accepts
- * them — Phase E tightens this once we trust the upstream summariser.
+ * Phase E (provenance everywhere) makes this strict: the
+ * summariser is instructed to append a {@code [thread:id]} back-link
+ * to each bullet it promotes from a thread Overall, and any bullet
+ * without one is <em>dropped</em> here rather than persisted with a
+ * synthetic source. Recall and citations are only useful if the
+ * jump target is real; a placeholder source defeats the axis.
  */
 @Component
 public class WorkspaceMemoryProposalParser
 {
+    private static final Logger log = LoggerFactory.getLogger(WorkspaceMemoryProposalParser.class);
+
     /** Heading → kind. Lookup is case-insensitive on the trimmed
      *  heading text. Synonyms appear here so a slightly different
      *  prompt output ("Decisions made" vs "Decisions") still maps. */
@@ -106,7 +110,16 @@ public class WorkspaceMemoryProposalParser
             if (bullet.isEmpty()) {
                 continue;
             }
-            List<MemoryItemSource> sources = extractSources(bullet, workspaceId);
+            List<MemoryItemSource> sources = extractSources(bullet);
+            if (sources.isEmpty()) {
+                // Phase E: drop bullets without real provenance. The
+                // upstream summariser is expected to annotate every
+                // promoted bullet; an un-annotated row would persist
+                // an unverifiable claim, which defeats recall.
+                log.debug("Dropping bullet without back-link from workspace {} distill: {}",
+                        workspaceId, bullet);
+                continue;
+            }
             // Confidence: lacking better signal, default MEDIUM —
             // the distiller produces educated guesses, not facts.
             // FOCUS_SHIFT skews HIGH because it's the most volatile
@@ -127,19 +140,12 @@ public class WorkspaceMemoryProposalParser
         return out;
     }
 
-    private static List<MemoryItemSource> extractSources(String bullet, String workspaceId)
+    private static List<MemoryItemSource> extractSources(String bullet)
     {
         List<MemoryItemSource> sources = new ArrayList<>();
         Matcher m = BACKLINK.matcher(bullet);
         while (m.find()) {
             sources.add(MemoryItemSource.thread(m.group(1)));
-        }
-        if (sources.isEmpty()) {
-            // Best-effort fallback so the propose-gate accepts the
-            // row: a synthetic source pointing at the workspace's
-            // distill pass. Phase E swaps this for real upstream
-            // provenance via a tighter summariser prompt.
-            sources.add(MemoryItemSource.thread("distill:" + workspaceId));
         }
         return sources;
     }

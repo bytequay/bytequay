@@ -41,6 +41,7 @@ import com.bytequay.app.repository.ThreadStore;
 import com.bytequay.app.repository.ThreadTurnEventStore;
 import com.bytequay.app.repository.ThreadTurnStore;
 import com.bytequay.app.repository.WorktreeLeaseStore;
+import com.bytequay.app.service.concepts.ConceptRegistry;
 import com.bytequay.app.service.ids.IdGenerator;
 import com.bytequay.app.service.local.GitRunner;
 import com.bytequay.app.service.skills.RoleSkillService;
@@ -84,7 +85,7 @@ class TestThreadServiceScheduler
                 Mockito.mock(WorktreeLeaseService.class),
                 new GitRunner(),
                 noopWorktreeService(),
-                new RoleSkillService(),
+                new RoleSkillService(new ConceptRegistry()),
                 stubIdGenerator());
 
         // initialPrompt feeds title derivation but is treated as
@@ -130,7 +131,7 @@ class TestThreadServiceScheduler
                 Mockito.mock(WorktreeLeaseService.class),
                 new GitRunner(),
                 noopWorktreeService(),
-                new RoleSkillService(),
+                new RoleSkillService(new ConceptRegistry()),
                 stubIdGenerator());
 
         service.create(new ThreadService.NewTaskRequest(
@@ -169,7 +170,7 @@ class TestThreadServiceScheduler
                 Mockito.mock(WorktreeLeaseService.class),
                 new GitRunner(),
                 noopWorktreeService(),
-                new RoleSkillService(),
+                new RoleSkillService(new ConceptRegistry()),
                 stubIdGenerator());
 
         service.create(new ThreadService.NewTaskRequest(
@@ -209,7 +210,7 @@ class TestThreadServiceScheduler
                 Mockito.mock(WorktreeLeaseService.class),
                 new GitRunner(),
                 noopWorktreeService(),
-                new RoleSkillService(),
+                new RoleSkillService(new ConceptRegistry()),
                 stubIdGenerator());
 
         String turnId = service.send(thread.id(), "next");
@@ -245,7 +246,7 @@ class TestThreadServiceScheduler
                 Mockito.mock(WorktreeLeaseService.class),
                 new GitRunner(),
                 noopWorktreeService(),
-                new RoleSkillService(),
+                new RoleSkillService(new ConceptRegistry()),
                 stubIdGenerator());
 
         assertThat(service.turns(thread.id()))
@@ -278,7 +279,7 @@ class TestThreadServiceScheduler
                 Mockito.mock(WorktreeLeaseService.class),
                 new GitRunner(),
                 noopWorktreeService(),
-                new RoleSkillService(),
+                new RoleSkillService(new ConceptRegistry()),
                 stubIdGenerator());
 
         assertThat(service.turns(thread.id()))
@@ -312,7 +313,7 @@ class TestThreadServiceScheduler
                 Mockito.mock(WorktreeLeaseService.class),
                 new GitRunner(),
                 noopWorktreeService(),
-                new RoleSkillService(),
+                new RoleSkillService(new ConceptRegistry()),
                 stubIdGenerator());
 
         assertThat(service.turnEvents(thread.id()))
@@ -344,7 +345,7 @@ class TestThreadServiceScheduler
                 Mockito.mock(WorktreeLeaseService.class),
                 new GitRunner(),
                 noopWorktreeService(),
-                new RoleSkillService(),
+                new RoleSkillService(new ConceptRegistry()),
                 stubIdGenerator());
 
         assertThat(service.turnEvents(thread.id()))
@@ -372,7 +373,7 @@ class TestThreadServiceScheduler
                 Mockito.mock(WorktreeLeaseService.class),
                 new GitRunner(),
                 noopWorktreeService(),
-                new RoleSkillService(),
+                new RoleSkillService(new ConceptRegistry()),
                 stubIdGenerator());
 
         assertThat(service.activeTurns(50))
@@ -396,7 +397,7 @@ class TestThreadServiceScheduler
                 Mockito.mock(WorktreeLeaseService.class),
                 new GitRunner(),
                 noopWorktreeService(),
-                new RoleSkillService(),
+                new RoleSkillService(new ConceptRegistry()),
                 stubIdGenerator());
 
         assertThat(service.listByStatus(ThreadStatus.IDLE, 0)).isEmpty();
@@ -421,7 +422,7 @@ class TestThreadServiceScheduler
                 Mockito.mock(WorktreeLeaseService.class),
                 new GitRunner(),
                 noopWorktreeService(),
-                new RoleSkillService(),
+                new RoleSkillService(new ConceptRegistry()),
                 stubIdGenerator());
 
         assertThat(service.listByGroup("group-1", 0)).isEmpty();
@@ -446,7 +447,7 @@ class TestThreadServiceScheduler
                 Mockito.mock(WorktreeLeaseService.class),
                 new GitRunner(),
                 noopWorktreeService(),
-                new RoleSkillService(),
+                new RoleSkillService(new ConceptRegistry()),
                 stubIdGenerator());
 
         ThreadGroup group = service.createGroup(new ThreadService.NewGroupRequest(
@@ -477,7 +478,7 @@ class TestThreadServiceScheduler
                 Mockito.mock(WorktreeLeaseService.class),
                 new GitRunner(),
                 noopWorktreeService(),
-                new RoleSkillService(),
+                new RoleSkillService(new ConceptRegistry()),
                 stubIdGenerator());
 
         Thread thread = service.create(new ThreadService.NewTaskRequest(
@@ -519,7 +520,7 @@ class TestThreadServiceScheduler
                 Mockito.mock(WorktreeLeaseService.class),
                 new GitRunner(),
                 noopWorktreeService(),
-                new RoleSkillService(),
+                new RoleSkillService(new ConceptRegistry()),
                 stubIdGenerator());
 
         service.stop(thread.id());
@@ -549,7 +550,7 @@ class TestThreadServiceScheduler
                 Mockito.mock(WorktreeLeaseService.class),
                 new GitRunner(),
                 noopWorktreeService(),
-                new RoleSkillService(),
+                new RoleSkillService(new ConceptRegistry()),
                 stubIdGenerator());
 
         service.stop(thread.id());
@@ -576,7 +577,7 @@ class TestThreadServiceScheduler
                 Mockito.mock(WorktreeLeaseService.class),
                 new GitRunner(),
                 noopWorktreeService(),
-                new RoleSkillService(),
+                new RoleSkillService(new ConceptRegistry()),
                 stubIdGenerator());
 
         service.delete(thread.id());
@@ -609,7 +610,7 @@ class TestThreadServiceScheduler
                 Mockito.mock(WorktreeLeaseService.class),
                 new GitRunner(),
                 worktrees,
-                new RoleSkillService(),
+                new RoleSkillService(new ConceptRegistry()),
                 stubIdGenerator());
 
         // Step 1 — create is a 0-Task path: no worktree, no Task.
@@ -689,7 +690,7 @@ class TestThreadServiceScheduler
                 Mockito.mock(WorktreeLeaseService.class),
                 new GitRunner(),
                 worktrees,
-                new RoleSkillService(),
+                new RoleSkillService(new ConceptRegistry()),
                 stubIdGenerator());
 
         service.delete(thread.id());
@@ -730,7 +731,7 @@ class TestThreadServiceScheduler
                 Mockito.mock(WorktreeLeaseService.class),
                 git,
                 noopWorktreeService(),
-                new RoleSkillService(),
+                new RoleSkillService(new ConceptRegistry()),
                 stubIdGenerator());
 
         service.listWorkingChanges(thread.id());

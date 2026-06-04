@@ -27,6 +27,7 @@ import com.bytequay.app.repository.PullRequestRepository;
 import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.repository.ThreadStore;
 import com.bytequay.app.repository.WatchedRepoStore;
+import com.bytequay.app.service.concepts.ConceptRegistry;
 import com.bytequay.app.service.credentials.PatResolver;
 import com.bytequay.app.service.local.GitRunner;
 import com.bytequay.app.service.skills.RoleSkillService;
@@ -77,7 +78,7 @@ class TestTaskServiceShipAndContinue
             threadStore, taskStore, watchedRepoStore, worktreeService,
             git, pullRequests, patResolver,
             registry, workspaces, notifications, mapper,
-            new RoleSkillService());
+            new RoleSkillService(new ConceptRegistry()));
 
     @Test
     void shipAndContinueReapsTheShippedWorktreeAndClearsItsPathOnTheRow()

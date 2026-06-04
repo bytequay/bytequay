@@ -15,6 +15,7 @@ package com.bytequay.app.service.skills;
 
 import com.bytequay.app.domain.Skill;
 import com.bytequay.app.repository.SkillStore;
+import com.bytequay.app.service.concepts.ConceptRegistry;
 import com.bytequay.app.service.tools.ToolContext;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
@@ -30,6 +31,10 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 class TestSkillMaterializer
 {
+    /** Empty registry — skill bodies under test reference no
+     *  concepts, so the substitution pass is a no-op. */
+    private static final ConceptRegistry EMPTY_CONCEPTS = new ConceptRegistry();
+
     @Test
     void materializeWritesOneSkillMdPerResolvedRow(@TempDir Path dir)
             throws IOException
@@ -37,7 +42,7 @@ class TestSkillMaterializer
         SkillMaterializer materializer = new SkillMaterializer(new SkillManifestService(
                 new InMemorySkillStore(List.of(
                         row(1, "global library", "global", null, null, "library", "library body"),
-                        row(2, "acme rubric", "repo", "acme/widgets", null, "rubric", "rubric body")))));
+                        row(2, "acme rubric", "repo", "acme/widgets", null, "rubric", "rubric body")))), EMPTY_CONCEPTS);
 
         Path out = materializer.materialize(dir, ToolContext.forRepo("acme/widgets", null));
 
@@ -60,7 +65,7 @@ class TestSkillMaterializer
     {
         SkillMaterializer materializer = new SkillMaterializer(new SkillManifestService(
                 new InMemorySkillStore(List.of(
-                        row(1, "stable-skill", "global", null, null, "library", "stable body")))));
+                        row(1, "stable-skill", "global", null, null, "library", "stable body")))), EMPTY_CONCEPTS);
         Path firstDir = dir.resolve("first");
         Path secondDir = dir.resolve("second");
 
@@ -78,7 +83,7 @@ class TestSkillMaterializer
         SkillMaterializer materializer = new SkillMaterializer(new SkillManifestService(
                 new InMemorySkillStore(List.of(
                         rowEnabled(1, "muted", "global", null, null, "library", "muted body", false),
-                        rowEnabled(2, "active", "global", null, null, "library", "active body", true)))));
+                        rowEnabled(2, "active", "global", null, null, "library", "active body", true)))), EMPTY_CONCEPTS);
 
         materializer.materialize(dir, ToolContext.empty());
 
@@ -92,7 +97,7 @@ class TestSkillMaterializer
     {
         SkillMaterializer materializer = new SkillMaterializer(new SkillManifestService(
                 new InMemorySkillStore(List.of(
-                        row(1, "x", "global", null, null, "library", "body")))));
+                        row(1, "x", "global", null, null, "library", "body")))), EMPTY_CONCEPTS);
         materializer.materialize(dir, ToolContext.empty());
         assertThat(Files.exists(dir.resolve("x").resolve("SKILL.md"))).isTrue();
 
@@ -107,6 +112,50 @@ class TestSkillMaterializer
         assertThat(SkillMaterializer.slugify("Auth Review Checklist!")).isEqualTo("auth-review-checklist");
         assertThat(SkillMaterializer.slugify("--leading--dashes--")).isEqualTo("leading-dashes");
         assertThat(SkillMaterializer.slugify("!!!")).isEqualTo("skill");
+    }
+
+    @Test
+    void conceptPlaceholderIsReplacedWithRegistryDefinition(@TempDir Path dir)
+            throws IOException
+    {
+        // Real registry — the seed concepts (task, thread, …) are
+        // enough to exercise the substitution path without mocking.
+        ConceptRegistry concepts = new ConceptRegistry();
+        concepts.scan();
+        String body = "Use this when shipping a {{concept:task}}.";
+        SkillMaterializer materializer = new SkillMaterializer(new SkillManifestService(
+                new InMemorySkillStore(List.of(
+                        row(1, "shipper", "global", null, null, "library", body)))),
+                concepts);
+
+        materializer.materialize(dir, ToolContext.empty());
+
+        String rendered = Files.readString(dir.resolve("shipper").resolve("SKILL.md"));
+        assertThat(rendered)
+                .as("the {{concept:task}} placeholder should resolve")
+                .doesNotContain("{{concept:task}}");
+        assertThat(rendered)
+                .contains("Use this when shipping a One unit of work within a thread");
+    }
+
+    @Test
+    void unknownConceptPlaceholderIsLeftInPlace(@TempDir Path dir)
+            throws IOException
+    {
+        ConceptRegistry concepts = new ConceptRegistry();
+        concepts.scan();
+        String body = "Lookup {{concept:does-not-exist}} for clarity.";
+        SkillMaterializer materializer = new SkillMaterializer(new SkillManifestService(
+                new InMemorySkillStore(List.of(
+                        row(1, "unknown", "global", null, null, "library", body)))),
+                concepts);
+
+        materializer.materialize(dir, ToolContext.empty());
+
+        String rendered = Files.readString(dir.resolve("unknown").resolve("SKILL.md"));
+        assertThat(rendered)
+                .as("unknown concept name should survive so the author notices the gap")
+                .contains("{{concept:does-not-exist}}");
     }
 
     private static Skill row(long id, String name, String scope, String repo, String roleTag, String kind, String body)

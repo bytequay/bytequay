@@ -13,16 +13,28 @@
  */
 package com.bytequay.app.service.skills;
 
+import com.bytequay.app.service.concepts.ConceptRegistry;
 import org.junit.jupiter.api.Test;
+
+import java.io.IOException;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
 class TestRoleSkillService
 {
+    private static RoleSkillService bootedService()
+            throws IOException
+    {
+        ConceptRegistry concepts = new ConceptRegistry();
+        concepts.scan();
+        return new RoleSkillService(concepts);
+    }
+
     @Test
     void trunkTemplateLoadsFromTheClasspath()
+            throws IOException
     {
-        RoleSkillService service = new RoleSkillService();
+        RoleSkillService service = bootedService();
 
         assertThat(service.trunkTemplate())
                 .contains("Role · Trunk")
@@ -31,8 +43,9 @@ class TestRoleSkillService
 
     @Test
     void taskTemplateInterpolatesAllPlaceholders()
+            throws IOException
     {
-        RoleSkillService service = new RoleSkillService();
+        RoleSkillService service = bootedService();
 
         String body = service.generateForTask(
                 "acme/widgets", "feature/x", "task-123", "main");
@@ -47,8 +60,9 @@ class TestRoleSkillService
 
     @Test
     void taskTemplateFallsBackToUnsetWhenAFieldIsMissing()
+            throws IOException
     {
-        RoleSkillService service = new RoleSkillService();
+        RoleSkillService service = bootedService();
 
         String body = service.generateForTask(null, "branch", "task-1", null);
 
@@ -58,14 +72,37 @@ class TestRoleSkillService
 
     @Test
     void taskTemplateIsByteStableForTheSameInput()
+            throws IOException
     {
         // Cache stability: the frozen role skill is the first system
         // block; two reads of the same template must produce
         // byte-identical bytes so the prefix stays warm.
-        RoleSkillService service = new RoleSkillService();
+        RoleSkillService service = bootedService();
         String first = service.generateForTask("acme/x", "branch", "id", "main");
         String second = service.generateForTask("acme/x", "branch", "id", "main");
 
         assertThat(first).isEqualTo(second);
+    }
+
+    @Test
+    void taskTemplateInlinesTheConceptPreamble()
+            throws IOException
+    {
+        // The preamble bullets each carry the seed concept's name in
+        // backticks plus the one-line definition. Pin the names so a
+        // future change to TASK_PREAMBLE_CONCEPTS is caught by the
+        // test rather than silently changing every new task's prefix.
+        RoleSkillService service = bootedService();
+
+        String body = service.generateForTask("acme/x", "b", "t", "main");
+
+        assertThat(body).contains("Vocabulary (the system uses these exact terms):");
+        assertThat(body).contains("`task` — One unit of work within a thread");
+        assertThat(body).contains("`thread` — A long-lived AI conversation");
+        assertThat(body).contains("`trunk` — The long-lived assistant thread");
+        assertThat(body).contains("`pr` — A GitHub pull request");
+        assertThat(body).contains("`ship` — Finalise the current task");
+        assertThat(body).contains("`next` — Park the current task at AWAITING_REVIEW");
+        assertThat(body).contains("`awaiting_review` — A task whose agent finished");
     }
 }

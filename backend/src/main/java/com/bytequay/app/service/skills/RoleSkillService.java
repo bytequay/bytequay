@@ -13,12 +13,18 @@
  */
 package com.bytequay.app.service.skills;
 
+import com.bytequay.app.service.concepts.ConceptRegistry;
+import com.bytequay.app.service.concepts.ConceptSpec;
 import org.springframework.core.io.ClassPathResource;
 import org.springframework.stereotype.Service;
 
 import java.io.IOException;
 import java.io.UncheckedIOException;
 import java.nio.charset.StandardCharsets;
+import java.util.List;
+import java.util.Optional;
+
+import static java.util.Objects.requireNonNull;
 
 /**
  * Resolves the role skill text the CLI / API lane feeds as the
@@ -35,8 +41,17 @@ import java.nio.charset.StandardCharsets;
  *       prefix cache hashes that prefix verbatim).</li>
  * </ul>
  *
- * Reviewer / lead role composition lives with the review-panel work;
- * neither is built here.
+ * <p>A small, stable preamble of {@code @Concept} one-liners is
+ * baked into the task role skill at creation time so the agent
+ * always knows what the system means by "task", "ship", or
+ * "AWAITING_REVIEW" without a separate {@code lookup_term} call.
+ * Because the preamble is composed once and frozen, the prefix
+ * cache stays valid even if a definition is later edited via a
+ * Saved View — the task that was created against the old wording
+ * keeps it; new tasks pick up the new wording.
+ *
+ * <p>Reviewer / lead role composition lives with the review-panel
+ * work; neither is built here.
  */
 @Service
 public class RoleSkillService
@@ -44,13 +59,24 @@ public class RoleSkillService
     private static final String TRUNK_RESOURCE = "skills/trunk-role.md";
     private static final String TASK_RESOURCE = "skills/task-role.md";
 
+    /** The fixed catalogue of concepts whose one-liners get baked
+     *  into the task role preamble. Stable across releases — adding
+     *  or removing a name here is a deliberate, reviewed change
+     *  because every existing frozen task carries the version it
+     *  was composed against. */
+    static final List<String> TASK_PREAMBLE_CONCEPTS = List.of(
+            "task", "thread", "trunk", "pr",
+            "ship", "next", "awaiting_review");
+
     private final String trunkTemplate;
     private final String taskTemplate;
+    private final ConceptRegistry concepts;
 
-    public RoleSkillService()
+    public RoleSkillService(ConceptRegistry concepts)
     {
         this.trunkTemplate = loadResource(TRUNK_RESOURCE);
         this.taskTemplate = loadResource(TASK_RESOURCE);
+        this.concepts = requireNonNull(concepts, "concepts is null");
     }
 
     /**
@@ -79,7 +105,34 @@ public class RoleSkillService
                 .replace("{{repo}}", nvl(repo, "(unset)"))
                 .replace("{{branch}}", nvl(branch, "(unset)"))
                 .replace("{{taskId}}", nvl(taskId, "(unset)"))
-                .replace("{{baseBranch}}", nvl(baseBranch, "(unset)"));
+                .replace("{{baseBranch}}", nvl(baseBranch, "(unset)"))
+                .replace("{{conceptPreamble}}", buildConceptPreamble());
+    }
+
+    /** Render the preamble as a small bullet list — one line per
+     *  concept, name in backticks followed by the one-line definition.
+     *  Always deterministic for a given registry state because
+     *  {@link #TASK_PREAMBLE_CONCEPTS} is a fixed ordered list. */
+    private String buildConceptPreamble()
+    {
+        StringBuilder sb = new StringBuilder();
+        sb.append("Vocabulary (the system uses these exact terms):\n");
+        for (String name : TASK_PREAMBLE_CONCEPTS) {
+            Optional<ConceptSpec> spec = concepts.byName(name);
+            sb.append("- `").append(name).append("` — ");
+            if (spec.isPresent() && !spec.get().oneLineDefinition().isEmpty()) {
+                sb.append(spec.get().oneLineDefinition());
+            }
+            else {
+                // Concept removed from the registry since the
+                // preamble list was last reviewed — keep the bullet
+                // so the list still tells the human "this name is in
+                // the preamble" but flag the gap explicitly.
+                sb.append("(definition unavailable)");
+            }
+            sb.append('\n');
+        }
+        return sb.toString().stripTrailing();
     }
 
     private static String nvl(String s, String fallback)

@@ -13,6 +13,7 @@
  */
 package com.bytequay.app.service.skills;
 
+import com.bytequay.app.service.concepts.ConceptRegistry;
 import com.bytequay.app.service.tools.ToolContext;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -27,6 +28,8 @@ import java.util.Comparator;
 import java.util.List;
 import java.util.Locale;
 import java.util.Optional;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 import static java.util.Objects.requireNonNull;
 
@@ -55,11 +58,20 @@ public class SkillMaterializer
 {
     private static final Logger log = LoggerFactory.getLogger(SkillMaterializer.class);
 
-    private final SkillManifestService manifest;
+    /** Matches a {@code {{concept:NAME}}} placeholder in a skill body.
+     *  Names follow the same grammar the concept registry enforces —
+     *  lowercase letters / digits / underscores / dashes — so a stray
+     *  template like {@code {{concept: }} } isn't misread as a hit. */
+    private static final Pattern CONCEPT_PLACEHOLDER =
+            Pattern.compile("\\{\\{concept:([a-z0-9][a-z0-9_-]*)\\}\\}");
 
-    public SkillMaterializer(SkillManifestService manifest)
+    private final SkillManifestService manifest;
+    private final ConceptRegistry concepts;
+
+    public SkillMaterializer(SkillManifestService manifest, ConceptRegistry concepts)
     {
         this.manifest = requireNonNull(manifest, "manifest is null");
+        this.concepts = requireNonNull(concepts, "concepts is null");
     }
 
     /**
@@ -142,13 +154,48 @@ public class SkillMaterializer
             // body read could surface an empty body. Skip silently.
             return;
         }
-        String contents = render(entry, body.get());
+        String contents = render(entry, substituteConcepts(body.get()));
         try {
             Files.writeString(folder.resolve("SKILL.md"), contents, StandardCharsets.UTF_8);
         }
         catch (IOException e) {
             throw new UncheckedIOException("write SKILL.md for " + entry.name(), e);
         }
+    }
+
+    /**
+     * Replace every {@code {{concept:NAME}}} placeholder in
+     * {@code body} with the canonical definition of the named
+     * concept. An unresolved name (no APP / WORKSPACE / USER spec
+     * registered under it) is left in place so the human sees the
+     * gap on disk rather than silently losing the placeholder.
+     *
+     * <p>Resolves through {@link ConceptRegistry#byName} so the
+     * USER &gt; WORKSPACE &gt; REPO &gt; APP specificity rule
+     * applies — a saved view overrides the workspace glossary
+     * which overrides the seed.
+     */
+    String substituteConcepts(String body)
+    {
+        if (body == null || body.isEmpty()) {
+            return body;
+        }
+        Matcher m = CONCEPT_PLACEHOLDER.matcher(body);
+        StringBuilder out = new StringBuilder(body.length());
+        boolean any = false;
+        while (m.find()) {
+            any = true;
+            String name = m.group(1);
+            String replacement = concepts.byName(name)
+                    .map(spec -> spec.definition().isBlank() ? m.group() : spec.definition())
+                    .orElse(m.group());
+            m.appendReplacement(out, Matcher.quoteReplacement(replacement));
+        }
+        if (!any) {
+            return body;
+        }
+        m.appendTail(out);
+        return out.toString();
     }
 
     /** Minimal frontmatter + body. The frontmatter mirrors the

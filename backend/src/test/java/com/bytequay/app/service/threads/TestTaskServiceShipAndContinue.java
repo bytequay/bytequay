@@ -35,6 +35,8 @@ import com.bytequay.app.service.workspaces.WorkspaceService;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
+import org.springframework.context.ApplicationEvent;
+import org.springframework.context.ApplicationEventPublisher;
 
 import java.nio.file.Path;
 import java.time.Instant;
@@ -62,6 +64,16 @@ import static org.mockito.Mockito.when;
  */
 class TestTaskServiceShipAndContinue
 {
+    /** Drops every published event on the floor; the production
+     *  listener (ShipEventMemoryTrigger) is exercised in its own
+     *  test, so suppressing it here keeps these tests focused on
+     *  the ship plumbing. */
+    private static final ApplicationEventPublisher NOOP_PUBLISHER = new ApplicationEventPublisher()
+    {
+        @Override public void publishEvent(ApplicationEvent event) {}
+        @Override public void publishEvent(Object event) {}
+    };
+
     private final ThreadStore threadStore = mock(ThreadStore.class);
     private final TaskStore taskStore = mock(TaskStore.class);
     private final WatchedRepoStore watchedRepoStore = mock(WatchedRepoStore.class);
@@ -78,7 +90,8 @@ class TestTaskServiceShipAndContinue
             threadStore, taskStore, watchedRepoStore, worktreeService,
             git, pullRequests, patResolver,
             registry, workspaces, notifications, mapper,
-            new RoleSkillService(new ConceptRegistry()));
+            new RoleSkillService(new ConceptRegistry()),
+            NOOP_PUBLISHER);
 
     @Test
     void shipAndContinueReapsTheShippedWorktreeAndClearsItsPathOnTheRow()

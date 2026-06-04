@@ -30,10 +30,12 @@ import com.bytequay.app.service.credentials.PatResolver;
 import com.bytequay.app.service.local.GitRunner;
 import com.bytequay.app.service.skills.RoleSkillService;
 import com.bytequay.app.service.workspaces.WorkspaceService;
+import com.bytequay.app.service.workspaces.WorkspaceShipEvent;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.http.HttpStatusCode;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -74,6 +76,7 @@ public class TaskService
     private final NotificationService notificationService;
     private final ObjectMapper mapper;
     private final RoleSkillService roleSkillService;
+    private final ApplicationEventPublisher eventPublisher;
 
     public TaskService(
             ThreadStore threadStore,
@@ -87,7 +90,8 @@ public class TaskService
             WorkspaceService workspaceService,
             NotificationService notificationService,
             ObjectMapper mapper,
-            RoleSkillService roleSkillService)
+            RoleSkillService roleSkillService,
+            ApplicationEventPublisher eventPublisher)
     {
         this.threadStore = requireNonNull(threadStore, "threadStore is null");
         this.taskStore = requireNonNull(taskStore, "taskStore is null");
@@ -101,6 +105,7 @@ public class TaskService
         this.notificationService = requireNonNull(notificationService, "notificationService is null");
         this.mapper = requireNonNull(mapper, "mapper is null");
         this.roleSkillService = requireNonNull(roleSkillService, "roleSkillService is null");
+        this.eventPublisher = requireNonNull(eventPublisher, "eventPublisher is null");
     }
 
     /** All tasks for a thread, ordered by seq ascending. 404 if the
@@ -430,6 +435,14 @@ public class TaskService
                 worktreeService.remove(workingDir, worktreePath.toString(), current.branchName());
             }
 
+            // Phase B: tell the memory subsystem a unit of work just
+            // landed. ShipEventMemoryTrigger listens, dedups within
+            // a 5-minute window, and runs the workspace distiller in
+            // the background so memory catches up as work ships.
+            String workspaceId = thread.workspaceId();
+            if (workspaceId != null && !workspaceId.isBlank()) {
+                eventPublisher.publishEvent(new WorkspaceShipEvent(workspaceId, threadId, taskId));
+            }
             return next;
         }
         catch (IOException e) {

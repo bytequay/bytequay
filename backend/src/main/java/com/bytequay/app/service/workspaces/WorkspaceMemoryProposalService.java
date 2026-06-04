@@ -17,6 +17,7 @@ import com.bytequay.app.domain.Workspace;
 import com.bytequay.app.domain.WorkspaceMemoryProposal;
 import com.bytequay.app.repository.AppSettingsStore;
 import com.bytequay.app.repository.AppSettingsStore.Key;
+import com.bytequay.app.repository.MemoryItemStore;
 import com.bytequay.app.repository.WorkspaceMemoryProposalStore;
 import com.bytequay.app.service.threads.CheckpointSummaryResult;
 import org.slf4j.Logger;
@@ -53,15 +54,21 @@ public class WorkspaceMemoryProposalService
     private final WorkspaceService workspaces;
     private final WorkspaceMemoryProposalStore store;
     private final AppSettingsStore appSettings;
+    private final WorkspaceMemoryProposalParser parser;
+    private final MemoryItemService memoryItems;
 
     public WorkspaceMemoryProposalService(
             WorkspaceService workspaces,
             WorkspaceMemoryProposalStore store,
-            AppSettingsStore appSettings)
+            AppSettingsStore appSettings,
+            WorkspaceMemoryProposalParser parser,
+            MemoryItemService memoryItems)
     {
         this.workspaces = requireNonNull(workspaces, "workspaces is null");
         this.store = requireNonNull(store, "store is null");
         this.appSettings = requireNonNull(appSettings, "appSettings is null");
+        this.parser = requireNonNull(parser, "parser is null");
+        this.memoryItems = requireNonNull(memoryItems, "memoryItems is null");
     }
 
     public Optional<WorkspaceMemoryProposal> find(String workspaceId)
@@ -109,6 +116,20 @@ public class WorkspaceMemoryProposalService
         // protects against an apply landing on top of a hand-edit
         // that landed during the distillation roundtrip.
         store.save(proposal);
+        // Phase B: in parallel with the blob proposal, parse the
+        // proposed_md into typed memory_item rows so recall_memory /
+        // lookup_memory and the per-item banner can see them. v1
+        // keeps both shapes alive; the blob path remains the
+        // user-facing artifact for the existing banner UI.
+        for (MemoryItemStore.NewItem typed : parser.parse(workspaceId, proposedMd)) {
+            try {
+                memoryItems.propose(typed);
+            }
+            catch (RuntimeException e) {
+                log.warn("Skipping typed memory item for {} (kind={}): {}",
+                        workspaceId, typed.kind(), e.getMessage());
+            }
+        }
         if (isAutoPromoteEnabled()) {
             try {
                 apply(workspaceId);

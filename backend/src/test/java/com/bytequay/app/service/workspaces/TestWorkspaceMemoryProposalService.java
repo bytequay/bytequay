@@ -42,8 +42,10 @@ class TestWorkspaceMemoryProposalService
     private final InMemoryProposalStore store = new InMemoryProposalStore();
     private final AppSettingsStore appSettings =
             mock(AppSettingsStore.class);
+    private final WorkspaceMemoryProposalParser parser = new WorkspaceMemoryProposalParser();
+    private final MemoryItemService memoryItems = mock(MemoryItemService.class);
     private final WorkspaceMemoryProposalService service =
-            new WorkspaceMemoryProposalService(workspaces, store, appSettings);
+            new WorkspaceMemoryProposalService(workspaces, store, appSettings, parser, memoryItems);
 
     @Test
     void proposeStoresTheUpsertWhenHaikuOutputDiffersFromCurrentMemory()

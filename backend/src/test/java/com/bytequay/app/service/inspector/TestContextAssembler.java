@@ -13,6 +13,12 @@
  */
 package com.bytequay.app.service.inspector;
 
+import com.bytequay.app.domain.MemoryItem;
+import com.bytequay.app.domain.MemoryItemConfidence;
+import com.bytequay.app.domain.MemoryItemKind;
+import com.bytequay.app.domain.MemoryItemOrigin;
+import com.bytequay.app.domain.MemoryItemScopeKind;
+import com.bytequay.app.domain.MemoryItemSource;
 import com.bytequay.app.domain.Task;
 import com.bytequay.app.domain.TaskStatus;
 import com.bytequay.app.domain.Thread;
@@ -209,6 +215,102 @@ class TestContextAssembler
         ContextSection history = ctx.sections().get(6);
         assertThat(history.kind()).isEqualTo(SectionKind.HISTORY);
         assertThat(history.body()).contains("hello").contains("hi");
+    }
+
+    @Test
+    void brainSectionCarriesOneProvenanceEntry()
+    {
+        when(threadStore.findThreadById("th-1")).thenReturn(Optional.of(thread("th-1", "ws-1")));
+        when(workspaces.getMemory("ws-1")).thenReturn("workspace memory body");
+
+        AssembledContext ctx = assembler.forThread("th-1");
+
+        ContextSection brain = ctx.sections().get(2);
+        assertThat(brain.kind()).isEqualTo(SectionKind.BRAIN);
+        assertThat(brain.sources()).hasSize(1);
+        assertThat(brain.sources().get(0).kind()).isEqualTo("brain");
+        assertThat(brain.sources().get(0).href()).isEqualTo("/settings/workspace-memory");
+    }
+
+    @Test
+    void conceptPreambleSectionTagsEveryConcept()
+    {
+        when(threadStore.findThreadById("th-1")).thenReturn(Optional.of(thread("th-1", "ws-1")));
+
+        AssembledContext ctx = assembler.forThread("th-1");
+
+        ContextSection preamble = ctx.sections().get(3);
+        assertThat(preamble.kind()).isEqualTo(SectionKind.CONCEPT_PREAMBLE);
+        assertThat(preamble.sources())
+                .extracting(p -> p.kind()).containsOnly("concept");
+        assertThat(preamble.sources())
+                .extracting(p -> p.label())
+                .contains("task", "thread", "trunk", "pr", "ship", "next", "awaiting_review");
+        assertThat(preamble.sources().get(0).href()).startsWith("/settings/concepts#");
+    }
+
+    @Test
+    void memorySectionTagsEveryAppliedItem()
+    {
+        when(threadStore.findThreadById("th-1")).thenReturn(Optional.of(thread("th-1", "ws-1")));
+        MemoryItem item = new MemoryItem(
+                42L,
+                MemoryItemScopeKind.WORKSPACE,
+                "ws-1",
+                MemoryItemKind.DECISION,
+                "Pin Spring Boot 3.5.",
+                List.of(MemoryItemSource.thread("t-1")),
+                MemoryItemConfidence.HIGH,
+                List.of(),
+                null, null,
+                Instant.parse("2026-06-04T00:00:00Z"),
+                Instant.parse("2026-06-04T00:00:00Z"),
+                MemoryItemOrigin.DISTILL);
+        when(memoryItems.listLive(any(), eq("ws-1"))).thenReturn(List.of(item));
+        when(memoryItems.renderToMarkdown(any(), eq("ws-1")))
+                .thenReturn("## Decisions\n\n- Pin Spring Boot 3.5.\n");
+
+        AssembledContext ctx = assembler.forThread("th-1");
+
+        ContextSection memory = ctx.sections().get(5);
+        assertThat(memory.kind()).isEqualTo(SectionKind.MEMORY);
+        assertThat(memory.sources()).hasSize(1);
+        assertThat(memory.sources().get(0).kind()).isEqualTo("memory_item");
+        assertThat(memory.sources().get(0).href()).isEqualTo("/settings/workspace-memory#item-42");
+    }
+
+    @Test
+    void historySectionTagsEveryMessage()
+    {
+        when(threadStore.findThreadById("th-1")).thenReturn(Optional.of(thread("th-1", "ws-1")));
+        when(threadStore.listRecentMessages(eq("th-1"), anyInt()))
+                .thenReturn(List.of(
+                        message("m-1", "th-1", "{\"text\":\"hi\"}"),
+                        message("m-2", "th-1", "{\"text\":\"hello\"}")));
+
+        AssembledContext ctx = assembler.forThread("th-1");
+
+        ContextSection history = ctx.sections().get(6);
+        assertThat(history.sources()).hasSize(2);
+        assertThat(history.sources()).allSatisfy(p -> {
+            assertThat(p.kind()).isEqualTo("history");
+            assertThat(p.label()).contains("seq");
+        });
+    }
+
+    @Test
+    void toolsSectionTagsEveryToolByName()
+    {
+        when(threadStore.findThreadById("th-1")).thenReturn(Optional.of(thread("th-1", "ws-1")));
+
+        AssembledContext ctx = assembler.forThread("th-1");
+
+        ContextSection tools = ctx.sections().get(0);
+        assertThat(tools.kind()).isEqualTo(SectionKind.TOOLS);
+        // Three built-in skill tools always present for ANTHROPIC.
+        assertThat(tools.sources()).hasSizeGreaterThanOrEqualTo(3);
+        assertThat(tools.sources()).extracting(p -> p.label())
+                .contains("list_skills", "list_tools", "load_skill");
     }
 
     @Test

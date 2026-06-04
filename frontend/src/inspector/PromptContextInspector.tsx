@@ -205,6 +205,8 @@ function PromptContextInspector({ scope, threadId, taskId, onClose }: Props) {
                       <strong>{activeSection.label}</strong>
                       <span style={mainHeaderMetaStyle}>
                         {' · '}{activeSection.tokenCount.toLocaleString()} tokens
+                        {activeSection.sources.length > 0
+                          && ` · ${activeSection.sources.length} source${activeSection.sources.length === 1 ? '' : 's'}`}
                       </span>
                     </div>
                   </div>
@@ -213,6 +215,35 @@ function PromptContextInspector({ scope, threadId, taskId, onClose }: Props) {
                       ? '(empty for this turn)'
                       : activeSection.body}
                   </pre>
+                  {activeSection.sources.length > 0 && (
+                    <div style={provenanceRowStyle} aria-label="Provenance">
+                      <span style={provenanceLabelStyle}>Sources</span>
+                      {activeSection.sources.map((src, idx) => {
+                        const label = `${src.kind}:${src.label}`;
+                        if (src.href !== null) {
+                          return (
+                            <a
+                              key={idx}
+                              href={src.href}
+                              style={provenanceChipLinkStyle}
+                              title={src.href}
+                              onClick={ev => {
+                                // Internal route — don't let the renderer
+                                // try to navigate away from the app shell.
+                                ev.preventDefault();
+                                window.location.hash = src.href!;
+                              }}
+                            >
+                              {label}
+                            </a>
+                          );
+                        }
+                        return (
+                          <span key={idx} style={provenanceChipStyle}>{label}</span>
+                        );
+                      })}
+                    </div>
+                  )}
                 </>
               )}
             </section>
@@ -462,6 +493,42 @@ const wirePreStyle: React.CSSProperties = {
   whiteSpace: 'pre',
   background: '#1e1e26',
   color: '#dadae0',
+};
+
+const provenanceRowStyle: React.CSSProperties = {
+  display: 'flex',
+  flexWrap: 'wrap',
+  alignItems: 'center',
+  gap: 6,
+  padding: '8px 14px',
+  borderTop: '1px solid #e2e2e8',
+  background: '#f4f4fa',
+  fontSize: 11,
+};
+
+const provenanceLabelStyle: React.CSSProperties = {
+  textTransform: 'uppercase',
+  letterSpacing: 0.4,
+  color: '#6b6b78',
+  fontSize: 10,
+  marginRight: 4,
+};
+
+const provenanceChipStyle: React.CSSProperties = {
+  display: 'inline-block',
+  padding: '2px 8px',
+  border: '1px solid #c8c8d0',
+  background: 'white',
+  borderRadius: 4,
+  fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
+  color: '#3b3b48',
+};
+
+const provenanceChipLinkStyle: React.CSSProperties = {
+  ...provenanceChipStyle,
+  cursor: 'pointer',
+  textDecoration: 'none',
+  color: '#1f5fbf',
 };
 
 export default PromptContextInspector;

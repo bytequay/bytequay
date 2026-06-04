@@ -13,6 +13,7 @@
  */
 package com.bytequay.app.service.inspector;
 
+import com.bytequay.app.domain.MemoryItem;
 import com.bytequay.app.domain.MemoryItemScopeKind;
 import com.bytequay.app.domain.Task;
 import com.bytequay.app.domain.Thread;
@@ -35,6 +36,7 @@ import org.springframework.web.server.ResponseStatusException;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Locale;
 
 import static java.util.Objects.requireNonNull;
 
@@ -161,10 +163,16 @@ public class ContextAssembler
     {
         String brainBody = workspaceId == null ? "" : safeMemory(workspaceId);
         String preamble = roleSkills.buildConceptPreamble();
-        String manifestBody = renderSkillManifest();
+        List<SkillManifestEntry> skillEntries = skillManifest.query(
+                SkillManifestQuery.forRepoContext(null, null));
+        String manifestBody = renderSkillManifest(skillEntries);
+        List<MemoryItem> liveMemory = workspaceId == null
+                ? List.of()
+                : memoryItems.listLive(MemoryItemScopeKind.WORKSPACE, workspaceId);
         String memoryBody = workspaceId == null ? ""
                 : memoryItems.renderToMarkdown(MemoryItemScopeKind.WORKSPACE, workspaceId);
-        List<String> history = loadHistory(thread.id());
+        List<ThreadMessage> messages = threadStore.listRecentMessages(thread.id(), MAX_HISTORY_MESSAGES);
+        List<String> history = messages.stream().map(m -> nullToEmpty(m.contentJson())).toList();
         String newTurn = "";
 
         // Wire bytes via the production assembler — identical to
@@ -181,7 +189,8 @@ public class ContextAssembler
                 newTurn);
 
         List<ContextSection> sections = buildSections(
-                wire, roleBody, brainBody, preamble, manifestBody, memoryBody, history, newTurn);
+                scope, wire, roleBody, brainBody, preamble, manifestBody, memoryBody,
+                skillEntries, liveMemory, messages, newTurn);
         int totalTokens = sections.stream().mapToInt(ContextSection::tokenCount).sum();
         ContextMeta meta = new ContextMeta(
                 DEFAULT_MODEL,
@@ -197,37 +206,177 @@ public class ContextAssembler
     }
 
     private static List<ContextSection> buildSections(
+            ContextScope scope,
             TurnRequest wire,
             String roleBody,
             String brainBody,
             String preamble,
             String manifestBody,
             String memoryBody,
-            List<String> history,
+            List<SkillManifestEntry> skillEntries,
+            List<MemoryItem> liveMemory,
+            List<ThreadMessage> messages,
             String newTurn)
     {
         List<ContextSection> sections = new ArrayList<>(8);
         sections.add(section(SectionKind.TOOLS, "① tools",
-                String.join("\n", wire.tools())));
-        sections.add(section(SectionKind.ROLE, "② role", nullToEmpty(roleBody)));
-        sections.add(section(SectionKind.BRAIN, "③ brain", nullToEmpty(brainBody)));
+                String.join("\n", wire.tools()),
+                toolProvenance(wire.tools())));
+        sections.add(section(SectionKind.ROLE, "② role", nullToEmpty(roleBody),
+                roleProvenance(scope, roleBody)));
+        sections.add(section(SectionKind.BRAIN, "③ brain", nullToEmpty(brainBody),
+                brainProvenance(brainBody)));
         sections.add(section(SectionKind.CONCEPT_PREAMBLE, "④ concepts",
-                nullToEmpty(preamble)));
+                nullToEmpty(preamble),
+                conceptPreambleProvenance(preamble)));
         sections.add(section(SectionKind.SKILL_MANIFEST, "⑤ skills",
-                nullToEmpty(manifestBody)));
+                nullToEmpty(manifestBody),
+                skillProvenance(skillEntries)));
         sections.add(section(SectionKind.MEMORY, "⑥ memory",
-                nullToEmpty(memoryBody)));
+                nullToEmpty(memoryBody),
+                memoryProvenance(liveMemory)));
         sections.add(section(SectionKind.HISTORY, "⑦ history",
-                String.join("\n", history == null ? List.of() : history)));
+                String.join("\n", messages.stream().map(m -> nullToEmpty(m.contentJson())).toList()),
+                historyProvenance(messages)));
         sections.add(section(SectionKind.NEW_TURN, "⑧ this turn",
-                nullToEmpty(newTurn)));
+                nullToEmpty(newTurn), List.of()));
         return sections;
     }
 
-    private static ContextSection section(SectionKind kind, String label, String body)
+    private static ContextSection section(
+            SectionKind kind, String label, String body, List<Provenance> sources)
     {
         String trimmed = body == null ? "" : body;
-        return new ContextSection(kind, label, trimmed, estimateTokens(trimmed), List.of());
+        return new ContextSection(kind, label, trimmed, estimateTokens(trimmed), sources);
+    }
+
+    // ── Per-axis provenance builders ───────────────────────────────
+
+    private static List<Provenance> toolProvenance(List<String> tools)
+    {
+        if (tools == null || tools.isEmpty()) {
+            return List.of();
+        }
+        List<Provenance> out = new ArrayList<>(tools.size());
+        for (String toolJson : tools) {
+            String name = extractToolName(toolJson);
+            out.add(new Provenance("tool", name, null, null));
+        }
+        return out;
+    }
+
+    private static List<Provenance> roleProvenance(ContextScope scope, String roleBody)
+    {
+        if (roleBody == null || roleBody.isEmpty()) {
+            return List.of();
+        }
+        String label = scope == ContextScope.TRUNK ? "trunk role template" : "task role skill";
+        return List.of(new Provenance("role", label, "/settings/skills#role", null));
+    }
+
+    private static List<Provenance> brainProvenance(String brainBody)
+    {
+        if (brainBody == null || brainBody.isEmpty()) {
+            return List.of();
+        }
+        return List.of(new Provenance("brain", "WORKSPACE.md",
+                "/settings/workspace-memory", null));
+    }
+
+    private static List<Provenance> conceptPreambleProvenance(String preamble)
+    {
+        if (preamble == null || preamble.isEmpty()) {
+            return List.of();
+        }
+        List<Provenance> out = new ArrayList<>(RoleSkillService.TASK_PREAMBLE_CONCEPTS.size());
+        for (String name : RoleSkillService.TASK_PREAMBLE_CONCEPTS) {
+            out.add(new Provenance("concept", name,
+                    "/settings/concepts#" + name, null));
+        }
+        return out;
+    }
+
+    private static List<Provenance> skillProvenance(List<SkillManifestEntry> entries)
+    {
+        if (entries == null || entries.isEmpty()) {
+            return List.of();
+        }
+        List<Provenance> out = new ArrayList<>();
+        int rendered = 0;
+        for (SkillManifestEntry e : entries) {
+            if (rendered >= SKILL_MANIFEST_LIMIT) {
+                break;
+            }
+            out.add(new Provenance("skill", e.name(),
+                    "/settings/skills#" + slug(e.name()), null));
+            rendered++;
+        }
+        return out;
+    }
+
+    private static List<Provenance> memoryProvenance(List<MemoryItem> live)
+    {
+        if (live == null || live.isEmpty()) {
+            return List.of();
+        }
+        List<Provenance> out = new ArrayList<>(live.size());
+        for (MemoryItem item : live) {
+            out.add(new Provenance(
+                    "memory_item",
+                    "item " + item.id() + " · " + item.kind().name().toLowerCase(Locale.ROOT),
+                    "/settings/workspace-memory#item-" + item.id(),
+                    null));
+        }
+        return out;
+    }
+
+    private static List<Provenance> historyProvenance(List<ThreadMessage> messages)
+    {
+        if (messages == null || messages.isEmpty()) {
+            return List.of();
+        }
+        List<Provenance> out = new ArrayList<>(messages.size());
+        for (ThreadMessage m : messages) {
+            String label = m.role() + " · seq " + m.seq();
+            out.add(new Provenance("history", label, null, null));
+        }
+        return out;
+    }
+
+    /** Extract the tool name from a tool-definition JSON snippet.
+     *  Looks for {@code "name":"..."} verbatim — the SkillTools
+     *  constants and downstream tool registrations all use that
+     *  shape, so a one-line scan beats parsing the full JSON. */
+    private static String extractToolName(String toolJson)
+    {
+        if (toolJson == null) {
+            return "?";
+        }
+        int idx = toolJson.indexOf("\"name\"");
+        if (idx < 0) {
+            return "?";
+        }
+        int colon = toolJson.indexOf(':', idx);
+        if (colon < 0) {
+            return "?";
+        }
+        int quote = toolJson.indexOf('"', colon + 1);
+        if (quote < 0) {
+            return "?";
+        }
+        int end = toolJson.indexOf('"', quote + 1);
+        if (end < 0) {
+            return "?";
+        }
+        return toolJson.substring(quote + 1, end);
+    }
+
+    private static String slug(String name)
+    {
+        if (name == null) {
+            return "";
+        }
+        return name.toLowerCase(Locale.ROOT).replaceAll("[^a-z0-9]+", "-");
     }
 
     private static int estimateTokens(String body)
@@ -253,11 +402,9 @@ public class ContextAssembler
         }
     }
 
-    private String renderSkillManifest()
+    private static String renderSkillManifest(List<SkillManifestEntry> entries)
     {
-        SkillManifestQuery query = SkillManifestQuery.forRepoContext(null, null);
-        List<SkillManifestEntry> entries = skillManifest.query(query);
-        if (entries.isEmpty()) {
+        if (entries == null || entries.isEmpty()) {
             return "";
         }
         StringBuilder out = new StringBuilder();
@@ -275,22 +422,5 @@ public class ContextAssembler
             rendered++;
         }
         return out.toString().stripTrailing();
-    }
-
-    private List<String> loadHistory(String threadId)
-    {
-        List<ThreadMessage> rows = threadStore.listRecentMessages(threadId, MAX_HISTORY_MESSAGES);
-        if (rows.isEmpty()) {
-            return List.of();
-        }
-        List<String> out = new ArrayList<>(rows.size());
-        for (ThreadMessage row : rows) {
-            // contentJson is the wire payload the lane already
-            // serialised — re-rendering would create drift. The
-            // inspector shows raw JSON; the section view labels it.
-            String body = row.contentJson() == null ? "" : row.contentJson();
-            out.add(body);
-        }
-        return out;
     }
 }

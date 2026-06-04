@@ -64,7 +64,7 @@ public class RoleSkillService
      *  or removing a name here is a deliberate, reviewed change
      *  because every existing frozen task carries the version it
      *  was composed against. */
-    static final List<String> TASK_PREAMBLE_CONCEPTS = List.of(
+    public static final List<String> TASK_PREAMBLE_CONCEPTS = List.of(
             "task", "thread", "trunk", "pr",
             "ship", "next", "awaiting_review");
 

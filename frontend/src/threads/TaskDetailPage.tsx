@@ -631,17 +631,6 @@ export default function TaskDetailPage({
               </div>
 
               <section style={railSectionStyle}>
-                <button
-                  type="button"
-                  onClick={() => setInspectorOpen(true)}
-                  style={viewDiffBtnStyle}
-                  title="Inspect the assembled prompt context (read-only)"
-                >
-                  Context inspector
-                </button>
-              </section>
-
-              <section style={railSectionStyle}>
                 <div style={railHeadStyle}>
                   <span>COMMITS</span>
                   <span style={railHeadMutedStyle}>
@@ -675,6 +664,16 @@ export default function TaskDetailPage({
                   tokensIn={task?.tokensIn ?? 0}
                   tokensOut={task?.tokensOut ?? 0}
                 />
+                <button
+                  type="button"
+                  onClick={() => setInspectorOpen(true)}
+                  style={viewContextBtnStyle}
+                  title="Inspect the assembled prompt for this task (read-only)"
+                >
+                  <span aria-hidden>◧</span>
+                  View full context
+                  <span style={viewContextKbdStyle}>⌘⇧I</span>
+                </button>
               </section>
 
               <section style={railSectionStyle}>
@@ -2274,6 +2273,34 @@ const viewDiffBtnStyle: React.CSSProperties = {
   borderRadius: 8,
   cursor: 'pointer',
   fontWeight: 600,
+};
+
+const viewContextBtnStyle: React.CSSProperties = {
+  marginTop: 8,
+  width: '100%',
+  display: 'flex',
+  alignItems: 'center',
+  justifyContent: 'center',
+  gap: 7,
+  padding: 6,
+  border: '1px dashed #5eead4',
+  background: 'rgba(13,148,136,0.04)',
+  borderRadius: 8,
+  fontSize: 11.5,
+  fontWeight: 600,
+  color: TEAL,
+  cursor: 'pointer',
+};
+
+const viewContextKbdStyle: React.CSSProperties = {
+  fontFamily: 'var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace)',
+  fontSize: 9.5,
+  color: 'var(--text-muted, #6b6b78)',
+  background: 'rgba(255,255,255,0.8)',
+  padding: '1px 5px',
+  borderRadius: 5,
+  border: '1px solid var(--border-soft, rgba(0,0,0,0.08))',
+  marginLeft: 2,
 };
 
 const shipPrimaryStyle: React.CSSProperties = {

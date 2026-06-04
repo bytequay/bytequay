@@ -13,6 +13,8 @@
  */
 package com.bytequay.app.web;
 
+import com.bytequay.app.domain.MemoryItem;
+import com.bytequay.app.domain.MemoryItemScopeKind;
 import com.bytequay.app.domain.WorkModel;
 import com.bytequay.app.domain.Workspace;
 import com.bytequay.app.domain.WorkspaceCardDto;
@@ -20,6 +22,7 @@ import com.bytequay.app.domain.WorkspaceMemoryProposal;
 import com.bytequay.app.domain.WorkspaceRepo;
 import com.bytequay.app.service.WorkspaceInsightsService;
 import com.bytequay.app.service.WorkspaceInsightsService.Insights;
+import com.bytequay.app.service.workspaces.MemoryItemService;
 import com.bytequay.app.service.workspaces.WorkspaceMemoryDistiller;
 import com.bytequay.app.service.workspaces.WorkspaceMemoryProposalService;
 import com.bytequay.app.service.workspaces.WorkspaceService;
@@ -55,17 +58,20 @@ public class WorkspaceController
     private final WorkspaceMemoryDistiller distiller;
     private final WorkspaceMemoryProposalService proposals;
     private final WorkspaceInsightsService insights;
+    private final MemoryItemService memoryItems;
 
     public WorkspaceController(
             WorkspaceService workspaces,
             WorkspaceMemoryDistiller distiller,
             WorkspaceMemoryProposalService proposals,
-            WorkspaceInsightsService insights)
+            WorkspaceInsightsService insights,
+            MemoryItemService memoryItems)
     {
         this.workspaces = requireNonNull(workspaces, "workspaces is null");
         this.distiller = requireNonNull(distiller, "distiller is null");
         this.proposals = requireNonNull(proposals, "proposals is null");
         this.insights = requireNonNull(insights, "insights is null");
+        this.memoryItems = requireNonNull(memoryItems, "memoryItems is null");
     }
 
     /** GET /api/workspaces/{id}/insights?window=7d */
@@ -217,6 +223,58 @@ public class WorkspaceController
     public void discardMemoryProposal(@PathVariable String id)
     {
         proposals.discard(id);
+    }
+
+    // ── Typed memory items (Phase A) ──────────────────────────────
+    // Sit alongside the blob-proposal endpoints above for back-
+    // compat. The blob path continues to feed the existing UI; new
+    // surfaces drive through these typed-item endpoints + the
+    // recall_memory / lookup_memory meta-tools (Phase C).
+
+    /** List every pending typed memory item for the workspace. */
+    @GetMapping("/{id}/memory/items/pending")
+    public List<MemoryItem> listPendingMemoryItems(@PathVariable String id)
+    {
+        return memoryItems.listPending(MemoryItemScopeKind.WORKSPACE, id);
+    }
+
+    /** List every live (applied, non-superseded, non-resolved)
+     *  typed memory item for the workspace. */
+    @GetMapping("/{id}/memory/items/live")
+    public List<MemoryItem> listLiveMemoryItems(@PathVariable String id)
+    {
+        return memoryItems.listLive(MemoryItemScopeKind.WORKSPACE, id);
+    }
+
+    /** Apply one pending item. */
+    @PostMapping("/{id}/memory/items/{itemId}/apply")
+    public MemoryItem applyMemoryItem(@PathVariable String id, @PathVariable long itemId)
+    {
+        return memoryItems.applyItem(itemId);
+    }
+
+    /** Discard one pending item. */
+    @PostMapping("/{id}/memory/items/{itemId}/discard")
+    public void discardMemoryItem(@PathVariable String id, @PathVariable long itemId)
+    {
+        memoryItems.discardItem(itemId);
+    }
+
+    /** Apply every pending item at the workspace scope in one
+     *  request. Returns the number that flipped. */
+    @PostMapping("/{id}/memory/items/apply-all")
+    public Map<String, Integer> applyAllMemoryItems(@PathVariable String id)
+    {
+        int applied = memoryItems.applyAllPending(MemoryItemScopeKind.WORKSPACE, id);
+        return Map.of("applied", applied);
+    }
+
+    /** Discard every pending item at the workspace scope. */
+    @PostMapping("/{id}/memory/items/discard-all")
+    public Map<String, Integer> discardAllMemoryItems(@PathVariable String id)
+    {
+        int dropped = memoryItems.discardAllPending(MemoryItemScopeKind.WORKSPACE, id);
+        return Map.of("discarded", dropped);
     }
 
     @GetMapping("/{id}/repos")

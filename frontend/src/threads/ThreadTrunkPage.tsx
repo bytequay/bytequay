@@ -24,6 +24,7 @@ import TrunkChat from './TrunkChat';
 import { ConvIndex } from './ConvIndex';
 import { useThreadTasks } from './useThreadTasks';
 import PromptContextInspector from '../inspector/PromptContextInspector';
+import { useInspectorHotkey } from '../inspector/useInspectorHotkey';
 import { ConfirmDialog } from '../workspace/ConfirmDialog';
 
 type Props = {
@@ -119,6 +120,7 @@ export default function ThreadTrunkPage({ threadId, onBack, onOpenTask }: Props)
   const [sending, setSending] = useState(false);
   const [sendError, setSendError] = useState<string | null>(null);
   const [inspectorOpen, setInspectorOpen] = useState(false);
+  useInspectorHotkey(setInspectorOpen);
   const [profile, setProfile] = useState<UserProfileDto | null>(null);
 
   useEffect(() => {

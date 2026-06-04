@@ -26,6 +26,7 @@ import { parseUnifiedDiff, type DiffHunk } from '../diffParse';
 import TaskChat from './TaskChat';
 import { ConvIndex } from './ConvIndex';
 import PromptContextInspector from '../inspector/PromptContextInspector';
+import { useInspectorHotkey } from '../inspector/useInspectorHotkey';
 import { useThreadTasks } from './useThreadTasks';
 
 type Props = {
@@ -88,6 +89,7 @@ export default function TaskDetailPage({
   const [thread, setThread] = useState<ThreadDto | null>(null);
   const [messages, setMessages] = useState<ThreadMessageDto[] | null>(null);
   const [inspectorOpen, setInspectorOpen] = useState(false);
+  useInspectorHotkey(setInspectorOpen);
   const [mode, setMode] = useState<Mode>('conversation');
   const [input, setInput] = useState('');
   const [sending, setSending] = useState(false);

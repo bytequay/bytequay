@@ -112,8 +112,13 @@ public class RoleSkillService
     /** Render the preamble as a small bullet list — one line per
      *  concept, name in backticks followed by the one-line definition.
      *  Always deterministic for a given registry state because
-     *  {@link #TASK_PREAMBLE_CONCEPTS} is a fixed ordered list. */
-    private String buildConceptPreamble()
+     *  {@link #TASK_PREAMBLE_CONCEPTS} is a fixed ordered list.
+     *
+     *  <p>Public so the prompt-context inspector can show this as
+     *  its own ContextSection — the same bytes that {@code
+     *  generateForTask} interpolates into the role skill body, but
+     *  surfaced standalone for the section view. */
+    public String buildConceptPreamble()
     {
         StringBuilder sb = new StringBuilder();
         sb.append("Vocabulary (the system uses these exact terms):\n");

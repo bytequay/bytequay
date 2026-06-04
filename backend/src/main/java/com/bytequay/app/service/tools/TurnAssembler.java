@@ -73,18 +73,49 @@ public class TurnAssembler
             List<String> history,
             String newTurn)
     {
+        return assemble(
+                actionTools, providerShape,
+                roleSkillBody, brainBody,
+                null, null, null,
+                history, newTurn);
+    }
+
+    /**
+     * Extended overload that carries the three additional system
+     * blocks the prompt-context spec calls out (concept preamble,
+     * skill manifest, rendered memory items). The classic 6-arg
+     * overload delegates here with the new blocks set to
+     * {@code null} so existing callers stay byte-identical until
+     * they opt into the wider shape.
+     *
+     * <p>Block order in the assembled {@code systemBlocks} array
+     * matches the spec's serialised order: role skill → brain →
+     * concept preamble → skill manifest → memory items. Blanks /
+     * nulls are skipped so an empty axis doesn't show up as an
+     * empty system message on the wire.
+     */
+    public TurnRequest assemble(
+            List<String> actionTools,
+            ProviderShape providerShape,
+            String roleSkillBody,
+            String brainBody,
+            String conceptPreamble,
+            String skillManifest,
+            String memoryRendered,
+            List<String> history,
+            String newTurn)
+    {
         ImmutableList.Builder<String> tools = ImmutableList.builder();
         tools.addAll(skillToolsFor(providerShape));
         if (actionTools != null) {
             tools.addAll(actionTools);
         }
         ImmutableList.Builder<String> systemBlocks = ImmutableList.builder();
-        if (roleSkillBody != null && !roleSkillBody.isBlank()) {
-            systemBlocks.add(roleSkillBody);
-        }
-        if (brainBody != null && !brainBody.isBlank()) {
-            systemBlocks.add(brainBody);
-        }
+        addIfPresent(systemBlocks, roleSkillBody);
+        addIfPresent(systemBlocks, brainBody);
+        addIfPresent(systemBlocks, conceptPreamble);
+        addIfPresent(systemBlocks, skillManifest);
+        addIfPresent(systemBlocks, memoryRendered);
         ImmutableList<String> historyCopy = history == null
                 ? ImmutableList.of()
                 : ImmutableList.copyOf(history);
@@ -93,6 +124,13 @@ public class TurnAssembler
                 systemBlocks.build(),
                 historyCopy,
                 newTurn == null ? "" : newTurn);
+    }
+
+    private static void addIfPresent(ImmutableList.Builder<String> target, String body)
+    {
+        if (body != null && !body.isBlank()) {
+            target.add(body);
+        }
     }
 
     private static List<String> skillToolsFor(ProviderShape providerShape)

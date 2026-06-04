@@ -36,6 +36,7 @@ const GROUPS: GroupDef[] = [
     links: [
       { id: 'ai-review', label: 'AI', icon: '✦' },
       { id: 'skills', label: 'Skills', icon: '◆' },
+      { id: 'concepts', label: 'Concepts', icon: '◇' },
       { id: 'saved-views', label: 'Saved views', icon: '⌕' },
     ],
   },

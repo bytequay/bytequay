@@ -39,6 +39,7 @@ import type {
   PullRequestDetailDto,
   PullRequestDto,
   AssembledContextDto,
+  ConceptRowDto,
   MemoryItemDto,
   RecentEventDto,
   SavedViewBodyDto,
@@ -105,6 +106,8 @@ const bridge: Bridge = {
     ipcRenderer.invoke('backend:getThreadContext', threadId),
   getTaskContext: (threadId: string, taskId: string): Promise<AssembledContextDto> =>
     ipcRenderer.invoke('backend:getTaskContext', threadId, taskId),
+  listConcepts: (query: { kind?: string; query?: string }): Promise<ConceptRowDto[]> =>
+    ipcRenderer.invoke('backend:listConcepts', query),
   fetchPullRequestDetail: (repo: string, number: number): Promise<PullRequestDetailDto> =>
     ipcRenderer.invoke('backend:pullRequestDetail', repo, number),
   refreshPullRequestDetail: (repo: string, number: number, maxAgeSeconds?: number): Promise<PullRequestDetailDto> =>

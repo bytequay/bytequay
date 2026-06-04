@@ -626,6 +626,21 @@ function registerIpc(): void {
     return res.json();
   });
 
+  // Concept catalog — read-only viewer endpoint behind the
+  // Settings page. Returns the full registry minus runtime
+  // gating (this is a developer surface).
+  ipcMain.handle('backend:listConcepts', async (_event, query: { kind?: string; query?: string }) => {
+    const params = new URLSearchParams();
+    if (query.kind) params.set('kind', query.kind);
+    if (query.query) params.set('query', query.query);
+    const res = await fetch(`${BACKEND_BASE}/api/concepts?${params.toString()}`);
+    if (!res.ok) {
+      const body = await res.text().catch(() => '');
+      throw new Error(`backend list concepts returned ${res.status}: ${body}`);
+    }
+    return res.json();
+  });
+
   ipcMain.handle('backend:markPrViewed', async (_event, prId: number) => {
     const url = new URL(`${BACKEND_BASE}/prs/viewed`);
     url.searchParams.set('id', String(prId));

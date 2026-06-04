@@ -2089,6 +2089,20 @@ export type NotificationDto = {
   readAt: string | null;
 };
 
+/** Row in the Settings → Concepts catalog. Read-only; concepts
+ *  are defined elsewhere (in code via @Concept, or in the brain
+ *  glossary). */
+export type ConceptRowDto = {
+  name: string;
+  kind: 'NOUN' | 'STATE' | 'FILTER' | 'VERB';
+  definition: string;
+  aka: string[];
+  sources: string[];
+  relatedTools: string[];
+  relatedConcepts: string[];
+  scope: 'APP' | 'REPO' | 'WORKSPACE' | 'USER';
+};
+
 /** Prompt-context inspector wire row. Read-only view of what
  *  would be in the agent's prompt; never used to send anything. */
 export type AssembledContextDto = {
@@ -2196,6 +2210,8 @@ export type Bridge = {
   getThreadContext: (threadId: string) => Promise<AssembledContextDto>;
   /** Read-only assembled prompt context for one task. */
   getTaskContext: (threadId: string, taskId: string) => Promise<AssembledContextDto>;
+  /** Settings → Concepts catalog. Read-only registry view. */
+  listConcepts: (query: { kind?: string; query?: string }) => Promise<ConceptRowDto[]>;
   /** Live GitHub search for the user's full closed-PR history (merged
    *  + closed-without-merge). Used by the merge-history page — pages
    *  through GitHub's `is:closed author:@me sort:closed-desc` results. */

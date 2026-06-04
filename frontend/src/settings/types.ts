@@ -26,4 +26,5 @@ export type SettingsSection =
   | 'integrations'
   | 'email'
   | 'saved-views'
+  | 'concepts'
   | 'help';

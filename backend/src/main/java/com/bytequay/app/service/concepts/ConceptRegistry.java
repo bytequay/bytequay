@@ -18,6 +18,8 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.context.event.ContextRefreshedEvent;
 import org.springframework.context.event.EventListener;
+import org.springframework.core.Ordered;
+import org.springframework.core.annotation.Order;
 import org.springframework.core.io.Resource;
 import org.springframework.core.io.support.PathMatchingResourcePatternResolver;
 import org.springframework.core.type.classreading.CachingMetadataReaderFactory;
@@ -83,7 +85,8 @@ public class ConceptRegistry
     private List<ConceptSpec> sorted = List.of();
 
     @EventListener(ContextRefreshedEvent.class)
-    void scan()
+    @Order(Ordered.HIGHEST_PRECEDENCE)
+    public void scan()
             throws IOException
     {
         // Idempotent guard — ContextRefreshedEvent can fire more

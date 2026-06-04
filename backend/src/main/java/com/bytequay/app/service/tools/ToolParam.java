@@ -46,4 +46,15 @@ public @interface ToolParam
      *  snake_case but the Java record component is camelCase. Empty
      *  means "use the record component name verbatim". */
     String wireName() default "";
+
+    /**
+     * Cross-link to the concept axis. When set, each value names a
+     * {@link com.bytequay.app.service.concepts.Concept} the
+     * registry must resolve at scan time; the schema generator
+     * renders an {@code enum} of the values plus a per-value
+     * {@code oneOf[const]+description} block so the agent reads
+     * the meaning of each enum value where it's used, not via a
+     * separate lookup call.
+     */
+    String[] enumFromConcepts() default {};
 }

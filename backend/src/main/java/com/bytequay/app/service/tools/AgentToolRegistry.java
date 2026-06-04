@@ -13,6 +13,8 @@
  */
 package com.bytequay.app.service.tools;
 
+import com.bytequay.app.service.concepts.ConceptRegistry;
+import com.bytequay.app.service.concepts.ConceptSpec;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -76,14 +78,16 @@ public class AgentToolRegistry
 
     private final ApplicationContext context;
     private final ObjectMapper mapper;
+    private final ConceptRegistry concepts;
 
     private List<ToolSpec> specs = List.of();
 
     @Autowired
-    public AgentToolRegistry(ApplicationContext context, ObjectMapper mapper)
+    public AgentToolRegistry(ApplicationContext context, ObjectMapper mapper, ConceptRegistry concepts)
     {
         this.context = requireNonNull(context, "context is null");
         this.mapper = requireNonNull(mapper, "mapper is null");
+        this.concepts = requireNonNull(concepts, "concepts is null");
     }
 
     /** Scan beans only once the whole context has refreshed.
@@ -259,7 +263,7 @@ public class AgentToolRegistry
         return remapped;
     }
 
-    private static ToolSpec buildSpec(Object bean, Method method, AgentTool annotation)
+    private ToolSpec buildSpec(Object bean, Method method, AgentTool annotation)
     {
         Class<?>[] paramTypes = method.getParameterTypes();
         if (paramTypes.length == 0) {
@@ -267,7 +271,7 @@ public class AgentToolRegistry
                     "@AgentTool method must take an args record as its first parameter: " + method);
         }
         Class<?> argsType = paramTypes[0];
-        String inputSchema = generateSchema(argsType);
+        String inputSchema = generateSchema(argsType, concepts);
         Set<AgentRole> roleSet = annotation.roles().length == 0
                 ? ImmutableSet.of(AgentRole.ANY)
                 : ImmutableSet.copyOf(annotation.roles());
@@ -287,8 +291,15 @@ public class AgentToolRegistry
     /** Generate a JSON Schema document for an args record. Returns
      *  the {@code {"type":"object", …}} block as a string with
      *  deterministic key order — the same call returns byte-identical
-     *  output every time so the model's prefix cache stays valid. */
-    static String generateSchema(Class<?> argsType)
+     *  output every time so the model's prefix cache stays valid.
+     *
+     *  <p>When a record component's {@link ToolParam#enumFromConcepts()}
+     *  is set, the property also carries an {@code enum} of the
+     *  concept names and a {@code oneOf} block whose entries each
+     *  pair the enum value with the concept's
+     *  {@link ConceptSpec#oneLineDefinition()} — so the agent reads
+     *  the meaning of each filter / state name at the param's site. */
+    static String generateSchema(Class<?> argsType, ConceptRegistry concepts)
     {
         if (argsType == Void.class || argsType == void.class) {
             return "{\"type\":\"object\",\"properties\":{},\"required\":[]}";
@@ -310,6 +321,10 @@ public class AgentToolRegistry
             prop.append("\"type\":\"").append(type).append('"');
             if (!description.isEmpty()) {
                 prop.append(",\"description\":\"").append(escape(description)).append('"');
+            }
+            if (paramAnnotation != null && paramAnnotation.enumFromConcepts().length > 0) {
+                appendEnumFromConcepts(prop, paramAnnotation.enumFromConcepts(),
+                        concepts, argsType.getName(), wireName);
             }
             prop.append('}');
             properties.put(wireName, prop.toString());
@@ -392,6 +407,50 @@ public class AgentToolRegistry
         }
         // Fallback — anything else is an object the caller can shape.
         return "object";
+    }
+
+    /** Append an {@code enum} + {@code oneOf} block for a param whose
+     *  values come from named concepts. Fail fast if a value doesn't
+     *  resolve — that catches a renamed concept at startup instead of
+     *  letting the schema lie to the agent. */
+    private static void appendEnumFromConcepts(
+            StringBuilder prop,
+            String[] values,
+            ConceptRegistry concepts,
+            String argsTypeName,
+            String wireName)
+    {
+        // Preserve declaration order so the agent sees the values in
+        // the order the param author intended (typically severity- or
+        // recency-ordered, not alphabetical).
+        prop.append(",\"enum\":[");
+        boolean firstEnum = true;
+        for (String v : values) {
+            if (!firstEnum) {
+                prop.append(',');
+            }
+            firstEnum = false;
+            prop.append('"').append(escape(v)).append('"');
+        }
+        prop.append(']');
+        prop.append(",\"oneOf\":[");
+        boolean firstOne = true;
+        for (String v : values) {
+            ConceptSpec spec = concepts.byName(v).orElseThrow(() -> new IllegalStateException(
+                    "enumFromConcepts on " + argsTypeName + "#" + wireName
+                            + " references unknown concept: " + v));
+            if (!firstOne) {
+                prop.append(',');
+            }
+            firstOne = false;
+            prop.append("{\"const\":\"").append(escape(v)).append("\"");
+            String def = spec.oneLineDefinition();
+            if (!def.isEmpty()) {
+                prop.append(",\"description\":\"").append(escape(def)).append("\"");
+            }
+            prop.append('}');
+        }
+        prop.append(']');
     }
 
     private static String escape(String s)

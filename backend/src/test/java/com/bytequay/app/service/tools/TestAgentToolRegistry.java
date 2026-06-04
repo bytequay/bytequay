@@ -13,6 +13,7 @@
  */
 package com.bytequay.app.service.tools;
 
+import com.bytequay.app.service.concepts.ConceptRegistry;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
@@ -21,11 +22,16 @@ import static org.assertj.core.api.Assertions.assertThat;
 
 class TestAgentToolRegistry
 {
+    /** None of the records under test reference concepts via
+     *  {@code enumFromConcepts}, so the empty registry exercises the
+     *  schema path that doesn't touch concepts. */
+    private static final ConceptRegistry NO_CONCEPTS = new ConceptRegistry();
+
     @Test
     void schemaForRecordWithRequiredAndOptionalFields()
             throws Exception
     {
-        String schema = AgentToolRegistry.generateSchema(SampleArgs.class);
+        String schema = AgentToolRegistry.generateSchema(SampleArgs.class, NO_CONCEPTS);
 
         ObjectMapper mapper = new ObjectMapper();
         JsonNode parsed = mapper.readTree(schema);
@@ -43,7 +49,7 @@ class TestAgentToolRegistry
     @Test
     void schemaForEmptyRecord()
     {
-        String schema = AgentToolRegistry.generateSchema(NoArgs.class);
+        String schema = AgentToolRegistry.generateSchema(NoArgs.class, NO_CONCEPTS);
 
         assertThat(schema).isEqualTo(
                 "{\"type\":\"object\",\"properties\":{},\"required\":[]}");
@@ -52,7 +58,7 @@ class TestAgentToolRegistry
     @Test
     void schemaForVoidArgsType()
     {
-        String schema = AgentToolRegistry.generateSchema(Void.class);
+        String schema = AgentToolRegistry.generateSchema(Void.class, NO_CONCEPTS);
 
         assertThat(schema).isEqualTo(
                 "{\"type\":\"object\",\"properties\":{},\"required\":[]}");
@@ -63,8 +69,8 @@ class TestAgentToolRegistry
     {
         // Same input — same bytes. The model's prefix cache hashes
         // the generated schema verbatim.
-        String first = AgentToolRegistry.generateSchema(SampleArgs.class);
-        String second = AgentToolRegistry.generateSchema(SampleArgs.class);
+        String first = AgentToolRegistry.generateSchema(SampleArgs.class, NO_CONCEPTS);
+        String second = AgentToolRegistry.generateSchema(SampleArgs.class, NO_CONCEPTS);
 
         assertThat(first).isEqualTo(second);
     }
@@ -72,7 +78,7 @@ class TestAgentToolRegistry
     @Test
     void schemaHonoursWireNameOverride()
     {
-        String schema = AgentToolRegistry.generateSchema(WireNameArgs.class);
+        String schema = AgentToolRegistry.generateSchema(WireNameArgs.class, NO_CONCEPTS);
 
         // The Java component is draftReply but the wire field must be
         // draft_reply because of the @ToolParam(wireName=…) override.
@@ -83,7 +89,7 @@ class TestAgentToolRegistry
     @Test
     void schemaForJsonNodeFieldMapsToObject()
     {
-        String schema = AgentToolRegistry.generateSchema(JsonFieldArgs.class);
+        String schema = AgentToolRegistry.generateSchema(JsonFieldArgs.class, NO_CONCEPTS);
 
         assertThat(schema).contains("\"input\":{\"type\":\"object\"");
     }
@@ -91,9 +97,49 @@ class TestAgentToolRegistry
     @Test
     void schemaFailsLoudlyForNonRecordArgs()
     {
-        assertThat(catchThrowable(() -> AgentToolRegistry.generateSchema(String.class)))
+        assertThat(catchThrowable(() -> AgentToolRegistry.generateSchema(String.class, NO_CONCEPTS)))
                 .isInstanceOf(IllegalStateException.class)
                 .hasMessageContaining("must be a record");
+    }
+
+    @Test
+    void schemaRendersEnumFromConceptsWithPerValueDescriptions()
+            throws Exception
+    {
+        // Phase A's seeded concepts are enough: "task" and "thread"
+        // are NOUN concepts but enumFromConcepts doesn't filter by
+        // kind, so they round-trip just fine for this schema test.
+        ConceptRegistry concepts = new ConceptRegistry();
+        concepts.scan();
+
+        String schema = AgentToolRegistry.generateSchema(EnumArgs.class, concepts);
+        ObjectMapper mapper = new ObjectMapper();
+        JsonNode prop = mapper.readTree(schema).path("properties").path("kind");
+
+        assertThat(prop.path("type").asText()).isEqualTo("string");
+        // enum preserves declaration order from @ToolParam.
+        assertThat(prop.path("enum")).hasSize(2);
+        assertThat(prop.path("enum").get(0).asText()).isEqualTo("task");
+        assertThat(prop.path("enum").get(1).asText()).isEqualTo("thread");
+        // oneOf carries the per-value description from each concept.
+        assertThat(prop.path("oneOf")).hasSize(2);
+        assertThat(prop.path("oneOf").get(0).path("const").asText()).isEqualTo("task");
+        assertThat(prop.path("oneOf").get(0).path("description").asText())
+                .startsWith("One unit of work within a thread");
+        assertThat(prop.path("oneOf").get(1).path("const").asText()).isEqualTo("thread");
+    }
+
+    @Test
+    void schemaFailsFastWhenEnumFromConceptsReferencesUnknownName()
+            throws Exception
+    {
+        ConceptRegistry concepts = new ConceptRegistry();
+        concepts.scan();
+
+        assertThat(catchThrowable(() ->
+                AgentToolRegistry.generateSchema(UnknownEnumArgs.class, concepts)))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("unknown concept: not_a_real_concept");
     }
 
     private static Throwable catchThrowable(Runnable r)
@@ -118,4 +164,12 @@ class TestAgentToolRegistry
 
     public record JsonFieldArgs(
             @ToolParam(description = "raw json") JsonNode input) {}
+
+    public record EnumArgs(
+            @ToolParam(description = "what to look up",
+                    enumFromConcepts = {"task", "thread"}) String kind) {}
+
+    public record UnknownEnumArgs(
+            @ToolParam(description = "broken",
+                    enumFromConcepts = "not_a_real_concept") String kind) {}
 }

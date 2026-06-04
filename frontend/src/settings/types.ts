@@ -25,4 +25,5 @@ export type SettingsSection =
   | 'workspace-memory'
   | 'integrations'
   | 'email'
+  | 'saved-views'
   | 'help';

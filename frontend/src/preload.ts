@@ -39,6 +39,7 @@ import type {
   PullRequestDetailDto,
   PullRequestDto,
   RecentEventDto,
+  SavedViewBodyDto,
   SkillDraftDto,
   SkillDto,
   SkillInput,
@@ -87,6 +88,11 @@ const bridge: Bridge = {
   fetchPrs: (): Promise<PullRequestDto[]> => ipcRenderer.invoke('backend:listPrs'),
   fetchPrsByFilter: (name: string): Promise<PullRequestDto[]> =>
     ipcRenderer.invoke('backend:listPrsByFilter', name),
+  listSavedViews: () => ipcRenderer.invoke('backend:listSavedViews'),
+  createSavedView: (body: SavedViewBodyDto) =>
+    ipcRenderer.invoke('backend:createSavedView', body),
+  deleteSavedView: (name: string) =>
+    ipcRenderer.invoke('backend:deleteSavedView', name),
   fetchPullRequestDetail: (repo: string, number: number): Promise<PullRequestDetailDto> =>
     ipcRenderer.invoke('backend:pullRequestDetail', repo, number),
   refreshPullRequestDetail: (repo: string, number: number, maxAgeSeconds?: number): Promise<PullRequestDetailDto> =>

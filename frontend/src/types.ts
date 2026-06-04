@@ -2089,6 +2089,26 @@ export type NotificationDto = {
   readAt: string | null;
 };
 
+/** Wire row from the backend Saved Views endpoint. */
+export type SavedViewDto = {
+  name: string;
+  kind: string;
+  definition: string;
+  aka: string[];
+  criteriaJson: string | null;
+  createdAtMs: number;
+  updatedAtMs: number;
+};
+
+/** Request body for create/update of a saved view. */
+export type SavedViewBodyDto = {
+  name: string;
+  kind?: string;
+  definition: string;
+  aka?: string[];
+  criteriaJson?: string | null;
+};
+
 export type Bridge = {
   savePat: (pat: string) => Promise<boolean>;
   hasPat: () => Promise<boolean>;
@@ -2100,6 +2120,11 @@ export type Bridge = {
    *  name="urgent" so the predicate is defined exactly once on the
    *  backend (UrgentPrFilter) instead of being mirrored in TS. */
   fetchPrsByFilter: (name: string) => Promise<PullRequestDto[]>;
+  /** Saved Views — user-authored concepts (scope=USER) visible
+   *  alongside the workspace and APP-scoped seeds. */
+  listSavedViews: () => Promise<SavedViewDto[]>;
+  createSavedView: (body: SavedViewBodyDto) => Promise<SavedViewDto>;
+  deleteSavedView: (name: string) => Promise<void>;
   /** Live GitHub search for the user's full closed-PR history (merged
    *  + closed-without-merge). Used by the merge-history page — pages
    *  through GitHub's `is:closed author:@me sort:closed-desc` results. */

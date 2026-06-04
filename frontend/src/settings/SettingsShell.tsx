@@ -21,6 +21,7 @@ import CredentialsPage from './pages/CredentialsPage';
 import EmailSettingsPage from './pages/EmailPage';
 import HelpPage from './pages/HelpPage';
 import IntegrationsPage from './pages/IntegrationsPage';
+import SavedViewsPage from './pages/SavedViewsPage';
 import SkillsPage from './pages/SkillsPage';
 import TeamsPage from './pages/TeamsPage';
 import WatchedReposPage from './pages/WatchedReposPage';
@@ -54,6 +55,7 @@ function SettingsShell({ section, onSelectSection, onClearPat, onOpenTeam, onOpe
           {resolved === 'teams' && <TeamsPage onOpenTeam={onOpenTeam} />}
           {resolved === 'ai-review' && <AiReviewPage />}
           {resolved === 'skills' && <SkillsPage />}
+          {resolved === 'saved-views' && <SavedViewsPage />}
           {resolved === 'watched-repos' && <WatchedReposPage />}
           {resolved === 'workspace-memory' && <WorkspaceMemoryPage onOpenThread={onOpenThread} />}
           {resolved === 'integrations' && <IntegrationsPage />}

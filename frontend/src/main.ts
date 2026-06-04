@@ -541,6 +541,38 @@ function registerIpc(): void {
     return res.json();
   });
 
+  // Saved Views — user-defined concepts (scope=USER) the agent's
+  // list_terms / lookup_term tools can read.
+  ipcMain.handle('backend:listSavedViews', async () => {
+    const res = await fetch(`${BACKEND_BASE}/api/concepts/user`);
+    if (!res.ok) {
+      const body = await res.text().catch(() => '');
+      throw new Error(`backend /api/concepts/user returned ${res.status}: ${body}`);
+    }
+    return res.json();
+  });
+  ipcMain.handle('backend:createSavedView', async (_event, body: unknown) => {
+    const res = await fetch(`${BACKEND_BASE}/api/concepts/user`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body),
+    });
+    if (!res.ok) {
+      const text = await res.text().catch(() => '');
+      throw new Error(`backend create saved view returned ${res.status}: ${text}`);
+    }
+    return res.json();
+  });
+  ipcMain.handle('backend:deleteSavedView', async (_event, name: string) => {
+    const res = await fetch(`${BACKEND_BASE}/api/concepts/user/${encodeURIComponent(name)}`, {
+      method: 'DELETE',
+    });
+    if (!res.ok) {
+      const text = await res.text().catch(() => '');
+      throw new Error(`backend delete saved view returned ${res.status}: ${text}`);
+    }
+  });
+
   ipcMain.handle('backend:markPrViewed', async (_event, prId: number) => {
     const url = new URL(`${BACKEND_BASE}/prs/viewed`);
     url.searchParams.set('id', String(prId));

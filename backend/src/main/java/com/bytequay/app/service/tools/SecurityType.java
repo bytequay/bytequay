@@ -56,6 +56,11 @@ public enum SecurityType
     SKILL_USE,
     /** Enumerate the tool catalog itself. */
     TOOL_DISCOVER,
+    /** Enumerate / look up domain terms via the concept axis
+     *  ({@code list_terms} / {@code lookup_term}). Read-only and
+     *  granted broadly — every role that can call tools at all
+     *  should have it. */
+    CONCEPT_USE,
     /** Interact with external MCP servers (sampling, prompts, etc.).
      *  Today only the approval_prompt tool uses this. */
     MCP,

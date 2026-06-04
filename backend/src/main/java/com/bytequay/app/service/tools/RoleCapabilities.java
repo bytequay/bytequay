@@ -41,6 +41,7 @@ public final class RoleCapabilities
                     SecurityType.MEMORY_READ,
                     SecurityType.SKILL_USE,
                     SecurityType.TOOL_DISCOVER,
+                    SecurityType.CONCEPT_USE,
                     SecurityType.MCP),
             // Task agents edit + commit + push + publish, and may
             // park themselves at AWAITING_REVIEW (request_review)
@@ -61,6 +62,7 @@ public final class RoleCapabilities
                     SecurityType.MEMORY_WRITE,
                     SecurityType.SKILL_USE,
                     SecurityType.TOOL_DISCOVER,
+                    SecurityType.CONCEPT_USE,
                     SecurityType.MCP),
             // Reviewer reads diffs and publishes review comments;
             // never edits code or pushes branches.
@@ -71,6 +73,7 @@ public final class RoleCapabilities
                     SecurityType.MEMORY_READ,
                     SecurityType.SKILL_USE,
                     SecurityType.TOOL_DISCOVER,
+                    SecurityType.CONCEPT_USE,
                     SecurityType.MCP));
 
     private RoleCapabilities() {}

@@ -413,10 +413,12 @@ export default function ThreadTrunkPage({ threadId, onBack, onOpenTask }: Props)
           <button
             type="button"
             onClick={() => setInspectorOpen(true)}
-            style={contextBtnStyle}
+            style={contextChipStyle}
             title="Inspect the prompt context (read-only)"
           >
+            <span style={contextChipGlyphStyle} aria-hidden>◧</span>
             Context
+            <span style={contextChipKbdStyle}>⌘⇧I</span>
           </button>
         </header>
         {inspectorOpen && (
@@ -1516,9 +1518,34 @@ const backBtnStyle: React.CSSProperties = {
   color: 'var(--text-2)',
 };
 
-const contextBtnStyle: React.CSSProperties = {
-  ...backBtnStyle,
+const contextChipStyle: React.CSSProperties = {
+  display: 'inline-flex',
+  alignItems: 'center',
+  gap: 6,
+  padding: '4px 9px 4px 8px',
   marginLeft: 8,
+  border: '1px solid rgba(124,92,255,0.28)',
+  background: 'rgba(124,92,255,0.08)',
+  borderRadius: 999,
+  fontSize: 11.5,
+  fontWeight: 600,
+  color: 'var(--primary-deep, #5b3edb)',
+  cursor: 'pointer',
+};
+
+const contextChipGlyphStyle: React.CSSProperties = {
+  fontSize: 12,
+  lineHeight: 1,
+};
+
+const contextChipKbdStyle: React.CSSProperties = {
+  fontFamily: 'var(--font-mono, ui-monospace, SFMono-Regular, Menlo, monospace)',
+  fontSize: 9.5,
+  color: 'var(--text-muted, #6b6b78)',
+  background: 'rgba(255,255,255,0.7)',
+  padding: '1px 5px',
+  borderRadius: 5,
+  border: '1px solid rgba(124,92,255,0.18)',
 };
 
 const titleStyle: React.CSSProperties = {

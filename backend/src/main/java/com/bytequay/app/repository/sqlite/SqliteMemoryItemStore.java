@@ -177,7 +177,7 @@ public class SqliteMemoryItemStore
                 readSources(rs.getString("sources_json")),
                 MemoryItemConfidence.valueOf(rs.getString("confidence")),
                 readStrings(rs.getString("tags_json")),
-                (Long) rs.getObject("superseded_by"),
+                readLong(rs.getObject("superseded_by")),
                 readInstant(rs.getObject("resolved_at_ms")),
                 readInstant(rs.getObject("proposed_at_ms")),
                 readInstant(rs.getObject("applied_at_ms")),
@@ -190,6 +190,15 @@ public class SqliteMemoryItemStore
             return null;
         }
         return Instant.ofEpochMilli(((Number) raw).longValue());
+    }
+
+    /** SQLite returns INTEGER columns as {@link Integer} when the
+     *  value fits, {@link Long} when it doesn't — coerce through
+     *  {@link Number} so the {@code superseded_by} cast doesn't blow
+     *  up on small ids. */
+    private static Long readLong(Object raw)
+    {
+        return raw == null ? null : ((Number) raw).longValue();
     }
 
     private List<MemoryItemSource> readSources(String json)

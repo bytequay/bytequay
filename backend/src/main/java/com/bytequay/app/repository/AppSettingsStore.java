@@ -53,6 +53,15 @@ public interface AppSettingsStore
         public static final String BEHAVIOR_AUTO_PROMOTE_DECISIONS = "behavior.auto_promote_decisions";
         public static final String BEHAVIOR_NEW_TOPIC_NUDGE = "behavior.new_topic_nudge";
 
+        /** Memory-axis opt-in: when {@code "true"}, FOCUS_SHIFT
+         *  proposals from the workspace distill auto-apply rather
+         *  than waiting in the banner. Off by default — the spec
+         *  only allows FOCUS_SHIFT (the most volatile / least
+         *  load-bearing kind) to skip confirmation; DECISION /
+         *  CONVENTION / BLOCKER / OPEN_QUESTION / RECURRING_PATTERN
+         *  always propose-then-confirm. */
+        public static final String BEHAVIOR_AUTO_APPLY_FOCUS_SHIFT = "behavior.auto_apply_focus_shift";
+
         // Phase 8 inner-5: a user-editable persona nudge prepended
         // to every panel reviewer's skill-context payload at request
         // time. Empty / missing means no nudge — reviewers run

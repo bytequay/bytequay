@@ -13,6 +13,12 @@
  */
 package com.bytequay.app.service.workspaces;
 
+import com.bytequay.app.domain.MemoryItem;
+import com.bytequay.app.domain.MemoryItemConfidence;
+import com.bytequay.app.domain.MemoryItemKind;
+import com.bytequay.app.domain.MemoryItemOrigin;
+import com.bytequay.app.domain.MemoryItemScopeKind;
+import com.bytequay.app.domain.MemoryItemSource;
 import com.bytequay.app.domain.Workspace;
 import com.bytequay.app.domain.WorkspaceMemoryProposal;
 import com.bytequay.app.repository.AppSettingsStore;
@@ -30,6 +36,7 @@ import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
+import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -204,6 +211,67 @@ class TestWorkspaceMemoryProposalService
     {
         assertThatThrownBy(() -> service.discard("ws-empty"))
                 .isInstanceOf(ResponseStatusException.class);
+    }
+
+    @Test
+    void focusShiftItemAutoAppliesWhenTheToggleIsOn()
+    {
+        // Phase F: opt-in auto-apply skips the banner click for the
+        // single kind we trust to be self-correcting — FOCUS_SHIFT.
+        // DECISION / CONVENTION / BLOCKER / etc. still require user
+        // confirmation; the rejected-spec check below pins that.
+        when(appSettings.get("behavior.auto_apply_focus_shift"))
+                .thenReturn(Optional.of("true"));
+        MemoryItem focusItem = new MemoryItem(
+                42L,
+                MemoryItemScopeKind.WORKSPACE,
+                "ws-1",
+                MemoryItemKind.FOCUS_SHIFT,
+                "Rebuilding the activity feed.",
+                List.of(MemoryItemSource.thread("t-7")),
+                MemoryItemConfidence.HIGH,
+                List.of(),
+                null, null,
+                Instant.parse("2026-06-04T10:00:00Z"),
+                null,
+                MemoryItemOrigin.DISTILL);
+        when(memoryItems.propose(any())).thenReturn(focusItem);
+
+        service.propose(
+                "ws-1",
+                "Current memory text.",
+                summaryResult("## Active focus\n- Rebuilding the activity feed. [thread:t-7]\n"));
+
+        // applyItem was invoked on the FOCUS_SHIFT row's id.
+        verify(memoryItems).applyItem(42L);
+    }
+
+    @Test
+    void focusShiftItemStaysPendingWhenTheToggleIsOff()
+    {
+        when(appSettings.get("behavior.auto_apply_focus_shift"))
+                .thenReturn(Optional.empty());
+        MemoryItem focusItem = new MemoryItem(
+                42L,
+                MemoryItemScopeKind.WORKSPACE,
+                "ws-1",
+                MemoryItemKind.FOCUS_SHIFT,
+                "Rebuilding the activity feed.",
+                List.of(MemoryItemSource.thread("t-7")),
+                MemoryItemConfidence.HIGH,
+                List.of(),
+                null, null,
+                Instant.parse("2026-06-04T10:00:00Z"),
+                null,
+                MemoryItemOrigin.DISTILL);
+        when(memoryItems.propose(any())).thenReturn(focusItem);
+
+        service.propose(
+                "ws-1",
+                "Current memory text.",
+                summaryResult("## Active focus\n- Rebuilding the activity feed. [thread:t-7]\n"));
+
+        verify(memoryItems, never()).applyItem(42L);
     }
 
     @Test

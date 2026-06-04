@@ -13,6 +13,8 @@
  */
 package com.bytequay.app.service.workspaces;
 
+import com.bytequay.app.domain.MemoryItem;
+import com.bytequay.app.domain.MemoryItemKind;
 import com.bytequay.app.domain.Workspace;
 import com.bytequay.app.domain.WorkspaceMemoryProposal;
 import com.bytequay.app.repository.AppSettingsStore;
@@ -121,9 +123,27 @@ public class WorkspaceMemoryProposalService
         // lookup_memory and the per-item banner can see them. v1
         // keeps both shapes alive; the blob path remains the
         // user-facing artifact for the existing banner UI.
+        boolean autoApplyFocusShift = isAutoApplyFocusShiftEnabled();
         for (MemoryItemStore.NewItem typed : parser.parse(workspaceId, proposedMd)) {
             try {
-                memoryItems.propose(typed);
+                MemoryItem persisted = memoryItems.propose(typed);
+                // Phase F: FOCUS_SHIFT is the only kind eligible
+                // for the opt-in silent-apply policy. The spec
+                // calls this out as the "Active focus" optimisation:
+                // the brain's current-focus pointer stays fresh
+                // without the user clicking through every distill.
+                if (autoApplyFocusShift && persisted.kind() == MemoryItemKind.FOCUS_SHIFT) {
+                    try {
+                        memoryItems.applyItem(persisted.id());
+                        log.info("Auto-applied FOCUS_SHIFT memory item {} for workspace {} "
+                                        + "(auto_apply_focus_shift = on)",
+                                persisted.id(), workspaceId);
+                    }
+                    catch (RuntimeException e) {
+                        log.warn("Auto-apply FOCUS_SHIFT failed for item {} on {}: {}",
+                                persisted.id(), workspaceId, e.getMessage());
+                    }
+                }
             }
             catch (RuntimeException e) {
                 log.warn("Skipping typed memory item for {} (kind={}): {}",
@@ -150,6 +170,13 @@ public class WorkspaceMemoryProposalService
     private boolean isAutoPromoteEnabled()
     {
         return appSettings.get(Key.BEHAVIOR_AUTO_PROMOTE_DECISIONS)
+                .map(Boolean::parseBoolean)
+                .orElse(false);
+    }
+
+    private boolean isAutoApplyFocusShiftEnabled()
+    {
+        return appSettings.get(Key.BEHAVIOR_AUTO_APPLY_FOCUS_SHIFT)
                 .map(Boolean::parseBoolean)
                 .orElse(false);
     }

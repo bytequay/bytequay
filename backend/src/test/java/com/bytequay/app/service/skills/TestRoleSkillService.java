@@ -85,6 +85,37 @@ class TestRoleSkillService
     }
 
     @Test
+    void taskTemplateCarriesTheRecallBeforeAskInstruction()
+            throws IOException
+    {
+        // Phase F (memory axis): every task-role render must include
+        // the recall_memory discipline. This is the load-bearing
+        // sentence that turns memory into an active read instead of
+        // a passive store; if it disappears from the template, the
+        // policy isn't enforced anywhere else.
+        RoleSkillService service = bootedService();
+
+        String body = service.generateForTask("acme/x", "b", "t", "main");
+
+        assertThat(body).contains("Recall before asking");
+        assertThat(body).contains("recall_memory");
+        assertThat(body).contains("DECISION");
+        assertThat(body).contains("CONVENTION");
+    }
+
+    @Test
+    void trunkTemplateCarriesTheRecallBeforeAskInstruction()
+            throws IOException
+    {
+        RoleSkillService service = bootedService();
+
+        assertThat(service.trunkTemplate())
+                .contains("Recall before asking")
+                .contains("recall_memory")
+                .contains("lookup_memory");
+    }
+
+    @Test
     void taskTemplateInlinesTheConceptPreamble()
             throws IOException
     {

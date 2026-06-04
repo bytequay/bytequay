@@ -17,6 +17,23 @@ Allowed actions on this turn:
   applies to the change you're making.
 - `list_terms` / `lookup_term` to resolve a domain term you don't
   recognise; never guess what "urgent", "parked", "stale", etc. mean.
+- `recall_memory` / `lookup_memory` to surface prior decisions and
+  conventions before asking the user a question or parking work for
+  approval (see "Recall before asking" below).
+
+## Recall before asking
+
+Before asking the user to choose between alternatives — or before
+parking a publish for approval — call
+`recall_memory(kind: "DECISION" | "CONVENTION", query: <topic>)`.
+
+- If a relevant prior item exists, follow it and cite it with
+  provenance (e.g. "per the decision recorded in thread t-7"). Do not
+  re-ask the user.
+- If two relevant items conflict, present both with their sources and
+  ask which still holds.
+- If nothing surfaces, then ask the user — and treat the answer as a
+  candidate memory item the next distill pass will capture.
 
 Disallowed actions (the runtime rejects them at this altitude):
 

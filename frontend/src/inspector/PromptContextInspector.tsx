@@ -13,8 +13,19 @@
  */
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { AssembledContextDto } from '../types';
+import { MarkdownProse } from '../threads/MarkdownProse';
+import {
+  DARK_JSON_THEME,
+  JSON_PRE_STYLE,
+  LIGHT_JSON_THEME,
+  extractJsonName,
+  highlightJson,
+  prettyJson,
+} from './prettyJson';
 
-type SectionKind = AssembledContextDto['sections'][number]['kind'];
+type Section = AssembledContextDto['sections'][number];
+type SectionKind = Section['kind'];
+type Wire = AssembledContextDto['wire'];
 
 type Props = {
   scope: 'TRUNK' | 'TASK';
@@ -86,9 +97,9 @@ function PromptContextInspector({ scope, threadId, taskId, onClose }: Props) {
     return context.sections.find(s => s.kind === activeKind) ?? null;
   }, [context, activeKind]);
 
-  const wireJson = useMemo(() => {
-    if (context === null) return '';
-    return formatWireWithLabels(context);
+  const wireNodes = useMemo(() => {
+    if (context === null) return null;
+    return renderWire(context);
   }, [context]);
 
   const handleCopy = async () => {
@@ -168,7 +179,7 @@ function PromptContextInspector({ scope, threadId, taskId, onClose }: Props) {
               serialises top-to-bottom: tools → system → messages. The order
               must be byte-stable or the prefix cache breaks.
             </div>
-            <pre style={wirePreStyle}>{wireJson}</pre>
+            <pre style={wirePreStyle}>{wireNodes}</pre>
           </div>
         )}
 
@@ -210,11 +221,9 @@ function PromptContextInspector({ scope, threadId, taskId, onClose }: Props) {
                       </span>
                     </div>
                   </div>
-                  <pre style={sectionPreStyle}>
-                    {activeSection.body.length === 0
-                      ? '(empty for this turn)'
-                      : activeSection.body}
-                  </pre>
+                  <div style={sectionBodyContainerStyle}>
+                    <SectionBody section={activeSection} wire={context.wire} />
+                  </div>
                   {activeSection.sources.length > 0 && (
                     <div style={provenanceRowStyle} aria-label="Provenance">
                       <span style={provenanceLabelStyle}>Sources</span>
@@ -254,49 +263,146 @@ function PromptContextInspector({ scope, threadId, taskId, onClose }: Props) {
   );
 }
 
-function formatWireWithLabels(context: AssembledContextDto): string {
-  // Provider-shape preview: tools first, then a synthetic "messages"
-  // array gluing system blocks → history → new turn. The /* … */
-  // markers match the section nav so the user can visually locate
-  // each region.
-  const lines: string[] = [];
-  lines.push('{');
-  lines.push('  /* ① tools */');
-  lines.push('  "tools": [');
-  context.wire.tools.forEach((tool, idx) => {
-    const trailing = idx < context.wire.tools.length - 1 ? ',' : '';
-    lines.push(`    ${tool}${trailing}`);
-  });
-  lines.push('  ],');
-  lines.push('  "messages": [');
-  const systemLabels = [
-    '/* ② role */',
-    '/* ③ brain */',
-    '/* ④ concepts */',
-    '/* ⑤ skills */',
-    '/* ⑥ memory */',
-  ];
-  context.wire.systemBlocks.forEach((block, idx) => {
-    const label = systemLabels[idx] ?? '/* system */';
-    lines.push(`    ${label}`);
-    lines.push(`    { "role": "system", "content": ${JSON.stringify(block)} },`);
-  });
-  lines.push('    /* ⑦ history */');
-  context.wire.historyMessages.forEach((msg, idx) => {
-    const trailing = idx < context.wire.historyMessages.length - 1
-        || context.wire.newTurn.length > 0
-      ? ','
-      : '';
-    lines.push(`    ${msg}${trailing}`);
-  });
-  if (context.wire.newTurn.length > 0) {
-    lines.push('    /* ⑧ this turn */');
-    lines.push(`    ${context.wire.newTurn}`);
+/** Renders one section's body using the format that matches its
+ *  content type: markdown sections through {@link MarkdownProse},
+ *  tool / history / new-turn JSON through {@link prettyJson} +
+ *  {@link highlightJson}. The empty-body path stays as a single
+ *  centred "(empty)" message so the user can tell the difference
+ *  between "the axis ran and produced nothing" and "the axis
+ *  hasn't loaded yet". */
+function SectionBody({ section, wire }: { section: Section; wire: Wire }) {
+  if (section.kind === 'TOOLS') {
+    if (wire.tools.length === 0) return <EmptyBody />;
+    return (
+      <div style={cardListStyle}>
+        {wire.tools.map((tool, idx) => (
+          <JsonCard key={idx} body={tool} fallbackTitle={`tool #${idx + 1}`} />
+        ))}
+      </div>
+    );
   }
-  lines.push('  ]');
-  lines.push('}');
-  return lines.join('\n');
+  if (section.kind === 'HISTORY') {
+    if (wire.historyMessages.length === 0) return <EmptyBody />;
+    return (
+      <div style={cardListStyle}>
+        {wire.historyMessages.map((msg, idx) => (
+          <JsonCard key={idx} body={msg} fallbackTitle={`message #${idx + 1}`} />
+        ))}
+      </div>
+    );
+  }
+  if (section.kind === 'NEW_TURN') {
+    if (wire.newTurn.length === 0) return <EmptyBody />;
+    return (
+      <div style={cardListStyle}>
+        <JsonCard body={wire.newTurn} fallbackTitle="this turn" />
+      </div>
+    );
+  }
+  // Role, brain, concept preamble, skill manifest, memory items —
+  // all markdown. MarkdownProse handles headings, lists, code spans,
+  // and back-link chips; we wrap in a padded panel so the body
+  // doesn't run flush against the section header.
+  if (section.body.length === 0) return <EmptyBody />;
+  return (
+    <div style={markdownPanelStyle}>
+      <MarkdownProse text={section.body} variant="card" />
+    </div>
+  );
 }
+
+function EmptyBody() {
+  return <div style={emptyBodyStyle}>(empty for this turn)</div>;
+}
+
+/** One pretty-printed JSON payload — a tool definition, a history
+ *  message, or the new-turn payload. Shows a small header with the
+ *  JSON's {@code name} field if present (tool name, message role)
+ *  so the user can scan a stack of cards without parsing each one. */
+function JsonCard({ body, fallbackTitle }: { body: string; fallbackTitle: string }) {
+  const pretty = prettyJson(body);
+  const title = extractJsonName(body) ?? fallbackTitle;
+  return (
+    <div style={jsonCardStyle}>
+      <div style={jsonCardHeaderStyle}>{title}</div>
+      <pre style={{ ...JSON_PRE_STYLE, padding: 10 }}>
+        {highlightJson(pretty, LIGHT_JSON_THEME)}
+      </pre>
+    </div>
+  );
+}
+
+/** Full-request view: provider-shape JSON with inline section
+ *  markers. Each wire chunk is parsed + re-emitted with stable
+ *  indentation so the brackets line up and the highlighted tokens
+ *  pick up the dark theme of the surrounding code-block. */
+function renderWire(context: AssembledContextDto): React.ReactNode {
+  const tools = context.wire.tools;
+  const systemBlocks = context.wire.systemBlocks;
+  const history = context.wire.historyMessages;
+  const newTurn = context.wire.newTurn;
+  const systemLabels = [
+    '② role',
+    '③ brain',
+    '④ concepts',
+    '⑤ skills',
+    '⑥ memory',
+  ];
+  const parts: React.ReactNode[] = [];
+  let key = 0;
+
+  const push = (s: string) => parts.push(s);
+  const pushHi = (s: string) => parts.push(
+      <span key={key++}>{highlightJson(s, DARK_JSON_THEME)}</span>);
+
+  push('{\n');
+  parts.push(<span key={key++} style={commentStyle}>{'  /* ① tools */\n'}</span>);
+  push('  "tools": [\n');
+  tools.forEach((tool, idx) => {
+    const pretty = indentBlock(prettyJson(tool), 4);
+    pushHi(pretty);
+    push(idx < tools.length - 1 ? ',\n' : '\n');
+  });
+  push('  ],\n');
+  push('  "messages": [\n');
+  systemBlocks.forEach((block, idx) => {
+    const label = systemLabels[idx] ?? 'system';
+    parts.push(
+      <span key={key++} style={commentStyle}>{`    /* ${label} */\n`}</span>);
+    const msg = JSON.stringify({ role: 'system', content: block }, null, 2);
+    pushHi(indentBlock(msg, 4));
+    push(idx < systemBlocks.length - 1 || history.length > 0 || newTurn.length > 0
+        ? ',\n' : '\n');
+  });
+  if (history.length > 0) {
+    parts.push(
+      <span key={key++} style={commentStyle}>{'    /* ⑦ history */\n'}</span>);
+    history.forEach((msg, idx) => {
+      pushHi(indentBlock(prettyJson(msg), 4));
+      const more = idx < history.length - 1 || newTurn.length > 0;
+      push(more ? ',\n' : '\n');
+    });
+  }
+  if (newTurn.length > 0) {
+    parts.push(
+      <span key={key++} style={commentStyle}>{'    /* ⑧ this turn */\n'}</span>);
+    pushHi(indentBlock(prettyJson(newTurn), 4));
+    push('\n');
+  }
+  push('  ]\n');
+  push('}\n');
+  return parts;
+}
+
+function indentBlock(body: string, spaces: number): string {
+  const pad = ' '.repeat(spaces);
+  return body.split('\n').map(line => pad + line).join('\n');
+}
+
+const commentStyle: React.CSSProperties = {
+  color: '#7a8290',
+  fontStyle: 'italic',
+};
 
 const backdropStyle: React.CSSProperties = {
   position: 'fixed',
@@ -455,16 +561,50 @@ const mainHeaderMetaStyle: React.CSSProperties = {
   fontSize: 11,
 };
 
-const sectionPreStyle: React.CSSProperties = {
-  margin: 0,
-  padding: 14,
+const sectionBodyContainerStyle: React.CSSProperties = {
   flex: 1,
   overflow: 'auto',
-  fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
-  fontSize: 12,
-  lineHeight: 1.45,
-  whiteSpace: 'pre-wrap',
   background: '#fafafd',
+  padding: 14,
+  minHeight: 0,
+};
+
+const markdownPanelStyle: React.CSSProperties = {
+  background: 'white',
+  border: '1px solid #e2e2e8',
+  borderRadius: 6,
+  padding: '8px 14px',
+};
+
+const cardListStyle: React.CSSProperties = {
+  display: 'flex',
+  flexDirection: 'column',
+  gap: 8,
+};
+
+const jsonCardStyle: React.CSSProperties = {
+  background: 'white',
+  border: '1px solid #e2e2e8',
+  borderRadius: 6,
+  overflow: 'hidden',
+};
+
+const jsonCardHeaderStyle: React.CSSProperties = {
+  padding: '6px 10px',
+  background: '#f0f0f6',
+  borderBottom: '1px solid #e2e2e8',
+  fontSize: 11,
+  fontWeight: 600,
+  color: '#3b3b48',
+  fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
+};
+
+const emptyBodyStyle: React.CSSProperties = {
+  padding: 24,
+  textAlign: 'center',
+  color: '#9090a0',
+  fontStyle: 'italic',
+  fontSize: 12,
 };
 
 const wireContainerStyle: React.CSSProperties = {

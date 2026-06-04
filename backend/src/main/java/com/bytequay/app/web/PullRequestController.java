@@ -27,6 +27,7 @@ import com.bytequay.app.domain.SuggestedReviewer;
 import com.bytequay.app.service.pr.MyActivityService;
 import com.bytequay.app.service.pr.PrAnalyticsService;
 import com.bytequay.app.service.pr.PullRequestService;
+import com.bytequay.app.service.pr.filters.PullRequestFilters;
 import com.google.common.collect.ImmutableMap;
 import org.springframework.http.HttpStatusCode;
 import org.springframework.web.bind.annotation.DeleteMapping;
@@ -51,15 +52,18 @@ public class PullRequestController
     private final PullRequestService pullRequestService;
     private final PrAnalyticsService prAnalyticsService;
     private final MyActivityService myActivityService;
+    private final PullRequestFilters prFilters;
 
     public PullRequestController(
             PullRequestService pullRequestService,
             PrAnalyticsService prAnalyticsService,
-            MyActivityService myActivityService)
+            MyActivityService myActivityService,
+            PullRequestFilters prFilters)
     {
         this.pullRequestService = requireNonNull(pullRequestService, "pullRequestService is null");
         this.prAnalyticsService = requireNonNull(prAnalyticsService, "prAnalyticsService is null");
         this.myActivityService = requireNonNull(myActivityService, "myActivityService is null");
+        this.prFilters = requireNonNull(prFilters, "prFilters is null");
     }
 
     /**
@@ -71,6 +75,26 @@ public class PullRequestController
     public List<PullRequest> list()
     {
         return pullRequestService.listPullRequests();
+    }
+
+    /**
+     * Returns pull requests matching a named filter. {@code name}
+     * resolves through the same
+     * {@link com.bytequay.app.service.pr.filters.PullRequestFilters}
+     * the {@code list_prs} agent tool uses — one definition, no
+     * parallel logic for the dashboard to keep in sync.
+     * GET /prs/filter/{name}
+     */
+    @GetMapping("/prs/filter/{name}")
+    public List<PullRequest> filter(@PathVariable String name)
+    {
+        List<PullRequest> all = pullRequestService.listPullRequests();
+        try {
+            return prFilters.apply(name, all, Instant.now());
+        }
+        catch (IllegalArgumentException e) {
+            throw new ResponseStatusException(HttpStatusCode.valueOf(400), e.getMessage());
+        }
     }
 
     /**

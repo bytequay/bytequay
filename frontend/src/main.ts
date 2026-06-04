@@ -528,6 +528,19 @@ function registerIpc(): void {
     return res.json();
   });
 
+  // Named filter (urgent, awaiting_me, stale, blocked, mine_open) —
+  // the backend resolves through PullRequestFilters, which is the
+  // same code path the list_prs agent tool uses. The dashboard's
+  // urgent tab calls this so "urgent" has one definition only.
+  ipcMain.handle('backend:listPrsByFilter', async (_event, name: string) => {
+    const res = await fetch(`${BACKEND_BASE}/prs/filter/${encodeURIComponent(name)}`);
+    if (!res.ok) {
+      const body = await res.text().catch(() => '');
+      throw new Error(`backend /prs/filter/${name} returned ${res.status}: ${body}`);
+    }
+    return res.json();
+  });
+
   ipcMain.handle('backend:markPrViewed', async (_event, prId: number) => {
     const url = new URL(`${BACKEND_BASE}/prs/viewed`);
     url.searchParams.set('id', String(prId));

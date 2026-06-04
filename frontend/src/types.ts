@@ -2095,6 +2095,11 @@ export type Bridge = {
   clearPat: () => Promise<boolean>;
   fetchHello: () => Promise<string>;
   fetchPrs: () => Promise<PullRequestDto[]>;
+  /** Server-side named PR filter — urgent, awaiting_me, stale,
+   *  blocked, mine_open. The dashboard's Urgent tab calls this with
+   *  name="urgent" so the predicate is defined exactly once on the
+   *  backend (UrgentPrFilter) instead of being mirrored in TS. */
+  fetchPrsByFilter: (name: string) => Promise<PullRequestDto[]>;
   /** Live GitHub search for the user's full closed-PR history (merged
    *  + closed-without-merge). Used by the merge-history page — pages
    *  through GitHub's `is:closed author:@me sort:closed-desc` results. */

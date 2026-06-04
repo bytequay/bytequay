@@ -85,6 +85,8 @@ const bridge: Bridge = {
   clearPat: () => ipcRenderer.invoke('pat:clear'),
   fetchHello: () => ipcRenderer.invoke('backend:hello'),
   fetchPrs: (): Promise<PullRequestDto[]> => ipcRenderer.invoke('backend:listPrs'),
+  fetchPrsByFilter: (name: string): Promise<PullRequestDto[]> =>
+    ipcRenderer.invoke('backend:listPrsByFilter', name),
   fetchPullRequestDetail: (repo: string, number: number): Promise<PullRequestDetailDto> =>
     ipcRenderer.invoke('backend:pullRequestDetail', repo, number),
   refreshPullRequestDetail: (repo: string, number: number, maxAgeSeconds?: number): Promise<PullRequestDetailDto> =>

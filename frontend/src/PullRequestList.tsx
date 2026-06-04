@@ -225,10 +225,33 @@ function PullRequestList({ onGoToTeams, onOpenLocalBranch, onOpenSettings }: Pro
   const handledSorted = useMemo(() => sortHandled(handled), [handled]);
   const handledGroups = useMemo(() => groupHandledByTime(handledSorted), [handledSorted]);
   const snoozedSorted = useMemo(() => sortSnoozed(snoozed), [snoozed]);
-  // Urgent slice — same picker the old focus band used. Lives at the
-  // page level now so the side-nav badge can show the count without
-  // mounting the kanban board.
-  const urgentCards = useMemo(() => pickFocusCards(filtered), [filtered]);
+  // Urgent slice — IDs come from the backend's UrgentPrFilter so
+  // "urgent" has one definition only (the same predicate the
+  // list_prs agent tool uses). We refetch on every prs change so
+  // the badge count stays in sync with adds/removes; the local
+  // pickFocusCards picker stays as a fallback while the first
+  // backend fetch is in flight.
+  const [urgentIds, setUrgentIds] = useState<Set<number> | null>(null);
+  useEffect(() => {
+    if (!prs) return;
+    let cancelled = false;
+    window.bridge.fetchPrsByFilter('urgent').then(matched => {
+      if (cancelled) return;
+      setUrgentIds(new Set(matched.map(pr => pr.id)));
+    }).catch(() => {
+      // Network blip — leave urgentIds as-is; the local fallback
+      // below keeps the UI usable.
+    });
+    return () => { cancelled = true; };
+  }, [prs]);
+  const urgentCards = useMemo(() => {
+    if (urgentIds === null) {
+      // Cold-start fallback: the local picker mirrors the backend
+      // tiers closely enough that the first paint isn't empty.
+      return pickFocusCards(filtered);
+    }
+    return filtered.filter(pr => urgentIds.has(pr.id));
+  }, [filtered, urgentIds]);
   const tabPrs = activeTab === 'inbox' ? inbox
     : activeTab === 'snoozed' ? snoozedSorted
     : activeTab === 'handled' ? handledSorted

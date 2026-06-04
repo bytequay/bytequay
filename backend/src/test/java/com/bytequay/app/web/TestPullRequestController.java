@@ -18,6 +18,7 @@ import com.bytequay.app.domain.PullRequestDetail;
 import com.bytequay.app.service.pr.MyActivityService;
 import com.bytequay.app.service.pr.PrAnalyticsService;
 import com.bytequay.app.service.pr.PullRequestService;
+import com.bytequay.app.service.pr.filters.PullRequestFilters;
 import com.google.common.collect.ImmutableList;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -52,6 +53,9 @@ class TestPullRequestController
     @MockitoBean
     private MyActivityService myActivityService;
 
+    @MockitoBean
+    private PullRequestFilters prFilters;
+
     @Test
     void testListReturns200()
             throws Exception
@@ -83,6 +87,37 @@ class TestPullRequestController
                         .param("number", "7"))
                 .andExpect(status().isOk())
                 .andExpect(jsonPath("$.number").value(7));
+    }
+
+    @Test
+    void testFilterEndpointDelegatesToPullRequestFilters()
+            throws Exception
+    {
+        PullRequest urgent = new PullRequest(1L, "owner/repo", 7, "Urgent fix", "alice",
+                "https://github.com/owner/repo/pull/7",
+                Instant.parse("2024-05-25T00:00:00Z"),
+                Instant.parse("2024-06-01T00:00:00Z"), AUTHORED, ImmutableList.of(), null, false,
+                null, null, null, ImmutableList.of(), null, 0, 0, 0, null,
+                "open", null, null, null, null, null, null,
+                null, null, "feature/urgent");
+        when(pullRequestService.listPullRequests()).thenReturn(ImmutableList.of(urgent));
+        when(prFilters.apply(eq("urgent"), any(), any())).thenReturn(ImmutableList.of(urgent));
+
+        mvc.perform(get("/prs/filter/urgent"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[0].number").value(7));
+    }
+
+    @Test
+    void testFilterEndpointReturns400ForUnknownName()
+            throws Exception
+    {
+        when(pullRequestService.listPullRequests()).thenReturn(ImmutableList.of());
+        when(prFilters.apply(eq("not-a-filter"), any(), any()))
+                .thenThrow(new IllegalArgumentException("unknown PR filter"));
+
+        mvc.perform(get("/prs/filter/not-a-filter"))
+                .andExpect(status().isBadRequest());
     }
 
     @Test

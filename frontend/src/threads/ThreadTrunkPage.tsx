@@ -23,6 +23,7 @@ import type {
 import TrunkChat from './TrunkChat';
 import { ConvIndex } from './ConvIndex';
 import { useThreadTasks } from './useThreadTasks';
+import PromptContextInspector from '../inspector/PromptContextInspector';
 import { ConfirmDialog } from '../workspace/ConfirmDialog';
 
 type Props = {
@@ -117,6 +118,7 @@ export default function ThreadTrunkPage({ threadId, onBack, onOpenTask }: Props)
   });
   const [sending, setSending] = useState(false);
   const [sendError, setSendError] = useState<string | null>(null);
+  const [inspectorOpen, setInspectorOpen] = useState(false);
   const [profile, setProfile] = useState<UserProfileDto | null>(null);
 
   useEffect(() => {
@@ -408,7 +410,22 @@ export default function ThreadTrunkPage({ threadId, onBack, onOpenTask }: Props)
               {taskCount > 0 && ` · ${taskCount} task${taskCount === 1 ? '' : 's'}`}
             </span>
           )}
+          <button
+            type="button"
+            onClick={() => setInspectorOpen(true)}
+            style={contextBtnStyle}
+            title="Inspect the prompt context (read-only)"
+          >
+            Context
+          </button>
         </header>
+        {inspectorOpen && (
+          <PromptContextInspector
+            scope="TRUNK"
+            threadId={threadId}
+            onClose={() => setInspectorOpen(false)}
+          />
+        )}
 
         <div style={altitudeBandStyle}>
           <span style={bandGlyphStyle}>◆ THREAD · trunk</span>
@@ -1497,6 +1514,11 @@ const backBtnStyle: React.CSSProperties = {
   borderRadius: 6,
   cursor: 'pointer',
   color: 'var(--text-2)',
+};
+
+const contextBtnStyle: React.CSSProperties = {
+  ...backBtnStyle,
+  marginLeft: 8,
 };
 
 const titleStyle: React.CSSProperties = {

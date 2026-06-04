@@ -605,6 +605,27 @@ function registerIpc(): void {
     }
   });
 
+  // Prompt-context inspector. Always dryRun=true — there is no
+  // "send" path through this endpoint, server-side or otherwise.
+  ipcMain.handle('backend:getThreadContext', async (_event, threadId: string) => {
+    const res = await fetch(
+      `${BACKEND_BASE}/api/threads/${encodeURIComponent(threadId)}/context?dryRun=true`);
+    if (!res.ok) {
+      const body = await res.text().catch(() => '');
+      throw new Error(`backend thread context returned ${res.status}: ${body}`);
+    }
+    return res.json();
+  });
+  ipcMain.handle('backend:getTaskContext', async (_event, threadId: string, taskId: string) => {
+    const res = await fetch(
+      `${BACKEND_BASE}/api/threads/${encodeURIComponent(threadId)}/tasks/${encodeURIComponent(taskId)}/context?dryRun=true`);
+    if (!res.ok) {
+      const body = await res.text().catch(() => '');
+      throw new Error(`backend task context returned ${res.status}: ${body}`);
+    }
+    return res.json();
+  });
+
   ipcMain.handle('backend:markPrViewed', async (_event, prId: number) => {
     const url = new URL(`${BACKEND_BASE}/prs/viewed`);
     url.searchParams.set('id', String(prId));

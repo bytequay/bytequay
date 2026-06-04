@@ -38,6 +38,7 @@ import type {
   IssueDto,
   PullRequestDetailDto,
   PullRequestDto,
+  AssembledContextDto,
   MemoryItemDto,
   RecentEventDto,
   SavedViewBodyDto,
@@ -100,6 +101,10 @@ const bridge: Bridge = {
     ipcRenderer.invoke('backend:applyMemoryItem', workspaceId, itemId),
   discardMemoryItem: (workspaceId: string, itemId: number): Promise<void> =>
     ipcRenderer.invoke('backend:discardMemoryItem', workspaceId, itemId),
+  getThreadContext: (threadId: string): Promise<AssembledContextDto> =>
+    ipcRenderer.invoke('backend:getThreadContext', threadId),
+  getTaskContext: (threadId: string, taskId: string): Promise<AssembledContextDto> =>
+    ipcRenderer.invoke('backend:getTaskContext', threadId, taskId),
   fetchPullRequestDetail: (repo: string, number: number): Promise<PullRequestDetailDto> =>
     ipcRenderer.invoke('backend:pullRequestDetail', repo, number),
   refreshPullRequestDetail: (repo: string, number: number, maxAgeSeconds?: number): Promise<PullRequestDetailDto> =>

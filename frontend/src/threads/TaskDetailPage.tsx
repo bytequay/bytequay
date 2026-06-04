@@ -25,6 +25,7 @@ import type {
 import { parseUnifiedDiff, type DiffHunk } from '../diffParse';
 import TaskChat from './TaskChat';
 import { ConvIndex } from './ConvIndex';
+import PromptContextInspector from '../inspector/PromptContextInspector';
 import { useThreadTasks } from './useThreadTasks';
 
 type Props = {
@@ -86,6 +87,7 @@ export default function TaskDetailPage({
 }: Props) {
   const [thread, setThread] = useState<ThreadDto | null>(null);
   const [messages, setMessages] = useState<ThreadMessageDto[] | null>(null);
+  const [inspectorOpen, setInspectorOpen] = useState(false);
   const [mode, setMode] = useState<Mode>('conversation');
   const [input, setInput] = useState('');
   const [sending, setSending] = useState(false);
@@ -629,6 +631,17 @@ export default function TaskDetailPage({
               </div>
 
               <section style={railSectionStyle}>
+                <button
+                  type="button"
+                  onClick={() => setInspectorOpen(true)}
+                  style={viewDiffBtnStyle}
+                  title="Inspect the assembled prompt context (read-only)"
+                >
+                  Context inspector
+                </button>
+              </section>
+
+              <section style={railSectionStyle}>
                 <div style={railHeadStyle}>
                   <span>COMMITS</span>
                   <span style={railHeadMutedStyle}>
@@ -734,6 +747,14 @@ export default function TaskDetailPage({
 
       {error !== null && (
         <div style={floatErrStyle}>{error}</div>
+      )}
+      {inspectorOpen && (
+        <PromptContextInspector
+          scope="TASK"
+          threadId={threadId}
+          taskId={taskId}
+          onClose={() => setInspectorOpen(false)}
+        />
       )}
     </div>
   );

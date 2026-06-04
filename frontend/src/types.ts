@@ -2089,6 +2089,39 @@ export type NotificationDto = {
   readAt: string | null;
 };
 
+/** Prompt-context inspector wire row. Read-only view of what
+ *  would be in the agent's prompt; never used to send anything. */
+export type AssembledContextDto = {
+  scope: 'TRUNK' | 'TASK';
+  scopeId: string;
+  meta: {
+    model: string;
+    providerShape: string;
+    assembledAt: string;
+    totalTokens: number;
+    cacheHitPredicted: boolean;
+  };
+  sections: Array<{
+    kind: 'TOOLS' | 'ROLE' | 'BRAIN' | 'CONCEPT_PREAMBLE'
+        | 'SKILL_MANIFEST' | 'MEMORY' | 'HISTORY' | 'NEW_TURN';
+    label: string;
+    body: string;
+    tokenCount: number;
+    sources: Array<{
+      kind: string;
+      label: string;
+      href: string | null;
+      byteRange: string | null;
+    }>;
+  }>;
+  wire: {
+    tools: string[];
+    systemBlocks: string[];
+    historyMessages: string[];
+    newTurn: string;
+  };
+};
+
 /** One typed memory item the agent's recall_memory tool surfaces.
  *  Mirror of MemoryItem on the backend. v1 carries only the fields
  *  the proposal banner needs to render. */
@@ -2158,6 +2191,11 @@ export type Bridge = {
   listPendingMemoryItems: (workspaceId: string) => Promise<MemoryItemDto[]>;
   applyMemoryItem: (workspaceId: string, itemId: number) => Promise<MemoryItemDto>;
   discardMemoryItem: (workspaceId: string, itemId: number) => Promise<void>;
+  /** Read-only assembled prompt context for the thread's trunk
+   *  turn. Always hits the dryRun endpoint server-side. */
+  getThreadContext: (threadId: string) => Promise<AssembledContextDto>;
+  /** Read-only assembled prompt context for one task. */
+  getTaskContext: (threadId: string, taskId: string) => Promise<AssembledContextDto>;
   /** Live GitHub search for the user's full closed-PR history (merged
    *  + closed-without-merge). Used by the merge-history page — pages
    *  through GitHub's `is:closed author:@me sort:closed-desc` results. */

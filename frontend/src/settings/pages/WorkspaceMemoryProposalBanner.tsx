@@ -13,7 +13,7 @@
  */
 import { useCallback, useEffect, useState } from 'react';
 import { relativeTime } from '../../notificationDisplay';
-import type { WorkspaceMemoryProposalDto } from '../../types';
+import type { MemoryItemDto, WorkspaceMemoryProposalDto } from '../../types';
 
 type Props = {
   workspaceId: string;
@@ -146,6 +146,13 @@ function WorkspaceMemoryProposalBanner({ workspaceId, refreshKey, onApplied, onO
       {error !== null && (
         <div style={errorStyle} role="alert">{error}</div>
       )}
+
+      <TypedMemoryItemsList
+        workspaceId={workspaceId}
+        refreshKey={refreshKey}
+        onOpenThread={onOpenThread}
+      />
+
 
       <div style={buttonsStyle}>
         <button
@@ -334,6 +341,240 @@ const buttonsStyle: React.CSSProperties = {
   marginTop: 12,
   display: 'flex',
   gap: 8,
+};
+
+/** Compact preview of the typed memory_item rows the distiller
+ *  produced alongside the blob proposal. v1 sits below the
+ *  blob diff so the user sees both shapes; once the agent's
+ *  recall_memory loop is exercising the typed rows, the blob
+ *  surface becomes a debug view. Per-row Apply / Discard hits the
+ *  typed endpoints directly. */
+function TypedMemoryItemsList({
+  workspaceId, refreshKey, onOpenThread,
+}: {
+  workspaceId: string;
+  refreshKey?: number;
+  onOpenThread?: (threadId: string) => void;
+}) {
+  const [items, setItems] = useState<MemoryItemDto[] | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [busyIds, setBusyIds] = useState<Set<number>>(new Set());
+
+  const load = useCallback(async () => {
+    try {
+      const rows = await window.bridge.listPendingMemoryItems(workspaceId);
+      setItems(rows);
+    }
+    catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    }
+  }, [workspaceId]);
+
+  useEffect(() => { void load(); }, [load, refreshKey]);
+
+  if (items === null || items.length === 0) return null;
+
+  const withBusy = (id: number, value: boolean) => {
+    setBusyIds(prev => {
+      const next = new Set(prev);
+      if (value) next.add(id);
+      else next.delete(id);
+      return next;
+    });
+  };
+
+  const handleApply = async (id: number) => {
+    withBusy(id, true);
+    setError(null);
+    try {
+      await window.bridge.applyMemoryItem(workspaceId, id);
+      await load();
+    }
+    catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    }
+    finally {
+      withBusy(id, false);
+    }
+  };
+
+  const handleDiscard = async (id: number) => {
+    withBusy(id, true);
+    setError(null);
+    try {
+      await window.bridge.discardMemoryItem(workspaceId, id);
+      await load();
+    }
+    catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    }
+    finally {
+      withBusy(id, false);
+    }
+  };
+
+  return (
+    <section style={typedSectionStyle} aria-label="Typed memory items pending review">
+      <header style={typedHeadStyle}>
+        <div style={typedTitleStyle}>Typed view · {items.length}</div>
+        <div style={typedSublabelStyle}>
+          One row per item. Per-row Apply lands the row in WORKSPACE.md;
+          Discard drops it.
+        </div>
+      </header>
+      {error !== null && <div style={errorStyle} role="alert">{error}</div>}
+      <ul style={typedListStyle}>
+        {items.map(item => (
+          <li key={item.id} style={typedRowStyle}>
+            <div style={typedRowMetaStyle}>
+              <span style={kindChipStyle(item.kind)}>{item.kind.toLowerCase()}</span>
+              <span style={confidenceChipStyle(item.confidence)}>{item.confidence.toLowerCase()}</span>
+              {item.sources.map((s, idx) => {
+                const threadId = s.threadId ?? null;
+                const label = threadId !== null
+                  ? threadId.startsWith('distill:')
+                    ? 'distill'
+                    : threadId
+                  : (s.prRef ?? s.taskId ?? '?');
+                if (threadId !== null && onOpenThread && !threadId.startsWith('distill:')) {
+                  return (
+                    <button
+                      key={idx}
+                      type="button"
+                      style={sourceChipStyle}
+                      onClick={() => onOpenThread(threadId)}
+                      title={`Open ${threadId}`}
+                    >
+                      {label}
+                    </button>
+                  );
+                }
+                return (
+                  <span key={idx} style={sourceChipStyle}>{label}</span>
+                );
+              })}
+            </div>
+            <div style={typedRowTextStyle}>{item.text}</div>
+            <div style={typedRowButtonsStyle}>
+              <button
+                type="button"
+                className="button button--primary"
+                disabled={busyIds.has(item.id)}
+                onClick={() => { void handleApply(item.id); }}
+              >
+                Apply
+              </button>
+              <button
+                type="button"
+                className="button"
+                disabled={busyIds.has(item.id)}
+                onClick={() => { void handleDiscard(item.id); }}
+              >
+                Discard
+              </button>
+            </div>
+          </li>
+        ))}
+      </ul>
+    </section>
+  );
+}
+
+const typedSectionStyle: React.CSSProperties = {
+  marginTop: 16,
+  paddingTop: 12,
+  borderTop: '1px solid #e2e2e8',
+};
+
+const typedHeadStyle: React.CSSProperties = {
+  display: 'flex',
+  flexDirection: 'column',
+  marginBottom: 8,
+};
+
+const typedTitleStyle: React.CSSProperties = {
+  fontWeight: 600,
+  fontSize: 13,
+};
+
+const typedSublabelStyle: React.CSSProperties = {
+  fontSize: 11,
+  color: '#6b6b78',
+};
+
+const typedListStyle: React.CSSProperties = {
+  listStyle: 'none',
+  margin: 0,
+  padding: 0,
+  display: 'flex',
+  flexDirection: 'column',
+  gap: 10,
+};
+
+const typedRowStyle: React.CSSProperties = {
+  border: '1px solid #d8d8e0',
+  borderRadius: 6,
+  padding: 10,
+  display: 'flex',
+  flexDirection: 'column',
+  gap: 6,
+};
+
+const typedRowMetaStyle: React.CSSProperties = {
+  display: 'flex',
+  gap: 6,
+  flexWrap: 'wrap',
+};
+
+const typedRowTextStyle: React.CSSProperties = {
+  fontSize: 13,
+  lineHeight: 1.4,
+};
+
+const typedRowButtonsStyle: React.CSSProperties = {
+  display: 'flex',
+  gap: 6,
+};
+
+function kindChipStyle(kind: MemoryItemDto['kind']): React.CSSProperties {
+  const palette: Record<MemoryItemDto['kind'], string> = {
+    DECISION: '#4a3aff',
+    BLOCKER: '#d34d4d',
+    CONVENTION: '#2e7d32',
+    FOCUS_SHIFT: '#b56f00',
+    OPEN_QUESTION: '#7b3aa6',
+    RECURRING_PATTERN: '#5d5d8f',
+  };
+  return {
+    background: palette[kind],
+    color: 'white',
+    borderRadius: 4,
+    padding: '2px 6px',
+    fontSize: 10,
+    fontWeight: 600,
+    letterSpacing: 0.4,
+    textTransform: 'uppercase',
+  };
+}
+
+function confidenceChipStyle(confidence: MemoryItemDto['confidence']): React.CSSProperties {
+  return {
+    border: '1px solid #c8c8d0',
+    borderRadius: 4,
+    padding: '1px 5px',
+    fontSize: 10,
+    color: confidence === 'LOW' ? '#a07000' : '#666',
+  };
+}
+
+const sourceChipStyle: React.CSSProperties = {
+  border: '1px solid #c8c8d0',
+  background: '#fafafd',
+  borderRadius: 4,
+  padding: '1px 6px',
+  fontSize: 10,
+  cursor: 'pointer',
+  fontFamily: 'monospace',
 };
 
 export default WorkspaceMemoryProposalBanner;

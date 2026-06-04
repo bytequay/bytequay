@@ -573,6 +573,38 @@ function registerIpc(): void {
     }
   });
 
+  // Typed memory items — pairs with the existing blob-proposal
+  // endpoints in WorkspaceController. v1 shows them as a preview
+  // surface below the blob diff; later phases promote them to the
+  // canonical banner.
+  ipcMain.handle('backend:listPendingMemoryItems', async (_event, workspaceId: string) => {
+    const res = await fetch(`${BACKEND_BASE}/api/workspaces/${encodeURIComponent(workspaceId)}/memory/items/pending`);
+    if (!res.ok) {
+      const body = await res.text().catch(() => '');
+      throw new Error(`backend pending memory items returned ${res.status}: ${body}`);
+    }
+    return res.json();
+  });
+  ipcMain.handle('backend:applyMemoryItem', async (_event, workspaceId: string, itemId: number) => {
+    const res = await fetch(
+      `${BACKEND_BASE}/api/workspaces/${encodeURIComponent(workspaceId)}/memory/items/${itemId}/apply`,
+      { method: 'POST' });
+    if (!res.ok) {
+      const body = await res.text().catch(() => '');
+      throw new Error(`backend apply memory item returned ${res.status}: ${body}`);
+    }
+    return res.json();
+  });
+  ipcMain.handle('backend:discardMemoryItem', async (_event, workspaceId: string, itemId: number) => {
+    const res = await fetch(
+      `${BACKEND_BASE}/api/workspaces/${encodeURIComponent(workspaceId)}/memory/items/${itemId}/discard`,
+      { method: 'POST' });
+    if (!res.ok) {
+      const body = await res.text().catch(() => '');
+      throw new Error(`backend discard memory item returned ${res.status}: ${body}`);
+    }
+  });
+
   ipcMain.handle('backend:markPrViewed', async (_event, prId: number) => {
     const url = new URL(`${BACKEND_BASE}/prs/viewed`);
     url.searchParams.set('id', String(prId));

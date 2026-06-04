@@ -38,6 +38,7 @@ import type {
   IssueDto,
   PullRequestDetailDto,
   PullRequestDto,
+  MemoryItemDto,
   RecentEventDto,
   SavedViewBodyDto,
   SkillDraftDto,
@@ -93,6 +94,12 @@ const bridge: Bridge = {
     ipcRenderer.invoke('backend:createSavedView', body),
   deleteSavedView: (name: string) =>
     ipcRenderer.invoke('backend:deleteSavedView', name),
+  listPendingMemoryItems: (workspaceId: string): Promise<MemoryItemDto[]> =>
+    ipcRenderer.invoke('backend:listPendingMemoryItems', workspaceId),
+  applyMemoryItem: (workspaceId: string, itemId: number): Promise<MemoryItemDto> =>
+    ipcRenderer.invoke('backend:applyMemoryItem', workspaceId, itemId),
+  discardMemoryItem: (workspaceId: string, itemId: number): Promise<void> =>
+    ipcRenderer.invoke('backend:discardMemoryItem', workspaceId, itemId),
   fetchPullRequestDetail: (repo: string, number: number): Promise<PullRequestDetailDto> =>
     ipcRenderer.invoke('backend:pullRequestDetail', repo, number),
   refreshPullRequestDetail: (repo: string, number: number, maxAgeSeconds?: number): Promise<PullRequestDetailDto> =>

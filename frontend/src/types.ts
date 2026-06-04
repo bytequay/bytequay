@@ -2089,6 +2089,32 @@ export type NotificationDto = {
   readAt: string | null;
 };
 
+/** One typed memory item the agent's recall_memory tool surfaces.
+ *  Mirror of MemoryItem on the backend. v1 carries only the fields
+ *  the proposal banner needs to render. */
+export type MemoryItemDto = {
+  id: number;
+  scopeKind: 'WORKSPACE' | 'THREAD';
+  scopeId: string;
+  kind: 'DECISION' | 'BLOCKER' | 'CONVENTION'
+      | 'FOCUS_SHIFT' | 'OPEN_QUESTION' | 'RECURRING_PATTERN';
+  text: string;
+  sources: Array<{
+    threadId?: string;
+    taskId?: string;
+    prRef?: string;
+    messageStart?: number;
+    messageEnd?: number;
+  }>;
+  confidence: 'HIGH' | 'MEDIUM' | 'LOW';
+  tags: string[];
+  supersededBy: number | null;
+  resolvedAt: string | null;
+  proposedAt: string;
+  appliedAt: string | null;
+  source: 'DISTILL' | 'INLINE' | 'USER_TYPED';
+};
+
 /** Wire row from the backend Saved Views endpoint. */
 export type SavedViewDto = {
   name: string;
@@ -2125,6 +2151,13 @@ export type Bridge = {
   listSavedViews: () => Promise<SavedViewDto[]>;
   createSavedView: (body: SavedViewBodyDto) => Promise<SavedViewDto>;
   deleteSavedView: (name: string) => Promise<void>;
+  /** Typed memory items pending in the proposal banner for a
+   *  workspace. The blob proposal at GET /memory/proposal stays the
+   *  canonical surface; these are the structured shape the agent
+   *  reads via recall_memory / lookup_memory. */
+  listPendingMemoryItems: (workspaceId: string) => Promise<MemoryItemDto[]>;
+  applyMemoryItem: (workspaceId: string, itemId: number) => Promise<MemoryItemDto>;
+  discardMemoryItem: (workspaceId: string, itemId: number) => Promise<void>;
   /** Live GitHub search for the user's full closed-PR history (merged
    *  + closed-without-merge). Used by the merge-history page — pages
    *  through GitHub's `is:closed author:@me sort:closed-desc` results. */

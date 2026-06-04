@@ -140,20 +140,28 @@ function PromptContextInspector({ scope, threadId, taskId, onClose }: Props) {
             </div>
           </div>
           <div style={headerActionsStyle}>
-            <button
-              type="button"
-              style={view === 'section' ? activeToggleStyle : toggleStyle}
-              onClick={() => setView('section')}
-            >
-              Sections
-            </button>
-            <button
-              type="button"
-              style={view === 'wire' ? activeToggleStyle : toggleStyle}
-              onClick={() => setView('wire')}
-            >
-              Full request
-            </button>
+            <div style={segmentedControlStyle} role="tablist" aria-label="View">
+              <button
+                type="button"
+                role="tab"
+                aria-selected={view === 'section'}
+                style={view === 'section' ? segmentActiveStyle : segmentStyle}
+                onClick={() => setView('section')}
+              >
+                Sections
+              </button>
+              <button
+                type="button"
+                role="tab"
+                aria-selected={view === 'wire'}
+                style={view === 'wire' ? segmentActiveStyle : segmentStyle}
+                onClick={() => setView('wire')}
+                title="See the full assembled prompt that would be sent"
+              >
+                <span aria-hidden style={{ marginRight: 4 }}>⇄</span>
+                Full request
+              </button>
+            </div>
             <button type="button" style={toggleStyle} onClick={() => void load()}>
               Refresh
             </button>
@@ -207,6 +215,20 @@ function PromptContextInspector({ scope, threadId, taskId, onClose }: Props) {
                   </button>
                 );
               })}
+              {/* Views divider — the wire view is reachable from the
+                  header toggle too; surfacing it here as well so the
+                  user scanning the section list doesn't have to look
+                  up to find it. */}
+              <div style={navDividerStyle} aria-hidden>Views</div>
+              <button
+                type="button"
+                onClick={() => setView('wire')}
+                style={navItemStyle}
+                title="See the full assembled prompt that would be sent (read-only)"
+              >
+                <span style={{ ...dotStyle, background: '#222' }} aria-hidden />
+                <span style={navLabelStyle}>⇄ Full request</span>
+              </button>
             </nav>
             <section style={mainStyle} aria-live="polite">
               {activeSection !== null && (
@@ -467,6 +489,33 @@ const activeToggleStyle: React.CSSProperties = {
   borderColor: '#222',
 };
 
+/** Segmented control wrapping the Sections / Full request pair —
+ *  one bordered pill with two halves so the user reads them as a
+ *  view switcher instead of two unrelated buttons. */
+const segmentedControlStyle: React.CSSProperties = {
+  display: 'inline-flex',
+  border: '1px solid #c8c8d0',
+  borderRadius: 6,
+  overflow: 'hidden',
+  marginRight: 4,
+};
+
+const segmentStyle: React.CSSProperties = {
+  padding: '5px 12px',
+  fontSize: 11,
+  fontWeight: 600,
+  background: 'white',
+  color: '#3b3b48',
+  border: 'none',
+  cursor: 'pointer',
+};
+
+const segmentActiveStyle: React.CSSProperties = {
+  ...segmentStyle,
+  background: '#222',
+  color: 'white',
+};
+
 const closeStyle: React.CSSProperties = {
   ...toggleStyle,
   background: 'transparent',
@@ -523,6 +572,17 @@ const navItemStyle: React.CSSProperties = {
 const activeNavItemStyle: React.CSSProperties = {
   ...navItemStyle,
   background: '#eef0fd',
+};
+
+const navDividerStyle: React.CSSProperties = {
+  marginTop: 10,
+  padding: '4px 8px 2px',
+  fontSize: 9,
+  fontWeight: 700,
+  textTransform: 'uppercase',
+  letterSpacing: 0.6,
+  color: '#9090a0',
+  borderTop: '1px solid #e2e2e8',
 };
 
 const dotStyle: React.CSSProperties = {

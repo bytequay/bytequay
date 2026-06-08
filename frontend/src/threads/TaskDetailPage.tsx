@@ -28,6 +28,7 @@ import { ConvIndex } from './ConvIndex';
 import PromptContextInspector from '../inspector/PromptContextInspector';
 import { useInspectorHotkey } from '../inspector/useInspectorHotkey';
 import { useThreadTasks } from './useThreadTasks';
+import { useAnimatedNumber } from './useAnimatedNumber';
 
 type Props = {
   threadId: string;
@@ -849,7 +850,9 @@ function ContextWindowMeter({
   // bar surfaces *consumed input* — tokensIn is the dominant signal
   // for "how full is the window"; tokensOut don't count against it.
   const cap = 200_000;
-  const used = tokensIn;
+  // Count the number up toward each polled value so a turn's usage
+  // reads like the streaming CLI instead of snapping in one jump.
+  const used = useAnimatedNumber(tokensIn);
   const pct = Math.min(100, Math.round((used / cap) * 100));
   const tone = pct < 60 ? '#16a34a' : pct < 85 ? '#d97706' : '#dc2626';
   const safety = pct < 60 ? 'safe' : pct < 85 ? 'tight' : 'critical';
@@ -874,6 +877,10 @@ function TaskMetricsTable({
   task: WorkUnitTaskDto | null;
   toolCallCount: number;
 }) {
+  // Hooks must run unconditionally — pass 0 while the task is still
+  // loading so the count-up starts from empty once it arrives.
+  const tokensIn = useAnimatedNumber(task?.tokensIn ?? 0);
+  const tokensOut = useAnimatedNumber(task?.tokensOut ?? 0);
   if (task === null) {
     return <div style={emptyStyle}>—</div>;
   }
@@ -882,7 +889,7 @@ function TaskMetricsTable({
       <VitalRow label="Cost" value={`$${(task.costUsdMilli / 1000).toFixed(2)}`} />
       <VitalRow
         label="Tokens"
-        value={`${formatTokensCompact(task.tokensIn)} → ${formatTokensCompact(task.tokensOut)}`}
+        value={`${formatTokensCompact(tokensIn)} → ${formatTokensCompact(tokensOut)}`}
       />
       <VitalRow label="Runtime" value={formatRuntime(task.createdAt)} />
       <VitalRow label="Tool calls" value={String(toolCallCount)} />
@@ -2461,7 +2468,9 @@ const ctxTrackStyle: React.CSSProperties = {
 const ctxFillStyle: React.CSSProperties = {
   height: '100%',
   borderRadius: 999,
-  transition: 'width 140ms ease',
+  // The rAF count-up already steps width every frame; the colour
+  // transition keeps the tone shift gentle when pct crosses a band.
+  transition: 'width 140ms ease, background 300ms ease',
 };
 
 const railSectionStyle: React.CSSProperties = {

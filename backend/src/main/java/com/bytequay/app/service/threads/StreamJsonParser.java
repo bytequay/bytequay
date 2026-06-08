@@ -207,8 +207,9 @@ public class StreamJsonParser
 
     private static List<StreamEvent> parseResult(StreamLine.Result result, Instant now)
     {
-        long tokensIn = result.usage() == null ? 0L : result.usage().inputTokens();
-        long tokensOut = result.usage() == null ? 0L : result.usage().outputTokens();
+        StreamLine.Usage usage = result.usage();
+        long tokensIn = usage == null ? 0L : usage.inputTokens();
+        long tokensOut = usage == null ? 0L : usage.outputTokens();
         long costUsdMilli = Math.round(result.totalCostUsd() * 1000.0d);
         StreamEvent turn = new StreamEvent.TurnDone(
                 now, result.durationMs(), costUsdMilli, tokensIn, tokensOut);

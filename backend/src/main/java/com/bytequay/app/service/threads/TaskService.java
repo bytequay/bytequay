@@ -207,7 +207,7 @@ public class TaskService
                 current.costUsdMilli(), current.tokensIn(), current.tokensOut(),
                 current.agentSessionId(),
                 current.createdAt(), current.endedAt(), current.errorMessage(),
-                stored, current.roleSkill());
+                stored, current.roleSkill(), current.workModel());
         taskStore.saveTask(next);
         return next;
     }
@@ -346,7 +346,7 @@ public class TaskService
                     current.costUsdMilli(), current.tokensIn(), current.tokensOut(),
                     current.agentSessionId(),
                     current.createdAt(), parkedEndedAt, current.errorMessage(),
-                    current.name(), current.roleSkill()));
+                    current.name(), current.roleSkill(), current.workModel()));
 
             // 5. Resolve next base + cut a new worktree. MAIN mode
             //    uses the same per-repo merge-target as the PR base;
@@ -382,7 +382,8 @@ public class TaskService
                     /* agentSessionId — captured on the new task's first turn */ null,
                     now, /* endedAt */ null, /* errorMessage */ null,
                     /* name */ null,
-                    nextRoleSkill);
+                    nextRoleSkill,
+                    /* workModel — inherited from the thread by default */ null);
             taskStore.saveTask(next);
 
             // 7. Drop the in-memory agent for this thread. The next
@@ -497,16 +498,14 @@ public class TaskService
 
     private WatchedRepo resolveRepo(Path workingDir)
     {
-        for (WatchedRepo r : watchedRepoStore.findAll()) {
-            if (r.localClonePath() != null
-                    && !r.localClonePath().isBlank()
-                    && Path.of(r.localClonePath()).equals(workingDir)) {
-                return r;
-            }
-        }
-        throw new ResponseStatusException(
-                HttpStatusCode.valueOf(404),
-                "No watched repo found for working dir " + workingDir);
+        return watchedRepoStore.findAll().stream()
+                .filter(r -> r.localClonePath() != null
+                        && !r.localClonePath().isBlank()
+                        && Path.of(r.localClonePath()).equals(workingDir))
+                .findFirst()
+                .orElseThrow(() -> new ResponseStatusException(
+                        HttpStatusCode.valueOf(404),
+                        "No watched repo found for working dir " + workingDir));
     }
 
     private Thread requireThread(String threadId)

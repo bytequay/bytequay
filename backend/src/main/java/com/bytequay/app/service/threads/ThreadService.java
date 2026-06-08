@@ -46,6 +46,7 @@ import org.springframework.web.server.ResponseStatusException;
 import java.io.IOException;
 import java.nio.file.Path;
 import java.time.Instant;
+import java.util.Arrays;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.NoSuchElementException;
@@ -237,12 +238,11 @@ public class ThreadService
         if (store.findThreadById(threadId).isEmpty()) {
             throw new ResponseStatusException(HttpStatusCode.valueOf(404), "no thread: " + threadId);
         }
-        long existing = groupStore.countMembers(groupId);
+        List<ThreadGroupMembership> members = groupStore.listMembers(groupId);
         // Re-adding an existing member shouldn't trip the cap: the
         // store's addMember is idempotent so the count won't change.
-        boolean alreadyMember = groupStore.listMembers(groupId).stream()
-                .anyMatch(m -> m.threadId().equals(threadId));
-        if (!alreadyMember && existing >= GROUP_MAX_MEMBERS) {
+        boolean alreadyMember = members.stream().anyMatch(m -> m.threadId().equals(threadId));
+        if (!alreadyMember && members.size() >= GROUP_MAX_MEMBERS) {
             throw new ResponseStatusException(HttpStatusCode.valueOf(409),
                     "Group " + groupId + " is full (" + GROUP_MAX_MEMBERS + " threads); "
                             + "remove one before adding another.");
@@ -263,12 +263,11 @@ public class ThreadService
         if (groupStore.findGroupById(groupId).isEmpty()) {
             throw new ResponseStatusException(HttpStatusCode.valueOf(404), "no group: " + groupId);
         }
-        boolean isMember = groupStore.listMembers(groupId).stream()
-                .anyMatch(m -> m.threadId().equals(threadId));
-        if (!isMember) {
+        List<ThreadGroupMembership> members = groupStore.listMembers(groupId);
+        if (members.stream().noneMatch(m -> m.threadId().equals(threadId))) {
             return;
         }
-        if (groupStore.countMembers(groupId) <= 1) {
+        if (members.size() <= 1) {
             throw new ResponseStatusException(HttpStatusCode.valueOf(409),
                     "Group " + groupId + " has only one thread left; "
                             + "delete the group instead of emptying it.");
@@ -334,6 +333,7 @@ public class ThreadService
                 current.endedAt(), current.errorMessage(),
                 current.flow(),
                 current.workspaceId(),
+                current.workModel(),
                 current.activeTask());
         store.saveThread(next);
         return store.findThreadById(threadId).orElse(next);
@@ -400,6 +400,7 @@ public class ThreadService
                 /* errorMessage */ null,
                 request.flow() == null ? ThreadFlow.BUILD : request.flow(),
                 request.workspaceId().trim(),
+                /* workModel */ null,
                 /* activeTask */ null);
         store.saveThread(thread);
         for (String groupId : initialGroupIds) {
@@ -470,7 +471,8 @@ public class ThreadService
                 /* agentSessionId */ null,
                 now, null, null,
                 /* name */ null,
-                roleSkillText);
+                roleSkillText,
+                /* workModel */ null);
         taskStore.saveTask(task);
         Thread refreshed = store.findThreadById(threadId).orElse(thread);
         if (request.initialPrompt() != null && !request.initialPrompt().isBlank()) {
@@ -494,15 +496,7 @@ public class ThreadService
             return "New thread";
         }
         String[] words = firstLine.split("\\s+");
-        StringBuilder out = new StringBuilder();
-        int limit = Math.min(6, words.length);
-        for (int i = 0; i < limit; i++) {
-            if (i > 0) {
-                out.append(' ');
-            }
-            out.append(words[i]);
-        }
-        String summary = out.toString();
+        String summary = String.join(" ", Arrays.copyOfRange(words, 0, Math.min(6, words.length)));
         if (summary.length() > 60) {
             summary = summary.substring(0, 57) + "…";
         }

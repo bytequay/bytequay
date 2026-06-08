@@ -42,6 +42,7 @@ import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.CompletionException;
 import java.util.concurrent.CompletionStage;
+import java.util.stream.Collectors;
 
 import static com.bytequay.app.domain.ThreadResourceLane.API;
 import static com.bytequay.app.domain.ThreadResourceLane.CLI;
@@ -175,10 +176,9 @@ public class AgentScheduler
                     break;
                 }
 
-                Set<String> queuedTurnIds = new HashSet<>();
-                for (ThreadTurn turn : queuedTurns) {
-                    queuedTurnIds.add(turn.id());
-                }
+                Set<String> queuedTurnIds = queuedTurns.stream()
+                        .map(ThreadTurn::id)
+                        .collect(Collectors.toSet());
                 for (LaneState lane : lanes.values()) {
                     removeQueuedTurns(lane, queuedTurnIds);
                 }

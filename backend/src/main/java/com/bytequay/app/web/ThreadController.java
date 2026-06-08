@@ -24,6 +24,7 @@ import com.bytequay.app.domain.ThreadMessage;
 import com.bytequay.app.domain.ThreadStatus;
 import com.bytequay.app.domain.ThreadTurn;
 import com.bytequay.app.domain.ThreadTurnEvent;
+import com.bytequay.app.domain.WorkModel;
 import com.bytequay.app.repository.ThreadCheckpointStore;
 import com.bytequay.app.service.inspector.AssembledContext;
 import com.bytequay.app.service.inspector.ContextAssembler;
@@ -43,6 +44,7 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
@@ -269,6 +271,23 @@ public class ThreadController
         requireNonNull(body, "body is required");
         return threads.patchTask(id, new ThreadService.TaskPatch(body.title()));
     }
+
+    /**
+     * PUT /api/threads/{id}/work-model — set (or clear) the thread's
+     * override on the work-model cascade. A null body or a body whose
+     * {@code workModel} field is null clears the override; the resolver
+     * then falls back to the workspace pick.
+     */
+    @PutMapping("/{id}/work-model")
+    public Thread setWorkModel(@PathVariable String id, @RequestBody(required = false) WorkModelBody body)
+    {
+        return threads.setWorkModel(id, body == null ? null : body.workModel());
+    }
+
+    /** Request body for {@link #setWorkModel} — wraps the optional
+     *  {@link WorkModel} so a {@code null} field maps cleanly to
+     *  "clear the override". */
+    public record WorkModelBody(WorkModel workModel) {}
 
     /** GET /api/threads/{id}/messages — full conversation, oldest first. */
     @GetMapping("/{id}/messages")

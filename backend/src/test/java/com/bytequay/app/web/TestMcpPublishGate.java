@@ -664,7 +664,7 @@ class TestMcpPublishGate
                 "claude-sonnet-4.6",
                 0L, 0L, 0L,
                 now, now, null, null,
-                ThreadFlow.BUILD, "ws-default", null);
+                ThreadFlow.BUILD, "ws-default", null, null);
         threads.saveThread(t);
         return t.id();
     }
@@ -690,7 +690,7 @@ class TestMcpPublishGate
                 0L, 0L, 0L,
                 /* agentSessionId */ null,
                 now, /* endedAt */ null, /* errorMessage */ null,
-                /* name */ null, /* roleSkill */ null);
+                /* name */ null, /* roleSkill */ null, /* workModel */ null);
     }
 
     /** Builds a task pre-parked at the given status so the parked-
@@ -710,7 +710,7 @@ class TestMcpPublishGate
                 0L, 0L, 0L,
                 /* agentSessionId */ null,
                 now, /* endedAt */ null, /* errorMessage */ null,
-                /* name */ null, /* roleSkill */ null);
+                /* name */ null, /* roleSkill */ null, /* workModel */ null);
     }
 
     private static Task newTaskWithLinkedPr(String threadId, String workingDir, int linkedPrNumber)
@@ -729,6 +729,6 @@ class TestMcpPublishGate
                 0L, 0L, 0L,
                 /* agentSessionId */ null,
                 now, /* endedAt */ null, /* errorMessage */ null,
-                /* name */ null, /* roleSkill */ null);
+                /* name */ null, /* roleSkill */ null, /* workModel */ null);
     }
 }

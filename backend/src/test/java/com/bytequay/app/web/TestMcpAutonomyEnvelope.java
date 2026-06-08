@@ -170,7 +170,7 @@ class TestMcpAutonomyEnvelope
                 threadId, ThreadKind.CLI_AGENT, "claude-code", null,
                 "Autonomy-envelope fixture", ThreadStatus.RUNNING, "test",
                 0L, 0L, 0L, now, now, null, null,
-                ThreadFlow.BUILD, "ws-default", null));
+                ThreadFlow.BUILD, "ws-default", null, null));
         // A RUNNING task makes the thread TASK-role (grants CODE_*) and
         // keeps the park-guard happy (an active, unparked task). The
         // worktree path is unique per thread so the shared worktree
@@ -180,7 +180,7 @@ class TestMcpAutonomyEnvelope
                 UUID.randomUUID().toString(), threadId, 1L, TaskStatus.RUNNING,
                 "feature/auto", worktree, "main", worktree,
                 null, null, null, null, null, "DEVELOP", null, null,
-                0L, 0L, 0L, null, now, null, null, null, null));
+                0L, 0L, 0L, null, now, null, null, null, null, null));
         return threadId;
     }
 

@@ -133,6 +133,7 @@ public class IdleThreadArchiver
                 t.errorMessage(),
                 t.flow(),
                 t.workspaceId(),
+                t.workModel(),
                 t.activeTask());
     }
 }

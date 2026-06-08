@@ -192,6 +192,7 @@ class TestMcpPermissionFilter
                 /* errorMessage */ null,
                 ThreadFlow.BUILD,
                 /* workspaceId */ "ws-default",
+                /* workModel */ null,
                 /* activeTask */ null);
         threads.saveThread(thread);
         return id;
@@ -210,7 +211,7 @@ class TestMcpPermissionFilter
                 0L, 0L, 0L,
                 /* agentSessionId */ null,
                 Instant.now(), /* endedAt */ null, /* errorMessage */ null,
-                /* name */ null, /* roleSkill */ null);
+                /* name */ null, /* roleSkill */ null, /* workModel */ null);
         tasks.saveTask(task);
         return id;
     }

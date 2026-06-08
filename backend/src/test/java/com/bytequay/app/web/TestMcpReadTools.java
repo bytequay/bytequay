@@ -152,6 +152,7 @@ class TestMcpReadTools
                 now, now, null, null,
                 ThreadFlow.BUILD,
                 workspaceId,
+                /* workModel */ null,
                 /* activeTask */ null);
         threads.saveThread(thread);
         return id;

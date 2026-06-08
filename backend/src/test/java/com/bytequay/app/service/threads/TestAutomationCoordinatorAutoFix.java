@@ -224,7 +224,7 @@ class TestAutomationCoordinatorAutoFix
                 /* costUsdMilli */ 0L, /* tokensIn */ 0L, /* tokensOut */ 0L,
                 /* agentSessionId */ null,
                 now, /* endedAt */ null, /* errorMessage */ null,
-                /* name */ null, /* roleSkill */ null);
+                /* name */ null, /* roleSkill */ null, /* workModel */ null);
     }
 
     private static Thread newThread(String id, ThreadStatus status)
@@ -236,6 +236,6 @@ class TestAutomationCoordinatorAutoFix
                 "claude-sonnet-4.6",
                 0L, 0L, 0L,
                 now, now, null, null,
-                ThreadFlow.BUILD, "ws-default", null);
+                ThreadFlow.BUILD, "ws-default", null, null);
     }
 }

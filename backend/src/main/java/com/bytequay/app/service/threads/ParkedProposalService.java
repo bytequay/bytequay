@@ -228,7 +228,7 @@ public class ParkedProposalService
                 task.costUsdMilli(), task.tokensIn(), task.tokensOut(),
                 /* agentSessionId */ null,
                 task.createdAt(), task.endedAt(), task.errorMessage(),
-                task.name(), task.roleSkill());
+                task.name(), task.roleSkill(), task.workModel());
     }
 
     private static Task withStatus(Task task, TaskStatus status)
@@ -242,6 +242,6 @@ public class ParkedProposalService
                 task.costUsdMilli(), task.tokensIn(), task.tokensOut(),
                 task.agentSessionId(),
                 task.createdAt(), task.endedAt(), task.errorMessage(),
-                task.name(), task.roleSkill());
+                task.name(), task.roleSkill(), task.workModel());
     }
 }

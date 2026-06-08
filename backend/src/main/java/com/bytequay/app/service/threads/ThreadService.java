@@ -28,6 +28,7 @@ import com.bytequay.app.domain.ThreadStatus;
 import com.bytequay.app.domain.ThreadTurn;
 import com.bytequay.app.domain.ThreadTurnEvent;
 import com.bytequay.app.domain.ThreadTurnStatus;
+import com.bytequay.app.domain.WorkModel;
 import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.repository.ThreadGroupStore;
 import com.bytequay.app.repository.ThreadStore;
@@ -334,6 +335,34 @@ public class ThreadService
                 current.flow(),
                 current.workspaceId(),
                 current.workModel(),
+                current.activeTask());
+        store.saveThread(next);
+        return store.findThreadById(threadId).orElse(next);
+    }
+
+    /**
+     * Set (or clear) the thread's override on the work-model cascade.
+     * Passing {@code null} clears the override so the resolver falls
+     * back to the workspace pick. Returns the updated row so the caller
+     * can refresh without a follow-up fetch.
+     */
+    @Transactional
+    public Thread setWorkModel(String threadId, WorkModel workModel)
+    {
+        requireNonNull(threadId, "threadId is null");
+        Thread current = store.findThreadById(threadId)
+                .orElseThrow(() -> new ResponseStatusException(
+                        HttpStatusCode.valueOf(404), "no thread: " + threadId));
+        Thread next = new Thread(
+                current.id(), current.kind(), current.provider(), current.agentSessionId(),
+                current.title(), current.status(),
+                current.model(),
+                current.costUsdMilli(), current.tokensIn(), current.tokensOut(),
+                current.createdAt(), Instant.now(),
+                current.endedAt(), current.errorMessage(),
+                current.flow(),
+                current.workspaceId(),
+                workModel,
                 current.activeTask());
         store.saveThread(next);
         return store.findThreadById(threadId).orElse(next);

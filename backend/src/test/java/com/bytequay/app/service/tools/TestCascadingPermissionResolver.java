@@ -169,7 +169,7 @@ class TestCascadingPermissionResolver
         return new Thread(
                 id, ThreadKind.CLI_AGENT, "claude-code", null, "fixture",
                 ThreadStatus.IDLE, "test", 0L, 0L, 0L, now, now, null, null,
-                ThreadFlow.BUILD, workspaceId, null);
+                ThreadFlow.BUILD, workspaceId, null, null);
     }
 
     private static Task task(String id)
@@ -179,6 +179,6 @@ class TestCascadingPermissionResolver
                 id, "t-task", 1L, TaskStatus.RUNNING,
                 "branch", "/tmp/wt", "main", "/tmp/repo",
                 null, null, null, null, null, "DEVELOP", null, null,
-                0L, 0L, 0L, null, now, null, null, null, null);
+                0L, 0L, 0L, null, now, null, null, null, null, null);
     }
 }

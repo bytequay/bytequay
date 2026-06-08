@@ -89,6 +89,12 @@ class TaskEntity
     @Column(name = "role_skill", columnDefinition = "TEXT")
     private String roleSkill;
 
+    /** Raw JSON for the task's per-task work-model override. Nullable
+     *  — the resolver treats absent as "fall back to the thread pick".
+     *  See V96 + {@link com.bytequay.app.domain.WorkModel}. */
+    @Column(name = "work_model_json")
+    private String workModelJson;
+
     @Column(name = "created_at_ms", nullable = false)
     private long createdAtMs;
 
@@ -163,6 +169,9 @@ class TaskEntity
 
     String getRoleSkill() { return roleSkill; }
     void setRoleSkill(String roleSkill) { this.roleSkill = roleSkill; }
+
+    String getWorkModelJson() { return workModelJson; }
+    void setWorkModelJson(String workModelJson) { this.workModelJson = workModelJson; }
 
     long getCreatedAtMs() { return createdAtMs; }
     void setCreatedAtMs(long createdAtMs) { this.createdAtMs = createdAtMs; }

@@ -229,7 +229,7 @@ class TestSqliteThreadCheckpointStore
                 "claude-sonnet-4.6",
                 0L, 0L, 0L,
                 now, now, null, null,
-                ThreadFlow.BUILD, "ws-default", null);
+                ThreadFlow.BUILD, "ws-default", null, null);
         threads.saveThread(t);
         return t.id();
     }
@@ -262,7 +262,8 @@ class TestSqliteThreadCheckpointStore
                 /* endedAt */ null,
                 /* errorMessage */ null,
                 /* name */ null,
-                /* roleSkill */ null);
+                /* roleSkill */ null,
+                /* workModel */ null);
         tasks.saveTask(task);
         return task.id();
     }

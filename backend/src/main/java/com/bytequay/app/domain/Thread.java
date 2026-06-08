@@ -88,6 +88,11 @@ public record Thread(
          *  back-filled to "ws-default" by V73, and the store's
          *  fallback covers any null sneaking through. */
         String workspaceId,
+        /** Per-thread override on the work-model cascade. Null means
+         *  "no override" — the resolver falls back to the workspace
+         *  pick, then to the global default. See V95 for the column
+         *  and {@link WorkModel} for the value shape. */
+        WorkModel workModel,
         Task activeTask)
 {
     /**

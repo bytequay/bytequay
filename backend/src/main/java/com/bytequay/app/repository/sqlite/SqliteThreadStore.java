@@ -22,8 +22,11 @@ import com.bytequay.app.domain.ThreadFlow;
 import com.bytequay.app.domain.ThreadKind;
 import com.bytequay.app.domain.ThreadMessage;
 import com.bytequay.app.domain.ThreadStatus;
+import com.bytequay.app.domain.WorkModel;
 import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.repository.ThreadStore;
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
@@ -60,15 +63,18 @@ class SqliteThreadStore
     private final ThreadJpaRepository threads;
     private final ThreadMessageJpaRepository messages;
     private final TaskStore taskStore;
+    private final ObjectMapper objectMapper;
 
     SqliteThreadStore(
             ThreadJpaRepository threads,
             ThreadMessageJpaRepository messages,
-            TaskStore taskStore)
+            TaskStore taskStore,
+            ObjectMapper objectMapper)
     {
         this.threads = requireNonNull(threads, "threads is null");
         this.messages = requireNonNull(messages, "messages is null");
         this.taskStore = requireNonNull(taskStore, "taskStore is null");
+        this.objectMapper = requireNonNull(objectMapper, "objectMapper is null");
     }
 
     /** Ambient workspace every new thread joins. Multi-workspace
@@ -121,6 +127,7 @@ class SqliteThreadStore
                     "thread.flow is set-once; cannot flip thread " + thread.id()
                             + " from " + entity.getFlow() + " to " + thread.flow().dbValue());
         }
+        entity.setWorkModelJson(serialiseWorkModel(thread.workModel()));
         threads.save(entity);
 
         // Mirror Thread-level state (status, running cost / tokens,
@@ -144,7 +151,7 @@ class SqliteThreadStore
                     t.createdAt(),
                     thread.endedAt() != null ? thread.endedAt() : t.endedAt(),
                     thread.errorMessage() != null ? thread.errorMessage() : t.errorMessage(),
-                    t.name(), t.roleSkill());
+                    t.name(), t.roleSkill(), t.workModel());
             taskStore.saveTask(next);
         });
     }
@@ -337,7 +344,7 @@ class SqliteThreadStore
         return toThread(e, active.orElse(null));
     }
 
-    private static Thread toThread(ThreadEntity e, Task active)
+    private Thread toThread(ThreadEntity e, Task active)
     {
         // Bridge teardown complete: the work-unit fields are reached
         // exclusively via the activeTask projection now. Older
@@ -361,7 +368,39 @@ class SqliteThreadStore
                 e.getErrorMessage(),
                 ThreadFlow.fromDbValue(e.getFlow()),
                 e.getWorkspaceId(),
+                deserialiseWorkModel(e.getWorkModelJson()),
                 active);
+    }
+
+    private String serialiseWorkModel(WorkModel m)
+    {
+        if (m == null) {
+            return null;
+        }
+        try {
+            return objectMapper.writeValueAsString(m);
+        }
+        catch (JsonProcessingException e) {
+            // The record is plain-object-mapper-friendly, so a failure
+            // here means a programming error — surface it loudly.
+            throw new IllegalStateException("WorkModel JSON serialise failed", e);
+        }
+    }
+
+    private WorkModel deserialiseWorkModel(String json)
+    {
+        if (json == null || json.isBlank()) {
+            return null;
+        }
+        try {
+            return objectMapper.readValue(json, WorkModel.class);
+        }
+        catch (JsonProcessingException e) {
+            // Bad row → treat as "no override". The resolver falls back
+            // to the workspace pick. Don't break the whole thread load
+            // because of a stale JSON shape.
+            return null;
+        }
     }
 
     private static ThreadMessage toMessage(ThreadMessageEntity e)

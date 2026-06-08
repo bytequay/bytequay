@@ -185,6 +185,7 @@ public class ReviewPassService
                 // assign-review dialog grows a workspace picker this
                 // becomes the chosen workspace.
                 "ws-default",
+                /* workModel */ null,
                 /* activeTask */ null);
         threadStore.saveThread(thread);
 

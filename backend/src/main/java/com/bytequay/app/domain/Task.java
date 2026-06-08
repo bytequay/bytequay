@@ -93,7 +93,13 @@ public record Task(
          *  loaded as the system role block on every turn so the
          *  cached prefix stays byte-stable for the lifetime of the
          *  task. Null on legacy rows (no role block injected). */
-        String roleSkill)
+        String roleSkill,
+        /** Per-task override on the work-model cascade — the most
+         *  specific scope. Null means "no override" — the resolver
+         *  falls back to thread, then workspace, then global default.
+         *  See V96 for the column and {@link WorkModel} for the
+         *  value shape. */
+        WorkModel workModel)
 {
     /**
      * Resolves the directory the agent process should run in for this

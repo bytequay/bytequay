@@ -16,7 +16,10 @@ package com.bytequay.app.repository.sqlite;
 import com.bytequay.app.domain.Task;
 import com.bytequay.app.domain.TaskFile;
 import com.bytequay.app.domain.TaskStatus;
+import com.bytequay.app.domain.WorkModel;
 import com.bytequay.app.repository.TaskStore;
+import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -33,11 +36,13 @@ class SqliteTaskStore
 {
     private final TaskJpaRepository tasks;
     private final TaskFileJpaRepository files;
+    private final ObjectMapper objectMapper;
 
-    SqliteTaskStore(TaskJpaRepository tasks, TaskFileJpaRepository files)
+    SqliteTaskStore(TaskJpaRepository tasks, TaskFileJpaRepository files, ObjectMapper objectMapper)
     {
         this.tasks = requireNonNull(tasks, "tasks is null");
         this.files = requireNonNull(files, "files is null");
+        this.objectMapper = requireNonNull(objectMapper, "objectMapper is null");
     }
 
     @Override
@@ -67,6 +72,7 @@ class SqliteTaskStore
         entity.setAgentSessionId(task.agentSessionId());
         entity.setName(task.name());
         entity.setRoleSkill(task.roleSkill());
+        entity.setWorkModelJson(serialiseWorkModel(task.workModel()));
         entity.setCreatedAtMs(task.createdAt().toEpochMilli());
         entity.setEndedAtMs(task.endedAt() == null ? null : task.endedAt().toEpochMilli());
         entity.setErrorMessage(task.errorMessage());
@@ -76,7 +82,7 @@ class SqliteTaskStore
     @Override
     public Optional<Task> findTaskById(String id)
     {
-        return tasks.findById(id).map(SqliteTaskStore::toTask);
+        return tasks.findById(id).map(this::toTask);
     }
 
     @Override
@@ -95,7 +101,7 @@ class SqliteTaskStore
     public List<Task> listTasksByThread(String threadId)
     {
         return tasks.findByThreadIdOrderBySeqAsc(threadId).stream()
-                .map(SqliteTaskStore::toTask)
+                .map(this::toTask)
                 .toList();
     }
 
@@ -112,14 +118,14 @@ class SqliteTaskStore
         return tasks.findByThreadIdAndStatusInOrderBySeqDesc(threadId, active)
                 .stream()
                 .findFirst()
-                .map(SqliteTaskStore::toTask);
+                .map(this::toTask);
     }
 
     @Override
     public Optional<Task> findLatestTaskForThread(String threadId)
     {
         return tasks.findFirstByThreadIdOrderBySeqDesc(threadId)
-                .map(SqliteTaskStore::toTask);
+                .map(this::toTask);
     }
 
     @Override
@@ -133,7 +139,7 @@ class SqliteTaskStore
     {
         return tasks.findByStatusOrderByCreatedAtMsAsc(status.name(), firstPage(limit))
                 .stream()
-                .map(SqliteTaskStore::toTask)
+                .map(this::toTask)
                 .toList();
     }
 
@@ -142,7 +148,7 @@ class SqliteTaskStore
     {
         return tasks.findByLinkedPrNumberIsNotNullOrderByCreatedAtMsDesc(firstPage(limit))
                 .stream()
-                .map(SqliteTaskStore::toTask)
+                .map(this::toTask)
                 .toList();
     }
 
@@ -170,7 +176,7 @@ class SqliteTaskStore
                 .toList();
     }
 
-    private static Task toTask(TaskEntity e)
+    private Task toTask(TaskEntity e)
     {
         return new Task(
                 e.getId(),
@@ -197,7 +203,36 @@ class SqliteTaskStore
                 e.getEndedAtMs() == null ? null : Instant.ofEpochMilli(e.getEndedAtMs()),
                 e.getErrorMessage(),
                 e.getName(),
-                e.getRoleSkill());
+                e.getRoleSkill(),
+                deserialiseWorkModel(e.getWorkModelJson()));
+    }
+
+    private String serialiseWorkModel(WorkModel m)
+    {
+        if (m == null) {
+            return null;
+        }
+        try {
+            return objectMapper.writeValueAsString(m);
+        }
+        catch (JsonProcessingException e) {
+            throw new IllegalStateException("WorkModel JSON serialise failed", e);
+        }
+    }
+
+    private WorkModel deserialiseWorkModel(String json)
+    {
+        if (json == null || json.isBlank()) {
+            return null;
+        }
+        try {
+            return objectMapper.readValue(json, WorkModel.class);
+        }
+        catch (JsonProcessingException e) {
+            // Bad row → treat as "no override"; the resolver falls back
+            // to the thread / workspace pick. Don't break task load.
+            return null;
+        }
     }
 
     private static TaskFile toFile(TaskFileEntity e)

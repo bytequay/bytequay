@@ -81,6 +81,12 @@ class ThreadEntity
     @Column(name = "flow", nullable = false)
     private String flow;
 
+    /** Raw JSON for the thread's per-thread work-model override.
+     *  Nullable — the resolver treats absent as "fall back to the
+     *  workspace pick". See V95 + {@link com.bytequay.app.domain.WorkModel}. */
+    @Column(name = "work_model_json")
+    private String workModelJson;
+
     // Dropped in V72 (moved to the tasks table):
     //   working_dir, branch_name, local_branch, worktree_path,
     //   process_pid, log_path, task_type, linked_pr_number,
@@ -136,4 +142,7 @@ class ThreadEntity
 
     String getFlow() { return flow; }
     void setFlow(String flow) { this.flow = flow; }
+
+    String getWorkModelJson() { return workModelJson; }
+    void setWorkModelJson(String workModelJson) { this.workModelJson = workModelJson; }
 }

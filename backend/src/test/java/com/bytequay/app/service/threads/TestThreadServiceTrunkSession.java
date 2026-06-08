@@ -81,6 +81,7 @@ class TestThreadServiceTrunkSession
                 now, now, null, null,
                 ThreadFlow.BUILD,
                 /* workspaceId */ "ws-default",
+                /* workModel */ null,
                 /* activeTask */ null);
         threadStore.saveThread(thread);
         return id;

@@ -162,6 +162,7 @@ class TestSqliteThreadTurnStore
                 /* errorMessage */ null,
                 ThreadFlow.BUILD,
                 "ws-default",
+                /* workModel */ null,
                 /* activeTask */ null));
         return threadId;
     }

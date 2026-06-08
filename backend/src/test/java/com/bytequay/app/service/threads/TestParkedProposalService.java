@@ -103,7 +103,7 @@ class TestParkedProposalService
                 null, null, null, null, null,
                 "DEVELOP", null, null,
                 0L, 0L, 0L, null,
-                task.createdAt(), null, null, null, null);
+                task.createdAt(), null, null, null, null, null);
         Notification proposal = proposal();
         when(tasks.findActiveTaskForThread("thread-1")).thenReturn(Optional.of(successor));
         when(notifications.finishResolution(proposal.id())).thenReturn(true);
@@ -160,7 +160,7 @@ class TestParkedProposalService
                 processPid, null, null, null, null,
                 "DEVELOP", null, null,
                 0L, 0L, 0L, null,
-                now, null, null, null, null);
+                now, null, null, null, null, null);
     }
 
     private static Notification proposal()

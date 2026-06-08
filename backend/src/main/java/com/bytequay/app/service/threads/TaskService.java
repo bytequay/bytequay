@@ -22,6 +22,7 @@ import com.bytequay.app.domain.TaskFile;
 import com.bytequay.app.domain.TaskStatus;
 import com.bytequay.app.domain.Thread;
 import com.bytequay.app.domain.WatchedRepo;
+import com.bytequay.app.domain.WorkModel;
 import com.bytequay.app.repository.PullRequestRepository;
 import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.repository.ThreadStore;
@@ -185,6 +186,32 @@ public class TaskService
     public Task shipApprovedParkedTask(String threadId, String taskId, ShipRequest request)
     {
         return shipOrParkAndStartNext(threadId, taskId, request, ParkMode.SHIP, true);
+    }
+
+    /**
+     * Set (or clear) the task's override on the work-model cascade.
+     * Passing {@code null} clears the override so the resolver falls
+     * back to the thread pick. The most-specific scope on the
+     * cascade — pinning it here turns this single task off the
+     * thread default.
+     */
+    @Transactional
+    public Task setWorkModel(String threadId, String taskId, WorkModel workModel)
+    {
+        Task current = requireTask(threadId, taskId);
+        Task next = new Task(
+                current.id(), current.threadId(), current.seq(), current.status(),
+                current.branchName(), current.worktreePath(), current.baseBranch(),
+                current.workingDir(),
+                current.processPid(), current.logPath(),
+                current.prNumber(), current.prState(), current.ciState(),
+                current.taskType(), current.linkedPrNumber(), current.linkedIssueNumber(),
+                current.costUsdMilli(), current.tokensIn(), current.tokensOut(),
+                current.agentSessionId(),
+                current.createdAt(), current.endedAt(), current.errorMessage(),
+                current.name(), current.roleSkill(), workModel);
+        taskStore.saveTask(next);
+        return next;
     }
 
     /** Rename a task. Trims the supplied label; an empty string clears

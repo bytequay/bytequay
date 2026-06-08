@@ -202,7 +202,7 @@ class TestTaskServiceShipAndContinue
                 "Test thread", ThreadStatus.RUNNING, "claude-sonnet-4.6",
                 0L, 0L, 0L,
                 now, now, null, null,
-                ThreadFlow.BUILD, "ws-default", null);
+                ThreadFlow.BUILD, "ws-default", null, null);
     }
 
     private static Task task(
@@ -227,7 +227,7 @@ class TestTaskServiceShipAndContinue
                 0L, 0L, 0L,
                 /* agentSessionId */ null,
                 now, /* endedAt */ null, /* errorMessage */ null,
-                /* name */ null, /* roleSkill */ null);
+                /* name */ null, /* roleSkill */ null, /* workModel */ null);
     }
 
     private static PullRequest prWithNumber(int number)

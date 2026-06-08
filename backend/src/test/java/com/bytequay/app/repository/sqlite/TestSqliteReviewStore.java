@@ -204,6 +204,7 @@ class TestSqliteReviewStore
                 now, now, null, null,
                 ThreadFlow.REVIEW,
                 "ws-default",
+                /* workModel */ null,
                 /* activeTask */ null);
     }
 

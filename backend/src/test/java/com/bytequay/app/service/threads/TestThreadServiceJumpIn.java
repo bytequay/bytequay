@@ -139,7 +139,7 @@ class TestThreadServiceJumpIn
                 "claude-sonnet-4.6",
                 0L, 0L, 0L,
                 now, now, null, null,
-                ThreadFlow.BUILD, "ws-default", null);
+                ThreadFlow.BUILD, "ws-default", null, null);
         threadStore.saveThread(t);
         return t.id();
     }
@@ -165,7 +165,7 @@ class TestThreadServiceJumpIn
                 /* agentSessionId */ null,
                 Instant.now(),
                 /* endedAt */ null, /* errorMessage */ null,
-                /* name */ null, /* roleSkill */ null);
+                /* name */ null, /* roleSkill */ null, /* workModel */ null);
     }
 
     @SuppressWarnings("unused")

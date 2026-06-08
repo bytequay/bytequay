@@ -504,7 +504,7 @@ public class ClaudeCodeCliThreadAgent
                             agentSessionId.get(),
                             t.createdAt(), /* endedAt */ null,
                             /* errorMessage */ null,
-                            t.name(), t.roleSkill()));
+                            t.name(), t.roleSkill(), t.workModel()));
                 }
             });
             // Preserve the trunk planning session id on the Thread row;
@@ -519,6 +519,7 @@ public class ClaudeCodeCliThreadAgent
                     /* endedAt */ null, /* errorMessage */ null,
                     current.flow(),
                     current.workspaceId(),
+                    current.workModel(),
                     current.activeTask()));
         }
     }
@@ -1136,7 +1137,7 @@ public class ClaudeCodeCliThreadAgent
                             t.costUsdMilli(), t.tokensIn(), t.tokensOut(),
                             capturedSession,
                             t.createdAt(), t.endedAt(), t.errorMessage(),
-                            t.name(), t.roleSkill()));
+                            t.name(), t.roleSkill(), t.workModel()));
                 }
             });
         }
@@ -1155,6 +1156,7 @@ public class ClaudeCodeCliThreadAgent
                 current.errorMessage(),
                 current.flow(),
                 current.workspaceId(),
+                current.workModel(),
                 current.activeTask());
         store.saveThread(next);
     }

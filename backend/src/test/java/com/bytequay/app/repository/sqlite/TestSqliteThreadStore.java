@@ -21,6 +21,8 @@ import com.bytequay.app.domain.ThreadFlow;
 import com.bytequay.app.domain.ThreadKind;
 import com.bytequay.app.domain.ThreadMessage;
 import com.bytequay.app.domain.ThreadStatus;
+import com.bytequay.app.domain.WorkModel;
+import com.bytequay.app.domain.WorkModelKind;
 import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.repository.ThreadStore;
 import org.junit.jupiter.api.Test;
@@ -93,6 +95,7 @@ class TestSqliteThreadStore
                 /* endedAt */ null, /* errorMessage */ null,
                 initial.flow(),
                 "ws-default",
+                initial.workModel(),
                 initial.activeTask());
         store.saveThread(updated);
 
@@ -124,6 +127,7 @@ class TestSqliteThreadStore
                 original.endedAt(), original.errorMessage(),
                 ThreadFlow.REVIEW,
                 "ws-default",
+                original.workModel(),
                 original.activeTask());
         assertThatThrownBy(() -> store.saveThread(flipped))
                 .isInstanceOf(IllegalStateException.class)
@@ -182,6 +186,81 @@ class TestSqliteThreadStore
     }
 
     @Test
+    void roundtripsATaskWorkModelOverride()
+    {
+        // The task work-model override is the most-specific scope on
+        // the cascade; same JSON shape as the thread + workspace
+        // columns, exercised here on the task row.
+        Thread thread = newTask(ThreadKind.CLI_AGENT, ThreadStatus.IDLE);
+        store.saveThread(thread);
+        String taskId = UUID.randomUUID().toString();
+        Instant created = Instant.parse("2026-05-15T12:00:00Z");
+        Task pinned = new Task(
+                taskId, thread.id(), 1L, TaskStatus.IDLE,
+                "main", null, "main", "/tmp",
+                null, null, null, null, null, "DEVELOP", null, null,
+                0L, 0L, 0L, /* agentSessionId */ null, created, null, null, null, null,
+                new WorkModel(WorkModelKind.CLI, "claude-code", "claude-opus-4-7", null));
+        taskStore.saveTask(pinned);
+
+        Task got = taskStore.findTaskById(taskId).orElseThrow();
+        assertThat(got.workModel()).isNotNull();
+        assertThat(got.workModel().kind()).isEqualTo(WorkModelKind.CLI);
+        assertThat(got.workModel().agentOrProvider()).isEqualTo("claude-code");
+        assertThat(got.workModel().model()).isEqualTo("claude-opus-4-7");
+        assertThat(got.workModel().account()).isNull();
+
+        // Clearing the override on a follow-up save round-trips as
+        // null so the resolver falls back to the thread pick.
+        Task cleared = new Task(
+                got.id(), got.threadId(), got.seq(), got.status(),
+                got.branchName(), got.worktreePath(), got.baseBranch(), got.workingDir(),
+                got.processPid(), got.logPath(),
+                got.prNumber(), got.prState(), got.ciState(),
+                got.taskType(), got.linkedPrNumber(), got.linkedIssueNumber(),
+                got.costUsdMilli(), got.tokensIn(), got.tokensOut(),
+                got.agentSessionId(),
+                got.createdAt(), got.endedAt(), got.errorMessage(),
+                got.name(), got.roleSkill(), /* workModel */ null);
+        taskStore.saveTask(cleared);
+        assertThat(taskStore.findTaskById(taskId).orElseThrow().workModel()).isNull();
+    }
+
+    @Test
+    void roundtripsAThreadWorkModelOverride()
+    {
+        // The same JSON shape the workspace round-trip exercises;
+        // the column is per-scope so the same serialiser is reused.
+        Thread thread = newTask(ThreadKind.CLI_AGENT, ThreadStatus.IDLE);
+        Thread withPin = new Thread(
+                thread.id(), thread.kind(), thread.provider(), thread.agentSessionId(),
+                thread.title(), thread.status(), thread.model(),
+                thread.costUsdMilli(), thread.tokensIn(), thread.tokensOut(),
+                thread.createdAt(), thread.updatedAt(), thread.endedAt(), thread.errorMessage(),
+                thread.flow(), thread.workspaceId(),
+                new WorkModel(WorkModelKind.API, "anthropic", null, "team"),
+                thread.activeTask());
+        store.saveThread(withPin);
+
+        Thread got = store.findThreadById(thread.id()).orElseThrow();
+        assertThat(got.workModel()).isNotNull();
+        assertThat(got.workModel().kind()).isEqualTo(WorkModelKind.API);
+        assertThat(got.workModel().agentOrProvider()).isEqualTo("anthropic");
+        assertThat(got.workModel().account()).isEqualTo("team");
+
+        // Clearing the override round-trips as null — the resolver
+        // falls back to the workspace pick in that case.
+        Thread cleared = new Thread(
+                got.id(), got.kind(), got.provider(), got.agentSessionId(),
+                got.title(), got.status(), got.model(),
+                got.costUsdMilli(), got.tokensIn(), got.tokensOut(),
+                got.createdAt(), got.updatedAt(), got.endedAt(), got.errorMessage(),
+                got.flow(), got.workspaceId(), /* workModel */ null, got.activeTask());
+        store.saveThread(cleared);
+        assertThat(store.findThreadById(thread.id()).orElseThrow().workModel()).isNull();
+    }
+
+    @Test
     void recordFileUpsertsByCompositeKey()
     {
         Thread thread = newTask(ThreadKind.LOGIC_LOOP, ThreadStatus.RUNNING);
@@ -194,7 +273,7 @@ class TestSqliteThreadStore
                 UUID.randomUUID().toString(), thread.id(), 1L, TaskStatus.RUNNING,
                 "main", null, "main", "/tmp",
                 null, null, null, null, null, "DEVELOP", null, null,
-                0L, 0L, 0L, /* agentSessionId */ null, taskCreated, null, null, null, null));
+                0L, 0L, 0L, /* agentSessionId */ null, taskCreated, null, null, null, null, null));
 
         Instant first = Instant.parse("2026-05-15T12:00:00Z");
         Instant second = Instant.parse("2026-05-15T12:05:00Z");
@@ -233,6 +312,7 @@ class TestSqliteThreadStore
                 /* errorMessage */ null,
                 ThreadFlow.BUILD,
                 "ws-default",
+                /* workModel */ null,
                 /* activeTask */ null);
     }
 
@@ -246,6 +326,7 @@ class TestSqliteThreadStore
                 source.endedAt(), source.errorMessage(),
                 source.flow(),
                 "ws-default",
+                source.workModel(),
                 source.activeTask());
     }
 

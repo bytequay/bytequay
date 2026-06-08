@@ -99,6 +99,7 @@ class TestThreadStartupReconciler
                 /* errorMessage */ null,
                 ThreadFlow.BUILD,
                 "ws-default",
+                /* workModel */ null,
                 /* activeTask */ null);
     }
 }

@@ -677,7 +677,7 @@ class TestThreadServiceScheduler
                 "main", "/tmp/work",
                 null, null, null, null, null, "DEVELOP", null, null,
                 0L, 0L, 0L, /* agentSessionId */ null,
-                Instant.parse("2026-05-18T12:00:00Z"), null, null, null, null));
+                Instant.parse("2026-05-18T12:00:00Z"), null, null, null, null, null));
         RecordingWorktreeService worktrees = new RecordingWorktreeService(Optional.empty());
         ThreadService service = new ThreadService(
                 store,
@@ -717,7 +717,7 @@ class TestThreadServiceScheduler
                 "main", "/tmp/work",
                 null, null, null, null, null, "DEVELOP", null, null,
                 0L, 0L, 0L, /* agentSessionId */ null,
-                Instant.parse("2026-05-18T12:00:00Z"), null, null, null, null);
+                Instant.parse("2026-05-18T12:00:00Z"), null, null, null, null, null);
         SingleTaskStore tasks = new SingleTaskStore(active);
         RecordingGitRunner git = new RecordingGitRunner();
         ThreadService service = new ThreadService(
@@ -1285,7 +1285,7 @@ class TestThreadServiceScheduler
                     t.title(), t.status(), t.model(),
                     t.costUsdMilli(), t.tokensIn(), t.tokensOut(),
                     t.createdAt(), t.updatedAt(), t.endedAt(), t.errorMessage(),
-                    t.flow(), t.workspaceId(), active);
+                    t.flow(), t.workspaceId(), t.workModel(), active);
         }
     }
 
@@ -1572,6 +1572,7 @@ class TestThreadServiceScheduler
                 /* errorMessage */ null,
                 ThreadFlow.BUILD,
                 "ws-default",
+                /* workModel */ null,
                 /* activeTask */ null);
     }
 
@@ -1595,6 +1596,7 @@ class TestThreadServiceScheduler
                 /* errorMessage */ null,
                 ThreadFlow.BUILD,
                 "ws-default",
+                /* workModel */ null,
                 /* activeTask */ null);
     }
 }

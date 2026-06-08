@@ -334,7 +334,7 @@ class TestContextAssembler
                 0L, 0L, 0L,
                 Instant.parse("2026-06-01T00:00:00Z"), Instant.parse("2026-06-01T00:00:00Z"),
                 null, null, ThreadFlow.BUILD,
-                workspaceId, null);
+                workspaceId, null, null);
     }
 
     private static Task task(String id, String threadId, String roleSkill)
@@ -347,7 +347,7 @@ class TestContextAssembler
                 "ai_review", null, null,
                 0L, 0L, 0L, null,
                 Instant.parse("2026-06-01T00:00:00Z"), null, null,
-                "name", roleSkill);
+                "name", roleSkill, null);
     }
 
     private static ThreadMessage message(String id, String threadId, String contentJson)

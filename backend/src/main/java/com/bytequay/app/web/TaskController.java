@@ -15,6 +15,7 @@ package com.bytequay.app.web;
 
 import com.bytequay.app.domain.Task;
 import com.bytequay.app.domain.TaskFile;
+import com.bytequay.app.domain.WorkModel;
 import com.bytequay.app.service.concepts.Concept;
 import com.bytequay.app.service.concepts.ConceptKind;
 import com.bytequay.app.service.inspector.AssembledContext;
@@ -25,6 +26,7 @@ import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
+import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RequestParam;
@@ -150,6 +152,26 @@ public class TaskController
     public record RenameBody(String name)
     {
     }
+
+    /**
+     * PUT /api/threads/{threadId}/tasks/{taskId}/work-model — set (or
+     * clear) the task's override on the work-model cascade. A null body
+     * or a body whose {@code workModel} field is null clears the
+     * override; the resolver then falls back to the thread pick.
+     */
+    @PutMapping("/{taskId}/work-model")
+    public Task setWorkModel(
+            @PathVariable String threadId,
+            @PathVariable String taskId,
+            @RequestBody(required = false) WorkModelBody body)
+    {
+        return taskService.setWorkModel(threadId, taskId, body == null ? null : body.workModel());
+    }
+
+    /** Body for {@link #setWorkModel} — wraps the optional
+     *  {@link WorkModel} so a {@code null} field maps cleanly to
+     *  "clear the override". */
+    public record WorkModelBody(WorkModel workModel) {}
 
     /** Next → park the current task at AWAITING_REVIEW (worktree
      *  preserved) and start a fresh task cut from main. The trunk

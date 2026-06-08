@@ -178,6 +178,7 @@ class TestMcpMetaTools
                 now, now, null, null,
                 ThreadFlow.BUILD,
                 /* workspaceId */ "ws-default",
+                /* workModel */ null,
                 /* activeTask */ null);
         threads.saveThread(thread);
         return id;

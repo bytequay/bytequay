@@ -208,7 +208,7 @@ class TestThreadRegistryLease
                 "claude-sonnet-4.6",
                 0L, 0L, 0L,
                 now, now, null, null,
-                ThreadFlow.BUILD, "ws-default", null);
+                ThreadFlow.BUILD, "ws-default", null, null);
     }
 
     private static Task task(String id, String threadId, String worktreePath)
@@ -226,7 +226,7 @@ class TestThreadRegistryLease
                 /* linkedPrNumber */ null, /* linkedIssueNumber */ null,
                 0L, 0L, 0L,
                 /* agentSessionId */ null,
-                now, null, null, null, null);
+                now, null, null, null, null, null);
     }
 
     private static int deadPid()

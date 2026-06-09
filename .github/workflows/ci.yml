@@ -35,6 +35,9 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+
+  # ── Workflow hygiene ──────────────────────────────────────────────────────
+
   workflow-lint:
     name: Workflow lint
     runs-on: ubuntu-latest
@@ -44,6 +47,8 @@ jobs:
 
       - name: Lint GitHub Actions workflows
         uses: raven-actions/actionlint@205b530c5d9fa8f44ae9ed59f341a0db994aa6f8 # v2
+
+  # ── Path detection ────────────────────────────────────────────────────────
 
   path-filters:
     name: Detect changed areas
@@ -65,13 +70,18 @@ jobs:
               - 'frontend/**'
               - '.github/workflows/ci.yml'
 
-  backend:
-    name: Backend — build, license check, tests
+  # ── Backend ───────────────────────────────────────────────────────────────
+  #
+  # Two-stage split mirrors Trino's separation of maven-checks from test
+  # execution: static analysis surfaces in ~5 min; tests only run once
+  # the faster gate is green.
+
+  backend-checks:
+    name: Backend — license, checkstyle, Error Prone, compile
     needs: path-filters
     if: github.event_name != 'pull_request' || needs.path-filters.outputs.backend == 'true'
     runs-on: ubuntu-latest
-    timeout-minutes: 30
-
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v6
 
@@ -82,29 +92,110 @@ jobs:
           distribution: 'temurin'
           cache: maven
 
-      - name: Build and run tests
+      - name: License headers, checkstyle, Error Prone, compile
         working-directory: backend
-        # `mvn verify` runs four gates bound to the build lifecycle:
-        # license-maven-plugin (header check), maven-checkstyle-plugin
-        # (Trino-derived rules), Error Prone (in maven-compiler-plugin),
-        # and the JUnit/Spring tests.
-        run: mvn -B verify
+        # -DskipTests compiles and runs all bound plugins (license-maven-plugin,
+        # maven-checkstyle-plugin, Error Prone via maven-compiler-plugin) without
+        # executing the JUnit / Spring test suite. Failures here are fast to fix
+        # and cheap to re-run, so they gate the test job below.
+        run: mvn -B verify -DskipTests
 
-  frontend:
-    name: Frontend — lint, type check, tests, build
-    needs: path-filters
-    if: github.event_name != 'pull_request' || needs.path-filters.outputs.frontend == 'true'
+  backend-tests:
+    name: Backend — tests
+    needs: backend-checks
     runs-on: ubuntu-latest
-    timeout-minutes: 30
-
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v6
 
-      # Set up Node for the renderer toolchain AND Java for the
-      # generateAssets Forge hook — `npm run package` invokes mvn to
-      # build the Spring Boot JAR if it's missing, and Checkstyle 13.x
-      # requires JDK 21 to run, so without this the runner's default
-      # JDK 17 fails with UnsupportedClassVersionError.
+      - name: Set up Java 21
+        uses: actions/setup-java@v4
+        with:
+          java-version: '21'
+          distribution: 'temurin'
+          cache: maven
+
+      - name: Run JUnit / Spring tests
+        working-directory: backend
+        run: mvn -B test
+
+  # ── Frontend ──────────────────────────────────────────────────────────────
+  #
+  # frontend-checks is a fast gate (~3 min). frontend-tests and
+  # frontend-build both depend on it but run in parallel with each other so
+  # the slower package build does not block seeing test failures.
+
+  frontend-checks:
+    name: Frontend — lint, license & type check
+    needs: path-filters
+    if: github.event_name != 'pull_request' || needs.path-filters.outputs.frontend == 'true'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install dependencies
+        working-directory: frontend
+        run: npm ci
+
+      - name: Lint
+        working-directory: frontend
+        # ESLint catches things tsc can't see: unused identifiers,
+        # missing hook deps, accidental fallthroughs, AND missing
+        # Apache 2.0 license headers (eslint-plugin-header).
+        run: npm run lint
+
+      - name: Check production dependency licenses
+        working-directory: frontend
+        # Fails if any --production dep ships under a license outside the
+        # allowlist — catches a transitive GPL / AGPL dep slipping in.
+        run: npm run check:licenses
+
+      - name: Type check
+        working-directory: frontend
+        run: npx tsc --noEmit
+
+  frontend-tests:
+    name: Frontend — unit & component tests
+    needs: frontend-checks
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install dependencies
+        working-directory: frontend
+        run: npm ci
+
+      - name: Run tests
+        working-directory: frontend
+        # The render-smoke spec for PullRequestPreview catches the
+        # "X is not defined" class of bug that slips past tsc when JSX
+        # references a removed identifier.
+        run: npm test
+
+  frontend-build:
+    name: Frontend — package build
+    needs: frontend-checks
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v6
+
       - name: Set up Node
         uses: actions/setup-node@v4
         with:
@@ -123,41 +214,86 @@ jobs:
         working-directory: frontend
         run: npm ci
 
-      - name: Lint
+      - name: Build (electron-forge package)
         working-directory: frontend
-        # ESLint catches things tsc can't see: unused identifiers,
-        # missing hook deps, accidental fallthroughs, AND missing
-        # Apache 2.0 license headers (eslint-plugin-header).
-        # Warnings are tolerated; only errors fail the build.
-        run: npm run lint
+        # Runs the full Vite + electron-packager pipeline. Catches Vite
+        # plugin / asset resolution / preload-bundling regressions that
+        # tsc and unit tests can't see.
+        run: npm run package
 
-      - name: Check production dependency licenses
+  # ── Per-commit bisectability check ───────────────────────────────────────
+  #
+  # Mirrors Trino's check-commits-dispatcher + check-commit pattern.
+  # Every commit on a PR must compile independently so that git-bisect
+  # and cherry-picks always land on a working tree.
+  #
+  # check-commits-dispatcher enumerates the commits; check-commit fans
+  # them out as a parallel matrix — one runner per commit.
+
+  check-commits-dispatcher:
+    name: Enumerate commits for per-commit check
+    runs-on: ubuntu-latest
+    if: github.event_name == 'pull_request'
+    timeout-minutes: 5
+    outputs:
+      matrix: ${{ steps.list.outputs.matrix }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
+
+      - name: Build commit matrix
+        id: list
+        run: |
+          shas=$(git log --format='%H' "origin/${{ github.base_ref }}"..HEAD)
+          if [ -z "$shas" ]; then
+            echo "matrix=" >> "$GITHUB_OUTPUT"
+          else
+            matrix=$(printf '%s\n' "$shas" | jq -R . | jq -sc '{sha: .}')
+            echo "matrix=$matrix" >> "$GITHUB_OUTPUT"
+          fi
+
+  check-commit:
+    name: "Check commit ${{ matrix.sha }}"
+    needs: check-commits-dispatcher
+    if: needs.check-commits-dispatcher.outputs.matrix != ''
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJson(needs.check-commits-dispatcher.outputs.matrix) }}
+    steps:
+      - uses: actions/checkout@v6
+        with:
+          ref: ${{ matrix.sha }}
+
+      - name: Set up Java 21
+        uses: actions/setup-java@v4
+        with:
+          java-version: '21'
+          distribution: 'temurin'
+          cache: maven
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Backend compile
+        working-directory: backend
+        run: mvn -B compile -DskipTests
+
+      - name: Frontend install
         working-directory: frontend
-        # Fails the build if any --production npm dep ships under a
-        # license that isn't in the allowlist. Catches a transitive
-        # GPL / AGPL / proprietary dep slipping in via an upgrade.
-        run: npm run check:licenses
+        run: npm ci
 
-      - name: Type check
+      - name: Frontend type check
         working-directory: frontend
         run: npx tsc --noEmit
 
-      - name: Unit + component tests
-        working-directory: frontend
-        # The render-smoke spec for PullRequestPreview catches the
-        # "X is not defined" class of bug that slips past tsc when JSX
-        # references a removed identifier — so we run this as a hard
-        # gate alongside the type check.
-        run: npm test
-
-      - name: Build (electron-forge package)
-        working-directory: frontend
-        # Runs the full Vite + electron-packager pipeline without
-        # producing distributables. Catches Vite plugin / asset
-        # resolution / preload-bundling regressions that tsc and unit
-        # tests can't see — the kind of bug that only surfaces when the
-        # app is actually packaged for shipping.
-        run: npm run package
+  # ── Aggregate gate ────────────────────────────────────────────────────────
 
   ci-success:
     name: CI success
@@ -165,14 +301,24 @@ jobs:
     needs:
       - workflow-lint
       - path-filters
-      - backend
-      - frontend
+      - backend-checks
+      - backend-tests
+      - frontend-checks
+      - frontend-tests
+      - frontend-build
+      - check-commits-dispatcher
+      - check-commit
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
       - name: Check results
         run: |
-          echo '${{ needs.workflow-lint.result }}' | grep -xE 'success|skipped' || { echo 'Job "workflow-lint" failed' >&2; exit 1; }
-          echo '${{ needs.path-filters.result }}' | grep -xE 'success|skipped' || { echo 'Job "path-filters" failed' >&2; exit 1; }
-          echo '${{ needs.backend.result }}' | grep -xE 'success|skipped' || { echo 'Job "backend" failed' >&2; exit 1; }
-          echo '${{ needs.frontend.result }}' | grep -xE 'success|skipped' || { echo 'Job "frontend" failed' >&2; exit 1; }
+          echo '${{ needs.workflow-lint.result }}'          | grep -xE 'success|skipped' || { echo 'Job "workflow-lint" failed'          >&2; exit 1; }
+          echo '${{ needs.path-filters.result }}'          | grep -xE 'success|skipped' || { echo 'Job "path-filters" failed'          >&2; exit 1; }
+          echo '${{ needs.backend-checks.result }}'        | grep -xE 'success|skipped' || { echo 'Job "backend-checks" failed'        >&2; exit 1; }
+          echo '${{ needs.backend-tests.result }}'         | grep -xE 'success|skipped' || { echo 'Job "backend-tests" failed'         >&2; exit 1; }
+          echo '${{ needs.frontend-checks.result }}'       | grep -xE 'success|skipped' || { echo 'Job "frontend-checks" failed'       >&2; exit 1; }
+          echo '${{ needs.frontend-tests.result }}'        | grep -xE 'success|skipped' || { echo 'Job "frontend-tests" failed'        >&2; exit 1; }
+          echo '${{ needs.frontend-build.result }}'        | grep -xE 'success|skipped' || { echo 'Job "frontend-build" failed'        >&2; exit 1; }
+          echo '${{ needs.check-commits-dispatcher.result }}' | grep -xE 'success|skipped' || { echo 'Job "check-commits-dispatcher" failed' >&2; exit 1; }
+          echo '${{ needs.check-commit.result }}'          | grep -xE 'success|skipped' || { echo 'Job "check-commit" failed'          >&2; exit 1; }

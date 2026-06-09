@@ -19,6 +19,8 @@ import com.bytequay.app.domain.ReviewOutput;
 import com.bytequay.app.domain.ReviewRequest;
 import com.bytequay.app.repository.AppSettingsStore;
 import com.bytequay.app.service.CredentialService;
+import com.bytequay.app.service.local.ds4.Ds4LifecycleService;
+import com.bytequay.app.service.local.ds4.Ds4State;
 import com.bytequay.app.service.skills.SkillDraft;
 import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
 import com.fasterxml.jackson.annotation.JsonProperty;
@@ -60,21 +62,62 @@ public class DeepSeekReviewer
     private static final String PROVIDER_ID = "deepseek";
     private static final String DEEPSEEK_NAME = "deepseek";
     private static final String DEFAULT_MODEL = "deepseek-chat";
+    /** Model id for the locally-served variant routed through the
+     *  ds4 lifecycle subprocess. Picking this model swaps the
+     *  RestClient + credential strategy at request time. */
+    static final String LOCAL_MODEL = "deepseek-v4-flash";
+    /** Dummy token the ds4 server accepts as the local credential.
+     *  The real availability gate is "server running", not "key
+     *  present"; the OpenAI-shape client still wants something in
+     *  the {@code Authorization} header. */
+    static final String LOCAL_DUMMY_TOKEN = "dsv4-local";
     private static final int MAX_OUTPUT_TOKENS = 8_192;
 
-    private final RestClient client;
+    private final RestClient cloudClient;
+    private final RestClient localClient;
     private final CredentialService credentialService;
     private final AppSettingsStore appSettings;
+    private final Ds4LifecycleService ds4;
     private final ObjectMapper objectMapper = new ObjectMapper();
 
     public DeepSeekReviewer(
             @Qualifier("deepseekRestClient") RestClient deepseekRestClient,
+            @Qualifier("deepseekLocalRestClient") RestClient deepseekLocalRestClient,
             CredentialService credentialService,
-            AppSettingsStore appSettings)
+            AppSettingsStore appSettings,
+            Ds4LifecycleService ds4)
     {
-        this.client = requireNonNull(deepseekRestClient, "deepseekRestClient is null");
+        this.cloudClient = requireNonNull(deepseekRestClient, "deepseekRestClient is null");
+        this.localClient = requireNonNull(deepseekLocalRestClient, "deepseekLocalRestClient is null");
         this.credentialService = requireNonNull(credentialService, "credentialService is null");
         this.appSettings = requireNonNull(appSettings, "appSettings is null");
+        this.ds4 = requireNonNull(ds4, "ds4 is null");
+    }
+
+    /** Carrier for the resolved {client, token} pair the four call
+     *  sites below pick by model id. Centralised so the local-vs-
+     *  cloud branch lives in exactly one place and a B5 multi-
+     *  provider transport can reuse the same selector. */
+    private record Route(RestClient client, String token)
+    {
+    }
+
+    private Route selectRoute(String model)
+    {
+        if (LOCAL_MODEL.equals(model)) {
+            Ds4State state = ds4.status().state();
+            if (state != Ds4State.RUNNING) {
+                throw new IllegalStateException(
+                        "DeepSeek V4 Flash (local) needs the ds4 server to be RUNNING; "
+                                + "current state is " + state + ". Open Settings → Local AI (ds4) "
+                                + "to start it.");
+            }
+            return new Route(localClient, LOCAL_DUMMY_TOKEN);
+        }
+        String apiKey = credentialService.getSecret(CredentialType.AI, DEEPSEEK_NAME)
+                .orElseThrow(() -> new IllegalStateException(
+                        "DeepSeek API key not configured. Add it in Settings → AI review."));
+        return new Route(cloudClient, apiKey);
     }
 
     @Override
@@ -98,12 +141,10 @@ public class DeepSeekReviewer
     @Override
     public ReviewOutput review(ReviewRequest request)
     {
-        String apiKey = credentialService.getSecret(CredentialType.AI, DEEPSEEK_NAME)
-                .orElseThrow(() -> new IllegalStateException(
-                        "DeepSeek API key not configured. Add it in Settings → AI review."));
         String model = appSettings.get(AppSettingsStore.Key.LLM_MODEL)
                 .filter(s -> !s.isBlank())
                 .orElse(DEFAULT_MODEL);
+        Route route = selectRoute(model);
 
         ChatRequest body = new ChatRequest(
                 model,
@@ -114,9 +155,9 @@ public class DeepSeekReviewer
                 false);
 
         try {
-            ChatResponse response = client.post()
+            ChatResponse response = route.client().post()
                     .uri("/chat/completions")
-                    .header("Authorization", "Bearer " + apiKey)
+                    .header("Authorization", "Bearer " + route.token())
                     .body(body)
                     .retrieve()
                     .body(ChatResponse.class);
@@ -136,12 +177,10 @@ public class DeepSeekReviewer
         if (draft == null || draft.trim().isEmpty()) {
             return "";
         }
-        String apiKey = credentialService.getSecret(CredentialType.AI, DEEPSEEK_NAME)
-                .orElseThrow(() -> new IllegalStateException(
-                        "DeepSeek API key not configured. Add it in Settings → AI review."));
         String model = appSettings.get(AppSettingsStore.Key.LLM_MODEL)
                 .filter(s -> !s.isBlank())
                 .orElse(DEFAULT_MODEL);
+        Route route = selectRoute(model);
 
         // Same prompt contract as ClaudeReviewer.polishCommentText —
         // system establishes "rewrite, output only the rewrite", user
@@ -165,9 +204,9 @@ public class DeepSeekReviewer
                 false);
 
         try {
-            ChatResponse response = client.post()
+            ChatResponse response = route.client().post()
                     .uri("/chat/completions")
-                    .header("Authorization", "Bearer " + apiKey)
+                    .header("Authorization", "Bearer " + route.token())
                     .body(body)
                     .retrieve()
                     .body(ChatResponse.class);
@@ -195,12 +234,10 @@ public class DeepSeekReviewer
             throw new IllegalStateException(
                     "No diff between " + headBranch + " and " + baseBranch + " — nothing to summarize.");
         }
-        String apiKey = credentialService.getSecret(CredentialType.AI, DEEPSEEK_NAME)
-                .orElseThrow(() -> new IllegalStateException(
-                        "DeepSeek API key not configured. Add it in Settings → AI review."));
         String model = appSettings.get(AppSettingsStore.Key.LLM_MODEL)
                 .filter(s -> !s.isBlank())
                 .orElse(DEFAULT_MODEL);
+        Route route = selectRoute(model);
 
         // Same prompt contract as ClaudeReviewer.draftPullRequest so the
         // user sees comparable output regardless of provider.
@@ -230,9 +267,9 @@ public class DeepSeekReviewer
                 false);
 
         try {
-            ChatResponse response = client.post()
+            ChatResponse response = route.client().post()
                     .uri("/chat/completions")
-                    .header("Authorization", "Bearer " + apiKey)
+                    .header("Authorization", "Bearer " + route.token())
                     .body(body)
                     .retrieve()
                     .body(ChatResponse.class);
@@ -262,12 +299,10 @@ public class DeepSeekReviewer
         if (userPrompt == null || userPrompt.isBlank()) {
             throw new IllegalStateException("Prompt is required to draft a skill.");
         }
-        String apiKey = credentialService.getSecret(CredentialType.AI, DEEPSEEK_NAME)
-                .orElseThrow(() -> new IllegalStateException(
-                        "DeepSeek API key not configured. Add it in Settings → AI review."));
         String model = appSettings.get(AppSettingsStore.Key.LLM_MODEL)
                 .filter(s -> !s.isBlank())
                 .orElse(DEFAULT_MODEL);
+        Route route = selectRoute(model);
 
         // Same prompt contract as ClaudeReviewer.draftSkill so the
         // user sees comparable output regardless of provider — strict
@@ -300,9 +335,9 @@ public class DeepSeekReviewer
                 false);
 
         try {
-            ChatResponse response = client.post()
+            ChatResponse response = route.client().post()
                     .uri("/chat/completions")
-                    .header("Authorization", "Bearer " + apiKey)
+                    .header("Authorization", "Bearer " + route.token())
                     .body(body)
                     .retrieve()
                     .body(ChatResponse.class);

@@ -36,6 +36,12 @@ public class WebConfig
     private static final String ANTHROPIC_API_BASE_URL = "https://api.anthropic.com";
     private static final String ANTHROPIC_VERSION = "2023-06-01";
     private static final String DEEPSEEK_API_BASE_URL = "https://api.deepseek.com";
+    // The default local-server endpoint matches ds4-server's
+    // out-of-the-box port. Override per environment by changing the
+    // ds4.port setting; for the singleton RestClient bean we ship the
+    // default and let a future config-aware variant land if needed
+    // (the lifecycle service tracks the live port in its config).
+    private static final String DEEPSEEK_LOCAL_BASE_URL = "http://127.0.0.1:8000";
     private static final String OPENAI_API_BASE_URL = "https://api.openai.com/v1";
     private static final String GITHUB_GRAPHQL_API_URL = "https://api.github.com/graphql";
     private static final String QUOTABLE_API_BASE_URL = "https://api.quotable.io";
@@ -86,14 +92,31 @@ public class WebConfig
     @Bean
     public RestClient deepseekRestClient()
     {
-        // DeepSeek's REST surface is OpenAI-compatible (chat completions).
-        // Same long read window as Anthropic — model responses regularly
-        // run past the 45s GitHub-side default.
+        // DeepSeek's cloud REST surface is OpenAI-compatible (chat
+        // completions). Same long read window as Anthropic — model
+        // responses regularly run past the 45s GitHub-side default.
         return RestClient.builder()
                 .baseUrl(DEEPSEEK_API_BASE_URL)
                 .defaultHeader("Content-Type", "application/json")
                 .defaultHeader("User-Agent", USER_AGENT)
                 .requestFactory(newTimeoutRequestFactory(CONNECT_TIMEOUT, Duration.ofMinutes(2)))
+                .build();
+    }
+
+    @Bean
+    public RestClient deepseekLocalRestClient()
+    {
+        // Locally-served DeepSeek model variant routed through the
+        // ds4 subprocess. Same Chat-Completions request shape as the
+        // cloud client; only the base URL and credential strategy
+        // differ. Read timeout is longer than the cloud window because
+        // local inference on a cold KV cache regularly runs 60+ s for
+        // the first token.
+        return RestClient.builder()
+                .baseUrl(DEEPSEEK_LOCAL_BASE_URL)
+                .defaultHeader("Content-Type", "application/json")
+                .defaultHeader("User-Agent", USER_AGENT)
+                .requestFactory(newTimeoutRequestFactory(CONNECT_TIMEOUT, Duration.ofMinutes(5)))
                 .build();
     }
 

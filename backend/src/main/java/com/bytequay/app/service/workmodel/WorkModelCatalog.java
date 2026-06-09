@@ -36,8 +36,23 @@ public final class WorkModelCatalog
 
     /** One row in the catalog model list, before credential / detection
      *  enrichment. The {@code default} flag is sticky: catalogues with
-     *  exactly one default model render the "Default" tag on that row. */
-    public record CatalogEntry(String id, String displayName, boolean isDefault) {}
+     *  exactly one default model render the "Default" tag on that row.
+     *
+     *  <p>{@code localServed} flips true for model variants whose
+     *  request path goes through a locally-spawned subprocess instead
+     *  of the cloud endpoint. v1 has one — {@code deepseek-v4-flash}
+     *  served by the ds4 lifecycle service. The flag drives the
+     *  reviewer's client + credential selection and the picker's
+     *  "[LOCAL · ds4]" sub-label. */
+    public record CatalogEntry(String id, String displayName, boolean isDefault, boolean localServed)
+    {
+        /** Convenience for the common case — non-local entries don't
+         *  need to spell {@code false} every line. */
+        public CatalogEntry(String id, String displayName, boolean isDefault)
+        {
+            this(id, displayName, isDefault, /* localServed */ false);
+        }
+    }
 
     /** Top-level catalog row for a CLI agent. */
     public record CatalogAgent(String id, String displayName, List<CatalogEntry> models)
@@ -92,10 +107,15 @@ public final class WorkModelCatalog
                     new CatalogEntry("gpt-4o-mini", "GPT-4o Mini", false))),
             new CatalogProvider("deepseek", "DeepSeek", ImmutableList.of(
                     new CatalogEntry("deepseek-chat", "DeepSeek Chat", true),
-                    new CatalogEntry("deepseek-reasoner", "DeepSeek Reasoner", false))),
-            new CatalogProvider("local", "Local", ImmutableList.of(
-                    new CatalogEntry("llama3.1:8b", "Llama 3.1 8B", true),
-                    new CatalogEntry("gpt-oss-20b", "GPT-OSS 20B", false))));
+                    new CatalogEntry("deepseek-reasoner", "DeepSeek Reasoner", false),
+                    // Locally-served variant routed through the ds4
+                    // lifecycle subprocess; readiness gate is "ds4 is
+                    // RUNNING", not "API key present". v1 use is via
+                    // the AI review path (DeepSeekReviewer); thread-
+                    // loop support depends on the multi-provider
+                    // transport landing in a later milestone.
+                    new CatalogEntry("deepseek-v4-flash", "DeepSeek V4 Flash (local)",
+                            /* isDefault */ false, /* localServed */ true))));
 
     private static final Map<String, CatalogAgent> AGENTS_BY_ID;
     private static final Map<String, CatalogProvider> PROVIDERS_BY_ID;

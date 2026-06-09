@@ -14,6 +14,8 @@
 package com.bytequay.app.service;
 
 import com.bytequay.app.domain.CredentialType;
+import com.bytequay.app.service.local.ds4.Ds4LifecycleService;
+import com.bytequay.app.service.local.ds4.Ds4State;
 import com.fasterxml.jackson.annotation.JsonInclude;
 import com.fasterxml.jackson.annotation.JsonProperty;
 import org.slf4j.Logger;
@@ -50,11 +52,16 @@ public class CredentialTester
 
     private final CredentialService credentialService;
     private final RestClient deepseekRestClient;
+    private final Ds4LifecycleService ds4;
 
-    public CredentialTester(CredentialService credentialService, RestClient deepseekRestClient)
+    public CredentialTester(
+            CredentialService credentialService,
+            RestClient deepseekRestClient,
+            Ds4LifecycleService ds4)
     {
         this.credentialService = requireNonNull(credentialService, "credentialService is null");
         this.deepseekRestClient = requireNonNull(deepseekRestClient, "deepseekRestClient is null");
+        this.ds4 = requireNonNull(ds4, "ds4 is null");
     }
 
     /**
@@ -161,7 +168,10 @@ public class CredentialTester
      * Local LLM stores a base URL, not a key. Probe by GET /v1/models
      * on the supplied base — Ollama, LM Studio, and llama.cpp all
      * expose it. Treat any 2xx as "endpoint is reachable and speaks
-     * OpenAI-compatible".
+     * OpenAI-compatible". Retained for legacy {@code ai/local}
+     * credential rows; the curated catalog no longer exposes a
+     * "Local" provider — the {@code deepseek-v4-flash} model variant
+     * routes through {@link #testDs4Server()} instead.
      */
     private static void testLocal(String baseUrl)
     {
@@ -174,6 +184,26 @@ public class CredentialTester
                 .uri(URI.create(trimmed + "/v1/models"))
                 .retrieve()
                 .toBodilessEntity();
+    }
+
+    /**
+     * Readiness check for the locally-served ds4 model variant.
+     * Bypasses any stored credential — the dummy local token
+     * {@code dsv4-local} is baked into the reviewer — and reports
+     * ready iff the lifecycle service is in
+     * {@link Ds4State#RUNNING}. Used by Settings and the picker to
+     * show "● server running" without exercising a real chat call.
+     */
+    public TestResult testDs4Server()
+    {
+        long started = System.nanoTime();
+        Ds4State state = ds4.status().state();
+        long ms = (System.nanoTime() - started) / 1_000_000L;
+        if (state == Ds4State.RUNNING) {
+            return TestResult.ok("ds4 server is running.", ms);
+        }
+        return TestResult.failWithLatency(
+                "ds4 server is " + state + "; pick Start in Settings → Local AI (ds4).", ms);
     }
 
     private static String truncate(String s, int max)

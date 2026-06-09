@@ -20,6 +20,7 @@ import TeamsManagePage from './teams/TeamsManagePage';
 import EmailPage from './email/EmailPage';
 import ThreadCreatePage from './threads/ThreadCreatePage';
 import ControlBar, { type PageContextTag } from './control/ControlBar';
+import { Ds4StatusWidget } from './components/Ds4StatusWidget';
 import type { ControlDispatch } from './control/actionCatalog';
 import ReviewThreadPage from './review/ReviewThreadPage';
 import ThreadDetailPage from './threads/ThreadDetailPage';
@@ -875,6 +876,10 @@ function App() {
         onClose={() => setControlBarOpen(false)}
         onDispatch={handleControlDispatch}
         contextTags={contextTags}
+      />
+      <Ds4StatusWidget
+        hidden={fullScreen}
+        onOpenManagement={() => setNav({ view: 'settings', section: 'local-ai' })}
       />
     </div>
   );

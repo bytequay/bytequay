@@ -67,6 +67,23 @@ public interface AppSettingsStore
         // time. Empty / missing means no nudge — reviewers run
         // against the bare repo-skill context only.
         public static final String REVIEW_PERSONA = "review.persona";
+
+        // ds4 local-inference server. Every key is read at startup
+        // and again whenever the lifecycle service is asked to spawn
+        // so apply-on-restart matches what the UI just wrote.
+        public static final String DS4_BINARY_PATH = "ds4.binary_path";
+        public static final String DS4_PORT = "ds4.port";
+        public static final String DS4_MODEL = "ds4.model";
+        public static final String DS4_QUANT = "ds4.quant";
+        public static final String DS4_CONTEXT_TOKENS = "ds4.context_tokens";
+        public static final String DS4_KV_CACHE_DIR = "ds4.kv_cache_dir";
+        public static final String DS4_KV_DISK_BUDGET_MB = "ds4.kv_disk_budget_mb";
+        public static final String DS4_THINKING_DEFAULT = "ds4.thinking_default";
+        public static final String DS4_TRACE = "ds4.trace";
+        public static final String DS4_INSTALL_URL = "ds4.install_url";
+        public static final String DS4_AUTO_RESTART_ON_CRASH = "ds4.auto_restart_on_crash";
+        public static final String DS4_AUTO_START_ON_BOOT = "ds4.auto_start_on_boot";
+        public static final String DS4_ATTACH_IF_RUNNING = "ds4.attach_if_running";
     }
 
     /**

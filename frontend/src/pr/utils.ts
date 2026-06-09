@@ -71,6 +71,19 @@ export function formatRelativeTime(timestamp: string): string {
   return new Date(timestamp).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
 }
 
+/** The absolute local timestamp we surface in a tooltip behind the
+ *  relative label — mirrors github.com's `<relative-time>`, which
+ *  keeps the exact "when" one hover away. Returns the empty string
+ *  for an unparseable timestamp so the caller can drop the `title`. */
+export function formatAbsoluteTime(timestamp: string): string {
+  const date = new Date(timestamp);
+  if (Number.isNaN(date.getTime())) return '';
+  return date.toLocaleString(undefined, {
+    year: 'numeric', month: 'short', day: 'numeric',
+    hour: 'numeric', minute: '2-digit',
+  });
+}
+
 /** Translates GitHub's author_association enum into the small pill we
  *  show next to a comment author. NONE / null collapse to no pill (the
  *  default state for outside contributors with no relationship to the

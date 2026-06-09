@@ -17,7 +17,8 @@ import type { MarkdownRepoContext } from '../markdown';
 import Avatar from '../Avatar';
 import PolishButtons from '../ai/PolishButtons';
 import MarkdownComposer from '../MarkdownComposer';
-import { authorAssociationLabel, formatRelativeTime, type ReactionContent } from './utils';
+import { authorAssociationLabel, type ReactionContent } from './utils';
+import { RelativeTime } from './RelativeTime';
 import { ReactionChips } from './Reactions';
 import { CommentBodyWithSuggestions, DiffHunk } from './CommentBody';
 import { EditableMarkdownBody } from './EditableMarkdownBody';
@@ -176,7 +177,7 @@ export function ReviewThreadCard({
                     <span className="prc-review-thread__msg-head-left">
                       {msg.author && <span className="prc-comment-author">{msg.author}</span>}
                       {msg.createdAt && (
-                        <span className="prc-comment-time">{formatRelativeTime(msg.createdAt)}</span>
+                        <RelativeTime className="prc-comment-time" timestamp={msg.createdAt} />
                       )}
                     </span>
                     <span className="prc-review-thread__msg-head-right">

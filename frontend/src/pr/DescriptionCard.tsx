@@ -16,7 +16,7 @@ import { marked } from 'marked';
 import type { LinkedIssueDto, PullRequestDto } from '../types';
 import Avatar from '../Avatar';
 import MarkdownComposer from '../MarkdownComposer';
-import { formatRelativeTime } from './utils';
+import { RelativeTime } from './RelativeTime';
 import { inlineLinkedIssueTitles } from './inlineLinkedIssueTitles';
 
 export function DescriptionCard({
@@ -113,7 +113,7 @@ export function DescriptionCard({
           )}
           <span className="prc-comment-verb">commented</span>
           {createdAt && (
-            <span className="prc-comment-time">{formatRelativeTime(createdAt)}</span>
+            <RelativeTime className="prc-comment-time" timestamp={createdAt} />
           )}
           {wasEdited && <span className="prc-comment-verb">· edited</span>}
           {!editing && (

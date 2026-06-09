@@ -23,7 +23,6 @@ import {
   authorAssociationLabel,
   conclusionLabel,
   eventMarker,
-  formatRelativeTime,
   isBotActor,
   isCheckFailing,
   labelChipStyle,
@@ -45,6 +44,7 @@ import { PrCommentBox, type PrCommentBoxHandle } from './pr/PrCommentBox';
 import { ReviewActivityRow } from './pr/ReviewActivityRow';
 import { ReviewerEditor } from './pr/ReviewerEditor';
 import { ReviewThreadCard } from './pr/ReviewThreadCard';
+import { RelativeTime } from './pr/RelativeTime';
 import { groupTimelineEntries, type RawTimelineEntry, type TimelineEntry } from './pr/timelineGrouping';
 
 const SIDE_WIDTH_KEY = 'settings:preview-conversation-width';
@@ -1538,7 +1538,7 @@ function PullRequestPreview({
               >
                 {pr.author}
               </a>
-              <span>· updated {formatRelativeTime(pr.updatedAt)}</span>
+              <span>· updated <RelativeTime timestamp={pr.updatedAt} /></span>
             </div>
           )}
         </div>
@@ -1669,7 +1669,7 @@ function PullRequestPreview({
                                     </span>
                                   )}
                                   {item.timestamp && (
-                                    <span className="activity-item__time">{formatRelativeTime(item.timestamp)}</span>
+                                    <RelativeTime className="activity-item__time" timestamp={item.timestamp} />
                                   )}
                                 </div>
                                 {hasBody && (
@@ -2028,7 +2028,8 @@ function PullRequestPreview({
           </a>
           <span className="prc-meta-sep">·</span>
           <span className="prc-meta-time">
-            {pr.createdAt ? `opened ${formatRelativeTime(pr.createdAt)} · ` : ''}updated {formatRelativeTime(pr.updatedAt)}
+            {pr.createdAt && <>opened <RelativeTime timestamp={pr.createdAt} /> · </>}updated{' '}
+            <RelativeTime timestamp={pr.updatedAt} />
           </span>
           {/* GitHub-mark icon button stands in for the old "Open on
               Remote" text button — it lives next to the timestamps so
@@ -2461,7 +2462,7 @@ function PullRequestPreview({
               </a>
               {' '}{phrase}
               {item.timestamp && (
-                <> {' '}<span className="prc-approved-row__time">{formatRelativeTime(item.timestamp)}</span></>
+                <> {' '}<RelativeTime className="prc-approved-row__time" timestamp={item.timestamp} /></>
               )}
             </span>
           </div>
@@ -2537,7 +2538,7 @@ function PullRequestPreview({
                 ? <> · {commitLink(pr.repo, item.afterSha)}</>
                 : null}
           </span>
-          {item.timestamp && <span className="prc-event-time">{formatRelativeTime(item.timestamp)}</span>}
+          {item.timestamp && <RelativeTime className="prc-event-time" timestamp={item.timestamp} />}
         </div>
       );
     }
@@ -2557,7 +2558,7 @@ function PullRequestPreview({
                 : <> a reviewer</>}
               {' '}to review
             </span>
-            {item.timestamp && <span className="prc-event-time">{formatRelativeTime(item.timestamp)}</span>}
+            {item.timestamp && <RelativeTime className="prc-event-time" timestamp={item.timestamp} />}
           </div>
         );
       }
@@ -2572,7 +2573,7 @@ function PullRequestPreview({
             <b>{item.actor}</b> {activityVerb(item.eventType)}
             {sha && <> · {commitLink(pr.repo, sha)}</>}
           </span>
-          {item.timestamp && <span className="prc-event-time">{formatRelativeTime(item.timestamp)}</span>}
+          {item.timestamp && <RelativeTime className="prc-event-time" timestamp={item.timestamp} />}
         </div>
       );
     }
@@ -2594,7 +2595,7 @@ function PullRequestPreview({
             </a>
             <span className="prc-comment-verb">commented</span>
             {item.timestamp && (
-              <span className="prc-comment-time">{formatRelativeTime(item.timestamp)}</span>
+              <RelativeTime className="prc-comment-time" timestamp={item.timestamp} />
             )}
             {pr.author === item.actor
               ? <span className="prc-comment-role">AUTHOR</span>
@@ -2698,7 +2699,7 @@ function PullRequestPreview({
             <b>{e.actor}</b> requested {links} for review
           </span>
           {e.lastItem.timestamp && (
-            <span className="prc-event-time">{formatRelativeTime(e.lastItem.timestamp)}</span>
+            <RelativeTime className="prc-event-time" timestamp={e.lastItem.timestamp} />
           )}
         </div>
       );
@@ -2727,7 +2728,7 @@ function PullRequestPreview({
           {sha && <> · {shaLabel} {commitLink(pr.repo, sha)}</>}
         </span>
         {e.lastItem.timestamp && (
-          <span className="prc-event-time">{formatRelativeTime(e.lastItem.timestamp)}</span>
+          <RelativeTime className="prc-event-time" timestamp={e.lastItem.timestamp} />
         )}
       </div>
     );

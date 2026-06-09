@@ -14,7 +14,8 @@
 import { useState } from 'react';
 import type { ReactNode } from 'react';
 import Avatar from '../Avatar';
-import { authorAssociationLabel, formatRelativeTime } from './utils';
+import { authorAssociationLabel } from './utils';
+import { RelativeTime } from './RelativeTime';
 
 /** Timeline entry for a `reviewed` event. Same outer shape as a comment
  *  card (40-px avatar at the same position as the timeline's other
@@ -85,7 +86,7 @@ export function ReviewActivityRow({
           </a>
           <span className="prc-comment-verb">{verb}</span>
           {timestamp && (
-            <span className="prc-comment-time">{formatRelativeTime(timestamp)}</span>
+            <RelativeTime className="prc-comment-time" timestamp={timestamp} />
           )}
           {isAuthor
             ? <span className="prc-comment-role">AUTHOR</span>

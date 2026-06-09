@@ -68,44 +68,83 @@ import static java.util.Objects.requireNonNull;
 
 /**
  * In-JVM API-lane {@link ThreadAgent}. Drives the loop by calling the
- * resolved provider's HTTP API directly and translating streaming
- * deltas into the same {@link StreamEvent} shapes the CLI lane emits.
+ * resolved provider's HTTP API directly and translating streaming deltas
+ * into the same {@link StreamEvent} shapes the CLI lane emits.
  *
- * <p>B3 vertical slice: text-only. The resolver's choice picks the
- * provider id and model id; we only know how to talk to Anthropic for
- * now (B5 adds OpenAI + DeepSeek transports). Tools are NOT wired —
- * the request body omits the {@code tools} block so the model never
- * tries to call one. B4 introduces an in-JVM tool registry + permission
- * gate hook; until then a user who needs tools should pin a CLI work
- * model.
+ * <p>B5 multi-provider transport: Anthropic (SSE Messages API), OpenAI
+ * (chat-completions SSE), and DeepSeek (OpenAI-compatible surface, cloud
+ * and local ds4 variant) are all wired. Tools route through
+ * {@link LogicLoopToolRegistry} on all three providers; the Anthropic path
+ * uses {@code tool_use} content blocks while OpenAI/DeepSeek use the
+ * {@code tool_calls} message role.
  *
- * <p>Mirrors {@link ClaudeCodeCliThreadAgent} on the contract that
- * matters for callers: same {@link ThreadStore#appendMessage} writes,
- * same event ordering (SessionStarted → AssistantTextDelta… →
- * AssistantText → UsageUpdated → TurnDone → SessionEnded), same
- * lifecycle state machine (IDLE/RUNNING/AWAITING/STOPPED), so the
- * frontend renders trunk and task panes identically across lanes.
+ * <p>History replay limits to {@value REPLAY_HISTORY_LIMIT} recent text
+ * messages per turn. Tool-call / tool-result rows from prior turns are
+ * excluded — only the final assistant text survives across turn boundaries.
+ *
+ * <p>Mirrors {@link ClaudeCodeCliThreadAgent} on the contract that matters
+ * for callers: same {@link ThreadStore#appendMessage} writes, same event
+ * ordering (SessionStarted → AssistantTextDelta… → AssistantText →
+ * UsageUpdated → TurnDone → SessionEnded), same lifecycle state machine
+ * (IDLE/RUNNING/AWAITING/STOPPED), so the frontend renders trunk and task
+ * panes identically across lanes.
  */
 public class LogicLoopThreadAgent
         implements ThreadAgent
 {
     private static final Logger log = LoggerFactory.getLogger(LogicLoopThreadAgent.class);
 
+    // ── Anthropic ─────────────────────────────────────────────────────────
     private static final String ANTHROPIC_PROVIDER_ID = "anthropic";
     private static final String ANTHROPIC_MESSAGES_URL = "https://api.anthropic.com/v1/messages";
     private static final String ANTHROPIC_VERSION = "2023-06-01";
-    private static final int MAX_OUTPUT_TOKENS = 4_096;
-    /** History tail we replay back to the provider on each turn. The
-     *  loop has no built-in resume id, so we send the recent context
-     *  every turn. Bound by a row count rather than a token budget
-     *  because the table is small in v1; B5 can tighten this when long
-     *  task histories show up. */
-    private static final int REPLAY_HISTORY_LIMIT = 80;
 
-    /** Safety cap on the per-user-turn tool-use ↔ tool-result loop so a
-     *  confused model can't burn the user's API budget on infinite
-     *  fans. Reset on every {@code send()}. */
+    // ── OpenAI ────────────────────────────────────────────────────────────
+    private static final String OPENAI_PROVIDER_ID = "openai";
+    private static final String OPENAI_COMPLETIONS_URL = "https://api.openai.com/v1/chat/completions";
+
+    // ── DeepSeek ──────────────────────────────────────────────────────────
+    private static final String DEEPSEEK_PROVIDER_ID = "deepseek";
+    private static final String DEEPSEEK_COMPLETIONS_URL = "https://api.deepseek.com/chat/completions";
+    /** Local ds4 model served by the Ds4LifecycleService subprocess. */
+    private static final String DEEPSEEK_LOCAL_COMPLETIONS_URL = "http://127.0.0.1:8000/chat/completions";
+    private static final String DEEPSEEK_LOCAL_MODEL_ID = "deepseek-v4-flash";
+    /** Placeholder token the local ds4 server accepts; the real gate is
+     *  "server running", not "key present". */
+    private static final String DEEPSEEK_LOCAL_AUTH_TOKEN = "dsv4-local";
+
+    private static final int MAX_OUTPUT_TOKENS = 4_096;
+    /** History tail replayed to the provider on each turn. Bound by row
+     *  count rather than token budget for simplicity in v1. */
+    private static final int REPLAY_HISTORY_LIMIT = 80;
+    /** Safety cap on the per-turn tool-use ↔ result loop. Reset on
+     *  every {@code send()}. */
     private static final int MAX_TOOL_ITERATIONS = 12;
+
+    // ── Per-model cost table ──────────────────────────────────────────────
+
+    private record ModelPrice(double usdPerMillionIn, double usdPerMillionOut)
+    {
+        long computeCostMilli(long tokensIn, long tokensOut)
+        {
+            double costUsd = tokensIn * usdPerMillionIn / 1_000_000.0
+                    + tokensOut * usdPerMillionOut / 1_000_000.0;
+            return Math.round(costUsd * 1000.0);
+        }
+    }
+
+    private static final Map<String, ModelPrice> MODEL_PRICES = Map.ofEntries(
+            Map.entry("claude-opus-4-7", new ModelPrice(15.0, 75.0)),
+            Map.entry("claude-sonnet-4-6", new ModelPrice(3.0, 15.0)),
+            Map.entry("claude-haiku-4-5", new ModelPrice(0.8, 4.0)),
+            Map.entry("gpt-5", new ModelPrice(10.0, 40.0)),
+            Map.entry("gpt-5-mini", new ModelPrice(1.25, 5.0)),
+            Map.entry("gpt-4o", new ModelPrice(2.5, 10.0)),
+            Map.entry("gpt-4o-mini", new ModelPrice(0.15, 0.6)),
+            Map.entry("deepseek-chat", new ModelPrice(0.27, 1.1)),
+            Map.entry("deepseek-reasoner", new ModelPrice(0.55, 2.19)));
+
+    // ── Fields ────────────────────────────────────────────────────────────
 
     private final String threadId;
     private final ThreadKind kind;
@@ -186,10 +225,10 @@ public class LogicLoopThreadAgent
         this.runningCostUsdMilli.set(thread.costUsdMilli());
         this.activeModel.set(thread.model() == null ? "" : thread.model());
         this.toolRegistry = toolRegistry;
-        // Seed seq from the persisted tail so restarting the agent on
-        // an existing thread doesn't reuse seqs.
         store.maxMessageSeq(threadId).ifPresent(max -> nextSeq.set(max + 1));
     }
+
+    // ── ThreadAgent interface ─────────────────────────────────────────────
 
     @Override
     public String id()
@@ -285,29 +324,34 @@ public class LogicLoopThreadAgent
         return turn;
     }
 
+    // ── Turn dispatch ─────────────────────────────────────────────────────
+
     private void runTurn(String userInput)
     {
         Instant now = Instant.now();
-        // Persist + announce the user message before we hit the wire so
-        // the conversation pane shows what was sent even if the API
-        // call fails mid-turn.
         persistUserMessage(userInput, now);
         publish(new StreamEvent.UserMessage(now, userInput));
         publish(new StreamEvent.SessionStarted(now, sessionId, workingDir, model()));
 
         try {
-            runAnthropicTurn(userInput, now);
+            String provider = resolvedModel.agentOrProvider();
+            if (ANTHROPIC_PROVIDER_ID.equalsIgnoreCase(provider)) {
+                runAnthropicTurn(userInput, now);
+            }
+            else if (OPENAI_PROVIDER_ID.equalsIgnoreCase(provider)
+                    || DEEPSEEK_PROVIDER_ID.equalsIgnoreCase(provider)) {
+                runOpenAiCompatibleTurn(userInput, now);
+            }
+            else {
+                emitFatal("Provider '" + provider + "' is not supported by the API lane. "
+                        + "Supported providers: anthropic, openai, deepseek.", now);
+            }
         }
         catch (UnsupportedProviderException e) {
-            // The resolver picked a provider B3 doesn't know how to talk
-            // to yet. Fail loudly so the user sees the exact mismatch
-            // rather than a silent stall.
             emitFatal(e.getMessage(), now);
         }
         catch (RuntimeException e) {
             if (userInterrupted.get()) {
-                // User-cancelled mid-stream; treat as IDLE so they can
-                // continue typing without clicking Resume.
                 publish(new StreamEvent.SessionEnded(Instant.now(), 0, null));
                 status.set(ThreadStatus.IDLE);
                 return;
@@ -320,19 +364,14 @@ public class LogicLoopThreadAgent
         }
     }
 
+    // ── Anthropic transport ───────────────────────────────────────────────
+
     private void runAnthropicTurn(String userInput, Instant turnStart)
     {
         if (resolvedModel.kind() != WorkModelKind.API) {
             throw new UnsupportedProviderException(
                     "LogicLoopThreadAgent expected an API work model but got "
                             + resolvedModel.kind());
-        }
-        if (!ANTHROPIC_PROVIDER_ID.equalsIgnoreCase(resolvedModel.agentOrProvider())) {
-            throw new UnsupportedProviderException(
-                    "LogicLoopThreadAgent currently supports the 'anthropic' provider "
-                            + "only; resolved choice is '" + resolvedModel.agentOrProvider() + "'. "
-                            + "Pick an Anthropic model on the picker or wait for the multi-"
-                            + "provider transport (B5).");
         }
         String account = resolvedModel.account();
         Optional<String> apiKey = account == null || account.isBlank()
@@ -342,7 +381,7 @@ public class LogicLoopThreadAgent
                 "No Anthropic API key on file" + (account == null ? "" : " for account " + account)
                         + ". Add one in Settings → Credentials."));
         String modelId = resolvedModel.model() == null || resolvedModel.model().isBlank()
-                ? defaultAnthropicModel()
+                ? "claude-sonnet-4-6"
                 : resolvedModel.model();
         activeModel.set(modelId);
 
@@ -367,32 +406,15 @@ public class LogicLoopThreadAgent
             if (round.toolUseBlocks.isEmpty()) {
                 break;
             }
-            // Echo the assistant's tool-use turn back into the message
-            // history so the next round carries the conversation
-            // forward properly — Anthropic requires every tool_use to
-            // be followed by a user message whose content carries the
-            // matching tool_result blocks.
             messages.add(assistantContent(round.text, round.toolUseBlocks));
             messages.add(dispatchTools(round.toolUseBlocks));
         }
 
-        Instant finishedAt = Instant.now();
-        long durationMs = Math.max(0L, finishedAt.toEpochMilli() - turnStart.toEpochMilli());
-        runningTokensIn.addAndGet(totalTokensIn);
-        runningTokensOut.addAndGet(totalTokensOut);
-        long turnCostMilli = estimateCostMilli(totalTokensIn, totalTokensOut);
-        runningCostUsdMilli.addAndGet(turnCostMilli);
-
-        persistAssistantMessage(finalText, finishedAt, durationMs, totalTokensIn, totalTokensOut, turnCostMilli);
-        publish(new StreamEvent.AssistantText(finishedAt, finalText));
-        publish(new StreamEvent.TurnDone(finishedAt, durationMs, turnCostMilli, totalTokensIn, totalTokensOut));
-        status.set(ThreadStatus.IDLE);
-        persistThreadProgress();
+        finalizeTurn(modelId, turnStart, finalText, totalTokensIn, totalTokensOut);
     }
 
-    /** One round-trip with the provider: send the current message
-     *  history, stream the response, collect text + any tool_use
-     *  blocks. */
+    /** One round-trip with the Anthropic provider: send the current message
+     *  history, stream the response, collect text + any tool_use blocks. */
     private RoundResult runAnthropicRound(
             String modelId, String apiKey, String system,
             ArrayNode messages, ArrayNode toolsArray)
@@ -432,11 +454,9 @@ public class LogicLoopThreadAgent
         long roundTokensIn = 0;
         long roundTokensOut = 0;
 
-        // Streaming-block bookkeeping. Anthropic indexes content
-        // blocks within a single response; tool_use input arrives as
-        // input_json_delta chunks under the same index. We track per
-        // open index so concurrent text + tool_use blocks don't get
-        // their inputs interleaved.
+        // Anthropic indexes content blocks within a single response;
+        // tool_use input arrives as input_json_delta chunks under the same
+        // index. Track per open index so text + tool_use don't interleave.
         Map<Integer, ToolUseBlock> openToolBlocks = new HashMap<>();
 
         try {
@@ -539,10 +559,219 @@ public class LogicLoopThreadAgent
         return new RoundResult(accumulated.toString(), toolUseBlocks, roundTokensIn, roundTokensOut);
     }
 
-    /** Assemble the assistant's role message echoing the round's text
-     *  + the tool_use blocks the model produced. Anthropic requires
-     *  this exact shape on follow-up turns so the model can stitch
-     *  the tool_result back to its previous request. */
+    // ── OpenAI-compatible transport (OpenAI + DeepSeek) ───────────────────
+
+    private void runOpenAiCompatibleTurn(String userInput, Instant turnStart)
+    {
+        if (resolvedModel.kind() != WorkModelKind.API) {
+            throw new UnsupportedProviderException(
+                    "LogicLoopThreadAgent expected an API work model but got "
+                            + resolvedModel.kind());
+        }
+        String provider = resolvedModel.agentOrProvider();
+        String modelId = resolvedModel.model() == null || resolvedModel.model().isBlank()
+                ? defaultModelForProvider(provider)
+                : resolvedModel.model();
+        activeModel.set(modelId);
+
+        String url;
+        String token;
+
+        if (DEEPSEEK_PROVIDER_ID.equalsIgnoreCase(provider)) {
+            if (DEEPSEEK_LOCAL_MODEL_ID.equals(modelId)) {
+                url = DEEPSEEK_LOCAL_COMPLETIONS_URL;
+                token = DEEPSEEK_LOCAL_AUTH_TOKEN;
+            }
+            else {
+                url = DEEPSEEK_COMPLETIONS_URL;
+                token = credentialService.getSecret(CredentialType.AI, DEEPSEEK_PROVIDER_ID)
+                        .orElseThrow(() -> new IllegalStateException(
+                                "No DeepSeek API key on file. Add one in Settings → Credentials."));
+            }
+        }
+        else {
+            // openai
+            url = OPENAI_COMPLETIONS_URL;
+            token = credentialService.getSecret(CredentialType.AI, OPENAI_PROVIDER_ID)
+                    .orElseThrow(() -> new IllegalStateException(
+                            "No OpenAI API key on file. Add one in Settings → Credentials."));
+        }
+
+        String system = composeSystemPrompt();
+        ArrayNode messages = buildOpenAiMessages(system, userInput);
+        ArrayNode toolsArray = toolRegistry == null
+                ? null
+                : toolRegistry.renderAsOpenAiTools(mapper);
+
+        String finalText = "";
+        long totalTokensIn = 0;
+        long totalTokensOut = 0;
+
+        for (int iteration = 0; iteration < MAX_TOOL_ITERATIONS; iteration++) {
+            if (userInterrupted.get()) {
+                return;
+            }
+            OaiRoundResult round = runOpenAiCompatibleRound(modelId, token, url, messages, toolsArray);
+            totalTokensIn += round.tokensIn;
+            totalTokensOut += round.tokensOut;
+            finalText = round.text;
+            if (round.toolCallBlocks.isEmpty()) {
+                break;
+            }
+            // Echo the assistant's tool_calls turn back into the history, then
+            // append one role:tool message per result so the next round can
+            // stitch results back to the requests by tool_call_id.
+            messages.add(assistantContentOpenAi(round.text, round.toolCallBlocks));
+            for (ObjectNode toolMsg : dispatchToolsOpenAi(round.toolCallBlocks)) {
+                messages.add(toolMsg);
+            }
+        }
+
+        finalizeTurn(modelId, turnStart, finalText, totalTokensIn, totalTokensOut);
+    }
+
+    /** One round-trip with an OpenAI-compatible provider. Parses the
+     *  {@code choices[0].delta} SSE format common to OpenAI and DeepSeek. */
+    private OaiRoundResult runOpenAiCompatibleRound(
+            String modelId, String token, String url,
+            ArrayNode messages, ArrayNode toolsArray)
+    {
+        ObjectNode requestBody = mapper.createObjectNode();
+        requestBody.put("model", modelId);
+        requestBody.put("max_tokens", MAX_OUTPUT_TOKENS);
+        requestBody.put("stream", true);
+        // Request token counts in the final streaming chunk.
+        ObjectNode streamOpts = mapper.createObjectNode();
+        streamOpts.put("include_usage", true);
+        requestBody.set("stream_options", streamOpts);
+        requestBody.set("messages", messages);
+        if (toolsArray != null && !toolsArray.isEmpty()) {
+            requestBody.set("tools", toolsArray);
+        }
+
+        String payload;
+        try {
+            payload = mapper.writeValueAsString(requestBody);
+        }
+        catch (Exception e) {
+            throw new IllegalStateException("Failed to encode OpenAI-compatible request body", e);
+        }
+
+        HttpRequest httpRequest = HttpRequest.newBuilder()
+                .uri(URI.create(url))
+                .timeout(Duration.ofMinutes(5))
+                .header("Content-Type", "application/json")
+                .header("Authorization", "Bearer " + token)
+                .header("accept", "text/event-stream")
+                .POST(HttpRequest.BodyPublishers.ofString(payload, StandardCharsets.UTF_8))
+                .build();
+
+        StringBuilder accumulated = new StringBuilder();
+        // Tool call accumulation indexed by the provider's tool_calls[i].index.
+        Map<Integer, OaiToolCallBlock> openToolCalls = new HashMap<>();
+        long roundTokensIn = 0;
+        long roundTokensOut = 0;
+
+        try {
+            HttpResponse<InputStream> response = httpClient.send(
+                    httpRequest, HttpResponse.BodyHandlers.ofInputStream());
+            if (response.statusCode() / 100 != 2) {
+                String errBody = new String(response.body().readAllBytes(), StandardCharsets.UTF_8);
+                throw new IllegalStateException(
+                        "OpenAI-compatible API returned " + response.statusCode() + ": " + errBody);
+            }
+            try (BufferedReader reader = new BufferedReader(
+                    new InputStreamReader(response.body(), StandardCharsets.UTF_8))) {
+                String line;
+                while ((line = reader.readLine()) != null) {
+                    if (userInterrupted.get()) {
+                        break;
+                    }
+                    if (line.isEmpty() || line.startsWith(":")) {
+                        continue;
+                    }
+                    if (!line.startsWith("data: ")) {
+                        continue;
+                    }
+                    String data = line.substring("data: ".length()).trim();
+                    if ("[DONE]".equals(data)) {
+                        break;
+                    }
+                    JsonNode frame;
+                    try {
+                        frame = mapper.readTree(data);
+                    }
+                    catch (Exception parseFail) {
+                        continue;
+                    }
+
+                    // Usage — sent in a dedicated frame when stream_options.include_usage is set.
+                    JsonNode usageNode = frame.path("usage");
+                    if (!usageNode.isMissingNode() && !usageNode.isNull()) {
+                        if (usageNode.has("prompt_tokens")) {
+                            roundTokensIn = usageNode.path("prompt_tokens").asLong(roundTokensIn);
+                        }
+                        if (usageNode.has("completion_tokens")) {
+                            roundTokensOut = usageNode.path("completion_tokens").asLong(roundTokensOut);
+                        }
+                        publish(new StreamEvent.UsageUpdated(
+                                Instant.now(), roundTokensIn, roundTokensOut));
+                    }
+
+                    JsonNode choices = frame.path("choices");
+                    if (!choices.isArray() || choices.isEmpty()) {
+                        continue;
+                    }
+                    JsonNode delta = choices.path(0).path("delta");
+
+                    // Text content
+                    if (delta.has("content") && !delta.path("content").isNull()) {
+                        String chunk = delta.path("content").asText("");
+                        if (!chunk.isEmpty()) {
+                            accumulated.append(chunk);
+                            publish(new StreamEvent.AssistantTextDelta(Instant.now(), 0, chunk));
+                        }
+                    }
+
+                    // Tool calls — id and name arrive only in the first chunk for each index;
+                    // subsequent chunks carry additional argument fragments.
+                    JsonNode toolCallsNode = delta.path("tool_calls");
+                    if (toolCallsNode.isArray()) {
+                        for (JsonNode tc : toolCallsNode) {
+                            int tcIndex = tc.path("index").asInt(0);
+                            OaiToolCallBlock block = openToolCalls.get(tcIndex);
+                            if (block == null) {
+                                String id = tc.path("id").asText("");
+                                String name = tc.path("function").path("name").asText("");
+                                block = new OaiToolCallBlock(id, name, new StringBuilder());
+                                openToolCalls.put(tcIndex, block);
+                            }
+                            String argChunk = tc.path("function").path("arguments").asText("");
+                            if (!argChunk.isEmpty()) {
+                                block.partialArgs.append(argChunk);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        catch (IOException | InterruptedException e) {
+            if (e instanceof InterruptedException) {
+                java.lang.Thread.currentThread().interrupt();
+            }
+            throw new IllegalStateException("OpenAI-compatible streaming failed: " + e.getMessage(), e);
+        }
+
+        List<OaiToolCallBlock> toolCallBlocks = new ArrayList<>(openToolCalls.values());
+        return new OaiRoundResult(accumulated.toString(), toolCallBlocks, roundTokensIn, roundTokensOut);
+    }
+
+    // ── Message assembly helpers ──────────────────────────────────────────
+
+    /** Assemble the assistant's role message echoing the round's text +
+     *  the tool_use blocks (Anthropic format). Anthropic requires this
+     *  exact shape on follow-up turns so the model can stitch tool_result
+     *  back to the prior request. */
     private ObjectNode assistantContent(String text, List<ToolUseBlock> toolUses)
     {
         ObjectNode msg = mapper.createObjectNode();
@@ -566,11 +795,38 @@ public class LogicLoopThreadAgent
         return msg;
     }
 
-    /** Dispatch each tool_use block against the registry and build the
-     *  follow-up user message whose content carries every tool_result.
-     *  Emits {@link StreamEvent.ToolCallStarted} / {@link
-     *  StreamEvent.ToolCallDone} so the conversation pane renders the
-     *  same way the CLI lane does for tool turns. */
+    /** Assemble the assistant message carrying OpenAI-format tool_calls.
+     *  The provider requires this as the message immediately preceding the
+     *  role:tool result messages on the next round. */
+    private ObjectNode assistantContentOpenAi(String text, List<OaiToolCallBlock> toolCalls)
+    {
+        ObjectNode msg = mapper.createObjectNode();
+        msg.put("role", "assistant");
+        if (text != null && !text.isEmpty()) {
+            msg.put("content", text);
+        }
+        else {
+            msg.putNull("content");
+        }
+        ArrayNode toolCallsArray = mapper.createArrayNode();
+        for (OaiToolCallBlock block : toolCalls) {
+            ObjectNode tc = mapper.createObjectNode();
+            tc.put("id", block.id);
+            tc.put("type", "function");
+            ObjectNode fn = mapper.createObjectNode();
+            fn.put("name", block.name);
+            fn.put("arguments", block.partialArgs.toString());
+            tc.set("function", fn);
+            toolCallsArray.add(tc);
+        }
+        msg.set("tool_calls", toolCallsArray);
+        return msg;
+    }
+
+    // ── Tool dispatch ─────────────────────────────────────────────────────
+
+    /** Dispatch each tool_use block (Anthropic) and build the follow-up
+     *  user message whose content carries every tool_result. */
     private ObjectNode dispatchTools(List<ToolUseBlock> toolUses)
     {
         ObjectNode msg = mapper.createObjectNode();
@@ -614,6 +870,45 @@ public class LogicLoopThreadAgent
         return msg;
     }
 
+    /** Dispatch each tool call (OpenAI format). Returns one role:tool
+     *  message per call; callers append each to the messages array. */
+    private List<ObjectNode> dispatchToolsOpenAi(List<OaiToolCallBlock> toolCalls)
+    {
+        List<ObjectNode> toolMessages = new ArrayList<>();
+        for (OaiToolCallBlock block : toolCalls) {
+            JsonNode input = parseToolInput(block.partialArgs.toString());
+            String inputJson;
+            try {
+                inputJson = mapper.writeValueAsString(input);
+            }
+            catch (Exception e) {
+                inputJson = "{}";
+            }
+            publish(new StreamEvent.ToolCallStarted(
+                    Instant.now(), block.id, block.name, inputJson));
+            persistToolCall(block.id, block.name, inputJson);
+            AgentTool.Result result = invokeTool(block.name, input);
+            String outputJson;
+            try {
+                outputJson = mapper.writeValueAsString(
+                        mapper.createObjectNode().put("text", result.text()));
+            }
+            catch (Exception e) {
+                outputJson = "{\"text\":\"\"}";
+            }
+            publish(new StreamEvent.ToolCallDone(
+                    Instant.now(), block.id, outputJson, result.isError()));
+            persistToolResult(block.id, result.text(), result.isError());
+
+            ObjectNode toolMsg = mapper.createObjectNode();
+            toolMsg.put("role", "tool");
+            toolMsg.put("tool_call_id", block.id);
+            toolMsg.put("content", result.text() == null ? "" : result.text());
+            toolMessages.add(toolMsg);
+        }
+        return toolMessages;
+    }
+
     private JsonNode parseToolInput(String raw)
     {
         if (raw == null || raw.isEmpty()) {
@@ -623,9 +918,6 @@ public class LogicLoopThreadAgent
             return mapper.readTree(raw);
         }
         catch (Exception e) {
-            // Provider truncation or malformed json — surface as
-            // empty so the tool's own validator returns a clean error
-            // instead of throwing inside the loop.
             return mapper.createObjectNode();
         }
     }
@@ -652,6 +944,8 @@ public class LogicLoopThreadAgent
             return AgentTool.Result.error("Tool '" + name + "' failed: " + e.getMessage());
         }
     }
+
+    // ── Persistence helpers ───────────────────────────────────────────────
 
     private void persistToolCall(String callId, String toolName, String inputJson)
     {
@@ -693,9 +987,11 @@ public class LogicLoopThreadAgent
                 null, null, null, null, Instant.now()));
     }
 
-    /** Bookkeeping carried through the inner streaming loop —
-     *  partial input JSON accumulates here while content_block_delta
-     *  frames stream in and is finalised on content_block_stop. */
+    // ── Inner types ───────────────────────────────────────────────────────
+
+    /** Bookkeeping for Anthropic tool_use blocks. Partial input JSON
+     *  accumulates via input_json_delta frames and is finalised on
+     *  content_block_stop. */
     private static final class ToolUseBlock
     {
         final String id;
@@ -718,6 +1014,33 @@ public class LogicLoopThreadAgent
     {
     }
 
+    /** Bookkeeping for OpenAI-compatible tool_calls. The provider sends
+     *  id + name only in the first chunk for each index; subsequent chunks
+     *  carry argument fragments. */
+    private static final class OaiToolCallBlock
+    {
+        final String id;
+        final String name;
+        final StringBuilder partialArgs;
+
+        OaiToolCallBlock(String id, String name, StringBuilder partialArgs)
+        {
+            this.id = id;
+            this.name = name;
+            this.partialArgs = partialArgs;
+        }
+    }
+
+    private record OaiRoundResult(
+            String text,
+            List<OaiToolCallBlock> toolCallBlocks,
+            long tokensIn,
+            long tokensOut)
+    {
+    }
+
+    // ── Prompt / history builders ─────────────────────────────────────────
+
     private String composeSystemPrompt()
     {
         if (roleSkillText == null || roleSkillText.isBlank()) {
@@ -726,9 +1049,48 @@ public class LogicLoopThreadAgent
         return roleSkillText.trim();
     }
 
+    /** Build the Anthropic message history array (no system message —
+     *  Anthropic takes the system prompt as a top-level field). */
     private ArrayNode buildMessageHistory(String userInput)
     {
         ArrayNode messages = mapper.createArrayNode();
+        List<ThreadMessage> tail = store.listRecentMessages(threadId, REPLAY_HISTORY_LIMIT);
+        for (ThreadMessage row : tail) {
+            String role = row.role();
+            if (!"user".equals(role) && !"assistant".equals(role)) {
+                continue;
+            }
+            if (!"text".equals(row.type())) {
+                continue;
+            }
+            String text = extractText(row.contentJson());
+            if (text == null || text.isEmpty()) {
+                continue;
+            }
+            ObjectNode msg = mapper.createObjectNode();
+            msg.put("role", role);
+            msg.put("content", text);
+            messages.add(msg);
+        }
+        ObjectNode userMsg = mapper.createObjectNode();
+        userMsg.put("role", "user");
+        userMsg.put("content", userInput == null ? "" : userInput);
+        messages.add(userMsg);
+        return messages;
+    }
+
+    /** Build the OpenAI-compatible message list. The system prompt goes as
+     *  the first role:system message; OpenAI does not accept a top-level
+     *  {@code system} field. */
+    private ArrayNode buildOpenAiMessages(String system, String userInput)
+    {
+        ArrayNode messages = mapper.createArrayNode();
+        if (system != null && !system.isEmpty()) {
+            ObjectNode sysMsg = mapper.createObjectNode();
+            sysMsg.put("role", "system");
+            sysMsg.put("content", system.trim());
+            messages.add(sysMsg);
+        }
         List<ThreadMessage> tail = store.listRecentMessages(threadId, REPLAY_HISTORY_LIMIT);
         for (ThreadMessage row : tail) {
             String role = row.role();
@@ -768,23 +1130,50 @@ public class LogicLoopThreadAgent
         }
     }
 
-    /** Rough cost estimate. We don't have a per-model price sheet in
-     *  v1; the figure is mostly for the progress strip. B5 can plug a
-     *  real catalog price in alongside the multi-provider transport. */
-    private static long estimateCostMilli(long tokensIn, long tokensOut)
+    // ── Cost / model helpers ──────────────────────────────────────────────
+
+    /** Look up per-model pricing and compute the turn cost in milli-USD.
+     *  Falls back to Sonnet-class pricing for unrecognised model ids. */
+    private static long estimateCostMilli(String modelId, long tokensIn, long tokensOut)
     {
-        // Sonnet-class: $3/M in, $15/M out → 0.003 milli-cents per
-        // input token, 0.015 per output. Multiply by 1000 for the
-        // costUsdMilli convention.
-        double inputCostUsd = tokensIn * 3.0 / 1_000_000.0;
-        double outputCostUsd = tokensOut * 15.0 / 1_000_000.0;
-        return Math.round((inputCostUsd + outputCostUsd) * 1000.0);
+        ModelPrice price = MODEL_PRICES.getOrDefault(modelId, new ModelPrice(3.0, 15.0));
+        return price.computeCostMilli(tokensIn, tokensOut);
     }
 
-    private static String defaultAnthropicModel()
+    private static String defaultModelForProvider(String provider)
     {
-        return "claude-sonnet-4-6";
+        if (DEEPSEEK_PROVIDER_ID.equalsIgnoreCase(provider)) {
+            return "deepseek-chat";
+        }
+        // openai
+        return "gpt-4o-mini";
     }
+
+    // ── Turn finalisation ─────────────────────────────────────────────────
+
+    /** Shared post-loop bookkeeping: persist the assistant message, emit
+     *  the summary events, update running totals, and mark the session idle. */
+    private void finalizeTurn(
+            String modelId, Instant turnStart, String finalText,
+            long totalTokensIn, long totalTokensOut)
+    {
+        Instant finishedAt = Instant.now();
+        long durationMs = Math.max(0L, finishedAt.toEpochMilli() - turnStart.toEpochMilli());
+        runningTokensIn.addAndGet(totalTokensIn);
+        runningTokensOut.addAndGet(totalTokensOut);
+        long turnCostMilli = estimateCostMilli(modelId, totalTokensIn, totalTokensOut);
+        runningCostUsdMilli.addAndGet(turnCostMilli);
+
+        persistAssistantMessage(finalText, finishedAt, durationMs,
+                totalTokensIn, totalTokensOut, turnCostMilli);
+        publish(new StreamEvent.AssistantText(finishedAt, finalText));
+        publish(new StreamEvent.TurnDone(finishedAt, durationMs, turnCostMilli,
+                totalTokensIn, totalTokensOut));
+        status.set(ThreadStatus.IDLE);
+        persistThreadProgress();
+    }
+
+    // ── Message persistence ───────────────────────────────────────────────
 
     private void persistUserMessage(String text, Instant ts)
     {
@@ -809,8 +1198,7 @@ public class LogicLoopThreadAgent
     }
 
     /** Bind every persisted row to the foreground task at write time so
-     *  jumping back to a parked sibling never mixes histories. Null on
-     *  trunk-only threads. */
+     *  jumping back to a parked sibling never mixes histories. */
     private String activeTaskId()
     {
         return taskStore.findActiveTaskForThread(threadId)
@@ -829,6 +1217,8 @@ public class LogicLoopThreadAgent
             throw new IllegalStateException("Failed to encode message text", e);
         }
     }
+
+    // ── Event publishing ──────────────────────────────────────────────────
 
     private void publish(StreamEvent event)
     {
@@ -855,8 +1245,7 @@ public class LogicLoopThreadAgent
     }
 
     /** Mirror the agent's running totals back to the Thread row so the
-     *  metrics strip and the dashboard's per-thread spend stay in sync
-     *  without waiting for the next checkpoint. */
+     *  metrics strip and the dashboard's per-thread spend stay in sync. */
     private void persistThreadProgress()
     {
         Optional<Thread> current = store.findThreadById(threadId);
@@ -874,6 +1263,8 @@ public class LogicLoopThreadAgent
                 t.flow(), t.workspaceId(), t.workModel(), t.activeTask());
         store.saveThread(next);
     }
+
+    // ── Lifecycle ─────────────────────────────────────────────────────────
 
     @Override
     public void interrupt()
@@ -917,24 +1308,21 @@ public class LogicLoopThreadAgent
     @Override
     public void notifyPermissionRequested(String callId, String toolName, String summary)
     {
-        // B3 has no tools wired; if a permission request reached the
-        // agent, the gate's mediator made a mistake. Drop it loudly so
-        // a future regression surfaces in the logs rather than as a
-        // hung turn.
-        log.warn("LogicLoopThreadAgent received permission request {} for tool {} but tools "
-                + "are not enabled yet (lands in B4)", callId, toolName);
+        log.warn("LogicLoopThreadAgent received unexpected permission request {} for tool {} "
+                + "— the tool registry uses auto-allow; check for a mediator misconfiguration",
+                callId, toolName);
     }
 
     @Override
     public void decide(String callId, PermissionDecision decision)
     {
-        // No tools → no waiters to decide.
+        // Auto-allow registry; no waiters to unblock.
     }
 
     @Override
     public void grantToolBudget(String toolName, int count)
     {
-        // No tools yet. Recording would be harmless but misleading.
+        // Auto-allow registry; budget tracking is a no-op.
     }
 
     @Override
@@ -946,7 +1334,7 @@ public class LogicLoopThreadAgent
     @Override
     public void notifyPermissionAutoAllowed(String callId, String toolName, int remaining)
     {
-        // No tools yet — see notifyPermissionRequested.
+        // Auto-allow is the default; nothing to log.
     }
 
     @Override
@@ -957,9 +1345,8 @@ public class LogicLoopThreadAgent
         return () -> listeners.remove(listener);
     }
 
-    /** Distinct exception so the runTurn catch can branch on it and
-     *  show a clear "wrong provider" message instead of a generic
-     *  failure. */
+    /** Distinct exception so the runTurn catch can branch on it and show
+     *  a clear "wrong provider" message instead of a generic failure. */
     private static final class UnsupportedProviderException
             extends RuntimeException
     {

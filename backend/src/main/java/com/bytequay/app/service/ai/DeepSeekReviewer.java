@@ -19,6 +19,7 @@ import com.bytequay.app.domain.ReviewOutput;
 import com.bytequay.app.domain.ReviewRequest;
 import com.bytequay.app.repository.AppSettingsStore;
 import com.bytequay.app.service.CredentialService;
+import com.bytequay.app.service.local.ds4.Ds4Instrumentation;
 import com.bytequay.app.service.local.ds4.Ds4LifecycleService;
 import com.bytequay.app.service.local.ds4.Ds4State;
 import com.bytequay.app.service.skills.SkillDraft;
@@ -78,6 +79,7 @@ public class DeepSeekReviewer
     private final CredentialService credentialService;
     private final AppSettingsStore appSettings;
     private final Ds4LifecycleService ds4;
+    private final Ds4Instrumentation instrumentation;
     private final ObjectMapper objectMapper = new ObjectMapper();
 
     public DeepSeekReviewer(
@@ -85,13 +87,48 @@ public class DeepSeekReviewer
             @Qualifier("deepseekLocalRestClient") RestClient deepseekLocalRestClient,
             CredentialService credentialService,
             AppSettingsStore appSettings,
-            Ds4LifecycleService ds4)
+            Ds4LifecycleService ds4,
+            Ds4Instrumentation instrumentation)
     {
         this.cloudClient = requireNonNull(deepseekRestClient, "deepseekRestClient is null");
         this.localClient = requireNonNull(deepseekLocalRestClient, "deepseekLocalRestClient is null");
         this.credentialService = requireNonNull(credentialService, "credentialService is null");
         this.appSettings = requireNonNull(appSettings, "appSettings is null");
         this.ds4 = requireNonNull(ds4, "ds4 is null");
+        this.instrumentation = requireNonNull(instrumentation, "instrumentation is null");
+    }
+
+    /** Record one local-ds4 call into the metrics ring. Only fires
+     *  for the locally-served model variant — cloud calls don't
+     *  pretend to be local. Pulled out so the four review entry
+     *  points share one definition; missing usage counts default to
+     *  zero so the rollups stay numeric. */
+    private void recordLocalCall(String model, String caller, long startNanos, ChatResponse response)
+    {
+        if (!LOCAL_MODEL.equals(model)) {
+            return;
+        }
+        long elapsedMs = (System.nanoTime() - startNanos) / 1_000_000L;
+        long tokensIn = response == null || response.usage() == null
+                ? 0L
+                : asLong(response.usage().get("prompt_tokens"));
+        long tokensOut = response == null || response.usage() == null
+                ? 0L
+                : asLong(response.usage().get("completion_tokens"));
+        double tps = elapsedMs <= 0 || tokensOut == 0 ? 0.0 : (tokensOut * 1000.0) / elapsedMs;
+        instrumentation.record(Ds4Instrumentation.Sample.of(
+                caller, "/chat/completions",
+                tokensIn, tokensOut, tps,
+                /* firstTokenMs — non-streaming path so we report end-to-end */ elapsedMs,
+                "200"));
+    }
+
+    private static long asLong(Object o)
+    {
+        if (o instanceof Number n) {
+            return n.longValue();
+        }
+        return 0L;
     }
 
     /** Carrier for the resolved {client, token} pair the four call
@@ -154,6 +191,7 @@ public class DeepSeekReviewer
                 MAX_OUTPUT_TOKENS,
                 false);
 
+        long startNanos = System.nanoTime();
         try {
             ChatResponse response = route.client().post()
                     .uri("/chat/completions")
@@ -161,6 +199,7 @@ public class DeepSeekReviewer
                     .body(body)
                     .retrieve()
                     .body(ChatResponse.class);
+            recordLocalCall(model, "ai_review", startNanos, response);
             String text = extractText(response);
             return parseReviewOutput(text, model);
         }

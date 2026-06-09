@@ -34,7 +34,7 @@ function task(overrides: Partial<WorkUnitTaskDto>): WorkUnitTaskDto {
     createdAt: '2026-05-15T12:00:00Z',
     name: null,
     ...overrides,
-  };
+  } as WorkUnitTaskDto;
 }
 
 describe('threadDisplay', () => {

@@ -3989,6 +3989,68 @@ const url = new URL(`${BACKEND_BASE}/api/search/repos`);
     return res.json();
   });
 
+  ipcMain.handle('threads:getWorkModel', async (_event, args: unknown) => {
+    const { threadId } = args as { threadId: string };
+    const res = await fetch(
+      `${BACKEND_BASE}/api/threads/${encodeURIComponent(threadId)}/work-model`,
+    );
+    if (!res.ok) {
+      const detail = await res.text().catch(() => '');
+      throw new Error(detail || `getThreadWorkModel returned ${res.status}`);
+    }
+    return res.json();
+  });
+
+  ipcMain.handle('threads:setWorkModel', async (_event, args: unknown) => {
+    const { threadId, model } = args as { threadId: string; model: unknown };
+    const res = await fetch(
+      `${BACKEND_BASE}/api/threads/${encodeURIComponent(threadId)}/work-model`,
+      {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ workModel: model }),
+      },
+    );
+    if (!res.ok) {
+      const detail = await res.text().catch(() => '');
+      throw new Error(detail || `setThreadWorkModel returned ${res.status}`);
+    }
+    return res.json();
+  });
+
+  ipcMain.handle('threads:getTaskWorkModel', async (_event, args: unknown) => {
+    const { threadId, taskId } = args as { threadId: string; taskId: string };
+    const res = await fetch(
+      `${BACKEND_BASE}/api/threads/${encodeURIComponent(threadId)}/tasks/${encodeURIComponent(taskId)}/work-model`,
+    );
+    if (!res.ok) {
+      const detail = await res.text().catch(() => '');
+      throw new Error(detail || `getTaskWorkModel returned ${res.status}`);
+    }
+    return res.json();
+  });
+
+  ipcMain.handle('threads:setTaskWorkModel', async (_event, args: unknown) => {
+    const { threadId, taskId, model } = args as {
+      threadId: string;
+      taskId: string;
+      model: unknown;
+    };
+    const res = await fetch(
+      `${BACKEND_BASE}/api/threads/${encodeURIComponent(threadId)}/tasks/${encodeURIComponent(taskId)}/work-model`,
+      {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ workModel: model }),
+      },
+    );
+    if (!res.ok) {
+      const detail = await res.text().catch(() => '');
+      throw new Error(detail || `setTaskWorkModel returned ${res.status}`);
+    }
+    return res.json();
+  });
+
   // POST /ai/polish — body { text } → { text }. Uses the active provider
   // to rewrite a developer-authored review comment for clarity / tone.
   ipcMain.handle('ai:polishComment', async (_event, text: string) => {

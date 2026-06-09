@@ -75,6 +75,7 @@ import type {
   WatchedRepoDto,
   WorkUnitTaskDto,
   ReviewRosterEntryDto,
+  ResolvedWorkModelDto,
   WorkModelDto,
   WorkModelOptionsDto,
   WorkspaceCardDto,
@@ -332,6 +333,18 @@ const bridge: Bridge = {
     ipcRenderer.invoke('workModels:refresh'),
   setWorkspaceWorkModel: (workspaceId: string, model: WorkModelDto | null): Promise<WorkspaceDto> =>
     ipcRenderer.invoke('workspaces:setWorkModel', { workspaceId, model }),
+  getThreadWorkModel: (threadId: string): Promise<ResolvedWorkModelDto> =>
+    ipcRenderer.invoke('threads:getWorkModel', { threadId }),
+  setThreadWorkModel: (threadId: string, model: WorkModelDto | null): Promise<ResolvedWorkModelDto> =>
+    ipcRenderer.invoke('threads:setWorkModel', { threadId, model }),
+  getTaskWorkModel: (threadId: string, taskId: string): Promise<ResolvedWorkModelDto> =>
+    ipcRenderer.invoke('threads:getTaskWorkModel', { threadId, taskId }),
+  setTaskWorkModel: (
+    threadId: string,
+    taskId: string,
+    model: WorkModelDto | null,
+  ): Promise<ResolvedWorkModelDto> =>
+    ipcRenderer.invoke('threads:setTaskWorkModel', { threadId, taskId, model }),
   listSkills: (): Promise<SkillDto[]> => ipcRenderer.invoke('skills:list'),
   createSkill: (input: SkillInput): Promise<SkillDto> => ipcRenderer.invoke('skills:create', input),
   updateSkill: (id: number, input: SkillInput): Promise<SkillDto> =>

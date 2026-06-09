@@ -1084,6 +1084,24 @@ export type WorkModelDto = {
   account: string | null;
 };
 
+/** Resolved cascade result returned by the thread/task work-model GET and
+ *  PUT endpoints. Carries both the raw override set on the queried scope
+ *  (nullable) and the cascade winner so the pill and rail section can render
+ *  "Inherited from workspace ByteQuay" without a follow-up fetch. */
+export type ResolvedWorkModelDto = {
+  /** The override set directly on this thread or task; null when the scope
+   *  has no override of its own. */
+  override: WorkModelDto | null;
+  /** The effective model after walking the full cascade (never null). */
+  effective: WorkModelDto;
+  /** Where the effective model came from. */
+  provenance: {
+    source: 'TASK' | 'THREAD' | 'WORKSPACE' | 'GLOBAL_DEFAULT';
+    scopeId: string | null;
+    scopeLabel: string;
+  };
+};
+
 export type WorkModelEntryDto = {
   id: string;
   displayName: string;
@@ -1391,6 +1409,9 @@ export type ThreadDto = {
    *  linkedPrNumber, etc.) that used to live as flattened scalars
    *  on Thread before the bridge teardown. */
   activeTask: WorkUnitTaskDto | null;
+  /** Per-thread work-model override; null means this scope inherits
+   *  from workspace or the global default. */
+  workModel: WorkModelDto | null;
 };
 
 export type ThreadGroupDto = {
@@ -1662,6 +1683,9 @@ export type WorkUnitTaskDto = {
   /** User-supplied rename, e.g. "Cost & tokens parser". Null means
    *  fall back to the humanised branch name. */
   name: string | null;
+  /** Per-task work-model override; null means this scope inherits
+   *  from the thread or workspace. */
+  workModel: WorkModelDto | null;
 };
 
 /** Conversation-index window response. Carries both the user-prompt
@@ -2652,6 +2676,22 @@ export type Bridge = {
    *  to remove the override, after which the resolver falls back
    *  to the global default. Returns the updated workspace. */
   setWorkspaceWorkModel: (workspaceId: string, model: WorkModelDto | null) => Promise<WorkspaceDto>;
+  /** Resolve the effective work model for a thread (cascade: thread →
+   *  workspace → global default). */
+  getThreadWorkModel: (threadId: string) => Promise<ResolvedWorkModelDto>;
+  /** Set (or clear) the thread's work-model override and return the
+   *  resolved outcome — the caller does not need a follow-up get. */
+  setThreadWorkModel: (threadId: string, model: WorkModelDto | null) => Promise<ResolvedWorkModelDto>;
+  /** Resolve the effective work model for a task (cascade: task →
+   *  thread → workspace → global default). */
+  getTaskWorkModel: (threadId: string, taskId: string) => Promise<ResolvedWorkModelDto>;
+  /** Set (or clear) the task's work-model override and return the
+   *  resolved outcome. */
+  setTaskWorkModel: (
+    threadId: string,
+    taskId: string,
+    model: WorkModelDto | null,
+  ) => Promise<ResolvedWorkModelDto>;
   /** List every configured skill, alphabetised by name. The Settings
    *  → Skills page slices client-side on scope / roleTag. */
   listSkills: () => Promise<SkillDto[]>;

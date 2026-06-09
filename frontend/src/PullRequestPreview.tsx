@@ -379,6 +379,22 @@ type MergeBarProps = {
   ciRefreshing: boolean;
 };
 
+/** Humanises GitHub's merge-queue entry state into the small chip on
+ *  the queued card. Only the states we can phrase confidently get a
+ *  chip; anything else (or null) returns null so the card stays clean
+ *  rather than echoing a raw enum. */
+function queueStateLabel(state: string | null): string | null {
+  switch (state) {
+    case 'QUEUED': return 'In line';
+    case 'AWAITING_CHECKS':
+    case 'PENDING': return 'Checking';
+    case 'MERGEABLE': return 'Ready';
+    case 'UNMERGEABLE': return 'Blocked';
+    case 'LOCKED': return 'Locked';
+    default: return null;
+  }
+}
+
 /** Approval-count + "Rebase and merge" bar that sits above the comment
  *  box on the PR detail page. The button is intentionally always
  *  visible-but-greyed when the PR isn't ready — hover the disabled
@@ -589,21 +605,25 @@ function MergeBar({ pr, detail, mergeState, mergeError, mergeQueuedMessage, onMe
   // the regular merge-card with a success notice instead.
   const isQueued = detail.mergeQueueState !== null;
   if (isQueued) {
+    const stateChip = queueStateLabel(detail.mergeQueueState);
     return (
       <div className="merge-card merge-card--queued">
         <div className="merge-card__icon" aria-hidden="true">
-          <svg viewBox="0 0 16 16" width="16" height="16" fill="currentColor">
-            {/* queue / dependency graph glyph — three nodes joined by
-                short line segments, suggesting "items in line" */}
-            <circle cx="3" cy="3" r="1.6" />
-            <circle cx="13" cy="3" r="1.6" />
-            <circle cx="8" cy="13" r="1.6" />
-            <path d="M3.5 4.5L7.5 11.5M12.5 4.5L8.5 11.5" stroke="currentColor" strokeWidth="0.9" fill="none" />
+          <svg viewBox="0 0 16 16" width="17" height="17" fill="currentColor">
+            {/* queue glyph — three stacked rows, the top one highlighted
+                as "this PR, waiting in line" behind the others */}
+            <rect x="2" y="2.4" width="12" height="2.6" rx="1.3" />
+            <rect x="2" y="6.7" width="12" height="2.6" rx="1.3" opacity="0.55" />
+            <rect x="2" y="11" width="12" height="2.6" rx="1.3" opacity="0.3" />
           </svg>
         </div>
         <div className="merge-card__rows merge-card__queued-rows">
           <div className="merge-card__queued-content">
-            <div className="merge-card__queued-title">Queued to merge…</div>
+            <div className="merge-card__queued-titlerow">
+              <span className="merge-card__queued-pulse" aria-hidden="true" />
+              <span className="merge-card__queued-title">Queued to merge</span>
+              {stateChip && <span className="merge-card__queued-chip">{stateChip}</span>}
+            </div>
             <div className="merge-card__queued-desc">
               GitHub will merge this PR through the{' '}
               <a href={pr.htmlUrl} target="_blank" rel="noreferrer">merge queue</a>

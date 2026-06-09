@@ -1290,29 +1290,82 @@
  * card. The rows container becomes a single padded row instead of the
  * multi-line status breakdown the regular merge-card uses. */
 .merge-card--queued .merge-card__icon {
-  background: #bf8700;
+  background: linear-gradient(160deg, #d99a00, #b07d00);
+  box-shadow: 0 2px 6px rgba(191, 135, 0, 0.28);
 }
+/* Left accent stripe + soft amber wash that fades into the card
+ * instead of a flat full-amber border. Reads as an in-flight status
+ * card, not a warning box. The stripe rides on ::before so the
+ * rounded corners (overflow:hidden on .merge-card__rows) clip it. */
 .merge-card__queued-rows {
+  position: relative;
   display: flex;
   align-items: center;
   gap: 16px;
-  padding: 14px 16px;
-  border-color: #bf8700;
-  background: rgba(191, 135, 0, 0.04);
+  padding: 14px 18px 14px 22px;
+  border-color: rgba(191, 135, 0, 0.32);
+  background:
+    linear-gradient(to right,
+      rgba(191, 135, 0, 0.09),
+      rgba(191, 135, 0, 0.025) 160px,
+      var(--bg-card) 55%);
+}
+.merge-card__queued-rows::before {
+  content: '';
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 4px;
+  background: #bf8700;
 }
 .merge-card__queued-content {
   flex: 1;
   min-width: 0;
 }
+.merge-card__queued-titlerow {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  margin-bottom: 4px;
+}
+/* Pulsing dot — the "still waiting" cue, mirroring github.com's
+ * animated queued state. Calms to a static dot under reduced motion. */
+.merge-card__queued-pulse {
+  flex: 0 0 auto;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #bf8700;
+  animation: merge-queued-pulse 1.8s ease-out infinite;
+}
+@keyframes merge-queued-pulse {
+  0% { box-shadow: 0 0 0 0 rgba(191, 135, 0, 0.45); }
+  70% { box-shadow: 0 0 0 6px rgba(191, 135, 0, 0); }
+  100% { box-shadow: 0 0 0 0 rgba(191, 135, 0, 0); }
+}
+@media (prefers-reduced-motion: reduce) {
+  .merge-card__queued-pulse { animation: none; }
+}
 .merge-card__queued-title {
   font-size: 14px;
   font-weight: 600;
   color: var(--text-1);
-  margin-bottom: 3px;
+}
+.merge-card__queued-chip {
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+  text-transform: uppercase;
+  color: #7a5800;
+  background: rgba(191, 135, 0, 0.14);
+  border: 1px solid rgba(191, 135, 0, 0.3);
+  padding: 1px 8px;
+  border-radius: 999px;
+  line-height: 1.55;
 }
 .merge-card__queued-desc {
   font-size: 13px;
   color: var(--text-2);
+  padding-left: 16px;
 }
 .merge-card__queued-desc a {
   color: var(--accent);
@@ -1320,26 +1373,28 @@
 }
 .merge-card__queued-action {
   flex-shrink: 0;
-  padding: 6px 12px;
+  padding: 7px 14px;
   font-size: 13px;
-  font-weight: 500;
-  color: var(--text-1);
+  font-weight: 600;
+  color: #6b4e00;
   background: var(--bg-card);
-  border: 1px solid var(--border);
-  border-radius: 6px;
+  border: 1px solid rgba(191, 135, 0, 0.4);
+  border-radius: 7px;
   cursor: pointer;
-  transition: background 120ms ease, border-color 120ms ease;
+  transition: background 120ms ease, border-color 120ms ease, color 120ms ease;
 }
 .merge-card__queued-action:hover:not(:disabled) {
-  background: rgba(0, 0, 0, 0.04);
-  border-color: var(--text-3);
+  background: rgba(191, 135, 0, 0.08);
+  border-color: #bf8700;
+  color: #543d00;
 }
 .merge-card__queued-action:disabled {
   cursor: not-allowed;
   opacity: 0.6;
 }
 .merge-card__queued-error {
-  margin-top: 6px;
+  margin-top: 8px;
+  margin-left: 16px;
   padding: 6px 10px;
   font-size: 12px;
   color: #cf222e;

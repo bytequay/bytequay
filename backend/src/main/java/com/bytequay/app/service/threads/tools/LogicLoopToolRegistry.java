@@ -67,9 +67,7 @@ public class LogicLoopToolRegistry
 
     /** Render the registry as the {@code tools} array Anthropic's
      *  Messages API expects: a list of
-     *  {@code {"name", "description", "input_schema"}} objects. The
-     *  agent forwards this verbatim on every turn so the model knows
-     *  what's available. */
+     *  {@code {"name", "description", "input_schema"}} objects. */
     public ArrayNode renderAsAnthropicTools(ObjectMapper mapper)
     {
         ArrayNode arr = mapper.createArrayNode();
@@ -79,6 +77,27 @@ public class LogicLoopToolRegistry
             node.put("description", tool.description());
             node.set("input_schema", tool.inputSchema());
             arr.add(node);
+        }
+        return arr;
+    }
+
+    /** Render the registry as the {@code tools} array OpenAI's and
+     *  DeepSeek's chat-completions API expects: a list of
+     *  {@code {"type": "function", "function": {"name", "description",
+     *  "parameters"}}} objects. The {@code parameters} schema is the
+     *  same JSON Schema object Anthropic calls {@code input_schema}. */
+    public ArrayNode renderAsOpenAiTools(ObjectMapper mapper)
+    {
+        ArrayNode arr = mapper.createArrayNode();
+        for (AgentTool tool : byName.values()) {
+            ObjectNode wrapper = mapper.createObjectNode();
+            wrapper.put("type", "function");
+            ObjectNode fn = mapper.createObjectNode();
+            fn.put("name", tool.name());
+            fn.put("description", tool.description());
+            fn.set("parameters", tool.inputSchema());
+            wrapper.set("function", fn);
+            arr.add(wrapper);
         }
         return arr;
     }

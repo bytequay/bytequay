@@ -455,6 +455,26 @@ const createWindow = async () => {
   }
 };
 
+async function ds4Get(path: string): Promise<unknown> {
+  const res = await fetch(`${BACKEND_BASE}${path}`);
+  if (!res.ok) {
+    const detail = await res.text().catch(() => '');
+    throw new Error(detail || `${path} returned ${res.status}`);
+  }
+  return res.json();
+}
+
+async function ds4Post(path: string): Promise<unknown> {
+  const res = await fetch(`${BACKEND_BASE}${path}`, { method: 'POST' });
+  // 202 and 409 both carry a JSON body the caller wants to surface;
+  // only treat 5xx / 404 / 400 as errors that block the renderer.
+  if (res.status >= 500 || res.status === 404 || res.status === 400) {
+    const detail = await res.text().catch(() => '');
+    throw new Error(detail || `${path} returned ${res.status}`);
+  }
+  return res.json();
+}
+
 function registerIpc(): void {
   // Synchronous pull of the current window's fullscreen state — the
   // renderer queries this on mount to recover from a race with the
@@ -4049,6 +4069,41 @@ const url = new URL(`${BACKEND_BASE}/api/search/repos`);
       throw new Error(detail || `setTaskWorkModel returned ${res.status}`);
     }
     return res.json();
+  });
+
+  // ds4 lifecycle / config / metrics passthrough. Every endpoint
+  // under /api/ds4 is localhost-only and not agent-callable; see the
+  // backend Ds4Controller for the contract.
+  ipcMain.handle('ds4:status', async () => ds4Get('/api/ds4/status'));
+  ipcMain.handle('ds4:start', async () => ds4Post('/api/ds4/start'));
+  ipcMain.handle('ds4:stop', async (_event, args: unknown) => {
+    const { confirm } = (args as { confirm?: boolean }) ?? {};
+    const suffix = confirm === true ? '?confirm=true' : '';
+    return ds4Post(`/api/ds4/stop${suffix}`);
+  });
+  ipcMain.handle('ds4:restart', async () => ds4Post('/api/ds4/restart'));
+  ipcMain.handle('ds4:getConfig', async () => ds4Get('/api/ds4/config'));
+  ipcMain.handle('ds4:setConfig', async (_event, args: unknown) => {
+    const { config, restart } = args as { config: unknown; restart?: boolean };
+    const suffix = restart === true ? '?restart=true' : '';
+    const res = await fetch(`${BACKEND_BASE}/api/ds4/config${suffix}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(config),
+    });
+    if (!res.ok) {
+      const detail = await res.text().catch(() => '');
+      throw new Error(detail || `ds4 setConfig returned ${res.status}`);
+    }
+    return res.json();
+  });
+  ipcMain.handle('ds4:metrics', async () => ds4Get('/api/ds4/metrics'));
+  ipcMain.handle('ds4:install', async () => ds4Post('/api/ds4/install'));
+  ipcMain.handle('ds4:installStatus', async () => ds4Get('/api/ds4/install/status'));
+  ipcMain.handle('ds4:logs', async (_event, args: unknown) => {
+    const { limit } = (args as { limit?: number }) ?? {};
+    const suffix = limit !== undefined ? `?limit=${limit}` : '';
+    return ds4Get(`/api/ds4/logs${suffix}`);
   });
 
   // POST /ai/polish — body { text } → { text }. Uses the active provider

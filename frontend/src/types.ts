@@ -1084,6 +1084,99 @@ export type WorkModelDto = {
   account: string | null;
 };
 
+/** Lifecycle state of the local ds4 inference subprocess. Mirrors
+ *  com.bytequay.app.service.local.ds4.Ds4State. */
+export type Ds4StateDto =
+  | 'NOT_CONFIGURED'
+  | 'STOPPED'
+  | 'STARTING'
+  | 'RUNNING'
+  | 'STOPPING'
+  | 'CRASHED';
+
+/** Snapshot returned by getDs4Status and embedded in other responses. */
+export type Ds4StatusDto = {
+  state: Ds4StateDto;
+  endpoint: string;
+  pid: number;
+  startedAt: string | null;
+  spawnedByUs: boolean;
+  restartAttempts: number;
+  uptimeSec: number;
+  lastError: string | null;
+};
+
+/** Apply-on-restart config for the ds4 server. */
+export type Ds4ConfigDto = {
+  binaryPath: string | null;
+  port: number;
+  model: string;
+  quant: string;
+  contextTokens: number;
+  kvCacheDir: string;
+  kvDiskBudgetMb: number;
+  thinkingDefault: boolean;
+  trace: boolean;
+  installUrl: string;
+  autoRestartOnCrash: boolean;
+  autoStartOnBoot: boolean;
+  attachIfRunning: boolean;
+};
+
+/** Response shape for POST /api/ds4/stop carrying the "stopping an
+ *  attached server hits other clients too" confirm flag. */
+export type Ds4StopResponseDto = {
+  requiresConfirm: boolean;
+  status: Ds4StatusDto;
+  message: string | null;
+};
+
+/** Response shape for PUT /api/ds4/config. The restartRequired flag
+ *  drives the "applies on restart" banner in the management tab. */
+export type Ds4ConfigResponseDto = {
+  config: Ds4ConfigDto;
+  restartRequired: boolean;
+  status: Ds4StatusDto;
+};
+
+/** Metrics envelope rendered by the Metrics tab. v1 only includes
+ *  ByteQuay's own calls; the front-door proxy follow-up will fold
+ *  in external clients' traffic. */
+export type Ds4MetricsDto = {
+  memory: {
+    weightsBytes: number;
+    kvCacheBytes: number;
+    freeBytes: number;
+    ceilingBytes: number;
+    pct: number;
+  };
+  throughput: { currentTps: number; avg1mTps: number; peakTodayTps: number };
+  latency: { firstTokenMs: number; avg1mMs: number };
+  kvOnDisk: { usedBytes: number; budgetBytes: number; pct: number };
+  requestsToday: { count: number; tokensIn: number; tokensOut: number };
+  memorySpark30m: Array<{ atMs: number; bytes: number }>;
+  recentRequests: Array<{
+    tsMs: number;
+    workspaceId: string;
+    caller: string;
+    route: string;
+    tokensIn: number;
+    tokensOut: number;
+    tps: number;
+    status: string;
+  }>;
+};
+
+/** Progress shape for the in-app installer. */
+export type Ds4InstallStatusDto = {
+  phase: 'IDLE' | 'DOWNLOADING' | 'READY' | 'FAILED';
+  sourceUrl: string | null;
+  destination: string | null;
+  bytesSoFar: number;
+  bytesTotal: number;
+  error: string | null;
+};
+
 /** Resolved cascade result returned by the thread/task work-model GET and
  *  PUT endpoints. Carries both the raw override set on the queried scope
  *  (nullable) and the cascade winner so the pill and rail section can render
@@ -2695,6 +2788,24 @@ export type Bridge = {
     taskId: string,
     model: WorkModelDto | null,
   ) => Promise<ResolvedWorkModelDto>;
+  /** Local ds4 inference server lifecycle. Status is the cheap poll
+   *  every page surface (widget + Settings) shares; the rest drive
+   *  the management actions. */
+  getDs4Status: () => Promise<Ds4StatusDto>;
+  startDs4: () => Promise<Ds4StatusDto>;
+  stopDs4: (confirm?: boolean) => Promise<Ds4StopResponseDto>;
+  restartDs4: () => Promise<Ds4StatusDto>;
+  getDs4Config: () => Promise<Ds4ConfigDto>;
+  /** Save the apply-on-restart config. Pass {@code restart=true} to
+   *  trigger a Stop+Start in one call. */
+  setDs4Config: (config: Ds4ConfigDto, restart?: boolean) => Promise<Ds4ConfigResponseDto>;
+  getDs4Metrics: () => Promise<Ds4MetricsDto>;
+  /** Kick off an in-app download of the ds4 binary; the lifecycle
+   *  service auto-points binaryPath at the downloaded file on
+   *  success. */
+  installDs4: () => Promise<Ds4InstallStatusDto>;
+  getDs4InstallStatus: () => Promise<Ds4InstallStatusDto>;
+  getDs4Logs: (limit?: number) => Promise<string[]>;
   /** List every configured skill, alphabetised by name. The Settings
    *  → Skills page slices client-side on scope / roleTag. */
   listSkills: () => Promise<SkillDto[]>;

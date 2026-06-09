@@ -24,6 +24,12 @@ import type {
   CredentialDto,
   CredentialType,
   DailyCardDto,
+  Ds4ConfigDto,
+  Ds4ConfigResponseDto,
+  Ds4InstallStatusDto,
+  Ds4MetricsDto,
+  Ds4StatusDto,
+  Ds4StopResponseDto,
   EmailTagAction,
   EmailTagArchiveEntryDto,
   EmailTagDto,
@@ -345,6 +351,18 @@ const bridge: Bridge = {
     model: WorkModelDto | null,
   ): Promise<ResolvedWorkModelDto> =>
     ipcRenderer.invoke('threads:setTaskWorkModel', { threadId, taskId, model }),
+  getDs4Status: (): Promise<Ds4StatusDto> => ipcRenderer.invoke('ds4:status'),
+  startDs4: (): Promise<Ds4StatusDto> => ipcRenderer.invoke('ds4:start'),
+  stopDs4: (confirm = false): Promise<Ds4StopResponseDto> =>
+    ipcRenderer.invoke('ds4:stop', { confirm }),
+  restartDs4: (): Promise<Ds4StatusDto> => ipcRenderer.invoke('ds4:restart'),
+  getDs4Config: (): Promise<Ds4ConfigDto> => ipcRenderer.invoke('ds4:getConfig'),
+  setDs4Config: (config: Ds4ConfigDto, restart = false): Promise<Ds4ConfigResponseDto> =>
+    ipcRenderer.invoke('ds4:setConfig', { config, restart }),
+  getDs4Metrics: (): Promise<Ds4MetricsDto> => ipcRenderer.invoke('ds4:metrics'),
+  installDs4: (): Promise<Ds4InstallStatusDto> => ipcRenderer.invoke('ds4:install'),
+  getDs4InstallStatus: (): Promise<Ds4InstallStatusDto> => ipcRenderer.invoke('ds4:installStatus'),
+  getDs4Logs: (limit = 200): Promise<string[]> => ipcRenderer.invoke('ds4:logs', { limit }),
   listSkills: (): Promise<SkillDto[]> => ipcRenderer.invoke('skills:list'),
   createSkill: (input: SkillInput): Promise<SkillDto> => ipcRenderer.invoke('skills:create', input),
   updateSkill: (id: number, input: SkillInput): Promise<SkillDto> =>

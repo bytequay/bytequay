@@ -26,6 +26,7 @@ import { useThreadTasks } from './useThreadTasks';
 import PromptContextInspector from '../inspector/PromptContextInspector';
 import { useInspectorHotkey } from '../inspector/useInspectorHotkey';
 import { ConfirmDialog } from '../workspace/ConfirmDialog';
+import { WorkModelPill } from '../workspace/WorkModelPill';
 
 type Props = {
   threadId: string;
@@ -412,6 +413,7 @@ export default function ThreadTrunkPage({ threadId, onBack, onOpenTask }: Props)
               {taskCount > 0 && ` · ${taskCount} task${taskCount === 1 ? '' : 's'}`}
             </span>
           )}
+          <WorkModelPill scope={{ kind: 'thread', threadId }} />
           <button
             type="button"
             onClick={() => setInspectorOpen(true)}

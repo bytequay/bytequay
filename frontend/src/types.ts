@@ -1776,6 +1776,9 @@ export type NewTaskRequestDto = {
   linkedPrNumber?: number | null;
   /** Optional GitHub issue number, scoped to the thread's repo. */
   linkedIssueNumber?: number | null;
+  /** Optional per-thread work-model override. Null / omitted inherits
+   *  from the workspace default. */
+  workModel?: WorkModelDto | null;
 };
 
 /** What a notification is about; matches the backend NotificationKind

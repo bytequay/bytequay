@@ -27,6 +27,7 @@ import TaskChat from './TaskChat';
 import { ConvIndex } from './ConvIndex';
 import PromptContextInspector from '../inspector/PromptContextInspector';
 import { useInspectorHotkey } from '../inspector/useInspectorHotkey';
+import { WorkModelPill } from '../workspace/WorkModelPill';
 import { useThreadTasks } from './useThreadTasks';
 import { useAnimatedNumber } from './useAnimatedNumber';
 
@@ -658,6 +659,18 @@ export default function TaskDetailPage({
                 </div>
                 <TaskMetricsTable task={task} toolCallCount={toolCallCount} />
               </section>
+
+              {task !== null && (
+                <section style={railSectionStyle}>
+                  <div style={railHeadStyle}>
+                    <span>WORK MODEL</span>
+                    <span style={railHeadMutedStyle}>this task</span>
+                  </div>
+                  <WorkModelPill
+                    scope={{ kind: 'task', threadId, taskId: task.id }}
+                  />
+                </section>
+              )}
 
               <section style={railSectionStyle}>
                 <div style={railHeadStyle}>

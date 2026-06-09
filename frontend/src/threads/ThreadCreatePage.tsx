@@ -17,7 +17,9 @@ import type {
   LocalRepoStatusDto,
   PullRequestDto,
   ThreadGroupDto,
+  WorkModelDto,
 } from '../types';
+import { WorkModelPicker } from '../workspace/WorkModelPicker';
 
 /**
  * Full-page create surface for one new thread. Lives at
@@ -53,13 +55,14 @@ export type ThreadCreatePageProps = {
 
 type TaskType = 'DEVELOP' | 'FIX';
 
-type Provider = 'claude-code' | 'codex';
-
 export default function ThreadCreatePage({
   workspaceId, initialGroupId, onBack, onCreated,
 }: ThreadCreatePageProps) {
   const [taskType, setTaskType] = useState<TaskType>('DEVELOP');
-  const [provider, setProvider] = useState<Provider>('claude-code');
+  // null = inherit from the workspace default; non-null = explicit
+  // pin at create time. The picker on this form drives the cascade's
+  // thread-scope override; the resolver picks it up on turn 1.
+  const [workModel, setWorkModel] = useState<WorkModelDto | null>(null);
   const [title, setTitle] = useState('');
   const [prompt, setPrompt] = useState('');
   const [groupId, setGroupId] = useState<string>(initialGroupId ?? '');
@@ -405,13 +408,23 @@ export default function ThreadCreatePage({
       if (workingDir === null) {
         throw new Error('Repo has no local path even after cloning.');
       }
+      // ThreadKind reflects the lane the resolved work model puts
+      // the new thread on. CLI-kind picks a CLI agent (claude-code /
+      // codex), API-kind picks a provider + key. Null/inherit defaults
+      // to CLI_AGENT because v1's expected workspace pick is Claude
+      // Code on the user's Mac — the resolver still has the final say
+      // on the first turn.
+      const kind = workModel !== null && workModel.kind === 'API'
+        ? 'LOGIC_LOOP'
+        : 'CLI_AGENT';
+      const provider = workModel?.agentOrProvider ?? 'claude-code';
       const created = await window.bridge.createTask({
-        kind: 'CLI_AGENT',
+        kind,
         provider,
         // Claude Code picks its own model and reports it back through
         // the stream — the detail page surfaces the real value once
         // the session emits its first event.
-        model: '',
+        model: workModel?.model ?? '',
         workspaceId,
         title: trimmedTitle,
         workingDir,
@@ -420,6 +433,7 @@ export default function ThreadCreatePage({
         taskType,
         linkedPrNumber: linkedPrNumber ?? undefined,
         linkedIssueNumber: linkedIssueNumber ?? undefined,
+        workModel,
       });
       onCreated(created.id);
     }
@@ -430,7 +444,7 @@ export default function ThreadCreatePage({
     }
   }, [
     submitting, title, prompt, selectedRepo, linkedPrNumber, linkedIssueNumber,
-    provider, taskType, groupId, onCreated,
+    workModel, taskType, groupId, workspaceId, onCreated,
   ]);
 
   // Esc cancels (unless mid-submit), ⌘/Ctrl+Enter submits.
@@ -589,24 +603,8 @@ export default function ThreadCreatePage({
             )}
           </Field>
 
-          <Field label="Kind" required>
-            <div style={segStyle} role="radiogroup" aria-label="Provider kind">
-              <SegBtn
-                label="Claude Code"
-                active={provider === 'claude-code'}
-                onClick={() => setProvider('claude-code')}
-              />
-              {/* Codex isn't wired end-to-end yet — the option is in
-                  place for the visual contract but stays disabled
-                  until the backend session for Codex actually runs. */}
-              <SegBtn
-                label="Codex"
-                active={provider === 'codex'}
-                onClick={() => setProvider('codex')}
-                disabled
-                title="Codex provider coming soon"
-              />
-            </div>
+          <Field label="Work model" hint="optional · inherits workspace default">
+            <WorkModelPicker value={workModel} onChange={setWorkModel} />
           </Field>
 
           <Field label="Group" hint="optional">

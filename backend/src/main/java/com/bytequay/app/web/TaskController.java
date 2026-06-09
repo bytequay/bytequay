@@ -13,6 +13,7 @@
  */
 package com.bytequay.app.web;
 
+import com.bytequay.app.beans.workmodel.ResolvedWorkModelResponse;
 import com.bytequay.app.domain.Task;
 import com.bytequay.app.domain.TaskFile;
 import com.bytequay.app.domain.WorkModel;
@@ -21,6 +22,7 @@ import com.bytequay.app.service.concepts.ConceptKind;
 import com.bytequay.app.service.inspector.AssembledContext;
 import com.bytequay.app.service.inspector.ContextAssembler;
 import com.bytequay.app.service.threads.TaskService;
+import com.bytequay.app.service.workmodel.WorkModelResolver;
 import org.springframework.http.HttpStatusCode;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
@@ -54,11 +56,16 @@ public class TaskController
 {
     private final TaskService taskService;
     private final ContextAssembler contextAssembler;
+    private final WorkModelResolver workModelResolver;
 
-    public TaskController(TaskService taskService, ContextAssembler contextAssembler)
+    public TaskController(
+            TaskService taskService,
+            ContextAssembler contextAssembler,
+            WorkModelResolver workModelResolver)
     {
         this.taskService = requireNonNull(taskService, "taskService is null");
         this.contextAssembler = requireNonNull(contextAssembler, "contextAssembler is null");
+        this.workModelResolver = requireNonNull(workModelResolver, "workModelResolver is null");
     }
 
     /** All tasks for the thread, oldest seq first. The UI's left-rail
@@ -154,18 +161,36 @@ public class TaskController
     }
 
     /**
+     * GET /api/threads/{threadId}/tasks/{taskId}/work-model — resolve the
+     * effective work model for a task, returning both the scope's own
+     * override (nullable) and the cascade winner with provenance.
+     */
+    @GetMapping("/{taskId}/work-model")
+    public ResolvedWorkModelResponse getWorkModel(
+            @PathVariable String threadId,
+            @PathVariable String taskId)
+    {
+        Task task = taskService.requireTask(threadId, taskId);
+        WorkModelResolver.Resolved resolved = workModelResolver.resolveForTask(threadId, taskId);
+        return new ResolvedWorkModelResponse(task.workModel(), resolved.choice(), resolved.provenance());
+    }
+
+    /**
      * PUT /api/threads/{threadId}/tasks/{taskId}/work-model — set (or
      * clear) the task's override on the work-model cascade. A null body
      * or a body whose {@code workModel} field is null clears the
-     * override; the resolver then falls back to the thread pick.
+     * override; the resolver then falls back to the thread pick. Returns
+     * the resolved outcome so the caller does not need a follow-up GET.
      */
     @PutMapping("/{taskId}/work-model")
-    public Task setWorkModel(
+    public ResolvedWorkModelResponse setWorkModel(
             @PathVariable String threadId,
             @PathVariable String taskId,
             @RequestBody(required = false) WorkModelBody body)
     {
-        return taskService.setWorkModel(threadId, taskId, body == null ? null : body.workModel());
+        Task updated = taskService.setWorkModel(threadId, taskId, body == null ? null : body.workModel());
+        WorkModelResolver.Resolved resolved = workModelResolver.resolveForTask(threadId, taskId);
+        return new ResolvedWorkModelResponse(updated.workModel(), resolved.choice(), resolved.provenance());
     }
 
     /** Body for {@link #setWorkModel} — wraps the optional

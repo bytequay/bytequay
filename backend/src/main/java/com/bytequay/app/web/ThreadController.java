@@ -13,6 +13,7 @@
  */
 package com.bytequay.app.web;
 
+import com.bytequay.app.beans.workmodel.ResolvedWorkModelResponse;
 import com.bytequay.app.domain.ConvIndexPage;
 import com.bytequay.app.domain.PermissionDecision;
 import com.bytequay.app.domain.Task;
@@ -32,6 +33,7 @@ import com.bytequay.app.service.local.GitRunner;
 import com.bytequay.app.service.threads.CheckpointTrigger;
 import com.bytequay.app.service.threads.ConvIndexService;
 import com.bytequay.app.service.threads.ThreadService;
+import com.bytequay.app.service.workmodel.WorkModelResolver;
 import com.google.common.collect.ImmutableList;
 import com.google.common.collect.ImmutableMap;
 import org.slf4j.Logger;
@@ -94,19 +96,22 @@ public class ThreadController
     private final ThreadCheckpointStore checkpoints;
     private final CheckpointTrigger checkpointTrigger;
     private final ContextAssembler contextAssembler;
+    private final WorkModelResolver workModelResolver;
 
     public ThreadController(
             ThreadService threads,
             ConvIndexService convIndex,
             ThreadCheckpointStore checkpoints,
             CheckpointTrigger checkpointTrigger,
-            ContextAssembler contextAssembler)
+            ContextAssembler contextAssembler,
+            WorkModelResolver workModelResolver)
     {
         this.threads = requireNonNull(threads, "threads is null");
         this.convIndex = requireNonNull(convIndex, "convIndex is null");
         this.checkpoints = requireNonNull(checkpoints, "checkpoints is null");
         this.checkpointTrigger = requireNonNull(checkpointTrigger, "checkpointTrigger is null");
         this.contextAssembler = requireNonNull(contextAssembler, "contextAssembler is null");
+        this.workModelResolver = requireNonNull(workModelResolver, "workModelResolver is null");
     }
 
     /** GET /api/threads?status=RUNNING&limit=50&groupId=...&workspaceId=... */
@@ -273,15 +278,35 @@ public class ThreadController
     }
 
     /**
+     * GET /api/threads/{id}/work-model — resolve the effective work
+     * model for the thread, returning both the scope's own override
+     * (nullable) and the cascade winner with provenance.
+     */
+    @GetMapping("/{id}/work-model")
+    public ResolvedWorkModelResponse getWorkModel(@PathVariable String id)
+    {
+        Thread thread = threads.find(id)
+                .orElseThrow(() -> new ResponseStatusException(
+                        HttpStatusCode.valueOf(404), "no thread: " + id));
+        WorkModelResolver.Resolved resolved = workModelResolver.resolveForThread(id);
+        return new ResolvedWorkModelResponse(thread.workModel(), resolved.choice(), resolved.provenance());
+    }
+
+    /**
      * PUT /api/threads/{id}/work-model — set (or clear) the thread's
      * override on the work-model cascade. A null body or a body whose
      * {@code workModel} field is null clears the override; the resolver
-     * then falls back to the workspace pick.
+     * then falls back to the workspace pick. Returns the resolved
+     * outcome so the caller does not need a follow-up GET.
      */
     @PutMapping("/{id}/work-model")
-    public Thread setWorkModel(@PathVariable String id, @RequestBody(required = false) WorkModelBody body)
+    public ResolvedWorkModelResponse setWorkModel(
+            @PathVariable String id,
+            @RequestBody(required = false) WorkModelBody body)
     {
-        return threads.setWorkModel(id, body == null ? null : body.workModel());
+        Thread updated = threads.setWorkModel(id, body == null ? null : body.workModel());
+        WorkModelResolver.Resolved resolved = workModelResolver.resolveForThread(id);
+        return new ResolvedWorkModelResponse(updated.workModel(), resolved.choice(), resolved.provenance());
     }
 
     /** Request body for {@link #setWorkModel} — wraps the optional

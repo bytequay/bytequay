@@ -26,6 +26,7 @@ import com.bytequay.app.repository.WatchedRepoStore;
 import com.bytequay.app.service.CredentialService;
 import com.bytequay.app.service.skills.RoleSkillService;
 import com.bytequay.app.service.skills.SkillMaterializer;
+import com.bytequay.app.service.threads.tools.LogicLoopToolRegistry;
 import com.bytequay.app.service.workmodel.WorkModelResolver;
 import com.bytequay.app.service.workspaces.WorkspaceService;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -95,6 +96,9 @@ public class ThreadRegistry
     private final WorkModelResolver workModelResolver;
     /** Authenticates API-lane turns; null on CLI-only paths. */
     private final CredentialService credentialService;
+    /** Tools the API-lane loop exposes to the model. Null on legacy
+     *  test paths; production wires the Spring-discovered list. */
+    private final LogicLoopToolRegistry toolRegistry;
     private final WorktreeLeaseService leaseService;
     /** Resolves the cwd a trunk session should be spawned in. Takes
      *  the Thread because the trunk's working dir is workspace-
@@ -127,7 +131,8 @@ public class ThreadRegistry
             SkillMaterializer skillMaterializer,
             RoleSkillService roleSkillService,
             WorkModelResolver workModelResolver,
-            CredentialService credentialService)
+            CredentialService credentialService,
+            LogicLoopToolRegistry toolRegistry)
     {
         this(store, taskStore, new StreamJsonParser(mapper), mapper, gate,
                 ClaudeCodeCliThreadAgent.defaultExecutor(), checkpointTrigger,
@@ -137,7 +142,8 @@ public class ThreadRegistry
                 skillMaterializer,
                 roleSkillService,
                 workModelResolver,
-                credentialService);
+                credentialService,
+                toolRegistry);
     }
 
     /**
@@ -208,6 +214,7 @@ public class ThreadRegistry
                 null,
                 null,
                 null,
+                null,
                 null);
     }
 
@@ -225,7 +232,8 @@ public class ThreadRegistry
             SkillMaterializer skillMaterializer,
             RoleSkillService roleSkillService,
             WorkModelResolver workModelResolver,
-            CredentialService credentialService)
+            CredentialService credentialService,
+            LogicLoopToolRegistry toolRegistry)
     {
         this.store = requireNonNull(store, "store is null");
         this.taskStore = requireNonNull(taskStore, "taskStore is null");
@@ -241,6 +249,7 @@ public class ThreadRegistry
         this.roleSkillService = roleSkillService;
         this.workModelResolver = workModelResolver;
         this.credentialService = credentialService;
+        this.toolRegistry = toolRegistry;
     }
 
     public Optional<ThreadAgent> find(String threadId)
@@ -371,7 +380,7 @@ public class ThreadRegistry
                 yield new LogicLoopThreadAgent(
                         thread, store, taskStore, mapper, executor,
                         credentialService, resolved, workingDir,
-                        resolveTaskRoleSkill(thread));
+                        resolveTaskRoleSkill(thread), toolRegistry);
             }
         };
     }
@@ -390,7 +399,8 @@ public class ThreadRegistry
                 yield new LogicLoopThreadAgent(
                         thread, store, taskStore, mapper, executor,
                         credentialService, resolved, trunkCwdResolver.apply(thread),
-                        roleSkillService == null ? null : roleSkillService.trunkTemplate());
+                        roleSkillService == null ? null : roleSkillService.trunkTemplate(),
+                        toolRegistry);
             }
         };
     }

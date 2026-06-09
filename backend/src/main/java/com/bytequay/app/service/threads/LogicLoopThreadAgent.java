@@ -26,6 +26,9 @@ import com.bytequay.app.domain.WorkModelKind;
 import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.repository.ThreadStore;
 import com.bytequay.app.service.CredentialService;
+import com.bytequay.app.service.threads.tools.AgentTool;
+import com.bytequay.app.service.threads.tools.AgentToolContext;
+import com.bytequay.app.service.threads.tools.LogicLoopToolRegistry;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
@@ -42,9 +45,13 @@ import java.net.http.HttpClient;
 import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
+import java.nio.file.Path;
 import java.time.Duration;
 import java.time.Instant;
+import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.OptionalInt;
 import java.util.UUID;
@@ -95,6 +102,11 @@ public class LogicLoopThreadAgent
      *  task histories show up. */
     private static final int REPLAY_HISTORY_LIMIT = 80;
 
+    /** Safety cap on the per-user-turn tool-use ↔ tool-result loop so a
+     *  confused model can't burn the user's API budget on infinite
+     *  fans. Reset on every {@code send()}. */
+    private static final int MAX_TOOL_ITERATIONS = 12;
+
     private final String threadId;
     private final ThreadKind kind;
     private final ThreadStore store;
@@ -109,6 +121,9 @@ public class LogicLoopThreadAgent
     private final String sessionId;
     private final long sessionStartedMs;
     private final HttpClient httpClient;
+    /** Tools the model is told about and can call. Null on the
+     *  legacy text-only constructor used by older test paths. */
+    private final LogicLoopToolRegistry toolRegistry;
     private final CopyOnWriteArrayList<Consumer<StreamEvent>> listeners = new CopyOnWriteArrayList<>();
 
     private final AtomicReference<ThreadStatus> status = new AtomicReference<>();
@@ -130,6 +145,22 @@ public class LogicLoopThreadAgent
             WorkModel resolvedModel,
             String workingDir,
             String roleSkillText)
+    {
+        this(thread, store, taskStore, mapper, executor, credentialService,
+                resolvedModel, workingDir, roleSkillText, /* toolRegistry */ null);
+    }
+
+    public LogicLoopThreadAgent(
+            Thread thread,
+            ThreadStore store,
+            TaskStore taskStore,
+            ObjectMapper mapper,
+            ExecutorService executor,
+            CredentialService credentialService,
+            WorkModel resolvedModel,
+            String workingDir,
+            String roleSkillText,
+            LogicLoopToolRegistry toolRegistry)
     {
         this.threadId = thread.id();
         this.kind = thread.kind();
@@ -154,6 +185,7 @@ public class LogicLoopThreadAgent
         this.runningTokensOut.set(thread.tokensOut());
         this.runningCostUsdMilli.set(thread.costUsdMilli());
         this.activeModel.set(thread.model() == null ? "" : thread.model());
+        this.toolRegistry = toolRegistry;
         // Seed seq from the persisted tail so restarting the agent on
         // an existing thread doesn't reuse seqs.
         store.maxMessageSeq(threadId).ifPresent(max -> nextSeq.set(max + 1));
@@ -314,15 +346,68 @@ public class LogicLoopThreadAgent
                 : resolvedModel.model();
         activeModel.set(modelId);
 
+        String system = composeSystemPrompt();
+        ArrayNode messages = buildMessageHistory(userInput);
+        ArrayNode toolsArray = toolRegistry == null
+                ? null
+                : toolRegistry.renderAsAnthropicTools(mapper);
+
+        String finalText = "";
+        long totalTokensIn = 0;
+        long totalTokensOut = 0;
+
+        for (int iteration = 0; iteration < MAX_TOOL_ITERATIONS; iteration++) {
+            if (userInterrupted.get()) {
+                return;
+            }
+            RoundResult round = runAnthropicRound(modelId, key, system, messages, toolsArray);
+            totalTokensIn += round.tokensIn;
+            totalTokensOut += round.tokensOut;
+            finalText = round.text;
+            if (round.toolUseBlocks.isEmpty()) {
+                break;
+            }
+            // Echo the assistant's tool-use turn back into the message
+            // history so the next round carries the conversation
+            // forward properly — Anthropic requires every tool_use to
+            // be followed by a user message whose content carries the
+            // matching tool_result blocks.
+            messages.add(assistantContent(round.text, round.toolUseBlocks));
+            messages.add(dispatchTools(round.toolUseBlocks));
+        }
+
+        Instant finishedAt = Instant.now();
+        long durationMs = Math.max(0L, finishedAt.toEpochMilli() - turnStart.toEpochMilli());
+        runningTokensIn.addAndGet(totalTokensIn);
+        runningTokensOut.addAndGet(totalTokensOut);
+        long turnCostMilli = estimateCostMilli(totalTokensIn, totalTokensOut);
+        runningCostUsdMilli.addAndGet(turnCostMilli);
+
+        persistAssistantMessage(finalText, finishedAt, durationMs, totalTokensIn, totalTokensOut, turnCostMilli);
+        publish(new StreamEvent.AssistantText(finishedAt, finalText));
+        publish(new StreamEvent.TurnDone(finishedAt, durationMs, turnCostMilli, totalTokensIn, totalTokensOut));
+        status.set(ThreadStatus.IDLE);
+        persistThreadProgress();
+    }
+
+    /** One round-trip with the provider: send the current message
+     *  history, stream the response, collect text + any tool_use
+     *  blocks. */
+    private RoundResult runAnthropicRound(
+            String modelId, String apiKey, String system,
+            ArrayNode messages, ArrayNode toolsArray)
+    {
         ObjectNode requestBody = mapper.createObjectNode();
         requestBody.put("model", modelId);
         requestBody.put("max_tokens", MAX_OUTPUT_TOKENS);
         requestBody.put("stream", true);
-        String system = composeSystemPrompt();
         if (system != null && !system.isEmpty()) {
             requestBody.put("system", system);
         }
-        requestBody.set("messages", buildMessageHistory(userInput));
+        requestBody.set("messages", messages);
+        if (toolsArray != null && !toolsArray.isEmpty()) {
+            requestBody.set("tools", toolsArray);
+        }
 
         String payload;
         try {
@@ -337,15 +422,23 @@ public class LogicLoopThreadAgent
                 .timeout(Duration.ofMinutes(5))
                 .header("Content-Type", "application/json")
                 .header("anthropic-version", ANTHROPIC_VERSION)
-                .header("x-api-key", key)
+                .header("x-api-key", apiKey)
                 .header("accept", "text/event-stream")
                 .POST(HttpRequest.BodyPublishers.ofString(payload, StandardCharsets.UTF_8))
                 .build();
 
         StringBuilder accumulated = new StringBuilder();
-        long turnTokensIn = 0;
-        long turnTokensOut = 0;
-        boolean toolUseSeen = false;
+        List<ToolUseBlock> toolUseBlocks = new ArrayList<>();
+        long roundTokensIn = 0;
+        long roundTokensOut = 0;
+
+        // Streaming-block bookkeeping. Anthropic indexes content
+        // blocks within a single response; tool_use input arrives as
+        // input_json_delta chunks under the same index. We track per
+        // open index so concurrent text + tool_use blocks don't get
+        // their inputs interleaved.
+        Map<Integer, ToolUseBlock> openToolBlocks = new HashMap<>();
+
         try {
             HttpResponse<InputStream> response = httpClient.send(
                     httpRequest, HttpResponse.BodyHandlers.ofInputStream());
@@ -359,7 +452,7 @@ public class LogicLoopThreadAgent
                 String line;
                 while ((line = reader.readLine()) != null) {
                     if (userInterrupted.get()) {
-                        return;
+                        break;
                     }
                     if (line.isEmpty() || line.startsWith(":")) {
                         continue;
@@ -378,9 +471,12 @@ public class LogicLoopThreadAgent
                     String frameType = frame.path("type").asText("");
                     switch (frameType) {
                         case "content_block_start" -> {
+                            int index = frame.path("index").asInt(0);
                             String blockType = frame.path("content_block").path("type").asText("");
                             if ("tool_use".equals(blockType)) {
-                                toolUseSeen = true;
+                                String id = frame.path("content_block").path("id").asText("");
+                                String toolName = frame.path("content_block").path("name").asText("");
+                                openToolBlocks.put(index, new ToolUseBlock(id, toolName, new StringBuilder()));
                             }
                         }
                         case "content_block_delta" -> {
@@ -396,24 +492,36 @@ public class LogicLoopThreadAgent
                                             chunk));
                                 }
                             }
+                            else if ("input_json_delta".equals(deltaType)) {
+                                int index = frame.path("index").asInt(0);
+                                ToolUseBlock block = openToolBlocks.get(index);
+                                if (block != null) {
+                                    block.partialJson.append(delta.path("partial_json").asText(""));
+                                }
+                            }
+                        }
+                        case "content_block_stop" -> {
+                            int index = frame.path("index").asInt(0);
+                            ToolUseBlock block = openToolBlocks.remove(index);
+                            if (block != null) {
+                                toolUseBlocks.add(block);
+                            }
                         }
                         case "message_delta" -> {
                             JsonNode usage = frame.path("usage");
                             if (usage.has("output_tokens")) {
-                                turnTokensOut = usage.path("output_tokens").asLong(turnTokensOut);
+                                roundTokensOut = usage.path("output_tokens").asLong(roundTokensOut);
                             }
                             if (usage.has("input_tokens")) {
-                                turnTokensIn = usage.path("input_tokens").asLong(turnTokensIn);
+                                roundTokensIn = usage.path("input_tokens").asLong(roundTokensIn);
                             }
                             publish(new StreamEvent.UsageUpdated(
-                                    Instant.now(),
-                                    turnTokensIn,
-                                    turnTokensOut));
+                                    Instant.now(), roundTokensIn, roundTokensOut));
                         }
                         case "message_start" -> {
                             JsonNode usage = frame.path("message").path("usage");
                             if (usage.has("input_tokens")) {
-                                turnTokensIn = usage.path("input_tokens").asLong(turnTokensIn);
+                                roundTokensIn = usage.path("input_tokens").asLong(roundTokensIn);
                             }
                         }
                         default -> { /* ping, message_stop, etc — nothing to do */ }
@@ -428,29 +536,186 @@ public class LogicLoopThreadAgent
             throw new IllegalStateException("Anthropic streaming failed: " + e.getMessage(), e);
         }
 
-        if (toolUseSeen) {
-            // The model attempted a tool call but B3 has no tool
-            // dispatcher. Surface a clear error and stop the turn —
-            // B4 plugs in the in-JVM tool registry.
-            emitFatal("The model attempted a tool call, but tool execution on the API "
-                    + "lane is not enabled yet (lands in B4). Pin a CLI work model "
-                    + "if you need tools right now.", turnStart);
-            return;
+        return new RoundResult(accumulated.toString(), toolUseBlocks, roundTokensIn, roundTokensOut);
+    }
+
+    /** Assemble the assistant's role message echoing the round's text
+     *  + the tool_use blocks the model produced. Anthropic requires
+     *  this exact shape on follow-up turns so the model can stitch
+     *  the tool_result back to its previous request. */
+    private ObjectNode assistantContent(String text, List<ToolUseBlock> toolUses)
+    {
+        ObjectNode msg = mapper.createObjectNode();
+        msg.put("role", "assistant");
+        ArrayNode content = mapper.createArrayNode();
+        if (text != null && !text.isEmpty()) {
+            ObjectNode textBlock = mapper.createObjectNode();
+            textBlock.put("type", "text");
+            textBlock.put("text", text);
+            content.add(textBlock);
         }
+        for (ToolUseBlock block : toolUses) {
+            ObjectNode useBlock = mapper.createObjectNode();
+            useBlock.put("type", "tool_use");
+            useBlock.put("id", block.id);
+            useBlock.put("name", block.name);
+            useBlock.set("input", parseToolInput(block.partialJson.toString()));
+            content.add(useBlock);
+        }
+        msg.set("content", content);
+        return msg;
+    }
 
-        String finalText = accumulated.toString();
-        Instant finishedAt = Instant.now();
-        long durationMs = Math.max(0L, finishedAt.toEpochMilli() - turnStart.toEpochMilli());
-        runningTokensIn.addAndGet(turnTokensIn);
-        runningTokensOut.addAndGet(turnTokensOut);
-        long turnCostMilli = estimateCostMilli(turnTokensIn, turnTokensOut);
-        runningCostUsdMilli.addAndGet(turnCostMilli);
+    /** Dispatch each tool_use block against the registry and build the
+     *  follow-up user message whose content carries every tool_result.
+     *  Emits {@link StreamEvent.ToolCallStarted} / {@link
+     *  StreamEvent.ToolCallDone} so the conversation pane renders the
+     *  same way the CLI lane does for tool turns. */
+    private ObjectNode dispatchTools(List<ToolUseBlock> toolUses)
+    {
+        ObjectNode msg = mapper.createObjectNode();
+        msg.put("role", "user");
+        ArrayNode content = mapper.createArrayNode();
+        for (ToolUseBlock block : toolUses) {
+            JsonNode input = parseToolInput(block.partialJson.toString());
+            String inputJson;
+            try {
+                inputJson = mapper.writeValueAsString(input);
+            }
+            catch (Exception e) {
+                inputJson = "{}";
+            }
+            publish(new StreamEvent.ToolCallStarted(
+                    Instant.now(), block.id, block.name, inputJson));
+            persistToolCall(block.id, block.name, inputJson);
+            AgentTool.Result result = invokeTool(block.name, input);
+            String outputJson;
+            try {
+                outputJson = mapper.writeValueAsString(
+                        mapper.createObjectNode().put("text", result.text()));
+            }
+            catch (Exception e) {
+                outputJson = "{\"text\":\"\"}";
+            }
+            publish(new StreamEvent.ToolCallDone(
+                    Instant.now(), block.id, outputJson, result.isError()));
+            persistToolResult(block.id, result.text(), result.isError());
 
-        persistAssistantMessage(finalText, finishedAt, durationMs, turnTokensIn, turnTokensOut, turnCostMilli);
-        publish(new StreamEvent.AssistantText(finishedAt, finalText));
-        publish(new StreamEvent.TurnDone(finishedAt, durationMs, turnCostMilli, turnTokensIn, turnTokensOut));
-        status.set(ThreadStatus.IDLE);
-        persistThreadProgress();
+            ObjectNode resultBlock = mapper.createObjectNode();
+            resultBlock.put("type", "tool_result");
+            resultBlock.put("tool_use_id", block.id);
+            resultBlock.put("content", result.text());
+            if (result.isError()) {
+                resultBlock.put("is_error", true);
+            }
+            content.add(resultBlock);
+        }
+        msg.set("content", content);
+        return msg;
+    }
+
+    private JsonNode parseToolInput(String raw)
+    {
+        if (raw == null || raw.isEmpty()) {
+            return mapper.createObjectNode();
+        }
+        try {
+            return mapper.readTree(raw);
+        }
+        catch (Exception e) {
+            // Provider truncation or malformed json — surface as
+            // empty so the tool's own validator returns a clean error
+            // instead of throwing inside the loop.
+            return mapper.createObjectNode();
+        }
+    }
+
+    private AgentTool.Result invokeTool(String name, JsonNode input)
+    {
+        if (toolRegistry == null) {
+            return AgentTool.Result.error(
+                    "No tool registry wired for this session — text-only mode.");
+        }
+        Optional<AgentTool> tool = toolRegistry.find(name);
+        if (tool.isEmpty()) {
+            return AgentTool.Result.error(
+                    "Unknown tool: " + name + ". Available: " + toolRegistry.list().stream()
+                            .map(AgentTool::name).toList());
+        }
+        Path cwd = workingDir == null ? null : Path.of(workingDir);
+        String taskId = activeTaskId();
+        try {
+            return tool.get().invoke(input, new AgentToolContext(threadId, taskId, cwd));
+        }
+        catch (RuntimeException e) {
+            log.warn("Tool {} threw on thread {}: {}", name, threadId, e.getMessage());
+            return AgentTool.Result.error("Tool '" + name + "' failed: " + e.getMessage());
+        }
+    }
+
+    private void persistToolCall(String callId, String toolName, String inputJson)
+    {
+        long seq = nextSeq.getAndIncrement();
+        ObjectNode body = mapper.createObjectNode();
+        body.put("callId", callId);
+        body.put("toolName", toolName);
+        body.set("input", parseToolInput(inputJson));
+        String contentJson;
+        try {
+            contentJson = mapper.writeValueAsString(body);
+        }
+        catch (Exception e) {
+            contentJson = "{}";
+        }
+        store.appendMessage(new ThreadMessage(
+                UUID.randomUUID().toString(), threadId, activeTaskId(), seq,
+                "tool", "tool_call", contentJson,
+                null, null, null, null, Instant.now()));
+    }
+
+    private void persistToolResult(String callId, String text, boolean isError)
+    {
+        long seq = nextSeq.getAndIncrement();
+        ObjectNode body = mapper.createObjectNode();
+        body.put("callId", callId);
+        body.put("text", text == null ? "" : text);
+        body.put("isError", isError);
+        String contentJson;
+        try {
+            contentJson = mapper.writeValueAsString(body);
+        }
+        catch (Exception e) {
+            contentJson = "{}";
+        }
+        store.appendMessage(new ThreadMessage(
+                UUID.randomUUID().toString(), threadId, activeTaskId(), seq,
+                "tool", "tool_result", contentJson,
+                null, null, null, null, Instant.now()));
+    }
+
+    /** Bookkeeping carried through the inner streaming loop —
+     *  partial input JSON accumulates here while content_block_delta
+     *  frames stream in and is finalised on content_block_stop. */
+    private static final class ToolUseBlock
+    {
+        final String id;
+        final String name;
+        final StringBuilder partialJson;
+
+        ToolUseBlock(String id, String name, StringBuilder partialJson)
+        {
+            this.id = id;
+            this.name = name;
+            this.partialJson = partialJson;
+        }
+    }
+
+    private record RoundResult(
+            String text,
+            List<ToolUseBlock> toolUseBlocks,
+            long tokensIn,
+            long tokensOut)
+    {
     }
 
     private String composeSystemPrompt()

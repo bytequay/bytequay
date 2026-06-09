@@ -643,7 +643,8 @@ public class AgentToolHandlers
                 args.linkedPrNumber(),
                 args.linkedIssueNumber(),
                 thread.flow(),
-                thread.workspaceId());
+                thread.workspaceId(),
+                /* workModel — inherit thread's override */ thread.workModel());
         try {
             Task created = threads.materialiseTask(threadId, request);
             return toolOutcome(new CreatedTaskResult(

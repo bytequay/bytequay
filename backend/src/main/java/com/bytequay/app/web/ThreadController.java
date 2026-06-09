@@ -184,7 +184,8 @@ public class ThreadController
                 body.linkedPrNumber(),
                 body.linkedIssueNumber(),
                 /* flow */ null,
-                body.workspaceId()));
+                body.workspaceId(),
+                body.workModel()));
     }
 
     /**
@@ -224,7 +225,8 @@ public class ThreadController
                 // materialiseTask doesn't read workspaceId on the request,
                 // but the record requires it — surface the body value
                 // anyway so a future code path picks it up.
-                body.workspaceId()));
+                body.workspaceId(),
+                body.workModel()));
     }
 
     /** GET /api/threads/{id} */
@@ -662,7 +664,10 @@ public class ThreadController
             Integer linkedIssueNumber,
             /** Owning workspace id — required. Threads belong to a
              *  workspace; the service rejects the create when null/blank. */
-            String workspaceId) {}
+            String workspaceId,
+            /** Optional per-thread work-model override set at creation
+             *  time. Null inherits from the workspace. */
+            WorkModel workModel) {}
 
     public record SendBody(String input) {}
 

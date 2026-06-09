@@ -429,7 +429,7 @@ public class ThreadService
                 /* errorMessage */ null,
                 request.flow() == null ? ThreadFlow.BUILD : request.flow(),
                 request.workspaceId().trim(),
-                /* workModel */ null,
+                request.workModel(),
                 /* activeTask */ null);
         store.saveThread(thread);
         for (String groupId : initialGroupIds) {
@@ -1001,7 +1001,11 @@ public class ThreadService
             ThreadFlow flow,
             /** Owning workspace's id — required. The thread row lands
              *  here and the workspace-scoped lists filter by it. */
-            String workspaceId) {}
+            String workspaceId,
+            /** Optional per-thread work-model override. Null inherits
+             *  from the workspace default. The resolver picks it up on
+             *  the next turn. */
+            WorkModel workModel) {}
 
     /** Inputs from the create-group dialog. The redesign requires
      *  a non-empty group, so {@code initialTaskIds} is required (≥1

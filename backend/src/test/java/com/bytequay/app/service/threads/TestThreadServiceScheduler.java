@@ -103,7 +103,7 @@ class TestThreadServiceScheduler
                 "DEVELOP",
                 /* linkedPrNumber */ null,
                 /* linkedIssueNumber */ null,
-                /* flow */ null, "ws-default"));
+                /* flow */ null, "ws-default", /* workModel */ null));
 
         assertThat(store.threads).hasSize(1);
         assertThat(scheduler.requests).isEmpty();
@@ -146,7 +146,7 @@ class TestThreadServiceScheduler
                 "DEVELOP",
                 /* linkedPrNumber */ 42,
                 /* linkedIssueNumber */ null,
-                ThreadFlow.REVIEW, "ws-default"));
+                ThreadFlow.REVIEW, "ws-default", /* workModel */ null));
 
         assertThat(store.threads).hasSize(1);
         assertThat(store.threads.values().iterator().next().flow())
@@ -185,7 +185,7 @@ class TestThreadServiceScheduler
                 "DEVELOP",
                 /* linkedPrNumber */ null,
                 /* linkedIssueNumber */ null,
-                /* flow */ null, "ws-default"));
+                /* flow */ null, "ws-default", /* workModel */ null));
 
         assertThat(scheduler.requests).isEmpty();
         assertThat(registry.used).isFalse();
@@ -493,7 +493,7 @@ class TestThreadServiceScheduler
                 "DEVELOP",
                 /* linkedPrNumber */ null,
                 /* linkedIssueNumber */ null,
-                /* flow */ null, "ws-default"));
+                /* flow */ null, "ws-default", /* workModel */ null));
 
         assertThat(groups.listMembers("group-1"))
                 .extracting(ThreadGroupMembership::threadId)
@@ -626,7 +626,7 @@ class TestThreadServiceScheduler
                 "DEVELOP",
                 /* linkedPrNumber */ null,
                 /* linkedIssueNumber */ null,
-                /* flow */ null, "ws-default"));
+                /* flow */ null, "ws-default", /* workModel */ null));
         assertThat(worktrees.createRequests).isEmpty();
         assertThat(tasks.byId).isEmpty();
 
@@ -643,7 +643,7 @@ class TestThreadServiceScheduler
                 "DEVELOP",
                 /* linkedPrNumber */ null,
                 /* linkedIssueNumber */ null,
-                /* flow */ null, "ws-default"));
+                /* flow */ null, "ws-default", /* workModel */ null));
 
         Thread refreshed = projecting.findThreadById(thread.id()).orElseThrow();
         assertThat(refreshed.activeTask()).isNotNull();

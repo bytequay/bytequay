@@ -12,8 +12,9 @@
  * limitations under the License.
  */
 import { useEffect, useState } from 'react';
-import type { WatchedRepoDto } from '../types';
+import type { WatchedRepoDto, WorkModelDto } from '../types';
 import { WS_DIALOG_OVERLAY, WS_DIALOG_PANEL, dialogStyles } from './dialogStyles';
+import { WorkModelPicker } from './WorkModelPicker';
 
 type Props = {
   /** Close without taking any action — fired on Cancel and the
@@ -47,24 +48,13 @@ type Props = {
  * trunk *is* the discussion altitude, and tasks materialise from the
  * first branch-worthy turn rather than an up-front choice.
  */
-// Agent options exposed in the picker. CLI is wired today; LOGIC_LOOP
-// rows are scaffold for the in-JVM runtime that lands later. The dialog
-// disables a row when it can't actually create a thread of that kind so
-// the user sees the option but doesn't get a broken thread out of it.
-const AGENT_OPTIONS = [
-  { id: 'claude-code', label: 'Claude Code', meta: 'CLI', kind: 'CLI_AGENT' as const, enabled: true },
-  { id: 'codex',       label: 'Codex',        meta: 'CLI · gpt-5',    kind: 'CLI_AGENT' as const, enabled: false },
-  { id: 'logic-loop',  label: 'Logic loop',   meta: 'in-JVM · api',   kind: 'LOGIC_LOOP' as const, enabled: false },
-] as const;
-type AgentOption = typeof AGENT_OPTIONS[number];
-
 function NewThreadDialog({ onClose, onCreated, initialGroupId, workspaceId, workspaceName }: Props) {
   const wsLabel = workspaceName.length > 0 ? workspaceName : 'Workspace';
   const wsInitial = wsLabel.slice(0, 1).toUpperCase();
   const [prompt, setPrompt] = useState('');
   const [repos, setRepos] = useState<WatchedRepoDto[] | null>(null);
   const [selectedRepo, setSelectedRepo] = useState<WatchedRepoDto | null>(null);
-  const [selectedAgent, setSelectedAgent] = useState<AgentOption>(AGENT_OPTIONS[0]);
+  const [selectedModel, setSelectedModel] = useState<WorkModelDto | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [openMenu, setOpenMenu] = useState<'repo' | 'agent' | null>(null);
@@ -110,12 +100,13 @@ function NewThreadDialog({ onClose, onCreated, initialGroupId, workspaceId, work
       // dialog, staged below into the trunk composer so they review
       // and press Send when ready.
       const created = await window.bridge.createTask({
-        kind: selectedAgent.kind,
-        provider: selectedAgent.id,
-        model: '',
+        kind: selectedModel?.kind === 'API' ? 'LOGIC_LOOP' : 'CLI_AGENT',
+        provider: selectedModel?.agentOrProvider ?? 'claude-code',
+        model: selectedModel?.model ?? '',
         workspaceId,
         initialPrompt: trimmed === '' ? undefined : trimmed,
         initialGroupIds: initialGroupId !== undefined ? [initialGroupId] : undefined,
+        workModel: selectedModel,
       });
       if (trimmed.length > 0) {
         // Hand the text to the trunk page via sessionStorage — the
@@ -260,56 +251,7 @@ function NewThreadDialog({ onClose, onCreated, initialGroupId, workspaceId, work
           </div>
 
           <div style={pickerWrapStyle}>
-            <button
-              type="button"
-              style={advancedChipStyle}
-              onClick={() => setOpenMenu(openMenu === 'agent' ? null : 'agent')}
-              aria-haspopup="listbox"
-              aria-expanded={openMenu === 'agent'}
-            >
-              <span style={advChipGlyphStyle('agent')} aria-hidden>
-                {selectedAgent.label.charAt(0)}
-              </span>
-              <span style={advChipLabelStyle}>{selectedAgent.label}</span>
-              <span style={advChipMetaStyle}>{selectedAgent.meta}</span>
-              <span style={advChipCaretStyle}>▾</span>
-            </button>
-            {openMenu === 'agent' && (
-              <>
-                <div style={pickerScrimStyle} onClick={() => setOpenMenu(null)} />
-                <ul style={pickerMenuStyle} role="listbox">
-                  {AGENT_OPTIONS.map(a => {
-                    const isActive = selectedAgent.id === a.id;
-                    return (
-                      <li key={a.id}>
-                        <button
-                          type="button"
-                          onClick={() => {
-                            if (!a.enabled) return;
-                            setSelectedAgent(a);
-                            setOpenMenu(null);
-                          }}
-                          style={pickerItemStyle(isActive, !a.enabled)}
-                          disabled={!a.enabled}
-                          title={a.enabled
-                            ? `${a.label} · ${a.meta}`
-                            : `${a.label} lands in a later phase`}
-                        >
-                          <span style={pickerItemAgentGlyphStyle(a.enabled)} aria-hidden>
-                            {a.label.charAt(0)}
-                          </span>
-                          <span style={pickerItemTitleStyle}>{a.label}</span>
-                          <span style={pickerItemMetaStyle}>{a.meta}</span>
-                          {!a.enabled && (
-                            <span style={pickerItemBadgeStyle}>soon</span>
-                          )}
-                        </button>
-                      </li>
-                    );
-                  })}
-                </ul>
-              </>
-            )}
+            <WorkModelPicker value={selectedModel} onChange={setSelectedModel} />
           </div>
         </div>
 

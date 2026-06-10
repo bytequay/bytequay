@@ -40,6 +40,7 @@ import java.util.ArrayDeque;
 import java.util.ArrayList;
 import java.util.Deque;
 import java.util.List;
+import java.util.Locale;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
@@ -100,8 +101,20 @@ public class Ds4LifecycleService
     static final Duration PROBE_TIMEOUT = Duration.ofSeconds(2);
     static final Duration PROBE_INTERVAL = Duration.ofMillis(500);
     /** Wait window after SIGTERM for the server to flush its KV
-     *  "shutdown" checkpoint before we resort to destroyForcibly(). */
+     *  "shutdown" checkpoint before we resort to destroyForcibly().
+     *  Used for user-driven Stop (Settings → Stop, /api/ds4/stop). */
     static final Duration STOP_GRACE = Duration.ofSeconds(20);
+
+    /** Shorter grace used by {@link #shutdown()} on JVM exit. Has to
+     *  fit inside dev.sh's 5s SIGKILL fallback, otherwise the dev
+     *  script force-kills the JVM mid-flush and we leak the ds4
+     *  subprocess. User-driven Stop still uses the full 20s. */
+    static final Duration SHUTDOWN_GRACE = Duration.ofSeconds(3);
+
+    /** App-owned marker file with the spawned ds4 PID so external
+     *  cleanup (dev.sh, or a future packaged-app uninstall) can reap
+     *  the subprocess when the JVM didn't get a chance to. */
+    private static final Path PID_FILE = defaultPidFile();
 
     /** Bounded stdout/stderr capture for the request log + crash
      *  diagnosis surface. Older lines drop off the head; the head is
@@ -222,7 +235,7 @@ public class Ds4LifecycleService
      *  drives the graceful SIGTERM + grace-deadline path. */
     public Ds4Status stop()
     {
-        supervisor.submit(this::stopBlocking);
+        supervisor.submit(() -> stopBlocking());
         return status.get();
     }
 
@@ -264,7 +277,7 @@ public class Ds4LifecycleService
     void shutdown()
     {
         try {
-            stopBlocking();
+            stopBlocking(SHUTDOWN_GRACE);
         }
         catch (RuntimeException e) {
             log.warn("Stop during JVM shutdown threw: {}", e.getMessage());
@@ -313,6 +326,7 @@ public class Ds4LifecycleService
         transition(new Ds4Status(
                 Ds4State.RUNNING, endpointFor(cfg), spawned.pid(),
                 Instant.now(), true, /* restartAttempts reset */ 0, null));
+        writePidFile(spawned.pid());
         // Spin a daemon watcher so we notice an exit even when no
         // turn is in flight. The watcher only fires the CRASHED
         // transition; the supervisor decides whether to restart.
@@ -321,9 +335,15 @@ public class Ds4LifecycleService
 
     void stopBlocking()
     {
+        stopBlocking(STOP_GRACE);
+    }
+
+    void stopBlocking(Duration grace)
+    {
         Process p = this.process;
         Ds4Status snap = status.get();
         if (snap.state() == Ds4State.STOPPED || snap.state() == Ds4State.NOT_CONFIGURED) {
+            removePidFile();
             return;
         }
         if (p == null) {
@@ -340,9 +360,9 @@ public class Ds4LifecycleService
                 snap.restartAttempts(), null));
         p.destroy();
         try {
-            boolean exited = p.waitFor(STOP_GRACE.toMillis(), TimeUnit.MILLISECONDS);
+            boolean exited = p.waitFor(grace.toMillis(), TimeUnit.MILLISECONDS);
             if (!exited) {
-                log.warn("ds4 didn't honour SIGTERM within {}; forcing", STOP_GRACE);
+                log.warn("ds4 didn't honour SIGTERM within {}; forcing", grace);
                 p.destroyForcibly();
                 p.waitFor(2, TimeUnit.SECONDS);
             }
@@ -351,6 +371,7 @@ public class Ds4LifecycleService
             Thread.currentThread().interrupt();
         }
         this.process = null;
+        removePidFile();
         transition(Ds4Status.stopped(snap.endpoint()));
     }
 
@@ -580,6 +601,7 @@ public class Ds4LifecycleService
             p.destroyForcibly();
         }
         this.process = null;
+        removePidFile();
         Ds4Status snap = status.get();
         transition(new Ds4Status(
                 Ds4State.CRASHED, snap.endpoint(),
@@ -608,6 +630,50 @@ public class Ds4LifecycleService
     static String endpointFor(Ds4Config cfg)
     {
         return "http://127.0.0.1:" + cfg.port();
+    }
+
+    // ── PID file ──────────────────────────────────────────────────
+
+    /** Stamp the spawned ds4 PID into an app-owned marker file so
+     *  external tooling (dev.sh's cleanup, a future packaged-app
+     *  uninstall path) can reap the subprocess when the JVM didn't
+     *  get a chance to run {@link #shutdown()}. Best-effort: any I/O
+     *  failure logs and continues — the supervisor still tracks the
+     *  Process handle in-memory. */
+    private static void writePidFile(long pid)
+    {
+        try {
+            Files.createDirectories(PID_FILE.getParent());
+            Files.writeString(PID_FILE, Long.toString(pid));
+        }
+        catch (IOException e) {
+            log.warn("Could not write ds4 pid file at {}: {}", PID_FILE, e.getMessage());
+        }
+    }
+
+    private static void removePidFile()
+    {
+        try {
+            Files.deleteIfExists(PID_FILE);
+        }
+        catch (IOException e) {
+            log.warn("Could not remove ds4 pid file at {}: {}", PID_FILE, e.getMessage());
+        }
+    }
+
+    /** App-owned PID file under
+     *  {@code ~/Library/Application Support/ds4/ds4-server.pid} on
+     *  macOS, {@code ~/.ds4/ds4-server.pid} elsewhere. Mirrors the
+     *  KV cache layout so dev.sh + uninstall scripts can find it
+     *  with one well-known glob. */
+    private static Path defaultPidFile()
+    {
+        String home = System.getProperty("user.home");
+        String os = System.getProperty("os.name", "").toLowerCase(Locale.ROOT);
+        if (os.contains("mac")) {
+            return Path.of(home, "Library", "Application Support", "ds4", "ds4-server.pid");
+        }
+        return Path.of(home, ".ds4", "ds4-server.pid");
     }
 
     // ── Persistence ───────────────────────────────────────────────

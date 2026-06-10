@@ -57,6 +57,25 @@ cleanup() {
     echo "[dev] stray process still on :$BACKEND_PORT — killing it"
     lsof -ti ":$BACKEND_PORT" | xargs kill -9 2>/dev/null || true
   fi
+  # Reap a stranded ds4-server. The backend writes its spawned PID to
+  # a marker file at start and removes it on clean stop; if the JVM
+  # died hard (kill -9, OOM, our SIGKILL fallback) the file is left
+  # behind and the ds4 subprocess is orphaned. SIGKILL it and clean
+  # the file so the next dev.sh boot starts from zero state. We only
+  # touch the spawned-by-us case — an attached external ds4 doesn't
+  # have the marker.
+  pid_file_macos="$HOME/Library/Application Support/ds4/ds4-server.pid"
+  pid_file_linux="$HOME/.ds4/ds4-server.pid"
+  for pid_file in "$pid_file_macos" "$pid_file_linux"; do
+    if [[ -f "$pid_file" ]]; then
+      ds4_pid="$(cat "$pid_file" 2>/dev/null || true)"
+      if [[ -n "$ds4_pid" ]] && kill -0 "$ds4_pid" 2>/dev/null; then
+        echo "[dev] stranded ds4-server (pid $ds4_pid) — killing it"
+        kill -KILL "$ds4_pid" 2>/dev/null || true
+      fi
+      rm -f "$pid_file"
+    fi
+  done
   # Reap zombies but don't block forever — the SIGKILLs above mean
   # any child should be unstuck by now.
   wait 2>/dev/null || true

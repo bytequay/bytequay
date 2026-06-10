@@ -6,6 +6,13 @@
 # First run: `(cd frontend && npm install)` if you haven't already.
 
 set -uo pipefail
+# Enable job control so each `&` child becomes its own process-group
+# leader. That's what lets cleanup() kill a whole subtree with
+# `kill -- -$pid` (Electron + Vite + the JVM), and it keeps the
+# terminal's Ctrl+C aimed at this script alone — cleanup() then tears
+# the children down deliberately instead of relying on the signal
+# reaching them (electron-forge swallows SIGINT).
+set -m
 
 ROOT="$(cd "$(dirname "$0")" && pwd)"
 BACKEND_PORT=53123
@@ -13,10 +20,17 @@ BACKEND_PORT=53123
 pids=()
 
 cleanup() {
+  # Guard against the trap firing twice (INT then EXIT).
+  [[ -n "${cleaned:-}" ]] && return
+  cleaned=1
   echo ""
   echo "[dev] shutting down..."
   for pid in "${pids[@]:-}"; do
-    kill "$pid" 2>/dev/null || true
+    # Negative PID targets the child's whole process group, so
+    # electron-forge's Vite + Electron descendants die with it rather
+    # than being re-parented to init and lingering. Falls back to a
+    # plain kill + pkill for any child not in its own group.
+    kill -TERM -- "-$pid" 2>/dev/null || kill -TERM "$pid" 2>/dev/null || true
     pkill -P "$pid" 2>/dev/null || true
   done
   # Catch any Spring Boot JVM still holding the backend port.
@@ -102,4 +116,14 @@ if ! wait_for_backend; then
 fi
 
 echo "[dev] starting frontend (Electron + Vite)..."
-( cd "$ROOT/frontend" && npm start )
+# Background the frontend and wait on it explicitly. A bash `wait` is
+# interrupted by a trapped signal right away, so Ctrl+C runs cleanup()
+# on the first press — unlike a *foreground* `npm start`, where bash
+# defers the INT trap until the command returns and electron-forge can
+# sit on the signal indefinitely. `wait` also returns on its own when
+# the Electron window is closed, so quitting the app still shuts the
+# backend down via the EXIT trap.
+( cd "$ROOT/frontend" && npm start ) &
+frontend_pid=$!
+pids+=("$frontend_pid")
+wait "$frontend_pid"

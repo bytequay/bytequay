@@ -66,6 +66,6 @@ public class WorkModelController
     public WorkModelOptions refresh()
     {
         cliDetector.invalidate();
-        return workModels.options();
+        return workModels.optionsBlocking();
     }
 }

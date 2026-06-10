@@ -63,14 +63,24 @@ public class WorkModelService
         this.cliDetector = requireNonNull(cliDetector, "cliDetector is null");
     }
 
+    /** Non-blocking read — never waits on a fresh probe. Used by the
+     *  picker's first-open path; the detector kicks off a background
+     *  sweep when entries are stale and the picker's manual Refresh
+     *  button is the path that actually waits for one. */
     public WorkModelOptions options()
     {
-        return new WorkModelOptions(cliAgentOptions(), apiProviderOptions());
+        return new WorkModelOptions(cliAgentOptions(cliDetector.detectAll()), apiProviderOptions());
     }
 
-    private List<WorkModelAgentOption> cliAgentOptions()
+    /** Blocking read — synchronously re-probes every CLI agent.
+     *  Hooked from the picker's Refresh affordance only. */
+    public WorkModelOptions optionsBlocking()
     {
-        Map<String, CliAgentDetector.Readiness> readiness = cliDetector.detectAll();
+        return new WorkModelOptions(cliAgentOptions(cliDetector.detectAllBlocking()), apiProviderOptions());
+    }
+
+    private List<WorkModelAgentOption> cliAgentOptions(Map<String, CliAgentDetector.Readiness> readiness)
+    {
         ImmutableList.Builder<WorkModelAgentOption> out = ImmutableList.builder();
         for (WorkModelCatalog.CatalogAgent agent : WorkModelCatalog.CLI_AGENTS) {
             CliAgentDetector.Readiness r = readiness.getOrDefault(

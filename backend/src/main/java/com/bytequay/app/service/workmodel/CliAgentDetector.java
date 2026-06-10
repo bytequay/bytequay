@@ -16,6 +16,8 @@ package com.bytequay.app.service.workmodel;
 import com.google.common.collect.ImmutableMap;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.boot.context.event.ApplicationReadyEvent;
+import org.springframework.context.event.EventListener;
 import org.springframework.stereotype.Service;
 
 import java.io.File;
@@ -25,6 +27,7 @@ import java.time.Instant;
 import java.util.HashMap;
 import java.util.Map;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicBoolean;
 
 /**
  * Probes the local machine for each CLI agent ByteQuay knows about.
@@ -77,11 +80,60 @@ public class CliAgentDetector
 
     public record Readiness(boolean installed, boolean authed) {}
 
+    /** Default value returned for an agent whose readiness hasn't been
+     *  probed yet — "unknown but lean negative" so the picker doesn't
+     *  pretend a missing CLI is installed during the first-ever fetch. */
+    private static final Readiness UNKNOWN = new Readiness(false, false);
+
     private final Map<String, CachedReadiness> cache = new HashMap<>();
+    /** Flips true while a background probe sweep is in flight so we
+     *  don't pile up redundant sweeps when multiple {@code /api/work-models}
+     *  requests land before the first one finishes. */
+    private final AtomicBoolean detectionInFlight = new AtomicBoolean(false);
+
+    /** Warm the cache once the app is up so the first picker open
+     *  hits a populated cache and never blocks on a fresh probe. We
+     *  intentionally do this on a virtual thread (not the spring
+     *  ready-event thread) so a slow {@code claude doctor} can't hold
+     *  up the rest of the boot. */
+    @EventListener(ApplicationReadyEvent.class)
+    void warmOnReady()
+    {
+        triggerBackgroundDetection();
+    }
 
     /** Returns a snapshot of the local readiness for each CLI agent in
-     *  the catalog. Lookups outside the catalog return null. */
+     *  the catalog. Never blocks on a fresh probe — entries missing
+     *  from the cache (because warm-on-ready is still running, or the
+     *  TTL just expired) come back as {@link #UNKNOWN}. A background
+     *  sweep refreshes the cache so the next call after ~the probe
+     *  window returns real values. The picker's manual Refresh button
+     *  is the path that does block on a sync re-probe. */
     public synchronized Map<String, Readiness> detectAll()
+    {
+        boolean anyStale = false;
+        Instant now = Instant.now();
+        ImmutableMap.Builder<String, Readiness> out = ImmutableMap.builder();
+        for (WorkModelCatalog.CatalogAgent agent : WorkModelCatalog.CLI_AGENTS) {
+            CachedReadiness cached = cache.get(agent.id());
+            if (cached != null && cached.expiresAt().isAfter(now)) {
+                out.put(agent.id(), cached.readiness());
+            }
+            else {
+                out.put(agent.id(), UNKNOWN);
+                anyStale = true;
+            }
+        }
+        if (anyStale) {
+            triggerBackgroundDetection();
+        }
+        return out.build();
+    }
+
+    /** Synchronous re-probe path. Called when the picker's "Refresh"
+     *  affordance fires — the user explicitly asked for fresh
+     *  readiness and is willing to wait the ~probe window. */
+    public synchronized Map<String, Readiness> detectAllBlocking()
     {
         ImmutableMap.Builder<String, Readiness> out = ImmutableMap.builder();
         for (WorkModelCatalog.CatalogAgent agent : WorkModelCatalog.CLI_AGENTS) {
@@ -95,6 +147,30 @@ public class CliAgentDetector
     public synchronized void invalidate()
     {
         cache.clear();
+    }
+
+    private void triggerBackgroundDetection()
+    {
+        if (!detectionInFlight.compareAndSet(false, true)) {
+            return;
+        }
+        Thread t = new Thread(() -> {
+            try {
+                synchronized (this) {
+                    for (WorkModelCatalog.CatalogAgent agent : WorkModelCatalog.CLI_AGENTS) {
+                        detectOne(agent.id());
+                    }
+                }
+            }
+            catch (RuntimeException e) {
+                log.warn("Background CLI detection sweep failed: {}", e.getMessage());
+            }
+            finally {
+                detectionInFlight.set(false);
+            }
+        }, "cli-detect-background");
+        t.setDaemon(true);
+        t.start();
     }
 
     private Readiness detectOne(String agentId)

@@ -16,6 +16,19 @@ import path from 'node:path';
 import fs from 'node:fs';
 import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
+import { Agent, setGlobalDispatcher } from 'undici';
+
+// Cap how long Node's fetch() will wait for the backend to start
+// responding. Default is 30s on both headers and body — long enough
+// that a stuck JVM hangs the whole UI on every request. 15s for
+// headers is plenty for any sensible backend handler; 60s for body
+// covers slow streaming responses without giving up on a real one.
+// Streaming endpoints (SSE) that need longer must use AbortController
+// per-call to override.
+setGlobalDispatcher(new Agent({
+  headersTimeout: 15_000,
+  bodyTimeout: 60_000,
+}));
 
 const execFileAsync = promisify(execFile);
 import started from 'electron-squirrel-startup';

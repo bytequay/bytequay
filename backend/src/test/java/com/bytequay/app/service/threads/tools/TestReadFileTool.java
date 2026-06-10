@@ -13,10 +13,12 @@
  */
 package com.bytequay.app.service.threads.tools;
 
+import com.bytequay.app.service.tools.AgentToolRegistry;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ObjectNode;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.io.TempDir;
+import org.mockito.Mockito;
 
 import java.io.IOException;
 import java.nio.charset.StandardCharsets;
@@ -80,7 +82,13 @@ class TestReadFileTool
     @Test
     void exposesTheToolInRegistryAndRendersAnthropicShape()
     {
-        LogicLoopToolRegistry registry = new LogicLoopToolRegistry(List.of(tool));
+        // The bridged-CLI catalog is mocked empty so this test
+        // remains focused on the native-tool path. The real Spring
+        // wiring is exercised through TestApplicationContextSmoke.
+        AgentToolRegistry emptyCli = Mockito.mock(AgentToolRegistry.class);
+        Mockito.when(emptyCli.all()).thenReturn(List.of());
+        LogicLoopToolRegistry registry = new LogicLoopToolRegistry(
+                List.of(tool), emptyCli, mapper);
 
         assertThat(registry.list()).extracting(AgentTool::name).containsExactly("read_file");
         var rendered = registry.renderAsAnthropicTools(mapper);

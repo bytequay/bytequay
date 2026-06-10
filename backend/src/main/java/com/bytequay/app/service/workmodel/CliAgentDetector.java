@@ -18,6 +18,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
+import java.io.File;
 import java.io.IOException;
 import java.time.Duration;
 import java.time.Instant;
@@ -45,10 +46,12 @@ public class CliAgentDetector
 {
     private static final Logger log = LoggerFactory.getLogger(CliAgentDetector.class);
 
-    /** Cap on how long a single probe is allowed to block. Anything
-     *  slower than this means the binary is wedged or the user's PATH
-     *  is unusual; flagging it as "not installed" is the right read. */
-    private static final long PROBE_TIMEOUT_MS = 1_500;
+    /** Cap on how long a single probe is allowed to block. Tightened
+     *  because {@code claude doctor} and {@code codex whoami} can drop
+     *  into an interactive TUI that we then have to forcibly kill —
+     *  600 ms is enough for a healthy non-interactive exit but won't
+     *  let an interactive prompt wedge the picker. */
+    private static final long PROBE_TIMEOUT_MS = 600;
 
     /** Memo TTL — keeps the picker responsive without sticking on a
      *  stale "not installed" result after the user runs an installer. */
@@ -56,7 +59,12 @@ public class CliAgentDetector
 
     /** Auth-state lookup table. The probe-arg for each agent. Empty
      *  means "no auth probe wired yet — best-effort guess is unknown
-     *  (treated as not-authed for the picker's readiness label)." */
+     *  (treated as not-authed for the picker's readiness label)."
+     *
+     *  <p>Both wired probes can drop into an interactive TUI on a
+     *  fresh install (no shell, no tty), so we time them out fast and
+     *  treat a non-zero / timed-out exit as "not authed" rather than
+     *  blocking the picker for 1-2s per agent on cold cache. */
     private static final Map<String, String[]> AUTH_PROBES = ImmutableMap.of(
             "claude-code", new String[] {"claude", "doctor"},
             "codex", new String[] {"codex", "whoami"});
@@ -118,27 +126,47 @@ public class CliAgentDetector
 
     /** Spawns a probe and returns true iff it exited 0 within the
      *  timeout. The probe's stdout/stderr is drained but discarded —
-     *  we only care about the exit code. */
+     *  we only care about the exit code.
+     *
+     *  <p>Hardening for interactive CLIs:
+     *  <ul>
+     *    <li>{@code redirectInput(/dev/null)} so a tool that calls
+     *        {@code read()} gets EOF immediately instead of blocking
+     *        the picker. {@code claude doctor} prompts for input on a
+     *        fresh install; without this it hangs until the timeout
+     *        and then we kill it.</li>
+     *    <li>The drain thread is now a daemon — it can't keep the
+     *        JVM alive past shutdown if a wedged probe leaves it
+     *        reading.</li>
+     *    <li>We {@code waitFor} the drain too so a still-running
+     *        thread can't pile up between cache misses.</li>
+     *  </ul> */
     private static boolean probe(String... command)
     {
+        Process p = null;
         try {
             ProcessBuilder pb = new ProcessBuilder(command);
             pb.redirectErrorStream(true);
-            Process p = pb.start();
-            // Drain output so the child doesn't block on a full pipe.
-            new Thread(() -> {
+            pb.redirectInput(ProcessBuilder.Redirect.from(new File("/dev/null")));
+            p = pb.start();
+            Process pf = p;
+            Thread drain = new Thread(() -> {
                 try {
-                    p.getInputStream().readAllBytes();
+                    pf.getInputStream().readAllBytes();
                 }
                 catch (IOException ignored) {
                     // Probe is best-effort; drain failure is non-fatal.
                 }
-            }, "cli-probe-drain").start();
+            }, "cli-probe-drain");
+            drain.setDaemon(true);
+            drain.start();
             boolean done = p.waitFor(PROBE_TIMEOUT_MS, TimeUnit.MILLISECONDS);
             if (!done) {
                 p.destroyForcibly();
+                drain.join(200);
                 return false;
             }
+            drain.join(200);
             return p.exitValue() == 0;
         }
         catch (IOException e) {
@@ -147,6 +175,9 @@ public class CliAgentDetector
         }
         catch (InterruptedException e) {
             Thread.currentThread().interrupt();
+            if (p != null) {
+                p.destroyForcibly();
+            }
             return false;
         }
         catch (RuntimeException e) {

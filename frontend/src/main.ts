@@ -4012,18 +4012,48 @@ const url = new URL(`${BACKEND_BASE}/api/search/repos`);
   });
 
   // ── Work-model axis ────────────────────────────────────────────────────
+  // CLI auto-detection can take ~600 ms per agent on cold cache and the
+  // OS may stall a wedged probe longer — cap at 8 s so the picker shows
+  // a clear error instead of spinning "Loading work models…" forever.
   ipcMain.handle('workModels:options', async () => {
-    const res = await fetch(`${BACKEND_BASE}/api/work-models`);
-    if (!res.ok) throw new Error(`backend /api/work-models returned ${res.status}`);
-    return res.json();
+    const controller = new AbortController();
+    const t = setTimeout(() => controller.abort(), 8_000);
+    try {
+      const res = await fetch(`${BACKEND_BASE}/api/work-models`, { signal: controller.signal });
+      if (!res.ok) throw new Error(`backend /api/work-models returned ${res.status}`);
+      return await res.json();
+    }
+    catch (e) {
+      if ((e as { name?: string }).name === 'AbortError') {
+        throw new Error('Work-model options timed out after 8s — backend may be unresponsive.');
+      }
+      throw e;
+    }
+    finally {
+      clearTimeout(t);
+    }
   });
 
   ipcMain.handle('workModels:refresh', async () => {
-    const res = await fetch(`${BACKEND_BASE}/api/work-models/refresh`, {
-      method: 'POST',
-    });
-    if (!res.ok) throw new Error(`backend /api/work-models/refresh returned ${res.status}`);
-    return res.json();
+    const controller = new AbortController();
+    const t = setTimeout(() => controller.abort(), 8_000);
+    try {
+      const res = await fetch(`${BACKEND_BASE}/api/work-models/refresh`, {
+        method: 'POST',
+        signal: controller.signal,
+      });
+      if (!res.ok) throw new Error(`backend /api/work-models/refresh returned ${res.status}`);
+      return await res.json();
+    }
+    catch (e) {
+      if ((e as { name?: string }).name === 'AbortError') {
+        throw new Error('Work-model refresh timed out after 8s.');
+      }
+      throw e;
+    }
+    finally {
+      clearTimeout(t);
+    }
   });
 
   ipcMain.handle('workspaces:setWorkModel', async (_event, args: unknown) => {

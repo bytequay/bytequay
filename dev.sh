@@ -33,11 +33,32 @@ cleanup() {
     kill -TERM -- "-$pid" 2>/dev/null || kill -TERM "$pid" 2>/dev/null || true
     pkill -P "$pid" 2>/dev/null || true
   done
+  # Give graceful exit a bounded window — a stuck JVM (Spring Boot
+  # @PreDestroy waiting forever, a non-daemon thread, or just a wedged
+  # state) would otherwise let `wait` below hang the script and the
+  # user is left mashing Ctrl+C forever. Poll up to ~5s, then SIGKILL.
+  local deadline=$((SECONDS + 5))
+  while (( SECONDS < deadline )); do
+    local alive=0
+    for pid in "${pids[@]:-}"; do
+      kill -0 "$pid" 2>/dev/null && { alive=1; break; }
+    done
+    [[ "$alive" == "0" ]] && break
+    sleep 0.2
+  done
+  for pid in "${pids[@]:-}"; do
+    if kill -0 "$pid" 2>/dev/null; then
+      echo "[dev] $pid did not honour SIGTERM — forcing"
+      kill -KILL -- "-$pid" 2>/dev/null || kill -KILL "$pid" 2>/dev/null || true
+    fi
+  done
   # Catch any Spring Boot JVM still holding the backend port.
   if lsof -ti ":$BACKEND_PORT" >/dev/null 2>&1; then
     echo "[dev] stray process still on :$BACKEND_PORT — killing it"
     lsof -ti ":$BACKEND_PORT" | xargs kill -9 2>/dev/null || true
   fi
+  # Reap zombies but don't block forever — the SIGKILLs above mean
+  # any child should be unstuck by now.
   wait 2>/dev/null || true
 }
 trap cleanup EXIT INT TERM

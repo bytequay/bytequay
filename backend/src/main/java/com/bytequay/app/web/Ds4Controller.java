@@ -169,13 +169,28 @@ public class Ds4Controller
         return installer.current();
     }
 
-    /** POST /api/ds4/install — kick off the in-app download to the
-     *  app-owned install path; the lifecycle service is auto-
-     *  configured to point at the downloaded binary on success. */
+    /** POST /api/ds4/install — kick off (or resume) the multi-step
+     *  installer. Body fields:
+     *  <ul>
+     *    <li>{@code repoDir} — install destination (or existing
+     *        checkout when reusing). Optional; defaults to
+     *        {@code ~/Library/Application Support/ds4/repo}.</li>
+     *    <li>{@code reuseExisting} — skip clone+build and validate
+     *        the binary at {@code repoDir/ds4-server} instead.</li>
+     *    <li>{@code modelVariant} — argument passed to
+     *        {@code ./download_model.sh}; defaults to
+     *        {@code q2-imatrix}.</li>
+     *  </ul>
+     *  Auto-configures {@code binary_path} to
+     *  {@code <repoDir>/ds4-server} on success. */
     @PostMapping("/install")
-    public ResponseEntity<Ds4InstallerService.InstallStatus> install()
+    public ResponseEntity<Ds4InstallerService.InstallStatus> install(
+            @RequestBody(required = false) Ds4InstallerService.InstallRequest body)
     {
-        Ds4InstallerService.InstallStatus status = installer.startInstall();
+        Ds4InstallerService.InstallRequest req = body == null
+                ? new Ds4InstallerService.InstallRequest(null, false, null)
+                : body;
+        Ds4InstallerService.InstallStatus status = installer.startInstall(req);
         if (status.phase() == Ds4InstallerService.InstallPhase.FAILED) {
             return ResponseEntity.badRequest().body(status);
         }

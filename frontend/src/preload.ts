@@ -26,6 +26,7 @@ import type {
   DailyCardDto,
   Ds4ConfigDto,
   Ds4ConfigResponseDto,
+  Ds4InstallRequestDto,
   Ds4InstallStatusDto,
   Ds4MetricsDto,
   Ds4StatusDto,
@@ -172,6 +173,10 @@ const bridge: Bridge = {
     ipcRenderer.invoke('backend:editIssueComment', repo, commentId, body),
   editReviewComment: (repo: string, commentId: number, body: string): Promise<void> =>
     ipcRenderer.invoke('backend:editReviewComment', repo, commentId, body),
+  deleteIssueComment: (repo: string, commentId: number): Promise<void> =>
+    ipcRenderer.invoke('backend:deleteIssueComment', repo, commentId),
+  deleteReviewComment: (repo: string, commentId: number): Promise<void> =>
+    ipcRenderer.invoke('backend:deleteReviewComment', repo, commentId),
   addRequestedReviewer: (repo: string, number: number, reviewer: string): Promise<void> =>
     ipcRenderer.invoke('backend:addRequestedReviewer', repo, number, reviewer),
   removeRequestedReviewer: (repo: string, number: number, reviewer: string): Promise<void> =>
@@ -360,7 +365,8 @@ const bridge: Bridge = {
   setDs4Config: (config: Ds4ConfigDto, restart = false): Promise<Ds4ConfigResponseDto> =>
     ipcRenderer.invoke('ds4:setConfig', { config, restart }),
   getDs4Metrics: (): Promise<Ds4MetricsDto> => ipcRenderer.invoke('ds4:metrics'),
-  installDs4: (): Promise<Ds4InstallStatusDto> => ipcRenderer.invoke('ds4:install'),
+  installDs4: (req: Ds4InstallRequestDto): Promise<Ds4InstallStatusDto> =>
+    ipcRenderer.invoke('ds4:install', req),
   getDs4InstallStatus: (): Promise<Ds4InstallStatusDto> => ipcRenderer.invoke('ds4:installStatus'),
   getDs4Logs: (limit = 200): Promise<string[]> => ipcRenderer.invoke('ds4:logs', { limit }),
   listSkills: (): Promise<SkillDto[]> => ipcRenderer.invoke('skills:list'),

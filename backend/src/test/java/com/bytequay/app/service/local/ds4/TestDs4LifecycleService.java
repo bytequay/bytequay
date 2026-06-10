@@ -60,7 +60,8 @@ class TestDs4LifecycleService
         Ds4Config withPath = new Ds4Config(
                 "/usr/local/bin/ds4-server", cfg.port(), cfg.model(), cfg.quant(),
                 cfg.contextTokens(), cfg.kvCacheDir(), cfg.kvDiskBudgetMb(),
-                cfg.thinkingDefault(), cfg.trace(), cfg.installUrl(),
+                cfg.thinkingDefault(), cfg.trace(),
+                cfg.repoDir(), cfg.modelVariant(), cfg.installUrl(),
                 cfg.autoRestartOnCrash(), cfg.autoStartOnBoot(), cfg.attachIfRunning());
         service.setConfig(withPath);
 
@@ -111,7 +112,8 @@ class TestDs4LifecycleService
                 "/opt/ds4-server", 8123, "deepseek-v4-flash", "q4_K_M",
                 65_536, "/var/kv", 50_000,
                 /* thinkingDefault */ true, /* trace */ true,
-                "", true, true, true);
+                /* repoDir */ "/opt/ds4", /* modelVariant */ "q2-imatrix",
+                /* installUrl */ "", true, true, true);
 
         List<String> args = Ds4LifecycleService.buildArgs(cfg);
 
@@ -135,7 +137,8 @@ class TestDs4LifecycleService
                 "/opt/ds4-server", 8000, "deepseek-v4-flash", "q4_K_M",
                 32_768, "/var/kv", 40_000,
                 /* thinkingDefault */ false, /* trace */ false,
-                "", true, true, true);
+                /* repoDir */ "/opt/ds4", /* modelVariant */ "q2-imatrix",
+                /* installUrl */ "", true, true, true);
 
         List<String> args = Ds4LifecycleService.buildArgs(cfg);
 

@@ -17,39 +17,42 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
+import java.io.BufferedReader;
 import java.io.IOException;
-import java.io.InputStream;
-import java.net.URI;
-import java.net.http.HttpClient;
-import java.net.http.HttpRequest;
-import java.net.http.HttpResponse;
+import java.io.InputStreamReader;
+import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
-import java.nio.file.StandardCopyOption;
-import java.nio.file.attribute.PosixFilePermissions;
-import java.time.Duration;
+import java.util.List;
 import java.util.Locale;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.stream.Stream;
 
 import static java.util.Objects.requireNonNull;
 
 /**
- * In-app fetcher for the ds4-server binary. The user can either
- * point the lifecycle service at a binary they installed elsewhere
- * (preferred path on a developer machine) or have ByteQuay download
- * the binary into the app-owned location below — the lifecycle
- * service then records {@code binary_path} pointing at the downloaded
- * file and a follow-up Start works without further configuration.
+ * Multi-step installer for the ds4 inference engine. antirez/ds4
+ * ships as source — there is no pre-built release tarball — so the
+ * v1 surface is:
  *
- * <p>Install URL is configurable via {@code ds4.install_url} so the
- * user can update the source without redeploying the app; the
- * service refuses to fetch from a blank URL with a clear "configure
- * the download URL first" error rather than 404'ing a guess.
+ * <ol>
+ *   <li><strong>Phase 1 — source</strong>. Either {@code git clone}
+ *       the upstream repo into {@code repoDir} and run {@code make},
+ *       <em>or</em> point at an existing checkout the user already
+ *       built ({@code reuseExisting=true}).</li>
+ *   <li><strong>Phase 2 — model weights</strong>. If
+ *       {@code <repoDir>/ds4flash.gguf} is missing (or broken), run
+ *       {@code ./download_model.sh <modelVariant>} from {@code repoDir}.
+ *       This is the slow piece — 80+ GB on a fresh install.</li>
+ *   <li><strong>Phase 3 — finalise</strong>. Stamp the lifecycle
+ *       service's {@code binary_path} with {@code <repoDir>/ds4-server}
+ *       so the next Start works without further configuration.</li>
+ * </ol>
  *
- * <p>Status reads via {@link #current()} surface progress: idle,
- * downloading (with bytes-so-far / total), failed (with reason),
- * ready (with the resolved path). The Settings page polls this while
- * an install is in flight.
+ * <p>The Settings page polls {@link #current()} while an install is
+ * in flight; transitions are intentionally coarse so the UI can show
+ * what the user is waiting on without scraping logs.
  */
 @Service
 public class Ds4InstallerService
@@ -57,16 +60,11 @@ public class Ds4InstallerService
     private static final Logger log = LoggerFactory.getLogger(Ds4InstallerService.class);
 
     private final Ds4LifecycleService lifecycle;
-    private final HttpClient http;
     private final AtomicReference<InstallStatus> status = new AtomicReference<>(InstallStatus.idle());
 
     public Ds4InstallerService(Ds4LifecycleService lifecycle)
     {
         this.lifecycle = requireNonNull(lifecycle, "lifecycle is null");
-        this.http = HttpClient.newBuilder()
-                .connectTimeout(Duration.ofSeconds(20))
-                .followRedirects(HttpClient.Redirect.NORMAL)
-                .build();
     }
 
     public InstallStatus current()
@@ -74,126 +72,218 @@ public class Ds4InstallerService
         return status.get();
     }
 
-    /** Spawn the download on a virtual thread so the controller
-     *  returns immediately; the Settings page polls {@link #current()}
-     *  for progress. */
-    public InstallStatus startInstall()
+    /**
+     * Start a background install. Returns immediately with the
+     * snapshot the supervisor began with; the Settings page polls
+     * {@link #current()} for progress.
+     */
+    public InstallStatus startInstall(InstallRequest req)
     {
+        requireNonNull(req, "req is null");
         InstallStatus snap = status.get();
-        if (snap.phase() == InstallPhase.DOWNLOADING) {
+        if (snap.phase() != InstallPhase.IDLE
+                && snap.phase() != InstallPhase.READY
+                && snap.phase() != InstallPhase.FAILED) {
             return snap;
         }
         Ds4Config cfg = lifecycle.getConfig();
-        String url = cfg.installUrl();
-        if (url == null || url.isBlank()) {
-            InstallStatus failed = InstallStatus.failed(
-                    "ds4.install_url is empty. Set the download URL in Settings → Local AI (ds4) first.");
-            status.set(failed);
-            return failed;
-        }
-        Path destination = defaultInstallPath();
-        status.set(InstallStatus.downloading(url, destination, 0L, -1L));
-        Thread.ofVirtual().name("ds4-installer").start(() -> downloadInto(url, destination, cfg));
+        String repoDir = req.repoDir() == null || req.repoDir().isBlank()
+                ? defaultRepoDir()
+                : req.repoDir().trim();
+        String modelVariant = req.modelVariant() == null || req.modelVariant().isBlank()
+                ? (cfg.modelVariant() == null || cfg.modelVariant().isBlank()
+                        ? "q2-imatrix"
+                        : cfg.modelVariant())
+                : req.modelVariant().trim();
+        String installUrl = cfg.installUrl() == null || cfg.installUrl().isBlank()
+                ? "https://github.com/antirez/ds4.git"
+                : cfg.installUrl();
+
+        Path repo = Path.of(repoDir);
+        status.set(InstallStatus.starting(repoDir, modelVariant));
+        Thread.ofVirtual().name("ds4-installer").start(
+                () -> runInstall(repo, modelVariant, installUrl, req.reuseExisting()));
         return status.get();
     }
 
-    private void downloadInto(String url, Path destination, Ds4Config cfg)
+    private void runInstall(Path repoDir, String modelVariant, String installUrl, boolean reuseExisting)
     {
         try {
-            Files.createDirectories(destination.getParent());
-            HttpRequest req = HttpRequest.newBuilder()
-                    .uri(URI.create(url))
-                    .timeout(Duration.ofMinutes(20))
-                    .GET()
-                    .build();
-            HttpResponse<InputStream> resp = http.send(req, HttpResponse.BodyHandlers.ofInputStream());
-            if (resp.statusCode() / 100 != 2) {
-                String msg = "Download returned HTTP " + resp.statusCode();
-                log.warn("ds4 install failed: {}", msg);
-                status.set(InstallStatus.failed(msg));
-                return;
+            // Phase 1: source.
+            if (reuseExisting) {
+                if (!Files.exists(repoDir.resolve("ds4-server"))) {
+                    fail("No `ds4-server` binary at " + repoDir + ". Build it (`make`) "
+                            + "or pick a different directory.");
+                    return;
+                }
             }
-            long contentLength = resp.headers().firstValueAsLong("Content-Length").orElse(-1L);
-            Path tmp = destination.getParent().resolve(destination.getFileName() + ".part");
-            try (InputStream in = resp.body()) {
-                Files.copy(in, tmp, StandardCopyOption.REPLACE_EXISTING);
+            else {
+                if (Files.exists(repoDir)) {
+                    boolean populated;
+                    try (Stream<Path> entries = Files.list(repoDir)) {
+                        populated = entries.findAny().isPresent();
+                    }
+                    if (populated) {
+                        fail("Install directory " + repoDir + " is not empty. Pick an empty "
+                                + "destination or check 'I already have ds4 built'.");
+                        return;
+                    }
+                }
+                Files.createDirectories(repoDir.getParent() == null ? repoDir : repoDir.getParent());
+                progress(InstallPhase.CLONING, repoDir, modelVariant,
+                        "git clone " + installUrl + " " + repoDir);
+                int rc = runCommand(
+                        repoDir.getParent() == null ? repoDir : repoDir.getParent(),
+                        List.of("git", "clone", installUrl, repoDir.toString()));
+                if (rc != 0) {
+                    fail("git clone failed with exit code " + rc);
+                    return;
+                }
+                progress(InstallPhase.BUILDING, repoDir, modelVariant, "make (macOS Metal)");
+                rc = runCommand(repoDir, List.of("make"));
+                if (rc != 0) {
+                    fail("make failed with exit code " + rc + ". Check Xcode CLT is "
+                            + "installed (xcode-select --install) and re-run.");
+                    return;
+                }
+                if (!Files.exists(repoDir.resolve("ds4-server"))) {
+                    fail("Build finished but `ds4-server` was not produced under " + repoDir + ".");
+                    return;
+                }
             }
-            Files.move(tmp, destination, StandardCopyOption.REPLACE_EXISTING, StandardCopyOption.ATOMIC_MOVE);
-            try {
-                Files.setPosixFilePermissions(destination,
-                        PosixFilePermissions.fromString("rwxr-xr-x"));
+
+            // Phase 2: model.
+            Path modelSymlink = repoDir.resolve("ds4flash.gguf");
+            if (!Files.exists(modelSymlink)) {
+                progress(InstallPhase.DOWNLOADING_MODEL, repoDir, modelVariant,
+                        "./download_model.sh " + modelVariant + " (this can take a while)");
+                int rc = runCommand(repoDir,
+                        List.of("./download_model.sh", modelVariant));
+                if (rc != 0) {
+                    fail("download_model.sh failed with exit code " + rc);
+                    return;
+                }
+                if (!Files.exists(modelSymlink)) {
+                    fail("Model download reported success but ds4flash.gguf is missing. "
+                            + "Check the script output under the install dir.");
+                    return;
+                }
             }
-            catch (UnsupportedOperationException | IOException ignored) {
-                // Non-POSIX filesystem; the +x bit is the user's
-                // problem on those targets. Logging keeps the trail.
-                log.info("Could not set executable bit on {}; user may need to chmod manually", destination);
-            }
-            // Record the resolved path on the lifecycle config so a
-            // follow-up Start works without manual configuration.
+
+            // Phase 3: stamp the lifecycle config.
+            Ds4Config cfg = lifecycle.getConfig();
+            Path binary = repoDir.resolve("ds4-server");
             Ds4Config next = new Ds4Config(
-                    destination.toString(), cfg.port(), cfg.model(), cfg.quant(),
+                    binary.toString(), cfg.port(), cfg.model(), cfg.quant(),
                     cfg.contextTokens(), cfg.kvCacheDir(), cfg.kvDiskBudgetMb(),
-                    cfg.thinkingDefault(), cfg.trace(), cfg.installUrl(),
+                    cfg.thinkingDefault(), cfg.trace(),
+                    repoDir.toString(), modelVariant, cfg.installUrl(),
                     cfg.autoRestartOnCrash(), cfg.autoStartOnBoot(), cfg.attachIfRunning());
             lifecycle.setConfig(next);
-            status.set(InstallStatus.ready(destination, contentLength < 0 ? Files.size(destination) : contentLength));
-            log.info("ds4 binary installed at {}", destination);
+            status.set(InstallStatus.ready(repoDir, modelVariant));
+            log.info("ds4 ready: {} (model variant {})", repoDir, modelVariant);
         }
-        catch (IOException | InterruptedException e) {
-            if (e instanceof InterruptedException) {
-                Thread.currentThread().interrupt();
-            }
+        catch (IOException e) {
             log.warn("ds4 install failed: {}", e.getMessage());
-            status.set(InstallStatus.failed(e.getMessage() == null ? e.getClass().getSimpleName() : e.getMessage()));
+            fail(e.getMessage() == null ? e.getClass().getSimpleName() : e.getMessage());
+        }
+        catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            fail("Interrupted.");
         }
     }
 
-    /** App-owned install path under
-     *  {@code ~/Library/Application Support/ds4/bin/ds4-server} on
-     *  macOS, {@code ~/.ds4/bin/ds4-server} elsewhere. */
-    private static Path defaultInstallPath()
+    /** Run a shell command in {@code workingDir}, blocking until it
+     *  exits. stdout/stderr are streamed at INFO so the user can
+     *  trace what happened from the backend logs while the Settings
+     *  page only shows the coarse phase. */
+    private int runCommand(Path workingDir, List<String> argv)
+            throws IOException, InterruptedException
+    {
+        ProcessBuilder pb = new ProcessBuilder(argv);
+        pb.directory(workingDir.toFile());
+        pb.redirectErrorStream(true);
+        Process p = pb.start();
+        Thread drain = new Thread(() -> {
+            try (BufferedReader r = new BufferedReader(
+                    new InputStreamReader(p.getInputStream(), StandardCharsets.UTF_8))) {
+                String line;
+                while ((line = r.readLine()) != null) {
+                    log.info("[ds4-install] {}", line);
+                }
+            }
+            catch (IOException ignored) {
+                // stream closed at exit
+            }
+        }, "ds4-install-stdout");
+        drain.setDaemon(true);
+        drain.start();
+        boolean exited = p.waitFor(120, TimeUnit.MINUTES);
+        if (!exited) {
+            p.destroyForcibly();
+            throw new IOException("command timed out: " + String.join(" ", argv));
+        }
+        return p.exitValue();
+    }
+
+    private void progress(InstallPhase phase, Path repoDir, String modelVariant, String step)
+    {
+        status.set(new InstallStatus(
+                phase, repoDir.toString(), modelVariant, step, null));
+    }
+
+    private void fail(String message)
+    {
+        status.set(new InstallStatus(
+                InstallPhase.FAILED, null, null, null, message));
+    }
+
+    /** App-owned default install dir under
+     *  {@code ~/Library/Application Support/ds4/repo} on macOS, or
+     *  {@code ~/.ds4/repo} elsewhere. */
+    private static String defaultRepoDir()
     {
         String home = System.getProperty("user.home");
         String os = System.getProperty("os.name", "").toLowerCase(Locale.ROOT);
         if (os.contains("mac")) {
-            return Path.of(home, "Library", "Application Support", "ds4", "bin", "ds4-server");
+            return home + "/Library/Application Support/ds4/repo";
         }
-        return Path.of(home, ".ds4", "bin", "ds4-server");
+        return home + "/.ds4/repo";
     }
 
     public enum InstallPhase
     {
-        IDLE, DOWNLOADING, READY, FAILED
+        IDLE, CLONING, BUILDING, DOWNLOADING_MODEL, READY, FAILED
+    }
+
+    /** Body of {@code POST /api/ds4/install}. */
+    public record InstallRequest(
+            String repoDir,
+            boolean reuseExisting,
+            String modelVariant)
+    {
     }
 
     public record InstallStatus(
             InstallPhase phase,
-            String sourceUrl,
-            String destination,
-            long bytesSoFar,
-            long bytesTotal,
+            String repoDir,
+            String modelVariant,
+            String currentStep,
             String error)
     {
         public static InstallStatus idle()
         {
-            return new InstallStatus(InstallPhase.IDLE, null, null, 0L, -1L, null);
+            return new InstallStatus(InstallPhase.IDLE, null, null, null, null);
         }
 
-        public static InstallStatus downloading(String sourceUrl, Path destination, long bytesSoFar, long bytesTotal)
+        public static InstallStatus starting(String repoDir, String modelVariant)
         {
-            return new InstallStatus(InstallPhase.DOWNLOADING, sourceUrl, destination.toString(),
-                    bytesSoFar, bytesTotal, null);
+            return new InstallStatus(InstallPhase.CLONING, repoDir, modelVariant, "Preparing…", null);
         }
 
-        public static InstallStatus ready(Path destination, long bytesTotal)
+        public static InstallStatus ready(Path repoDir, String modelVariant)
         {
-            return new InstallStatus(InstallPhase.READY, null, destination.toString(),
-                    bytesTotal, bytesTotal, null);
-        }
-
-        public static InstallStatus failed(String error)
-        {
-            return new InstallStatus(InstallPhase.FAILED, null, null, 0L, -1L, error);
+            return new InstallStatus(InstallPhase.READY, repoDir.toString(), modelVariant, null, null);
         }
     }
 }

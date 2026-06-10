@@ -1117,10 +1117,31 @@ export type Ds4ConfigDto = {
   kvDiskBudgetMb: number;
   thinkingDefault: boolean;
   trace: boolean;
+  /** Path of the ds4 git checkout. The binary lives at
+   *  {@code <repoDir>/ds4-server}; the installer either clones into
+   *  this dir or validates a user-supplied existing checkout. */
+  repoDir: string | null;
+  /** Argument passed to {@code ./download_model.sh} (e.g.
+   *  {@code q2-imatrix} for 96–128 GB Macs). */
+  modelVariant: string;
   installUrl: string;
   autoRestartOnCrash: boolean;
   autoStartOnBoot: boolean;
   attachIfRunning: boolean;
+};
+
+/** Body of POST /api/ds4/install — drives clone+build, model
+ *  download, and binary_path stamping in one supervisor run. */
+export type Ds4InstallRequestDto = {
+  /** Either the destination for {@code git clone} or the path of an
+   *  existing ds4 checkout. Omitted → app-owned default. */
+  repoDir?: string | null;
+  /** True when the user already has ds4 built — installer skips
+   *  clone + make, only validates the binary and downloads the
+   *  model if missing. */
+  reuseExisting: boolean;
+  /** Argument for download_model.sh; defaults to q2-imatrix. */
+  modelVariant?: string | null;
 };
 
 /** Response shape for POST /api/ds4/stop carrying the "stopping an
@@ -1167,13 +1188,14 @@ export type Ds4MetricsDto = {
   }>;
 };
 
-/** Progress shape for the in-app installer. */
+/** Progress shape for the multi-step installer. */
 export type Ds4InstallStatusDto = {
-  phase: 'IDLE' | 'DOWNLOADING' | 'READY' | 'FAILED';
-  sourceUrl: string | null;
-  destination: string | null;
-  bytesSoFar: number;
-  bytesTotal: number;
+  phase: 'IDLE' | 'CLONING' | 'BUILDING' | 'DOWNLOADING_MODEL' | 'READY' | 'FAILED';
+  /** Install directory (set as soon as the install starts). */
+  repoDir: string | null;
+  modelVariant: string | null;
+  /** Human-readable description of the step currently running. */
+  currentStep: string | null;
   error: string | null;
 };
 
@@ -2432,6 +2454,12 @@ export type Bridge = {
   editIssueComment: (repo: string, commentId: number, body: string) => Promise<void>;
   /** Edits a per-line review comment authored by the user. */
   editReviewComment: (repo: string, commentId: number, body: string) => Promise<void>;
+  /** Deletes a top-level issue / PR comment. Allowed for the comment's
+   *  author or a user with repo write access; backend rejects otherwise. */
+  deleteIssueComment: (repo: string, commentId: number) => Promise<void>;
+  /** Deletes a per-line review comment. Same permission rules as
+   *  {@link deleteIssueComment}. */
+  deleteReviewComment: (repo: string, commentId: number) => Promise<void>;
   /** Posts a brand-new per-line review comment on a specific diff line.
    *  {@code commitId} should be the PR head SHA. {@code side} is "LEFT"
    *  for the old file, "RIGHT" for the new file. */
@@ -2800,10 +2828,11 @@ export type Bridge = {
    *  trigger a Stop+Start in one call. */
   setDs4Config: (config: Ds4ConfigDto, restart?: boolean) => Promise<Ds4ConfigResponseDto>;
   getDs4Metrics: () => Promise<Ds4MetricsDto>;
-  /** Kick off an in-app download of the ds4 binary; the lifecycle
-   *  service auto-points binaryPath at the downloaded file on
-   *  success. */
-  installDs4: () => Promise<Ds4InstallStatusDto>;
+  /** Kick off the multi-step installer: clone + build (or validate
+   *  an existing checkout) → download model if missing → stamp
+   *  binary_path. The lifecycle service is auto-configured to point
+   *  at {@code <repoDir>/ds4-server} on success. */
+  installDs4: (req: Ds4InstallRequestDto) => Promise<Ds4InstallStatusDto>;
   getDs4InstallStatus: () => Promise<Ds4InstallStatusDto>;
   getDs4Logs: (limit?: number) => Promise<string[]>;
   /** List every configured skill, alphabetised by name. The Settings

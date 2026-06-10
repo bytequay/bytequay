@@ -992,6 +992,26 @@ const url = new URL(`${BACKEND_BASE}/prs/comment`);
     }
   });
 
+  ipcMain.handle('backend:deleteIssueComment', async (_event, repo: string, commentId: number) => {
+    const url = new URL(`${BACKEND_BASE}/prs/issue-comments/${commentId}`);
+    url.searchParams.set('repo', repo);
+    const res = await fetch(url, { method: 'DELETE' });
+    if (!res.ok) {
+      const text = await res.text().catch(() => '');
+      throw new Error(`Delete comment failed (${res.status}): ${text}`);
+    }
+  });
+
+  ipcMain.handle('backend:deleteReviewComment', async (_event, repo: string, commentId: number) => {
+    const url = new URL(`${BACKEND_BASE}/prs/review-comments/${commentId}`);
+    url.searchParams.set('repo', repo);
+    const res = await fetch(url, { method: 'DELETE' });
+    if (!res.ok) {
+      const text = await res.text().catch(() => '');
+      throw new Error(`Delete comment failed (${res.status}): ${text}`);
+    }
+  });
+
   ipcMain.handle('pr:addReviewReaction', async (_event, repo: string, commentId: number, content: string) => {
     const url = new URL(`${BACKEND_BASE}/prs/review-comments/${commentId}/reactions`);
     url.searchParams.set('repo', repo);
@@ -4098,7 +4118,18 @@ const url = new URL(`${BACKEND_BASE}/api/search/repos`);
     return res.json();
   });
   ipcMain.handle('ds4:metrics', async () => ds4Get('/api/ds4/metrics'));
-  ipcMain.handle('ds4:install', async () => ds4Post('/api/ds4/install'));
+  ipcMain.handle('ds4:install', async (_event, body: unknown) => {
+    const res = await fetch(`${BACKEND_BASE}/api/ds4/install`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body ?? { reuseExisting: false }),
+    });
+    if (res.status >= 500 || res.status === 404) {
+      const detail = await res.text().catch(() => '');
+      throw new Error(detail || `ds4 install returned ${res.status}`);
+    }
+    return res.json();
+  });
   ipcMain.handle('ds4:installStatus', async () => ds4Get('/api/ds4/install/status'));
   ipcMain.handle('ds4:logs', async (_event, args: unknown) => {
     const { limit } = (args as { limit?: number }) ?? {};

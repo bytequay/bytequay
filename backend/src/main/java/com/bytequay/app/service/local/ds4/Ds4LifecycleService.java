@@ -625,6 +625,8 @@ public class Ds4LifecycleService
                 settings.get(Key.DS4_KV_DISK_BUDGET_MB).map(Ds4LifecycleService::parseInt).orElse(d.kvDiskBudgetMb()),
                 settings.get(Key.DS4_THINKING_DEFAULT).map(Ds4LifecycleService::parseBool).orElse(d.thinkingDefault()),
                 settings.get(Key.DS4_TRACE).map(Ds4LifecycleService::parseBool).orElse(d.trace()),
+                settings.get(Key.DS4_REPO_DIR).filter(s -> !s.isBlank()).orElse(d.repoDir()),
+                settings.get(Key.DS4_MODEL_VARIANT).filter(s -> !s.isBlank()).orElse(d.modelVariant()),
                 settings.get(Key.DS4_INSTALL_URL).filter(s -> !s.isBlank()).orElse(d.installUrl()),
                 settings.get(Key.DS4_AUTO_RESTART_ON_CRASH).map(Ds4LifecycleService::parseBool).orElse(d.autoRestartOnCrash()),
                 settings.get(Key.DS4_AUTO_START_ON_BOOT).map(Ds4LifecycleService::parseBool).orElse(d.autoStartOnBoot()),
@@ -642,6 +644,8 @@ public class Ds4LifecycleService
         settings.set(Key.DS4_KV_DISK_BUDGET_MB, Integer.toString(c.kvDiskBudgetMb()));
         settings.set(Key.DS4_THINKING_DEFAULT, Boolean.toString(c.thinkingDefault()));
         settings.set(Key.DS4_TRACE, Boolean.toString(c.trace()));
+        settings.set(Key.DS4_REPO_DIR, c.repoDir() == null ? "" : c.repoDir());
+        settings.set(Key.DS4_MODEL_VARIANT, c.modelVariant() == null ? "" : c.modelVariant());
         settings.set(Key.DS4_INSTALL_URL, c.installUrl() == null ? "" : c.installUrl());
         settings.set(Key.DS4_AUTO_RESTART_ON_CRASH, Boolean.toString(c.autoRestartOnCrash()));
         settings.set(Key.DS4_AUTO_START_ON_BOOT, Boolean.toString(c.autoStartOnBoot()));

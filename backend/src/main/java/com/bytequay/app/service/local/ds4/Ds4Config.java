@@ -40,10 +40,24 @@ import java.util.Locale;
  * @param kvDiskBudgetMb    soft cap on KV disk use, in megabytes.
  * @param thinkingDefault   whether thinking blocks default on.
  * @param trace             {@code --trace} flag for cache-hit logs.
- * @param installUrl        URL the in-app "Download ds4" affordance
- *                          fetches the binary from. Decoupled from
- *                          the binary path so the user can update
- *                          the source without re-installing the app.
+ * @param repoDir           absolute path of the ds4 git checkout the
+ *                          installer either cloned or the user
+ *                          pointed at. The binary at
+ *                          {@code <repoDir>/ds4-server} is the launch
+ *                          target and the model GGUF
+ *                          ({@code ./ds4flash.gguf}) is resolved
+ *                          relative to it. Null on a fresh install
+ *                          before either the installer ran or the
+ *                          user picked one.
+ * @param modelVariant      which GGUF the installer downloads via
+ *                          {@code ./download_model.sh} when the
+ *                          repo's symlink isn't pointing at one
+ *                          already. e.g. {@code q2-imatrix} for the
+ *                          96-128 GB macOS target.
+ * @param installUrl        git URL the in-app "Install ds4"
+ *                          affordance clones from. Decoupled from
+ *                          the catalog so the user can pin a fork
+ *                          without rebuilding the app.
  * @param autoRestartOnCrash whether the supervisor should reschedule
  *                          a Start after a crash with back-off, or
  *                          park the state at CRASHED.
@@ -63,6 +77,8 @@ public record Ds4Config(
         int kvDiskBudgetMb,
         boolean thinkingDefault,
         boolean trace,
+        String repoDir,
+        String modelVariant,
         String installUrl,
         boolean autoRestartOnCrash,
         boolean autoStartOnBoot,
@@ -70,20 +86,28 @@ public record Ds4Config(
 {
     /** Defaults baked into the app for a fresh install. Binary path
      *  is intentionally null — the design calls for an explicit
-     *  user configure (or in-app download), never a silent first
-     *  spawn. */
+     *  user configure (or in-app installer run), never a silent
+     *  first spawn. */
     public static Ds4Config defaults()
     {
         return new Ds4Config(
                 /* binaryPath */ null,
+                // 8000 is what the design doc pins on; the
+                // upstream README's server examples don't show a
+                // --port flag, so we forward whatever the user
+                // configures here and let ds4-server reject it (and
+                // surface the error in `lastError`) if it ever drops
+                // the flag in a future release.
                 /* port */ 8000,
                 /* model */ "deepseek-v4-flash",
-                /* quant */ "q4_K_M",
-                /* contextTokens */ 32_768,
+                /* quant */ "q2-imatrix",
+                /* contextTokens */ 100_000,
                 /* kvCacheDir */ defaultKvCacheDir(),
                 /* kvDiskBudgetMb */ 40_960,
                 /* thinkingDefault */ true,
                 /* trace */ false,
+                /* repoDir */ null,
+                /* modelVariant */ "q2-imatrix",
                 /* installUrl */ defaultInstallUrl(),
                 /* autoRestartOnCrash */ true,
                 /* autoStartOnBoot */ true,
@@ -104,16 +128,14 @@ public record Ds4Config(
         return home + "/.ds4/kv";
     }
 
-    /** Default fetch URL for the in-app installer. Tracked here
-     *  rather than burned into the installer so the URL can be
-     *  updated through the Settings page without a redeploy. */
+    /** Default git URL for the in-app installer. Points at the
+     *  upstream antirez/ds4 repository; the installer runs
+     *  {@code git clone <installUrl> <repoDir>} when the user picks
+     *  the "install fresh" path. Tracked in config so a fork can be
+     *  pinned through Settings without a redeploy. */
     private static String defaultInstallUrl()
     {
-        // Place a known stable releases URL here when antirez/ds4
-        // cuts release artifacts. v1 ships with the URL blank so the
-        // installer surfaces a "configure download URL first"
-        // message rather than 404'ing a guess.
-        return "";
+        return "https://github.com/antirez/ds4.git";
     }
 
     /** Whether this config has enough to spawn a process. The

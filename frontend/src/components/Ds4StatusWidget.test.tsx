@@ -86,7 +86,7 @@ describe('Ds4StatusWidget', () => {
     const stopDs4 = vi.fn(async () => ({
       requiresConfirm: false,
       status: status('STOPPING'),
-      message: null,
+      message: null as string | null,
     }));
     installBridge({
       getDs4Status: vi.fn(async () => status('RUNNING')),
@@ -108,7 +108,7 @@ describe('Ds4StatusWidget', () => {
     const stopDs4 = vi.fn(async () => ({
       requiresConfirm: false,
       status: status('STOPPING'),
-      message: null,
+      message: null as string | null,
     }));
     installBridge({
       getDs4Status: vi.fn(async () => status('RUNNING', { spawnedByUs: false })),
@@ -157,7 +157,7 @@ function installBridge(overrides: Partial<Bridge>) {
     getDs4Status: vi.fn(async () => status('STOPPED')),
     getDs4Metrics: vi.fn(async () => metrics(0)),
     startDs4: vi.fn(async () => status('STARTING')),
-    stopDs4: vi.fn(async () => ({ requiresConfirm: false, status: status('STOPPED'), message: null })),
+    stopDs4: vi.fn(async () => ({ requiresConfirm: false, status: status('STOPPED'), message: null as string | null })),
     restartDs4: vi.fn(async () => status('STARTING')),
     ...overrides,
   };

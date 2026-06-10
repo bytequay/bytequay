@@ -217,11 +217,42 @@ function Ds4ManagementTab({
   const [draft, setDraft] = useState<Ds4ConfigDto | null>(null);
   const [restartBanner, setRestartBanner] = useState(false);
   const [installStatus, setInstallStatus] = useState<Ds4InstallStatusDto | null>(null);
+  const [reuseExisting, setReuseExisting] = useState(false);
+  const [installRepoDir, setInstallRepoDir] = useState<string>('');
+  const [installVariant, setInstallVariant] = useState<string>('q2-imatrix');
 
   useEffect(() => {
-    void window.bridge.getDs4Config().then(setConfig);
+    void window.bridge.getDs4Config().then((cfg) => {
+      setConfig(cfg);
+      if (cfg.repoDir !== null && cfg.repoDir.length > 0) {
+        setInstallRepoDir(cfg.repoDir);
+      }
+      if (cfg.modelVariant.length > 0) {
+        setInstallVariant(cfg.modelVariant);
+      }
+    });
     void window.bridge.getDs4InstallStatus().then(setInstallStatus);
   }, []);
+
+  // Poll the install status whenever an install is in flight so the
+  // Settings page reflects clone / build / download progress without
+  // the user reloading. The 5s cadence keeps the request log light;
+  // any of these phases run minutes at minimum.
+  useEffect(() => {
+    if (installStatus === null) return;
+    const phase = installStatus.phase;
+    if (phase !== 'CLONING' && phase !== 'BUILDING' && phase !== 'DOWNLOADING_MODEL') return;
+    const id = window.setInterval(() => {
+      void window.bridge.getDs4InstallStatus().then((next) => {
+        setInstallStatus(next);
+        if (next.phase === 'READY') {
+          void window.bridge.getDs4Config().then(setConfig);
+          void onChanged();
+        }
+      });
+    }, 5_000);
+    return () => window.clearInterval(id);
+  }, [installStatus, onChanged]);
 
   const beginEdit = () => {
     if (config === null) return;
@@ -239,9 +270,13 @@ function Ds4ManagementTab({
   }, [draft, onChanged]);
 
   const onInstall = useCallback(async () => {
-    const next = await window.bridge.installDs4();
+    const next = await window.bridge.installDs4({
+      repoDir: installRepoDir.length > 0 ? installRepoDir : null,
+      reuseExisting,
+      modelVariant: installVariant.length > 0 ? installVariant : null,
+    });
     setInstallStatus(next);
-  }, []);
+  }, [installRepoDir, reuseExisting, installVariant]);
 
   return (
     <div style={tabBodyStyle}>
@@ -315,17 +350,89 @@ function Ds4ManagementTab({
 
       <Card title="Install ds4">
         <p style={mutedStyle}>
-          ByteQuay can download the ds4 binary into the app-owned
-          install path. The lifecycle service auto-points{' '}
-          <code>binaryPath</code> at the downloaded file on success;
-          a fresh install path will drop the state out of{' '}
-          <strong>NOT_CONFIGURED</strong> without further action.
+          ds4 ships as source. ByteQuay can{' '}
+          <code>git clone</code> + <code>make</code> the upstream repo
+          for you and run <code>download_model.sh</code> to fetch the
+          chosen GGUF, or point at an existing checkout you already
+          built. <strong>The model weights are 80&nbsp;GB+</strong>;
+          this can take a while.
         </p>
+
+        <fieldset style={installFormStyle}>
+          <label style={radioRowStyle}>
+            <input
+              type="radio"
+              name="ds4-install-mode"
+              checked={!reuseExisting}
+              onChange={() => setReuseExisting(false)}
+            />
+            <span>
+              <strong>Install fresh.</strong>{' '}
+              <span style={mutedStyle}>
+                Runs <code>git clone</code> + <code>make</code> into the
+                destination below.
+              </span>
+            </span>
+          </label>
+          <label style={radioRowStyle}>
+            <input
+              type="radio"
+              name="ds4-install-mode"
+              checked={reuseExisting}
+              onChange={() => setReuseExisting(true)}
+            />
+            <span>
+              <strong>I already have ds4 built.</strong>{' '}
+              <span style={mutedStyle}>
+                Skip clone + make. ByteQuay validates{' '}
+                <code>{'<repo>/ds4-server'}</code> and only downloads
+                the model if it's missing.
+              </span>
+            </span>
+          </label>
+
+          <div style={installFieldStyle}>
+            <label style={installLabelStyle}>
+              {reuseExisting ? 'Existing ds4 repo directory' : 'Install destination'}
+            </label>
+            <input
+              type="text"
+              value={installRepoDir}
+              onChange={(e) => setInstallRepoDir(e.target.value)}
+              placeholder={
+                reuseExisting
+                  ? '/path/to/your/ds4'
+                  : '~/Library/Application Support/ds4/repo'
+              }
+              style={inputStyle}
+            />
+          </div>
+
+          <div style={installFieldStyle}>
+            <label style={installLabelStyle}>Model variant</label>
+            <select
+              value={installVariant}
+              onChange={(e) => setInstallVariant(e.target.value)}
+              style={inputStyle}
+            >
+              <option value="q2-imatrix">q2-imatrix (96–128 GB Mac, recommended)</option>
+              <option value="q2-q4-imatrix">q2-q4-imatrix (96–128 GB Mac, last 6 layers q4)</option>
+              <option value="q4-imatrix">q4-imatrix (≥ 256 GB RAM)</option>
+              <option value="pro-q2-imatrix">pro-q2-imatrix (512 GB RAM, PRO)</option>
+            </select>
+          </div>
+        </fieldset>
+
         {installStatus !== null && installStatus.phase !== 'IDLE' && (
           <div style={infoBannerStyle}>
             <strong>{installStatus.phase}</strong>
-            {installStatus.destination !== null && (
-              <> · {installStatus.destination}</>
+            {installStatus.currentStep !== null && (
+              <> · {installStatus.currentStep}</>
+            )}
+            {installStatus.repoDir !== null && (
+              <div style={{ ...mutedStyle, marginTop: 4 }}>
+                Destination: <code>{installStatus.repoDir}</code>
+              </div>
             )}
             {installStatus.error !== null && (
               <div style={{ color: '#b91c1c', marginTop: 4 }}>{installStatus.error}</div>
@@ -333,7 +440,7 @@ function Ds4ManagementTab({
           </div>
         )}
         <button type="button" style={primaryBtnStyle} onClick={() => { void onInstall(); }}>
-          Download ds4
+          {reuseExisting ? 'Use this ds4 checkout' : 'Clone, build, and fetch model'}
         </button>
       </Card>
 
@@ -944,4 +1051,35 @@ const tdStyle: React.CSSProperties = {
   padding: '6px 8px',
   borderBottom: '1px solid var(--border)',
   color: 'var(--text-2)',
+};
+
+const installFormStyle: React.CSSProperties = {
+  display: 'flex',
+  flexDirection: 'column',
+  gap: 8,
+  margin: 0,
+  padding: 12,
+  border: '1px solid var(--border)',
+  borderRadius: 8,
+  background: 'var(--bg-elevated)',
+};
+
+const radioRowStyle: React.CSSProperties = {
+  display: 'flex',
+  alignItems: 'flex-start',
+  gap: 8,
+  fontSize: 12,
+  color: 'var(--text-1)',
+};
+
+const installFieldStyle: React.CSSProperties = {
+  display: 'flex',
+  flexDirection: 'column',
+  gap: 4,
+};
+
+const installLabelStyle: React.CSSProperties = {
+  fontSize: 11,
+  fontWeight: 600,
+  color: 'var(--text-3)',
 };

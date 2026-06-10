@@ -81,6 +81,8 @@ public interface AppSettingsStore
         public static final String DS4_THINKING_DEFAULT = "ds4.thinking_default";
         public static final String DS4_TRACE = "ds4.trace";
         public static final String DS4_INSTALL_URL = "ds4.install_url";
+        public static final String DS4_REPO_DIR = "ds4.repo_dir";
+        public static final String DS4_MODEL_VARIANT = "ds4.model_variant";
         public static final String DS4_AUTO_RESTART_ON_CRASH = "ds4.auto_restart_on_crash";
         public static final String DS4_AUTO_START_ON_BOOT = "ds4.auto_start_on_boot";
         public static final String DS4_ATTACH_IF_RUNNING = "ds4.attach_if_running";

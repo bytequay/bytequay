@@ -1645,9 +1645,7 @@
   z-index: 30;
 }
 .merge-card__strategy-menu {
-  position: absolute;
-  top: calc(100% + 4px);
-  left: 0;
+  position: fixed;
   min-width: 280px;
   border: 1px solid var(--border);
   border-radius: var(--radius-md);

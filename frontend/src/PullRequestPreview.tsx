@@ -33,9 +33,11 @@ import {
 import {
   optimisticallyAppendReply,
   optimisticallyBumpReaction,
+  optimisticallyRemoveComment,
   optimisticallyToggleResolved,
   optimisticallyUpdateCommentBody,
 } from './pr/optimisticUpdates';
+import { CommentActionsMenu, issueCommentLink } from './pr/CommentActionsMenu';
 import { ReactionChips } from './pr/Reactions';
 import { CiChecksRow, CiSummary } from './pr/Ci';
 import LogoLoading from './LogoLoading';
@@ -416,6 +418,8 @@ function MergeBar({ pr, detail, mergeState, mergeError, mergeQueuedMessage, onMe
     localStorage.setItem(MERGE_STRATEGY_KEY, next);
   };
   const [strategyMenuOpen, setStrategyMenuOpen] = useState(false);
+  const strategyCaretRef = useRef<HTMLButtonElement>(null);
+  const [strategyMenuPos, setStrategyMenuPos] = useState<{ top: number; left: number } | null>(null);
   const failingChecks = detail.checkRuns.filter(c => isCheckFailing(c.conclusion));
   const ciPassing = detail.ciStatus === 'PASSING' || detail.ciStatus === 'NONE';
   const ciPending = detail.ciStatus === 'PENDING';
@@ -788,9 +792,16 @@ function MergeBar({ pr, detail, mergeState, mergeError, mergeQueuedMessage, onMe
             </button>
             {mergeMode !== 'queue' && (
               <button
+                ref={strategyCaretRef}
                 type="button"
                 className="merge-card__btn merge-card__btn--split-caret"
-                onClick={() => setStrategyMenuOpen(v => !v)}
+                onClick={() => {
+                  if (!strategyMenuOpen && strategyCaretRef.current) {
+                    const r = strategyCaretRef.current.getBoundingClientRect();
+                    setStrategyMenuPos({ top: r.bottom + 4, left: r.left });
+                  }
+                  setStrategyMenuOpen(v => !v);
+                }}
                 disabled={!enabled}
                 aria-haspopup="menu"
                 aria-expanded={strategyMenuOpen}
@@ -808,7 +819,13 @@ function MergeBar({ pr, detail, mergeState, mergeError, mergeQueuedMessage, onMe
                   tabIndex={-1}
                   onClick={() => setStrategyMenuOpen(false)}
                 />
-                <div className="merge-card__strategy-menu" role="menu">
+                <div
+                  className="merge-card__strategy-menu"
+                  role="menu"
+                  style={strategyMenuPos
+                    ? { top: strategyMenuPos.top, left: strategyMenuPos.left }
+                    : undefined}
+                >
                   {(['rebase', 'squash', 'merge'] as MergeStrategy[]).map(opt => (
                     <button
                       key={opt}
@@ -1424,6 +1441,29 @@ function PullRequestPreview({
     setDetail(prev => optimisticallyUpdateCommentBody(prev, commentId, body));
   };
 
+  /** Deletes a top-level issue comment on GitHub, then drops it from
+   *  local state. The confirm gate lives in CommentActionsMenu, so by
+   *  the time this runs the user has already confirmed. */
+  const handleDeleteIssueComment = async (commentId: number): Promise<void> => {
+    await window.bridge.deleteIssueComment(pr.repo, commentId);
+    setDetail(prev => optimisticallyRemoveComment(prev, commentId));
+  };
+
+  /** Same as handleDeleteIssueComment but for per-line review comments. */
+  const handleDeleteReviewComment = async (commentId: number): Promise<void> => {
+    await window.bridge.deleteReviewComment(pr.repo, commentId);
+    setDetail(prev => optimisticallyRemoveComment(prev, commentId));
+  };
+
+  /** Whether the current user may delete a comment authored by
+   *  {@code author}: their own comments always, anyone's when they hold
+   *  write access on the repo (mirrors what github.com lets maintainers
+   *  do). Gated to real positive GitHub ids so optimistic placeholders
+   *  (negative ids) never expose a delete that can't resolve. */
+  const canDeleteComment = (author: string | null, githubId: number | null | undefined): boolean =>
+    githubId != null && githubId > 0
+    && ((currentUserLogin != null && currentUserLogin === author) || detail?.viewerCanWrite === true);
+
   /** Posts a reply to the given review thread, then patches the new
    *  message into local state right away. Throws if the post itself
    *  fails so the composer can surface the error. */
@@ -1691,6 +1731,14 @@ function PullRequestPreview({
                                   {item.timestamp && (
                                     <RelativeTime className="activity-item__time" timestamp={item.timestamp} />
                                   )}
+                                  {item.githubId != null && (
+                                    <CommentActionsMenu
+                                      linkHref={issueCommentLink(pr.htmlUrl, item.githubId)}
+                                      onDelete={canDeleteComment(item.actor, item.githubId)
+                                        ? () => handleDeleteIssueComment(item.githubId!)
+                                        : undefined}
+                                    />
+                                  )}
                                 </div>
                                 {hasBody && (
                                   <EditableMarkdownBody
@@ -1715,11 +1763,14 @@ function PullRequestPreview({
                             key={thread.rootGithubId}
                             thread={thread}
                             prAuthor={pr.author}
+                            prHtmlUrl={pr.htmlUrl}
                             onReply={(body) => handleReply(thread.rootGithubId, body)}
                             onReact={handleReact}
                             onSetResolved={handleSetThreadResolved}
                             currentUserLogin={currentUserLogin}
                             onEditMessage={handleEditReviewComment}
+                            onDeleteMessage={handleDeleteReviewComment}
+                            canDeleteMessage={canDeleteComment}
                             repoContext={repoContext}
                           />
                         ))}
@@ -2531,11 +2582,14 @@ function PullRequestPreview({
                   key={thread.rootGithubId}
                   thread={thread}
                   prAuthor={pr.author}
+                  prHtmlUrl={pr.htmlUrl}
                   onReply={(body) => handleReply(thread.rootGithubId, body)}
                   onReact={handleReact}
                   onSetResolved={handleSetThreadResolved}
                   currentUserLogin={currentUserLogin}
                   onEditMessage={handleEditReviewComment}
+                  onDeleteMessage={handleDeleteReviewComment}
+                  canDeleteMessage={canDeleteComment}
                   repoContext={repoContext}
                 />
               ))}
@@ -2629,15 +2683,14 @@ function PullRequestPreview({
                 {stateBadge}
               </span>
             )}
-            {hasBody && (
-              <button
-                type="button"
-                className="prc-comment-quote"
-                onClick={() => commentBoxRef.current?.insertQuote(item.body ?? '')}
-                title="Quote this comment in your reply"
-              >
-                ↩ Quote reply
-              </button>
+            {item.githubId != null && (
+              <CommentActionsMenu
+                linkHref={issueCommentLink(pr.htmlUrl, item.githubId)}
+                onQuote={hasBody ? () => commentBoxRef.current?.insertQuote(item.body ?? '') : undefined}
+                onDelete={canDeleteComment(item.actor, item.githubId)
+                  ? () => handleDeleteIssueComment(item.githubId!)
+                  : undefined}
+              />
             )}
           </header>
           {hasBody && (
@@ -2670,11 +2723,14 @@ function PullRequestPreview({
                   key={thread.rootGithubId}
                   thread={thread}
                   prAuthor={pr.author}
+                  prHtmlUrl={pr.htmlUrl}
                   onReply={(body) => handleReply(thread.rootGithubId, body)}
                   onReact={handleReact}
                   onSetResolved={handleSetThreadResolved}
                   currentUserLogin={currentUserLogin}
                   onEditMessage={handleEditReviewComment}
+                  onDeleteMessage={handleDeleteReviewComment}
+                  canDeleteMessage={canDeleteComment}
                   repoContext={repoContext}
                 />
               ))}
@@ -2760,11 +2816,14 @@ function PullRequestPreview({
         key={`t-${key}`}
         thread={thread}
         prAuthor={pr.author}
+        prHtmlUrl={pr.htmlUrl}
         onReply={(body) => handleReply(thread.rootGithubId, body)}
         onReact={handleReact}
         onSetResolved={handleSetThreadResolved}
         currentUserLogin={currentUserLogin}
         onEditMessage={handleEditReviewComment}
+        onDeleteMessage={handleDeleteReviewComment}
+        canDeleteMessage={canDeleteComment}
         repoContext={repoContext}
       />
     );

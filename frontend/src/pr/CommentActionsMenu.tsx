@@ -23,6 +23,9 @@ import { useEffect, useRef, useState } from 'react';
  *       feedback.</li>
  *   <li><b>Quote reply</b> — fires {@code onQuote}; hidden when the
  *       comment has no body to quote.</li>
+ *   <li><b>Edit</b> — fires {@code onEdit} (the caller flips the body
+ *       into its controlled edit mode); hidden unless supplied, which
+ *       the caller gates on the comment being the user's own.</li>
  *   <li><b>Delete</b> — fires {@code onDelete} behind an inline confirm
  *       step (the menu swaps to a "Delete this comment?" prompt rather
  *       than a separate dialog). Hidden unless {@code onDelete} is
@@ -34,10 +37,11 @@ import { useEffect, useRef, useState } from 'react';
  * is ever called.
  */
 export function CommentActionsMenu({
-  linkHref, onQuote, onDelete,
+  linkHref, onQuote, onEdit, onDelete,
 }: {
   linkHref: string;
   onQuote?: () => void;
+  onEdit?: () => void;
   onDelete?: () => void | Promise<void>;
 }) {
   const [open, setOpen] = useState(false);
@@ -140,6 +144,16 @@ export function CommentActionsMenu({
                   onClick={() => { onQuote(); close(); }}
                 >
                   Quote reply
+                </button>
+              )}
+              {onEdit && (
+                <button
+                  type="button"
+                  role="menuitem"
+                  className="prc-comment-menu__item"
+                  onClick={() => { onEdit(); close(); }}
+                >
+                  Edit
                 </button>
               )}
               {onDelete && (

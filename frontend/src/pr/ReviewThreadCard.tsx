@@ -74,6 +74,9 @@ export function ReviewThreadCard({
   repoContext?: MarkdownRepoContext;
 }) {
   const [resolving, setResolving] = useState(false);
+  // Which message is in edit mode (by GitHub id), so the per-message
+  // "⋯ → Edit" menu item can open its editor. One at a time.
+  const [editingMsgId, setEditingMsgId] = useState<number | null>(null);
   const [body, setBody] = useState('');
   const [pending, setPending] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -214,6 +217,9 @@ export function ReviewThreadCard({
                         <CommentActionsMenu
                           linkHref={reviewCommentLink(prHtmlUrl, msg.githubId)}
                           onQuote={msg.body ? () => quoteMessage(msg.body!) : undefined}
+                          onEdit={onEditMessage && msg.body && currentUserLogin && currentUserLogin === msg.author
+                            ? () => setEditingMsgId(msg.githubId)
+                            : undefined}
                           onDelete={onDeleteMessage && canDeleteMessage?.(msg.author, msg.githubId)
                             ? () => onDeleteMessage(msg.githubId)
                             : undefined}
@@ -226,6 +232,8 @@ export function ReviewThreadCard({
                       body={msg.body}
                       canEdit={!!(onEditMessage && currentUserLogin && currentUserLogin === msg.author)}
                       onSave={(newBody) => onEditMessage!(msg.githubId, newBody)}
+                      editing={editingMsgId === msg.githubId}
+                      onEditingChange={(v) => setEditingMsgId(v ? msg.githubId : null)}
                       renderViewSlot={(b) => <CommentBodyWithSuggestions body={b} hunk={thread.diffHunk} />}
                       repoContext={repoContext}
                     />

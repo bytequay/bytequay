@@ -36,6 +36,8 @@ export function EditableMarkdownBody({
   className = 'prc-comment-body',
   renderViewSlot,
   repoContext,
+  editing: editingProp,
+  onEditingChange,
 }: {
   body: string;
   canEdit: boolean;
@@ -45,8 +47,21 @@ export function EditableMarkdownBody({
   /** Forwarded to {@code renderMarkdown} so {@code #N} issue chips
    *  inside the rendered body remember which repo they came from. */
   repoContext?: MarkdownRepoContext;
+  /** Controlled edit mode. When {@code onEditingChange} is supplied the
+   *  caller owns whether the body is in edit mode (so an external
+   *  trigger — e.g. the comment "⋯ → Edit" menu item — can open it) and
+   *  the inline "✎ Edit" pill is suppressed, since the menu owns that
+   *  affordance. Omit both for the legacy self-contained behaviour. */
+  editing?: boolean;
+  onEditingChange?: (editing: boolean) => void;
 }) {
-  const [editing, setEditing] = useState(false);
+  const controlled = onEditingChange !== undefined;
+  const [internalEditing, setInternalEditing] = useState(false);
+  const editing = controlled ? (editingProp ?? false) : internalEditing;
+  const setEditing = (next: boolean) => {
+    if (controlled) onEditingChange(next);
+    else setInternalEditing(next);
+  };
   const [draft, setDraft] = useState(body);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -129,7 +144,7 @@ export function EditableMarkdownBody({
         // Content comes from the GitHub API; contextIsolation prevents
         // renderer escapes via the markdown render path.
         : <div className={className} dangerouslySetInnerHTML={{ __html: renderMarkdown(body, repoContext) }} />}
-      {canEdit && (
+      {canEdit && !controlled && (
         <button
           type="button"
           className="editable-comment-body__edit"

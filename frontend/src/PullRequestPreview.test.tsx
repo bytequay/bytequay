@@ -622,9 +622,15 @@ describe('PullRequestPreview render smoke', () => {
   it('keeps issue comment edits optimistic without fetching stale detail', async () => {
     setCached('home:profile', { login: 'commenter' });
     const bridge = await render(makeDetail());
-    const edit = container.querySelector<HTMLButtonElement>('.prc-comment-card .editable-comment-body__edit');
+    // Edit lives in the comment's "⋯" menu now — open it, then click Edit.
+    const trigger = container.querySelector<HTMLButtonElement>('.prc-comment-card .prc-comment-menu__trigger');
+    expect(trigger).toBeTruthy();
+    await act(async () => {
+      trigger!.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    });
+    const edit = Array.from(container.querySelectorAll<HTMLButtonElement>('.prc-comment-menu__item'))
+      .find(el => el.textContent === 'Edit');
     expect(edit).toBeTruthy();
-
     await act(async () => {
       edit!.dispatchEvent(new MouseEvent('click', { bubbles: true }));
     });
@@ -657,9 +663,15 @@ describe('PullRequestPreview render smoke', () => {
   it('keeps review-thread message edits optimistic without fetching stale detail', async () => {
     setCached('home:profile', { login: 'reviewer' });
     const bridge = await render(makeDetail());
-    const edit = container.querySelector<HTMLButtonElement>('.prc-review-thread .editable-comment-body__edit');
+    // Edit lives in the message's "⋯" menu now — open it, then click Edit.
+    const trigger = container.querySelector<HTMLButtonElement>('.prc-review-thread .prc-comment-menu__trigger');
+    expect(trigger).toBeTruthy();
+    await act(async () => {
+      trigger!.dispatchEvent(new MouseEvent('click', { bubbles: true }));
+    });
+    const edit = Array.from(container.querySelectorAll<HTMLButtonElement>('.prc-comment-menu__item'))
+      .find(el => el.textContent === 'Edit');
     expect(edit).toBeTruthy();
-
     await act(async () => {
       edit!.dispatchEvent(new MouseEvent('click', { bubbles: true }));
     });

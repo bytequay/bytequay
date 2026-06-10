@@ -1464,6 +1464,18 @@ function PullRequestPreview({
     githubId != null && githubId > 0
     && ((currentUserLogin != null && currentUserLogin === author) || detail?.viewerCanWrite === true);
 
+  /** Whether the current user may edit a comment. Unlike delete, GitHub
+   *  only lets you edit your *own* comments — write access doesn't
+   *  extend to editing someone else's. */
+  const canEditComment = (author: string | null, githubId: number | null | undefined): boolean =>
+    githubId != null && githubId > 0 && currentUserLogin != null && currentUserLogin === author;
+
+  // Which top-level comment is currently in edit mode (keyed by GitHub
+  // id), so the "⋯ → Edit" menu item can open the body's editor without
+  // a per-row ref. Only one comment edits at a time. Inline review-
+  // thread messages own their own equivalent state in ReviewThreadCard.
+  const [editingCommentId, setEditingCommentId] = useState<number | null>(null);
+
   /** Posts a reply to the given review thread, then patches the new
    *  message into local state right away. Throws if the post itself
    *  fails so the composer can surface the error. */
@@ -1734,6 +1746,9 @@ function PullRequestPreview({
                                   {item.githubId != null && (
                                     <CommentActionsMenu
                                       linkHref={issueCommentLink(pr.htmlUrl, item.githubId)}
+                                      onEdit={hasBody && canEditComment(item.actor, item.githubId)
+                                        ? () => setEditingCommentId(item.githubId!)
+                                        : undefined}
                                       onDelete={canDeleteComment(item.actor, item.githubId)
                                         ? () => handleDeleteIssueComment(item.githubId!)
                                         : undefined}
@@ -1745,6 +1760,8 @@ function PullRequestPreview({
                                     body={item.body!}
                                     canEdit={!!(currentUserLogin && currentUserLogin === item.actor && item.githubId != null)}
                                     onSave={(b) => handleEditIssueComment(item.githubId!, b)}
+                                    editing={editingCommentId === item.githubId}
+                                    onEditingChange={(v) => setEditingCommentId(v ? item.githubId! : null)}
                                     className="activity-item__body"
                                     repoContext={repoContext}
                                   />
@@ -2687,6 +2704,9 @@ function PullRequestPreview({
               <CommentActionsMenu
                 linkHref={issueCommentLink(pr.htmlUrl, item.githubId)}
                 onQuote={hasBody ? () => commentBoxRef.current?.insertQuote(item.body ?? '') : undefined}
+                onEdit={hasBody && canEditComment(item.actor, item.githubId)
+                  ? () => setEditingCommentId(item.githubId!)
+                  : undefined}
                 onDelete={canDeleteComment(item.actor, item.githubId)
                   ? () => handleDeleteIssueComment(item.githubId!)
                   : undefined}
@@ -2698,6 +2718,8 @@ function PullRequestPreview({
               body={item.body!}
               canEdit={!!(currentUserLogin && currentUserLogin === item.actor && item.githubId != null)}
               onSave={(b) => handleEditIssueComment(item.githubId!, b)}
+              editing={editingCommentId === item.githubId}
+              onEditingChange={(v) => setEditingCommentId(v ? item.githubId! : null)}
               repoContext={repoContext}
             />
           )}

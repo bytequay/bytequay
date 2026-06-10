@@ -278,6 +278,24 @@ function Ds4ManagementTab({
     setInstallStatus(next);
   }, [installRepoDir, reuseExisting, installVariant]);
 
+  const onBrowseRepoDir = useCallback(async () => {
+    // Native folder picker via the same Electron bridge the local-
+    // repo flow uses. Reuse mode wants a directory that already
+    // contains a built ds4-server; fresh mode wants a parent under
+    // which the installer will clone (Electron's dialog can also
+    // create a new folder inline thanks to the 'createDirectory'
+    // property on the existing handler).
+    const picked = await window.bridge.pickFolder({
+      defaultPath: installRepoDir.length > 0 ? installRepoDir : undefined,
+      title: reuseExisting
+        ? 'Pick your existing ds4 repo'
+        : 'Pick where to clone ds4',
+    });
+    if (picked !== null) {
+      setInstallRepoDir(picked);
+    }
+  }, [installRepoDir, reuseExisting]);
+
   return (
     <div style={tabBodyStyle}>
       <Card title="Lifecycle">
@@ -395,17 +413,31 @@ function Ds4ManagementTab({
             <label style={installLabelStyle}>
               {reuseExisting ? 'Existing ds4 repo directory' : 'Install destination'}
             </label>
-            <input
-              type="text"
-              value={installRepoDir}
-              onChange={(e) => setInstallRepoDir(e.target.value)}
-              placeholder={
-                reuseExisting
-                  ? '/path/to/your/ds4'
-                  : '~/Library/Application Support/ds4/repo'
-              }
-              style={inputStyle}
-            />
+            <div style={pickerRowStyle}>
+              <input
+                type="text"
+                value={installRepoDir}
+                onChange={(e) => setInstallRepoDir(e.target.value)}
+                placeholder={
+                  reuseExisting
+                    ? '/path/to/your/ds4'
+                    : '~/Library/Application Support/ds4/repo'
+                }
+                style={{ ...inputStyle, flex: 1 }}
+              />
+              <button
+                type="button"
+                style={secondaryBtnStyle}
+                onClick={() => { void onBrowseRepoDir(); }}
+                title={
+                  reuseExisting
+                    ? 'Browse to your existing ds4 checkout'
+                    : 'Choose where to clone ds4'
+                }
+              >
+                Browse…
+              </button>
+            </div>
           </div>
 
           <div style={installFieldStyle}>
@@ -1082,4 +1114,10 @@ const installLabelStyle: React.CSSProperties = {
   fontSize: 11,
   fontWeight: 600,
   color: 'var(--text-3)',
+};
+
+const pickerRowStyle: React.CSSProperties = {
+  display: 'flex',
+  gap: 6,
+  alignItems: 'stretch',
 };

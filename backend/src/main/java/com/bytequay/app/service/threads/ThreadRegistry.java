@@ -401,7 +401,7 @@ public class ThreadRegistry
                         thread, store, taskStore, mapper, executor,
                         credentialService, resolved, workingDir,
                         resolveTaskRoleSkill(thread), toolRegistry,
-                        ds4, ds4Instrumentation);
+                        ds4, ds4Instrumentation, gate);
             }
         };
     }
@@ -421,7 +421,7 @@ public class ThreadRegistry
                         thread, store, taskStore, mapper, executor,
                         credentialService, resolved, trunkCwdResolver.apply(thread),
                         roleSkillService == null ? null : roleSkillService.trunkTemplate(),
-                        toolRegistry, ds4, ds4Instrumentation);
+                        toolRegistry, ds4, ds4Instrumentation, gate);
             }
         };
     }

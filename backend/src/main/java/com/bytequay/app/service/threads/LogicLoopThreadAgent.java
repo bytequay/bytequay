@@ -32,6 +32,8 @@ import com.bytequay.app.service.local.ds4.Ds4State;
 import com.bytequay.app.service.threads.tools.AgentTool;
 import com.bytequay.app.service.threads.tools.AgentToolContext;
 import com.bytequay.app.service.threads.tools.LogicLoopToolRegistry;
+import com.bytequay.app.service.threads.tools.ToolPermissionMediator;
+import com.bytequay.app.service.tools.Gating;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.node.ArrayNode;
@@ -57,11 +59,16 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.OptionalInt;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionStage;
+import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.CopyOnWriteArrayList;
+import java.util.concurrent.ExecutionException;
 import java.util.concurrent.ExecutorService;
+import java.util.concurrent.TimeUnit;
+import java.util.concurrent.TimeoutException;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
@@ -184,6 +191,11 @@ public class LogicLoopThreadAgent
      *  the Metrics tab reflects thread turns alongside review calls.
      *  Null on the legacy paths. */
     private final Ds4Instrumentation ds4Instrumentation;
+    /** Coordinates Allow / Deny prompts with {@link ThreadAgent#decide}.
+     *  Null when the agent is built outside the production wiring
+     *  (legacy tests); the BridgedTool falls back to refusing gated
+     *  calls when this is missing. */
+    private final McpPermissionGate permissionGate;
     private final CopyOnWriteArrayList<Consumer<StreamEvent>> listeners = new CopyOnWriteArrayList<>();
 
     private final AtomicReference<ThreadStatus> status = new AtomicReference<>();
@@ -194,6 +206,24 @@ public class LogicLoopThreadAgent
     private final AtomicLong runningTokensOut = new AtomicLong();
     private final AtomicLong runningCostUsdMilli = new AtomicLong();
     private final AtomicReference<String> activeModel = new AtomicReference<>("");
+    /** Per-tool auto-approval budget the user granted via "Allow next
+     *  N". {@code -1} is the sentinel for "always for this tool" until
+     *  the session ends. Lives only for the session — a stop /
+     *  failed thread drops the map. */
+    private final ConcurrentHashMap<String, Integer> toolBudget = new ConcurrentHashMap<>();
+    /** Pending Allow / Deny prompts so {@link #stop} / {@link #interrupt}
+     *  can cancel them rather than leak a waiting handler thread. */
+    private final Set<String> pendingPermissions = ConcurrentHashMap.newKeySet();
+    private static final int BUDGET_ALWAYS = -1;
+    /** Default cap on how long we wait for a user Allow / Deny
+     *  before treating the prompt as denied. Five minutes matches
+     *  the CLI lane's MCP gate. */
+    private static final Duration PERMISSION_WAIT_TIMEOUT = Duration.ofMinutes(5);
+
+    /** Mediator passed into every {@link AgentToolContext} so the
+     *  bridged-CLI catalog can route through the permission gate.
+     *  Lazy-stateless; one instance per agent. */
+    private final ToolPermissionMediator permissionMediator = this::admitToolCall;
 
     public LogicLoopThreadAgent(
             Thread thread,
@@ -208,7 +238,8 @@ public class LogicLoopThreadAgent
     {
         this(thread, store, taskStore, mapper, executor, credentialService,
                 resolvedModel, workingDir, roleSkillText, /* toolRegistry */ null,
-                /* ds4 */ null, /* ds4Instrumentation */ null);
+                /* ds4 */ null, /* ds4Instrumentation */ null,
+                /* permissionGate */ null);
     }
 
     public LogicLoopThreadAgent(
@@ -225,7 +256,8 @@ public class LogicLoopThreadAgent
     {
         this(thread, store, taskStore, mapper, executor, credentialService,
                 resolvedModel, workingDir, roleSkillText, toolRegistry,
-                /* ds4 */ null, /* ds4Instrumentation */ null);
+                /* ds4 */ null, /* ds4Instrumentation */ null,
+                /* permissionGate */ null);
     }
 
     public LogicLoopThreadAgent(
@@ -241,6 +273,26 @@ public class LogicLoopThreadAgent
             LogicLoopToolRegistry toolRegistry,
             Ds4LifecycleService ds4,
             Ds4Instrumentation ds4Instrumentation)
+    {
+        this(thread, store, taskStore, mapper, executor, credentialService,
+                resolvedModel, workingDir, roleSkillText, toolRegistry,
+                ds4, ds4Instrumentation, /* permissionGate */ null);
+    }
+
+    public LogicLoopThreadAgent(
+            Thread thread,
+            ThreadStore store,
+            TaskStore taskStore,
+            ObjectMapper mapper,
+            ExecutorService executor,
+            CredentialService credentialService,
+            WorkModel resolvedModel,
+            String workingDir,
+            String roleSkillText,
+            LogicLoopToolRegistry toolRegistry,
+            Ds4LifecycleService ds4,
+            Ds4Instrumentation ds4Instrumentation,
+            McpPermissionGate permissionGate)
     {
         this.threadId = thread.id();
         this.kind = thread.kind();
@@ -268,6 +320,7 @@ public class LogicLoopThreadAgent
         this.toolRegistry = toolRegistry;
         this.ds4 = ds4;
         this.ds4Instrumentation = ds4Instrumentation;
+        this.permissionGate = permissionGate;
         store.maxMessageSeq(threadId).ifPresent(max -> nextSeq.set(max + 1));
     }
 
@@ -1025,7 +1078,8 @@ public class LogicLoopThreadAgent
         Path cwd = workingDir == null ? null : Path.of(workingDir);
         String taskId = activeTaskId();
         try {
-            return tool.get().invoke(input, new AgentToolContext(threadId, taskId, cwd));
+            return tool.get().invoke(input, new AgentToolContext(
+                    threadId, taskId, cwd, permissionMediator));
         }
         catch (RuntimeException e) {
             log.warn("Tool {} threw on thread {}: {}", name, threadId, e.getMessage());
@@ -1358,6 +1412,7 @@ public class LogicLoopThreadAgent
     public void interrupt()
     {
         userInterrupted.set(true);
+        cancelPendingPermissions();
         CompletableFuture<Void> turn = currentTurn.get();
         if (turn != null) {
             turn.cancel(true);
@@ -1385,6 +1440,7 @@ public class LogicLoopThreadAgent
     public void stop()
     {
         userInterrupted.set(true);
+        cancelPendingPermissions();
         CompletableFuture<Void> turn = currentTurn.get();
         if (turn != null) {
             turn.cancel(true);
@@ -1393,36 +1449,151 @@ public class LogicLoopThreadAgent
         publish(new StreamEvent.SessionEnded(Instant.now(), 0, null));
     }
 
+    /** Cancel every outstanding Allow / Deny prompt so a stop /
+     *  interrupt doesn't leak handler threads blocked on the gate. */
+    private void cancelPendingPermissions()
+    {
+        if (permissionGate == null) {
+            return;
+        }
+        for (String callId : pendingPermissions) {
+            permissionGate.cancel(callId);
+        }
+        pendingPermissions.clear();
+    }
+
     @Override
     public void notifyPermissionRequested(String callId, String toolName, String summary)
     {
-        log.warn("LogicLoopThreadAgent received unexpected permission request {} for tool {} "
-                + "— the tool registry uses auto-allow; check for a mediator misconfiguration",
-                callId, toolName);
+        // The mediator publishes its own PermissionRequested event,
+        // so this hook is only useful as a structural log for
+        // surprise registrations.
+        log.debug("notifyPermissionRequested: callId={}, tool={}", callId, toolName);
     }
 
     @Override
     public void decide(String callId, PermissionDecision decision)
     {
-        // Auto-allow registry; no waiters to unblock.
+        if (permissionGate != null) {
+            permissionGate.decide(callId, decision);
+        }
     }
 
     @Override
     public void grantToolBudget(String toolName, int count)
     {
-        // Auto-allow registry; budget tracking is a no-op.
+        if (toolName == null || toolName.isBlank()) {
+            return;
+        }
+        toolBudget.merge(toolName, count, (existing, add) -> {
+            if (existing == BUDGET_ALWAYS || add == BUDGET_ALWAYS) {
+                return BUDGET_ALWAYS;
+            }
+            return existing + add;
+        });
+        // Drain any pending Allow / Deny prompts for the same tool —
+        // a user who just clicked "Allow next 5" shouldn't have to
+        // click Approve N more times for the calls that piled up.
+        if (permissionGate != null) {
+            for (String pendingCallId : permissionGate.pendingCallIdsFor(toolName)) {
+                OptionalInt slot = tryConsumeToolBudget(toolName);
+                if (slot.isEmpty()) {
+                    break;
+                }
+                permissionGate.decide(pendingCallId, PermissionDecision.ALLOW);
+                publish(new StreamEvent.PermissionAutoAllowed(
+                        Instant.now(), pendingCallId, toolName, slot.getAsInt()));
+            }
+        }
     }
 
     @Override
     public OptionalInt tryConsumeToolBudget(String toolName)
     {
-        return OptionalInt.empty();
+        if (toolName == null) {
+            return OptionalInt.empty();
+        }
+        // Atomic decrement with the sentinel kept intact for ALWAYS
+        // grants. computeIfPresent returns the new value (or null if
+        // the entry was removed) so the caller knows what's left.
+        Integer remaining = toolBudget.computeIfPresent(toolName, (k, v) -> {
+            if (v == BUDGET_ALWAYS) {
+                return BUDGET_ALWAYS;
+            }
+            int next = v - 1;
+            return next <= 0 ? null : next;
+        });
+        if (remaining == null) {
+            // Either no budget existed, or the last slot was just
+            // consumed and the entry removed.
+            return toolBudget.containsKey(toolName) ? OptionalInt.empty() : OptionalInt.of(0);
+        }
+        if (remaining == BUDGET_ALWAYS) {
+            return OptionalInt.of(BUDGET_ALWAYS);
+        }
+        return OptionalInt.of(remaining);
     }
 
     @Override
     public void notifyPermissionAutoAllowed(String callId, String toolName, int remaining)
     {
-        // Auto-allow is the default; nothing to log.
+        publish(new StreamEvent.PermissionAutoAllowed(Instant.now(), callId, toolName, remaining));
+    }
+
+    /** {@link ToolPermissionMediator} body. Lives on the agent so it
+     *  can drive the gate, the budget, and the event stream the UI
+     *  listens to — none of those are accessible from inside the
+     *  registry singleton. */
+    private PermissionDecision admitToolCall(String callId, String toolName, Gating gating, String summary)
+    {
+        if (gating == Gating.AUTO) {
+            return PermissionDecision.ALLOW;
+        }
+        if (gating == Gating.PARKED) {
+            // Parked tools (request_review, push, merge_pr, …) ride
+            // the CLI lane's notification + publish-service flow.
+            // Refusing here is safer than running on the model's
+            // word; the bridge surfaces a clear pointer to the CLI
+            // lane in its error envelope.
+            return PermissionDecision.DENY;
+        }
+        // GATED — consult the per-tool budget first, then prompt.
+        OptionalInt slot = tryConsumeToolBudget(toolName);
+        if (slot.isPresent()) {
+            int left = slot.getAsInt();
+            publish(new StreamEvent.PermissionAutoAllowed(Instant.now(), callId, toolName, left));
+            return PermissionDecision.ALLOW;
+        }
+        if (permissionGate == null) {
+            // No gate wired — refuse rather than silently allow.
+            return PermissionDecision.DENY;
+        }
+        CompletableFuture<PermissionDecision> future = permissionGate.register(callId, toolName);
+        pendingPermissions.add(callId);
+        publish(new StreamEvent.PermissionRequested(Instant.now(), callId, toolName, summary));
+        try {
+            PermissionDecision decision = future.get(
+                    PERMISSION_WAIT_TIMEOUT.toSeconds(), TimeUnit.SECONDS);
+            publish(new StreamEvent.PermissionDecided(Instant.now(), callId, decision));
+            return decision;
+        }
+        catch (TimeoutException e) {
+            permissionGate.cancel(callId);
+            publish(new StreamEvent.PermissionDecided(Instant.now(), callId, PermissionDecision.DENY));
+            return PermissionDecision.DENY;
+        }
+        catch (InterruptedException e) {
+            java.lang.Thread.currentThread().interrupt();
+            permissionGate.cancel(callId);
+            return PermissionDecision.DENY;
+        }
+        catch (ExecutionException e) {
+            log.warn("Permission gate future failed for {}/{}: {}", callId, toolName, e.getMessage());
+            return PermissionDecision.DENY;
+        }
+        finally {
+            pendingPermissions.remove(callId);
+        }
     }
 
     @Override

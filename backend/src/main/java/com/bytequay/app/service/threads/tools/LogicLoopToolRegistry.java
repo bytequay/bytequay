@@ -13,8 +13,10 @@
  */
 package com.bytequay.app.service.threads.tools;
 
+import com.bytequay.app.domain.PermissionDecision;
 import com.bytequay.app.service.tools.AgentRole;
 import com.bytequay.app.service.tools.AgentToolRegistry;
+import com.bytequay.app.service.tools.Gating;
 import com.bytequay.app.service.tools.ToolCall;
 import com.bytequay.app.service.tools.ToolOutcome;
 import com.bytequay.app.service.tools.ToolSpec;
@@ -34,6 +36,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.UUID;
 
 import static java.util.Objects.requireNonNull;
 
@@ -231,13 +234,10 @@ public class LogicLoopToolRegistry
         @Override
         public boolean isReadOnly()
         {
-            // The CLI-lane registry encodes mutation surface on
-            // SecurityType, but the API lane doesn't gate on that yet
-            // — every tool runs without a confirmation prompt. Mark
-            // everything read-only so the existing isReadOnly() check
-            // doesn't reject anything; the proper permission gate
-            // lands alongside the CLI lane's parked-proposal flow.
-            return true;
+            // Auto-gated tools (recall_memory, lookup_memory, list_*,
+            // read_*) are the read-only set. Anything that needs a
+            // user prompt or parking is mutating by definition.
+            return spec.gating() == Gating.AUTO;
         }
 
         @Override
@@ -245,6 +245,34 @@ public class LogicLoopToolRegistry
         {
             AgentRole role = ctx.taskId() == null ? AgentRole.TRUNK : AgentRole.TASK;
             JsonNode args = input == null ? mapper.createObjectNode() : input;
+            String callId = "tool-" + UUID.randomUUID();
+
+            // Permission gate for anything that's not auto-allowed.
+            // PARKED tools (request_review, push, merge_pr, …) ride
+            // the CLI lane's notification + publish-service flow
+            // today; the API lane refuses them with a clear pointer
+            // rather than silently no-op'ing or running on the
+            // model's word.
+            if (spec.gating() != Gating.AUTO) {
+                if (ctx.permissionMediator() == null) {
+                    return Result.error("Tool '" + spec.name() + "' requires a "
+                            + spec.gating() + " gate but no permission mediator is wired. "
+                            + "Refusing for safety.");
+                }
+                PermissionDecision decision = ctx.permissionMediator().admit(
+                        callId, spec.name(), spec.gating(), summariseInput(spec.name(), args));
+                if (decision != PermissionDecision.ALLOW) {
+                    String reason = spec.gating() == Gating.PARKED
+                            ? "Tool '" + spec.name() + "' is published through the parked-"
+                                    + "proposal flow (Notifications → Approve), which the "
+                                    + "API lane doesn't drive in v1. Use a CLI work model "
+                                    + "for tools that publish to GitHub or mutate shared "
+                                    + "state."
+                            : "User denied tool call: " + spec.name() + ".";
+                    return Result.error(reason);
+                }
+            }
+
             ToolCall call = new ToolCall(ctx.threadId(), args, role);
             try {
                 Optional<ToolOutcome> outcome = cliLaneTools.invoke(spec.name(), call);
@@ -262,6 +290,25 @@ public class LogicLoopToolRegistry
                 return Result.error("Tool '" + spec.name() + "' threw: "
                         + (e.getMessage() == null ? e.getClass().getSimpleName() : e.getMessage()));
             }
+        }
+
+        /** One-line description the Allow / Deny banner renders to
+         *  the user. Surface the tool name + a short args preview
+         *  (capped) so the user has enough to decide without
+         *  expanding a JSON blob. */
+        private String summariseInput(String toolName, JsonNode args)
+        {
+            String preview;
+            try {
+                preview = mapper.writeValueAsString(args);
+            }
+            catch (Exception e) {
+                preview = String.valueOf(args);
+            }
+            if (preview.length() > 200) {
+                preview = preview.substring(0, 200) + "…";
+            }
+            return toolName + " " + preview;
         }
     }
 

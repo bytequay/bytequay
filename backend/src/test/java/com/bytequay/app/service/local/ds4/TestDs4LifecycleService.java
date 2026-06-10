@@ -103,8 +103,10 @@ class TestDs4LifecycleService
     }
 
     @Test
-    void buildArgsCarriesEverySettingThroughToTheCli()
+    void buildArgsUsesTheUpstreamDs4ServerFlagNames()
     {
+        // Matches the README §Server example:
+        //   ./ds4-server --ctx 100000 --kv-disk-dir /tmp/ds4-kv --kv-disk-space-mb 8192
         Ds4Config cfg = new Ds4Config(
                 "/opt/ds4-server", 8123, "deepseek-v4-flash", "q4_K_M",
                 65_536, "/var/kv", 50_000,
@@ -116,17 +118,18 @@ class TestDs4LifecycleService
         // The binary lands as argv[0]; the rest is verbatim flags.
         assertThat(args.get(0)).isEqualTo("/opt/ds4-server");
         assertThat(args).contains("--port", "8123");
-        assertThat(args).contains("--model", "deepseek-v4-flash");
-        assertThat(args).contains("--quant", "q4_K_M");
-        assertThat(args).contains("--context", "65536");
-        assertThat(args).contains("--kv-dir", "/var/kv");
-        assertThat(args).contains("--kv-budget-mb", "50000");
-        assertThat(args).contains("--thinking");
-        assertThat(args).contains("--trace");
+        assertThat(args).contains("--ctx", "65536");
+        assertThat(args).contains("--kv-disk-dir", "/var/kv");
+        assertThat(args).contains("--kv-disk-space-mb", "50000");
+        // Trace takes a path destination (matching the eval tools).
+        assertThat(args).containsSequence("--trace", "/var/kv/trace.log");
+        // No --model / --quant / --thinking — those are either
+        // baked into the chosen GGUF or per-request only.
+        assertThat(args).doesNotContain("--model", "--quant", "--thinking");
     }
 
     @Test
-    void buildArgsOmitsThinkingAndTraceFlagsWhenOff()
+    void buildArgsOmitsTheTraceFlagWhenOff()
     {
         Ds4Config cfg = new Ds4Config(
                 "/opt/ds4-server", 8000, "deepseek-v4-flash", "q4_K_M",
@@ -136,7 +139,7 @@ class TestDs4LifecycleService
 
         List<String> args = Ds4LifecycleService.buildArgs(cfg);
 
-        assertThat(args).doesNotContain("--thinking", "--trace");
+        assertThat(args).doesNotContain("--trace");
     }
 
     @Test

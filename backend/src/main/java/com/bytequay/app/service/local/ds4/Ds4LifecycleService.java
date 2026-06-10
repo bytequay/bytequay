@@ -24,6 +24,7 @@ import org.springframework.context.event.EventListener;
 import org.springframework.stereotype.Service;
 
 import java.io.BufferedReader;
+import java.io.File;
 import java.io.IOException;
 import java.io.InputStreamReader;
 import java.net.URI;
@@ -429,7 +430,15 @@ public class Ds4LifecycleService
             ensureKvCacheDir(cfg);
             ProcessBuilder pb = new ProcessBuilder(buildArgs(cfg));
             pb.redirectErrorStream(true);
-            pb.environment().put("DS4_KV_DIR", cfg.kvCacheDir());
+            // ds4-server resolves its Metal shaders ({@code metal/*.metal}) and the
+            // default {@code ./ds4flash.gguf} relative to the working directory;
+            // launching from elsewhere makes it fail to find them. Setting cwd to
+            // the binary's parent dir matches the README's {@code --chdir} guidance
+            // for the common case where the binary sits at the repo root.
+            File binaryParent = binary.getParent() == null ? null : binary.getParent().toFile();
+            if (binaryParent != null && binaryParent.isDirectory()) {
+                pb.directory(binaryParent);
+            }
             return pb.start();
         }
         catch (IOException e) {
@@ -455,29 +464,50 @@ public class Ds4LifecycleService
         }
     }
 
+    /**
+     * Build the argv for {@code ds4-server}. Flag names match the
+     * upstream README's §Server example:
+     *
+     * <pre>
+     *   ./ds4-server --ctx 100000 --kv-disk-dir /tmp/ds4-kv --kv-disk-space-mb 8192
+     * </pre>
+     *
+     * <p>Notes on what's omitted on purpose:
+     * <ul>
+     *   <li>{@code --model} / {@code -m} — ds4-server defaults to
+     *       {@code ./ds4flash.gguf} which is the symlink the upstream
+     *       {@code download_model.sh} script keeps pointing at the
+     *       chosen GGUF, so the launcher just needs cwd set to the
+     *       repo root (we do that in {@link #trySpawn}).</li>
+     *   <li>{@code --quant} — not a real flag; quantisation is baked
+     *       into whichever GGUF the user downloaded.</li>
+     *   <li>{@code --thinking} — not a server flag; thinking mode is
+     *       a per-request toggle on the chat endpoint.</li>
+     * </ul>
+     *
+     * <p>{@code --port} is included so the lifecycle endpoint and the
+     * ds4-server's bind address agree; if a future upstream release
+     * removes the flag, ds4-server will reject the launch loudly and
+     * the next pass can drop it.
+     */
     static List<String> buildArgs(Ds4Config cfg)
     {
         List<String> args = new ArrayList<>();
         args.add(cfg.binaryPath());
         args.add("--port");
         args.add(Integer.toString(cfg.port()));
-        args.add("--model");
-        args.add(cfg.model());
-        if (cfg.quant() != null && !cfg.quant().isBlank()) {
-            args.add("--quant");
-            args.add(cfg.quant());
-        }
-        args.add("--context");
+        args.add("--ctx");
         args.add(Integer.toString(cfg.contextTokens()));
-        args.add("--kv-dir");
+        args.add("--kv-disk-dir");
         args.add(cfg.kvCacheDir());
-        args.add("--kv-budget-mb");
+        args.add("--kv-disk-space-mb");
         args.add(Integer.toString(cfg.kvDiskBudgetMb()));
-        if (cfg.thinkingDefault()) {
-            args.add("--thinking");
-        }
         if (cfg.trace()) {
+            // ds4-server's {@code --trace} takes a destination path
+            // (used by the eval tools too); keep the trace log
+            // alongside the KV cache so it's easy to find.
             args.add("--trace");
+            args.add(cfg.kvCacheDir() + "/trace.log");
         }
         return args;
     }

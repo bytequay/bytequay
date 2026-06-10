@@ -371,6 +371,34 @@ public class PullRequestController
     }
 
     /**
+     * Deletes a top-level issue / PR comment the authenticated user owns
+     * (or can delete via repo write access).
+     * DELETE /prs/issue-comments/{commentId}?repo=
+     */
+    @DeleteMapping("/prs/issue-comments/{commentId}")
+    public Map<String, String> deleteIssueComment(
+            @PathVariable long commentId,
+            @RequestParam("repo") String repo)
+    {
+        pullRequestService.deleteIssueComment(repo, commentId);
+        return ImmutableMap.of("result", "deleted");
+    }
+
+    /**
+     * Deletes a per-line review comment the authenticated user owns (or
+     * can delete via repo write access).
+     * DELETE /prs/review-comments/{commentId}?repo=
+     */
+    @DeleteMapping("/prs/review-comments/{commentId}")
+    public Map<String, String> deleteReviewComment(
+            @PathVariable long commentId,
+            @RequestParam("repo") String repo)
+    {
+        pullRequestService.deleteReviewComment(repo, commentId);
+        return ImmutableMap.of("result", "deleted");
+    }
+
+    /**
      * Adds a requested reviewer to the PR.
      * POST /prs/reviewers?repo=&number=&reviewer=
      */

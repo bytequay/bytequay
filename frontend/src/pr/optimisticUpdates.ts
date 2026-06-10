@@ -112,6 +112,37 @@ export function optimisticallyUpdateCommentBody(
     : detail;
 }
 
+/** Optimistic removal of a comment (top-level issue comment OR per-line
+ *  review-thread message) after a successful delete, so it disappears
+ *  without a full PR-detail refetch. Drops the matching timeline entry
+ *  from {@code recentActivity} and the matching message from every
+ *  review thread; a thread emptied of all messages is dropped too so no
+ *  ghost header lingers. Returns the original reference when the id
+ *  isn't found in either subtree. */
+export function optimisticallyRemoveComment(
+  detail: PullRequestDetailDto | null,
+  commentGithubId: number,
+): PullRequestDetailDto | null {
+  if (!detail) return detail;
+  let changed = false;
+  const nextActivity = detail.recentActivity.filter(item => {
+    if (item.githubId !== commentGithubId) return true;
+    changed = true;
+    return false;
+  });
+  const nextThreads = detail.reviewThreads
+    .map(thread => {
+      const nextMsgs = thread.messages.filter(msg => msg.githubId !== commentGithubId);
+      if (nextMsgs.length === thread.messages.length) return thread;
+      changed = true;
+      return { ...thread, messages: nextMsgs };
+    })
+    .filter(thread => thread.messages.length > 0);
+  return changed
+    ? { ...detail, recentActivity: nextActivity, reviewThreads: nextThreads }
+    : detail;
+}
+
 /** Optimistic append of a freshly-posted reply to a review thread. The
  *  GitHub POST returns void in our backend (the response body is
  *  discarded), so we synthesise a temporary message and slot it onto

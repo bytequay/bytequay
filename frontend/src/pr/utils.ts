@@ -71,6 +71,16 @@ export function formatRelativeTime(timestamp: string): string {
   return new Date(timestamp).toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
 }
 
+/** Builds GitHub's "Quote reply" body — every line of {@code quoted}
+ *  prefixed with "> ", a blank line, then whatever the composer already
+ *  holds. Shared by the top-level comment box and the inline review-
+ *  thread reply so both quote identically. */
+export function buildQuotedReply(quoted: string, existing: string): string {
+  const quote = quoted.split('\n').map(l => `> ${l}`).join('\n');
+  const sep = existing.trim().length > 0 ? '\n\n' : '';
+  return `${quote}\n\n${sep}${existing}`;
+}
+
 /** The absolute local timestamp we surface in a tooltip behind the
  *  relative label — mirrors github.com's `<relative-time>`, which
  *  keeps the exact "when" one hover away. Returns the empty string

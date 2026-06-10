@@ -17,8 +17,9 @@ import type { MarkdownRepoContext } from '../markdown';
 import Avatar from '../Avatar';
 import PolishButtons from '../ai/PolishButtons';
 import MarkdownComposer from '../MarkdownComposer';
-import { authorAssociationLabel, type ReactionContent } from './utils';
+import { authorAssociationLabel, buildQuotedReply, type ReactionContent } from './utils';
 import { RelativeTime } from './RelativeTime';
+import { CommentActionsMenu, reviewCommentLink } from './CommentActionsMenu';
 import { ReactionChips } from './Reactions';
 import { CommentBodyWithSuggestions, DiffHunk } from './CommentBody';
 import { EditableMarkdownBody } from './EditableMarkdownBody';
@@ -33,15 +34,20 @@ import { EditableMarkdownBody } from './EditableMarkdownBody';
 export function ReviewThreadCard({
   thread,
   prAuthor,
+  prHtmlUrl,
   currentUserLogin,
   onReply,
   onReact,
   onSetResolved,
   onEditMessage,
+  onDeleteMessage,
+  canDeleteMessage,
   repoContext,
 }: {
   thread: ReviewThreadDto;
   prAuthor: string | null;
+  /** PR url — base for the per-message "Copy link" github.com anchor. */
+  prHtmlUrl: string;
   /** Login of the authenticated user. Used to gate the per-message
    *  ✎ Edit affordance — only the message's own author sees it. */
   currentUserLogin?: string | null;
@@ -56,6 +62,13 @@ export function ReviewThreadCard({
   /** Edit one of this thread's messages (only the message author can
    *  use this). The parent owns the bridge call + local-state patch. */
   onEditMessage?: (commentGithubId: number, newBody: string) => Promise<void>;
+  /** Delete one of this thread's messages. The parent owns the confirm-
+   *  gated bridge call + local-state removal. Per-message visibility is
+   *  decided by {@link canDeleteMessage}. */
+  onDeleteMessage?: (commentGithubId: number) => void | Promise<void>;
+  /** Whether the Delete action shows for a given message — author or
+   *  write-access, same rule the top-level comments use. */
+  canDeleteMessage?: (author: string | null, githubId: number) => boolean;
   /** Forwarded to the inner {@link EditableMarkdownBody} so {@code #N}
    *  issue chips know which repo they came from. */
   repoContext?: MarkdownRepoContext;
@@ -102,6 +115,14 @@ export function ReviewThreadCard({
     setBody('');
     setError(null);
     setReplyExpanded(false);
+  };
+
+  /** "Quote reply" for an inline message — drops the quoted body into
+   *  this thread's own reply composer (not the top-level box) and opens
+   *  it, matching where a thread reply actually posts. */
+  const quoteMessage = (quoted: string) => {
+    setBody(prev => buildQuotedReply(quoted, prev));
+    setReplyExpanded(true);
   };
 
   const lastMsg = thread.messages[thread.messages.length - 1];
@@ -188,6 +209,15 @@ export function ReviewThreadCard({
                       )}
                       {isPrAuthor && (
                         <span className="prc-comment-role">AUTHOR</span>
+                      )}
+                      {msg.githubId > 0 && (
+                        <CommentActionsMenu
+                          linkHref={reviewCommentLink(prHtmlUrl, msg.githubId)}
+                          onQuote={msg.body ? () => quoteMessage(msg.body!) : undefined}
+                          onDelete={onDeleteMessage && canDeleteMessage?.(msg.author, msg.githubId)
+                            ? () => onDeleteMessage(msg.githubId)
+                            : undefined}
+                        />
                       )}
                     </span>
                   </div>

@@ -362,6 +362,26 @@ public interface PullRequestRepository
     }
 
     /**
+     * Deletes a top-level issue / PR comment. The authenticated user must
+     * own the comment or have write access to the repo. Maps to:
+     * DELETE /repos/{owner}/{repo}/issues/comments/{id}
+     */
+    default void deleteIssueComment(String pat, String owner, String repo, long commentId)
+    {
+        throw new UnsupportedOperationException("deleteIssueComment not implemented");
+    }
+
+    /**
+     * Deletes a per-line review comment. Same permission story as
+     * {@link #deleteIssueComment}. Maps to:
+     * DELETE /repos/{owner}/{repo}/pulls/comments/{id}
+     */
+    default void deleteReviewComment(String pat, String owner, String repo, long commentId)
+    {
+        throw new UnsupportedOperationException("deleteReviewComment not implemented");
+    }
+
+    /**
      * Adds an emoji reaction to a per-line review comment.
      * Maps to: POST /repos/{owner}/{repo}/pulls/comments/{commentId}/reactions
      *

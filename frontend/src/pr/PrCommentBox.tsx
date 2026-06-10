@@ -14,6 +14,7 @@
 import { forwardRef, useImperativeHandle, useRef, useState } from 'react';
 import { marked } from 'marked';
 import type { PullRequestDto } from '../types';
+import { buildQuotedReply } from './utils';
 import PolishButtons from '../ai/PolishButtons';
 
 /**
@@ -45,11 +46,7 @@ export const PrCommentBox = forwardRef<PrCommentBoxHandle, {
       // Prepend "> " to each line of the quoted body, separator + blank line,
       // then any text the user has already typed. Match GitHub's "Quote reply"
       // wording exactly.
-      const quote = quoted.split('\n').map(l => `> ${l}`).join('\n');
-      setBody(prev => {
-        const sep = prev.trim().length > 0 ? '\n\n' : '';
-        return `${quote}\n\n${sep}${prev}`;
-      });
+      setBody(prev => buildQuotedReply(quoted, prev));
       setExpanded(true);
       setTab('write');
       // Defer focus until after the textarea renders.

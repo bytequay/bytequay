@@ -1121,6 +1121,38 @@ public class GitHubClient
     }
 
     @Override
+    public void deleteIssueComment(String pat, String owner, String repo, long commentId)
+    {
+        try {
+            gitHubRestClient.method(HttpMethod.DELETE)
+                    .uri("/repos/{owner}/{repo}/issues/comments/{commentId}",
+                            owner, repo, commentId)
+                    .header("Authorization", "Bearer " + pat)
+                    .retrieve()
+                    .toBodilessEntity();
+        }
+        catch (RestClientResponseException e) {
+            throw toReadableException(e);
+        }
+    }
+
+    @Override
+    public void deleteReviewComment(String pat, String owner, String repo, long commentId)
+    {
+        try {
+            gitHubRestClient.method(HttpMethod.DELETE)
+                    .uri("/repos/{owner}/{repo}/pulls/comments/{commentId}",
+                            owner, repo, commentId)
+                    .header("Authorization", "Bearer " + pat)
+                    .retrieve()
+                    .toBodilessEntity();
+        }
+        catch (RestClientResponseException e) {
+            throw toReadableException(e);
+        }
+    }
+
+    @Override
     public void addIssueCommentReaction(String pat, String owner, String repo, long commentId, String content)
     {
         try {

@@ -1499,19 +1499,111 @@ button.prc-branches__ref--clickable:hover {
 /* "Quote reply" button on a timeline comment card. Lives at the right edge
    of the comment header — the icon-only style nudges this into a low-key
    secondary action so it doesn't compete with the comment body. */
-.prc-comment-quote {
+/* Per-comment "⋯" overflow menu (Copy link / Quote reply / Delete) —
+   the github.com affordance. The trigger stays low-key so it doesn't
+   compete with the comment body; the popover is a small card anchored
+   to the trigger's right edge. */
+.prc-comment-menu {
+  position: relative;
+  display: inline-flex;
+}
+.prc-comment-head > .prc-comment-menu,
+.activity-item__header > .prc-comment-menu {
   margin-left: auto;
+}
+.prc-comment-menu__trigger {
   background: transparent;
   border: 0;
-  padding: 2px 6px;
-  font-size: var(--font-size-xs);
+  padding: 0 6px;
+  line-height: 1;
+  font-size: 16px;
   color: var(--text-3);
   cursor: pointer;
   border-radius: var(--radius-sm);
 }
-.prc-comment-quote:hover {
+.prc-comment-menu__trigger:hover,
+.prc-comment-menu__trigger[aria-expanded='true'] {
   background: var(--bg-elevated);
   color: var(--text-1);
+}
+.prc-comment-menu__pop {
+  position: absolute;
+  top: calc(100% + 4px);
+  right: 0;
+  z-index: 30;
+  min-width: 150px;
+  padding: 4px;
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  box-shadow: 0 6px 22px rgba(0, 0, 0, 0.14);
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+.prc-comment-menu__item {
+  appearance: none;
+  text-align: left;
+  background: transparent;
+  border: 0;
+  padding: 7px 10px;
+  font-size: var(--font-size-sm);
+  color: var(--text-1);
+  cursor: pointer;
+  border-radius: var(--radius-sm);
+  white-space: nowrap;
+}
+.prc-comment-menu__item:hover {
+  background: var(--bg-elevated);
+}
+.prc-comment-menu__item--danger {
+  color: #cf222e;
+}
+.prc-comment-menu__item--danger:hover {
+  background: rgba(207, 34, 46, 0.08);
+}
+.prc-comment-menu__confirm {
+  padding: 8px 10px;
+  min-width: 180px;
+}
+.prc-comment-menu__confirm-q {
+  display: block;
+  font-size: var(--font-size-sm);
+  color: var(--text-1);
+  margin-bottom: 8px;
+}
+.prc-comment-menu__confirm-row {
+  display: flex;
+  gap: 6px;
+}
+.prc-comment-menu__confirm-del {
+  flex: 1;
+  padding: 5px 10px;
+  font-size: var(--font-size-sm);
+  font-weight: 600;
+  color: #fff;
+  background: #cf222e;
+  border: 1px solid #cf222e;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+}
+.prc-comment-menu__confirm-del:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+.prc-comment-menu__confirm-cancel {
+  flex: 1;
+  padding: 5px 10px;
+  font-size: var(--font-size-sm);
+  color: var(--text-1);
+  background: var(--bg-card);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+}
+.prc-comment-menu__confirm-cancel:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
 }
 
 /* Commit-SHA anchor inside a timeline event row. The <code> child keeps

@@ -74,6 +74,27 @@ final class PullRequestDetailPatcher
                 detail.checkRuns(), patched, detail.linkedIssues(), detail.mergeQueueState());
     }
 
+    static StoredPrDetail withTimelineCommentRemoved(StoredPrDetail detail, long commentId)
+    {
+        List<PrTimelineEvent> patched = detail.timeline().stream()
+                .filter(event -> !(event.githubId() != null && event.githubId() == commentId
+                        && "commented".equals(event.event())))
+                .collect(toImmutableList());
+        return new StoredPrDetail(
+                detail.raw(), detail.reviews(), detail.files(), patched,
+                detail.checkRuns(), detail.reviewComments(), detail.linkedIssues(), detail.mergeQueueState());
+    }
+
+    static StoredPrDetail withReviewCommentRemoved(StoredPrDetail detail, long commentId)
+    {
+        List<PrReviewThreadMessage> patched = detail.reviewComments().stream()
+                .filter(message -> message.githubId() != commentId)
+                .collect(toImmutableList());
+        return new StoredPrDetail(
+                detail.raw(), detail.reviews(), detail.files(), detail.timeline(),
+                detail.checkRuns(), patched, detail.linkedIssues(), detail.mergeQueueState());
+    }
+
     static StoredPrDetail withReviewThreadResolved(StoredPrDetail detail, long rootCommentId, boolean resolved)
     {
         List<PrReviewThreadMessage> patched = detail.reviewComments().stream()

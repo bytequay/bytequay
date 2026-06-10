@@ -612,6 +612,40 @@ public class PullRequestService
     }
 
     /**
+     * Deletes a top-level issue / PR comment. GitHub permits this when
+     * the authenticated user owns the comment or holds write access on
+     * the repo; the frontend gates the affordance the same way, so a 403
+     * here is a defensive backstop.
+     *
+     * <p>After GitHub accepts the delete we drop the comment from the
+     * cached detail so the next {@code /prs/detail} read no longer shows
+     * it.
+     */
+    public void deleteIssueComment(String repo, long commentId)
+    {
+        String pat = patResolver.resolve(repo);
+        RepoRef ref = parseRepoRef(repo);
+        gitHub.deleteIssueComment(pat, ref.owner(), ref.repo(), commentId);
+        detailStore.findPrIdByIssueCommentId(commentId).ifPresent(prId ->
+                detailStore.find(prId).ifPresent(cached ->
+                        detailStore.save(prId, PullRequestDetailPatcher.withTimelineCommentRemoved(cached, commentId))));
+    }
+
+    /**
+     * Deletes a per-line review comment. Same permission story and cache
+     * handling as {@link #deleteIssueComment(String, long)}.
+     */
+    public void deleteReviewComment(String repo, long commentId)
+    {
+        String pat = patResolver.resolve(repo);
+        RepoRef ref = parseRepoRef(repo);
+        gitHub.deleteReviewComment(pat, ref.owner(), ref.repo(), commentId);
+        detailStore.findPrIdByReviewCommentId(commentId).ifPresent(prId ->
+                detailStore.find(prId).ifPresent(cached ->
+                        detailStore.save(prId, PullRequestDetailPatcher.withReviewCommentRemoved(cached, commentId))));
+    }
+
+    /**
      * Toggles a review thread's resolved state via GraphQL. The
      * frontend identifies the thread by its REST root comment id; we
      * look up the GraphQL node id from the cached detail (populated by

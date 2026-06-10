@@ -24,6 +24,8 @@ import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.repository.ThreadStore;
 import com.bytequay.app.repository.WatchedRepoStore;
 import com.bytequay.app.service.CredentialService;
+import com.bytequay.app.service.local.ds4.Ds4Instrumentation;
+import com.bytequay.app.service.local.ds4.Ds4LifecycleService;
 import com.bytequay.app.service.skills.RoleSkillService;
 import com.bytequay.app.service.skills.SkillMaterializer;
 import com.bytequay.app.service.threads.tools.LogicLoopToolRegistry;
@@ -99,6 +101,14 @@ public class ThreadRegistry
     /** Tools the API-lane loop exposes to the model. Null on legacy
      *  test paths; production wires the Spring-discovered list. */
     private final LogicLoopToolRegistry toolRegistry;
+    /** Local ds4 supervisor — the LogicLoopThreadAgent reads its
+     *  live endpoint when the resolved work model is
+     *  deepseek-v4-flash. Null on tests. */
+    private final Ds4LifecycleService ds4;
+    /** Local ds4 metrics ring — thread turns recorded here show up
+     *  on the Settings → Local AI (ds4) → Metrics tab alongside
+     *  review-path calls. Null on tests. */
+    private final Ds4Instrumentation ds4Instrumentation;
     private final WorktreeLeaseService leaseService;
     /** Resolves the cwd a trunk session should be spawned in. Takes
      *  the Thread because the trunk's working dir is workspace-
@@ -132,7 +142,9 @@ public class ThreadRegistry
             RoleSkillService roleSkillService,
             WorkModelResolver workModelResolver,
             CredentialService credentialService,
-            LogicLoopToolRegistry toolRegistry)
+            LogicLoopToolRegistry toolRegistry,
+            Ds4LifecycleService ds4,
+            Ds4Instrumentation ds4Instrumentation)
     {
         this(store, taskStore, new StreamJsonParser(mapper), mapper, gate,
                 ClaudeCodeCliThreadAgent.defaultExecutor(), checkpointTrigger,
@@ -143,7 +155,9 @@ public class ThreadRegistry
                 roleSkillService,
                 workModelResolver,
                 credentialService,
-                toolRegistry);
+                toolRegistry,
+                ds4,
+                ds4Instrumentation);
     }
 
     /**
@@ -215,6 +229,8 @@ public class ThreadRegistry
                 null,
                 null,
                 null,
+                null,
+                null,
                 null);
     }
 
@@ -233,7 +249,9 @@ public class ThreadRegistry
             RoleSkillService roleSkillService,
             WorkModelResolver workModelResolver,
             CredentialService credentialService,
-            LogicLoopToolRegistry toolRegistry)
+            LogicLoopToolRegistry toolRegistry,
+            Ds4LifecycleService ds4,
+            Ds4Instrumentation ds4Instrumentation)
     {
         this.store = requireNonNull(store, "store is null");
         this.taskStore = requireNonNull(taskStore, "taskStore is null");
@@ -250,6 +268,8 @@ public class ThreadRegistry
         this.workModelResolver = workModelResolver;
         this.credentialService = credentialService;
         this.toolRegistry = toolRegistry;
+        this.ds4 = ds4;
+        this.ds4Instrumentation = ds4Instrumentation;
     }
 
     public Optional<ThreadAgent> find(String threadId)
@@ -380,7 +400,8 @@ public class ThreadRegistry
                 yield new LogicLoopThreadAgent(
                         thread, store, taskStore, mapper, executor,
                         credentialService, resolved, workingDir,
-                        resolveTaskRoleSkill(thread), toolRegistry);
+                        resolveTaskRoleSkill(thread), toolRegistry,
+                        ds4, ds4Instrumentation);
             }
         };
     }
@@ -400,7 +421,7 @@ public class ThreadRegistry
                         thread, store, taskStore, mapper, executor,
                         credentialService, resolved, trunkCwdResolver.apply(thread),
                         roleSkillService == null ? null : roleSkillService.trunkTemplate(),
-                        toolRegistry);
+                        toolRegistry, ds4, ds4Instrumentation);
             }
         };
     }

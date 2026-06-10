@@ -26,6 +26,9 @@ import com.bytequay.app.domain.WorkModelKind;
 import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.repository.ThreadStore;
 import com.bytequay.app.service.CredentialService;
+import com.bytequay.app.service.local.ds4.Ds4Instrumentation;
+import com.bytequay.app.service.local.ds4.Ds4LifecycleService;
+import com.bytequay.app.service.local.ds4.Ds4State;
 import com.bytequay.app.service.threads.tools.AgentTool;
 import com.bytequay.app.service.threads.tools.AgentToolContext;
 import com.bytequay.app.service.threads.tools.LogicLoopToolRegistry;
@@ -107,7 +110,15 @@ public class LogicLoopThreadAgent
     private static final String DEEPSEEK_PROVIDER_ID = "deepseek";
     private static final String DEEPSEEK_COMPLETIONS_URL = "https://api.deepseek.com/chat/completions";
     /** Local ds4 model served by the Ds4LifecycleService subprocess. */
-    private static final String DEEPSEEK_LOCAL_COMPLETIONS_URL = "http://127.0.0.1:8000/chat/completions";
+    /** Fallback local URL when no Ds4LifecycleService is wired (test
+     *  paths). Production resolves the URL dynamically from the
+     *  supervisor's status endpoint so a user-configured ds4.port
+     *  flows through end-to-end.
+     *  <p>Note the {@code /v1/} prefix — ds4-server's README pins
+     *  the chat-completions endpoint at {@code POST /v1/chat/completions};
+     *  hitting {@code /chat/completions} (without {@code /v1/}) was
+     *  the bug that surfaced as the trunk thread flipping to ERRORED. */
+    private static final String DEEPSEEK_LOCAL_COMPLETIONS_URL = "http://127.0.0.1:8000/v1/chat/completions";
     private static final String DEEPSEEK_LOCAL_MODEL_ID = "deepseek-v4-flash";
     /** Placeholder token the local ds4 server accepts; the real gate is
      *  "server running", not "key present". */
@@ -163,6 +174,16 @@ public class LogicLoopThreadAgent
     /** Tools the model is told about and can call. Null on the
      *  legacy text-only constructor used by older test paths. */
     private final LogicLoopToolRegistry toolRegistry;
+    /** Local ds4 supervisor — null when the agent is built without
+     *  the local lane wired (e.g. unit tests). Used to (a) build the
+     *  current local endpoint URL so a user-configured ds4.port is
+     *  honoured, and (b) refuse to dispatch when the server isn't
+     *  RUNNING instead of silently 404'ing. */
+    private final Ds4LifecycleService ds4;
+    /** Metrics ring the local-ds4 path records each round into so
+     *  the Metrics tab reflects thread turns alongside review calls.
+     *  Null on the legacy paths. */
+    private final Ds4Instrumentation ds4Instrumentation;
     private final CopyOnWriteArrayList<Consumer<StreamEvent>> listeners = new CopyOnWriteArrayList<>();
 
     private final AtomicReference<ThreadStatus> status = new AtomicReference<>();
@@ -186,7 +207,8 @@ public class LogicLoopThreadAgent
             String roleSkillText)
     {
         this(thread, store, taskStore, mapper, executor, credentialService,
-                resolvedModel, workingDir, roleSkillText, /* toolRegistry */ null);
+                resolvedModel, workingDir, roleSkillText, /* toolRegistry */ null,
+                /* ds4 */ null, /* ds4Instrumentation */ null);
     }
 
     public LogicLoopThreadAgent(
@@ -200,6 +222,25 @@ public class LogicLoopThreadAgent
             String workingDir,
             String roleSkillText,
             LogicLoopToolRegistry toolRegistry)
+    {
+        this(thread, store, taskStore, mapper, executor, credentialService,
+                resolvedModel, workingDir, roleSkillText, toolRegistry,
+                /* ds4 */ null, /* ds4Instrumentation */ null);
+    }
+
+    public LogicLoopThreadAgent(
+            Thread thread,
+            ThreadStore store,
+            TaskStore taskStore,
+            ObjectMapper mapper,
+            ExecutorService executor,
+            CredentialService credentialService,
+            WorkModel resolvedModel,
+            String workingDir,
+            String roleSkillText,
+            LogicLoopToolRegistry toolRegistry,
+            Ds4LifecycleService ds4,
+            Ds4Instrumentation ds4Instrumentation)
     {
         this.threadId = thread.id();
         this.kind = thread.kind();
@@ -225,6 +266,8 @@ public class LogicLoopThreadAgent
         this.runningCostUsdMilli.set(thread.costUsdMilli());
         this.activeModel.set(thread.model() == null ? "" : thread.model());
         this.toolRegistry = toolRegistry;
+        this.ds4 = ds4;
+        this.ds4Instrumentation = ds4Instrumentation;
         store.maxMessageSeq(threadId).ifPresent(max -> nextSeq.set(max + 1));
     }
 
@@ -579,7 +622,7 @@ public class LogicLoopThreadAgent
 
         if (DEEPSEEK_PROVIDER_ID.equalsIgnoreCase(provider)) {
             if (DEEPSEEK_LOCAL_MODEL_ID.equals(modelId)) {
-                url = DEEPSEEK_LOCAL_COMPLETIONS_URL;
+                url = resolveLocalDs4Url();
                 token = DEEPSEEK_LOCAL_AUTH_TOKEN;
             }
             else {
@@ -607,14 +650,19 @@ public class LogicLoopThreadAgent
         long totalTokensIn = 0;
         long totalTokensOut = 0;
 
+        boolean isLocalDs4 = DEEPSEEK_PROVIDER_ID.equalsIgnoreCase(provider)
+                && DEEPSEEK_LOCAL_MODEL_ID.equals(modelId);
+
         for (int iteration = 0; iteration < MAX_TOOL_ITERATIONS; iteration++) {
             if (userInterrupted.get()) {
                 return;
             }
+            long roundStartNanos = System.nanoTime();
             OaiRoundResult round = runOpenAiCompatibleRound(modelId, token, url, messages, toolsArray);
             totalTokensIn += round.tokensIn;
             totalTokensOut += round.tokensOut;
             finalText = round.text;
+            recordLocalDs4Sample(isLocalDs4, roundStartNanos, round);
             if (round.toolCallBlocks.isEmpty()) {
                 break;
             }
@@ -628,6 +676,46 @@ public class LogicLoopThreadAgent
         }
 
         finalizeTurn(modelId, turnStart, finalText, totalTokensIn, totalTokensOut);
+    }
+
+    /** Build the local ds4 chat-completions URL from the supervisor's
+     *  live status so a user-configured ds4.port is honoured. Pre-
+     *  validates the server is RUNNING; turning a 404 from a stopped
+     *  server into a clear "open Settings → Local AI (ds4) to Start
+     *  it" message saves the user from chasing an opaque ERRORED. */
+    private String resolveLocalDs4Url()
+    {
+        if (ds4 == null) {
+            return DEEPSEEK_LOCAL_COMPLETIONS_URL;
+        }
+        Ds4State state = ds4.status().state();
+        if (state != Ds4State.RUNNING) {
+            throw new IllegalStateException(
+                    "Local ds4 server is " + state + "; open Settings → Local AI (ds4) "
+                            + "to Start it (or pick a different work model).");
+        }
+        String endpoint = ds4.status().endpoint();
+        if (endpoint == null || endpoint.isBlank()) {
+            return DEEPSEEK_LOCAL_COMPLETIONS_URL;
+        }
+        return endpoint + "/v1/chat/completions";
+    }
+
+    /** Record one completed local-ds4 round into the metrics ring so
+     *  the Metrics tab reflects thread turns alongside review calls.
+     *  No-op when the round wasn't local-ds4 or the instrumentation
+     *  isn't wired (test paths). */
+    private void recordLocalDs4Sample(boolean isLocalDs4, long roundStartNanos, OaiRoundResult round)
+    {
+        if (!isLocalDs4 || ds4Instrumentation == null) {
+            return;
+        }
+        long elapsedMs = Math.max(1L, (System.nanoTime() - roundStartNanos) / 1_000_000L);
+        double tps = round.tokensOut == 0 ? 0.0 : (round.tokensOut * 1000.0) / elapsedMs;
+        String caller = activeTaskId() == null ? "trunk" : "task";
+        ds4Instrumentation.record(Ds4Instrumentation.Sample.of(
+                caller, "/v1/chat/completions",
+                round.tokensIn, round.tokensOut, tps, elapsedMs, "200"));
     }
 
     /** One round-trip with an OpenAI-compatible provider. Parses the

@@ -16,11 +16,46 @@ import type { PullRequestDto, ReviewRosterEntryDto } from '../types';
 import { WS_DIALOG_OVERLAY, WS_DIALOG_PANEL, dialogStyles } from './dialogStyles';
 
 type Props = {
+  /** Workspace the dialog opened from — its first repo is the default
+   *  a bare typed PR number resolves against. */
+  workspaceId: string;
   onClose: () => void;
   /** Fires after the review pass kicks off — parent owns navigation
    *  to the freshly-created review thread. */
   onStarted: (threadId: string) => void;
 };
+
+/** State of the on-demand PR lookup — what happens when the user types
+ *  a PR reference (a number against the workspace's default repo, an
+ *  owner/repo#number, or a pasted github.com URL) that isn't already in
+ *  the awaiting-review list. */
+type LookupState =
+  | { status: 'idle' }
+  | { status: 'loading'; ref: PrRef }
+  | { status: 'found'; ref: PrRef; pr: PullRequestDto }
+  | { status: 'notfound'; ref: PrRef }
+  | { status: 'error'; ref: PrRef; message: string };
+
+type PrRef = { repo: string; number: number };
+
+/** Parses the search box into a concrete repo + number when it looks
+ *  like a PR reference. A bare number (or {@code #123}) resolves
+ *  against {@code defaultRepo}; an {@code owner/repo#123} (or
+ *  {@code .../123}) or a pasted github.com PR URL carry their own repo.
+ *  Returns null when the text isn't a PR reference (plain search). */
+function parsePrRef(input: string, defaultRepo: string | null): PrRef | null {
+  const s = input.trim();
+  if (s === '') return null;
+  const urlMatch = s.match(/github\.com\/([^/\s]+\/[^/\s]+)\/pull\/(\d+)/i);
+  if (urlMatch !== null) return { repo: urlMatch[1], number: Number(urlMatch[2]) };
+  const refMatch = s.match(/^([\w.-]+\/[\w.-]+)(?:#|\/|\s+)(\d+)$/);
+  if (refMatch !== null) return { repo: refMatch[1], number: Number(refMatch[2]) };
+  const numMatch = s.match(/^#?(\d+)$/);
+  if (numMatch !== null && defaultRepo !== null) {
+    return { repo: defaultRepo, number: Number(numMatch[1]) };
+  }
+  return null;
+}
 
 /**
  * Modal for spinning up a multi-agent review panel on a PR awaiting
@@ -35,11 +70,15 @@ const COST_MIN_CENTS = 10; // 0.10 USD
 const COST_MAX_CENTS = 200; // 2.00 USD
 const COST_STEP_CENTS = 5;
 
-function AssignReviewTaskDialog({ onClose, onStarted }: Props) {
+function AssignReviewTaskDialog({ workspaceId, onClose, onStarted }: Props) {
   const [prs, setPrs] = useState<PullRequestDto[] | null>(null);
   const [roster, setRoster] = useState<ReviewRosterEntryDto[] | null>(null);
   const [selectedPr, setSelectedPr] = useState<PullRequestDto | null>(null);
   const [search, setSearch] = useState('');
+  // The workspace's default repo — a bare typed number resolves here.
+  const [defaultRepo, setDefaultRepo] = useState<string | null>(null);
+  // On-demand lookup for a PR that isn't in the awaiting-review list.
+  const [lookup, setLookup] = useState<LookupState>({ status: 'idle' });
   const [selectedProviders, setSelectedProviders] = useState<Set<string>>(new Set());
   // Debate rounds + cost budget caps. Defaults mirror ReviewPassService.StartOptions.DEFAULT.
   const [rounds, setRounds] = useState<number>(3);
@@ -54,9 +93,10 @@ function AssignReviewTaskDialog({ onClose, onStarted }: Props) {
     let cancelled = false;
     void (async () => {
       try {
-        const [prList, rosterList] = await Promise.all([
+        const [prList, rosterList, repoList] = await Promise.all([
           window.bridge.fetchPrs(),
           window.bridge.listReviewRoster(),
+          window.bridge.listWorkspaceRepos(workspaceId),
         ]);
         if (cancelled) return;
         const awaiting = prList
@@ -65,6 +105,9 @@ function AssignReviewTaskDialog({ onClose, onStarted }: Props) {
             .filter(p => p.snoozedUntil === null);
         setPrs(awaiting);
         setRoster(rosterList);
+        // First repo (oldest by addedAt) is the workspace's main repo —
+        // the default a bare typed PR number resolves against.
+        setDefaultRepo(repoList[0]?.repoFullName ?? null);
         // Default-seat every configured reviewer (mirrors the
         // registry's "all-configured" fallback so the chips show
         // the user what would happen if they pressed Start unchanged).
@@ -78,7 +121,7 @@ function AssignReviewTaskDialog({ onClose, onStarted }: Props) {
       }
     })();
     return () => { cancelled = true; };
-  }, []);
+  }, [workspaceId]);
 
   const filteredPrs = useMemo(() => {
     if (prs === null) return [];
@@ -91,6 +134,43 @@ function AssignReviewTaskDialog({ onClose, onStarted }: Props) {
       return hay.includes(q);
     });
   }, [prs, search]);
+
+  // On-demand lookup: when the search box is a PR reference that isn't
+  // already in the awaiting list, fetch it straight from GitHub (debounced)
+  // so the user can assign a review to any PR they can see — including
+  // ones GitHub drops from review-requested:@me or that live in another
+  // repo. A bare number resolves against the workspace's default repo.
+  useEffect(() => {
+    const ref = parsePrRef(search, defaultRepo);
+    if (ref === null) {
+      setLookup({ status: 'idle' });
+      return;
+    }
+    const inList = (prs ?? []).some(p =>
+        p.number === ref.number && p.repo.toLowerCase() === ref.repo.toLowerCase());
+    if (inList) {
+      setLookup({ status: 'idle' });
+      return;
+    }
+    let cancelled = false;
+    setLookup({ status: 'loading', ref });
+    const handle = window.setTimeout(() => {
+      void (async () => {
+        try {
+          const pr = await window.bridge.lookupPr(ref.repo, ref.number);
+          if (!cancelled) setLookup({ status: 'found', ref, pr });
+        }
+        catch (err) {
+          if (cancelled) return;
+          const msg = err instanceof Error ? err.message : String(err);
+          setLookup(/\b404\b/.test(msg)
+              ? { status: 'notfound', ref }
+              : { status: 'error', ref, message: msg });
+        }
+      })();
+    }, 400);
+    return () => { cancelled = true; window.clearTimeout(handle); };
+  }, [search, defaultRepo, prs]);
 
   const toggleProvider = (id: string, configured: boolean) => {
     if (!configured) return;
@@ -175,27 +255,55 @@ function AssignReviewTaskDialog({ onClose, onStarted }: Props) {
             type="search"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
-            placeholder="Search PRs by title, author, or #number…"
+            placeholder="Search, or type a PR number / owner/repo#123 / paste a URL…"
             style={searchInputStyle}
           />
           <div style={prListStyle}>
             {prs === null ? (
               <div style={mutedRowStyle}>Loading PRs…</div>
-            ) : filteredPrs.length === 0 ? (
-              <div style={mutedRowStyle}>
-                {prs.length === 0
-                  ? 'No PRs awaiting your review right now.'
-                  : 'No PRs match this search.'}
-              </div>
             ) : (
-              filteredPrs.map(pr => (
-                <PrRow
-                  key={pr.id}
-                  pr={pr}
-                  selected={selectedPr?.id === pr.id}
-                  onSelect={() => setSelectedPr(pr)}
-                />
-              ))
+              <>
+                {lookup.status === 'loading' && (
+                  <div style={mutedRowStyle}>
+                    Looking up {lookup.ref.repo}#{lookup.ref.number}…
+                  </div>
+                )}
+                {lookup.status === 'found' && (
+                  <PrRow
+                    pr={lookup.pr}
+                    selected={selectedPr?.repo === lookup.pr.repo
+                      && selectedPr?.number === lookup.pr.number}
+                    onSelect={() => setSelectedPr(lookup.pr)}
+                    fromGitHub
+                  />
+                )}
+                {lookup.status === 'notfound' && (
+                  <div style={mutedRowStyle}>
+                    No PR found at {lookup.ref.repo}#{lookup.ref.number} — check the
+                    number, or paste the full PR URL.
+                  </div>
+                )}
+                {lookup.status === 'error' && (
+                  <div style={mutedRowStyle}>
+                    Couldn't load {lookup.ref.repo}#{lookup.ref.number}: {lookup.message}
+                  </div>
+                )}
+                {filteredPrs.map(pr => (
+                  <PrRow
+                    key={pr.id}
+                    pr={pr}
+                    selected={selectedPr?.id === pr.id}
+                    onSelect={() => setSelectedPr(pr)}
+                  />
+                ))}
+                {filteredPrs.length === 0 && lookup.status === 'idle' && (
+                  <div style={mutedRowStyle}>
+                    {prs.length === 0
+                      ? 'No PRs awaiting your review right now.'
+                      : 'No PRs match this search.'}
+                  </div>
+                )}
+              </>
             )}
           </div>
 
@@ -294,11 +402,15 @@ function AssignReviewTaskDialog({ onClose, onStarted }: Props) {
 }
 
 function PrRow({
-  pr, selected, onSelect,
+  pr, selected, onSelect, fromGitHub = false,
 }: {
   pr: PullRequestDto;
   selected: boolean;
   onSelect: () => void;
+  /** True for an on-demand looked-up PR that isn't in the awaiting
+   *  list — gets a small "from GitHub" badge and shows its repo, since
+   *  it may live outside the workspace's default repo. */
+  fromGitHub?: boolean;
 }) {
   const ci = pr.ciStatus === 'FAILING' ? 'CI ⨯' : 'CI ✓';
   const ciStyle = pr.ciStatus === 'FAILING' ? prRowCiBadStyle : prRowCiGoodStyle;
@@ -317,15 +429,25 @@ function PrRow({
           <span style={prRowNumStyle}>#{pr.number}</span> {pr.title}
         </span>
         <span style={prRowMetaStyle}>
+          {fromGitHub && <span style={prRowRepoStyle}>{pr.repo}</span>}
           {pr.author !== null && <>{pr.author}</>}
-          <span style={prRowDiffPosStyle}>{` +${pr.additions}`}</span>
-          <span style={prRowDiffNegStyle}>{` /-${pr.deletions}`}</span>
-          {pr.commentCount > 0 && (
-            <>{' · '}{pr.commentCount} {pr.commentCount === 1 ? 'comment' : 'comments'}</>
+          {/* Diff size / comment count / CI come from the detail fetch,
+              not the on-demand single-PR lookup — they'd read 0 / green
+              for a looked-up PR, so suppress them rather than mislead. */}
+          {!fromGitHub && (
+            <>
+              <span style={prRowDiffPosStyle}>{` +${pr.additions}`}</span>
+              <span style={prRowDiffNegStyle}>{` /-${pr.deletions}`}</span>
+              {pr.commentCount > 0 && (
+                <>{' · '}{pr.commentCount} {pr.commentCount === 1 ? 'comment' : 'comments'}</>
+              )}
+            </>
           )}
         </span>
       </span>
-      <span style={ciStyle}>{ci}</span>
+      {fromGitHub
+        ? <span style={prRowFromGitHubStyle}>from GitHub</span>
+        : <span style={ciStyle}>{ci}</span>}
     </button>
   );
 }
@@ -552,6 +674,22 @@ const prRowMetaStyle: React.CSSProperties = {
   fontSize: 11,
   color: 'var(--ws-text-3)',
   marginTop: 2,
+};
+
+const prRowRepoStyle: React.CSSProperties = {
+  color: 'var(--ws-text-2, #475569)',
+  fontWeight: 600,
+  marginRight: 6,
+};
+
+const prRowFromGitHubStyle: React.CSSProperties = {
+  flexShrink: 0,
+  padding: '2px 8px',
+  fontSize: 10,
+  fontWeight: 600,
+  borderRadius: 999,
+  background: 'rgba(124, 58, 237, 0.12)',
+  color: '#7c3aed',
 };
 
 const prRowDiffPosStyle: React.CSSProperties = {

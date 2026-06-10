@@ -98,6 +98,19 @@ public class PullRequestController
     }
 
     /**
+     * Fetches a single PR straight from GitHub by repo + number,
+     * bypassing the cached dashboard list. Backs the assign-review
+     * dialog's on-demand lookup. GET /prs/lookup?repo=owner/repo&number=123
+     */
+    @GetMapping("/prs/lookup")
+    public PullRequest lookup(
+            @RequestParam("repo") String repo,
+            @RequestParam("number") int number)
+    {
+        return pullRequestService.lookupPullRequest(repo, number);
+    }
+
+    /**
      * Aggregated KPIs for the PR review Analytics page. Local-only,
      * no PAT — reads the cached PR rows and detail blobs.
      * GET /prs/analytics?scope=7d|30d|90d|all&tz=America/Los_Angeles

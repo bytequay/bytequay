@@ -548,6 +548,23 @@ function registerIpc(): void {
     return res.json();
   });
 
+  // On-demand single-PR lookup straight from GitHub by repo + number,
+  // bypassing the cached dashboard list. Backs the assign-review
+  // dialog's "paste a PR URL / owner/repo#number" path so a review can
+  // be assigned to any PR the user can see — even one outside the
+  // dashboard's relevant-PR set.
+  ipcMain.handle('backend:lookupPr', async (_event, repo: string, number: number) => {
+    const url = new URL(`${BACKEND_BASE}/prs/lookup`);
+    url.searchParams.set('repo', repo);
+    url.searchParams.set('number', String(number));
+    const res = await fetch(url);
+    if (!res.ok) {
+      const body = await res.text().catch(() => '');
+      throw new Error(`backend /prs/lookup returned ${res.status}: ${body}`);
+    }
+    return res.json();
+  });
+
   // Named filter (urgent, awaiting_me, stale, blocked, mine_open) —
   // the backend resolves through PullRequestFilters, which is the
   // same code path the list_prs agent tool uses. The dashboard's

@@ -204,6 +204,7 @@ function WorkspaceShell({
       )}
       {assignReviewOpen && (
         <AssignReviewTaskDialog
+          workspaceId={workspaceId}
           onClose={() => setAssignReviewOpen(false)}
           onStarted={(threadId) => {
             setAssignReviewOpen(false);

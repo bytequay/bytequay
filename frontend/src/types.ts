@@ -2335,6 +2335,11 @@ export type Bridge = {
    *  name="urgent" so the predicate is defined exactly once on the
    *  backend (UrgentPrFilter) instead of being mirrored in TS. */
   fetchPrsByFilter: (name: string) => Promise<PullRequestDto[]>;
+  /** On-demand single-PR lookup straight from GitHub by repo + number,
+   *  bypassing the cached dashboard list. Backs the assign-review
+   *  dialog's "type a number / paste a URL" path. Rejects (GitHub 404)
+   *  when no such PR exists. */
+  lookupPr: (repo: string, number: number) => Promise<PullRequestDto>;
   /** Saved Views — user-authored concepts (scope=USER) visible
    *  alongside the workspace and APP-scoped seeds. */
   listSavedViews: () => Promise<SavedViewDto[]>;

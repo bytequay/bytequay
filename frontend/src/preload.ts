@@ -99,6 +99,8 @@ const bridge: Bridge = {
   fetchPrs: (): Promise<PullRequestDto[]> => ipcRenderer.invoke('backend:listPrs'),
   fetchPrsByFilter: (name: string): Promise<PullRequestDto[]> =>
     ipcRenderer.invoke('backend:listPrsByFilter', name),
+  lookupPr: (repo: string, number: number): Promise<PullRequestDto> =>
+    ipcRenderer.invoke('backend:lookupPr', repo, number),
   listSavedViews: () => ipcRenderer.invoke('backend:listSavedViews'),
   createSavedView: (body: SavedViewBodyDto) =>
     ipcRenderer.invoke('backend:createSavedView', body),

@@ -88,6 +88,13 @@ public class PullRequestService
     // backfilled the query returns 0 and this loop is free.
     private static final int REVIEW_TIMESTAMP_BACKFILL_BATCH = 25;
 
+    // PR-search pagination for the dashboard's relevant-PR fetch. 100 is
+    // GitHub's max page size; 6 pages caps the per-query cost at 600 PRs
+    // (GitHub's search ceiling is 1000) while still covering reviewers
+    // with far more than the old single 50-item page exposed.
+    private static final int SEARCH_PAGE_SIZE = 100;
+    private static final int MAX_SEARCH_PAGES = 6;
+
     private final PullRequestRepository gitHub;
     private final PullRequestStore store;
     private final PrDetailStore detailStore;
@@ -162,6 +169,20 @@ public class PullRequestService
     {
         return PullRequestOrder.fromKey(settingsStore.get(AppSettingsStore.Key.PR_SORT_ORDER).orElse(""))
                 .sort(store.findAll());
+    }
+
+    /**
+     * Fetches a single PR straight from GitHub by repo + number,
+     * bypassing the cached dashboard list. Backs the assign-review
+     * dialog's on-demand lookup so the user can target any PR they can
+     * see on GitHub — even one that never enters the dashboard's
+     * relevant-PR set (e.g. requested via a team, or in an unwatched
+     * repo). Propagates GitHub's 404 when no such PR exists.
+     */
+    public PullRequest lookupPullRequest(String repo, int number)
+    {
+        String pat = patResolver.resolve(repo);
+        return gitHub.getPullRequest(pat, parseRef(repo, number));
     }
 
     /**
@@ -1145,9 +1166,18 @@ public class PullRequestService
     private List<PullRequest> fetchRelevant(String pat)
     {
         CompletableFuture<List<PullRequest>> authoredFuture = CompletableFuture.supplyAsync(
-                () -> gitHub.searchPullRequests(pat, "is:pr is:open author:@me"), executor);
+                () -> searchAllPages(pat, "is:pr is:open author:@me"), executor);
         CompletableFuture<List<PullRequest>> reviewFuture = CompletableFuture.supplyAsync(
-                () -> gitHub.searchPullRequests(pat, "is:pr is:open review-requested:@me"), executor);
+                () -> searchAllPages(pat, "is:pr is:open review-requested:@me"), executor);
+        // Open PRs I've already reviewed. GitHub drops a PR from
+        // `review-requested:@me` the moment a verdict is submitted, so
+        // without this an already-reviewed PR vanishes from the list
+        // even though it's still open and re-reviewable — which is what
+        // the assign-review dialog wants to offer. These carry the
+        // REVIEW_REQUESTED origin too, but the awaiting-me filter still
+        // hides them from the dashboard because they have a verdict.
+        CompletableFuture<List<PullRequest>> reviewedByFuture = CompletableFuture.supplyAsync(
+                () -> searchAllPages(pat, "is:pr is:open reviewed-by:@me"), executor);
         // Recently-closed authored PRs feed the kanban's "Recently merged"
         // column. Without this the moment a PR is merged on GitHub the
         // is:open search drops it, store.replaceAll(...) deletes the row,
@@ -1162,6 +1192,7 @@ public class PullRequestService
 
         List<PullRequest> authored = join(authoredFuture);
         List<PullRequest> reviewRequested = join(reviewFuture);
+        List<PullRequest> reviewedBy = join(reviewedByFuture);
         List<PullRequest> recentlyClosed = join(recentlyClosedFuture);
 
         LinkedHashMap<String, PullRequest> merged = Maps.newLinkedHashMap();
@@ -1181,7 +1212,34 @@ public class PullRequestService
                 merged.putIfAbsent(key, withOrigin(pr, REVIEW_REQUESTED));
             }
         }
+        if (reviewedBy != null) {
+            for (PullRequest pr : reviewedBy) {
+                String key = pr.repo() + "#" + pr.number();
+                merged.putIfAbsent(key, withOrigin(pr, REVIEW_REQUESTED));
+            }
+        }
         return ImmutableList.copyOf(merged.values());
+    }
+
+    /**
+     * Runs a GitHub PR search to exhaustion (up to {@link #MAX_SEARCH_PAGES}
+     * pages of {@link #SEARCH_PAGE_SIZE}), instead of the single 50-item
+     * page the dashboard used to read. A heavy reviewer can sit on more
+     * than 50 open review requests; the old single page silently dropped
+     * the tail, so those PRs never appeared anywhere — including the
+     * assign-review dialog's number search.
+     */
+    private List<PullRequest> searchAllPages(String pat, String query)
+    {
+        ImmutableList.Builder<PullRequest> all = ImmutableList.builder();
+        for (int page = 1; page <= MAX_SEARCH_PAGES; page++) {
+            PullRequestHistoryPage result = gitHub.searchPullRequestsPaged(pat, query, page, SEARCH_PAGE_SIZE);
+            all.addAll(result.items());
+            if (!result.hasMore()) {
+                break;
+            }
+        }
+        return all.build();
     }
 
     private void syncDetailQuietly(String pat, PullRequest pr, String currentLogin)

@@ -11,22 +11,16 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-export type SettingsSection =
-  | 'account'
-  | 'appearance'
-  | 'credentials'
-  // Kept in the union for back-compat with onboarding deep links and
-  // older URLs; the SettingsShell aliases it to 'credentials' on render.
-  | 'github-token'
-  | 'teams'
-  | 'ai-review'
-  | 'personas'
-  | 'local-ai'
-  | 'skills'
-  | 'watched-repos'
-  | 'workspace-memory'
-  | 'integrations'
-  | 'email'
-  | 'saved-views'
-  | 'concepts'
-  | 'help';
+package com.bytequay.app.repository.sqlite;
+
+import org.springframework.data.jpa.repository.JpaRepository;
+
+import java.util.List;
+
+interface ReviewerPersonaJpaRepository
+        extends JpaRepository<ReviewerPersonaEntity, String>
+{
+    /** Active personas ordered by name — the Start Review dialog
+     *  reads this verbatim when populating the picker. */
+    List<ReviewerPersonaEntity> findByIsActiveOrderByNameAsc(int isActive);
+}

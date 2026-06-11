@@ -11,22 +11,22 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-export type SettingsSection =
-  | 'account'
-  | 'appearance'
-  | 'credentials'
-  // Kept in the union for back-compat with onboarding deep links and
-  // older URLs; the SettingsShell aliases it to 'credentials' on render.
-  | 'github-token'
-  | 'teams'
-  | 'ai-review'
-  | 'personas'
-  | 'local-ai'
-  | 'skills'
-  | 'watched-repos'
-  | 'workspace-memory'
-  | 'integrations'
-  | 'email'
-  | 'saved-views'
-  | 'concepts'
-  | 'help';
+package com.bytequay.app.domain;
+
+/**
+ * Role a {@link ReviewerPersona} plays inside a review pass.
+ *
+ * <ul>
+ *   <li>{@link #LEAD} — drafts the consensus and gets the final say
+ *       in a debate loop. The current panel wiring tolerates zero
+ *       leads (falls back to the first reviewer) and one lead per
+ *       pass; multiple leads are not modelled.</li>
+ *   <li>{@link #REVIEWER} — contributes findings; does not draft
+ *       consensus.</li>
+ * </ul>
+ */
+public enum ReviewerPersonaRole
+{
+    LEAD,
+    REVIEWER
+}

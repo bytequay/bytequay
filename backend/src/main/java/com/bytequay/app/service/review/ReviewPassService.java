@@ -29,6 +29,7 @@ import com.bytequay.app.domain.ReviewPassDetail;
 import com.bytequay.app.domain.ReviewPhase;
 import com.bytequay.app.domain.ReviewRequest;
 import com.bytequay.app.domain.ReviewVerdict;
+import com.bytequay.app.domain.ReviewerPersona;
 import com.bytequay.app.domain.Thread;
 import com.bytequay.app.domain.ThreadFlow;
 import com.bytequay.app.domain.ThreadKind;
@@ -37,6 +38,7 @@ import com.bytequay.app.repository.AppSettingsStore;
 import com.bytequay.app.repository.AppSettingsStore.Key;
 import com.bytequay.app.repository.PullRequestRepository;
 import com.bytequay.app.repository.ReviewStore;
+import com.bytequay.app.repository.ReviewerPersonaStore;
 import com.bytequay.app.repository.ThreadStore;
 import com.bytequay.app.service.ai.LlmReviewer;
 import com.bytequay.app.service.ai.LlmReviewerRegistry;
@@ -102,6 +104,7 @@ public class ReviewPassService
     private final PatResolver patResolver;
     private final LlmReviewerRegistry reviewers;
     private final AppSettingsStore appSettings;
+    private final ReviewerPersonaStore personas;
 
     public ReviewPassService(
             ThreadStore threadStore,
@@ -109,7 +112,8 @@ public class ReviewPassService
             PullRequestRepository pullRequests,
             PatResolver patResolver,
             LlmReviewerRegistry reviewers,
-            AppSettingsStore appSettings)
+            AppSettingsStore appSettings,
+            ReviewerPersonaStore personas)
     {
         this.threadStore = requireNonNull(threadStore, "threadStore is null");
         this.reviewStore = requireNonNull(reviewStore, "reviewStore is null");
@@ -117,6 +121,7 @@ public class ReviewPassService
         this.patResolver = requireNonNull(patResolver, "patResolver is null");
         this.reviewers = requireNonNull(reviewers, "reviewers is null");
         this.appSettings = requireNonNull(appSettings, "appSettings is null");
+        this.personas = requireNonNull(personas, "personas is null");
     }
 
     /**
@@ -148,7 +153,7 @@ public class ReviewPassService
                     "prNumber must be a positive integer");
         }
 
-        List<LlmReviewer> panel = resolvePanel(opts.panelProviderIds());
+        List<PanelMember> panel = resolvePanelMembers(opts);
 
         // 1. Pull the PR + diff via the existing GitHub bindings so
         //    the new flow reuses the cached raw-detail / diff paths
@@ -176,11 +181,11 @@ public class ReviewPassService
         // bounce a 500 back to the user.
         String reviewModel = appSettings.get(Key.LLM_MODEL)
                 .filter(s -> !s.isBlank())
-                .orElseGet(() -> panel.get(0).providerId());
+                .orElseGet(() -> panel.get(0).reviewer().providerId());
         Thread thread = new Thread(
                 UUID.randomUUID().toString(),
                 ThreadKind.LOGIC_LOOP,
-                panel.get(0).providerId(),
+                panel.get(0).reviewer().providerId(),
                 /* agentSessionId */ null,
                 "Review " + repoFullName + "#" + prNumber,
                 ThreadStatus.RUNNING,
@@ -227,12 +232,12 @@ public class ReviewPassService
                 /* model */ null, /* color */ null, now);
         reviewStore.saveParticipant(moderator);
         List<ReviewParticipant> reviewerSeats = new ArrayList<>();
-        for (LlmReviewer r : panel) {
+        for (PanelMember m : panel) {
             ReviewParticipant seat = new ReviewParticipant(
                     UUID.randomUUID().toString(), pass.id(),
                     ReviewParticipantKind.REVIEWER,
-                    /* credentialId */ r.providerId(),
-                    r.displayName(),
+                    /* credentialId */ m.reviewer().providerId(),
+                    m.displayLabel(),
                     /* model */ null, /* color */ null, now);
             reviewStore.saveParticipant(seat);
             reviewerSeats.add(seat);
@@ -247,7 +252,7 @@ public class ReviewPassService
 
         // 5. Kickoff message — broadcast announcement.
         String kickoffMention = panel.size() == 1
-                ? panel.get(0).displayName()
+                ? panel.get(0).displayLabel()
                 : "a panel of " + panel.size() + " reviewers (" + panelDisplayNames(panel) + ")";
         reviewStore.saveMessage(new ReviewMessage(
                 UUID.randomUUID().toString(),
@@ -496,7 +501,77 @@ public class ReviewPassService
      *  list reverts to "all configured reviewers" — the scheduled +
      *  one-click paths use that default.
      */
-    private List<LlmReviewer> resolvePanel(List<String> explicitIds)
+    /** One seat on the panel. Wraps the underlying {@link LlmReviewer}
+     *  with an optional persona prompt (the reviewing "voice" the
+     *  Start Review dialog picked) and a display label that shows on
+     *  the participant chip + kickoff message. */
+    record PanelMember(LlmReviewer reviewer, String personaPrompt, String displayLabel)
+    {
+        /** Legacy member: no persona, label comes straight from the reviewer. */
+        static PanelMember legacy(LlmReviewer r)
+        {
+            return new PanelMember(r, null, r.displayName());
+        }
+    }
+
+    /** Resolves the panel for a review pass. Two paths:
+     *  <ol>
+     *    <li>Persona path (new) — opts.personaIds + opts.providerForPersonas
+     *        are set. Look up each persona, attach it to the chosen
+     *        provider's reviewer, and seat one member per persona.</li>
+     *    <li>Legacy path — fall back to the per-provider configured
+     *        reviewers, optionally filtered by opts.panelProviderIds.</li>
+     *  </ol>
+     *  Either way the result is capped at 3 to match the design doc's
+     *  panel-size invariant. */
+    private List<PanelMember> resolvePanelMembers(StartOptions opts)
+    {
+        if (opts.hasPersonas()) {
+            return resolvePersonaPanel(opts);
+        }
+        return resolveLegacyPanel(opts.panelProviderIds()).stream()
+                .map(PanelMember::legacy)
+                .toList();
+    }
+
+    private List<PanelMember> resolvePersonaPanel(StartOptions opts)
+    {
+        LlmReviewer reviewer = reviewers.all().stream()
+                .filter(r -> r.providerId().equalsIgnoreCase(opts.providerForPersonas()))
+                .findFirst()
+                .orElseThrow(() -> new ResponseStatusException(
+                        HttpStatusCode.valueOf(412),
+                        "Provider '" + opts.providerForPersonas() + "' is not registered. "
+                                + "Pick a different provider in the Start Review dialog."));
+        if (!reviewer.isConfigured()) {
+            throw new ResponseStatusException(
+                    HttpStatusCode.valueOf(412),
+                    "Provider '" + reviewer.displayName() + "' has no API key configured. "
+                            + "Add one in Settings → AI review.");
+        }
+        List<PanelMember> members = new ArrayList<>();
+        for (String pid : opts.personaIds()) {
+            ReviewerPersona p = personas.findById(pid)
+                    .orElseThrow(() -> new ResponseStatusException(
+                            HttpStatusCode.valueOf(412),
+                            "Persona '" + pid + "' not found or has been deleted."));
+            if (!p.active()) {
+                continue;
+            }
+            members.add(new PanelMember(reviewer, p.systemPrompt(), p.name()));
+            if (members.size() == 3) {
+                break;
+            }
+        }
+        if (members.isEmpty()) {
+            throw new ResponseStatusException(
+                    HttpStatusCode.valueOf(412),
+                    "No active personas were selected. Pick at least one in the Start Review dialog.");
+        }
+        return members;
+    }
+
+    private List<LlmReviewer> resolveLegacyPanel(List<String> explicitIds)
     {
         List<LlmReviewer> configured = reviewers.all().stream()
                 .filter(LlmReviewer::isConfigured)
@@ -547,15 +622,22 @@ public class ReviewPassService
      *  large PRs. */
     private Map<ReviewParticipant, ReviewOutput> runIndependentInParallel(
             List<ReviewParticipant> seats,
-            List<LlmReviewer> panel,
+            List<PanelMember> panel,
             ReviewRequest request)
     {
         ExecutorService executor = Executors.newFixedThreadPool(panel.size());
         try {
             List<CompletableFuture<ReviewOutput>> futures = new ArrayList<>();
-            for (LlmReviewer r : panel) {
+            for (PanelMember m : panel) {
+                // Each panel member gets its own request shape so its
+                // persona prompt rides into the system message — same
+                // base diff / metadata as everyone else, just a
+                // different reviewing voice.
+                ReviewRequest perMember = m.personaPrompt() == null
+                        ? request
+                        : request.withPersonaPrompt(m.personaPrompt());
                 futures.add(CompletableFuture.supplyAsync(
-                        () -> runOneReviewerMaybeFanOut(r, request), executor));
+                        () -> runOneReviewerMaybeFanOut(m.reviewer(), perMember), executor));
             }
             Map<ReviewParticipant, ReviewOutput> result = new LinkedHashMap<>();
             for (int i = 0; i < panel.size(); i++) {
@@ -685,7 +767,7 @@ public class ReviewPassService
      *  ReviewOutput and add cost-cap honouring here. */
     private void runDebateLoop(
             ReviewPass pass,
-            List<LlmReviewer> panel,
+            List<PanelMember> panel,
             List<ReviewParticipant> seats,
             ReviewRequest baseRequest,
             Map<ReviewParticipant, ReviewOutput> independentOutputs,
@@ -855,9 +937,9 @@ public class ReviewPassService
         return new ConsensusResult(List.copyOf(agreed), List.copyOf(disputed));
     }
 
-    private static String panelDisplayNames(List<LlmReviewer> panel)
+    private static String panelDisplayNames(List<PanelMember> panel)
     {
-        return panel.stream().map(LlmReviewer::displayName).reduce(
+        return panel.stream().map(PanelMember::displayLabel).reduce(
                 (a, b) -> a + " + " + b).orElse("");
     }
 
@@ -1151,9 +1233,33 @@ public class ReviewPassService
             List<String> panelProviderIds,
             int roundCap,
             long costCapMilli,
-            boolean independentFirst)
+            boolean independentFirst,
+            List<String> personaIds,
+            String providerForPersonas)
     {
-        public static final StartOptions DEFAULT = new StartOptions(List.of(), 3, 500L, true);
+        public static final StartOptions DEFAULT =
+                new StartOptions(List.of(), 3, 500L, true, List.of(), null);
+
+        /** Backward-compat constructor for the legacy 4-arg call sites
+         *  (scheduled review, one-click "Review again"). They don't
+         *  pick personas, so the persona fields default to empty. */
+        public StartOptions(
+                List<String> panelProviderIds,
+                int roundCap,
+                long costCapMilli,
+                boolean independentFirst)
+        {
+            this(panelProviderIds, roundCap, costCapMilli, independentFirst, List.of(), null);
+        }
+
+        /** True when the dialog picked personas + a provider — the new
+         *  flow. False = legacy flow (panel = LlmReviewers filtered by
+         *  panelProviderIds). */
+        public boolean hasPersonas()
+        {
+            return personaIds != null && !personaIds.isEmpty()
+                    && providerForPersonas != null && !providerForPersonas.isBlank();
+        }
     }
 
     /**

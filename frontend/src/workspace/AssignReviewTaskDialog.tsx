@@ -12,7 +12,7 @@
  * limitations under the License.
  */
 import { useEffect, useMemo, useState } from 'react';
-import type { PullRequestDto, ReviewRosterEntryDto } from '../types';
+import type { PullRequestDto, ReviewRosterEntryDto, ReviewerPersonaDto } from '../types';
 import { WS_DIALOG_OVERLAY, WS_DIALOG_PANEL, dialogStyles } from './dialogStyles';
 
 type Props = {
@@ -80,6 +80,13 @@ function AssignReviewTaskDialog({ workspaceId, onClose, onStarted }: Props) {
   // On-demand lookup for a PR that isn't in the awaiting-review list.
   const [lookup, setLookup] = useState<LookupState>({ status: 'idle' });
   const [selectedProviders, setSelectedProviders] = useState<Set<string>>(new Set());
+  // New persona path — if any persona is checked, the dialog uses
+  // {personaIds, providerForPersonas} instead of the legacy
+  // {panelProviderIds} payload. providerForPersonas defaults to the
+  // first configured provider, mirroring the chip-default behaviour.
+  const [personas, setPersonas] = useState<ReviewerPersonaDto[] | null>(null);
+  const [selectedPersonas, setSelectedPersonas] = useState<Set<string>>(new Set());
+  const [providerForPersonas, setProviderForPersonas] = useState<string>('');
   // Debate rounds + cost budget caps. Defaults mirror ReviewPassService.StartOptions.DEFAULT.
   const [rounds, setRounds] = useState<number>(3);
   // Stored in milli-USD to match the backend, but rendered as $X.XX
@@ -93,10 +100,11 @@ function AssignReviewTaskDialog({ workspaceId, onClose, onStarted }: Props) {
     let cancelled = false;
     void (async () => {
       try {
-        const [prList, rosterList, repoList] = await Promise.all([
+        const [prList, rosterList, repoList, personaList] = await Promise.all([
           window.bridge.fetchPrs(),
           window.bridge.listReviewRoster(),
           window.bridge.listWorkspaceRepos(workspaceId),
+          window.bridge.listPersonas().catch(() => [] as ReviewerPersonaDto[]),
         ]);
         if (cancelled) return;
         const awaiting = prList
@@ -105,6 +113,7 @@ function AssignReviewTaskDialog({ workspaceId, onClose, onStarted }: Props) {
             .filter(p => p.snoozedUntil === null);
         setPrs(awaiting);
         setRoster(rosterList);
+        setPersonas(personaList);
         // First repo (oldest by addedAt) is the workspace's main repo —
         // the default a bare typed PR number resolves against.
         setDefaultRepo(repoList[0]?.repoFullName ?? null);
@@ -113,6 +122,13 @@ function AssignReviewTaskDialog({ workspaceId, onClose, onStarted }: Props) {
         // the user what would happen if they pressed Start unchanged).
         const configured = new Set(rosterList.filter(r => r.configured).map(r => r.providerId));
         setSelectedProviders(configured);
+        // Default the persona-runner provider to the first configured
+        // entry, so the dropdown lands on a valid pick even before the
+        // user touches it.
+        const firstConfigured = rosterList.find(r => r.configured);
+        if (firstConfigured !== undefined) {
+          setProviderForPersonas(firstConfigured.providerId);
+        }
       }
       catch (err) {
         if (!cancelled) {
@@ -186,10 +202,29 @@ function AssignReviewTaskDialog({ workspaceId, onClose, onStarted }: Props) {
     });
   };
 
-  const selectedCount = selectedProviders.size;
+  const personaIds = useMemo(() => Array.from(selectedPersonas), [selectedPersonas]);
+  // Persona path takes precedence when any persona is checked. The
+  // submit guard therefore checks two valid configurations: legacy
+  // (≥1 provider) OR persona (≥1 persona + a provider to run them).
+  const usingPersonaPath = personaIds.length > 0;
+  const selectedCount = usingPersonaPath ? personaIds.length : selectedProviders.size;
   const submitDisabled = submitting
       || selectedPr === null
-      || selectedCount === 0;
+      || (usingPersonaPath
+          ? providerForPersonas === ''
+          : selectedProviders.size === 0);
+
+  const togglePersona = (id: string) => {
+    setSelectedPersonas(prev => {
+      const next = new Set(prev);
+      if (next.has(id)) {
+        next.delete(id);
+      } else {
+        next.add(id);
+      }
+      return next;
+    });
+  };
 
   const onSubmit = async (e?: React.FormEvent) => {
     if (e !== undefined) e.preventDefault();
@@ -201,7 +236,12 @@ function AssignReviewTaskDialog({ workspaceId, onClose, onStarted }: Props) {
           selectedPr.repo,
           selectedPr.number,
           {
-            panelProviderIds: Array.from(selectedProviders),
+            // Persona path overrides the legacy provider chip
+            // selection — the backend reads personaIds + provider
+            // first and falls back to panelProviderIds when empty.
+            panelProviderIds: usingPersonaPath ? [] : Array.from(selectedProviders),
+            personaIds: usingPersonaPath ? personaIds : [],
+            providerForPersonas: usingPersonaPath ? providerForPersonas : null,
             roundCap: rounds,
             costCapMilli,
             independentFirst,
@@ -307,10 +347,58 @@ function AssignReviewTaskDialog({ workspaceId, onClose, onStarted }: Props) {
             )}
           </div>
 
+          {personas !== null && personas.length > 0 && (
+            <>
+              <div style={sectionHeadStyle}>
+                <span style={sectionLabelStyle}>Reviewer personas</span>
+                <span style={sectionMetaStyle}>
+                  manage in Settings → Reviewer personas
+                </span>
+              </div>
+              <div style={personaListStyle}>
+                {personas.map(p => (
+                  <PersonaChip
+                    key={p.id}
+                    persona={p}
+                    checked={selectedPersonas.has(p.id)}
+                    onToggle={() => togglePersona(p.id)}
+                  />
+                ))}
+              </div>
+              {usingPersonaPath && (
+                <div style={personaProviderRowStyle}>
+                  <label style={personaProviderLabelStyle} htmlFor="persona-provider">
+                    Run these voices with
+                  </label>
+                  <select
+                    id="persona-provider"
+                    value={providerForPersonas}
+                    onChange={e => setProviderForPersonas(e.target.value)}
+                    style={personaProviderSelectStyle}
+                  >
+                    {(roster ?? []).map(r => (
+                      <option
+                        key={r.providerId}
+                        value={r.providerId}
+                        disabled={!r.configured}
+                      >
+                        {r.displayName}{r.configured ? '' : ' (not configured)'}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              )}
+            </>
+          )}
+
           <div style={sectionHeadStyle}>
-            <span style={sectionLabelStyle}>Panel</span>
+            <span style={sectionLabelStyle}>
+              {usingPersonaPath ? 'Panel (not used — personas picked)' : 'Panel'}
+            </span>
             <span style={sectionMetaStyle}>
-              from credentials tagged "review"
+              {usingPersonaPath
+                ? 'uncheck all personas above to use this'
+                : 'from credentials tagged "review"'}
             </span>
           </div>
           <div style={rosterGridStyle}>
@@ -448,6 +536,38 @@ function PrRow({
       {fromGitHub
         ? <span style={prRowFromGitHubStyle}>from GitHub</span>
         : <span style={ciStyle}>{ci}</span>}
+    </button>
+  );
+}
+
+function PersonaChip({
+  persona, checked, onToggle,
+}: {
+  persona: ReviewerPersonaDto;
+  checked: boolean;
+  onToggle: () => void;
+}) {
+  const role = persona.role === 'LEAD' ? 'LEAD' : 'REVIEWER';
+  return (
+    <button
+      type="button"
+      onClick={onToggle}
+      style={personaChipStyle(checked)}
+      aria-pressed={checked}
+      title={persona.systemPrompt.length > 200
+        ? persona.systemPrompt.slice(0, 200) + '…'
+        : persona.systemPrompt}
+    >
+      <span style={personaChipAvatarStyle(role)} aria-hidden>
+        {persona.name.charAt(0).toUpperCase()}
+      </span>
+      <span style={{ flex: 1, minWidth: 0, textAlign: 'left' }}>
+        <span style={rosterChipNameStyle}>{persona.name}</span>
+        <span style={rosterChipMetaStyle}>{role.toLowerCase()}</span>
+      </span>
+      <span style={rosterChipBoxStyle(checked, true)} aria-hidden>
+        {checked && '✓'}
+      </span>
     </button>
   );
 }
@@ -902,6 +1022,72 @@ const toggleHintStyle: React.CSSProperties = {
   fontSize: 11,
   color: 'var(--ws-text-3)',
   marginTop: 2,
+};
+
+const personaListStyle: React.CSSProperties = {
+  display: 'grid',
+  gridTemplateColumns: '1fr 1fr',
+  gap: 8,
+};
+
+function personaChipStyle(checked: boolean): React.CSSProperties {
+  return {
+    display: 'flex',
+    alignItems: 'center',
+    gap: 8,
+    padding: '8px 10px',
+    border: checked
+        ? '1.5px solid var(--ws-accent, #7c3aed)'
+        : '1px solid var(--ws-card-border)',
+    borderRadius: 10,
+    background: checked
+        ? 'linear-gradient(180deg, rgba(124,58,237,0.06), rgba(124,58,237,0.02))'
+        : '#fff',
+    cursor: 'pointer',
+    transition: 'border-color 140ms ease, background 140ms ease',
+  };
+}
+
+function personaChipAvatarStyle(role: 'LEAD' | 'REVIEWER'): React.CSSProperties {
+  return {
+    width: 26,
+    height: 26,
+    borderRadius: 8,
+    background: role === 'LEAD' ? '#d97706' : '#0ea5e9',
+    color: '#fff',
+    fontSize: 13,
+    fontWeight: 700,
+    display: 'inline-flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexShrink: 0,
+  };
+}
+
+const personaProviderRowStyle: React.CSSProperties = {
+  display: 'flex',
+  alignItems: 'center',
+  gap: 10,
+  marginTop: 8,
+  padding: '6px 10px',
+  background: 'rgba(124, 58, 237, 0.04)',
+  border: '1px solid rgba(124, 58, 237, 0.18)',
+  borderRadius: 8,
+};
+
+const personaProviderLabelStyle: React.CSSProperties = {
+  fontSize: 12,
+  fontWeight: 600,
+  color: 'var(--ws-text-1)',
+};
+
+const personaProviderSelectStyle: React.CSSProperties = {
+  flex: 1,
+  padding: '4px 8px',
+  fontSize: 12,
+  border: '1px solid var(--ws-card-border)',
+  borderRadius: 6,
+  background: '#fff',
 };
 
 export default AssignReviewTaskDialog;

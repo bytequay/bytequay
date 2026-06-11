@@ -197,7 +197,9 @@ public class ReviewController
             List<String> panelProviderIds,
             Integer roundCap,
             Long costCapMilli,
-            Boolean independentFirst)
+            Boolean independentFirst,
+            List<String> personaIds,
+            String providerForPersonas)
     {
         public ReviewPassService.StartOptions toOptions()
         {
@@ -206,7 +208,9 @@ public class ReviewController
                     panelProviderIds == null ? List.of() : panelProviderIds,
                     roundCap == null || roundCap <= 0 ? defaults.roundCap() : roundCap,
                     costCapMilli == null || costCapMilli <= 0 ? defaults.costCapMilli() : costCapMilli,
-                    independentFirst == null ? defaults.independentFirst() : independentFirst);
+                    independentFirst == null ? defaults.independentFirst() : independentFirst,
+                    personaIds == null ? List.of() : personaIds,
+                    providerForPersonas);
         }
     }
 

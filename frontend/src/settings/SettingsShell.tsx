@@ -22,6 +22,7 @@ import EmailSettingsPage from './pages/EmailPage';
 import HelpPage from './pages/HelpPage';
 import IntegrationsPage from './pages/IntegrationsPage';
 import LocalAiPage from './pages/LocalAiPage';
+import PersonasPage from './pages/PersonasPage';
 import ConceptsPage from './pages/ConceptsPage';
 import SavedViewsPage from './pages/SavedViewsPage';
 import SkillsPage from './pages/SkillsPage';
@@ -56,6 +57,7 @@ function SettingsShell({ section, onSelectSection, onClearPat, onOpenTeam, onOpe
           {resolved === 'credentials' && <CredentialsPage />}
           {resolved === 'teams' && <TeamsPage onOpenTeam={onOpenTeam} />}
           {resolved === 'ai-review' && <AiReviewPage />}
+          {resolved === 'personas' && <PersonasPage />}
           {resolved === 'local-ai' && <LocalAiPage />}
           {resolved === 'skills' && <SkillsPage />}
           {resolved === 'saved-views' && <SavedViewsPage />}

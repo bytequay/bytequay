@@ -21,6 +21,10 @@ package com.bytequay.app.domain;
  * @param skillContext extra system-prompt content from a matching
  *                     rubric skill (see {@link Skill}). May be null when
  *                     no row targets the repo.
+ * @param personaPrompt per-reviewer persona prompt — flows into the
+ *                     system prompt above the JSON-output rules so the
+ *                     reviewer adopts the voice. Null on a regular pass
+ *                     where the panel runs without personas.
  */
 public record ReviewRequest(
         String repo,
@@ -29,10 +33,23 @@ public record ReviewRequest(
         String body,
         String headSha,
         String diff,
-        String skillContext)
+        String skillContext,
+        String personaPrompt)
 {
     public ReviewRequest(String repo, int number, String title, String body, String headSha, String diff)
     {
-        this(repo, number, title, body, headSha, diff, null);
+        this(repo, number, title, body, headSha, diff, null, null);
+    }
+
+    public ReviewRequest(String repo, int number, String title, String body, String headSha, String diff, String skillContext)
+    {
+        this(repo, number, title, body, headSha, diff, skillContext, null);
+    }
+
+    /** Returns a copy with {@code personaPrompt} overridden — used when
+     *  the panel runs N personas against a single base request. */
+    public ReviewRequest withPersonaPrompt(String prompt)
+    {
+        return new ReviewRequest(repo, number, title, body, headSha, diff, skillContext, prompt);
     }
 }

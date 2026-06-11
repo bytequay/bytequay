@@ -26,16 +26,24 @@ final class ReviewPrompt
 
     static final int MAX_DIFF_CHARS = 200_000;
 
-    /** Builds the system prompt for a request, appending the matching
-     *  review-skill context (if any) under a clearly-labelled header so
-     *  the model treats it as additional repo-specific guidance. */
+    /** Builds the system prompt for a request, prepending the per-
+     *  reviewer persona voice (if any) and appending the matching
+     *  review-skill context (if any). The two sections sit on
+     *  opposite sides of {@link #SYSTEM}: persona is who's reviewing
+     *  (voice + concerns), skill is what to look for in this repo. */
     static String systemPrompt(ReviewRequest req)
     {
-        String skill = req.skillContext();
-        if (skill == null || skill.isBlank()) {
-            return SYSTEM;
+        StringBuilder out = new StringBuilder();
+        String persona = req.personaPrompt();
+        if (persona != null && !persona.isBlank()) {
+            out.append("Reviewer voice:\n").append(persona.strip()).append("\n\n");
         }
-        return SYSTEM + "\n\nRepository-specific review context:\n" + skill.strip() + "\n";
+        out.append(SYSTEM);
+        String skill = req.skillContext();
+        if (skill != null && !skill.isBlank()) {
+            out.append("\n\nRepository-specific review context:\n").append(skill.strip()).append("\n");
+        }
+        return out.toString();
     }
 
     static final String SYSTEM = """

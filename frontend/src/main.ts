@@ -3370,6 +3370,8 @@ const url = new URL(`${BACKEND_BASE}/api/search/repos`);
       roundCap?: unknown;
       costCapMilli?: unknown;
       independentFirst?: unknown;
+      personaIds?: unknown;
+      providerForPersonas?: unknown;
     };
     if (typeof a.repoFullName !== 'string' || a.repoFullName.trim().length === 0) {
       throw new Error('repoFullName must be a non-empty string');
@@ -3392,6 +3394,12 @@ const url = new URL(`${BACKEND_BASE}/api/search/repos`);
     }
     if (typeof a.independentFirst === 'boolean') {
       body.independentFirst = a.independentFirst;
+    }
+    if (Array.isArray(a.personaIds)) {
+      body.personaIds = a.personaIds.filter((s): s is string => typeof s === 'string');
+    }
+    if (typeof a.providerForPersonas === 'string' && a.providerForPersonas.length > 0) {
+      body.providerForPersonas = a.providerForPersonas;
     }
     const res = await fetch(`${BACKEND_BASE}/api/reviews/start`, {
       method: 'POST',
@@ -4049,6 +4057,49 @@ const url = new URL(`${BACKEND_BASE}/api/search/repos`);
     finally {
       clearTimeout(t);
     }
+  });
+
+  ipcMain.handle('personas:list', async () => {
+    const res = await fetch(`${BACKEND_BASE}/api/personas`);
+    if (!res.ok) throw new Error(`backend GET /api/personas returned ${res.status}`);
+    return res.json();
+  });
+
+  ipcMain.handle('personas:create', async (_event, req: unknown) => {
+    const res = await fetch(`${BACKEND_BASE}/api/personas`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(req),
+    });
+    if (!res.ok) {
+      const text = await res.text().catch(() => '');
+      throw new Error(`backend POST /api/personas returned ${res.status}: ${text}`);
+    }
+    return res.json();
+  });
+
+  ipcMain.handle('personas:update', async (_event, payload: unknown) => {
+    const { id, req } = payload as { id: string; req: unknown };
+    const res = await fetch(`${BACKEND_BASE}/api/personas/${encodeURIComponent(id)}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(req),
+    });
+    if (!res.ok) {
+      const text = await res.text().catch(() => '');
+      throw new Error(`backend PUT /api/personas/${id} returned ${res.status}: ${text}`);
+    }
+    return res.json();
+  });
+
+  ipcMain.handle('personas:delete', async (_event, id: unknown) => {
+    if (typeof id !== 'string' || id.length === 0) {
+      throw new Error('persona id must be a non-empty string');
+    }
+    const res = await fetch(`${BACKEND_BASE}/api/personas/${encodeURIComponent(id)}`, {
+      method: 'DELETE',
+    });
+    if (!res.ok) throw new Error(`backend DELETE /api/personas/${id} returned ${res.status}`);
   });
 
   ipcMain.handle('workModels:refresh', async () => {

@@ -33,6 +33,7 @@ import com.bytequay.app.domain.ThreadFlow;
 import com.bytequay.app.repository.AppSettingsStore;
 import com.bytequay.app.repository.PullRequestRepository;
 import com.bytequay.app.repository.ReviewStore;
+import com.bytequay.app.repository.ReviewerPersonaStore;
 import com.bytequay.app.repository.ThreadStore;
 import com.bytequay.app.service.ai.LlmReviewer;
 import com.bytequay.app.service.ai.LlmReviewerRegistry;
@@ -69,6 +70,7 @@ class TestReviewPassService
     private LlmReviewerRegistry registry;
     private LlmReviewer reviewer;
     private AppSettingsStore appSettings;
+    private ReviewerPersonaStore personas;
     private ReviewPassService service;
     private RecordingReviewStore recording;
 
@@ -81,6 +83,7 @@ class TestReviewPassService
         registry = mock(LlmReviewerRegistry.class);
         reviewer = mock(LlmReviewer.class);
         appSettings = mock(AppSettingsStore.class);
+        personas = mock(ReviewerPersonaStore.class);
         recording = new RecordingReviewStore();
         reviewStore = recording;
 
@@ -96,7 +99,7 @@ class TestReviewPassService
         when(appSettings.get(anyString())).thenReturn(Optional.empty());
 
         service = new ReviewPassService(
-                threadStore, reviewStore, pullRequests, patResolver, registry, appSettings);
+                threadStore, reviewStore, pullRequests, patResolver, registry, appSettings, personas);
     }
 
     @Test

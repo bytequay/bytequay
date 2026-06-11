@@ -36,6 +36,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 import java.util.UUID;
 
 import static java.util.Objects.requireNonNull;
@@ -119,8 +120,19 @@ public class LogicLoopToolRegistry
      *  {@code {"name", "description", "input_schema"}} objects. */
     public ArrayNode renderAsAnthropicTools(ObjectMapper mapper)
     {
+        return renderAsAnthropicTools(mapper, null);
+    }
+
+    /** Allowlist-filtered variant. When {@code allowedNames} is non-null,
+     *  only tools whose {@link AgentTool#name()} is in the set make it
+     *  into the rendered array. Null = no filter (legacy behaviour). */
+    public ArrayNode renderAsAnthropicTools(ObjectMapper mapper, Set<String> allowedNames)
+    {
         ArrayNode arr = mapper.createArrayNode();
         for (AgentTool tool : combinedView()) {
+            if (allowedNames != null && !allowedNames.contains(tool.name())) {
+                continue;
+            }
             ObjectNode node = mapper.createObjectNode();
             node.put("name", tool.name());
             node.put("description", tool.description());
@@ -136,8 +148,18 @@ public class LogicLoopToolRegistry
      *  "parameters"}}} objects. */
     public ArrayNode renderAsOpenAiTools(ObjectMapper mapper)
     {
+        return renderAsOpenAiTools(mapper, null);
+    }
+
+    /** Allowlist-filtered variant for OpenAI / DeepSeek. Mirrors
+     *  {@link #renderAsAnthropicTools(ObjectMapper, Set)}. */
+    public ArrayNode renderAsOpenAiTools(ObjectMapper mapper, Set<String> allowedNames)
+    {
         ArrayNode arr = mapper.createArrayNode();
         for (AgentTool tool : combinedView()) {
+            if (allowedNames != null && !allowedNames.contains(tool.name())) {
+                continue;
+            }
             ObjectNode wrapper = mapper.createObjectNode();
             wrapper.put("type", "function");
             ObjectNode fn = mapper.createObjectNode();

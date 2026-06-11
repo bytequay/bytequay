@@ -168,6 +168,15 @@ public class ReviewPassService
         //    LOGIC_LOOP — the read-only design row says review
         //    threads never take a worktree lease, so there's no
         //    CLI-agent kind to consider here.
+        // ThreadEntity.model is NOT NULL — review threads don't have a
+        // single canonical model (each panel reviewer runs its own), but
+        // we still need to stamp something on the row. Use the same
+        // LLM_MODEL setting the reviewers read, falling back to the
+        // panel's primary providerId so a missing setting doesn't
+        // bounce a 500 back to the user.
+        String reviewModel = appSettings.get(Key.LLM_MODEL)
+                .filter(s -> !s.isBlank())
+                .orElseGet(() -> panel.get(0).providerId());
         Thread thread = new Thread(
                 UUID.randomUUID().toString(),
                 ThreadKind.LOGIC_LOOP,
@@ -175,7 +184,7 @@ public class ReviewPassService
                 /* agentSessionId */ null,
                 "Review " + repoFullName + "#" + prNumber,
                 ThreadStatus.RUNNING,
-                /* model */ null,
+                reviewModel,
                 /* costUsdMilli */ 0L, /* tokensIn */ 0L, /* tokensOut */ 0L,
                 now, now,
                 /* endedAt */ null, /* errorMessage */ null,

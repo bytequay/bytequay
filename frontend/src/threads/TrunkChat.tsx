@@ -13,7 +13,8 @@
  */
 import { useEffect, useMemo, useRef } from 'react';
 import { renderChatMarkdown } from '../markdown';
-import type { ThreadMessageDto, WorkUnitTaskDto } from '../types';
+import type { ThreadDto, ThreadMessageDto, WorkUnitTaskDto } from '../types';
+import { assistantLabel, type AssistantLabel } from './assistantLabel';
 
 const SLATE = '#475569';
 
@@ -60,6 +61,10 @@ type Props = {
   /** Fired when the user clicks the "Load earlier" button. The parent
    *  owns the cursor + merge logic; this is the trigger. */
   onLoadOlder?: () => void;
+  /** Source for the assistant name / glyph / accent on the left-side
+   *  bubble. The renderer reads the resolved work-model off the thread
+   *  so a DeepSeek-Local turn isn't mislabelled as "Claude". */
+  thread?: Pick<ThreadDto, 'workModel' | 'provider' | 'model'> | null;
 };
 
 /**
@@ -76,7 +81,9 @@ export default function TrunkChat({
   messages, tasks, foregroundTaskId, userInitials, onOpenTask, isInFlight = false,
   onInterrupt, interrupting = false, outerRef,
   canLoadOlder = false, loadingOlder = false, onLoadOlder,
+  thread = null,
 }: Props) {
+  const speaker = useMemo(() => assistantLabel(thread), [thread]);
   const scrollRef = useRef<HTMLDivElement | null>(null);
   // Assign to both the local ref (used by the stick-to-bottom effect)
   // and the optional ref the parent supplied so ConvIndex can scroll
@@ -151,6 +158,7 @@ export default function TrunkChat({
               key={item.message.id}
               text={item.text}
               ts={item.ts}
+              speaker={speaker}
             />
           );
         }
@@ -167,23 +175,24 @@ export default function TrunkChat({
         }
         return <SystemLine key={`sys-${i}`} text={item.text} />;
       })}
-      {isInFlight && <ThinkingCard onInterrupt={onInterrupt} interrupting={interrupting} />}
+      {isInFlight && <ThinkingCard onInterrupt={onInterrupt} interrupting={interrupting} speaker={speaker} />}
     </div>
   );
 }
 
 function ThinkingCard({
-  onInterrupt, interrupting,
+  onInterrupt, interrupting, speaker,
 }: {
   onInterrupt?: () => void;
   interrupting: boolean;
+  speaker: AssistantLabel;
 }) {
   return (
     <div style={thinkingRowStyle}>
-      <div style={claudeAvatarStyle}>C</div>
+      <div style={{ ...claudeAvatarStyle, background: speaker.color }}>{speaker.glyph}</div>
       <div style={assistantColStyle}>
         <div style={assistantHeaderStyle}>
-          <span style={assistantNameStyle}>Claude</span>
+          <span style={assistantNameStyle}>{speaker.name}</span>
           <span style={assistantMetaStyle}>trunk</span>
           <span style={assistantMetaStyle}>· thinking</span>
         </div>
@@ -328,13 +337,13 @@ function UserBubble({ text, initials, seq }: { text: string; initials: string; s
   );
 }
 
-function AssistantBlock({ text, ts }: { text: string; ts: number }) {
+function AssistantBlock({ text, ts, speaker }: { text: string; ts: number; speaker: AssistantLabel }) {
   return (
     <div style={assistantRowStyle}>
-      <div style={claudeAvatarStyle}>C</div>
+      <div style={{ ...claudeAvatarStyle, background: speaker.color }}>{speaker.glyph}</div>
       <div style={assistantColStyle}>
         <div style={assistantHeaderStyle}>
-          <span style={assistantNameStyle}>Claude</span>
+          <span style={assistantNameStyle}>{speaker.name}</span>
           <span style={assistantMetaStyle}>trunk</span>
           <span style={assistantMetaStyle}>· {relativeTime(ts)}</span>
         </div>

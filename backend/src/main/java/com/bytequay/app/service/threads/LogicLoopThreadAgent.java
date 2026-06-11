@@ -220,6 +220,32 @@ public class LogicLoopThreadAgent
      *  the CLI lane's MCP gate. */
     private static final Duration PERMISSION_WAIT_TIMEOUT = Duration.ofMinutes(5);
 
+    /** Trunk turns are planning conversations — they read memory,
+     *  inspect existing PRs / tasks, and spawn new tasks, but they
+     *  don't execute the work themselves. Restricting the tool
+     *  catalog to this allowlist on trunk turns cuts ~2-3 K input
+     *  tokens per round (mostly schema bloat from publish + shell
+     *  tools the trunk would never call). Task turns get the full
+     *  catalog because they're the surface that actually executes.
+     *
+     *  <p>Tools that intentionally stay <em>off</em> the trunk:
+     *  every {@code PublishToolHandlers} mutator (push, merge_pr,
+     *  approve_pr, open_pr, post_comment, …), {@code run_shell},
+     *  {@code run_checks}, {@code load_skill}, and the native
+     *  {@code read_file}. Add a name here only after confirming the
+     *  trunk can complete its planning loop without it. */
+    private static final Set<String> TRUNK_TOOL_ALLOWLIST = Set.of(
+            "recall_memory",
+            "lookup_memory",
+            "read_workspace_memory",
+            "recall_thread",
+            "list_skills",
+            "list_tools",
+            "list_prs",
+            "read_pr",
+            "read_task",
+            "create_task");
+
     /** Mediator passed into every {@link AgentToolContext} so the
      *  bridged-CLI catalog can route through the permission gate.
      *  Lazy-stateless; one instance per agent. */
@@ -483,9 +509,13 @@ public class LogicLoopThreadAgent
 
         String system = composeSystemPrompt();
         ArrayNode messages = buildMessageHistory(userInput);
+        // Trunk turns get a narrow allowlist; task turns get the full
+        // catalog. Saves ~3 K input tokens per trunk round (publish + shell
+        // schemas are by far the heaviest). See TRUNK_TOOL_ALLOWLIST.
+        Set<String> toolFilter = isTrunkTurn() ? TRUNK_TOOL_ALLOWLIST : null;
         ArrayNode toolsArray = toolRegistry == null
                 ? null
-                : toolRegistry.renderAsAnthropicTools(mapper);
+                : toolRegistry.renderAsAnthropicTools(mapper, toolFilter);
 
         String finalText = "";
         long totalTokensIn = 0;
@@ -534,6 +564,15 @@ public class LogicLoopThreadAgent
         catch (Exception e) {
             throw new IllegalStateException("Failed to encode Anthropic request body", e);
         }
+
+        // Per-round byte breakdown so we can see whether tools, system
+        // prompt, or conversation history is dominating input-token cost.
+        // chars / 4 is a coarse-but-useful estimator for English + code.
+        logPromptBreakdown("anthropic", modelId,
+                payload.length(),
+                system == null ? 0 : system.length(),
+                messages.toString().length(),
+                toolsArray == null ? 0 : toolsArray.toString().length());
 
         HttpRequest httpRequest = HttpRequest.newBuilder()
                 .uri(URI.create(ANTHROPIC_MESSAGES_URL))
@@ -695,9 +734,10 @@ public class LogicLoopThreadAgent
 
         String system = composeSystemPrompt();
         ArrayNode messages = buildOpenAiMessages(system, userInput);
+        Set<String> toolFilter = isTrunkTurn() ? TRUNK_TOOL_ALLOWLIST : null;
         ArrayNode toolsArray = toolRegistry == null
                 ? null
-                : toolRegistry.renderAsOpenAiTools(mapper);
+                : toolRegistry.renderAsOpenAiTools(mapper, toolFilter);
 
         String finalText = "";
         long totalTokensIn = 0;
@@ -797,6 +837,16 @@ public class LogicLoopThreadAgent
         catch (Exception e) {
             throw new IllegalStateException("Failed to encode OpenAI-compatible request body", e);
         }
+
+        // OpenAI puts the system prompt inside messages[0] (role=system),
+        // so the system length is pulled out of there rather than passed
+        // separately. Everything else mirrors the Anthropic round.
+        int sysCharsOai = extractSystemContentLength(messages);
+        logPromptBreakdown("openai", modelId,
+                payload.length(),
+                sysCharsOai,
+                messages.toString().length(),
+                toolsArray == null ? 0 : toolsArray.toString().length());
 
         HttpRequest httpRequest = HttpRequest.newBuilder()
                 .uri(URI.create(url))
@@ -1191,6 +1241,53 @@ public class LogicLoopThreadAgent
         return roleSkillText.trim();
     }
 
+    /** One-line breakdown of the outbound request payload so we can
+     *  spot which axis is dominating input-token cost. The estimator is
+     *  {@code chars / 4} which is widely-used as a rough English+code
+     *  approximation; close enough to distinguish 500-token bloat from
+     *  5000-token bloat without paying for a real tokenizer. Fires per
+     *  round, so a multi-iteration tool turn logs once per iteration.
+     *
+     *  <p>Note on OpenAI vs Anthropic: in OpenAI's wire shape the
+     *  system prompt lives inside {@code messages[0]}, so the messages
+     *  count there already includes the system bytes. We log both
+     *  numbers anyway for parity — the rest (history + user) is
+     *  {@code messages - system} for OpenAI and {@code messages} for
+     *  Anthropic. */
+    private static void logPromptBreakdown(
+            String provider, String modelId,
+            int totalChars, int systemChars, int messagesChars, int toolsChars)
+    {
+        log.info(
+                "[prompt-bytes] provider={} model={} total={}c (~{}t)  tools={}c (~{}t)  system={}c (~{}t)  messages={}c (~{}t)",
+                provider, modelId,
+                totalChars, totalChars / 4,
+                toolsChars, toolsChars / 4,
+                systemChars, systemChars / 4,
+                messagesChars, messagesChars / 4);
+    }
+
+    /** Length of the {@code content} field on the first
+     *  {@code role: "system"} entry of an OpenAI-shape messages array,
+     *  or 0 if none. Used only by {@link #logPromptBreakdown} — we
+     *  don't otherwise inspect messages by role. */
+    private static int extractSystemContentLength(ArrayNode messages)
+    {
+        if (messages == null || messages.isEmpty()) {
+            return 0;
+        }
+        var first = messages.get(0);
+        if (first == null || !first.isObject()) {
+            return 0;
+        }
+        var role = first.get("role");
+        if (role == null || !"system".equals(role.asText())) {
+            return 0;
+        }
+        var content = first.get("content");
+        return content == null ? 0 : content.asText().length();
+    }
+
     /** Build the Anthropic message history array (no system message —
      *  Anthropic takes the system prompt as a top-level field). */
     private ArrayNode buildMessageHistory(String userInput)
@@ -1346,6 +1443,23 @@ public class LogicLoopThreadAgent
         return taskStore.findActiveTaskForThread(threadId)
                 .map(t -> t.id())
                 .orElse(null);
+    }
+
+    /** True when this turn is happening at the trunk (planning) level
+     *  rather than inside a task's execution window. Reused by the
+     *  tool-catalog filter — see {@link #TRUNK_TOOL_ALLOWLIST}.
+     *
+     *  <p>"No active task on the thread" is a good-enough proxy for
+     *  "this is a trunk turn" because the trunk agent only runs when
+     *  the user typed into the trunk composer (which doesn't open a
+     *  task), and the task agent only runs while a task is active.
+     *  If we later allow trunk turns while a task is also active
+     *  (e.g. background planning while a task executes), we'll plumb
+     *  an explicit {@code isTrunk} flag through the constructor and
+     *  switch this to read it. */
+    private boolean isTrunkTurn()
+    {
+        return activeTaskId() == null;
     }
 
     private String encodeText(String text)

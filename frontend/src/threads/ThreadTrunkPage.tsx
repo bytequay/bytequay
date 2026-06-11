@@ -609,6 +609,7 @@ export default function ThreadTrunkPage({ threadId, onBack, onOpenTask }: Props)
                   canLoadOlder={canLoadOlder}
                   loadingOlder={loadingOlder}
                   onLoadOlder={() => { void loadOlderMessages(); }}
+                  thread={thread}
                 />
               )}
               {/* Floating right-edge conversation index. Anchored

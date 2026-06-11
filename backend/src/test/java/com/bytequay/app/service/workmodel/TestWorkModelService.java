@@ -23,7 +23,6 @@ import org.mockito.Mockito;
 
 import java.time.Instant;
 import java.util.List;
-import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
@@ -33,25 +32,22 @@ import static org.mockito.Mockito.when;
 class TestWorkModelService
 {
     @Test
-    void cliAgentsAlwaysAppearWithReadinessFromTheDetector()
+    void cliAgentsAlwaysAppearAsInstalledAndAuthed()
     {
         CredentialService credentials = Mockito.mock(CredentialService.class);
         when(credentials.listByTypeAndName(any(), any())).thenReturn(List.of());
 
-        CliAgentDetector detector = Mockito.mock(CliAgentDetector.class);
-        when(detector.detectAll()).thenReturn(Map.of(
-                "claude-code", new CliAgentDetector.Readiness(true, true),
-                "codex", new CliAgentDetector.Readiness(false, false)));
+        WorkModelOptions options = new WorkModelService(credentials).options();
 
-        WorkModelOptions options = new WorkModelService(credentials, detector).options();
-
+        // We dropped per-host CLI probing — the picker reports every CLI
+        // agent as available and discovers a missing binary at use-time.
         assertThat(options.cliAgents())
                 .extracting(WorkModelOptions.WorkModelAgentOption::id)
                 .containsExactly("claude-code", "codex");
-        assertThat(options.cliAgents().get(0).installed()).isTrue();
-        assertThat(options.cliAgents().get(0).authed()).isTrue();
-        assertThat(options.cliAgents().get(1).installed()).isFalse();
-        assertThat(options.cliAgents().get(1).authed()).isFalse();
+        assertThat(options.cliAgents()).allSatisfy(agent -> {
+            assertThat(agent.installed()).isTrue();
+            assertThat(agent.authed()).isTrue();
+        });
     }
 
     @Test
@@ -60,15 +56,11 @@ class TestWorkModelService
         CredentialService credentials = Mockito.mock(CredentialService.class);
         when(credentials.listByTypeAndName(any(), any())).thenReturn(List.of());
 
-        CliAgentDetector detector = Mockito.mock(CliAgentDetector.class);
-        when(detector.detectAll()).thenReturn(Map.of());
-
-        WorkModelOptions options = new WorkModelService(credentials, detector).options();
+        WorkModelOptions options = new WorkModelService(credentials).options();
 
         // Every provider in the catalog has zero credentials → empty
         // API list. CLI agents always appear regardless because they
-        // auth outside ByteQuay (the readiness chip is what surfaces
-        // the "not set up" state).
+        // auth outside ByteQuay.
         assertThat(options.apiProviders()).isEmpty();
     }
 
@@ -83,10 +75,7 @@ class TestWorkModelService
                         credential(1, "anthropic", "personal", true, now),
                         credential(2, "anthropic", "team", false, now)));
 
-        CliAgentDetector detector = Mockito.mock(CliAgentDetector.class);
-        when(detector.detectAll()).thenReturn(Map.of());
-
-        WorkModelOptions options = new WorkModelService(credentials, detector).options();
+        WorkModelOptions options = new WorkModelService(credentials).options();
 
         assertThat(options.apiProviders())
                 .extracting(WorkModelOptions.WorkModelProviderOption::id)
@@ -108,12 +97,7 @@ class TestWorkModelService
         CredentialService credentials = Mockito.mock(CredentialService.class);
         when(credentials.listByTypeAndName(any(), any())).thenReturn(List.of());
 
-        CliAgentDetector detector = Mockito.mock(CliAgentDetector.class);
-        when(detector.detectAll()).thenReturn(Map.of(
-                "claude-code", new CliAgentDetector.Readiness(true, true),
-                "codex", new CliAgentDetector.Readiness(true, true)));
-
-        WorkModelOptions options = new WorkModelService(credentials, detector).options();
+        WorkModelOptions options = new WorkModelService(credentials).options();
 
         for (WorkModelOptions.WorkModelAgentOption agent : options.cliAgents()) {
             assertThat(agent.defaultModel()).isNotBlank();

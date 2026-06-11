@@ -18,15 +18,19 @@ import { execFile } from 'node:child_process';
 import { promisify } from 'node:util';
 import { Agent, setGlobalDispatcher } from 'undici';
 
-// Cap how long Node's fetch() will wait for the backend to start
-// responding. Default is 30s on both headers and body — long enough
-// that a stuck JVM hangs the whole UI on every request. 15s for
-// headers is plenty for any sensible backend handler; 60s for body
-// covers slow streaming responses without giving up on a real one.
-// Streaming endpoints (SSE) that need longer must use AbortController
-// per-call to override.
+// Pin Node's fetch timeouts explicitly so a future Node default
+// change can't quietly flip behaviour under us. 30s for headers
+// matches Node's current default and is generous enough for any
+// honest backend handler; if a request stalls longer than that the
+// JVM is wedged, not slow. Body timeout is bumped to 60s for the
+// handful of endpoints that stream a large payload over HTTP/1
+// keep-alive (PR diff fetches in particular).
+//
+// Streaming SSE endpoints (thread event stream) bypass this via
+// their own AbortController + signal — they need long-lived
+// connections by design.
 setGlobalDispatcher(new Agent({
-  headersTimeout: 15_000,
+  headersTimeout: 30_000,
   bodyTimeout: 60_000,
 }));
 

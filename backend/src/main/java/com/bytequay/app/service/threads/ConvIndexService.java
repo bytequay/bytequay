@@ -86,9 +86,13 @@ public class ConvIndexService
     {
         requireNonNull(threadId, "threadId is null");
         int capped = capLimit(limit);
-        List<ThreadMessage> window = store.listRecentMessages(threadId, capped);
+        // Window the last N user *prompts*, not the last N messages. A
+        // single busy turn emits dozens of tool / assistant rows, so a
+        // message-based window would leave only the most recent prompt
+        // visible and bury every earlier one behind "load earlier".
+        List<ThreadMessage> window = store.listRecentUserMessages(threadId, capped);
         long total = store.countUserMessages(threadId);
-        return buildPage(threadId, total, window);
+        return buildPage(threadId, total, window, capped);
     }
 
     /** Backfill load triggered by "↑ load earlier". Returns the
@@ -100,25 +104,29 @@ public class ConvIndexService
     {
         requireNonNull(threadId, "threadId is null");
         int capped = capLimit(limit);
-        List<ThreadMessage> window = store.listMessagesBefore(threadId, beforeSeq, capped);
+        List<ThreadMessage> window = store.listUserMessagesBefore(threadId, beforeSeq, capped);
         long total = store.countUserMessages(threadId);
-        return buildPage(threadId, total, window);
+        return buildPage(threadId, total, window, capped);
     }
 
-    private ConvIndexPage buildPage(String threadId, long total, List<ThreadMessage> window)
+    private ConvIndexPage buildPage(String threadId, long total, List<ThreadMessage> window, int limit)
     {
         ImmutableList.Builder<ConvIndexEntry> entries = ImmutableList.builder();
         for (ThreadMessage m : window) {
+            // The window is already user-prompt-only, but keep the guard
+            // so a future caller passing a raw message window can't slip
+            // tool_result rows into the index.
             if (isUserPrompt(m)) {
                 entries.add(toEntry(m));
             }
         }
         Long loadedFromSeq = window.isEmpty() ? null : window.get(0).seq();
-        // nextCursor mirrors loadedFromSeq when there's older data
-        // to fetch — i.e. the loaded window does not start at the
-        // thread's seq=1 row. A brand-new thread that returns 0 rows
-        // hides the "load earlier" affordance entirely.
-        Long nextCursor = loadedFromSeq != null && loadedFromSeq > 1L ? loadedFromSeq : null;
+        // The window is prompt-based now, so "older prompts exist" can't
+        // be inferred from seq>1 (seq 1 is usually a session-started
+        // row, not a prompt). Instead: a full page means we hit the
+        // limit and older prompts may remain; a short page means we
+        // reached the first prompt and the affordance hides.
+        Long nextCursor = loadedFromSeq != null && window.size() >= limit ? loadedFromSeq : null;
         return new ConvIndexPage(
                 threadId,
                 total,

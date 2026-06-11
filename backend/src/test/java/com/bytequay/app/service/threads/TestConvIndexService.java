@@ -51,9 +51,37 @@ class TestConvIndexService
         assertThat(page.entries()).extracting("seq").containsExactly(1L, 3L, 5L);
         assertThat(page.entries()).extracting("preview")
                 .containsExactly("First question", "Second question", "Third question");
-        assertThat(page.messages()).hasSize(5);
+        // messages now carries only the user prompts (the index window is
+        // prompt-based), not the assistant / tool_result rows.
+        assertThat(page.messages()).hasSize(3);
         assertThat(page.loadedFromSeq()).isEqualTo(1L);
         // Window covers the whole thread, so there's nothing older to fetch.
+        assertThat(page.nextCursor()).isNull();
+    }
+
+    @Test
+    void busyTurnDoesNotBuryEarlierPromptsBehindToolChatter()
+    {
+        // Regression: a single turn emits many tool rows, so a window of
+        // the last N *messages* would surface only the most recent
+        // prompt. The prompt-based window must still return all prompts.
+        InMemoryStore store = new InMemoryStore();
+        store.seed("busy",
+                userMsg(1, "First prompt"),
+                assistantMsg(2, "thinking"),
+                toolResultUserMsg(3, "tool out"),
+                toolResultUserMsg(4, "tool out"),
+                toolResultUserMsg(5, "tool out"),
+                toolResultUserMsg(6, "tool out"),
+                assistantMsg(7, "answer"),
+                userMsg(8, "Second prompt"));
+
+        // limit 3 messages would have caught only seq 8; prompt-based
+        // limit 3 catches both real prompts.
+        ConvIndexPage page = new ConvIndexService(store, new ObjectMapper()).initial("busy", 3);
+
+        assertThat(page.totalUserMessages()).isEqualTo(2);
+        assertThat(page.entries()).extracting("seq").containsExactly(1L, 8L);
         assertThat(page.nextCursor()).isNull();
     }
 

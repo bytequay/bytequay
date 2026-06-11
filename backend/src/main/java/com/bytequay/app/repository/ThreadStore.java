@@ -144,6 +144,40 @@ public interface ThreadStore
         return n;
     }
 
+    /** Most-recent {@code limit} <b>user prompts</b> (role=user, type=text),
+     *  oldest-first. Unlike {@link #listRecentMessages}, this skips the
+     *  tool / assistant / thinking chatter, so the conversation index
+     *  opens on the last N prompts the human actually typed — a single
+     *  busy turn can otherwise bury every earlier prompt past the
+     *  message window. Default filters {@link #listMessages}; SQLite
+     *  overrides with an indexed query. */
+    default List<ThreadMessage> listRecentUserMessages(String threadId, int limit)
+    {
+        List<ThreadMessage> prompts = new ArrayList<>();
+        for (ThreadMessage m : listMessages(threadId)) {
+            if ("user".equals(m.role()) && "text".equals(m.type())) {
+                prompts.add(m);
+            }
+        }
+        int from = Math.max(0, prompts.size() - limit);
+        return List.copyOf(prompts.subList(from, prompts.size()));
+    }
+
+    /** Older user-prompt window for "↑ load earlier": the {@code limit}
+     *  user prompts whose seq is strictly less than {@code beforeSeq},
+     *  oldest-first. Prompt-based sibling of {@link #listMessagesBefore}. */
+    default List<ThreadMessage> listUserMessagesBefore(String threadId, long beforeSeq, int limit)
+    {
+        List<ThreadMessage> prompts = new ArrayList<>();
+        for (ThreadMessage m : listMessages(threadId)) {
+            if (m.seq() < beforeSeq && "user".equals(m.role()) && "text".equals(m.type())) {
+                prompts.add(m);
+            }
+        }
+        int from = Math.max(0, prompts.size() - limit);
+        return List.copyOf(prompts.subList(from, prompts.size()));
+    }
+
     /** Highest {@code seq} currently assigned in the thread, or empty
      *  when no messages exist yet. The checkpoint scheduler uses this
      *  as the upper bound of the range it considers summarising. */

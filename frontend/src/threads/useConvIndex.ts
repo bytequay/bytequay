@@ -67,7 +67,6 @@ export function useConvIndex(threadId: string): ConvIndexState & {
   const [entries, setEntries] = useState<ConvIndexEntryDto[]>([]);
   const [total, setTotal] = useState(0);
   const [loadedFromSeq, setLoadedFromSeq] = useState<number | null>(null);
-  const [canLoadMore, setCanLoadMore] = useState(false);
   const [loading, setLoading] = useState(true);
   const [loadingMore, setLoadingMore] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -95,7 +94,6 @@ export function useConvIndex(threadId: string): ConvIndexState & {
       const loadedFromSeq = mergeLoadedFromSeq(loadedFromSeqRef.current, page.loadedFromSeq);
       setLoadedFromSeq(loadedFromSeq);
       loadedFromSeqRef.current = loadedFromSeq;
-      setCanLoadMore(loadedFromSeq !== null && loadedFromSeq > 1);
     }
     catch (e) {
       if (threadIdRef.current !== id) return;
@@ -115,7 +113,6 @@ export function useConvIndex(threadId: string): ConvIndexState & {
     setTotal(0);
     setLoadedFromSeq(null);
     loadedFromSeqRef.current = null;
-    setCanLoadMore(false);
     setFullTextBySeq({});
     void fetchInitial(threadId);
   }, [threadId, fetchInitial]);
@@ -142,7 +139,6 @@ export function useConvIndex(threadId: string): ConvIndexState & {
       setFullTextBySeq(prev => mergeFullText(prev, page.messages));
       setLoadedFromSeq(page.loadedFromSeq);
       loadedFromSeqRef.current = page.loadedFromSeq;
-      setCanLoadMore(page.nextCursor !== null);
     }
     catch (e) {
       setError(e instanceof Error ? e.message : String(e));
@@ -168,7 +164,12 @@ export function useConvIndex(threadId: string): ConvIndexState & {
     entries,
     total,
     loadedFromSeq,
-    canLoadMore,
+    // Derived, not stored: more remain whenever fewer distinct prompts
+    // are loaded than the thread-wide count. Robust across initial load,
+    // backfill, and SSE tail-refresh — a refreshed tail page can't
+    // clobber the "already paged to the first prompt" state the way a
+    // cursor-derived flag did.
+    canLoadMore: entries.length < total,
     loading,
     loadingMore,
     error,

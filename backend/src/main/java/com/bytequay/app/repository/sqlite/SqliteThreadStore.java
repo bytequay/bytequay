@@ -265,6 +265,22 @@ class SqliteThreadStore
     }
 
     @Override
+    public List<ThreadMessage> listRecentUserMessages(String threadId, int limit)
+    {
+        List<ThreadMessageEntity> tail = messages.findByThreadIdAndRoleAndTypeOrderBySeqDesc(
+                threadId, "user", "text", PageRequest.of(0, Math.max(1, limit)));
+        return reversedToMessages(tail);
+    }
+
+    @Override
+    public List<ThreadMessage> listUserMessagesBefore(String threadId, long beforeSeq, int limit)
+    {
+        List<ThreadMessageEntity> older = messages.findByThreadIdAndRoleAndTypeAndSeqLessThanOrderBySeqDesc(
+                threadId, "user", "text", beforeSeq, PageRequest.of(0, Math.max(1, limit)));
+        return reversedToMessages(older);
+    }
+
+    @Override
     public Optional<Long> maxMessageSeq(String threadId)
     {
         Long max = messages.maxSeq(threadId);

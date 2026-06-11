@@ -38,6 +38,17 @@ interface ThreadMessageJpaRepository
     List<ThreadMessageEntity> findByThreadIdAndSeqLessThanOrderBySeqDesc(
             String threadId, long beforeSeq, Pageable page);
 
+    /** Most-recent-first window of user prompts only (role + type
+     *  supplied as 'user' / 'text'). Powers the conversation index's
+     *  prompt-based initial load so a busy turn's tool chatter can't
+     *  bury earlier prompts. */
+    List<ThreadMessageEntity> findByThreadIdAndRoleAndTypeOrderBySeqDesc(
+            String threadId, String role, String type, Pageable page);
+
+    /** Older user-prompt window for "↑ load earlier", most-recent-first. */
+    List<ThreadMessageEntity> findByThreadIdAndRoleAndTypeAndSeqLessThanOrderBySeqDesc(
+            String threadId, String role, String type, long beforeSeq, Pageable page);
+
     /** Count of user-role text prompts in a thread. Used by the index
      *  header's "N of M" widget so the user knows how many prompts
      *  exist beyond the loaded window. role='user' AND type='text'

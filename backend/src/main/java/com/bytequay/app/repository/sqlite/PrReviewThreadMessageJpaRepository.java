@@ -14,6 +14,7 @@
 package com.bytequay.app.repository.sqlite;
 
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Modifying;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
@@ -24,7 +25,18 @@ interface PrReviewThreadMessageJpaRepository
 {
     List<PrReviewThreadMessageEntity> findByPrIdOrderByCreatedAtAsc(long prId);
 
-    void deleteByPrId(long prId);
+    /** Bulk delete — must be {@code @Modifying @Query} (not the
+     *  derived {@code deleteByPrId}) so the DELETE executes
+     *  immediately rather than deferring to flush time. The full-
+     *  refresh path in {@code SqlitePrDetailStore.save} calls this
+     *  immediately before re-inserting fresh rows for the same PR;
+     *  with the derived load-then-delete strategy, Hibernate flushes
+     *  INSERTs before DELETEs and trips the unique
+     *  {@code (pr_id, github_id)} constraint. Matches the pattern
+     *  every sibling Pr* repo already uses. */
+    @Modifying
+    @Query("DELETE FROM PrReviewThreadMessageEntity e WHERE e.prId = :prId")
+    void deleteByPrId(@Param("prId") long prId);
 
     @Query("SELECT e.githubId FROM PrReviewThreadMessageEntity e WHERE e.prId = :prId")
     List<Long> findGithubIdsByPrId(@Param("prId") long prId);

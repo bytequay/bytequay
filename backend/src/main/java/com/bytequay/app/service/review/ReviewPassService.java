@@ -355,6 +355,7 @@ public class ReviewPassService
         ReviewPass pass = seated.pass();
         List<PanelMember> panel = seated.panel();
         List<ReviewParticipant> reviewerSeats = seated.reviewerSeats();
+        ReviewParticipant moderator = seated.moderator();
         ReviewRequest request = seated.request();
 
         Map<ReviewParticipant, ReviewOutput> outputs;
@@ -424,12 +425,20 @@ public class ReviewPassService
             // unparseable call means that reviewer abstains — the pass
             // continues on whoever answered.
             long spentMilli = pass.costUsdMilli();
+            long capMilli = pass.costCapMilli();
+            boolean budgetHit = false;
             pass = withCost(withPhase(pass, ReviewPhase.CROSS_REVIEW, /* endedAt */ null), spentMilli);
             reviewStore.savePass(pass);
             List<String> envelopes = new ArrayList<>();
             for (int i = 0; i < reviewerSeats.size(); i++) {
                 ReviewParticipant seat = reviewerSeats.get(i);
                 PanelMember member = panel.get(i);
+                if (spentMilli >= capMilli) {
+                    budgetHit = true;
+                    log.warn("Review pass {} reached its cost cap ({} milli-USD) mid cross-review; "
+                            + "skipping the remaining reviewers.", pass.id(), capMilli);
+                    break;
+                }
                 LlmCompletion c = safeComplete(
                         member.reviewer(),
                         crossReviewSystemPrompt(),
@@ -473,8 +482,18 @@ public class ReviewPassService
             ReviewParticipant leadSeat = reviewerSeats.get(panel.indexOf(leadMember));
             pass = withCost(withPhase(pass, ReviewPhase.CONSENSUS, /* endedAt */ null), spentMilli);
             reviewStore.savePass(pass);
-            ConsensusOutcome outcome = runConsensus(
-                    leadMember, reviewerSeats, panel, outputs, envelopes, request);
+            ConsensusOutcome outcome;
+            if (budgetHit || spentMilli >= capMilli) {
+                // No budget left for the consensus call — escalate every
+                // finding to arbitration rather than spending past the cap.
+                budgetHit = true;
+                log.warn("Review pass {} reached its cost cap ({} milli-USD); skipping the "
+                        + "consensus call and escalating findings to arbitration.", pass.id(), capMilli);
+                outcome = new ConsensusOutcome(allDisputed(reviewerSeats, panel, outputs), null, 0L);
+            }
+            else {
+                outcome = runConsensus(leadMember, reviewerSeats, panel, outputs, envelopes, request);
+            }
             spentMilli += outcome.costMilli();
             ConsensusResult consensus = outcome.result();
             reviewStore.saveMessage(new ReviewMessage(
@@ -524,10 +543,27 @@ public class ReviewPassService
             pass = withCost(pass, spentMilli);
             reviewStore.savePass(pass);
 
+            if (budgetHit) {
+                reviewStore.saveMessage(new ReviewMessage(
+                        UUID.randomUUID().toString(),
+                        pass.id(),
+                        moderator.id(),
+                        ReviewPhase.CONSENSUS,
+                        /* round */ 0,
+                        "Budget cap reached. " + consensus.agreed().size() + " findings agreed; "
+                                + consensus.disputed().size()
+                                + " escalated to arbitration without full cross-review.",
+                        /* mentions */ List.of(),
+                        /* refs */ List.of(),
+                        /* costUsdMilli */ 0L,
+                        Instant.now()));
+            }
+
             // Bounded debate over the disputed items, capped at
-            // pass.roundCap(). The debate enriches the transcript; the
-            // ballot still drives final resolution.
-            if (!consensus.disputed().isEmpty()) {
+            // pass.roundCap(). Skipped when the budget is already spent —
+            // the debate is itself LLM calls. The ballot still drives
+            // final resolution.
+            if (!budgetHit && !consensus.disputed().isEmpty()) {
                 runDebateLoop(pass, panel, reviewerSeats, request, outputs, consensus.disputed());
             }
             suggested = suggestedVerdictForConsensus(consensus);

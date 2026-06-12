@@ -847,6 +847,51 @@ class TestReviewPassService
         assertThat(detail.pass().phase()).isEqualTo(ReviewPhase.ARBITRATE);
     }
 
+    @Test
+    void costCapStopsTheCrossReviewRoundAndEscalatesToArbitration()
+    {
+        LlmReviewer claude = mock(LlmReviewer.class);
+        LlmReviewer openai = mock(LlmReviewer.class);
+        when(claude.providerId()).thenReturn("claude");
+        when(claude.displayName()).thenReturn("Claude");
+        when(claude.isConfigured()).thenReturn(true);
+        when(openai.providerId()).thenReturn("openai");
+        when(openai.displayName()).thenReturn("GPT-5");
+        when(openai.isConfigured()).thenReturn(true);
+        when(registry.all()).thenReturn(List.of(claude, openai));
+        when(claude.review(any(ReviewRequest.class))).thenReturn(new ReviewOutput(
+                "C.", List.of(new ReviewOutput.LineComment("src/a.ts", 1, "A.", "nit")),
+                "claude", "claude-sonnet-4.6"));
+        when(openai.review(any(ReviewRequest.class))).thenReturn(new ReviewOutput(
+                "G.", List.of(new ReviewOutput.LineComment("src/b.ts", 2, "B.", "nit")),
+                "openai", "gpt-5"));
+        // Each cross-review call costs ~2 milli-USD, so a 1-milli cap
+        // trips after the first reviewer and the consensus call is
+        // skipped entirely.
+        stubPanelOrchestration(consensus(
+                finding("src/a.ts", 1, "nit", "A.", "agreed", "Claude")),
+                claude, openai);
+
+        ReviewPassService.StartOptions opts = new ReviewPassService.StartOptions(
+                List.of(), 3, /* costCapMilli */ 1L, true);
+        ReviewPassDetail detail = service.startReviewOnPr("acme/widget", 42, opts);
+
+        // A budget message landed; only one cross-review envelope ran;
+        // no debate; every finding escalated to arbitration.
+        assertThat(recording.messages).anySatisfy(m ->
+                assertThat(m.body()).contains("Budget cap reached"));
+        long crossReview = recording.messages.stream()
+                .filter(m -> m.phase() == ReviewPhase.CROSS_REVIEW)
+                .count();
+        assertThat(crossReview).isEqualTo(1);
+        long debate = recording.messages.stream()
+                .filter(m -> m.phase() == ReviewPhase.DEBATE)
+                .count();
+        assertThat(debate).isZero();
+        assertThat(detail.findings()).isNotEmpty();
+        assertThat(detail.findings()).allMatch(f -> f.status() == ReviewFindingStatus.DISPUTED);
+    }
+
     // ── Phase 8 inner-5: per-file fan-out for big PRs ────────────────
 
     @Test

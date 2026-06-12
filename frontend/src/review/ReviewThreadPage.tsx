@@ -552,12 +552,12 @@ function RosterSection({
  *  the lead/moderator reads LEAD, reviewers THINK, the human WATCHES. */
 function rosterRoleLabel(kind: ReviewParticipantDto['kind'], isLead: boolean): string {
   if (kind === 'HUMAN') return 'WATCH';
-  if (kind === 'MODERATOR' || isLead) return 'LEAD';
+  if (kind === 'LEAD' || isLead) return 'LEAD';
   return 'THINKS';
 }
 
 function rosterFallbackColor(kind: ReviewParticipantDto['kind']): string {
-  return kind === 'MODERATOR' ? '#737373' : kind === 'HUMAN' ? '#16a34a' : '#0066cc';
+  return kind === 'LEAD' ? '#737373' : kind === 'HUMAN' ? '#16a34a' : '#0066cc';
 }
 
 const PHASE_LABELS: Record<string, string> = {
@@ -658,7 +658,7 @@ function MessageBubble({
   const name = author?.personaLabel ?? '?';
   const color = author?.color ?? 'var(--text-muted)';
   const isYou = kind === 'HUMAN';
-  const isModerator = kind === 'MODERATOR';
+  const isModerator = kind === 'LEAD';
   const roleTag = isModerator ? 'moderator' : isLead ? 'lead' : null;
 
   return (
@@ -952,7 +952,7 @@ function severityColor(severity: ReviewFindingSeverityDto): string {
 
 function kindLabel(kind: ReviewParticipantDto['kind']): string {
   switch (kind) {
-    case 'MODERATOR': return 'Moderator';
+    case 'LEAD': return 'Lead';
     case 'REVIEWER':  return 'Reviewer';
     case 'HUMAN':     return 'You';
   }
@@ -1329,7 +1329,7 @@ const rosterIdentityStyle: React.CSSProperties = {
 function rosterRoleBadgeStyle(
   kind: ReviewParticipantDto['kind'], isLead: boolean,
 ): React.CSSProperties {
-  const lead = kind === 'MODERATOR' || isLead;
+  const lead = kind === 'LEAD' || isLead;
   const human = kind === 'HUMAN';
   const color = lead ? '#b45309' : human ? '#15803d' : '#1d4ed8';
   const bg = lead ? 'rgba(217,119,6,0.12)' : human ? 'rgba(22,163,74,0.12)' : 'rgba(37,99,235,0.10)';

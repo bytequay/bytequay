@@ -47,6 +47,12 @@ class ReviewParticipantEntity
     @Column(name = "created_at_ms", nullable = false)
     private long createdAtMs;
 
+    @Column(name = "budget_milli_usd_cap")
+    private Long budgetMilliUsdCap;
+
+    @Column(name = "budget_milli_usd_spent")
+    private Long budgetMilliUsdSpent;
+
     String getId() { return id; }
     void setId(String id) { this.id = id; }
 
@@ -70,4 +76,10 @@ class ReviewParticipantEntity
 
     long getCreatedAtMs() { return createdAtMs; }
     void setCreatedAtMs(long createdAtMs) { this.createdAtMs = createdAtMs; }
+
+    Long getBudgetMilliUsdCap() { return budgetMilliUsdCap; }
+    void setBudgetMilliUsdCap(Long budgetMilliUsdCap) { this.budgetMilliUsdCap = budgetMilliUsdCap; }
+
+    Long getBudgetMilliUsdSpent() { return budgetMilliUsdSpent; }
+    void setBudgetMilliUsdSpent(Long budgetMilliUsdSpent) { this.budgetMilliUsdSpent = budgetMilliUsdSpent; }
 }

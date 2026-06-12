@@ -76,7 +76,7 @@ class TestSqliteReviewStore
         assertThat(loaded.verdict()).isNull();
 
         ReviewParticipant moderator = newParticipant(
-                pass.id(), ReviewParticipantKind.MODERATOR, null, "Moderator", null);
+                pass.id(), ReviewParticipantKind.LEAD, null, "Moderator", null);
         ReviewParticipant reviewer = newParticipant(
                 pass.id(), ReviewParticipantKind.REVIEWER, "cred-claude", "Claude", "claude-sonnet-4.6");
         reviews.saveParticipant(moderator);
@@ -133,7 +133,7 @@ class TestSqliteReviewStore
         ReviewPass pass = newPass(reviewThread.id(), "acme/widget", 7);
         reviews.savePass(pass);
         ReviewParticipant moderator = newParticipant(
-                pass.id(), ReviewParticipantKind.MODERATOR, null, "Moderator", null);
+                pass.id(), ReviewParticipantKind.LEAD, null, "Moderator", null);
         reviews.saveParticipant(moderator);
         reviews.saveMessage(message(pass.id(), moderator.id()));
         reviews.saveFinding(finding(pass.id()));

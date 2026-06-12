@@ -313,7 +313,7 @@ public class ReviewBuildSpawnService
         return new ReviewPass(
                 p.id(), p.threadId(), p.repoFullName(), p.prNumber(), p.headSha(), p.phase(),
                 p.round(), p.roundCap(), p.costCapMilli(), p.costUsdMilli(), p.verdict(),
-                p.createdAt(), p.endedAt(), threadId);
+                p.createdAt(), p.endedAt(), threadId, p.agendaJson());
     }
 
     private static ResponseStatusException status(int code, String message)

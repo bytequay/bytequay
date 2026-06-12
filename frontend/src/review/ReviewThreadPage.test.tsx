@@ -284,7 +284,7 @@ function buildDetail(
     overrides: { verdict?: ReviewPassDto['verdict']; findings?: ReviewFindingDto[] },
 ): ReviewPassDetailDto {
   const moderator = participant({
-    id: 'p-mod', kind: 'MODERATOR', personaLabel: 'Moderator',
+    id: 'p-mod', kind: 'LEAD', personaLabel: 'Moderator',
   });
   const reviewer = participant({
     id: 'p-rev', kind: 'REVIEWER', personaLabel: 'Claude (Anthropic)',

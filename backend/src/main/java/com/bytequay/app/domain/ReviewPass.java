@@ -36,6 +36,11 @@ import java.time.Instant;
  * @param spawnedBuildThreadId  the build thread this pass spawned to
  *                  apply its AGREED findings ("→ Spawn build thread"),
  *                  or null. Set once, after the pass is TERMINATE.
+ * @param agendaJson  the Lead's agenda as a JSON array of
+ *                  {@code {id, title, status}} objects (see
+ *                  {@link AgendaPhase}); null until the Lead's
+ *                  {@code set_agenda} call, and forever on passes
+ *                  that predate the Lead orchestrator.
  */
 public record ReviewPass(
         String id,
@@ -51,7 +56,8 @@ public record ReviewPass(
         ReviewVerdict verdict,
         Instant createdAt,
         Instant endedAt,
-        String spawnedBuildThreadId)
+        String spawnedBuildThreadId,
+        String agendaJson)
 {
     /** Pass with no spawned build thread yet — every site that builds
      *  or rebuilds a pass during its run uses this; only the spawn
@@ -72,6 +78,36 @@ public record ReviewPass(
             Instant endedAt)
     {
         this(id, threadId, repoFullName, prNumber, headSha, phase, round, roundCap,
-                costCapMilli, costUsdMilli, verdict, createdAt, endedAt, null);
+                costCapMilli, costUsdMilli, verdict, createdAt, endedAt, null, null);
+    }
+
+    /** Pass with no agenda yet — pre-Lead call sites. */
+    public ReviewPass(
+            String id,
+            String threadId,
+            String repoFullName,
+            int prNumber,
+            String headSha,
+            ReviewPhase phase,
+            int round,
+            int roundCap,
+            long costCapMilli,
+            long costUsdMilli,
+            ReviewVerdict verdict,
+            Instant createdAt,
+            Instant endedAt,
+            String spawnedBuildThreadId)
+    {
+        this(id, threadId, repoFullName, prNumber, headSha, phase, round, roundCap,
+                costCapMilli, costUsdMilli, verdict, createdAt, endedAt,
+                spawnedBuildThreadId, null);
+    }
+
+    /** Copy with a different agenda payload. */
+    public ReviewPass withAgendaJson(String newAgendaJson)
+    {
+        return new ReviewPass(id, threadId, repoFullName, prNumber, headSha, phase,
+                round, roundCap, costCapMilli, costUsdMilli, verdict, createdAt,
+                endedAt, spawnedBuildThreadId, newAgendaJson);
     }
 }

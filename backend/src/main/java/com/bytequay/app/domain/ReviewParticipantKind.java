@@ -19,9 +19,11 @@ import java.util.Locale;
  * Role a {@link ReviewParticipant} plays on the panel.
  *
  * <ul>
- *   <li>{@link #MODERATOR} — the deterministic spine; no credential.
- *       Posts system-voice messages announcing phase transitions and
- *       summarising consensus.</li>
+ *   <li>{@link #LEAD} — the panel orchestrator. Drives the agenda,
+ *       dispatches reviewers via @-mention, records consensus, and
+ *       posts system-voice phase announcements. The DB value stays
+ *       {@code moderator} for backward-compat with rows written
+ *       before the rename.</li>
  *   <li>{@link #REVIEWER} — a credential tagged {@code review} in the
  *       AI settings. Phase 1 ships with exactly one; Phase 2 onwards
  *       admits 2+ for cross-review and debate.</li>
@@ -31,7 +33,7 @@ import java.util.Locale;
  */
 public enum ReviewParticipantKind
 {
-    MODERATOR("moderator"),
+    LEAD("moderator"),
     REVIEWER("reviewer"),
     HUMAN("human");
 

@@ -83,6 +83,7 @@ class SqliteReviewStore
         entity.setCreatedAtMs(pass.createdAt().toEpochMilli());
         entity.setEndedAtMs(pass.endedAt() == null ? null : pass.endedAt().toEpochMilli());
         entity.setSpawnedBuildThreadId(pass.spawnedBuildThreadId());
+        entity.setAgendaJson(pass.agendaJson());
         passes.save(entity);
     }
 
@@ -141,6 +142,9 @@ class SqliteReviewStore
         entity.setModel(participant.model());
         entity.setColor(participant.color());
         entity.setCreatedAtMs(participant.createdAt().toEpochMilli());
+        entity.setBudgetMilliUsdCap(
+                participant.budgetMilliUsdCap() == 0 ? null : participant.budgetMilliUsdCap());
+        entity.setBudgetMilliUsdSpent(participant.budgetMilliUsdSpent());
         participants.save(entity);
     }
 
@@ -252,7 +256,8 @@ class SqliteReviewStore
                 ReviewVerdict.fromDbValue(e.getVerdict()),
                 Instant.ofEpochMilli(e.getCreatedAtMs()),
                 e.getEndedAtMs() == null ? null : Instant.ofEpochMilli(e.getEndedAtMs()),
-                e.getSpawnedBuildThreadId());
+                e.getSpawnedBuildThreadId(),
+                e.getAgendaJson());
     }
 
     private static ReviewParticipant toParticipant(ReviewParticipantEntity e)
@@ -265,7 +270,9 @@ class SqliteReviewStore
                 e.getPersonaLabel(),
                 e.getModel(),
                 e.getColor(),
-                Instant.ofEpochMilli(e.getCreatedAtMs()));
+                Instant.ofEpochMilli(e.getCreatedAtMs()),
+                e.getBudgetMilliUsdCap() == null ? 0L : e.getBudgetMilliUsdCap(),
+                e.getBudgetMilliUsdSpent() == null ? 0L : e.getBudgetMilliUsdSpent());
     }
 
     private ReviewMessage toMessage(ReviewMessageEntity e)

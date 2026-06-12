@@ -65,6 +65,9 @@ class ReviewPassEntity
     @Column(name = "spawned_build_thread_id")
     private String spawnedBuildThreadId;
 
+    @Column(name = "agenda_json")
+    private String agendaJson;
+
     String getId() { return id; }
     void setId(String id) { this.id = id; }
 
@@ -103,6 +106,10 @@ class ReviewPassEntity
 
     Long getEndedAtMs() { return endedAtMs; }
     void setEndedAtMs(Long endedAtMs) { this.endedAtMs = endedAtMs; }
+
+    String getAgendaJson() { return agendaJson; }
+
+    void setAgendaJson(String agendaJson) { this.agendaJson = agendaJson; }
 
     String getSpawnedBuildThreadId() { return spawnedBuildThreadId; }
     void setSpawnedBuildThreadId(String spawnedBuildThreadId) { this.spawnedBuildThreadId = spawnedBuildThreadId; }

@@ -1945,7 +1945,7 @@ export type ReviewPhaseDto =
   | 'ARBITRATE'
   | 'PUBLISHED';
 
-export type ReviewParticipantKindDto = 'MODERATOR' | 'REVIEWER' | 'HUMAN';
+export type ReviewParticipantKindDto = 'LEAD' | 'REVIEWER' | 'HUMAN';
 export type ReviewFindingSeverityDto = 'BLOCKER' | 'MAJOR' | 'NIT' | 'QUESTION';
 export type ReviewFindingStatusDto =
   | 'AGREED' | 'DISPUTED' | 'RESOLVED' | 'ARBITRATED' | 'DROPPED' | 'POSTED';

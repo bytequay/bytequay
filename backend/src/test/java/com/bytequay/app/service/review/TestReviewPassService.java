@@ -165,7 +165,7 @@ class TestReviewPassService
                 .map(ReviewParticipant::kind)
                 .toList();
         assertThat(participantKinds).containsExactly(
-                ReviewParticipantKind.MODERATOR,
+                ReviewParticipantKind.LEAD,
                 ReviewParticipantKind.REVIEWER,
                 ReviewParticipantKind.HUMAN);
         ReviewParticipant reviewerSeat = recording.participants.get(1);

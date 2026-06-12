@@ -280,7 +280,7 @@ public class ReviewPassService
         //    typed messages to it without a schema change.
         ReviewParticipant moderator = new ReviewParticipant(
                 UUID.randomUUID().toString(), pass.id(),
-                ReviewParticipantKind.MODERATOR,
+                ReviewParticipantKind.LEAD,
                 /* credentialId */ null,
                 "Moderator",
                 /* model */ null, /* color */ null, now);
@@ -595,7 +595,8 @@ public class ReviewPassService
                 pass.costUsdMilli(),
                 suggested,
                 pass.createdAt(),
-                /* endedAt */ hasDisputed ? null : Instant.now());
+                /* endedAt */ hasDisputed ? null : Instant.now(),
+                pass.spawnedBuildThreadId(), pass.agendaJson());
         reviewStore.savePass(finalPass);
 
         return buildDetail(finalPass);
@@ -665,7 +666,8 @@ public class ReviewPassService
                     pass.costCapMilli(), pass.costUsdMilli(),
                     pass.verdict(),
                     pass.createdAt(),
-                    /* endedAt */ Instant.now());
+                    /* endedAt */ Instant.now(),
+                    pass.spawnedBuildThreadId(), pass.agendaJson());
             reviewStore.savePass(terminated);
             log.info("Review pass {} arbitration complete; transitioned to TERMINATE", passId);
         }
@@ -1566,7 +1568,8 @@ public class ReviewPassService
                 pass.id(), pass.threadId(), pass.repoFullName(), pass.prNumber(),
                 pass.headSha(), pass.phase(), pass.round(), pass.roundCap(),
                 pass.costCapMilli(), costUsdMilli, pass.verdict(),
-                pass.createdAt(), pass.endedAt());
+                pass.createdAt(), pass.endedAt(),
+                pass.spawnedBuildThreadId(), pass.agendaJson());
     }
 
     private record ConsensusOutcome(ConsensusResult result, String json, long costMilli) {}
@@ -1711,7 +1714,8 @@ public class ReviewPassService
                 pass.costCapMilli(), pass.costUsdMilli(),
                 verdict,
                 pass.createdAt(),
-                publishedAt);
+                publishedAt,
+                pass.spawnedBuildThreadId(), pass.agendaJson());
         reviewStore.savePass(published);
 
         return buildDetail(published);
@@ -1783,7 +1787,8 @@ public class ReviewPassService
                 pass.costUsdMilli(),
                 pass.verdict(),
                 pass.createdAt(),
-                endedAt);
+                endedAt,
+                pass.spawnedBuildThreadId(), pass.agendaJson());
     }
 
     /** Translate a free-form severity string from the LLM into the

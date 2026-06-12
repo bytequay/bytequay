@@ -73,6 +73,25 @@ public interface LlmReviewer
     }
 
     /**
+     * A generic structured completion used by the review orchestrator
+     * (cross-review, consensus, debate turns, and the moderator). Sends a
+     * system prompt plus a single user message and returns the raw
+     * assistant text together with the provider-reported token usage, so
+     * the caller can meter the call's cost against the per-pass budget.
+     *
+     * <p>Unlike {@link #review}, this carries no fixed "review this diff"
+     * contract — the caller owns the prompt and parses whatever structured
+     * text comes back. Default implementation throws so callers can detect
+     * providers that haven't implemented it yet.
+     */
+    default LlmCompletion complete(String systemPrompt, String userPrompt)
+    {
+        throw new UnsupportedOperationException(
+                providerId() + " doesn't support structured orchestration calls yet. "
+                        + "Switch to a provider that does in Settings → AI.");
+    }
+
+    /**
      * Rewrites a developer-authored review comment to be clearer, more
      * specific, and friendlier — same thread as the user pasting their
      * draft into ChatGPT and asking "give me better words". Returns the

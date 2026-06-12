@@ -26,6 +26,7 @@ import com.bytequay.app.domain.WorkModelKind;
 import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.repository.ThreadStore;
 import com.bytequay.app.service.CredentialService;
+import com.bytequay.app.service.ai.ModelPricing;
 import com.bytequay.app.service.local.ds4.Ds4Instrumentation;
 import com.bytequay.app.service.local.ds4.Ds4LifecycleService;
 import com.bytequay.app.service.local.ds4.Ds4State;
@@ -138,29 +139,6 @@ public class LogicLoopThreadAgent
     /** Safety cap on the per-turn tool-use ↔ result loop. Reset on
      *  every {@code send()}. */
     private static final int MAX_TOOL_ITERATIONS = 12;
-
-    // ── Per-model cost table ──────────────────────────────────────────────
-
-    private record ModelPrice(double usdPerMillionIn, double usdPerMillionOut)
-    {
-        long computeCostMilli(long tokensIn, long tokensOut)
-        {
-            double costUsd = tokensIn * usdPerMillionIn / 1_000_000.0
-                    + tokensOut * usdPerMillionOut / 1_000_000.0;
-            return Math.round(costUsd * 1000.0);
-        }
-    }
-
-    private static final Map<String, ModelPrice> MODEL_PRICES = Map.ofEntries(
-            Map.entry("claude-opus-4-7", new ModelPrice(15.0, 75.0)),
-            Map.entry("claude-sonnet-4-6", new ModelPrice(3.0, 15.0)),
-            Map.entry("claude-haiku-4-5", new ModelPrice(0.8, 4.0)),
-            Map.entry("gpt-5", new ModelPrice(10.0, 40.0)),
-            Map.entry("gpt-5-mini", new ModelPrice(1.25, 5.0)),
-            Map.entry("gpt-4o", new ModelPrice(2.5, 10.0)),
-            Map.entry("gpt-4o-mini", new ModelPrice(0.15, 0.6)),
-            Map.entry("deepseek-chat", new ModelPrice(0.27, 1.1)),
-            Map.entry("deepseek-reasoner", new ModelPrice(0.55, 2.19)));
 
     // ── Fields ────────────────────────────────────────────────────────────
 
@@ -1375,8 +1353,7 @@ public class LogicLoopThreadAgent
      *  Falls back to Sonnet-class pricing for unrecognised model ids. */
     private static long estimateCostMilli(String modelId, long tokensIn, long tokensOut)
     {
-        ModelPrice price = MODEL_PRICES.getOrDefault(modelId, new ModelPrice(3.0, 15.0));
-        return price.computeCostMilli(tokensIn, tokensOut);
+        return ModelPricing.estimateCostMilli(modelId, tokensIn, tokensOut);
     }
 
     private static String defaultModelForProvider(String provider)

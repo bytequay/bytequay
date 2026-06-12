@@ -148,6 +148,53 @@ public class ClaudeReviewer
     }
 
     @Override
+    public LlmCompletion complete(String systemPrompt, String userPrompt)
+    {
+        String apiKey = credentialService.getSecret(CredentialType.AI, ANTHROPIC_NAME)
+                .orElseThrow(() -> new IllegalStateException(
+                        "Anthropic API key not configured. Add it in Settings → AI review."));
+        String model = appSettings.get(AppSettingsStore.Key.LLM_MODEL)
+                .filter(s -> !s.isBlank())
+                .orElse(DEFAULT_MODEL);
+
+        MessagesRequest body = new MessagesRequest(
+                model,
+                MAX_OUTPUT_TOKENS,
+                systemPrompt == null ? "" : systemPrompt,
+                ImmutableList.of(new MessagesRequest.Message("user", userPrompt == null ? "" : userPrompt)),
+                false);
+
+        try {
+            MessagesResponse response = client.post()
+                    .uri("/v1/messages")
+                    .header("x-api-key", apiKey)
+                    .body(body)
+                    .retrieve()
+                    .body(MessagesResponse.class);
+            String text = extractText(response);
+            Map<String, Object> usage = response == null ? null : response.usage();
+            return new LlmCompletion(
+                    text,
+                    usageTokens(usage, "input_tokens"),
+                    usageTokens(usage, "output_tokens"),
+                    model);
+        }
+        catch (RestClientResponseException e) {
+            log.warn("Anthropic complete call returned {}: {}", e.getStatusCode().value(), e.getResponseBodyAsString());
+            throw new IllegalStateException(
+                    "Claude API error (" + e.getStatusCode().value() + "). Check your API key and try again.", e);
+        }
+    }
+
+    private static long usageTokens(Map<String, Object> usage, String key)
+    {
+        if (usage == null) {
+            return 0L;
+        }
+        return usage.get(key) instanceof Number n ? n.longValue() : 0L;
+    }
+
+    @Override
     public ReviewOutput reviewStream(ReviewRequest request, Consumer<String> textChunk)
     {
         requireNonNull(textChunk, "textChunk is null");

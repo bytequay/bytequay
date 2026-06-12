@@ -211,6 +211,46 @@ public class DeepSeekReviewer
     }
 
     @Override
+    public LlmCompletion complete(String systemPrompt, String userPrompt)
+    {
+        String model = appSettings.get(AppSettingsStore.Key.LLM_MODEL)
+                .filter(s -> !s.isBlank())
+                .orElse(DEFAULT_MODEL);
+        Route route = selectRoute(model);
+
+        ChatRequest body = new ChatRequest(
+                model,
+                ImmutableList.of(
+                        new ChatRequest.Message("system", systemPrompt == null ? "" : systemPrompt),
+                        new ChatRequest.Message("user", userPrompt == null ? "" : userPrompt)),
+                MAX_OUTPUT_TOKENS,
+                false);
+
+        long startNanos = System.nanoTime();
+        try {
+            ChatResponse response = route.client().post()
+                    .uri("/chat/completions")
+                    .header("Authorization", "Bearer " + route.token())
+                    .body(body)
+                    .retrieve()
+                    .body(ChatResponse.class);
+            recordLocalCall(model, "review_orchestration", startNanos, response);
+            String text = extractText(response);
+            Map<String, Object> usage = response == null ? null : response.usage();
+            return new LlmCompletion(
+                    text,
+                    asLong(usage == null ? null : usage.get("prompt_tokens")),
+                    asLong(usage == null ? null : usage.get("completion_tokens")),
+                    model);
+        }
+        catch (RestClientResponseException e) {
+            log.warn("DeepSeek complete call returned {}: {}", e.getStatusCode().value(), e.getResponseBodyAsString());
+            throw new IllegalStateException(
+                    "DeepSeek API error (" + e.getStatusCode().value() + "). Check your API key and try again.", e);
+        }
+    }
+
+    @Override
     public String polishCommentText(String draft)
     {
         if (draft == null || draft.trim().isEmpty()) {

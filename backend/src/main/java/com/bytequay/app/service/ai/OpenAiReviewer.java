@@ -127,6 +127,54 @@ public class OpenAiReviewer
     }
 
     @Override
+    public LlmCompletion complete(String systemPrompt, String userPrompt)
+    {
+        String apiKey = credentialService.getSecret(CredentialType.AI, OPENAI_NAME)
+                .orElseThrow(() -> new IllegalStateException(
+                        "OpenAI API key not configured. Add it in Settings → AI review."));
+        String model = appSettings.get(AppSettingsStore.Key.LLM_MODEL)
+                .filter(s -> !s.isBlank())
+                .orElse(DEFAULT_MODEL);
+
+        ChatRequest body = new ChatRequest(
+                model,
+                ImmutableList.of(
+                        new ChatRequest.Message("system", systemPrompt == null ? "" : systemPrompt),
+                        new ChatRequest.Message("user", userPrompt == null ? "" : userPrompt)),
+                MAX_OUTPUT_TOKENS,
+                false);
+
+        try {
+            ChatResponse response = client.post()
+                    .uri("/chat/completions")
+                    .header("Authorization", "Bearer " + apiKey)
+                    .body(body)
+                    .retrieve()
+                    .body(ChatResponse.class);
+            String text = extractText(response);
+            Map<String, Object> usage = response == null ? null : response.usage();
+            return new LlmCompletion(
+                    text,
+                    usageTokens(usage, "prompt_tokens"),
+                    usageTokens(usage, "completion_tokens"),
+                    model);
+        }
+        catch (RestClientResponseException e) {
+            log.warn("OpenAI complete call returned {}: {}", e.getStatusCode().value(), e.getResponseBodyAsString());
+            throw new IllegalStateException(
+                    "OpenAI API error (" + e.getStatusCode().value() + "). Check your API key and try again.", e);
+        }
+    }
+
+    private static long usageTokens(Map<String, Object> usage, String key)
+    {
+        if (usage == null) {
+            return 0L;
+        }
+        return usage.get(key) instanceof Number n ? n.longValue() : 0L;
+    }
+
+    @Override
     public String polishCommentText(String draft)
     {
         if (draft == null || draft.trim().isEmpty()) {

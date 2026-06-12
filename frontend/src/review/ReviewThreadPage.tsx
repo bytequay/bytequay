@@ -263,11 +263,11 @@ function SpawnBuildSection(
   );
 }
 
-/** Top bar — Back chevron · panel-title · PR ref · phase / round /
- *  cost meters on the right. Matches the panel mockup's header strip. */
+/** Top bar — Back chevron · panel-title · PR ref · phase / cost
+ *  meters on the right. The mockup's round meter is gone: the lead
+ *  drives phases against the agenda now, so the agenda widget carries
+ *  in-pass progress and the cost cap is the budget signal. */
 function TopBar({ detail, onBack }: { detail: ReviewPassDetailDto | null; onBack: () => void }) {
-  const round = detail?.pass.round ?? 0;
-  const roundCap = detail?.pass.roundCap ?? 0;
   const costMilli = detail?.pass.costUsdMilli ?? 0;
   const costCapMilli = detail?.pass.costCapMilli ?? 0;
   return (
@@ -291,11 +291,6 @@ function TopBar({ detail, onBack }: { detail: ReviewPassDetailDto | null; onBack
           <Meter label="Phase">
             <PhasePill phase={detail.pass.phase} />
           </Meter>
-          {roundCap > 0 && (
-            <Meter label="Round">
-              <span style={meterValueStyle}>{round} / {roundCap}</span>
-            </Meter>
-          )}
           {costCapMilli > 0 && (
             <Meter label="Cost">
               <span style={meterValueStyle}>
@@ -375,26 +370,14 @@ function FlowStepper({ currentPhase }: { currentPhase: string }) {
   );
 }
 
-/** Left-rail "Budget" card — debate-rounds + cost progress bars. */
+/** Left-rail "Budget" card — the cost progress bar. */
 function BudgetCard({ detail }: { detail: ReviewPassDetailDto }) {
-  const roundPct = detail.pass.roundCap > 0
-      ? Math.min(100, Math.round((detail.pass.round / detail.pass.roundCap) * 100))
-      : 0;
   const costPct = detail.pass.costCapMilli > 0
       ? Math.min(100, Math.round((detail.pass.costUsdMilli / detail.pass.costCapMilli) * 100))
       : 0;
   return (
     <section style={cardStyle} aria-label="Budget">
       <h2 style={cardTitleStyle}>Budget</h2>
-      <div style={budgetRowStyle}>
-        <div style={budgetTopRowStyle}>
-          <span style={budgetLabelStyle}>Debate rounds</span>
-          <span style={budgetValueStyle}>{detail.pass.round} / {detail.pass.roundCap}</span>
-        </div>
-        <div style={progressTrackStyle}>
-          <div style={progressFillStyle(roundPct, '#7c3aed')} />
-        </div>
-      </div>
       <div style={budgetRowStyle}>
         <div style={budgetTopRowStyle}>
           <span style={budgetLabelStyle}>Cost</span>

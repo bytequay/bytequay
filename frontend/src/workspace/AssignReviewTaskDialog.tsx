@@ -82,8 +82,6 @@ function parsePrRef(input: string, defaultRepo: string | null): PrRef | null {
  * first (no anchoring)". The dialog calls bridge.startReview and
  * hands the new thread id to the parent.
  */
-const ROUND_MIN = 0;
-const ROUND_MAX = 5;
 const COST_MIN_CENTS = 10; // 0.10 USD
 const COST_MAX_CENTS = 200; // 2.00 USD
 const COST_STEP_CENTS = 5;
@@ -104,8 +102,7 @@ function AssignReviewTaskDialog({ workspaceId, onClose, onStarted }: Props) {
   // the roster loads.
   const [seats, setSeats] = useState<SeatDraft[]>([]);
   const [leadKey, setLeadKey] = useState<string | null>(null);
-  // Debate rounds + cost budget caps. Defaults mirror ReviewPassService.StartOptions.DEFAULT.
-  const [rounds, setRounds] = useState<number>(3);
+  // Cost budget cap. Default mirrors ReviewPassService.StartOptions.DEFAULT.
   // Stored in milli-USD to match the backend, but rendered as $X.XX
   // and adjusted in 5-cent steps to feel like a money slider.
   const [costCapMilli, setCostCapMilli] = useState<number>(500);
@@ -239,7 +236,6 @@ function AssignReviewTaskDialog({ workspaceId, onClose, onStarted }: Props) {
           selectedPr.repo,
           selectedPr.number,
           {
-            roundCap: rounds,
             costCapMilli,
             independentFirst,
             // Land the review thread in the workspace the dialog was
@@ -390,16 +386,6 @@ function AssignReviewTaskDialog({ workspaceId, onClose, onStarted }: Props) {
           </div>
           <div style={limitsGridStyle}>
             <LimitSlider
-              label="Debate rounds"
-              value={rounds}
-              min={ROUND_MIN}
-              max={ROUND_MAX}
-              step={1}
-              displayValue={String(rounds)}
-              caption="stops early on convergence"
-              onChange={setRounds}
-            />
-            <LimitSlider
               label="Cost budget"
               value={costCapMilli / 10}
               min={COST_MIN_CENTS}
@@ -431,7 +417,7 @@ function AssignReviewTaskDialog({ workspaceId, onClose, onStarted }: Props) {
 
           <footer style={dialogStyles.footer}>
             <span style={dialogStyles.footerNote}>
-              Est. ~{formatUsd(estimateMilli(validSeats.length, rounds))} ·{' '}
+              Est. ~{formatUsd(estimateMilli(validSeats.length))} ·{' '}
               {validSeats.length === 0
                 ? 'no reviewers'
                 : `${validSeats.length} reviewer${validSeats.length === 1 ? '' : 's'}`} ·{' '}
@@ -634,7 +620,10 @@ function formatUsd(milli: number): string {
 /** Very rough envelope used in the footer's "Est. ~" hint. ~$0.05 per
  *  reviewer per round, plus a small fixed kickoff cost — purely
  *  illustrative until the panel runtime records actual cost. */
-function estimateMilli(reviewers: number, rounds: number): number {
+function estimateMilli(reviewers: number): number {
+  // Nominal three lead-driven phases per pass — the cost cap, not a
+  // round knob, is the real bound now.
+  const rounds = 3;
   if (reviewers === 0) return 0;
   return Math.max(0, 50 + reviewers * 50 + reviewers * rounds * 40);
 }

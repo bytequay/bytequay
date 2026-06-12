@@ -45,10 +45,11 @@ describe('ReviewThreadPage', () => {
 
     render(<ReviewThreadPage threadId="thread-1" onBack={() => {}} />);
 
-    // Header shows the PR ref + verdict pill.
+    // Header shows the PR title + ref + verdict pill.
     await waitFor(() => {
-      expect(screen.getByText(/Review · acme\/widget#42/)).toBeTruthy();
+      expect(screen.getByText('Add retry logic')).toBeTruthy();
     });
+    expect(screen.getByText(/acme\/widget · PR #42/)).toBeTruthy();
     expect(screen.getByText('comment')).toBeTruthy();
 
     // Each persona label can appear in multiple places: the roster
@@ -309,6 +310,7 @@ function buildDetail(
       endedAt: '2026-05-22T12:00:10Z',
       spawnedBuildThreadId: null,
     },
+    prTitle: 'Add retry logic',
     participants: [moderator, reviewer, human],
     messages: [
       message({

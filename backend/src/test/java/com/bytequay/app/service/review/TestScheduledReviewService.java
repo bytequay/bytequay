@@ -253,7 +253,7 @@ class TestScheduledReviewService
                 ReviewFindingSeverity.NIT,
                 ReviewFindingStatus.AGREED,
                 "note", null, null, Instant.now());
-        return new ReviewPassDetail(pass, List.of(), List.of(), List.of(finding));
+        return new ReviewPassDetail(pass, null, List.of(), List.of(), List.of(finding));
     }
 
     private static ReviewPassDetail costedDetail(String passId, String threadId, long costMilli)
@@ -261,6 +261,6 @@ class TestScheduledReviewService
         ReviewPass pass = new ReviewPass(
                 passId, threadId, "acme/widget", 42, "abc", ReviewPhase.TERMINATE,
                 0, 3, 500L, costMilli, null, Instant.now(), Instant.now());
-        return new ReviewPassDetail(pass, List.of(), List.of(), List.of());
+        return new ReviewPassDetail(pass, null, List.of(), List.of(), List.of());
     }
 }

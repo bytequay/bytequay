@@ -227,11 +227,18 @@ public class ReviewController
             Boolean independentFirst,
             List<String> personaIds,
             String providerForPersonas,
-            String workspaceId)
+            String workspaceId,
+            String leadId,
+            List<SeatRequest> seats)
     {
         public ReviewPassService.StartOptions toOptions()
         {
             ReviewPassService.StartOptions defaults = ReviewPassService.StartOptions.DEFAULT;
+            List<ReviewPassService.PanelSeat> seatList = seats == null ? List.of()
+                    : seats.stream()
+                            .filter(s -> s != null && s.providerId() != null && !s.providerId().isBlank())
+                            .map(SeatRequest::toSeat)
+                            .toList();
             return new ReviewPassService.StartOptions(
                     panelProviderIds == null ? List.of() : panelProviderIds,
                     roundCap == null || roundCap <= 0 ? defaults.roundCap() : roundCap,
@@ -239,7 +246,23 @@ public class ReviewController
                     independentFirst == null ? defaults.independentFirst() : independentFirst,
                     personaIds == null ? List.of() : personaIds,
                     providerForPersonas,
-                    workspaceId);
+                    workspaceId,
+                    leadId == null || leadId.isBlank() ? null : leadId,
+                    seatList);
+        }
+    }
+
+    /** One composed reviewer seat from the dialog — a model plus an
+     *  optional persona or typed prompt, and whether it's the lead. */
+    public record SeatRequest(String providerId, String personaId, String customPrompt, Boolean lead)
+    {
+        ReviewPassService.PanelSeat toSeat()
+        {
+            return new ReviewPassService.PanelSeat(
+                    providerId,
+                    personaId == null || personaId.isBlank() ? null : personaId,
+                    customPrompt == null || customPrompt.isBlank() ? null : customPrompt,
+                    lead != null && lead);
         }
     }
 

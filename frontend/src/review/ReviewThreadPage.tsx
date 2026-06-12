@@ -71,6 +71,13 @@ function ReviewThreadPage({ threadId, onBack }: Props) {
     () => (detail?.findings ?? []).filter(f => f.status === 'DISPUTED'),
     [detail]);
 
+  // The lead is whoever authored the consensus turn (the lead runs
+  // consensus), so the roster + transcript can badge them consistently
+  // without a separate flag on the participant.
+  const leadId = useMemo(
+    () => detail?.messages.find(m => m.payloadKind === 'consensus')?.participantId ?? null,
+    [detail]);
+
   return (
     <section style={pageStyle}>
       <TopBar
@@ -96,7 +103,7 @@ function ReviewThreadPage({ threadId, onBack }: Props) {
         <div style={bodyGridStyle}>
           <aside style={leftRailStyle}>
             <ReviewingCard detail={detail} />
-            <RosterSection participants={detail.participants} />
+            <RosterSection participants={detail.participants} leadId={leadId} />
             <FlowStepper currentPhase={detail.pass.phase} />
             <BudgetCard detail={detail} />
           </aside>
@@ -105,6 +112,7 @@ function ReviewThreadPage({ threadId, onBack }: Props) {
               messages={detail.messages}
               participantsById={participantsById}
               passPhase={detail.pass.phase}
+              leadId={leadId}
             />
             <SteerComposerPlaceholder
               prNumber={detail.pass.prNumber}
@@ -113,12 +121,14 @@ function ReviewThreadPage({ threadId, onBack }: Props) {
           </main>
           <aside style={rightRailStyle}>
             <FindingsByStatusSection
-              title={`Agreed findings (${agreedFindings.length})`}
+              label="Agreed findings"
+              tone="agreed"
               findings={agreedFindings}
               emptyHint="Nothing locked in yet."
             />
             <FindingsByStatusSection
-              title={`Open (${openFindings.length})`}
+              label="Open"
+              tone="open"
               findings={openFindings}
               emptyHint="All disagreements resolved or arbitrated."
             />
@@ -210,11 +220,18 @@ function TopBar({ detail, onBack }: { detail: ReviewPassDetailDto | null; onBack
     <header style={topBarStyle}>
       <button type="button" className="button" onClick={onBack} style={backBtnStyle}>← Back</button>
       <span style={panelBadgeStyle}>Review panel</span>
-      <h1 style={titleStyle}>
-        {detail
-            ? `Review · ${detail.pass.repoFullName}#${detail.pass.prNumber}`
-            : 'Review thread'}
-      </h1>
+      <div style={titleColStyle}>
+        <h1 style={titleStyle}>
+          {detail
+              ? (detail.prTitle ?? `${detail.pass.repoFullName}#${detail.pass.prNumber}`)
+              : 'Review thread'}
+        </h1>
+        {detail && (
+          <span style={titleRefStyle}>
+            {detail.pass.repoFullName} · PR #{detail.pass.prNumber}
+          </span>
+        )}
+      </div>
       {detail && (
         <div style={metaStyle}>
           <Meter label="Phase">
@@ -285,6 +302,7 @@ function FlowStepper({ currentPhase }: { currentPhase: string }) {
     <section style={cardStyle} aria-label="Flow">
       <h2 style={cardTitleStyle}>Flow</h2>
       <ol style={flowListStyle}>
+        <span style={flowConnectorStyle} aria-hidden />
         {FLOW_PHASES.map((phase, idx) => {
           const state: 'done' | 'current' | 'next' = idx < currentIdx ? 'done'
               : idx === currentIdx ? 'current'
@@ -341,32 +359,45 @@ function BudgetCard({ detail }: { detail: ReviewPassDetailDto }) {
 /** Right-rail findings list partitioned by status. Same shape as
  *  the legacy FindingsSection but rendered twice — Agreed (locked-in)
  *  and Open (still in flight). */
+/** Right-rail findings as a clean checklist (mockup): a count badge in
+ *  the header, then one row per finding led by a status glyph — a green
+ *  check for locked-in (Agreed) items, an amber dot for in-flight (Open)
+ *  ones — with the file:line anchor as a muted mono prefix. */
 function FindingsByStatusSection({
-  title, findings, emptyHint,
+  label, tone, findings, emptyHint,
 }: {
-  title: string;
+  label: string;
+  tone: 'agreed' | 'open';
   findings: ReviewFindingDto[];
   emptyHint: string;
 }) {
+  const accent = tone === 'agreed' ? '#16a34a' : '#d97706';
   return (
-    <section style={cardStyle} aria-label={title}>
-      <h2 style={cardTitleStyle}>{title}</h2>
+    <section style={cardStyle} aria-label={label}>
+      <h2 style={checklistHeadStyle}>
+        <span>{label}</span>
+        <span style={countBadgeStyle(accent)}>{findings.length}</span>
+      </h2>
       {findings.length === 0 ? (
         <div style={emptyInlineStyle}>{emptyHint}</div>
       ) : (
-        <ul style={findingsListStyle}>
+        <ul style={checklistStyle}>
           {findings.map(f => (
-            <li key={f.id} style={findingRowStyle}>
-              <SeverityChip severity={f.severity} />
-              <StatusChip status={f.status} />
-              <div style={findingBodyStyle}>
-                <div style={findingAnchorStyle}>
-                  {f.path !== null
-                      ? `${f.path}${f.line !== null ? `:${f.line}` : ''}`
-                      : 'Whole PR'}
-                </div>
-                <div>{f.body}</div>
-              </div>
+            <li key={f.id} style={checklistRowStyle}>
+              <span style={checklistGlyphStyle(accent)} aria-hidden>
+                {tone === 'agreed' ? '✓' : '●'}
+              </span>
+              <span style={checklistBodyStyle}>
+                {f.path !== null && (
+                  <span style={findingAnchorInlineStyle}>
+                    {f.path}{f.line !== null ? `:${f.line}` : ''}{' '}
+                  </span>
+                )}
+                {f.body}
+                <span style={severityDotStyle(severityColor(f.severity))}>
+                  {f.severity.toLowerCase()}
+                </span>
+              </span>
             </li>
           ))}
         </ul>
@@ -483,23 +514,50 @@ function ArbitrationBallotSection({
   );
 }
 
-function RosterSection({ participants }: { participants: ReviewParticipantDto[] }) {
+function RosterSection({
+  participants, leadId,
+}: {
+  participants: ReviewParticipantDto[];
+  leadId: string | null;
+}) {
   return (
     <section style={cardStyle} aria-label="Panel roster">
       <h2 style={cardTitleStyle}>Panel</h2>
       <ul style={rosterListStyle}>
-        {participants.map(p => (
-          <li key={p.id} style={rosterRowStyle}>
-            <span style={rosterKindStyle(p.kind)}>{kindLabel(p.kind)}</span>
-            <span style={rosterPersonaStyle}>{p.personaLabel}</span>
-            {p.model !== null && (
-              <span style={rosterModelStyle}>{p.model}</span>
-            )}
-          </li>
-        ))}
+        {participants.map(p => {
+          const color = p.color ?? rosterFallbackColor(p.kind);
+          return (
+            <li key={p.id} style={rosterRowStyle}>
+              <span style={{ ...rosterAvatarStyle, background: color }} aria-hidden>
+                {p.personaLabel.slice(0, 1).toUpperCase()}
+              </span>
+              <span style={rosterIdentityStyle}>
+                <span style={rosterPersonaStyle}>{p.personaLabel}</span>
+                {p.model !== null && (
+                  <span style={rosterModelStyle}>{p.model}</span>
+                )}
+              </span>
+              <span style={rosterRoleBadgeStyle(p.kind, p.id === leadId)}>
+                {rosterRoleLabel(p.kind, p.id === leadId)}
+              </span>
+            </li>
+          );
+        })}
       </ul>
     </section>
   );
+}
+
+/** Short role tag shown on each roster row, mirroring the mockup:
+ *  the lead/moderator reads LEAD, reviewers THINK, the human WATCHES. */
+function rosterRoleLabel(kind: ReviewParticipantDto['kind'], isLead: boolean): string {
+  if (kind === 'HUMAN') return 'WATCH';
+  if (kind === 'MODERATOR' || isLead) return 'LEAD';
+  return 'THINKS';
+}
+
+function rosterFallbackColor(kind: ReviewParticipantDto['kind']): string {
+  return kind === 'MODERATOR' ? '#737373' : kind === 'HUMAN' ? '#16a34a' : '#0066cc';
 }
 
 const PHASE_LABELS: Record<string, string> = {
@@ -517,6 +575,27 @@ function phaseLabel(phase: string): string {
   return PHASE_LABELS[phase] ?? phase.toLowerCase();
 }
 
+/** Ordinal shown on a phase divider — INDEPENDENT is "Phase 1" so
+ *  Cross-review lands on Phase 2 and Debate on Phase 4, matching the
+ *  panel mockup. Setup/wrap-up phases carry no number. */
+const PHASE_NUMBERS: Record<string, number> = {
+  INDEPENDENT: 1,
+  CROSS_REVIEW: 2,
+  CONSENSUS: 3,
+  DEBATE: 4,
+};
+
+/** Divider caption: "Phase 2 · Cross-review", and for debate the active
+ *  round too ("Phase 4 · Debate · round 2"). */
+function phaseDividerText(m: ReviewPanelMessageDto): string {
+  const num = PHASE_NUMBERS[m.phase];
+  const head = num !== undefined ? `Phase ${num} · ${phaseLabel(m.phase)}` : phaseLabel(m.phase);
+  if (m.phase === 'DEBATE' && m.round > 0) {
+    return `${head} · round ${m.round}`;
+  }
+  return head;
+}
+
 /** The panel transcript as a group chat: phase dividers, per-persona
  *  bubbles (the moderator as a system voice, the lead badged, the human
  *  right-aligned), @mention / #ref chips, and a live "reviewing…" pulse
@@ -525,14 +604,13 @@ function TranscriptSection({
   messages,
   participantsById,
   passPhase,
+  leadId,
 }: {
   messages: ReviewPanelMessageDto[];
   participantsById: Map<string, ReviewParticipantDto>;
   passPhase: string;
+  leadId: string | null;
 }) {
-  // The lead is whoever authored the consensus turn (the lead runs
-  // consensus), so we can badge their bubbles without a separate flag.
-  const leadId = messages.find(m => m.payloadKind === 'consensus')?.participantId ?? null;
   const running = !['TERMINATE', 'ARBITRATE', 'PUBLISHED'].includes(passPhase);
 
   return (
@@ -546,7 +624,7 @@ function TranscriptSection({
             <Fragment key={m.id}>
               {m.phase !== messages[i - 1]?.phase && (
                 <div style={phaseDividerStyle}>
-                  <span style={phaseDividerLabelStyle}>{phaseLabel(m.phase)}</span>
+                  <span style={phaseDividerLabelStyle}>{phaseDividerText(m)}</span>
                 </div>
               )}
               <MessageBubble
@@ -1022,15 +1100,31 @@ const shaChipStyle: React.CSSProperties = {
 };
 
 const flowListStyle: React.CSSProperties = {
+  position: 'relative',
   margin: 0,
   padding: 0,
   listStyle: 'none',
   display: 'flex',
   flexDirection: 'column',
-  gap: 6,
+  gap: 8,
+};
+
+// Vertical line threading the step glyphs. Sits behind them (the
+// glyphs carry an opaque background that masks it in the gaps), running
+// from the centre of the first glyph to the centre of the last.
+const flowConnectorStyle: React.CSSProperties = {
+  position: 'absolute',
+  left: 7,
+  top: 12,
+  bottom: 12,
+  width: 2,
+  background: 'var(--border)',
+  zIndex: 0,
 };
 
 const flowRowStyle: React.CSSProperties = {
+  position: 'relative',
+  zIndex: 1,
   display: 'flex',
   alignItems: 'center',
   gap: 8,
@@ -1052,7 +1146,9 @@ function flowGlyphStyle(state: 'done' | 'current' | 'next'): React.CSSProperties
     fontSize: 9,
     fontWeight: 700,
     flexShrink: 0,
-    background: state === 'current' ? 'rgba(124,58,237,0.08)' : 'transparent',
+    // Opaque so the connector line behind the column is hidden under the
+    // glyph and only shows in the gaps between steps.
+    background: state === 'current' ? '#f3eefe' : 'var(--bg-1)',
   };
 }
 
@@ -1146,13 +1242,29 @@ const headerStyle: React.CSSProperties = {
   marginBottom: 16,
 };
 
-const titleStyle: React.CSSProperties = {
+const titleColStyle: React.CSSProperties = {
   flex: 1,
-  fontSize: 20,
+  minWidth: 0,
+  display: 'flex',
+  flexDirection: 'column',
+  gap: 1,
+};
+
+const titleStyle: React.CSSProperties = {
+  fontSize: 18,
   fontWeight: 600,
   letterSpacing: '-0.01em',
   color: 'var(--text-1)',
   margin: 0,
+  overflow: 'hidden',
+  textOverflow: 'ellipsis',
+  whiteSpace: 'nowrap',
+};
+
+const titleRefStyle: React.CSSProperties = {
+  fontSize: 11,
+  color: 'var(--text-3)',
+  fontVariantNumeric: 'tabular-nums',
 };
 
 const metaStyle: React.CSSProperties = {
@@ -1188,34 +1300,67 @@ const rosterListStyle: React.CSSProperties = {
 
 const rosterRowStyle: React.CSSProperties = {
   display: 'flex',
-  alignItems: 'baseline',
-  gap: 10,
+  alignItems: 'center',
+  gap: 8,
   fontSize: 13,
 };
 
-function rosterKindStyle(kind: ReviewParticipantDto['kind']): React.CSSProperties {
-  const color = kind === 'MODERATOR' ? '#737373'
-      : kind === 'REVIEWER' ? '#0066cc'
-      : '#16a34a';
+const rosterAvatarStyle: React.CSSProperties = {
+  flex: '0 0 auto',
+  width: 26,
+  height: 26,
+  borderRadius: '50%',
+  display: 'inline-flex',
+  alignItems: 'center',
+  justifyContent: 'center',
+  color: '#fff',
+  fontSize: 12,
+  fontWeight: 700,
+};
+
+const rosterIdentityStyle: React.CSSProperties = {
+  flex: 1,
+  minWidth: 0,
+  display: 'flex',
+  flexDirection: 'column',
+  gap: 1,
+};
+
+function rosterRoleBadgeStyle(
+  kind: ReviewParticipantDto['kind'], isLead: boolean,
+): React.CSSProperties {
+  const lead = kind === 'MODERATOR' || isLead;
+  const human = kind === 'HUMAN';
+  const color = lead ? '#b45309' : human ? '#15803d' : '#1d4ed8';
+  const bg = lead ? 'rgba(217,119,6,0.12)' : human ? 'rgba(22,163,74,0.12)' : 'rgba(37,99,235,0.10)';
   return {
-    minWidth: 88,
-    fontSize: 11,
-    fontWeight: 600,
+    flexShrink: 0,
+    fontSize: 9,
+    fontWeight: 700,
+    letterSpacing: '0.06em',
     textTransform: 'uppercase',
-    letterSpacing: '0.04em',
     color,
+    background: bg,
+    borderRadius: 999,
+    padding: '2px 7px',
   };
 }
 
 const rosterPersonaStyle: React.CSSProperties = {
   fontWeight: 600,
   color: 'var(--text-1)',
+  overflow: 'hidden',
+  textOverflow: 'ellipsis',
+  whiteSpace: 'nowrap',
 };
 
 const rosterModelStyle: React.CSSProperties = {
   fontFamily: 'ui-monospace, SFMono-Regular, monospace',
-  fontSize: 11,
+  fontSize: 10,
   color: 'var(--text-3)',
+  overflow: 'hidden',
+  textOverflow: 'ellipsis',
+  whiteSpace: 'nowrap',
 };
 
 const chatListStyle: React.CSSProperties = {
@@ -1386,6 +1531,79 @@ const findingAnchorStyle: React.CSSProperties = {
   color: 'var(--text-3)',
   marginBottom: 4,
 };
+
+const checklistHeadStyle: React.CSSProperties = {
+  ...cardTitleStyle,
+  display: 'flex',
+  alignItems: 'center',
+  justifyContent: 'space-between',
+};
+
+function countBadgeStyle(color: string): React.CSSProperties {
+  return {
+    fontSize: 11,
+    fontWeight: 700,
+    color: '#fff',
+    background: color,
+    borderRadius: 999,
+    minWidth: 18,
+    height: 18,
+    padding: '0 6px',
+    display: 'inline-flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+  };
+}
+
+const checklistStyle: React.CSSProperties = {
+  margin: 0,
+  padding: 0,
+  listStyle: 'none',
+  display: 'flex',
+  flexDirection: 'column',
+  gap: 8,
+};
+
+const checklistRowStyle: React.CSSProperties = {
+  display: 'flex',
+  alignItems: 'flex-start',
+  gap: 8,
+};
+
+function checklistGlyphStyle(color: string): React.CSSProperties {
+  return {
+    flexShrink: 0,
+    marginTop: 1,
+    fontSize: 11,
+    fontWeight: 700,
+    color,
+  };
+}
+
+const checklistBodyStyle: React.CSSProperties = {
+  flex: 1,
+  fontSize: 12.5,
+  lineHeight: 1.5,
+  color: 'var(--text-1)',
+};
+
+const findingAnchorInlineStyle: React.CSSProperties = {
+  fontFamily: 'ui-monospace, SFMono-Regular, monospace',
+  fontSize: 11,
+  color: 'var(--text-3)',
+};
+
+function severityDotStyle(color: string): React.CSSProperties {
+  return {
+    marginLeft: 6,
+    fontSize: 9,
+    fontWeight: 700,
+    letterSpacing: '0.04em',
+    textTransform: 'uppercase',
+    color,
+    whiteSpace: 'nowrap',
+  };
+}
 
 const publishHintStyle: React.CSSProperties = {
   fontSize: 13,

@@ -28,10 +28,13 @@ import com.bytequay.app.domain.ReviewPassDetail;
 import com.bytequay.app.domain.ReviewPhase;
 import com.bytequay.app.domain.ReviewRequest;
 import com.bytequay.app.domain.ReviewVerdict;
+import com.bytequay.app.domain.ReviewerPersona;
+import com.bytequay.app.domain.ReviewerPersonaRole;
 import com.bytequay.app.domain.Thread;
 import com.bytequay.app.domain.ThreadFlow;
 import com.bytequay.app.repository.AppSettingsStore;
 import com.bytequay.app.repository.PullRequestRepository;
+import com.bytequay.app.repository.PullRequestStore;
 import com.bytequay.app.repository.ReviewStore;
 import com.bytequay.app.repository.ReviewerPersonaStore;
 import com.bytequay.app.repository.ThreadStore;
@@ -68,6 +71,7 @@ class TestReviewPassService
     private ThreadStore threadStore;
     private ReviewStore reviewStore;
     private PullRequestRepository pullRequests;
+    private PullRequestStore pullRequestStore;
     private PatResolver patResolver;
     private LlmReviewerRegistry registry;
     private LlmReviewer reviewer;
@@ -81,6 +85,7 @@ class TestReviewPassService
     {
         threadStore = mock(ThreadStore.class);
         pullRequests = mock(PullRequestRepository.class);
+        pullRequestStore = mock(PullRequestStore.class);
         patResolver = mock(PatResolver.class);
         registry = mock(LlmReviewerRegistry.class);
         reviewer = mock(LlmReviewer.class);
@@ -103,7 +108,8 @@ class TestReviewPassService
         // Same-thread executor: the async 3-arg overload runs its body
         // inline so tests stay deterministic.
         service = new ReviewPassService(
-                threadStore, reviewStore, pullRequests, patResolver, registry, appSettings, personas,
+                threadStore, reviewStore, pullRequests, pullRequestStore, patResolver, registry,
+                appSettings, personas,
                 Runnable::run);
     }
 
@@ -546,6 +552,62 @@ class TestReviewPassService
                 .filter(p -> p.kind() == ReviewParticipantKind.REVIEWER)
                 .count();
         assertThat(reviewerSeats).isEqualTo(2);
+    }
+
+    @Test
+    void seatPanelPairsEachModelWithItsRoleAndHonoursTheFlaggedLead()
+    {
+        LlmReviewer claude = mock(LlmReviewer.class);
+        LlmReviewer openai = mock(LlmReviewer.class);
+        when(claude.providerId()).thenReturn("claude");
+        when(claude.displayName()).thenReturn("Claude");
+        when(claude.isConfigured()).thenReturn(true);
+        when(openai.providerId()).thenReturn("openai");
+        when(openai.displayName()).thenReturn("GPT-5");
+        when(openai.isConfigured()).thenReturn(true);
+        when(registry.all()).thenReturn(List.of(claude, openai));
+
+        // The second seat runs a predefined persona ("David"); the first
+        // is a raw model carrying a typed prompt.
+        ReviewerPersona david = new ReviewerPersona(
+                "david", "David", "Be strict about error handling.",
+                ReviewerPersonaRole.REVIEWER, true, Instant.now(), Instant.now());
+        when(personas.findById("david")).thenReturn(Optional.of(david));
+
+        when(claude.review(any(ReviewRequest.class))).thenReturn(new ReviewOutput(
+                "ok", List.of(), "claude", "claude-sonnet-4.6"));
+        when(openai.review(any(ReviewRequest.class))).thenReturn(new ReviewOutput(
+                "ok", List.of(), "openai", "gpt-5"));
+        stubPanelOrchestration(consensus(
+                finding("src/a.ts", 1, "nit", "n", "agreed", "David")),
+                claude, openai);
+
+        // seats = [ claude + typed prompt (not lead), openai + persona "david" (lead) ]
+        ReviewPassService.StartOptions opts = new ReviewPassService.StartOptions(
+                List.of(), 3, 500L, true, List.of(), null, null, null,
+                List.of(
+                        new ReviewPassService.PanelSeat("claude", null, "Focus on concurrency.", false),
+                        new ReviewPassService.PanelSeat("openai", "david", null, true)));
+
+        service.startReviewOnPr("acme/widget", 42, opts);
+
+        // Each seat is labelled by its role: the typed-prompt seat reads
+        // "Custom · <model>", the persona seat reads the persona's name.
+        assertThat(recording.participants.stream()
+                .filter(p -> p.kind() == ReviewParticipantKind.REVIEWER)
+                .map(ReviewParticipant::personaLabel))
+                .containsExactlyInAnyOrder("Custom · Claude", "David");
+
+        // The flagged lead (the persona/openai seat) is the seat that runs
+        // — and authors — the CONSENSUS turn.
+        String consensusAuthor = recording.messages.stream()
+                .filter(m -> m.phase() == ReviewPhase.CONSENSUS)
+                .map(ReviewMessage::participantId)
+                .findFirst().orElseThrow();
+        ReviewParticipant lead = recording.participants.stream()
+                .filter(p -> p.id().equals(consensusAuthor))
+                .findFirst().orElseThrow();
+        assertThat(lead.personaLabel()).isEqualTo("David");
     }
 
     @Test

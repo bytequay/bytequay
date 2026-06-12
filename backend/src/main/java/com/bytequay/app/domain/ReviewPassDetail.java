@@ -23,6 +23,10 @@ import java.util.List;
  */
 public record ReviewPassDetail(
         ReviewPass pass,
+        /** The reviewed PR's title, resolved from the local PR cache at
+         *  read time so the panel header can show it instead of a bare
+         *  {@code repo#number}. Null when the PR isn't cached locally. */
+        String prTitle,
         List<ReviewParticipant> participants,
         List<ReviewMessage> messages,
         List<ReviewFinding> findings)

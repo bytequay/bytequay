@@ -648,6 +648,13 @@ const bridge: Bridge = {
       personaIds?: string[];
       providerForPersonas?: string | null;
       workspaceId?: string;
+      leadId?: string | null;
+      seats?: {
+        providerId: string;
+        personaId?: string | null;
+        customPrompt?: string | null;
+        lead?: boolean;
+      }[];
     },
   ) =>
     ipcRenderer.invoke('reviews:start', { repoFullName, prNumber, ...(opts ?? {}) }),

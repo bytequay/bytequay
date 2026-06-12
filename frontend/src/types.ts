@@ -2026,6 +2026,9 @@ export type ReviewFindingDto = {
  *  page in one round-trip. */
 export type ReviewPassDetailDto = {
   pass: ReviewPassDto;
+  /** The reviewed PR's title, resolved from the local PR cache; null
+   *  when the PR isn't cached, so the header falls back to repo#number. */
+  prTitle: string | null;
   participants: ReviewParticipantDto[];
   messages: ReviewPanelMessageDto[];
   findings: ReviewFindingDto[];
@@ -3178,6 +3181,21 @@ export type Bridge = {
       /** Workspace the review thread is created in, so it surfaces in
        *  that workspace's thread list. */
       workspaceId?: string;
+      /** Per-run lead override — a personaId (persona path) or providerId
+       *  (legacy path). Null/omitted falls back to the persona's LEAD
+       *  role, else the first panel member. The lead runs consensus +
+       *  the convergence moderator. */
+      leadId?: string | null;
+      /** Explicit panel composition — one entry per reviewer seat, each
+       *  pairing a model with an optional persona or typed prompt. When
+       *  set, this is the authoritative panel (wins over personaIds /
+       *  panelProviderIds). Exactly one seat should be flagged lead. */
+      seats?: {
+        providerId: string;
+        personaId?: string | null;
+        customPrompt?: string | null;
+        lead?: boolean;
+      }[];
     },
   ) => Promise<ReviewPassDetailDto>;
   /** List configured LLM reviewers (and unconfigured ones the

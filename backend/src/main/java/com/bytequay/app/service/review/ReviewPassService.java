@@ -16,6 +16,7 @@ package com.bytequay.app.service.review;
 import com.bytequay.app.domain.CreateReviewCommand;
 import com.bytequay.app.domain.CreateReviewCommand.ReviewLineComment;
 import com.bytequay.app.domain.PrRawDetail;
+import com.bytequay.app.domain.PullRequest;
 import com.bytequay.app.domain.PullRequestRef;
 import com.bytequay.app.domain.ReviewFinding;
 import com.bytequay.app.domain.ReviewFindingSeverity;
@@ -38,6 +39,7 @@ import com.bytequay.app.domain.ThreadStatus;
 import com.bytequay.app.repository.AppSettingsStore;
 import com.bytequay.app.repository.AppSettingsStore.Key;
 import com.bytequay.app.repository.PullRequestRepository;
+import com.bytequay.app.repository.PullRequestStore;
 import com.bytequay.app.repository.ReviewStore;
 import com.bytequay.app.repository.ReviewerPersonaStore;
 import com.bytequay.app.repository.ThreadStore;
@@ -110,6 +112,7 @@ public class ReviewPassService
     private final ThreadStore threadStore;
     private final ReviewStore reviewStore;
     private final PullRequestRepository pullRequests;
+    private final PullRequestStore pullRequestStore;
     private final PatResolver patResolver;
     private final LlmReviewerRegistry reviewers;
     private final AppSettingsStore appSettings;
@@ -121,6 +124,7 @@ public class ReviewPassService
             ThreadStore threadStore,
             ReviewStore reviewStore,
             PullRequestRepository pullRequests,
+            PullRequestStore pullRequestStore,
             PatResolver patResolver,
             LlmReviewerRegistry reviewers,
             AppSettingsStore appSettings,
@@ -131,6 +135,7 @@ public class ReviewPassService
         this.threadStore = requireNonNull(threadStore, "threadStore is null");
         this.reviewStore = requireNonNull(reviewStore, "reviewStore is null");
         this.pullRequests = requireNonNull(pullRequests, "pullRequests is null");
+        this.pullRequestStore = requireNonNull(pullRequestStore, "pullRequestStore is null");
         this.patResolver = requireNonNull(patResolver, "patResolver is null");
         this.reviewers = requireNonNull(reviewers, "reviewers is null");
         this.appSettings = requireNonNull(appSettings, "appSettings is null");
@@ -682,17 +687,7 @@ public class ReviewPassService
      *  with an optional persona prompt (the reviewing "voice" the
      *  Start Review dialog picked) and a display label that shows on
      *  the participant chip + kickoff message. */
-    record PanelMember(LlmReviewer reviewer, String personaPrompt, String displayLabel, boolean lead)
-    {
-        /** Legacy member: no persona, label comes straight from the
-         *  reviewer, never the explicit lead (the legacy panel has no
-         *  role info, so the orchestrator falls back to the first
-         *  member as lead). */
-        static PanelMember legacy(LlmReviewer r)
-        {
-            return new PanelMember(r, null, r.displayName(), false);
-        }
-    }
+    record PanelMember(LlmReviewer reviewer, String personaPrompt, String displayLabel, boolean lead) {}
 
     /** Resolves the panel for a review pass. Two paths:
      *  <ol>
@@ -706,29 +701,94 @@ public class ReviewPassService
      *  panel-size invariant. */
     private List<PanelMember> resolvePanelMembers(StartOptions opts)
     {
+        if (opts.hasSeats()) {
+            return resolveSeatPanel(opts.seats());
+        }
         if (opts.hasPersonas()) {
             return resolvePersonaPanel(opts);
         }
+        String leadId = opts.leadId();
         return resolveLegacyPanel(opts.panelProviderIds()).stream()
-                .map(PanelMember::legacy)
+                .map(r -> new PanelMember(r, null, r.displayName(),
+                        leadId != null && r.providerId().equalsIgnoreCase(leadId)))
                 .toList();
     }
 
-    private List<PanelMember> resolvePersonaPanel(StartOptions opts)
+    /**
+     * Build the panel from an explicit seat list (the composition flow):
+     * each seat is a model paired with a persona, a typed prompt, or
+     * neither. Capped at 3. If no seat is flagged lead, the first seat
+     * leads.
+     */
+    private List<PanelMember> resolveSeatPanel(List<PanelSeat> seats)
+    {
+        List<PanelMember> members = new ArrayList<>();
+        for (PanelSeat seat : seats) {
+            LlmReviewer reviewer = requireConfiguredReviewer(seat.providerId());
+            String prompt;
+            String label;
+            if (seat.personaId() != null && !seat.personaId().isBlank()) {
+                ReviewerPersona p = personas.findById(seat.personaId())
+                        .orElseThrow(() -> new ResponseStatusException(
+                                HttpStatusCode.valueOf(412),
+                                "Persona '" + seat.personaId() + "' not found or has been deleted."));
+                if (!p.active()) {
+                    continue;
+                }
+                prompt = p.systemPrompt();
+                label = p.name();
+            }
+            else if (seat.customPrompt() != null && !seat.customPrompt().isBlank()) {
+                prompt = seat.customPrompt();
+                label = "Custom · " + reviewer.displayName();
+            }
+            else {
+                prompt = null;
+                label = reviewer.displayName();
+            }
+            members.add(new PanelMember(reviewer, prompt, label, seat.lead()));
+            if (members.size() == 3) {
+                break;
+            }
+        }
+        if (members.isEmpty()) {
+            throw new ResponseStatusException(
+                    HttpStatusCode.valueOf(412),
+                    "No reviewers selected. Add at least one in the Start Review dialog.");
+        }
+        // Exactly one lead: if the dialog flagged none (or every flagged
+        // seat fell out as an inactive persona), the first seat leads.
+        if (members.stream().noneMatch(PanelMember::lead)) {
+            PanelMember first = members.get(0);
+            members.set(0, new PanelMember(
+                    first.reviewer(), first.personaPrompt(), first.displayLabel(), true));
+        }
+        return members;
+    }
+
+    /** Resolve a reviewer by provider id, 412-ing when it's unknown or
+     *  has no API key — shared by the seat + persona panel paths. */
+    private LlmReviewer requireConfiguredReviewer(String providerId)
     {
         LlmReviewer reviewer = reviewers.all().stream()
-                .filter(r -> r.providerId().equalsIgnoreCase(opts.providerForPersonas()))
+                .filter(r -> r.providerId().equalsIgnoreCase(providerId))
                 .findFirst()
                 .orElseThrow(() -> new ResponseStatusException(
                         HttpStatusCode.valueOf(412),
-                        "Provider '" + opts.providerForPersonas() + "' is not registered. "
-                                + "Pick a different provider in the Start Review dialog."));
+                        "Provider '" + providerId + "' is not registered. "
+                                + "Pick a different model in the Start Review dialog."));
         if (!reviewer.isConfigured()) {
             throw new ResponseStatusException(
                     HttpStatusCode.valueOf(412),
                     "Provider '" + reviewer.displayName() + "' has no API key configured. "
                             + "Add one in Settings → AI review.");
         }
+        return reviewer;
+    }
+
+    private List<PanelMember> resolvePersonaPanel(StartOptions opts)
+    {
+        LlmReviewer reviewer = requireConfiguredReviewer(opts.providerForPersonas());
         List<PanelMember> members = new ArrayList<>();
         for (String pid : opts.personaIds()) {
             ReviewerPersona p = personas.findById(pid)
@@ -738,8 +798,12 @@ public class ReviewPassService
             if (!p.active()) {
                 continue;
             }
-            members.add(new PanelMember(
-                    reviewer, p.systemPrompt(), p.name(), p.role() == ReviewerPersonaRole.LEAD));
+            // Per-run lead override wins when the dialog marked one;
+            // otherwise fall back to the persona's configured LEAD role.
+            boolean lead = opts.leadId() != null
+                    ? pid.equals(opts.leadId())
+                    : p.role() == ReviewerPersonaRole.LEAD;
+            members.add(new PanelMember(reviewer, p.systemPrompt(), p.name(), lead));
             if (members.size() == 3) {
                 break;
             }
@@ -1691,8 +1755,17 @@ public class ReviewPassService
 
     private ReviewPassDetail buildDetail(ReviewPass pass)
     {
+        // Resolve the PR title from the local cache (no GitHub round-trip
+        // — the panel page polls). Null when the PR isn't cached, in
+        // which case the header falls back to repo#number.
+        String prTitle = pullRequestStore
+                .findIdByRepoAndNumber(pass.repoFullName(), pass.prNumber())
+                .flatMap(pullRequestStore::findById)
+                .map(PullRequest::title)
+                .orElse(null);
         return new ReviewPassDetail(
                 pass,
+                prTitle,
                 reviewStore.listParticipantsForPass(pass.id()),
                 reviewStore.listMessagesForPass(pass.id()),
                 reviewStore.listFindingsForPass(pass.id()));
@@ -1798,10 +1871,22 @@ public class ReviewPassService
             /** Workspace the review thread is created in, so it shows in
              *  that workspace's thread list. Null falls back to
              *  ws-default (the scheduled / one-click paths). */
-            String workspaceId)
+            String workspaceId,
+            /** Per-run lead override picked in the dialog — a personaId on
+             *  the persona path, a providerId on the legacy path. Null
+             *  falls back to the persona's LEAD role (or the first panel
+             *  member when no role info exists). */
+            String leadId,
+            /** Explicit panel composition — one entry per reviewer seat,
+             *  each pairing a model with an optional persona or a typed
+             *  prompt (see {@link PanelSeat}). When non-empty this is the
+             *  authoritative panel and wins over personaIds /
+             *  panelProviderIds; the scheduled / one-click paths leave it
+             *  empty and fall back to the all-configured legacy panel. */
+            List<PanelSeat> seats)
     {
         public static final StartOptions DEFAULT =
-                new StartOptions(List.of(), 3, 500L, true, List.of(), null, null);
+                new StartOptions(List.of(), 3, 500L, true, List.of(), null, null, null, List.of());
 
         /** Backward-compat constructor for the legacy 4-arg call sites
          *  (scheduled review, one-click "Review again"). They don't
@@ -1812,7 +1897,8 @@ public class ReviewPassService
                 long costCapMilli,
                 boolean independentFirst)
         {
-            this(panelProviderIds, roundCap, costCapMilli, independentFirst, List.of(), null, null);
+            this(panelProviderIds, roundCap, costCapMilli, independentFirst,
+                    List.of(), null, null, null, List.of());
         }
 
         /** Persona call site without an explicit workspace. */
@@ -1825,7 +1911,21 @@ public class ReviewPassService
                 String providerForPersonas)
         {
             this(panelProviderIds, roundCap, costCapMilli, independentFirst,
-                    personaIds, providerForPersonas, null);
+                    personaIds, providerForPersonas, null, null, List.of());
+        }
+
+        /** Persona call site with a workspace but no explicit lead. */
+        public StartOptions(
+                List<String> panelProviderIds,
+                int roundCap,
+                long costCapMilli,
+                boolean independentFirst,
+                List<String> personaIds,
+                String providerForPersonas,
+                String workspaceId)
+        {
+            this(panelProviderIds, roundCap, costCapMilli, independentFirst,
+                    personaIds, providerForPersonas, workspaceId, null, List.of());
         }
 
         /** True when the dialog picked personas + a provider — the new
@@ -1836,7 +1936,26 @@ public class ReviewPassService
             return personaIds != null && !personaIds.isEmpty()
                     && providerForPersonas != null && !providerForPersonas.isBlank();
         }
+
+        /** True when the dialog sent an explicit per-seat panel — the
+         *  composition path that pairs each model with its own persona
+         *  or typed prompt. */
+        public boolean hasSeats()
+        {
+            return seats != null && !seats.isEmpty();
+        }
     }
+
+    /**
+     * One reviewer seat in an explicitly-composed panel: a model
+     * ({@code providerId}, required) paired with EITHER a predefined
+     * review role ({@code personaId}) OR a free-typed instruction
+     * ({@code customPrompt}). Both null = a raw model with the default
+     * review prompt. {@code lead} marks the seat that runs consensus +
+     * moderates debate (exactly one per panel; the resolver defaults to
+     * the first seat when none is flagged).
+     */
+    public record PanelSeat(String providerId, String personaId, String customPrompt, boolean lead) {}
 
     /**
      * Roster entry surfaced to the assign-review-task dialog so the

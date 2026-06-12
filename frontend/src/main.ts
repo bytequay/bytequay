@@ -3373,6 +3373,8 @@ const url = new URL(`${BACKEND_BASE}/api/search/repos`);
       personaIds?: unknown;
       providerForPersonas?: unknown;
       workspaceId?: unknown;
+      leadId?: unknown;
+      seats?: unknown;
     };
     if (typeof a.repoFullName !== 'string' || a.repoFullName.trim().length === 0) {
       throw new Error('repoFullName must be a non-empty string');
@@ -3404,6 +3406,24 @@ const url = new URL(`${BACKEND_BASE}/api/search/repos`);
     }
     if (typeof a.workspaceId === 'string' && a.workspaceId.length > 0) {
       body.workspaceId = a.workspaceId;
+    }
+    if (typeof a.leadId === 'string' && a.leadId.length > 0) {
+      body.leadId = a.leadId;
+    }
+    if (Array.isArray(a.seats)) {
+      const seats = a.seats
+        .filter((s): s is Record<string, unknown> => typeof s === 'object' && s !== null)
+        .filter(s => typeof s.providerId === 'string' && s.providerId.length > 0)
+        .map(s => ({
+          providerId: s.providerId as string,
+          personaId: typeof s.personaId === 'string' && s.personaId.length > 0 ? s.personaId : null,
+          customPrompt:
+            typeof s.customPrompt === 'string' && s.customPrompt.length > 0 ? s.customPrompt : null,
+          lead: s.lead === true,
+        }));
+      if (seats.length > 0) {
+        body.seats = seats;
+      }
     }
     const res = await fetch(`${BACKEND_BASE}/api/reviews/start`, {
       method: 'POST',

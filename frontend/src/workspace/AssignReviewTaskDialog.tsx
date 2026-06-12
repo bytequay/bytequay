@@ -38,6 +38,24 @@ type LookupState =
 
 type PrRef = { repo: string; number: number };
 
+/** A reviewer row in the panel builder: a model ({@code providerId})
+ *  paired with a "role" — {@code 'none'} (raw model), {@code 'custom'}
+ *  (a typed prompt in {@code customPrompt}), or a personaId (a
+ *  predefined review role). {@code key} is a stable React id that also
+ *  identifies the lead seat. */
+type SeatDraft = {
+  key: string;
+  providerId: string;
+  role: 'none' | 'custom' | string;
+  customPrompt: string;
+};
+
+let seatKeyCounter = 0;
+function newSeatKey(): string {
+  seatKeyCounter += 1;
+  return `seat-${seatKeyCounter}`;
+}
+
 /** Parses the search box into a concrete repo + number when it looks
  *  like a PR reference. A bare number (or {@code #123}) resolves
  *  against {@code defaultRepo}; an {@code owner/repo#123} (or
@@ -79,14 +97,13 @@ function AssignReviewTaskDialog({ workspaceId, onClose, onStarted }: Props) {
   const [defaultRepo, setDefaultRepo] = useState<string | null>(null);
   // On-demand lookup for a PR that isn't in the awaiting-review list.
   const [lookup, setLookup] = useState<LookupState>({ status: 'idle' });
-  const [selectedProviders, setSelectedProviders] = useState<Set<string>>(new Set());
-  // New persona path — if any persona is checked, the dialog uses
-  // {personaIds, providerForPersonas} instead of the legacy
-  // {panelProviderIds} payload. providerForPersonas defaults to the
-  // first configured provider, mirroring the chip-default behaviour.
   const [personas, setPersonas] = useState<ReviewerPersonaDto[] | null>(null);
-  const [selectedPersonas, setSelectedPersonas] = useState<Set<string>>(new Set());
-  const [providerForPersonas, setProviderForPersonas] = useState<string>('');
+  // Composed panel — one row per reviewer seat, each a model paired with
+  // an optional persona ("role") or a typed prompt. leadKey identifies
+  // the seat that runs consensus + moderates. Seeded with one row once
+  // the roster loads.
+  const [seats, setSeats] = useState<SeatDraft[]>([]);
+  const [leadKey, setLeadKey] = useState<string | null>(null);
   // Debate rounds + cost budget caps. Defaults mirror ReviewPassService.StartOptions.DEFAULT.
   const [rounds, setRounds] = useState<number>(3);
   // Stored in milli-USD to match the backend, but rendered as $X.XX
@@ -117,17 +134,13 @@ function AssignReviewTaskDialog({ workspaceId, onClose, onStarted }: Props) {
         // First repo (oldest by addedAt) is the workspace's main repo —
         // the default a bare typed PR number resolves against.
         setDefaultRepo(repoList[0]?.repoFullName ?? null);
-        // Default-seat every configured reviewer (mirrors the
-        // registry's "all-configured" fallback so the chips show
-        // the user what would happen if they pressed Start unchanged).
-        const configured = new Set(rosterList.filter(r => r.configured).map(r => r.providerId));
-        setSelectedProviders(configured);
-        // Default the persona-runner provider to the first configured
-        // entry, so the dropdown lands on a valid pick even before the
-        // user touches it.
+        // Seed one reviewer row on the first configured model, marked
+        // lead, so the panel is valid the moment the dialog opens.
         const firstConfigured = rosterList.find(r => r.configured);
         if (firstConfigured !== undefined) {
-          setProviderForPersonas(firstConfigured.providerId);
+          const key = newSeatKey();
+          setSeats([{ key, providerId: firstConfigured.providerId, role: 'none', customPrompt: '' }]);
+          setLeadKey(key);
         }
       }
       catch (err) {
@@ -188,43 +201,34 @@ function AssignReviewTaskDialog({ workspaceId, onClose, onStarted }: Props) {
     return () => { cancelled = true; window.clearTimeout(handle); };
   }, [search, defaultRepo, prs]);
 
-  const toggleProvider = (id: string, configured: boolean) => {
-    if (!configured) return;
-    setSelectedProviders(prev => {
-      const next = new Set(prev);
-      if (next.has(id)) {
-        next.delete(id);
-      }
-      else {
-        next.add(id);
-      }
-      return next;
-    });
+  const configuredProviders = useMemo(
+      () => (roster ?? []).filter(r => r.configured), [roster]);
+
+  const updateSeat = (key: string, patch: Partial<SeatDraft>) => {
+    setSeats(prev => prev.map(s => (s.key === key ? { ...s, ...patch } : s)));
+  };
+  const addSeat = () => {
+    if (seats.length >= 3) return;
+    const provider = configuredProviders[0]?.providerId ?? '';
+    setSeats(prev => [
+      ...prev,
+      { key: newSeatKey(), providerId: provider, role: 'none', customPrompt: '' },
+    ]);
+  };
+  const removeSeat = (key: string) => {
+    setSeats(prev => prev.filter(s => s.key !== key));
+    setLeadKey(prev => (prev === key ? null : prev));
   };
 
-  const personaIds = useMemo(() => Array.from(selectedPersonas), [selectedPersonas]);
-  // Persona path takes precedence when any persona is checked. The
-  // submit guard therefore checks two valid configurations: legacy
-  // (≥1 provider) OR persona (≥1 persona + a provider to run them).
-  const usingPersonaPath = personaIds.length > 0;
-  const selectedCount = usingPersonaPath ? personaIds.length : selectedProviders.size;
-  const submitDisabled = submitting
-      || selectedPr === null
-      || (usingPersonaPath
-          ? providerForPersonas === ''
-          : selectedProviders.size === 0);
+  // Exactly one lead: the explicit pick when it still points at a live
+  // seat, otherwise the first seat.
+  const effectiveLeadKey = useMemo(() => {
+    if (leadKey !== null && seats.some(s => s.key === leadKey)) return leadKey;
+    return seats[0]?.key ?? null;
+  }, [leadKey, seats]);
 
-  const togglePersona = (id: string) => {
-    setSelectedPersonas(prev => {
-      const next = new Set(prev);
-      if (next.has(id)) {
-        next.delete(id);
-      } else {
-        next.add(id);
-      }
-      return next;
-    });
-  };
+  const validSeats = useMemo(() => seats.filter(s => s.providerId !== ''), [seats]);
+  const submitDisabled = submitting || selectedPr === null || validSeats.length === 0;
 
   const onSubmit = async (e?: React.FormEvent) => {
     if (e !== undefined) e.preventDefault();
@@ -236,18 +240,20 @@ function AssignReviewTaskDialog({ workspaceId, onClose, onStarted }: Props) {
           selectedPr.repo,
           selectedPr.number,
           {
-            // Persona path overrides the legacy provider chip
-            // selection — the backend reads personaIds + provider
-            // first and falls back to panelProviderIds when empty.
-            panelProviderIds: usingPersonaPath ? [] : Array.from(selectedProviders),
-            personaIds: usingPersonaPath ? personaIds : [],
-            providerForPersonas: usingPersonaPath ? providerForPersonas : null,
             roundCap: rounds,
             costCapMilli,
             independentFirst,
             // Land the review thread in the workspace the dialog was
             // opened from, so it shows in that workspace's thread list.
             workspaceId,
+            // The composed panel — each seat is a model plus an optional
+            // persona or typed prompt; exactly one is flagged lead.
+            seats: validSeats.map(s => ({
+              providerId: s.providerId,
+              personaId: s.role !== 'none' && s.role !== 'custom' ? s.role : null,
+              customPrompt: s.role === 'custom' ? s.customPrompt : null,
+              lead: s.key === effectiveLeadKey,
+            })),
           });
       onStarted(result.pass.threadId);
     }
@@ -350,78 +356,37 @@ function AssignReviewTaskDialog({ workspaceId, onClose, onStarted }: Props) {
             )}
           </div>
 
-          {personas !== null && personas.length > 0 && (
-            <>
-              <div style={sectionHeadStyle}>
-                <span style={sectionLabelStyle}>Reviewer personas</span>
-                <span style={sectionMetaStyle}>
-                  manage in Settings → Reviewer personas
-                </span>
-              </div>
-              <div style={personaListStyle}>
-                {personas.map(p => (
-                  <PersonaChip
-                    key={p.id}
-                    persona={p}
-                    checked={selectedPersonas.has(p.id)}
-                    onToggle={() => togglePersona(p.id)}
-                  />
-                ))}
-              </div>
-              {usingPersonaPath && (
-                <div style={personaProviderRowStyle}>
-                  <label style={personaProviderLabelStyle} htmlFor="persona-provider">
-                    Run these voices with
-                  </label>
-                  <select
-                    id="persona-provider"
-                    value={providerForPersonas}
-                    onChange={e => setProviderForPersonas(e.target.value)}
-                    style={personaProviderSelectStyle}
-                  >
-                    {(roster ?? []).map(r => (
-                      <option
-                        key={r.providerId}
-                        value={r.providerId}
-                        disabled={!r.configured}
-                      >
-                        {r.displayName}{r.configured ? '' : ' (not configured)'}
-                      </option>
-                    ))}
-                  </select>
-                </div>
-              )}
-            </>
-          )}
-
           <div style={sectionHeadStyle}>
-            <span style={sectionLabelStyle}>
-              {usingPersonaPath ? 'Panel (not used — personas picked)' : 'Panel'}
-            </span>
-            <span style={sectionMetaStyle}>
-              {usingPersonaPath
-                ? 'uncheck all personas above to use this'
-                : 'from credentials tagged "review"'}
-            </span>
+            <span style={sectionLabelStyle}>Panel</span>
+            <span style={sectionMetaStyle}>up to 3 reviewers · ★ marks the lead</span>
           </div>
-          <div style={rosterGridStyle}>
-            {roster === null ? (
-              <div style={mutedRowStyle}>Loading roster…</div>
-            ) : roster.length === 0 ? (
-              <div style={mutedRowStyle}>
-                No AI providers yet — add one in Settings → AI review.
-              </div>
-            ) : (
-              roster.map(entry => (
-                <RosterChip
-                  key={entry.providerId}
-                  entry={entry}
-                  checked={selectedProviders.has(entry.providerId)}
-                  onToggle={() => toggleProvider(entry.providerId, entry.configured)}
+          {roster !== null && configuredProviders.length === 0 ? (
+            <div style={mutedRowStyle}>
+              No AI models configured — add an API key in Settings → AI review.
+            </div>
+          ) : (
+            <div style={seatListStyle}>
+              {seats.map((seat, idx) => (
+                <SeatRow
+                  key={seat.key}
+                  seat={seat}
+                  index={idx}
+                  isLead={seat.key === effectiveLeadKey}
+                  roster={roster ?? []}
+                  personas={personas ?? []}
+                  canRemove={seats.length > 1}
+                  onMakeLead={() => setLeadKey(seat.key)}
+                  onChange={patch => updateSeat(seat.key, patch)}
+                  onRemove={() => removeSeat(seat.key)}
                 />
-              ))
-            )}
-          </div>
+              ))}
+              {seats.length < 3 && (
+                <button type="button" onClick={addSeat} style={addSeatBtnStyle}>
+                  + Add reviewer
+                </button>
+              )}
+            </div>
+          )}
 
           <div style={sectionHeadStyle}>
             <span style={sectionLabelStyle}>Limits</span>
@@ -469,8 +434,10 @@ function AssignReviewTaskDialog({ workspaceId, onClose, onStarted }: Props) {
 
           <footer style={dialogStyles.footer}>
             <span style={dialogStyles.footerNote}>
-              Est. ~{formatUsd(estimateMilli(selectedCount, rounds))} ·{' '}
-              {selectedCount === 0 ? 'no reviewers' : `${selectedCount} reviewer${selectedCount === 1 ? '' : 's'}`} ·{' '}
+              Est. ~{formatUsd(estimateMilli(validSeats.length, rounds))} ·{' '}
+              {validSeats.length === 0
+                ? 'no reviewers'
+                : `${validSeats.length} reviewer${validSeats.length === 1 ? '' : 's'}`} ·{' '}
               read-only · holds no worktree lease
             </span>
             <div style={dialogStyles.footerButtons}>
@@ -543,67 +510,91 @@ function PrRow({
   );
 }
 
-function PersonaChip({
-  persona, checked, onToggle,
+/** One reviewer row in the panel builder: a ★ lead toggle, a model
+ *  picker (configured providers only), and a "role" picker that is
+ *  either a predefined persona, a typed prompt, or none. When "Custom
+ *  prompt" is chosen a textarea reveals so the user can describe what
+ *  this reviewer should focus on. */
+function SeatRow({
+  seat, index, isLead, roster, personas, canRemove, onMakeLead, onChange, onRemove,
 }: {
-  persona: ReviewerPersonaDto;
-  checked: boolean;
-  onToggle: () => void;
-}) {
-  const role = persona.role === 'LEAD' ? 'LEAD' : 'REVIEWER';
-  return (
-    <button
-      type="button"
-      onClick={onToggle}
-      style={personaChipStyle(checked)}
-      aria-pressed={checked}
-      title={persona.systemPrompt.length > 200
-        ? persona.systemPrompt.slice(0, 200) + '…'
-        : persona.systemPrompt}
-    >
-      <span style={personaChipAvatarStyle(role)} aria-hidden>
-        {persona.name.charAt(0).toUpperCase()}
-      </span>
-      <span style={{ flex: 1, minWidth: 0, textAlign: 'left' }}>
-        <span style={rosterChipNameStyle}>{persona.name}</span>
-        <span style={rosterChipMetaStyle}>{role.toLowerCase()}</span>
-      </span>
-      <span style={rosterChipBoxStyle(checked, true)} aria-hidden>
-        {checked && '✓'}
-      </span>
-    </button>
-  );
-}
-
-function RosterChip({
-  entry, checked, onToggle,
-}: {
-  entry: ReviewRosterEntryDto;
-  checked: boolean;
-  onToggle: () => void;
+  seat: SeatDraft;
+  index: number;
+  isLead: boolean;
+  roster: ReviewRosterEntryDto[];
+  personas: ReviewerPersonaDto[];
+  canRemove: boolean;
+  onMakeLead: () => void;
+  onChange: (patch: Partial<SeatDraft>) => void;
+  onRemove: () => void;
 }) {
   return (
-    <button
-      type="button"
-      onClick={onToggle}
-      disabled={!entry.configured}
-      style={rosterChipStyle(checked, entry.configured)}
-      aria-pressed={checked}
-      title={entry.configured ? undefined : 'Add an API key in Settings → AI review'}
-    >
-      <span style={rosterChipAvatarStyle(entry)} aria-hidden>
-        {entry.displayName.charAt(0).toUpperCase()}
-      </span>
-      <span style={{ flex: 1, minWidth: 0, textAlign: 'left' }}>
-        <span style={rosterChipNameStyle}>{entry.displayName}</span>
-        <span style={rosterChipMetaStyle}>
-          {entry.configured ? entry.providerId : 'not configured'}
-        </span>
-      </span>
-      <span style={rosterChipBoxStyle(checked, entry.configured)} aria-hidden>
-        {checked && '✓'}
-      </span>
-    </button>
+    <div style={seatRowStyle(isLead)}>
+      <div style={seatTopRowStyle}>
+        <button
+          type="button"
+          onClick={onMakeLead}
+          style={seatLeadBtnStyle(isLead)}
+          aria-pressed={isLead}
+          title={isLead ? 'Lead — runs consensus + moderates' : 'Make this the lead'}
+        >
+          {isLead ? '★' : '☆'}
+        </button>
+        <label style={seatFieldStyle}>
+          <span style={seatFieldLabelStyle}>Model</span>
+          <select
+            value={seat.providerId}
+            onChange={e => onChange({ providerId: e.target.value })}
+            style={seatSelectStyle}
+            aria-label={`Reviewer ${index + 1} model`}
+          >
+            {roster.map(r => (
+              <option key={r.providerId} value={r.providerId} disabled={!r.configured}>
+                {r.displayName}{r.configured ? '' : ' (no key)'}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label style={seatFieldStyle}>
+          <span style={seatFieldLabelStyle}>Role</span>
+          <select
+            value={seat.role}
+            onChange={e => onChange({ role: e.target.value })}
+            style={seatSelectStyle}
+            aria-label={`Reviewer ${index + 1} role`}
+          >
+            <option value="none">— none (raw model) —</option>
+            {personas.map(p => (
+              <option key={p.id} value={p.id}>
+                {p.name}{p.role === 'LEAD' ? ' (lead persona)' : ''}
+              </option>
+            ))}
+            <option value="custom">Custom prompt…</option>
+          </select>
+        </label>
+        {canRemove && (
+          <button
+            type="button"
+            onClick={onRemove}
+            style={seatRemoveBtnStyle}
+            aria-label={`Remove reviewer ${index + 1}`}
+            title="Remove this reviewer"
+          >
+            ✕
+          </button>
+        )}
+      </div>
+      {seat.role === 'custom' && (
+        <textarea
+          value={seat.customPrompt}
+          onChange={e => onChange({ customPrompt: e.target.value })}
+          placeholder="What should this reviewer focus on? e.g. “Be strict about error handling and concurrency.”"
+          rows={2}
+          style={seatPromptStyle}
+          aria-label={`Reviewer ${index + 1} prompt`}
+        />
+      )}
+    </div>
   );
 }
 
@@ -845,94 +836,115 @@ const prRowCiBadStyle: React.CSSProperties = {
   color: '#b91c1c',
 };
 
-const rosterGridStyle: React.CSSProperties = {
-  display: 'grid',
-  gridTemplateColumns: '1fr 1fr',
+const seatListStyle: React.CSSProperties = {
+  display: 'flex',
+  flexDirection: 'column',
   gap: 8,
 };
 
-function rosterChipStyle(checked: boolean, enabled: boolean): React.CSSProperties {
+function seatRowStyle(isLead: boolean): React.CSSProperties {
   return {
     display: 'flex',
-    alignItems: 'center',
+    flexDirection: 'column',
     gap: 8,
-    padding: '8px 10px',
-    border: checked
+    padding: '10px 12px',
+    border: isLead
         ? '1.5px solid var(--ws-accent, #7c3aed)'
         : '1px solid var(--ws-card-border)',
     borderRadius: 10,
-    background: checked
-        ? 'linear-gradient(180deg, rgba(124,58,237,0.06), rgba(124,58,237,0.02))'
+    background: isLead
+        ? 'linear-gradient(180deg, rgba(124,58,237,0.05), rgba(124,58,237,0.02))'
         : '#fff',
-    color: enabled ? 'var(--ws-text-1)' : 'var(--ws-text-3)',
-    cursor: enabled ? 'pointer' : 'not-allowed',
-    opacity: enabled ? 1 : 0.55,
-    transition: 'border-color 140ms ease, background 140ms ease',
   };
 }
 
-function rosterChipAvatarStyle(entry: ReviewRosterEntryDto): React.CSSProperties {
-  const colors: Record<string, string> = {
-    'openai': '#10b981',
-    'anthropic': '#d97706',
-    'google': '#ec4899',
-  };
-  let bg = '#7c3aed';
-  for (const prefix of Object.keys(colors)) {
-    if (entry.providerId.toLowerCase().startsWith(prefix)) {
-      bg = colors[prefix];
-      break;
-    }
-  }
+const seatTopRowStyle: React.CSSProperties = {
+  display: 'flex',
+  alignItems: 'flex-end',
+  gap: 8,
+};
+
+function seatLeadBtnStyle(isLead: boolean): React.CSSProperties {
   return {
-    width: 26,
-    height: 26,
+    flexShrink: 0,
+    width: 28,
+    height: 28,
     borderRadius: 8,
-    background: bg,
-    color: '#fff',
-    fontSize: 13,
-    fontWeight: 700,
-    display: 'inline-flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    flexShrink: 0,
+    border: isLead ? '1px solid #d97706' : '1px solid var(--ws-card-border)',
+    background: isLead ? 'rgba(217,119,6,0.12)' : '#fff',
+    color: isLead ? '#d97706' : 'var(--ws-text-3)',
+    fontSize: 15,
+    lineHeight: 1,
+    cursor: 'pointer',
+    marginBottom: 1,
   };
 }
 
-const rosterChipNameStyle: React.CSSProperties = {
-  display: 'block',
-  fontSize: 13,
-  fontWeight: 600,
-  overflow: 'hidden',
-  textOverflow: 'ellipsis',
-  whiteSpace: 'nowrap',
+const seatFieldStyle: React.CSSProperties = {
+  flex: 1,
+  minWidth: 0,
+  display: 'flex',
+  flexDirection: 'column',
+  gap: 3,
 };
 
-const rosterChipMetaStyle: React.CSSProperties = {
-  display: 'block',
-  fontSize: 10,
+const seatFieldLabelStyle: React.CSSProperties = {
+  fontSize: 9,
+  fontWeight: 700,
+  letterSpacing: '0.06em',
+  textTransform: 'uppercase',
+  color: 'var(--ws-text-4, #94a3b8)',
+};
+
+const seatSelectStyle: React.CSSProperties = {
+  width: '100%',
+  padding: '5px 8px',
+  fontSize: 12,
+  border: '1px solid var(--ws-card-border)',
+  borderRadius: 6,
+  background: '#fff',
+  color: 'var(--ws-text-1)',
+  boxSizing: 'border-box',
+};
+
+const seatRemoveBtnStyle: React.CSSProperties = {
+  flexShrink: 0,
+  width: 28,
+  height: 28,
+  borderRadius: 8,
+  border: '1px solid var(--ws-card-border)',
+  background: '#fff',
   color: 'var(--ws-text-3)',
-  marginTop: 1,
+  fontSize: 12,
+  cursor: 'pointer',
+  marginBottom: 1,
 };
 
-function rosterChipBoxStyle(checked: boolean, enabled: boolean): React.CSSProperties {
-  return {
-    flexShrink: 0,
-    width: 18,
-    height: 18,
-    borderRadius: 5,
-    border: checked
-        ? '1.5px solid var(--ws-accent, #7c3aed)'
-        : '1.5px solid rgba(0,0,0,0.15)',
-    background: checked ? 'var(--ws-accent, #7c3aed)' : '#fff',
-    color: '#fff',
-    fontSize: 12,
-    display: 'inline-flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    opacity: enabled ? 1 : 0.55,
-  };
-}
+const seatPromptStyle: React.CSSProperties = {
+  width: '100%',
+  padding: '7px 9px',
+  fontSize: 12,
+  lineHeight: 1.45,
+  border: '1px solid var(--ws-card-border)',
+  borderRadius: 6,
+  background: 'rgba(0,0,0,0.015)',
+  color: 'var(--ws-text-1)',
+  resize: 'vertical',
+  fontFamily: 'inherit',
+  boxSizing: 'border-box',
+};
+
+const addSeatBtnStyle: React.CSSProperties = {
+  alignSelf: 'flex-start',
+  padding: '6px 12px',
+  fontSize: 12,
+  fontWeight: 600,
+  color: 'var(--ws-accent, #7c3aed)',
+  background: 'rgba(124,58,237,0.06)',
+  border: '1px dashed rgba(124,58,237,0.4)',
+  borderRadius: 8,
+  cursor: 'pointer',
+};
 
 const limitsGridStyle: React.CSSProperties = {
   display: 'grid',
@@ -1025,72 +1037,6 @@ const toggleHintStyle: React.CSSProperties = {
   fontSize: 11,
   color: 'var(--ws-text-3)',
   marginTop: 2,
-};
-
-const personaListStyle: React.CSSProperties = {
-  display: 'grid',
-  gridTemplateColumns: '1fr 1fr',
-  gap: 8,
-};
-
-function personaChipStyle(checked: boolean): React.CSSProperties {
-  return {
-    display: 'flex',
-    alignItems: 'center',
-    gap: 8,
-    padding: '8px 10px',
-    border: checked
-        ? '1.5px solid var(--ws-accent, #7c3aed)'
-        : '1px solid var(--ws-card-border)',
-    borderRadius: 10,
-    background: checked
-        ? 'linear-gradient(180deg, rgba(124,58,237,0.06), rgba(124,58,237,0.02))'
-        : '#fff',
-    cursor: 'pointer',
-    transition: 'border-color 140ms ease, background 140ms ease',
-  };
-}
-
-function personaChipAvatarStyle(role: 'LEAD' | 'REVIEWER'): React.CSSProperties {
-  return {
-    width: 26,
-    height: 26,
-    borderRadius: 8,
-    background: role === 'LEAD' ? '#d97706' : '#0ea5e9',
-    color: '#fff',
-    fontSize: 13,
-    fontWeight: 700,
-    display: 'inline-flex',
-    alignItems: 'center',
-    justifyContent: 'center',
-    flexShrink: 0,
-  };
-}
-
-const personaProviderRowStyle: React.CSSProperties = {
-  display: 'flex',
-  alignItems: 'center',
-  gap: 10,
-  marginTop: 8,
-  padding: '6px 10px',
-  background: 'rgba(124, 58, 237, 0.04)',
-  border: '1px solid rgba(124, 58, 237, 0.18)',
-  borderRadius: 8,
-};
-
-const personaProviderLabelStyle: React.CSSProperties = {
-  fontSize: 12,
-  fontWeight: 600,
-  color: 'var(--ws-text-1)',
-};
-
-const personaProviderSelectStyle: React.CSSProperties = {
-  flex: 1,
-  padding: '4px 8px',
-  fontSize: 12,
-  border: '1px solid var(--ws-card-border)',
-  borderRadius: 6,
-  background: '#fff',
 };
 
 export default AssignReviewTaskDialog;

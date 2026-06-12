@@ -647,6 +647,7 @@ const bridge: Bridge = {
       independentFirst?: boolean;
       personaIds?: string[];
       providerForPersonas?: string | null;
+      workspaceId?: string;
     },
   ) =>
     ipcRenderer.invoke('reviews:start', { repoFullName, prNumber, ...(opts ?? {}) }),

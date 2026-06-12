@@ -245,6 +245,9 @@ function AssignReviewTaskDialog({ workspaceId, onClose, onStarted }: Props) {
             roundCap: rounds,
             costCapMilli,
             independentFirst,
+            // Land the review thread in the workspace the dialog was
+            // opened from, so it shows in that workspace's thread list.
+            workspaceId,
           });
       onStarted(result.pass.threadId);
     }

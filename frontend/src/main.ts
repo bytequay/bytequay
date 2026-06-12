@@ -3372,6 +3372,7 @@ const url = new URL(`${BACKEND_BASE}/api/search/repos`);
       independentFirst?: unknown;
       personaIds?: unknown;
       providerForPersonas?: unknown;
+      workspaceId?: unknown;
     };
     if (typeof a.repoFullName !== 'string' || a.repoFullName.trim().length === 0) {
       throw new Error('repoFullName must be a non-empty string');
@@ -3400,6 +3401,9 @@ const url = new URL(`${BACKEND_BASE}/api/search/repos`);
     }
     if (typeof a.providerForPersonas === 'string' && a.providerForPersonas.length > 0) {
       body.providerForPersonas = a.providerForPersonas;
+    }
+    if (typeof a.workspaceId === 'string' && a.workspaceId.length > 0) {
+      body.workspaceId = a.workspaceId;
     }
     const res = await fetch(`${BACKEND_BASE}/api/reviews/start`, {
       method: 'POST',

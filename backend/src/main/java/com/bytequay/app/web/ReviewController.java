@@ -226,7 +226,8 @@ public class ReviewController
             Long costCapMilli,
             Boolean independentFirst,
             List<String> personaIds,
-            String providerForPersonas)
+            String providerForPersonas,
+            String workspaceId)
     {
         public ReviewPassService.StartOptions toOptions()
         {
@@ -237,7 +238,8 @@ public class ReviewController
                     costCapMilli == null || costCapMilli <= 0 ? defaults.costCapMilli() : costCapMilli,
                     independentFirst == null ? defaults.independentFirst() : independentFirst,
                     personaIds == null ? List.of() : personaIds,
-                    providerForPersonas);
+                    providerForPersonas,
+                    workspaceId);
         }
     }
 

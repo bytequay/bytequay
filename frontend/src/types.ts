@@ -3170,6 +3170,9 @@ export type Bridge = {
        *  personas + providerForPersonas. */
       personaIds?: string[];
       providerForPersonas?: string | null;
+      /** Workspace the review thread is created in, so it surfaces in
+       *  that workspace's thread list. */
+      workspaceId?: string;
     },
   ) => Promise<ReviewPassDetailDto>;
   /** List configured LLM reviewers (and unconfigured ones the

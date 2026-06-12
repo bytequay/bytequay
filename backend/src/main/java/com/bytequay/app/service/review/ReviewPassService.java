@@ -242,11 +242,12 @@ public class ReviewPassService
                 now, now,
                 /* endedAt */ null, /* errorMessage */ null,
                 ThreadFlow.REVIEW,
-                // Review threads stay in the default workspace today —
-                // they're addressed by PR, not by workspace. When the
-                // assign-review dialog grows a workspace picker this
-                // becomes the chosen workspace.
-                "ws-default",
+                // The review thread lives in the workspace the dialog was
+                // opened from, so it shows in that workspace's thread
+                // list. Scheduled / one-click paths pass no workspace and
+                // fall back to ws-default.
+                opts.workspaceId() == null || opts.workspaceId().isBlank()
+                        ? "ws-default" : opts.workspaceId(),
                 /* workModel */ null,
                 /* activeTask */ null);
         threadStore.saveThread(thread);
@@ -1793,10 +1794,14 @@ public class ReviewPassService
             long costCapMilli,
             boolean independentFirst,
             List<String> personaIds,
-            String providerForPersonas)
+            String providerForPersonas,
+            /** Workspace the review thread is created in, so it shows in
+             *  that workspace's thread list. Null falls back to
+             *  ws-default (the scheduled / one-click paths). */
+            String workspaceId)
     {
         public static final StartOptions DEFAULT =
-                new StartOptions(List.of(), 3, 500L, true, List.of(), null);
+                new StartOptions(List.of(), 3, 500L, true, List.of(), null, null);
 
         /** Backward-compat constructor for the legacy 4-arg call sites
          *  (scheduled review, one-click "Review again"). They don't
@@ -1807,7 +1812,20 @@ public class ReviewPassService
                 long costCapMilli,
                 boolean independentFirst)
         {
-            this(panelProviderIds, roundCap, costCapMilli, independentFirst, List.of(), null);
+            this(panelProviderIds, roundCap, costCapMilli, independentFirst, List.of(), null, null);
+        }
+
+        /** Persona call site without an explicit workspace. */
+        public StartOptions(
+                List<String> panelProviderIds,
+                int roundCap,
+                long costCapMilli,
+                boolean independentFirst,
+                List<String> personaIds,
+                String providerForPersonas)
+        {
+            this(panelProviderIds, roundCap, costCapMilli, independentFirst,
+                    personaIds, providerForPersonas, null);
         }
 
         /** True when the dialog picked personas + a provider — the new

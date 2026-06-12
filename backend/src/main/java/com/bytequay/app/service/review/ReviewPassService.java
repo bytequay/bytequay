@@ -45,6 +45,7 @@ import com.bytequay.app.service.ai.LlmReviewerRegistry;
 import com.bytequay.app.service.credentials.PatResolver;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.beans.factory.annotation.Qualifier;
 import org.springframework.http.HttpStatusCode;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -63,9 +64,11 @@ import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
+import java.util.concurrent.Executor;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 
+import static com.bytequay.app.config.AsyncConfig.REVIEW_EXECUTOR;
 import static com.bytequay.app.utils.PullRequestRefUtil.parseRef;
 import static java.util.Objects.requireNonNull;
 
@@ -105,6 +108,7 @@ public class ReviewPassService
     private final LlmReviewerRegistry reviewers;
     private final AppSettingsStore appSettings;
     private final ReviewerPersonaStore personas;
+    private final Executor reviewExecutor;
 
     public ReviewPassService(
             ThreadStore threadStore,
@@ -113,8 +117,10 @@ public class ReviewPassService
             PatResolver patResolver,
             LlmReviewerRegistry reviewers,
             AppSettingsStore appSettings,
-            ReviewerPersonaStore personas)
+            ReviewerPersonaStore personas,
+            @Qualifier(REVIEW_EXECUTOR) Executor reviewExecutor)
     {
+        this.reviewExecutor = requireNonNull(reviewExecutor, "reviewExecutor is null");
         this.threadStore = requireNonNull(threadStore, "threadStore is null");
         this.reviewStore = requireNonNull(reviewStore, "reviewStore is null");
         this.pullRequests = requireNonNull(pullRequests, "pullRequests is null");
@@ -125,26 +131,61 @@ public class ReviewPassService
     }
 
     /**
-     * Kick off a fresh review pass for the given PR. Synchronous —
-     * even with multi-reviewer fan-out the call blocks until the
-     * panel terminates so the controller can hand back a populated
-     * detail. A future async / SSE wrapper can layer on top when the
-     * round count starts to matter.
+     * Kick off a fresh review pass for the given PR and run it to
+     * completion synchronously. Used by the scheduled / one-click
+     * paths, which already run on a background thread and read the
+     * finished detail (verdict + finding counts) straight away.
+     *
+     * <p>Deliberately NOT wrapped in a single transaction: each
+     * persistence call short-transacts on its own, so the multi-minute
+     * model fan-out never pins the single pooled SQLite connection (a
+     * method-level {@code @Transactional} here would hold that one
+     * connection for the whole pass and starve the rest of the app).
      */
-    @Transactional
     public ReviewPassDetail startReviewOnPr(String repoFullName, int prNumber)
     {
-        return startReviewOnPr(repoFullName, prNumber, StartOptions.DEFAULT);
+        return runReviewBody(seatReviewPass(repoFullName, prNumber, StartOptions.DEFAULT));
     }
 
     /**
      * Variant of {@link #startReviewOnPr(String, int)} that honours
-     * caller-specified panel selection + caps. The mockup-facing
-     * "Assign review task" dialog calls this; the scheduled / one-
-     * click paths keep the 2-arg overload with the registry defaults.
+     * caller-specified panel selection + caps and returns as soon as
+     * the pass is seated. The LLM panel body runs on
+     * {@link AsyncConfig#REVIEW_EXECUTOR} so the interactive
+     * {@code POST /api/reviews/start} request doesn't block on the
+     * (multi-minute) model fan-out — and never holds the single SQLite
+     * connection across it. The mockup-facing "Assign review task"
+     * dialog calls this; the returned detail is the freshly-seated
+     * pass (phase INDEPENDENT, thread id populated), which the review-
+     * thread page then polls to live-fill.
      */
-    @Transactional
     public ReviewPassDetail startReviewOnPr(String repoFullName, int prNumber, StartOptions opts)
+    {
+        Seat seat = seatReviewPass(repoFullName, prNumber, opts);
+        reviewExecutor.execute(() -> {
+            try {
+                runReviewBody(seat);
+            }
+            catch (RuntimeException e) {
+                // runReviewBody already parks the pass at TERMINATE on
+                // failure; there's no HTTP caller left to receive the
+                // error, so log it and let the polling UI surface the
+                // parked pass.
+                log.warn("Async review body for pass {} failed: {}",
+                        seat.pass().id(), e.getMessage());
+            }
+        });
+        return buildDetail(seat.pass());
+    }
+
+    /**
+     * Seat a new review pass: resolve the panel, pull the PR detail +
+     * diff, materialise the thread + pass + participants + kickoff
+     * message, and transition to INDEPENDENT. Synchronous and quick —
+     * no model calls — so an interactive caller can return right after
+     * it; the heavy LLM work happens in {@link #runReviewBody}.
+     */
+    private Seat seatReviewPass(String repoFullName, int prNumber, StartOptions opts)
     {
         requireNonNull(repoFullName, "repoFullName is null");
         requireNonNull(opts, "opts is null");
@@ -267,7 +308,10 @@ public class ReviewPassService
                 /* costUsdMilli */ 0L,
                 now));
 
-        // 6. Transition to INDEPENDENT and dispatch the panel.
+        // 6. Transition to INDEPENDENT and build the reviewer request.
+        //    The seat phase ends here; the model fan-out runs in
+        //    runReviewBody so it never holds the single pooled
+        //    connection (each store write there short-transacts).
         pass = withPhase(pass, ReviewPhase.INDEPENDENT, /* endedAt */ null);
         reviewStore.savePass(pass);
 
@@ -278,6 +322,36 @@ public class ReviewPassService
                 raw.headSha(),
                 diff,
                 composeSkillContext(/* baseSkill */ null));
+        return new Seat(pass, panel, reviewerSeats, moderator, request);
+    }
+
+    /** Hand-off from the synchronous seat phase to the (sync or async)
+     *  LLM body. */
+    private record Seat(
+            ReviewPass pass,
+            List<PanelMember> panel,
+            List<ReviewParticipant> reviewerSeats,
+            ReviewParticipant moderator,
+            ReviewRequest request) {}
+
+    /**
+     * Run the LLM panel for a seated pass: independent reviews in
+     * parallel, persist each verbatim, extract consensus, run the
+     * bounded debate over disputed items, and transition the pass to
+     * its final phase. No method-level transaction — every persistence
+     * call short-transacts so the model fan-out never pins the single
+     * pooled connection. On a reviewer failure it parks the pass at
+     * TERMINATE and rethrows, so the synchronous (scheduled) caller
+     * sees the 502 and the async caller can log it.
+     */
+    private ReviewPassDetail runReviewBody(Seat seated)
+    {
+        ReviewPass pass = seated.pass();
+        List<PanelMember> panel = seated.panel();
+        List<ReviewParticipant> reviewerSeats = seated.reviewerSeats();
+        ReviewParticipant moderator = seated.moderator();
+        ReviewRequest request = seated.request();
+
         Map<ReviewParticipant, ReviewOutput> outputs;
         try {
             outputs = runIndependentInParallel(reviewerSeats, panel, request);

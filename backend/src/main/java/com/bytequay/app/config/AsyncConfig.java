@@ -26,11 +26,17 @@ public class AsyncConfig
 {
     public static final String APPLICATION_EXECUTOR = "applicationExecutor";
     public static final String IO_EXECUTOR = "ioExecutor";
+    public static final String REVIEW_EXECUTOR = "reviewExecutor";
 
     private static final int APPLICATION_EXECUTOR_CORE_POOL_SIZE = 4;
     private static final int APPLICATION_EXECUTOR_MAX_POOL_SIZE = 16;
     private static final int APPLICATION_EXECUTOR_QUEUE_CAPACITY = 100;
     private static final int APPLICATION_EXECUTOR_AWAIT_TERMINATION_SECONDS = 10;
+
+    private static final int REVIEW_EXECUTOR_CORE_POOL_SIZE = 2;
+    private static final int REVIEW_EXECUTOR_MAX_POOL_SIZE = 2;
+    private static final int REVIEW_EXECUTOR_QUEUE_CAPACITY = 50;
+    private static final int REVIEW_EXECUTOR_AWAIT_TERMINATION_SECONDS = 5;
 
     /**
      * For top-level orchestration threads (sync job, controller hand-offs).
@@ -69,5 +75,28 @@ public class AsyncConfig
     public ExecutorService ioExecutor()
     {
         return Executors.newVirtualThreadPerTaskExecutor();
+    }
+
+    /**
+     * Runs interactive review-pass bodies (the multi-minute LLM panel
+     * fan-out) off the HTTP request thread so {@code POST
+     * /api/reviews/start} can return as soon as the pass is seated.
+     * Bounded low on purpose: the heavy work is the model calls, and
+     * the single-connection SQLite pool means we don't want many review
+     * bodies persisting concurrently. Does not wait for in-flight bodies
+     * on shutdown — a half-run pass simply parks at its current phase.
+     */
+    @Bean(name = REVIEW_EXECUTOR)
+    public Executor reviewExecutor()
+    {
+        ThreadPoolTaskExecutor executor = new ThreadPoolTaskExecutor();
+        executor.setThreadNamePrefix("review-pass-");
+        executor.setCorePoolSize(REVIEW_EXECUTOR_CORE_POOL_SIZE);
+        executor.setMaxPoolSize(REVIEW_EXECUTOR_MAX_POOL_SIZE);
+        executor.setQueueCapacity(REVIEW_EXECUTOR_QUEUE_CAPACITY);
+        executor.setWaitForTasksToCompleteOnShutdown(false);
+        executor.setAwaitTerminationSeconds(REVIEW_EXECUTOR_AWAIT_TERMINATION_SECONDS);
+        executor.initialize();
+        return executor;
     }
 }

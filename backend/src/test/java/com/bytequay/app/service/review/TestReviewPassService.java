@@ -98,8 +98,31 @@ class TestReviewPassService
                 .thenReturn("diff --git a/x b/x\n");
         when(appSettings.get(anyString())).thenReturn(Optional.empty());
 
+        // Same-thread executor: the async 3-arg overload runs its body
+        // inline so tests stay deterministic.
         service = new ReviewPassService(
-                threadStore, reviewStore, pullRequests, patResolver, registry, appSettings, personas);
+                threadStore, reviewStore, pullRequests, patResolver, registry, appSettings, personas,
+                Runnable::run);
+    }
+
+    @Test
+    void startReviewWithOptionsSeatsThePassThenRunsTheBodyOnTheExecutor()
+    {
+        ReviewOutput output = new ReviewOutput(
+                "Looks good.",
+                List.of(new ReviewOutput.LineComment("src/foo.ts", 3, "Tidy this.", "nit")),
+                "claude", "claude-sonnet-4.6");
+        when(reviewer.review(any(ReviewRequest.class))).thenReturn(output);
+
+        ReviewPassDetail seated = service.startReviewOnPr(
+                "acme/widget", 42, ReviewPassService.StartOptions.DEFAULT);
+
+        // The pass is seated with a thread id, and the body — dispatched
+        // to the (same-thread, in this test) review executor — persisted
+        // the reviewer's finding. A real executor would run it off-thread
+        // so the caller returns before the model fan-out completes.
+        assertThat(seated.pass().threadId()).isNotBlank();
+        assertThat(seated.findings()).hasSize(1);
     }
 
     @Test

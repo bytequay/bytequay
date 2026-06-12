@@ -77,9 +77,13 @@ type Props = {
 const POLL_MS_RUNNING = 5_000;
 const POLL_MS_IDLE = 5_000;
 const POLL_MS_TERMINAL = 0;
-// Coalesce bursts of SSE events into a single refresh — 5 deltas
-// inside a 120ms window collapse into one /messages roundtrip.
-const STREAM_REFRESH_DEBOUNCE_MS = 120;
+// Coalesce bursts of SSE events into a single refresh. A fast turn can
+// emit structural events (tool starts/dones) many times a second; at
+// 120ms that was up to ~8 refreshes/sec, and each one used to fan out 9
+// backend calls — enough to saturate the local sidecar mid-turn. A
+// wider window plus the trimmed refreshLive (4 calls) keeps the stream
+// responsive without hammering the backend.
+const STREAM_REFRESH_DEBOUNCE_MS = 400;
 
 /**
  * Two-column thread detail surface — terminal pane + sticky sidebar
@@ -276,6 +280,35 @@ export default function ThreadDetailPage({
     }
   }, [threadId]);
 
+  /** Lightweight refresh for the SSE stream path. A streaming turn fires
+   *  a burst of structural events (tool starts/dones, turn events); the
+   *  full {@link refresh} fans out 9 backend calls each time, which —
+   *  several times a second against the single local sidecar that's also
+   *  running the agent and writing to SQLite — can saturate it until the
+   *  UI stops responding. Only the message log, turns, turn-events and
+   *  the task row actually change mid-turn, so on a stream tick we fetch
+   *  just those four and leave the task list / groups / files / watched
+   *  repos to the slower 5s poll and explicit actions. Errors are
+   *  swallowed quietly: a dropped stream tick self-heals on the next
+   *  event or poll, and flashing an error banner mid-turn is worse. */
+  const refreshLive = useCallback(async () => {
+    try {
+      const [t, m, ts, tes] = await Promise.all([
+        window.bridge.getTask(threadId),
+        window.bridge.getTaskMessages(threadId),
+        window.bridge.getTaskTurns(threadId).catch(() => [] as ThreadTurnDto[]),
+        window.bridge.getTaskTurnEvents(threadId).catch(() => [] as ThreadTurnEventDto[]),
+      ]);
+      setTask(t);
+      setMessages(m);
+      setTurns(ts);
+      setTurnEvents(tes);
+    }
+    catch {
+      // Transient — the next stream event or the 5s poll reconciles.
+    }
+  }, [threadId]);
+
   /** Same workingDir → owner/repo resolver ThreadsPage uses: walk the
    *  path segments looking for a watched-repo name match so worktrees
    *  rooted under the watched repo resolve correctly. */
@@ -414,7 +447,7 @@ export default function ThreadDetailPage({
       if (timer || disposed) return;
       timer = setTimeout(() => {
         timer = null;
-        void refresh().then(() => {
+        void refreshLive().then(() => {
           if (!disposed) flushBuffer();
         });
       }, STREAM_REFRESH_DEBOUNCE_MS);
@@ -463,7 +496,7 @@ export default function ThreadDetailPage({
       flushBuffer();
       unsubscribe();
     };
-  }, [threadId, status, refresh]);
+  }, [threadId, status, refreshLive]);
 
   // 1-second wall-clock tick while RUNNING. The /threads/{id} poll
   // runs at 5s so without this the Lifetime · Runtime metric jumps

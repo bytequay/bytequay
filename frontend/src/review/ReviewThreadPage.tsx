@@ -763,7 +763,7 @@ function MessageBubble({
   const color = author?.color ?? 'var(--text-muted)';
   const isYou = kind === 'HUMAN';
   const isModerator = kind === 'LEAD';
-  const roleTag = isModerator ? 'moderator' : isLead ? 'lead' : null;
+  const roleTag = isModerator || isLead ? 'lead' : null;
 
   return (
     <div style={isYou ? bubbleRowYouStyle : bubbleRowStyle}>

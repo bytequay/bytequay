@@ -208,7 +208,6 @@ function AssignReviewTaskDialog({ workspaceId, onClose, onStarted }: Props) {
     setSeats(prev => prev.map(s => (s.key === key ? { ...s, ...patch } : s)));
   };
   const addSeat = () => {
-    if (seats.length >= 3) return;
     const provider = configuredProviders[0]?.providerId ?? '';
     setSeats(prev => [
       ...prev,
@@ -358,7 +357,7 @@ function AssignReviewTaskDialog({ workspaceId, onClose, onStarted }: Props) {
 
           <div style={sectionHeadStyle}>
             <span style={sectionLabelStyle}>Panel</span>
-            <span style={sectionMetaStyle}>up to 3 reviewers · ★ marks the lead</span>
+            <span style={sectionMetaStyle}>cost splits evenly across seats · ★ marks the lead</span>
           </div>
           {roster !== null && configuredProviders.length === 0 ? (
             <div style={mutedRowStyle}>
@@ -380,11 +379,9 @@ function AssignReviewTaskDialog({ workspaceId, onClose, onStarted }: Props) {
                   onRemove={() => removeSeat(seat.key)}
                 />
               ))}
-              {seats.length < 3 && (
-                <button type="button" onClick={addSeat} style={addSeatBtnStyle}>
-                  + Add reviewer
-                </button>
-              )}
+              <button type="button" onClick={addSeat} style={addSeatBtnStyle}>
+                + Add reviewer
+              </button>
             </div>
           )}
 

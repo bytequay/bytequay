@@ -33,6 +33,7 @@ import com.bytequay.app.domain.ReviewRequest;
 import com.bytequay.app.domain.ReviewVerdict;
 import com.bytequay.app.domain.ReviewerPersona;
 import com.bytequay.app.domain.ReviewerPersonaRole;
+import com.bytequay.app.domain.Skill;
 import com.bytequay.app.domain.Thread;
 import com.bytequay.app.domain.ThreadFlow;
 import com.bytequay.app.domain.ThreadKind;
@@ -43,6 +44,7 @@ import com.bytequay.app.repository.PullRequestRepository;
 import com.bytequay.app.repository.PullRequestStore;
 import com.bytequay.app.repository.ReviewStore;
 import com.bytequay.app.repository.ReviewerPersonaStore;
+import com.bytequay.app.repository.SkillStore;
 import com.bytequay.app.repository.ThreadStore;
 import com.bytequay.app.service.ai.LlmReviewer;
 import com.bytequay.app.service.ai.LlmReviewerRegistry;
@@ -110,6 +112,7 @@ public class ReviewPassService
     private final LlmReviewerRegistry reviewers;
     private final AppSettingsStore appSettings;
     private final ReviewerPersonaStore personas;
+    private final SkillStore skills;
     private final Executor reviewExecutor;
     private final LeadOrchestrator leadOrchestrator;
     private final ReviewerSeat reviewerSeat;
@@ -133,7 +136,8 @@ public class ReviewPassService
             LeadToolset leadToolset,
             ReviewBudgetMeter budgetMeter,
             ReviewDiffCache diffCache,
-            AgentScheduler scheduler)
+            AgentScheduler scheduler,
+            SkillStore skills)
     {
         this.reviewExecutor = requireNonNull(reviewExecutor, "reviewExecutor is null");
         this.leadOrchestrator = requireNonNull(leadOrchestrator, "leadOrchestrator is null");
@@ -150,6 +154,7 @@ public class ReviewPassService
         this.reviewers = requireNonNull(reviewers, "reviewers is null");
         this.appSettings = requireNonNull(appSettings, "appSettings is null");
         this.personas = requireNonNull(personas, "personas is null");
+        this.skills = requireNonNull(skills, "skills is null");
     }
 
     /**
@@ -787,6 +792,18 @@ public class ReviewPassService
                 prompt = p.systemPrompt();
                 label = p.name();
             }
+            else if (seat.roleSkillId() != null) {
+                Skill skill = skills.byId(seat.roleSkillId())
+                        .orElseThrow(() -> new ResponseStatusException(
+                                HttpStatusCode.valueOf(412),
+                                "Role skill #" + seat.roleSkillId()
+                                        + " not found or has been deleted."));
+                if (!skill.enabled()) {
+                    continue;
+                }
+                prompt = skill.body();
+                label = skill.name();
+            }
             else if (seat.customPrompt() != null && !seat.customPrompt().isBlank()) {
                 prompt = seat.customPrompt();
                 label = "Custom · " + reviewer.displayName();
@@ -1288,7 +1305,22 @@ public class ReviewPassService
      * moderates debate (exactly one per panel; the resolver defaults to
      * the first seat when none is flagged).
      */
-    public record PanelSeat(String providerId, String personaId, String customPrompt, boolean lead) {}
+    public record PanelSeat(
+            String providerId,
+            String personaId,
+            String customPrompt,
+            /** A skills-vault row (role-tagged persona / rubric) used as
+             *  the seat's reviewing voice — the third role source next
+             *  to reviewer_personas and free-typed prompts. */
+            Long roleSkillId,
+            boolean lead)
+    {
+        /** Pre-role-skill call sites. */
+        public PanelSeat(String providerId, String personaId, String customPrompt, boolean lead)
+        {
+            this(providerId, personaId, customPrompt, null, lead);
+        }
+    }
 
     /**
      * Roster entry surfaced to the assign-review-task dialog so the

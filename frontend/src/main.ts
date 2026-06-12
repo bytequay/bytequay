@@ -3419,6 +3419,9 @@ const url = new URL(`${BACKEND_BASE}/api/search/repos`);
           personaId: typeof s.personaId === 'string' && s.personaId.length > 0 ? s.personaId : null,
           customPrompt:
             typeof s.customPrompt === 'string' && s.customPrompt.length > 0 ? s.customPrompt : null,
+          roleSkillId:
+            typeof s.roleSkillId === 'number' && Number.isFinite(s.roleSkillId)
+              ? s.roleSkillId : null,
           lead: s.lead === true,
         }));
       if (seats.length > 0) {

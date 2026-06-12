@@ -254,7 +254,9 @@ public class ReviewController
 
     /** One composed reviewer seat from the dialog — a model plus an
      *  optional persona or typed prompt, and whether it's the lead. */
-    public record SeatRequest(String providerId, String personaId, String customPrompt, Boolean lead)
+    public record SeatRequest(
+            String providerId, String personaId, String customPrompt,
+            Long roleSkillId, Boolean lead)
     {
         ReviewPassService.PanelSeat toSeat()
         {
@@ -262,6 +264,7 @@ public class ReviewController
                     providerId,
                     personaId == null || personaId.isBlank() ? null : personaId,
                     customPrompt == null || customPrompt.isBlank() ? null : customPrompt,
+                    roleSkillId,
                     lead != null && lead);
         }
     }

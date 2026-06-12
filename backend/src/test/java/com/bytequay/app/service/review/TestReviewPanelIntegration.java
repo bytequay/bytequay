@@ -28,6 +28,7 @@ import com.bytequay.app.repository.AppSettingsStore;
 import com.bytequay.app.repository.PullRequestRepository;
 import com.bytequay.app.repository.PullRequestStore;
 import com.bytequay.app.repository.ReviewerPersonaStore;
+import com.bytequay.app.repository.SkillStore;
 import com.bytequay.app.repository.ThreadStore;
 import com.bytequay.app.repository.ThreadTurnEventStore;
 import com.bytequay.app.repository.ThreadTurnStore;
@@ -156,7 +157,8 @@ class TestReviewPanelIntegration
                 mock(PullRequestStore.class), patResolver, registry,
                 appSettings, mock(ReviewerPersonaStore.class),
                 Runnable::run,
-                leadOrchestrator, reviewerSeat, leadToolset, budget, diffCache, scheduler);
+                leadOrchestrator, reviewerSeat, leadToolset, budget, diffCache, scheduler,
+                mock(SkillStore.class));
     }
 
     @Test

@@ -28,12 +28,14 @@ import com.bytequay.app.domain.ReviewPass;
 import com.bytequay.app.domain.ReviewPassDetail;
 import com.bytequay.app.domain.ReviewPhase;
 import com.bytequay.app.domain.ReviewVerdict;
+import com.bytequay.app.domain.Skill;
 import com.bytequay.app.domain.Thread;
 import com.bytequay.app.domain.ThreadFlow;
 import com.bytequay.app.repository.AppSettingsStore;
 import com.bytequay.app.repository.PullRequestRepository;
 import com.bytequay.app.repository.PullRequestStore;
 import com.bytequay.app.repository.ReviewerPersonaStore;
+import com.bytequay.app.repository.SkillStore;
 import com.bytequay.app.repository.ThreadStore;
 import com.bytequay.app.service.agents.TurnResult;
 import com.bytequay.app.service.ai.LlmReviewer;
@@ -89,6 +91,7 @@ class TestReviewPassService
     private LlmReviewer reviewer;
     private AppSettingsStore appSettings;
     private ReviewerPersonaStore personas;
+    private SkillStore skillStore;
     private LeadOrchestrator leadOrchestrator;
     private ReviewerSeat reviewerSeat;
     private LeadToolset leadToolset;
@@ -106,6 +109,7 @@ class TestReviewPassService
         reviewer = mock(LlmReviewer.class);
         appSettings = mock(AppSettingsStore.class);
         personas = mock(ReviewerPersonaStore.class);
+        skillStore = mock(SkillStore.class);
         reviewStore = new InMemoryReviewStore();
         leadOrchestrator = mock(LeadOrchestrator.class);
         reviewerSeat = mock(ReviewerSeat.class);
@@ -160,7 +164,8 @@ class TestReviewPassService
                 leadOrchestrator, reviewerSeat, leadToolset,
                 new ReviewBudgetMeter(reviewStore),
                 mock(ReviewDiffCache.class),
-                scheduler);
+                scheduler,
+                skillStore);
     }
 
     // ── Seating + the phase walk ─────────────────────────────────────
@@ -214,6 +219,49 @@ class TestReviewPassService
         assertThat(kickoff.phase()).isEqualTo(ReviewPhase.KICKOFF);
         assertThat(kickoff.mentions()).containsExactly(
                 participants.get(1).id(), participants.get(2).id());
+    }
+
+    @Test
+    void seatRoleSkillResolvesItsBodyAsThePersonaPrompt()
+    {
+        when(skillStore.byId(7L)).thenReturn(Optional.of(new Skill(
+                7L, "global", null, null, "Trino style reviewer",
+                "Reviews in the Trino voice.", "Be strict about Trino conventions.",
+                "persona", "reviewer", /* enabled */ true, false,
+                "authored", null, "hash", Instant.now(), Instant.now())));
+
+        service.startReviewOnPr("acme/widget", 42, new ReviewPassService.StartOptions(
+                List.of(), 3, 500L, true, List.of(), null, null, null,
+                List.of(new ReviewPassService.PanelSeat(
+                        "claude", null, null, 7L, true))));
+
+        // The seat's participant carries the skill's name as its label;
+        // the skill body rides as the persona prompt (not persisted —
+        // it flows to the seat's system prompt via the roster).
+        ReviewParticipant reviewerSeatRow = reviewStore.listParticipantsForPass(passId()).stream()
+                .filter(p -> p.kind() == ReviewParticipantKind.REVIEWER)
+                .findFirst()
+                .orElseThrow();
+        assertThat(reviewerSeatRow.personaLabel()).isEqualTo("Trino style reviewer");
+    }
+
+    @Test
+    void disabledRoleSkillSeatIsSkipped()
+    {
+        when(skillStore.byId(8L)).thenReturn(Optional.of(new Skill(
+                8L, "global", null, null, "Muted persona",
+                "", "...", "persona", "reviewer", /* enabled */ false, false,
+                "authored", null, "hash", Instant.now(), Instant.now())));
+
+        // The disabled-skill seat falls out; with no seat left the
+        // start is refused rather than running an empty panel.
+        assertThatThrownBy(() -> service.startReviewOnPr(
+                "acme/widget", 42, new ReviewPassService.StartOptions(
+                        List.of(), 3, 500L, true, List.of(), null, null, null,
+                        List.of(new ReviewPassService.PanelSeat(
+                                "claude", null, null, 8L, true)))))
+                .isInstanceOf(ResponseStatusException.class)
+                .hasMessageContaining("No reviewers selected");
     }
 
     @Test

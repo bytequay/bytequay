@@ -653,6 +653,10 @@ const bridge: Bridge = {
         providerId: string;
         personaId?: string | null;
         customPrompt?: string | null;
+        /** A role-tagged skills-vault row used as this seat's
+         *  reviewing voice; mutually exclusive with personaId /
+         *  customPrompt. */
+        roleSkillId?: number | null;
         lead?: boolean;
       }[];
     },

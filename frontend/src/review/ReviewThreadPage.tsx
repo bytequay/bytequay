@@ -13,6 +13,8 @@
  */
 import { Fragment, useCallback, useEffect, useMemo, useState } from 'react';
 import type {
+  AgendaPhaseDto,
+  AgendaPhaseStatusDto,
   ReviewFindingDto,
   ReviewFindingSeverityDto,
   ReviewFindingStatusDto,
@@ -54,6 +56,17 @@ function ReviewThreadPage({ threadId, onBack }: Props) {
 
   useEffect(() => { void refresh(); }, [refresh]);
 
+  // Live-follow an active pass (the agenda + transcript move while
+  // the panel runs); freeze once it reaches a terminal phase so an
+  // idle page costs nothing.
+  const phase = detail?.pass.phase;
+  useEffect(() => {
+    if (phase === undefined) return;
+    if (phase === 'TERMINATE' || phase === 'ARBITRATE' || phase === 'PUBLISHED') return;
+    const timer = window.setInterval(() => { void refresh(); }, 5_000);
+    return () => window.clearInterval(timer);
+  }, [phase, refresh]);
+
   const participantsById = useMemo(() => {
     const map = new Map<string, ReviewParticipantDto>();
     detail?.participants.forEach(p => map.set(p.id, p));
@@ -61,21 +74,47 @@ function ReviewThreadPage({ threadId, onBack }: Props) {
   }, [detail]);
 
   // Split findings into Agreed / Open. AGREED + RESOLVED + POSTED
-  // are "done"; DISPUTED + ARBITRATED + DROPPED are still in flight
-  // for the right rail's "Open" pane.
+  // are "done"; REPORTED (not yet classified by the lead) and
+  // DISPUTED are still in flight for the right rail's "Open" pane.
   const agreedFindings = useMemo(
     () => (detail?.findings ?? []).filter(f =>
         f.status === 'AGREED' || f.status === 'RESOLVED' || f.status === 'POSTED'),
     [detail]);
   const openFindings = useMemo(
-    () => (detail?.findings ?? []).filter(f => f.status === 'DISPUTED'),
+    () => (detail?.findings ?? []).filter(f =>
+        f.status === 'DISPUTED' || f.status === 'REPORTED'),
     [detail]);
 
-  // The lead is whoever authored the consensus turn (the lead runs
-  // consensus), so the roster + transcript can badge them consistently
-  // without a separate flag on the participant.
+  // Dissents the lead recorded per finding (payload_kind='dissent'
+  // messages #ref the finding) — badged on the findings checklist.
+  const dissentsByFinding = useMemo(() => {
+    const counts = new Map<string, number>();
+    for (const m of detail?.messages ?? []) {
+      if (m.payloadKind !== 'dissent') continue;
+      for (const ref of m.refs) {
+        if (ref.startsWith('finding:')) {
+          const id = ref.slice('finding:'.length);
+          counts.set(id, (counts.get(id) ?? 0) + 1);
+        }
+      }
+    }
+    return counts;
+  }, [detail]);
+
+  // Clicking a participant's @mention chip filters the transcript to
+  // that reviewer's stream (their messages + messages addressed to
+  // them). Click again — or the clear pill — to unfilter.
+  const [focusParticipantId, setFocusParticipantId] = useState<string | null>(null);
+  const toggleFocus = useCallback((id: string) => {
+    setFocusParticipantId(prev => (prev === id ? null : id));
+  }, []);
+
+  // The LEAD participant orchestrates the panel; passes that predate
+  // the lead seat fall back to whoever authored the consensus turn.
   const leadId = useMemo(
-    () => detail?.messages.find(m => m.payloadKind === 'consensus')?.participantId ?? null,
+    () => detail?.participants.find(p => p.kind === 'LEAD')?.id
+        ?? detail?.messages.find(m => m.payloadKind === 'consensus')?.participantId
+        ?? null,
     [detail]);
 
   return (
@@ -108,11 +147,24 @@ function ReviewThreadPage({ threadId, onBack }: Props) {
             <BudgetCard detail={detail} />
           </aside>
           <main style={centerColStyle}>
+            <AgendaSection agenda={detail.agenda} />
+            {focusParticipantId !== null && (
+              <button
+                type="button"
+                style={focusPillStyle}
+                onClick={() => setFocusParticipantId(null)}
+              >
+                Showing {participantsById.get(focusParticipantId)?.personaLabel
+                    ?? 'one reviewer'}&apos;s stream — clear filter ✕
+              </button>
+            )}
             <TranscriptSection
               messages={detail.messages}
               participantsById={participantsById}
               passPhase={detail.pass.phase}
               leadId={leadId}
+              focusParticipantId={focusParticipantId}
+              onMentionClick={toggleFocus}
             />
             <SteerComposerPlaceholder
               prNumber={detail.pass.prNumber}
@@ -124,12 +176,14 @@ function ReviewThreadPage({ threadId, onBack }: Props) {
               label="Agreed findings"
               tone="agreed"
               findings={agreedFindings}
+              dissentsByFinding={dissentsByFinding}
               emptyHint="Nothing locked in yet."
             />
             <FindingsByStatusSection
               label="Open"
               tone="open"
               findings={openFindings}
+              dissentsByFinding={dissentsByFinding}
               emptyHint="All disagreements resolved or arbitrated."
             />
             {detail.pass.phase === 'ARBITRATE' ? (
@@ -364,11 +418,14 @@ function BudgetCard({ detail }: { detail: ReviewPassDetailDto }) {
  *  check for locked-in (Agreed) items, an amber dot for in-flight (Open)
  *  ones — with the file:line anchor as a muted mono prefix. */
 function FindingsByStatusSection({
-  label, tone, findings, emptyHint,
+  label, tone, findings, dissentsByFinding, emptyHint,
 }: {
   label: string;
   tone: 'agreed' | 'open';
   findings: ReviewFindingDto[];
+  /** Recorded dissents per finding id — flagged on the row so a
+   *  consensus call with a minority position stays visible. */
+  dissentsByFinding: Map<string, number>;
   emptyHint: string;
 }) {
   const accent = tone === 'agreed' ? '#16a34a' : '#d97706';
@@ -397,6 +454,11 @@ function FindingsByStatusSection({
                 <span style={severityDotStyle(severityColor(f.severity))}>
                   {f.severity.toLowerCase()}
                 </span>
+                {(dissentsByFinding.get(f.id) ?? 0) > 0 && (
+                  <span style={dissentFlagStyle} title="The lead recorded dissent on this finding">
+                    ⚑ {dissentsByFinding.get(f.id)} dissent
+                  </span>
+                )}
               </span>
             </li>
           ))}
@@ -441,7 +503,8 @@ function ArbitrationBallotSection({
   detail: ReviewPassDetailDto;
   onResolved: (next: ReviewPassDetailDto) => void;
 }) {
-  const disputed = detail.findings.filter(f => f.status === 'DISPUTED');
+  const disputed = detail.findings.filter(
+      f => f.status === 'DISPUTED' || f.status === 'REPORTED');
   const [busyId, setBusyId] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -596,6 +659,34 @@ function phaseDividerText(m: ReviewPanelMessageDto): string {
   return head;
 }
 
+/** The lead's agenda — the phase TODO list set at kickoff, ticked
+ *  through as the pass runs, frozen at TERMINATE. Sticky above the
+ *  transcript so the watcher always sees where the panel stands. */
+function AgendaSection({ agenda }: { agenda: AgendaPhaseDto[] }) {
+  if (agenda.length === 0) return null;
+  const done = agenda.filter(p => p.status === 'DONE').length;
+  const inProgress = agenda.filter(p => p.status === 'IN_PROGRESS').length;
+  const open = agenda.length - done - inProgress;
+  const summary = `${agenda.length} tasks (${done} done, ${inProgress} in progress, ${open} open)`;
+  return (
+    <section style={agendaCardStyle} aria-label="Agenda">
+      <div style={agendaHeadStyle}>{summary}</div>
+      <ol style={agendaListStyle}>
+        {agenda.map(phase => (
+          <li key={phase.id} style={agendaRowStyle}>
+            <span style={agendaGlyphStyle(phase.status)} aria-hidden>
+              {phase.status === 'DONE' ? '✓' : phase.status === 'IN_PROGRESS' ? '◼' : '◻'}
+            </span>
+            <span style={phase.status === 'DONE' ? agendaTitleDoneStyle : agendaTitleStyle}>
+              {phase.title}
+            </span>
+          </li>
+        ))}
+      </ol>
+    </section>
+  );
+}
+
 /** The panel transcript as a group chat: phase dividers, per-persona
  *  bubbles (the moderator as a system voice, the lead badged, the human
  *  right-aligned), @mention / #ref chips, and a live "reviewing…" pulse
@@ -605,29 +696,41 @@ function TranscriptSection({
   participantsById,
   passPhase,
   leadId,
+  focusParticipantId,
+  onMentionClick,
 }: {
   messages: ReviewPanelMessageDto[];
   participantsById: Map<string, ReviewParticipantDto>;
   passPhase: string;
   leadId: string | null;
+  focusParticipantId: string | null;
+  onMentionClick: (participantId: string) => void;
 }) {
   const running = !['TERMINATE', 'ARBITRATE', 'PUBLISHED'].includes(passPhase);
+  // Focused view: one reviewer's stream — what they said plus what
+  // was addressed to them. The lead/watcher's way to follow a single
+  // seat through the group chat.
+  const visible = focusParticipantId === null
+      ? messages
+      : messages.filter(m => m.participantId === focusParticipantId
+          || m.mentions.includes(focusParticipantId));
 
   return (
     <section style={cardStyle} aria-label="Panel transcript">
       <h2 style={cardTitleStyle}>Transcript</h2>
-      {messages.length === 0 ? (
+      {visible.length === 0 ? (
         <div style={emptyInlineStyle}>The panel is warming up…</div>
       ) : (
         <div style={chatListStyle}>
-          {messages.map((m, i) => (
+          {visible.map((m, i) => (
             <Fragment key={m.id}>
-              {m.phase !== messages[i - 1]?.phase && (
+              {m.phase !== visible[i - 1]?.phase && (
                 <div style={phaseDividerStyle}>
                   <span style={phaseDividerLabelStyle}>{phaseDividerText(m)}</span>
                 </div>
               )}
               <MessageBubble
+                onMentionClick={onMentionClick}
                 message={m}
                 author={participantsById.get(m.participantId) ?? null}
                 isLead={m.participantId === leadId}
@@ -647,12 +750,13 @@ function TranscriptSection({
 }
 
 function MessageBubble({
-  message, author, isLead, participantsById,
+  message, author, isLead, participantsById, onMentionClick,
 }: {
   message: ReviewPanelMessageDto;
   author: ReviewParticipantDto | null;
   isLead: boolean;
   participantsById: Map<string, ReviewParticipantDto>;
+  onMentionClick: (participantId: string) => void;
 }) {
   const kind = author?.kind ?? 'REVIEWER';
   const name = author?.personaLabel ?? '?';
@@ -673,9 +777,15 @@ function MessageBubble({
           <strong style={isYou ? undefined : { color }}>{name}</strong>
           {roleTag !== null && <span style={roleTagStyle}>{roleTag}</span>}
           {message.mentions.map(id => (
-            <span key={id} style={mentionChipStyle}>
+            <button
+              key={id}
+              type="button"
+              style={mentionChipStyle}
+              onClick={() => onMentionClick(id)}
+              title="Filter the transcript to this reviewer's stream"
+            >
               @{participantsById.get(id)?.personaLabel ?? id}
-            </span>
+            </button>
           ))}
         </div>
         <div style={bubbleBodyStyle}>{renderMessageBody(message)}</div>
@@ -777,7 +887,7 @@ function PublishSection({
   // The user can still tick them in if they want to surface them.
   const [includedIds, setIncludedIds] = useState<Set<string>>(
       () => new Set(detail.findings
-          .filter(f => f.status !== 'DISPUTED')
+          .filter(f => f.status !== 'DISPUTED' && f.status !== 'REPORTED')
           .map(f => f.id)));
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -1604,6 +1714,82 @@ function severityDotStyle(color: string): React.CSSProperties {
     whiteSpace: 'nowrap',
   };
 }
+
+const agendaCardStyle: React.CSSProperties = {
+  ...{},
+  border: '1px solid var(--border)',
+  borderRadius: 10,
+  background: 'var(--bg-1)',
+  padding: '10px 14px',
+  position: 'sticky',
+  top: 0,
+  zIndex: 2,
+};
+
+const agendaHeadStyle: React.CSSProperties = {
+  fontSize: 11,
+  fontWeight: 700,
+  letterSpacing: '0.04em',
+  textTransform: 'uppercase',
+  color: 'var(--text-3)',
+  marginBottom: 6,
+};
+
+const agendaListStyle: React.CSSProperties = {
+  margin: 0,
+  padding: 0,
+  listStyle: 'none',
+  display: 'flex',
+  flexDirection: 'column',
+  gap: 4,
+};
+
+const agendaRowStyle: React.CSSProperties = {
+  display: 'flex',
+  alignItems: 'center',
+  gap: 8,
+  fontSize: 13,
+};
+
+function agendaGlyphStyle(status: AgendaPhaseStatusDto): React.CSSProperties {
+  return {
+    flexShrink: 0,
+    width: 14,
+    textAlign: 'center',
+    fontWeight: 700,
+    color: status === 'DONE' ? '#16a34a' : status === 'IN_PROGRESS' ? '#d97706' : 'var(--text-3)',
+  };
+}
+
+const agendaTitleStyle: React.CSSProperties = {
+  color: 'var(--text-1)',
+};
+
+const agendaTitleDoneStyle: React.CSSProperties = {
+  color: 'var(--text-3)',
+  textDecoration: 'line-through',
+};
+
+const focusPillStyle: React.CSSProperties = {
+  alignSelf: 'flex-start',
+  border: '1px solid var(--border)',
+  borderRadius: 999,
+  background: 'var(--bg-1)',
+  padding: '4px 10px',
+  fontSize: 12,
+  color: 'var(--text-2)',
+  cursor: 'pointer',
+};
+
+const dissentFlagStyle: React.CSSProperties = {
+  marginLeft: 6,
+  fontSize: 9,
+  fontWeight: 700,
+  letterSpacing: '0.04em',
+  textTransform: 'uppercase',
+  color: '#b91c1c',
+  whiteSpace: 'nowrap',
+};
 
 const publishHintStyle: React.CSSProperties = {
   fontSize: 13,

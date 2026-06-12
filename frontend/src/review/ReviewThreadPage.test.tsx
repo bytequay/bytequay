@@ -77,6 +77,23 @@ describe('ReviewThreadPage', () => {
     expect(screen.getAllByLabelText('severity-nit').length).toBeGreaterThanOrEqual(1);
   });
 
+  it('renders the agenda widget with per-phase statuses and a summary line', async () => {
+    const detail = buildDetail({});
+    window.bridge = {
+      getReviewPassByThread: vi.fn(async (): Promise<ReviewPassDetailDto | null> => detail),
+    } as unknown as typeof window.bridge;
+
+    render(<ReviewThreadPage threadId="thread-1" onBack={() => {}} />);
+
+    await waitFor(() => {
+      expect(screen.getByText('4 tasks (1 done, 1 in progress, 2 open)')).toBeTruthy();
+    });
+    expect(screen.getByText('Run parallel reviews')).toBeTruthy();
+    expect(screen.getByText('Cross-examine')).toBeTruthy();
+    expect(screen.getByText('Classify consensus')).toBeTruthy();
+    expect(screen.getByText('Debate disputes')).toBeTruthy();
+  });
+
   it('shows an empty state when no pass exists for the thread', async () => {
     installBridge({
       getReviewPassByThread: vi.fn(async (): Promise<ReviewPassDetailDto | null> => null),
@@ -309,8 +326,15 @@ function buildDetail(
       createdAt: '2026-05-22T12:00:00Z',
       endedAt: '2026-05-22T12:00:10Z',
       spawnedBuildThreadId: null,
+      agendaJson: null,
     },
     prTitle: 'Add retry logic',
+    agenda: [
+      { id: 'p_independent', title: 'Run parallel reviews', status: 'DONE' },
+      { id: 'p_crossreview', title: 'Cross-examine', status: 'IN_PROGRESS' },
+      { id: 'p_consensus', title: 'Classify consensus', status: 'OPEN' },
+      { id: 'p_debate', title: 'Debate disputes', status: 'OPEN' },
+    ],
     participants: [moderator, reviewer, human],
     messages: [
       message({

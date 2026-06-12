@@ -1948,7 +1948,7 @@ export type ReviewPhaseDto =
 export type ReviewParticipantKindDto = 'LEAD' | 'REVIEWER' | 'HUMAN';
 export type ReviewFindingSeverityDto = 'BLOCKER' | 'MAJOR' | 'NIT' | 'QUESTION';
 export type ReviewFindingStatusDto =
-  | 'AGREED' | 'DISPUTED' | 'RESOLVED' | 'ARBITRATED' | 'DROPPED' | 'POSTED';
+  | 'REPORTED' | 'AGREED' | 'DISPUTED' | 'RESOLVED' | 'ARBITRATED' | 'DROPPED' | 'POSTED';
 export type ReviewVerdictDto = 'APPROVE' | 'REQUEST_CHANGES' | 'COMMENT';
 
 export type ReviewPassDto = {
@@ -1970,6 +1970,19 @@ export type ReviewPassDto = {
   /** The build thread this pass spawned to apply its AGREED findings
    *  ("→ Spawn build thread"), or null. One spawn per pass. */
   spawnedBuildThreadId: string | null;
+  /** The lead's agenda as raw JSON; prefer the parsed
+   *  {@link ReviewPassDetailDto.agenda}. Null before kickoff. */
+  agendaJson: string | null;
+};
+
+export type AgendaPhaseStatusDto = 'OPEN' | 'IN_PROGRESS' | 'DONE';
+
+/** One entry on the lead's phase TODO list, rendered by the agenda
+ *  widget above the panel transcript. */
+export type AgendaPhaseDto = {
+  id: string;
+  title: string;
+  status: AgendaPhaseStatusDto;
 };
 
 export type ReviewParticipantDto = {
@@ -2029,6 +2042,8 @@ export type ReviewPassDetailDto = {
   /** The reviewed PR's title, resolved from the local PR cache; null
    *  when the PR isn't cached, so the header falls back to repo#number. */
   prTitle: string | null;
+  /** The lead's agenda, parsed; empty for passes without one. */
+  agenda: AgendaPhaseDto[];
   participants: ReviewParticipantDto[];
   messages: ReviewPanelMessageDto[];
   findings: ReviewFindingDto[];

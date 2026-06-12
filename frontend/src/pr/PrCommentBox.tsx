@@ -11,7 +11,10 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import { forwardRef, useImperativeHandle, useRef, useState } from 'react';
+import {
+  forwardRef, useImperativeHandle, useRef, useState,
+  type ChangeEvent, type CSSProperties, type KeyboardEvent,
+} from 'react';
 import { marked } from 'marked';
 import type { PullRequestDto } from '../types';
 import { buildQuotedReply } from './utils';
@@ -28,9 +31,12 @@ export type PrCommentBoxHandle = {
 
 export const PrCommentBox = forwardRef<PrCommentBoxHandle, {
   pr: PullRequestDto;
+  /** Logins offered as @mention autocomplete (PR author, reviewers,
+   *  commenters). Empty/undefined disables the picker. */
+  mentionCandidates?: string[];
   onCommented?: () => void;
   onClosed?: () => void;
-}>(function PrCommentBox({ pr, onCommented, onClosed }, ref) {
+}>(function PrCommentBox({ pr, mentionCandidates, onCommented, onClosed }, ref) {
   const [body, setBody] = useState('');
   const [tab, setTab] = useState<'write' | 'preview'>('write');
   const [pending, setPending] = useState<'idle' | 'comment' | 'close'>('idle');
@@ -40,6 +46,61 @@ export const PrCommentBox = forwardRef<PrCommentBoxHandle, {
   // returns to its closed state, and the user can re-open with one click.
   const [expanded, setExpanded] = useState(true);
   const textareaRef = useRef<HTMLTextAreaElement>(null);
+
+  // @mention autocomplete. `mention` is non-null when the caret sits in
+  // an "@token" the user is typing; `mentionIdx` is the highlighted row.
+  const [mention, setMention] = useState<{ start: number; query: string } | null>(null);
+  const [mentionIdx, setMentionIdx] = useState(0);
+  const mentionMatches = mention === null ? [] : (mentionCandidates ?? [])
+      .filter(c => c.toLowerCase().startsWith(mention.query.toLowerCase()))
+      .slice(0, 6);
+  const showMentions = mention !== null && mentionMatches.length > 0;
+
+  // Recompute the active @token from the text + caret. A mention starts
+  // at an "@" that follows the start of the line or a separator, so an
+  // email-style "a@b" never triggers it.
+  const syncMention = (text: string, caret: number) => {
+    const before = text.slice(0, caret);
+    const m = before.match(/(?:^|[\s([{])@([A-Za-z0-9-]*)$/);
+    setMention(m === null ? null : { start: caret - m[1].length - 1, query: m[1] });
+    setMentionIdx(0);
+  };
+
+  const onBodyChange = (e: ChangeEvent<HTMLTextAreaElement>) => {
+    setBody(e.target.value);
+    syncMention(e.target.value, e.target.selectionStart ?? e.target.value.length);
+  };
+
+  const insertMention = (login: string) => {
+    if (mention === null) return;
+    const before = body.slice(0, mention.start);
+    const after = body.slice(mention.start + 1 + mention.query.length);
+    const next = `${before}@${login} ${after}`;
+    const caret = before.length + login.length + 2; // past "@login "
+    setBody(next);
+    setMention(null);
+    requestAnimationFrame(() => {
+      const ta = textareaRef.current;
+      if (ta) { ta.focus(); ta.setSelectionRange(caret, caret); }
+    });
+  };
+
+  const onTextareaKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
+    if (!showMentions) return;
+    if (e.key === 'ArrowDown') {
+      e.preventDefault();
+      setMentionIdx(i => (i + 1) % mentionMatches.length);
+    } else if (e.key === 'ArrowUp') {
+      e.preventDefault();
+      setMentionIdx(i => (i - 1 + mentionMatches.length) % mentionMatches.length);
+    } else if (e.key === 'Enter' || e.key === 'Tab') {
+      e.preventDefault();
+      insertMention(mentionMatches[mentionIdx]);
+    } else if (e.key === 'Escape') {
+      e.preventDefault();
+      setMention(null);
+    }
+  };
 
   useImperativeHandle(ref, () => ({
     insertQuote: (quoted: string) => {
@@ -80,6 +141,7 @@ export const PrCommentBox = forwardRef<PrCommentBoxHandle, {
     try {
       await window.bridge.commentPr(pr.id, pr.repo, pr.number, bodyTrim, close);
       setBody('');
+      setMention(null);
       setTab('write');
       setExpanded(false);
       if (close) onClosed?.(); else onCommented?.();
@@ -118,19 +180,41 @@ export const PrCommentBox = forwardRef<PrCommentBoxHandle, {
         </button>
       </div>
       {tab === 'write' ? (
-        <textarea
-          ref={textareaRef}
-          className="pr-comment-box__input"
-          value={body}
-          onChange={(e) => setBody(e.target.value)}
-          placeholder="Leave a comment — markdown is supported."
-          /* 5 rows is a comfortable starting height — enough to see
-             the start of a quote-reply, not so tall the action bar
-             gets pushed below the fold. The textarea is user-resizable
-             via the bottom-right handle when more room is needed. */
-          rows={5}
-          disabled={busy}
-        />
+        <div style={{ position: 'relative' }}>
+          <textarea
+            ref={textareaRef}
+            className="pr-comment-box__input"
+            value={body}
+            onChange={onBodyChange}
+            onKeyDown={onTextareaKeyDown}
+            onClick={(e) => syncMention(e.currentTarget.value, e.currentTarget.selectionStart ?? 0)}
+            placeholder="Leave a comment — markdown is supported."
+            /* 5 rows is a comfortable starting height — enough to see
+               the start of a quote-reply, not so tall the action bar
+               gets pushed below the fold. The textarea is user-resizable
+               via the bottom-right handle when more room is needed. */
+            rows={5}
+            disabled={busy}
+          />
+          {showMentions && (
+            <ul style={mentionListStyle} role="listbox" aria-label="Mention a user">
+              {mentionMatches.map((c, i) => (
+                <li key={c} role="option" aria-selected={i === mentionIdx}>
+                  <button
+                    type="button"
+                    style={mentionItemStyle(i === mentionIdx)}
+                    // mousedown (not click) so the textarea doesn't blur
+                    // and lose its caret before we insert.
+                    onMouseDown={(e) => { e.preventDefault(); insertMention(c); }}
+                    onMouseEnter={() => setMentionIdx(i)}
+                  >
+                    @{c}
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
       ) : (
         <div
           className="md-body pr-comment-box__preview"
@@ -183,3 +267,35 @@ export const PrCommentBox = forwardRef<PrCommentBoxHandle, {
     </section>
   );
 });
+
+const mentionListStyle: CSSProperties = {
+  position: 'absolute',
+  top: '100%',
+  left: 0,
+  marginTop: 4,
+  minWidth: 220,
+  maxHeight: 220,
+  overflowY: 'auto',
+  zIndex: 30,
+  listStyle: 'none',
+  padding: 4,
+  background: 'var(--bg-1, #fff)',
+  border: '1px solid var(--border, #d0d7de)',
+  borderRadius: 8,
+  boxShadow: '0 6px 22px rgba(0,0,0,0.14)',
+};
+
+function mentionItemStyle(active: boolean): CSSProperties {
+  return {
+    display: 'block',
+    width: '100%',
+    textAlign: 'left',
+    padding: '5px 10px',
+    fontSize: 13,
+    borderRadius: 6,
+    border: 'none',
+    cursor: 'pointer',
+    background: active ? 'var(--accent, #2563eb)' : 'transparent',
+    color: active ? '#fff' : 'var(--text-1, inherit)',
+  };
+}

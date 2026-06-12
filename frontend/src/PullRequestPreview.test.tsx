@@ -490,7 +490,7 @@ describe('PullRequestPreview render smoke', () => {
     expect(bridge.fetchPullRequestDetail).not.toHaveBeenCalled();
   });
 
-  it('keeps plain PR comments optimistic without fetching stale detail', async () => {
+  it('refetches PR detail immediately after posting a plain comment', async () => {
     const bridge = await render(makeDetail());
 
     const textarea = container.querySelector<HTMLTextAreaElement>('.pr-comment-box__input');
@@ -509,11 +509,35 @@ describe('PullRequestPreview render smoke', () => {
     await act(async () => { await Promise.resolve(); });
 
     expect(bridge.commentPr).toHaveBeenCalledWith(1, 'trinodb/trino', 42, 'plain comment', false);
-    // Polling refactor: mount calls refresh(repo, n, 10); we assert
-    // the user action above didn't add an EXTRA refresh on top.
-    expect(bridge.refreshPullRequestDetail).toHaveBeenCalledTimes(1);
+    // A plain comment has no optimistic append, so the focus page must
+    // refetch right away rather than wait for the next poll tick: one
+    // refresh on mount + one triggered by the post = 2.
+    expect(bridge.refreshPullRequestDetail).toHaveBeenCalledTimes(2);
     expect(bridge.refreshPullRequestDetail).toHaveBeenCalledWith('trinodb/trino', 42, 20);
     expect(bridge.fetchPullRequestDetail).not.toHaveBeenCalled();
+  });
+
+  it('offers @mention autocomplete from PR participants and inserts the pick', async () => {
+    await render(makeDetail());
+    const textarea = container.querySelector<HTMLTextAreaElement>('.pr-comment-box__input');
+    expect(textarea).toBeTruthy();
+
+    // Typing an "@token" surfaces a selectable option for a matching
+    // participant ('critic' is one of the fixture's activity actors).
+    await act(async () => {
+      updateTextarea(textarea!, '@cr');
+    });
+    const option = Array.from(container.querySelectorAll('[role="option"]'))
+      .find(el => el.textContent === '@critic');
+    expect(option).toBeTruthy();
+
+    // mousedown (the picker uses it so the textarea keeps focus) inserts
+    // the full handle into the composer.
+    await act(async () => {
+      option!.querySelector('button')!
+        .dispatchEvent(new MouseEvent('mousedown', { bubbles: true }));
+    });
+    expect(textarea!.value).toContain('@critic ');
   });
 
   it('uses force-refresh reconciliation after merging a pull request', async () => {

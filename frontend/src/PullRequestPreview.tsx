@@ -1186,6 +1186,21 @@ function PullRequestPreview({
     }
   };
 
+  /** Refetch the full PR detail (conversation, review threads, CI) and
+   *  swap it in now. Called right after the user posts a comment / reply
+   *  so this focus page reflects the change immediately instead of
+   *  waiting for the next 10s poll tick. Best-effort: a failed refetch
+   *  keeps the last good detail on screen and the poll catches up. */
+  const refreshDetail = async () => {
+    try {
+      const fresh = await window.bridge.refreshPullRequestDetail(pr.repo, pr.number, 20);
+      setDetail(fresh);
+    }
+    catch {
+      // Best-effort — the next poll tick will reconcile.
+    }
+  };
+
   const handleSideResize = (clientX: number) => {
     const rect = gridRef.current?.getBoundingClientRect();
     if (!rect) return;
@@ -1498,6 +1513,17 @@ function PullRequestPreview({
 
   const repoOwner = pr.repo.includes('/') ? pr.repo.split('/')[0] : pr.repo;
 
+  // Logins the composer offers as @mention autocomplete candidates:
+  // everyone already on this PR — author, (requested) reviewers, and
+  // anyone who has commented or replied. Deduped, bots dropped, sorted.
+  const mentionCandidates = Array.from(new Set([
+    pr.author,
+    ...(detail?.requestedReviewers ?? []),
+    ...(detail?.recentActivity ?? []).flatMap(a => [a.actor, a.requestedReviewer]),
+    ...(detail?.reviewThreads ?? []).flatMap(t => t.messages.map(m => m.author)),
+  ].filter((x): x is string => typeof x === 'string' && x.length > 0 && !x.includes('[bot]'))))
+    .sort((a, b) => a.localeCompare(b));
+
   // Two layouts available — "classic" is the new mockup-faithful conversation
   // page (Phase 2); "clean" is the original layout we had before. The user
   // can switch any time via the toggle in the page header. Persisted globally.
@@ -1687,7 +1713,9 @@ function PullRequestPreview({
                 )}
                 <PrCommentBox
                   pr={pr}
+                  mentionCandidates={mentionCandidates}
                   onClosed={() => { void handleClosed(); }}
+                  onCommented={() => { void refreshDetail(); }}
                 />
                 <CiSummary
                   ciStatus={detail.ciStatus ?? 'NONE'}
@@ -2232,7 +2260,9 @@ function PullRequestPreview({
             <PrCommentBox
               ref={commentBoxRef}
               pr={pr}
+              mentionCandidates={mentionCandidates}
               onClosed={() => { void handleClosed(); }}
+              onCommented={() => { void refreshDetail(); }}
             />
           </main>
 

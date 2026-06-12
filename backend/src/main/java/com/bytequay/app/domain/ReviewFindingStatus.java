@@ -26,6 +26,11 @@ import java.util.Locale;
  */
 public enum ReviewFindingStatus
 {
+    /** Raised by a reviewer seat ({@code report_finding}) and not yet
+     *  classified by the lead's consensus pass. Counts as "open" for
+     *  the arbitration gate: a pass with REPORTED findings left parks
+     *  at ARBITRATE the same way DISPUTED ones do. */
+    REPORTED("reported"),
     AGREED("agreed"),
     DISPUTED("disputed"),
     RESOLVED("resolved"),

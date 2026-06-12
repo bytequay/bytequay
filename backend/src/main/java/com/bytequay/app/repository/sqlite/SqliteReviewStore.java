@@ -110,6 +110,12 @@ class SqliteReviewStore
     }
 
     @Override
+    public long sumPassCostSince(Instant since)
+    {
+        return passes.sumCostUsdMilliSince(since.toEpochMilli());
+    }
+
+    @Override
     @Transactional
     public void deletePass(String id)
     {

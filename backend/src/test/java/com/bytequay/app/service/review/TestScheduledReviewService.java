@@ -112,16 +112,17 @@ class TestScheduledReviewService
         verify(reviewPassService, never()).startReviewOnPr(eq("acme/widget"), eq(44));
         verify(reviewPassService, never()).startReviewOnPr(eq("acme/widget"), eq(45));
 
-        // Each successful pass fires an AWAITING_REVIEW notification
-        // tagged with source=scheduled-review so the UI can route the
-        // click to the review-thread page rather than the build-thread
-        // detail.
-        ArgumentCaptor<String> payloadCaptor = ArgumentCaptor.forClass(String.class);
-        verify(notifications, times(2)).notifyAwaitingReview(
-                anyString(), any(), payloadCaptor.capture());
-        for (String json : payloadCaptor.getAllValues()) {
-            assertThat(json).contains("\"source\":\"scheduled-review\"");
-        }
+        // Each headless pass parks by outcome: the ARBITRATE pass
+        // (disputed remain) → NEEDS_ATTENTION; the TERMINATE pass (all
+        // agreed) → AWAITING_REVIEW. Both payloads carry
+        // source=scheduled-review so the UI routes the click to the
+        // review-thread page and surfaces them on the auto* filter.
+        ArgumentCaptor<String> needsAttn = ArgumentCaptor.forClass(String.class);
+        verify(notifications).notifyNeedsAttention(eq("thread-42"), any(), needsAttn.capture());
+        ArgumentCaptor<String> awaiting = ArgumentCaptor.forClass(String.class);
+        verify(notifications).notifyAwaitingReview(eq("thread-43"), any(), awaiting.capture());
+        assertThat(needsAttn.getValue()).contains("\"source\":\"scheduled-review\"");
+        assertThat(awaiting.getValue()).contains("\"source\":\"scheduled-review\"");
     }
 
     @Test
@@ -219,6 +220,26 @@ class TestScheduledReviewService
                 createdAt, createdAt);
     }
 
+    @Test
+    void stopsTheRunOnceTheRollingDailyCostCapIsHit()
+    {
+        when(appSettings.get(Key.SCHEDULED_REVIEWS_ENABLED)).thenReturn(Optional.of("true"));
+        when(pullRequestStore.findAll()).thenReturn(List.of(
+                pr(1L, "acme/widget", 42, PullRequest.Origin.REVIEW_REQUESTED, "open"),
+                pr(2L, "acme/widget", 43, PullRequest.Origin.REVIEW_REQUESTED, "open")));
+        when(reviewStore.listPassesForPr(anyString(), anyInt())).thenReturn(List.of());
+        // $4.50 already spent in the trailing 24h; PR 42's pass costs
+        // $0.60 → $5.10 ≥ the $5/day cap, so PR 43 is deferred.
+        when(reviewStore.sumPassCostSince(any())).thenReturn(4_500L);
+        when(reviewPassService.startReviewOnPr(eq("acme/widget"), eq(42)))
+                .thenReturn(costedDetail("pass-42", "thread-42", 600L));
+
+        service.runScheduledReviews();
+
+        verify(reviewPassService).startReviewOnPr("acme/widget", 42);
+        verify(reviewPassService, never()).startReviewOnPr(eq("acme/widget"), eq(43));
+    }
+
     private static ReviewPassDetail detail(String passId, String threadId, ReviewPhase phase)
     {
         ReviewPass pass = new ReviewPass(
@@ -233,5 +254,13 @@ class TestScheduledReviewService
                 ReviewFindingStatus.AGREED,
                 "note", null, null, Instant.now());
         return new ReviewPassDetail(pass, List.of(), List.of(), List.of(finding));
+    }
+
+    private static ReviewPassDetail costedDetail(String passId, String threadId, long costMilli)
+    {
+        ReviewPass pass = new ReviewPass(
+                passId, threadId, "acme/widget", 42, "abc", ReviewPhase.TERMINATE,
+                0, 3, 500L, costMilli, null, Instant.now(), Instant.now());
+        return new ReviewPassDetail(pass, List.of(), List.of(), List.of());
     }
 }

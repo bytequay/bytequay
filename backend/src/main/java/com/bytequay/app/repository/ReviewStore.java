@@ -18,6 +18,7 @@ import com.bytequay.app.domain.ReviewMessage;
 import com.bytequay.app.domain.ReviewParticipant;
 import com.bytequay.app.domain.ReviewPass;
 
+import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 
@@ -46,6 +47,10 @@ public interface ReviewStore
     /** Cross-thread lookup by PR — useful for "this PR already has N
      *  reviews" surfaces on the PR detail page. Newest first. */
     List<ReviewPass> listPassesForPr(String repoFullName, int prNumber);
+
+    /** Total review spend (milli-USD) across all passes created at or
+     *  after {@code since} — the scheduler's rolling daily cost cap. */
+    long sumPassCostSince(Instant since);
 
     void deletePass(String id);
 

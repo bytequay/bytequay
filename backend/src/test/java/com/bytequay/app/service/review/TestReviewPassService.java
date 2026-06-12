@@ -44,6 +44,7 @@ import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 import org.springframework.web.server.ResponseStatusException;
 
+import java.time.Instant;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
@@ -1344,6 +1345,15 @@ class TestReviewPassService
             return passes.values().stream()
                     .filter(p -> p.threadId().equals(threadId))
                     .toList();
+        }
+
+        @Override
+        public long sumPassCostSince(Instant since)
+        {
+            return passes.values().stream()
+                    .filter(p -> p.createdAt() != null && !p.createdAt().isBefore(since))
+                    .mapToLong(ReviewPass::costUsdMilli)
+                    .sum();
         }
 
         @Override

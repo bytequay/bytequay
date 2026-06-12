@@ -14,6 +14,8 @@
 package com.bytequay.app.repository.sqlite;
 
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Query;
+import org.springframework.data.repository.query.Param;
 
 import java.util.List;
 
@@ -23,6 +25,13 @@ interface ReviewPassJpaRepository
     /** Every pass for one thread, oldest first — a thread typically
      *  owns one active pass and a small tail of historical ones. */
     List<ReviewPassEntity> findByThreadIdOrderByCreatedAtMsAsc(String threadId);
+
+    /** Total review spend (milli-USD) across passes created since
+     *  {@code sinceMs} — powers the scheduler's rolling daily cost cap.
+     *  COALESCE so an empty window returns 0 rather than null. */
+    @Query("SELECT COALESCE(SUM(p.costUsdMilli), 0) FROM ReviewPassEntity p "
+            + "WHERE p.createdAtMs >= :sinceMs")
+    long sumCostUsdMilliSince(@Param("sinceMs") long sinceMs);
 
     /** Every pass for one PR across all threads. Lets the dashboard
      *  light up "this PR already has 2 review passes" without scanning

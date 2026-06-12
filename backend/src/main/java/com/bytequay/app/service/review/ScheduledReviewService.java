@@ -17,6 +17,7 @@ import com.bytequay.app.domain.PullRequest;
 import com.bytequay.app.domain.ReviewFindingStatus;
 import com.bytequay.app.domain.ReviewPass;
 import com.bytequay.app.domain.ReviewPassDetail;
+import com.bytequay.app.domain.ReviewPhase;
 import com.bytequay.app.repository.AppSettingsStore;
 import com.bytequay.app.repository.AppSettingsStore.Key;
 import com.bytequay.app.repository.PullRequestStore;
@@ -71,6 +72,10 @@ public class ScheduledReviewService
      *  always works because the manual {@code POST /api/reviews/start}
      *  bypasses this class entirely. */
     private static final Duration RECENT_PASS_WINDOW = Duration.ofHours(24);
+    /** Per-job daily cost ceiling — total review spend in the trailing
+     *  24h. Bounds the worst case (a big queue on day one) for an
+     *  unattended sweep; the per-pass cap ($0.50) doesn't. $5/day. */
+    private static final long DAILY_COST_CAP_MILLI = 5_000L;
 
     private final AppSettingsStore appSettings;
     private final PullRequestStore pullRequestStore;
@@ -106,14 +111,25 @@ public class ScheduledReviewService
                 .filter(pr -> pr.origin() == PullRequest.Origin.REVIEW_REQUESTED)
                 .filter(ScheduledReviewService::isOpen)
                 .toList();
+        // Rolling daily cost cap: total review spend over the last 24h is
+        // bounded so an unattended sweep of a huge queue can't run up the
+        // bill. Seeded from passes already created in the window (incl.
+        // earlier hourly runs) so the cap is per-day, not per-run.
+        long spentMilli = reviewStore.sumPassCostSince(Instant.now().minus(RECENT_PASS_WINDOW));
         int reviewed = 0;
+        boolean capped = false;
         for (PullRequest pr : queue) {
             if (hasRecentPass(pr)) {
                 continue;
             }
+            if (spentMilli >= DAILY_COST_CAP_MILLI) {
+                capped = true;
+                break;
+            }
             try {
                 ReviewPassDetail detail = reviewPassService.startReviewOnPr(
                         pr.repo(), pr.number());
+                spentMilli += detail.pass().costUsdMilli();
                 emitNotification(pr, detail);
                 reviewed++;
             }
@@ -124,7 +140,12 @@ public class ScheduledReviewService
                         pr.repo(), pr.number(), e.getMessage());
             }
         }
-        if (reviewed > 0) {
+        if (capped) {
+            log.info("Scheduled review pass: reviewed {} PR(s), then hit the ${}/day cost cap; "
+                    + "remaining eligible PRs wait for the next run.",
+                    reviewed, DAILY_COST_CAP_MILLI / 1000);
+        }
+        else if (reviewed > 0) {
             log.info("Scheduled review pass: queued {} review pass(es) over {} "
                     + "awaiting-review PR(s).", reviewed, queue.size());
         }
@@ -184,10 +205,17 @@ public class ScheduledReviewService
             payload.put("agreed", countByStatus(detail, ReviewFindingStatus.AGREED));
             payload.put("disputed", countByStatus(detail, ReviewFindingStatus.DISPUTED));
             String json = mapper.writeValueAsString(payload);
-            notifications.notifyAwaitingReview(
-                    detail.pass().threadId(),
-                    /* taskId */ null,
-                    json);
+            // Park the headless pass by outcome: a still-disputed /
+            // stalled finding needs the human to arbitrate
+            // (NEEDS_ATTENTION); an all-agreed pass is ready to publish
+            // (AWAITING_REVIEW). The "scheduled-review" source on the
+            // payload tags it for the auto* surface either way.
+            if (detail.pass().phase() == ReviewPhase.ARBITRATE) {
+                notifications.notifyNeedsAttention(detail.pass().threadId(), /* taskId */ null, json);
+            }
+            else {
+                notifications.notifyAwaitingReview(detail.pass().threadId(), /* taskId */ null, json);
+            }
         }
         catch (JsonProcessingException | RuntimeException e) {
             // Notification failure shouldn't roll back an already-

@@ -13,6 +13,8 @@
  */
 package com.bytequay.app.service.agents;
 
+import java.util.List;
+
 /**
  * Observation + control hooks a {@link TurnRunner} caller can plug
  * into the loop. The runner itself owns no persistence and no event
@@ -33,6 +35,16 @@ public interface TurnHooks
 
     /** The provider reported cumulative usage for the current round. */
     default void onUsage(long tokensIn, long tokensOut)
+    {
+    }
+
+    /** Fires once per round with ALL the round's parsed tool calls,
+     *  before any of them is executed. Lets a caller that can satisfy
+     *  several calls concurrently (e.g. the review lead fanning out
+     *  reviewer dispatches) prefetch results; the per-call
+     *  {@link ToolExecutor#execute} then returns the prefetched value.
+     *  Per-call started/done hooks still fire in order afterwards. */
+    default void onToolCallsParsed(List<ToolCall> calls)
     {
     }
 

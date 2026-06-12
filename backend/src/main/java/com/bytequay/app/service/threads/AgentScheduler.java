@@ -31,6 +31,7 @@ import org.springframework.stereotype.Component;
 
 import java.time.Instant;
 import java.util.ArrayDeque;
+import java.util.ArrayList;
 import java.util.EnumMap;
 import java.util.HashSet;
 import java.util.Iterator;
@@ -40,6 +41,8 @@ import java.util.NoSuchElementException;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
+import java.util.concurrent.Callable;
+import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.CompletionException;
 import java.util.concurrent.CompletionStage;
 import java.util.stream.Collectors;
@@ -157,6 +160,95 @@ public class AgentScheduler
         appendEvent(turn, TURN_QUEUED, null);
         enqueuePersistedTurn(turn);
         return turn.id();
+    }
+
+    /**
+     * Run a batch of API-lane work items concurrently, each bounded by
+     * the same {@code max-api-running} capacity that gates thread
+     * turns — one global cap for every in-JVM model call, whether it
+     * came from a chat turn or a review-panel fan-out. Results come
+     * back in submission order. Blocks until every item finished.
+     *
+     * <p>Each item occupies one API slot only while it runs; items
+     * beyond the free capacity wait. Items must not call back into
+     * {@code invokeAll} (no nested acquisition), which keeps the
+     * blocking acquisition deadlock-free.
+     *
+     * <p>An item that throws surfaces as a {@link RuntimeException}
+     * after the whole batch has finished — partial results are not
+     * returned, matching {@link java.util.concurrent.ExecutorService}
+     * semantics.
+     */
+    public <T> List<T> invokeAll(List<Callable<T>> work)
+    {
+        requireNonNull(work, "work is null");
+        List<CompletableFuture<T>> futures = new ArrayList<>();
+        for (Callable<T> item : work) {
+            CompletableFuture<T> future = new CompletableFuture<>();
+            futures.add(future);
+            java.lang.Thread.startVirtualThread(() -> {
+                try {
+                    acquireApiSlot();
+                }
+                catch (InterruptedException e) {
+                    java.lang.Thread.currentThread().interrupt();
+                    future.completeExceptionally(e);
+                    return;
+                }
+                try {
+                    future.complete(item.call());
+                }
+                catch (Throwable t) {
+                    future.completeExceptionally(t);
+                }
+                finally {
+                    releaseApiSlot();
+                }
+            });
+        }
+        List<T> results = new ArrayList<>(futures.size());
+        RuntimeException failure = null;
+        for (CompletableFuture<T> future : futures) {
+            try {
+                results.add(future.join());
+            }
+            catch (CompletionException e) {
+                if (failure == null) {
+                    failure = e.getCause() instanceof RuntimeException re
+                            ? re
+                            : new IllegalStateException("invokeAll work item failed", e.getCause());
+                }
+            }
+        }
+        if (failure != null) {
+            throw failure;
+        }
+        return results;
+    }
+
+    /** Blocking-acquire one API-lane slot for out-of-band work
+     *  (invokeAll items). Shares {@link LaneState#running} with thread
+     *  turns so the lane cap is one number. */
+    private void acquireApiSlot()
+            throws InterruptedException
+    {
+        synchronized (lock) {
+            LaneState lane = lane(API);
+            while (lane.running >= lane.maxRunning) {
+                lock.wait();
+            }
+            lane.running++;
+        }
+    }
+
+    private void releaseApiSlot()
+    {
+        synchronized (lock) {
+            LaneState lane = lane(API);
+            lane.running = Math.max(0, lane.running - 1);
+            drainLocked();
+            lock.notifyAll();
+        }
     }
 
     /**
@@ -392,6 +484,9 @@ public class AgentScheduler
             lane.running = Math.max(0, lane.running - 1);
             runningTaskIds.remove(runningTurn.threadId());
             drainLocked();
+            // Wake blocked invokeAll slot acquisitions — they share
+            // the lane capacity with turns.
+            lock.notifyAll();
         }
     }
 

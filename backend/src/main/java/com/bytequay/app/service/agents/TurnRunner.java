@@ -110,6 +110,7 @@ public final class TurnRunner
             if (round.toolCalls.isEmpty()) {
                 break;
             }
+            hooks.onToolCallsParsed(List.copyOf(round.toolCalls));
             if (spec.transport() == TurnSpec.Transport.ANTHROPIC) {
                 spec.messages().add(anthropicAssistantEcho(round.text, round.toolCalls));
                 spec.messages().add(dispatchAnthropic(round.toolCalls, executor, hooks));

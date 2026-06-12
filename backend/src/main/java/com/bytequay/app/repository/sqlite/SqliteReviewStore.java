@@ -168,6 +168,8 @@ class SqliteReviewStore
         entity.setBody(message.body());
         entity.setMentionsJson(writeStringList(message.mentions()));
         entity.setRefsJson(writeStringList(message.refs()));
+        entity.setPayloadKind(message.payloadKind());
+        entity.setPayloadJson(message.payloadJson());
         entity.setCostUsdMilli(message.costUsdMilli());
         entity.setCreatedAtMs(message.createdAt().toEpochMilli());
         messages.save(entity);
@@ -267,6 +269,8 @@ class SqliteReviewStore
                 e.getBody(),
                 readStringList(e.getMentionsJson()),
                 readStringList(e.getRefsJson()),
+                e.getPayloadKind() == null ? "prose" : e.getPayloadKind(),
+                e.getPayloadJson(),
                 e.getCostUsdMilli(),
                 Instant.ofEpochMilli(e.getCreatedAtMs()));
     }

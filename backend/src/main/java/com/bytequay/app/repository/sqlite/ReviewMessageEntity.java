@@ -47,6 +47,12 @@ class ReviewMessageEntity
     @Column(name = "refs")
     private String refsJson;
 
+    @Column(name = "payload_kind")
+    private String payloadKind;
+
+    @Column(name = "payload_json")
+    private String payloadJson;
+
     @Column(name = "cost_usd_milli", nullable = false)
     private long costUsdMilli;
 
@@ -76,6 +82,12 @@ class ReviewMessageEntity
 
     String getRefsJson() { return refsJson; }
     void setRefsJson(String refsJson) { this.refsJson = refsJson; }
+
+    String getPayloadKind() { return payloadKind; }
+    void setPayloadKind(String payloadKind) { this.payloadKind = payloadKind; }
+
+    String getPayloadJson() { return payloadJson; }
+    void setPayloadJson(String payloadJson) { this.payloadJson = payloadJson; }
 
     long getCostUsdMilli() { return costUsdMilli; }
     void setCostUsdMilli(long costUsdMilli) { this.costUsdMilli = costUsdMilli; }

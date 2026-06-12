@@ -30,6 +30,7 @@ import com.bytequay.app.domain.ReviewPhase;
 import com.bytequay.app.domain.ReviewRequest;
 import com.bytequay.app.domain.ReviewVerdict;
 import com.bytequay.app.domain.ReviewerPersona;
+import com.bytequay.app.domain.ReviewerPersonaRole;
 import com.bytequay.app.domain.Thread;
 import com.bytequay.app.domain.ThreadFlow;
 import com.bytequay.app.domain.ThreadKind;
@@ -40,9 +41,13 @@ import com.bytequay.app.repository.PullRequestRepository;
 import com.bytequay.app.repository.ReviewStore;
 import com.bytequay.app.repository.ReviewerPersonaStore;
 import com.bytequay.app.repository.ThreadStore;
+import com.bytequay.app.service.ai.LlmCompletion;
 import com.bytequay.app.service.ai.LlmReviewer;
 import com.bytequay.app.service.ai.LlmReviewerRegistry;
+import com.bytequay.app.service.ai.ModelPricing;
 import com.bytequay.app.service.credentials.PatResolver;
+import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Qualifier;
@@ -51,9 +56,9 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.server.ResponseStatusException;
 
+import java.io.IOException;
 import java.time.Instant;
 import java.util.ArrayList;
-import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -109,6 +114,7 @@ public class ReviewPassService
     private final AppSettingsStore appSettings;
     private final ReviewerPersonaStore personas;
     private final Executor reviewExecutor;
+    private final ObjectMapper objectMapper = new ObjectMapper();
 
     public ReviewPassService(
             ThreadStore threadStore,
@@ -349,7 +355,6 @@ public class ReviewPassService
         ReviewPass pass = seated.pass();
         List<PanelMember> panel = seated.panel();
         List<ReviewParticipant> reviewerSeats = seated.reviewerSeats();
-        ReviewParticipant moderator = seated.moderator();
         ReviewRequest request = seated.request();
 
         Map<ReviewParticipant, ReviewOutput> outputs;
@@ -413,7 +418,81 @@ public class ReviewPassService
             suggested = suggestedVerdictForComments(comments);
         }
         else {
-            ConsensusResult consensus = extractConsensus(reviewerSeats, outputs);
+            // CROSS_REVIEW (LLM-driven, per reviewer, deterministic
+            // seat order so reruns reproduce): each reviewer reacts to
+            // the whole panel's INDEPENDENT findings. A failed or
+            // unparseable call means that reviewer abstains — the pass
+            // continues on whoever answered.
+            long spentMilli = pass.costUsdMilli();
+            pass = withCost(withPhase(pass, ReviewPhase.CROSS_REVIEW, /* endedAt */ null), spentMilli);
+            reviewStore.savePass(pass);
+            List<String> envelopes = new ArrayList<>();
+            for (int i = 0; i < reviewerSeats.size(); i++) {
+                ReviewParticipant seat = reviewerSeats.get(i);
+                PanelMember member = panel.get(i);
+                LlmCompletion c = safeComplete(
+                        member.reviewer(),
+                        crossReviewSystemPrompt(),
+                        crossReviewUserPrompt(member, reviewerSeats, panel, outputs, request),
+                        "cross-review");
+                if (c == null) {
+                    continue;
+                }
+                String envelopeJson = validJsonObjectOrNull(c.text());
+                if (envelopeJson == null) {
+                    log.warn("Cross-review from {} was not parseable JSON — treating as abstain.",
+                            member.displayLabel());
+                    continue;
+                }
+                long callCost = ModelPricing.estimateCostMilli(c.modelName(), c.tokensIn(), c.tokensOut());
+                spentMilli += callCost;
+                envelopes.add("[" + member.displayLabel() + "]\n" + envelopeJson);
+                reviewStore.saveMessage(new ReviewMessage(
+                        UUID.randomUUID().toString(),
+                        pass.id(),
+                        seat.id(),
+                        ReviewPhase.CROSS_REVIEW,
+                        /* round */ 0,
+                        c.text().strip(),
+                        /* mentions */ List.of(),
+                        /* refs */ List.of(),
+                        "cross_review",
+                        envelopeJson,
+                        callCost,
+                        Instant.now()));
+            }
+
+            // CONSENSUS (one LLM call, run by the lead): fold the
+            // cross-review envelopes + the independent findings into the
+            // resolved set. The lead is the LEAD-role persona member, or
+            // the first member when the panel carries no role info.
+            PanelMember leadMember = panel.stream()
+                    .filter(PanelMember::lead)
+                    .findFirst()
+                    .orElse(panel.get(0));
+            ReviewParticipant leadSeat = reviewerSeats.get(panel.indexOf(leadMember));
+            pass = withCost(withPhase(pass, ReviewPhase.CONSENSUS, /* endedAt */ null), spentMilli);
+            reviewStore.savePass(pass);
+            ConsensusOutcome outcome = runConsensus(
+                    leadMember, reviewerSeats, panel, outputs, envelopes, request);
+            spentMilli += outcome.costMilli();
+            ConsensusResult consensus = outcome.result();
+            reviewStore.saveMessage(new ReviewMessage(
+                    UUID.randomUUID().toString(),
+                    pass.id(),
+                    leadSeat.id(),
+                    ReviewPhase.CONSENSUS,
+                    /* round */ 0,
+                    "Consensus over the panel: " + consensus.agreed().size() + " agreed, "
+                            + consensus.disputed().size() + " disputed.",
+                    /* mentions */ List.of(),
+                    /* refs */ List.of(),
+                    "consensus",
+                    outcome.json(),
+                    outcome.costMilli(),
+                    Instant.now()));
+
+            Instant afterConsensus = Instant.now();
             for (ConsensusFinding f : consensus.agreed()) {
                 reviewStore.saveFinding(new ReviewFinding(
                         UUID.randomUUID().toString(),
@@ -424,7 +503,7 @@ public class ReviewPassService
                         f.body(),
                         /* resolution */ null,
                         /* postedCommentId */ null,
-                        afterReviewer));
+                        afterConsensus));
             }
             for (ConsensusFinding f : consensus.disputed()) {
                 // Reviewer attribution lands as a prefix on the body
@@ -440,31 +519,14 @@ public class ReviewPassService
                         body,
                         /* resolution */ null,
                         /* postedCommentId */ null,
-                        afterReviewer));
+                        afterConsensus));
             }
-            // CROSS_REVIEW phase + moderator announcement message.
-            pass = withPhase(pass, ReviewPhase.CROSS_REVIEW, /* endedAt */ null);
+            pass = withCost(pass, spentMilli);
             reviewStore.savePass(pass);
-            reviewStore.saveMessage(new ReviewMessage(
-                    UUID.randomUUID().toString(),
-                    pass.id(),
-                    moderator.id(),
-                    ReviewPhase.CROSS_REVIEW,
-                    /* round */ 0,
-                    "Heuristic consensus extracted from the panel: "
-                            + consensus.agreed().size() + " agreed, "
-                            + consensus.disputed().size() + " disputed.",
-                    /* mentions */ List.of(),
-                    /* refs */ List.of(),
-                    /* costUsdMilli */ 0L,
-                    Instant.now()));
 
-            // Bounded LLM debate over the disputed items, capped at
-            // pass.roundCap(). Each round each reviewer responds to
-            // the others' positions; the loop early-stops when no
-            // reviewer changes which anchors they flag. Findings
-            // aren't mutated — the debate enriches the transcript so
-            // the user has more context at the ballot.
+            // Bounded debate over the disputed items, capped at
+            // pass.roundCap(). The debate enriches the transcript; the
+            // ballot still drives final resolution.
             if (!consensus.disputed().isEmpty()) {
                 runDebateLoop(pass, panel, reviewerSeats, request, outputs, consensus.disputed());
             }
@@ -579,12 +641,15 @@ public class ReviewPassService
      *  with an optional persona prompt (the reviewing "voice" the
      *  Start Review dialog picked) and a display label that shows on
      *  the participant chip + kickoff message. */
-    record PanelMember(LlmReviewer reviewer, String personaPrompt, String displayLabel)
+    record PanelMember(LlmReviewer reviewer, String personaPrompt, String displayLabel, boolean lead)
     {
-        /** Legacy member: no persona, label comes straight from the reviewer. */
+        /** Legacy member: no persona, label comes straight from the
+         *  reviewer, never the explicit lead (the legacy panel has no
+         *  role info, so the orchestrator falls back to the first
+         *  member as lead). */
         static PanelMember legacy(LlmReviewer r)
         {
-            return new PanelMember(r, null, r.displayName());
+            return new PanelMember(r, null, r.displayName(), false);
         }
     }
 
@@ -632,7 +697,8 @@ public class ReviewPassService
             if (!p.active()) {
                 continue;
             }
-            members.add(new PanelMember(reviewer, p.systemPrompt(), p.name()));
+            members.add(new PanelMember(
+                    reviewer, p.systemPrompt(), p.name(), p.role() == ReviewerPersonaRole.LEAD));
             if (members.size() == 3) {
                 break;
             }
@@ -956,60 +1022,236 @@ public class ReviewPassService
         return sb.toString();
     }
 
-    /** Heuristic consensus dedup. Groups raw findings by
-     *  {@code (path, line)} — exact match. Each group reported by all
-     *  panel reviewers collapses to one AGREED row using the most
-     *  severe reading; groups missing a reviewer fan out into one
-     *  DISPUTED row per reporter so the publish UI can show who said
-     *  what. The Haiku-driven semantic check is a Phase 3 follow-up. */
-    private ConsensusResult extractConsensus(
+    // ── LLM-driven cross-review + consensus ──────────────────────────
+
+    /** Run a structured orchestration call, swallowing provider errors
+     *  into a null return so one flaky reviewer can't tank the pass —
+     *  the caller treats null as "this reviewer abstained". */
+    private LlmCompletion safeComplete(LlmReviewer reviewer, String system, String user, String stage)
+    {
+        try {
+            return reviewer.complete(system, user);
+        }
+        catch (RuntimeException e) {
+            log.warn("Review {} call failed for {}: {}", stage, reviewer.providerId(), e.getMessage());
+            return null;
+        }
+    }
+
+    private static String crossReviewSystemPrompt()
+    {
+        return """
+                You are one reviewer on a multi-reviewer code-review panel. You have already \
+                written your own independent review of a pull request; now you see every \
+                reviewer's findings on the same diff. Respond with STRICT JSON only: \
+                {"agree":[string],"dispute":[{"finding":string,"counter":string,"evidence":string}],\
+                "open_questions":[string]}. 'agree' lists findings (yours or others') you endorse; \
+                'dispute' lists findings you believe are wrong, each with a short counter-argument \
+                and the concrete evidence (file/line/behaviour) for it; 'open_questions' lists \
+                genuine uncertainties that need human judgement. Be concise. Output ONLY the JSON \
+                object — no prose, no markdown fences.""";
+    }
+
+    private String crossReviewUserPrompt(
+            PanelMember member,
             List<ReviewParticipant> seats,
+            List<PanelMember> panel,
+            Map<ReviewParticipant, ReviewOutput> outputs,
+            ReviewRequest request)
+    {
+        return "Pull request: " + request.repo() + "#" + request.number() + "\n\n"
+                + "You are reviewer \"" + member.displayLabel() + "\". Here are all panel "
+                + "reviewers' independent findings on this diff:\n\n"
+                + renderPanelFindings(seats, panel, outputs)
+                + "\nWhich findings do you agree with? Which do you dispute, and why? "
+                + "What genuine open questions remain? Respond with the JSON envelope.";
+    }
+
+    private static String renderPanelFindings(
+            List<ReviewParticipant> seats,
+            List<PanelMember> panel,
             Map<ReviewParticipant, ReviewOutput> outputs)
     {
-        int panelSize = seats.size();
-        Map<AnchorKey, List<ReportedFinding>> byAnchor = new LinkedHashMap<>();
-        for (ReviewParticipant seat : seats) {
-            ReviewOutput out = outputs.get(seat);
-            List<ReviewOutput.LineComment> comments = out.comments() == null
-                    ? List.of() : out.comments();
-            for (ReviewOutput.LineComment c : comments) {
-                Integer line = c.line() > 0 ? c.line() : null;
-                AnchorKey key = new AnchorKey(c.file(), line);
-                byAnchor.computeIfAbsent(key, k -> new ArrayList<>())
-                        .add(new ReportedFinding(
-                                seat,
-                                severityFromComment(c.severity()),
-                                c.body() == null ? "" : c.body()));
+        StringBuilder sb = new StringBuilder();
+        for (int i = 0; i < seats.size(); i++) {
+            ReviewOutput out = outputs.get(seats.get(i));
+            sb.append("### ").append(panel.get(i).displayLabel()).append('\n');
+            if (out != null && out.summary() != null && !out.summary().isBlank()) {
+                sb.append("Summary: ").append(out.summary().strip()).append('\n');
             }
+            List<ReviewOutput.LineComment> comments = out == null || out.comments() == null
+                    ? List.of() : out.comments();
+            if (comments.isEmpty()) {
+                sb.append("(no line findings)\n");
+            }
+            for (ReviewOutput.LineComment c : comments) {
+                sb.append("- [").append(c.severity()).append("] ")
+                        .append(c.file() == null ? "(whole PR)" : c.file());
+                if (c.line() > 0) {
+                    sb.append(':').append(c.line());
+                }
+                sb.append(" — ").append(c.body() == null ? "" : c.body().strip()).append('\n');
+            }
+            sb.append('\n');
         }
+        return sb.toString();
+    }
 
+    private static String consensusSystemPrompt()
+    {
+        return """
+                You are the lead reviewer reconciling a multi-reviewer code-review panel into a \
+                single resolved finding set. You see every reviewer's independent findings and \
+                their cross-review reactions. Output STRICT JSON only: \
+                {"findings":[{"path":string|null,"line":number|null,\
+                "severity":"blocker"|"major"|"nit"|"question","body":string,\
+                "status":"agreed"|"disputed","reporter":string}]}. Mark a finding 'agreed' when \
+                the panel converges on it — collapse duplicates at the same location into one row \
+                carrying the most severe reading. Mark it 'disputed' when reviewers genuinely \
+                split. Drop findings no reviewer stands behind. 'reporter' names the reviewer(s) \
+                behind the finding. Output ONLY the JSON object — no prose, no markdown fences.""";
+    }
+
+    private String consensusUserPrompt(
+            List<ReviewParticipant> seats,
+            List<PanelMember> panel,
+            Map<ReviewParticipant, ReviewOutput> outputs,
+            List<String> envelopes,
+            ReviewRequest request)
+    {
+        String reactions = envelopes.isEmpty()
+                ? "(no cross-review reactions were returned)"
+                : String.join("\n\n", envelopes);
+        return "Pull request: " + request.repo() + "#" + request.number() + "\n\n"
+                + "Independent findings:\n\n"
+                + renderPanelFindings(seats, panel, outputs)
+                + "\nCross-review reactions:\n\n" + reactions
+                + "\n\nProduce the resolved finding set as the JSON object.";
+    }
+
+    /** Run the lead's CONSENSUS call and fold its envelope into a
+     *  {@link ConsensusResult}. On a failed or unparseable call every
+     *  independent finding falls through as DISPUTED so the human
+     *  arbitrates rather than anything being silently dropped. */
+    private ConsensusOutcome runConsensus(
+            PanelMember lead,
+            List<ReviewParticipant> seats,
+            List<PanelMember> panel,
+            Map<ReviewParticipant, ReviewOutput> outputs,
+            List<String> envelopes,
+            ReviewRequest request)
+    {
+        LlmCompletion c = safeComplete(
+                lead.reviewer(),
+                consensusSystemPrompt(),
+                consensusUserPrompt(seats, panel, outputs, envelopes, request),
+                "consensus");
+        if (c == null) {
+            return new ConsensusOutcome(allDisputed(seats, panel, outputs), null, 0L);
+        }
+        long cost = ModelPricing.estimateCostMilli(c.modelName(), c.tokensIn(), c.tokensOut());
+        String json = validJsonObjectOrNull(c.text());
+        if (json == null) {
+            log.warn("Consensus call returned no parseable JSON — escalating all findings to disputed.");
+            return new ConsensusOutcome(allDisputed(seats, panel, outputs), null, cost);
+        }
+        try {
+            ConsensusEnvelope env = objectMapper.readValue(json, ConsensusEnvelope.class);
+            return new ConsensusOutcome(foldConsensus(env), json, cost);
+        }
+        catch (IOException e) {
+            log.warn("Consensus JSON did not bind — escalating all findings to disputed: {}", e.getMessage());
+            return new ConsensusOutcome(allDisputed(seats, panel, outputs), json, cost);
+        }
+    }
+
+    private static ConsensusResult foldConsensus(ConsensusEnvelope env)
+    {
         List<ConsensusFinding> agreed = new ArrayList<>();
         List<ConsensusFinding> disputed = new ArrayList<>();
-        for (Map.Entry<AnchorKey, List<ReportedFinding>> entry : byAnchor.entrySet()) {
-            AnchorKey anchor = entry.getKey();
-            List<ReportedFinding> reports = entry.getValue();
-            if (reports.size() >= panelSize) {
-                ReportedFinding representative = reports.stream()
-                        .max(Comparator.comparingInt(r -> severityWeight(r.severity())))
-                        .orElseThrow();
-                agreed.add(new ConsensusFinding(
-                        anchor.path(), anchor.line(),
-                        representative.severity(),
-                        representative.body(),
-                        /* reporterPersona */ representative.participant().personaLabel()));
+        List<ConsensusItem> items = env == null || env.findings() == null ? List.of() : env.findings();
+        for (ConsensusItem it : items) {
+            Integer line = it.line() != null && it.line() > 0 ? it.line() : null;
+            ConsensusFinding f = new ConsensusFinding(
+                    it.path(), line,
+                    severityFromComment(it.severity()),
+                    it.body() == null ? "" : it.body(),
+                    it.reporter() == null || it.reporter().isBlank() ? "panel" : it.reporter());
+            if ("agreed".equalsIgnoreCase(it.status())) {
+                agreed.add(f);
             }
             else {
-                for (ReportedFinding r : reports) {
-                    disputed.add(new ConsensusFinding(
-                            anchor.path(), anchor.line(),
-                            r.severity(),
-                            r.body(),
-                            r.participant().personaLabel()));
-                }
+                disputed.add(f);
             }
         }
         return new ConsensusResult(List.copyOf(agreed), List.copyOf(disputed));
     }
+
+    /** Fallback when the consensus call is unavailable: every reported
+     *  finding becomes DISPUTED so it reaches the human ballot rather
+     *  than being dropped or auto-agreed. */
+    private static ConsensusResult allDisputed(
+            List<ReviewParticipant> seats,
+            List<PanelMember> panel,
+            Map<ReviewParticipant, ReviewOutput> outputs)
+    {
+        List<ConsensusFinding> disputed = new ArrayList<>();
+        for (int i = 0; i < seats.size(); i++) {
+            ReviewOutput out = outputs.get(seats.get(i));
+            List<ReviewOutput.LineComment> comments = out == null || out.comments() == null
+                    ? List.of() : out.comments();
+            for (ReviewOutput.LineComment c : comments) {
+                Integer line = c.line() > 0 ? c.line() : null;
+                disputed.add(new ConsensusFinding(
+                        c.file(), line,
+                        severityFromComment(c.severity()),
+                        c.body() == null ? "" : c.body(),
+                        panel.get(i).displayLabel()));
+            }
+        }
+        return new ConsensusResult(List.of(), List.copyOf(disputed));
+    }
+
+    /** First top-level {...} block of a model response that also parses
+     *  as JSON, or null when there's none (the caller treats null as a
+     *  failed / abstaining call). */
+    private String validJsonObjectOrNull(String text)
+    {
+        if (text == null) {
+            return null;
+        }
+        int start = text.indexOf('{');
+        int end = text.lastIndexOf('}');
+        if (start < 0 || end <= start) {
+            return null;
+        }
+        String json = text.substring(start, end + 1);
+        try {
+            objectMapper.readTree(json);
+            return json;
+        }
+        catch (IOException e) {
+            return null;
+        }
+    }
+
+    private static ReviewPass withCost(ReviewPass pass, long costUsdMilli)
+    {
+        return new ReviewPass(
+                pass.id(), pass.threadId(), pass.repoFullName(), pass.prNumber(),
+                pass.headSha(), pass.phase(), pass.round(), pass.roundCap(),
+                pass.costCapMilli(), costUsdMilli, pass.verdict(),
+                pass.createdAt(), pass.endedAt());
+    }
+
+    private record ConsensusOutcome(ConsensusResult result, String json, long costMilli) {}
+
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    private record ConsensusEnvelope(List<ConsensusItem> findings) {}
+
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    private record ConsensusItem(
+            String path, Integer line, String severity, String body, String status, String reporter) {}
 
     private static String panelDisplayNames(List<PanelMember> panel)
     {
@@ -1217,20 +1459,6 @@ public class ReviewPassService
         return ReviewFindingSeverity.fromDbValue(raw);
     }
 
-    /** Severity weight so the consensus extractor picks the most-
-     *  serious reading as the representative for an AGREED row. Higher
-     *  = more severe. Explicit weights avoid {@code Enum.ordinal()},
-     *  which Error Prone flags as fragile against enum-reordering. */
-    private static int severityWeight(ReviewFindingSeverity s)
-    {
-        return switch (s) {
-            case BLOCKER -> 4;
-            case MAJOR -> 3;
-            case NIT -> 2;
-            case QUESTION -> 1;
-        };
-    }
-
     /** Single-reviewer verdict suggestion: any BLOCKER →
      *  REQUEST_CHANGES; any other finding → COMMENT; empty → APPROVE.
      *  The user confirms at the publish gate — this is just the
@@ -1268,10 +1496,6 @@ public class ReviewPassService
     }
 
     private record AnchorKey(String path, Integer line) {}
-    private record ReportedFinding(
-            ReviewParticipant participant,
-            ReviewFindingSeverity severity,
-            String body) {}
     private record ConsensusFinding(
             String path,
             Integer line,

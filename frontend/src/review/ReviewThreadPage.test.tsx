@@ -348,6 +348,8 @@ function message(overrides: Partial<ReviewPanelMessageDto>): ReviewPanelMessageD
     body: '',
     mentions: [],
     refs: [],
+    payloadKind: 'prose',
+    payloadJson: null,
     costUsdMilli: 0,
     createdAt: '2026-05-22T12:00:00Z',
     ...overrides,

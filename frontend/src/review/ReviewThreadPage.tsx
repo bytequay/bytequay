@@ -11,7 +11,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { Fragment, useCallback, useEffect, useMemo, useState } from 'react';
 import type {
   ReviewFindingDto,
   ReviewFindingSeverityDto,
@@ -104,6 +104,7 @@ function ReviewThreadPage({ threadId, onBack }: Props) {
             <TranscriptSection
               messages={detail.messages}
               participantsById={participantsById}
+              passPhase={detail.pass.phase}
             />
             <SteerComposerPlaceholder
               prNumber={detail.pass.prNumber}
@@ -501,36 +502,157 @@ function RosterSection({ participants }: { participants: ReviewParticipantDto[] 
   );
 }
 
+const PHASE_LABELS: Record<string, string> = {
+  KICKOFF: 'Kickoff',
+  INDEPENDENT: 'Independent review',
+  CROSS_REVIEW: 'Cross-review',
+  CONSENSUS: 'Consensus',
+  DEBATE: 'Debate',
+  TERMINATE: 'Wrap-up',
+  ARBITRATE: 'Arbitration',
+  PUBLISHED: 'Published',
+};
+
+function phaseLabel(phase: string): string {
+  return PHASE_LABELS[phase] ?? phase.toLowerCase();
+}
+
+/** The panel transcript as a group chat: phase dividers, per-persona
+ *  bubbles (the moderator as a system voice, the lead badged, the human
+ *  right-aligned), @mention / #ref chips, and a live "reviewing…" pulse
+ *  while the pass is still running. */
 function TranscriptSection({
   messages,
   participantsById,
+  passPhase,
 }: {
   messages: ReviewPanelMessageDto[];
   participantsById: Map<string, ReviewParticipantDto>;
+  passPhase: string;
 }) {
+  // The lead is whoever authored the consensus turn (the lead runs
+  // consensus), so we can badge their bubbles without a separate flag.
+  const leadId = messages.find(m => m.payloadKind === 'consensus')?.participantId ?? null;
+  const running = !['TERMINATE', 'ARBITRATE', 'PUBLISHED'].includes(passPhase);
+
   return (
     <section style={cardStyle} aria-label="Panel transcript">
       <h2 style={cardTitleStyle}>Transcript</h2>
       {messages.length === 0 ? (
-        <div style={emptyInlineStyle}>No messages yet.</div>
+        <div style={emptyInlineStyle}>The panel is warming up…</div>
       ) : (
-        <ol style={transcriptListStyle}>
-          {messages.map(m => {
-            const author = participantsById.get(m.participantId);
-            return (
-              <li key={m.id} style={transcriptRowStyle}>
-                <div style={transcriptHeadStyle}>
-                  <strong>{author?.personaLabel ?? '?'}</strong>
-                  <span style={transcriptPhaseStyle}>{m.phase.toLowerCase()}</span>
+        <div style={chatListStyle}>
+          {messages.map((m, i) => (
+            <Fragment key={m.id}>
+              {m.phase !== messages[i - 1]?.phase && (
+                <div style={phaseDividerStyle}>
+                  <span style={phaseDividerLabelStyle}>{phaseLabel(m.phase)}</span>
                 </div>
-                <div style={transcriptBodyStyle}>{m.body}</div>
-              </li>
-            );
-          })}
-        </ol>
+              )}
+              <MessageBubble
+                message={m}
+                author={participantsById.get(m.participantId) ?? null}
+                isLead={m.participantId === leadId}
+                participantsById={participantsById}
+              />
+            </Fragment>
+          ))}
+          {running && (
+            <div style={liveIndicatorStyle}>
+              <span style={livePulseStyle} aria-hidden /> reviewing…
+            </div>
+          )}
+        </div>
       )}
     </section>
   );
+}
+
+function MessageBubble({
+  message, author, isLead, participantsById,
+}: {
+  message: ReviewPanelMessageDto;
+  author: ReviewParticipantDto | null;
+  isLead: boolean;
+  participantsById: Map<string, ReviewParticipantDto>;
+}) {
+  const kind = author?.kind ?? 'REVIEWER';
+  const name = author?.personaLabel ?? '?';
+  const color = author?.color ?? 'var(--text-muted)';
+  const isYou = kind === 'HUMAN';
+  const isModerator = kind === 'MODERATOR';
+  const roleTag = isModerator ? 'moderator' : isLead ? 'lead' : null;
+
+  return (
+    <div style={isYou ? bubbleRowYouStyle : bubbleRowStyle}>
+      {!isYou && (
+        <span style={{ ...avatarStyle, background: color }} aria-hidden>
+          {name.slice(0, 1).toUpperCase()}
+        </span>
+      )}
+      <div style={isModerator ? bubbleModeratorStyle : isYou ? bubbleYouStyle : bubbleStyle}>
+        <div style={bubbleHeadStyle}>
+          <strong style={isYou ? undefined : { color }}>{name}</strong>
+          {roleTag !== null && <span style={roleTagStyle}>{roleTag}</span>}
+          {message.mentions.map(id => (
+            <span key={id} style={mentionChipStyle}>
+              @{participantsById.get(id)?.personaLabel ?? id}
+            </span>
+          ))}
+        </div>
+        <div style={bubbleBodyStyle}>{renderMessageBody(message)}</div>
+        {message.refs.length > 0 && (
+          <div style={refRowStyle}>
+            {message.refs.map(r => (
+              <span key={r} style={refChipStyle}>#{refLabel(r)}</span>
+            ))}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+/** Cross-review messages carry a raw JSON envelope as their body;
+ *  surface a readable one-liner instead. Everything else shows its
+ *  prose body verbatim. */
+function renderMessageBody(m: ReviewPanelMessageDto): string {
+  if (m.payloadKind === 'cross_review') {
+    return crossReviewSummary(m.payloadJson) ?? m.body;
+  }
+  return m.body;
+}
+
+function crossReviewSummary(payloadJson: string | null): string | null {
+  if (payloadJson === null) {
+    return null;
+  }
+  try {
+    const env = JSON.parse(payloadJson) as {
+      agree?: unknown[]; dispute?: unknown[]; open_questions?: unknown[];
+    };
+    const a = Array.isArray(env.agree) ? env.agree.length : 0;
+    const d = Array.isArray(env.dispute) ? env.dispute.length : 0;
+    const q = Array.isArray(env.open_questions) ? env.open_questions.length : 0;
+    const parts = [`agrees with ${a}`, `disputes ${d}`];
+    if (q > 0) {
+      parts.push(`${q} open question${q === 1 ? '' : 's'}`);
+    }
+    return parts.join(' · ');
+  } catch {
+    return null;
+  }
+}
+
+/** "finding:abc123" → "finding-abc123" (truncated), for a #ref chip. */
+function refLabel(ref: string): string {
+  const sep = ref.indexOf(':');
+  if (sep < 0) {
+    return ref;
+  }
+  const kind = ref.slice(0, sep);
+  const id = ref.slice(sep + 1);
+  return id.length > 8 ? `${kind}-${id.slice(0, 6)}…` : `${kind}-${id}`;
 }
 
 function FindingsSection({ findings }: { findings: ReviewFindingDto[] }) {
@@ -1096,42 +1218,142 @@ const rosterModelStyle: React.CSSProperties = {
   color: 'var(--text-3)',
 };
 
-const transcriptListStyle: React.CSSProperties = {
-  margin: 0,
-  padding: 0,
-  listStyle: 'none',
+const chatListStyle: React.CSSProperties = {
   display: 'flex',
   flexDirection: 'column',
-  gap: 12,
+  gap: 10,
 };
 
-const transcriptRowStyle: React.CSSProperties = {
-  padding: 12,
+const phaseDividerStyle: React.CSSProperties = {
+  display: 'flex',
+  alignItems: 'center',
+  justifyContent: 'center',
+  margin: '6px 0 2px',
+};
+
+const phaseDividerLabelStyle: React.CSSProperties = {
+  fontSize: 10,
+  textTransform: 'uppercase',
+  letterSpacing: '0.06em',
+  color: 'var(--text-3)',
+  background: 'var(--bg-1)',
+  border: '1px solid var(--border)',
+  borderRadius: 999,
+  padding: '2px 10px',
+};
+
+const bubbleRowStyle: React.CSSProperties = {
+  display: 'flex',
+  alignItems: 'flex-start',
+  gap: 8,
+};
+
+const bubbleRowYouStyle: React.CSSProperties = {
+  ...bubbleRowStyle,
+  justifyContent: 'flex-end',
+};
+
+const avatarStyle: React.CSSProperties = {
+  flex: '0 0 auto',
+  width: 24,
+  height: 24,
+  borderRadius: '50%',
+  display: 'inline-flex',
+  alignItems: 'center',
+  justifyContent: 'center',
+  color: '#fff',
+  fontSize: 12,
+  fontWeight: 600,
+  marginTop: 2,
+};
+
+const bubbleStyle: React.CSSProperties = {
+  maxWidth: '88%',
+  padding: '8px 11px',
   background: 'var(--bg-2)',
-  borderRadius: 6,
+  borderRadius: 10,
   border: '1px solid var(--border)',
 };
 
-const transcriptHeadStyle: React.CSSProperties = {
-  display: 'flex',
-  alignItems: 'center',
-  gap: 8,
-  marginBottom: 6,
-  fontSize: 13,
+const bubbleModeratorStyle: React.CSSProperties = {
+  ...bubbleStyle,
+  maxWidth: '100%',
+  width: '100%',
+  background: 'transparent',
+  borderStyle: 'dashed',
 };
 
-const transcriptPhaseStyle: React.CSSProperties = {
-  fontSize: 11,
+const bubbleYouStyle: React.CSSProperties = {
+  ...bubbleStyle,
+  background: 'rgba(16, 185, 129, 0.14)',
+  border: '1px solid rgba(16, 185, 129, 0.4)',
+};
+
+const bubbleHeadStyle: React.CSSProperties = {
+  display: 'flex',
+  alignItems: 'center',
+  flexWrap: 'wrap',
+  gap: 6,
+  marginBottom: 4,
+  fontSize: 12.5,
+};
+
+const roleTagStyle: React.CSSProperties = {
+  fontSize: 10,
   textTransform: 'uppercase',
   letterSpacing: '0.04em',
   color: 'var(--text-3)',
+  border: '1px solid var(--border)',
+  borderRadius: 4,
+  padding: '0 5px',
 };
 
-const transcriptBodyStyle: React.CSSProperties = {
+const mentionChipStyle: React.CSSProperties = {
+  fontSize: 11,
+  color: 'var(--accent, #3b82f6)',
+  background: 'rgba(59, 130, 246, 0.12)',
+  borderRadius: 4,
+  padding: '0 5px',
+};
+
+const bubbleBodyStyle: React.CSSProperties = {
   fontSize: 13,
   lineHeight: 1.55,
   color: 'var(--text-1)',
   whiteSpace: 'pre-wrap',
+};
+
+const refRowStyle: React.CSSProperties = {
+  display: 'flex',
+  flexWrap: 'wrap',
+  gap: 5,
+  marginTop: 6,
+};
+
+const refChipStyle: React.CSSProperties = {
+  fontSize: 11,
+  color: 'var(--text-3)',
+  background: 'var(--bg-1)',
+  border: '1px solid var(--border)',
+  borderRadius: 4,
+  padding: '0 5px',
+};
+
+const liveIndicatorStyle: React.CSSProperties = {
+  display: 'flex',
+  alignItems: 'center',
+  gap: 7,
+  alignSelf: 'center',
+  marginTop: 4,
+  fontSize: 12,
+  color: 'var(--text-3)',
+};
+
+const livePulseStyle: React.CSSProperties = {
+  width: 7,
+  height: 7,
+  borderRadius: '50%',
+  background: '#0ea5e9',
 };
 
 const findingsListStyle: React.CSSProperties = {

@@ -1996,8 +1996,13 @@ export type ReviewPanelMessageDto = {
   body: string;
   /** Participant ids this message addresses; empty array when broadcast. */
   mentions: string[];
-  /** Message ids quoted via #ref; empty when none. */
+  /** Refs quoted via #ref as "kind:id" (finding / msg); empty when none. */
   refs: string[];
+  /** Shape of the message: 'prose' (plain text), 'cross_review',
+   *  'consensus', or 'debate_turn'. */
+  payloadKind: string;
+  /** Structured envelope JSON for non-prose messages, or null. */
+  payloadJson: string | null;
   costUsdMilli: number;
   createdAt: string;
 };

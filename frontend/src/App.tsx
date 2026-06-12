@@ -367,6 +367,21 @@ function writeActiveWorkspaceId(id: string): void {
 function App() {
   const [status, setStatus] = useState<Status>('checking');
   const [nav, setNav] = useState<Nav>({ view: 'home' });
+
+  // Open a thread, routing review threads (flow=REVIEW) to the panel
+  // page and everything else to the trunk. A review thread exposes a
+  // review pass via getReviewPassByThread; build/trunk threads return
+  // null, so they fall through to the regular thread-detail view. Keeps
+  // the assign-review dialog, PR-row jumps, and the rail all landing on
+  // the right surface without each caller needing to know the flow.
+  const openThread = (threadId: string) => {
+    const back = nav;
+    void window.bridge.getReviewPassByThread(threadId)
+      .then(pass => setNav(pass !== null
+        ? { view: 'review-thread', threadId, back }
+        : { view: 'thread-detail', threadId }))
+      .catch(() => setNav({ view: 'thread-detail', threadId }));
+  };
   /** Which workspace the user last entered. Drives the CURRENT chip
    *  on the landing grid. Set when the user picks a card. */
   const [activeWorkspaceId, setActiveWorkspaceId] = useState<string | null>(
@@ -637,7 +652,7 @@ function App() {
             // PR → thread jump. The linked-thread chip in the PR header
             // calls this; we preserve the current repo nav as the
             // back target so closing the thread can return cleanly.
-            onOpenThread={threadId => setNav({ view: 'thread-detail', threadId })}
+            onOpenThread={openThread}
             // The AI panel-review button on a PR row routes the user
             // to the new review thread; we preserve the repo nav as
             // the back target so the user can return.
@@ -705,7 +720,7 @@ function App() {
         )}
         {nav.view === 'notifications' && (
           <NotificationsScreen
-            onOpenThread={threadId => setNav({ view: 'thread-detail', threadId })}
+            onOpenThread={openThread}
             onOpenReviewThread={threadId => setNav({
               view: 'review-thread', threadId, back: nav,
             })}
@@ -740,7 +755,7 @@ function App() {
               setNav({ view: 'workspace', section: 'home' });
             }}
             onSelectSection={section => setNav({ view: 'workspace', section })}
-            onOpenThread={threadId => setNav({ view: 'thread-detail', threadId })}
+            onOpenThread={openThread}
             onOpenThreadCreate={(params) => setNav({
               view: 'thread-create',
               initialGroupId: params?.initialGroupId,
@@ -858,7 +873,7 @@ function App() {
             section={nav.section ?? 'account'}
             onSelectSection={(section) => setNav({ view: 'settings', section })}
             onOpenTeam={(teamId) => setNav({ view: 'team', teamId })}
-            onOpenThread={threadId => setNav({ view: 'thread-detail', threadId })}
+            onOpenThread={openThread}
             onClearPat={async () => {
               await window.bridge.clearPat();
               setNav({ view: 'home' });

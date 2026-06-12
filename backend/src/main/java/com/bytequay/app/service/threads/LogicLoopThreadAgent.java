@@ -26,6 +26,12 @@ import com.bytequay.app.domain.WorkModelKind;
 import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.repository.ThreadStore;
 import com.bytequay.app.service.CredentialService;
+import com.bytequay.app.service.agents.ToolCall;
+import com.bytequay.app.service.agents.ToolExecutor;
+import com.bytequay.app.service.agents.TurnHooks;
+import com.bytequay.app.service.agents.TurnResult;
+import com.bytequay.app.service.agents.TurnRunner;
+import com.bytequay.app.service.agents.TurnSpec;
 import com.bytequay.app.service.ai.ModelPricing;
 import com.bytequay.app.service.local.ds4.Ds4Instrumentation;
 import com.bytequay.app.service.local.ds4.Ds4LifecycleService;
@@ -42,22 +48,11 @@ import com.fasterxml.jackson.databind.node.ObjectNode;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-import java.io.BufferedReader;
-import java.io.IOException;
-import java.io.InputStream;
-import java.io.InputStreamReader;
-import java.net.URI;
 import java.net.http.HttpClient;
-import java.net.http.HttpRequest;
-import java.net.http.HttpResponse;
-import java.nio.charset.StandardCharsets;
 import java.nio.file.Path;
 import java.time.Duration;
 import java.time.Instant;
-import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.List;
-import java.util.Map;
 import java.util.Optional;
 import java.util.OptionalInt;
 import java.util.Set;
@@ -108,7 +103,6 @@ public class LogicLoopThreadAgent
     // ── Anthropic ─────────────────────────────────────────────────────────
     private static final String ANTHROPIC_PROVIDER_ID = "anthropic";
     private static final String ANTHROPIC_MESSAGES_URL = "https://api.anthropic.com/v1/messages";
-    private static final String ANTHROPIC_VERSION = "2023-06-01";
 
     // ── OpenAI ────────────────────────────────────────────────────────────
     private static final String OPENAI_PROVIDER_ID = "openai";
@@ -156,6 +150,11 @@ public class LogicLoopThreadAgent
     private final String sessionId;
     private final long sessionStartedMs;
     private final HttpClient httpClient;
+    /** Shared provider tool-round loop. The agent supplies wire-level
+     *  config per turn; the runner owns the transport + round loop and
+     *  calls back into this class for tool execution, events, and
+     *  persistence. */
+    private final TurnRunner turnRunner;
     /** Tools the model is told about and can call. Null on the
      *  legacy text-only constructor used by older test paths. */
     private final LogicLoopToolRegistry toolRegistry;
@@ -317,6 +316,7 @@ public class LogicLoopThreadAgent
         this.httpClient = HttpClient.newBuilder()
                 .connectTimeout(Duration.ofSeconds(15))
                 .build();
+        this.turnRunner = new TurnRunner(httpClient, mapper);
         this.runningTokensIn.set(thread.tokensIn());
         this.runningTokensOut.set(thread.tokensOut());
         this.runningCostUsdMilli.set(thread.costUsdMilli());
@@ -495,181 +495,18 @@ public class LogicLoopThreadAgent
                 ? null
                 : toolRegistry.renderAsAnthropicTools(mapper, toolFilter);
 
-        String finalText = "";
-        long totalTokensIn = 0;
-        long totalTokensOut = 0;
-
-        for (int iteration = 0; iteration < MAX_TOOL_ITERATIONS; iteration++) {
-            if (userInterrupted.get()) {
-                return;
-            }
-            RoundResult round = runAnthropicRound(modelId, key, system, messages, toolsArray);
-            totalTokensIn += round.tokensIn;
-            totalTokensOut += round.tokensOut;
-            finalText = round.text;
-            if (round.toolUseBlocks.isEmpty()) {
-                break;
-            }
-            messages.add(assistantContent(round.text, round.toolUseBlocks));
-            messages.add(dispatchTools(round.toolUseBlocks));
+        TurnResult result = turnRunner.runTurn(
+                new TurnSpec(
+                        TurnSpec.Transport.ANTHROPIC, ANTHROPIC_MESSAGES_URL, key, modelId,
+                        system, messages, toolsArray,
+                        MAX_OUTPUT_TOKENS, MAX_TOOL_ITERATIONS),
+                this::executeLoopTool,
+                loopHooks(/* isLocalDs4 */ false));
+        if (result.end() == TurnResult.End.INTERRUPTED) {
+            return;
         }
-
-        finalizeTurn(modelId, turnStart, finalText, totalTokensIn, totalTokensOut);
-    }
-
-    /** One round-trip with the Anthropic provider: send the current message
-     *  history, stream the response, collect text + any tool_use blocks. */
-    private RoundResult runAnthropicRound(
-            String modelId, String apiKey, String system,
-            ArrayNode messages, ArrayNode toolsArray)
-    {
-        ObjectNode requestBody = mapper.createObjectNode();
-        requestBody.put("model", modelId);
-        requestBody.put("max_tokens", MAX_OUTPUT_TOKENS);
-        requestBody.put("stream", true);
-        if (system != null && !system.isEmpty()) {
-            requestBody.put("system", system);
-        }
-        requestBody.set("messages", messages);
-        if (toolsArray != null && !toolsArray.isEmpty()) {
-            requestBody.set("tools", toolsArray);
-        }
-
-        String payload;
-        try {
-            payload = mapper.writeValueAsString(requestBody);
-        }
-        catch (Exception e) {
-            throw new IllegalStateException("Failed to encode Anthropic request body", e);
-        }
-
-        // Per-round byte breakdown so we can see whether tools, system
-        // prompt, or conversation history is dominating input-token cost.
-        // chars / 4 is a coarse-but-useful estimator for English + code.
-        logPromptBreakdown("anthropic", modelId,
-                payload.length(),
-                system == null ? 0 : system.length(),
-                messages.toString().length(),
-                toolsArray == null ? 0 : toolsArray.toString().length());
-
-        HttpRequest httpRequest = HttpRequest.newBuilder()
-                .uri(URI.create(ANTHROPIC_MESSAGES_URL))
-                .timeout(Duration.ofMinutes(5))
-                .header("Content-Type", "application/json")
-                .header("anthropic-version", ANTHROPIC_VERSION)
-                .header("x-api-key", apiKey)
-                .header("accept", "text/event-stream")
-                .POST(HttpRequest.BodyPublishers.ofString(payload, StandardCharsets.UTF_8))
-                .build();
-
-        StringBuilder accumulated = new StringBuilder();
-        List<ToolUseBlock> toolUseBlocks = new ArrayList<>();
-        long roundTokensIn = 0;
-        long roundTokensOut = 0;
-
-        // Anthropic indexes content blocks within a single response;
-        // tool_use input arrives as input_json_delta chunks under the same
-        // index. Track per open index so text + tool_use don't interleave.
-        Map<Integer, ToolUseBlock> openToolBlocks = new HashMap<>();
-
-        try {
-            HttpResponse<InputStream> response = httpClient.send(
-                    httpRequest, HttpResponse.BodyHandlers.ofInputStream());
-            if (response.statusCode() / 100 != 2) {
-                String errBody = new String(response.body().readAllBytes(), StandardCharsets.UTF_8);
-                throw new IllegalStateException(
-                        "Anthropic API returned " + response.statusCode() + ": " + errBody);
-            }
-            try (BufferedReader reader = new BufferedReader(
-                    new InputStreamReader(response.body(), StandardCharsets.UTF_8))) {
-                String line;
-                while ((line = reader.readLine()) != null) {
-                    if (userInterrupted.get()) {
-                        break;
-                    }
-                    if (line.isEmpty() || line.startsWith(":")) {
-                        continue;
-                    }
-                    if (!line.startsWith("data: ")) {
-                        continue;
-                    }
-                    String data = line.substring("data: ".length());
-                    JsonNode frame;
-                    try {
-                        frame = mapper.readTree(data);
-                    }
-                    catch (Exception parseFail) {
-                        continue;
-                    }
-                    String frameType = frame.path("type").asText("");
-                    switch (frameType) {
-                        case "content_block_start" -> {
-                            int index = frame.path("index").asInt(0);
-                            String blockType = frame.path("content_block").path("type").asText("");
-                            if ("tool_use".equals(blockType)) {
-                                String id = frame.path("content_block").path("id").asText("");
-                                String toolName = frame.path("content_block").path("name").asText("");
-                                openToolBlocks.put(index, new ToolUseBlock(id, toolName, new StringBuilder()));
-                            }
-                        }
-                        case "content_block_delta" -> {
-                            JsonNode delta = frame.path("delta");
-                            String deltaType = delta.path("type").asText("");
-                            if ("text_delta".equals(deltaType)) {
-                                String chunk = delta.path("text").asText("");
-                                if (!chunk.isEmpty()) {
-                                    accumulated.append(chunk);
-                                    publish(new StreamEvent.AssistantTextDelta(
-                                            Instant.now(),
-                                            frame.path("index").asInt(0),
-                                            chunk));
-                                }
-                            }
-                            else if ("input_json_delta".equals(deltaType)) {
-                                int index = frame.path("index").asInt(0);
-                                ToolUseBlock block = openToolBlocks.get(index);
-                                if (block != null) {
-                                    block.partialJson.append(delta.path("partial_json").asText(""));
-                                }
-                            }
-                        }
-                        case "content_block_stop" -> {
-                            int index = frame.path("index").asInt(0);
-                            ToolUseBlock block = openToolBlocks.remove(index);
-                            if (block != null) {
-                                toolUseBlocks.add(block);
-                            }
-                        }
-                        case "message_delta" -> {
-                            JsonNode usage = frame.path("usage");
-                            if (usage.has("output_tokens")) {
-                                roundTokensOut = usage.path("output_tokens").asLong(roundTokensOut);
-                            }
-                            if (usage.has("input_tokens")) {
-                                roundTokensIn = usage.path("input_tokens").asLong(roundTokensIn);
-                            }
-                            publish(new StreamEvent.UsageUpdated(
-                                    Instant.now(), roundTokensIn, roundTokensOut));
-                        }
-                        case "message_start" -> {
-                            JsonNode usage = frame.path("message").path("usage");
-                            if (usage.has("input_tokens")) {
-                                roundTokensIn = usage.path("input_tokens").asLong(roundTokensIn);
-                            }
-                        }
-                        default -> { /* ping, message_stop, etc — nothing to do */ }
-                    }
-                }
-            }
-        }
-        catch (IOException | InterruptedException e) {
-            if (e instanceof InterruptedException) {
-                java.lang.Thread.currentThread().interrupt();
-            }
-            throw new IllegalStateException("Anthropic streaming failed: " + e.getMessage(), e);
-        }
-
-        return new RoundResult(accumulated.toString(), toolUseBlocks, roundTokensIn, roundTokensOut);
+        finalizeTurn(modelId, turnStart, result.finalText(),
+                result.tokensIn(), result.tokensOut());
     }
 
     // ── OpenAI-compatible transport (OpenAI + DeepSeek) ───────────────────
@@ -717,36 +554,87 @@ public class LogicLoopThreadAgent
                 ? null
                 : toolRegistry.renderAsOpenAiTools(mapper, toolFilter);
 
-        String finalText = "";
-        long totalTokensIn = 0;
-        long totalTokensOut = 0;
-
         boolean isLocalDs4 = DEEPSEEK_PROVIDER_ID.equalsIgnoreCase(provider)
                 && DEEPSEEK_LOCAL_MODEL_ID.equals(modelId);
 
-        for (int iteration = 0; iteration < MAX_TOOL_ITERATIONS; iteration++) {
-            if (userInterrupted.get()) {
-                return;
-            }
-            long roundStartNanos = System.nanoTime();
-            OaiRoundResult round = runOpenAiCompatibleRound(modelId, token, url, messages, toolsArray);
-            totalTokensIn += round.tokensIn;
-            totalTokensOut += round.tokensOut;
-            finalText = round.text;
-            recordLocalDs4Sample(isLocalDs4, roundStartNanos, round);
-            if (round.toolCallBlocks.isEmpty()) {
-                break;
-            }
-            // Echo the assistant's tool_calls turn back into the history, then
-            // append one role:tool message per result so the next round can
-            // stitch results back to the requests by tool_call_id.
-            messages.add(assistantContentOpenAi(round.text, round.toolCallBlocks));
-            for (ObjectNode toolMsg : dispatchToolsOpenAi(round.toolCallBlocks)) {
-                messages.add(toolMsg);
-            }
+        TurnResult result = turnRunner.runTurn(
+                new TurnSpec(
+                        TurnSpec.Transport.OPENAI_COMPAT, url, token, modelId,
+                        /* system */ null, messages, toolsArray,
+                        MAX_OUTPUT_TOKENS, MAX_TOOL_ITERATIONS),
+                this::executeLoopTool,
+                loopHooks(isLocalDs4));
+        if (result.end() == TurnResult.End.INTERRUPTED) {
+            return;
         }
+        finalizeTurn(modelId, turnStart, result.finalText(),
+                result.tokensIn(), result.tokensOut());
+    }
 
-        finalizeTurn(modelId, turnStart, finalText, totalTokensIn, totalTokensOut);
+    /** Stream-event + persistence wiring for one runner-driven turn.
+     *  The runner owns the wire round loop; everything this agent
+     *  must observe (deltas, usage, tool rows, ds4 metrics,
+     *  interruption) rides these hooks in the same order the loop
+     *  produced them before the extraction. */
+    private TurnHooks loopHooks(boolean isLocalDs4)
+    {
+        return new TurnHooks()
+        {
+            @Override
+            public void onTextDelta(int blockIndex, String chunk)
+            {
+                publish(new StreamEvent.AssistantTextDelta(Instant.now(), blockIndex, chunk));
+            }
+
+            @Override
+            public void onUsage(long tokensIn, long tokensOut)
+            {
+                publish(new StreamEvent.UsageUpdated(Instant.now(), tokensIn, tokensOut));
+            }
+
+            @Override
+            public void onToolCallStarted(String callId, String toolName, String inputJson)
+            {
+                publish(new StreamEvent.ToolCallStarted(Instant.now(), callId, toolName, inputJson));
+                persistToolCall(callId, toolName, inputJson);
+            }
+
+            @Override
+            public void onToolCallDone(String callId, String resultText, boolean isError)
+            {
+                String outputJson;
+                try {
+                    outputJson = mapper.writeValueAsString(
+                            mapper.createObjectNode().put("text", resultText));
+                }
+                catch (Exception e) {
+                    outputJson = "{\"text\":\"\"}";
+                }
+                publish(new StreamEvent.ToolCallDone(Instant.now(), callId, outputJson, isError));
+                persistToolResult(callId, resultText, isError);
+            }
+
+            @Override
+            public void onRoundCompleted(long tokensIn, long tokensOut, long elapsedNanos)
+            {
+                recordLocalDs4Sample(isLocalDs4, tokensIn, tokensOut, elapsedNanos);
+            }
+
+            @Override
+            public boolean interrupted()
+            {
+                return userInterrupted.get();
+            }
+        };
+    }
+
+    /** {@link ToolExecutor} body for runner-driven turns — registry
+     *  dispatch with the same context + permission mediation the loop
+     *  always had. */
+    private ToolExecutor.ToolCallResult executeLoopTool(ToolCall call)
+    {
+        AgentTool.Result result = invokeTool(call.name(), call.input());
+        return new ToolExecutor.ToolCallResult(result.text(), result.isError());
     }
 
     /** Build the local ds4 chat-completions URL from the supervisor's
@@ -776,306 +664,17 @@ public class LogicLoopThreadAgent
      *  the Metrics tab reflects thread turns alongside review calls.
      *  No-op when the round wasn't local-ds4 or the instrumentation
      *  isn't wired (test paths). */
-    private void recordLocalDs4Sample(boolean isLocalDs4, long roundStartNanos, OaiRoundResult round)
+    private void recordLocalDs4Sample(boolean isLocalDs4, long tokensIn, long tokensOut, long elapsedNanos)
     {
         if (!isLocalDs4 || ds4Instrumentation == null) {
             return;
         }
-        long elapsedMs = Math.max(1L, (System.nanoTime() - roundStartNanos) / 1_000_000L);
-        double tps = round.tokensOut == 0 ? 0.0 : (round.tokensOut * 1000.0) / elapsedMs;
+        long elapsedMs = Math.max(1L, elapsedNanos / 1_000_000L);
+        double tps = tokensOut == 0 ? 0.0 : (tokensOut * 1000.0) / elapsedMs;
         String caller = activeTaskId() == null ? "trunk" : "task";
         ds4Instrumentation.record(Ds4Instrumentation.Sample.of(
                 caller, "/v1/chat/completions",
-                round.tokensIn, round.tokensOut, tps, elapsedMs, "200"));
-    }
-
-    /** One round-trip with an OpenAI-compatible provider. Parses the
-     *  {@code choices[0].delta} SSE format common to OpenAI and DeepSeek. */
-    private OaiRoundResult runOpenAiCompatibleRound(
-            String modelId, String token, String url,
-            ArrayNode messages, ArrayNode toolsArray)
-    {
-        ObjectNode requestBody = mapper.createObjectNode();
-        requestBody.put("model", modelId);
-        requestBody.put("max_tokens", MAX_OUTPUT_TOKENS);
-        requestBody.put("stream", true);
-        // Request token counts in the final streaming chunk.
-        ObjectNode streamOpts = mapper.createObjectNode();
-        streamOpts.put("include_usage", true);
-        requestBody.set("stream_options", streamOpts);
-        requestBody.set("messages", messages);
-        if (toolsArray != null && !toolsArray.isEmpty()) {
-            requestBody.set("tools", toolsArray);
-        }
-
-        String payload;
-        try {
-            payload = mapper.writeValueAsString(requestBody);
-        }
-        catch (Exception e) {
-            throw new IllegalStateException("Failed to encode OpenAI-compatible request body", e);
-        }
-
-        // OpenAI puts the system prompt inside messages[0] (role=system),
-        // so the system length is pulled out of there rather than passed
-        // separately. Everything else mirrors the Anthropic round.
-        int sysCharsOai = extractSystemContentLength(messages);
-        logPromptBreakdown("openai", modelId,
-                payload.length(),
-                sysCharsOai,
-                messages.toString().length(),
-                toolsArray == null ? 0 : toolsArray.toString().length());
-
-        HttpRequest httpRequest = HttpRequest.newBuilder()
-                .uri(URI.create(url))
-                .timeout(Duration.ofMinutes(5))
-                .header("Content-Type", "application/json")
-                .header("Authorization", "Bearer " + token)
-                .header("accept", "text/event-stream")
-                .POST(HttpRequest.BodyPublishers.ofString(payload, StandardCharsets.UTF_8))
-                .build();
-
-        StringBuilder accumulated = new StringBuilder();
-        // Tool call accumulation indexed by the provider's tool_calls[i].index.
-        Map<Integer, OaiToolCallBlock> openToolCalls = new HashMap<>();
-        long roundTokensIn = 0;
-        long roundTokensOut = 0;
-
-        try {
-            HttpResponse<InputStream> response = httpClient.send(
-                    httpRequest, HttpResponse.BodyHandlers.ofInputStream());
-            if (response.statusCode() / 100 != 2) {
-                String errBody = new String(response.body().readAllBytes(), StandardCharsets.UTF_8);
-                throw new IllegalStateException(
-                        "OpenAI-compatible API returned " + response.statusCode() + ": " + errBody);
-            }
-            try (BufferedReader reader = new BufferedReader(
-                    new InputStreamReader(response.body(), StandardCharsets.UTF_8))) {
-                String line;
-                while ((line = reader.readLine()) != null) {
-                    if (userInterrupted.get()) {
-                        break;
-                    }
-                    if (line.isEmpty() || line.startsWith(":")) {
-                        continue;
-                    }
-                    if (!line.startsWith("data: ")) {
-                        continue;
-                    }
-                    String data = line.substring("data: ".length()).trim();
-                    if ("[DONE]".equals(data)) {
-                        break;
-                    }
-                    JsonNode frame;
-                    try {
-                        frame = mapper.readTree(data);
-                    }
-                    catch (Exception parseFail) {
-                        continue;
-                    }
-
-                    // Usage — sent in a dedicated frame when stream_options.include_usage is set.
-                    JsonNode usageNode = frame.path("usage");
-                    if (!usageNode.isMissingNode() && !usageNode.isNull()) {
-                        if (usageNode.has("prompt_tokens")) {
-                            roundTokensIn = usageNode.path("prompt_tokens").asLong(roundTokensIn);
-                        }
-                        if (usageNode.has("completion_tokens")) {
-                            roundTokensOut = usageNode.path("completion_tokens").asLong(roundTokensOut);
-                        }
-                        publish(new StreamEvent.UsageUpdated(
-                                Instant.now(), roundTokensIn, roundTokensOut));
-                    }
-
-                    JsonNode choices = frame.path("choices");
-                    if (!choices.isArray() || choices.isEmpty()) {
-                        continue;
-                    }
-                    JsonNode delta = choices.path(0).path("delta");
-
-                    // Text content
-                    if (delta.has("content") && !delta.path("content").isNull()) {
-                        String chunk = delta.path("content").asText("");
-                        if (!chunk.isEmpty()) {
-                            accumulated.append(chunk);
-                            publish(new StreamEvent.AssistantTextDelta(Instant.now(), 0, chunk));
-                        }
-                    }
-
-                    // Tool calls — id and name arrive only in the first chunk for each index;
-                    // subsequent chunks carry additional argument fragments.
-                    JsonNode toolCallsNode = delta.path("tool_calls");
-                    if (toolCallsNode.isArray()) {
-                        for (JsonNode tc : toolCallsNode) {
-                            int tcIndex = tc.path("index").asInt(0);
-                            OaiToolCallBlock block = openToolCalls.get(tcIndex);
-                            if (block == null) {
-                                String id = tc.path("id").asText("");
-                                String name = tc.path("function").path("name").asText("");
-                                block = new OaiToolCallBlock(id, name, new StringBuilder());
-                                openToolCalls.put(tcIndex, block);
-                            }
-                            String argChunk = tc.path("function").path("arguments").asText("");
-                            if (!argChunk.isEmpty()) {
-                                block.partialArgs.append(argChunk);
-                            }
-                        }
-                    }
-                }
-            }
-        }
-        catch (IOException | InterruptedException e) {
-            if (e instanceof InterruptedException) {
-                java.lang.Thread.currentThread().interrupt();
-            }
-            throw new IllegalStateException("OpenAI-compatible streaming failed: " + e.getMessage(), e);
-        }
-
-        List<OaiToolCallBlock> toolCallBlocks = new ArrayList<>(openToolCalls.values());
-        return new OaiRoundResult(accumulated.toString(), toolCallBlocks, roundTokensIn, roundTokensOut);
-    }
-
-    // ── Message assembly helpers ──────────────────────────────────────────
-
-    /** Assemble the assistant's role message echoing the round's text +
-     *  the tool_use blocks (Anthropic format). Anthropic requires this
-     *  exact shape on follow-up turns so the model can stitch tool_result
-     *  back to the prior request. */
-    private ObjectNode assistantContent(String text, List<ToolUseBlock> toolUses)
-    {
-        ObjectNode msg = mapper.createObjectNode();
-        msg.put("role", "assistant");
-        ArrayNode content = mapper.createArrayNode();
-        if (text != null && !text.isEmpty()) {
-            ObjectNode textBlock = mapper.createObjectNode();
-            textBlock.put("type", "text");
-            textBlock.put("text", text);
-            content.add(textBlock);
-        }
-        for (ToolUseBlock block : toolUses) {
-            ObjectNode useBlock = mapper.createObjectNode();
-            useBlock.put("type", "tool_use");
-            useBlock.put("id", block.id);
-            useBlock.put("name", block.name);
-            useBlock.set("input", parseToolInput(block.partialJson.toString()));
-            content.add(useBlock);
-        }
-        msg.set("content", content);
-        return msg;
-    }
-
-    /** Assemble the assistant message carrying OpenAI-format tool_calls.
-     *  The provider requires this as the message immediately preceding the
-     *  role:tool result messages on the next round. */
-    private ObjectNode assistantContentOpenAi(String text, List<OaiToolCallBlock> toolCalls)
-    {
-        ObjectNode msg = mapper.createObjectNode();
-        msg.put("role", "assistant");
-        if (text != null && !text.isEmpty()) {
-            msg.put("content", text);
-        }
-        else {
-            msg.putNull("content");
-        }
-        ArrayNode toolCallsArray = mapper.createArrayNode();
-        for (OaiToolCallBlock block : toolCalls) {
-            ObjectNode tc = mapper.createObjectNode();
-            tc.put("id", block.id);
-            tc.put("type", "function");
-            ObjectNode fn = mapper.createObjectNode();
-            fn.put("name", block.name);
-            fn.put("arguments", block.partialArgs.toString());
-            tc.set("function", fn);
-            toolCallsArray.add(tc);
-        }
-        msg.set("tool_calls", toolCallsArray);
-        return msg;
-    }
-
-    // ── Tool dispatch ─────────────────────────────────────────────────────
-
-    /** Dispatch each tool_use block (Anthropic) and build the follow-up
-     *  user message whose content carries every tool_result. */
-    private ObjectNode dispatchTools(List<ToolUseBlock> toolUses)
-    {
-        ObjectNode msg = mapper.createObjectNode();
-        msg.put("role", "user");
-        ArrayNode content = mapper.createArrayNode();
-        for (ToolUseBlock block : toolUses) {
-            JsonNode input = parseToolInput(block.partialJson.toString());
-            String inputJson;
-            try {
-                inputJson = mapper.writeValueAsString(input);
-            }
-            catch (Exception e) {
-                inputJson = "{}";
-            }
-            publish(new StreamEvent.ToolCallStarted(
-                    Instant.now(), block.id, block.name, inputJson));
-            persistToolCall(block.id, block.name, inputJson);
-            AgentTool.Result result = invokeTool(block.name, input);
-            String outputJson;
-            try {
-                outputJson = mapper.writeValueAsString(
-                        mapper.createObjectNode().put("text", result.text()));
-            }
-            catch (Exception e) {
-                outputJson = "{\"text\":\"\"}";
-            }
-            publish(new StreamEvent.ToolCallDone(
-                    Instant.now(), block.id, outputJson, result.isError()));
-            persistToolResult(block.id, result.text(), result.isError());
-
-            ObjectNode resultBlock = mapper.createObjectNode();
-            resultBlock.put("type", "tool_result");
-            resultBlock.put("tool_use_id", block.id);
-            resultBlock.put("content", result.text());
-            if (result.isError()) {
-                resultBlock.put("is_error", true);
-            }
-            content.add(resultBlock);
-        }
-        msg.set("content", content);
-        return msg;
-    }
-
-    /** Dispatch each tool call (OpenAI format). Returns one role:tool
-     *  message per call; callers append each to the messages array. */
-    private List<ObjectNode> dispatchToolsOpenAi(List<OaiToolCallBlock> toolCalls)
-    {
-        List<ObjectNode> toolMessages = new ArrayList<>();
-        for (OaiToolCallBlock block : toolCalls) {
-            JsonNode input = parseToolInput(block.partialArgs.toString());
-            String inputJson;
-            try {
-                inputJson = mapper.writeValueAsString(input);
-            }
-            catch (Exception e) {
-                inputJson = "{}";
-            }
-            publish(new StreamEvent.ToolCallStarted(
-                    Instant.now(), block.id, block.name, inputJson));
-            persistToolCall(block.id, block.name, inputJson);
-            AgentTool.Result result = invokeTool(block.name, input);
-            String outputJson;
-            try {
-                outputJson = mapper.writeValueAsString(
-                        mapper.createObjectNode().put("text", result.text()));
-            }
-            catch (Exception e) {
-                outputJson = "{\"text\":\"\"}";
-            }
-            publish(new StreamEvent.ToolCallDone(
-                    Instant.now(), block.id, outputJson, result.isError()));
-            persistToolResult(block.id, result.text(), result.isError());
-
-            ObjectNode toolMsg = mapper.createObjectNode();
-            toolMsg.put("role", "tool");
-            toolMsg.put("tool_call_id", block.id);
-            toolMsg.put("content", result.text() == null ? "" : result.text());
-            toolMessages.add(toolMsg);
-        }
-        return toolMessages;
+                tokensIn, tokensOut, tps, elapsedMs, "200"));
     }
 
     private JsonNode parseToolInput(String raw)
@@ -1159,56 +758,6 @@ public class LogicLoopThreadAgent
 
     // ── Inner types ───────────────────────────────────────────────────────
 
-    /** Bookkeeping for Anthropic tool_use blocks. Partial input JSON
-     *  accumulates via input_json_delta frames and is finalised on
-     *  content_block_stop. */
-    private static final class ToolUseBlock
-    {
-        final String id;
-        final String name;
-        final StringBuilder partialJson;
-
-        ToolUseBlock(String id, String name, StringBuilder partialJson)
-        {
-            this.id = id;
-            this.name = name;
-            this.partialJson = partialJson;
-        }
-    }
-
-    private record RoundResult(
-            String text,
-            List<ToolUseBlock> toolUseBlocks,
-            long tokensIn,
-            long tokensOut)
-    {
-    }
-
-    /** Bookkeeping for OpenAI-compatible tool_calls. The provider sends
-     *  id + name only in the first chunk for each index; subsequent chunks
-     *  carry argument fragments. */
-    private static final class OaiToolCallBlock
-    {
-        final String id;
-        final String name;
-        final StringBuilder partialArgs;
-
-        OaiToolCallBlock(String id, String name, StringBuilder partialArgs)
-        {
-            this.id = id;
-            this.name = name;
-            this.partialArgs = partialArgs;
-        }
-    }
-
-    private record OaiRoundResult(
-            String text,
-            List<OaiToolCallBlock> toolCallBlocks,
-            long tokensIn,
-            long tokensOut)
-    {
-    }
-
     // ── Prompt / history builders ─────────────────────────────────────────
 
     private String composeSystemPrompt()
@@ -1217,53 +766,6 @@ public class LogicLoopThreadAgent
             return null;
         }
         return roleSkillText.trim();
-    }
-
-    /** One-line breakdown of the outbound request payload so we can
-     *  spot which axis is dominating input-token cost. The estimator is
-     *  {@code chars / 4} which is widely-used as a rough English+code
-     *  approximation; close enough to distinguish 500-token bloat from
-     *  5000-token bloat without paying for a real tokenizer. Fires per
-     *  round, so a multi-iteration tool turn logs once per iteration.
-     *
-     *  <p>Note on OpenAI vs Anthropic: in OpenAI's wire shape the
-     *  system prompt lives inside {@code messages[0]}, so the messages
-     *  count there already includes the system bytes. We log both
-     *  numbers anyway for parity — the rest (history + user) is
-     *  {@code messages - system} for OpenAI and {@code messages} for
-     *  Anthropic. */
-    private static void logPromptBreakdown(
-            String provider, String modelId,
-            int totalChars, int systemChars, int messagesChars, int toolsChars)
-    {
-        log.info(
-                "[prompt-bytes] provider={} model={} total={}c (~{}t)  tools={}c (~{}t)  system={}c (~{}t)  messages={}c (~{}t)",
-                provider, modelId,
-                totalChars, totalChars / 4,
-                toolsChars, toolsChars / 4,
-                systemChars, systemChars / 4,
-                messagesChars, messagesChars / 4);
-    }
-
-    /** Length of the {@code content} field on the first
-     *  {@code role: "system"} entry of an OpenAI-shape messages array,
-     *  or 0 if none. Used only by {@link #logPromptBreakdown} — we
-     *  don't otherwise inspect messages by role. */
-    private static int extractSystemContentLength(ArrayNode messages)
-    {
-        if (messages == null || messages.isEmpty()) {
-            return 0;
-        }
-        var first = messages.get(0);
-        if (first == null || !first.isObject()) {
-            return 0;
-        }
-        var role = first.get("role");
-        if (role == null || !"system".equals(role.asText())) {
-            return 0;
-        }
-        var content = first.get("content");
-        return content == null ? 0 : content.asText().length();
     }
 
     /** Build the Anthropic message history array (no system message —

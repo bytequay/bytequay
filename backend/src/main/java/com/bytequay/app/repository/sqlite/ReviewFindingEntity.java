@@ -53,6 +53,12 @@ class ReviewFindingEntity
     @Column(name = "created_at_ms", nullable = false)
     private long createdAtMs;
 
+    @Column(name = "debate_status")
+    private String debateStatus;
+
+    @Column(name = "debate_rounds", nullable = false)
+    private int debateRounds;
+
     String getId() { return id; }
     void setId(String id) { this.id = id; }
 
@@ -82,4 +88,10 @@ class ReviewFindingEntity
 
     long getCreatedAtMs() { return createdAtMs; }
     void setCreatedAtMs(long createdAtMs) { this.createdAtMs = createdAtMs; }
+
+    String getDebateStatus() { return debateStatus; }
+    void setDebateStatus(String debateStatus) { this.debateStatus = debateStatus; }
+
+    int getDebateRounds() { return debateRounds; }
+    void setDebateRounds(int debateRounds) { this.debateRounds = debateRounds; }
 }

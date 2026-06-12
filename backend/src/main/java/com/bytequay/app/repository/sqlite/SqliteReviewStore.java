@@ -207,6 +207,8 @@ class SqliteReviewStore
         entity.setBody(finding.body());
         entity.setResolution(finding.resolution());
         entity.setPostedCommentId(finding.postedCommentId());
+        entity.setDebateStatus(finding.debateStatus());
+        entity.setDebateRounds(finding.debateRounds());
         entity.setCreatedAtMs(finding.createdAt().toEpochMilli());
         findings.save(entity);
     }
@@ -287,7 +289,9 @@ class SqliteReviewStore
                 e.getBody(),
                 e.getResolution(),
                 e.getPostedCommentId(),
-                Instant.ofEpochMilli(e.getCreatedAtMs()));
+                Instant.ofEpochMilli(e.getCreatedAtMs()),
+                e.getDebateStatus(),
+                e.getDebateRounds());
     }
 
     private String writeStringList(List<String> values)

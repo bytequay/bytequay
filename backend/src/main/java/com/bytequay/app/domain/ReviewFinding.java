@@ -30,6 +30,11 @@ import java.time.Instant;
  *                         {@link ReviewFindingStatus#DISPUTED}.
  * @param postedCommentId  GitHub comment id once the publish step
  *                         lands the finding on the PR.
+ * @param debateStatus     outcome of the bounded DEBATE phase for a
+ *                         DISPUTED finding: null / "not_eligible",
+ *                         "converged" (panel reaffirmed → AGREED), or
+ *                         "stalled_rounds" / "stalled_cost".
+ * @param debateRounds     round-robin rounds the finding's debate ran.
  */
 public record ReviewFinding(
         String id,
@@ -41,6 +46,26 @@ public record ReviewFinding(
         String body,
         String resolution,
         String postedCommentId,
-        Instant createdAt)
+        Instant createdAt,
+        String debateStatus,
+        int debateRounds)
 {
+    /** New finding straight out of consensus — not yet debated, so the
+     *  debate fields default. Keeps the existing call sites unchanged
+     *  while the canonical constructor grows the debate columns. */
+    public ReviewFinding(
+            String id,
+            String reviewPassId,
+            String path,
+            Integer line,
+            ReviewFindingSeverity severity,
+            ReviewFindingStatus status,
+            String body,
+            String resolution,
+            String postedCommentId,
+            Instant createdAt)
+    {
+        this(id, reviewPassId, path, line, severity, status, body, resolution,
+                postedCommentId, createdAt, null, 0);
+    }
 }

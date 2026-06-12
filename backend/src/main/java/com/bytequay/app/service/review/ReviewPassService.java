@@ -59,6 +59,7 @@ import org.springframework.web.server.ResponseStatusException;
 import java.io.IOException;
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
@@ -559,12 +560,14 @@ public class ReviewPassService
                         Instant.now()));
             }
 
-            // Bounded debate over the disputed items, capped at
-            // pass.roundCap(). Skipped when the budget is already spent —
-            // the debate is itself LLM calls. The ballot still drives
-            // final resolution.
-            if (!budgetHit && !consensus.disputed().isEmpty()) {
-                runDebateLoop(pass, panel, reviewerSeats, request, outputs, consensus.disputed());
+            // Bounded debate over the DISPUTED findings — capped on
+            // rounds (pass.roundCap()) and cost per finding. A finding the
+            // panel reaffirms collapses to AGREED; the rest stay DISPUTED
+            // for the ballot. Skipped when the budget is already spent,
+            // since the debate is itself LLM calls.
+            if (!budgetHit) {
+                spentMilli = runDebates(pass, panel, reviewerSeats, spentMilli);
+                pass = withCost(pass, spentMilli);
             }
             suggested = suggestedVerdictForConsensus(consensus);
         }
@@ -640,7 +643,8 @@ public class ReviewPassService
                 finding.body(),
                 /* resolution */ resolution.toLowerCase(Locale.ROOT),
                 finding.postedCommentId(),
-                finding.createdAt()));
+                finding.createdAt(),
+                finding.debateStatus(), finding.debateRounds()));
 
         // Once no DISPUTED findings remain, the pass falls through to
         // TERMINATE so the publish form unlocks.
@@ -929,134 +933,221 @@ public class ReviewPassService
         return chunks;
     }
 
-    /** Bounded debate loop: up to {@code pass.roundCap()} rounds of
-     *  reviewers responding to the others' disputed findings.
-     *  Convergence early-stop fires when no reviewer's anchor set
-     *  changes round-over-round. Persists one DEBATE message per
-     *  reviewer per round so the transcript carries the back-and-
-     *  forth into the arbitration UI. Doesn't mutate finding rows —
-     *  the ballot still drives final resolution.
-     *
-     *  <p>Cost tracking is best-effort: the existing LlmReviewer API
-     *  doesn't expose per-call token counts so the loop only enforces
-     *  the round cap. A future commit can thread token usage through
-     *  ReviewOutput and add cost-cap honouring here. */
-    private void runDebateLoop(
+    /** Per-finding debate cost ceiling in milli-USD ($0.10). A single
+     *  finding's round-robin never spends past this, nor past the pass's
+     *  remaining budget. */
+    private static final long DEBATE_COST_CAP_MILLI = 100L;
+
+    /** Bounded debate over the pass's DISPUTED findings. Each finding
+     *  (severity desc, then a stable path/line order) gets a round-robin
+     *  of reviewer turns capped at {@code pass.roundCap()} rounds and the
+     *  per-finding cost ceiling. A finding the panel unanimously reaffirms
+     *  collapses to AGREED ({@code debate_status = converged}); one that
+     *  stalls on rounds or cost stays DISPUTED ({@code stalled_rounds} /
+     *  {@code stalled_cost}) for the human ballot. Returns the running
+     *  pass spend. */
+    private long runDebates(
             ReviewPass pass,
             List<PanelMember> panel,
             List<ReviewParticipant> seats,
-            ReviewRequest baseRequest,
-            Map<ReviewParticipant, ReviewOutput> independentOutputs,
-            List<ConsensusFinding> initialDisputed)
+            long spentMilli)
     {
-        ReviewPass debatePass = withPhase(pass, ReviewPhase.DEBATE, /* endedAt */ null);
-        reviewStore.savePass(debatePass);
-
-        // Per-reviewer anchor set from the latest round, seeded from
-        // INDEPENDENT. Convergence early-stop compares the new round's
-        // sets to this and breaks when every reviewer stays put.
-        Map<ReviewParticipant, Set<AnchorKey>> previousAnchors = new LinkedHashMap<>();
-        for (ReviewParticipant seat : seats) {
-            previousAnchors.put(seat, anchorsOf(independentOutputs.get(seat)));
-        }
-
-        String debateContext = buildDebateContext(initialDisputed);
-        ReviewRequest debateRequest = new ReviewRequest(
-                baseRequest.repo(),
-                baseRequest.number(),
-                baseRequest.title(),
-                baseRequest.body(),
-                baseRequest.headSha(),
-                baseRequest.diff(),
-                composeSkillContext(debateContext));
-
+        long capMilli = pass.costCapMilli();
         int roundCap = pass.roundCap();
-        for (int round = 1; round <= roundCap; round++) {
-            Map<ReviewParticipant, ReviewOutput> debateOutputs;
-            try {
-                debateOutputs = runIndependentInParallel(seats, panel, debateRequest);
+        List<ReviewFinding> disputed = reviewStore.listFindingsForPass(pass.id()).stream()
+                .filter(f -> f.status() == ReviewFindingStatus.DISPUTED)
+                .sorted(Comparator
+                        .comparingInt((ReviewFinding f) -> severityWeight(f.severity())).reversed()
+                        .thenComparing(f -> f.path() == null ? "" : f.path())
+                        .thenComparingInt(f -> f.line() == null ? 0 : f.line()))
+                .toList();
+        if (disputed.isEmpty() || roundCap <= 0) {
+            return spentMilli;
+        }
+        reviewStore.savePass(withCost(withPhase(pass, ReviewPhase.DEBATE, /* endedAt */ null), spentMilli));
+        for (ReviewFinding finding : disputed) {
+            long perDebateBudget = Math.min(DEBATE_COST_CAP_MILLI, Math.max(0L, capMilli - spentMilli));
+            if (perDebateBudget <= 0L) {
+                // Pass budget already spent — leave the finding disputed.
+                reviewStore.saveFinding(withDebate(finding, "stalled_cost", finding.debateRounds()));
+                continue;
             }
-            catch (RuntimeException e) {
-                // A provider blip mid-debate shouldn't tear down the
-                // whole pass — log, break, fall through to ARBITRATE
-                // on the disputed set from INDEPENDENT. The transcript
-                // captures the rounds that did complete.
-                log.warn("Review pass {} DEBATE round {} failed: {}",
-                        pass.id(), round, e.getMessage());
-                break;
-            }
+            DebateOutcome outcome = debateFinding(pass, panel, seats, finding, roundCap, perDebateBudget);
+            spentMilli += outcome.costMilli();
+            reviewStore.saveFinding(outcome.converged()
+                    ? resolveConverged(finding, outcome.rounds())
+                    : withDebate(finding, outcome.status(), outcome.rounds()));
+        }
+        return spentMilli;
+    }
 
-            Instant roundAt = Instant.now();
-            for (ReviewParticipant seat : seats) {
-                ReviewOutput out = debateOutputs.get(seat);
+    /** Round-robin debate over one DISPUTED finding. Each reviewer sees
+     *  only the finding under debate plus this debate's prior turns —
+     *  never the full panel history — so the context stays bounded. Ends
+     *  on unanimous "agree" (converged), the round cap, or the per-finding
+     *  cost cap. */
+    private DebateOutcome debateFinding(
+            ReviewPass pass,
+            List<PanelMember> panel,
+            List<ReviewParticipant> seats,
+            ReviewFinding finding,
+            int roundCap,
+            long budgetMilli)
+    {
+        long spent = 0L;
+        int roundsRun = 0;
+        boolean budgetOut = false;
+        boolean converged = false;
+        Map<String, String> latestStance = new LinkedHashMap<>();
+        List<String> priorTurns = new ArrayList<>();
+        for (int round = 1; round <= roundCap; round++) {
+            roundsRun = round;
+            for (int i = 0; i < seats.size(); i++) {
+                if (spent >= budgetMilli) {
+                    budgetOut = true;
+                    break;
+                }
+                ReviewParticipant seat = seats.get(i);
+                PanelMember member = panel.get(i);
+                LlmCompletion c = safeComplete(
+                        member.reviewer(),
+                        debateSystemPrompt(),
+                        debateUserPrompt(finding, member, priorTurns),
+                        "debate");
+                if (c == null) {
+                    continue;
+                }
+                long cost = ModelPricing.estimateCostMilli(c.modelName(), c.tokensIn(), c.tokensOut());
+                spent += cost;
+                DebateTurn turn = parseDebateTurn(validJsonObjectOrNull(c.text()));
+                latestStance.put(seat.id(), turn.stance());
+                boolean noComment = turn.comment() == null || turn.comment().isBlank();
+                priorTurns.add("[" + member.displayLabel() + "] " + turn.stance()
+                        + (noComment ? "" : ": " + turn.comment()));
                 reviewStore.saveMessage(new ReviewMessage(
                         UUID.randomUUID().toString(),
                         pass.id(),
                         seat.id(),
                         ReviewPhase.DEBATE,
                         round,
-                        out.summary() == null ? "" : out.summary(),
+                        noComment ? turn.stance() : turn.comment(),
                         /* mentions */ List.of(),
                         /* refs */ List.of(),
-                        /* costUsdMilli */ 0L,
-                        roundAt));
+                        "debate_turn",
+                        debateTurnPayload(finding.id(), turn.stance()),
+                        cost,
+                        Instant.now()));
             }
-
-            // Convergence check: every reviewer holds the same anchor
-            // set as the previous round. The first stable round ends
-            // the loop — further LLM calls only burn tokens.
-            Map<ReviewParticipant, Set<AnchorKey>> currentAnchors = new LinkedHashMap<>();
-            for (ReviewParticipant seat : seats) {
-                currentAnchors.put(seat, anchorsOf(debateOutputs.get(seat)));
-            }
-            boolean converged = currentAnchors.equals(previousAnchors);
-            if (converged) {
-                log.info("Review pass {} DEBATE converged after round {}", pass.id(), round);
+            if (budgetOut) {
                 break;
             }
-            previousAnchors = currentAnchors;
-        }
-    }
-
-    private static Set<AnchorKey> anchorsOf(ReviewOutput out)
-    {
-        if (out == null || out.comments() == null) {
-            return Set.of();
-        }
-        Set<AnchorKey> set = new LinkedHashSet<>();
-        for (ReviewOutput.LineComment c : out.comments()) {
-            Integer line = c.line() > 0 ? c.line() : null;
-            set.add(new AnchorKey(c.file(), line));
-        }
-        return set;
-    }
-
-    /** Build the augmented skillContext for a debate round. Lists
-     *  the disputed findings + which reviewer flagged each so the
-     *  model knows what to weigh in on. Stuffed into the existing
-     *  {@code ReviewRequest.skillContext} slot — the prompt builder
-     *  surfaces it under the "Repository-specific review context"
-     *  header, which is a bit of an overload but means no new
-     *  LlmReviewer API surface to land in this commit. */
-    private static String buildDebateContext(List<ConsensusFinding> disputed)
-    {
-        StringBuilder sb = new StringBuilder();
-        sb.append("PANEL DEBATE ROUND. You are part of a review panel; ");
-        sb.append("the panel did not reach consensus on the findings below. ");
-        sb.append("For each item, reaffirm if you still believe it should be ");
-        sb.append("raised on this PR, or omit it from your output. Findings ");
-        sb.append("you don't mention will be treated as withdrawn. Don't add ");
-        sb.append("new findings — focus only on the disputed list.\n\n");
-        for (ConsensusFinding f : disputed) {
-            sb.append("- ").append(f.path() == null ? "(whole PR)" : f.path());
-            if (f.line() != null) {
-                sb.append(":").append(f.line());
+            if (everyoneAgrees(latestStance, seats)) {
+                converged = true;
+                break;
             }
-            sb.append(" — [").append(f.reporterPersona()).append("] ")
-                    .append(f.body()).append('\n');
         }
-        return sb.toString();
+        String status = converged ? null : (budgetOut ? "stalled_cost" : "stalled_rounds");
+        return new DebateOutcome(converged, status, roundsRun, spent);
     }
+
+    private static boolean everyoneAgrees(Map<String, String> stance, List<ReviewParticipant> seats)
+    {
+        for (ReviewParticipant s : seats) {
+            if (!"agree".equalsIgnoreCase(stance.get(s.id()))) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private DebateTurn parseDebateTurn(String json)
+    {
+        if (json == null) {
+            return new DebateTurn("hold", null);
+        }
+        try {
+            DebateTurn t = objectMapper.readValue(json, DebateTurn.class);
+            String stance = t.stance() == null ? "hold" : t.stance().toLowerCase(Locale.ROOT);
+            if (!"agree".equals(stance) && !"partial".equals(stance) && !"hold".equals(stance)) {
+                stance = "hold";
+            }
+            return new DebateTurn(stance, t.comment());
+        }
+        catch (IOException e) {
+            return new DebateTurn("hold", null);
+        }
+    }
+
+    private String debateTurnPayload(String findingId, String stance)
+    {
+        try {
+            return objectMapper.writeValueAsString(Map.of("findingId", findingId, "stance", stance));
+        }
+        catch (IOException e) {
+            return null;
+        }
+    }
+
+    private static String debateSystemPrompt()
+    {
+        return """
+                You are one reviewer on a code-review panel debating a single DISPUTED finding — \
+                the panel split on whether it should be raised. Read the finding and the debate so \
+                far, then respond with STRICT JSON only: \
+                {"stance":"agree"|"partial"|"hold","comment":string}. 'agree' = the finding is valid \
+                and should be raised; 'partial' = valid but with the caveat in your comment; 'hold' = \
+                you are not convinced. Keep 'comment' under ~60 words. Output ONLY the JSON object — \
+                no prose, no markdown fences.""";
+    }
+
+    private static String debateUserPrompt(ReviewFinding finding, PanelMember member, List<String> priorTurns)
+    {
+        String anchor = (finding.path() == null ? "(whole PR)" : finding.path())
+                + (finding.line() == null ? "" : ":" + finding.line());
+        return "You are reviewer \"" + member.displayLabel() + "\".\n\n"
+                + "Disputed finding #finding-" + finding.id() + " — " + anchor
+                + " [" + finding.severity().dbValue() + "]:\n"
+                + finding.body() + "\n\n"
+                + (priorTurns.isEmpty()
+                        ? "No turns yet — open the debate."
+                        : "Debate so far:\n" + String.join("\n", priorTurns))
+                + "\n\nRespond directly: agree, partial agree (with the caveat), or hold. "
+                + "Return the JSON object.";
+    }
+
+    private static ReviewFinding withDebate(ReviewFinding f, String debateStatus, int debateRounds)
+    {
+        return new ReviewFinding(
+                f.id(), f.reviewPassId(), f.path(), f.line(), f.severity(),
+                f.status(), f.body(), f.resolution(), f.postedCommentId(), f.createdAt(),
+                debateStatus, debateRounds);
+    }
+
+    private static ReviewFinding resolveConverged(ReviewFinding f, int debateRounds)
+    {
+        return new ReviewFinding(
+                f.id(), f.reviewPassId(), f.path(), f.line(), f.severity(),
+                ReviewFindingStatus.AGREED, f.body(), f.resolution(), f.postedCommentId(), f.createdAt(),
+                "converged", debateRounds);
+    }
+
+    /** Severity weight (higher = more severe) so the debate visits the
+     *  spiciest disputed findings first. Explicit weights avoid
+     *  {@code Enum.ordinal()}, which Error Prone flags as fragile. */
+    private static int severityWeight(ReviewFindingSeverity s)
+    {
+        return switch (s) {
+            case BLOCKER -> 4;
+            case MAJOR -> 3;
+            case NIT -> 2;
+            case QUESTION -> 1;
+        };
+    }
+
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    private record DebateTurn(String stance, String comment) {}
+
+    private record DebateOutcome(boolean converged, String status, int rounds, long costMilli) {}
 
     // ── LLM-driven cross-review + consensus ──────────────────────────
 
@@ -1410,7 +1501,8 @@ public class ReviewPassService
                     f.body(),
                     f.resolution(),
                     /* postedCommentId */ null,
-                    f.createdAt()));
+                    f.createdAt(),
+                    f.debateStatus(), f.debateRounds()));
         }
 
         ReviewPass published = new ReviewPass(
@@ -1531,7 +1623,6 @@ public class ReviewPassService
         return ReviewVerdict.COMMENT;
     }
 
-    private record AnchorKey(String path, Integer line) {}
     private record ConsensusFinding(
             String path,
             Integer line,

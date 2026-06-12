@@ -388,18 +388,36 @@ class TestReviewPassService
 
     private static final String CROSS_REVIEW_ENVELOPE =
             "{\"agree\":[],\"dispute\":[],\"open_questions\":[]}";
+    /** Default debate stance: reviewers stay unconvinced, so disputed
+     *  findings never converge and the pass parks at arbitration. */
+    private static final String DEBATE_HOLD =
+            "{\"stance\":\"hold\",\"comment\":\"not convinced\"}";
 
-    /** Stub each panel reviewer's structured complete() call: a benign
-     *  cross-review envelope for the cross-review prompt, and the given
-     *  consensus JSON for the lead's consensus prompt (distinguished by
-     *  the consensus prompt's marker text). */
+    /** Stub each panel reviewer's structured complete() call with a
+     *  benign cross-review envelope, the given consensus JSON, and a
+     *  "hold" debate stance — distinguished by each prompt's marker. */
     private void stubPanelOrchestration(String consensusJson, LlmReviewer... panel)
+    {
+        stubPanelOrchestration(consensusJson, DEBATE_HOLD, panel);
+    }
+
+    /** As above but with a caller-chosen debate-turn JSON, so a test can
+     *  drive convergence ("agree") or a stall ("hold"). */
+    private void stubPanelOrchestration(String consensusJson, String debateTurnJson, LlmReviewer... panel)
     {
         for (LlmReviewer r : panel) {
             when(r.complete(anyString(), anyString())).thenAnswer(inv -> {
                 String user = inv.getArgument(1);
-                String json = user.contains("Produce the resolved finding set")
-                        ? consensusJson : CROSS_REVIEW_ENVELOPE;
+                String json;
+                if (user.contains("Produce the resolved finding set")) {
+                    json = consensusJson;
+                }
+                else if (user.contains("Respond directly")) {
+                    json = debateTurnJson;
+                }
+                else {
+                    json = CROSS_REVIEW_ENVELOPE;
+                }
                 return new LlmCompletion(json, 120, 80, "claude-sonnet-4.6");
             });
         }
@@ -670,13 +688,8 @@ class TestReviewPassService
     }
 
     @Test
-    void debateLoopPersistsAtLeastOneRoundOfMessagesAndEarlyStopsOnConvergence()
+    void debateConvergesDisputedFindingsToAgreedWhenReviewersReaffirm()
     {
-        // Two reviewers that produce identical outputs on every call
-        // — that's a stable anchor set, so the loop's convergence
-        // check fires on the first round (round 1 = previous matches).
-        // The first round must still land in the transcript so the
-        // user sees the LLM's defence.
         LlmReviewer claude = mock(LlmReviewer.class);
         LlmReviewer openai = mock(LlmReviewer.class);
         when(claude.providerId()).thenReturn("claude");
@@ -686,36 +699,164 @@ class TestReviewPassService
         when(openai.displayName()).thenReturn("GPT-5");
         when(openai.isConfigured()).thenReturn(true);
         when(registry.all()).thenReturn(List.of(claude, openai));
-        ReviewOutput claudeOut = new ReviewOutput(
-                "Claude take.", List.of(
-                        new ReviewOutput.LineComment("src/a.ts", 1, "Solo.", "nit")),
-                "claude", "claude-sonnet-4.6");
-        ReviewOutput openaiOut = new ReviewOutput(
-                "GPT take.", List.of(
-                        new ReviewOutput.LineComment("src/b.ts", 2, "Solo.", "nit")),
-                "openai", "gpt-5");
-        when(claude.review(any(ReviewRequest.class))).thenReturn(claudeOut);
-        when(openai.review(any(ReviewRequest.class))).thenReturn(openaiOut);
-        stubPanelOrchestration(consensus(
-                finding("src/a.ts", 1, "nit", "Solo.", "disputed", "Claude"),
-                finding("src/b.ts", 2, "nit", "Solo.", "disputed", "GPT-5")),
+        when(claude.review(any(ReviewRequest.class))).thenReturn(new ReviewOutput(
+                "C.", List.of(new ReviewOutput.LineComment("src/a.ts", 1, "A.", "nit")),
+                "claude", "claude-sonnet-4.6"));
+        when(openai.review(any(ReviewRequest.class))).thenReturn(new ReviewOutput(
+                "G.", List.of(new ReviewOutput.LineComment("src/b.ts", 2, "B.", "nit")),
+                "openai", "gpt-5"));
+        // Both reviewers reaffirm every disputed finding, so each debate
+        // converges after a single round.
+        stubPanelOrchestration(
+                consensus(
+                        finding("src/a.ts", 1, "nit", "A.", "disputed", "Claude"),
+                        finding("src/b.ts", 2, "nit", "B.", "disputed", "GPT-5")),
+                "{\"stance\":\"agree\",\"comment\":\"valid\"}",
                 claude, openai);
 
         ReviewPassDetail detail = service.startReviewOnPr("acme/widget", 42);
 
-        // INDEPENDENT messages (2) + CROSS_REVIEW announcement (1) +
-        // at least one DEBATE round (2 messages). The convergence
-        // check on round 1 sees identical anchor sets and stops.
-        long debateMessages = recording.messages.stream()
-                .filter(m -> m.phase() == ReviewPhase.DEBATE)
-                .count();
-        assertThat(debateMessages).isBetween(2L, 6L);
-        // DEBATE phase transition lands in the pass history.
+        // Debate ran and both disputed findings collapsed to AGREED, so
+        // the pass terminates with nothing left to arbitrate.
         assertThat(recording.passHistory).extracting(ReviewPass::phase)
                 .contains(ReviewPhase.DEBATE);
-        // Pass still parks at ARBITRATE — debate is transcript-only;
-        // disputed findings still need the human ballot.
+        assertThat(detail.findings()).isNotEmpty();
+        assertThat(detail.findings()).allSatisfy(f -> {
+            assertThat(f.status()).isEqualTo(ReviewFindingStatus.AGREED);
+            assertThat(f.debateStatus()).isEqualTo("converged");
+        });
+        assertThat(detail.pass().phase()).isEqualTo(ReviewPhase.TERMINATE);
+    }
+
+    @Test
+    void debateLeavesAFindingDisputedAndStalledWhenReviewersNeverAgree()
+    {
+        LlmReviewer claude = mock(LlmReviewer.class);
+        LlmReviewer openai = mock(LlmReviewer.class);
+        when(claude.providerId()).thenReturn("claude");
+        when(claude.displayName()).thenReturn("Claude");
+        when(claude.isConfigured()).thenReturn(true);
+        when(openai.providerId()).thenReturn("openai");
+        when(openai.displayName()).thenReturn("GPT-5");
+        when(openai.isConfigured()).thenReturn(true);
+        when(registry.all()).thenReturn(List.of(claude, openai));
+        when(claude.review(any(ReviewRequest.class))).thenReturn(new ReviewOutput(
+                "C.", List.of(new ReviewOutput.LineComment("src/a.ts", 1, "A.", "major")),
+                "claude", "claude-sonnet-4.6"));
+        when(openai.review(any(ReviewRequest.class))).thenReturn(new ReviewOutput(
+                "G.", List.of(new ReviewOutput.LineComment("src/b.ts", 2, "B.", "nit")),
+                "openai", "gpt-5"));
+        // Reviewers hold (default stance) → no convergence; the debate
+        // burns the full round cap and the finding stays disputed.
+        stubPanelOrchestration(consensus(
+                finding("src/a.ts", 1, "major", "A.", "disputed", "Claude")),
+                claude, openai);
+
+        ReviewPassDetail detail = service.startReviewOnPr("acme/widget", 42);
+
+        ReviewFinding disputed = detail.findings().stream()
+                .filter(f -> f.status() == ReviewFindingStatus.DISPUTED)
+                .findFirst().orElseThrow();
+        assertThat(disputed.debateStatus()).isEqualTo("stalled_rounds");
+        assertThat(disputed.debateRounds()).isEqualTo(3); // StartOptions.DEFAULT roundCap
         assertThat(detail.pass().phase()).isEqualTo(ReviewPhase.ARBITRATE);
+    }
+
+    @Test
+    void debateTurnsCarryTheFindingIdAndKeepContextBounded()
+    {
+        LlmReviewer claude = mock(LlmReviewer.class);
+        LlmReviewer openai = mock(LlmReviewer.class);
+        when(claude.providerId()).thenReturn("claude");
+        when(claude.displayName()).thenReturn("Claude");
+        when(claude.isConfigured()).thenReturn(true);
+        when(openai.providerId()).thenReturn("openai");
+        when(openai.displayName()).thenReturn("GPT-5");
+        when(openai.isConfigured()).thenReturn(true);
+        when(registry.all()).thenReturn(List.of(claude, openai));
+        when(claude.review(any(ReviewRequest.class))).thenReturn(new ReviewOutput(
+                "C.", List.of(new ReviewOutput.LineComment("src/a.ts", 1, "Alpha finding.", "nit")),
+                "claude", "claude-sonnet-4.6"));
+        when(openai.review(any(ReviewRequest.class))).thenReturn(new ReviewOutput(
+                "G.", List.of(new ReviewOutput.LineComment("src/b.ts", 2, "Beta finding.", "nit")),
+                "openai", "gpt-5"));
+        // Consensus keeps exactly one disputed finding; the other
+        // independent finding's text must not leak into the debate.
+        List<String> debatePrompts = new ArrayList<>();
+        String consensusJson = consensus(
+                finding("src/a.ts", 1, "nit", "Alpha finding.", "disputed", "Claude"));
+        for (LlmReviewer r : List.of(claude, openai)) {
+            when(r.complete(anyString(), anyString())).thenAnswer(inv -> {
+                String user = inv.getArgument(1);
+                if (user.contains("Produce the resolved finding set")) {
+                    return new LlmCompletion(consensusJson, 1, 1, "claude-sonnet-4.6");
+                }
+                if (user.contains("Respond directly")) {
+                    debatePrompts.add(user);
+                    return new LlmCompletion(DEBATE_HOLD, 1, 1, "claude-sonnet-4.6");
+                }
+                return new LlmCompletion(CROSS_REVIEW_ENVELOPE, 1, 1, "claude-sonnet-4.6");
+            });
+        }
+
+        ReviewPassDetail detail = service.startReviewOnPr("acme/widget", 42);
+        String disputedId = detail.findings().stream()
+                .filter(f -> f.status() == ReviewFindingStatus.DISPUTED)
+                .findFirst().orElseThrow().id();
+
+        // Every debate prompt references the finding under debate ...
+        assertThat(debatePrompts).isNotEmpty();
+        assertThat(debatePrompts).allMatch(p -> p.contains(disputedId));
+        // ... and none drags in the other finding's text.
+        assertThat(debatePrompts).noneMatch(p -> p.contains("Beta finding."));
+        // The debate_turn message payloads carry the finding id too.
+        assertThat(recording.messages)
+                .filteredOn(m -> "debate_turn".equals(m.payloadKind()))
+                .isNotEmpty()
+                .allSatisfy(m -> assertThat(m.payloadJson()).contains(disputedId));
+    }
+
+    @Test
+    void perFindingDebateCostCapStopsTheRoundRobin()
+    {
+        LlmReviewer claude = mock(LlmReviewer.class);
+        LlmReviewer openai = mock(LlmReviewer.class);
+        when(claude.providerId()).thenReturn("claude");
+        when(claude.displayName()).thenReturn("Claude");
+        when(claude.isConfigured()).thenReturn(true);
+        when(openai.providerId()).thenReturn("openai");
+        when(openai.displayName()).thenReturn("GPT-5");
+        when(openai.isConfigured()).thenReturn(true);
+        when(registry.all()).thenReturn(List.of(claude, openai));
+        when(claude.review(any(ReviewRequest.class))).thenReturn(new ReviewOutput(
+                "C.", List.of(new ReviewOutput.LineComment("src/a.ts", 1, "A.", "nit")),
+                "claude", "claude-sonnet-4.6"));
+        when(openai.review(any(ReviewRequest.class))).thenReturn(new ReviewOutput(
+                "G.", List.of(new ReviewOutput.LineComment("src/b.ts", 2, "B.", "nit")),
+                "openai", "gpt-5"));
+        // A single debate turn reports a huge token bill (~$18), blowing
+        // the per-finding $0.10 cap after the first turn.
+        String consensusJson = consensus(
+                finding("src/a.ts", 1, "nit", "A.", "disputed", "Claude"));
+        for (LlmReviewer r : List.of(claude, openai)) {
+            when(r.complete(anyString(), anyString())).thenAnswer(inv -> {
+                String user = inv.getArgument(1);
+                if (user.contains("Produce the resolved finding set")) {
+                    return new LlmCompletion(consensusJson, 1, 1, "claude-sonnet-4.6");
+                }
+                if (user.contains("Respond directly")) {
+                    return new LlmCompletion(DEBATE_HOLD, 1_000_000, 1_000_000, "claude-sonnet-4.6");
+                }
+                return new LlmCompletion(CROSS_REVIEW_ENVELOPE, 1, 1, "claude-sonnet-4.6");
+            });
+        }
+
+        ReviewPassDetail detail = service.startReviewOnPr("acme/widget", 42);
+
+        ReviewFinding disputed = detail.findings().stream()
+                .filter(f -> f.status() == ReviewFindingStatus.DISPUTED)
+                .findFirst().orElseThrow();
+        assertThat(disputed.debateStatus()).isEqualTo("stalled_cost");
     }
 
     @Test

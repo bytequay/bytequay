@@ -3572,6 +3572,35 @@ const url = new URL(`${BACKEND_BASE}/api/search/repos`);
     return res.json();
   });
 
+  ipcMain.handle('reviews:spawnBuild', async (_event, args: unknown) => {
+    if (typeof args !== 'object' || args === null) {
+      throw new Error('reviews:spawnBuild args must be an object');
+    }
+    const a = args as { passId?: unknown; workspaceId?: unknown; openingTitle?: unknown };
+    if (typeof a.passId !== 'string' || a.passId.trim().length === 0) {
+      throw new Error('passId must be a non-empty string');
+    }
+    const body: Record<string, unknown> = {};
+    if (typeof a.workspaceId === 'string' && a.workspaceId.length > 0) {
+      body.workspaceId = a.workspaceId;
+    }
+    if (typeof a.openingTitle === 'string' && a.openingTitle.length > 0) {
+      body.openingTitle = a.openingTitle;
+    }
+    const res = await fetch(
+      `${BACKEND_BASE}/api/reviews/${encodeURIComponent(a.passId)}/spawn-build`,
+      {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+    if (!res.ok) {
+      const text = await res.text().catch(() => '');
+      throw new Error(`backend POST spawn-build returned ${res.status}: ${text}`);
+    }
+    return res.json();
+  });
+
   ipcMain.handle('reviews:publish', async (_event, args: unknown) => {
     if (typeof args !== 'object' || args === null) {
       throw new Error('reviews:publish args must be an object');

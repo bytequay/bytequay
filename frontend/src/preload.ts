@@ -658,6 +658,8 @@ const bridge: Bridge = {
     ipcRenderer.invoke('reviews:byThread', threadId),
   publishReviewPass: (passId: string, verdict: string, findingIds: string[]) =>
     ipcRenderer.invoke('reviews:publish', { passId, verdict, findingIds }),
+  spawnBuildFromReview: (passId: string, opts?: { workspaceId?: string; openingTitle?: string }) =>
+    ipcRenderer.invoke('reviews:spawnBuild', { passId, ...(opts ?? {}) }),
   arbitrateReviewFinding: (passId: string, findingId: string, resolution: 'include' | 'drop') =>
     ipcRenderer.invoke('reviews:arbitrate', { passId, findingId, resolution }),
   getScheduledReviewSettings: () =>

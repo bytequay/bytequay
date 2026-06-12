@@ -132,10 +132,69 @@ function ReviewThreadPage({ threadId, onBack }: Props) {
                 onPublished={(next) => setDetail(next)}
               />
             )}
+            <SpawnBuildSection detail={detail} onSpawned={() => void refresh()} />
           </aside>
         </div>
       )}
     </section>
+  );
+}
+
+/** The review→build handoff. At TERMINATE with at least one AGREED
+ *  finding at severity >= MAJOR, offers "→ Spawn build thread". Once a
+ *  build thread is spawned, shows the resolution strip instead. */
+function SpawnBuildSection(
+  { detail, onSpawned }: { detail: ReviewPassDetailDto; onSpawned: () => void },
+) {
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const pass = detail.pass;
+
+  if (pass.spawnedBuildThreadId !== null) {
+    const applied = detail.findings.filter(
+      f => f.status === 'AGREED' || f.status === 'RESOLVED');
+    const resolved = applied.filter(f => f.status === 'RESOLVED').length;
+    return (
+      <div style={spawnStripStyle}>
+        <strong>{applied.length} AGREED</strong> → {resolved} resolved
+        {' '}(build thread {pass.spawnedBuildThreadId.slice(0, 8)})
+        {' · '}{applied.length - resolved} unresolved
+      </div>
+    );
+  }
+
+  const eligible = pass.phase === 'TERMINATE'
+    && detail.findings.some(f => f.status === 'AGREED'
+        && (f.severity === 'BLOCKER' || f.severity === 'MAJOR'));
+  if (!eligible) {
+    return null;
+  }
+
+  const onSpawn = async () => {
+    setBusy(true);
+    setError(null);
+    try {
+      await window.bridge.spawnBuildFromReview(pass.id);
+      onSpawned();
+    }
+    catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div style={spawnSectionStyle}>
+      <button type="button" className="button" disabled={busy} onClick={() => void onSpawn()}>
+        → Spawn build thread
+      </button>
+      <p style={spawnHintStyle}>
+        Opens a build thread pre-seeded with the AGREED findings. Your own
+        PR forks off its head; someone else&apos;s gets suggested-change
+        comments — both still go through the publish gate.
+      </p>
+      {error !== null && <div style={errorStyle} role="alert">{error}</div>}
+    </div>
   );
 }
 
@@ -707,6 +766,29 @@ const pageStyle: React.CSSProperties = {
   margin: '0 auto',
   maxWidth: 1280,
   boxSizing: 'border-box',
+};
+
+const spawnSectionStyle: React.CSSProperties = {
+  marginTop: 12,
+  paddingTop: 12,
+  borderTop: '1px solid var(--border-subtle)',
+};
+
+const spawnHintStyle: React.CSSProperties = {
+  margin: '8px 0 0',
+  fontSize: 12,
+  color: 'var(--text-muted)',
+  lineHeight: 1.5,
+};
+
+const spawnStripStyle: React.CSSProperties = {
+  marginTop: 12,
+  padding: '8px 10px',
+  borderRadius: 6,
+  background: 'var(--bg-subtle)',
+  border: '1px solid var(--border-subtle)',
+  fontSize: 12,
+  color: 'var(--text-default)',
 };
 
 const topBarStyle: React.CSSProperties = {

@@ -1967,6 +1967,9 @@ export type ReviewPassDto = {
   verdict: ReviewVerdictDto | null;
   createdAt: string;
   endedAt: string | null;
+  /** The build thread this pass spawned to apply its AGREED findings
+   *  ("→ Spawn build thread"), or null. One spawn per pass. */
+  spawnedBuildThreadId: string | null;
 };
 
 export type ReviewParticipantDto = {
@@ -3219,6 +3222,15 @@ export type Bridge = {
     verdict: ReviewVerdictDto,
     findingIds: string[],
   ) => Promise<ReviewPassDetailDto>;
+  /** Spawn a build thread from a TERMINATE-d pass to apply its AGREED
+   *  findings. {@code mode} is "author_is_reviewer" (forked off
+   *  pr.head) or "suggested_change" (comment-only). Throws on the
+   *  backend's 409 / 422 gates (not TERMINATE, already spawned, no
+   *  eligible findings, no / ambiguous workspace). */
+  spawnBuildFromReview: (
+    passId: string,
+    opts?: { workspaceId?: string; openingTitle?: string },
+  ) => Promise<{ threadId: string; taskId: string | null; mode: string }>;
   /** Flip the headless auto-fix opt-in for one repo. Off by default
    *  per CLAUDE.md; only when this is explicitly true does the
    *  automation coordinator queue a headless turn against a failing-

@@ -307,6 +307,7 @@ function buildDetail(
       verdict: overrides.verdict ?? null,
       createdAt: '2026-05-22T12:00:00Z',
       endedAt: '2026-05-22T12:00:10Z',
+      spawnedBuildThreadId: null,
     },
     participants: [moderator, reviewer, human],
     messages: [

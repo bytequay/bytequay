@@ -1024,6 +1024,15 @@ public class ReviewPassService
                 boolean noComment = turn.comment() == null || turn.comment().isBlank();
                 priorTurns.add("[" + member.displayLabel() + "] " + turn.stance()
                         + (noComment ? "" : ": " + turn.comment()));
+                // Parse any @mention / #ref the reviewer addressed in
+                // its comment so the transcript and a future moderator
+                // turn can resolve them without re-scanning prose.
+                MentionRefParser.Parsed addressed =
+                        MentionRefParser.parse(noComment ? "" : turn.comment());
+                List<String> mentionIds = MentionRefParser.resolveMentions(addressed.mentionLabels(), seats);
+                List<String> refTargets = addressed.refs().stream()
+                        .map(MentionRefParser::encodeRef)
+                        .toList();
                 reviewStore.saveMessage(new ReviewMessage(
                         UUID.randomUUID().toString(),
                         pass.id(),
@@ -1031,8 +1040,8 @@ public class ReviewPassService
                         ReviewPhase.DEBATE,
                         round,
                         noComment ? turn.stance() : turn.comment(),
-                        /* mentions */ List.of(),
-                        /* refs */ List.of(),
+                        mentionIds,
+                        refTargets,
                         "debate_turn",
                         debateTurnPayload(finding.id(), turn.stance()),
                         cost,
@@ -1086,6 +1095,38 @@ public class ReviewPassService
         catch (IOException e) {
             return null;
         }
+    }
+
+    /**
+     * Inline only the bodies a message addressed via {@code #refs} —
+     * the bounded context the moderator hands a reviewer for its next
+     * turn instead of the full panel scrollback. Refs are the
+     * {@code kind:id} strings stored on {@link ReviewMessage#refs()};
+     * unknown or dangling refs are skipped.
+     */
+    String assembleReferencedContext(List<String> refTargets)
+    {
+        if (refTargets == null || refTargets.isEmpty()) {
+            return "";
+        }
+        StringBuilder sb = new StringBuilder();
+        for (String encoded : refTargets) {
+            int sep = encoded.indexOf(':');
+            if (sep <= 0) {
+                continue;
+            }
+            String kind = encoded.substring(0, sep);
+            String id = encoded.substring(sep + 1);
+            if ("msg".equals(kind)) {
+                reviewStore.findMessageById(id).ifPresent(m ->
+                        sb.append("#msg-").append(id).append(": ").append(m.body()).append('\n'));
+            }
+            else if ("finding".equals(kind)) {
+                reviewStore.findFindingById(id).ifPresent(f ->
+                        sb.append("#finding-").append(id).append(": ").append(f.body()).append('\n'));
+            }
+        }
+        return sb.toString();
     }
 
     private static String debateSystemPrompt()

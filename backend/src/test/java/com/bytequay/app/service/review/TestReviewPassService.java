@@ -1033,6 +1033,67 @@ class TestReviewPassService
         assertThat(detail.findings()).allMatch(f -> f.status() == ReviewFindingStatus.DISPUTED);
     }
 
+    @Test
+    void debateTurnCommentsPopulateMentionAndRefColumns()
+    {
+        LlmReviewer claude = mock(LlmReviewer.class);
+        LlmReviewer openai = mock(LlmReviewer.class);
+        when(claude.providerId()).thenReturn("claude");
+        when(claude.displayName()).thenReturn("Claude");
+        when(claude.isConfigured()).thenReturn(true);
+        when(openai.providerId()).thenReturn("openai");
+        when(openai.displayName()).thenReturn("GPT-5");
+        when(openai.isConfigured()).thenReturn(true);
+        when(registry.all()).thenReturn(List.of(claude, openai));
+        when(claude.review(any(ReviewRequest.class))).thenReturn(new ReviewOutput(
+                "C.", List.of(new ReviewOutput.LineComment("src/a.ts", 1, "A.", "nit")),
+                "claude", "claude-sonnet-4.6"));
+        when(openai.review(any(ReviewRequest.class))).thenReturn(new ReviewOutput(
+                "G.", List.of(new ReviewOutput.LineComment("src/b.ts", 2, "B.", "nit")),
+                "openai", "gpt-5"));
+        // Reviewers address @claude and quote #finding-known-id in their
+        // debate comments — both must land on the message's columns.
+        stubPanelOrchestration(
+                consensus(finding("src/a.ts", 1, "nit", "A.", "disputed", "Claude")),
+                "{\"stance\":\"hold\",\"comment\":\"@claude not yet, compare #finding-known-id\"}",
+                claude, openai);
+
+        service.startReviewOnPr("acme/widget", 42);
+
+        ReviewMessage debateMsg = recording.messages.stream()
+                .filter(m -> "debate_turn".equals(m.payloadKind()))
+                .findFirst().orElseThrow();
+        // @claude resolved to the Claude reviewer seat.
+        assertThat(debateMsg.mentions()).isNotEmpty();
+        // #finding-known-id encoded as a stored ref.
+        assertThat(debateMsg.refs()).contains("finding:known-id");
+    }
+
+    @Test
+    void assembleReferencedContextInlinesOnlyTheReferencedBodies()
+    {
+        when(reviewer.review(any(ReviewRequest.class))).thenReturn(new ReviewOutput(
+                "Summary here.",
+                List.of(new ReviewOutput.LineComment("src/x.ts", 1, "Body of finding.", "nit")),
+                "claude", "claude-sonnet-4.6"));
+        ReviewPassDetail detail = service.startReviewOnPr("acme/widget", 42);
+        String findingId = detail.findings().get(0).id();
+        ReviewMessage anyMessage = recording.messages.get(0);
+
+        String ctx = service.assembleReferencedContext(List.of(
+                "finding:" + findingId,
+                "msg:" + anyMessage.id(),
+                "msg:does-not-exist",
+                "garbage-without-separator"));
+
+        // Both live refs are inlined; the dangling and malformed refs are
+        // skipped rather than throwing.
+        assertThat(ctx).contains("Body of finding.");
+        assertThat(ctx).contains(anyMessage.body());
+        assertThat(ctx).doesNotContain("does-not-exist");
+        assertThat(ctx).doesNotContain("garbage-without-separator");
+    }
+
     // ── Phase 8 inner-5: per-file fan-out for big PRs ────────────────
 
     @Test

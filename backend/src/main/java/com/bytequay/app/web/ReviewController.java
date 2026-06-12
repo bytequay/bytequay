@@ -17,6 +17,7 @@ import com.bytequay.app.domain.ReviewPassDetail;
 import com.bytequay.app.domain.ReviewVerdict;
 import com.bytequay.app.repository.AppSettingsStore;
 import com.bytequay.app.repository.AppSettingsStore.Key;
+import com.bytequay.app.service.review.ReviewBuildSpawnService;
 import com.bytequay.app.service.review.ReviewPassService;
 import com.bytequay.app.service.review.ScheduledReviewService;
 import org.springframework.http.HttpStatusCode;
@@ -50,15 +51,18 @@ public class ReviewController
     private final ReviewPassService reviews;
     private final ScheduledReviewService scheduledReviews;
     private final AppSettingsStore appSettings;
+    private final ReviewBuildSpawnService buildSpawn;
 
     public ReviewController(
             ReviewPassService reviews,
             ScheduledReviewService scheduledReviews,
-            AppSettingsStore appSettings)
+            AppSettingsStore appSettings,
+            ReviewBuildSpawnService buildSpawn)
     {
         this.reviews = requireNonNull(reviews, "reviews is null");
         this.scheduledReviews = requireNonNull(scheduledReviews, "scheduledReviews is null");
         this.appSettings = requireNonNull(appSettings, "appSettings is null");
+        this.buildSpawn = requireNonNull(buildSpawn, "buildSpawn is null");
     }
 
     /** Read the workspace-level reviewer persona — a user-editable
@@ -91,6 +95,29 @@ public class ReviewController
         ReviewPassService.StartOptions opts = body.toOptions();
         return reviews.startReviewOnPr(body.repoFullName(), body.prNumber(), opts);
     }
+
+    /**
+     * Spawn a build thread from a TERMINATE-d pass to apply its AGREED
+     * findings. Gated on at least one AGREED finding at severity ≥ MAJOR
+     * (422 {@code no_eligible_findings}); 409 if the pass isn't TERMINATE
+     * or already spawned. The {@code workspaceId} is optional — null
+     * auto-resolves from the workspace(s) watching the PR's repo (422
+     * {@code no_workspace_for_repo} / {@code ambiguous_workspace_picker_required}).
+     */
+    @PostMapping("/{passId}/spawn-build")
+    public ReviewBuildSpawnService.BuildSpawn spawnBuild(
+            @PathVariable String passId,
+            @RequestBody(required = false) SpawnBuildRequest body)
+    {
+        String workspaceId = body == null ? null : body.workspaceId();
+        String openingTitle = body == null ? null : body.openingTitle();
+        return buildSpawn.spawn(passId, workspaceId, openingTitle);
+    }
+
+    /** Spawn-build body — both fields optional. {@code workspaceId} null
+     *  auto-resolves; {@code openingTitle} null defaults to "Fix review
+     *  findings on PR #N". */
+    public record SpawnBuildRequest(String workspaceId, String openingTitle) {}
 
     /** Roster of LLM reviewers the dialog renders as panel chips.
      *  Configured ones come first; unconfigured ones surface so the

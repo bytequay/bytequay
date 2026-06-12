@@ -33,6 +33,9 @@ import java.time.Instant;
  *                  since this review".
  * @param verdict   suggested verdict for the publish step; null
  *                  while the panel is still deciding.
+ * @param spawnedBuildThreadId  the build thread this pass spawned to
+ *                  apply its AGREED findings ("→ Spawn build thread"),
+ *                  or null. Set once, after the pass is TERMINATE.
  */
 public record ReviewPass(
         String id,
@@ -47,6 +50,28 @@ public record ReviewPass(
         long costUsdMilli,
         ReviewVerdict verdict,
         Instant createdAt,
-        Instant endedAt)
+        Instant endedAt,
+        String spawnedBuildThreadId)
 {
+    /** Pass with no spawned build thread yet — every site that builds
+     *  or rebuilds a pass during its run uses this; only the spawn
+     *  handoff (after TERMINATE) sets the link. */
+    public ReviewPass(
+            String id,
+            String threadId,
+            String repoFullName,
+            int prNumber,
+            String headSha,
+            ReviewPhase phase,
+            int round,
+            int roundCap,
+            long costCapMilli,
+            long costUsdMilli,
+            ReviewVerdict verdict,
+            Instant createdAt,
+            Instant endedAt)
+    {
+        this(id, threadId, repoFullName, prNumber, headSha, phase, round, roundCap,
+                costCapMilli, costUsdMilli, verdict, createdAt, endedAt, null);
+    }
 }

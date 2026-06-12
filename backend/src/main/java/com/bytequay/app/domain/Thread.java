@@ -93,8 +93,42 @@ public record Thread(
          *  pick, then to the global default. See V95 for the column
          *  and {@link WorkModel} for the value shape. */
         WorkModel workModel,
-        Task activeTask)
+        Task activeTask,
+        /** The review pass this thread was spawned from ("→ Spawn build
+         *  thread"), or null. Set at creation on the spawned BUILD
+         *  thread; powers the "← from review of PR #N" breadcrumb and
+         *  lets the resolver flip the parent pass's findings to
+         *  RESOLVED when this thread's work ships. */
+        String parentReviewPassId)
 {
+    /** Thread with no review-pass parent — the default for every
+     *  thread except one spawned from a review pass. Keeps the many
+     *  existing construction sites unchanged. */
+    public Thread(
+            String id,
+            ThreadKind kind,
+            String provider,
+            String agentSessionId,
+            String title,
+            ThreadStatus status,
+            String model,
+            long costUsdMilli,
+            long tokensIn,
+            long tokensOut,
+            Instant createdAt,
+            Instant updatedAt,
+            Instant endedAt,
+            String errorMessage,
+            ThreadFlow flow,
+            String workspaceId,
+            WorkModel workModel,
+            Task activeTask)
+    {
+        this(id, kind, provider, agentSessionId, title, status, model, costUsdMilli,
+                tokensIn, tokensOut, createdAt, updatedAt, endedAt, errorMessage, flow,
+                workspaceId, workModel, activeTask, null);
+    }
+
     /**
      * Resolves the directory the agent process should be spawned in
      * by delegating to {@link Task#agentCwd} on the {@link #activeTask}.

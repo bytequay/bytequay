@@ -87,6 +87,9 @@ class ThreadEntity
     @Column(name = "work_model_json")
     private String workModelJson;
 
+    @Column(name = "parent_review_pass_id")
+    private String parentReviewPassId;
+
     // Dropped in V72 (moved to the tasks table):
     //   working_dir, branch_name, local_branch, worktree_path,
     //   process_pid, log_path, task_type, linked_pr_number,
@@ -145,4 +148,7 @@ class ThreadEntity
 
     String getWorkModelJson() { return workModelJson; }
     void setWorkModelJson(String workModelJson) { this.workModelJson = workModelJson; }
+
+    String getParentReviewPassId() { return parentReviewPassId; }
+    void setParentReviewPassId(String parentReviewPassId) { this.parentReviewPassId = parentReviewPassId; }
 }

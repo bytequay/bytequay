@@ -62,6 +62,9 @@ class ReviewPassEntity
     @Column(name = "ended_at_ms")
     private Long endedAtMs;
 
+    @Column(name = "spawned_build_thread_id")
+    private String spawnedBuildThreadId;
+
     String getId() { return id; }
     void setId(String id) { this.id = id; }
 
@@ -100,4 +103,7 @@ class ReviewPassEntity
 
     Long getEndedAtMs() { return endedAtMs; }
     void setEndedAtMs(Long endedAtMs) { this.endedAtMs = endedAtMs; }
+
+    String getSpawnedBuildThreadId() { return spawnedBuildThreadId; }
+    void setSpawnedBuildThreadId(String spawnedBuildThreadId) { this.spawnedBuildThreadId = spawnedBuildThreadId; }
 }

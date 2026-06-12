@@ -128,6 +128,7 @@ class SqliteThreadStore
                             + " from " + entity.getFlow() + " to " + thread.flow().dbValue());
         }
         entity.setWorkModelJson(serialiseWorkModel(thread.workModel()));
+        entity.setParentReviewPassId(thread.parentReviewPassId());
         threads.save(entity);
 
         // Mirror Thread-level state (status, running cost / tokens,
@@ -385,7 +386,8 @@ class SqliteThreadStore
                 ThreadFlow.fromDbValue(e.getFlow()),
                 e.getWorkspaceId(),
                 deserialiseWorkModel(e.getWorkModelJson()),
-                active);
+                active,
+                e.getParentReviewPassId());
     }
 
     private String serialiseWorkModel(WorkModel m)

@@ -82,6 +82,7 @@ class SqliteReviewStore
         entity.setVerdict(pass.verdict() == null ? null : pass.verdict().dbValue());
         entity.setCreatedAtMs(pass.createdAt().toEpochMilli());
         entity.setEndedAtMs(pass.endedAt() == null ? null : pass.endedAt().toEpochMilli());
+        entity.setSpawnedBuildThreadId(pass.spawnedBuildThreadId());
         passes.save(entity);
     }
 
@@ -244,7 +245,8 @@ class SqliteReviewStore
                 e.getCostUsdMilli(),
                 ReviewVerdict.fromDbValue(e.getVerdict()),
                 Instant.ofEpochMilli(e.getCreatedAtMs()),
-                e.getEndedAtMs() == null ? null : Instant.ofEpochMilli(e.getEndedAtMs()));
+                e.getEndedAtMs() == null ? null : Instant.ofEpochMilli(e.getEndedAtMs()),
+                e.getSpawnedBuildThreadId());
     }
 
     private static ReviewParticipant toParticipant(ReviewParticipantEntity e)

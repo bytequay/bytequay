@@ -964,6 +964,11 @@ public class ReviewPassService
         if (disputed.isEmpty() || roundCap <= 0) {
             return spentMilli;
         }
+        // The lead seat also runs the Phase-D convergence-judge call.
+        PanelMember leadMember = panel.stream()
+                .filter(PanelMember::lead)
+                .findFirst()
+                .orElse(panel.get(0));
         reviewStore.savePass(withCost(withPhase(pass, ReviewPhase.DEBATE, /* endedAt */ null), spentMilli));
         for (ReviewFinding finding : disputed) {
             long perDebateBudget = Math.min(DEBATE_COST_CAP_MILLI, Math.max(0L, capMilli - spentMilli));
@@ -972,7 +977,7 @@ public class ReviewPassService
                 reviewStore.saveFinding(withDebate(finding, "stalled_cost", finding.debateRounds()));
                 continue;
             }
-            DebateOutcome outcome = debateFinding(pass, panel, seats, finding, roundCap, perDebateBudget);
+            DebateOutcome outcome = debateFinding(pass, panel, seats, leadMember, finding, roundCap, perDebateBudget);
             spentMilli += outcome.costMilli();
             reviewStore.saveFinding(outcome.converged()
                     ? resolveConverged(finding, outcome.rounds())
@@ -990,6 +995,7 @@ public class ReviewPassService
             ReviewPass pass,
             List<PanelMember> panel,
             List<ReviewParticipant> seats,
+            PanelMember lead,
             ReviewFinding finding,
             int roundCap,
             long budgetMilli)
@@ -1050,10 +1056,24 @@ public class ReviewPassService
             if (budgetOut) {
                 break;
             }
-            if (everyoneAgrees(latestStance, seats)) {
+            // Phase D — the lead moderator judges convergence. A failed
+            // or out-of-bounds verdict falls back to the deterministic
+            // unanimous-"agree" check, so the moderator is a strict
+            // upgrade that can never wedge the debate.
+            ModeratorResult mod = judgeConvergence(lead, finding, priorTurns);
+            spent += mod.costMilli();
+            if (mod.verdict() == ModeratorVerdict.CONVERGED) {
                 converged = true;
                 break;
             }
+            if (mod.verdict() == ModeratorVerdict.STALLED) {
+                break;
+            }
+            if (mod.verdict() == null && everyoneAgrees(latestStance, seats)) {
+                converged = true;
+                break;
+            }
+            // CONTINUE, or fallback-not-yet-converged → another round.
         }
         String status = converged ? null : (budgetOut ? "stalled_cost" : "stalled_rounds");
         return new DebateOutcome(converged, status, roundsRun, spent);
@@ -1067,6 +1087,69 @@ public class ReviewPassService
             }
         }
         return true;
+    }
+
+    /** Phase D — the lead moderator judges whether this finding's debate
+     *  has resolved. Returns the verdict (or null to signal fallback to
+     *  the deterministic unanimous-"agree" check) plus the call cost. */
+    private ModeratorResult judgeConvergence(PanelMember lead, ReviewFinding finding, List<String> priorTurns)
+    {
+        LlmCompletion c = safeComplete(
+                lead.reviewer(),
+                moderatorSystemPrompt(),
+                moderatorUserPrompt(finding, priorTurns),
+                "moderator");
+        if (c == null) {
+            return new ModeratorResult(null, 0L);
+        }
+        long cost = ModelPricing.estimateCostMilli(c.modelName(), c.tokensIn(), c.tokensOut());
+        ModeratorVerdict verdict = null;
+        String json = validJsonObjectOrNull(c.text());
+        if (json != null) {
+            try {
+                verdict = parseVerdict(objectMapper.readValue(json, ModeratorTurn.class).verdict());
+            }
+            catch (IOException e) {
+                verdict = null;
+            }
+        }
+        return new ModeratorResult(verdict, cost);
+    }
+
+    private static ModeratorVerdict parseVerdict(String raw)
+    {
+        if (raw == null) {
+            return null;
+        }
+        return switch (raw.toLowerCase(Locale.ROOT)) {
+            case "converged" -> ModeratorVerdict.CONVERGED;
+            case "continue" -> ModeratorVerdict.CONTINUE;
+            case "stalled" -> ModeratorVerdict.STALLED;
+            default -> null;
+        };
+    }
+
+    private static String moderatorSystemPrompt()
+    {
+        return """
+                You are the lead moderator of a code-review panel, judging whether a debate over \
+                one disputed finding has resolved. Read the finding and the debate turns so far, \
+                then output STRICT JSON only: {"verdict":"converged"|"continue"|"stalled",\
+                "reason":string}. 'converged' = the panel now agrees the finding is valid and \
+                should be raised; 'continue' = another round could still move them; 'stalled' = \
+                they are entrenched and more rounds won't help. Output ONLY the JSON object — no \
+                prose, no markdown fences.""";
+    }
+
+    private static String moderatorUserPrompt(ReviewFinding finding, List<String> priorTurns)
+    {
+        String anchor = (finding.path() == null ? "(whole PR)" : finding.path())
+                + (finding.line() == null ? "" : ":" + finding.line());
+        return "Disputed finding #finding-" + finding.id() + " — " + anchor
+                + " [" + finding.severity().dbValue() + "]:\n"
+                + finding.body() + "\n\n"
+                + "Debate so far:\n" + String.join("\n", priorTurns)
+                + "\n\nHas this debate converged? Return the JSON verdict.";
     }
 
     private DebateTurn parseDebateTurn(String json)
@@ -1189,6 +1272,15 @@ public class ReviewPassService
     private record DebateTurn(String stance, String comment) {}
 
     private record DebateOutcome(boolean converged, String status, int rounds, long costMilli) {}
+
+    private enum ModeratorVerdict { CONVERGED, CONTINUE, STALLED }
+
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    private record ModeratorTurn(String verdict, String reason) {}
+
+    /** Moderator verdict (null = fall back to the deterministic check)
+     *  plus the cost of the moderator call. */
+    private record ModeratorResult(ModeratorVerdict verdict, long costMilli) {}
 
     // ── LLM-driven cross-review + consensus ──────────────────────────
 

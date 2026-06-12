@@ -1094,6 +1094,101 @@ class TestReviewPassService
         assertThat(ctx).doesNotContain("garbage-without-separator");
     }
 
+    @Test
+    void moderatorConvergedVerdictFlipsAFindingEvenWithoutUnanimousAgree()
+    {
+        LlmReviewer claude = mock(LlmReviewer.class);
+        LlmReviewer openai = mock(LlmReviewer.class);
+        when(claude.providerId()).thenReturn("claude");
+        when(claude.displayName()).thenReturn("Claude");
+        when(claude.isConfigured()).thenReturn(true);
+        when(openai.providerId()).thenReturn("openai");
+        when(openai.displayName()).thenReturn("GPT-5");
+        when(openai.isConfigured()).thenReturn(true);
+        when(registry.all()).thenReturn(List.of(claude, openai));
+        when(claude.review(any(ReviewRequest.class))).thenReturn(new ReviewOutput(
+                "C.", List.of(new ReviewOutput.LineComment("src/a.ts", 1, "A.", "nit")),
+                "claude", "claude-sonnet-4.6"));
+        when(openai.review(any(ReviewRequest.class))).thenReturn(new ReviewOutput(
+                "G.", List.of(new ReviewOutput.LineComment("src/b.ts", 2, "B.", "nit")),
+                "openai", "gpt-5"));
+        // Reviewers only ever say "partial" (never unanimous agree), so
+        // the deterministic check would NOT converge — but the lead
+        // moderator rules "converged", which wins.
+        String consensusJson = consensus(finding("src/a.ts", 1, "nit", "A.", "disputed", "Claude"));
+        for (LlmReviewer r : List.of(claude, openai)) {
+            when(r.complete(anyString(), anyString())).thenAnswer(inv -> {
+                String user = inv.getArgument(1);
+                if (user.contains("Produce the resolved finding set")) {
+                    return new LlmCompletion(consensusJson, 1, 1, "claude-sonnet-4.6");
+                }
+                if (user.contains("Has this debate converged")) {
+                    return new LlmCompletion(
+                            "{\"verdict\":\"converged\",\"reason\":\"both now accept it\"}",
+                            1, 1, "claude-sonnet-4.6");
+                }
+                if (user.contains("Respond directly")) {
+                    return new LlmCompletion("{\"stance\":\"partial\"}", 1, 1, "claude-sonnet-4.6");
+                }
+                return new LlmCompletion(CROSS_REVIEW_ENVELOPE, 1, 1, "claude-sonnet-4.6");
+            });
+        }
+
+        ReviewPassDetail detail = service.startReviewOnPr("acme/widget", 42);
+
+        ReviewFinding f = detail.findings().get(0);
+        assertThat(f.status()).isEqualTo(ReviewFindingStatus.AGREED);
+        assertThat(f.debateStatus()).isEqualTo("converged");
+        assertThat(detail.pass().phase()).isEqualTo(ReviewPhase.TERMINATE);
+    }
+
+    @Test
+    void moderatorStalledVerdictEndsTheDebateEarly()
+    {
+        LlmReviewer claude = mock(LlmReviewer.class);
+        LlmReviewer openai = mock(LlmReviewer.class);
+        when(claude.providerId()).thenReturn("claude");
+        when(claude.displayName()).thenReturn("Claude");
+        when(claude.isConfigured()).thenReturn(true);
+        when(openai.providerId()).thenReturn("openai");
+        when(openai.displayName()).thenReturn("GPT-5");
+        when(openai.isConfigured()).thenReturn(true);
+        when(registry.all()).thenReturn(List.of(claude, openai));
+        when(claude.review(any(ReviewRequest.class))).thenReturn(new ReviewOutput(
+                "C.", List.of(new ReviewOutput.LineComment("src/a.ts", 1, "A.", "major")),
+                "claude", "claude-sonnet-4.6"));
+        when(openai.review(any(ReviewRequest.class))).thenReturn(new ReviewOutput(
+                "G.", List.of(new ReviewOutput.LineComment("src/b.ts", 2, "B.", "nit")),
+                "openai", "gpt-5"));
+        // Moderator rules "stalled" on round 1 → debate stops after one
+        // round (not the full 3-round cap) and the finding stays disputed.
+        String consensusJson = consensus(finding("src/a.ts", 1, "major", "A.", "disputed", "Claude"));
+        for (LlmReviewer r : List.of(claude, openai)) {
+            when(r.complete(anyString(), anyString())).thenAnswer(inv -> {
+                String user = inv.getArgument(1);
+                if (user.contains("Produce the resolved finding set")) {
+                    return new LlmCompletion(consensusJson, 1, 1, "claude-sonnet-4.6");
+                }
+                if (user.contains("Has this debate converged")) {
+                    return new LlmCompletion("{\"verdict\":\"stalled\"}", 1, 1, "claude-sonnet-4.6");
+                }
+                if (user.contains("Respond directly")) {
+                    return new LlmCompletion(DEBATE_HOLD, 1, 1, "claude-sonnet-4.6");
+                }
+                return new LlmCompletion(CROSS_REVIEW_ENVELOPE, 1, 1, "claude-sonnet-4.6");
+            });
+        }
+
+        ReviewPassDetail detail = service.startReviewOnPr("acme/widget", 42);
+
+        ReviewFinding disputed = detail.findings().stream()
+                .filter(f -> f.status() == ReviewFindingStatus.DISPUTED)
+                .findFirst().orElseThrow();
+        assertThat(disputed.debateRounds()).isEqualTo(1); // stopped early, not the 3-round cap
+        assertThat(disputed.debateStatus()).isEqualTo("stalled_rounds");
+        assertThat(detail.pass().phase()).isEqualTo(ReviewPhase.ARBITRATE);
+    }
+
     // ── Phase 8 inner-5: per-file fan-out for big PRs ────────────────
 
     @Test

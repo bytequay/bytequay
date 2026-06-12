@@ -29,6 +29,7 @@ import com.bytequay.app.repository.PullRequestRepository;
 import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.service.credentials.PatResolver;
 import com.bytequay.app.service.local.GitRunner;
+import com.bytequay.app.service.review.ReviewPassResolver;
 import com.bytequay.app.service.tools.ParkedProposal;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
@@ -92,6 +93,7 @@ public class PublishService
      *  use. The only call sites are approved task-advance proposals,
      *  which fire at most once per parked notification. */
     private final TaskService taskService;
+    private final ReviewPassResolver reviewPassResolver;
 
     public PublishService(
             NotificationService notifications,
@@ -101,7 +103,8 @@ public class PublishService
             PatResolver patResolver,
             ObjectMapper mapper,
             ParkedProposalService parkedProposals,
-            @Lazy TaskService taskService)
+            @Lazy TaskService taskService,
+            ReviewPassResolver reviewPassResolver)
     {
         this.notifications = requireNonNull(notifications, "notifications is null");
         this.taskStore = requireNonNull(taskStore, "taskStore is null");
@@ -111,6 +114,7 @@ public class PublishService
         this.mapper = requireNonNull(mapper, "mapper is null");
         this.parkedProposals = requireNonNull(parkedProposals, "parkedProposals is null");
         this.taskService = requireNonNull(taskService, "taskService is null");
+        this.reviewPassResolver = requireNonNull(reviewPassResolver, "reviewPassResolver is null");
     }
 
     /**
@@ -216,6 +220,10 @@ public class PublishService
             return interruptedResult(action);
         }
         writeAuditRow(original, "approved", action, result.message());
+        // Close the review→build loop: if this thread was spawned from a
+        // review pass, resolve any AGREED finding its just-published work
+        // references. Best-effort — it never affects the publish outcome.
+        reviewPassResolver.onPublishApproved(original.threadId(), action, editedBody);
         return result;
     }
 

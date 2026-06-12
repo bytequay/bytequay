@@ -26,6 +26,7 @@ import com.bytequay.app.repository.PullRequestRepository;
 import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.service.credentials.PatResolver;
 import com.bytequay.app.service.local.GitRunner;
+import com.bytequay.app.service.review.ReviewPassResolver;
 import com.bytequay.app.service.threads.PublishService.PublishResult;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -84,7 +85,8 @@ class TestPublishService
         parkedProposals = mock(ParkedProposalService.class);
         taskService = mock(TaskService.class);
         service = new PublishService(
-                notifications, taskStore, git, pullRequests, patResolver, mapper, parkedProposals, taskService);
+                notifications, taskStore, git, pullRequests, patResolver, mapper, parkedProposals, taskService,
+                mock(ReviewPassResolver.class));
         when(notifications.claimResolution(anyString())).thenReturn(true);
     }
 

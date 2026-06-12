@@ -173,7 +173,9 @@ function WorkspaceShell({
             onChangeImmersive={onChangeImmersive}
           />
         )}
-        {section === 'memory' && <WorkspaceMemoryPage onOpenThread={onOpenThread} />}
+        {section === 'memory' && (
+          <WorkspaceMemoryPage workspaceId={workspaceId} onOpenThread={onOpenThread} />
+        )}
         {section === 'insights' && <WorkspaceInsightsPage />}
         {section === 'settings' && <WorkspaceSettingsPage />}
       </div>

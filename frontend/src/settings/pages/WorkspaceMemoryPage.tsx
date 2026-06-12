@@ -14,10 +14,6 @@
 import { useEffect, useState } from 'react';
 import WorkspaceMemoryProposalBanner from './WorkspaceMemoryProposalBanner';
 
-/** v1 ships a single ambient workspace. When multi-workspace
- *  switching arrives, this constant becomes a useWorkspace() lookup. */
-const DEFAULT_WORKSPACE_ID = 'ws-default';
-
 /** Soft character target — matches the backend constant
  *  ({@code MEMORY_MD_TARGET_CHARS}). The editor renders past this
  *  but warns about budget overruns; the backend's hard cap is 32 000
@@ -25,13 +21,21 @@ const DEFAULT_WORKSPACE_ID = 'ws-default';
 const TARGET_CHARS = 8_000;
 
 type Props = {
+  /** Active workspace whose memory this page reads/writes. The
+   *  workspace-scoped entry (WorkspaceShell) passes the real id so the
+   *  page matches the home badge; the app-level settings entry has no
+   *  current workspace and omits it, falling back to the ambient
+   *  ws-default. Getting this wrong reads a different workspace's
+   *  (empty) memory and renders blank. */
+  workspaceId?: string;
   /** Wires up the back-link chips in the memory proposal banner so a
    *  click navigates to the source thread. Forwarded from
    *  SettingsShell, originally App.tsx's nav dispatch. */
   onOpenThread?: (threadId: string) => void;
 };
 
-function WorkspaceMemoryPage({ onOpenThread }: Props) {
+function WorkspaceMemoryPage({ workspaceId, onOpenThread }: Props) {
+  const wsId = workspaceId ?? 'ws-default';
   const [memory, setMemory] = useState('');
   const [original, setOriginal] = useState('');
   const [loading, setLoading] = useState(true);
@@ -56,7 +60,7 @@ function WorkspaceMemoryPage({ onOpenThread }: Props) {
     setLoading(true);
     setError(null);
     try {
-      const { memoryMd } = await window.bridge.getWorkspaceMemory(DEFAULT_WORKSPACE_ID);
+      const { memoryMd } = await window.bridge.getWorkspaceMemory(wsId);
       setMemory(memoryMd);
       setOriginal(memoryMd);
     } catch (e) {
@@ -66,7 +70,9 @@ function WorkspaceMemoryPage({ onOpenThread }: Props) {
     }
   };
 
-  useEffect(() => { void load(); }, []);
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- load is
+  // redefined each render; re-run only when the workspace changes.
+  useEffect(() => { void load(); }, [wsId]);
 
   // Fan-out fetch for the thread-title chip labels. Single bridge call
   // — listTasks() already returns the full list with titles — so this
@@ -88,7 +94,7 @@ function WorkspaceMemoryPage({ onOpenThread }: Props) {
     setError(null);
     setStatusMsg(null);
     try {
-      const updated = await window.bridge.setWorkspaceMemory(DEFAULT_WORKSPACE_ID, memory);
+      const updated = await window.bridge.setWorkspaceMemory(wsId, memory);
       setMemory(updated.memoryMd);
       setOriginal(updated.memoryMd);
       setStatusMsg('Saved.');
@@ -113,7 +119,7 @@ function WorkspaceMemoryPage({ onOpenThread }: Props) {
     setError(null);
     setStatusMsg(null);
     try {
-      const proposal = await window.bridge.distillWorkspaceMemory(DEFAULT_WORKSPACE_ID);
+      const proposal = await window.bridge.distillWorkspaceMemory(wsId);
       if (proposal === null) {
         setStatusMsg('No proposal queued — there were no Thread Overalls to fold '
             + 'in, or the distilled body matched the current memory.');
@@ -164,7 +170,7 @@ function WorkspaceMemoryPage({ onOpenThread }: Props) {
       </header>
 
       <WorkspaceMemoryProposalBanner
-        workspaceId={DEFAULT_WORKSPACE_ID}
+        workspaceId={wsId}
         refreshKey={proposalRefreshKey}
         onApplied={() => { void load(); }}
         onOpenThread={onOpenThread}

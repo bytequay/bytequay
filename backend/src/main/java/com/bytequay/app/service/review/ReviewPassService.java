@@ -13,6 +13,8 @@
  */
 package com.bytequay.app.service.review;
 
+import com.bytequay.app.domain.AgendaPhase;
+import com.bytequay.app.domain.AgendaPhaseStatus;
 import com.bytequay.app.domain.CreateReviewCommand;
 import com.bytequay.app.domain.CreateReviewCommand.ReviewLineComment;
 import com.bytequay.app.domain.PrRawDetail;
@@ -22,7 +24,6 @@ import com.bytequay.app.domain.ReviewFinding;
 import com.bytequay.app.domain.ReviewFindingSeverity;
 import com.bytequay.app.domain.ReviewFindingStatus;
 import com.bytequay.app.domain.ReviewMessage;
-import com.bytequay.app.domain.ReviewOutput;
 import com.bytequay.app.domain.ReviewParticipant;
 import com.bytequay.app.domain.ReviewParticipantKind;
 import com.bytequay.app.domain.ReviewPass;
@@ -43,13 +44,10 @@ import com.bytequay.app.repository.PullRequestStore;
 import com.bytequay.app.repository.ReviewStore;
 import com.bytequay.app.repository.ReviewerPersonaStore;
 import com.bytequay.app.repository.ThreadStore;
-import com.bytequay.app.service.ai.LlmCompletion;
 import com.bytequay.app.service.ai.LlmReviewer;
 import com.bytequay.app.service.ai.LlmReviewerRegistry;
-import com.bytequay.app.service.ai.ModelPricing;
 import com.bytequay.app.service.credentials.PatResolver;
-import com.fasterxml.jackson.annotation.JsonIgnoreProperties;
-import com.fasterxml.jackson.databind.ObjectMapper;
+import com.bytequay.app.service.threads.AgentScheduler;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Qualifier;
@@ -58,23 +56,18 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.server.ResponseStatusException;
 
-import java.io.IOException;
 import java.time.Instant;
 import java.util.ArrayList;
-import java.util.Comparator;
-import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Locale;
-import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.UUID;
-import java.util.concurrent.CompletableFuture;
-import java.util.concurrent.CompletionException;
+import java.util.concurrent.Callable;
 import java.util.concurrent.Executor;
-import java.util.concurrent.ExecutorService;
-import java.util.concurrent.Executors;
+import java.util.stream.Collectors;
 
 import static com.bytequay.app.config.AsyncConfig.REVIEW_EXECUTOR;
 import static com.bytequay.app.utils.PullRequestRefUtil.parseRef;
@@ -118,7 +111,12 @@ public class ReviewPassService
     private final AppSettingsStore appSettings;
     private final ReviewerPersonaStore personas;
     private final Executor reviewExecutor;
-    private final ObjectMapper objectMapper = new ObjectMapper();
+    private final LeadOrchestrator leadOrchestrator;
+    private final ReviewerSeat reviewerSeat;
+    private final LeadToolset leadToolset;
+    private final ReviewBudgetMeter budgetMeter;
+    private final ReviewDiffCache diffCache;
+    private final AgentScheduler scheduler;
 
     public ReviewPassService(
             ThreadStore threadStore,
@@ -129,9 +127,21 @@ public class ReviewPassService
             LlmReviewerRegistry reviewers,
             AppSettingsStore appSettings,
             ReviewerPersonaStore personas,
-            @Qualifier(REVIEW_EXECUTOR) Executor reviewExecutor)
+            @Qualifier(REVIEW_EXECUTOR) Executor reviewExecutor,
+            LeadOrchestrator leadOrchestrator,
+            ReviewerSeat reviewerSeat,
+            LeadToolset leadToolset,
+            ReviewBudgetMeter budgetMeter,
+            ReviewDiffCache diffCache,
+            AgentScheduler scheduler)
     {
         this.reviewExecutor = requireNonNull(reviewExecutor, "reviewExecutor is null");
+        this.leadOrchestrator = requireNonNull(leadOrchestrator, "leadOrchestrator is null");
+        this.reviewerSeat = requireNonNull(reviewerSeat, "reviewerSeat is null");
+        this.leadToolset = requireNonNull(leadToolset, "leadToolset is null");
+        this.budgetMeter = requireNonNull(budgetMeter, "budgetMeter is null");
+        this.diffCache = requireNonNull(diffCache, "diffCache is null");
+        this.scheduler = requireNonNull(scheduler, "scheduler is null");
         this.threadStore = requireNonNull(threadStore, "threadStore is null");
         this.reviewStore = requireNonNull(reviewStore, "reviewStore is null");
         this.pullRequests = requireNonNull(pullRequests, "pullRequests is null");
@@ -275,14 +285,20 @@ public class ReviewPassService
                 /* endedAt */ null);
         reviewStore.savePass(pass);
 
-        // 4. Seat the panel: moderator + N reviewers + the human row.
-        //    The human row exists so a later commit can bind user-
-        //    typed messages to it without a schema change.
+        // 4. Seat the panel: the Lead + N reviewers + the human row.
+        //    The Lead runs on the panel's lead member (the dialog's
+        //    pick, falling back to the LEAD-role persona then the
+        //    first member); the human row exists so user-typed
+        //    messages bind without a schema change.
+        PanelMember leadMember = panel.stream()
+                .filter(PanelMember::lead)
+                .findFirst()
+                .orElse(panel.get(0));
         ReviewParticipant moderator = new ReviewParticipant(
                 UUID.randomUUID().toString(), pass.id(),
                 ReviewParticipantKind.LEAD,
-                /* credentialId */ null,
-                "Moderator",
+                /* credentialId */ leadMember.reviewer().providerId(),
+                "Lead",
                 /* model */ null, /* color */ null, now);
         reviewStore.saveParticipant(moderator);
         List<ReviewParticipant> reviewerSeats = new ArrayList<>();
@@ -335,271 +351,299 @@ public class ReviewPassService
                 raw.headSha(),
                 diff,
                 composeSkillContext(/* baseSkill */ null));
-        return new Seat(pass, panel, reviewerSeats, moderator, request);
+
+        // The in-memory roster the lead + seat compositions thread
+        // through the run: persona prompts are configuration, not
+        // transcript, so they ride here rather than on rows.
+        List<PanelSeatConfig.Seat> seatConfigs = new ArrayList<>();
+        seatConfigs.add(new PanelSeatConfig.Seat(
+                moderator.id(), leadMember.reviewer().providerId(),
+                leadMember.personaPrompt(), "Lead", /* lead */ true));
+        for (int i = 0; i < panel.size(); i++) {
+            seatConfigs.add(new PanelSeatConfig.Seat(
+                    reviewerSeats.get(i).id(),
+                    panel.get(i).reviewer().providerId(),
+                    panel.get(i).personaPrompt(),
+                    panel.get(i).displayLabel(),
+                    /* lead */ false));
+        }
+        return new Seat(pass, new PanelSeatConfig(seatConfigs), moderator, reviewerSeats, request);
     }
 
     /** Hand-off from the synchronous seat phase to the (sync or async)
-     *  LLM body. */
+     *  panel body. */
     private record Seat(
             ReviewPass pass,
-            List<PanelMember> panel,
+            PanelSeatConfig roster,
+            ReviewParticipant lead,
             List<ReviewParticipant> reviewerSeats,
-            ReviewParticipant moderator,
             ReviewRequest request) {}
 
+    /** Canonical agenda ids the deterministic spine tracks. The Lead
+     *  sets the agenda (and may extend it), but these four ids must
+     *  exist so phase completion never depends on model output. */
+    static final String AGENDA_INDEPENDENT = "p_independent";
+    static final String AGENDA_CROSS_REVIEW = "p_crossreview";
+    static final String AGENDA_CONSENSUS = "p_consensus";
+    static final String AGENDA_DEBATE = "p_debate";
+
+    /** Watchdog on the Lead-driven loop: a phase never runs more than
+     *  this many Lead rounds, no matter what the model does. */
+    static final int MAX_LEAD_TURNS_PER_PHASE = 50;
+
     /**
-     * Run the LLM panel for a seated pass: independent reviews in
-     * parallel, persist each verbatim, extract consensus, run the
-     * bounded debate over disputed items, and transition the pass to
-     * its final phase. No method-level transaction — every persistence
-     * call short-transacts so the model fan-out never pins the single
-     * pooled connection. On a reviewer failure it parks the pass at
-     * TERMINATE and rethrows, so the synchronous (scheduled) caller
-     * sees the 502 and the async caller can log it.
+     * Drive a seated pass to its final phase. The OUTER spine stays
+     * deterministic — KICKOFF → INDEPENDENT → CROSS_REVIEW → CONSENSUS
+     * → DEBATE → TERMINATE/ARBITRATE, each transition made by this
+     * method — while the CONTENT of each phase is produced by the Lead
+     * orchestrator and the reviewer seats:
+     *
+     * <ul>
+     *   <li>KICKOFF — one Lead round that sets the agenda (the spine
+     *       installs the canonical default if the Lead doesn't).</li>
+     *   <li>INDEPENDENT — the spine fans every reviewer seat out in
+     *       parallel through the scheduler's API lane; seats run
+     *       agentic turns with the read-only tools and report
+     *       findings. A failed seat abstains; the pass only fails if
+     *       every seat failed.</li>
+     *   <li>CROSS_REVIEW / CONSENSUS / DEBATE — Lead-driven rounds
+     *       until the Lead marks the agenda phase done, the pass cost
+     *       cap fires, or the turn-count watchdog trips.</li>
+     * </ul>
+     *
+     * No method-level transaction — every persistence call
+     * short-transacts so the model fan-out never pins the single
+     * pooled connection. On a fatal failure the pass parks at
+     * TERMINATE and rethrows as a 502.
      */
     private ReviewPassDetail runReviewBody(Seat seated)
     {
         ReviewPass pass = seated.pass();
-        List<PanelMember> panel = seated.panel();
-        List<ReviewParticipant> reviewerSeats = seated.reviewerSeats();
-        ReviewParticipant moderator = seated.moderator();
-        ReviewRequest request = seated.request();
-
-        Map<ReviewParticipant, ReviewOutput> outputs;
+        PanelSeatConfig roster = seated.roster();
+        diffCache.seed(pass.id(), seated.request().diff() == null ? "" : seated.request().diff());
+        LeadToolset.Session session = leadToolset.sessionFor(pass.id(), roster, seated.lead().id());
         try {
-            outputs = runIndependentInParallel(reviewerSeats, panel, request);
+            budgetMeter.initSeatSlices(pass, reviewStore.listParticipantsForPass(pass.id()));
+
+            leadOrchestrator.runRound(reload(pass.id()), session, roster,
+                    ReviewPhase.KICKOFF, 0, KICKOFF_DIRECTIVE);
+            ensureAgenda(pass.id());
+
+            markAgenda(pass.id(), AGENDA_INDEPENDENT, AgendaPhaseStatus.IN_PROGRESS);
+            runIndependentParallel(pass.id(), roster);
+            markAgenda(pass.id(), AGENDA_INDEPENDENT, AgendaPhaseStatus.DONE);
+
+            transition(pass.id(), ReviewPhase.CROSS_REVIEW);
+            runLeadDriven(pass.id(), session, roster, ReviewPhase.CROSS_REVIEW,
+                    AGENDA_CROSS_REVIEW, CROSS_REVIEW_GUIDANCE);
+
+            transition(pass.id(), ReviewPhase.CONSENSUS);
+            runLeadDriven(pass.id(), session, roster, ReviewPhase.CONSENSUS,
+                    AGENDA_CONSENSUS, CONSENSUS_GUIDANCE);
+
+            transition(pass.id(), ReviewPhase.DEBATE);
+            runLeadDriven(pass.id(), session, roster, ReviewPhase.DEBATE,
+                    AGENDA_DEBATE, DEBATE_GUIDANCE);
         }
         catch (RuntimeException e) {
-            // Mark the pass terminated-with-error so the UI shows a
-            // clear failure state rather than a pass stuck at
-            // INDEPENDENT forever. Re-throw as a 502 so the caller
-            // sees the provider error verbatim.
-            log.warn("Review pass {} failed during INDEPENDENT phase: {}",
-                    pass.id(), e.getMessage());
-            ReviewPass terminated = withPhase(pass, ReviewPhase.TERMINATE, Instant.now());
-            reviewStore.savePass(terminated);
+            // Park the pass terminated-with-error so the UI shows a
+            // clear failure state rather than a pass stuck mid-phase.
+            log.warn("Review pass {} failed during {}: {}",
+                    pass.id(), reload(pass.id()).phase(), e.getMessage());
+            reviewStore.savePass(withPhase(reload(pass.id()), ReviewPhase.TERMINATE, Instant.now()));
+            diffCache.drop(pass.id());
             throw new ResponseStatusException(HttpStatusCode.valueOf(502),
-                    "LLM reviewer call failed: " + e.getMessage(), e);
+                    "Review panel run failed: " + e.getMessage(), e);
         }
+        diffCache.drop(pass.id());
 
-        // 7. Persist each reviewer's INDEPENDENT message verbatim.
-        Instant afterReviewer = Instant.now();
-        for (ReviewParticipant seat : reviewerSeats) {
-            ReviewOutput out = outputs.get(seat);
-            reviewStore.saveMessage(new ReviewMessage(
-                    UUID.randomUUID().toString(),
-                    pass.id(),
-                    seat.id(),
-                    ReviewPhase.INDEPENDENT,
-                    /* round */ 0,
-                    out.summary() == null ? "" : out.summary(),
-                    /* mentions */ List.of(),
-                    /* refs */ List.of(),
-                    /* costUsdMilli */ 0L,
-                    afterReviewer));
-        }
-
-        // 8. Branch on panel size for findings persistence + phase
-        //    transitions:
-        //      - 1 reviewer: AGREED straight through, no CROSS_REVIEW.
-        //      - 2+ reviewers: heuristic CONSENSUS over the panel's
-        //        raw outputs; CROSS_REVIEW phase carries a moderator
-        //        announcement so the transcript reflects the dedup
-        //        result even without an LLM round.
-        ReviewVerdict suggested;
-        if (panel.size() == 1) {
-            List<ReviewOutput.LineComment> comments = outputs.values().iterator().next().comments();
-            comments = comments == null ? List.of() : comments;
-            for (ReviewOutput.LineComment c : comments) {
-                reviewStore.saveFinding(new ReviewFinding(
-                        UUID.randomUUID().toString(),
-                        pass.id(),
-                        c.file(),
-                        c.line() > 0 ? c.line() : null,
-                        severityFromComment(c.severity()),
-                        ReviewFindingStatus.AGREED,
-                        c.body() == null ? "" : c.body(),
-                        /* resolution */ null,
-                        /* postedCommentId */ null,
-                        afterReviewer));
-            }
-            suggested = suggestedVerdictForComments(comments);
-        }
-        else {
-            // CROSS_REVIEW (LLM-driven, per reviewer, deterministic
-            // seat order so reruns reproduce): each reviewer reacts to
-            // the whole panel's INDEPENDENT findings. A failed or
-            // unparseable call means that reviewer abstains — the pass
-            // continues on whoever answered.
-            long spentMilli = pass.costUsdMilli();
-            long capMilli = pass.costCapMilli();
-            boolean budgetHit = false;
-            pass = withCost(withPhase(pass, ReviewPhase.CROSS_REVIEW, /* endedAt */ null), spentMilli);
-            reviewStore.savePass(pass);
-            List<String> envelopes = new ArrayList<>();
-            for (int i = 0; i < reviewerSeats.size(); i++) {
-                ReviewParticipant seat = reviewerSeats.get(i);
-                PanelMember member = panel.get(i);
-                if (spentMilli >= capMilli) {
-                    budgetHit = true;
-                    log.warn("Review pass {} reached its cost cap ({} milli-USD) mid cross-review; "
-                            + "skipping the remaining reviewers.", pass.id(), capMilli);
-                    break;
-                }
-                LlmCompletion c = safeComplete(
-                        member.reviewer(),
-                        crossReviewSystemPrompt(),
-                        crossReviewUserPrompt(member, reviewerSeats, panel, outputs, request),
-                        "cross-review");
-                if (c == null) {
-                    continue;
-                }
-                String envelopeJson = validJsonObjectOrNull(c.text());
-                if (envelopeJson == null) {
-                    log.warn("Cross-review from {} was not parseable JSON — treating as abstain.",
-                            member.displayLabel());
-                    continue;
-                }
-                long callCost = ModelPricing.estimateCostMilli(c.modelName(), c.tokensIn(), c.tokensOut());
-                spentMilli += callCost;
-                envelopes.add("[" + member.displayLabel() + "]\n" + envelopeJson);
-                reviewStore.saveMessage(new ReviewMessage(
-                        UUID.randomUUID().toString(),
-                        pass.id(),
-                        seat.id(),
-                        ReviewPhase.CROSS_REVIEW,
-                        /* round */ 0,
-                        c.text().strip(),
-                        /* mentions */ List.of(),
-                        /* refs */ List.of(),
-                        "cross_review",
-                        envelopeJson,
-                        callCost,
-                        Instant.now()));
-            }
-
-            // CONSENSUS (one LLM call, run by the lead): fold the
-            // cross-review envelopes + the independent findings into the
-            // resolved set. The lead is the LEAD-role persona member, or
-            // the first member when the panel carries no role info.
-            PanelMember leadMember = panel.stream()
-                    .filter(PanelMember::lead)
-                    .findFirst()
-                    .orElse(panel.get(0));
-            ReviewParticipant leadSeat = reviewerSeats.get(panel.indexOf(leadMember));
-            pass = withCost(withPhase(pass, ReviewPhase.CONSENSUS, /* endedAt */ null), spentMilli);
-            reviewStore.savePass(pass);
-            ConsensusOutcome outcome;
-            if (budgetHit || spentMilli >= capMilli) {
-                // No budget left for the consensus call — escalate every
-                // finding to arbitration rather than spending past the cap.
-                budgetHit = true;
-                log.warn("Review pass {} reached its cost cap ({} milli-USD); skipping the "
-                        + "consensus call and escalating findings to arbitration.", pass.id(), capMilli);
-                outcome = new ConsensusOutcome(allDisputed(reviewerSeats, panel, outputs), null, 0L);
-            }
-            else {
-                outcome = runConsensus(leadMember, reviewerSeats, panel, outputs, envelopes, request);
-            }
-            spentMilli += outcome.costMilli();
-            ConsensusResult consensus = outcome.result();
-            reviewStore.saveMessage(new ReviewMessage(
-                    UUID.randomUUID().toString(),
-                    pass.id(),
-                    leadSeat.id(),
-                    ReviewPhase.CONSENSUS,
-                    /* round */ 0,
-                    "Consensus over the panel: " + consensus.agreed().size() + " agreed, "
-                            + consensus.disputed().size() + " disputed.",
-                    /* mentions */ List.of(),
-                    /* refs */ List.of(),
-                    "consensus",
-                    outcome.json(),
-                    outcome.costMilli(),
-                    Instant.now()));
-
-            Instant afterConsensus = Instant.now();
-            for (ConsensusFinding f : consensus.agreed()) {
-                reviewStore.saveFinding(new ReviewFinding(
-                        UUID.randomUUID().toString(),
-                        pass.id(),
-                        f.path(), f.line(),
-                        f.severity(),
-                        ReviewFindingStatus.AGREED,
-                        f.body(),
-                        /* resolution */ null,
-                        /* postedCommentId */ null,
-                        afterConsensus));
-            }
-            for (ConsensusFinding f : consensus.disputed()) {
-                // Reviewer attribution lands as a prefix on the body
-                // so the publish UI can show "@Claude said: ..." for
-                // disputed picks without a new column on the row.
-                String body = "[" + f.reporterPersona() + "] " + f.body();
-                reviewStore.saveFinding(new ReviewFinding(
-                        UUID.randomUUID().toString(),
-                        pass.id(),
-                        f.path(), f.line(),
-                        f.severity(),
-                        ReviewFindingStatus.DISPUTED,
-                        body,
-                        /* resolution */ null,
-                        /* postedCommentId */ null,
-                        afterConsensus));
-            }
-            pass = withCost(pass, spentMilli);
-            reviewStore.savePass(pass);
-
-            if (budgetHit) {
-                reviewStore.saveMessage(new ReviewMessage(
-                        UUID.randomUUID().toString(),
-                        pass.id(),
-                        moderator.id(),
-                        ReviewPhase.CONSENSUS,
-                        /* round */ 0,
-                        "Budget cap reached. " + consensus.agreed().size() + " findings agreed; "
-                                + consensus.disputed().size()
-                                + " escalated to arbitration without full cross-review.",
-                        /* mentions */ List.of(),
-                        /* refs */ List.of(),
-                        /* costUsdMilli */ 0L,
-                        Instant.now()));
-            }
-
-            // Bounded debate over the DISPUTED findings — capped on
-            // rounds (pass.roundCap()) and cost per finding. A finding the
-            // panel reaffirms collapses to AGREED; the rest stay DISPUTED
-            // for the ballot. Skipped when the budget is already spent,
-            // since the debate is itself LLM calls.
-            if (!budgetHit) {
-                spentMilli = runDebates(pass, panel, reviewerSeats, spentMilli);
-                pass = withCost(pass, spentMilli);
-            }
-            suggested = suggestedVerdictForConsensus(consensus);
-        }
-
-        // 9. Final phase. Panels that produced disputed findings park
-        //    at ARBITRATE so the human picks each contested item via
-        //    the ballot; otherwise the pass terminates straight away
-        //    and the publish form unlocks.
-        boolean hasDisputed = reviewStore.listFindingsForPass(pass.id()).stream()
-                .anyMatch(f -> f.status() == ReviewFindingStatus.DISPUTED);
-        ReviewPhase finalPhase = hasDisputed ? ReviewPhase.ARBITRATE : ReviewPhase.TERMINATE;
+        // Final phase. Findings the panel didn't settle — REPORTED
+        // (never classified) or DISPUTED (split) — park the pass at
+        // ARBITRATE for the human ballot; otherwise it terminates and
+        // the publish form unlocks.
+        ReviewPass fresh = reload(pass.id());
+        List<ReviewFinding> findings = reviewStore.listFindingsForPass(pass.id());
+        boolean needsBallot = findings.stream().anyMatch(ReviewPassService::needsArbitration);
         ReviewPass finalPass = new ReviewPass(
-                pass.id(), pass.threadId(), pass.repoFullName(), pass.prNumber(),
-                pass.headSha(),
-                finalPhase,
-                pass.round(),
-                pass.roundCap(),
-                pass.costCapMilli(),
-                pass.costUsdMilli(),
-                suggested,
-                pass.createdAt(),
-                /* endedAt */ hasDisputed ? null : Instant.now(),
-                pass.spawnedBuildThreadId(), pass.agendaJson());
+                fresh.id(), fresh.threadId(), fresh.repoFullName(), fresh.prNumber(),
+                fresh.headSha(),
+                needsBallot ? ReviewPhase.ARBITRATE : ReviewPhase.TERMINATE,
+                fresh.round(), fresh.roundCap(), fresh.costCapMilli(), fresh.costUsdMilli(),
+                suggestedVerdictForFindings(findings),
+                fresh.createdAt(),
+                /* endedAt */ needsBallot ? null : Instant.now(),
+                fresh.spawnedBuildThreadId(), fresh.agendaJson());
         reviewStore.savePass(finalPass);
-
         return buildDetail(finalPass);
+    }
+
+    private static final String KICKOFF_DIRECTIVE = """
+            Kick off this review pass. Call set_agenda ONCE with the ordered phases \
+            you will drive. The agenda MUST include these ids (you may refine the \
+            titles and append extra phases): p_independent, p_crossreview, \
+            p_consensus, p_debate. Do not dispatch anyone yet — the independent \
+            fan-out runs automatically after kickoff.""";
+
+    private static final String CROSS_REVIEW_GUIDANCE = """
+            Cross-examine the independent findings: for each substantive finding, \
+            dispatch the OTHER reviewers to react — quote the specific claim in \
+            your dispatch body (reviewers cannot see each other). Several \
+            dispatches in one turn run in parallel.""";
+
+    private static final String CONSENSUS_GUIDANCE = """
+            Weigh the panel and classify EVERY reported finding with \
+            mark_consensus: agreed (panel stands behind it), disputed (split — \
+            goes to the human ballot), or dropped (withdrawn / wrong). Record \
+            notable minority positions with record_dissent.""";
+
+    private static final String DEBATE_GUIDANCE = """
+            Debate the disputed findings, spiciest first. Dispatch focused \
+            rounds per finding (pass finding_id so its debate budget is \
+            metered). If the panel converges, re-classify with mark_consensus; \
+            findings still disputed when you finish go to the human ballot.""";
+
+    private ReviewPass reload(String passId)
+    {
+        return reviewStore.findPassById(passId)
+                .orElseThrow(() -> new IllegalStateException("no review pass: " + passId));
+    }
+
+    private void transition(String passId, ReviewPhase phase)
+    {
+        reviewStore.savePass(withPhase(reload(passId), phase, /* endedAt */ null));
+    }
+
+    /** Install the canonical agenda when the Lead's kickoff round
+     *  didn't set one (or set one missing the canonical ids) — the
+     *  spine's phase tracking must never depend on model output. */
+    private void ensureAgenda(String passId)
+    {
+        ReviewPass pass = reload(passId);
+        List<AgendaPhase> agenda = AgendaJsonCodec.parse(pass.agendaJson());
+        Set<String> ids = agenda.stream().map(AgendaPhase::id).collect(Collectors.toSet());
+        if (ids.containsAll(Set.of(AGENDA_INDEPENDENT, AGENDA_CROSS_REVIEW,
+                AGENDA_CONSENSUS, AGENDA_DEBATE))) {
+            return;
+        }
+        log.info("Review pass {} kickoff produced no usable agenda; installing the default.",
+                passId);
+        reviewStore.savePass(pass.withAgendaJson(AgendaJsonCodec.write(List.of(
+                new AgendaPhase(AGENDA_INDEPENDENT, "Independent reviews (parallel)",
+                        AgendaPhaseStatus.OPEN),
+                new AgendaPhase(AGENDA_CROSS_REVIEW, "Cross-review the findings",
+                        AgendaPhaseStatus.OPEN),
+                new AgendaPhase(AGENDA_CONSENSUS, "Classify consensus per finding",
+                        AgendaPhaseStatus.OPEN),
+                new AgendaPhase(AGENDA_DEBATE, "Debate the disputed findings",
+                        AgendaPhaseStatus.OPEN)))));
+    }
+
+    private void markAgenda(String passId, String agendaId, AgendaPhaseStatus status)
+    {
+        ReviewPass pass = reload(passId);
+        List<AgendaPhase> agenda = AgendaJsonCodec.parse(pass.agendaJson());
+        reviewStore.savePass(pass.withAgendaJson(
+                AgendaJsonCodec.write(AgendaJsonCodec.withStatus(agenda, agendaId, status))));
+    }
+
+    private AgendaPhaseStatus agendaStatus(String passId, String agendaId)
+    {
+        return AgendaJsonCodec.parse(reload(passId).agendaJson()).stream()
+                .filter(p -> p.id().equals(agendaId))
+                .map(AgendaPhase::status)
+                .findFirst()
+                .orElse(AgendaPhaseStatus.OPEN);
+    }
+
+    /** Fan every reviewer seat out concurrently through the
+     *  scheduler's API lane. A failed seat logs and abstains; the
+     *  pass only fails when no seat answered at all. */
+    private void runIndependentParallel(String passId, PanelSeatConfig roster)
+    {
+        ReviewPass pass = reload(passId);
+        List<Callable<ReviewMessage>> work = new ArrayList<>();
+        for (PanelSeatConfig.Seat seat : roster.reviewerSeats()) {
+            work.add(() -> {
+                try {
+                    return reviewerSeat.runDispatchedTurn(
+                            pass, roster, seat.participantId(),
+                            INDEPENDENT_DIRECTIVE, ReviewPhase.INDEPENDENT,
+                            /* round */ 0, /* excludeMessageId */ null);
+                }
+                catch (RuntimeException e) {
+                    log.warn("Independent turn failed for seat {} ({}): {} — abstaining.",
+                            seat.participantId(), seat.displayLabel(), e.getMessage());
+                    return null;
+                }
+            });
+        }
+        List<ReviewMessage> results = scheduler.invokeAll(work);
+        if (!results.isEmpty() && results.stream().allMatch(Objects::isNull)) {
+            throw new IllegalStateException("every reviewer seat failed its independent turn");
+        }
+    }
+
+    private static final String INDEPENDENT_DIRECTIVE = """
+            Give your independent review of this PR. Use the read-only tools to \
+            check the actual code before making claims, record every concrete \
+            issue with report_finding, and close with a short summary of what you \
+            checked and where you stand. You are reviewing alone — no other \
+            reviewer's output exists for you.""";
+
+    /** Lead-driven phase content: rounds until the Lead marks the
+     *  agenda phase done, the pass budget is spent, or the watchdog
+     *  trips. The spine forces the agenda phase DONE on exit so the
+     *  artifact freezes consistent however the loop ended. */
+    private void runLeadDriven(
+            String passId,
+            LeadToolset.Session session,
+            PanelSeatConfig roster,
+            ReviewPhase phase,
+            String agendaId,
+            String guidance)
+    {
+        markAgenda(passId, agendaId, AgendaPhaseStatus.IN_PROGRESS);
+        for (int turn = 1; turn <= MAX_LEAD_TURNS_PER_PHASE; turn++) {
+            if (budgetMeter.passExhausted(passId)) {
+                log.warn("Review pass {} hit its cost cap during {}; ending the phase.",
+                        passId, phase);
+                break;
+            }
+            String directive = "Agenda phase '" + agendaId + "' is in progress. " + guidance
+                    + " When the phase's work is complete, call mark_phase_done(\""
+                    + agendaId + "\").";
+            leadOrchestrator.runRound(reload(passId), session, roster, phase, turn, directive);
+            if (agendaStatus(passId, agendaId) == AgendaPhaseStatus.DONE) {
+                return;
+            }
+        }
+        markAgenda(passId, agendaId, AgendaPhaseStatus.DONE);
+    }
+
+    private static boolean needsArbitration(ReviewFinding f)
+    {
+        return f.status() == ReviewFindingStatus.REPORTED
+                || f.status() == ReviewFindingStatus.DISPUTED;
+    }
+
+    /** Verdict suggestion from the findings table: an AGREED blocker
+     *  → REQUEST_CHANGES; any live finding → COMMENT; a clean panel
+     *  → APPROVE. Open findings never escalate past COMMENT on their
+     *  own — the human arbitrates disagreements. */
+    private static ReviewVerdict suggestedVerdictForFindings(List<ReviewFinding> findings)
+    {
+        boolean any = false;
+        for (ReviewFinding f : findings) {
+            if (f.status() == ReviewFindingStatus.DROPPED) {
+                continue;
+            }
+            any = true;
+            if (f.status() == ReviewFindingStatus.AGREED
+                    && f.severity() == ReviewFindingSeverity.BLOCKER) {
+                return ReviewVerdict.REQUEST_CHANGES;
+            }
+        }
+        return any ? ReviewVerdict.COMMENT : ReviewVerdict.APPROVE;
     }
 
     /**
@@ -631,9 +675,11 @@ public class ReviewPassService
             throw new ResponseStatusException(HttpStatusCode.valueOf(400),
                     "finding " + findingId + " does not belong to pass " + passId);
         }
-        if (finding.status() != ReviewFindingStatus.DISPUTED) {
+        if (finding.status() != ReviewFindingStatus.DISPUTED
+                && finding.status() != ReviewFindingStatus.REPORTED) {
             throw new ResponseStatusException(HttpStatusCode.valueOf(409),
-                    "finding " + findingId + " is not DISPUTED — already " + finding.status());
+                    "finding " + findingId + " is not open for arbitration — already "
+                            + finding.status());
         }
         ReviewFindingStatus next;
         switch (resolution.toLowerCase(Locale.ROOT)) {
@@ -653,10 +699,10 @@ public class ReviewPassService
                 finding.createdAt(),
                 finding.debateStatus(), finding.debateRounds()));
 
-        // Once no DISPUTED findings remain, the pass falls through to
-        // TERMINATE so the publish form unlocks.
+        // Once no open (DISPUTED / REPORTED) findings remain, the pass
+        // falls through to TERMINATE so the publish form unlocks.
         boolean stillDisputed = reviewStore.listFindingsForPass(passId).stream()
-                .anyMatch(f -> f.status() == ReviewFindingStatus.DISPUTED);
+                .anyMatch(ReviewPassService::needsArbitration);
         if (!stillDisputed) {
             ReviewPass terminated = new ReviewPass(
                     pass.id(), pass.threadId(), pass.repoFullName(), pass.prNumber(),
@@ -674,14 +720,15 @@ public class ReviewPassService
         return findPassWithDetail(passId).orElseThrow();
     }
 
-    /** Configured reviewers form the panel. Capped at 3 — design
-     *  open-decision lands at "2 sweet spot, 3 high-stakes, more
-     *  rarely worth it". Panel-of-1 falls back to the Phase 1 single-
-     *  reviewer path through the same {@code startReviewOnPr}.
+    /** Configured reviewers form the panel. No hard size cap — the
+     *  Lead-driven agenda and the per-seat budget slices keep large
+     *  panels bounded (cost scales with the pass cap, not the panel
+     *  size), so 5+ reviewers is a supported configuration. 2–3 is
+     *  still the cost sweet spot for routine reviews.
      *
      *  <p>When {@code explicitIds} is non-empty, only reviewers whose
      *  {@code providerId()} appears in that list are seated (still
-     *  capped at 3 and still only configured ones). An empty/null
+     *  still only configured ones). An empty/null
      *  list reverts to "all configured reviewers" — the scheduled +
      *  one-click paths use that default.
      */
@@ -699,8 +746,8 @@ public class ReviewPassService
      *    <li>Legacy path — fall back to the per-provider configured
      *        reviewers, optionally filtered by opts.panelProviderIds.</li>
      *  </ol>
-     *  Either way the result is capped at 3 to match the design doc's
-     *  panel-size invariant. */
+     *  Either way every selected member is seated — the budget
+     *  slices, not a roster cap, bound the cost. */
     private List<PanelMember> resolvePanelMembers(StartOptions opts)
     {
         if (opts.hasSeats()) {
@@ -719,7 +766,7 @@ public class ReviewPassService
     /**
      * Build the panel from an explicit seat list (the composition flow):
      * each seat is a model paired with a persona, a typed prompt, or
-     * neither. Capped at 3. If no seat is flagged lead, the first seat
+     * neither. If no seat is flagged lead, the first seat
      * leads.
      */
     private List<PanelMember> resolveSeatPanel(List<PanelSeat> seats)
@@ -749,9 +796,6 @@ public class ReviewPassService
                 label = reviewer.displayName();
             }
             members.add(new PanelMember(reviewer, prompt, label, seat.lead()));
-            if (members.size() == 3) {
-                break;
-            }
         }
         if (members.isEmpty()) {
             throw new ResponseStatusException(
@@ -806,9 +850,6 @@ public class ReviewPassService
                     ? pid.equals(opts.leadId())
                     : p.role() == ReviewerPersonaRole.LEAD;
             members.add(new PanelMember(reviewer, p.systemPrompt(), p.name(), lead));
-            if (members.size() == 3) {
-                break;
-            }
         }
         if (members.isEmpty()) {
             throw new ResponseStatusException(
@@ -845,7 +886,7 @@ public class ReviewPassService
                                 + "Pick configured ones in the dialog or add a key in Settings → AI review.");
             }
         }
-        return selected.size() > 3 ? selected.subList(0, 3) : selected;
+        return selected;
     }
 
     /** Threshold above which a single reviewer call gets split per
@@ -854,117 +895,6 @@ public class ReviewPassService
      *  that keeps each call comfortably under the cap and avoids
      *  losing the tail of a large PR to truncation. */
     static final int MAX_DIFF_CHARS_PER_CALL = 60_000;
-
-    /** Dispatches every panel reviewer against the same request on
-     *  its own thread so no reviewer sees another's draft before
-     *  finishing. Returns outputs in the same iteration order as the
-     *  seats list so the persistence side keeps a stable transcript
-     *  ordering.
-     *
-     *  <p>For diffs over {@link #MAX_DIFF_CHARS_PER_CALL}, each
-     *  reviewer's call fans out per file inside the worker thread —
-     *  parallelism stays at the panel level (so we don't hammer
-     *  one provider with N concurrent calls) but the LLM context
-     *  per call stays bounded, which is the actual failure mode on
-     *  large PRs. */
-    private Map<ReviewParticipant, ReviewOutput> runIndependentInParallel(
-            List<ReviewParticipant> seats,
-            List<PanelMember> panel,
-            ReviewRequest request)
-    {
-        ExecutorService executor = Executors.newFixedThreadPool(panel.size());
-        try {
-            List<CompletableFuture<ReviewOutput>> futures = new ArrayList<>();
-            for (PanelMember m : panel) {
-                // Each panel member gets its own request shape so its
-                // persona prompt rides into the system message — same
-                // base diff / metadata as everyone else, just a
-                // different reviewing voice.
-                ReviewRequest perMember = m.personaPrompt() == null
-                        ? request
-                        : request.withPersonaPrompt(m.personaPrompt());
-                futures.add(CompletableFuture.supplyAsync(
-                        () -> runOneReviewerMaybeFanOut(m.reviewer(), perMember), executor));
-            }
-            Map<ReviewParticipant, ReviewOutput> result = new LinkedHashMap<>();
-            for (int i = 0; i < panel.size(); i++) {
-                // join() rethrows the worker's RuntimeException
-                // wrapped in CompletionException — unwrap so the
-                // outer catch surfaces the provider's actual message.
-                try {
-                    result.put(seats.get(i), futures.get(i).join());
-                }
-                catch (CompletionException e) {
-                    Throwable cause = e.getCause();
-                    if (cause instanceof RuntimeException re) {
-                        throw re;
-                    }
-                    throw e;
-                }
-            }
-            return result;
-        }
-        finally {
-            executor.shutdown();
-        }
-    }
-
-    /** One reviewer's call against a request — fanning out per file
-     *  when the diff is large enough that a single call would blow
-     *  the LLM's context window. Falls through to the existing one-
-     *  shot path for small diffs and for single-huge-file diffs that
-     *  can't be sliced further. Per-file errors are logged and
-     *  skipped so one bad chunk doesn't tank the whole review. */
-    private ReviewOutput runOneReviewerMaybeFanOut(LlmReviewer reviewer, ReviewRequest base)
-    {
-        String diff = base.diff() == null ? "" : base.diff();
-        if (diff.length() <= MAX_DIFF_CHARS_PER_CALL) {
-            return reviewer.review(base);
-        }
-        List<String> chunks = splitDiffByFile(diff);
-        if (chunks.size() <= 1) {
-            // Single mega-file — ReviewPrompt's own truncation will
-            // catch it. Fanning out wouldn't help here.
-            return reviewer.review(base);
-        }
-        log.info("Diff is {} chars across {} files — fanning out per file for {}",
-                diff.length(), chunks.size(), reviewer.providerId());
-        List<ReviewOutput.LineComment> mergedComments = new ArrayList<>();
-        StringBuilder mergedSummary = new StringBuilder();
-        String modelName = "";
-        for (String chunk : chunks) {
-            ReviewRequest perFile = new ReviewRequest(
-                    base.repo(), base.number(),
-                    base.title(), base.body(),
-                    base.headSha(), chunk,
-                    base.skillContext());
-            try {
-                ReviewOutput out = reviewer.review(perFile);
-                if (out.summary() != null && !out.summary().isBlank()) {
-                    if (mergedSummary.length() > 0) {
-                        mergedSummary.append("\n\n");
-                    }
-                    mergedSummary.append(out.summary().trim());
-                }
-                if (out.comments() != null) {
-                    mergedComments.addAll(out.comments());
-                }
-                if (out.modelName() != null && !out.modelName().isBlank()) {
-                    modelName = out.modelName();
-                }
-            }
-            catch (RuntimeException e) {
-                // One file failing shouldn't drop the entire review.
-                log.warn("Per-file reviewer call failed (reviewer={}, chunk len={}): {}",
-                        reviewer.providerId(), chunk.length(), e.getMessage());
-            }
-        }
-        return new ReviewOutput(
-                mergedSummary.toString(),
-                mergedComments,
-                reviewer.providerId(),
-                modelName);
-    }
 
     /** Split a unified diff on {@code diff --git} boundaries, keeping
      *  the boundary line as the head of each chunk. Empty or blank
@@ -1000,253 +930,6 @@ public class ReviewPassService
         return chunks;
     }
 
-    /** Per-finding debate cost ceiling in milli-USD ($0.10). A single
-     *  finding's round-robin never spends past this, nor past the pass's
-     *  remaining budget. */
-    private static final long DEBATE_COST_CAP_MILLI = 100L;
-
-    /** Bounded debate over the pass's DISPUTED findings. Each finding
-     *  (severity desc, then a stable path/line order) gets a round-robin
-     *  of reviewer turns capped at {@code pass.roundCap()} rounds and the
-     *  per-finding cost ceiling. A finding the panel unanimously reaffirms
-     *  collapses to AGREED ({@code debate_status = converged}); one that
-     *  stalls on rounds or cost stays DISPUTED ({@code stalled_rounds} /
-     *  {@code stalled_cost}) for the human ballot. Returns the running
-     *  pass spend. */
-    private long runDebates(
-            ReviewPass pass,
-            List<PanelMember> panel,
-            List<ReviewParticipant> seats,
-            long spentMilli)
-    {
-        long capMilli = pass.costCapMilli();
-        int roundCap = pass.roundCap();
-        List<ReviewFinding> disputed = reviewStore.listFindingsForPass(pass.id()).stream()
-                .filter(f -> f.status() == ReviewFindingStatus.DISPUTED)
-                .sorted(Comparator
-                        .comparingInt((ReviewFinding f) -> severityWeight(f.severity())).reversed()
-                        .thenComparing(f -> f.path() == null ? "" : f.path())
-                        .thenComparingInt(f -> f.line() == null ? 0 : f.line()))
-                .toList();
-        if (disputed.isEmpty() || roundCap <= 0) {
-            return spentMilli;
-        }
-        // The lead seat also runs the Phase-D convergence-judge call.
-        PanelMember leadMember = panel.stream()
-                .filter(PanelMember::lead)
-                .findFirst()
-                .orElse(panel.get(0));
-        reviewStore.savePass(withCost(withPhase(pass, ReviewPhase.DEBATE, /* endedAt */ null), spentMilli));
-        for (ReviewFinding finding : disputed) {
-            long perDebateBudget = Math.min(DEBATE_COST_CAP_MILLI, Math.max(0L, capMilli - spentMilli));
-            if (perDebateBudget <= 0L) {
-                // Pass budget already spent — leave the finding disputed.
-                reviewStore.saveFinding(withDebate(finding, "stalled_cost", finding.debateRounds()));
-                continue;
-            }
-            DebateOutcome outcome = debateFinding(pass, panel, seats, leadMember, finding, roundCap, perDebateBudget);
-            spentMilli += outcome.costMilli();
-            reviewStore.saveFinding(outcome.converged()
-                    ? resolveConverged(finding, outcome.rounds())
-                    : withDebate(finding, outcome.status(), outcome.rounds()));
-        }
-        return spentMilli;
-    }
-
-    /** Round-robin debate over one DISPUTED finding. Each reviewer sees
-     *  only the finding under debate plus this debate's prior turns —
-     *  never the full panel history — so the context stays bounded. Ends
-     *  on unanimous "agree" (converged), the round cap, or the per-finding
-     *  cost cap. */
-    private DebateOutcome debateFinding(
-            ReviewPass pass,
-            List<PanelMember> panel,
-            List<ReviewParticipant> seats,
-            PanelMember lead,
-            ReviewFinding finding,
-            int roundCap,
-            long budgetMilli)
-    {
-        long spent = 0L;
-        int roundsRun = 0;
-        boolean budgetOut = false;
-        boolean converged = false;
-        Map<String, String> latestStance = new LinkedHashMap<>();
-        List<String> priorTurns = new ArrayList<>();
-        for (int round = 1; round <= roundCap; round++) {
-            roundsRun = round;
-            for (int i = 0; i < seats.size(); i++) {
-                if (spent >= budgetMilli) {
-                    budgetOut = true;
-                    break;
-                }
-                ReviewParticipant seat = seats.get(i);
-                PanelMember member = panel.get(i);
-                LlmCompletion c = safeComplete(
-                        member.reviewer(),
-                        debateSystemPrompt(),
-                        debateUserPrompt(finding, member, priorTurns),
-                        "debate");
-                if (c == null) {
-                    continue;
-                }
-                long cost = ModelPricing.estimateCostMilli(c.modelName(), c.tokensIn(), c.tokensOut());
-                spent += cost;
-                DebateTurn turn = parseDebateTurn(validJsonObjectOrNull(c.text()));
-                latestStance.put(seat.id(), turn.stance());
-                boolean noComment = turn.comment() == null || turn.comment().isBlank();
-                priorTurns.add("[" + member.displayLabel() + "] " + turn.stance()
-                        + (noComment ? "" : ": " + turn.comment()));
-                // Parse any @mention / #ref the reviewer addressed in
-                // its comment so the transcript and a future moderator
-                // turn can resolve them without re-scanning prose.
-                MentionRefParser.Parsed addressed =
-                        MentionRefParser.parse(noComment ? "" : turn.comment());
-                List<String> mentionIds = MentionRefParser.resolveMentions(addressed.mentionLabels(), seats);
-                List<String> refTargets = addressed.refs().stream()
-                        .map(MentionRefParser::encodeRef)
-                        .toList();
-                reviewStore.saveMessage(new ReviewMessage(
-                        UUID.randomUUID().toString(),
-                        pass.id(),
-                        seat.id(),
-                        ReviewPhase.DEBATE,
-                        round,
-                        noComment ? turn.stance() : turn.comment(),
-                        mentionIds,
-                        refTargets,
-                        "debate_turn",
-                        debateTurnPayload(finding.id(), turn.stance()),
-                        cost,
-                        Instant.now()));
-            }
-            if (budgetOut) {
-                break;
-            }
-            // Phase D — the lead moderator judges convergence. A failed
-            // or out-of-bounds verdict falls back to the deterministic
-            // unanimous-"agree" check, so the moderator is a strict
-            // upgrade that can never wedge the debate.
-            ModeratorResult mod = judgeConvergence(lead, finding, priorTurns);
-            spent += mod.costMilli();
-            if (mod.verdict() == ModeratorVerdict.CONVERGED) {
-                converged = true;
-                break;
-            }
-            if (mod.verdict() == ModeratorVerdict.STALLED) {
-                break;
-            }
-            if (mod.verdict() == null && everyoneAgrees(latestStance, seats)) {
-                converged = true;
-                break;
-            }
-            // CONTINUE, or fallback-not-yet-converged → another round.
-        }
-        String status = converged ? null : (budgetOut ? "stalled_cost" : "stalled_rounds");
-        return new DebateOutcome(converged, status, roundsRun, spent);
-    }
-
-    private static boolean everyoneAgrees(Map<String, String> stance, List<ReviewParticipant> seats)
-    {
-        for (ReviewParticipant s : seats) {
-            if (!"agree".equalsIgnoreCase(stance.get(s.id()))) {
-                return false;
-            }
-        }
-        return true;
-    }
-
-    /** Phase D — the lead moderator judges whether this finding's debate
-     *  has resolved. Returns the verdict (or null to signal fallback to
-     *  the deterministic unanimous-"agree" check) plus the call cost. */
-    private ModeratorResult judgeConvergence(PanelMember lead, ReviewFinding finding, List<String> priorTurns)
-    {
-        LlmCompletion c = safeComplete(
-                lead.reviewer(),
-                moderatorSystemPrompt(),
-                moderatorUserPrompt(finding, priorTurns),
-                "moderator");
-        if (c == null) {
-            return new ModeratorResult(null, 0L);
-        }
-        long cost = ModelPricing.estimateCostMilli(c.modelName(), c.tokensIn(), c.tokensOut());
-        ModeratorVerdict verdict = null;
-        String json = validJsonObjectOrNull(c.text());
-        if (json != null) {
-            try {
-                verdict = parseVerdict(objectMapper.readValue(json, ModeratorTurn.class).verdict());
-            }
-            catch (IOException e) {
-                verdict = null;
-            }
-        }
-        return new ModeratorResult(verdict, cost);
-    }
-
-    private static ModeratorVerdict parseVerdict(String raw)
-    {
-        if (raw == null) {
-            return null;
-        }
-        return switch (raw.toLowerCase(Locale.ROOT)) {
-            case "converged" -> ModeratorVerdict.CONVERGED;
-            case "continue" -> ModeratorVerdict.CONTINUE;
-            case "stalled" -> ModeratorVerdict.STALLED;
-            default -> null;
-        };
-    }
-
-    private static String moderatorSystemPrompt()
-    {
-        return """
-                You are the lead moderator of a code-review panel, judging whether a debate over \
-                one disputed finding has resolved. Read the finding and the debate turns so far, \
-                then output STRICT JSON only: {"verdict":"converged"|"continue"|"stalled",\
-                "reason":string}. 'converged' = the panel now agrees the finding is valid and \
-                should be raised; 'continue' = another round could still move them; 'stalled' = \
-                they are entrenched and more rounds won't help. Output ONLY the JSON object — no \
-                prose, no markdown fences.""";
-    }
-
-    private static String moderatorUserPrompt(ReviewFinding finding, List<String> priorTurns)
-    {
-        String anchor = (finding.path() == null ? "(whole PR)" : finding.path())
-                + (finding.line() == null ? "" : ":" + finding.line());
-        return "Disputed finding #finding-" + finding.id() + " — " + anchor
-                + " [" + finding.severity().dbValue() + "]:\n"
-                + finding.body() + "\n\n"
-                + "Debate so far:\n" + String.join("\n", priorTurns)
-                + "\n\nHas this debate converged? Return the JSON verdict.";
-    }
-
-    private DebateTurn parseDebateTurn(String json)
-    {
-        if (json == null) {
-            return new DebateTurn("hold", null);
-        }
-        try {
-            DebateTurn t = objectMapper.readValue(json, DebateTurn.class);
-            String stance = t.stance() == null ? "hold" : t.stance().toLowerCase(Locale.ROOT);
-            if (!"agree".equals(stance) && !"partial".equals(stance) && !"hold".equals(stance)) {
-                stance = "hold";
-            }
-            return new DebateTurn(stance, t.comment());
-        }
-        catch (IOException e) {
-            return new DebateTurn("hold", null);
-        }
-    }
-
-    private String debateTurnPayload(String findingId, String stance)
-    {
-        try {
-            return objectMapper.writeValueAsString(Map.of("findingId", findingId, "stance", stance));
-        }
-        catch (IOException e) {
-            return null;
-        }
-    }
-
     /**
      * Inline only the bodies a message addressed via {@code #refs} —
      * the bounded context the moderator hands a reviewer for its next
@@ -1278,308 +961,6 @@ public class ReviewPassService
         }
         return sb.toString();
     }
-
-    private static String debateSystemPrompt()
-    {
-        return """
-                You are one reviewer on a code-review panel debating a single DISPUTED finding — \
-                the panel split on whether it should be raised. Read the finding and the debate so \
-                far, then respond with STRICT JSON only: \
-                {"stance":"agree"|"partial"|"hold","comment":string}. 'agree' = the finding is valid \
-                and should be raised; 'partial' = valid but with the caveat in your comment; 'hold' = \
-                you are not convinced. Keep 'comment' under ~60 words. Output ONLY the JSON object — \
-                no prose, no markdown fences.""";
-    }
-
-    private static String debateUserPrompt(ReviewFinding finding, PanelMember member, List<String> priorTurns)
-    {
-        String anchor = (finding.path() == null ? "(whole PR)" : finding.path())
-                + (finding.line() == null ? "" : ":" + finding.line());
-        return "You are reviewer \"" + member.displayLabel() + "\".\n\n"
-                + "Disputed finding #finding-" + finding.id() + " — " + anchor
-                + " [" + finding.severity().dbValue() + "]:\n"
-                + finding.body() + "\n\n"
-                + (priorTurns.isEmpty()
-                        ? "No turns yet — open the debate."
-                        : "Debate so far:\n" + String.join("\n", priorTurns))
-                + "\n\nRespond directly: agree, partial agree (with the caveat), or hold. "
-                + "Return the JSON object.";
-    }
-
-    private static ReviewFinding withDebate(ReviewFinding f, String debateStatus, int debateRounds)
-    {
-        return new ReviewFinding(
-                f.id(), f.reviewPassId(), f.path(), f.line(), f.severity(),
-                f.status(), f.body(), f.resolution(), f.postedCommentId(), f.createdAt(),
-                debateStatus, debateRounds);
-    }
-
-    private static ReviewFinding resolveConverged(ReviewFinding f, int debateRounds)
-    {
-        return new ReviewFinding(
-                f.id(), f.reviewPassId(), f.path(), f.line(), f.severity(),
-                ReviewFindingStatus.AGREED, f.body(), f.resolution(), f.postedCommentId(), f.createdAt(),
-                "converged", debateRounds);
-    }
-
-    /** Severity weight (higher = more severe) so the debate visits the
-     *  spiciest disputed findings first. Explicit weights avoid
-     *  {@code Enum.ordinal()}, which Error Prone flags as fragile. */
-    private static int severityWeight(ReviewFindingSeverity s)
-    {
-        return switch (s) {
-            case BLOCKER -> 4;
-            case MAJOR -> 3;
-            case NIT -> 2;
-            case QUESTION -> 1;
-        };
-    }
-
-    @JsonIgnoreProperties(ignoreUnknown = true)
-    private record DebateTurn(String stance, String comment) {}
-
-    private record DebateOutcome(boolean converged, String status, int rounds, long costMilli) {}
-
-    private enum ModeratorVerdict { CONVERGED, CONTINUE, STALLED }
-
-    @JsonIgnoreProperties(ignoreUnknown = true)
-    private record ModeratorTurn(String verdict, String reason) {}
-
-    /** Moderator verdict (null = fall back to the deterministic check)
-     *  plus the cost of the moderator call. */
-    private record ModeratorResult(ModeratorVerdict verdict, long costMilli) {}
-
-    // ── LLM-driven cross-review + consensus ──────────────────────────
-
-    /** Run a structured orchestration call, swallowing provider errors
-     *  into a null return so one flaky reviewer can't tank the pass —
-     *  the caller treats null as "this reviewer abstained". */
-    private LlmCompletion safeComplete(LlmReviewer reviewer, String system, String user, String stage)
-    {
-        try {
-            return reviewer.complete(system, user);
-        }
-        catch (RuntimeException e) {
-            log.warn("Review {} call failed for {}: {}", stage, reviewer.providerId(), e.getMessage());
-            return null;
-        }
-    }
-
-    private static String crossReviewSystemPrompt()
-    {
-        return """
-                You are one reviewer on a multi-reviewer code-review panel. You have already \
-                written your own independent review of a pull request; now you see every \
-                reviewer's findings on the same diff. Respond with STRICT JSON only: \
-                {"agree":[string],"dispute":[{"finding":string,"counter":string,"evidence":string}],\
-                "open_questions":[string]}. 'agree' lists findings (yours or others') you endorse; \
-                'dispute' lists findings you believe are wrong, each with a short counter-argument \
-                and the concrete evidence (file/line/behaviour) for it; 'open_questions' lists \
-                genuine uncertainties that need human judgement. Be concise. Output ONLY the JSON \
-                object — no prose, no markdown fences.""";
-    }
-
-    private String crossReviewUserPrompt(
-            PanelMember member,
-            List<ReviewParticipant> seats,
-            List<PanelMember> panel,
-            Map<ReviewParticipant, ReviewOutput> outputs,
-            ReviewRequest request)
-    {
-        return "Pull request: " + request.repo() + "#" + request.number() + "\n\n"
-                + "You are reviewer \"" + member.displayLabel() + "\". Here are all panel "
-                + "reviewers' independent findings on this diff:\n\n"
-                + renderPanelFindings(seats, panel, outputs)
-                + "\nWhich findings do you agree with? Which do you dispute, and why? "
-                + "What genuine open questions remain? Respond with the JSON envelope.";
-    }
-
-    private static String renderPanelFindings(
-            List<ReviewParticipant> seats,
-            List<PanelMember> panel,
-            Map<ReviewParticipant, ReviewOutput> outputs)
-    {
-        StringBuilder sb = new StringBuilder();
-        for (int i = 0; i < seats.size(); i++) {
-            ReviewOutput out = outputs.get(seats.get(i));
-            sb.append("### ").append(panel.get(i).displayLabel()).append('\n');
-            if (out != null && out.summary() != null && !out.summary().isBlank()) {
-                sb.append("Summary: ").append(out.summary().strip()).append('\n');
-            }
-            List<ReviewOutput.LineComment> comments = out == null || out.comments() == null
-                    ? List.of() : out.comments();
-            if (comments.isEmpty()) {
-                sb.append("(no line findings)\n");
-            }
-            for (ReviewOutput.LineComment c : comments) {
-                sb.append("- [").append(c.severity()).append("] ")
-                        .append(c.file() == null ? "(whole PR)" : c.file());
-                if (c.line() > 0) {
-                    sb.append(':').append(c.line());
-                }
-                sb.append(" — ").append(c.body() == null ? "" : c.body().strip()).append('\n');
-            }
-            sb.append('\n');
-        }
-        return sb.toString();
-    }
-
-    private static String consensusSystemPrompt()
-    {
-        return """
-                You are the lead reviewer reconciling a multi-reviewer code-review panel into a \
-                single resolved finding set. You see every reviewer's independent findings and \
-                their cross-review reactions. Output STRICT JSON only: \
-                {"findings":[{"path":string|null,"line":number|null,\
-                "severity":"blocker"|"major"|"nit"|"question","body":string,\
-                "status":"agreed"|"disputed","reporter":string}]}. Mark a finding 'agreed' when \
-                the panel converges on it — collapse duplicates at the same location into one row \
-                carrying the most severe reading. Mark it 'disputed' when reviewers genuinely \
-                split. Drop findings no reviewer stands behind. 'reporter' names the reviewer(s) \
-                behind the finding. Output ONLY the JSON object — no prose, no markdown fences.""";
-    }
-
-    private String consensusUserPrompt(
-            List<ReviewParticipant> seats,
-            List<PanelMember> panel,
-            Map<ReviewParticipant, ReviewOutput> outputs,
-            List<String> envelopes,
-            ReviewRequest request)
-    {
-        String reactions = envelopes.isEmpty()
-                ? "(no cross-review reactions were returned)"
-                : String.join("\n\n", envelopes);
-        return "Pull request: " + request.repo() + "#" + request.number() + "\n\n"
-                + "Independent findings:\n\n"
-                + renderPanelFindings(seats, panel, outputs)
-                + "\nCross-review reactions:\n\n" + reactions
-                + "\n\nProduce the resolved finding set as the JSON object.";
-    }
-
-    /** Run the lead's CONSENSUS call and fold its envelope into a
-     *  {@link ConsensusResult}. On a failed or unparseable call every
-     *  independent finding falls through as DISPUTED so the human
-     *  arbitrates rather than anything being silently dropped. */
-    private ConsensusOutcome runConsensus(
-            PanelMember lead,
-            List<ReviewParticipant> seats,
-            List<PanelMember> panel,
-            Map<ReviewParticipant, ReviewOutput> outputs,
-            List<String> envelopes,
-            ReviewRequest request)
-    {
-        LlmCompletion c = safeComplete(
-                lead.reviewer(),
-                consensusSystemPrompt(),
-                consensusUserPrompt(seats, panel, outputs, envelopes, request),
-                "consensus");
-        if (c == null) {
-            return new ConsensusOutcome(allDisputed(seats, panel, outputs), null, 0L);
-        }
-        long cost = ModelPricing.estimateCostMilli(c.modelName(), c.tokensIn(), c.tokensOut());
-        String json = validJsonObjectOrNull(c.text());
-        if (json == null) {
-            log.warn("Consensus call returned no parseable JSON — escalating all findings to disputed.");
-            return new ConsensusOutcome(allDisputed(seats, panel, outputs), null, cost);
-        }
-        try {
-            ConsensusEnvelope env = objectMapper.readValue(json, ConsensusEnvelope.class);
-            return new ConsensusOutcome(foldConsensus(env), json, cost);
-        }
-        catch (IOException e) {
-            log.warn("Consensus JSON did not bind — escalating all findings to disputed: {}", e.getMessage());
-            return new ConsensusOutcome(allDisputed(seats, panel, outputs), json, cost);
-        }
-    }
-
-    private static ConsensusResult foldConsensus(ConsensusEnvelope env)
-    {
-        List<ConsensusFinding> agreed = new ArrayList<>();
-        List<ConsensusFinding> disputed = new ArrayList<>();
-        List<ConsensusItem> items = env == null || env.findings() == null ? List.of() : env.findings();
-        for (ConsensusItem it : items) {
-            Integer line = it.line() != null && it.line() > 0 ? it.line() : null;
-            ConsensusFinding f = new ConsensusFinding(
-                    it.path(), line,
-                    severityFromComment(it.severity()),
-                    it.body() == null ? "" : it.body(),
-                    it.reporter() == null || it.reporter().isBlank() ? "panel" : it.reporter());
-            if ("agreed".equalsIgnoreCase(it.status())) {
-                agreed.add(f);
-            }
-            else {
-                disputed.add(f);
-            }
-        }
-        return new ConsensusResult(List.copyOf(agreed), List.copyOf(disputed));
-    }
-
-    /** Fallback when the consensus call is unavailable: every reported
-     *  finding becomes DISPUTED so it reaches the human ballot rather
-     *  than being dropped or auto-agreed. */
-    private static ConsensusResult allDisputed(
-            List<ReviewParticipant> seats,
-            List<PanelMember> panel,
-            Map<ReviewParticipant, ReviewOutput> outputs)
-    {
-        List<ConsensusFinding> disputed = new ArrayList<>();
-        for (int i = 0; i < seats.size(); i++) {
-            ReviewOutput out = outputs.get(seats.get(i));
-            List<ReviewOutput.LineComment> comments = out == null || out.comments() == null
-                    ? List.of() : out.comments();
-            for (ReviewOutput.LineComment c : comments) {
-                Integer line = c.line() > 0 ? c.line() : null;
-                disputed.add(new ConsensusFinding(
-                        c.file(), line,
-                        severityFromComment(c.severity()),
-                        c.body() == null ? "" : c.body(),
-                        panel.get(i).displayLabel()));
-            }
-        }
-        return new ConsensusResult(List.of(), List.copyOf(disputed));
-    }
-
-    /** First top-level {...} block of a model response that also parses
-     *  as JSON, or null when there's none (the caller treats null as a
-     *  failed / abstaining call). */
-    private String validJsonObjectOrNull(String text)
-    {
-        if (text == null) {
-            return null;
-        }
-        int start = text.indexOf('{');
-        int end = text.lastIndexOf('}');
-        if (start < 0 || end <= start) {
-            return null;
-        }
-        String json = text.substring(start, end + 1);
-        try {
-            objectMapper.readTree(json);
-            return json;
-        }
-        catch (IOException e) {
-            return null;
-        }
-    }
-
-    private static ReviewPass withCost(ReviewPass pass, long costUsdMilli)
-    {
-        return new ReviewPass(
-                pass.id(), pass.threadId(), pass.repoFullName(), pass.prNumber(),
-                pass.headSha(), pass.phase(), pass.round(), pass.roundCap(),
-                pass.costCapMilli(), costUsdMilli, pass.verdict(),
-                pass.createdAt(), pass.endedAt(),
-                pass.spawnedBuildThreadId(), pass.agendaJson());
-    }
-
-    private record ConsensusOutcome(ConsensusResult result, String json, long costMilli) {}
-
-    @JsonIgnoreProperties(ignoreUnknown = true)
-    private record ConsensusEnvelope(List<ConsensusItem> findings) {}
-
-    @JsonIgnoreProperties(ignoreUnknown = true)
-    private record ConsensusItem(
-            String path, Integer line, String severity, String body, String status, String reporter) {}
 
     private static String panelDisplayNames(List<PanelMember> panel)
     {
@@ -1770,6 +1151,7 @@ public class ReviewPassService
         return new ReviewPassDetail(
                 pass,
                 prTitle,
+                AgendaJsonCodec.parse(pass.agendaJson()),
                 reviewStore.listParticipantsForPass(pass.id()),
                 reviewStore.listMessagesForPass(pass.id()),
                 reviewStore.listFindingsForPass(pass.id()));
@@ -1791,60 +1173,6 @@ public class ReviewPassService
                 pass.spawnedBuildThreadId(), pass.agendaJson());
     }
 
-    /** Translate a free-form severity string from the LLM into the
-     *  enum. Unknown / blank inputs fall back to MAJOR — that's a
-     *  finding worth surfacing rather than silently dropping. */
-    private static ReviewFindingSeverity severityFromComment(String raw)
-    {
-        return ReviewFindingSeverity.fromDbValue(raw);
-    }
-
-    /** Single-reviewer verdict suggestion: any BLOCKER →
-     *  REQUEST_CHANGES; any other finding → COMMENT; empty → APPROVE.
-     *  The user confirms at the publish gate — this is just the
-     *  one-click default. */
-    private static ReviewVerdict suggestedVerdictForComments(List<ReviewOutput.LineComment> comments)
-    {
-        if (comments.isEmpty()) {
-            return ReviewVerdict.APPROVE;
-        }
-        for (ReviewOutput.LineComment c : comments) {
-            if (severityFromComment(c.severity()) == ReviewFindingSeverity.BLOCKER) {
-                return ReviewVerdict.REQUEST_CHANGES;
-            }
-        }
-        return ReviewVerdict.COMMENT;
-    }
-
-    /** Multi-reviewer verdict suggestion: agreed blocker →
-     *  REQUEST_CHANGES; any agreed or disputed finding → COMMENT;
-     *  fully clean panel → APPROVE. Disputed findings don't escalate
-     *  to REQUEST_CHANGES on their own — the design wants the human
-     *  to arbitrate disagreements rather than have one reviewer's
-     *  unconfirmed call block a merge. */
-    private static ReviewVerdict suggestedVerdictForConsensus(ConsensusResult consensus)
-    {
-        for (ConsensusFinding f : consensus.agreed()) {
-            if (f.severity() == ReviewFindingSeverity.BLOCKER) {
-                return ReviewVerdict.REQUEST_CHANGES;
-            }
-        }
-        if (consensus.agreed().isEmpty() && consensus.disputed().isEmpty()) {
-            return ReviewVerdict.APPROVE;
-        }
-        return ReviewVerdict.COMMENT;
-    }
-
-    private record ConsensusFinding(
-            String path,
-            Integer line,
-            ReviewFindingSeverity severity,
-            String body,
-            String reporterPersona) {}
-    private record ConsensusResult(
-            List<ConsensusFinding> agreed,
-            List<ConsensusFinding> disputed) {}
-
     /**
      * Caller-supplied options for {@link #startReviewOnPr(String, int, StartOptions)}.
      * All fields are optional via {@link #DEFAULT} — the scheduled
@@ -1853,7 +1181,7 @@ public class ReviewPassService
      *
      * @param panelProviderIds explicit panel roster (provider ids).
      *                         Empty/null = use every configured
-     *                         reviewer (capped at 3).
+     *                         reviewer.
      * @param roundCap         maximum debate rounds before forcing
      *                         arbitration. {@code 3} matches the prior
      *                         hard-coded value.

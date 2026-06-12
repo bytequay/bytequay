@@ -13,6 +13,8 @@
  */
 package com.bytequay.app.service.review;
 
+import com.bytequay.app.domain.AgendaPhase;
+import com.bytequay.app.domain.AgendaPhaseStatus;
 import com.bytequay.app.domain.CreateReviewCommand;
 import com.bytequay.app.domain.PrRawDetail;
 import com.bytequay.app.domain.PullRequestRef;
@@ -20,28 +22,24 @@ import com.bytequay.app.domain.ReviewFinding;
 import com.bytequay.app.domain.ReviewFindingSeverity;
 import com.bytequay.app.domain.ReviewFindingStatus;
 import com.bytequay.app.domain.ReviewMessage;
-import com.bytequay.app.domain.ReviewOutput;
 import com.bytequay.app.domain.ReviewParticipant;
 import com.bytequay.app.domain.ReviewParticipantKind;
 import com.bytequay.app.domain.ReviewPass;
 import com.bytequay.app.domain.ReviewPassDetail;
 import com.bytequay.app.domain.ReviewPhase;
-import com.bytequay.app.domain.ReviewRequest;
 import com.bytequay.app.domain.ReviewVerdict;
-import com.bytequay.app.domain.ReviewerPersona;
-import com.bytequay.app.domain.ReviewerPersonaRole;
 import com.bytequay.app.domain.Thread;
 import com.bytequay.app.domain.ThreadFlow;
 import com.bytequay.app.repository.AppSettingsStore;
 import com.bytequay.app.repository.PullRequestRepository;
 import com.bytequay.app.repository.PullRequestStore;
-import com.bytequay.app.repository.ReviewStore;
 import com.bytequay.app.repository.ReviewerPersonaStore;
 import com.bytequay.app.repository.ThreadStore;
-import com.bytequay.app.service.ai.LlmCompletion;
+import com.bytequay.app.service.agents.TurnResult;
 import com.bytequay.app.service.ai.LlmReviewer;
 import com.bytequay.app.service.ai.LlmReviewerRegistry;
 import com.bytequay.app.service.credentials.PatResolver;
+import com.bytequay.app.service.threads.AgentScheduler;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
@@ -49,16 +47,21 @@ import org.springframework.web.server.ResponseStatusException;
 
 import java.time.Instant;
 import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.List;
-import java.util.Map;
 import java.util.Optional;
+import java.util.UUID;
+import java.util.concurrent.Callable;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.doAnswer;
+import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
@@ -66,10 +69,19 @@ import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
+/**
+ * The deterministic review-pass spine over the Lead + Seats panel:
+ * seating, the phase walk, the agenda artifact, arbitration, and the
+ * gated publish. Lead and seat CONTENT is mocked — their own
+ * machinery has dedicated suites.
+ */
 class TestReviewPassService
 {
+    private static final Pattern AGENDA_ID_IN_DIRECTIVE =
+            Pattern.compile("Agenda phase '([^']+)'");
+
     private ThreadStore threadStore;
-    private ReviewStore reviewStore;
+    private InMemoryReviewStore reviewStore;
     private PullRequestRepository pullRequests;
     private PullRequestStore pullRequestStore;
     private PatResolver patResolver;
@@ -77,8 +89,11 @@ class TestReviewPassService
     private LlmReviewer reviewer;
     private AppSettingsStore appSettings;
     private ReviewerPersonaStore personas;
+    private LeadOrchestrator leadOrchestrator;
+    private ReviewerSeat reviewerSeat;
+    private LeadToolset leadToolset;
+    private AgentScheduler scheduler;
     private ReviewPassService service;
-    private RecordingReviewStore recording;
 
     @BeforeEach
     void setUp()
@@ -91,8 +106,11 @@ class TestReviewPassService
         reviewer = mock(LlmReviewer.class);
         appSettings = mock(AppSettingsStore.class);
         personas = mock(ReviewerPersonaStore.class);
-        recording = new RecordingReviewStore();
-        reviewStore = recording;
+        reviewStore = new InMemoryReviewStore();
+        leadOrchestrator = mock(LeadOrchestrator.class);
+        reviewerSeat = mock(ReviewerSeat.class);
+        leadToolset = mock(LeadToolset.class);
+        scheduler = mock(AgentScheduler.class);
 
         when(registry.all()).thenReturn(List.of(reviewer));
         when(reviewer.providerId()).thenReturn("claude");
@@ -104,143 +122,231 @@ class TestReviewPassService
         when(pullRequests.fetchPrDiff(eq("ghp_secret"), any(PullRequestRef.class)))
                 .thenReturn("diff --git a/x b/x\n");
         when(appSettings.get(anyString())).thenReturn(Optional.empty());
+        when(leadToolset.sessionFor(anyString(), any(), anyString()))
+                .thenReturn(mock(LeadToolset.Session.class));
+
+        // Scheduler runs fan-out batches inline so tests stay
+        // deterministic and single-threaded.
+        when(scheduler.invokeAll(any())).thenAnswer(inv -> {
+            List<Callable<Object>> work = inv.getArgument(0);
+            List<Object> results = new ArrayList<>();
+            for (Callable<Object> item : work) {
+                results.add(item.call());
+            }
+            return results;
+        });
+
+        // Default seat behaviour: persist a short reply, no findings.
+        when(reviewerSeat.runDispatchedTurn(
+                any(), any(), anyString(), anyString(), any(), anyInt(), any()))
+                .thenAnswer(inv -> seatMessage(inv.getArgument(0), inv.getArgument(2),
+                        "Looked at the diff; nothing to flag."));
+
+        // Default Lead behaviour: every phase round marks its agenda
+        // phase done immediately (the directive names it); the kickoff
+        // round sets no agenda so the spine installs the default.
+        when(leadOrchestrator.runRound(any(), any(), any(), any(), anyInt(), anyString()))
+                .thenAnswer(inv -> {
+                    markDirectivePhaseDone(inv.getArgument(0), inv.getArgument(5));
+                    return new TurnResult("", 0, 0, 0L, 1, TurnResult.End.COMPLETED);
+                });
 
         // Same-thread executor: the async 3-arg overload runs its body
         // inline so tests stay deterministic.
         service = new ReviewPassService(
                 threadStore, reviewStore, pullRequests, pullRequestStore, patResolver, registry,
                 appSettings, personas,
-                Runnable::run);
+                Runnable::run,
+                leadOrchestrator, reviewerSeat, leadToolset,
+                new ReviewBudgetMeter(reviewStore),
+                mock(ReviewDiffCache.class),
+                scheduler);
     }
+
+    // ── Seating + the phase walk ─────────────────────────────────────
 
     @Test
     void startReviewWithOptionsSeatsThePassThenRunsTheBodyOnTheExecutor()
     {
-        ReviewOutput output = new ReviewOutput(
-                "Looks good.",
-                List.of(new ReviewOutput.LineComment("src/foo.ts", 3, "Tidy this.", "nit")),
-                "claude", "claude-sonnet-4.6");
-        when(reviewer.review(any(ReviewRequest.class))).thenReturn(output);
+        seatReportsFinding("src/foo.ts", 3, "nit", "Tidy this.");
 
         ReviewPassDetail seated = service.startReviewOnPr(
                 "acme/widget", 42, ReviewPassService.StartOptions.DEFAULT);
 
         // The pass is seated with a thread id, and the body — dispatched
         // to the (same-thread, in this test) review executor — persisted
-        // the reviewer's finding. A real executor would run it off-thread
-        // so the caller returns before the model fan-out completes.
+        // the seat's finding. A real executor runs it off-thread.
         assertThat(seated.pass().threadId()).isNotBlank();
         assertThat(seated.findings()).hasSize(1);
     }
 
     @Test
-    void startReviewOnPrPersistsTheFullPassAndReturnsDetail()
+    void seatsLeadReviewersAndHumanWithBudgetSlices()
     {
-        ReviewOutput output = new ReviewOutput(
-                "Mostly fine — one nit on the helper.",
-                List.of(
-                        new ReviewOutput.LineComment("src/foo.ts", 12, "Inline the helper.", "nit"),
-                        new ReviewOutput.LineComment("src/bar.ts", 0, "Whole-file note.", "question")),
-                "claude", "claude-sonnet-4.6");
-        when(reviewer.review(any(ReviewRequest.class))).thenReturn(output);
+        LlmReviewer openai = configuredReviewer("openai", "GPT-5");
+        when(registry.all()).thenReturn(List.of(reviewer, openai));
 
-        ReviewPassDetail detail = service.startReviewOnPr("acme/widget", 42);
+        service.startReviewOnPr("acme/widget", 42);
 
-        // 1. Thread saved exactly once, flow = REVIEW.
         ArgumentCaptor<Thread> threadCaptor = ArgumentCaptor.forClass(Thread.class);
         verify(threadStore).saveThread(threadCaptor.capture());
         assertThat(threadCaptor.getValue().flow()).isEqualTo(ThreadFlow.REVIEW);
-        assertThat(threadCaptor.getValue().title()).contains("acme/widget#42");
 
-        // 2. Pass walks KICKOFF → INDEPENDENT → TERMINATE in order.
-        //    The savePass calls capture the intermediate state.
-        List<ReviewPhase> phaseHistory = recording.passHistory.stream()
-                .map(ReviewPass::phase)
-                .toList();
-        assertThat(phaseHistory).containsExactly(
-                ReviewPhase.KICKOFF, ReviewPhase.INDEPENDENT, ReviewPhase.TERMINATE);
-
-        // 3. Three participants seated: Moderator, Reviewer, Human.
-        List<ReviewParticipantKind> participantKinds = recording.participants.stream()
-                .map(ReviewParticipant::kind)
-                .toList();
-        assertThat(participantKinds).containsExactly(
+        List<ReviewParticipant> participants =
+                reviewStore.listParticipantsForPass(passId());
+        assertThat(participants).extracting(ReviewParticipant::kind).containsExactly(
                 ReviewParticipantKind.LEAD,
                 ReviewParticipantKind.REVIEWER,
+                ReviewParticipantKind.REVIEWER,
                 ReviewParticipantKind.HUMAN);
-        ReviewParticipant reviewerSeat = recording.participants.get(1);
-        assertThat(reviewerSeat.credentialId()).isEqualTo("claude");
-        assertThat(reviewerSeat.personaLabel()).isEqualTo("Claude (Anthropic)");
+        // The Lead runs on the lead member's provider (first member
+        // when nothing was picked).
+        assertThat(participants.get(0).credentialId()).isEqualTo("claude");
+        assertThat(participants.get(0).personaLabel()).isEqualTo("Lead");
+        // Reviewer slices: the pass cap split evenly.
+        long cap = reviewStore.findPassById(passId()).orElseThrow().costCapMilli();
+        assertThat(participants.get(1).budgetMilliUsdCap()).isEqualTo(cap / 2);
+        assertThat(participants.get(2).budgetMilliUsdCap()).isEqualTo(cap / 2);
+        assertThat(participants.get(3).budgetMilliUsdCap()).isZero();
 
-        // 4. Two messages — moderator kickoff + reviewer summary.
-        assertThat(recording.messages).hasSize(2);
-        assertThat(recording.messages.get(0).phase()).isEqualTo(ReviewPhase.KICKOFF);
-        assertThat(recording.messages.get(0).participantId()).isEqualTo(recording.participants.get(0).id());
-        assertThat(recording.messages.get(1).phase()).isEqualTo(ReviewPhase.INDEPENDENT);
-        assertThat(recording.messages.get(1).body()).isEqualTo(output.summary());
-
-        // 5. One finding per LineComment, severities mapped, all AGREED.
-        assertThat(recording.findings).hasSize(2);
-        assertThat(recording.findings).extracting(ReviewFinding::severity).containsExactly(
-                ReviewFindingSeverity.NIT, ReviewFindingSeverity.QUESTION);
-        assertThat(recording.findings).allMatch(f -> f.status() == ReviewFindingStatus.AGREED);
-        // line 0 from the LineComment normalises to null on the finding
-        // (a "whole-file" comment) so the publish gate doesn't anchor
-        // at a nonexistent line.
-        assertThat(recording.findings.get(1).line()).isNull();
-
-        // 6. Suggested verdict — no blocker, but at least one finding
-        //    → COMMENT.
-        assertThat(detail.pass().phase()).isEqualTo(ReviewPhase.TERMINATE);
-        assertThat(detail.pass().verdict()).isEqualTo(ReviewVerdict.COMMENT);
-        assertThat(detail.findings()).hasSize(2);
-        assertThat(detail.participants()).hasSize(3);
+        // Kickoff message mentions every reviewer seat.
+        ReviewMessage kickoff = reviewStore.listMessagesForPass(passId()).get(0);
+        assertThat(kickoff.phase()).isEqualTo(ReviewPhase.KICKOFF);
+        assertThat(kickoff.mentions()).containsExactly(
+                participants.get(1).id(), participants.get(2).id());
     }
 
     @Test
-    void blockerSeverityFlipsTheSuggestedVerdictToRequestChanges()
+    void dialogLeadPickPutsThatProviderOnTheLeadSeat()
     {
-        ReviewOutput output = new ReviewOutput(
-                "Found a real problem.",
-                List.of(
-                        new ReviewOutput.LineComment("src/x.ts", 1, "Null deref.", "blocker"),
-                        new ReviewOutput.LineComment("src/y.ts", 2, "Style.", "nit")),
-                "claude", "claude-sonnet-4.6");
-        when(reviewer.review(any(ReviewRequest.class))).thenReturn(output);
+        LlmReviewer openai = configuredReviewer("openai", "GPT-5");
+        when(registry.all()).thenReturn(List.of(reviewer, openai));
 
-        ReviewPassDetail detail = service.startReviewOnPr("acme/widget", 7);
+        service.startReviewOnPr("acme/widget", 42, new ReviewPassService.StartOptions(
+                List.of(), 3, 500L, true, List.of(), null, null, "openai", List.of()));
 
+        ReviewParticipant lead = reviewStore.listParticipantsForPass(passId()).get(0);
+        assertThat(lead.kind()).isEqualTo(ReviewParticipantKind.LEAD);
+        assertThat(lead.credentialId()).isEqualTo("openai");
+    }
+
+    @Test
+    void spineWalksThePhasesAndFreezesTheAgendaDone()
+    {
+        ReviewPassDetail detail = service.startReviewOnPr("acme/widget", 42);
+
+        // Deterministic phase walk, persisted in order.
+        assertThat(reviewStore.passHistory.stream().map(ReviewPass::phase).distinct())
+                .containsExactly(
+                        ReviewPhase.KICKOFF, ReviewPhase.INDEPENDENT,
+                        ReviewPhase.CROSS_REVIEW, ReviewPhase.CONSENSUS,
+                        ReviewPhase.DEBATE, ReviewPhase.TERMINATE);
+
+        // One Lead kickoff round + one round per Lead-driven phase
+        // (the stubbed Lead marks each phase done immediately).
+        verify(leadOrchestrator).runRound(
+                any(), any(), any(), eq(ReviewPhase.KICKOFF), anyInt(), anyString());
+        verify(leadOrchestrator).runRound(
+                any(), any(), any(), eq(ReviewPhase.CROSS_REVIEW), anyInt(), anyString());
+        verify(leadOrchestrator).runRound(
+                any(), any(), any(), eq(ReviewPhase.CONSENSUS), anyInt(), anyString());
+        verify(leadOrchestrator).runRound(
+                any(), any(), any(), eq(ReviewPhase.DEBATE), anyInt(), anyString());
+
+        // The independent fan-out went through the scheduler once,
+        // dispatching the (single) reviewer seat.
+        verify(scheduler).invokeAll(any());
+        verify(reviewerSeat).runDispatchedTurn(
+                any(), any(), anyString(), anyString(),
+                eq(ReviewPhase.INDEPENDENT), eq(0), any());
+
+        // The default agenda was installed and froze fully DONE.
+        List<AgendaPhase> agenda = AgendaJsonCodec.parse(detail.pass().agendaJson());
+        assertThat(agenda).extracting(AgendaPhase::id).containsExactly(
+                ReviewPassService.AGENDA_INDEPENDENT,
+                ReviewPassService.AGENDA_CROSS_REVIEW,
+                ReviewPassService.AGENDA_CONSENSUS,
+                ReviewPassService.AGENDA_DEBATE);
+        assertThat(agenda).allMatch(p -> p.status() == AgendaPhaseStatus.DONE);
+        assertThat(detail.agenda()).hasSize(4);
+
+        // Clean panel → TERMINATE with APPROVE suggested.
+        assertThat(detail.pass().phase()).isEqualTo(ReviewPhase.TERMINATE);
+        assertThat(detail.pass().verdict()).isEqualTo(ReviewVerdict.APPROVE);
+        assertThat(detail.pass().endedAt()).isNotNull();
+    }
+
+    @Test
+    void reportedFindingsParkThePassAtArbitrate()
+    {
+        seatReportsFinding("src/a.ts", 5, "major", "Suspicious null check.");
+
+        ReviewPassDetail detail = service.startReviewOnPr("acme/widget", 42);
+
+        assertThat(detail.pass().phase()).isEqualTo(ReviewPhase.ARBITRATE);
+        assertThat(detail.pass().endedAt()).isNull();
+        assertThat(detail.pass().verdict()).isEqualTo(ReviewVerdict.COMMENT);
+        assertThat(detail.findings()).singleElement()
+                .matches(f -> f.status() == ReviewFindingStatus.REPORTED);
+    }
+
+    @Test
+    void agreedBlockerSuggestsRequestChanges()
+    {
+        seatReportsFinding("src/a.ts", 5, "blocker", "Data loss on retry.");
+        // The Lead classifies the finding AGREED during consensus.
+        doAnswer(inv -> {
+            ReviewPass pass = inv.getArgument(0);
+            ReviewFinding f = reviewStore.listFindingsForPass(pass.id()).get(0);
+            reviewStore.saveFinding(new ReviewFinding(
+                    f.id(), f.reviewPassId(), f.path(), f.line(),
+                    ReviewFindingSeverity.BLOCKER, ReviewFindingStatus.AGREED,
+                    f.body(), null, null, f.createdAt()));
+            markDirectivePhaseDone(pass, inv.getArgument(5));
+            return new TurnResult("", 0, 0, 0L, 1, TurnResult.End.COMPLETED);
+        }).when(leadOrchestrator).runRound(
+                any(), any(), any(), eq(ReviewPhase.CONSENSUS), anyInt(), anyString());
+
+        ReviewPassDetail detail = service.startReviewOnPr("acme/widget", 42);
+
+        assertThat(detail.pass().phase()).isEqualTo(ReviewPhase.TERMINATE);
         assertThat(detail.pass().verdict()).isEqualTo(ReviewVerdict.REQUEST_CHANGES);
     }
 
     @Test
-    void emptyFindingsListSuggestsApprove()
+    void watchdogBoundsLeadRoundsPerPhase()
     {
-        ReviewOutput output = new ReviewOutput(
-                "Looks good to me.", List.of(),
-                "claude", "claude-sonnet-4.6");
-        when(reviewer.review(any(ReviewRequest.class))).thenReturn(output);
+        // A Lead that never marks anything done: each driven phase
+        // must stop at the watchdog and the spine forces the agenda
+        // phase DONE so the artifact freezes consistent.
+        doReturn(new TurnResult("", 0, 0, 0L, 1, TurnResult.End.COMPLETED))
+                .when(leadOrchestrator)
+                .runRound(any(), any(), any(), any(), anyInt(), anyString());
 
-        ReviewPassDetail detail = service.startReviewOnPr("acme/widget", 8);
+        ReviewPassDetail detail = service.startReviewOnPr("acme/widget", 42);
 
-        assertThat(detail.pass().verdict()).isEqualTo(ReviewVerdict.APPROVE);
-        assertThat(detail.findings()).isEmpty();
+        verify(leadOrchestrator, times(1 + 3 * ReviewPassService.MAX_LEAD_TURNS_PER_PHASE))
+                .runRound(any(), any(), any(), any(), anyInt(), anyString());
+        assertThat(AgendaJsonCodec.parse(detail.pass().agendaJson()))
+                .allMatch(p -> p.status() == AgendaPhaseStatus.DONE);
+        assertThat(detail.pass().phase()).isEqualTo(ReviewPhase.TERMINATE);
     }
 
     @Test
-    void reviewerExceptionTerminatesThePassAndSurfacesA502()
+    void everySeatFailingParksThePassAndSurfacesA502()
     {
-        when(reviewer.review(any(ReviewRequest.class)))
-                .thenThrow(new RuntimeException("Anthropic returned 529"));
+        doThrow(new RuntimeException("Anthropic returned 529"))
+                .when(reviewerSeat).runDispatchedTurn(
+                        any(), any(), anyString(), anyString(), any(), anyInt(), any());
 
         assertThatThrownBy(() -> service.startReviewOnPr("acme/widget", 99))
                 .isInstanceOf(ResponseStatusException.class)
-                .hasMessageContaining("LLM reviewer call failed: Anthropic returned 529");
+                .hasMessageContaining("Review panel run failed");
 
         // Pass is persisted terminated so the UI shows "review failed"
         // rather than "review running forever".
-        ReviewPhase terminalPhase = recording.passHistory.get(recording.passHistory.size() - 1).phase();
-        assertThat(terminalPhase).isEqualTo(ReviewPhase.TERMINATE);
+        ReviewPass last = reviewStore.passHistory.get(reviewStore.passHistory.size() - 1);
+        assertThat(last.phase()).isEqualTo(ReviewPhase.TERMINATE);
     }
 
     @Test
@@ -253,7 +359,7 @@ class TestReviewPassService
                 .hasMessageContaining("API key configured");
 
         verify(threadStore, never()).saveThread(any());
-        assertThat(recording.passHistory).isEmpty();
+        assertThat(reviewStore.passHistory).isEmpty();
     }
 
     @Test
@@ -266,31 +372,58 @@ class TestReviewPassService
                 .isInstanceOf(ResponseStatusException.class);
     }
 
+    // ── Arbitration ─────────────────────────────────────────────────
+
+    @Test
+    void arbitrateFindingFlipsOpenFindingsAndTerminatesWhenAllResolved()
+    {
+        ReviewPass pass = seedPass(ReviewPhase.ARBITRATE);
+        ReviewFinding disputed = seedFinding(pass, "src/a.ts", 1,
+                ReviewFindingSeverity.NIT, ReviewFindingStatus.DISPUTED, "Claude pick.");
+        ReviewFinding reported = seedFinding(pass, "src/b.ts", 2,
+                ReviewFindingSeverity.NIT, ReviewFindingStatus.REPORTED, "GPT pick.");
+
+        // Include the disputed one → ARBITRATED; the REPORTED one is
+        // still open so the pass stays parked.
+        ReviewPassDetail afterFirst = service.arbitrateFinding(pass.id(), disputed.id(), "include");
+        assertThat(afterFirst.pass().phase()).isEqualTo(ReviewPhase.ARBITRATE);
+        assertThat(findingById(afterFirst, disputed.id()).status())
+                .isEqualTo(ReviewFindingStatus.ARBITRATED);
+        assertThat(findingById(afterFirst, disputed.id()).resolution()).isEqualTo("include");
+
+        // Drop the REPORTED one → DROPPED; nothing open → TERMINATE.
+        ReviewPassDetail afterSecond = service.arbitrateFinding(pass.id(), reported.id(), "drop");
+        assertThat(afterSecond.pass().phase()).isEqualTo(ReviewPhase.TERMINATE);
+        assertThat(afterSecond.pass().endedAt()).isNotNull();
+        assertThat(findingById(afterSecond, reported.id()).status())
+                .isEqualTo(ReviewFindingStatus.DROPPED);
+    }
+
+    @Test
+    void arbitrateFindingRefusesWhenPassIsNotInArbitratePhase()
+    {
+        ReviewPass pass = seedPass(ReviewPhase.TERMINATE);
+
+        assertThatThrownBy(() -> service.arbitrateFinding(pass.id(), "nonexistent", "include"))
+                .isInstanceOf(ResponseStatusException.class)
+                .hasMessageContaining("not in ARBITRATE");
+    }
+
+    // ── Gated publish ───────────────────────────────────────────────
+
     @Test
     void publishPassPostsTheSelectedFindingsAsAGitHubReviewAndTransitionsThePass()
     {
-        // Set up a terminated pass with two findings — one line-anchored,
-        // one whole-PR — so we can verify routing: inline comments for
-        // file:line, body fold-in for whole-PR.
-        ReviewOutput output = new ReviewOutput(
-                "Mostly fine — one nit and one whole-PR note.",
-                List.of(
-                        new ReviewOutput.LineComment("src/foo.ts", 12, "Inline.", "nit"),
-                        new ReviewOutput.LineComment(null, 0, "Whole PR.", "question")),
-                "claude", "claude-sonnet-4.6");
-        when(reviewer.review(any(ReviewRequest.class))).thenReturn(output);
-        ReviewPassDetail kicked = service.startReviewOnPr("acme/widget", 42);
-        // Include both findings; verdict = COMMENT.
-        List<String> findingIds = kicked.findings().stream()
-                .map(ReviewFinding::id)
-                .toList();
+        ReviewPass pass = seedPass(ReviewPhase.TERMINATE);
+        seedSummaryMessage(pass, "Mostly fine — one nit and one whole-PR note.");
+        ReviewFinding inline = seedFinding(pass, "src/foo.ts", 12,
+                ReviewFindingSeverity.NIT, ReviewFindingStatus.AGREED, "Inline.");
+        ReviewFinding wholePr = seedFinding(pass, null, null,
+                ReviewFindingSeverity.QUESTION, ReviewFindingStatus.AGREED, "Whole PR.");
 
         ReviewPassDetail published = service.publishPass(
-                kicked.pass().id(), ReviewVerdict.COMMENT, findingIds);
+                pass.id(), ReviewVerdict.COMMENT, List.of(inline.id(), wholePr.id()));
 
-        // 1. Single GitHub createReview call composed correctly: COMMENT
-        //    event, body contains summary + whole-PR fold-in, inline
-        //    comment for the line-anchored finding.
         ArgumentCaptor<CreateReviewCommand> commandCaptor =
                 ArgumentCaptor.forClass(CreateReviewCommand.class);
         verify(pullRequests).createReview(
@@ -299,20 +432,14 @@ class TestReviewPassService
         assertThat(command.event()).isEqualTo("COMMENT");
         assertThat(command.body()).isPresent();
         assertThat(command.body().get()).contains("Mostly fine");
-        assertThat(command.body().get()).contains("Whole-PR notes");
         assertThat(command.body().get()).contains("Whole PR");
         assertThat(command.comments()).hasSize(1);
-        CreateReviewCommand.ReviewLineComment inline = command.comments().get(0);
-        assertThat(inline.path()).isEqualTo("src/foo.ts");
-        assertThat(inline.line()).contains(12);
-        assertThat(inline.body()).contains("Inline");
+        assertThat(command.comments().get(0).path()).isEqualTo("src/foo.ts");
+        assertThat(command.comments().get(0).line()).contains(12);
 
-        // 2. Pass is PUBLISHED with the chosen verdict + endedAt.
         assertThat(published.pass().phase()).isEqualTo(ReviewPhase.PUBLISHED);
         assertThat(published.pass().verdict()).isEqualTo(ReviewVerdict.COMMENT);
         assertThat(published.pass().endedAt()).isNotNull();
-
-        // 3. Both selected findings flipped to POSTED.
         assertThat(published.findings())
                 .allMatch(f -> f.status() == ReviewFindingStatus.POSTED);
     }
@@ -320,19 +447,15 @@ class TestReviewPassService
     @Test
     void publishPassDropsUnselectedFindingsFromThePayloadButLeavesThemAgreedOnTheRow()
     {
-        ReviewOutput output = new ReviewOutput(
-                "Two nits.",
-                List.of(
-                        new ReviewOutput.LineComment("src/a.ts", 1, "Keep.", "nit"),
-                        new ReviewOutput.LineComment("src/b.ts", 2, "Drop.", "nit")),
-                "claude", "claude-sonnet-4.6");
-        when(reviewer.review(any(ReviewRequest.class))).thenReturn(output);
-        ReviewPassDetail kicked = service.startReviewOnPr("acme/widget", 7);
-        String keepId = kicked.findings().get(0).id();
-        String dropId = kicked.findings().get(1).id();
+        ReviewPass pass = seedPass(ReviewPhase.TERMINATE);
+        seedSummaryMessage(pass, "Two nits.");
+        ReviewFinding keep = seedFinding(pass, "src/a.ts", 1,
+                ReviewFindingSeverity.NIT, ReviewFindingStatus.AGREED, "Keep.");
+        ReviewFinding drop = seedFinding(pass, "src/b.ts", 2,
+                ReviewFindingSeverity.NIT, ReviewFindingStatus.AGREED, "Drop.");
 
         ReviewPassDetail published = service.publishPass(
-                kicked.pass().id(), ReviewVerdict.COMMENT, List.of(keepId));
+                pass.id(), ReviewVerdict.COMMENT, List.of(keep.id()));
 
         ArgumentCaptor<CreateReviewCommand> commandCaptor =
                 ArgumentCaptor.forClass(CreateReviewCommand.class);
@@ -341,29 +464,20 @@ class TestReviewPassService
         assertThat(commandCaptor.getValue().comments()).hasSize(1);
         assertThat(commandCaptor.getValue().comments().get(0).body()).contains("Keep");
 
-        // The dropped finding stays on the row at AGREED (not POSTED),
-        // so the user can re-publish later if they change their mind.
-        ReviewFinding keep = published.findings().stream()
-                .filter(f -> f.id().equals(keepId)).findFirst().orElseThrow();
-        ReviewFinding drop = published.findings().stream()
-                .filter(f -> f.id().equals(dropId)).findFirst().orElseThrow();
-        assertThat(keep.status()).isEqualTo(ReviewFindingStatus.POSTED);
-        assertThat(drop.status()).isEqualTo(ReviewFindingStatus.AGREED);
+        assertThat(findingById(published, keep.id()).status())
+                .isEqualTo(ReviewFindingStatus.POSTED);
+        assertThat(findingById(published, drop.id()).status())
+                .isEqualTo(ReviewFindingStatus.AGREED);
     }
 
     @Test
     void publishPassRefusesWithA409WhenThePassIsAlreadyPublished()
     {
-        ReviewOutput output = new ReviewOutput(
-                "Done.", List.of(), "claude", "claude-sonnet-4.6");
-        when(reviewer.review(any(ReviewRequest.class))).thenReturn(output);
-        ReviewPassDetail kicked = service.startReviewOnPr("acme/widget", 11);
-        service.publishPass(kicked.pass().id(), ReviewVerdict.APPROVE, List.of());
+        ReviewPass pass = seedPass(ReviewPhase.TERMINATE);
+        service.publishPass(pass.id(), ReviewVerdict.APPROVE, List.of());
 
-        // Second publish on the same pass — must be refused so we
-        // don't post the same review twice to GitHub.
         assertThatThrownBy(() -> service.publishPass(
-                kicked.pass().id(), ReviewVerdict.APPROVE, List.of()))
+                pass.id(), ReviewVerdict.APPROVE, List.of()))
                 .isInstanceOf(ResponseStatusException.class)
                 .hasMessageContaining("already published");
     }
@@ -371,906 +485,68 @@ class TestReviewPassService
     @Test
     void publishPassSurfacesA502WhenGitHubRejectsTheReview()
     {
-        ReviewOutput output = new ReviewOutput(
-                "Looks reasonable.", List.of(), "claude", "claude-sonnet-4.6");
-        when(reviewer.review(any(ReviewRequest.class))).thenReturn(output);
-        ReviewPassDetail kicked = service.startReviewOnPr("acme/widget", 13);
+        ReviewPass pass = seedPass(ReviewPhase.TERMINATE);
         doThrow(new RuntimeException("422 — head_sha out of date"))
                 .when(pullRequests).createReview(
                         anyString(), any(PullRequestRef.class), any(CreateReviewCommand.class));
 
         assertThatThrownBy(() -> service.publishPass(
-                kicked.pass().id(), ReviewVerdict.APPROVE, List.of()))
+                pass.id(), ReviewVerdict.APPROVE, List.of()))
                 .isInstanceOf(ResponseStatusException.class)
                 .hasMessageContaining("GitHub rejected the review");
 
-        // The pass stays at TERMINATE so the user can retry once the
-        // upstream issue is fixed — it would be wrong to mark it
-        // PUBLISHED when nothing actually landed on GitHub.
-        ReviewPhase phase = recording.passes.get(kicked.pass().id()).phase();
-        assertThat(phase).isEqualTo(ReviewPhase.TERMINATE);
-    }
-
-    // ── Multi-reviewer orchestration test helpers ───────────────────
-
-    private static final String CROSS_REVIEW_ENVELOPE =
-            "{\"agree\":[],\"dispute\":[],\"open_questions\":[]}";
-    /** Default debate stance: reviewers stay unconvinced, so disputed
-     *  findings never converge and the pass parks at arbitration. */
-    private static final String DEBATE_HOLD =
-            "{\"stance\":\"hold\",\"comment\":\"not convinced\"}";
-
-    /** Stub each panel reviewer's structured complete() call with a
-     *  benign cross-review envelope, the given consensus JSON, and a
-     *  "hold" debate stance — distinguished by each prompt's marker. */
-    private void stubPanelOrchestration(String consensusJson, LlmReviewer... panel)
-    {
-        stubPanelOrchestration(consensusJson, DEBATE_HOLD, panel);
-    }
-
-    /** As above but with a caller-chosen debate-turn JSON, so a test can
-     *  drive convergence ("agree") or a stall ("hold"). */
-    private void stubPanelOrchestration(String consensusJson, String debateTurnJson, LlmReviewer... panel)
-    {
-        for (LlmReviewer r : panel) {
-            when(r.complete(anyString(), anyString())).thenAnswer(inv -> {
-                String user = inv.getArgument(1);
-                String json;
-                if (user.contains("Produce the resolved finding set")) {
-                    json = consensusJson;
-                }
-                else if (user.contains("Respond directly")) {
-                    json = debateTurnJson;
-                }
-                else {
-                    json = CROSS_REVIEW_ENVELOPE;
-                }
-                return new LlmCompletion(json, 120, 80, "claude-sonnet-4.6");
-            });
-        }
-    }
-
-    private static String consensus(String... findings)
-    {
-        return "{\"findings\":[" + String.join(",", findings) + "]}";
-    }
-
-    private static String finding(
-            String path, Integer line, String severity, String body, String status, String reporter)
-    {
-        return String.format(
-                "{\"path\":%s,\"line\":%s,\"severity\":\"%s\",\"body\":\"%s\",\"status\":\"%s\",\"reporter\":\"%s\"}",
-                path == null ? "null" : "\"" + path + "\"",
-                line == null ? "null" : line.toString(),
-                severity, body, status, reporter);
-    }
-
-    // ── Phase 2: multi-reviewer panel ───────────────────────────────
-
-    @Test
-    void multiReviewerPanelRunsBothInParallelAndDedupsFindings()
-    {
-        // Two configured reviewers; both flag the same blocker at
-        // foo.ts:12 (→ AGREED with the more severe reading), and each
-        // flags a distinct nit at a unique anchor (→ DISPUTED, one
-        // per reporter).
-        LlmReviewer claude = mock(LlmReviewer.class);
-        LlmReviewer openai = mock(LlmReviewer.class);
-        when(claude.providerId()).thenReturn("claude");
-        when(claude.displayName()).thenReturn("Claude");
-        when(claude.isConfigured()).thenReturn(true);
-        when(openai.providerId()).thenReturn("openai");
-        when(openai.displayName()).thenReturn("GPT-5");
-        when(openai.isConfigured()).thenReturn(true);
-        when(registry.all()).thenReturn(List.of(claude, openai));
-
-        when(claude.review(any(ReviewRequest.class))).thenReturn(new ReviewOutput(
-                "Found a real issue.",
-                List.of(
-                        new ReviewOutput.LineComment("src/foo.ts", 12, "Null deref.", "blocker"),
-                        new ReviewOutput.LineComment("src/bar.ts", 3, "Claude-only nit.", "nit")),
-                "claude", "claude-sonnet-4.6"));
-        when(openai.review(any(ReviewRequest.class))).thenReturn(new ReviewOutput(
-                "Same problem, different wording.",
-                List.of(
-                        new ReviewOutput.LineComment("src/foo.ts", 12, "Crashes on null.", "major"),
-                        new ReviewOutput.LineComment("src/baz.ts", 4, "GPT-only nit.", "nit")),
-                "openai", "gpt-5"));
-        // The lead consensus collapses the shared foo.ts:12 finding to
-        // one AGREED row (blocker reading) and keeps each solo nit as a
-        // DISPUTED row.
-        stubPanelOrchestration(consensus(
-                finding("src/foo.ts", 12, "blocker", "Null deref.", "agreed", "Claude"),
-                finding("src/bar.ts", 3, "nit", "Claude-only nit.", "disputed", "Claude"),
-                finding("src/baz.ts", 4, "nit", "GPT-only nit.", "disputed", "GPT-5")),
-                claude, openai);
-
-        ReviewPassDetail detail = service.startReviewOnPr("acme/widget", 42);
-
-        // 1. Both reviewers ran — exactly two INDEPENDENT messages.
-        long independentMessages = recording.messages.stream()
-                .filter(m -> m.phase() == ReviewPhase.INDEPENDENT)
-                .count();
-        assertThat(independentMessages).isEqualTo(2);
-
-        // 2. Phase machine walked through CROSS_REVIEW. This test
-        //    produces disputed findings (each reviewer's solo nit) so
-        //    the pass parks at ARBITRATE for the ballot rather than
-        //    going straight to TERMINATE.
-        List<ReviewPhase> phaseHistory = recording.passHistory.stream()
-                .map(ReviewPass::phase).toList();
-        assertThat(phaseHistory).containsSubsequence(
-                ReviewPhase.KICKOFF,
-                ReviewPhase.INDEPENDENT,
-                ReviewPhase.CROSS_REVIEW,
-                ReviewPhase.ARBITRATE);
-        // The lead emits a CONSENSUS message summarising the resolved
-        // split (1 agreed, 2 disputed).
-        boolean consensusMessage = recording.messages.stream()
-                .anyMatch(m -> m.phase() == ReviewPhase.CONSENSUS
-                        && m.body().contains("1 agreed")
-                        && m.body().contains("2 disputed"));
-        assertThat(consensusMessage).isTrue();
-
-        // 3. Findings: one AGREED at foo.ts:12 (the BLOCKER wins), two
-        //    DISPUTED rows (one from each reviewer for their unique
-        //    anchors).
-        List<ReviewFinding> findings = detail.findings();
-        assertThat(findings).hasSize(3);
-        ReviewFinding agreed = findings.stream()
-                .filter(f -> f.status() == ReviewFindingStatus.AGREED)
-                .findFirst().orElseThrow();
-        assertThat(agreed.path()).isEqualTo("src/foo.ts");
-        assertThat(agreed.line()).isEqualTo(12);
-        // The blocker reading wins over the major reading.
-        assertThat(agreed.severity()).isEqualTo(ReviewFindingSeverity.BLOCKER);
-
-        List<ReviewFinding> disputed = findings.stream()
-                .filter(f -> f.status() == ReviewFindingStatus.DISPUTED)
-                .toList();
-        assertThat(disputed).hasSize(2);
-        // Reviewer attribution surfaces in the body so the publish UI
-        // can render "who flagged this".
-        assertThat(disputed).anySatisfy(f -> {
-            assertThat(f.body()).contains("[Claude]");
-            assertThat(f.body()).contains("Claude-only nit.");
-        });
-        assertThat(disputed).anySatisfy(f -> {
-            assertThat(f.body()).contains("[GPT-5]");
-            assertThat(f.body()).contains("GPT-only nit.");
-        });
-
-        // 4. Verdict suggestion: AGREED blocker → REQUEST_CHANGES.
-        //    Phase parks at ARBITRATE for the ballot since two
-        //    DISPUTED findings remain unresolved.
-        assertThat(detail.pass().verdict()).isEqualTo(ReviewVerdict.REQUEST_CHANGES);
-        assertThat(detail.pass().phase()).isEqualTo(ReviewPhase.ARBITRATE);
-
-        // 5. Three reviewer participants seated (two reviewers + the
-        //    moderator + the human; assert reviewers specifically).
-        long reviewerSeats = detail.participants().stream()
-                .filter(p -> p.kind() == ReviewParticipantKind.REVIEWER)
-                .count();
-        assertThat(reviewerSeats).isEqualTo(2);
-    }
-
-    @Test
-    void seatPanelPairsEachModelWithItsRoleAndHonoursTheFlaggedLead()
-    {
-        LlmReviewer claude = mock(LlmReviewer.class);
-        LlmReviewer openai = mock(LlmReviewer.class);
-        when(claude.providerId()).thenReturn("claude");
-        when(claude.displayName()).thenReturn("Claude");
-        when(claude.isConfigured()).thenReturn(true);
-        when(openai.providerId()).thenReturn("openai");
-        when(openai.displayName()).thenReturn("GPT-5");
-        when(openai.isConfigured()).thenReturn(true);
-        when(registry.all()).thenReturn(List.of(claude, openai));
-
-        // The second seat runs a predefined persona ("David"); the first
-        // is a raw model carrying a typed prompt.
-        ReviewerPersona david = new ReviewerPersona(
-                "david", "David", "Be strict about error handling.",
-                ReviewerPersonaRole.REVIEWER, true, Instant.now(), Instant.now());
-        when(personas.findById("david")).thenReturn(Optional.of(david));
-
-        when(claude.review(any(ReviewRequest.class))).thenReturn(new ReviewOutput(
-                "ok", List.of(), "claude", "claude-sonnet-4.6"));
-        when(openai.review(any(ReviewRequest.class))).thenReturn(new ReviewOutput(
-                "ok", List.of(), "openai", "gpt-5"));
-        stubPanelOrchestration(consensus(
-                finding("src/a.ts", 1, "nit", "n", "agreed", "David")),
-                claude, openai);
-
-        // seats = [ claude + typed prompt (not lead), openai + persona "david" (lead) ]
-        ReviewPassService.StartOptions opts = new ReviewPassService.StartOptions(
-                List.of(), 3, 500L, true, List.of(), null, null, null,
-                List.of(
-                        new ReviewPassService.PanelSeat("claude", null, "Focus on concurrency.", false),
-                        new ReviewPassService.PanelSeat("openai", "david", null, true)));
-
-        service.startReviewOnPr("acme/widget", 42, opts);
-
-        // Each seat is labelled by its role: the typed-prompt seat reads
-        // "Custom · <model>", the persona seat reads the persona's name.
-        assertThat(recording.participants.stream()
-                .filter(p -> p.kind() == ReviewParticipantKind.REVIEWER)
-                .map(ReviewParticipant::personaLabel))
-                .containsExactlyInAnyOrder("Custom · Claude", "David");
-
-        // The flagged lead (the persona/openai seat) is the seat that runs
-        // — and authors — the CONSENSUS turn.
-        String consensusAuthor = recording.messages.stream()
-                .filter(m -> m.phase() == ReviewPhase.CONSENSUS)
-                .map(ReviewMessage::participantId)
-                .findFirst().orElseThrow();
-        ReviewParticipant lead = recording.participants.stream()
-                .filter(p -> p.id().equals(consensusAuthor))
-                .findFirst().orElseThrow();
-        assertThat(lead.personaLabel()).isEqualTo("David");
-    }
-
-    @Test
-    void multiReviewerPanelParksAtArbitrateWhenDisputedFindingsRemain()
-    {
-        LlmReviewer claude = mock(LlmReviewer.class);
-        LlmReviewer openai = mock(LlmReviewer.class);
-        when(claude.providerId()).thenReturn("claude");
-        when(claude.displayName()).thenReturn("Claude");
-        when(claude.isConfigured()).thenReturn(true);
-        when(openai.providerId()).thenReturn("openai");
-        when(openai.displayName()).thenReturn("GPT-5");
-        when(openai.isConfigured()).thenReturn(true);
-        when(registry.all()).thenReturn(List.of(claude, openai));
-
-        // Two distinct nits at unique anchors → both DISPUTED, no
-        // AGREED. The pass should park at ARBITRATE so the ballot
-        // surfaces the contest to the user instead of silently
-        // publishing one reviewer's call.
-        when(claude.review(any(ReviewRequest.class))).thenReturn(new ReviewOutput(
-                "Claude take.", List.of(
-                        new ReviewOutput.LineComment("src/a.ts", 1, "Claude's pick.", "nit")),
-                "claude", "claude-sonnet-4.6"));
-        when(openai.review(any(ReviewRequest.class))).thenReturn(new ReviewOutput(
-                "GPT take.", List.of(
-                        new ReviewOutput.LineComment("src/b.ts", 2, "GPT's pick.", "nit")),
-                "openai", "gpt-5"));
-        stubPanelOrchestration(consensus(
-                finding("src/a.ts", 1, "nit", "Claude's pick.", "disputed", "Claude"),
-                finding("src/b.ts", 2, "nit", "GPT's pick.", "disputed", "GPT-5")),
-                claude, openai);
-
-        ReviewPassDetail detail = service.startReviewOnPr("acme/widget", 42);
-
-        // Disputed findings exist → pass parks at ARBITRATE, not
-        // TERMINATE. endedAt stays null until the user resolves.
-        assertThat(detail.pass().phase()).isEqualTo(ReviewPhase.ARBITRATE);
-        assertThat(detail.pass().endedAt()).isNull();
-    }
-
-    @Test
-    void arbitrateFindingFlipsDisputedToArbitratedOrDroppedAndTerminatesWhenAllResolved()
-    {
-        LlmReviewer claude = mock(LlmReviewer.class);
-        LlmReviewer openai = mock(LlmReviewer.class);
-        when(claude.providerId()).thenReturn("claude");
-        when(claude.displayName()).thenReturn("Claude");
-        when(claude.isConfigured()).thenReturn(true);
-        when(openai.providerId()).thenReturn("openai");
-        when(openai.displayName()).thenReturn("GPT-5");
-        when(openai.isConfigured()).thenReturn(true);
-        when(registry.all()).thenReturn(List.of(claude, openai));
-
-        when(claude.review(any(ReviewRequest.class))).thenReturn(new ReviewOutput(
-                "Claude take.", List.of(
-                        new ReviewOutput.LineComment("src/a.ts", 1, "Claude pick.", "nit")),
-                "claude", "claude-sonnet-4.6"));
-        when(openai.review(any(ReviewRequest.class))).thenReturn(new ReviewOutput(
-                "GPT take.", List.of(
-                        new ReviewOutput.LineComment("src/b.ts", 2, "GPT pick.", "nit")),
-                "openai", "gpt-5"));
-        stubPanelOrchestration(consensus(
-                finding("src/a.ts", 1, "nit", "Claude pick.", "disputed", "Claude"),
-                finding("src/b.ts", 2, "nit", "GPT pick.", "disputed", "GPT-5")),
-                claude, openai);
-        ReviewPassDetail parked = service.startReviewOnPr("acme/widget", 42);
-        assertThat(parked.pass().phase()).isEqualTo(ReviewPhase.ARBITRATE);
-        List<ReviewFinding> disputed = parked.findings().stream()
-                .filter(f -> f.status() == ReviewFindingStatus.DISPUTED)
-                .toList();
-        assertThat(disputed).hasSize(2);
-        String includeId = disputed.get(0).id();
-        String dropId = disputed.get(1).id();
-
-        // Include the first → ARBITRATED. Pass stays at ARBITRATE
-        // because the second is still pending.
-        ReviewPassDetail afterFirst = service.arbitrateFinding(parked.pass().id(), includeId, "include");
-        assertThat(afterFirst.pass().phase()).isEqualTo(ReviewPhase.ARBITRATE);
-        ReviewFinding includedNow = afterFirst.findings().stream()
-                .filter(f -> f.id().equals(includeId)).findFirst().orElseThrow();
-        assertThat(includedNow.status()).isEqualTo(ReviewFindingStatus.ARBITRATED);
-        assertThat(includedNow.resolution()).isEqualTo("include");
-
-        // Drop the second → DROPPED. No DISPUTED left → pass moves
-        // to TERMINATE and endedAt stamps.
-        ReviewPassDetail afterSecond = service.arbitrateFinding(parked.pass().id(), dropId, "drop");
-        assertThat(afterSecond.pass().phase()).isEqualTo(ReviewPhase.TERMINATE);
-        assertThat(afterSecond.pass().endedAt()).isNotNull();
-        ReviewFinding droppedNow = afterSecond.findings().stream()
-                .filter(f -> f.id().equals(dropId)).findFirst().orElseThrow();
-        assertThat(droppedNow.status()).isEqualTo(ReviewFindingStatus.DROPPED);
-    }
-
-    @Test
-    void arbitrateFindingRefusesWhenPassIsNotInArbitratePhase()
-    {
-        // Single-reviewer pass → no ARBITRATE phase. Arbitrating
-        // anything on it must 409 so a stale frontend can't poke at
-        // findings on a terminated pass.
-        when(reviewer.review(any(ReviewRequest.class))).thenReturn(new ReviewOutput(
-                "Done.", List.of(), "claude", "claude-sonnet-4.6"));
-        ReviewPassDetail kicked = service.startReviewOnPr("acme/widget", 11);
-
-        assertThatThrownBy(() -> service.arbitrateFinding(
-                kicked.pass().id(), "nonexistent", "include"))
-                .isInstanceOf(ResponseStatusException.class)
-                .hasMessageContaining("not in ARBITRATE");
+        // The pass stays at TERMINATE so the user can retry — it would
+        // be wrong to mark it PUBLISHED when nothing landed on GitHub.
+        assertThat(reviewStore.findPassById(pass.id()).orElseThrow().phase())
+                .isEqualTo(ReviewPhase.TERMINATE);
     }
 
     @Test
     void publishPassRefusesWhenPassIsAtArbitrate()
     {
-        LlmReviewer claude = mock(LlmReviewer.class);
-        LlmReviewer openai = mock(LlmReviewer.class);
-        when(claude.providerId()).thenReturn("claude");
-        when(claude.displayName()).thenReturn("Claude");
-        when(claude.isConfigured()).thenReturn(true);
-        when(openai.providerId()).thenReturn("openai");
-        when(openai.displayName()).thenReturn("GPT-5");
-        when(openai.isConfigured()).thenReturn(true);
-        when(registry.all()).thenReturn(List.of(claude, openai));
-        when(claude.review(any(ReviewRequest.class))).thenReturn(new ReviewOutput(
-                "Claude.", List.of(
-                        new ReviewOutput.LineComment("src/a.ts", 1, "C.", "nit")),
-                "claude", "claude-sonnet-4.6"));
-        when(openai.review(any(ReviewRequest.class))).thenReturn(new ReviewOutput(
-                "GPT.", List.of(
-                        new ReviewOutput.LineComment("src/b.ts", 2, "G.", "nit")),
-                "openai", "gpt-5"));
-        stubPanelOrchestration(consensus(
-                finding("src/a.ts", 1, "nit", "C.", "disputed", "Claude"),
-                finding("src/b.ts", 2, "nit", "G.", "disputed", "GPT-5")),
-                claude, openai);
-        ReviewPassDetail parked = service.startReviewOnPr("acme/widget", 9);
-        assertThat(parked.pass().phase()).isEqualTo(ReviewPhase.ARBITRATE);
+        ReviewPass pass = seedPass(ReviewPhase.ARBITRATE);
+        seedFinding(pass, "src/a.ts", 1,
+                ReviewFindingSeverity.NIT, ReviewFindingStatus.DISPUTED, "Open.");
 
         assertThatThrownBy(() -> service.publishPass(
-                parked.pass().id(), ReviewVerdict.COMMENT, List.of()))
+                pass.id(), ReviewVerdict.COMMENT, List.of()))
                 .isInstanceOf(ResponseStatusException.class)
                 .hasMessageContaining("ARBITRATE");
     }
 
-    @Test
-    void debateConvergesDisputedFindingsToAgreedWhenReviewersReaffirm()
-    {
-        LlmReviewer claude = mock(LlmReviewer.class);
-        LlmReviewer openai = mock(LlmReviewer.class);
-        when(claude.providerId()).thenReturn("claude");
-        when(claude.displayName()).thenReturn("Claude");
-        when(claude.isConfigured()).thenReturn(true);
-        when(openai.providerId()).thenReturn("openai");
-        when(openai.displayName()).thenReturn("GPT-5");
-        when(openai.isConfigured()).thenReturn(true);
-        when(registry.all()).thenReturn(List.of(claude, openai));
-        when(claude.review(any(ReviewRequest.class))).thenReturn(new ReviewOutput(
-                "C.", List.of(new ReviewOutput.LineComment("src/a.ts", 1, "A.", "nit")),
-                "claude", "claude-sonnet-4.6"));
-        when(openai.review(any(ReviewRequest.class))).thenReturn(new ReviewOutput(
-                "G.", List.of(new ReviewOutput.LineComment("src/b.ts", 2, "B.", "nit")),
-                "openai", "gpt-5"));
-        // Both reviewers reaffirm every disputed finding, so each debate
-        // converges after a single round.
-        stubPanelOrchestration(
-                consensus(
-                        finding("src/a.ts", 1, "nit", "A.", "disputed", "Claude"),
-                        finding("src/b.ts", 2, "nit", "B.", "disputed", "GPT-5")),
-                "{\"stance\":\"agree\",\"comment\":\"valid\"}",
-                claude, openai);
-
-        ReviewPassDetail detail = service.startReviewOnPr("acme/widget", 42);
-
-        // Debate ran and both disputed findings collapsed to AGREED, so
-        // the pass terminates with nothing left to arbitrate.
-        assertThat(recording.passHistory).extracting(ReviewPass::phase)
-                .contains(ReviewPhase.DEBATE);
-        assertThat(detail.findings()).isNotEmpty();
-        assertThat(detail.findings()).allSatisfy(f -> {
-            assertThat(f.status()).isEqualTo(ReviewFindingStatus.AGREED);
-            assertThat(f.debateStatus()).isEqualTo("converged");
-        });
-        assertThat(detail.pass().phase()).isEqualTo(ReviewPhase.TERMINATE);
-    }
-
-    @Test
-    void debateLeavesAFindingDisputedAndStalledWhenReviewersNeverAgree()
-    {
-        LlmReviewer claude = mock(LlmReviewer.class);
-        LlmReviewer openai = mock(LlmReviewer.class);
-        when(claude.providerId()).thenReturn("claude");
-        when(claude.displayName()).thenReturn("Claude");
-        when(claude.isConfigured()).thenReturn(true);
-        when(openai.providerId()).thenReturn("openai");
-        when(openai.displayName()).thenReturn("GPT-5");
-        when(openai.isConfigured()).thenReturn(true);
-        when(registry.all()).thenReturn(List.of(claude, openai));
-        when(claude.review(any(ReviewRequest.class))).thenReturn(new ReviewOutput(
-                "C.", List.of(new ReviewOutput.LineComment("src/a.ts", 1, "A.", "major")),
-                "claude", "claude-sonnet-4.6"));
-        when(openai.review(any(ReviewRequest.class))).thenReturn(new ReviewOutput(
-                "G.", List.of(new ReviewOutput.LineComment("src/b.ts", 2, "B.", "nit")),
-                "openai", "gpt-5"));
-        // Reviewers hold (default stance) → no convergence; the debate
-        // burns the full round cap and the finding stays disputed.
-        stubPanelOrchestration(consensus(
-                finding("src/a.ts", 1, "major", "A.", "disputed", "Claude")),
-                claude, openai);
-
-        ReviewPassDetail detail = service.startReviewOnPr("acme/widget", 42);
-
-        ReviewFinding disputed = detail.findings().stream()
-                .filter(f -> f.status() == ReviewFindingStatus.DISPUTED)
-                .findFirst().orElseThrow();
-        assertThat(disputed.debateStatus()).isEqualTo("stalled_rounds");
-        assertThat(disputed.debateRounds()).isEqualTo(3); // StartOptions.DEFAULT roundCap
-        assertThat(detail.pass().phase()).isEqualTo(ReviewPhase.ARBITRATE);
-    }
-
-    @Test
-    void debateTurnsCarryTheFindingIdAndKeepContextBounded()
-    {
-        LlmReviewer claude = mock(LlmReviewer.class);
-        LlmReviewer openai = mock(LlmReviewer.class);
-        when(claude.providerId()).thenReturn("claude");
-        when(claude.displayName()).thenReturn("Claude");
-        when(claude.isConfigured()).thenReturn(true);
-        when(openai.providerId()).thenReturn("openai");
-        when(openai.displayName()).thenReturn("GPT-5");
-        when(openai.isConfigured()).thenReturn(true);
-        when(registry.all()).thenReturn(List.of(claude, openai));
-        when(claude.review(any(ReviewRequest.class))).thenReturn(new ReviewOutput(
-                "C.", List.of(new ReviewOutput.LineComment("src/a.ts", 1, "Alpha finding.", "nit")),
-                "claude", "claude-sonnet-4.6"));
-        when(openai.review(any(ReviewRequest.class))).thenReturn(new ReviewOutput(
-                "G.", List.of(new ReviewOutput.LineComment("src/b.ts", 2, "Beta finding.", "nit")),
-                "openai", "gpt-5"));
-        // Consensus keeps exactly one disputed finding; the other
-        // independent finding's text must not leak into the debate.
-        List<String> debatePrompts = new ArrayList<>();
-        String consensusJson = consensus(
-                finding("src/a.ts", 1, "nit", "Alpha finding.", "disputed", "Claude"));
-        for (LlmReviewer r : List.of(claude, openai)) {
-            when(r.complete(anyString(), anyString())).thenAnswer(inv -> {
-                String user = inv.getArgument(1);
-                if (user.contains("Produce the resolved finding set")) {
-                    return new LlmCompletion(consensusJson, 1, 1, "claude-sonnet-4.6");
-                }
-                if (user.contains("Respond directly")) {
-                    debatePrompts.add(user);
-                    return new LlmCompletion(DEBATE_HOLD, 1, 1, "claude-sonnet-4.6");
-                }
-                return new LlmCompletion(CROSS_REVIEW_ENVELOPE, 1, 1, "claude-sonnet-4.6");
-            });
-        }
-
-        ReviewPassDetail detail = service.startReviewOnPr("acme/widget", 42);
-        String disputedId = detail.findings().stream()
-                .filter(f -> f.status() == ReviewFindingStatus.DISPUTED)
-                .findFirst().orElseThrow().id();
-
-        // Every debate prompt references the finding under debate ...
-        assertThat(debatePrompts).isNotEmpty();
-        assertThat(debatePrompts).allMatch(p -> p.contains(disputedId));
-        // ... and none drags in the other finding's text.
-        assertThat(debatePrompts).noneMatch(p -> p.contains("Beta finding."));
-        // The debate_turn message payloads carry the finding id too.
-        assertThat(recording.messages)
-                .filteredOn(m -> "debate_turn".equals(m.payloadKind()))
-                .isNotEmpty()
-                .allSatisfy(m -> assertThat(m.payloadJson()).contains(disputedId));
-    }
-
-    @Test
-    void perFindingDebateCostCapStopsTheRoundRobin()
-    {
-        LlmReviewer claude = mock(LlmReviewer.class);
-        LlmReviewer openai = mock(LlmReviewer.class);
-        when(claude.providerId()).thenReturn("claude");
-        when(claude.displayName()).thenReturn("Claude");
-        when(claude.isConfigured()).thenReturn(true);
-        when(openai.providerId()).thenReturn("openai");
-        when(openai.displayName()).thenReturn("GPT-5");
-        when(openai.isConfigured()).thenReturn(true);
-        when(registry.all()).thenReturn(List.of(claude, openai));
-        when(claude.review(any(ReviewRequest.class))).thenReturn(new ReviewOutput(
-                "C.", List.of(new ReviewOutput.LineComment("src/a.ts", 1, "A.", "nit")),
-                "claude", "claude-sonnet-4.6"));
-        when(openai.review(any(ReviewRequest.class))).thenReturn(new ReviewOutput(
-                "G.", List.of(new ReviewOutput.LineComment("src/b.ts", 2, "B.", "nit")),
-                "openai", "gpt-5"));
-        // A single debate turn reports a huge token bill (~$18), blowing
-        // the per-finding $0.10 cap after the first turn.
-        String consensusJson = consensus(
-                finding("src/a.ts", 1, "nit", "A.", "disputed", "Claude"));
-        for (LlmReviewer r : List.of(claude, openai)) {
-            when(r.complete(anyString(), anyString())).thenAnswer(inv -> {
-                String user = inv.getArgument(1);
-                if (user.contains("Produce the resolved finding set")) {
-                    return new LlmCompletion(consensusJson, 1, 1, "claude-sonnet-4.6");
-                }
-                if (user.contains("Respond directly")) {
-                    return new LlmCompletion(DEBATE_HOLD, 1_000_000, 1_000_000, "claude-sonnet-4.6");
-                }
-                return new LlmCompletion(CROSS_REVIEW_ENVELOPE, 1, 1, "claude-sonnet-4.6");
-            });
-        }
-
-        ReviewPassDetail detail = service.startReviewOnPr("acme/widget", 42);
-
-        ReviewFinding disputed = detail.findings().stream()
-                .filter(f -> f.status() == ReviewFindingStatus.DISPUTED)
-                .findFirst().orElseThrow();
-        assertThat(disputed.debateStatus()).isEqualTo("stalled_cost");
-    }
-
-    @Test
-    void multiReviewerPanelPicksCommentVerdictWhenOnlyDisputedFindingsExist()
-    {
-        LlmReviewer claude = mock(LlmReviewer.class);
-        LlmReviewer openai = mock(LlmReviewer.class);
-        when(claude.providerId()).thenReturn("claude");
-        when(claude.displayName()).thenReturn("Claude");
-        when(claude.isConfigured()).thenReturn(true);
-        when(openai.providerId()).thenReturn("openai");
-        when(openai.displayName()).thenReturn("GPT-5");
-        when(openai.isConfigured()).thenReturn(true);
-        when(registry.all()).thenReturn(List.of(claude, openai));
-
-        when(claude.review(any(ReviewRequest.class))).thenReturn(new ReviewOutput(
-                "Just nits.", List.of(
-                        new ReviewOutput.LineComment("src/a.ts", 1, "Claude's nit.", "nit")),
-                "claude", "claude-sonnet-4.6"));
-        when(openai.review(any(ReviewRequest.class))).thenReturn(new ReviewOutput(
-                "Just nits.", List.of(
-                        new ReviewOutput.LineComment("src/b.ts", 2, "GPT's nit.", "nit")),
-                "openai", "gpt-5"));
-        stubPanelOrchestration(consensus(
-                finding("src/a.ts", 1, "nit", "Claude's nit.", "disputed", "Claude"),
-                finding("src/b.ts", 2, "nit", "GPT's nit.", "disputed", "GPT-5")),
-                claude, openai);
-
-        ReviewPassDetail detail = service.startReviewOnPr("acme/widget", 42);
-
-        // No agreed findings, just two disputed nits — the suggested
-        // verdict is COMMENT (we surface findings the user might want
-        // to address) rather than escalating to REQUEST_CHANGES on a
-        // single reviewer's unconfirmed call.
-        assertThat(detail.findings()).allMatch(f -> f.status() == ReviewFindingStatus.DISPUTED);
-        assertThat(detail.pass().verdict()).isEqualTo(ReviewVerdict.COMMENT);
-    }
-
-    @Test
-    void crossReviewPersistsPerReviewerEnvelopesThenAConsensusMessage()
-    {
-        LlmReviewer claude = mock(LlmReviewer.class);
-        LlmReviewer openai = mock(LlmReviewer.class);
-        when(claude.providerId()).thenReturn("claude");
-        when(claude.displayName()).thenReturn("Claude");
-        when(claude.isConfigured()).thenReturn(true);
-        when(openai.providerId()).thenReturn("openai");
-        when(openai.displayName()).thenReturn("GPT-5");
-        when(openai.isConfigured()).thenReturn(true);
-        when(registry.all()).thenReturn(List.of(claude, openai));
-        when(claude.review(any(ReviewRequest.class))).thenReturn(new ReviewOutput(
-                "C.", List.of(new ReviewOutput.LineComment("src/x.ts", 5, "Shared.", "major")),
-                "claude", "claude-sonnet-4.6"));
-        when(openai.review(any(ReviewRequest.class))).thenReturn(new ReviewOutput(
-                "G.", List.of(new ReviewOutput.LineComment("src/x.ts", 5, "Shared.", "blocker")),
-                "openai", "gpt-5"));
-        // Lead folds the shared finding into one AGREED row at the
-        // blocker (severity-max) reading.
-        stubPanelOrchestration(consensus(
-                finding("src/x.ts", 5, "blocker", "Shared.", "agreed", "panel")),
-                claude, openai);
-
-        ReviewPassDetail detail = service.startReviewOnPr("acme/widget", 42);
-
-        // One structured CROSS_REVIEW envelope per reviewer.
-        long crossReview = recording.messages.stream()
-                .filter(m -> m.phase() == ReviewPhase.CROSS_REVIEW
-                        && "cross_review".equals(m.payloadKind())
-                        && m.payloadJson() != null)
-                .count();
-        assertThat(crossReview).isEqualTo(2);
-        // Exactly one CONSENSUS message, tagged with the structured kind.
-        long consensusMsgs = recording.messages.stream()
-                .filter(m -> m.phase() == ReviewPhase.CONSENSUS
-                        && "consensus".equals(m.payloadKind()))
-                .count();
-        assertThat(consensusMsgs).isEqualTo(1);
-        // Single AGREED row at the severe reading → straight to TERMINATE.
-        assertThat(detail.findings()).singleElement().satisfies(f -> {
-            assertThat(f.status()).isEqualTo(ReviewFindingStatus.AGREED);
-            assertThat(f.severity()).isEqualTo(ReviewFindingSeverity.BLOCKER);
-        });
-        assertThat(detail.pass().phase()).isEqualTo(ReviewPhase.TERMINATE);
-    }
-
-    @Test
-    void crossReviewSkipsAReviewerWhoseCallFailsButStillReachesConsensus()
-    {
-        LlmReviewer claude = mock(LlmReviewer.class);
-        LlmReviewer openai = mock(LlmReviewer.class);
-        when(claude.providerId()).thenReturn("claude");
-        when(claude.displayName()).thenReturn("Claude");
-        when(claude.isConfigured()).thenReturn(true);
-        when(openai.providerId()).thenReturn("openai");
-        when(openai.displayName()).thenReturn("GPT-5");
-        when(openai.isConfigured()).thenReturn(true);
-        when(registry.all()).thenReturn(List.of(claude, openai));
-        when(claude.review(any(ReviewRequest.class))).thenReturn(new ReviewOutput(
-                "C.", List.of(new ReviewOutput.LineComment("src/a.ts", 1, "Claude's pick.", "nit")),
-                "claude", "claude-sonnet-4.6"));
-        when(openai.review(any(ReviewRequest.class))).thenReturn(new ReviewOutput(
-                "G.", List.of(new ReviewOutput.LineComment("src/b.ts", 2, "GPT's pick.", "nit")),
-                "openai", "gpt-5"));
-        // openai's cross-review call fails → it abstains. claude is the
-        // lead (first member) and runs both its cross-review + consensus.
-        when(openai.complete(anyString(), anyString()))
-                .thenThrow(new IllegalStateException("provider down"));
-        when(claude.complete(anyString(), anyString())).thenAnswer(inv -> {
-            String user = inv.getArgument(1);
-            String json = user.contains("Produce the resolved finding set")
-                    ? consensus(
-                            finding("src/a.ts", 1, "nit", "Claude's pick.", "disputed", "Claude"),
-                            finding("src/b.ts", 2, "nit", "GPT's pick.", "disputed", "GPT-5"))
-                    : CROSS_REVIEW_ENVELOPE;
-            return new LlmCompletion(json, 50, 50, "claude-sonnet-4.6");
-        });
-
-        ReviewPassDetail detail = service.startReviewOnPr("acme/widget", 42);
-
-        // Only the lead's cross-review envelope persisted; the failed
-        // reviewer left none.
-        long crossReview = recording.messages.stream()
-                .filter(m -> m.phase() == ReviewPhase.CROSS_REVIEW)
-                .count();
-        assertThat(crossReview).isEqualTo(1);
-        // Consensus still ran and produced both disputed findings → the
-        // pass parks at ARBITRATE rather than failing.
-        assertThat(detail.findings()).hasSize(2);
-        assertThat(detail.pass().phase()).isEqualTo(ReviewPhase.ARBITRATE);
-    }
-
-    @Test
-    void costCapStopsTheCrossReviewRoundAndEscalatesToArbitration()
-    {
-        LlmReviewer claude = mock(LlmReviewer.class);
-        LlmReviewer openai = mock(LlmReviewer.class);
-        when(claude.providerId()).thenReturn("claude");
-        when(claude.displayName()).thenReturn("Claude");
-        when(claude.isConfigured()).thenReturn(true);
-        when(openai.providerId()).thenReturn("openai");
-        when(openai.displayName()).thenReturn("GPT-5");
-        when(openai.isConfigured()).thenReturn(true);
-        when(registry.all()).thenReturn(List.of(claude, openai));
-        when(claude.review(any(ReviewRequest.class))).thenReturn(new ReviewOutput(
-                "C.", List.of(new ReviewOutput.LineComment("src/a.ts", 1, "A.", "nit")),
-                "claude", "claude-sonnet-4.6"));
-        when(openai.review(any(ReviewRequest.class))).thenReturn(new ReviewOutput(
-                "G.", List.of(new ReviewOutput.LineComment("src/b.ts", 2, "B.", "nit")),
-                "openai", "gpt-5"));
-        // Each cross-review call costs ~2 milli-USD, so a 1-milli cap
-        // trips after the first reviewer and the consensus call is
-        // skipped entirely.
-        stubPanelOrchestration(consensus(
-                finding("src/a.ts", 1, "nit", "A.", "agreed", "Claude")),
-                claude, openai);
-
-        ReviewPassService.StartOptions opts = new ReviewPassService.StartOptions(
-                List.of(), 3, /* costCapMilli */ 1L, true);
-        ReviewPassDetail detail = service.startReviewOnPr("acme/widget", 42, opts);
-
-        // A budget message landed; only one cross-review envelope ran;
-        // no debate; every finding escalated to arbitration.
-        assertThat(recording.messages).anySatisfy(m ->
-                assertThat(m.body()).contains("Budget cap reached"));
-        long crossReview = recording.messages.stream()
-                .filter(m -> m.phase() == ReviewPhase.CROSS_REVIEW)
-                .count();
-        assertThat(crossReview).isEqualTo(1);
-        long debate = recording.messages.stream()
-                .filter(m -> m.phase() == ReviewPhase.DEBATE)
-                .count();
-        assertThat(debate).isZero();
-        assertThat(detail.findings()).isNotEmpty();
-        assertThat(detail.findings()).allMatch(f -> f.status() == ReviewFindingStatus.DISPUTED);
-    }
-
-    @Test
-    void debateTurnCommentsPopulateMentionAndRefColumns()
-    {
-        LlmReviewer claude = mock(LlmReviewer.class);
-        LlmReviewer openai = mock(LlmReviewer.class);
-        when(claude.providerId()).thenReturn("claude");
-        when(claude.displayName()).thenReturn("Claude");
-        when(claude.isConfigured()).thenReturn(true);
-        when(openai.providerId()).thenReturn("openai");
-        when(openai.displayName()).thenReturn("GPT-5");
-        when(openai.isConfigured()).thenReturn(true);
-        when(registry.all()).thenReturn(List.of(claude, openai));
-        when(claude.review(any(ReviewRequest.class))).thenReturn(new ReviewOutput(
-                "C.", List.of(new ReviewOutput.LineComment("src/a.ts", 1, "A.", "nit")),
-                "claude", "claude-sonnet-4.6"));
-        when(openai.review(any(ReviewRequest.class))).thenReturn(new ReviewOutput(
-                "G.", List.of(new ReviewOutput.LineComment("src/b.ts", 2, "B.", "nit")),
-                "openai", "gpt-5"));
-        // Reviewers address @claude and quote #finding-known-id in their
-        // debate comments — both must land on the message's columns.
-        stubPanelOrchestration(
-                consensus(finding("src/a.ts", 1, "nit", "A.", "disputed", "Claude")),
-                "{\"stance\":\"hold\",\"comment\":\"@claude not yet, compare #finding-known-id\"}",
-                claude, openai);
-
-        service.startReviewOnPr("acme/widget", 42);
-
-        ReviewMessage debateMsg = recording.messages.stream()
-                .filter(m -> "debate_turn".equals(m.payloadKind()))
-                .findFirst().orElseThrow();
-        // @claude resolved to the Claude reviewer seat.
-        assertThat(debateMsg.mentions()).isNotEmpty();
-        // #finding-known-id encoded as a stored ref.
-        assertThat(debateMsg.refs()).contains("finding:known-id");
-    }
+    // ── Static helpers under test ────────────────────────────────────
 
     @Test
     void assembleReferencedContextInlinesOnlyTheReferencedBodies()
     {
-        when(reviewer.review(any(ReviewRequest.class))).thenReturn(new ReviewOutput(
-                "Summary here.",
-                List.of(new ReviewOutput.LineComment("src/x.ts", 1, "Body of finding.", "nit")),
-                "claude", "claude-sonnet-4.6"));
-        ReviewPassDetail detail = service.startReviewOnPr("acme/widget", 42);
-        String findingId = detail.findings().get(0).id();
-        ReviewMessage anyMessage = recording.messages.get(0);
+        ReviewPass pass = seedPass(ReviewPhase.TERMINATE);
+        ReviewFinding finding = seedFinding(pass, "src/x.ts", 1,
+                ReviewFindingSeverity.NIT, ReviewFindingStatus.AGREED, "Body of finding.");
+        ReviewMessage message = seedSummaryMessage(pass, "Summary here.");
 
         String ctx = service.assembleReferencedContext(List.of(
-                "finding:" + findingId,
-                "msg:" + anyMessage.id(),
+                "finding:" + finding.id(),
+                "msg:" + message.id(),
                 "msg:does-not-exist",
                 "garbage-without-separator"));
 
-        // Both live refs are inlined; the dangling and malformed refs are
-        // skipped rather than throwing.
         assertThat(ctx).contains("Body of finding.");
-        assertThat(ctx).contains(anyMessage.body());
+        assertThat(ctx).contains(message.body());
         assertThat(ctx).doesNotContain("does-not-exist");
         assertThat(ctx).doesNotContain("garbage-without-separator");
     }
 
     @Test
-    void moderatorConvergedVerdictFlipsAFindingEvenWithoutUnanimousAgree()
-    {
-        LlmReviewer claude = mock(LlmReviewer.class);
-        LlmReviewer openai = mock(LlmReviewer.class);
-        when(claude.providerId()).thenReturn("claude");
-        when(claude.displayName()).thenReturn("Claude");
-        when(claude.isConfigured()).thenReturn(true);
-        when(openai.providerId()).thenReturn("openai");
-        when(openai.displayName()).thenReturn("GPT-5");
-        when(openai.isConfigured()).thenReturn(true);
-        when(registry.all()).thenReturn(List.of(claude, openai));
-        when(claude.review(any(ReviewRequest.class))).thenReturn(new ReviewOutput(
-                "C.", List.of(new ReviewOutput.LineComment("src/a.ts", 1, "A.", "nit")),
-                "claude", "claude-sonnet-4.6"));
-        when(openai.review(any(ReviewRequest.class))).thenReturn(new ReviewOutput(
-                "G.", List.of(new ReviewOutput.LineComment("src/b.ts", 2, "B.", "nit")),
-                "openai", "gpt-5"));
-        // Reviewers only ever say "partial" (never unanimous agree), so
-        // the deterministic check would NOT converge — but the lead
-        // moderator rules "converged", which wins.
-        String consensusJson = consensus(finding("src/a.ts", 1, "nit", "A.", "disputed", "Claude"));
-        for (LlmReviewer r : List.of(claude, openai)) {
-            when(r.complete(anyString(), anyString())).thenAnswer(inv -> {
-                String user = inv.getArgument(1);
-                if (user.contains("Produce the resolved finding set")) {
-                    return new LlmCompletion(consensusJson, 1, 1, "claude-sonnet-4.6");
-                }
-                if (user.contains("Has this debate converged")) {
-                    return new LlmCompletion(
-                            "{\"verdict\":\"converged\",\"reason\":\"both now accept it\"}",
-                            1, 1, "claude-sonnet-4.6");
-                }
-                if (user.contains("Respond directly")) {
-                    return new LlmCompletion("{\"stance\":\"partial\"}", 1, 1, "claude-sonnet-4.6");
-                }
-                return new LlmCompletion(CROSS_REVIEW_ENVELOPE, 1, 1, "claude-sonnet-4.6");
-            });
-        }
-
-        ReviewPassDetail detail = service.startReviewOnPr("acme/widget", 42);
-
-        ReviewFinding f = detail.findings().get(0);
-        assertThat(f.status()).isEqualTo(ReviewFindingStatus.AGREED);
-        assertThat(f.debateStatus()).isEqualTo("converged");
-        assertThat(detail.pass().phase()).isEqualTo(ReviewPhase.TERMINATE);
-    }
-
-    @Test
-    void moderatorStalledVerdictEndsTheDebateEarly()
-    {
-        LlmReviewer claude = mock(LlmReviewer.class);
-        LlmReviewer openai = mock(LlmReviewer.class);
-        when(claude.providerId()).thenReturn("claude");
-        when(claude.displayName()).thenReturn("Claude");
-        when(claude.isConfigured()).thenReturn(true);
-        when(openai.providerId()).thenReturn("openai");
-        when(openai.displayName()).thenReturn("GPT-5");
-        when(openai.isConfigured()).thenReturn(true);
-        when(registry.all()).thenReturn(List.of(claude, openai));
-        when(claude.review(any(ReviewRequest.class))).thenReturn(new ReviewOutput(
-                "C.", List.of(new ReviewOutput.LineComment("src/a.ts", 1, "A.", "major")),
-                "claude", "claude-sonnet-4.6"));
-        when(openai.review(any(ReviewRequest.class))).thenReturn(new ReviewOutput(
-                "G.", List.of(new ReviewOutput.LineComment("src/b.ts", 2, "B.", "nit")),
-                "openai", "gpt-5"));
-        // Moderator rules "stalled" on round 1 → debate stops after one
-        // round (not the full 3-round cap) and the finding stays disputed.
-        String consensusJson = consensus(finding("src/a.ts", 1, "major", "A.", "disputed", "Claude"));
-        for (LlmReviewer r : List.of(claude, openai)) {
-            when(r.complete(anyString(), anyString())).thenAnswer(inv -> {
-                String user = inv.getArgument(1);
-                if (user.contains("Produce the resolved finding set")) {
-                    return new LlmCompletion(consensusJson, 1, 1, "claude-sonnet-4.6");
-                }
-                if (user.contains("Has this debate converged")) {
-                    return new LlmCompletion("{\"verdict\":\"stalled\"}", 1, 1, "claude-sonnet-4.6");
-                }
-                if (user.contains("Respond directly")) {
-                    return new LlmCompletion(DEBATE_HOLD, 1, 1, "claude-sonnet-4.6");
-                }
-                return new LlmCompletion(CROSS_REVIEW_ENVELOPE, 1, 1, "claude-sonnet-4.6");
-            });
-        }
-
-        ReviewPassDetail detail = service.startReviewOnPr("acme/widget", 42);
-
-        ReviewFinding disputed = detail.findings().stream()
-                .filter(f -> f.status() == ReviewFindingStatus.DISPUTED)
-                .findFirst().orElseThrow();
-        assertThat(disputed.debateRounds()).isEqualTo(1); // stopped early, not the 3-round cap
-        assertThat(disputed.debateStatus()).isEqualTo("stalled_rounds");
-        assertThat(detail.pass().phase()).isEqualTo(ReviewPhase.ARBITRATE);
-    }
-
-    // ── Phase 8 inner-5: per-file fan-out for big PRs ────────────────
-
-    @Test
     void splitDiffByFileBoundariesIsHeadCanonical()
     {
-        // Empty / blank input returns nothing — the fan-out caller
-        // falls through to the single-shot path on empty.
         assertThat(ReviewPassService.splitDiffByFile("")).isEmpty();
         assertThat(ReviewPassService.splitDiffByFile("   \n\n  ")).isEmpty();
 
-        // Single-file diff stays one chunk; the chunk starts with the
-        // marker so per-file calls each get a self-contained diff.
         String oneFile = "diff --git a/x b/x\nindex 1..2\n--- a/x\n+++ b/x\n@@ -1 +1 @@\n-old\n+new\n";
         List<String> oneOnly = ReviewPassService.splitDiffByFile(oneFile);
         assertThat(oneOnly).hasSize(1);
         assertThat(oneOnly.get(0)).startsWith("diff --git ");
 
-        // Multi-file: split on `diff --git ` line starts, marker kept
-        // at the head of each chunk.
         String twoFiles = "diff --git a/x b/x\nbody-x\ndiff --git a/y b/y\nbody-y\n";
         List<String> two = ReviewPassService.splitDiffByFile(twoFiles);
         assertThat(two).hasSize(2);
@@ -1280,89 +556,96 @@ class TestReviewPassService
         assertThat(two.get(1)).contains("body-y");
     }
 
-    @Test
-    void smallDiffStaysASingleCallEvenWhenFanOutLooksLikeItCouldFire()
+    // ── Fixtures ─────────────────────────────────────────────────────
+
+    private static LlmReviewer configuredReviewer(String providerId, String displayName)
     {
-        // Regression guard: a small two-file diff should still go in
-        // one call so we don't multiply LLM cost on small PRs.
-        when(pullRequests.fetchPrDiff(anyString(), any(PullRequestRef.class)))
-                .thenReturn("diff --git a/x b/x\nshort\ndiff --git a/y b/y\nshort\n");
-        when(reviewer.review(any(ReviewRequest.class))).thenReturn(new ReviewOutput(
-                "Fine.", List.of(), "claude", "claude-sonnet-4.6"));
-
-        service.startReviewOnPr("acme/widget", 42);
-
-        // Independent phase: exactly one call (no debate fires because
-        // there are no findings → no disputed).
-        verify(reviewer, times(1)).review(any(ReviewRequest.class));
+        LlmReviewer r = mock(LlmReviewer.class);
+        when(r.providerId()).thenReturn(providerId);
+        when(r.displayName()).thenReturn(displayName);
+        when(r.isConfigured()).thenReturn(true);
+        return r;
     }
 
-    @Test
-    void largeMultiFileDiffFansOutOneCallPerFileAndMergesTheOutputs()
+    /** Make the (mocked) seat persist one REPORTED finding alongside
+     *  its reply, like the real seat's report_finding tool does. */
+    private void seatReportsFinding(String path, Integer line, String severity, String body)
     {
-        // Build a 3-file diff with each file's body padded over the
-        // per-call threshold so we exercise the fan-out path.
-        String filler = "x".repeat(ReviewPassService.MAX_DIFF_CHARS_PER_CALL);
-        String bigDiff = "diff --git a/foo.ts b/foo.ts\n" + filler + "\n"
-                + "diff --git a/bar.ts b/bar.ts\n" + filler + "\n"
-                + "diff --git a/baz.ts b/baz.ts\n" + filler + "\n";
-        when(pullRequests.fetchPrDiff(anyString(), any(PullRequestRef.class)))
-                .thenReturn(bigDiff);
-
-        // Each chunk produces a finding tagged with its file name so
-        // we can verify all three made it into the final merged
-        // output. The reviewer mock answers each call based on which
-        // file path appears in the chunk's diff.
-        when(reviewer.review(any(ReviewRequest.class))).thenAnswer(invocation -> {
-            ReviewRequest req = invocation.getArgument(0);
-            String diff = req.diff();
-            String file = diff.contains("foo.ts") ? "src/foo.ts"
-                    : diff.contains("bar.ts") ? "src/bar.ts"
-                    : "src/baz.ts";
-            return new ReviewOutput(
-                    "Per-file summary for " + file,
-                    List.of(new ReviewOutput.LineComment(file, 1, "found at " + file, "nit")),
-                    "claude", "claude-sonnet-4.6");
-        });
-
-        ReviewPassDetail detail = service.startReviewOnPr("acme/widget", 99);
-
-        // 3 fan-out calls during INDEPENDENT — the panel-of-1 path
-        // doesn't enter CROSS_REVIEW / DEBATE, so this count is
-        // exactly the file count.
-        verify(reviewer, times(3)).review(any(ReviewRequest.class));
-
-        // All three files surface as findings on the pass.
-        assertThat(detail.findings()).hasSize(3);
-        assertThat(detail.findings()).extracting(ReviewFinding::path)
-                .containsExactlyInAnyOrder("src/foo.ts", "src/bar.ts", "src/baz.ts");
-
-        // The merged summary preserves each chunk's contribution.
-        ReviewMessage independent = recording.messages.stream()
-                .filter(m -> m.phase() == ReviewPhase.INDEPENDENT)
-                .findFirst().orElseThrow();
-        assertThat(independent.body()).contains("Per-file summary for src/foo.ts");
-        assertThat(independent.body()).contains("Per-file summary for src/bar.ts");
-        assertThat(independent.body()).contains("Per-file summary for src/baz.ts");
+        doAnswer(inv -> {
+            ReviewPass pass = inv.getArgument(0);
+            reviewStore.saveFinding(new ReviewFinding(
+                    UUID.randomUUID().toString(), pass.id(), path, line,
+                    SeatToolset.severityFrom(severity), ReviewFindingStatus.REPORTED,
+                    "[Claude (Anthropic)] " + body, null, null, Instant.now()));
+            return seatMessage(pass, inv.getArgument(2), "Flagged: " + body);
+        }).when(reviewerSeat).runDispatchedTurn(
+                any(), any(), anyString(), anyString(), any(), anyInt(), any());
     }
 
-    @Test
-    void singleMegaFileFallsThroughToOneCallWithTheFullDiff()
+    private ReviewMessage seatMessage(ReviewPass pass, String participantId, String body)
     {
-        // One file bigger than the threshold can't be sliced further
-        // — the existing ReviewPrompt truncation is the safety net.
-        // We must NOT spuriously call review() N times on the same
-        // chunk; one call only.
-        String filler = "x".repeat(ReviewPassService.MAX_DIFF_CHARS_PER_CALL + 1_000);
-        String monolithic = "diff --git a/giant.ts b/giant.ts\n" + filler + "\n";
-        when(pullRequests.fetchPrDiff(anyString(), any(PullRequestRef.class)))
-                .thenReturn(monolithic);
-        when(reviewer.review(any(ReviewRequest.class))).thenReturn(new ReviewOutput(
-                "Big file done.", List.of(), "claude", "claude-sonnet-4.6"));
+        ReviewMessage message = new ReviewMessage(
+                UUID.randomUUID().toString(), pass.id(), participantId,
+                ReviewPhase.INDEPENDENT, 0, body, List.of(), List.of(),
+                /* costUsdMilli */ 3L, Instant.now());
+        reviewStore.saveMessage(message);
+        return message;
+    }
 
-        service.startReviewOnPr("acme/widget", 12);
+    /** Implements the stubbed Lead's "mark the directive's agenda
+     *  phase done" behaviour against the in-memory store. */
+    private void markDirectivePhaseDone(ReviewPass pass, String directive)
+    {
+        Matcher matcher = AGENDA_ID_IN_DIRECTIVE.matcher(directive);
+        if (!matcher.find()) {
+            return;
+        }
+        ReviewPass fresh = reviewStore.findPassById(pass.id()).orElseThrow();
+        List<AgendaPhase> agenda = AgendaJsonCodec.parse(fresh.agendaJson());
+        reviewStore.savePass(fresh.withAgendaJson(AgendaJsonCodec.write(
+                AgendaJsonCodec.withStatus(agenda, matcher.group(1), AgendaPhaseStatus.DONE))));
+    }
 
-        verify(reviewer, times(1)).review(any(ReviewRequest.class));
+    private String passId()
+    {
+        return reviewStore.passHistory.get(0).id();
+    }
+
+    private ReviewPass seedPass(ReviewPhase phase)
+    {
+        ReviewPass pass = new ReviewPass(
+                UUID.randomUUID().toString(), "thread-1", "acme/widget", 42, "abc123",
+                phase, 0, 3, 500L, 0L, null, Instant.now(), null);
+        reviewStore.savePass(pass);
+        return pass;
+    }
+
+    private ReviewFinding seedFinding(
+            ReviewPass pass, String path, Integer line,
+            ReviewFindingSeverity severity, ReviewFindingStatus status, String body)
+    {
+        ReviewFinding finding = new ReviewFinding(
+                UUID.randomUUID().toString(), pass.id(), path, line,
+                severity, status, body, null, null, Instant.now());
+        reviewStore.saveFinding(finding);
+        return finding;
+    }
+
+    private ReviewMessage seedSummaryMessage(ReviewPass pass, String body)
+    {
+        ReviewParticipant seat = new ReviewParticipant(
+                UUID.randomUUID().toString(), pass.id(), ReviewParticipantKind.REVIEWER,
+                "claude", "Claude (Anthropic)", null, null, Instant.now());
+        reviewStore.saveParticipant(seat);
+        return seatMessage(pass, seat.id(), body);
+    }
+
+    private static ReviewFinding findingById(ReviewPassDetail detail, String id)
+    {
+        return detail.findings().stream()
+                .filter(f -> f.id().equals(id))
+                .findFirst()
+                .orElseThrow();
     }
 
     private static PrRawDetail rawDetail()
@@ -1374,124 +657,5 @@ class TestReviewPassService
                 /* requestedReviewerCount */ 0, /* requestedReviewers */ List.of(),
                 /* headSha */ "abc123", /* headRef */ "feature/x", /* headRepo */ "acme/widget",
                 /* baseRef */ "main", /* baseRepo */ "acme/widget");
-    }
-
-    /** In-memory ReviewStore that records every save so the test can
-     *  assert on the order of pass-phase transitions and the exact
-     *  participant / message / finding rows that get persisted. */
-    private static final class RecordingReviewStore
-            implements ReviewStore
-    {
-        final List<ReviewPass> passHistory = new ArrayList<>();
-        final Map<String, ReviewPass> passes = new HashMap<>();
-        final List<ReviewParticipant> participants = new ArrayList<>();
-        final List<ReviewMessage> messages = new ArrayList<>();
-        final List<ReviewFinding> findings = new ArrayList<>();
-
-        @Override
-        public void savePass(ReviewPass pass)
-        {
-            passHistory.add(pass);
-            passes.put(pass.id(), pass);
-        }
-
-        @Override
-        public Optional<ReviewPass> findPassById(String id)
-        {
-            return Optional.ofNullable(passes.get(id));
-        }
-
-        @Override
-        public List<ReviewPass> listPassesByThread(String threadId)
-        {
-            return passes.values().stream()
-                    .filter(p -> p.threadId().equals(threadId))
-                    .toList();
-        }
-
-        @Override
-        public long sumPassCostSince(Instant since)
-        {
-            return passes.values().stream()
-                    .filter(p -> p.createdAt() != null && !p.createdAt().isBefore(since))
-                    .mapToLong(ReviewPass::costUsdMilli)
-                    .sum();
-        }
-
-        @Override
-        public List<ReviewPass> listPassesForPr(String repoFullName, int prNumber)
-        {
-            return passes.values().stream()
-                    .filter(p -> p.repoFullName().equals(repoFullName) && p.prNumber() == prNumber)
-                    .toList();
-        }
-
-        @Override public void deletePass(String id) { passes.remove(id); }
-
-        @Override
-        public void saveParticipant(ReviewParticipant participant)
-        {
-            // Upsert — match production SqliteReviewStore.saveParticipant
-            // semantics so tests that update an existing row don't see
-            // duplicate entries.
-            participants.removeIf(p -> p.id().equals(participant.id()));
-            participants.add(participant);
-        }
-
-        @Override
-        public Optional<ReviewParticipant> findParticipantById(String id)
-        {
-            return participants.stream().filter(p -> p.id().equals(id)).findFirst();
-        }
-
-        @Override
-        public List<ReviewParticipant> listParticipantsForPass(String reviewPassId)
-        {
-            return participants.stream()
-                    .filter(p -> p.reviewPassId().equals(reviewPassId))
-                    .toList();
-        }
-
-        @Override
-        public void saveMessage(ReviewMessage message)
-        {
-            messages.removeIf(m -> m.id().equals(message.id()));
-            messages.add(message);
-        }
-
-        @Override
-        public Optional<ReviewMessage> findMessageById(String id)
-        {
-            return messages.stream().filter(m -> m.id().equals(id)).findFirst();
-        }
-
-        @Override
-        public List<ReviewMessage> listMessagesForPass(String reviewPassId)
-        {
-            return messages.stream()
-                    .filter(m -> m.reviewPassId().equals(reviewPassId))
-                    .toList();
-        }
-
-        @Override
-        public void saveFinding(ReviewFinding finding)
-        {
-            findings.removeIf(f -> f.id().equals(finding.id()));
-            findings.add(finding);
-        }
-
-        @Override
-        public Optional<ReviewFinding> findFindingById(String id)
-        {
-            return findings.stream().filter(f -> f.id().equals(id)).findFirst();
-        }
-
-        @Override
-        public List<ReviewFinding> listFindingsForPass(String reviewPassId)
-        {
-            return findings.stream()
-                    .filter(f -> f.reviewPassId().equals(reviewPassId))
-                    .toList();
-        }
     }
 }

@@ -381,11 +381,10 @@ function ReviewingCard({ detail }: { detail: ReviewPassDetailDto }) {
   return (
     <section style={cardStyle} aria-label="Reviewing">
       <h2 style={cardTitleStyle}>Reviewing</h2>
-      <div style={reviewingTitleStyle}>
-        <span style={prNumStyle}>#{detail.pass.prNumber}</span>{' '}
-        {detail.pass.repoFullName}
-      </div>
+      <div style={prNumStyle}>#{detail.pass.prNumber}</div>
+      {detail.prTitle && <div style={reviewingTitleStyle}>{detail.prTitle}</div>}
       <div style={reviewingMetaStyle}>
+        <span style={reviewingRepoStyle}>{detail.pass.repoFullName}</span>
         <span style={shaChipStyle}>{detail.pass.headSha.slice(0, 8)}</span>
       </div>
     </section>
@@ -430,14 +429,28 @@ function FlowStepper({ currentPhase }: { currentPhase: string }) {
   );
 }
 
-/** Left-rail "Budget" card — the cost progress bar. */
+/** Left-rail "Budget" card — debate-round + cost progress bars. */
 function BudgetCard({ detail }: { detail: ReviewPassDetailDto }) {
+  const round = detail.pass.round;
+  const roundCap = detail.pass.roundCap;
+  const roundPct = roundCap > 0 ? Math.min(100, Math.round((round / roundCap) * 100)) : 0;
   const costPct = detail.pass.costCapMilli > 0
       ? Math.min(100, Math.round((detail.pass.costUsdMilli / detail.pass.costCapMilli) * 100))
       : 0;
   return (
     <section style={cardStyle} aria-label="Budget">
       <h2 style={cardTitleStyle}>Budget</h2>
+      {roundCap > 0 && (
+        <div style={budgetRowStyle}>
+          <div style={budgetTopRowStyle}>
+            <span style={budgetLabelStyle}>Debate rounds</span>
+            <span style={budgetValueStyle}>{round} / {roundCap}</span>
+          </div>
+          <div style={progressTrackStyle}>
+            <div style={progressFillStyle(roundPct, 'var(--accent, #7c3aed)')} />
+          </div>
+        </div>
+      )}
       <div style={budgetRowStyle}>
         <div style={budgetTopRowStyle}>
           <span style={budgetLabelStyle}>Cost</span>
@@ -449,6 +462,7 @@ function BudgetCard({ detail }: { detail: ReviewPassDetailDto }) {
           <div style={progressFillStyle(costPct, costColor(costPct))} />
         </div>
       </div>
+      <p style={budgetHintStyle}>✦ stops early on convergence</p>
     </section>
   );
 }
@@ -1457,22 +1471,37 @@ const rightRailStyle: React.CSSProperties = {
 };
 
 const reviewingTitleStyle: React.CSSProperties = {
-  fontSize: 12,
-  fontWeight: 600,
+  marginTop: 3,
+  fontSize: 14,
+  fontWeight: 700,
   color: 'var(--text-1)',
-  lineHeight: 1.35,
+  lineHeight: 1.3,
 };
 
 const prNumStyle: React.CSSProperties = {
-  color: 'var(--text-3)',
+  fontSize: 13,
+  fontWeight: 600,
+  color: 'var(--accent, #2563eb)',
   fontVariantNumeric: 'tabular-nums',
 };
 
 const reviewingMetaStyle: React.CSSProperties = {
-  marginTop: 6,
+  marginTop: 8,
   display: 'flex',
-  gap: 6,
+  alignItems: 'center',
+  gap: 8,
   flexWrap: 'wrap',
+};
+
+const reviewingRepoStyle: React.CSSProperties = {
+  fontSize: 11,
+  color: 'var(--text-3)',
+};
+
+const budgetHintStyle: React.CSSProperties = {
+  margin: '10px 0 0',
+  fontSize: 11,
+  color: 'var(--text-3)',
 };
 
 const shaChipStyle: React.CSSProperties = {

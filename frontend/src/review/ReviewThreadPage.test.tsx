@@ -45,9 +45,9 @@ describe('ReviewThreadPage', () => {
 
     render(<ReviewThreadPage threadId="thread-1" onBack={() => {}} />);
 
-    // Header shows the PR title + ref + verdict pill.
+    // The PR title shows in the header and the Reviewing card.
     await waitFor(() => {
-      expect(screen.getByText('Add retry logic')).toBeTruthy();
+      expect(screen.getAllByText('Add retry logic').length).toBeGreaterThanOrEqual(1);
     });
     expect(screen.getByText(/acme\/widget · PR #42/)).toBeTruthy();
     expect(screen.getByText('comment')).toBeTruthy();
@@ -336,7 +336,7 @@ describe('ReviewThreadPage', () => {
     });
 
     render(<ReviewThreadPage threadId="thread-1" onBack={() => {}} />);
-    await waitFor(() => screen.getByText('Add retry logic'));
+    await waitFor(() => screen.getAllByText('Add retry logic'));
 
     // The lead's transcript bubble + roster row carry the lead tag,
     // and the old Moderator wording is gone everywhere.

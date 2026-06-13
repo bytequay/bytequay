@@ -220,8 +220,41 @@ class TestReviewPassService
     }
 
     @Test
-    void seatRoleSkillResolvesItsBodyAsThePersonaPrompt()
+    void reviewerSeatRoleSkillResolvesItsBodyAsThePersonaPrompt()
     {
+        when(skillStore.byId(7L)).thenReturn(Optional.of(new Skill(
+                7L, "global", null, null, "Trino style reviewer",
+                "Reviews in the Trino voice.", "Be strict about Trino conventions.",
+                "persona", "review", "reviewer", /* enabled */ true, false,
+                "authored", null, "hash", Instant.now(), Instant.now())));
+
+        // A model-only lead + a reviewer carrying the skill: only the
+        // reviewer's role resolves; the lead never takes a voice.
+        service.startReviewOnPr("acme/widget", 42, new ReviewPassService.StartOptions(
+                List.of(), 3, 500L, true, null, null,
+                List.of(
+                        new ReviewPassService.PanelSeat("claude", null, null, true),
+                        new ReviewPassService.PanelSeat("claude", null, 7L, false))));
+
+        // The reviewer seat carries the skill's name as its label; the
+        // lead seat stays the fixed "Lead" with no persona.
+        List<ReviewParticipant> roster = reviewStore.listParticipantsForPass(passId());
+        assertThat(roster).anyMatch(p -> p.kind() == ReviewParticipantKind.REVIEWER
+                && "Trino style reviewer".equals(p.personaLabel()));
+        ReviewParticipant lead = roster.stream()
+                .filter(p -> p.kind() == ReviewParticipantKind.LEAD)
+                .findFirst()
+                .orElseThrow();
+        assertThat(lead.personaLabel()).isEqualTo("Lead");
+    }
+
+    @Test
+    void leadSeatDropsAnyAttachedRoleSkill()
+    {
+        // Even if a caller pins a review skill on the lead seat, the
+        // lead's job is fixed and code-driven — the skill is ignored
+        // (not resolved, not validated) and the lead seat carries no
+        // persona prompt.
         when(skillStore.byId(7L)).thenReturn(Optional.of(new Skill(
                 7L, "global", null, null, "Trino style reviewer",
                 "Reviews in the Trino voice.", "Be strict about Trino conventions.",
@@ -230,20 +263,26 @@ class TestReviewPassService
 
         service.startReviewOnPr("acme/widget", 42, new ReviewPassService.StartOptions(
                 List.of(), 3, 500L, true, null, null,
-                List.of(new ReviewPassService.PanelSeat("claude", null, 7L, true))));
+                List.of(
+                        new ReviewPassService.PanelSeat("claude", null, 7L, true),
+                        new ReviewPassService.PanelSeat("claude", null, null, false))));
 
-        // The seat's participant carries the skill's name as its label;
-        // the skill body rides as the persona prompt (not persisted —
-        // it flows to the seat's system prompt via the roster).
-        ReviewParticipant reviewerSeatRow = reviewStore.listParticipantsForPass(passId()).stream()
-                .filter(p -> p.kind() == ReviewParticipantKind.REVIEWER)
+        ArgumentCaptor<PanelSeatConfig> roster = ArgumentCaptor.forClass(PanelSeatConfig.class);
+        verify(leadOrchestrator, atLeastOnce()).runRound(
+                any(), any(), roster.capture(), any(), anyInt(), anyString());
+        PanelSeatConfig.Seat leadSeat = roster.getValue().seats().stream()
+                .filter(PanelSeatConfig.Seat::lead)
                 .findFirst()
                 .orElseThrow();
-        assertThat(reviewerSeatRow.personaLabel()).isEqualTo("Trino style reviewer");
+        assertThat(leadSeat.personaPrompt()).isNull();
+        // The skill body never reached any seat as the lead's voice.
+        assertThat(reviewStore.listParticipantsForPass(passId()))
+                .filteredOn(p -> p.kind() == ReviewParticipantKind.LEAD)
+                .allMatch(p -> "Lead".equals(p.personaLabel()));
     }
 
     @Test
-    void seatPromptRendersThePrSummaryPlaceholder()
+    void reviewerSeatPromptRendersThePrSummaryPlaceholder()
     {
         when(skillStore.byId(11L)).thenReturn(Optional.of(new Skill(
                 11L, "global", null, null, "Summarising reviewer",
@@ -254,7 +293,9 @@ class TestReviewPassService
 
         service.startReviewOnPr("acme/widget", 42, new ReviewPassService.StartOptions(
                 List.of(), 3, 500L, true, null, null,
-                List.of(new ReviewPassService.PanelSeat("claude", null, 11L, true))));
+                List.of(
+                        new ReviewPassService.PanelSeat("claude", null, null, true),
+                        new ReviewPassService.PanelSeat("claude", null, 11L, false))));
 
         // The {{pr_summary}} token is replaced by the PR summary (the
         // fetched PR body) before the prompt reaches the seat roster.
@@ -271,19 +312,19 @@ class TestReviewPassService
     }
 
     @Test
-    void disabledRoleSkillSeatIsSkipped()
+    void disabledRoleSkillReviewerSeatIsSkipped()
     {
         when(skillStore.byId(8L)).thenReturn(Optional.of(new Skill(
                 8L, "global", null, null, "Muted persona",
                 "", "...", "persona", "review", "reviewer", /* enabled */ false, false,
                 "authored", null, "hash", Instant.now(), Instant.now())));
 
-        // The disabled-skill seat falls out; with no seat left the
-        // start is refused rather than running an empty panel.
+        // The disabled-skill reviewer seat falls out; with no seat left
+        // the start is refused rather than running an empty panel.
         assertThatThrownBy(() -> service.startReviewOnPr(
                 "acme/widget", 42, new ReviewPassService.StartOptions(
                         List.of(), 3, 500L, true, null, null,
-                        List.of(new ReviewPassService.PanelSeat("claude", null, 8L, true)))))
+                        List.of(new ReviewPassService.PanelSeat("claude", null, 8L, false)))))
                 .isInstanceOf(ResponseStatusException.class)
                 .hasMessageContaining("No reviewers selected");
     }
@@ -299,7 +340,7 @@ class TestReviewPassService
         assertThatThrownBy(() -> service.startReviewOnPr(
                 "acme/widget", 42, new ReviewPassService.StartOptions(
                         List.of(), 3, 500L, true, null, null,
-                        List.of(new ReviewPassService.PanelSeat("claude", null, 9L, true)))))
+                        List.of(new ReviewPassService.PanelSeat("claude", null, 9L, false)))))
                 .isInstanceOf(ResponseStatusException.class)
                 .hasMessageContaining("build-surface skill");
     }

@@ -98,7 +98,7 @@ public class LeadOrchestrator
                         "pass " + pass.id() + " has no lead seat on its roster"));
 
         ReviewProviderEndpoints.Endpoint endpoint = endpoints.resolve(leadSeat.providerId());
-        String system = systemPrompt(leadSeat);
+        String system = systemPrompt();
         ArrayNode messages = providerMessages(
                 endpoint.transport(), system, pass, leadSeat.participantId(), directive);
 
@@ -144,25 +144,25 @@ public class LeadOrchestrator
         return result;
     }
 
-    private String systemPrompt(PanelSeatConfig.Seat leadSeat)
+    /** The lead's system prompt is FIXED — the lead is a deterministic
+     *  coordinator, not a persona, so it takes no caller-supplied voice
+     *  ({@link PanelSeatConfig.Seat#personaPrompt()} is always null for
+     *  a lead seat). Its whole job lives in this orchestration brief. */
+    private String systemPrompt()
     {
-        StringBuilder sb = new StringBuilder();
-        if (leadSeat.personaPrompt() != null && !leadSeat.personaPrompt().isBlank()) {
-            sb.append("Lead voice:\n").append(leadSeat.personaPrompt().strip()).append("\n\n");
-        }
-        sb.append("""
-                You are the LEAD of a multi-reviewer code-review panel. You orchestrate; \
-                reviewers verify. Your tools: set_agenda (once, at kickoff), \
-                mark_phase_in_progress / mark_phase_done, dispatch_to_reviewer (the body \
-                MUST @-mention the reviewer's label; several dispatches in one turn run \
-                in parallel), mark_consensus (classify a finding agreed / disputed / \
-                dropped after weighing the panel), record_dissent, and the read-only \
-                code tools. Reviewers only see what you address to them — quote another \
-                reviewer's point explicitly when you want a reaction to it. Work the \
-                current agenda phase to completion, then call mark_phase_done. Keep \
-                your own messages short: who you asked, what came back, what you \
-                concluded.""");
-        return sb.toString();
+        return """
+                You are the LEAD of a multi-reviewer code-review panel. Your role is
+                fixed: summarize the PR, dispatch the reviewers, weigh what comes back,
+                and drive consensus. You orchestrate; the reviewers verify. Your tools:
+                set_agenda (once, at kickoff), mark_phase_in_progress / mark_phase_done, \
+                dispatch_to_reviewer (the body MUST @-mention the reviewer's label; \
+                several dispatches in one turn run in parallel), mark_consensus (classify \
+                a finding agreed / disputed / dropped after weighing the panel), \
+                record_dissent, and the read-only code tools. Reviewers only see what you \
+                address to them — quote another reviewer's point explicitly when you want \
+                a reaction to it. Work the current agenda phase to completion, then call \
+                mark_phase_done. Keep your own messages short: who you asked, what came \
+                back, what you concluded.""";
     }
 
     /** Provider-shaped conversation: pass header + full transcript,

@@ -249,14 +249,20 @@ function AssignReviewTaskDialog({ workspaceId, onClose, onStarted }: Props) {
             workspaceId,
             // The composed panel — each seat is a model plus an optional
             // review-skill voice or typed prompt; exactly one is the lead.
-            seats: validSeats.map(s => ({
-              providerId: s.providerId,
-              customPrompt: s.role === 'custom' ? s.customPrompt : null,
-              roleSkillId: s.role.startsWith('skill:')
-                  ? Number(s.role.slice('skill:'.length))
-                  : null,
-              lead: s.key === effectiveLeadKey,
-            })),
+            seats: validSeats.map(s => {
+              const isLead = s.key === effectiveLeadKey;
+              // The lead carries no persona — its role is fixed in code.
+              // Strip any skill/prompt it may have held before being
+              // promoted so it always submits model-only.
+              return {
+                providerId: s.providerId,
+                customPrompt: !isLead && s.role === 'custom' ? s.customPrompt : null,
+                roleSkillId: !isLead && s.role.startsWith('skill:')
+                    ? Number(s.role.slice('skill:'.length))
+                    : null,
+                lead: isLead,
+              };
+            }),
           });
       onStarted(result.pass.threadId);
     }
@@ -546,27 +552,37 @@ function SeatRow({
             ))}
           </select>
         </label>
-        <label style={seatFieldStyle}>
-          <span style={seatFieldLabelStyle}>Role</span>
-          <select
-            value={seat.role}
-            onChange={e => onChange({ role: e.target.value })}
-            style={seatSelectStyle}
-            aria-label={`Reviewer ${index + 1} role`}
-          >
-            <option value="none">— none (raw model) —</option>
-            {roleSkills.length > 0 && (
-              <optgroup label="Review skills">
-                {roleSkills.map(s => (
-                  <option key={s.id} value={'skill:' + s.id}>
-                    {s.name}
-                  </option>
-                ))}
-              </optgroup>
-            )}
-            <option value="custom">Custom prompt…</option>
-          </select>
-        </label>
+        {isLead ? (
+          // The lead's job is fixed and code-driven (summarize the PR,
+          // dispatch reviewers, drive consensus), so it takes no
+          // persona — picking the lead only picks which model runs that
+          // role. The Role control is replaced by a static note.
+          <span style={seatLeadNoteStyle}>
+            Coordinates the panel — fixed role, no persona
+          </span>
+        ) : (
+          <label style={seatFieldStyle}>
+            <span style={seatFieldLabelStyle}>Role</span>
+            <select
+              value={seat.role}
+              onChange={e => onChange({ role: e.target.value })}
+              style={seatSelectStyle}
+              aria-label={`Reviewer ${index + 1} role`}
+            >
+              <option value="none">— none (raw model) —</option>
+              {roleSkills.length > 0 && (
+                <optgroup label="Review skills">
+                  {roleSkills.map(s => (
+                    <option key={s.id} value={'skill:' + s.id}>
+                      {s.name}
+                    </option>
+                  ))}
+                </optgroup>
+              )}
+              <option value="custom">Custom prompt…</option>
+            </select>
+          </label>
+        )}
         {canRemove && (
           <button
             type="button"
@@ -579,7 +595,7 @@ function SeatRow({
           </button>
         )}
       </div>
-      {seat.role === 'custom' && (
+      {!isLead && seat.role === 'custom' && (
         <textarea
           value={seat.customPrompt}
           onChange={e => onChange({ customPrompt: e.target.value })}
@@ -884,6 +900,15 @@ const seatFieldStyle: React.CSSProperties = {
   display: 'flex',
   flexDirection: 'column',
   gap: 3,
+};
+
+const seatLeadNoteStyle: React.CSSProperties = {
+  flex: 1,
+  minWidth: 0,
+  fontSize: 11,
+  fontStyle: 'italic',
+  color: 'var(--ws-text-4, #94a3b8)',
+  alignSelf: 'center',
 };
 
 const seatFieldLabelStyle: React.CSSProperties = {

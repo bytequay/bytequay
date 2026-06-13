@@ -364,9 +364,12 @@ public class ReviewPassService
                 .orElse(null);
         String prSummary = prSummary(prTitle, raw.body());
         List<PanelSeatConfig.Seat> seatConfigs = new ArrayList<>();
+        // The lead seat carries no persona prompt — its job is fixed in
+        // code (summarize the PR, dispatch reviewers, drive consensus),
+        // so it runs the orchestrator's built-in prompt, not a voice.
         seatConfigs.add(new PanelSeatConfig.Seat(
                 moderator.id(), leadMember.reviewer().providerId(),
-                renderSeatTemplate(leadMember.personaPrompt(), prSummary), "Lead", /* lead */ true));
+                /* personaPrompt */ null, "Lead", /* lead */ true));
         for (int i = 0; i < panel.size(); i++) {
             seatConfigs.add(new PanelSeatConfig.Seat(
                     reviewerSeats.get(i).id(),

@@ -22,6 +22,7 @@ import EmailSettingsPage from './pages/EmailPage';
 import HelpPage from './pages/HelpPage';
 import IntegrationsPage from './pages/IntegrationsPage';
 import LocalAiPage from './pages/LocalAiPage';
+import AgentRolesPage from './pages/AgentRolesPage';
 import ConceptsPage from './pages/ConceptsPage';
 import SavedViewsPage from './pages/SavedViewsPage';
 import SkillsPage from './pages/SkillsPage';
@@ -58,6 +59,7 @@ function SettingsShell({ section, onSelectSection, onClearPat, onOpenTeam, onOpe
           {resolved === 'ai-review' && <AiReviewPage />}
           {resolved === 'local-ai' && <LocalAiPage />}
           {resolved === 'skills' && <SkillsPage />}
+          {resolved === 'agent-roles' && <AgentRolesPage />}
           {resolved === 'saved-views' && <SavedViewsPage />}
           {resolved === 'concepts' && <ConceptsPage />}
           {resolved === 'watched-repos' && <WatchedReposPage />}

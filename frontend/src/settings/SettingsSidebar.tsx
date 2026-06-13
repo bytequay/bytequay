@@ -37,6 +37,7 @@ const GROUPS: GroupDef[] = [
       { id: 'ai-review', label: 'AI', icon: '✦' },
       { id: 'local-ai', label: 'Local AI (ds4)', icon: '◩' },
       { id: 'skills', label: 'Skills', icon: '◆' },
+      { id: 'agent-roles', label: 'Agent roles', icon: '⛓' },
       { id: 'concepts', label: 'Concepts', icon: '◇' },
       { id: 'saved-views', label: 'Saved views', icon: '⌕' },
     ],

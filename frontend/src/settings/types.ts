@@ -22,6 +22,7 @@ export type SettingsSection =
   | 'ai-review'
   | 'local-ai'
   | 'skills'
+  | 'agent-roles'
   | 'watched-repos'
   | 'workspace-memory'
   | 'integrations'

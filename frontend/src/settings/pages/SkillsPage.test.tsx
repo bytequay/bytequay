@@ -56,6 +56,40 @@ describe('SkillsPage', () => {
     await waitFor(() => expect(setSkillEnabled).toHaveBeenCalledWith(7, false));
   });
 
+  it('splits the nav into Development / Review and filters by the active branch', async () => {
+    installBridge([
+      mkSkill({ id: 1, name: 'Dev voice', usage: 'build', description: 'editing backend code' }),
+      mkSkill({ id: 2, name: 'Concurrency Hawk', usage: 'review', description: 'reviewing concurrency' }),
+    ]);
+
+    render(<SkillsPage />);
+
+    // Development is the default branch — only the build skill shows.
+    await waitFor(() => expect(screen.getByText('Dev voice')).toBeTruthy());
+    expect(screen.queryByText('Concurrency Hawk')).toBeNull();
+
+    // Switching to the Review branch swaps the visible set.
+    fireEvent.click(screen.getByText('✦ Review'));
+    await waitFor(() => expect(screen.getByText('Concurrency Hawk')).toBeTruthy());
+    expect(screen.queryByText('Dev voice')).toBeNull();
+  });
+
+  it('opens the add modal in review mode with the @mention identity field', async () => {
+    installBridge([mkSkill({ id: 2, name: 'Concurrency Hawk', usage: 'review' })]);
+
+    render(<SkillsPage />);
+    await waitFor(() => expect(screen.getByText('⚒ Development')).toBeTruthy());
+
+    fireEvent.click(screen.getByText('✦ Review'));
+    await waitFor(() => expect(screen.getByText('+ New review skill')).toBeTruthy());
+    fireEvent.click(screen.getByText('+ New review skill'));
+
+    // Review skills are named voices — the modal foregrounds the
+    // @mention identity, and there is no kind / role picker.
+    await waitFor(() => expect(screen.getByText('@mention identity')).toBeTruthy());
+    expect(screen.queryByText('Per-role')).toBeNull();
+  });
+
   it('drafts a skill via the AI button and lands the proposal in the editor', async () => {
     const draftSkill = vi.fn(async () => ({
       name: 'Auth review checklist',
@@ -65,9 +99,9 @@ describe('SkillsPage', () => {
     installBridge([], { draftSkill });
 
     render(<SkillsPage />);
-    await waitFor(() => expect(screen.getByText('+ New skill')).toBeTruthy());
+    await waitFor(() => expect(screen.getByText('+ New development skill')).toBeTruthy());
 
-    fireEvent.click(screen.getByText('+ New skill'));
+    fireEvent.click(screen.getByText('+ New development skill'));
     fireEvent.click(screen.getByText(/Draft with AI/i));
     const prompt = screen.getByPlaceholderText(/Describe the skill/i);
     fireEvent.change(prompt, { target: { value: 'remind me about auth review' } });

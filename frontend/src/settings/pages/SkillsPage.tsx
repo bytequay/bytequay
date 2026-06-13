@@ -11,85 +11,49 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { Fragment, useCallback, useEffect, useMemo, useState } from 'react';
 import type { SkillDto, SkillInput } from '../../types';
 import SkillEditorModal, { classify, type ScopeBucket } from './skills/SkillEditorModal';
 
-type Tab = 'global' | 'repos' | 'roles';
+type Branch = 'development' | 'review';
 
-const TAB_DEFS: { id: Tab; label: string; meta: string; addLabel: string; emptyHint: string }[] = [
-  {
-    id: 'global',
-    label: 'Global',
-    meta: 'available to every workspace + agent',
-    addLabel: '+ New skill',
-    emptyHint: 'No global skills yet. Add one that should be available across every workspace.',
-  },
-  {
-    id: 'repos',
-    label: 'Repos',
-    meta: 'scoped to a single owner/name',
-    addLabel: '+ New skill',
-    emptyHint: 'No per-repo skills yet. Add one tied to a watched repo.',
-  },
-  {
-    id: 'roles',
-    label: 'Roles',
-    meta: 'always-on identity for an agent role',
-    addLabel: '+ New skill',
-    emptyHint: 'No role skills yet. Add one for reviewer / reviewee / scheduler / trunk.',
-  },
-];
+const BRANCH_USAGE: Record<Branch, 'build' | 'review'> = {
+  development: 'build',
+  review: 'review',
+};
 
-/** Read-mostly role catalogue rendered on the Roles tab so the
- *  surface is informative even before the role-generation work
- *  lands. */
-const ROLE_CARDS: { id: string; label: string; kind: string; can: string[]; cant: string[]; blurb: string }[] = [
+const BRANCH_DEFS: { id: Branch; label: string; icon: string; meta: string; addLabel: string }[] = [
   {
-    id: 'trunk',
-    label: 'Trunk',
-    kind: 'fixed template',
-    can: ['create_task', 'search', 'recall'],
-    cant: ['edit files', 'push'],
-    blurb: 'Orchestrates planning; cuts tasks but never writes code or pushes. Ships with the app — not editable here.',
+    id: 'development',
+    label: 'Development',
+    icon: '⚒',
+    meta: 'steers how build / task agents work',
+    addLabel: '+ New development skill',
   },
   {
-    id: 'task',
-    label: 'Task',
-    kind: 'generated per task · frozen',
-    can: ['edit files', 'push (gated)', 'comment'],
-    cant: ['create_task', 'change role'],
-    blurb: 'Composed at task creation from the task\'s repo / branch / PR; frozen onto the task so behaviour is reproducible.',
-  },
-  {
-    id: 'reviewer',
-    label: 'Reviewer',
-    kind: 'composed · deferred',
-    can: ['read diff', 'comment'],
-    cant: ['edit files', 'push', 'create_task'],
-    blurb: 'Composed base + persona + how-to × backend. Wiring lives with the review-panel work — surfaced here for visibility only.',
-  },
-  {
-    id: 'lead',
-    label: 'Lead',
-    kind: 'composed · deferred',
-    can: ['arbitrate panel', 'publish review'],
-    cant: ['edit files', 'push code'],
-    blurb: 'Final arbiter on the review panel. Same composed pattern as Reviewer; lands with the review-panel surface.',
+    id: 'review',
+    label: 'Review',
+    icon: '✦',
+    meta: 'named voices a review panel can seat',
+    addLabel: '+ New review skill',
   },
 ];
 
 type RowMenuState = number | null;
 
 /**
- * Settings → Skills surface. A kind nav (Global / Repos / Roles)
- * scopes the body to its own slice of the flat skill list. Every
- * skill row foregrounds the trigger description ("▸ loads when …")
- * so the "model-triggered, not always-on" model is visible at a
- * glance. Add / Edit goes through the {@link SkillEditorModal}.
+ * Settings → Skills surface. A two-level left nav — Development /
+ * Review (by usage) then All / Global / per-repo (by scope) — scopes
+ * the body to its slice of the flat skill list. Every row foregrounds
+ * the trigger description ("▸ loads when …") so the "model-triggered,
+ * not always-on" model is visible at a glance. Agent roles live on
+ * their own read-only page; Add / Edit goes through {@link
+ * SkillEditorModal}.
  */
 function SkillsPage() {
-  const [tab, setTab] = useState<Tab>('global');
+  const [branch, setBranchRaw] = useState<Branch>('development');
+  // Second-level selection: 'all' | 'global' | <repoSlug>.
+  const [sub, setSub] = useState<string>('all');
   const [skills, setSkills] = useState<SkillDto[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -97,6 +61,8 @@ function SkillsPage() {
   const [editingScope, setEditingScope] = useState<ScopeBucket>('global');
   const [editingRepo, setEditingRepo] = useState<string | undefined>(undefined);
   const [rowMenu, setRowMenu] = useState<RowMenuState>(null);
+
+  const setBranch = (b: Branch) => { setBranchRaw(b); setSub('all'); };
 
   const reload = useCallback(async () => {
     setLoading(true);
@@ -115,48 +81,59 @@ function SkillsPage() {
 
   useEffect(() => { void reload(); }, [reload]);
 
-  const counts = useMemo(() => {
-    // counts reflect user-authored data, not the static role-info
-    // cards (those live as a separate informational grid on the Roles
-    // tab and don't make sense as a "you have N" badge).
-    const c = { global: 0, repos: 0, roles: 0 };
-    for (const s of skills) {
-      const sc = classify(s);
-      if (sc === 'global') c.global++;
-      else if (sc === 'repos') c.repos++;
-      else if (sc === 'role') c.roles++;
-    }
-    return c;
-  }, [skills]);
+  // Skills in the active branch (by usage).
+  const branchSkills = useMemo(
+    () => skills.filter(s => s.usage === BRANCH_USAGE[branch]), [skills, branch]);
+
+  // Repos that have at least one skill in the active branch — the
+  // per-repo entries under the branch in the second-level nav.
+  const branchRepos = useMemo(() => {
+    const set = new Set<string>();
+    branchSkills.forEach(s => { if (s.scope === 'repo' && s.repo) set.add(s.repo); });
+    return Array.from(set).sort();
+  }, [branchSkills]);
+
+  const branchCount = (b: Branch) => skills.filter(s => s.usage === BRANCH_USAGE[b]).length;
+  const subCount = (key: string) => {
+    if (key === 'all') return branchSkills.length;
+    if (key === 'global') return branchSkills.filter(s => s.scope === 'global').length;
+    return branchSkills.filter(s => s.scope === 'repo' && s.repo === key).length;
+  };
 
   const visible = useMemo(() => {
-    const wanted: ScopeBucket = tab === 'global' ? 'global'
-        : tab === 'repos' ? 'repos'
-        : 'role';
-    return skills.filter(s => classify(s) === wanted);
-  }, [skills, tab]);
+    if (sub === 'all') return branchSkills;
+    if (sub === 'global') return branchSkills.filter(s => s.scope === 'global');
+    return branchSkills.filter(s => s.scope === 'repo' && s.repo === sub);
+  }, [branchSkills, sub]);
 
-  const grouped = useMemo(() => {
-    if (tab !== 'repos') return [];
-    const byKey = new Map<string, { label: string; sublabel: string; rows: SkillDto[] }>();
-    for (const s of visible) {
-      if (s.repo === null) continue;
-      const key = s.repo;
-      const label = s.repo.includes('/') ? s.repo.split('/')[1] : s.repo;
-      let bucket = byKey.get(key);
-      if (bucket === undefined) {
-        bucket = { label, sublabel: s.repo, rows: [] };
-        byKey.set(key, bucket);
-      }
-      bucket.rows.push(s);
-    }
-    return Array.from(byKey.entries()).map(([key, v]) => ({ key, ...v }));
-  }, [visible, tab]);
+  // 'All' groups by scope: a Global/All-repos section then one per repo.
+  const groups = useMemo(() => {
+    if (sub !== 'all') return null;
+    const globalLabel = branch === 'review' ? 'All repos' : 'Global';
+    const out: { key: string; label: string; sublabel: string; rows: SkillDto[] }[] = [{
+      key: 'global',
+      label: globalLabel,
+      sublabel: branch === 'review' ? 'any PR' : 'every workspace',
+      rows: branchSkills.filter(s => s.scope === 'global'),
+    }];
+    branchRepos.forEach(r => out.push({
+      key: r,
+      label: r.includes('/') ? r.split('/')[1] : r,
+      sublabel: r,
+      rows: branchSkills.filter(s => s.scope === 'repo' && s.repo === r),
+    }));
+    return out.filter(g => g.rows.length > 0);
+  }, [sub, branch, branchSkills, branchRepos]);
 
   const openAdd = (scope: ScopeBucket, repo?: string) => {
     setEditingScope(scope);
     setEditingRepo(repo);
     setEditing('new');
+  };
+
+  const openAddForSub = () => {
+    if (sub !== 'all' && sub !== 'global') openAdd('repos', sub);
+    else openAdd('global');
   };
 
   const openEdit = (row: SkillDto) => {
@@ -197,7 +174,23 @@ function SkillsPage() {
     }
   };
 
-  const activeDef = TAB_DEFS.find(t => t.id === tab)!;
+  const renderRow = (row: SkillDto) => (
+    <SkillRow
+      key={row.id}
+      row={row}
+      menuOpen={rowMenu === row.id}
+      onMenu={() => setRowMenu(rowMenu === row.id ? null : row.id)}
+      onCloseMenu={() => setRowMenu(null)}
+      onToggle={() => { void handleToggleEnabled(row); }}
+      onEdit={() => openEdit(row)}
+      onDelete={() => { void handleDelete(row.id); }}
+    />
+  );
+
+  const activeDef = BRANCH_DEFS.find(b => b.id === branch)!;
+  const subLabel = sub === 'all' ? 'All'
+      : sub === 'global' ? (branch === 'review' ? 'All repos' : 'Global')
+      : sub.includes('/') ? sub.split('/')[1] : sub;
 
   return (
     <>
@@ -205,30 +198,51 @@ function SkillsPage() {
         <div>
           <h2 className="settings-shell-page__title">Skills</h2>
           <div className="settings-shell-page__subtitle">
-            Skills are <strong>model-triggered</strong>, not always-on. Each one carries
-            a trigger description; the agent decides whether to load the body based on
-            the task. Must-always-hold facts belong in the workspace brain instead, so
-            they don't overlap.
+            Skills are <strong>model-triggered</strong>, not always-on. Development skills
+            steer how build / task agents work; Review skills are named voices a review
+            panel can seat. Agent roles live on their own page.
           </div>
         </div>
       </div>
 
       <div style={layoutStyle}>
-        <nav style={navStyle} aria-label="Skill kinds">
-          {TAB_DEFS.map(def => {
-            const active = tab === def.id;
-            const count = counts[def.id];
+        <nav style={navStyle} aria-label="Skill surfaces">
+          {BRANCH_DEFS.map(def => {
+            const active = branch === def.id;
+            const subItems = [
+              { k: 'all', l: 'All' },
+              { k: 'global', l: def.id === 'review' ? 'All repos' : 'Global' },
+              ...branchRepos.map(r => ({ k: r, l: r.includes('/') ? r.split('/')[1] : r })),
+            ];
             return (
-              <button
-                key={def.id}
-                type="button"
-                onClick={() => setTab(def.id)}
-                style={navItemStyle(active)}
-              >
-                <span style={navLabelStyle}>{def.label}</span>
-                <span style={navCountStyle(active, count)}>{count}</span>
-                <span style={navMetaStyle}>{def.meta}</span>
-              </button>
+              <Fragment key={def.id}>
+                <button
+                  type="button"
+                  onClick={() => setBranch(def.id)}
+                  style={branchHeaderStyle(active)}
+                >
+                  <span style={branchLabelStyle}>{def.icon} {def.label}</span>
+                  <span style={navCountStyle(active, branchCount(def.id))}>{branchCount(def.id)}</span>
+                </button>
+                {active && (
+                  <div style={subNavStyle}>
+                    {subItems.map(item => {
+                      const on = sub === item.k;
+                      return (
+                        <button
+                          key={item.k}
+                          type="button"
+                          onClick={() => setSub(item.k)}
+                          style={subItemStyle(on)}
+                        >
+                          <span>{item.l}</span>
+                          <span style={subCountStyle(on)}>{subCount(item.k)}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                )}
+              </Fragment>
             );
           })}
         </nav>
@@ -236,13 +250,13 @@ function SkillsPage() {
         <section style={bodyStyle}>
           <div style={bodyHeadStyle}>
             <div>
-              <div style={bodyTitleStyle}>{activeDef.label}</div>
+              <div style={bodyTitleStyle}>{activeDef.label} · {subLabel}</div>
               <div style={bodyMetaStyle}>{activeDef.meta}</div>
             </div>
             <button
               type="button"
               className="button button--primary"
-              onClick={() => openAdd(tab === 'global' ? 'global' : tab === 'repos' ? 'repos' : 'role')}
+              onClick={openAddForSub}
             >
               {activeDef.addLabel}
             </button>
@@ -252,96 +266,31 @@ function SkillsPage() {
 
           {loading && <div className="settings-loading">Loading…</div>}
 
-          {!loading && tab !== 'roles' && visible.length === 0 && error === null && (
-            <div style={emptyStyle}>{activeDef.emptyHint}</div>
+          {!loading && visible.length === 0 && error === null && (
+            <div style={emptyStyle}>No {branch} skills here yet.</div>
           )}
 
-          {tab === 'global' && visible.map(row => (
-            <SkillRow
-              key={row.id}
-              row={row}
-              menuOpen={rowMenu === row.id}
-              onMenu={() => setRowMenu(rowMenu === row.id ? null : row.id)}
-              onCloseMenu={() => setRowMenu(null)}
-              onToggle={() => { void handleToggleEnabled(row); }}
-              onEdit={() => openEdit(row)}
-              onDelete={() => { void handleDelete(row.id); }}
-            />
-          ))}
-
-          {tab === 'repos' && grouped.map(group => (
-            <div key={group.key} style={groupStyle}>
-              <div style={groupHeadStyle}>
-                <span style={groupNameStyle}>{group.label}</span>
-                <span style={groupMetaStyle}>{group.sublabel}</span>
-                <button
-                  type="button"
-                  className="button button--secondary button--small"
-                  onClick={() => openAdd('repos', group.key)}
-                  style={{ marginLeft: 'auto' }}
-                >
-                  + skill
-                </button>
-              </div>
-              {group.rows.map(row => (
-                <SkillRow
-                  key={row.id}
-                  row={row}
-                  menuOpen={rowMenu === row.id}
-                  onMenu={() => setRowMenu(rowMenu === row.id ? null : row.id)}
-                  onCloseMenu={() => setRowMenu(null)}
-                  onToggle={() => { void handleToggleEnabled(row); }}
-                  onEdit={() => openEdit(row)}
-                  onDelete={() => { void handleDelete(row.id); }}
-                />
-              ))}
-            </div>
-          ))}
-
-          {tab === 'roles' && (
-            <>
-              <div style={rolesGridStyle}>
-                {ROLE_CARDS.map(card => (
-                  <article key={card.id} style={roleCardStyle}>
-                    <header style={roleCardHeadStyle}>
-                      <div>
-                        <div style={roleCardLabelStyle}>{card.label}</div>
-                        <div style={roleCardKindStyle}>{card.kind}</div>
-                      </div>
-                      <span style={roleCardTagStyle}>role</span>
-                    </header>
-                    <p style={roleCardBlurbStyle}>{card.blurb}</p>
-                    <div style={chipColStyle}>
-                      <div style={chipRowStyle}>
-                        <span style={chipLabelOkStyle}>can</span>
-                        {card.can.map(c => <span key={c} style={chipOkStyle}>{c}</span>)}
-                      </div>
-                      <div style={chipRowStyle}>
-                        <span style={chipLabelNoStyle}>can't</span>
-                        {card.cant.map(c => <span key={c} style={chipNoStyle}>{c}</span>)}
-                      </div>
-                    </div>
-                  </article>
-                ))}
-              </div>
-              <div style={roleSectionHeadStyle}>Your role skills</div>
-              {visible.length === 0 && error === null && (
-                <div style={emptyStyle}>{activeDef.emptyHint}</div>
-              )}
-              {visible.map(row => (
-                <SkillRow
-                  key={row.id}
-                  row={row}
-                  menuOpen={rowMenu === row.id}
-                  onMenu={() => setRowMenu(rowMenu === row.id ? null : row.id)}
-                  onCloseMenu={() => setRowMenu(null)}
-                  onToggle={() => { void handleToggleEnabled(row); }}
-                  onEdit={() => openEdit(row)}
-                  onDelete={() => { void handleDelete(row.id); }}
-                />
-              ))}
-            </>
-          )}
+          {sub === 'all' && groups !== null
+            ? groups.map(group => (
+                <div key={group.key} style={groupStyle}>
+                  <div style={groupHeadStyle}>
+                    <span style={groupNameStyle}>{group.label}</span>
+                    <span style={groupMetaStyle}>{group.sublabel}</span>
+                    {group.key !== 'global' && (
+                      <button
+                        type="button"
+                        className="button button--secondary button--small"
+                        onClick={() => openAdd('repos', group.key)}
+                        style={{ marginLeft: 'auto' }}
+                      >
+                        + skill
+                      </button>
+                    )}
+                  </div>
+                  {group.rows.map(renderRow)}
+                </div>
+              ))
+            : visible.map(renderRow)}
         </section>
       </div>
 
@@ -350,6 +299,7 @@ function SkillsPage() {
           onClose={() => setEditing(null)}
           onSave={handleSave}
           initialScope={editingScope}
+          initialUsage={BRANCH_USAGE[branch]}
           initialRepo={editingRepo}
           existing={editing === 'new' ? undefined : editing}
         />
@@ -445,10 +395,9 @@ function SkillRow({
 }
 
 function scopeLabel(row: SkillDto, bucket: ScopeBucket): string {
-  const surface = row.usage === 'review' ? ' · Review' : '';
-  if (bucket === 'global') return 'Global' + surface;
-  if (bucket === 'role') return 'Role · ' + (row.roleTag ?? '') + surface;
-  return 'Repo' + surface;
+  const surface = row.usage === 'review' ? 'Review' : 'Dev';
+  if (bucket === 'global') return (row.usage === 'review' ? 'All repos' : 'Global') + ' · ' + surface;
+  return 'Repo · ' + surface;
 }
 
 function formatBytes(n: number): string {
@@ -483,24 +432,6 @@ const navStyle: React.CSSProperties = {
   gap: 4,
 };
 
-function navItemStyle(active: boolean): React.CSSProperties {
-  return {
-    display: 'grid',
-    gridTemplateColumns: '1fr auto',
-    gridTemplateRows: 'auto auto',
-    gap: 2,
-    padding: '10px 12px',
-    textAlign: 'left',
-    border: active ? '1px solid var(--ws-accent, #7c3aed)' : '1px solid transparent',
-    background: active ? 'rgba(124, 58, 237, 0.06)' : 'transparent',
-    borderRadius: 8,
-    cursor: 'pointer',
-    color: 'var(--text-1)',
-  };
-}
-
-const navLabelStyle: React.CSSProperties = { fontSize: 13, fontWeight: 600 };
-
 function navCountStyle(active: boolean, count: number): React.CSSProperties {
   return {
     fontSize: 11,
@@ -515,12 +446,6 @@ function navCountStyle(active: boolean, count: number): React.CSSProperties {
     textAlign: 'center',
   };
 }
-
-const navMetaStyle: React.CSSProperties = {
-  gridColumn: '1 / 3',
-  fontSize: 11,
-  color: 'var(--text-3)',
-};
 
 const bodyStyle: React.CSSProperties = {
   display: 'flex',
@@ -643,7 +568,6 @@ function rowScopeBadgeStyle(sc: ScopeBucket): React.CSSProperties {
   const palette: Record<ScopeBucket, { fg: string; bg: string }> = {
     global: { fg: '#5b21b6', bg: 'rgba(124, 58, 237, 0.10)' },
     repos: { fg: '#0d9488', bg: 'rgba(13, 148, 136, 0.10)' },
-    role: { fg: '#d97706', bg: 'rgba(217, 119, 6, 0.10)' },
   };
   const p = palette[sc];
   return {
@@ -756,111 +680,58 @@ const menuItemDangerStyle: React.CSSProperties = {
   borderRadius: 6,
 };
 
-const roleSectionHeadStyle: React.CSSProperties = {
-  marginTop: 6,
-  fontSize: 12,
-  fontWeight: 700,
-  letterSpacing: '0.04em',
-  textTransform: 'uppercase',
-  color: 'var(--text-3)',
-};
+function branchHeaderStyle(active: boolean): React.CSSProperties {
+  return {
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 8,
+    padding: '9px 12px',
+    textAlign: 'left',
+    border: active ? '1px solid var(--ws-accent, #7c3aed)' : '1px solid transparent',
+    background: active ? 'rgba(124, 58, 237, 0.06)' : 'transparent',
+    borderRadius: 8,
+    cursor: 'pointer',
+    color: 'var(--text-1)',
+  };
+}
 
-const rolesGridStyle: React.CSSProperties = {
-  display: 'grid',
-  gridTemplateColumns: 'repeat(auto-fit, minmax(260px, 1fr))',
-  gap: 10,
-};
+const branchLabelStyle: React.CSSProperties = { fontSize: 13, fontWeight: 700 };
 
-const roleCardStyle: React.CSSProperties = {
-  padding: 14,
-  border: '1px solid rgba(0,0,0,0.08)',
-  borderRadius: 12,
-  background: '#fff',
+const subNavStyle: React.CSSProperties = {
   display: 'flex',
   flexDirection: 'column',
-  gap: 8,
+  gap: 2,
+  margin: '2px 0 6px 10px',
+  paddingLeft: 8,
+  borderLeft: '1px solid rgba(0,0,0,0.08)',
 };
 
-const roleCardHeadStyle: React.CSSProperties = {
-  display: 'flex',
-  justifyContent: 'space-between',
-  alignItems: 'flex-start',
-};
+function subItemStyle(active: boolean): React.CSSProperties {
+  return {
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    gap: 8,
+    padding: '5px 10px',
+    textAlign: 'left',
+    border: 'none',
+    background: active ? 'rgba(124, 58, 237, 0.10)' : 'transparent',
+    borderRadius: 6,
+    cursor: 'pointer',
+    fontSize: 12.5,
+    fontWeight: active ? 600 : 400,
+    color: active ? 'var(--text-1)' : 'var(--text-2)',
+  };
+}
 
-const roleCardLabelStyle: React.CSSProperties = {
-  fontSize: 15,
-  fontWeight: 700,
-};
-
-const roleCardKindStyle: React.CSSProperties = {
-  fontSize: 11,
-  color: 'var(--text-3)',
-  marginTop: 2,
-};
-
-const roleCardTagStyle: React.CSSProperties = {
-  fontSize: 10,
-  fontWeight: 700,
-  letterSpacing: '0.04em',
-  padding: '1px 6px',
-  borderRadius: 4,
-  background: 'rgba(217, 119, 6, 0.10)',
-  color: '#d97706',
-};
-
-const roleCardBlurbStyle: React.CSSProperties = {
-  margin: 0,
-  fontSize: 12,
-  color: 'var(--text-2)',
-  lineHeight: 1.4,
-};
-
-const chipColStyle: React.CSSProperties = {
-  display: 'flex',
-  flexDirection: 'column',
-  gap: 6,
-  marginTop: 2,
-};
-
-const chipRowStyle: React.CSSProperties = {
-  display: 'flex',
-  alignItems: 'center',
-  flexWrap: 'wrap',
-  gap: 4,
-};
-
-const chipLabelOkStyle: React.CSSProperties = {
-  fontSize: 10,
-  fontWeight: 700,
-  letterSpacing: '0.06em',
-  textTransform: 'uppercase',
-  color: '#15803d',
-  marginRight: 4,
-};
-
-const chipLabelNoStyle: React.CSSProperties = {
-  fontSize: 10,
-  fontWeight: 700,
-  letterSpacing: '0.06em',
-  textTransform: 'uppercase',
-  color: '#b91c1c',
-  marginRight: 4,
-};
-
-const chipOkStyle: React.CSSProperties = {
-  fontSize: 11,
-  padding: '1px 6px',
-  borderRadius: 4,
-  background: 'rgba(22, 163, 74, 0.10)',
-  color: '#15803d',
-};
-
-const chipNoStyle: React.CSSProperties = {
-  fontSize: 11,
-  padding: '1px 6px',
-  borderRadius: 4,
-  background: 'rgba(207, 19, 34, 0.08)',
-  color: '#b91c1c',
-};
+function subCountStyle(active: boolean): React.CSSProperties {
+  return {
+    fontSize: 10,
+    fontWeight: 600,
+    color: active ? 'var(--text-2)' : 'var(--text-4, #94a3b8)',
+    fontVariantNumeric: 'tabular-nums',
+  };
+}
 
 export default SkillsPage;

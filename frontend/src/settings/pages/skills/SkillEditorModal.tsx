@@ -14,10 +14,10 @@
 import { useEffect, useState } from 'react';
 import type { SkillDto, SkillInput } from '../../../types';
 
-/** UI-side scope picker — three buckets the user thinks in. Maps onto the
- *  backend's (scope, roleTag) pair: 'global' / 'role' both store scope =
- *  'global' on the row, with roleTag null vs. set. */
-export type ScopeBucket = 'global' | 'repos' | 'role';
+/** UI-side scope picker. Maps onto the backend's scope column: 'global'
+ *  or 'repo'. (Role is no longer a skill axis — applicability is derived
+ *  from usage.) */
+export type ScopeBucket = 'global' | 'repos';
 
 type Kind = 'library' | 'persona' | 'rubric';
 
@@ -26,11 +26,14 @@ type Mode = 'manual' | 'draft';
 export type SkillEditorModalProps = {
   onClose: () => void;
   onSave: (input: SkillInput) => Promise<void>;
-  /** Locked scope passed in from the active SkillsPage tab so the
+  /** Locked scope passed in from the active SkillsPage sub-nav so the
    *  modal opens with the right radio + form layout. */
   initialScope: ScopeBucket;
+  /** Which surface the new skill serves — set by the Development /
+   *  Review branch the modal was opened from. Not user-editable here. */
+  initialUsage: 'build' | 'review';
   /** Pre-populated repo slug when the user opened the modal from a
-   *  specific Repos group. */
+   *  specific repo group. */
   initialRepo?: string;
   /** Edit-mode existing row, or undefined for Add. */
   existing?: SkillDto;
@@ -46,9 +49,14 @@ export type SkillEditorModalProps = {
  *   until the user presses Create.
  */
 function SkillEditorModal({
-  onClose, onSave, initialScope, initialRepo, existing,
+  onClose, onSave, initialScope, initialUsage, initialRepo, existing,
 }: SkillEditorModalProps) {
   const [mode, setMode] = useState<Mode>('manual');
+
+  // Surface (development / review) is fixed by the branch the modal
+  // opened from — not editable here. It drives the default kind.
+  const usage: 'build' | 'review' = existing?.usage ?? initialUsage;
+  const isReview = usage === 'review';
 
   const [scope, setScope] = useState<ScopeBucket>(() => {
     if (existing !== undefined) return classify(existing);
@@ -56,14 +64,9 @@ function SkillEditorModal({
   });
   const [name, setName] = useState(existing?.name ?? '');
   const [repo, setRepo] = useState<string>(existing?.repo ?? initialRepo ?? '');
-  const [role, setRole] = useState<string>(existing?.roleTag ?? '');
   const [description, setDescription] = useState(existing?.description ?? '');
   const [body, setBody] = useState(existing?.body ?? '');
-  const [kind, setKind] = useState<Kind>(existing?.kind ?? defaultKindFor(initialScope));
-  // Which surface the skill serves: build/task agents or the review
-  // panel. Review-usage rows are pickable as reviewer roles and
-  // invisible to build agents (and vice versa).
-  const [usage, setUsage] = useState<'build' | 'review'>(existing?.usage ?? 'build');
+  const [kind] = useState<Kind>(existing?.kind ?? (isReview ? 'rubric' : 'library'));
   const [isDefault, setIsDefault] = useState(existing?.isDefault ?? false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -80,15 +83,9 @@ function SkillEditorModal({
   const [autoFocusKey, setAutoFocusKey] = useState(0);
   useEffect(() => { setAutoFocusKey(k => k + 1); }, [mode]);
 
-  useEffect(() => {
-    if (existing !== undefined) return;
-    setKind(defaultKindFor(scope));
-  }, [scope, existing]);
-
   const validate = (): string | null => {
     if (name.trim() === '') return 'Skill name is required.';
     if (scope === 'repos' && repo.trim() === '') return 'Repo is required for a per-repo skill.';
-    if (scope === 'role' && role.trim() === '') return 'Role is required for a role skill.';
     return null;
   };
 
@@ -99,7 +96,7 @@ function SkillEditorModal({
     setError(null);
     try {
       await onSave(toPayload({
-        scope, repo: repo.trim(), role: role.trim(),
+        scope, repo: repo.trim(),
         name: name.trim(), description: description.trim(),
         body: body.trim(), kind, usage, isDefault,
         draftedFromPrompt,
@@ -170,22 +167,21 @@ function SkillEditorModal({
         <div style={fieldStyle}>
           <label style={labelStyle}>Scope</label>
           <div style={segmentRowStyle}>
-            {(['global', 'repos', 'role'] as const).map(s => (
+            {(['global', 'repos'] as const).map(s => (
               <button
                 key={s}
                 type="button"
                 style={segmentBtnStyle(scope === s)}
                 onClick={() => setScope(s)}
               >
-                {s === 'global' ? 'Global' : s === 'repos' ? 'Per-repo' : 'Per-role'}
+                {s === 'global' ? (isReview ? 'All repos' : 'Global') : 'Per-repo'}
               </button>
             ))}
           </div>
           <p style={hintStyle}>
-            Global = available to every workspace + agent.
-            Per-repo = loaded when the agent's cwd matches the repo
-            below. Per-role = always-on identity for an agent role
-            (trunk / task / reviewer / lead).
+            {isReview
+              ? 'All repos = selectable on any PR review. Per-repo = offered only on PRs in the repo below.'
+              : 'Global = available to every workspace + agent. Per-repo = loaded when the agent’s cwd matches the repo below.'}
           </p>
         </div>
 
@@ -201,24 +197,6 @@ function SkillEditorModal({
               placeholder="e.g. chenjian2664/ByteQuay"
               disabled={existing !== undefined}
             />
-          </div>
-        )}
-
-        {scope === 'role' && (
-          <div style={fieldStyle}>
-            <label style={labelStyle}>Role</label>
-            <select
-              style={selectStyle}
-              value={role}
-              onChange={e => setRole(e.target.value)}
-              disabled={existing !== undefined}
-            >
-              <option value="">Pick a role…</option>
-              <option value="reviewer">reviewer</option>
-              <option value="reviewee">reviewee</option>
-              <option value="scheduler">scheduler (task)</option>
-              <option value="trunk">trunk (planning)</option>
-            </select>
           </div>
         )}
 
@@ -260,16 +238,25 @@ function SkillEditorModal({
         ) : (
           <>
             <div style={fieldStyle}>
-              <label style={labelStyle}>Skill name</label>
+              <label style={labelStyle}>
+                {isReview ? 'Voice name' : 'Skill name'}
+                {isReview && <span style={nameChipStyle}>@mention identity</span>}
+              </label>
               <input
                 key={`name-${autoFocusKey}`}
                 style={inputStyle}
                 type="text"
                 value={name}
                 onChange={e => setName(e.target.value)}
-                placeholder="e.g. Backend uses Java 25"
+                placeholder={isReview ? 'e.g. Concurrency Hawk' : 'e.g. Backend uses Java 25'}
                 autoFocus
               />
+              {isReview && (
+                <p style={hintStyle}>
+                  This name is how the Lead @mentions this reviewer in the panel
+                  transcript — make it short and distinct.
+                </p>
+              )}
             </div>
 
             <div style={fieldStyle}>
@@ -290,49 +277,6 @@ function SkillEditorModal({
             </div>
 
             <div style={fieldStyle}>
-              <label style={labelStyle}>Kind</label>
-              <div style={segmentRowStyle}>
-                {(['library', 'persona', 'rubric'] as const).map(k => (
-                  <button
-                    key={k}
-                    type="button"
-                    style={segmentBtnStyle(kind === k)}
-                    onClick={() => setKind(k)}
-                  >
-                    {k === 'library' ? 'Library' : k === 'persona' ? 'Persona' : 'Rubric'}
-                  </button>
-                ))}
-              </div>
-              <p style={hintStyle}>
-                Library = the model picks it up via list_skills /
-                load_skill. Persona = always-on identity for a role.
-                Rubric = deterministic review-time rule the review
-                path always applies.
-              </p>
-            </div>
-
-            <div style={fieldStyle}>
-              <label style={labelStyle}>Used by</label>
-              <div style={segmentRowStyle}>
-                {(['build', 'review'] as const).map(u => (
-                  <button
-                    key={u}
-                    type="button"
-                    style={segmentBtnStyle(usage === u)}
-                    onClick={() => setUsage(u)}
-                  >
-                    {u === 'build' ? 'Development' : 'Review'}
-                  </button>
-                ))}
-              </div>
-              <p style={hintStyle}>
-                Development skills are visible to build/task agents
-                only. Review skills are selectable as reviewer roles
-                in the assign-review dialog only.
-              </p>
-            </div>
-
-            <div style={fieldStyle}>
               <label style={labelStyle}>Body</label>
               <textarea
                 style={textareaStyle}
@@ -343,22 +287,22 @@ function SkillEditorModal({
               />
             </div>
 
-            <div style={fieldStyle}>
-              <label style={checkboxLabelStyle}>
-                <input
-                  type="checkbox"
-                  checked={isDefault}
-                  onChange={e => setIsDefault(e.target.checked)}
-                />
-                <span>Default for this scope</span>
-              </label>
-              <p style={hintStyle}>
-                When several rows match the same (scope, repo, kind, role),
-                the default-marked row wins. Useful when you keep an
-                "off-the-shelf" persona around but want a custom one in
-                front of it.
-              </p>
-            </div>
+            {isReview && (
+              <div style={fieldStyle}>
+                <label style={checkboxLabelStyle}>
+                  <input
+                    type="checkbox"
+                    checked={isDefault}
+                    onChange={e => setIsDefault(e.target.checked)}
+                  />
+                  <span>Default review voice for this scope</span>
+                </label>
+                <p style={hintStyle}>
+                  The ★ default is auto-seated when a review starts without a
+                  hand-picked panel. At most one default per repo.
+                </p>
+              </div>
+            )}
 
             {error !== null && <p style={errorStyle}>{error}</p>}
 
@@ -383,20 +327,12 @@ function SkillEditorModal({
   );
 }
 
-export function classify(row: { scope: string; roleTag: string | null }): ScopeBucket {
-  if (row.scope === 'repo') return 'repos';
-  if (row.roleTag !== null && row.roleTag !== '') return 'role';
-  return 'global';
-}
-
-function defaultKindFor(scope: ScopeBucket): Kind {
-  if (scope === 'role') return 'persona';
-  if (scope === 'repos') return 'rubric';
-  return 'library';
+export function classify(row: { scope: string }): ScopeBucket {
+  return row.scope === 'repo' ? 'repos' : 'global';
 }
 
 function toPayload(state: {
-  scope: ScopeBucket; repo: string; role: string;
+  scope: ScopeBucket; repo: string;
   name: string; description: string; body: string;
   kind: Kind; usage: 'build' | 'review'; isDefault: boolean;
   draftedFromPrompt: string | null;
@@ -404,31 +340,17 @@ function toPayload(state: {
   const sourceFields = state.draftedFromPrompt === null
       ? {}
       : { source: 'ai_drafted' as const, provenance: state.draftedFromPrompt };
-  if (state.scope === 'repos') {
-    return {
-      scope: 'repo',
-      repo: state.repo,
-      threadId: null,
-      name: state.name,
-      description: state.description,
-      body: state.body,
-      kind: state.kind,
-      usage: state.usage,
-      roleTag: null,
-      isDefault: state.isDefault,
-      ...sourceFields,
-    };
-  }
+  const repoScoped = state.scope === 'repos';
   return {
-    scope: 'global',
-    repo: null,
+    scope: repoScoped ? 'repo' : 'global',
+    repo: repoScoped ? state.repo : null,
     threadId: null,
     name: state.name,
     description: state.description,
     body: state.body,
     kind: state.kind,
     usage: state.usage,
-    roleTag: state.scope === 'role' ? state.role : null,
+    roleTag: null,
     isDefault: state.isDefault,
     ...sourceFields,
   };
@@ -514,6 +436,17 @@ const labelStyle: React.CSSProperties = {
   marginBottom: 4,
 };
 
+const nameChipStyle: React.CSSProperties = {
+  marginLeft: 8,
+  fontSize: 9,
+  fontWeight: 700,
+  letterSpacing: '0.06em',
+  color: '#5b21b6',
+  background: 'rgba(124, 58, 237, 0.12)',
+  borderRadius: 999,
+  padding: '1px 7px',
+};
+
 const checkboxLabelStyle: React.CSSProperties = {
   display: 'inline-flex',
   alignItems: 'center',
@@ -532,10 +465,6 @@ const inputStyle: React.CSSProperties = {
   color: 'var(--text-1)',
   boxSizing: 'border-box',
   outline: 'none',
-};
-
-const selectStyle: React.CSSProperties = {
-  ...inputStyle,
 };
 
 const textareaStyle: React.CSSProperties = {

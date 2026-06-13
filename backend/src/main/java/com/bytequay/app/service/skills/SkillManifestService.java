@@ -59,15 +59,14 @@ public class SkillManifestService
                 : query.scopes();
         Set<String> touchedRepos = query.touchedRepos() == null ? Set.of() : query.touchedRepos();
         Optional<String> threadId = query.threadId() == null ? Optional.empty() : query.threadId();
-        Optional<String> role = query.role() == null ? Optional.empty() : query.role();
         return store.list().stream()
                 .filter(Skill::enabled)
-                // Review-surface skills are reviewer roles, not agent
-                // context — they never reach a build/task agent's
-                // list_skills catalog.
+                // Role applicability is derived from usage, not stored: a
+                // build/task agent sees every development (usage=build)
+                // skill in scope; review-surface skills are reviewer
+                // voices and never reach the list_skills catalog.
                 .filter(s -> !"review".equals(s.usage()))
                 .filter(s -> matchesScope(s, scopes, touchedRepos, threadId))
-                .filter(s -> matchesRole(s, role))
                 .sorted(Comparator
                         .comparing(Skill::scope)
                         .thenComparing(Skill::name))
@@ -102,14 +101,6 @@ public class SkillManifestService
                     && skill.threadId().equals(threadId.get());
             default -> false;
         };
-    }
-
-    private static boolean matchesRole(Skill skill, Optional<String> role)
-    {
-        if (skill.roleTag() == null) {
-            return true;
-        }
-        return role.isPresent() && skill.roleTag().equals(role.get());
     }
 
     private static SkillManifestEntry toEntry(Skill s)

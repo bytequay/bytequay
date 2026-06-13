@@ -67,23 +67,26 @@ class TestSkillManifestService
     }
 
     @Test
-    void queryHonoursRoleTag()
+    void queryIgnoresRoleTagAndResolvesEveryInScopeBuildSkill()
     {
+        // Role applicability is derived from usage now, not roleTag: a
+        // build agent sees every enabled development skill in scope
+        // regardless of any legacy role tag on the row.
         List<Skill> rows = List.of(
                 skill(1, "agnostic", "global", null, null, true, "library"),
                 skill(2, "reviewer-persona", "global", null, "reviewer", true, "persona"),
                 skill(3, "trunk-persona", "global", null, "trunk", true, "persona"));
         SkillManifestService service = new SkillManifestService(new InMemorySkillStore(rows));
 
-        List<SkillManifestEntry> reviewer = service.query(
+        List<SkillManifestEntry> resolved = service.query(
                 new SkillManifestQuery(
                         Set.of("global"),
                         Set.of(),
                         Optional.empty(),
                         Optional.of("reviewer")));
 
-        assertThat(reviewer).extracting(SkillManifestEntry::name)
-                .containsExactly("agnostic", "reviewer-persona");
+        assertThat(resolved).extracting(SkillManifestEntry::name)
+                .containsExactly("agnostic", "reviewer-persona", "trunk-persona");
     }
 
     @Test

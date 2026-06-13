@@ -21,6 +21,7 @@ import org.springframework.stereotype.Service;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.util.List;
+import java.util.Locale;
 import java.util.Optional;
 import java.util.Set;
 
@@ -48,6 +49,68 @@ public class SkillService
     public List<Skill> list()
     {
         return store.list();
+    }
+
+    /**
+     * Filtered list for the Settings UI. {@code usageKind} accepts the
+     * UI vocabulary ('development' = build surface, 'review'); null = all.
+     * {@code scope} is 'all' (or null), 'global', or 'repo' (with
+     * {@code repoId}). {@code q} is a case-insensitive name/description
+     * substring.
+     */
+    public List<Skill> query(String usageKind, String scope, String repoId, String q)
+    {
+        String usage = usageKind == null || usageKind.isBlank() ? null
+                : "development".equals(usageKind) ? "build" : usageKind;
+        String needle = q == null ? "" : q.strip().toLowerCase(Locale.ROOT);
+        return store.list().stream()
+                .filter(s -> usage == null || usage.equals(s.usage()))
+                .filter(s -> scope == null || scope.isBlank() || "all".equals(scope)
+                        || ("global".equals(scope) && "global".equals(s.scope()))
+                        || ("repo".equals(scope) && "repo".equals(s.scope())
+                                && (repoId == null || repoId.equals(s.repo()))))
+                .filter(s -> needle.isEmpty()
+                        || s.name().toLowerCase(Locale.ROOT).contains(needle)
+                        || (s.description() != null && s.description().toLowerCase(Locale.ROOT).contains(needle)))
+                .toList();
+    }
+
+    /**
+     * The skills that would resolve for an agent role — derived from
+     * usage, never stored: Trunk / Task see development (build) skills;
+     * Reviewer / Lead see review skills. Enabled rows only. Backs the
+     * read-only Agent roles preview.
+     */
+    public List<Skill> byRole(String role)
+    {
+        String r = role == null ? "" : role.toLowerCase(Locale.ROOT);
+        String usage = switch (r) {
+            case "trunk", "task" -> "build";
+            case "reviewer", "lead" -> "review";
+            default -> throw new ResponseStatusException(HttpStatusCode.valueOf(400),
+                    "role must be one of trunk|task|reviewer|lead, got: " + role);
+        };
+        return store.list().stream()
+                .filter(Skill::enabled)
+                .filter(s -> usage.equals(s.usage()))
+                .toList();
+    }
+
+    /** Mark a review skill the default for its repo (clearing any prior
+     *  default in that repo). 422 when the row isn't a review skill. */
+    public Skill setDefault(long id)
+    {
+        Skill skill = get(id);
+        if (!"review".equals(skill.usage())) {
+            throw new ResponseStatusException(HttpStatusCode.valueOf(422),
+                    "default_only_for_review_skills");
+        }
+        try {
+            return store.setDefault(id);
+        }
+        catch (IllegalStateException e) {
+            throw new ResponseStatusException(HttpStatusCode.valueOf(404), e.getMessage());
+        }
     }
 
     public Skill get(long id)

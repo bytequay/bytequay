@@ -77,4 +77,10 @@ public interface SkillStore
     /** Flip the enable flag; raises IllegalStateException when the id is
      *  missing so the controller can map to 404. */
     Skill setEnabled(long id, boolean enabled);
+
+    /** Mark this row the default for its (usage, repo) group, clearing
+     *  the flag on every sibling in that group so at most one default
+     *  exists per repo per surface. Raises IllegalStateException when the
+     *  id is missing. */
+    Skill setDefault(long id);
 }

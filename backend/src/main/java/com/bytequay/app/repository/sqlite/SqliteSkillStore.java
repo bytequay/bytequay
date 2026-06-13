@@ -24,6 +24,7 @@ import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
 import java.util.HexFormat;
 import java.util.List;
+import java.util.Objects;
 import java.util.Optional;
 
 import static com.google.common.collect.ImmutableList.toImmutableList;
@@ -181,6 +182,27 @@ public class SqliteSkillStore
                 .orElseThrow(() -> new IllegalStateException("skill " + id + " not found"));
         e.setEnabled(enabled);
         return toDomain(this.repo.save(e));
+    }
+
+    @Override
+    @Transactional
+    public Skill setDefault(long id)
+    {
+        SkillEntity target = this.repo.findById(id)
+                .orElseThrow(() -> new IllegalStateException("skill " + id + " not found"));
+        // At most one default per (usage, repo): clear the flag on every
+        // sibling in the same surface + repo before marking this one.
+        for (SkillEntity e : this.repo.findAll()) {
+            if (e.getId() != id
+                    && e.isDefault()
+                    && Objects.equals(e.getUsage(), target.getUsage())
+                    && Objects.equals(e.getRepo(), target.getRepo())) {
+                e.setDefault(false);
+                this.repo.save(e);
+            }
+        }
+        target.setDefault(true);
+        return toDomain(this.repo.save(target));
     }
 
     private static String blankToNull(String s)

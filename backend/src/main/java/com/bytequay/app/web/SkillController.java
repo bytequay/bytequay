@@ -26,6 +26,7 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.server.ResponseStatusException;
 
@@ -70,15 +71,39 @@ public class SkillController
     {}
 
     @GetMapping("/skills")
-    public List<Skill> list()
+    public List<Skill> list(
+            @RequestParam(name = "usage_kind", required = false) String usageKind,
+            @RequestParam(name = "scope", required = false) String scope,
+            @RequestParam(name = "repo_id", required = false) String repoId,
+            @RequestParam(name = "q", required = false) String q)
     {
-        return service.list();
+        if (usageKind == null && scope == null && repoId == null && q == null) {
+            return service.list();
+        }
+        return service.query(usageKind, scope, repoId, q);
+    }
+
+    /** Read-only debug view: which skills resolve for a given agent
+     *  role, derived from usage (Trunk/Task → development, Reviewer/Lead
+     *  → review). Backs the Agent roles page's resolution preview. */
+    @GetMapping("/skills/by-role")
+    public List<Skill> byRole(@RequestParam("role") String role)
+    {
+        return service.byRole(role);
     }
 
     @GetMapping("/skills/{id}")
     public Skill get(@PathVariable long id)
     {
         return service.get(id);
+    }
+
+    /** Flip the per-repo ★ default review skill (review skills only;
+     *  422 default_only_for_review_skills otherwise). */
+    @PostMapping("/skills/{id}/set-default")
+    public Skill setDefault(@PathVariable long id)
+    {
+        return service.setDefault(id);
     }
 
     @PostMapping("/skills")

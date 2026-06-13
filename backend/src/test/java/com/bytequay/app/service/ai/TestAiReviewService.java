@@ -202,6 +202,7 @@ class TestAiReviewService
         @Override public Skill update(long id, String scope, String repo, String threadId, String name, String description, String body, String kind, String usage, String roleTag, boolean isDefault) { throw new UnsupportedOperationException(); }
         @Override public void delete(long id) { throw new UnsupportedOperationException(); }
         @Override public Skill setEnabled(long id, boolean enabled) { throw new UnsupportedOperationException(); }
+        @Override public Skill setDefault(long id) { throw new UnsupportedOperationException(); }
     }
 
     private static final class UnsupportedPullRequestStore

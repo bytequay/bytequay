@@ -1203,30 +1203,6 @@ export type Ds4InstallStatusDto = {
  *  PUT endpoints. Carries both the raw override set on the queried scope
  *  (nullable) and the cascade winner so the pill and rail section can render
  *  "Inherited from workspace ByteQuay" without a follow-up fetch. */
-/** User-defined reviewer voice — name + system prompt + role. The
- *  Start Review dialog picks K of these per pass. Provider-agnostic:
- *  the dialog chooses which LLM provider runs each persona. */
-export type ReviewerPersonaDto = {
-  id: string;
-  name: string;
-  systemPrompt: string;
-  /** Encoded as a string on the wire so the JSON shape stays stable
-   *  when the backend enum grows. Today: 'LEAD' or 'REVIEWER'. */
-  role: 'LEAD' | 'REVIEWER' | string;
-  active: boolean;
-  createdAt: string;
-  updatedAt: string;
-};
-
-/** Request body for POST /api/personas (create) and PUT
- *  /api/personas/{id} (update). The role field accepts either casing —
- *  the backend uppercases before parsing the enum. */
-export type PersonaRequest = {
-  name: string;
-  systemPrompt: string;
-  role: string;
-};
-
 export type ResolvedWorkModelDto = {
   /** The override set directly on this thread or task; null when the scope
    *  has no override of its own. */
@@ -2856,17 +2832,6 @@ export type Bridge = {
   /** Forces the CLI detector to drop its memo and re-probe every
    *  binary. Backs the picker's "refresh" affordance. */
   refreshWorkModelOptions: () => Promise<WorkModelOptionsDto>;
-  /** Active reviewer personas, sorted by name. The Start Review dialog
-   *  reads this to populate its picker; the Settings persona page
-   *  reads it to render the list. */
-  listPersonas: () => Promise<ReviewerPersonaDto[]>;
-  /** Create a new persona. The backend mints the id. */
-  createPersona: (req: PersonaRequest) => Promise<ReviewerPersonaDto>;
-  /** Update an existing persona's name / prompt / role. */
-  updatePersona: (id: string, req: PersonaRequest) => Promise<ReviewerPersonaDto>;
-  /** Soft-delete a persona — it stops appearing in the picker but
-   *  prior findings that reference it still resolve. */
-  deletePersona: (id: string) => Promise<void>;
   /** Set (or clear) the workspace's default work model. Pass null
    *  to remove the override, after which the resolver falls back
    *  to the global default. Returns the updated workspace. */
@@ -3193,30 +3158,22 @@ export type Bridge = {
       roundCap?: number;
       costCapMilli?: number;
       independentFirst?: boolean;
-      /** New persona path — when non-empty, panelProviderIds is
-       *  ignored and the backend builds a panel from these
-       *  personas + providerForPersonas. */
-      personaIds?: string[];
-      providerForPersonas?: string | null;
       /** Workspace the review thread is created in, so it surfaces in
        *  that workspace's thread list. */
       workspaceId?: string;
-      /** Per-run lead override — a personaId (persona path) or providerId
-       *  (legacy path). Null/omitted falls back to the persona's LEAD
-       *  role, else the first panel member. The lead runs consensus +
-       *  the convergence moderator. */
+      /** Per-run lead override — a providerId. Null/omitted falls back
+       *  to the first panel member. The lead runs consensus + the
+       *  convergence moderator. */
       leadId?: string | null;
       /** Explicit panel composition — one entry per reviewer seat, each
-       *  pairing a model with an optional persona or typed prompt. When
-       *  set, this is the authoritative panel (wins over personaIds /
-       *  panelProviderIds). Exactly one seat should be flagged lead. */
+       *  pairing a model with an optional review-skill voice or typed
+       *  prompt. When set, this is the authoritative panel. Exactly one
+       *  seat should be flagged lead. */
       seats?: {
         providerId: string;
-        personaId?: string | null;
         customPrompt?: string | null;
-        /** A role-tagged skills-vault row used as this seat's
-         *  reviewing voice; mutually exclusive with personaId /
-         *  customPrompt. */
+        /** A review-usage skill row used as this seat's voice; mutually
+         *  exclusive with customPrompt. */
         roleSkillId?: number | null;
         lead?: boolean;
       }[];

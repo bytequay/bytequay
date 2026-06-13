@@ -27,7 +27,6 @@ import com.bytequay.app.domain.ReviewPhase;
 import com.bytequay.app.repository.AppSettingsStore;
 import com.bytequay.app.repository.PullRequestRepository;
 import com.bytequay.app.repository.PullRequestStore;
-import com.bytequay.app.repository.ReviewerPersonaStore;
 import com.bytequay.app.repository.SkillStore;
 import com.bytequay.app.repository.ThreadStore;
 import com.bytequay.app.repository.ThreadTurnEventStore;
@@ -155,7 +154,7 @@ class TestReviewPanelIntegration
         service = new ReviewPassService(
                 mock(ThreadStore.class), reviewStore, pullRequests,
                 mock(PullRequestStore.class), patResolver, registry,
-                appSettings, mock(ReviewerPersonaStore.class),
+                appSettings,
                 Runnable::run,
                 leadOrchestrator, reviewerSeat, leadToolset, budget, diffCache, scheduler,
                 mock(SkillStore.class));

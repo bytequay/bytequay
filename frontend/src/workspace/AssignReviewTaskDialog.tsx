@@ -13,7 +13,7 @@
  */
 import { useEffect, useMemo, useState } from 'react';
 import type {
-  SkillDto, PullRequestDto, ReviewRosterEntryDto, ReviewerPersonaDto } from '../types';
+  SkillDto, PullRequestDto, ReviewRosterEntryDto } from '../types';
 import { WS_DIALOG_OVERLAY, WS_DIALOG_PANEL, dialogStyles } from './dialogStyles';
 
 type Props = {
@@ -41,8 +41,8 @@ type PrRef = { repo: string; number: number };
 
 /** A reviewer row in the panel builder: a model ({@code providerId})
  *  paired with a "role" — {@code 'none'} (raw model), {@code 'custom'}
- *  (a typed prompt in {@code customPrompt}), or a personaId (a
- *  predefined review role). {@code key} is a stable React id that also
+ *  (a typed prompt in {@code customPrompt}), or {@code 'skill:<id>'} (a
+ *  review-skill voice). {@code key} is a stable React id that also
  *  identifies the lead seat. */
 type SeatDraft = {
   key: string;
@@ -96,14 +96,13 @@ function AssignReviewTaskDialog({ workspaceId, onClose, onStarted }: Props) {
   const [defaultRepo, setDefaultRepo] = useState<string | null>(null);
   // On-demand lookup for a PR that isn't in the awaiting-review list.
   const [lookup, setLookup] = useState<LookupState>({ status: 'idle' });
-  const [personas, setPersonas] = useState<ReviewerPersonaDto[] | null>(null);
   // Review-surface rows from the skills vault — the user's authored
-  // reviewing voices. Offered in each seat's Role dropdown alongside
-  // the reviewer personas; development skills stay with the build
-  // agents and thread-scoped rows with their thread.
+  // reviewing voices (the named @mention identities). Offered in each
+  // seat's Role dropdown; development skills stay with the build agents
+  // and thread-scoped rows with their thread.
   const [roleSkills, setRoleSkills] = useState<SkillDto[]>([]);
   // Composed panel — one row per reviewer seat, each a model paired with
-  // an optional persona ("role") or a typed prompt. leadKey identifies
+  // a review-skill voice or a typed prompt. leadKey identifies
   // the seat that runs consensus + moderates. Seeded with one row once
   // the roster loads.
   const [seats, setSeats] = useState<SeatDraft[]>([]);
@@ -120,11 +119,10 @@ function AssignReviewTaskDialog({ workspaceId, onClose, onStarted }: Props) {
     let cancelled = false;
     void (async () => {
       try {
-        const [prList, rosterList, repoList, personaList, skillList] = await Promise.all([
+        const [prList, rosterList, repoList, skillList] = await Promise.all([
           window.bridge.fetchPrs(),
           window.bridge.listReviewRoster(),
           window.bridge.listWorkspaceRepos(workspaceId),
-          window.bridge.listPersonas().catch(() => [] as ReviewerPersonaDto[]),
           window.bridge.listSkills().catch(() => [] as SkillDto[]),
         ]);
         if (cancelled) return;
@@ -134,7 +132,6 @@ function AssignReviewTaskDialog({ workspaceId, onClose, onStarted }: Props) {
             .filter(p => p.snoozedUntil === null);
         setPrs(awaiting);
         setRoster(rosterList);
-        setPersonas(personaList);
         setRoleSkills(skillList.filter(s =>
             s.enabled && s.usage === 'review' && s.scope !== 'thread'));
         // First repo (oldest by addedAt) is the workspace's main repo —
@@ -251,11 +248,9 @@ function AssignReviewTaskDialog({ workspaceId, onClose, onStarted }: Props) {
             // opened from, so it shows in that workspace's thread list.
             workspaceId,
             // The composed panel — each seat is a model plus an optional
-            // persona or typed prompt; exactly one is flagged lead.
+            // review-skill voice or typed prompt; exactly one is the lead.
             seats: validSeats.map(s => ({
               providerId: s.providerId,
-              personaId: s.role !== 'none' && s.role !== 'custom'
-                  && !s.role.startsWith('skill:') ? s.role : null,
               customPrompt: s.role === 'custom' ? s.customPrompt : null,
               roleSkillId: s.role.startsWith('skill:')
                   ? Number(s.role.slice('skill:'.length))
@@ -381,7 +376,6 @@ function AssignReviewTaskDialog({ workspaceId, onClose, onStarted }: Props) {
                   index={idx}
                   isLead={seat.key === effectiveLeadKey}
                   roster={roster ?? []}
-                  personas={personas ?? []}
                   roleSkills={roleSkills}
                   canRemove={seats.length > 1}
                   onMakeLead={() => setLeadKey(seat.key)}
@@ -509,17 +503,16 @@ function PrRow({
 
 /** One reviewer row in the panel builder: a ★ lead toggle, a model
  *  picker (configured providers only), and a "role" picker that is
- *  a predefined persona, a role-tagged skill from the vault, a typed
- *  prompt, or none. When "Custom prompt" is chosen a textarea reveals
- *  so the user can describe what this reviewer should focus on. */
+ *  a review-skill voice from the vault, a typed prompt, or none. When
+ *  "Custom prompt" is chosen a textarea reveals so the user can describe
+ *  what this reviewer should focus on. */
 function SeatRow({
-  seat, index, isLead, roster, personas, roleSkills, canRemove, onMakeLead, onChange, onRemove,
+  seat, index, isLead, roster, roleSkills, canRemove, onMakeLead, onChange, onRemove,
 }: {
   seat: SeatDraft;
   index: number;
   isLead: boolean;
   roster: ReviewRosterEntryDto[];
-  personas: ReviewerPersonaDto[];
   roleSkills: SkillDto[];
   canRemove: boolean;
   onMakeLead: () => void;
@@ -562,21 +555,11 @@ function SeatRow({
             aria-label={`Reviewer ${index + 1} role`}
           >
             <option value="none">— none (raw model) —</option>
-            {personas.length > 0 && (
-              <optgroup label="Personas">
-                {personas.map(p => (
-                  <option key={p.id} value={p.id}>
-                    {p.name}{p.role === 'LEAD' ? ' (lead persona)' : ''}
-                  </option>
-                ))}
-              </optgroup>
-            )}
             {roleSkills.length > 0 && (
-              <optgroup label="Skills">
+              <optgroup label="Review skills">
                 {roleSkills.map(s => (
                   <option key={s.id} value={'skill:' + s.id}>
-                    {s.name} · {s.roleTag !== null && s.roleTag.trim() !== ''
-                        ? s.roleTag : s.kind}
+                    {s.name}
                   </option>
                 ))}
               </optgroup>

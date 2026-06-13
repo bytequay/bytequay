@@ -34,7 +34,6 @@ import com.bytequay.app.domain.ThreadFlow;
 import com.bytequay.app.repository.AppSettingsStore;
 import com.bytequay.app.repository.PullRequestRepository;
 import com.bytequay.app.repository.PullRequestStore;
-import com.bytequay.app.repository.ReviewerPersonaStore;
 import com.bytequay.app.repository.SkillStore;
 import com.bytequay.app.repository.ThreadStore;
 import com.bytequay.app.service.agents.TurnResult;
@@ -90,7 +89,6 @@ class TestReviewPassService
     private LlmReviewerRegistry registry;
     private LlmReviewer reviewer;
     private AppSettingsStore appSettings;
-    private ReviewerPersonaStore personas;
     private SkillStore skillStore;
     private LeadOrchestrator leadOrchestrator;
     private ReviewerSeat reviewerSeat;
@@ -108,7 +106,6 @@ class TestReviewPassService
         registry = mock(LlmReviewerRegistry.class);
         reviewer = mock(LlmReviewer.class);
         appSettings = mock(AppSettingsStore.class);
-        personas = mock(ReviewerPersonaStore.class);
         skillStore = mock(SkillStore.class);
         reviewStore = new InMemoryReviewStore();
         leadOrchestrator = mock(LeadOrchestrator.class);
@@ -159,7 +156,7 @@ class TestReviewPassService
         // inline so tests stay deterministic.
         service = new ReviewPassService(
                 threadStore, reviewStore, pullRequests, pullRequestStore, patResolver, registry,
-                appSettings, personas,
+                appSettings,
                 Runnable::run,
                 leadOrchestrator, reviewerSeat, leadToolset,
                 new ReviewBudgetMeter(reviewStore),
@@ -231,9 +228,8 @@ class TestReviewPassService
                 "authored", null, "hash", Instant.now(), Instant.now())));
 
         service.startReviewOnPr("acme/widget", 42, new ReviewPassService.StartOptions(
-                List.of(), 3, 500L, true, List.of(), null, null, null,
-                List.of(new ReviewPassService.PanelSeat(
-                        "claude", null, null, 7L, true))));
+                List.of(), 3, 500L, true, null, null,
+                List.of(new ReviewPassService.PanelSeat("claude", null, 7L, true))));
 
         // The seat's participant carries the skill's name as its label;
         // the skill body rides as the persona prompt (not persisted —
@@ -257,9 +253,8 @@ class TestReviewPassService
         // start is refused rather than running an empty panel.
         assertThatThrownBy(() -> service.startReviewOnPr(
                 "acme/widget", 42, new ReviewPassService.StartOptions(
-                        List.of(), 3, 500L, true, List.of(), null, null, null,
-                        List.of(new ReviewPassService.PanelSeat(
-                                "claude", null, null, 8L, true)))))
+                        List.of(), 3, 500L, true, null, null,
+                        List.of(new ReviewPassService.PanelSeat("claude", null, 8L, true)))))
                 .isInstanceOf(ResponseStatusException.class)
                 .hasMessageContaining("No reviewers selected");
     }
@@ -274,9 +269,8 @@ class TestReviewPassService
 
         assertThatThrownBy(() -> service.startReviewOnPr(
                 "acme/widget", 42, new ReviewPassService.StartOptions(
-                        List.of(), 3, 500L, true, List.of(), null, null, null,
-                        List.of(new ReviewPassService.PanelSeat(
-                                "claude", null, null, 9L, true)))))
+                        List.of(), 3, 500L, true, null, null,
+                        List.of(new ReviewPassService.PanelSeat("claude", null, 9L, true)))))
                 .isInstanceOf(ResponseStatusException.class)
                 .hasMessageContaining("build-surface skill");
     }
@@ -288,7 +282,7 @@ class TestReviewPassService
         when(registry.all()).thenReturn(List.of(reviewer, openai));
 
         service.startReviewOnPr("acme/widget", 42, new ReviewPassService.StartOptions(
-                List.of(), 3, 500L, true, List.of(), null, null, "openai", List.of()));
+                List.of(), 3, 500L, true, null, "openai", List.of()));
 
         ReviewParticipant lead = reviewStore.listParticipantsForPass(passId()).get(0);
         assertThat(lead.kind()).isEqualTo(ReviewParticipantKind.LEAD);

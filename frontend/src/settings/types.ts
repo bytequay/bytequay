@@ -20,7 +20,6 @@ export type SettingsSection =
   | 'github-token'
   | 'teams'
   | 'ai-review'
-  | 'personas'
   | 'local-ai'
   | 'skills'
   | 'watched-repos'

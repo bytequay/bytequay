@@ -225,8 +225,6 @@ public class ReviewController
             Integer roundCap,
             Long costCapMilli,
             Boolean independentFirst,
-            List<String> personaIds,
-            String providerForPersonas,
             String workspaceId,
             String leadId,
             List<SeatRequest> seats)
@@ -244,8 +242,6 @@ public class ReviewController
                     roundCap == null || roundCap <= 0 ? defaults.roundCap() : roundCap,
                     costCapMilli == null || costCapMilli <= 0 ? defaults.costCapMilli() : costCapMilli,
                     independentFirst == null ? defaults.independentFirst() : independentFirst,
-                    personaIds == null ? List.of() : personaIds,
-                    providerForPersonas,
                     workspaceId,
                     leadId == null || leadId.isBlank() ? null : leadId,
                     seatList);
@@ -253,16 +249,15 @@ public class ReviewController
     }
 
     /** One composed reviewer seat from the dialog — a model plus an
-     *  optional persona or typed prompt, and whether it's the lead. */
+     *  optional review-skill voice or typed prompt, and whether it's the
+     *  lead. */
     public record SeatRequest(
-            String providerId, String personaId, String customPrompt,
-            Long roleSkillId, Boolean lead)
+            String providerId, String customPrompt, Long roleSkillId, Boolean lead)
     {
         ReviewPassService.PanelSeat toSeat()
         {
             return new ReviewPassService.PanelSeat(
                     providerId,
-                    personaId == null || personaId.isBlank() ? null : personaId,
                     customPrompt == null || customPrompt.isBlank() ? null : customPrompt,
                     roleSkillId,
                     lead != null && lead);

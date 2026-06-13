@@ -82,9 +82,7 @@ import type {
   WatchedRepoDto,
   WorkUnitTaskDto,
   ReviewRosterEntryDto,
-  PersonaRequest,
   ResolvedWorkModelDto,
-  ReviewerPersonaDto,
   WorkModelDto,
   WorkModelOptionsDto,
   WorkspaceCardDto,
@@ -346,14 +344,6 @@ const bridge: Bridge = {
     ipcRenderer.invoke('workModels:options'),
   refreshWorkModelOptions: (): Promise<WorkModelOptionsDto> =>
     ipcRenderer.invoke('workModels:refresh'),
-  listPersonas: (): Promise<ReviewerPersonaDto[]> =>
-    ipcRenderer.invoke('personas:list'),
-  createPersona: (req: PersonaRequest): Promise<ReviewerPersonaDto> =>
-    ipcRenderer.invoke('personas:create', req),
-  updatePersona: (id: string, req: PersonaRequest): Promise<ReviewerPersonaDto> =>
-    ipcRenderer.invoke('personas:update', { id, req }),
-  deletePersona: (id: string): Promise<void> =>
-    ipcRenderer.invoke('personas:delete', id),
   setWorkspaceWorkModel: (workspaceId: string, model: WorkModelDto | null): Promise<WorkspaceDto> =>
     ipcRenderer.invoke('workspaces:setWorkModel', { workspaceId, model }),
   getThreadWorkModel: (threadId: string): Promise<ResolvedWorkModelDto> =>
@@ -645,17 +635,11 @@ const bridge: Bridge = {
       roundCap?: number;
       costCapMilli?: number;
       independentFirst?: boolean;
-      personaIds?: string[];
-      providerForPersonas?: string | null;
       workspaceId?: string;
       leadId?: string | null;
       seats?: {
         providerId: string;
-        personaId?: string | null;
         customPrompt?: string | null;
-        /** A role-tagged skills-vault row used as this seat's
-         *  reviewing voice; mutually exclusive with personaId /
-         *  customPrompt. */
         roleSkillId?: number | null;
         lead?: boolean;
       }[];

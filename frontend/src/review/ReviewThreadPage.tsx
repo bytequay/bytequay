@@ -101,6 +101,23 @@ function ReviewThreadPage({ threadId, onBack }: Props) {
     return counts;
   }, [detail]);
 
+  // First transcript message that #ref's each finding — the row's
+  // "jump to source" target. Best-effort: only consensus / dissent
+  // turns carry finding refs, so a plainly-reported finding may have
+  // no source link (its row just isn't clickable).
+  const sourceMsgIdByFinding = useMemo(() => {
+    const map = new Map<string, string>();
+    for (const m of detail?.messages ?? []) {
+      for (const ref of m.refs) {
+        if (ref.startsWith('finding:')) {
+          const id = ref.slice('finding:'.length);
+          if (!map.has(id)) map.set(id, m.id);
+        }
+      }
+    }
+    return map;
+  }, [detail]);
+
   // Clicking a participant's @mention chip filters the transcript to
   // that reviewer's stream (their messages + messages addressed to
   // them). Click again — or the clear pill — to unfilter.
@@ -147,17 +164,26 @@ function ReviewThreadPage({ threadId, onBack }: Props) {
             <BudgetCard detail={detail} />
           </aside>
           <main style={centerColStyle}>
-            <AgendaSection agenda={detail.agenda} />
-            {focusParticipantId !== null && (
-              <button
-                type="button"
-                style={focusPillStyle}
-                onClick={() => setFocusParticipantId(null)}
-              >
-                Showing {participantsById.get(focusParticipantId)?.personaLabel
-                    ?? 'one reviewer'}&apos;s stream — clear filter ✕
-              </button>
-            )}
+            <AgendaSection agenda={detail.agenda} passPhase={detail.pass.phase} />
+            {focusParticipantId !== null && (() => {
+              const focused = participantsById.get(focusParticipantId);
+              const focusColor = focused?.color ?? rosterFallbackColor(focused?.kind ?? 'REVIEWER');
+              return (
+                <div style={focusPillRowStyle} role="status">
+                  <span style={focusPillTextStyle(focusColor)}>
+                    Filtered to <strong>@{focused?.personaLabel ?? 'one reviewer'}</strong>
+                  </span>
+                  <button
+                    type="button"
+                    className="review-chip"
+                    style={focusClearBtnStyle}
+                    onClick={() => setFocusParticipantId(null)}
+                  >
+                    ✕ clear
+                  </button>
+                </div>
+              );
+            })()}
             <TranscriptSection
               messages={detail.messages}
               participantsById={participantsById}
@@ -177,6 +203,8 @@ function ReviewThreadPage({ threadId, onBack }: Props) {
               tone="agreed"
               findings={agreedFindings}
               dissentsByFinding={dissentsByFinding}
+              sourceMsgIdByFinding={sourceMsgIdByFinding}
+              spawnedBuildThreadId={detail.pass.spawnedBuildThreadId}
               emptyHint="Nothing locked in yet."
             />
             <FindingsByStatusSection
@@ -184,6 +212,8 @@ function ReviewThreadPage({ threadId, onBack }: Props) {
               tone="open"
               findings={openFindings}
               dissentsByFinding={dissentsByFinding}
+              sourceMsgIdByFinding={sourceMsgIdByFinding}
+              spawnedBuildThreadId={detail.pass.spawnedBuildThreadId}
               emptyHint="All disagreements resolved or arbitrated."
             />
             {detail.pass.phase === 'ARBITRATE' ? (
@@ -228,12 +258,19 @@ function SpawnBuildSection(
     );
   }
 
-  const eligible = pass.phase === 'TERMINATE'
-    && detail.findings.some(f => f.status === 'AGREED'
-        && (f.severity === 'BLOCKER' || f.severity === 'MAJOR'));
-  if (!eligible) {
+  // Hidden in every phase before the pass terminates — there's nothing
+  // to apply until the panel has settled.
+  if (pass.phase !== 'TERMINATE') {
     return null;
   }
+  // At TERMINATE the affordance always shows; it's enabled only when at
+  // least one AGREED finding is Major-or-higher (a nit-only review
+  // isn't worth a build thread). Zero eligible → disabled + a tooltip
+  // that says why.
+  const eligible = detail.findings.some(
+      f => f.status === 'AGREED' && isMajorOrHigher(f.severity));
+  const disabledReason = 'Spawn build needs at least one AGREED finding with '
+      + 'severity Major or higher.';
 
   const onSpawn = async () => {
     setBusy(true);
@@ -250,17 +287,31 @@ function SpawnBuildSection(
 
   return (
     <div style={spawnSectionStyle}>
-      <button type="button" className="button" disabled={busy} onClick={() => void onSpawn()}>
+      <button
+        type="button"
+        className="button"
+        disabled={busy || !eligible}
+        title={eligible ? undefined : disabledReason}
+        onClick={() => void onSpawn()}
+      >
         → Spawn build thread
       </button>
       <p style={spawnHintStyle}>
-        Opens a build thread pre-seeded with the AGREED findings. Your own
-        PR forks off its head; someone else&apos;s gets suggested-change
-        comments — both still go through the publish gate.
+        {eligible
+          ? `Opens a build thread pre-seeded with the AGREED findings. Your own
+             PR forks off its head; someone else's gets suggested-change
+             comments — both still go through the publish gate.`
+          : disabledReason}
       </p>
       {error !== null && <div style={errorStyle} role="alert">{error}</div>}
     </div>
   );
+}
+
+/** A finding worth spinning up a build thread for — Major or Blocker.
+ *  Nits and questions don't clear the bar. */
+function isMajorOrHigher(severity: ReviewFindingSeverityDto): boolean {
+  return severity === 'MAJOR' || severity === 'BLOCKER';
 }
 
 /** Top bar — Back chevron · panel-title · PR ref · phase / cost
@@ -270,6 +321,7 @@ function SpawnBuildSection(
 function TopBar({ detail, onBack }: { detail: ReviewPassDetailDto | null; onBack: () => void }) {
   const costMilli = detail?.pass.costUsdMilli ?? 0;
   const costCapMilli = detail?.pass.costCapMilli ?? 0;
+  const costPct = costCapMilli > 0 ? Math.min(100, (costMilli / costCapMilli) * 100) : 0;
   return (
     <header style={topBarStyle}>
       <button type="button" className="button" onClick={onBack} style={backBtnStyle}>← Back</button>
@@ -293,7 +345,7 @@ function TopBar({ detail, onBack }: { detail: ReviewPassDetailDto | null; onBack
           </Meter>
           {costCapMilli > 0 && (
             <Meter label="Cost">
-              <span style={meterValueStyle}>
+              <span style={{ ...meterValueStyle, color: costColor(costPct) }}>
                 ${(costMilli / 1000).toFixed(2)} / ${(costCapMilli / 1000).toFixed(2)}
               </span>
             </Meter>
@@ -303,6 +355,14 @@ function TopBar({ detail, onBack }: { detail: ReviewPassDetailDto | null; onBack
       )}
     </header>
   );
+}
+
+/** Cost-meter color stops shared by the top-bar meter + budget bar:
+ *  teal under 80% of cap, amber at 80%, red at 95%. */
+function costColor(pct: number): string {
+  if (pct >= 95) return '#cf1322';
+  if (pct >= 80) return '#d97706';
+  return '#0d9488';
 }
 
 function Meter({ label, children }: { label: string; children: React.ReactNode }) {
@@ -381,12 +441,12 @@ function BudgetCard({ detail }: { detail: ReviewPassDetailDto }) {
       <div style={budgetRowStyle}>
         <div style={budgetTopRowStyle}>
           <span style={budgetLabelStyle}>Cost</span>
-          <span style={budgetValueStyle}>
+          <span style={{ ...budgetValueStyle, color: costColor(costPct) }}>
             ${(detail.pass.costUsdMilli / 1000).toFixed(2)} / ${(detail.pass.costCapMilli / 1000).toFixed(2)}
           </span>
         </div>
         <div style={progressTrackStyle}>
-          <div style={progressFillStyle(costPct, costPct > 80 ? '#cf1322' : '#0d9488')} />
+          <div style={progressFillStyle(costPct, costColor(costPct))} />
         </div>
       </div>
     </section>
@@ -401,7 +461,8 @@ function BudgetCard({ detail }: { detail: ReviewPassDetailDto }) {
  *  check for locked-in (Agreed) items, an amber dot for in-flight (Open)
  *  ones — with the file:line anchor as a muted mono prefix. */
 function FindingsByStatusSection({
-  label, tone, findings, dissentsByFinding, emptyHint,
+  label, tone, findings, dissentsByFinding, sourceMsgIdByFinding,
+  spawnedBuildThreadId, emptyHint,
 }: {
   label: string;
   tone: 'agreed' | 'open';
@@ -409,6 +470,12 @@ function FindingsByStatusSection({
   /** Recorded dissents per finding id — flagged on the row so a
    *  consensus call with a minority position stays visible. */
   dissentsByFinding: Map<string, number>;
+  /** Finding id → the transcript message that #ref's it. Rows with a
+   *  source become a button that scrolls + flashes that message. */
+  sourceMsgIdByFinding: Map<string, string>;
+  /** Set once a build thread was spawned — RESOLVED findings then link
+   *  to it with a "resolved by build thread" badge. */
+  spawnedBuildThreadId: string | null;
   emptyHint: string;
 }) {
   const accent = tone === 'agreed' ? '#16a34a' : '#d97706';
@@ -422,29 +489,50 @@ function FindingsByStatusSection({
         <div style={emptyInlineStyle}>{emptyHint}</div>
       ) : (
         <ul style={checklistStyle}>
-          {findings.map(f => (
-            <li key={f.id} style={checklistRowStyle}>
-              <span style={checklistGlyphStyle(accent)} aria-hidden>
-                {tone === 'agreed' ? '✓' : '●'}
-              </span>
-              <span style={checklistBodyStyle}>
-                {f.path !== null && (
-                  <span style={findingAnchorInlineStyle}>
-                    {f.path}{f.line !== null ? `:${f.line}` : ''}{' '}
-                  </span>
-                )}
-                {f.body}
-                <span style={severityDotStyle(severityColor(f.severity))}>
-                  {f.severity.toLowerCase()}
+          {findings.map(f => {
+            const sourceMsgId = sourceMsgIdByFinding.get(f.id) ?? null;
+            const locatable = sourceMsgId !== null;
+            return (
+              <li
+                key={f.id}
+                className={locatable ? 'review-finding-row' : undefined}
+                style={checklistRowStyle(locatable)}
+                role={locatable ? 'button' : undefined}
+                tabIndex={locatable ? 0 : undefined}
+                title={locatable ? 'Jump to where the panel discussed this' : undefined}
+                onClick={locatable ? () => flashReviewMessage(sourceMsgId) : undefined}
+                onKeyDown={locatable
+                    ? (e) => { if (e.key === 'Enter' || e.key === ' ') {
+                        e.preventDefault(); flashReviewMessage(sourceMsgId); } }
+                    : undefined}
+              >
+                <span style={checklistGlyphStyle(accent)} aria-hidden>
+                  {tone === 'agreed' ? '✓' : '●'}
                 </span>
-                {(dissentsByFinding.get(f.id) ?? 0) > 0 && (
-                  <span style={dissentFlagStyle} title="The lead recorded dissent on this finding">
-                    ⚑ {dissentsByFinding.get(f.id)} dissent
+                <span style={checklistBodyStyle}>
+                  {f.path !== null && (
+                    <span style={findingAnchorInlineStyle}>
+                      {f.path}{f.line !== null ? `:${f.line}` : ''}{' '}
+                    </span>
+                  )}
+                  {f.body}
+                  <span style={severityDotStyle(severityColor(f.severity))}>
+                    {f.severity.toLowerCase()}
                   </span>
-                )}
-              </span>
-            </li>
-          ))}
+                  {(dissentsByFinding.get(f.id) ?? 0) > 0 && (
+                    <span style={dissentFlagStyle} title="The lead recorded dissent on this finding">
+                      ⚑ {dissentsByFinding.get(f.id)} dissent
+                    </span>
+                  )}
+                  {f.status === 'RESOLVED' && spawnedBuildThreadId !== null && (
+                    <span style={resolvedBadgeStyle}>
+                      ✓ resolved by build thread #{spawnedBuildThreadId.slice(0, 8)}
+                    </span>
+                  )}
+                </span>
+              </li>
+            );
+          })}
         </ul>
       )}
     </section>
@@ -595,7 +683,7 @@ function RosterSection({
 }
 
 /** Short role tag shown on each roster row, mirroring the mockup:
- *  the lead/moderator reads LEAD, reviewers THINK, the human WATCHES. */
+ *  the LEAD seat reads LEAD, reviewers THINK, the human WATCHES. */
 function rosterRoleLabel(kind: ReviewParticipantDto['kind'], isLead: boolean): string {
   if (kind === 'HUMAN') return 'WATCH';
   if (kind === 'LEAD' || isLead) return 'LEAD';
@@ -645,8 +733,22 @@ function phaseDividerText(m: ReviewPanelMessageDto): string {
 /** The lead's agenda — the phase TODO list set at kickoff, ticked
  *  through as the pass runs, frozen at TERMINATE. Sticky above the
  *  transcript so the watcher always sees where the panel stands. */
-function AgendaSection({ agenda }: { agenda: AgendaPhaseDto[] }) {
-  if (agenda.length === 0) return null;
+function AgendaSection({ agenda, passPhase }: { agenda: AgendaPhaseDto[]; passPhase: string }) {
+  if (agenda.length === 0) {
+    // Pass just kicked off; the lead hasn't called set_agenda yet.
+    // A quiet placeholder beats an empty box — but a terminal pass
+    // with no agenda (a pre-agenda historical run) shows nothing.
+    const running = !['TERMINATE', 'ARBITRATE', 'PUBLISHED'].includes(passPhase);
+    if (!running) return null;
+    return (
+      <section style={agendaCardStyle} aria-label="Agenda">
+        <div style={agendaPlaceholderStyle}>
+          <span style={livePulseStyle} className="review-live-dot" aria-hidden />
+          Lead is laying out the agenda…
+        </div>
+      </section>
+    );
+  }
   const done = agenda.filter(p => p.status === 'DONE').length;
   const inProgress = agenda.filter(p => p.status === 'IN_PROGRESS').length;
   const open = agenda.length - done - inProgress;
@@ -657,7 +759,11 @@ function AgendaSection({ agenda }: { agenda: AgendaPhaseDto[] }) {
       <ol style={agendaListStyle}>
         {agenda.map(phase => (
           <li key={phase.id} style={agendaRowStyle}>
-            <span style={agendaGlyphStyle(phase.status)} aria-hidden>
+            <span
+              style={agendaGlyphStyle(phase.status)}
+              className={phase.status === 'IN_PROGRESS' ? 'review-agenda-glyph--active' : undefined}
+              aria-hidden
+            >
               {phase.status === 'DONE' ? '✓' : phase.status === 'IN_PROGRESS' ? '◼' : '◻'}
             </span>
             <span style={phase.status === 'DONE' ? agendaTitleDoneStyle : agendaTitleStyle}>
@@ -670,10 +776,79 @@ function AgendaSection({ agenda }: { agenda: AgendaPhaseDto[] }) {
   );
 }
 
+/** Scroll a transcript message into view and flash it — the shared
+ *  affordance behind dispatch-arrow "jump to response" and findings
+ *  "jump to source". A pure watcher-side DOM effect; touches no data. */
+function flashReviewMessage(messageId: string): void {
+  if (typeof document === 'undefined') return;
+  const el = document.querySelector<HTMLElement>(`[data-review-msg-id="${messageId}"]`);
+  if (el === null) return;
+  // jsdom throws "Not implemented" on scrollIntoView; the flash class is
+  // the part that matters for tests, so never let the scroll abort it.
+  try {
+    el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  } catch {
+    /* no-op outside a real layout engine */
+  }
+  el.classList.remove('review-msg-flash');
+  void el.offsetWidth; // restart the animation if it's mid-flight
+  el.classList.add('review-msg-flash');
+  window.setTimeout(() => el.classList.remove('review-msg-flash'), 1700);
+}
+
+/** A run of consecutive lead dispatch turns (one round's parallel
+ *  fan-out) coalesced into a single render item, vs. an ordinary
+ *  message. The Lead firing dispatch_to_reviewer N times in one turn
+ *  is one utterance with N addressees — never N bubbles. */
+type TranscriptItem =
+  | { kind: 'message'; message: ReviewPanelMessageDto }
+  | { kind: 'dispatch'; messages: ReviewPanelMessageDto[]; phase: string; round: number };
+
+function itemPhase(item: TranscriptItem): string {
+  return item.kind === 'message' ? item.message.phase : item.phase;
+}
+
+/** Coalesce consecutive lead @mention dispatch turns (same phase +
+ *  round) into one dispatch item; everything else stays a message.
+ *  A lone dispatch renders as a normal @mention bubble — the fan-out
+ *  treatment only earns its keep at 2+ addressees. */
+function buildTranscriptItems(
+  visible: ReviewPanelMessageDto[],
+  leadId: string | null,
+): TranscriptItem[] {
+  const isDispatch = (m: ReviewPanelMessageDto): boolean =>
+    leadId !== null && m.participantId === leadId && m.mentions.length > 0
+        && m.payloadKind !== 'dissent';
+  const items: TranscriptItem[] = [];
+  let i = 0;
+  while (i < visible.length) {
+    const m = visible[i];
+    if (isDispatch(m)) {
+      const run = [m];
+      let j = i + 1;
+      while (j < visible.length
+          && isDispatch(visible[j])
+          && visible[j].phase === m.phase
+          && visible[j].round === m.round) {
+        run.push(visible[j]);
+        j += 1;
+      }
+      if (run.length >= 2) {
+        items.push({ kind: 'dispatch', messages: run, phase: m.phase, round: m.round });
+        i = j;
+        continue;
+      }
+    }
+    items.push({ kind: 'message', message: m });
+    i += 1;
+  }
+  return items;
+}
+
 /** The panel transcript as a group chat: phase dividers, per-persona
- *  bubbles (the moderator as a system voice, the lead badged, the human
- *  right-aligned), @mention / #ref chips, and a live "reviewing…" pulse
- *  while the pass is still running. */
+ *  bubbles (the LEAD as a system voice, the human right-aligned),
+ *  @mention / #ref chips, parallel-dispatch fan-out groups, and a live
+ *  "reviewing…" pulse while the pass is still running. */
 function TranscriptSection({
   messages,
   participantsById,
@@ -691,39 +866,70 @@ function TranscriptSection({
 }) {
   const running = !['TERMINATE', 'ARBITRATE', 'PUBLISHED'].includes(passPhase);
   // Focused view: one reviewer's stream — what they said plus what
-  // was addressed to them. The lead/watcher's way to follow a single
-  // seat through the group chat.
+  // was addressed to them. A watcher-side view filter only — the data
+  // the page fetched is unchanged; we just hide rows here.
   const visible = focusParticipantId === null
       ? messages
       : messages.filter(m => m.participantId === focusParticipantId
           || m.mentions.includes(focusParticipantId));
+  const items = buildTranscriptItems(visible, leadId);
+
+  /** First message after the dispatch group where reviewer R replies —
+   *  the target the dispatch arrow jumps to. Scoped to the visible set
+   *  so a jump never lands on a row the filter is hiding. */
+  const responseAfter = (groupLastId: string, reviewerId: string): string | null => {
+    const start = visible.findIndex(m => m.id === groupLastId);
+    if (start < 0) return null;
+    for (let k = start + 1; k < visible.length; k += 1) {
+      if (visible[k].participantId === reviewerId) return visible[k].id;
+    }
+    return null;
+  };
 
   return (
     <section style={cardStyle} aria-label="Panel transcript">
       <h2 style={cardTitleStyle}>Transcript</h2>
-      {visible.length === 0 ? (
+      {items.length === 0 ? (
         <div style={emptyInlineStyle}>The panel is warming up…</div>
       ) : (
         <div style={chatListStyle}>
-          {visible.map((m, i) => (
-            <Fragment key={m.id}>
-              {m.phase !== visible[i - 1]?.phase && (
-                <div style={phaseDividerStyle}>
-                  <span style={phaseDividerLabelStyle}>{phaseDividerText(m)}</span>
-                </div>
-              )}
-              <MessageBubble
-                onMentionClick={onMentionClick}
-                message={m}
-                author={participantsById.get(m.participantId) ?? null}
-                isLead={m.participantId === leadId}
-                participantsById={participantsById}
-              />
-            </Fragment>
-          ))}
+          {items.map((item, i) => {
+            const showDivider = itemPhase(item) !== (items[i - 1] && itemPhase(items[i - 1]));
+            const phaseSource = item.kind === 'message' ? item.message : item.messages[0];
+            return (
+              <Fragment key={item.kind === 'message' ? item.message.id : item.messages[0].id}>
+                {showDivider && (
+                  <div style={phaseDividerStyle}>
+                    <span style={phaseDividerLabelStyle}>{phaseDividerText(phaseSource)}</span>
+                  </div>
+                )}
+                {item.kind === 'dispatch' ? (
+                  <DispatchGroupBubble
+                    dispatches={item.messages}
+                    participantsById={participantsById}
+                    onMentionClick={onMentionClick}
+                    onJumpToResponse={(reviewerId) => {
+                      const target = responseAfter(
+                          item.messages[item.messages.length - 1].id, reviewerId);
+                      if (target !== null) flashReviewMessage(target);
+                    }}
+                  />
+                ) : (
+                  <MessageBubble
+                    onMentionClick={onMentionClick}
+                    message={item.message}
+                    author={participantsById.get(item.message.participantId) ?? null}
+                    isLead={item.message.participantId === leadId}
+                    participantsById={participantsById}
+                    focusParticipantId={focusParticipantId}
+                  />
+                )}
+              </Fragment>
+            );
+          })}
           {running && (
             <div style={liveIndicatorStyle}>
-              <span style={livePulseStyle} aria-hidden /> reviewing…
+              <span style={livePulseStyle} className="review-live-dot" aria-hidden /> reviewing…
             </div>
           )}
         </div>
@@ -732,44 +938,131 @@ function TranscriptSection({
   );
 }
 
+/** One lead turn that fanned out to N reviewers in parallel: a single
+ *  LEAD bubble with one arrow chip per addressee. Each arrow jumps to
+ *  that reviewer's response below (they land in completion order as the
+ *  page polls). One utterance, many addressees — not N bubbles. */
+function DispatchGroupBubble({
+  dispatches, participantsById, onMentionClick, onJumpToResponse,
+}: {
+  dispatches: ReviewPanelMessageDto[];
+  participantsById: Map<string, ReviewParticipantDto>;
+  onMentionClick: (participantId: string) => void;
+  onJumpToResponse: (reviewerId: string) => void;
+}) {
+  const firstId = dispatches[0].id;
+  return (
+    <div style={bubbleRowStyle} data-review-msg-id={firstId}>
+      <span style={{ ...avatarStyle, background: rosterFallbackColor('LEAD') }} aria-hidden>
+        L
+      </span>
+      <div style={bubbleLeadStyle}>
+        <div style={bubbleHeadStyle}>
+          <strong style={{ color: 'var(--text-2)' }}>Lead</strong>
+          <span style={roleTagStyle}>lead</span>
+          <span style={dispatchCountStyle}>
+            dispatched {dispatches.length} reviewers in parallel
+          </span>
+        </div>
+        <ul style={dispatchListStyle}>
+          {dispatches.map(d => {
+            const reviewerId = d.mentions[0] ?? '';
+            const reviewer = participantsById.get(reviewerId);
+            const color = reviewer?.color ?? rosterFallbackColor('REVIEWER');
+            return (
+              <li key={d.id} style={dispatchRowStyle}>
+                <span style={{ ...dispatchArrowStyle, color }} aria-hidden>→</span>
+                <button
+                  type="button"
+                  className="review-chip review-dispatch-arrow"
+                  style={mentionChipStyleFor(color, false, false)}
+                  onClick={() => onJumpToResponse(reviewerId)}
+                  title="Jump to this reviewer's response"
+                >
+                  @{reviewer?.personaLabel ?? reviewerId}
+                </button>
+                <span style={dispatchBodyStyle}>{stripLeadingMention(d.body, reviewer?.personaLabel)}</span>
+                {reviewerId !== '' && (
+                  <button
+                    type="button"
+                    className="review-chip"
+                    style={dispatchFilterBtnStyle}
+                    onClick={() => onMentionClick(reviewerId)}
+                    aria-label={`Filter the transcript to ${reviewer?.personaLabel ?? 'this reviewer'}`}
+                    title="Filter the transcript to this reviewer's stream"
+                  >
+                    filter
+                  </button>
+                )}
+              </li>
+            );
+          })}
+        </ul>
+      </div>
+    </div>
+  );
+}
+
+/** Drop a leading "@Label " from a dispatch directive so the arrow
+ *  chip isn't echoed in the body text beside it. */
+function stripLeadingMention(body: string, label: string | undefined): string {
+  if (label === undefined) return body;
+  const prefix = `@${label}`;
+  return body.startsWith(prefix) ? body.slice(prefix.length).replace(/^[\s,:·-]+/, '') : body;
+}
+
 function MessageBubble({
-  message, author, isLead, participantsById, onMentionClick,
+  message, author, isLead, participantsById, onMentionClick, focusParticipantId,
 }: {
   message: ReviewPanelMessageDto;
   author: ReviewParticipantDto | null;
   isLead: boolean;
   participantsById: Map<string, ReviewParticipantDto>;
   onMentionClick: (participantId: string) => void;
+  focusParticipantId: string | null;
 }) {
   const kind = author?.kind ?? 'REVIEWER';
   const name = author?.personaLabel ?? '?';
   const color = author?.color ?? 'var(--text-muted)';
   const isYou = kind === 'HUMAN';
-  const isModerator = kind === 'LEAD';
-  const roleTag = isModerator || isLead ? 'lead' : null;
+  const isLeadKind = kind === 'LEAD';
+  const showLeadTag = isLeadKind || isLead;
+  const filtering = focusParticipantId !== null;
 
   return (
-    <div style={isYou ? bubbleRowYouStyle : bubbleRowStyle}>
+    <div
+      style={isYou ? bubbleRowYouStyle : bubbleRowStyle}
+      data-review-msg-id={message.id}
+    >
       {!isYou && (
         <span style={{ ...avatarStyle, background: color }} aria-hidden>
           {name.slice(0, 1).toUpperCase()}
         </span>
       )}
-      <div style={isModerator ? bubbleModeratorStyle : isYou ? bubbleYouStyle : bubbleStyle}>
+      <div style={isLeadKind ? bubbleLeadStyle : isYou ? bubbleYouStyle : bubbleStyle}>
         <div style={bubbleHeadStyle}>
           <strong style={isYou ? undefined : { color }}>{name}</strong>
-          {roleTag !== null && <span style={roleTagStyle}>{roleTag}</span>}
-          {message.mentions.map(id => (
-            <button
-              key={id}
-              type="button"
-              style={mentionChipStyle}
-              onClick={() => onMentionClick(id)}
-              title="Filter the transcript to this reviewer's stream"
-            >
-              @{participantsById.get(id)?.personaLabel ?? id}
-            </button>
-          ))}
+          {showLeadTag && <span style={roleTagStyle}>lead</span>}
+          {message.mentions.map(id => {
+            const mentioned = participantsById.get(id);
+            const chipColor = mentioned?.color ?? rosterFallbackColor(mentioned?.kind ?? 'REVIEWER');
+            const selected = id === focusParticipantId;
+            return (
+              <button
+                key={id}
+                type="button"
+                className="review-chip"
+                style={mentionChipStyleFor(chipColor, selected, filtering && !selected)}
+                aria-pressed={selected}
+                onClick={() => onMentionClick(id)}
+                title={selected
+                    ? 'Clear the transcript filter'
+                    : "Filter the transcript to this reviewer's stream"}
+              >
+                @{mentioned?.personaLabel ?? id}
+              </button>
+            );
+          })}
         </div>
         <div style={bubbleBodyStyle}>{renderMessageBody(message)}</div>
         {message.refs.length > 0 && (
@@ -1513,12 +1806,13 @@ const bubbleStyle: React.CSSProperties = {
   border: '1px solid var(--border)',
 };
 
-const bubbleModeratorStyle: React.CSSProperties = {
+const bubbleLeadStyle: React.CSSProperties = {
   ...bubbleStyle,
   maxWidth: '100%',
   width: '100%',
-  background: 'transparent',
+  background: 'rgba(124, 58, 237, 0.04)',
   borderStyle: 'dashed',
+  borderColor: 'rgba(124, 58, 237, 0.28)',
 };
 
 const bubbleYouStyle: React.CSSProperties = {
@@ -1546,12 +1840,71 @@ const roleTagStyle: React.CSSProperties = {
   padding: '0 5px',
 };
 
-const mentionChipStyle: React.CSSProperties = {
-  fontSize: 11,
-  color: 'var(--accent, #3b82f6)',
-  background: 'rgba(59, 130, 246, 0.12)',
+/** A mention chip tinted with the addressed reviewer's persona color.
+ *  Selected → filled (the active filter); dimmed → faded (a filter is
+ *  on and this isn't the selected chip); otherwise the soft tint. */
+function mentionChipStyleFor(
+  color: string, selected: boolean, dimmed: boolean,
+): React.CSSProperties {
+  return {
+    fontSize: 11,
+    fontWeight: 600,
+    color: selected ? '#fff' : color,
+    background: selected ? color : `${color}1f`,
+    border: `1px solid ${selected ? color : 'transparent'}`,
+    borderRadius: 5,
+    padding: '0 6px',
+    cursor: 'pointer',
+    opacity: dimmed ? 0.45 : 1,
+    transition: 'opacity 140ms ease, background 140ms ease',
+  };
+}
+
+const dispatchCountStyle: React.CSSProperties = {
+  fontSize: 10.5,
+  color: 'var(--text-3)',
+  fontStyle: 'italic',
+};
+
+const dispatchListStyle: React.CSSProperties = {
+  margin: 0,
+  padding: 0,
+  listStyle: 'none',
+  display: 'flex',
+  flexDirection: 'column',
+  gap: 5,
+};
+
+const dispatchRowStyle: React.CSSProperties = {
+  display: 'flex',
+  alignItems: 'baseline',
+  gap: 6,
+  fontSize: 12.5,
+  lineHeight: 1.45,
+};
+
+const dispatchArrowStyle: React.CSSProperties = {
+  flexShrink: 0,
+  fontWeight: 700,
+};
+
+const dispatchBodyStyle: React.CSSProperties = {
+  flex: 1,
+  minWidth: 0,
+  color: 'var(--text-2)',
+};
+
+const dispatchFilterBtnStyle: React.CSSProperties = {
+  flexShrink: 0,
+  fontSize: 9.5,
+  textTransform: 'uppercase',
+  letterSpacing: '0.04em',
+  color: 'var(--text-3)',
+  background: 'transparent',
+  border: '1px solid var(--border)',
   borderRadius: 4,
   padding: '0 5px',
+  cursor: 'pointer',
 };
 
 const bubbleBodyStyle: React.CSSProperties = {
@@ -1657,10 +2010,30 @@ const checklistStyle: React.CSSProperties = {
   gap: 8,
 };
 
-const checklistRowStyle: React.CSSProperties = {
-  display: 'flex',
-  alignItems: 'flex-start',
-  gap: 8,
+function checklistRowStyle(locatable: boolean): React.CSSProperties {
+  return {
+    display: 'flex',
+    alignItems: 'flex-start',
+    gap: 8,
+    cursor: locatable ? 'pointer' : 'default',
+    borderRadius: 6,
+    margin: '0 -4px',
+    padding: '2px 4px',
+  };
+}
+
+const resolvedBadgeStyle: React.CSSProperties = {
+  display: 'inline-block',
+  marginLeft: 6,
+  fontSize: 9,
+  fontWeight: 700,
+  letterSpacing: '0.03em',
+  textTransform: 'uppercase',
+  color: '#15803d',
+  background: 'rgba(22, 163, 74, 0.12)',
+  borderRadius: 4,
+  padding: '1px 6px',
+  whiteSpace: 'nowrap',
 };
 
 function checklistGlyphStyle(color: string): React.CSSProperties {
@@ -1699,14 +2072,25 @@ function severityDotStyle(color: string): React.CSSProperties {
 }
 
 const agendaCardStyle: React.CSSProperties = {
-  ...{},
   border: '1px solid var(--border)',
   borderRadius: 10,
   background: 'var(--bg-1)',
   padding: '10px 14px',
   position: 'sticky',
   top: 0,
-  zIndex: 2,
+  zIndex: 5,
+  // The sticky strip floats over scrolling transcript bubbles, so it
+  // needs an opaque-ish backdrop + a soft shadow to stay legible.
+  boxShadow: '0 4px 10px rgba(15, 23, 42, 0.05)',
+};
+
+const agendaPlaceholderStyle: React.CSSProperties = {
+  display: 'flex',
+  alignItems: 'center',
+  gap: 8,
+  fontSize: 12.5,
+  color: 'var(--text-3)',
+  fontStyle: 'italic',
 };
 
 const agendaHeadStyle: React.CSSProperties = {
@@ -1753,14 +2137,33 @@ const agendaTitleDoneStyle: React.CSSProperties = {
   textDecoration: 'line-through',
 };
 
-const focusPillStyle: React.CSSProperties = {
+const focusPillRowStyle: React.CSSProperties = {
   alignSelf: 'flex-start',
-  border: '1px solid var(--border)',
+  display: 'inline-flex',
+  alignItems: 'center',
+  gap: 8,
+  padding: '4px 6px 4px 12px',
   borderRadius: 999,
   background: 'var(--bg-1)',
-  padding: '4px 10px',
-  fontSize: 12,
-  color: 'var(--text-2)',
+  border: '1px solid var(--border)',
+};
+
+function focusPillTextStyle(color: string): React.CSSProperties {
+  return {
+    fontSize: 12,
+    color: 'var(--text-2)',
+    borderLeft: `3px solid ${color}`,
+    paddingLeft: 8,
+  };
+}
+
+const focusClearBtnStyle: React.CSSProperties = {
+  fontSize: 11,
+  color: 'var(--text-3)',
+  background: 'transparent',
+  border: '1px solid var(--border)',
+  borderRadius: 999,
+  padding: '1px 8px',
   cursor: 'pointer',
 };
 

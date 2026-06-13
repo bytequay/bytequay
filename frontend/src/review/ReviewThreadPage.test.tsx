@@ -53,12 +53,14 @@ describe('ReviewThreadPage', () => {
     expect(screen.getByText('comment')).toBeTruthy();
 
     // Each persona label can appear in multiple places: the roster
-    // row, and (for reviewers / moderator) above any transcript
+    // row, and (for reviewers / the lead) above any transcript
     // bubble they authored. getAllByText asserts the label rendered
     // without nailing down placement.
-    expect(screen.getAllByText('Moderator').length).toBeGreaterThanOrEqual(1);
+    expect(screen.getAllByText('Lead').length).toBeGreaterThanOrEqual(1);
     expect(screen.getAllByText('Claude (Anthropic)').length).toBeGreaterThanOrEqual(1);
     expect(screen.getAllByText('You').length).toBeGreaterThanOrEqual(1);
+    // The "Moderator" terminology is fully scrubbed from the panel.
+    expect(screen.queryByText('Moderator')).toBeNull();
 
     // Transcript bubble contains the kickoff body.
     expect(screen.getByText(/Reviewing acme\/widget#42/)).toBeTruthy();
@@ -295,13 +297,235 @@ describe('ReviewThreadPage', () => {
     // Form stays so the user can retry after fixing the upstream issue.
     expect(screen.getByText('Post review to PR')).toBeTruthy();
   });
+
+  it('renders the empty-agenda placeholder while the pass is still running', async () => {
+    const base = buildDetail({});
+    const running: ReviewPassDetailDto = {
+      ...base,
+      pass: { ...base.pass, phase: 'INDEPENDENT', endedAt: null },
+      agenda: [],
+    };
+    installBridge({
+      getReviewPassByThread: vi.fn(async (): Promise<ReviewPassDetailDto | null> => running),
+    });
+
+    render(<ReviewThreadPage threadId="thread-1" onBack={() => {}} />);
+    await waitFor(() => screen.getByText(/Lead is laying out the agenda/i));
+  });
+
+  it('renders an all-done agenda with every glyph checked', async () => {
+    const base = buildDetail({});
+    const done: ReviewPassDetailDto = {
+      ...base,
+      agenda: base.agenda.map(p => ({ ...p, status: 'DONE' })),
+    };
+    installBridge({
+      getReviewPassByThread: vi.fn(async (): Promise<ReviewPassDetailDto | null> => done),
+    });
+
+    render(<ReviewThreadPage threadId="thread-1" onBack={() => {}} />);
+    await waitFor(() => {
+      expect(screen.getByText('4 tasks (4 done, 0 in progress, 0 open)')).toBeTruthy();
+    });
+  });
+
+  it('badges the LEAD seat as "lead" and never shows "Moderator"', async () => {
+    const detail = buildDetail({});
+    installBridge({
+      getReviewPassByThread: vi.fn(async (): Promise<ReviewPassDetailDto | null> => detail),
+    });
+
+    render(<ReviewThreadPage threadId="thread-1" onBack={() => {}} />);
+    await waitFor(() => screen.getByText('Add retry logic'));
+
+    // The lead's transcript bubble + roster row carry the lead tag,
+    // and the old Moderator wording is gone everywhere.
+    expect(screen.getAllByText('lead').length).toBeGreaterThanOrEqual(1);
+    expect(screen.queryByText('Moderator')).toBeNull();
+    expect(screen.queryByText('moderator')).toBeNull();
+  });
+
+  it('toggles the @mention transcript filter on click, clears on re-click, switches on a different chip', async () => {
+    const base = buildDetail({});
+    const lead = participant({ id: 'p-mod', kind: 'LEAD', personaLabel: 'Lead' });
+    const claude = participant({ id: 'p-claude', kind: 'REVIEWER', personaLabel: 'Claude' });
+    const gpt = participant({ id: 'p-gpt', kind: 'REVIEWER', personaLabel: 'GPT-5' });
+    const detail: ReviewPassDetailDto = {
+      ...base,
+      participants: [lead, claude, gpt, participant({ id: 'p-you', kind: 'HUMAN', personaLabel: 'You' })],
+      messages: [
+        message({ id: 'd', participantId: 'p-mod', phase: 'CROSS_REVIEW',
+            mentions: ['p-claude', 'p-gpt'], body: '@Claude @GPT-5 cross-examine' }),
+        message({ id: 'rc', participantId: 'p-claude', phase: 'CROSS_REVIEW', body: 'Claude says.' }),
+        message({ id: 'rg', participantId: 'p-gpt', phase: 'CROSS_REVIEW', body: 'GPT says.' }),
+      ],
+    };
+    installBridge({
+      getReviewPassByThread: vi.fn(async (): Promise<ReviewPassDetailDto | null> => detail),
+    });
+
+    render(<ReviewThreadPage threadId="thread-1" onBack={() => {}} />);
+    await waitFor(() => screen.getByRole('button', { name: '@Claude' }));
+
+    // No filter initially → both reviewer messages visible.
+    expect(screen.getByText('Claude says.')).toBeTruthy();
+    expect(screen.getByText('GPT says.')).toBeTruthy();
+
+    // Click @Claude → filter on; indicator shows; GPT's message hidden.
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: '@Claude' })); });
+    expect(screen.getByText(/Filtered to/i).textContent).toContain('Claude');
+    expect(screen.queryByText('GPT says.')).toBeNull();
+    expect(screen.getByText('Claude says.')).toBeTruthy();
+
+    // Click @Claude again → filter cleared; both visible again.
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: '@Claude' })); });
+    expect(screen.queryByText(/Filtered to/i)).toBeNull();
+    expect(screen.getByText('GPT says.')).toBeTruthy();
+
+    // Filter to Claude, then click @GPT-5 → switches without a clear.
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: '@Claude' })); });
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: '@GPT-5' })); });
+    expect(screen.getByText(/Filtered to/i).textContent).toContain('GPT-5');
+    expect(screen.getByText('GPT says.')).toBeTruthy();
+    expect(screen.queryByText('Claude says.')).toBeNull();
+  });
+
+  it('coalesces a multi-dispatch lead turn into one bubble with an arrow chip per addressee', async () => {
+    const base = buildDetail({});
+    const lead = participant({ id: 'p-mod', kind: 'LEAD', personaLabel: 'Lead' });
+    const claude = participant({ id: 'p-claude', kind: 'REVIEWER', personaLabel: 'Claude' });
+    const gpt = participant({ id: 'p-gpt', kind: 'REVIEWER', personaLabel: 'GPT-5' });
+    const detail: ReviewPassDetailDto = {
+      ...base,
+      participants: [lead, claude, gpt, participant({ id: 'p-you', kind: 'HUMAN', personaLabel: 'You' })],
+      messages: [
+        // Two consecutive lead dispatches in one round → one group.
+        message({ id: 'd1', participantId: 'p-mod', phase: 'CROSS_REVIEW', round: 1,
+            mentions: ['p-claude'], body: '@Claude find candidate issues' }),
+        message({ id: 'd2', participantId: 'p-mod', phase: 'CROSS_REVIEW', round: 1,
+            mentions: ['p-gpt'], body: '@GPT-5 find candidate issues' }),
+        // Reviewer responses land below as separate bubbles.
+        message({ id: 'r1', participantId: 'p-claude', phase: 'CROSS_REVIEW', round: 1,
+            body: 'Claude response.' }),
+        message({ id: 'r2', participantId: 'p-gpt', phase: 'CROSS_REVIEW', round: 1,
+            body: 'GPT response.' }),
+      ],
+    };
+    installBridge({
+      getReviewPassByThread: vi.fn(async (): Promise<ReviewPassDetailDto | null> => detail),
+    });
+
+    render(<ReviewThreadPage threadId="thread-1" onBack={() => {}} />);
+    await waitFor(() => screen.getByText(/dispatched 2 reviewers in parallel/i));
+
+    // One fan-out group, two arrow chips in dispatch order.
+    expect(screen.getAllByText(/dispatched 2 reviewers in parallel/i)).toHaveLength(1);
+    const arrows = screen.getAllByRole('button', { name: /^@/ });
+    const arrowLabels = arrows.map(b => b.textContent);
+    expect(arrowLabels).toContain('@Claude');
+    expect(arrowLabels).toContain('@GPT-5');
+
+    // Reviewer responses render as their own bubbles below the group.
+    expect(screen.getByText('Claude response.')).toBeTruthy();
+    expect(screen.getByText('GPT response.')).toBeTruthy();
+  });
+
+  it('gates the spawn-build button: disabled with no Major+ AGREED finding, enabled with one', async () => {
+    const nitOnly = buildDetail({
+      findings: [finding({ id: 'n', severity: 'NIT', status: 'AGREED', body: 'Nit.' })],
+    });
+    installBridge({
+      getReviewPassByThread: vi.fn(async (): Promise<ReviewPassDetailDto | null> => nitOnly),
+    });
+    const { unmount } = render(<ReviewThreadPage threadId="thread-1" onBack={() => {}} />);
+    await waitFor(() => screen.getByRole('button', { name: '→ Spawn build thread' }));
+    expect((screen.getByRole('button', { name: '→ Spawn build thread' }) as HTMLButtonElement).disabled)
+        .toBe(true);
+    unmount();
+    cleanup();
+
+    const withMajor = buildDetail({
+      findings: [finding({ id: 'm', severity: 'MAJOR', status: 'AGREED', body: 'Real bug.' })],
+    });
+    installBridge({
+      getReviewPassByThread: vi.fn(async (): Promise<ReviewPassDetailDto | null> => withMajor),
+    });
+    render(<ReviewThreadPage threadId="thread-1" onBack={() => {}} />);
+    await waitFor(() => screen.getByRole('button', { name: '→ Spawn build thread' }));
+    expect((screen.getByRole('button', { name: '→ Spawn build thread' }) as HTMLButtonElement).disabled)
+        .toBe(false);
+  });
+
+  it('shows the spawned-build breadcrumb instead of the button once a build thread exists', async () => {
+    const base = buildDetail({
+      findings: [finding({ id: 'm', severity: 'MAJOR', status: 'AGREED', body: 'Real bug.' })],
+    });
+    const spawned: ReviewPassDetailDto = {
+      ...base,
+      pass: { ...base.pass, spawnedBuildThreadId: 'build-thread-abcdef12' },
+    };
+    installBridge({
+      getReviewPassByThread: vi.fn(async (): Promise<ReviewPassDetailDto | null> => spawned),
+    });
+
+    render(<ReviewThreadPage threadId="thread-1" onBack={() => {}} />);
+    await waitFor(() => screen.getByText(/build thread/i));
+    // The actionable button is replaced by the breadcrumb strip naming
+    // the spawned thread (id sliced to 8 chars: "build-th").
+    expect(screen.queryByRole('button', { name: '→ Spawn build thread' })).toBeNull();
+    expect(screen.getByText(/build-th/i)).toBeTruthy();
+  });
+
+  it('SAFETY: no transcript/filter/finding affordance posts to GitHub — only PublishSection does', async () => {
+    const lead = participant({ id: 'p-mod', kind: 'LEAD', personaLabel: 'Lead' });
+    const claude = participant({ id: 'p-claude', kind: 'REVIEWER', personaLabel: 'Claude' });
+    const base = buildDetail({
+      findings: [finding({ id: 'f1', severity: 'MAJOR', status: 'AGREED', body: 'Bug.' })],
+    });
+    const detail: ReviewPassDetailDto = {
+      ...base,
+      participants: [lead, claude, participant({ id: 'p-you', kind: 'HUMAN', personaLabel: 'You' })],
+      messages: [
+        message({ id: 'd', participantId: 'p-mod', phase: 'CONSENSUS',
+            mentions: ['p-claude'], refs: ['finding:f1'], body: '@Claude confirm' }),
+        message({ id: 'r', participantId: 'p-claude', phase: 'CONSENSUS', body: 'Confirmed.' }),
+      ],
+    };
+    const publishReviewPass = vi.fn(async () => detail);
+    const spawnBuildFromReview = vi.fn(
+        async (): Promise<{ threadId: string; taskId: string | null; mode: string }> =>
+          ({ threadId: 't', taskId: null, mode: 'x' }));
+    installBridge({
+      getReviewPassByThread: vi.fn(async (): Promise<ReviewPassDetailDto | null> => detail),
+      publishReviewPass,
+      spawnBuildFromReview,
+    });
+
+    render(<ReviewThreadPage threadId="thread-1" onBack={() => {}} />);
+    await waitFor(() => screen.getByRole('button', { name: '@Claude' }));
+
+    // Exercise every non-publish affordance: filter chip, clear, and a
+    // finding row jump.
+    await act(async () => { fireEvent.click(screen.getByRole('button', { name: '@Claude' })); });
+    await act(async () => { fireEvent.click(screen.getByText(/✕ clear/i)); });
+    const findingRow = screen.getAllByRole('button').find(
+        b => b.textContent?.includes('Bug.'));
+    if (findingRow !== undefined) {
+      await act(async () => { fireEvent.click(findingRow); });
+    }
+
+    // Nothing reached GitHub. The publish endpoint is only hit through
+    // the PublishSection's explicit "Post review to PR" confirm.
+    expect(publishReviewPass).not.toHaveBeenCalled();
+    expect(spawnBuildFromReview).not.toHaveBeenCalled();
+  });
 });
 
 function buildDetail(
     overrides: { verdict?: ReviewPassDto['verdict']; findings?: ReviewFindingDto[] },
 ): ReviewPassDetailDto {
   const moderator = participant({
-    id: 'p-mod', kind: 'LEAD', personaLabel: 'Moderator',
+    id: 'p-mod', kind: 'LEAD', personaLabel: 'Lead',
   });
   const reviewer = participant({
     id: 'p-rev', kind: 'REVIEWER', personaLabel: 'Claude (Anthropic)',

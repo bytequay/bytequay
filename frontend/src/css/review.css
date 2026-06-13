@@ -1,0 +1,54 @@
+/*
+ * Multi-agent review panel — the few visual affordances inline styles
+ * can't express: keyframe pulses for the live/active states, the
+ * scroll-to-message flash, and focus-visible rings on the inline chips.
+ * Everything else on ReviewThreadPage stays inline-styled.
+ */
+
+/* Active agenda phase: a soft amber pulse on the in-progress glyph so
+ * the watcher's eye lands on what the panel is doing right now. */
+.review-agenda-glyph--active {
+  animation: review-agenda-pulse 1.4s ease-in-out infinite;
+}
+@keyframes review-agenda-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.35; }
+}
+
+/* "reviewing…" live dot on the transcript while the pass runs. */
+.review-live-dot {
+  animation: review-live-pulse 1.1s ease-in-out infinite;
+}
+@keyframes review-live-pulse {
+  0%, 100% { opacity: 1; transform: scale(1); }
+  50% { opacity: 0.4; transform: scale(0.72); }
+}
+
+/* Scroll-to-source flash: clicking a finding row or a dispatch arrow
+ * scrolls the target message into view and flashes it for ~1.6s. */
+.review-msg-flash {
+  animation: review-msg-flash 1600ms ease-out;
+}
+@keyframes review-msg-flash {
+  0% { background: rgba(124, 58, 237, 0.16); box-shadow: 0 0 0 3px rgba(124, 58, 237, 0.22); }
+  100% { background: transparent; box-shadow: none; }
+}
+
+/* Focus-visible ring for the inline chips (mentions, dispatch arrows,
+ * finding rows) — inline styles can't target :focus-visible, and we
+ * never want to strip the keyboard ring. */
+.review-chip:focus-visible,
+.review-finding-row:focus-visible,
+.review-dispatch-arrow:focus-visible {
+  outline: 2px solid var(--accent, #7c3aed);
+  outline-offset: 1px;
+  border-radius: 5px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .review-agenda-glyph--active,
+  .review-live-dot,
+  .review-msg-flash {
+    animation: none;
+  }
+}

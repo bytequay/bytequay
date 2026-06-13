@@ -61,6 +61,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.atLeastOnce;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.doReturn;
 import static org.mockito.Mockito.doThrow;
@@ -239,6 +240,34 @@ class TestReviewPassService
                 .findFirst()
                 .orElseThrow();
         assertThat(reviewerSeatRow.personaLabel()).isEqualTo("Trino style reviewer");
+    }
+
+    @Test
+    void seatPromptRendersThePrSummaryPlaceholder()
+    {
+        when(skillStore.byId(11L)).thenReturn(Optional.of(new Skill(
+                11L, "global", null, null, "Summarising reviewer",
+                "Reviews with the PR summary inline.",
+                "Focus on the change described here:\n{{pr_summary}}",
+                "rubric", "review", null, /* enabled */ true, false,
+                "authored", null, "hash", Instant.now(), Instant.now())));
+
+        service.startReviewOnPr("acme/widget", 42, new ReviewPassService.StartOptions(
+                List.of(), 3, 500L, true, null, null,
+                List.of(new ReviewPassService.PanelSeat("claude", null, 11L, true))));
+
+        // The {{pr_summary}} token is replaced by the PR summary (the
+        // fetched PR body) before the prompt reaches the seat roster.
+        ArgumentCaptor<PanelSeatConfig> roster = ArgumentCaptor.forClass(PanelSeatConfig.class);
+        verify(leadOrchestrator, atLeastOnce()).runRound(
+                any(), any(), roster.capture(), any(), anyInt(), anyString());
+        String rendered = roster.getValue().seats().stream()
+                .map(PanelSeatConfig.Seat::personaPrompt)
+                .filter(p -> p != null && p.contains("Focus on the change"))
+                .findFirst()
+                .orElseThrow();
+        assertThat(rendered).contains("Description.");
+        assertThat(rendered).doesNotContain("{{pr_summary}}");
     }
 
     @Test

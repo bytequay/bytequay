@@ -305,14 +305,35 @@ function SkillEditorModal({
             </div>
 
             <div style={fieldStyle}>
-              <label style={labelStyle}>Body</label>
+              <label style={labelStyle}>
+                Body
+                {isReview && (
+                  <button
+                    type="button"
+                    style={tokenBtnStyle}
+                    onClick={() => setBody(b => (b.endsWith('\n') || b === '' ? b : b + '\n') + '{{pr_summary}}')}
+                    title="Insert the PR-summary placeholder"
+                  >
+                    + {'{{pr_summary}}'}
+                  </button>
+                )}
+              </label>
               <textarea
                 style={textareaStyle}
                 rows={10}
                 value={body}
                 onChange={e => setBody(e.target.value)}
-                placeholder="The actual instructions the agent loads when the trigger fires."
+                placeholder={isReview
+                  ? 'How this reviewer should think. Drop {{pr_summary}} where you want the PR title + description injected at review time.'
+                  : 'The actual instructions the agent loads when the trigger fires.'}
               />
+              {isReview && (
+                <p style={hintStyle}>
+                  <code>{'{{pr_summary}}'}</code> is replaced with the PR&apos;s title +
+                  description when the Lead dispatches this reviewer, so the body becomes a
+                  complete, PR-specific prompt.
+                </p>
+              )}
             </div>
 
             {isReview && (
@@ -473,6 +494,21 @@ const nameChipStyle: React.CSSProperties = {
   background: 'rgba(124, 58, 237, 0.12)',
   borderRadius: 999,
   padding: '1px 7px',
+};
+
+const tokenBtnStyle: React.CSSProperties = {
+  marginLeft: 8,
+  fontSize: 10,
+  fontWeight: 600,
+  fontFamily: 'ui-monospace, SFMono-Regular, monospace',
+  color: '#5b21b6',
+  background: 'rgba(124, 58, 237, 0.10)',
+  border: '1px solid rgba(124, 58, 237, 0.30)',
+  borderRadius: 6,
+  padding: '1px 6px',
+  cursor: 'pointer',
+  textTransform: 'none',
+  letterSpacing: 0,
 };
 
 const checkboxLabelStyle: React.CSSProperties = {

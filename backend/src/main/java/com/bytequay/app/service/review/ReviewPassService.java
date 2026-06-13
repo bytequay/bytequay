@@ -353,20 +353,55 @@ public class ReviewPassService
 
         // The in-memory roster the lead + seat compositions thread
         // through the run: persona prompts are configuration, not
-        // transcript, so they ride here rather than on rows.
+        // transcript, so they ride here rather than on rows. The PR
+        // summary is rendered into each seat's prompt now (the body
+        // carries a {{pr_summary}} placeholder the user authored), so a
+        // dispatched reviewer reads a complete, PR-specific prompt.
+        String prTitle = pullRequestStore
+                .findIdByRepoAndNumber(repoFullName, prNumber)
+                .flatMap(pullRequestStore::findById)
+                .map(PullRequest::title)
+                .orElse(null);
+        String prSummary = prSummary(prTitle, raw.body());
         List<PanelSeatConfig.Seat> seatConfigs = new ArrayList<>();
         seatConfigs.add(new PanelSeatConfig.Seat(
                 moderator.id(), leadMember.reviewer().providerId(),
-                leadMember.personaPrompt(), "Lead", /* lead */ true));
+                renderSeatTemplate(leadMember.personaPrompt(), prSummary), "Lead", /* lead */ true));
         for (int i = 0; i < panel.size(); i++) {
             seatConfigs.add(new PanelSeatConfig.Seat(
                     reviewerSeats.get(i).id(),
                     panel.get(i).reviewer().providerId(),
-                    panel.get(i).personaPrompt(),
+                    renderSeatTemplate(panel.get(i).personaPrompt(), prSummary),
                     panel.get(i).displayLabel(),
                     /* lead */ false));
         }
         return new Seat(pass, new PanelSeatConfig(seatConfigs), moderator, reviewerSeats, request);
+    }
+
+    /** Replace the authored {@code {{pr_summary}}} placeholder in a
+     *  seat's prompt with the PR summary, so the reviewer reads a
+     *  complete prompt. Null/blank prompts pass through unchanged. */
+    private static String renderSeatTemplate(String prompt, String prSummary)
+    {
+        return prompt == null ? null : prompt.replace("{{pr_summary}}", prSummary);
+    }
+
+    /** The PR summary injected for {@code {{pr_summary}}} — the title and
+     *  description the author wrote, the natural human summary of the
+     *  change. */
+    private static String prSummary(String title, String body)
+    {
+        StringBuilder sb = new StringBuilder();
+        if (title != null && !title.isBlank()) {
+            sb.append(title.strip());
+        }
+        if (body != null && !body.isBlank()) {
+            if (sb.length() > 0) {
+                sb.append("\n\n");
+            }
+            sb.append(body.strip());
+        }
+        return sb.length() == 0 ? "(no PR description provided)" : sb.toString();
     }
 
     /** Hand-off from the synchronous seat phase to the (sync or async)

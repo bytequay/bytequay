@@ -462,9 +462,12 @@ public class ReviewPassService
             leadOrchestrator.runRound(reload(pass.id()), session, roster,
                     ReviewPhase.KICKOFF, 0, KICKOFF_DIRECTIVE);
             ensureAgenda(pass.id());
+            // The Lead's kickoff brief (its PR summary) seeds the
+            // reviewers so they start from a shared read of the change.
+            String leadBrief = latestLeadBrief(pass.id(), seated.lead().id());
 
             markAgenda(pass.id(), AGENDA_INDEPENDENT, AgendaPhaseStatus.IN_PROGRESS);
-            runIndependentParallel(pass.id(), roster);
+            runIndependentParallel(pass.id(), roster, leadBrief);
             markAgenda(pass.id(), AGENDA_INDEPENDENT, AgendaPhaseStatus.DONE);
 
             transition(pass.id(), ReviewPhase.CROSS_REVIEW);
@@ -478,6 +481,10 @@ public class ReviewPassService
             transition(pass.id(), ReviewPhase.DEBATE);
             runLeadDriven(pass.id(), session, roster, ReviewPhase.DEBATE,
                     AGENDA_DEBATE, DEBATE_GUIDANCE);
+
+            // One closing Lead round: the consolidated result for the
+            // human (recommended verdict, agreed findings, open disputes).
+            runWrapUp(pass.id(), session, roster);
         }
         catch (RuntimeException e) {
             // Park the pass terminated-with-error so the UI shows a
@@ -512,11 +519,22 @@ public class ReviewPassService
     }
 
     private static final String KICKOFF_DIRECTIVE = """
-            Kick off this review pass. Call set_agenda ONCE with the ordered phases \
-            you will drive. The agenda MUST include these ids (you may refine the \
-            titles and append extra phases): p_independent, p_crossreview, \
-            p_consensus, p_debate. Do not dispatch anyone yet — the independent \
-            fan-out runs automatically after kickoff.""";
+            Kick off this review pass. FIRST, in 2-4 sentences, summarise THIS PR for \
+            the panel: what it changes, why, and the riskiest areas worth the closest \
+            scrutiny — use the read-only code tools (get_pr_diff, get_file_content, \
+            search_code) to ground the summary in the actual change. THEN call \
+            set_agenda ONCE with the ordered phases you will drive. The agenda MUST \
+            include these ids (you may refine the titles and append extra phases): \
+            p_independent, p_crossreview, p_consensus, p_debate. Do not dispatch \
+            anyone yet — the independent fan-out runs automatically after kickoff, and \
+            your summary is handed to every reviewer as their brief.""";
+
+    private static final String WRAP_UP_DIRECTIVE = """
+            The panel's work is done. Write the CLOSING RESULT for the human in a few \
+            sentences: your recommended verdict (approve / comment / request changes) \
+            and why, the agreed findings that should be addressed, and any disputes \
+            left for the human to arbitrate. This is your final summary — do not \
+            dispatch reviewers or open new lines of inquiry.""";
 
     private static final String CROSS_REVIEW_GUIDANCE = """
             Cross-examine the independent findings: for each substantive finding, \
@@ -592,16 +610,19 @@ public class ReviewPassService
     /** Fan every reviewer seat out concurrently through the
      *  scheduler's API lane. A failed seat logs and abstains; the
      *  pass only fails when no seat answered at all. */
-    private void runIndependentParallel(String passId, PanelSeatConfig roster)
+    private void runIndependentParallel(String passId, PanelSeatConfig roster, String leadBrief)
     {
         ReviewPass pass = reload(passId);
+        String directive = leadBrief == null || leadBrief.isBlank()
+                ? INDEPENDENT_DIRECTIVE
+                : "The lead's brief on this PR:\n" + leadBrief.strip() + "\n\n" + INDEPENDENT_DIRECTIVE;
         List<Callable<ReviewMessage>> work = new ArrayList<>();
         for (PanelSeatConfig.Seat seat : roster.reviewerSeats()) {
             work.add(() -> {
                 try {
                     return reviewerSeat.runDispatchedTurn(
                             pass, roster, seat.participantId(),
-                            INDEPENDENT_DIRECTIVE, ReviewPhase.INDEPENDENT,
+                            directive, ReviewPhase.INDEPENDENT,
                             /* round */ 0, /* excludeMessageId */ null);
                 }
                 catch (RuntimeException e) {
@@ -652,6 +673,31 @@ public class ReviewPassService
             }
         }
         markAgenda(passId, agendaId, AgendaPhaseStatus.DONE);
+    }
+
+    /** The Lead's kickoff brief — the latest KICKOFF-phase message it
+     *  authored (its PR summary). Null when the Lead wrote nothing. */
+    private String latestLeadBrief(String passId, String leadParticipantId)
+    {
+        ReviewMessage last = null;
+        for (ReviewMessage m : reviewStore.listMessagesForPass(passId)) {
+            if (m.phase() == ReviewPhase.KICKOFF && leadParticipantId.equals(m.participantId())) {
+                last = m;
+            }
+        }
+        return last == null ? null : last.body();
+    }
+
+    /** One closing Lead round that records the consolidated result for
+     *  the human (verdict + agreed findings + open disputes), skipped
+     *  when the pass has already spent its cost cap. */
+    private void runWrapUp(String passId, LeadToolset.Session session, PanelSeatConfig roster)
+    {
+        if (budgetMeter.passExhausted(passId)) {
+            return;
+        }
+        leadOrchestrator.runRound(reload(passId), session, roster,
+                ReviewPhase.TERMINATE, 0, WRAP_UP_DIRECTIVE);
     }
 
     private static boolean needsArbitration(ReviewFinding f)
@@ -807,7 +853,18 @@ public class ReviewPassService
             LlmReviewer reviewer = requireConfiguredReviewer(seat.providerId());
             String prompt;
             String label;
-            if (seat.roleSkillId() != null) {
+            if (seat.lead()) {
+                // The lead is a fixed, code-driven coordinator — it
+                // summarizes the PR, dispatches reviewers, and drives
+                // consensus, all from the orchestrator prompt baked into
+                // the code. It never carries a persona/skill voice, so a
+                // lead seat is model-only and skips role resolution
+                // entirely (a skill/prompt attached to it is ignored,
+                // not validated).
+                prompt = null;
+                label = reviewer.displayName();
+            }
+            else if (seat.roleSkillId() != null) {
                 Skill skill = skills.byId(seat.roleSkillId())
                         .orElseThrow(() -> new ResponseStatusException(
                                 HttpStatusCode.valueOf(412),
@@ -842,11 +899,13 @@ public class ReviewPassService
                     "No reviewers selected. Add at least one in the Start Review dialog.");
         }
         // Exactly one lead: if the dialog flagged none (or every flagged
-        // seat fell out as a disabled review skill), the first seat leads.
+        // seat fell out as a disabled review skill), the first seat leads
+        // — and as the lead it drops any persona it was carrying, since
+        // the lead role takes no voice.
         if (members.stream().noneMatch(PanelMember::lead)) {
             PanelMember first = members.get(0);
             members.set(0, new PanelMember(
-                    first.reviewer(), first.personaPrompt(), first.displayLabel(), true));
+                    first.reviewer(), null, first.reviewer().displayName(), true));
         }
         return members;
     }

@@ -340,6 +340,9 @@ class TestReviewPassService
                 any(), any(), any(), eq(ReviewPhase.CONSENSUS), anyInt(), anyString());
         verify(leadOrchestrator).runRound(
                 any(), any(), any(), eq(ReviewPhase.DEBATE), anyInt(), anyString());
+        // A closing wrap-up round records the consolidated result.
+        verify(leadOrchestrator).runRound(
+                any(), any(), any(), eq(ReviewPhase.TERMINATE), anyInt(), anyString());
 
         // The independent fan-out went through the scheduler once,
         // dispatching the (single) reviewer seat.
@@ -413,7 +416,8 @@ class TestReviewPassService
 
         ReviewPassDetail detail = service.startReviewOnPr("acme/widget", 42);
 
-        verify(leadOrchestrator, times(1 + 3 * ReviewPassService.MAX_LEAD_TURNS_PER_PHASE))
+        // 1 kickoff + 3 watchdog-bounded driven phases + 1 closing wrap-up.
+        verify(leadOrchestrator, times(2 + 3 * ReviewPassService.MAX_LEAD_TURNS_PER_PHASE))
                 .runRound(any(), any(), any(), any(), anyInt(), anyString());
         assertThat(AgendaJsonCodec.parse(detail.pass().agendaJson()))
                 .allMatch(p -> p.status() == AgendaPhaseStatus.DONE);

@@ -289,7 +289,7 @@ function SpawnBuildSection(
     <div style={spawnSectionStyle}>
       <button
         type="button"
-        className="button"
+        className="button button--secondary"
         disabled={busy || !eligible}
         title={eligible ? undefined : disabledReason}
         onClick={() => void onSpawn()}
@@ -324,7 +324,7 @@ function TopBar({ detail, onBack }: { detail: ReviewPassDetailDto | null; onBack
   const costPct = costCapMilli > 0 ? Math.min(100, (costMilli / costCapMilli) * 100) : 0;
   return (
     <header style={topBarStyle}>
-      <button type="button" className="button" onClick={onBack} style={backBtnStyle}>← Back</button>
+      <button type="button" className="button button--secondary" onClick={onBack} style={backBtnStyle}>← Back</button>
       <span style={panelBadgeStyle}>Review panel</span>
       <div style={titleColStyle}>
         <h1 style={titleStyle}>
@@ -647,7 +647,7 @@ function ArbitrationBallotSection({
                 </button>
                 <button
                   type="button"
-                  className="button"
+                  className="button button--secondary"
                   onClick={() => { void resolve(f.id, 'drop'); }}
                   disabled={busyId !== null}
                 >
@@ -878,6 +878,7 @@ function TranscriptSection({
   focusParticipantId: string | null;
   onMentionClick: (participantId: string) => void;
 }) {
+  const [collapsed, setCollapsed] = useState(false);
   const running = !['TERMINATE', 'ARBITRATE', 'PUBLISHED'].includes(passPhase);
   // Focused view: one reviewer's stream — what they said plus what
   // was addressed to them. A watcher-side view filter only — the data
@@ -901,12 +902,29 @@ function TranscriptSection({
   };
 
   return (
-    <section style={cardStyle} aria-label="Panel transcript">
-      <h2 style={cardTitleStyle}>Transcript</h2>
-      {items.length === 0 ? (
+    <section
+      style={collapsed ? transcriptCardCollapsedStyle : transcriptCardStyle}
+      aria-label="Panel transcript"
+    >
+      <div style={transcriptHeadStyle}>
+        <h2 style={transcriptTitleStyle}>
+          Transcript
+          <span style={transcriptCountStyle}>{visible.length} messages</span>
+        </h2>
+        <button
+          type="button"
+          style={foldBtnStyle}
+          onClick={() => setCollapsed(c => !c)}
+          aria-expanded={!collapsed}
+          title={collapsed ? 'Expand the conversation' : 'Collapse the conversation'}
+        >
+          {collapsed ? '▸ Expand' : '▾ Collapse'}
+        </button>
+      </div>
+      {collapsed ? null : items.length === 0 ? (
         <div style={emptyInlineStyle}>The panel is warming up…</div>
       ) : (
-        <div style={chatListStyle}>
+        <div style={transcriptScrollStyle}>
           {items.map((item, i) => {
             const showDivider = itemPhase(item) !== (items[i - 1] && itemPhase(items[i - 1]));
             const phaseSource = item.kind === 'message' ? item.message : item.messages[0];
@@ -1360,8 +1378,10 @@ function kindLabel(kind: ReviewParticipantDto['kind']): string {
 
 const pageStyle: React.CSSProperties = {
   height: '100%',
-  overflowY: 'auto',
-  padding: '20px 24px 40px',
+  display: 'flex',
+  flexDirection: 'column',
+  overflow: 'hidden',
+  padding: '20px 24px',
   background: 'var(--bg-base)',
   margin: '0 auto',
   maxWidth: 1280,
@@ -1448,13 +1468,20 @@ const bodyGridStyle: React.CSSProperties = {
   display: 'grid',
   gridTemplateColumns: '240px minmax(0, 1fr) 320px',
   gap: 14,
-  alignItems: 'flex-start',
+  flex: 1,
+  minHeight: 0,
+  alignItems: 'stretch',
 };
 
+// The rails scroll on their own so a tall panel never pushes the page —
+// the whole review surface stays one fixed-height window.
 const leftRailStyle: React.CSSProperties = {
   display: 'flex',
   flexDirection: 'column',
   gap: 10,
+  overflowY: 'auto',
+  minHeight: 0,
+  paddingRight: 2,
 };
 
 const centerColStyle: React.CSSProperties = {
@@ -1462,12 +1489,16 @@ const centerColStyle: React.CSSProperties = {
   flexDirection: 'column',
   gap: 10,
   minWidth: 0,
+  minHeight: 0,
 };
 
 const rightRailStyle: React.CSSProperties = {
   display: 'flex',
   flexDirection: 'column',
   gap: 10,
+  overflowY: 'auto',
+  minHeight: 0,
+  paddingRight: 2,
 };
 
 const reviewingTitleStyle: React.CSSProperties = {
@@ -1778,10 +1809,74 @@ const rosterModelStyle: React.CSSProperties = {
   whiteSpace: 'nowrap',
 };
 
-const chatListStyle: React.CSSProperties = {
+// The transcript is a fixed-height window: the card fills the centre
+// column's remaining height and the messages scroll inside it, so a long
+// history never grows the page.
+const transcriptCardStyle: React.CSSProperties = {
+  flex: 1,
+  minHeight: 0,
+  display: 'flex',
+  flexDirection: 'column',
+  padding: 14,
+  background: 'var(--bg-1)',
+  border: '1px solid var(--border)',
+  borderRadius: 12,
+};
+
+const transcriptCardCollapsedStyle: React.CSSProperties = {
+  ...transcriptCardStyle,
+  flex: '0 0 auto',
+};
+
+const transcriptHeadStyle: React.CSSProperties = {
+  display: 'flex',
+  alignItems: 'center',
+  justifyContent: 'space-between',
+  marginBottom: 10,
+};
+
+const transcriptTitleStyle: React.CSSProperties = {
+  margin: 0,
+  display: 'flex',
+  alignItems: 'baseline',
+  gap: 8,
+  fontSize: 13,
+  fontWeight: 600,
+  textTransform: 'uppercase',
+  letterSpacing: '0.04em',
+  color: 'var(--text-3)',
+};
+
+const transcriptCountStyle: React.CSSProperties = {
+  fontSize: 10,
+  fontWeight: 600,
+  letterSpacing: 0,
+  textTransform: 'none',
+  color: 'var(--text-4, #94a3b8)',
+};
+
+const foldBtnStyle: React.CSSProperties = {
+  fontSize: 11,
+  fontWeight: 600,
+  color: 'var(--text-2)',
+  background: 'var(--bg-2)',
+  border: '1px solid var(--border)',
+  borderRadius: 7,
+  padding: '3px 9px',
+  cursor: 'pointer',
+};
+
+const transcriptScrollStyle: React.CSSProperties = {
+  flex: 1,
+  minHeight: 0,
+  overflowY: 'auto',
   display: 'flex',
   flexDirection: 'column',
   gap: 10,
+  padding: '12px 14px',
+  background: 'var(--bg-2, rgba(0,0,0,0.025))',
+  border: '1px solid var(--border)',
+  borderRadius: 10,
 };
 
 const phaseDividerStyle: React.CSSProperties = {

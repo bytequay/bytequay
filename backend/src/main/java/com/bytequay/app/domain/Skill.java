@@ -53,6 +53,11 @@ public record Skill(
         String description,
         String body,
         String kind,
+        /** Surface the skill belongs to: {@code review} rows are
+         *  selectable as reviewer roles (and only there); {@code build}
+         *  rows feed the build/task agents' skill tools (and only
+         *  them). */
+        String usage,
         String roleTag,
         boolean enabled,
         boolean isDefault,
@@ -60,4 +65,28 @@ public record Skill(
         String provenance,
         String contentHash,
         Instant createdAt,
-        Instant updatedAt) {}
+        Instant updatedAt)
+{
+    /** Pre-usage call sites — defaults to the build surface. */
+    public Skill(
+            long id,
+            String scope,
+            String repo,
+            String threadId,
+            String name,
+            String description,
+            String body,
+            String kind,
+            String roleTag,
+            boolean enabled,
+            boolean isDefault,
+            String source,
+            String provenance,
+            String contentHash,
+            Instant createdAt,
+            Instant updatedAt)
+    {
+        this(id, scope, repo, threadId, name, description, body, kind, "build", roleTag,
+                enabled, isDefault, source, provenance, contentHash, createdAt, updatedAt);
+    }
+}

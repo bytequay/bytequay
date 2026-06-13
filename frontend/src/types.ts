@@ -1314,6 +1314,10 @@ export type SkillDto = {
   description: string;
   body: string;
   kind: 'library' | 'persona' | 'rubric';
+  /** Surface the skill belongs to: 'review' rows are selectable as
+   *  reviewer roles in the assign-review dialog (and only there);
+   *  'build' rows feed the build/task agents' skill tools. */
+  usage: 'build' | 'review';
   roleTag: string | null;
   /** Persisted enable toggle. The Skills surface mutes disabled
    *  rows; the runtime lookups skip them. */
@@ -1343,6 +1347,7 @@ export type SkillInput = {
   description: string;
   body: string;
   kind: 'library' | 'persona' | 'rubric';
+  usage?: 'build' | 'review';
   roleTag: string | null;
   isDefault: boolean;
   source?: 'authored' | 'ai_drafted';

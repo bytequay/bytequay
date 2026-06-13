@@ -73,6 +73,7 @@ public class SkillService
             String description,
             String body,
             String kind,
+            String usage,
             String roleTag,
             boolean isDefault,
             String source,
@@ -80,6 +81,7 @@ public class SkillService
     {
         validateScope(scope);
         validateKind(kind);
+        String resolvedUsage = resolveUsage(usage);
         validateName(name);
         validateScopeFields(scope, repo, threadId);
         String resolvedSource = source == null || source.isBlank() ? "authored" : source;
@@ -93,6 +95,7 @@ public class SkillService
                     description,
                     body,
                     kind,
+                    resolvedUsage,
                     roleTag,
                     isDefault,
                     resolvedSource,
@@ -112,11 +115,13 @@ public class SkillService
             String description,
             String body,
             String kind,
+            String usage,
             String roleTag,
             boolean isDefault)
     {
         validateScope(scope);
         validateKind(kind);
+        String resolvedUsage = resolveUsage(usage);
         validateName(name);
         validateScopeFields(scope, repo, threadId);
         try {
@@ -129,6 +134,7 @@ public class SkillService
                     description,
                     body,
                     kind,
+                    resolvedUsage,
                     roleTag,
                     isDefault);
         }
@@ -172,6 +178,20 @@ public class SkillService
                     HttpStatusCode.valueOf(400),
                     "kind must be one of " + KINDS + ", got: " + kind);
         }
+    }
+
+    /** Null/blank defaults to the build surface; anything else must
+     *  be one of the two surfaces. */
+    private static String resolveUsage(String usage)
+    {
+        if (usage == null || usage.isBlank()) {
+            return "build";
+        }
+        if (!usage.equals("build") && !usage.equals("review")) {
+            throw new ResponseStatusException(HttpStatusCode.valueOf(400),
+                    "usage must be 'build' or 'review', got: " + usage);
+        }
+        return usage;
     }
 
     private static void validateSource(String source)

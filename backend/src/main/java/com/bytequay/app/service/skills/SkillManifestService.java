@@ -62,6 +62,10 @@ public class SkillManifestService
         Optional<String> role = query.role() == null ? Optional.empty() : query.role();
         return store.list().stream()
                 .filter(Skill::enabled)
+                // Review-surface skills are reviewer roles, not agent
+                // context — they never reach a build/task agent's
+                // list_skills catalog.
+                .filter(s -> !"review".equals(s.usage()))
                 .filter(s -> matchesScope(s, scopes, touchedRepos, threadId))
                 .filter(s -> matchesRole(s, role))
                 .sorted(Comparator
@@ -80,6 +84,7 @@ public class SkillManifestService
     {
         return store.byName(name)
                 .filter(Skill::enabled)
+                .filter(s -> !"review".equals(s.usage()))
                 .map(Skill::body);
     }
 

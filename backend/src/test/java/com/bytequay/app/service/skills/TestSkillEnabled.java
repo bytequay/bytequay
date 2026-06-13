@@ -54,6 +54,7 @@ class TestSkillEnabled
                 "Prefer constructor injection over field injection.",
                 "rubric",
                 null,
+                null,
                 false,
                 "authored",
                 null);
@@ -72,6 +73,7 @@ class TestSkillEnabled
                 "loads when reviewing a frontend PR",
                 "Avoid `any` in new code.",
                 "rubric",
+                null,
                 null,
                 false,
                 "authored",
@@ -99,6 +101,7 @@ class TestSkillEnabled
                 "loads when reviewing a PR on this repo",
                 "House style: prefer expression-bodied lambdas.",
                 "rubric",
+                null,
                 null,
                 false,
                 "authored",

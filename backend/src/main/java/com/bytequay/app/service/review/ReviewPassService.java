@@ -798,6 +798,13 @@ public class ReviewPassService
                                 HttpStatusCode.valueOf(412),
                                 "Role skill #" + seat.roleSkillId()
                                         + " not found or has been deleted."));
+                if (!"review".equals(skill.usage())) {
+                    throw new ResponseStatusException(
+                            HttpStatusCode.valueOf(412),
+                            "Skill '" + skill.name() + "' is a build-surface skill — mark it "
+                                    + "usage=review in Settings → Skills to use it as a "
+                                    + "reviewer role.");
+                }
                 if (!skill.enabled()) {
                     continue;
                 }

@@ -97,10 +97,10 @@ function AssignReviewTaskDialog({ workspaceId, onClose, onStarted }: Props) {
   // On-demand lookup for a PR that isn't in the awaiting-review list.
   const [lookup, setLookup] = useState<LookupState>({ status: 'idle' });
   const [personas, setPersonas] = useState<ReviewerPersonaDto[] | null>(null);
-  // Rows from the skills vault — the user's authored reviewing
-  // voices, rubrics, and context chunks. Offered in each seat's Role
-  // dropdown alongside the reviewer personas; thread-scoped rows are
-  // excluded (they belong to one specific thread).
+  // Review-surface rows from the skills vault — the user's authored
+  // reviewing voices. Offered in each seat's Role dropdown alongside
+  // the reviewer personas; development skills stay with the build
+  // agents and thread-scoped rows with their thread.
   const [roleSkills, setRoleSkills] = useState<SkillDto[]>([]);
   // Composed panel — one row per reviewer seat, each a model paired with
   // an optional persona ("role") or a typed prompt. leadKey identifies
@@ -135,7 +135,8 @@ function AssignReviewTaskDialog({ workspaceId, onClose, onStarted }: Props) {
         setPrs(awaiting);
         setRoster(rosterList);
         setPersonas(personaList);
-        setRoleSkills(skillList.filter(s => s.enabled && s.scope !== 'thread'));
+        setRoleSkills(skillList.filter(s =>
+            s.enabled && s.usage === 'review' && s.scope !== 'thread'));
         // First repo (oldest by addedAt) is the workspace's main repo —
         // the default a bare typed PR number resolves against.
         setDefaultRepo(repoList[0]?.repoFullName ?? null);

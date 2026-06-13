@@ -445,9 +445,10 @@ function SkillRow({
 }
 
 function scopeLabel(row: SkillDto, bucket: ScopeBucket): string {
-  if (bucket === 'global') return 'Global';
-  if (bucket === 'role') return 'Role · ' + (row.roleTag ?? '');
-  return 'Repo';
+  const surface = row.usage === 'review' ? ' · Review' : '';
+  if (bucket === 'global') return 'Global' + surface;
+  if (bucket === 'role') return 'Role · ' + (row.roleTag ?? '') + surface;
+  return 'Repo' + surface;
 }
 
 function formatBytes(n: number): string {

@@ -27,6 +27,29 @@ import static org.assertj.core.api.Assertions.assertThat;
 class TestSkillManifestService
 {
     @Test
+    void reviewSurfaceSkillsNeverReachTheAgentManifest()
+    {
+        Skill reviewVoice = new Skill(
+                99, "global", null, null, "reviewer-voice", "review persona", "voice body",
+                "persona", "review", null, true, false, "authored", null, "hash",
+                Instant.parse("2026-05-26T00:00:00Z"),
+                Instant.parse("2026-05-26T00:00:00Z"));
+        List<Skill> rows = List.of(
+                skill(1, "build-skill", "global", null, null, true, "library"),
+                reviewVoice);
+        SkillManifestService service = new SkillManifestService(new InMemorySkillStore(rows));
+
+        List<SkillManifestEntry> entries = service.query(
+                SkillManifestQuery.forRepoContext("acme/widgets", null));
+
+        // Review-surface rows are reviewer roles, not agent context —
+        // invisible to list_skills and unloadable via load_skill.
+        assertThat(entries).extracting(SkillManifestEntry::name)
+                .containsExactly("build-skill");
+        assertThat(service.loadBody("reviewer-voice")).isEmpty();
+    }
+
+    @Test
     void queryFiltersByScopeAndRepoAndEnabled()
     {
         List<Skill> rows = List.of(
@@ -147,8 +170,8 @@ class TestSkillManifestService
         {
             return findByRepo(repo).stream().filter(s -> "rubric".equals(s.kind())).findFirst();
         }
-        @Override public Skill create(String scope, String repo, String threadId, String name, String description, String body, String kind, String roleTag, boolean isDefault, String source, String provenance) { throw new UnsupportedOperationException(); }
-        @Override public Skill update(long id, String scope, String repo, String threadId, String name, String description, String body, String kind, String roleTag, boolean isDefault) { throw new UnsupportedOperationException(); }
+        @Override public Skill create(String scope, String repo, String threadId, String name, String description, String body, String kind, String usage, String roleTag, boolean isDefault, String source, String provenance) { throw new UnsupportedOperationException(); }
+        @Override public Skill update(long id, String scope, String repo, String threadId, String name, String description, String body, String kind, String usage, String roleTag, boolean isDefault) { throw new UnsupportedOperationException(); }
         @Override public void delete(long id) { throw new UnsupportedOperationException(); }
         @Override public Skill setEnabled(long id, boolean enabled) { throw new UnsupportedOperationException(); }
     }

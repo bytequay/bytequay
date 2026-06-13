@@ -114,6 +114,7 @@ function mkSkill(overrides: Partial<SkillDto>): SkillDto {
     description: 'reviewing any PR',
     body: 'House style notes.',
     kind: 'library',
+    usage: 'build',
     roleTag: null,
     enabled: true,
     isDefault: false,

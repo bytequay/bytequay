@@ -198,8 +198,8 @@ class TestAiReviewService
         @Override public List<Skill> findGlobal() { return List.of(); }
         @Override public List<Skill> findByRepo(String repo) { return List.of(); }
         @Override public Optional<Skill> findRubricForRepo(String repo) { return Optional.empty(); }
-        @Override public Skill create(String scope, String repo, String threadId, String name, String description, String body, String kind, String roleTag, boolean isDefault, String source, String provenance) { throw new UnsupportedOperationException(); }
-        @Override public Skill update(long id, String scope, String repo, String threadId, String name, String description, String body, String kind, String roleTag, boolean isDefault) { throw new UnsupportedOperationException(); }
+        @Override public Skill create(String scope, String repo, String threadId, String name, String description, String body, String kind, String usage, String roleTag, boolean isDefault, String source, String provenance) { throw new UnsupportedOperationException(); }
+        @Override public Skill update(long id, String scope, String repo, String threadId, String name, String description, String body, String kind, String usage, String roleTag, boolean isDefault) { throw new UnsupportedOperationException(); }
         @Override public void delete(long id) { throw new UnsupportedOperationException(); }
         @Override public Skill setEnabled(long id, boolean enabled) { throw new UnsupportedOperationException(); }
     }

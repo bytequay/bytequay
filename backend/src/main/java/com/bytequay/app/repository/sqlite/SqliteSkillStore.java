@@ -100,6 +100,7 @@ public class SqliteSkillStore
             String description,
             String body,
             String kind,
+            String usage,
             String roleTag,
             boolean isDefault,
             String source,
@@ -113,6 +114,7 @@ public class SqliteSkillStore
         e.setDescription(description == null ? "" : description);
         e.setBody(body == null ? "" : body);
         e.setKind(kind);
+        e.setUsage(usage == null || usage.isBlank() ? "build" : usage);
         e.setRoleTag(blankToNull(roleTag));
         e.setDefault(isDefault);
         e.setSource(source == null ? "authored" : source);
@@ -138,6 +140,7 @@ public class SqliteSkillStore
             String description,
             String body,
             String kind,
+            String usage,
             String roleTag,
             boolean isDefault)
     {
@@ -150,6 +153,7 @@ public class SqliteSkillStore
         e.setDescription(description == null ? "" : description);
         e.setBody(body == null ? "" : body);
         e.setKind(kind);
+        e.setUsage(usage == null || usage.isBlank() ? "build" : usage);
         e.setRoleTag(blankToNull(roleTag));
         e.setDefault(isDefault);
         e.setContentHash(hash(body));
@@ -210,6 +214,7 @@ public class SqliteSkillStore
                 e.getDescription(),
                 e.getBody(),
                 e.getKind(),
+                e.getUsage() == null ? "build" : e.getUsage(),
                 e.getRoleTag(),
                 e.isEnabled(),
                 e.isDefault(),

@@ -62,6 +62,7 @@ public class SkillController
             String description,
             String body,
             String kind,
+            String usage,
             String roleTag,
             Boolean isDefault,
             String source,
@@ -91,6 +92,7 @@ public class SkillController
                 req.description(),
                 req.body(),
                 req.kind(),
+                req.usage(),
                 req.roleTag(),
                 Boolean.TRUE.equals(req.isDefault()),
                 req.source(),
@@ -109,6 +111,7 @@ public class SkillController
                 req.description(),
                 req.body(),
                 req.kind(),
+                req.usage(),
                 req.roleTag(),
                 Boolean.TRUE.equals(req.isDefault()));
     }

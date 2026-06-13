@@ -227,7 +227,7 @@ class TestReviewPassService
         when(skillStore.byId(7L)).thenReturn(Optional.of(new Skill(
                 7L, "global", null, null, "Trino style reviewer",
                 "Reviews in the Trino voice.", "Be strict about Trino conventions.",
-                "persona", "reviewer", /* enabled */ true, false,
+                "persona", "review", "reviewer", /* enabled */ true, false,
                 "authored", null, "hash", Instant.now(), Instant.now())));
 
         service.startReviewOnPr("acme/widget", 42, new ReviewPassService.StartOptions(
@@ -250,7 +250,7 @@ class TestReviewPassService
     {
         when(skillStore.byId(8L)).thenReturn(Optional.of(new Skill(
                 8L, "global", null, null, "Muted persona",
-                "", "...", "persona", "reviewer", /* enabled */ false, false,
+                "", "...", "persona", "review", "reviewer", /* enabled */ false, false,
                 "authored", null, "hash", Instant.now(), Instant.now())));
 
         // The disabled-skill seat falls out; with no seat left the
@@ -262,6 +262,23 @@ class TestReviewPassService
                                 "claude", null, null, 8L, true)))))
                 .isInstanceOf(ResponseStatusException.class)
                 .hasMessageContaining("No reviewers selected");
+    }
+
+    @Test
+    void buildSurfaceSkillIsRefusedAsAReviewerRole()
+    {
+        when(skillStore.byId(9L)).thenReturn(Optional.of(new Skill(
+                9L, "global", null, null, "Compact Skill",
+                "", "context chunk", "library", "build", null, true, false,
+                "authored", null, "hash", Instant.now(), Instant.now())));
+
+        assertThatThrownBy(() -> service.startReviewOnPr(
+                "acme/widget", 42, new ReviewPassService.StartOptions(
+                        List.of(), 3, 500L, true, List.of(), null, null, null,
+                        List.of(new ReviewPassService.PanelSeat(
+                                "claude", null, null, 9L, true)))))
+                .isInstanceOf(ResponseStatusException.class)
+                .hasMessageContaining("build-surface skill");
     }
 
     @Test

@@ -51,6 +51,7 @@ public interface SkillStore
             String description,
             String body,
             String kind,
+            String usage,
             String roleTag,
             boolean isDefault,
             String source,
@@ -66,6 +67,7 @@ public interface SkillStore
             String description,
             String body,
             String kind,
+            String usage,
             String roleTag,
             boolean isDefault);
 

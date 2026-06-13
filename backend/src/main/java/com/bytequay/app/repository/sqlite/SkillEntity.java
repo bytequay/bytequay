@@ -54,6 +54,9 @@ class SkillEntity
     @Column(nullable = false)
     private String kind;
 
+    @Column(name = "usage", nullable = false)
+    private String usage = "build";
+
     @Column(name = "role_tag")
     private String roleTag;
 
@@ -120,6 +123,9 @@ class SkillEntity
 
     String getKind() { return kind; }
     void setKind(String kind) { this.kind = kind; }
+
+    String getUsage() { return usage; }
+    void setUsage(String usage) { this.usage = usage; }
 
     String getRoleTag() { return roleTag; }
     void setRoleTag(String roleTag) { this.roleTag = roleTag; }

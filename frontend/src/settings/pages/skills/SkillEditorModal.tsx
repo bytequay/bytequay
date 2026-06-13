@@ -60,6 +60,10 @@ function SkillEditorModal({
   const [description, setDescription] = useState(existing?.description ?? '');
   const [body, setBody] = useState(existing?.body ?? '');
   const [kind, setKind] = useState<Kind>(existing?.kind ?? defaultKindFor(initialScope));
+  // Which surface the skill serves: build/task agents or the review
+  // panel. Review-usage rows are pickable as reviewer roles and
+  // invisible to build agents (and vice versa).
+  const [usage, setUsage] = useState<'build' | 'review'>(existing?.usage ?? 'build');
   const [isDefault, setIsDefault] = useState(existing?.isDefault ?? false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -97,7 +101,7 @@ function SkillEditorModal({
       await onSave(toPayload({
         scope, repo: repo.trim(), role: role.trim(),
         name: name.trim(), description: description.trim(),
-        body: body.trim(), kind, isDefault,
+        body: body.trim(), kind, usage, isDefault,
         draftedFromPrompt,
       }));
     }
@@ -308,6 +312,27 @@ function SkillEditorModal({
             </div>
 
             <div style={fieldStyle}>
+              <label style={labelStyle}>Used by</label>
+              <div style={segmentRowStyle}>
+                {(['build', 'review'] as const).map(u => (
+                  <button
+                    key={u}
+                    type="button"
+                    style={segmentBtnStyle(usage === u)}
+                    onClick={() => setUsage(u)}
+                  >
+                    {u === 'build' ? 'Development' : 'Review'}
+                  </button>
+                ))}
+              </div>
+              <p style={hintStyle}>
+                Development skills are visible to build/task agents
+                only. Review skills are selectable as reviewer roles
+                in the assign-review dialog only.
+              </p>
+            </div>
+
+            <div style={fieldStyle}>
               <label style={labelStyle}>Body</label>
               <textarea
                 style={textareaStyle}
@@ -373,7 +398,7 @@ function defaultKindFor(scope: ScopeBucket): Kind {
 function toPayload(state: {
   scope: ScopeBucket; repo: string; role: string;
   name: string; description: string; body: string;
-  kind: Kind; isDefault: boolean;
+  kind: Kind; usage: 'build' | 'review'; isDefault: boolean;
   draftedFromPrompt: string | null;
 }): SkillInput {
   const sourceFields = state.draftedFromPrompt === null
@@ -388,6 +413,7 @@ function toPayload(state: {
       description: state.description,
       body: state.body,
       kind: state.kind,
+      usage: state.usage,
       roleTag: null,
       isDefault: state.isDefault,
       ...sourceFields,
@@ -401,6 +427,7 @@ function toPayload(state: {
     description: state.description,
     body: state.body,
     kind: state.kind,
+    usage: state.usage,
     roleTag: state.scope === 'role' ? state.role : null,
     isDefault: state.isDefault,
     ...sourceFields,

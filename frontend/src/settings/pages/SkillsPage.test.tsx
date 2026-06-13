@@ -13,7 +13,7 @@
  */
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
-import type { Bridge, SkillDto } from '../../types';
+import type { Bridge, SkillDto, WatchedRepoDto } from '../../types';
 import SkillsPage from './SkillsPage';
 
 (globalThis as unknown as { IS_REACT_ACT_ENVIRONMENT: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
@@ -90,6 +90,22 @@ describe('SkillsPage', () => {
     expect(screen.queryByText('Per-role')).toBeNull();
   });
 
+  it('offers the watched repos as options when scoping a skill per-repo', async () => {
+    const getWatchedRepos = vi.fn(async (): Promise<WatchedRepoDto[]> => [
+      { id: 1, owner: 'acme', repo: 'widgets', displayOrder: 0, localClonePath: null },
+    ]);
+    installBridge([], { getWatchedRepos });
+
+    render(<SkillsPage />);
+    await waitFor(() => expect(screen.getByText('+ New development skill')).toBeTruthy());
+    fireEvent.click(screen.getByText('+ New development skill'));
+
+    // Switch the scope to Per-repo; the repo field is now a picker fed
+    // from the watched-repo list, not a free-text input.
+    fireEvent.click(screen.getByText('Per-repo'));
+    await waitFor(() => expect(screen.getByRole('option', { name: 'acme/widgets' })).toBeTruthy());
+  });
+
   it('drafts a skill via the AI button and lands the proposal in the editor', async () => {
     const draftSkill = vi.fn(async () => ({
       name: 'Auth review checklist',
@@ -129,12 +145,15 @@ function installBridge(
   const draftSkill = overrides?.draftSkill ?? vi.fn(async () => ({
     name: '', description: '', body: '',
   }));
+  const getWatchedRepos = overrides?.getWatchedRepos
+      ?? vi.fn(async (): Promise<WatchedRepoDto[]> => []);
   (window as unknown as {
-    bridge: Pick<Bridge, 'listSkills' | 'setSkillEnabled' | 'draftSkill'>;
+    bridge: Pick<Bridge, 'listSkills' | 'setSkillEnabled' | 'draftSkill' | 'getWatchedRepos'>;
   }).bridge = {
     listSkills,
     setSkillEnabled,
     draftSkill,
+    getWatchedRepos,
   };
 }
 

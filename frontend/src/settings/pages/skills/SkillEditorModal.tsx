@@ -12,7 +12,7 @@
  * limitations under the License.
  */
 import { useEffect, useState } from 'react';
-import type { SkillDto, SkillInput } from '../../../types';
+import type { SkillDto, SkillInput, WatchedRepoDto } from '../../../types';
 
 /** UI-side scope picker. Maps onto the backend's scope column: 'global'
  *  or 'repo'. (Role is no longer a skill axis — applicability is derived
@@ -82,6 +82,26 @@ function SkillEditorModal({
 
   const [autoFocusKey, setAutoFocusKey] = useState(0);
   useEffect(() => { setAutoFocusKey(k => k + 1); }, [mode]);
+
+  // Per-repo scope picks from the watched-repo list rather than a
+  // free-typed slug. An existing skill's repo is kept selectable even if
+  // it's no longer watched, so editing never silently drops it.
+  const [watchedRepos, setWatchedRepos] = useState<WatchedRepoDto[]>([]);
+  useEffect(() => {
+    let cancelled = false;
+    window.bridge.getWatchedRepos()
+      .then(rs => { if (!cancelled) setWatchedRepos(rs); })
+      .catch(() => {});
+    return () => { cancelled = true; };
+  }, []);
+  const repoOptions = (() => {
+    const slugs = watchedRepos.map(r => `${r.owner}/${r.repo}`).sort();
+    // Keep a preselected repo (editing an existing row, or adding from a
+    // specific repo group) selectable even if it isn't currently watched.
+    const preset = existing?.repo ?? (repo !== '' ? repo : null);
+    if (preset !== null && !slugs.includes(preset)) slugs.unshift(preset);
+    return slugs;
+  })();
 
   const validate = (): string | null => {
     if (name.trim() === '') return 'Skill name is required.';
@@ -187,16 +207,24 @@ function SkillEditorModal({
 
         {scope === 'repos' && (
           <div style={fieldStyle}>
-            <label style={labelStyle}>Repo (owner/name)</label>
-            <input
-              key={`repo-${autoFocusKey}`}
-              style={inputStyle}
-              type="text"
-              value={repo}
-              onChange={e => setRepo(e.target.value)}
-              placeholder="e.g. chenjian2664/ByteQuay"
-              disabled={existing !== undefined}
-            />
+            <label style={labelStyle}>Repo</label>
+            {repoOptions.length === 0 ? (
+              <p style={hintStyle}>
+                No watched repos yet — add one in Settings → Watched repos first.
+              </p>
+            ) : (
+              <select
+                style={inputStyle}
+                value={repo}
+                onChange={e => setRepo(e.target.value)}
+                disabled={existing !== undefined}
+              >
+                <option value="">Pick a repo…</option>
+                {repoOptions.map(slug => (
+                  <option key={slug} value={slug}>{slug}</option>
+                ))}
+              </select>
+            )}
           </div>
         )}
 

@@ -213,17 +213,25 @@ export default function TaskDetailPage({
   useEffect(() => { void loadThread(); }, [loadThread]);
   useEffect(() => { void loadMessages(); }, [loadMessages]);
 
-  // Light poll while the thread is RUNNING — Phase 8+ will wire SSE
-  // through to the task-scoped stream. Until then, a 5s safety net
-  // catches the agent's responses without pegging the backend.
+  // Light poll while a turn is in flight — Phase 8+ will wire SSE
+  // through to the task-scoped stream. Until then, a periodic safety net
+  // catches the agent's responses without pegging the backend. We also
+  // poll while `sending` so the loop is already live the instant the
+  // turn is enqueued, before the RUNNING status has round-tripped.
   useEffect(() => {
-    if (thread?.status !== 'RUNNING') return;
+    if (thread?.status !== 'RUNNING' && !sending) return;
     const handle = window.setInterval(() => {
       void loadMessages();
       void loadThread();
-    }, 5_000);
-    return () => window.clearInterval(handle);
-  }, [thread?.status, loadMessages, loadThread]);
+    }, 4_000);
+    return () => {
+      window.clearInterval(handle);
+      // The turn usually completes between ticks, flipping the status to
+      // IDLE before the last poll fetched the final assistant message.
+      // One catch-up fetch on teardown guarantees the reply lands.
+      void loadMessages();
+    };
+  }, [thread?.status, sending, loadMessages, loadThread]);
 
   const [interrupting, setInterrupting] = useState<boolean>(false);
 
@@ -250,7 +258,10 @@ export default function TaskDetailPage({
     try {
       await window.bridge.sendTaskMessage(threadId, input.trim());
       setInput('');
-      await loadMessages();
+      // Refresh the thread too so its status flips to RUNNING and the
+      // poll kicks in — without this the agent's reply never appears
+      // until the user sends another message.
+      await Promise.all([loadMessages(), loadThread()]);
     }
     catch (e) {
       setError(e instanceof Error ? e.message : String(e));
@@ -258,7 +269,7 @@ export default function TaskDetailPage({
     finally {
       setSending(false);
     }
-  }, [sending, input, threadId, loadMessages]);
+  }, [sending, input, threadId, loadMessages, loadThread]);
 
   const onShip = useCallback(async () => {
     if (task === null || shipping) return;
@@ -344,6 +355,16 @@ export default function TaskDetailPage({
 
   const toolCallCount = useMemo(
     () => (messages ?? []).filter(m => m.role === 'tool' && m.type === 'tool_call').length,
+    [messages]);
+
+  // Seqs of this task's own user prompts — feeds the conversation-index
+  // rail so it lists only prompts that exist in this pane (and are thus
+  // clickable), instead of the thread-wide trunk + sibling-task prompts.
+  const taskPromptSeqs = useMemo(
+    () => new Set(
+      (messages ?? [])
+        .filter(m => m.role === 'user' && m.type === 'text')
+        .map(m => m.seq)),
     [messages]);
 
   // Terminal mode takes over the entire shell with a dark theme per
@@ -534,6 +555,7 @@ export default function TaskDetailPage({
                   <ConvIndex
                     threadId={threadId}
                     scrollContainerRef={chatScrollRef}
+                    restrictToSeqs={taskPromptSeqs}
                   />
                 )}
                 {mode === 'terminal' && (
@@ -756,6 +778,7 @@ export default function TaskDetailPage({
             task={task}
             messages={messages}
             threadTitle={thread?.title ?? null}
+            onClose={() => setMode('conversation')}
           />
         )}
       </div>
@@ -1007,14 +1030,18 @@ function ConversationView({
 }
 
 function DiffThreeColumn({
-  threadId, task, messages, threadTitle,
+  threadId, task, messages, threadTitle, onClose,
 }: {
   threadId: string;
   task: WorkUnitTaskDto;
   messages: ThreadMessageDto[] | null;
   threadTitle: string | null;
+  onClose: () => void;
 }) {
   const [navMode, setNavMode] = useState<NavMode>('commits');
+  // Once the user has touched the toggle, stop auto-steering it — they
+  // may want to inspect an empty tab on purpose.
+  const navModePinned = useRef(false);
   const [commits, setCommits] = useState<ThreadCommitDto[] | null>(null);
   const [workingFiles, setWorkingFiles] = useState<ThreadWorkingFileDto[] | null>(null);
   const [commitFiles, setCommitFiles] = useState<ThreadCommitFileDto[] | null>(null);
@@ -1053,6 +1080,19 @@ function DiffThreeColumn({
     })();
     return () => { cancelled = true; };
   }, [threadId]);
+
+  // Open on the tab that actually has something to show. A task that
+  // hasn't committed yet (the common case mid-run) has only working-tree
+  // changes, so defaulting to "Commits" left the diff column empty with
+  // a "No commits yet" dead-end. Steer to "Changed files" in that case,
+  // until the user picks a tab themselves.
+  useEffect(() => {
+    if (navModePinned.current) return;
+    if (commits === null || workingFiles === null) return;
+    if (commits.length === 0 && workingFiles.length > 0) {
+      setNavMode('files');
+    }
+  }, [commits, workingFiles]);
 
   // Auto-select the first item when nav mode flips, so the diff column
   // is never empty.
@@ -1155,14 +1195,14 @@ function DiffThreeColumn({
         <div style={navToggleRowStyle}>
           <button
             type="button"
-            onClick={() => setNavMode('commits')}
+            onClick={() => { navModePinned.current = true; setNavMode('commits'); }}
             style={navToggleBtnStyle(navMode === 'commits')}
           >
             Commits{commits !== null && commits.length > 0 && ` · ${commits.length}`}
           </button>
           <button
             type="button"
-            onClick={() => setNavMode('files')}
+            onClick={() => { navModePinned.current = true; setNavMode('files'); }}
             style={navToggleBtnStyle(navMode === 'files')}
           >
             Changed files{workingFiles !== null && workingFiles.length > 0 && ` · ${workingFiles.length}`}
@@ -1196,6 +1236,14 @@ function DiffThreeColumn({
               <span style={diffDelsStyle}>−{totalDeletions}</span>
             </span>
           )}
+          <button
+            type="button"
+            onClick={onClose}
+            style={closeDiffBtnStyle}
+            title="Close the diff and return to the task conversation"
+          >
+            ✕ Close diff
+          </button>
         </div>
         <div style={diffBodyStyle}>
           {loading && <div style={emptyStyle}>Loading diff…</div>}
@@ -2541,7 +2589,11 @@ const conversationScrollStyle: React.CSSProperties = {
   borderRadius: 14,
   padding: 18,
   boxShadow: '0 4px 18px rgba(0,0,0,0.04)',
-  maxHeight: 'calc(100vh - 320px)',
+  // Fill the column (which is bounded by the grid's definite height) and
+  // scroll internally, so the conversation card lines up with the nav
+  // and diff cards instead of capping short and leaving dead space.
+  flex: 1,
+  minHeight: 0,
   overflowY: 'auto',
 };
 
@@ -2934,16 +2986,22 @@ const diffGridStyle: React.CSSProperties = {
   gridTemplateColumns: '1fr 280px 1.6fr',
   gap: 14,
   padding: '14px 18px',
-  flex: 1,
-  alignItems: 'start',
-  minHeight: 'calc(100vh - 280px)',
+  // A *definite* height (viewport minus the header+band, matching the
+  // conversation view's 116px reserve) is what makes the three columns
+  // share one height and scroll internally. Without it the grid row
+  // sizes to the tallest column's content, so a long conversation grows
+  // the page past the fold and clips the action bar.
+  height: 'calc(100vh - 116px)',
+  alignItems: 'stretch',
+  minHeight: 0,
 };
 
 const diffConvColStyle: React.CSSProperties = {
   display: 'flex',
   flexDirection: 'column',
   gap: 14,
-  maxHeight: 'calc(100vh - 280px)',
+  minHeight: 0,
+  height: '100%',
   overflow: 'hidden',
 };
 
@@ -2957,7 +3015,8 @@ const diffNavColStyle: React.CSSProperties = {
   borderRadius: 14,
   boxShadow: '0 4px 18px rgba(0,0,0,0.04)',
   overflow: 'hidden',
-  maxHeight: 'calc(100vh - 280px)',
+  minHeight: 0,
+  height: '100%',
 };
 
 const diffColStyle: React.CSSProperties = {
@@ -2970,7 +3029,20 @@ const diffColStyle: React.CSSProperties = {
   borderRadius: 14,
   boxShadow: '0 4px 18px rgba(0,0,0,0.04)',
   overflow: 'hidden',
-  maxHeight: 'calc(100vh - 280px)',
+  minHeight: 0,
+  height: '100%',
+};
+
+const closeDiffBtnStyle: React.CSSProperties = {
+  flexShrink: 0,
+  padding: '4px 10px',
+  fontSize: 11,
+  fontWeight: 600,
+  color: 'var(--text-2)',
+  background: 'rgba(0,0,0,0.04)',
+  border: '1px solid rgba(0,0,0,0.08)',
+  borderRadius: 7,
+  cursor: 'pointer',
 };
 
 const navToggleRowStyle: React.CSSProperties = {

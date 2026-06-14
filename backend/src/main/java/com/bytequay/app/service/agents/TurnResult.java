@@ -35,12 +35,16 @@ public record TurnResult(
 {
     public enum End
     {
-        /** The model produced a final-text round with no tool calls,
-         *  or the tool-iteration bound was reached. */
+        /** The model produced a final-text round with no tool calls. */
         COMPLETED,
         /** {@link TurnHooks#interrupted()} fired at a round boundary. */
         INTERRUPTED,
         /** {@link TurnHooks#abortTurn} fired — typically a budget cap. */
         ABORTED,
+        /** The tool-iteration bound was hit while the model was still
+         *  calling tools; the runner forced one final tools-off round so
+         *  the model answers from what it gathered rather than leaving
+         *  the turn empty. {@code finalText} is that wrap-up summary. */
+        MAX_STEPS,
     }
 }

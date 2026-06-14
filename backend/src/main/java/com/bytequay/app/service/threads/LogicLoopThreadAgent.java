@@ -505,8 +505,24 @@ public class LogicLoopThreadAgent
         if (result.end() == TurnResult.End.INTERRUPTED) {
             return;
         }
-        finalizeTurn(modelId, turnStart, result.finalText(),
+        finalizeTurn(modelId, turnStart, renderFinalText(result),
                 result.tokensIn(), result.tokensOut());
+    }
+
+    /** Never persist a silent blank: when the turn produced no final text
+     *  (the wrap-up round still came back empty, or the model returned
+     *  nothing), surface a clear message instead of an empty bubble. */
+    private static String renderFinalText(TurnResult result)
+    {
+        String text = result.finalText();
+        if (text != null && !text.isBlank()) {
+            return text;
+        }
+        if (result.end() == TurnResult.End.MAX_STEPS) {
+            return "I hit the tool-step limit before I could finish gathering everything for "
+                    + "this. Try narrowing it (e.g. one repo) and I'll answer directly.";
+        }
+        return "The model returned an empty response. Try rephrasing the request.";
     }
 
     // ── OpenAI-compatible transport (OpenAI + DeepSeek) ───────────────────
@@ -567,7 +583,7 @@ public class LogicLoopThreadAgent
         if (result.end() == TurnResult.End.INTERRUPTED) {
             return;
         }
-        finalizeTurn(modelId, turnStart, result.finalText(),
+        finalizeTurn(modelId, turnStart, renderFinalText(result),
                 result.tokensIn(), result.tokensOut());
     }
 

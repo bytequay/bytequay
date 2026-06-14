@@ -31,6 +31,7 @@ import java.util.List;
 import java.util.concurrent.ConcurrentLinkedDeque;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 /**
@@ -208,21 +209,64 @@ class TestTurnRunner
     }
 
     @Test
-    void iterationBoundEndsTheTurnAsCompleted()
+    void iterationBoundForcesAToolsOffWrapUpRound()
     {
+        // Three tool rounds exhaust spec(3) without the model ever giving
+        // a final answer. The runner then forces one tools-off round so
+        // the turn ends with a summary, not a silent empty completion.
         for (int i = 0; i < 3; i++) {
             responses.add(ANTHROPIC_TOOL_ROUND);
         }
+        responses.add(ANTHROPIC_FINAL_ROUND); // the forced wrap-up answer
         TurnResult result = runner.runTurn(spec(3),
                 call -> ToolExecutor.ToolCallResult.ok("ok"),
                 TurnHooks.NONE);
 
-        assertEquals(TurnResult.End.COMPLETED, result.end());
-        assertEquals(3, result.rounds());
+        assertEquals(TurnResult.End.MAX_STEPS, result.end());
+        assertEquals(4, result.rounds());
+        assertEquals(4, requestBodies.size());
+        assertEquals("done", result.finalText());
+    }
+
+    @Test
+    void wrapUpRoundWithholdsTheToolCatalog()
+    {
+        // The model keeps calling tools through the bound; the forced
+        // wrap-up round must omit the tools so it can only answer.
+        for (int i = 0; i < 2; i++) {
+            responses.add(ANTHROPIC_TOOL_ROUND);
+        }
+        responses.add(ANTHROPIC_FINAL_ROUND);
+        runner.runTurn(specWithTools(2),
+                call -> ToolExecutor.ToolCallResult.ok("ok"),
+                TurnHooks.NONE);
+
         assertEquals(3, requestBodies.size());
+        // The two in-loop rounds offered the tool catalog…
+        assertTrue(requestBodies.get(0).contains("\"tools\""),
+                "loop round should carry tools: " + requestBodies.get(0));
+        // …the wrap-up round (request #3) withheld it.
+        assertFalse(requestBodies.get(2).contains("\"tools\""),
+                "wrap-up round must not offer tools: " + requestBodies.get(2));
     }
 
     private TurnSpec spec(int maxIterations)
+    {
+        return spec(maxIterations, /* tools */ null);
+    }
+
+    private TurnSpec specWithTools(int maxIterations)
+    {
+        ArrayNode tools = mapper.createArrayNode();
+        ObjectNode tool = mapper.createObjectNode();
+        tool.put("name", "echo");
+        tool.put("description", "echo back");
+        tool.set("input_schema", mapper.createObjectNode());
+        tools.add(tool);
+        return spec(maxIterations, tools);
+    }
+
+    private TurnSpec spec(int maxIterations, ArrayNode tools)
     {
         ArrayNode messages = mapper.createArrayNode();
         ObjectNode user = mapper.createObjectNode();
@@ -236,7 +280,7 @@ class TestTurnRunner
                 "claude-sonnet-4-6",
                 "system prompt",
                 messages,
-                /* tools */ null,
+                tools,
                 1024,
                 maxIterations);
     }

@@ -92,9 +92,7 @@ public final class TurnRunner
                         spec.modelId(), TurnResult.End.INTERRUPTED);
             }
             long roundStartNanos = System.nanoTime();
-            Round round = spec.transport() == TurnSpec.Transport.ANTHROPIC
-                    ? runAnthropicRound(spec, hooks)
-                    : runOpenAiCompatibleRound(spec, hooks);
+            Round round = runRound(spec, hooks, /* includeTools */ true);
             rounds++;
             totalTokensIn += round.tokensIn;
             totalTokensOut += round.tokensOut;
@@ -108,7 +106,9 @@ public final class TurnRunner
                         spec.modelId(), TurnResult.End.ABORTED);
             }
             if (round.toolCalls.isEmpty()) {
-                break;
+                // The model gave its final answer with no tool call.
+                return result(finalText, totalTokensIn, totalTokensOut, rounds,
+                        spec.modelId(), TurnResult.End.COMPLETED);
             }
             hooks.onToolCallsParsed(List.copyOf(round.toolCalls));
             if (spec.transport() == TurnSpec.Transport.ANTHROPIC) {
@@ -123,8 +123,35 @@ public final class TurnRunner
             }
         }
 
+        // The iteration bound hit while the model was still calling tools.
+        // Force one final round with tools withheld, so the model must
+        // answer from what it has gathered rather than leave the turn
+        // empty (a silent no-response the caller would persist as blank).
+        if (hooks.interrupted()) {
+            return result(finalText, totalTokensIn, totalTokensOut, rounds,
+                    spec.modelId(), TurnResult.End.INTERRUPTED);
+        }
+        long wrapStartNanos = System.nanoTime();
+        Round wrap = runRound(spec, hooks, /* includeTools */ false);
+        rounds++;
+        totalTokensIn += wrap.tokensIn;
+        totalTokensOut += wrap.tokensOut;
+        if (!wrap.text.isBlank()) {
+            finalText = wrap.text;
+        }
+        hooks.onRoundCompleted(wrap.tokensIn, wrap.tokensOut, System.nanoTime() - wrapStartNanos);
         return result(finalText, totalTokensIn, totalTokensOut, rounds,
-                spec.modelId(), TurnResult.End.COMPLETED);
+                spec.modelId(), TurnResult.End.MAX_STEPS);
+    }
+
+    /** Dispatch a single provider round on the configured transport.
+     *  {@code includeTools=false} withholds the tool catalog so the model
+     *  can only produce text — used for the forced wrap-up round. */
+    private Round runRound(TurnSpec spec, TurnHooks hooks, boolean includeTools)
+    {
+        return spec.transport() == TurnSpec.Transport.ANTHROPIC
+                ? runAnthropicRound(spec, hooks, includeTools)
+                : runOpenAiCompatibleRound(spec, hooks, includeTools);
     }
 
     private static TurnResult result(
@@ -142,7 +169,7 @@ public final class TurnRunner
     /** One round-trip with the Anthropic provider: send the current
      *  message history, stream the response, collect text + any
      *  tool_use blocks. */
-    private Round runAnthropicRound(TurnSpec spec, TurnHooks hooks)
+    private Round runAnthropicRound(TurnSpec spec, TurnHooks hooks, boolean includeTools)
     {
         ObjectNode requestBody = mapper.createObjectNode();
         requestBody.put("model", spec.modelId());
@@ -152,7 +179,7 @@ public final class TurnRunner
             requestBody.put("system", spec.system());
         }
         requestBody.set("messages", spec.messages());
-        if (spec.tools() != null && !spec.tools().isEmpty()) {
+        if (includeTools && spec.tools() != null && !spec.tools().isEmpty()) {
             requestBody.set("tools", spec.tools());
         }
 
@@ -285,7 +312,7 @@ public final class TurnRunner
     /** One round-trip with an OpenAI-compatible provider. Parses the
      *  {@code choices[0].delta} SSE format common to OpenAI and
      *  DeepSeek. */
-    private Round runOpenAiCompatibleRound(TurnSpec spec, TurnHooks hooks)
+    private Round runOpenAiCompatibleRound(TurnSpec spec, TurnHooks hooks, boolean includeTools)
     {
         ObjectNode requestBody = mapper.createObjectNode();
         requestBody.put("model", spec.modelId());
@@ -296,7 +323,7 @@ public final class TurnRunner
         streamOpts.put("include_usage", true);
         requestBody.set("stream_options", streamOpts);
         requestBody.set("messages", spec.messages());
-        if (spec.tools() != null && !spec.tools().isEmpty()) {
+        if (includeTools && spec.tools() != null && !spec.tools().isEmpty()) {
             requestBody.set("tools", spec.tools());
         }
 

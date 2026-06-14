@@ -259,32 +259,34 @@ class TestLogicLoopThreadAgentCharacterization
     }
 
     @Test
-    void toolIterationCapBoundsTheLoop()
+    void toolIterationCapForcesAWrapUpRound()
             throws Exception
     {
-        // The provider asks for a tool on every round; the loop must
-        // stop after exactly MAX_TOOL_ITERATIONS rounds and finalize.
+        // The provider asks for a tool on every round through the cap;
+        // the loop then forces one tools-off wrap-up round so the turn
+        // ends with an answer rather than a silent empty completion.
         for (int i = 0; i < 12; i++) {
             server.enqueue(SSE_FILE_TOOL_CALL);
         }
+        server.enqueue(SSE_FINAL_TEXT); // the forced wrap-up answer
         LogicLoopThreadAgent agent = agent();
 
         agent.send("loop forever").toCompletableFuture().get(30, TimeUnit.SECONDS);
 
-        assertEquals(12, server.requestBodies.size());
+        // 12 tool rounds + 1 wrap-up round.
+        assertEquals(13, server.requestBodies.size());
         assertEquals(ThreadStatus.IDLE, agent.status());
 
-        // 12 tool_call/tool_result pairs persisted, then the (empty)
-        // final assistant text from the last round.
         long toolCalls = appendedMessages.stream().filter(m -> "tool_call".equals(m.type())).count();
         long toolResults = appendedMessages.stream().filter(m -> "tool_result".equals(m.type())).count();
         assertEquals(12, toolCalls);
         assertEquals(12, toolResults);
+        // The final assistant message carries the wrap-up answer, not a blank.
         ThreadMessage last = appendedMessages.get(appendedMessages.size() - 1);
         assertEquals("assistant", last.role());
-        assertEquals("{\"text\":\"\"}", last.contentJson());
-        assertEquals(12 * 20L, last.tokensIn());
-        assertEquals(12 * 8L, last.tokensOut());
+        assertEquals("{\"text\":\"Hello world\"}", last.contentJson());
+        assertEquals(12 * 20L + 10L, last.tokensIn());
+        assertEquals(12 * 8L + 5L, last.tokensOut());
     }
 
     // ── Wiring ────────────────────────────────────────────────────────

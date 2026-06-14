@@ -52,6 +52,7 @@ function turn(id: string, threadId: string, status: ThreadTurnDto['status'], inp
   return {
     id,
     threadId,
+    taskId: null,
     lane: 'CLI',
     status,
     input,

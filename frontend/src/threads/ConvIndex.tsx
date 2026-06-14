@@ -33,6 +33,15 @@ type Props = {
    *  reads against the dark/light terminal background instead of the
    *  structured view's plain surface. Defaults to {@code light}. */
   variant?: Variant;
+  /** When set, restrict the rail to prompts whose seq is in this set —
+   *  i.e. the prompts the host pane actually renders. The backend index
+   *  is thread-wide (trunk + every task), but a focused Task window only
+   *  draws *its* slice, so an unrestricted rail would list trunk and
+   *  sibling-task prompts that have no row to scroll to. Passing the
+   *  pane's own prompt seqs keeps every rail row clickable and scopes
+   *  the index to "that Task's prompts" per the design. Omit in the
+   *  trunk, where the thread-wide list is intended. */
+  restrictToSeqs?: ReadonlySet<number>;
 };
 
 /**
@@ -50,10 +59,20 @@ type Props = {
  * — i.e. the most recent prompt — highlighted with the accent colour.
  */
 export function ConvIndex({
-  threadId, scrollContainerRef, onSseEvent, variant = 'light',
+  threadId, scrollContainerRef, onSseEvent, variant = 'light', restrictToSeqs,
 }: Props) {
   const idx = useConvIndex(threadId);
   const { tasks } = useThreadTasks(threadId);
+  // Scope the thread-wide index to the host pane's own prompts when the
+  // caller asks. A focused Task passes its loaded prompt seqs so the
+  // rail lists only that Task's prompts (all clickable); the trunk omits
+  // it and keeps the full thread-wide list.
+  const scoped = restrictToSeqs !== undefined;
+  const entries = useMemo(
+    () => scoped
+      ? idx.entries.filter(e => restrictToSeqs.has(e.seq))
+      : idx.entries,
+    [scoped, idx.entries, restrictToSeqs]);
   // Always start collapsed. The rail is a peripheral hint — hover or
   // focus it to expand into the full prompt-preview panel.
   const [expanded, setExpanded] = useState(false);
@@ -82,23 +101,28 @@ export function ConvIndex({
     }
   }, [scrollContainerRef]);
 
-  // While loading initial state or if the thread genuinely has no
+  // While loading initial state or if the pane genuinely has no
   // prompts yet, render nothing — the rail is meant to surface
   // navigation for content that exists, not to flash an empty strip.
-  if (idx.loading && idx.entries.length === 0) {
+  if (idx.loading && entries.length === 0) {
     return null;
   }
-  if (!idx.loading && idx.total === 0) {
+  if (!idx.loading && entries.length === 0) {
     return null;
   }
 
   const palette = variant === 'dark' ? DARK_PALETTE : LIGHT_PALETTE;
-  const currentSeq = idx.entries.length > 0
-    ? idx.entries[idx.entries.length - 1].seq
+  const currentSeq = entries.length > 0
+    ? entries[entries.length - 1].seq
     : null;
-  const loaded = idx.entries.length;
-  const remaining = Math.max(0, idx.total - loaded);
+  const loaded = entries.length;
+  // When scoped to a single pane, "of M" is just the loaded count —
+  // there's no larger thread-wide total to page toward, and pulling
+  // older thread-wide prompts wouldn't add to this pane's slice.
+  const total = scoped ? entries.length : idx.total;
+  const remaining = Math.max(0, total - loaded);
   const olderCount = Math.min(50, remaining);
+  const canLoadMore = scoped ? false : idx.canLoadMore;
 
   return (
     <aside
@@ -117,11 +141,11 @@ export function ConvIndex({
     >
       {expanded ? (
         <ExpandedPanel
-          entries={idx.entries}
-          total={idx.total}
+          entries={entries}
+          total={total}
           loaded={loaded}
           currentSeq={currentSeq}
-          canLoadMore={idx.canLoadMore}
+          canLoadMore={canLoadMore}
           loadingMore={idx.loadingMore}
           olderCount={olderCount}
           error={idx.error}
@@ -129,11 +153,11 @@ export function ConvIndex({
           onPick={scrollToSeq}
           fullTextBySeq={idx.fullTextBySeq}
           palette={palette}
-          tasks={tasks ?? []}
+          tasks={scoped ? [] : (tasks ?? [])}
         />
       ) : (
         <CollapsedStrip
-          entries={idx.entries}
+          entries={entries}
           currentSeq={currentSeq}
           onPick={scrollToSeq}
           palette={palette}

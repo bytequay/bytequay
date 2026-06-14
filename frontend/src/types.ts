@@ -1595,6 +1595,10 @@ export type ThreadFileDto = {
 export type ThreadTurnDto = {
   id: string;
   threadId: string;
+  /** The focused Task this turn ran under, or null for a trunk-scope
+   *  (planning) turn. The trunk's thinking indicator keys off this so a
+   *  background Task turn can't make the trunk look perpetually busy. */
+  taskId: string | null;
   lane: ThreadResourceLaneDto;
   status: ThreadTurnStatusDto;
   input: string;

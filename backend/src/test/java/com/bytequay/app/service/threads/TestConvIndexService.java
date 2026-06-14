@@ -51,9 +51,14 @@ class TestConvIndexService
         assertThat(page.entries()).extracting("seq").containsExactly(1L, 3L, 5L);
         assertThat(page.entries()).extracting("preview")
                 .containsExactly("First question", "Second question", "Third question");
-        // messages now carries only the user prompts (the index window is
-        // prompt-based), not the assistant / tool_result rows.
-        assertThat(page.messages()).hasSize(3);
+        // entries are prompt-windowed, but messages carries the FULL
+        // transcript across that window — every assistant answer and
+        // tool_result row from the earliest prompt through the tail.
+        // Dropping the non-prompt rows here is what made trunk answers
+        // vanish: the terminal would render the questions and nothing else.
+        assertThat(page.messages()).extracting("seq").containsExactly(1L, 2L, 3L, 4L, 5L);
+        assertThat(page.messages()).filteredOn(m -> "assistant".equals(m.role()))
+                .extracting("contentJson").containsExactly("{\"text\":\"First answer\"}");
         assertThat(page.loadedFromSeq()).isEqualTo(1L);
         // Window covers the whole thread, so there's nothing older to fetch.
         assertThat(page.nextCursor()).isNull();
@@ -117,6 +122,26 @@ class TestConvIndexService
         assertThat(page.entries()).extracting("seq").containsExactly(1L, 2L);
         assertThat(page.loadedFromSeq()).isEqualTo(1L);
         assertThat(page.nextCursor()).isNull();
+    }
+
+    @Test
+    void backfillTranscriptCarriesAnswersAndStopsBelowCursor()
+    {
+        // Two turns. Paging back from the second prompt (seq 4) must
+        // return the first turn's transcript — prompt AND answer — and
+        // nothing at or beyond seq 4.
+        InMemoryStore store = new InMemoryStore();
+        store.seed("t4",
+                userMsg(1, "Q1"),
+                assistantMsg(2, "A1"),
+                userMsg(4, "Q2"),
+                assistantMsg(5, "A2"));
+
+        ConvIndexPage page = new ConvIndexService(store, new ObjectMapper()).backfill("t4", 4L, 50);
+
+        assertThat(page.entries()).extracting("seq").containsExactly(1L);
+        assertThat(page.messages()).extracting("seq").containsExactly(1L, 2L);
+        assertThat(page.loadedFromSeq()).isEqualTo(1L);
     }
 
     @Test

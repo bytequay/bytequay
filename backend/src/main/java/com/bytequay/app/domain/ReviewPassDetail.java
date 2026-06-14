@@ -27,8 +27,8 @@ public record ReviewPassDetail(
          *  read time so the panel header can show it instead of a bare
          *  {@code repo#number}. Null when the PR isn't cached locally. */
         String prTitle,
-        /** The Lead's agenda parsed from the pass row — the phase TODO
-         *  list the panel page renders above the transcript. Empty for
+        /** The Lead's agenda parsed from the pass row — the phase checklist
+         *  the panel page renders above the transcript. Empty for
          *  passes without one. */
         List<AgendaPhase> agenda,
         List<ReviewParticipant> participants,

@@ -90,9 +90,15 @@ public class ConvIndexService
         // single busy turn emits dozens of tool / assistant rows, so a
         // message-based window would leave only the most recent prompt
         // visible and bury every earlier one behind "load earlier".
-        List<ThreadMessage> window = store.listRecentUserMessages(threadId, capped);
+        List<ThreadMessage> prompts = store.listRecentUserMessages(threadId, capped);
         long total = store.countUserMessages(threadId);
-        return buildPage(threadId, total, window, capped);
+        // The terminal renders the *full* transcript for those prompts —
+        // every assistant / tool / thinking row from the earliest prompt
+        // in view through the live tail. Windowing the prompts but then
+        // shipping only the prompt rows as {@code messages} would show
+        // the questions and silently drop every answer.
+        List<ThreadMessage> transcript = transcriptFrom(threadId, prompts, Long.MAX_VALUE);
+        return buildPage(threadId, total, prompts, transcript, capped);
     }
 
     /** Backfill load triggered by "↑ load earlier". Returns the
@@ -104,34 +110,55 @@ public class ConvIndexService
     {
         requireNonNull(threadId, "threadId is null");
         int capped = capLimit(limit);
-        List<ThreadMessage> window = store.listUserMessagesBefore(threadId, beforeSeq, capped);
+        List<ThreadMessage> prompts = store.listUserMessagesBefore(threadId, beforeSeq, capped);
         long total = store.countUserMessages(threadId);
-        return buildPage(threadId, total, window, capped);
+        // Older transcript window: from the earliest prompt now in view up
+        // to (but not including) the prompt the caller paged back from, so
+        // the prepended rows carry their answers, not just the questions.
+        List<ThreadMessage> transcript = transcriptFrom(threadId, prompts, beforeSeq - 1);
+        return buildPage(threadId, total, prompts, transcript, capped);
     }
 
-    private ConvIndexPage buildPage(String threadId, long total, List<ThreadMessage> window, int limit)
+    /** The transcript rows that pair with a prompt window: every message
+     *  from the earliest prompt's seq through {@code lastSeq} (inclusive).
+     *  Empty when the prompt window is empty — a thread with no human
+     *  prompts yet has nothing to render. */
+    private List<ThreadMessage> transcriptFrom(String threadId, List<ThreadMessage> prompts, long lastSeq)
+    {
+        if (prompts.isEmpty()) {
+            return List.of();
+        }
+        return store.listMessagesBetween(threadId, prompts.get(0).seq(), lastSeq);
+    }
+
+    private ConvIndexPage buildPage(
+            String threadId,
+            long total,
+            List<ThreadMessage> prompts,
+            List<ThreadMessage> transcript,
+            int limit)
     {
         ImmutableList.Builder<ConvIndexEntry> entries = ImmutableList.builder();
-        for (ThreadMessage m : window) {
-            // The window is already user-prompt-only, but keep the guard
-            // so a future caller passing a raw message window can't slip
+        for (ThreadMessage m : prompts) {
+            // The prompt window is already user-prompt-only, but keep the
+            // guard so a future caller passing a raw window can't slip
             // tool_result rows into the index.
             if (isUserPrompt(m)) {
                 entries.add(toEntry(m));
             }
         }
-        Long loadedFromSeq = window.isEmpty() ? null : window.get(0).seq();
+        Long loadedFromSeq = prompts.isEmpty() ? null : prompts.get(0).seq();
         // The window is prompt-based now, so "older prompts exist" can't
         // be inferred from seq>1 (seq 1 is usually a session-started
         // row, not a prompt). Instead: a full page means we hit the
         // limit and older prompts may remain; a short page means we
         // reached the first prompt and the affordance hides.
-        Long nextCursor = loadedFromSeq != null && window.size() >= limit ? loadedFromSeq : null;
+        Long nextCursor = loadedFromSeq != null && prompts.size() >= limit ? loadedFromSeq : null;
         return new ConvIndexPage(
                 threadId,
                 total,
                 entries.build(),
-                List.copyOf(window),
+                List.copyOf(transcript),
                 loadedFromSeq,
                 nextCursor);
     }

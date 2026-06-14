@@ -14,7 +14,7 @@
 package com.bytequay.app.domain;
 
 /**
- * One entry on a review pass's Lead-driven agenda — the TODO list of
+ * One entry on a review pass's Lead-driven agenda — the agenda checklist of
  * phases the Lead sets at kickoff ({@code set_agenda}) and ticks
  * through with {@code mark_phase_in_progress} / {@code mark_phase_done}
  * as the pass runs. Persisted on {@code review_passes.agenda_json} as

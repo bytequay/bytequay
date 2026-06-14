@@ -159,6 +159,7 @@ export default function TrunkChat({
               text={item.text}
               ts={item.ts}
               speaker={speaker}
+              activity={item.activity}
             />
           );
         }
@@ -228,10 +229,24 @@ const thinkingKeyframes = `
 }
 `;
 
+/** Per-turn tool activity rolled up onto the turn's final answer. The
+ *  trunk hides individual tool_call / tool_result rows (it's the
+ *  planning view), so this badge is the only signal that a turn quietly
+ *  ran N tools / touched M files. */
+type TurnActivity = { tools: number; files: number };
+
+type AssistantItem = {
+  kind: 'assistant';
+  message: ThreadMessageDto;
+  text: string;
+  ts: number;
+  activity?: TurnActivity;
+};
+
 type TimelineItem =
   | { kind: 'date'; label: string; ts: number }
   | { kind: 'user'; message: ThreadMessageDto; text: string; ts: number }
-  | { kind: 'assistant'; message: ThreadMessageDto; text: string; ts: number }
+  | AssistantItem
   | { kind: 'task-launch'; task: WorkUnitTaskDto; ts: number }
   | { kind: 'system'; text: string; ts: number };
 
@@ -240,12 +255,27 @@ function buildTimeline(
   tasks: WorkUnitTaskDto[],
 ): TimelineItem[] {
   const items: TimelineItem[] = [];
+  // Tool activity accumulates across a turn and lands on the turn's
+  // last answer as a count badge. A turn boundary is the next user
+  // prompt (or the end of the window).
+  let turnTools = 0;
+  const turnFiles = new Set<string>();
+  let lastAnswer: AssistantItem | null = null;
+  const flushTurn = () => {
+    if (lastAnswer !== null && (turnTools > 0 || turnFiles.size > 0)) {
+      lastAnswer.activity = { tools: turnTools, files: turnFiles.size };
+    }
+    turnTools = 0;
+    turnFiles.clear();
+    lastAnswer = null;
+  };
   // Promote each message to a typed item, folding system/lifecycle
   // rows into a single SystemLine so the chat reads as a chat.
   for (const m of messages) {
     const ts = Date.parse(m.ts);
     if (!Number.isFinite(ts)) continue;
     if (m.role === 'user' && m.type === 'text') {
+      flushTurn();
       items.push({ kind: 'user', message: m, text: extractText(m), ts });
     }
     else if (m.role === 'assistant' && (m.type === 'text' || m.type === 'thinking')) {
@@ -256,11 +286,21 @@ function buildTimeline(
       // pulse below.
       const text = extractText(m);
       if (text.trim().length === 0) continue;
-      items.push({ kind: 'assistant', message: m, text, ts });
+      const item: AssistantItem = { kind: 'assistant', message: m, text, ts };
+      items.push(item);
+      lastAnswer = item;
     }
-    // tool_call / tool_result / lifecycle: skip — trunk chat is planning,
-    // not transcripts of tool I/O (those live in the task window).
+    else if (m.type === 'tool_call') {
+      // Hidden from the timeline, but counted for the badge. A file
+      // path in the input also bumps the "files touched" tally.
+      turnTools += 1;
+      const path = extractToolFilePath(m.contentJson);
+      if (path !== null) turnFiles.add(path);
+    }
+    // tool_result / permission_request / lifecycle: skip — trunk chat is
+    // planning, not transcripts of tool I/O (those live in the task window).
   }
+  flushTurn();
   // Inject a task-launch card at each task's createdAt so the user
   // sees the same chronology as the agent: "I'll start task N → card".
   for (const t of tasks) {
@@ -312,6 +352,24 @@ function extractText(m: ThreadMessageDto): string {
   return m.contentJson;
 }
 
+/** Pull a file path out of a tool_call's input, if it's a file tool.
+ *  Read/Edit/Write style tools carry the path under one of these keys;
+ *  everything else (Bash, list_prs, create_task, …) has no path and
+ *  only bumps the tool count, not the files-touched tally. */
+function extractToolFilePath(contentJson: string): string | null {
+  try {
+    const parsed = JSON.parse(contentJson) as { input?: Record<string, unknown> };
+    const input = parsed.input;
+    if (input === undefined || input === null) return null;
+    for (const key of ['file_path', 'path', 'notebook_path']) {
+      const v = input[key];
+      if (typeof v === 'string' && v.length > 0) return v;
+    }
+  }
+  catch { /* fall through */ }
+  return null;
+}
+
 function DateDivider({ label }: { label: string }) {
   return (
     <div style={dateDividerWrapStyle}>
@@ -337,7 +395,12 @@ function UserBubble({ text, initials, seq }: { text: string; initials: string; s
   );
 }
 
-function AssistantBlock({ text, ts, speaker }: { text: string; ts: number; speaker: AssistantLabel }) {
+function AssistantBlock({ text, ts, speaker, activity }: {
+  text: string;
+  ts: number;
+  speaker: AssistantLabel;
+  activity?: TurnActivity;
+}) {
   return (
     <div style={assistantRowStyle}>
       <div style={{ ...claudeAvatarStyle, background: speaker.color }}>{speaker.glyph}</div>
@@ -352,10 +415,28 @@ function AssistantBlock({ text, ts, speaker }: { text: string; ts: number; speak
           style={assistantBubbleStyle}
           dangerouslySetInnerHTML={{ __html: renderChatMarkdown(text) }}
         />
+        {activity !== undefined && activity.tools > 0 && (
+          <div style={activityBadgeStyle}>· {formatActivity(activity)}</div>
+        )}
       </div>
     </div>
   );
 }
+
+function formatActivity({ tools, files }: TurnActivity): string {
+  const toolPart = `${tools} tool call${tools === 1 ? '' : 's'}`;
+  if (files === 0) {
+    return toolPart;
+  }
+  return `${toolPart} · ${files} file${files === 1 ? '' : 's'} touched`;
+}
+
+const activityBadgeStyle: React.CSSProperties = {
+  marginTop: 4,
+  fontSize: 11,
+  color: '#94a3b8',
+  fontVariantNumeric: 'tabular-nums',
+};
 
 function TaskLaunchCard({
   task, isForeground, onOpen,

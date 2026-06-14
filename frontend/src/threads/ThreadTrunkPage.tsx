@@ -223,6 +223,18 @@ export default function ThreadTrunkPage({ threadId, onBack, onOpenTask }: Props)
   const trunkMessages = useMemo(
     () => messages === null ? [] : messages.filter(m => m.taskId === null),
     [messages]);
+  // Seqs of the trunk's own planning prompts — scopes the conversation-
+  // index rail to prompts that exist in this pane, so it lists planning
+  // prompts (all clickable) instead of the thread-wide trunk + per-task
+  // prompts, the per-task ones having no row to scroll to here. The full
+  // "trunk lists Tasks, expand into each Task's index" nesting is a
+  // separate follow-up.
+  const trunkPromptSeqs = useMemo(
+    () => new Set(
+      trunkMessages
+        .filter(m => m.role === 'user' && m.type === 'text')
+        .map(m => m.seq)),
+    [trunkMessages]);
   const orderedTasksAsc = useMemo(
     () => tasks === null ? [] : [...tasks].sort((a, b) => a.seq - b.seq),
     [tasks]);
@@ -314,15 +326,30 @@ export default function ThreadTrunkPage({ threadId, onBack, onOpenTask }: Props)
   const hasInFlight = useMemo(
     () => (turns ?? []).some(t => t.status === 'QUEUED' || t.status === 'RUNNING'),
     [turns]);
+  // The trunk's own "working…" pulse must reflect only TRUNK turns
+  // (taskId === null). A backgrounded Task turn keeps the thread-wide
+  // turn list "in flight", but the trunk itself is idle — without this
+  // split the composer shows a perpetual "working…" the instant any
+  // task starts running, even though the planning turn already finished.
+  // The poll below still watches every turn so task cards keep refreshing.
+  const trunkInFlight = useMemo(
+    () => (turns ?? []).some(
+      t => (t.status === 'QUEUED' || t.status === 'RUNNING') && t.taskId === null),
+    [turns]);
   useEffect(() => {
     if (!hasInFlight && !sending) return;
     const handle = window.setInterval(() => {
       void refreshMessages();
       void refreshTurns();
+      // A trunk turn can spawn a Task (create_task), and a running Task
+      // advances PENDING → RUNNING → terminal on its own. Poll the task
+      // list too so the freshly-created task surfaces in the rail and the
+      // timeline card without the user having to navigate away and back.
+      void refreshTasks();
       void loadThread();
     }, 2_500);
     return () => window.clearInterval(handle);
-  }, [hasInFlight, sending, refreshMessages, refreshTurns, loadThread]);
+  }, [hasInFlight, sending, refreshMessages, refreshTurns, refreshTasks, loadThread]);
 
   const onInterrupt = useCallback(async () => {
     if (interrupting) return;
@@ -352,9 +379,10 @@ export default function ThreadTrunkPage({ threadId, onBack, onOpenTask }: Props)
     try {
       await window.bridge.sendTrunkMessage(threadId, text);
       setComposerInput('');
-      // Pull both lists so the tail poll's hasInFlight check sees
-      // the freshly-enqueued QUEUED turn and kicks the interval in.
-      await Promise.all([refreshMessages(), refreshTurns()]);
+      // Pull the lists so the tail poll's hasInFlight check sees the
+      // freshly-enqueued QUEUED turn and kicks the interval in. Tasks
+      // too: a planning turn often ends by creating one.
+      await Promise.all([refreshMessages(), refreshTurns(), refreshTasks()]);
     }
     catch (e) {
       setSendError(e instanceof Error ? e.message : String(e));
@@ -362,7 +390,7 @@ export default function ThreadTrunkPage({ threadId, onBack, onOpenTask }: Props)
     finally {
       setSending(false);
     }
-  }, [composerInput, sending, threadId, refreshMessages]);
+  }, [composerInput, sending, threadId, refreshMessages, refreshTurns, refreshTasks]);
 
   const onAdvance = useCallback(async (mode: 'next' | 'ship') => {
     if (foreground === null || advancing !== null) return;
@@ -602,7 +630,7 @@ export default function ThreadTrunkPage({ threadId, onBack, onOpenTask }: Props)
                   foregroundTaskId={foreground?.id ?? null}
                   userInitials={userInitials}
                   onOpenTask={onOpenTask}
-                  isInFlight={hasInFlight || sending}
+                  isInFlight={trunkInFlight || sending}
                   onInterrupt={() => { void onInterrupt(); }}
                   interrupting={interrupting}
                   outerRef={chatScrollRef}
@@ -619,6 +647,7 @@ export default function ThreadTrunkPage({ threadId, onBack, onOpenTask }: Props)
               <ConvIndex
                 threadId={threadId}
                 scrollContainerRef={chatScrollRef}
+                restrictToSeqs={trunkPromptSeqs}
               />
             </div>
 
@@ -666,7 +695,7 @@ export default function ThreadTrunkPage({ threadId, onBack, onOpenTask }: Props)
                 <span style={composerNoBranchHintStyle}>
                   no branch here — the trunk plans; tasks do the work
                 </span>
-                {hasInFlight ? (
+                {trunkInFlight ? (
                   <button
                     type="button"
                     onClick={() => { void onInterrupt(); }}
@@ -1242,10 +1271,19 @@ function TaskCard({
     return () => window.clearInterval(id);
   }, []);
 
+  // The whole card opens the task window — clicking anywhere enters it,
+  // not just a small "Open →" target. onSelect rides along so the
+  // park/ship row keeps the card as its target.
+  const open = () => { onSelect(); onOpen(); };
   return (
     <li
-      onClick={onSelect}
-      onDoubleClick={onOpen}
+      role="button"
+      tabIndex={0}
+      aria-label={`Open ${labelText}`}
+      onClick={open}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); open(); }
+      }}
       style={taskCardStyle(selected, isForeground)}
     >
       <div style={taskCardHeadStyle}>
@@ -1255,16 +1293,6 @@ function TaskCard({
             <span style={taskCardTitleStyle} title={labelText}>{labelText}</span>
           </div>
         </div>
-        {selected && (
-          <button
-            type="button"
-            onClick={(e) => { e.stopPropagation(); onOpen(); }}
-            style={openBtnStyle(true)}
-            title={`Enter Task ${task.seq}'s window`}
-          >
-            Open →
-          </button>
-        )}
       </div>
       <div style={taskMetaRowStyle}>
         {task.branchName !== null && (
@@ -1914,19 +1942,6 @@ const composerNoBranchHintStyle: React.CSSProperties = {
   textAlign: 'right',
   marginRight: 6,
 };
-
-function openBtnStyle(selected: boolean): React.CSSProperties {
-  return {
-    fontSize: 10,
-    padding: '2px 6px',
-    border: '1px solid ' + (selected ? '#7c3aed55' : 'rgba(0,0,0,0.10)'),
-    background: selected ? 'rgba(124,58,237,0.10)' : '#fff',
-    color: selected ? '#6d28d9' : 'var(--text-2)',
-    borderRadius: 6,
-    cursor: 'pointer',
-    fontWeight: 600,
-  };
-}
 
 const taskCardMetaStyle: React.CSSProperties = {
   display: 'flex',

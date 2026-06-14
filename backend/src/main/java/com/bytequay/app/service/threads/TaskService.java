@@ -326,9 +326,11 @@ public class TaskService
         String repoFullName = watched.owner() + "/" + watched.repo();
 
         try {
-            // 1. Commit any uncommitted changes the agent left behind.
+            // 1. Commit any uncommitted changes the agent left behind —
+            //    minus our own per-worktree hook dir, which is ByteQuay
+            //    infra and must never land in the user's branch / PR.
             if (git.hasUncommittedChanges(worktreePath)) {
-                git.stageAll(worktreePath);
+                git.stageAll(worktreePath, List.of(WorktreeService.HOOK_DIR_REL));
                 git.commit(worktreePath, "ByteQuay checkpoint via ship & continue");
             }
 

@@ -120,7 +120,31 @@ public class GitRunner
     public void stageAll(Path workingDir)
             throws IOException, InterruptedException
     {
-        run(List.of("git", "add", "-A"), workingDir).requireSuccess();
+        stageAll(workingDir, List.of());
+    }
+
+    /**
+     * Like {@link #stageAll(Path)} but skips the given paths via
+     * {@code :(exclude)} pathspecs, so app-managed files never enter a
+     * commit even though they sit in the worktree. Nothing is written to
+     * git's config or exclude files — the exclusion lives only in the
+     * staging command we run.
+     */
+    public void stageAll(Path workingDir, List<String> excludePaths)
+            throws IOException, InterruptedException
+    {
+        requireNonNull(excludePaths, "excludePaths is null");
+        List<String> args = new ArrayList<>(List.of("git", "add", "-A"));
+        if (!excludePaths.isEmpty()) {
+            // A positive pathspec ('.') is required for the excludes to
+            // subtract from; without it git would stage nothing.
+            args.add("--");
+            args.add(".");
+            for (String path : excludePaths) {
+                args.add(":(exclude)" + path);
+            }
+        }
+        run(args, workingDir).requireSuccess();
     }
 
     /**

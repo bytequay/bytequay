@@ -773,7 +773,12 @@ public class ThreadService
     {
         Thread thread = requireTask(threadId);
         try {
-            return git.workingTreeFiles(agentCwd(thread));
+            // Hide the app's own per-worktree hook dir — it's ByteQuay
+            // infrastructure (the BQ-Task commit-trailer hook), not the
+            // user's work, so it has no business in the Changed-files list.
+            return git.workingTreeFiles(agentCwd(thread)).stream()
+                    .filter(f -> !isHookDirPath(f.path()))
+                    .toList();
         }
         catch (IOException e) {
             throw new RuntimeException("Failed to list working-tree changes for " + threadId, e);
@@ -782,6 +787,15 @@ public class ThreadService
             java.lang.Thread.currentThread().interrupt();
             throw new RuntimeException("Interrupted listing working-tree changes for " + threadId, e);
         }
+    }
+
+    /** True for the app's hook dir, reported by porcelain as the bare
+     *  directory ({@code .bytequay-hooks/}) or, if ever expanded, any
+     *  path beneath it. */
+    private static boolean isHookDirPath(String path)
+    {
+        return path.equals(WorktreeService.HOOK_DIR_REL)
+                || path.startsWith(WorktreeService.HOOK_DIR_REL + "/");
     }
 
     /** Unified diff for one uncommitted file. */

@@ -22,6 +22,7 @@ import type {
   WorkUnitTaskDto,
 } from '../types';
 import { parseUnifiedDiff, type DiffHunk } from '../diffParse';
+import { renderChatMarkdown } from '../markdown';
 import TaskChat from './TaskChat';
 import { ConvIndex } from './ConvIndex';
 import { PermissionCard } from './PermissionCard';
@@ -408,17 +409,6 @@ export default function TaskDetailPage({
     }
   };
 
-  // Aggregate diff counts for the top-bar "⇄ +N -M" button. Sum from
-  // the loaded commits so the badge mirrors what View-diff will show.
-  const totalAdds = useMemo(
-    () => (commits ?? []).reduce(
-      (s, c) => s + estimateCommitInsertions(c), 0),
-    [commits]);
-  const totalDels = useMemo(
-    () => (commits ?? []).reduce(
-      (s, c) => s + estimateCommitDeletions(c), 0),
-    [commits]);
-
   const toolCallCount = useMemo(
     () => (messages ?? []).filter(m => m.role === 'tool' && m.type === 'tool_call').length,
     [messages]);
@@ -510,7 +500,7 @@ export default function TaskDetailPage({
               ? 'Close diff and return to the conversation'
               : 'Open the three-column diff'}
           >
-            ⇄ +{totalAdds} -{totalDels}
+            {mode === 'diff' ? '✕ Close diff' : '⇄ Code diff'}
           </button>
           {thread !== null && !isTerminal && (
             <span style={statusPillStyle(thread.status)}>
@@ -889,17 +879,6 @@ export default function TaskDetailPage({
       )}
     </div>
   );
-}
-
-function estimateCommitInsertions(_c: ThreadCommitDto): number {
-  // Backend ThreadCommitDto today doesn't carry +/- counts at the
-  // commit level; the totals are summed inside the diff view. Return
-  // 0 so the top-bar pill stays honest until /commits surfaces stats.
-  return 0;
-}
-
-function estimateCommitDeletions(_c: ThreadCommitDto): number {
-  return 0;
 }
 
 function CommitsListSection({ commits }: { commits: ThreadCommitDto[] | null }) {
@@ -1484,10 +1463,23 @@ function MessageBubble({ message }: { message: ThreadMessageDto }) {
   }
   const text = previewBody(message);
   const isUser = role === 'user';
+  // Render user / assistant prose as markdown so the diff view's
+  // conversation column matches the task window's chat (code fences,
+  // lists, bold). Tool rows stay raw — they're truncated tool output,
+  // not prose.
+  const asMarkdown = role === 'user' || role === 'assistant';
   return (
     <li style={bubbleRowStyle(isUser)}>
       <div style={bubbleHeadStyle(isUser)}>{roleLabel(role)}</div>
-      <div style={bubbleStyle(role)}>{text}</div>
+      {asMarkdown ? (
+        <div
+          className="bq-chat-md"
+          style={bubbleStyle(role)}
+          dangerouslySetInnerHTML={{ __html: renderChatMarkdown(text) }}
+        />
+      ) : (
+        <div style={bubbleStyle(role)}>{text}</div>
+      )}
     </li>
   );
 }

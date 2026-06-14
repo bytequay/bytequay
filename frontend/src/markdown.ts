@@ -11,7 +11,62 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import { marked } from 'marked';
+import { marked, Renderer } from 'marked';
+
+/** Unified-diff hunk header, e.g. {@code @@ -140,20 +140,16 @@}. Its
+ *  presence is the unambiguous signal that a fenced block is a diff
+ *  even when the agent fenced it as plain ``` with no language. */
+const DIFF_HUNK_RE = /^@@ -\d+(?:,\d+)? \+\d+(?:,\d+)? @@/m;
+
+function isDiffBlock(code: string, infostring: string | undefined): boolean {
+  const lang = (infostring ?? '').trim().split(/\s+/)[0].toLowerCase();
+  if (lang === 'diff' || lang === 'patch') return true;
+  return DIFF_HUNK_RE.test(code);
+}
+
+/** Map a diff line to its row class. Order matters: the {@code +++} /
+ *  {@code ---} file markers must be caught before the bare {@code +} /
+ *  {@code -} add/remove lines. */
+function diffLineClass(line: string): string {
+  if (line.startsWith('+++') || line.startsWith('---')) return 'bq-diff-meta';
+  if (line.startsWith('@@')) return 'bq-diff-hunk';
+  if (line.startsWith('+')) return 'bq-diff-add';
+  if (line.startsWith('-')) return 'bq-diff-del';
+  return 'bq-diff-ctx';
+}
+
+function escapeHtml(s: string): string {
+  return s
+      .replace(/&/g, '&amp;')
+      .replace(/</g, '&lt;')
+      .replace(/>/g, '&gt;')
+      .replace(/"/g, '&quot;');
+}
+
+/** Render a fenced diff as a `<pre class="bq-diff">` of per-line spans
+ *  so CSS can paint added / removed / hunk / meta rows the same way the
+ *  code-diff page does. Empty lines get a zero-width space so the row
+ *  keeps its height. */
+function renderDiffBlock(code: string): string {
+  const rows = code.replace(/\n$/, '').split('\n').map(line => {
+    const content = line.length === 0 ? '​' : escapeHtml(line);
+    return `<span class="bq-diff-line ${diffLineClass(line)}">${content}</span>`;
+  }).join('');
+  return `<pre class="bq-diff"><code class="language-diff">${rows}</code></pre>`;
+}
+
+/** Shared renderer that special-cases diff code fences and otherwise
+ *  defers to marked's default. Passed per-parse via options so we don't
+ *  mutate the global marked singleton. */
+function makeChatRenderer(): Renderer {
+  const renderer = new Renderer();
+  const baseCode = renderer.code.bind(renderer);
+  renderer.code = (code: string, infostring: string | undefined, escaped: boolean): string =>
+    isDiffBlock(code, infostring) ? renderDiffBlock(code) : baseCode(code, infostring, escaped);
+  return renderer;
+}
+
+const diffAwareRenderer = makeChatRenderer();
 
 /** Render a markdown string the same way GitHub does for PR comments:
  *  GFM rules (so triple-backtick fenced code blocks become <pre><code>)
@@ -43,7 +98,9 @@ export type MarkdownRepoContext = { owner: string; repo: string };
 export function renderMarkdown(text: string | null | undefined, repoContext?: MarkdownRepoContext): string {
   if (!text) return '';
   const normalised = text.replace(/\r\n/g, '\n');
-  const html = marked.parse(normalised, { gfm: true, breaks: true, async: false }) as string;
+  const html = marked.parse(
+      normalised,
+      { gfm: true, breaks: true, async: false, renderer: diffAwareRenderer }) as string;
   return decorateRefsAndMentions(html, repoContext);
 }
 
@@ -67,7 +124,9 @@ export function renderChatMarkdown(text: string | null | undefined, repoContext?
       .replace(/\n[ \t]*\n[ \t]*\n+/g, '\n\n')
       .trim();
   if (normalised.length === 0) return '';
-  const html = marked.parse(normalised, { gfm: true, breaks: false, async: false }) as string;
+  const html = marked.parse(
+      normalised,
+      { gfm: true, breaks: false, async: false, renderer: diffAwareRenderer }) as string;
   // Drop empty paragraphs marked emits for trailing whitespace —
   // they render as a full line of gap thanks to the bubble's
   // line-height and visually look like a missing message.

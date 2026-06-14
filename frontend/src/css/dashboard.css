@@ -2985,6 +2985,34 @@
   padding: 0;
   border-radius: 0;
 }
+/* Fenced diffs get the code-diff page's treatment: full-width per-line
+   backgrounds for added / removed / hunk / file-meta rows. The lines own
+   the horizontal padding so their colour bleeds edge-to-edge. The block
+   keeps the base `pre` background (theme-agnostic), and the meta / hunk
+   rows use opacity + translucent fills rather than hardcoded colours so
+   they stay legible on light OR dark surfaces. */
+.bq-chat-md pre.bq-diff {
+  padding: 6px 0;
+}
+.bq-chat-md pre.bq-diff code {
+  display: block;
+}
+.bq-chat-md .bq-diff-line {
+  display: block;
+  padding: 0 10px;
+  white-space: pre;
+}
+.bq-chat-md .bq-diff-add { background: rgba(46, 160, 67, 0.20); }
+.bq-chat-md .bq-diff-del { background: rgba(248, 81, 73, 0.20); }
+.bq-chat-md .bq-diff-hunk {
+  background: rgba(99, 102, 241, 0.16);
+  font-weight: 600;
+  opacity: 0.85;
+}
+.bq-chat-md .bq-diff-meta {
+  opacity: 0.6;
+  font-weight: 600;
+}
 .bq-chat-md blockquote {
   margin: 4px 0;
   padding: 2px 10px;

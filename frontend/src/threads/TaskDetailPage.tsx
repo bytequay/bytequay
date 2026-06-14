@@ -19,7 +19,6 @@ import type {
   ThreadDto,
   ThreadMessageDto,
   ThreadWorkingFileDto,
-  UserProfileDto,
   WorkUnitTaskDto,
 } from '../types';
 import { parseUnifiedDiff, type DiffHunk } from '../diffParse';
@@ -110,13 +109,6 @@ export default function TaskDetailPage({
   const [loadingOlder, setLoadingOlder] = useState(false);
   const [commits, setCommits] = useState<ThreadCommitDto[] | null>(null);
   const [checkpoints, setCheckpoints] = useState<ThreadCheckpointDto[] | null>(null);
-  const [profile, setProfile] = useState<UserProfileDto | null>(null);
-
-  useEffect(() => {
-    void window.bridge.getUserProfile()
-      .then(p => setProfile(p))
-      .catch(() => { /* fall back to JC */ });
-  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -139,7 +131,9 @@ export default function TaskDetailPage({
     return () => { cancelled = true; };
   }, [threadId]);
 
-  const userInitials = useMemo(() => initialsFor(profile), [profile]);
+  // The user's own messages are always labelled "YOU" on their
+  // avatar — a fixed self-label reads clearer than initials.
+  const userInitials = 'YOU';
 
   const task = useMemo(
     () => tasks?.find(t => t.id === taskId) ?? null,
@@ -796,14 +790,6 @@ export default function TaskDetailPage({
       )}
     </div>
   );
-}
-
-function initialsFor(profile: UserProfileDto | null): string {
-  const source = profile?.name ?? profile?.login ?? '';
-  if (source.length === 0) return 'JC';
-  const parts = source.trim().split(/\s+/);
-  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
-  return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
 }
 
 function estimateCommitInsertions(_c: ThreadCommitDto): number {

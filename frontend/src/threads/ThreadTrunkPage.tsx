@@ -17,7 +17,6 @@ import type {
   ThreadMessageDto,
   ThreadSettingsDto,
   ThreadTurnDto,
-  UserProfileDto,
   WorkUnitTaskDto,
 } from '../types';
 import TrunkChat from './TrunkChat';
@@ -122,14 +121,8 @@ export default function ThreadTrunkPage({ threadId, onBack, onOpenTask }: Props)
   const [sendError, setSendError] = useState<string | null>(null);
   const [inspectorOpen, setInspectorOpen] = useState(false);
   useInspectorHotkey(setInspectorOpen);
-  const [profile, setProfile] = useState<UserProfileDto | null>(null);
-
-  useEffect(() => {
-    void window.bridge.getUserProfile()
-      .then(p => setProfile(p))
-      .catch(() => { /* avatars fall back to "??" */ });
-  }, []);
-  const userInitials = useMemo(() => initialsFor(profile), [profile]);
+  // The user's own messages are always labelled "YOU" on their avatar.
+  const userInitials = 'YOU';
 
   const loadThread = useCallback(async () => {
     try {
@@ -1168,16 +1161,6 @@ const settingsResetBtnStyle: React.CSSProperties = {
   borderRadius: 6,
   cursor: 'pointer',
 };
-
-function initialsFor(profile: UserProfileDto | null): string {
-  const source = profile?.name ?? profile?.login ?? '';
-  if (source.length === 0) return 'JC';
-  const parts = source.trim().split(/\s+/);
-  if (parts.length === 1) {
-    return parts[0].slice(0, 2).toUpperCase();
-  }
-  return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
-}
 
 const dangerSectionStyle: React.CSSProperties = {
   background: 'rgba(220, 38, 38, 0.04)',

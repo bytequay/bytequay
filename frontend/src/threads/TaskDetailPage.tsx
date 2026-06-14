@@ -24,6 +24,9 @@ import type {
 import { parseUnifiedDiff, type DiffHunk } from '../diffParse';
 import TaskChat from './TaskChat';
 import { ConvIndex } from './ConvIndex';
+import { PermissionCard } from './PermissionCard';
+import { findPendingPermission } from './permissions';
+import type { PendingPermission } from './ConversationPane';
 import PromptContextInspector from '../inspector/PromptContextInspector';
 import { useInspectorHotkey } from '../inspector/useInspectorHotkey';
 import { WorkModelPill } from '../workspace/WorkModelPill';
@@ -264,6 +267,31 @@ export default function TaskDetailPage({
       setSending(false);
     }
   }, [sending, input, threadId, loadMessages, loadThread]);
+
+  // Latest unanswered approval prompt for this task's agent. Writes
+  // (Edit / Bash / run_shell) park on the MCP approval gate; without a
+  // card here the task window had no way to answer, so every mutation
+  // timed out. findPendingPermission resolves it against the same
+  // permission_decision / auto_allowed rows the backend writes.
+  const pendingPermission = useMemo<PendingPermission | null>(
+    () => findPendingPermission(messages ?? []),
+    [messages]);
+
+  const onDecide = useCallback(async (
+    callId: string,
+    decision: 'ALLOW' | 'DENY',
+    preApprove?: { toolName: string; count: number },
+  ) => {
+    try {
+      await window.bridge.decideTaskPermission(threadId, callId, decision, preApprove);
+      // Pull the decision row back so the card clears and a freshly
+      // unblocked turn's output starts streaming in.
+      await Promise.all([loadMessages(), loadThread()]);
+    }
+    catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    }
+  }, [threadId, loadMessages, loadThread]);
 
   const onShip = useCallback(async () => {
     if (task === null || shipping) return;
@@ -571,6 +599,12 @@ export default function TaskDetailPage({
                   />
                 )}
               </div>
+
+              {pendingPermission !== null && (
+                <div style={permissionSlotStyle}>
+                  <PermissionCard permission={pendingPermission} onDecide={onDecide} />
+                </div>
+              )}
 
               <div style={isTerminal ? composerCardDarkStyle : composerCardStyle}>
                 <div style={composerTopStyle}>
@@ -2256,6 +2290,12 @@ const loadingCenterStyle: React.CSSProperties = {
   fontSize: 12,
   color: 'var(--text-3)',
   fontStyle: 'italic',
+};
+
+const permissionSlotStyle: React.CSSProperties = {
+  // Sits between the scrollback and the composer so an approval prompt
+  // is impossible to miss while the agent is parked waiting on it.
+  padding: '0 14px 4px',
 };
 
 const composerCardStyle: React.CSSProperties = {

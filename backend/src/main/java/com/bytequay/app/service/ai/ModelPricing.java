@@ -43,6 +43,7 @@ public final class ModelPricing
     private static final ModelPrice FALLBACK = new ModelPrice(3.0, 15.0);
 
     private static final Map<String, ModelPrice> MODEL_PRICES = Map.ofEntries(
+            Map.entry("claude-opus-4-8", new ModelPrice(15.0, 75.0)),
             Map.entry("claude-opus-4-7", new ModelPrice(15.0, 75.0)),
             Map.entry("claude-sonnet-4-6", new ModelPrice(3.0, 15.0)),
             Map.entry("claude-haiku-4-5", new ModelPrice(0.8, 4.0)),

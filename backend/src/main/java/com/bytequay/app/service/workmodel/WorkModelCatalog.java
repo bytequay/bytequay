@@ -87,8 +87,9 @@ public final class WorkModelCatalog
     /** CLI agents, ordered for the picker. */
     public static final List<CatalogAgent> CLI_AGENTS = ImmutableList.of(
             new CatalogAgent("claude-code", "Claude Code", ImmutableList.of(
+                    new CatalogEntry("claude-opus-4-8", "Claude Opus 4.8", true),
                     new CatalogEntry("claude-opus-4-7", "Claude Opus 4.7", false),
-                    new CatalogEntry("claude-sonnet-4-6", "Claude Sonnet 4.6", true),
+                    new CatalogEntry("claude-sonnet-4-6", "Claude Sonnet 4.6", false),
                     new CatalogEntry("claude-haiku-4-5", "Claude Haiku 4.5", false))),
             new CatalogAgent("codex", "Codex", ImmutableList.of(
                     new CatalogEntry("gpt-5", "GPT-5", true),
@@ -97,8 +98,9 @@ public final class WorkModelCatalog
     /** API providers, ordered for the picker. */
     public static final List<CatalogProvider> API_PROVIDERS = ImmutableList.of(
             new CatalogProvider("anthropic", "Anthropic", ImmutableList.of(
+                    new CatalogEntry("claude-opus-4-8", "Claude Opus 4.8", true),
                     new CatalogEntry("claude-opus-4-7", "Claude Opus 4.7", false),
-                    new CatalogEntry("claude-sonnet-4-6", "Claude Sonnet 4.6", true),
+                    new CatalogEntry("claude-sonnet-4-6", "Claude Sonnet 4.6", false),
                     new CatalogEntry("claude-haiku-4-5", "Claude Haiku 4.5", false))),
             new CatalogProvider("openai", "OpenAI", ImmutableList.of(
                     new CatalogEntry("gpt-5", "GPT-5", true),

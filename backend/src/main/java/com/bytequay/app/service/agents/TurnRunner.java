@@ -96,7 +96,13 @@ public final class TurnRunner
             rounds++;
             totalTokensIn += round.tokensIn;
             totalTokensOut += round.tokensOut;
-            finalText = round.text;
+            // Keep the last NON-EMPTY round text: a model often answers in
+            // one round and then makes a final verifying tool call, whose
+            // (text-less) follow-up round would otherwise overwrite the
+            // answer with "" and persist a blank message.
+            if (!round.text.isBlank()) {
+                finalText = round.text;
+            }
             hooks.onRoundCompleted(round.tokensIn, round.tokensOut,
                     System.nanoTime() - roundStartNanos);
             long costSoFar = ModelPricing.estimateCostMilli(

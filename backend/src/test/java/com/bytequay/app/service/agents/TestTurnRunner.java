@@ -67,6 +67,33 @@ class TestTurnRunner
             data: {"type":"message_stop"}
             """;
 
+    /** One round carrying BOTH a text answer and a (verifying) tool call. */
+    private static final String ANTHROPIC_TEXT_PLUS_TOOL = """
+            data: {"type":"message_start","message":{"usage":{"input_tokens":12}}}
+
+            data: {"type":"content_block_delta","index":0,"delta":{"type":"text_delta","text":"the answer"}}
+
+            data: {"type":"content_block_start","index":1,"content_block":{"type":"tool_use","id":"toolu_2","name":"echo"}}
+
+            data: {"type":"content_block_delta","index":1,"delta":{"type":"input_json_delta","partial_json":"{\\"value\\":\\"x\\"}"}}
+
+            data: {"type":"content_block_stop","index":1}
+
+            data: {"type":"message_delta","usage":{"output_tokens":7}}
+
+            data: {"type":"message_stop"}
+            """;
+
+    /** A round with neither text nor tool calls — the model had nothing
+     *  to add after the tool result. */
+    private static final String ANTHROPIC_EMPTY_FINAL = """
+            data: {"type":"message_start","message":{"usage":{"input_tokens":10}}}
+
+            data: {"type":"message_delta","usage":{"output_tokens":1}}
+
+            data: {"type":"message_stop"}
+            """;
+
     private final ObjectMapper mapper = new ObjectMapper();
 
     private HttpServer server;
@@ -226,6 +253,25 @@ class TestTurnRunner
         assertEquals(4, result.rounds());
         assertEquals(4, requestBodies.size());
         assertEquals("done", result.finalText());
+    }
+
+    @Test
+    void keepsTheLastNonEmptyTextWhenAFinalRoundIsBlank()
+    {
+        // The model answers in round 1 (text + a verifying tool call),
+        // then the post-tool round comes back empty. The answer must
+        // survive — an empty round never overwrites a good answer (the
+        // bug that persisted a silent blank assistant message).
+        responses.add(ANTHROPIC_TEXT_PLUS_TOOL);
+        responses.add(ANTHROPIC_EMPTY_FINAL);
+
+        TurnResult result = runner.runTurn(spec(5),
+                call -> ToolExecutor.ToolCallResult.ok("ok"),
+                TurnHooks.NONE);
+
+        assertEquals("the answer", result.finalText());
+        assertEquals(TurnResult.End.COMPLETED, result.end());
+        assertEquals(2, result.rounds());
     }
 
     @Test

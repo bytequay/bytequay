@@ -1,0 +1,109 @@
+/*
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+package com.bytequay.app.service.mcp.approval;
+
+import com.bytequay.app.domain.Task;
+import com.bytequay.app.domain.TaskStatus;
+import com.bytequay.app.repository.TaskStore;
+import com.bytequay.app.service.mcp.McpResponses;
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.JsonNodeFactory;
+import org.junit.jupiter.api.Test;
+
+import java.time.Instant;
+import java.util.Optional;
+import java.util.Set;
+
+import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
+
+class TestWorktreeEditStep
+{
+    private static final String WORKTREE = "/repo/.worktrees/task-1";
+
+    private final ObjectMapper mapper = new ObjectMapper();
+    private final McpResponses responses = new McpResponses(mapper);
+    private final TaskStore taskStore = mock(TaskStore.class);
+    private final WorktreeEditStep step = new WorktreeEditStep(taskStore, responses);
+
+    @Test
+    void allowsEditInsideWorktreeWhenToggleOn()
+    {
+        arm(true);
+        assertThat(step.apply(editCtx(WORKTREE + "/src/Foo.java")))
+                .isInstanceOf(ApprovalStepResult.Resolve.class);
+    }
+
+    @Test
+    void promptsForEditOutsideWorktree()
+    {
+        arm(true);
+        assertThat(step.apply(editCtx("/repo/other/Bar.java")))
+                .isInstanceOf(ApprovalStepResult.Continue.class);
+    }
+
+    @Test
+    void promptsForPathEscapingTheWorktree()
+    {
+        arm(true);
+        assertThat(step.apply(editCtx(WORKTREE + "/../../etc/passwd")))
+                .isInstanceOf(ApprovalStepResult.Continue.class);
+    }
+
+    @Test
+    void promptsForBashEvenInsideTheWorktree()
+    {
+        arm(true);
+        JsonNode input = mapper.createObjectNode().put("command", "git push");
+        ApprovalContext ctx = new ApprovalContext(
+                "thread-1", JsonNodeFactory.instance.numberNode(1),
+                "Bash", "call-1", input, Set.of());
+        assertThat(step.apply(ctx)).isInstanceOf(ApprovalStepResult.Continue.class);
+    }
+
+    @Test
+    void promptsWhenToggleOff()
+    {
+        arm(false);
+        assertThat(step.apply(editCtx(WORKTREE + "/src/Foo.java")))
+                .isInstanceOf(ApprovalStepResult.Continue.class);
+    }
+
+    private void arm(boolean acceptEdits)
+    {
+        when(taskStore.findActiveTaskForThread("thread-1")).thenReturn(Optional.of(task()));
+        when(taskStore.isAcceptEdits("task-1")).thenReturn(acceptEdits);
+    }
+
+    private ApprovalContext editCtx(String filePath)
+    {
+        JsonNode input = mapper.createObjectNode().put("file_path", filePath);
+        return new ApprovalContext(
+                "thread-1", JsonNodeFactory.instance.numberNode(1),
+                "Edit", "call-1", input, Set.of());
+    }
+
+    private static Task task()
+    {
+        return new Task(
+                "task-1", "thread-1", 1L, TaskStatus.RUNNING,
+                "feature/x", WORKTREE, "main", WORKTREE,
+                null, null, null, null, null,
+                "DEVELOP", null, null,
+                0L, 0L, 0L, null,
+                Instant.EPOCH, null, null, null, null, null);
+    }
+}

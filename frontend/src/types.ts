@@ -3279,6 +3279,20 @@ export type Bridge = {
     taskId: string,
     name: string,
   ) => Promise<WorkUnitTaskDto>;
+  /** Read the task's "accept edits in worktree" toggle. When on, the
+   *  agent's file edits inside the task's worktree are auto-approved;
+   *  Bash / push / out-of-worktree writes still prompt. */
+  getTaskAcceptEdits: (
+    threadId: string,
+    taskId: string,
+  ) => Promise<{ enabled: boolean }>;
+  /** Flip the task's "accept edits in worktree" toggle; returns the
+   *  persisted value. */
+  setTaskAcceptEdits: (
+    threadId: string,
+    taskId: string,
+    enabled: boolean,
+  ) => Promise<{ enabled: boolean }>;
   /** Trunk-scope counterpart of {@link sendTaskMessage} — drives the
    *  trunk planning agent for cross-task talk. The persisted row lands
    *  with {@code task_id = null} so it filters into the trunk slice

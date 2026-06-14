@@ -99,6 +99,7 @@ export default function TaskDetailPage({
   const [sending, setSending] = useState(false);
   const [shipping, setShipping] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [acceptEdits, setAcceptEdits] = useState(false);
   const { tasks, refresh: refreshTasks } = useThreadTasks(threadId);
   const composerRef = useRef<HTMLTextAreaElement | null>(null);
   // Captured from TaskChat via its {@code outerRef} prop so the
@@ -292,6 +293,35 @@ export default function TaskDetailPage({
       setError(e instanceof Error ? e.message : String(e));
     }
   }, [threadId, loadMessages, loadThread]);
+
+  // Load the persisted "accept edits in worktree" toggle once the task
+  // row is available, so the switch reflects the stored choice across
+  // restarts instead of always opening off.
+  useEffect(() => {
+    if (!task) return;
+    let cancelled = false;
+    void (async () => {
+      try {
+        const r = await window.bridge.getTaskAcceptEdits(threadId, taskId);
+        if (!cancelled) setAcceptEdits(r.enabled);
+      }
+      catch { /* leave the default (off) on failure */ }
+    })();
+    return () => { cancelled = true; };
+  }, [threadId, taskId, task?.id]);
+
+  const onToggleAcceptEdits = useCallback(async () => {
+    const next = !acceptEdits;
+    setAcceptEdits(next);
+    try {
+      const r = await window.bridge.setTaskAcceptEdits(threadId, taskId, next);
+      setAcceptEdits(r.enabled);
+    }
+    catch (e) {
+      setAcceptEdits(!next);
+      setError(e instanceof Error ? e.message : String(e));
+    }
+  }, [acceptEdits, threadId, taskId]);
 
   const onShip = useCallback(async () => {
     if (task === null || shipping) return;
@@ -544,6 +574,22 @@ export default function TaskDetailPage({
               <span style={bandStatusStyle}>· {task.status.toLowerCase()}</span>
             )}
             <div style={bandSpacerStyle} />
+            {task !== null && (
+              <label
+                style={acceptEditsToggleStyle}
+                title={'When on, the agent\'s file edits inside this task\'s worktree are '
+                  + 'auto-approved. Bash, git push, and writes outside the worktree still '
+                  + 'ask for approval.'}
+              >
+                <input
+                  type="checkbox"
+                  checked={acceptEdits}
+                  onChange={() => { void onToggleAcceptEdits(); }}
+                  style={acceptEditsCheckboxStyle}
+                />
+                Accept edits in worktree
+              </label>
+            )}
           </div>
         )}
 
@@ -2296,6 +2342,22 @@ const permissionSlotStyle: React.CSSProperties = {
   // Sits between the scrollback and the composer so an approval prompt
   // is impossible to miss while the agent is parked waiting on it.
   padding: '0 14px 4px',
+};
+
+const acceptEditsToggleStyle: React.CSSProperties = {
+  display: 'inline-flex',
+  alignItems: 'center',
+  gap: 6,
+  fontSize: 11.5,
+  color: 'var(--text-2)',
+  cursor: 'pointer',
+  whiteSpace: 'nowrap',
+  userSelect: 'none',
+};
+
+const acceptEditsCheckboxStyle: React.CSSProperties = {
+  cursor: 'pointer',
+  margin: 0,
 };
 
 const composerCardStyle: React.CSSProperties = {

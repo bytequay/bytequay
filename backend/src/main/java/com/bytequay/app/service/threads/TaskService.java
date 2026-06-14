@@ -239,6 +239,23 @@ public class TaskService
         return next;
     }
 
+    /** Read the task's "accept edits in worktree" toggle. */
+    public boolean isAcceptEdits(String threadId, String taskId)
+    {
+        requireTask(threadId, taskId);
+        return taskStore.isAcceptEdits(taskId);
+    }
+
+    /** Flip the task's "accept edits in worktree" toggle, returning the
+     *  stored value. While on, {@code WorktreeEditStep} auto-approves
+     *  file edits inside this task's worktree. */
+    public boolean setAcceptEdits(String threadId, String taskId, boolean enabled)
+    {
+        requireTask(threadId, taskId);
+        taskStore.setAcceptEdits(taskId, enabled);
+        return taskStore.isAcceptEdits(taskId);
+    }
+
     /**
      * Next → park & advance. Same flow as {@link #shipAndContinue} but
      * parks the current task at {@code AWAITING_REVIEW} (not closed)

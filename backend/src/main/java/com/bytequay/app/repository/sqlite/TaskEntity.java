@@ -104,6 +104,9 @@ class TaskEntity
     @Column(name = "error_message")
     private String errorMessage;
 
+    @Column(name = "accept_edits", nullable = false)
+    private boolean acceptEdits;
+
     String getId() { return id; }
     void setId(String id) { this.id = id; }
 
@@ -181,4 +184,7 @@ class TaskEntity
 
     String getErrorMessage() { return errorMessage; }
     void setErrorMessage(String errorMessage) { this.errorMessage = errorMessage; }
+
+    boolean isAcceptEdits() { return acceptEdits; }
+    void setAcceptEdits(boolean acceptEdits) { this.acceptEdits = acceptEdits; }
 }

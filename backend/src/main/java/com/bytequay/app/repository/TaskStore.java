@@ -41,6 +41,23 @@ public interface TaskStore
     /** Single-row lookup by id. */
     Optional<Task> findTaskById(String id);
 
+    /** Whether the task's "accept edits in worktree" toggle is on.
+     *  False for an unknown id. Read by {@code WorktreeEditStep} to
+     *  decide whether to auto-approve in-worktree file edits. Default
+     *  is the safe "off" so in-memory test stores need not implement it;
+     *  the SQLite store overrides with the persisted column. */
+    default boolean isAcceptEdits(String taskId)
+    {
+        return false;
+    }
+
+    /** Flip the task's "accept edits in worktree" toggle. Persists so
+     *  the choice survives a restart, unlike a session tool-budget.
+     *  No-op default for test stores; the SQLite store overrides. */
+    default void setAcceptEdits(String taskId, boolean enabled)
+    {
+    }
+
     /** Permanent removal. Drops the row plus its child {@code task_files};
      *  FK cascades handle the join. Callers must already have stopped
      *  any live agent attached to the task. */

@@ -86,6 +86,26 @@ class SqliteTaskStore
     }
 
     @Override
+    public boolean isAcceptEdits(String taskId)
+    {
+        return tasks.findById(taskId).map(TaskEntity::isAcceptEdits).orElse(false);
+    }
+
+    @Override
+    @Transactional
+    public void setAcceptEdits(String taskId, boolean enabled)
+    {
+        // Load-set-save rather than saveTask(Task): saveTask maps from
+        // the domain record, which deliberately has no acceptEdits field,
+        // so round-tripping through it would never carry the flag. Editing
+        // the live entity keeps every other column untouched.
+        TaskEntity entity = tasks.findById(taskId)
+                .orElseThrow(() -> new IllegalArgumentException("no task " + taskId));
+        entity.setAcceptEdits(enabled);
+        tasks.save(entity);
+    }
+
+    @Override
     @Transactional
     public void deleteTask(String id)
     {

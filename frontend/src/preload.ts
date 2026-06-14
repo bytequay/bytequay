@@ -698,6 +698,17 @@ const bridge: Bridge = {
     name: string,
   ): Promise<WorkUnitTaskDto> =>
     ipcRenderer.invoke('threads:tasks:rename', { threadId, taskId, name }),
+  getTaskAcceptEdits: (
+    threadId: string,
+    taskId: string,
+  ): Promise<{ enabled: boolean }> =>
+    ipcRenderer.invoke('threads:tasks:acceptEdits:get', { threadId, taskId }),
+  setTaskAcceptEdits: (
+    threadId: string,
+    taskId: string,
+    enabled: boolean,
+  ): Promise<{ enabled: boolean }> =>
+    ipcRenderer.invoke('threads:tasks:acceptEdits:set', { threadId, taskId, enabled }),
   sendTrunkMessage: (
     threadId: string,
     input: string,

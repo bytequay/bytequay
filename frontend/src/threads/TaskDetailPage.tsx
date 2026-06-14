@@ -100,6 +100,7 @@ export default function TaskDetailPage({
   const [shipping, setShipping] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [acceptEdits, setAcceptEdits] = useState(false);
+  const [savingAcceptEdits, setSavingAcceptEdits] = useState(false);
   const { tasks, refresh: refreshTasks } = useThreadTasks(threadId);
   const composerRef = useRef<HTMLTextAreaElement | null>(null);
   // Captured from TaskChat via its {@code outerRef} prop so the
@@ -311,8 +312,18 @@ export default function TaskDetailPage({
   }, [threadId, taskId, task?.id]);
 
   const onToggleAcceptEdits = useCallback(async () => {
+    if (savingAcceptEdits) return;
+    // The bridge method is added in preload, which only reloads on a full
+    // app restart — guard so a renderer-only reload gives a clear message
+    // instead of a silent no-op that looks like a dead toggle.
+    if (typeof window.bridge.setTaskAcceptEdits !== 'function') {
+      setError('Restart the app (not just reload) to enable the accept-edits toggle.');
+      return;
+    }
     const next = !acceptEdits;
+    setSavingAcceptEdits(true);
     setAcceptEdits(next);
+    setError(null);
     try {
       const r = await window.bridge.setTaskAcceptEdits(threadId, taskId, next);
       setAcceptEdits(r.enabled);
@@ -321,7 +332,10 @@ export default function TaskDetailPage({
       setAcceptEdits(!next);
       setError(e instanceof Error ? e.message : String(e));
     }
-  }, [acceptEdits, threadId, taskId]);
+    finally {
+      setSavingAcceptEdits(false);
+    }
+  }, [acceptEdits, savingAcceptEdits, threadId, taskId]);
 
   const onShip = useCallback(async () => {
     if (task === null || shipping) return;
@@ -575,20 +589,25 @@ export default function TaskDetailPage({
             )}
             <div style={bandSpacerStyle} />
             {task !== null && (
-              <label
-                style={acceptEditsToggleStyle}
+              <button
+                type="button"
+                role="switch"
+                aria-checked={acceptEdits}
+                onClick={() => { void onToggleAcceptEdits(); }}
+                disabled={savingAcceptEdits}
+                style={acceptEditsToggleStyle(acceptEdits)}
                 title={'When on, the agent\'s file edits inside this task\'s worktree are '
                   + 'auto-approved. Bash, git push, and writes outside the worktree still '
                   + 'ask for approval.'}
               >
-                <input
-                  type="checkbox"
-                  checked={acceptEdits}
-                  onChange={() => { void onToggleAcceptEdits(); }}
-                  style={acceptEditsCheckboxStyle}
-                />
-                Accept edits in worktree
-              </label>
+                <span style={acceptEditsTrackStyle(acceptEdits)}>
+                  <span style={acceptEditsKnobStyle(acceptEdits)} />
+                </span>
+                <span>Accept edits in worktree</span>
+                <span style={acceptEditsStateStyle(acceptEdits)}>
+                  {savingAcceptEdits ? '…' : acceptEdits ? 'ON' : 'OFF'}
+                </span>
+              </button>
             )}
           </div>
         )}
@@ -2344,21 +2363,59 @@ const permissionSlotStyle: React.CSSProperties = {
   padding: '0 14px 4px',
 };
 
-const acceptEditsToggleStyle: React.CSSProperties = {
-  display: 'inline-flex',
-  alignItems: 'center',
-  gap: 6,
-  fontSize: 11.5,
-  color: 'var(--text-2)',
-  cursor: 'pointer',
-  whiteSpace: 'nowrap',
-  userSelect: 'none',
-};
+function acceptEditsToggleStyle(on: boolean): React.CSSProperties {
+  return {
+    display: 'inline-flex',
+    alignItems: 'center',
+    gap: 7,
+    padding: '4px 10px',
+    fontSize: 11.5,
+    fontWeight: 600,
+    whiteSpace: 'nowrap',
+    cursor: 'pointer',
+    userSelect: 'none',
+    borderRadius: 999,
+    border: `1px solid ${on ? 'rgba(13,148,136,0.45)' : 'rgba(0,0,0,0.12)'}`,
+    background: on ? 'rgba(13,148,136,0.10)' : 'rgba(0,0,0,0.03)',
+    color: on ? '#0f766e' : 'var(--text-2)',
+  };
+}
 
-const acceptEditsCheckboxStyle: React.CSSProperties = {
-  cursor: 'pointer',
-  margin: 0,
-};
+function acceptEditsTrackStyle(on: boolean): React.CSSProperties {
+  return {
+    position: 'relative',
+    display: 'inline-block',
+    width: 26,
+    height: 15,
+    borderRadius: 999,
+    background: on ? '#0d9488' : 'rgba(0,0,0,0.22)',
+    transition: 'background 120ms ease',
+    flexShrink: 0,
+  };
+}
+
+function acceptEditsKnobStyle(on: boolean): React.CSSProperties {
+  return {
+    position: 'absolute',
+    top: 2,
+    left: on ? 13 : 2,
+    width: 11,
+    height: 11,
+    borderRadius: '50%',
+    background: '#fff',
+    boxShadow: '0 1px 2px rgba(0,0,0,0.3)',
+    transition: 'left 120ms ease',
+  };
+}
+
+function acceptEditsStateStyle(on: boolean): React.CSSProperties {
+  return {
+    fontSize: 9.5,
+    fontWeight: 700,
+    letterSpacing: '0.05em',
+    color: on ? '#0f766e' : 'var(--text-3)',
+  };
+}
 
 const composerCardStyle: React.CSSProperties = {
   // Two-zone card: top region holds the anchor + textarea on a white

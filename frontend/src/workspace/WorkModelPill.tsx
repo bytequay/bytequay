@@ -12,8 +12,15 @@
  * limitations under the License.
  */
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { createPortal } from 'react-dom';
 import type { ResolvedWorkModelDto, WorkModelDto } from '../types';
 import { WorkModelPicker } from './WorkModelPicker';
+
+/** Fixed popover width — used both for the box and for clamping it
+ *  inside the viewport when the pill sits near the right edge (the
+ *  task rail lives on the right, so a left-anchored popover would
+ *  otherwise spill off-screen). */
+const POPOVER_WIDTH = 380;
 
 type Scope =
   | { kind: 'thread'; threadId: string }
@@ -45,8 +52,23 @@ export function WorkModelPill({ scope, onChange }: Props) {
   const [resolved, setResolved] = useState<ResolvedWorkModelDto | null>(null);
   const [open, setOpen] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Viewport-fixed coordinates for the portaled popover (see below).
+  const [pos, setPos] = useState<{ top: number; left: number } | null>(null);
   const triggerRef = useRef<HTMLButtonElement | null>(null);
   const popoverRef = useRef<HTMLDivElement | null>(null);
+
+  // The popover is portaled to <body> and positioned with fixed coords
+  // off the trigger's rect. It HAS to escape the rail: each rail card
+  // sets backdrop-filter (its own stacking context) and the rail is an
+  // overflow:auto scroller, so an in-flow absolute popover gets painted
+  // behind the cards below it and clipped at the rail edge.
+  const place = useCallback(() => {
+    const trigger = triggerRef.current;
+    if (trigger === null) return;
+    const r = trigger.getBoundingClientRect();
+    const left = Math.max(8, Math.min(r.left, window.innerWidth - POPOVER_WIDTH - 8));
+    setPos({ top: r.bottom + 6, left });
+  }, []);
 
   const load = useCallback(async () => {
     try {
@@ -62,6 +84,20 @@ export function WorkModelPill({ scope, onChange }: Props) {
   }, [scope]);
 
   useEffect(() => { void load(); }, [load]);
+
+  // Keep the fixed popover glued to the trigger while it's open: the
+  // rail scrolls and the window can resize under it. Capture-phase
+  // scroll catches the rail's own scroll container, not just window.
+  useEffect(() => {
+    if (!open) return;
+    place();
+    window.addEventListener('scroll', place, true);
+    window.addEventListener('resize', place);
+    return () => {
+      window.removeEventListener('scroll', place, true);
+      window.removeEventListener('resize', place);
+    };
+  }, [open, place]);
 
   // Outside-click + Esc dismiss for the popover.
   useEffect(() => {
@@ -137,7 +173,12 @@ export function WorkModelPill({ scope, onChange }: Props) {
         ref={triggerRef}
         type="button"
         style={pillStyle(open)}
-        onClick={() => setOpen((prev) => !prev)}
+        onClick={() => {
+          // Compute the spot before flipping open so the portaled
+          // popover renders in place with no first-frame flash.
+          if (!open) place();
+          setOpen((prev) => !prev);
+        }}
         title={hint ?? 'Pick the work model'}
         aria-haspopup="dialog"
         aria-expanded={open}
@@ -146,8 +187,13 @@ export function WorkModelPill({ scope, onChange }: Props) {
         <span style={pillTextStyle}>{label}</span>
         <span style={pillChevStyle} aria-hidden>▾</span>
       </button>
-      {open && (
-        <div ref={popoverRef} style={popoverStyle} role="dialog" aria-label="Work model picker">
+      {open && pos !== null && createPortal(
+        <div
+          ref={popoverRef}
+          style={{ ...popoverStyle, top: pos.top, left: pos.left }}
+          role="dialog"
+          aria-label="Work model picker"
+        >
           {hint !== null && (
             <div style={inheritanceHintStyle}>
               <span aria-hidden style={inheritanceGlyphStyle}>↰</span>
@@ -170,7 +216,8 @@ export function WorkModelPill({ scope, onChange }: Props) {
               </button>
             </div>
           )}
-        </div>
+        </div>,
+        document.body,
       )}
     </div>
   );
@@ -249,17 +296,17 @@ const pillChevStyle: React.CSSProperties = {
 };
 
 const popoverStyle: React.CSSProperties = {
-  position: 'absolute',
-  top: 'calc(100% + 6px)',
-  left: 0,
-  minWidth: 360,
-  maxWidth: 420,
+  // Fixed + portaled to <body>: top/left are set inline from the
+  // trigger's rect so the popover floats above the backdrop-filter
+  // rail cards and isn't clipped by the rail's overflow scroller.
+  position: 'fixed',
+  width: POPOVER_WIDTH,
   padding: 14,
   background: '#fff',
   border: '1px solid var(--border)',
   borderRadius: 12,
   boxShadow: '0 12px 32px rgba(0,0,0,0.16)',
-  zIndex: 50,
+  zIndex: 1000,
   display: 'flex',
   flexDirection: 'column',
   gap: 10,

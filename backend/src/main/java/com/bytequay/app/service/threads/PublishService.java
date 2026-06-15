@@ -829,6 +829,18 @@ public class PublishService
                 ? null
                 : taskStore.findTaskById(original.taskId()).orElse(null);
         ensureBranchPushed(task, head);
+        // Record the push the moment the branch is on the remote — before
+        // the PR-create call below, which can time out. Otherwise a failed
+        // open_pr leaves a pushed branch with pushedAt still null, so the
+        // task UI can't show the "Branch pushed" state.
+        if (task != null) {
+            try {
+                taskStore.markPushed(task.id(), Instant.now());
+            }
+            catch (RuntimeException e) {
+                log.warn("recording pushed state for task {} failed: {}", task.id(), e.getMessage());
+            }
+        }
         // open_pr's body is optional. null = no override (use the
         // agent's parked body); "" = user explicitly cleared the
         // textarea and wants a blank PR description.
@@ -848,8 +860,8 @@ public class PublishService
         // the returned number used to be discarded. Best-effort.
         if (task != null && opened != null) {
             try {
+                // Push was already recorded right after ensureBranchPushed.
                 taskStore.linkPullRequest(task.id(), opened.number(), opened.draft() ? "draft" : "open");
-                taskStore.markPushed(task.id(), Instant.now());
             }
             catch (RuntimeException e) {
                 log.warn("linking PR #{} to task {} failed: {}",

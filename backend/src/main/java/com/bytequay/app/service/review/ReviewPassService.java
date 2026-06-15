@@ -28,6 +28,8 @@ import com.bytequay.app.domain.ReviewParticipant;
 import com.bytequay.app.domain.ReviewParticipantKind;
 import com.bytequay.app.domain.ReviewPass;
 import com.bytequay.app.domain.ReviewPassDetail;
+import com.bytequay.app.domain.ReviewPassHostKind;
+import com.bytequay.app.domain.ReviewPassKind;
 import com.bytequay.app.domain.ReviewPhase;
 import com.bytequay.app.domain.ReviewRequest;
 import com.bytequay.app.domain.ReviewVerdict;
@@ -182,7 +184,35 @@ public class ReviewPassService
      */
     public ReviewPassDetail startReviewOnPr(String repoFullName, int prNumber, StartOptions opts)
     {
+        // Standalone "Assign review": THREAD-hosted (its own review thread
+        // is the host) and FRESH.
         Seat seat = seatReviewPass(repoFullName, prNumber, opts);
+        reviewStore.setPassHost(seat.pass().id(),
+                ReviewPassHostKind.THREAD, seat.pass().threadId(), ReviewPassKind.FRESH);
+        launchReviewBody(seat);
+        return buildDetail(seat.pass());
+    }
+
+    /**
+     * Start a TASK_PHASE-hosted pass — the internal review (FRESH) or
+     * re-review (RE_REVIEW, Loop D) the dev task lifecycle runs. Same
+     * Lead + seats + agenda machinery as the standalone flow; only the
+     * host stamp differs, so a TASK_PHASE pass never carries the
+     * spawn-build affordance (the dev task IS the build).
+     */
+    public ReviewPassDetail startTaskPhaseReview(
+            String taskId, String repoFullName, int prNumber, ReviewPassKind kind, StartOptions opts)
+    {
+        Seat seat = seatReviewPass(repoFullName, prNumber, opts);
+        reviewStore.setPassHost(seat.pass().id(), ReviewPassHostKind.TASK_PHASE, taskId, kind);
+        launchReviewBody(seat);
+        return buildDetail(reviewStore.findPassById(seat.pass().id()).orElse(seat.pass()));
+    }
+
+    /** Run the heavy LLM review body off the request thread. Shared by
+     *  the THREAD and TASK_PHASE entry points. */
+    private void launchReviewBody(Seat seat)
+    {
         reviewExecutor.execute(() -> {
             try {
                 runReviewBody(seat);
@@ -196,7 +226,6 @@ public class ReviewPassService
                         seat.pass().id(), e.getMessage());
             }
         });
-        return buildDetail(seat.pass());
     }
 
     /**

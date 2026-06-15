@@ -17,6 +17,8 @@ import com.bytequay.app.domain.ReviewFinding;
 import com.bytequay.app.domain.ReviewMessage;
 import com.bytequay.app.domain.ReviewParticipant;
 import com.bytequay.app.domain.ReviewPass;
+import com.bytequay.app.domain.ReviewPassHostKind;
+import com.bytequay.app.domain.ReviewPassKind;
 
 import java.time.Instant;
 import java.util.List;
@@ -36,6 +38,11 @@ public interface ReviewStore
     // ── passes ────────────────────────────────────────────────────────
 
     void savePass(ReviewPass pass);
+
+    /** Stamp a pass's host (THREAD vs TASK_PHASE) + kind. Written once at
+     *  creation, outside {@code savePass}, so a later full-row save can't
+     *  clobber it. */
+    void setPassHost(String passId, ReviewPassHostKind hostKind, String hostId, ReviewPassKind kind);
 
     Optional<ReviewPass> findPassById(String id);
 

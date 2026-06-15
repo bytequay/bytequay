@@ -26,6 +26,8 @@ import com.bytequay.app.domain.ReviewParticipant;
 import com.bytequay.app.domain.ReviewParticipantKind;
 import com.bytequay.app.domain.ReviewPass;
 import com.bytequay.app.domain.ReviewPassDetail;
+import com.bytequay.app.domain.ReviewPassHostKind;
+import com.bytequay.app.domain.ReviewPassKind;
 import com.bytequay.app.domain.ReviewPhase;
 import com.bytequay.app.domain.ReviewVerdict;
 import com.bytequay.app.domain.Skill;
@@ -181,6 +183,30 @@ class TestReviewPassService
         // the seat's finding. A real executor runs it off-thread.
         assertThat(seated.pass().threadId()).isNotBlank();
         assertThat(seated.findings()).hasSize(1);
+    }
+
+    @Test
+    void standaloneReviewIsThreadHostedAndFresh()
+    {
+        service.startReviewOnPr("acme/widget", 42);
+
+        ReviewPass pass = reviewStore.findPassById(passId()).orElseThrow();
+        assertThat(pass.hostKind()).isEqualTo(ReviewPassHostKind.THREAD);
+        assertThat(pass.hostId()).isEqualTo(pass.threadId());
+        assertThat(pass.kind()).isEqualTo(ReviewPassKind.FRESH);
+    }
+
+    @Test
+    void taskPhaseReviewIsHostedByTheTaskWithItsKind()
+    {
+        service.startTaskPhaseReview(
+                "task-7", "acme/widget", 42, ReviewPassKind.RE_REVIEW,
+                ReviewPassService.StartOptions.DEFAULT);
+
+        ReviewPass pass = reviewStore.findPassById(passId()).orElseThrow();
+        assertThat(pass.hostKind()).isEqualTo(ReviewPassHostKind.TASK_PHASE);
+        assertThat(pass.hostId()).isEqualTo("task-7");
+        assertThat(pass.kind()).isEqualTo(ReviewPassKind.RE_REVIEW);
     }
 
     @Test

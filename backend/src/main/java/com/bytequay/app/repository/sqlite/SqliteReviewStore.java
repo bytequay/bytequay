@@ -20,6 +20,8 @@ import com.bytequay.app.domain.ReviewMessage;
 import com.bytequay.app.domain.ReviewParticipant;
 import com.bytequay.app.domain.ReviewParticipantKind;
 import com.bytequay.app.domain.ReviewPass;
+import com.bytequay.app.domain.ReviewPassHostKind;
+import com.bytequay.app.domain.ReviewPassKind;
 import com.bytequay.app.domain.ReviewPhase;
 import com.bytequay.app.domain.ReviewVerdict;
 import com.bytequay.app.repository.ReviewStore;
@@ -84,7 +86,22 @@ class SqliteReviewStore
         entity.setEndedAtMs(pass.endedAt() == null ? null : pass.endedAt().toEpochMilli());
         entity.setSpawnedBuildThreadId(pass.spawnedBuildThreadId());
         entity.setAgendaJson(pass.agendaJson());
+        // host_kind / host_id / kind are written once via setPassHost, not
+        // here — savePass overwrites the whole row, so mapping them would
+        // let a reconstructed (default-host) pass clobber a TASK_PHASE host.
         passes.save(entity);
+    }
+
+    @Override
+    @Transactional
+    public void setPassHost(String passId, ReviewPassHostKind hostKind, String hostId, ReviewPassKind kind)
+    {
+        passes.findById(passId).ifPresent(entity -> {
+            entity.setHostKind(hostKind.name());
+            entity.setHostId(hostId == null ? "" : hostId);
+            entity.setKind(kind.name());
+            passes.save(entity);
+        });
     }
 
     @Override
@@ -257,7 +274,10 @@ class SqliteReviewStore
                 Instant.ofEpochMilli(e.getCreatedAtMs()),
                 e.getEndedAtMs() == null ? null : Instant.ofEpochMilli(e.getEndedAtMs()),
                 e.getSpawnedBuildThreadId(),
-                e.getAgendaJson());
+                e.getAgendaJson(),
+                ReviewPassHostKind.valueOf(e.getHostKind()),
+                e.getHostId(),
+                ReviewPassKind.valueOf(e.getKind()));
     }
 
     private static ReviewParticipant toParticipant(ReviewParticipantEntity e)

@@ -17,6 +17,8 @@ import com.bytequay.app.domain.ReviewFinding;
 import com.bytequay.app.domain.ReviewMessage;
 import com.bytequay.app.domain.ReviewParticipant;
 import com.bytequay.app.domain.ReviewPass;
+import com.bytequay.app.domain.ReviewPassHostKind;
+import com.bytequay.app.domain.ReviewPassKind;
 import com.bytequay.app.repository.ReviewStore;
 
 import java.time.Instant;
@@ -51,8 +53,32 @@ class InMemoryReviewStore
     @Override
     public void savePass(ReviewPass pass)
     {
-        passHistory.add(pass);
-        passes.put(pass.id(), pass);
+        // Mirror SqliteReviewStore: a full-row save never overwrites the
+        // host (it's written once via setPassHost). Preserve the stored
+        // host so a reconstructed (default-THREAD) pass can't clobber a
+        // TASK_PHASE host mid-run.
+        ReviewPass existing = passes.get(pass.id());
+        ReviewPass toStore = existing == null ? pass : new ReviewPass(
+                pass.id(), pass.threadId(), pass.repoFullName(), pass.prNumber(), pass.headSha(),
+                pass.phase(), pass.round(), pass.roundCap(), pass.costCapMilli(), pass.costUsdMilli(),
+                pass.verdict(), pass.createdAt(), pass.endedAt(), pass.spawnedBuildThreadId(),
+                pass.agendaJson(), existing.hostKind(), existing.hostId(), existing.kind());
+        passHistory.add(toStore);
+        passes.put(pass.id(), toStore);
+    }
+
+    @Override
+    public void setPassHost(String passId, ReviewPassHostKind hostKind, String hostId, ReviewPassKind kind)
+    {
+        ReviewPass p = passes.get(passId);
+        if (p == null) {
+            return;
+        }
+        passes.put(passId, new ReviewPass(
+                p.id(), p.threadId(), p.repoFullName(), p.prNumber(), p.headSha(), p.phase(),
+                p.round(), p.roundCap(), p.costCapMilli(), p.costUsdMilli(), p.verdict(),
+                p.createdAt(), p.endedAt(), p.spawnedBuildThreadId(), p.agendaJson(),
+                hostKind, hostId, kind));
     }
 
     @Override

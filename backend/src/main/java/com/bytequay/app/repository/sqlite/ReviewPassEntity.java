@@ -68,6 +68,17 @@ class ReviewPassEntity
     @Column(name = "agenda_json")
     private String agendaJson;
 
+    // Defaulted so inserts satisfy the NOT NULL columns; savePass never
+    // maps host (set once via setPassHost) so an update can't clobber it.
+    @Column(name = "host_kind", nullable = false)
+    private String hostKind = "THREAD";
+
+    @Column(name = "host_id", nullable = false)
+    private String hostId = "";
+
+    @Column(name = "kind", nullable = false)
+    private String kind = "FRESH";
+
     String getId() { return id; }
     void setId(String id) { this.id = id; }
 
@@ -113,4 +124,13 @@ class ReviewPassEntity
 
     String getSpawnedBuildThreadId() { return spawnedBuildThreadId; }
     void setSpawnedBuildThreadId(String spawnedBuildThreadId) { this.spawnedBuildThreadId = spawnedBuildThreadId; }
+
+    String getHostKind() { return hostKind; }
+    void setHostKind(String hostKind) { this.hostKind = hostKind; }
+
+    String getHostId() { return hostId; }
+    void setHostId(String hostId) { this.hostId = hostId; }
+
+    String getKind() { return kind; }
+    void setKind(String kind) { this.kind = kind; }
 }

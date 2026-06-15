@@ -57,8 +57,46 @@ public record ReviewPass(
         Instant createdAt,
         Instant endedAt,
         String spawnedBuildThreadId,
-        String agendaJson)
+        String agendaJson,
+        /** What hosts this pass (V108). Defaulted to THREAD by the
+         *  convenience constructors; the row mapper threads the persisted
+         *  value, and the host is written once via {@code setPassHost} —
+         *  {@code savePass} never maps it, so a full-row update can't
+         *  clobber it. */
+        ReviewPassHostKind hostKind,
+        /** The review thread id (THREAD) or the task id (TASK_PHASE). */
+        String hostId,
+        /** FRESH first review vs RE_REVIEW (Loop D). */
+        ReviewPassKind kind)
 {
+    /** Convenience constructor for the pre-host (V108) 15-field shape:
+     *  defaults to a THREAD-hosted FRESH pass with {@code hostId =
+     *  threadId}, which is correct for every standalone-review call site
+     *  and every existing row. TASK_PHASE hosting is stamped via {@code
+     *  setPassHost} at creation. */
+    public ReviewPass(
+            String id,
+            String threadId,
+            String repoFullName,
+            int prNumber,
+            String headSha,
+            ReviewPhase phase,
+            int round,
+            int roundCap,
+            long costCapMilli,
+            long costUsdMilli,
+            ReviewVerdict verdict,
+            Instant createdAt,
+            Instant endedAt,
+            String spawnedBuildThreadId,
+            String agendaJson)
+    {
+        this(id, threadId, repoFullName, prNumber, headSha, phase, round, roundCap,
+                costCapMilli, costUsdMilli, verdict, createdAt, endedAt,
+                spawnedBuildThreadId, agendaJson,
+                ReviewPassHostKind.THREAD, threadId, ReviewPassKind.FRESH);
+    }
+
     /** Pass with no spawned build thread yet — every site that builds
      *  or rebuilds a pass during its run uses this; only the spawn
      *  handoff (after TERMINATE) sets the link. */
@@ -103,11 +141,11 @@ public record ReviewPass(
                 spawnedBuildThreadId, null);
     }
 
-    /** Copy with a different agenda payload. */
+    /** Copy with a different agenda payload — preserves host fields. */
     public ReviewPass withAgendaJson(String newAgendaJson)
     {
         return new ReviewPass(id, threadId, repoFullName, prNumber, headSha, phase,
                 round, roundCap, costCapMilli, costUsdMilli, verdict, createdAt,
-                endedAt, spawnedBuildThreadId, newAgendaJson);
+                endedAt, spawnedBuildThreadId, newAgendaJson, hostKind, hostId, kind);
     }
 }

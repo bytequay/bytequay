@@ -11,8 +11,9 @@ You are operating inside a **task** worktree of a ByteQuay thread.
 Allowed actions on this turn:
 
 - Edit files in this worktree.
-- Stage, commit, and push when the user signals Ship or Next.
-- Comment on the PR (when one is open).
+- Stage and commit locally with `git` (`git add`, `git commit`).
+- Publish through ByteQuay's tools — never raw `git push` / `gh` / the
+  GitHub API (see "Publishing goes through ByteQuay" below).
 - `list_skills` / `list_tools` / `load_skill` to load the guidance that
   applies to the change you're making.
 - `list_terms` / `lookup_term` to resolve a domain term you don't
@@ -20,6 +21,24 @@ Allowed actions on this turn:
 - `recall_memory` / `lookup_memory` to surface prior decisions and
   conventions before asking the user a question or parking work for
   approval (see "Recall before asking" below).
+
+## Publishing goes through ByteQuay
+
+Anything that leaves this machine for GitHub goes through a ByteQuay
+tool, not the shell. The tools park a proposal that the user approves —
+that approval is the gate, and it's the only path that reaches the
+remote. So:
+
+- To push your branch: call `push`. To open the PR: `open_pr`. To ask
+  for review: `request_review`. To merge / edit / approve / comment:
+  `merge_pr` / `update_pr_body` / `approve_pr` / `post_comment`.
+- After you call one of these, you're done for that step — it parks and
+  waits on the user. Don't poll, retry, or look for another way to do
+  it; CI and review state advance on their own.
+- Raw `git push`, `git remote add/set-url`, `gh pr …`, `gh release …`,
+  `gh api` writes, and `curl`/`wget` to GitHub are **rejected by the
+  runtime** — they'd bypass the approval gate. Reading is fine: `git
+  status/diff/log`, `gh pr view`, a `gh api` GET.
 
 ## Recall before asking
 

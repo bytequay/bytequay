@@ -18,6 +18,7 @@ import com.bytequay.app.domain.PermissionDecision;
 import com.bytequay.app.domain.StreamEvent;
 import com.bytequay.app.domain.Task;
 import com.bytequay.app.domain.TaskFile;
+import com.bytequay.app.domain.TaskPhase;
 import com.bytequay.app.domain.TaskStatus;
 import com.bytequay.app.domain.Thread;
 import com.bytequay.app.domain.ThreadFile;
@@ -1198,6 +1199,7 @@ class TestThreadServiceScheduler
         @Override public Optional<Long> maxSeqForThread(String threadId) { return Optional.empty(); }
         @Override public List<Task> listByStatus(TaskStatus status, int limit) { return List.of(); }
         @Override public List<Task> listWithLinkedPr(int limit) { return List.of(); }
+        @Override public List<Task> listByPhases(Collection<TaskPhase> phases, int limit) { return List.of(); }
         @Override public void recordFile(TaskFile file) {}
         @Override public List<TaskFile> listFiles(String taskId) { return List.of(); }
     }
@@ -1234,6 +1236,7 @@ class TestThreadServiceScheduler
         }
         @Override public List<Task> listByStatus(TaskStatus status, int limit) { return List.of(); }
         @Override public List<Task> listWithLinkedPr(int limit) { return List.of(); }
+        @Override public List<Task> listByPhases(Collection<TaskPhase> phases, int limit) { return List.of(); }
         @Override public void recordFile(TaskFile file) {}
         @Override public List<TaskFile> listFiles(String taskId) { return List.of(); }
     }
@@ -1318,6 +1321,7 @@ class TestThreadServiceScheduler
         }
         @Override public List<Task> listByStatus(TaskStatus status, int limit) { return List.of(); }
         @Override public List<Task> listWithLinkedPr(int limit) { return List.of(); }
+        @Override public List<Task> listByPhases(Collection<TaskPhase> phases, int limit) { return List.of(); }
         @Override public void recordFile(TaskFile file) {}
         @Override public List<TaskFile> listFiles(String taskId) { return List.of(); }
     }

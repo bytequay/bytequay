@@ -52,13 +52,15 @@ public class TaskLifecycleDriver
 {
     private static final Logger log = LoggerFactory.getLogger(TaskLifecycleDriver.class);
 
-    /** Cap on tasks scanned per sweep — the linked-PR task set is small. */
+    /** Cap on tasks scanned per sweep. The scan is already narrowed to the
+     *  remote spine in SQL, so this bounds only in-flight tasks — a set
+     *  that's tiny in practice and never approaches this ceiling. */
     private static final int SCAN_LIMIT = 200;
 
     /** Phases that are waiting on the PR's remote state, so the linked PR
      *  is worth polling. A task outside these isn't waiting on CI/review,
      *  so we don't fetch its PR. */
-    private static final Set<TaskPhase> REMOTE_SPINE = EnumSet.of(
+    static final Set<TaskPhase> REMOTE_SPINE = EnumSet.of(
             TaskPhase.PUSHED_AWAITING_CI,
             TaskPhase.AWAITING_READY,
             TaskPhase.CI_FIXING,
@@ -80,8 +82,8 @@ public class TaskLifecycleDriver
     @Scheduled(fixedDelay = 60_000, initialDelay = 90_000)
     public void reconcile()
     {
-        for (Task task : taskStore.listWithLinkedPr(SCAN_LIMIT)) {
-            if (!REMOTE_SPINE.contains(task.phase()) || task.linkedPrRef() == null) {
+        for (Task task : taskStore.listByPhases(REMOTE_SPINE, SCAN_LIMIT)) {
+            if (task.linkedPrRef() == null) {
                 continue;
             }
             try {

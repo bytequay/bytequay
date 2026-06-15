@@ -21,6 +21,7 @@ import com.bytequay.app.domain.TaskPhaseEvent;
 import com.bytequay.app.domain.TaskStatus;
 
 import java.time.Instant;
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 
@@ -206,6 +207,12 @@ public interface TaskStore
      *  candidates to check against {@code PrDetailStore}'s check-run
      *  cache. */
     List<Task> listWithLinkedPr(int limit);
+
+    /** Tasks currently in one of the given phases, newest-first. The
+     *  lifecycle driver uses this to scan only the post-push "remote
+     *  spine" — so the {@code limit} bounds in-flight tasks, not every
+     *  task that ever linked a PR. */
+    List<Task> listByPhases(Collection<TaskPhase> phases, int limit);
 
     // ── files ────────────────────────────────────────────────────────
 

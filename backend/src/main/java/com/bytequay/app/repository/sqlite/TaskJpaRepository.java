@@ -45,6 +45,11 @@ interface TaskJpaRepository
     /** Used by the automation coordinator's CI-fail subscriber. */
     List<TaskEntity> findByLinkedPrNumberIsNotNullOrderByCreatedAtMsDesc(Pageable pageable);
 
+    /** Tasks currently sitting in one of the given phases, newest-first.
+     *  The lifecycle driver narrows to the post-push "remote spine" so its
+     *  scan cap bounds only in-flight tasks, never the full linked-PR set. */
+    List<TaskEntity> findByPhaseInOrderByCreatedAtMsDesc(List<String> phases, Pageable pageable);
+
     /** All tasks linked to a PR number (across repos — the caller
      *  narrows by repo). Drives completion when that PR merges. */
     List<TaskEntity> findByLinkedPrNumber(Integer linkedPrNumber);

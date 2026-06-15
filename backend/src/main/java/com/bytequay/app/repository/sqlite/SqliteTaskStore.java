@@ -27,6 +27,7 @@ import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.Instant;
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 
@@ -327,6 +328,19 @@ class SqliteTaskStore
     public List<Task> listWithLinkedPr(int limit)
     {
         return tasks.findByLinkedPrNumberIsNotNullOrderByCreatedAtMsDesc(firstPage(limit))
+                .stream()
+                .map(this::toTask)
+                .toList();
+    }
+
+    @Override
+    public List<Task> listByPhases(Collection<TaskPhase> phases, int limit)
+    {
+        if (phases.isEmpty()) {
+            return List.of();
+        }
+        List<String> names = phases.stream().map(Enum::name).toList();
+        return tasks.findByPhaseInOrderByCreatedAtMsDesc(names, firstPage(limit))
                 .stream()
                 .map(this::toTask)
                 .toList();

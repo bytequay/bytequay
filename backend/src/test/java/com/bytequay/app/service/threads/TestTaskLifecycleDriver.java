@@ -27,6 +27,7 @@ import java.util.List;
 
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -56,13 +57,17 @@ class TestTaskLifecycleDriver
     }
 
     @Test
-    void skipsTasksThatArentWaitingOnTheRemote()
+    void scansOnlyTheRemoteSpineAndSkipsTasksWithNoLinkedPr()
     {
-        Task implementing = task("trinodb/trino#1", TaskPhase.IMPLEMENTING);
-        when(taskStore.listWithLinkedPr(anyInt())).thenReturn(List.of(implementing));
+        // A spine task that never linked a PR has nothing to fetch.
+        Task noRef = task(null, TaskPhase.PUSHED_AWAITING_CI);
+        when(taskStore.listByPhases(any(), anyInt())).thenReturn(List.of(noRef));
 
         driver.reconcile();
 
+        // The phase narrowing happens in SQL — the driver asks the store
+        // only for the remote-spine phases, not the whole linked-PR set.
+        verify(taskStore).listByPhases(eq(TaskLifecycleDriver.REMOTE_SPINE), anyInt());
         verify(pullRequests, never()).getPullRequestDetail(any(), anyInt());
     }
 

@@ -794,7 +794,7 @@ function AgendaSection({ agenda, passPhase }: { agenda: AgendaPhaseDto[]; passPh
   const done = agenda.filter(p => p.status === 'DONE').length;
   const inProgress = agenda.filter(p => p.status === 'IN_PROGRESS').length;
   const open = agenda.length - done - inProgress;
-  const summary = `${agenda.length} tasks (${done} done, ${inProgress} in progress, ${open} open)`;
+  const summary = `${agenda.length} phases (${done} done · ${inProgress} in progress · ${open} open)`;
   return (
     <section style={agendaCardStyle} aria-label="Agenda">
       <div style={agendaHeadStyle}>{summary}</div>

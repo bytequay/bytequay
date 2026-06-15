@@ -88,7 +88,7 @@ describe('ReviewThreadPage', () => {
     render(<ReviewThreadPage threadId="thread-1" onBack={() => {}} />);
 
     await waitFor(() => {
-      expect(screen.getByText('4 tasks (1 done, 1 in progress, 2 open)')).toBeTruthy();
+      expect(screen.getByText('4 phases (1 done · 1 in progress · 2 open)')).toBeTruthy();
     });
     expect(screen.getByText('Run parallel reviews')).toBeTruthy();
     expect(screen.getByText('Cross-examine')).toBeTruthy();
@@ -325,7 +325,7 @@ describe('ReviewThreadPage', () => {
 
     render(<ReviewThreadPage threadId="thread-1" onBack={() => {}} />);
     await waitFor(() => {
-      expect(screen.getByText('4 tasks (4 done, 0 in progress, 0 open)')).toBeTruthy();
+      expect(screen.getByText('4 phases (4 done · 0 in progress · 0 open)')).toBeTruthy();
     });
   });
 

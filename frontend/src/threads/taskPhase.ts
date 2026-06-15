@@ -21,6 +21,10 @@ import type { TaskPhaseDto, TaskPhaseGroupDto } from '../types';
  */
 export function phaseGroupOf(phase: TaskPhaseDto): TaskPhaseGroupDto {
   switch (phase) {
+    // Queued waits on the scheduler to free a slot — no human action,
+    // grouped with the remote-review wait under IDLE.
+    case 'QUEUED':
+      return 'IDLE';
     case 'IMPLEMENTING':
     case 'VALIDATING':
     case 'INTERNAL_REVIEW':
@@ -97,6 +101,9 @@ export const FLOW_STEPPER_NODES = [
  */
 export function stepperNodeOf(phase: TaskPhaseDto): number {
   switch (phase) {
+    // QUEUED sits before the first node (the "pre-stepper" ⏳); it maps
+    // to Implement as a harmless default for any node-index reader.
+    case 'QUEUED':                  return 0;
     case 'IMPLEMENTING':            return 0;
     case 'VALIDATING':              return 1;
     case 'INTERNAL_REVIEW':         return 2;
@@ -110,6 +117,26 @@ export function stepperNodeOf(phase: TaskPhaseDto): number {
     case 'AWAITING_UPDATE_PUSH':    return 6;
     case 'COMPLETED':               return 7;
     case 'NEEDS_ATTENTION':         return 0;
+  }
+}
+
+/**
+ * Phases in which the agent loop is actively running the task and so
+ * holds the thread's compute slot — mirror of the backend
+ * TaskQueueScheduler's SLOT_OCCUPYING set. QUEUED, the AWAITING_* holds,
+ * PUSHED_AWAITING_CI and AWAITING_REMOTE_REVIEW do not occupy a slot.
+ */
+export function isSlotOccupying(phase: TaskPhaseDto): boolean {
+  switch (phase) {
+    case 'IMPLEMENTING':
+    case 'VALIDATING':
+    case 'INTERNAL_REVIEW':
+    case 'CI_FIXING':
+    case 'ADDRESSING_COMMENTS':
+    case 'AGENT_RE_REVIEW':
+      return true;
+    default:
+      return false;
   }
 }
 

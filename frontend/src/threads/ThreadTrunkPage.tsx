@@ -32,6 +32,8 @@ import PromptContextInspector from '../inspector/PromptContextInspector';
 import { useInspectorHotkey } from '../inspector/useInspectorHotkey';
 import { ConfirmDialog } from '../workspace/ConfirmDialog';
 import { WorkModelPill } from '../workspace/WorkModelPill';
+import { QueueLane } from './QueueLane';
+import { isSlotOccupying } from './taskPhase';
 
 type Props = {
   threadId: string;
@@ -639,6 +641,19 @@ export default function ThreadTrunkPage({ threadId, onBack, onOpenTask }: Props)
                 <div style={errStyle}>{advanceError}</div>
               )}
             </section>
+
+            {thread !== null
+              && thread.queue.some((q) => q.status === 'PENDING' || q.status === 'MATERIALIZED') && (
+              <section style={railSectionStyle}>
+                <QueueLane
+                  threadId={threadId}
+                  queue={thread.queue}
+                  parallelSlots={thread.parallelSlots}
+                  slotsInUse={foreground !== null && isSlotOccupying(foreground.phase) ? 1 : 0}
+                  onChanged={() => { void loadThread(); }}
+                />
+              </section>
+            )}
 
             <section style={railSectionStyle}>
               <div style={railHeadStyle}>

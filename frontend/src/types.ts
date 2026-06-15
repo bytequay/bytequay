@@ -1532,6 +1532,12 @@ export type ThreadDto = {
   /** Per-thread work-model override; null means this scope inherits
    *  from workspace or the global default. */
   workModel: WorkModelDto | null;
+  /** The trunk-owned queue of planned future tasks (V110). Empty on most
+   *  threads; the head materialises into a task when the active task
+   *  completes. */
+  queue: QueuedTaskDto[];
+  /** Concurrent compute slots the thread's tasks may occupy. 1 in v1. */
+  parallelSlots: number;
 };
 
 export type ThreadGroupDto = {
@@ -1776,6 +1782,7 @@ export type WorkspaceRepoDto = {
  *  bridge (kept until the Phase-4 rename ships). */
 /** The dev PR-collaboration lifecycle phase (backend TaskPhase, V106). */
 export type TaskPhaseDto =
+  | 'QUEUED'
   | 'IMPLEMENTING'
   | 'VALIDATING'
   | 'INTERNAL_REVIEW'
@@ -1793,6 +1800,28 @@ export type TaskPhaseDto =
 /** Coarse trunk-card grouping over {@link TaskPhaseDto} (backend
  *  TaskPhaseGroup). */
 export type TaskPhaseGroupDto = 'IN_PROGRESS' | 'AWAITING_YOU' | 'IDLE' | 'DONE';
+
+/** How a queued task's branch is cut (backend BranchBase). Serialised
+ *  by enum name. */
+export type BranchBaseDto = 'MAIN' | 'STACKED_ON_PREVIOUS';
+
+/** Lifecycle of one queue entry (backend QueuedTaskStatus). */
+export type QueuedTaskStatusDto = 'PENDING' | 'MATERIALIZED' | 'COMPLETED' | 'DROPPED';
+
+/** One planned future task on a thread's trunk-owned queue (backend
+ *  QueuedTask). PENDING entries are editable / reorderable / droppable;
+ *  MATERIALIZED entries are frozen (their plan sealed into a task). */
+export type QueuedTaskDto = {
+  /** 1-indexed; the run order. */
+  position: number;
+  title: string;
+  branchBase: BranchBaseDto;
+  initialPrompt: string | null;
+  status: QueuedTaskStatusDto;
+  /** The tasks.id this entry materialised into, or null while PENDING. */
+  materializedTaskId: string | null;
+  createdAt: string;
+};
 
 /** Compact active-task ref on a PR row (from {@code /prs/linked-tasks}). */
 export type TaskRefDto = {
@@ -1862,6 +1891,11 @@ export type WorkUnitTaskDto = {
   consecutiveAutoPushes: number;
   /** 'owner/repo#n' this task is permanently linked to, or null. */
   linkedPrRef: string | null;
+  /** Opening-prompt accumulator for a task materialised from the queue
+   *  (V110). Seeded from the queue entry; the composer on a QUEUED task
+   *  appends here; the agent reads it as its first turn on the
+   *  QUEUED → IMPLEMENTING promotion. Null for non-queued tasks. */
+  openingPrompt: string | null;
   /** Rolled-up cost / token usage for the task. Backend Task record
    *  carries these (mirrored from the StreamEvent.TurnDone rows); the
    *  rail surfaces them in the TASK METRICS card. */
@@ -2444,6 +2478,27 @@ export type Bridge = {
    *  when no such PR exists. */
   lookupPr: (repo: string, number: number) => Promise<PullRequestDto>;
   getPrLinks: (repo: string, number: number) => Promise<PrLinksDto>;
+  /** Trunk task queue (V110). Append a planned task; returns the new
+   *  entry. branchBase is 'MAIN' or 'STACKED_ON_PREVIOUS'. */
+  queueAdd: (
+    threadId: string, title: string, branchBase: BranchBaseDto, initialPrompt: string | null,
+  ) => Promise<QueuedTaskDto>;
+  /** Reorder the PENDING queue entries — pass the desired permutation of
+   *  their current positions. Returns the resulting queue. */
+  queueReorder: (threadId: string, positions: number[]) => Promise<QueuedTaskDto[]>;
+  /** Edit a PENDING queue entry's plan (title / branch base / opening
+   *  prompt). MATERIALIZED entries reject — their plan is sealed. */
+  queueEdit: (
+    threadId: string, position: number, title: string, branchBase: BranchBaseDto,
+    initialPrompt: string | null,
+  ) => Promise<QueuedTaskDto>;
+  /** Drop a PENDING queue entry by position (flips it to DROPPED). */
+  queueDrop: (threadId: string, position: number) => Promise<QueuedTaskDto>;
+  /** Append to (or replace) a QUEUED task's opening prompt — the agent's
+   *  first-turn input once a slot opens. 422 unless the task is QUEUED. */
+  setOpeningPrompt: (
+    threadId: string, taskId: string, text: string, mode: 'append' | 'replace',
+  ) => Promise<WorkUnitTaskDto>;
   /** Saved Views — user-authored concepts (scope=USER) visible
    *  alongside the workspace and APP-scoped seeds. */
   listSavedViews: () => Promise<SavedViewDto[]>;

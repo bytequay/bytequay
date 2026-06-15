@@ -14,6 +14,7 @@
 package com.bytequay.app.service.tools;
 
 import com.bytequay.app.domain.PullRequest;
+import com.bytequay.app.domain.QueuedTask;
 import com.bytequay.app.domain.Task;
 import com.bytequay.app.domain.Thread;
 import com.bytequay.app.domain.ThreadCheckpoint;
@@ -25,6 +26,7 @@ import com.bytequay.app.repository.ThreadStore;
 import com.bytequay.app.repository.WatchedRepoStore;
 import com.bytequay.app.service.local.ShellRunner;
 import com.bytequay.app.service.local.TestRunnerDetector;
+import com.bytequay.app.service.threads.TaskQueueMaterialiser;
 import com.bytequay.app.service.threads.ThreadService;
 import com.bytequay.app.service.workspaces.WorkspaceService;
 import com.fasterxml.jackson.core.JsonProcessingException;
@@ -85,6 +87,7 @@ public class AgentToolHandlers
     private final ShellRunner shellRunner;
     private final WatchedRepoStore watchedRepos;
     private final ThreadService threads;
+    private final TaskQueueMaterialiser queueMaterialiser;
     private final ObjectMapper mapper;
 
     public AgentToolHandlers(
@@ -99,6 +102,7 @@ public class AgentToolHandlers
             ShellRunner shellRunner,
             WatchedRepoStore watchedRepos,
             ThreadService threads,
+            TaskQueueMaterialiser queueMaterialiser,
             ObjectMapper mapper)
     {
         this.taskStore = requireNonNull(taskStore, "taskStore is null");
@@ -112,6 +116,7 @@ public class AgentToolHandlers
         this.shellRunner = requireNonNull(shellRunner, "shellRunner is null");
         this.watchedRepos = requireNonNull(watchedRepos, "watchedRepos is null");
         this.threads = requireNonNull(threads, "threads is null");
+        this.queueMaterialiser = requireNonNull(queueMaterialiser, "queueMaterialiser is null");
         this.mapper = requireNonNull(mapper, "mapper is null");
     }
 
@@ -592,9 +597,11 @@ public class AgentToolHandlers
             description = "Cut a new task on this thread. Trunk-only — the trunk role "
                     + "plans + cuts tasks; task / reviewer roles can't reach this. "
                     + "Returns the new task's id, branch, worktree path, and seq. "
-                    + "The first task on a 0-task thread runs through ThreadService's "
-                    + "materialiseTask path; an attempt on a thread that already has "
-                    + "tasks fails — use next_task / ship_task instead.",
+                    + "Valid whenever the thread has no active task: on a brand-new "
+                    + "0-task thread (the bootstrap), or after the chain has run dry "
+                    + "(prior tasks all COMPLETED — the trunk re-enters as creator). "
+                    + "Fails when there's already an active task — use next_task / "
+                    + "ship_task to propose a successor instead.",
             security = SecurityType.TASK_MANAGE,
             gating = Gating.AUTO,
             roles = AgentRole.TRUNK)
@@ -610,10 +617,16 @@ public class AgentToolHandlers
             return ToolOutcome.Completed.error("thread not found: " + threadId);
         }
         Thread thread = threadOpt.get();
-        if (!taskStore.listTasksByThread(threadId).isEmpty()) {
+        // Active-task check, not zero-task check: the trunk can re-enter the
+        // creator role whenever the chain has no live task (bootstrap on a
+        // brand-new thread, OR revival after the previous chain completed).
+        // See workspace-thread-task-design.md §"Trunk re-enters when the
+        // chain runs dry."
+        if (taskStore.findActiveTaskForThread(threadId).isPresent()) {
             return ToolOutcome.Completed.error(
-                    "thread already has tasks — use next_task or ship_task to spawn a sibling. "
-                            + "create_task is for 0-task threads only.");
+                    "thread has an active task — use next_task or ship_task to "
+                            + "propose a successor. create_task only runs when the "
+                            + "chain has no live task.");
         }
         WatchedRepo watched = watchedRepos.findAll().stream()
                 .filter(r -> repo.equals(r.fullName()))
@@ -627,6 +640,29 @@ public class AgentToolHandlers
         if (watched.localClonePath() == null || watched.localClonePath().isBlank()) {
             return ToolOutcome.Completed.error(
                     "watched repo " + repo + " has no local clone path — set it under Repos.");
+        }
+        // When the trunk has lined up a queue, cutting a task materialises
+        // the head of that queue (its planned title / opening prompt) into
+        // a QUEUED task, rather than a one-off from the caller's args. The
+        // args become a fallback only when the queue is empty.
+        Optional<QueuedTask> head = queueMaterialiser.pendingHead(thread);
+        if (head.isPresent()) {
+            try {
+                Task materialised = queueMaterialiser.materialiseHead(
+                        thread, head.get(), watched.localClonePath());
+                return toolOutcome(new CreatedTaskResult(
+                        materialised.id(),
+                        materialised.threadId(),
+                        materialised.seq(),
+                        materialised.status() == null ? null : materialised.status().name(),
+                        materialised.branchName(),
+                        materialised.worktreePath(),
+                        materialised.workingDir(),
+                        materialised.baseBranch()));
+            }
+            catch (IllegalArgumentException | IllegalStateException e) {
+                return ToolOutcome.Completed.error("create_task failed: " + e.getMessage());
+            }
         }
         String initialPrompt = args.initialPrompt() == null ? "" : args.initialPrompt();
         String taskType = args.taskType() == null ? "" : args.taskType();

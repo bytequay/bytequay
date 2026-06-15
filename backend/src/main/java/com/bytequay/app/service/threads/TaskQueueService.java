@@ -172,6 +172,40 @@ public class TaskQueueService
         throw new IllegalArgumentException("no queue entry at position " + position);
     }
 
+    /** Flip a PENDING entry to MATERIALIZED, recording the task id its
+     *  plan was sealed into. Called by the materialiser once the Task row
+     *  exists. No-op when no entry sits at {@code position}. */
+    @Transactional
+    public void markMaterialized(String threadId, int position, String taskId)
+    {
+        Thread thread = requireThread(threadId);
+        List<QueuedTask> queue = new ArrayList<>(thread.queue());
+        for (int i = 0; i < queue.size(); i++) {
+            if (queue.get(i).position() == position) {
+                queue.set(i, queue.get(i).withStatus(QueuedTaskStatus.MATERIALIZED, taskId));
+                threadStore.updateThreadQueue(threadId, queue);
+                return;
+            }
+        }
+    }
+
+    /** Flip a MATERIALIZED entry to COMPLETED once its task finishes.
+     *  No-op when no entry sits at {@code position}. */
+    @Transactional
+    public void markCompleted(String threadId, int position)
+    {
+        Thread thread = requireThread(threadId);
+        List<QueuedTask> queue = new ArrayList<>(thread.queue());
+        for (int i = 0; i < queue.size(); i++) {
+            if (queue.get(i).position() == position) {
+                queue.set(i, queue.get(i).withStatus(
+                        QueuedTaskStatus.COMPLETED, queue.get(i).materializedTaskId()));
+                threadStore.updateThreadQueue(threadId, queue);
+                return;
+            }
+        }
+    }
+
     /** Lowest-position PENDING entry, or empty when the queue has run
      *  dry. The materialiser and the advance hook both read this. */
     public Optional<QueuedTask> pendingHead(Thread thread)

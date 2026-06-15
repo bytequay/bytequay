@@ -40,6 +40,10 @@ final class TaskPhaseTransitions
     private static Map<TaskPhase, Set<TaskPhase>> forwardEdges()
     {
         Map<TaskPhase, Set<TaskPhase>> m = new EnumMap<>(TaskPhase.class);
+        // A queued task promotes to IMPLEMENTING when the scheduler frees
+        // a slot; that's its only forward edge (besides the universal
+        // NEEDS_ATTENTION / COMPLETED escapes a cancel can take).
+        m.put(TaskPhase.QUEUED, EnumSet.of(TaskPhase.IMPLEMENTING));
         m.put(TaskPhase.IMPLEMENTING, EnumSet.of(TaskPhase.VALIDATING));
         m.put(TaskPhase.VALIDATING, EnumSet.of(TaskPhase.INTERNAL_REVIEW));
         // Internal review either surfaces findings to address, or is clean

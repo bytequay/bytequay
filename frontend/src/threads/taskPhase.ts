@@ -146,3 +146,25 @@ export function isLoopPhase(phase: TaskPhaseDto): boolean {
       || phase === 'ADDRESSING_COMMENTS'
       || phase === 'AGENT_RE_REVIEW';
 }
+
+/**
+ * Phases whose advancement is driven server-side by the lifecycle
+ * reconciler watching the linked PR — CI finishing, the PR going ready,
+ * remote review landing, or the PR merging. Mirror of the backend
+ * TaskLifecycleDriver REMOTE_SPINE. A task can move through these with no
+ * agent turn running, so a window parked here must poll the task row to
+ * stay fresh; otherwise the phase chip / stepper show a stale phase until
+ * a manual reload.
+ */
+export function isReconcilerDriven(phase: TaskPhaseDto): boolean {
+  switch (phase) {
+    case 'PUSHED_AWAITING_CI':
+    case 'CI_FIXING':
+    case 'AWAITING_READY':
+    case 'AWAITING_REMOTE_REVIEW':
+    case 'AWAITING_UPDATE_PUSH':
+      return true;
+    default:
+      return false;
+  }
+}

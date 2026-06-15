@@ -40,6 +40,7 @@ import { useAnimatedNumber } from './useAnimatedNumber';
 import { QueuedTaskView } from './QueuedTaskView';
 import { PhaseChip } from './PhaseChip';
 import { FlowStepper } from './FlowStepper';
+import { isReconcilerDriven } from './taskPhase';
 
 type Props = {
   threadId: string;
@@ -238,6 +239,9 @@ export default function TaskDetailPage({
     const handle = window.setInterval(() => {
       void loadMessages();
       void loadThread();
+      // The phase can advance mid-turn (IMPLEMENTING → VALIDATING → …);
+      // keep the chip / stepper in step with the messages.
+      void refreshTasks();
     }, 4_000);
     return () => {
       window.clearInterval(handle);
@@ -246,7 +250,7 @@ export default function TaskDetailPage({
       // One catch-up fetch on teardown guarantees the reply lands.
       void loadMessages();
     };
-  }, [thread?.status, sending, loadMessages, loadThread]);
+  }, [thread?.status, sending, loadMessages, loadThread, refreshTasks]);
 
   // Self-heal a stale window. When the task ends its turn to wait on the
   // user (e.g. an AskUserQuestion or a parked approval), the thread goes
@@ -257,6 +261,7 @@ export default function TaskDetailPage({
     const refetch = () => {
       void loadMessages();
       void loadThread();
+      void refreshTasks();
     };
     const onVisibility = () => {
       if (document.visibilityState === 'visible') refetch();
@@ -267,7 +272,20 @@ export default function TaskDetailPage({
       window.removeEventListener('focus', refetch);
       document.removeEventListener('visibilitychange', onVisibility);
     };
-  }, [loadMessages, loadThread]);
+  }, [loadMessages, loadThread, refreshTasks]);
+
+  // While the task is parked on a reconciler-driven phase (awaiting CI,
+  // ready, remote review, an update push), no agent turn is running so
+  // the turn-poll above stays idle — yet the phase still advances
+  // server-side as the linked PR's CI / review / merge state changes.
+  // Poll the task row on a slow cadence so the chip and stepper reflect
+  // that without needing a manual reload.
+  useEffect(() => {
+    const phase = task?.phase;
+    if (phase === undefined || phase === null || !isReconcilerDriven(phase)) return;
+    const handle = window.setInterval(() => { void refreshTasks(); }, 15_000);
+    return () => window.clearInterval(handle);
+  }, [task?.phase, refreshTasks]);
 
   const [interrupting, setInterrupting] = useState<boolean>(false);
 

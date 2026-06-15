@@ -227,7 +227,12 @@ export default function TaskDetailPage({
   // poll while `sending` so the loop is already live the instant the
   // turn is enqueued, before the RUNNING status has round-tripped.
   useEffect(() => {
-    if (thread?.status !== 'RUNNING' && !sending) return;
+    // Poll while the loop is live (RUNNING / sending) AND while it's
+    // parked waiting on the user (AWAITING) — otherwise a permission /
+    // question that lands as the turn ends never refreshes into view and
+    // the window deadlocks: the agent waits for the user, but the card to
+    // respond never appears.
+    if (thread?.status !== 'RUNNING' && thread?.status !== 'AWAITING' && !sending) return;
     const handle = window.setInterval(() => {
       void loadMessages();
       void loadThread();
@@ -240,6 +245,27 @@ export default function TaskDetailPage({
       void loadMessages();
     };
   }, [thread?.status, sending, loadMessages, loadThread]);
+
+  // Self-heal a stale window. When the task ends its turn to wait on the
+  // user (e.g. an AskUserQuestion or a parked approval), the thread goes
+  // IDLE and the poll above stops — so a window left open never surfaces
+  // the card. Re-fetch whenever the window regains focus / visibility so
+  // looking at the task is enough to surface a pending prompt.
+  useEffect(() => {
+    const refetch = () => {
+      void loadMessages();
+      void loadThread();
+    };
+    const onVisibility = () => {
+      if (document.visibilityState === 'visible') refetch();
+    };
+    window.addEventListener('focus', refetch);
+    document.addEventListener('visibilitychange', onVisibility);
+    return () => {
+      window.removeEventListener('focus', refetch);
+      document.removeEventListener('visibilitychange', onVisibility);
+    };
+  }, [loadMessages, loadThread]);
 
   const [interrupting, setInterrupting] = useState<boolean>(false);
 
@@ -464,6 +490,19 @@ export default function TaskDetailPage({
   const pendingQuestion = useMemo(
     () => findPendingAskQuestion(messages ?? []),
     [messages]);
+
+  // Keep the window live while a permission / question card is showing,
+  // even at IDLE — so once the user answers (and the agent resumes) the
+  // reply and the resumed turn surface without a manual refresh.
+  useEffect(() => {
+    if (pendingPermission === null && pendingQuestion === null) return;
+    const handle = window.setInterval(() => {
+      void loadMessages();
+      void loadThread();
+    }, 4_000);
+    return () => window.clearInterval(handle);
+  }, [pendingPermission, pendingQuestion, loadMessages, loadThread]);
+
   const answerQuestion = useCallback(async (text: string) => {
     const trimmed = text.trim();
     if (trimmed.length === 0) return;

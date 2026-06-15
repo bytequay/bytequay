@@ -13,9 +13,11 @@
  */
 package com.bytequay.app.repository.sqlite;
 
+import com.bytequay.app.domain.Actor;
 import com.bytequay.app.domain.Task;
 import com.bytequay.app.domain.TaskFile;
 import com.bytequay.app.domain.TaskPhase;
+import com.bytequay.app.domain.TaskPhaseEvent;
 import com.bytequay.app.domain.TaskStatus;
 import com.bytequay.app.domain.WorkModel;
 import com.bytequay.app.repository.TaskStore;
@@ -37,12 +39,18 @@ class SqliteTaskStore
 {
     private final TaskJpaRepository tasks;
     private final TaskFileJpaRepository files;
+    private final TaskPhaseEventJpaRepository phaseEvents;
     private final ObjectMapper objectMapper;
 
-    SqliteTaskStore(TaskJpaRepository tasks, TaskFileJpaRepository files, ObjectMapper objectMapper)
+    SqliteTaskStore(
+            TaskJpaRepository tasks,
+            TaskFileJpaRepository files,
+            TaskPhaseEventJpaRepository phaseEvents,
+            ObjectMapper objectMapper)
     {
         this.tasks = requireNonNull(tasks, "tasks is null");
         this.files = requireNonNull(files, "files is null");
+        this.phaseEvents = requireNonNull(phaseEvents, "phaseEvents is null");
         this.objectMapper = requireNonNull(objectMapper, "objectMapper is null");
     }
 
@@ -159,6 +167,67 @@ class SqliteTaskStore
             entity.setEndedAtMs(endedAt == null ? null : endedAt.toEpochMilli());
             tasks.save(entity);
         });
+    }
+
+    @Override
+    @Transactional
+    public void updatePhase(String taskId, TaskPhase phase)
+    {
+        tasks.findById(taskId).ifPresent(entity -> {
+            entity.setPhase(phase.name());
+            tasks.save(entity);
+        });
+    }
+
+    @Override
+    @Transactional
+    public void appendPhaseEvent(
+            String taskId, TaskPhase from, TaskPhase to, Instant at, String reason, Actor actor)
+    {
+        TaskPhaseEventEntity row = new TaskPhaseEventEntity();
+        row.setTaskId(taskId);
+        row.setFromPhase(from == null ? null : from.name());
+        row.setToPhase(to.name());
+        row.setTransitionedAtMs(at.toEpochMilli());
+        row.setReason(reason);
+        row.setActor(actor == null ? null : actor.name());
+        phaseEvents.save(row);
+    }
+
+    @Override
+    public List<TaskPhaseEvent> listPhaseEvents(String taskId)
+    {
+        return phaseEvents.findByTaskIdOrderByTransitionedAtMsAsc(taskId).stream()
+                .map(SqliteTaskStore::toPhaseEvent)
+                .toList();
+    }
+
+    @Override
+    public int consecutiveAutoPushes(String taskId)
+    {
+        return tasks.findById(taskId).map(TaskEntity::getConsecutiveAutoPushes).orElse(0);
+    }
+
+    @Override
+    @Transactional
+    public void setConsecutiveAutoPushes(String taskId, int value)
+    {
+        tasks.findById(taskId).ifPresent(entity -> {
+            entity.setConsecutiveAutoPushes(value);
+            tasks.save(entity);
+        });
+    }
+
+    private static TaskPhaseEvent toPhaseEvent(TaskPhaseEventEntity e)
+    {
+        return new TaskPhaseEvent(
+                e.getId(),
+                e.getTaskId(),
+                e.getFromPhase() == null ? null : TaskPhase.valueOf(e.getFromPhase()),
+                TaskPhase.valueOf(e.getToPhase()),
+                Instant.ofEpochMilli(e.getTransitionedAtMs()),
+                e.getReason(),
+                e.getActor() == null ? null : Actor.valueOf(e.getActor()));
     }
 
     @Override

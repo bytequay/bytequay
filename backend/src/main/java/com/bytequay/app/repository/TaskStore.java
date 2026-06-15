@@ -13,8 +13,11 @@
  */
 package com.bytequay.app.repository;
 
+import com.bytequay.app.domain.Actor;
 import com.bytequay.app.domain.Task;
 import com.bytequay.app.domain.TaskFile;
+import com.bytequay.app.domain.TaskPhase;
+import com.bytequay.app.domain.TaskPhaseEvent;
 import com.bytequay.app.domain.TaskStatus;
 
 import java.time.Instant;
@@ -100,6 +103,41 @@ public interface TaskStore
      *  #setAcceptEdits}) so it can't clobber unrelated columns. No-op
      *  default for test stores; the SQLite store overrides. */
     default void completeTask(String taskId, Instant endedAt)
+    {
+    }
+
+    // ── dev-lifecycle phase (V106) ─────────────────────────────────────
+
+    /** Write the task's dev-lifecycle {@code phase} column. Load-set-save
+     *  (like {@link #setAcceptEdits}) so {@code saveTask} — which never
+     *  maps phase — can't clobber it. No-op default for test stores. */
+    default void updatePhase(String taskId, TaskPhase phase)
+    {
+    }
+
+    /** Append one phase-transition audit row. No-op default for test
+     *  stores; the SQLite store inserts into {@code task_phase_event}. */
+    default void appendPhaseEvent(
+            String taskId, TaskPhase from, TaskPhase to, Instant at, String reason, Actor actor)
+    {
+    }
+
+    /** A task's phase transitions, oldest-first. Empty default for test
+     *  stores. */
+    default List<TaskPhaseEvent> listPhaseEvents(String taskId)
+    {
+        return List.of();
+    }
+
+    /** Current consecutive-auto-push counter; 0 for an unknown task. */
+    default int consecutiveAutoPushes(String taskId)
+    {
+        return 0;
+    }
+
+    /** Set the consecutive-auto-push counter (incremented on an auto
+     *  push, reset to 0 on a human push). No-op default for test stores. */
+    default void setConsecutiveAutoPushes(String taskId, int value)
     {
     }
 

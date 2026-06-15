@@ -1,0 +1,88 @@
+/*
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *     http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+package com.bytequay.app.service.threads;
+
+import com.bytequay.app.domain.TaskPhase;
+
+import java.util.EnumMap;
+import java.util.EnumSet;
+import java.util.Map;
+import java.util.Set;
+
+/**
+ * The dev-task phase graph: allowed forward edges per {@link TaskPhase},
+ * plus the universal escapes. {@code NEEDS_ATTENTION} and {@code
+ * COMPLETED} are reachable from every non-terminal phase (a cap can park
+ * a task, and a merge / close can finish it, at any point); {@code
+ * COMPLETED} is terminal.
+ *
+ * <p>This is the deterministic spine the {@link TaskPhaseMachine} guards
+ * every transition against — illegal edges throw rather than silently
+ * corrupt the lifecycle.
+ */
+final class TaskPhaseTransitions
+{
+    private TaskPhaseTransitions() {}
+
+    private static final Map<TaskPhase, Set<TaskPhase>> FORWARD = forwardEdges();
+
+    private static Map<TaskPhase, Set<TaskPhase>> forwardEdges()
+    {
+        Map<TaskPhase, Set<TaskPhase>> m = new EnumMap<>(TaskPhase.class);
+        m.put(TaskPhase.IMPLEMENTING, EnumSet.of(TaskPhase.VALIDATING));
+        m.put(TaskPhase.VALIDATING, EnumSet.of(TaskPhase.INTERNAL_REVIEW));
+        // Internal review either surfaces findings to address, or is clean
+        // and the task holds for the first push.
+        m.put(TaskPhase.INTERNAL_REVIEW,
+                EnumSet.of(TaskPhase.ADDRESSING_COMMENTS, TaskPhase.AWAITING_PUSH));
+        m.put(TaskPhase.AWAITING_PUSH, EnumSet.of(TaskPhase.PUSHED_AWAITING_CI));
+        // CI green on a draft holds for "mark ready"; CI green on a ready
+        // PR goes straight to remote review; CI red kicks off a fix loop.
+        m.put(TaskPhase.PUSHED_AWAITING_CI,
+                EnumSet.of(TaskPhase.AWAITING_READY, TaskPhase.AWAITING_REMOTE_REVIEW,
+                        TaskPhase.CI_FIXING));
+        m.put(TaskPhase.CI_FIXING, EnumSet.of(TaskPhase.AWAITING_PUSH));
+        m.put(TaskPhase.AWAITING_READY, EnumSet.of(TaskPhase.AWAITING_REMOTE_REVIEW));
+        m.put(TaskPhase.AWAITING_REMOTE_REVIEW, EnumSet.of(TaskPhase.ADDRESSING_COMMENTS));
+        m.put(TaskPhase.ADDRESSING_COMMENTS, EnumSet.of(TaskPhase.AGENT_RE_REVIEW));
+        // Re-review either finds more to fix, or is clean — and the clean
+        // exit depends on whether the work was already pushed (update push)
+        // or is still the first internal pass (first push).
+        m.put(TaskPhase.AGENT_RE_REVIEW,
+                EnumSet.of(TaskPhase.ADDRESSING_COMMENTS, TaskPhase.AWAITING_UPDATE_PUSH,
+                        TaskPhase.AWAITING_PUSH));
+        m.put(TaskPhase.AWAITING_UPDATE_PUSH, EnumSet.of(TaskPhase.PUSHED_AWAITING_CI));
+        // Human-recovered parked task restarts the cycle.
+        m.put(TaskPhase.NEEDS_ATTENTION, EnumSet.of(TaskPhase.IMPLEMENTING));
+        m.put(TaskPhase.COMPLETED, EnumSet.noneOf(TaskPhase.class));
+        return m;
+    }
+
+    /** True when {@code from → to} is a legal edge: an explicit forward
+     *  edge, or the universal escape to NEEDS_ATTENTION / COMPLETED from
+     *  any non-terminal phase. COMPLETED is terminal. */
+    static boolean isLegal(TaskPhase from, TaskPhase to)
+    {
+        if (from == to) {
+            return false;
+        }
+        if (from == TaskPhase.COMPLETED) {
+            return false;
+        }
+        if (to == TaskPhase.NEEDS_ATTENTION || to == TaskPhase.COMPLETED) {
+            return true;
+        }
+        return FORWARD.getOrDefault(from, Set.of()).contains(to);
+    }
+}

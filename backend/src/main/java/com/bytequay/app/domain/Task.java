@@ -116,15 +116,24 @@ public record Task(
          *  save can't clobber it. Fresh in-memory constructions default to
          *  {@link TaskPhase#IMPLEMENTING}, matching the column default for
          *  a freshly inserted row. */
-        TaskPhase phase)
+        TaskPhase phase,
+        /** Dev-agenda checklist JSON (V106), same shape as a review pass's
+         *  agenda. Null until the agent sets it. Entity-managed (not
+         *  mapped by {@code saveTask}); the row mapper populates it. */
+        String agendaJson,
+        /** Consecutive auto-pushes for the runaway-autonomy cap (V106). */
+        int consecutiveAutoPushes,
+        /** The {@code owner/repo#n} this task is permanently linked to,
+         *  or null. Entity-managed via {@code linkTaskToPr}. */
+        String linkedPrRef)
 {
     /**
      * Back-compat constructor for the 26-field shape that predates the
-     * {@code pushedAt} (V105) and {@code phase} (V106) columns. Defaults
-     * both, which is correct for every fresh-construction call site — only
-     * the store's row mapper threads the persisted values through the
-     * canonical constructor, and only {@code markPushed} / {@code
-     * updatePhase} ever write them.
+     * {@code pushedAt} (V105), {@code phase} + agenda/auto-push/link
+     * (V106) columns. Defaults them all, which is correct for every
+     * fresh-construction call site — only the store's row mapper threads
+     * the persisted values through the canonical constructor, and only
+     * the dedicated entity-update methods ever write them.
      */
     public Task(
             String id,
@@ -157,7 +166,8 @@ public record Task(
         this(id, threadId, seq, status, branchName, worktreePath, baseBranch, workingDir,
                 processPid, logPath, prNumber, prState, ciState, taskType, linkedPrNumber,
                 linkedIssueNumber, costUsdMilli, tokensIn, tokensOut, agentSessionId, createdAt,
-                endedAt, errorMessage, name, roleSkill, workModel, null, TaskPhase.IMPLEMENTING);
+                endedAt, errorMessage, name, roleSkill, workModel, null, TaskPhase.IMPLEMENTING,
+                null, 0, null);
     }
 
     /**

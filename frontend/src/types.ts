@@ -1774,6 +1774,26 @@ export type WorkspaceRepoDto = {
  *
  *  Distinct from the older "task = thread" usage on the rest of the
  *  bridge (kept until the Phase-4 rename ships). */
+/** The dev PR-collaboration lifecycle phase (backend TaskPhase, V106). */
+export type TaskPhaseDto =
+  | 'IMPLEMENTING'
+  | 'VALIDATING'
+  | 'INTERNAL_REVIEW'
+  | 'AWAITING_PUSH'
+  | 'PUSHED_AWAITING_CI'
+  | 'CI_FIXING'
+  | 'AWAITING_READY'
+  | 'AWAITING_REMOTE_REVIEW'
+  | 'ADDRESSING_COMMENTS'
+  | 'AGENT_RE_REVIEW'
+  | 'AWAITING_UPDATE_PUSH'
+  | 'COMPLETED'
+  | 'NEEDS_ATTENTION';
+
+/** Coarse trunk-card grouping over {@link TaskPhaseDto} (backend
+ *  TaskPhaseGroup). */
+export type TaskPhaseGroupDto = 'IN_PROGRESS' | 'AWAITING_YOU' | 'IDLE' | 'DONE';
+
 export type WorkUnitTaskDto = {
   id: string;
   threadId: string;
@@ -1801,6 +1821,20 @@ export type WorkUnitTaskDto = {
    *  implicit push an open_pr approval performs. Drives the "on remote"
    *  task badge so a parked task no longer looks stuck. */
   pushedAt: string | null;
+  /** Dev PR-collaboration lifecycle phase (V106) — one of TaskPhase:
+   *  IMPLEMENTING | VALIDATING | INTERNAL_REVIEW | AWAITING_PUSH |
+   *  PUSHED_AWAITING_CI | CI_FIXING | AWAITING_READY |
+   *  AWAITING_REMOTE_REVIEW | ADDRESSING_COMMENTS | AGENT_RE_REVIEW |
+   *  AWAITING_UPDATE_PUSH | COMPLETED | NEEDS_ATTENTION. Orthogonal to
+   *  {@link status} (the agent runtime axis). */
+  phase: TaskPhaseDto;
+  /** Dev-agenda checklist JSON (same shape as a review pass's agenda),
+   *  or null until the agent sets it. */
+  agendaJson: string | null;
+  /** Consecutive auto-pushes — drives the runaway-autonomy cap badge. */
+  consecutiveAutoPushes: number;
+  /** 'owner/repo#n' this task is permanently linked to, or null. */
+  linkedPrRef: string | null;
   /** Rolled-up cost / token usage for the task. Backend Task record
    *  carries these (mirrored from the StreamEvent.TurnDone rows); the
    *  rail surfaces them in the TASK METRICS card. */

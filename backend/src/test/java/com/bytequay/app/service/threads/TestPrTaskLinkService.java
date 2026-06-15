@@ -130,7 +130,7 @@ class TestPrTaskLinkService
                 "dev/x", "/tmp/wt", "main", "/tmp/repo",
                 null, null, null, null, null, "DEVELOP",
                 null, null, 0L, 0L, 0L, null,
-                now, null, null, null, null, null, null, phase);
+                now, null, null, null, null, null, null, phase, null, 0, null);
     }
 
     private static PullRequest prBy(String author)

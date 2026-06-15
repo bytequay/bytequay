@@ -376,7 +376,10 @@ class SqliteTaskStore
                 e.getRoleSkill(),
                 deserialiseWorkModel(e.getWorkModelJson()),
                 e.getPushedAtMs() == null ? null : Instant.ofEpochMilli(e.getPushedAtMs()),
-                parsePhase(e.getPhase()));
+                parsePhase(e.getPhase()),
+                e.getAgendaJson(),
+                e.getConsecutiveAutoPushes(),
+                e.getLinkedPrRef());
     }
 
     /** Tolerant parse: an unknown / null phase string falls back to

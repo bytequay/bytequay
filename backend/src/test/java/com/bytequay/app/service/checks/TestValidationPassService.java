@@ -120,7 +120,7 @@ class TestValidationPassService
                 "dev/x", "/tmp/wt", "main", "/tmp/repo",
                 null, null, null, null, null, "DEVELOP",
                 null, null, 0L, 0L, 0L, null,
-                now, null, null, null, null, null, null, TaskPhase.VALIDATING);
+                now, null, null, null, null, null, null, TaskPhase.VALIDATING, null, 0, null);
     }
 
     private static Thread thread()

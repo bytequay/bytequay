@@ -45,8 +45,8 @@ type Props = {
 const DEFAULT_KIND: SectionKind = 'BRAIN';
 
 /** Color stripe per section kind — mirrors the spec mockup so the
- *  left-nav dots, the section header bar, and the inline
- *  /* … *​/ labels in the full-request view all match. */
+ *  left-nav dots, the section header bar, and the inline comment
+ *  labels in the full-request view all match. */
 const SECTION_COLOUR: Record<SectionKind, string> = {
   TOOLS: '#4a3aff',
   ROLE: '#8b2db8',

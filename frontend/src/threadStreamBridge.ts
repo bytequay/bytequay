@@ -97,7 +97,7 @@ async function runStream(
     // Each chunk is arbitrary bytes — accumulate into a string and
     // split on \n, holding any incomplete trailing line for the next
     // chunk so we never lose half a field.
-    while (true) {
+    for (;;) {
       const { done, value } = await reader.read();
       if (done) break;
       carry += decoder.decode(value, { stream: true });

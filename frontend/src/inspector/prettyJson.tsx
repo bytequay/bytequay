@@ -23,7 +23,7 @@ import type { CSSProperties, ReactNode } from 'react';
  * a malformed tool definition or a trailing comma still shows up
  * verbatim instead of getting swallowed.
  */
-export function prettyJson(input: string, indent: number = 2): string {
+export function prettyJson(input: string, indent = 2): string {
   if (input == null || input.length === 0) return '';
   const trimmed = input.trim();
   if (trimmed.length === 0) return '';

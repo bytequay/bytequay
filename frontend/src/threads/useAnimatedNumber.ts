@@ -24,7 +24,7 @@ import { useEffect, useRef, useState } from 'react';
  *  `prefers-reduced-motion` — when set, the value snaps. The first
  *  value (and any decrease, e.g. a fresh task resetting to 0) snaps
  *  too, so we only ever animate an increase. */
-export function useAnimatedNumber(target: number, durationMs: number = 650): number {
+export function useAnimatedNumber(target: number, durationMs = 650): number {
   const [display, setDisplay] = useState<number>(target);
   const displayRef = useRef<number>(target);
   const rafRef = useRef<number | null>(null);

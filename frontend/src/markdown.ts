@@ -160,7 +160,7 @@ function decorateRefsAndMentions(html: string, repoContext?: MarkdownRepoContext
 }
 
 const SKIP_TAGS = new Set(['A', 'CODE', 'PRE', 'STYLE', 'SCRIPT', 'TEXTAREA']);
-const REF_RE = /(?<=^|[\s(\[])(@[A-Za-z0-9][A-Za-z0-9-]{0,38}|#\d{1,8})(?=$|[\s.,;:!?)\]])/g;
+const REF_RE = /(?<=^|[\s([])(@[A-Za-z0-9][A-Za-z0-9-]{0,38}|#\d{1,8})(?=$|[\s.,;:!?)\]])/g;
 
 function decorateNode(node: Node, repoContext?: MarkdownRepoContext): void {
   if (node.nodeType === Node.ELEMENT_NODE) {

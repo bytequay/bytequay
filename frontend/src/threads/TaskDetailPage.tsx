@@ -968,44 +968,53 @@ export default function TaskDetailPage({
                   const isTerminal = isCompleted || isErrored;
                   const isMerged = (task?.prState ?? '').toLowerCase() === 'merged';
                   const hasPr = task?.prNumber != null;
-                  const isShipped = !isMerged && (hasPr || task?.pushedAt != null);
-                  const tone = isMerged || isShipped
-                    ? shipShippedDoneStyle
-                    : isTerminal
-                      ? shipShippedStyle
-                      : shipPrimaryStyle;
+                  const pushed = task?.pushedAt != null;
                   let label: string;
                   let glyph: string;
                   let hint: string;
+                  let tone: React.CSSProperties;
                   if (isErrored) {
                     glyph = '⨯';
                     label = 'Errored — no ship';
                     hint = 'Recover or abandon this task from the trunk; '
                       + 'Ship is disabled while a task is in an errored state.';
-                  }
-                  else if (isMerged) {
-                    glyph = '✓';
-                    label = 'Merged';
-                    hint = 'Merged. Open the trunk to start the next task.';
-                  }
-                  else if (isShipped) {
-                    glyph = '✓';
-                    label = 'Shipped';
-                    hint = hasPr
-                      ? `PR #${task!.prNumber} is open. Open the trunk to start the next task.`
-                      : 'Branch pushed. Open the trunk to start the next task.';
+                    tone = shipShippedStyle;
                   }
                   else if (isCompleted) {
+                    // The task is done. Describe how it ended — a done state,
+                    // not an action (the button below is disabled).
                     glyph = '✓';
-                    label = 'Completed';
-                    hint = 'This task finished without shipping. '
-                      + 'Open the trunk to start the next task.';
+                    if (isMerged) {
+                      label = 'Merged';
+                      hint = 'Merged. Open the trunk to start the next task.';
+                      tone = shipShippedDoneStyle;
+                    }
+                    else if (hasPr || pushed) {
+                      label = 'Shipped';
+                      hint = hasPr
+                        ? `PR #${task!.prNumber} is open. Open the trunk to start the next task.`
+                        : 'Branch pushed. Open the trunk to start the next task.';
+                      tone = shipShippedDoneStyle;
+                    }
+                    else {
+                      label = 'Completed';
+                      hint = 'This task finished without shipping. '
+                        + 'Open the trunk to start the next task.';
+                      tone = shipShippedStyle;
+                    }
                   }
                   else {
+                    // Active task — Ship is a live action even if a PR is
+                    // already open, so it must read as a button, never as a
+                    // done "Shipped" badge.
                     glyph = '☁︎↑';
                     label = shipping ? 'Shipping…' : 'Ship — finalize & merge';
-                    hint = 'Finalises & merges this task, then takes you back to the '
-                      + 'thread — where the next task starts.';
+                    hint = hasPr
+                      ? `PR #${task!.prNumber} is open. Ship finalises this task `
+                        + 'and returns you to the thread.'
+                      : 'Finalises & merges this task, then takes you back to the '
+                        + 'thread — where the next task starts.';
+                    tone = shipPrimaryStyle;
                   }
                   return (
                     <>

@@ -34,12 +34,14 @@ import com.bytequay.app.domain.RepoRef;
 import com.bytequay.app.domain.RequestReviewersCommand;
 import com.bytequay.app.domain.StoredPrDetail;
 import com.bytequay.app.domain.SuggestedReviewer;
+import com.bytequay.app.domain.Task;
 import com.bytequay.app.domain.UpdatePullRequestCommand;
 import com.bytequay.app.repository.AppSettingsStore;
 import com.bytequay.app.repository.PrDetailStore;
 import com.bytequay.app.repository.PrViewStateStore;
 import com.bytequay.app.repository.PullRequestRepository;
 import com.bytequay.app.repository.PullRequestStore;
+import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.service.CredentialService;
 import com.bytequay.app.service.RepoListCache;
 import com.bytequay.app.service.credentials.PatResolver;
@@ -109,6 +111,7 @@ public class PullRequestService
     private final PullRequestDetailFetcher detailFetcher;
     private final PatResolver patResolver;
     private final ApplicationEventPublisher eventPublisher;
+    private final TaskStore taskStore;
     /** prId → last ETag + the timestamp it was returned by GitHub.
      *  Populated by {@link #refreshPullRequestDetail}'s probe path
      *  and consulted on the next probe to short-circuit unchanged
@@ -136,6 +139,7 @@ public class PullRequestService
             RepoListCache repoListCache,
             PatResolver patResolver,
             ApplicationEventPublisher eventPublisher,
+            TaskStore taskStore,
             @Qualifier(APPLICATION_EXECUTOR) Executor executor,
             @Qualifier(IO_EXECUTOR) Executor ioExecutor)
     {
@@ -150,6 +154,7 @@ public class PullRequestService
         this.detailInvalidator = requireNonNull(detailInvalidator, "detailInvalidator is null");
         this.repoListCache = requireNonNull(repoListCache, "repoListCache is null");
         this.patResolver = requireNonNull(patResolver, "patResolver is null");
+        this.taskStore = requireNonNull(taskStore, "taskStore is null");
         this.executor = requireNonNull(executor, "executor is null");
         this.detailFetcher = new PullRequestDetailFetcher(gitHub, detailStore, requireNonNull(ioExecutor, "ioExecutor is null"));
     }
@@ -220,6 +225,7 @@ public class PullRequestService
 
         List<PullRequest> fresh = fetchRelevant(pat);
         store.replaceAll(fresh);
+        linkPrsToTasks(fresh);
 
         Set<Long> freshIds = fresh.stream()
                 .map(PullRequest::id)
@@ -257,6 +263,56 @@ public class PullRequestService
         catch (Exception e) {
             log.warn("Snooze auto-wake check failed: {}", e.getMessage());
         }
+    }
+
+    /**
+     * Auto-link synced PRs back to their originating task by head branch,
+     * so a PR opened outside the app's {@code open_pr} flow (e.g. manually
+     * on GitHub) still attaches to its task, and a linked task's PR state
+     * stays current (open → merged) on every sync. Bounded to {@code dev/}
+     * head refs — the prefix worktree task branches carry — so a busy
+     * repo's sync doesn't issue a task lookup per unrelated PR.
+     */
+    private void linkPrsToTasks(List<PullRequest> prs)
+    {
+        for (PullRequest pr : prs) {
+            String head = pr.headRef();
+            if (head == null || !head.startsWith("dev/")) {
+                continue;
+            }
+            Task task = taskStore.findTaskByBranch(head).orElse(null);
+            if (task == null) {
+                continue;
+            }
+            String state = prStateFor(pr);
+            // The sync runs often; skip the write when nothing changed.
+            if (Integer.valueOf(pr.number()).equals(task.prNumber())
+                    && state.equals(task.prState())) {
+                continue;
+            }
+            try {
+                taskStore.linkPullRequest(task.id(), pr.number(), state);
+            }
+            catch (RuntimeException e) {
+                log.warn("auto-linking PR #{} to task {} failed: {}",
+                        pr.number(), task.id(), e.getMessage());
+            }
+        }
+    }
+
+    /** Derive the task-facing PR state from a synced PR. */
+    private static String prStateFor(PullRequest pr)
+    {
+        if (pr.mergedAt() != null) {
+            return "merged";
+        }
+        if (pr.draft()) {
+            return "draft";
+        }
+        if ("closed".equalsIgnoreCase(pr.state())) {
+            return "closed";
+        }
+        return "open";
     }
 
     private String resolveCurrentLogin(String pat)

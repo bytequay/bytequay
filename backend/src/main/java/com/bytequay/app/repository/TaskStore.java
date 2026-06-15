@@ -42,6 +42,15 @@ public interface TaskStore
     /** Single-row lookup by id. */
     Optional<Task> findTaskById(String id);
 
+    /** Find the task whose dev branch matches {@code branchName} — the
+     *  PR sync uses this to auto-link a PR (incl. manually-opened ones)
+     *  to its task by head ref. Empty default for test stores; the
+     *  SQLite store overrides with an indexed query. */
+    default Optional<Task> findTaskByBranch(String branchName)
+    {
+        return Optional.empty();
+    }
+
     /** Whether the task's "accept edits in worktree" toggle is on.
      *  False for an unknown id. Read by {@code WorktreeEditStep} to
      *  decide whether to auto-approve in-worktree file edits. Default

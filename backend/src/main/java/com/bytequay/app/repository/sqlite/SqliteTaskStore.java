@@ -86,6 +86,15 @@ class SqliteTaskStore
     }
 
     @Override
+    public Optional<Task> findTaskByBranch(String branchName)
+    {
+        if (branchName == null || branchName.isBlank()) {
+            return Optional.empty();
+        }
+        return tasks.findFirstByBranchNameOrderBySeqDesc(branchName).map(this::toTask);
+    }
+
+    @Override
     public boolean isAcceptEdits(String taskId)
     {
         return tasks.findById(taskId).map(TaskEntity::isAcceptEdits).orElse(false);

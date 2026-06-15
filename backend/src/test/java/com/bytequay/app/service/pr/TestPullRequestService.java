@@ -34,6 +34,7 @@ import com.bytequay.app.repository.PrDetailStore;
 import com.bytequay.app.repository.PrViewStateStore;
 import com.bytequay.app.repository.PullRequestRepository;
 import com.bytequay.app.repository.PullRequestStore;
+import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.service.CredentialService;
 import com.bytequay.app.service.RepoListCache;
 import com.bytequay.app.service.credentials.PatResolver;
@@ -117,6 +118,11 @@ class TestPullRequestService
     @SuppressWarnings("UnusedVariable")
     @Mock
     private ApplicationEventPublisher eventPublisher;
+
+    // Consumed by @InjectMocks via reflection — Error Prone can't see the use.
+    @SuppressWarnings("UnusedVariable")
+    @Mock
+    private TaskStore taskStore;
 
     @InjectMocks
     private PullRequestService pullRequestService;

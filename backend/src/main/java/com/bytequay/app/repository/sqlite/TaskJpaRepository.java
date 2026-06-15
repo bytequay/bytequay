@@ -30,6 +30,11 @@ interface TaskJpaRepository
      *  number on "ship & continue". */
     Optional<TaskEntity> findFirstByThreadIdOrderBySeqDesc(String threadId);
 
+    /** Newest task whose dev branch matches a synced PR's head ref —
+     *  used to auto-link a PR to its originating task. Branch names are
+     *  per-task unique, so at most one matches in practice. */
+    Optional<TaskEntity> findFirstByBranchNameOrderBySeqDesc(String branchName);
+
     /** Newest-non-terminal task for a thread — the "active task". */
     List<TaskEntity> findByThreadIdAndStatusInOrderBySeqDesc(String threadId, List<String> statuses);
 

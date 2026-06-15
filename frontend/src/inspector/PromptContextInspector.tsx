@@ -64,6 +64,10 @@ function PromptContextInspector({ scope, threadId, taskId, onClose }: Props) {
   const [activeKind, setActiveKind] = useState<SectionKind>(DEFAULT_KIND);
   const [view, setView] = useState<'section' | 'wire'>('section');
   const [copied, setCopied] = useState(false);
+  // The provenance chip list can run to hundreds of entries (one per
+  // folded history message), which otherwise buries the section body.
+  // Collapsed by default; expand to audit individual sources.
+  const [sourcesExpanded, setSourcesExpanded] = useState(false);
 
   const load = useCallback(async () => {
     setError(null);
@@ -79,6 +83,10 @@ function PromptContextInspector({ scope, threadId, taskId, onClose }: Props) {
   }, [scope, threadId, taskId]);
 
   useEffect(() => { void load(); }, [load]);
+
+  // Re-collapse the provenance list when switching sections so a 200-chip
+  // history pane doesn't carry its expanded state onto the next section.
+  useEffect(() => { setSourcesExpanded(false); }, [activeKind]);
 
   // Esc to close. ⌘. is wired at the host page level so the
   // shortcut still works when the inspector hasn't mounted yet.
@@ -248,31 +256,46 @@ function PromptContextInspector({ scope, threadId, taskId, onClose }: Props) {
                   </div>
                   {activeSection.sources.length > 0 && (
                     <div style={provenanceRowStyle} aria-label="Provenance">
-                      <span style={provenanceLabelStyle}>Sources</span>
-                      {activeSection.sources.map((src, idx) => {
-                        const label = `${src.kind}:${src.label}`;
-                        if (src.href !== null) {
-                          return (
-                            <a
-                              key={idx}
-                              href={src.href}
-                              style={provenanceChipLinkStyle}
-                              title={src.href}
-                              onClick={ev => {
-                                // Internal route — don't let the renderer
-                                // try to navigate away from the app shell.
-                                ev.preventDefault();
-                                window.location.hash = src.href!;
-                              }}
-                            >
-                              {label}
-                            </a>
-                          );
-                        }
-                        return (
-                          <span key={idx} style={provenanceChipStyle}>{label}</span>
-                        );
-                      })}
+                      <button
+                        type="button"
+                        onClick={() => setSourcesExpanded(e => !e)}
+                        style={provenanceToggleStyle}
+                        aria-expanded={sourcesExpanded}
+                        title={'The original messages / items that were assembled '
+                          + 'into this section of the prompt'}
+                      >
+                        <span style={provenanceCaretStyle}>{sourcesExpanded ? '▾' : '▸'}</span>
+                        <span style={provenanceLabelStyle}>Sources</span>
+                        <span style={provenanceCountStyle}>{activeSection.sources.length}</span>
+                      </button>
+                      {sourcesExpanded && (
+                        <div style={provenanceChipsStyle}>
+                          {activeSection.sources.map((src, idx) => {
+                            const label = `${src.kind}:${src.label}`;
+                            if (src.href !== null) {
+                              return (
+                                <a
+                                  key={idx}
+                                  href={src.href}
+                                  style={provenanceChipLinkStyle}
+                                  title={src.href}
+                                  onClick={ev => {
+                                    // Internal route — don't let the renderer
+                                    // try to navigate away from the app shell.
+                                    ev.preventDefault();
+                                    window.location.hash = src.href!;
+                                  }}
+                                >
+                                  {label}
+                                </a>
+                              );
+                            }
+                            return (
+                              <span key={idx} style={provenanceChipStyle}>{label}</span>
+                            );
+                          })}
+                        </div>
+                      )}
                     </div>
                   )}
                 </>
@@ -696,9 +719,11 @@ const wirePreStyle: React.CSSProperties = {
 };
 
 const provenanceRowStyle: React.CSSProperties = {
+  // Pinned below the section body; never grows to eat the body. The
+  // chip list (when expanded) scrolls inside its own capped container.
+  flexShrink: 0,
   display: 'flex',
-  flexWrap: 'wrap',
-  alignItems: 'center',
+  flexDirection: 'column',
   gap: 6,
   padding: '8px 14px',
   borderTop: '1px solid #e2e2e8',
@@ -706,12 +731,47 @@ const provenanceRowStyle: React.CSSProperties = {
   fontSize: 11,
 };
 
+const provenanceToggleStyle: React.CSSProperties = {
+  display: 'inline-flex',
+  alignItems: 'center',
+  gap: 6,
+  alignSelf: 'flex-start',
+  padding: 0,
+  background: 'none',
+  border: 'none',
+  cursor: 'pointer',
+};
+
+const provenanceCaretStyle: React.CSSProperties = {
+  color: '#6b6b78',
+  fontSize: 10,
+  width: 10,
+};
+
+const provenanceCountStyle: React.CSSProperties = {
+  padding: '0 6px',
+  borderRadius: 999,
+  background: '#e2e2ea',
+  color: '#4b4b58',
+  fontSize: 10,
+  fontWeight: 600,
+};
+
+const provenanceChipsStyle: React.CSSProperties = {
+  display: 'flex',
+  flexWrap: 'wrap',
+  gap: 6,
+  // Cap so an enormous source list scrolls instead of overrunning the
+  // section body. ~6 rows of chips, then scroll.
+  maxHeight: 160,
+  overflowY: 'auto',
+};
+
 const provenanceLabelStyle: React.CSSProperties = {
   textTransform: 'uppercase',
   letterSpacing: 0.4,
   color: '#6b6b78',
   fontSize: 10,
-  marginRight: 4,
 };
 
 const provenanceChipStyle: React.CSSProperties = {

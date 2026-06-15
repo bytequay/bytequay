@@ -135,6 +135,21 @@ public interface TaskStore
         return 0;
     }
 
+    /** The single active (non-COMPLETED) task linked to {@code prRef}
+     *  ({@code owner/repo#n}), enforcing the task ↔ PR 1:1-active rule.
+     *  Empty default for test stores; the SQLite store overrides. */
+    default Optional<Task> findActiveTaskByPrRef(String prRef)
+    {
+        return Optional.empty();
+    }
+
+    /** Permanently link a task to a PR ref. Entity-level update (like
+     *  {@link #setAcceptEdits}); the link is set once and lives for the
+     *  task. No-op default for test stores. */
+    default void linkTaskToPr(String taskId, String prRef)
+    {
+    }
+
     /** Set the consecutive-auto-push counter (incremented on an auto
      *  push, reset to 0 on a human push). No-op default for test stores. */
     default void setConsecutiveAutoPushes(String taskId, int value)

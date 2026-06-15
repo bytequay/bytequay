@@ -48,4 +48,9 @@ interface TaskJpaRepository
     /** All tasks linked to a PR number (across repos — the caller
      *  narrows by repo). Drives completion when that PR merges. */
     List<TaskEntity> findByLinkedPrNumber(Integer linkedPrNumber);
+
+    /** The single active (non-COMPLETED) task linked to a PR ref, if any
+     *  — the partial unique index guarantees at most one. Enforces the
+     *  task ↔ PR 1:1-active rule. */
+    Optional<TaskEntity> findFirstByLinkedPrRefAndPhaseNot(String linkedPrRef, String phase);
 }

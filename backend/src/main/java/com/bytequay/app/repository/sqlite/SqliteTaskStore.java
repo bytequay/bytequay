@@ -218,6 +218,23 @@ class SqliteTaskStore
         });
     }
 
+    @Override
+    public Optional<Task> findActiveTaskByPrRef(String prRef)
+    {
+        return tasks.findFirstByLinkedPrRefAndPhaseNot(prRef, TaskPhase.COMPLETED.name())
+                .map(this::toTask);
+    }
+
+    @Override
+    @Transactional
+    public void linkTaskToPr(String taskId, String prRef)
+    {
+        tasks.findById(taskId).ifPresent(entity -> {
+            entity.setLinkedPrRef(prRef);
+            tasks.save(entity);
+        });
+    }
+
     private static TaskPhaseEvent toPhaseEvent(TaskPhaseEventEntity e)
     {
         return new TaskPhaseEvent(

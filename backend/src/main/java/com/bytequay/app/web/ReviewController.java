@@ -20,6 +20,7 @@ import com.bytequay.app.repository.AppSettingsStore.Key;
 import com.bytequay.app.service.review.ReviewBuildSpawnService;
 import com.bytequay.app.service.review.ReviewPassService;
 import com.bytequay.app.service.review.ScheduledReviewService;
+import com.bytequay.app.service.threads.PrTaskLinkService;
 import org.springframework.http.HttpStatusCode;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -52,17 +53,20 @@ public class ReviewController
     private final ScheduledReviewService scheduledReviews;
     private final AppSettingsStore appSettings;
     private final ReviewBuildSpawnService buildSpawn;
+    private final PrTaskLinkService prTaskLink;
 
     public ReviewController(
             ReviewPassService reviews,
             ScheduledReviewService scheduledReviews,
             AppSettingsStore appSettings,
-            ReviewBuildSpawnService buildSpawn)
+            ReviewBuildSpawnService buildSpawn,
+            PrTaskLinkService prTaskLink)
     {
         this.reviews = requireNonNull(reviews, "reviews is null");
         this.scheduledReviews = requireNonNull(scheduledReviews, "scheduledReviews is null");
         this.appSettings = requireNonNull(appSettings, "appSettings is null");
         this.buildSpawn = requireNonNull(buildSpawn, "buildSpawn is null");
+        this.prTaskLink = requireNonNull(prTaskLink, "prTaskLink is null");
     }
 
     /** Read the workspace-level reviewer persona — a user-editable
@@ -92,6 +96,9 @@ public class ReviewController
         if (body == null) {
             throw new ResponseStatusException(HttpStatusCode.valueOf(400), "body is required");
         }
+        // Author gate: a standalone review only targets someone else's
+        // PR — your own PR goes through the dev-task lifecycle.
+        prTaskLink.assertCanReview(body.repoFullName(), body.prNumber());
         ReviewPassService.StartOptions opts = body.toOptions();
         return reviews.startReviewOnPr(body.repoFullName(), body.prNumber(), opts);
     }

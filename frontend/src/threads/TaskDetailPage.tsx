@@ -38,6 +38,8 @@ import { AskQuestionCard } from './AskQuestionCard';
 import { findPendingAskQuestion } from './askQuestion';
 import { useAnimatedNumber } from './useAnimatedNumber';
 import { QueuedTaskView } from './QueuedTaskView';
+import { PhaseChip } from './PhaseChip';
+import { FlowStepper } from './FlowStepper';
 
 type Props = {
   threadId: string;
@@ -698,6 +700,7 @@ export default function TaskDetailPage({
             {task !== null && (
               <span style={bandStatusStyle}>· {task.status.toLowerCase().replace(/_/g, ' ')}</span>
             )}
+            {task !== null && <PhaseChip phase={task.phase} />}
             <div style={bandSpacerStyle} />
             {task !== null && (
               <button
@@ -720,6 +723,12 @@ export default function TaskDetailPage({
                 </span>
               </button>
             )}
+          </div>
+        )}
+
+        {!isTerminal && !isDiff && task !== null && (
+          <div style={flowBandStyle}>
+            <FlowStepper currentPhase={task.phase} />
           </div>
         )}
 
@@ -1997,6 +2006,15 @@ const altitudeBandStyle: React.CSSProperties = {
   background: TEAL_BG,
   borderBottom: `1px solid ${TEAL_BORDER}`,
   fontSize: 12,
+};
+
+const flowBandStyle: React.CSSProperties = {
+  display: 'flex',
+  justifyContent: 'center',
+  padding: '8px 18px',
+  background: 'rgba(255,255,255,0.55)',
+  borderBottom: `1px solid ${TEAL_BORDER}`,
+  overflowX: 'auto',
 };
 
 const bandGlyphStyle: React.CSSProperties = {

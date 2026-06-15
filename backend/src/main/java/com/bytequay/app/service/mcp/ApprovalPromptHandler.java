@@ -169,8 +169,16 @@ public class ApprovalPromptHandler
         }
         deferred.onTimeout(() -> {
             gate.cancel(callId);
-            deferred.setResult(responses.toolResponse(id,
-                    responses.deny("timed out waiting for the user")));
+            // Actionable, honest failure so the agent doesn't misread an
+            // unanswered approval as a network problem and loop retrying.
+            // The prompt is surfaced in the thread (trunk) and the task
+            // window — if it wasn't answered, the fix is to approve it
+            // there, not to retry the tool.
+            deferred.setResult(responses.toolResponse(id, responses.deny(
+                    "No response to the approval prompt for '" + toolName
+                            + "'. Approve it in the thread or the task window, or run this from a"
+                            + " task window — this is an approval timeout, not a network error."
+                            + " Do not retry the tool until it's approved.")));
         });
         deferred.onCompletion(() -> {
             responseFuture.cancel(false);

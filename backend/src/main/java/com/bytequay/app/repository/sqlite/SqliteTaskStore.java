@@ -107,6 +107,33 @@ class SqliteTaskStore
 
     @Override
     @Transactional
+    public void markPushed(String taskId, Instant pushedAt)
+    {
+        // Load-set-save like setAcceptEdits: saveTask deliberately never
+        // maps pushed_at_ms, so editing the live entity is the only path
+        // that writes it and no later full-row save can clobber it.
+        tasks.findById(taskId).ifPresent(entity -> {
+            entity.setPushedAtMs(pushedAt == null ? null : pushedAt.toEpochMilli());
+            tasks.save(entity);
+        });
+    }
+
+    @Override
+    @Transactional
+    public void linkPullRequest(String taskId, int prNumber, String prState)
+    {
+        tasks.findById(taskId).ifPresent(entity -> {
+            entity.setPrNumber(prNumber);
+            entity.setLinkedPrNumber(prNumber);
+            if (prState != null && !prState.isBlank()) {
+                entity.setPrState(prState);
+            }
+            tasks.save(entity);
+        });
+    }
+
+    @Override
+    @Transactional
     public void deleteTask(String id)
     {
         if (!tasks.existsById(id)) {
@@ -224,7 +251,8 @@ class SqliteTaskStore
                 e.getErrorMessage(),
                 e.getName(),
                 e.getRoleSkill(),
-                deserialiseWorkModel(e.getWorkModelJson()));
+                deserialiseWorkModel(e.getWorkModelJson()),
+                e.getPushedAtMs() == null ? null : Instant.ofEpochMilli(e.getPushedAtMs()));
     }
 
     private String serialiseWorkModel(WorkModel m)

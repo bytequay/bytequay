@@ -107,6 +107,9 @@ class TaskEntity
     @Column(name = "accept_edits", nullable = false)
     private boolean acceptEdits;
 
+    @Column(name = "pushed_at_ms")
+    private Long pushedAtMs;
+
     String getId() { return id; }
     void setId(String id) { this.id = id; }
 
@@ -187,4 +190,7 @@ class TaskEntity
 
     boolean isAcceptEdits() { return acceptEdits; }
     void setAcceptEdits(boolean acceptEdits) { this.acceptEdits = acceptEdits; }
+
+    Long getPushedAtMs() { return pushedAtMs; }
+    void setPushedAtMs(Long pushedAtMs) { this.pushedAtMs = pushedAtMs; }
 }

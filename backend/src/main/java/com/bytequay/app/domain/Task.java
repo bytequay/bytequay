@@ -99,8 +99,57 @@ public record Task(
          *  falls back to thread, then workspace, then global default.
          *  See V96 for the column and {@link WorkModel} for the
          *  value shape. */
-        WorkModel workModel)
+        WorkModel workModel,
+        /** When the task's branch first reached the remote — set on a
+         *  push approval and on the implicit push an open_pr approval
+         *  performs. Null until pushed; a distinct state from "committed
+         *  locally" the task UI surfaces so a parked task no longer looks
+         *  stuck. Persisted on its own column (V105) outside {@code
+         *  saveTask}, like accept-edits, so a full-row save can't clobber
+         *  it. */
+        Instant pushedAt)
 {
+    /**
+     * Back-compat constructor for the 26-field shape that predates the
+     * {@code pushedAt} column (V105). Defaults {@code pushedAt} to null,
+     * which is correct for every fresh-construction call site — only the
+     * store's row mapper threads the persisted value through the
+     * canonical constructor, and only {@code markPushed} ever writes it.
+     */
+    public Task(
+            String id,
+            String threadId,
+            long seq,
+            TaskStatus status,
+            String branchName,
+            String worktreePath,
+            String baseBranch,
+            String workingDir,
+            Integer processPid,
+            String logPath,
+            Integer prNumber,
+            String prState,
+            String ciState,
+            String taskType,
+            Integer linkedPrNumber,
+            Integer linkedIssueNumber,
+            long costUsdMilli,
+            long tokensIn,
+            long tokensOut,
+            String agentSessionId,
+            Instant createdAt,
+            Instant endedAt,
+            String errorMessage,
+            String name,
+            String roleSkill,
+            WorkModel workModel)
+    {
+        this(id, threadId, seq, status, branchName, worktreePath, baseBranch, workingDir,
+                processPid, logPath, prNumber, prState, ciState, taskType, linkedPrNumber,
+                linkedIssueNumber, costUsdMilli, tokensIn, tokensOut, agentSessionId, createdAt,
+                endedAt, errorMessage, name, roleSkill, workModel, null);
+    }
+
     /**
      * Resolves the directory the agent process should run in for this
      * task. Prefers {@code worktreePath} (set when a worktree was cut

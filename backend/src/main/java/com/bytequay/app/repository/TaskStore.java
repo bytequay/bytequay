@@ -17,6 +17,7 @@ import com.bytequay.app.domain.Task;
 import com.bytequay.app.domain.TaskFile;
 import com.bytequay.app.domain.TaskStatus;
 
+import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 
@@ -55,6 +56,24 @@ public interface TaskStore
      *  the choice survives a restart, unlike a session tool-budget.
      *  No-op default for test stores; the SQLite store overrides. */
     default void setAcceptEdits(String taskId, boolean enabled)
+    {
+    }
+
+    /** Record that the task's branch reached the remote at {@code
+     *  pushedAt}. Set on a {@code push} approval and on the implicit push
+     *  an {@code open_pr} approval performs. Persisted on its own column
+     *  (not via {@link #saveTask}) so a later full-row save can't clobber
+     *  it — mirrors {@link #setAcceptEdits}. No-op default for test
+     *  stores; the SQLite store overrides. */
+    default void markPushed(String taskId, Instant pushedAt)
+    {
+    }
+
+    /** Attach the opened PR's number + state to the task so the UI can
+     *  show it and deep-link into the in-app PR page. Persisted directly
+     *  on the entity (like {@link #setAcceptEdits}). No-op default for
+     *  test stores; the SQLite store overrides. */
+    default void linkPullRequest(String taskId, int prNumber, String prState)
     {
     }
 

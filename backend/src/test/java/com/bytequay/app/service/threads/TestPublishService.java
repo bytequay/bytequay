@@ -18,6 +18,7 @@ import com.bytequay.app.domain.CreateReviewCommand;
 import com.bytequay.app.domain.Notification;
 import com.bytequay.app.domain.NotificationKind;
 import com.bytequay.app.domain.NotificationStatus;
+import com.bytequay.app.domain.PullRequest;
 import com.bytequay.app.domain.PullRequestRef;
 import com.bytequay.app.domain.RepoRef;
 import com.bytequay.app.domain.Task;
@@ -39,6 +40,8 @@ import org.springframework.web.server.ResponseStatusException;
 import java.io.IOException;
 import java.nio.file.Path;
 import java.time.Instant;
+import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -810,6 +813,44 @@ class TestPublishService
                 eq("ghp_secret"), eq(new RepoRef("acme", "widget")), command.capture());
         assertThat(command.getValue().title()).isEqualTo("Add cache layer");
         assertThat(command.getValue().body()).isEmpty();
+    }
+
+    @Test
+    void openPrPersistsTheCreatedPrNumberAndMarksTheBranchPushed()
+    {
+        // One-step publish: approving open_pr records the returned PR
+        // number + state on the task (the number used to be discarded)
+        // and stamps the branch as on-remote so the task UI can show it.
+        Notification parked = parkedOpenPr("notif-open-persist", "task-open-persist",
+                "acme", "widget",
+                "Add cache layer", "feature/cache", "main",
+                "Draft body.");
+        when(notifications.find("notif-open-persist")).thenReturn(Optional.of(parked));
+        when(taskStore.findTaskById("task-open-persist"))
+                .thenReturn(Optional.of(taskAt("task-open-persist", TaskStatus.AWAITING_REVIEW)));
+        when(patResolver.resolve("acme/widget")).thenReturn("ghp_secret");
+        when(pullRequests.createPullRequest(any(), any(), any()))
+                .thenReturn(samplePr(42, true));
+
+        PublishResult result = service.approve("notif-open-persist", "", "open_pr");
+
+        verify(taskStore).linkPullRequest("task-open-persist", 42, "draft");
+        verify(taskStore).markPushed(eq("task-open-persist"), any());
+        assertThat(result.message()).contains("#42");
+    }
+
+    private static PullRequest samplePr(int number, boolean draft)
+    {
+        Instant now = Instant.parse("2026-05-22T12:00:00Z");
+        return new PullRequest(
+                1L, "acme/widget", number, "Add cache layer", "alice",
+                "https://github.com/acme/widget/pull/" + number,
+                now, now, PullRequest.Origin.AUTHORED,
+                List.of(), Map.of(), draft,
+                null, null, null, List.of(), null,
+                0, 0, 0, null,
+                "open", null, null, null, null, null,
+                Map.of(), null, null, "feature/cache");
     }
 
     @Test

@@ -19,6 +19,7 @@ import com.bytequay.app.domain.MergePullRequestCommand;
 import com.bytequay.app.domain.Notification;
 import com.bytequay.app.domain.NotificationKind;
 import com.bytequay.app.domain.NotificationStatus;
+import com.bytequay.app.domain.PullRequest;
 import com.bytequay.app.domain.PullRequestRef;
 import com.bytequay.app.domain.RepoRef;
 import com.bytequay.app.domain.RequestReviewersCommand;
@@ -46,6 +47,7 @@ import org.springframework.web.server.ResponseStatusException;
 import java.io.IOException;
 import java.nio.file.InvalidPathException;
 import java.nio.file.Path;
+import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 
@@ -252,7 +254,7 @@ public class PublishService
             ParkedProposal proposal, String editedBody, Notification original)
     {
         return switch (proposal) {
-            case ParkedProposal.Push p -> doPush(p);
+            case ParkedProposal.Push p -> doPush(p, original);
             case ParkedProposal.PostComment pc -> doPostComment(pc, editedBody);
             case ParkedProposal.ReplyReviewThread rrt -> doReplyReviewThread(rrt, editedBody);
             case ParkedProposal.ApprovePr a -> doApprovePr(a, editedBody);
@@ -262,7 +264,7 @@ public class PublishService
             case ParkedProposal.RequestReviewer r -> doRequestReviewer(r);
             case ParkedProposal.CommentOnIssue c -> doCommentOnIssue(c, editedBody);
             case ParkedProposal.SetIssueState s -> doSetIssueState(s);
-            case ParkedProposal.OpenPr o -> doOpenPr(o, editedBody);
+            case ParkedProposal.OpenPr o -> doOpenPr(o, editedBody, original);
             case ParkedProposal.PublishReview pr -> doPublishReview(pr, editedBody);
             case ParkedProposal.RequestReview ignored -> doRequestReview();
             case ParkedProposal.NextTask n -> doNextTask(n, original);
@@ -570,7 +572,7 @@ public class PublishService
         }
     }
 
-    private PublishResult doPush(ParkedProposal.Push p)
+    private PublishResult doPush(ParkedProposal.Push p, Notification original)
     {
         String worktreePath = orEmpty(p.worktreePath());
         if (worktreePath.isBlank()) {
@@ -589,8 +591,28 @@ public class PublishService
             Thread.currentThread().interrupt();
             throw new RuntimeException("git push interrupted", e);
         }
+        // The branch is now on the remote — record it so the task UI can
+        // show "on remote" instead of looking stuck. Best-effort: a
+        // bookkeeping miss must not fail an already-applied push.
+        markTaskPushed(original);
         return new PublishResult(true, "approved",
                 "Pushed " + branch + " from " + worktree + ".", "push");
+    }
+
+    /** Stamp the proposal's task as pushed-to-remote. Resolved by the
+     *  notification's taskId; silently skipped for a thread-level row. */
+    private void markTaskPushed(Notification original)
+    {
+        String taskId = original == null ? null : original.taskId();
+        if (taskId == null || taskId.isBlank()) {
+            return;
+        }
+        try {
+            taskStore.markPushed(taskId, Instant.now());
+        }
+        catch (RuntimeException e) {
+            log.warn("recording pushed state for task {} failed: {}", taskId, e.getMessage());
+        }
     }
 
     private PublishResult doPostComment(ParkedProposal.PostComment pc, String editedBody)
@@ -776,7 +798,7 @@ public class PublishService
                 "set_issue_state");
     }
 
-    private PublishResult doOpenPr(ParkedProposal.OpenPr o, String editedBody)
+    private PublishResult doOpenPr(ParkedProposal.OpenPr o, String editedBody, Notification original)
     {
         ParkedProposal.RepoRef repo = o.repo();
         if (repo == null) {
@@ -796,6 +818,14 @@ public class PublishService
             throw new ResponseStatusException(HttpStatusCode.valueOf(400),
                     "parked open_pr notification is missing title / head / base");
         }
+        // One-step publish: push the branch first if it isn't on the
+        // remote yet, so approving the draft-PR proposal both lands the
+        // branch and opens its PR in a single action. A no-op when the
+        // branch was already pushed (e.g. a prior push approval).
+        Task task = original == null || original.taskId() == null
+                ? null
+                : taskStore.findTaskById(original.taskId()).orElse(null);
+        ensureBranchPushed(task, head);
         // open_pr's body is optional. null = no override (use the
         // agent's parked body); "" = user explicitly cleared the
         // textarea and wants a blank PR description.
@@ -809,11 +839,53 @@ public class PublishService
                 draft ? Optional.of(true) : Optional.empty(),
                 Optional.empty());
         String pat = patResolver.resolve(owner + "/" + repoName);
-        pullRequests.createPullRequest(pat, new RepoRef(owner, repoName), command);
+        PullRequest opened = pullRequests.createPullRequest(pat, new RepoRef(owner, repoName), command);
+        // Persist the opened PR onto the task so the UI can show "PR #n"
+        // and deep-link into the in-app PR page — closing the gap where
+        // the returned number used to be discarded. Best-effort.
+        if (task != null && opened != null) {
+            try {
+                taskStore.linkPullRequest(task.id(), opened.number(), opened.draft() ? "draft" : "open");
+                taskStore.markPushed(task.id(), Instant.now());
+            }
+            catch (RuntimeException e) {
+                log.warn("linking PR #{} to task {} failed: {}",
+                        opened.number(), task.id(), e.getMessage());
+            }
+        }
+        String prRef = opened == null ? "" : " #" + opened.number();
         return new PublishResult(true, "approved",
-                "Opened PR " + owner + "/" + repoName + " · " + head + " → " + base
+                "Opened PR" + prRef + " " + owner + "/" + repoName + " · " + head + " → " + base
                         + (draft ? " (draft)" : "") + ".",
                 "open_pr");
+    }
+
+    /** Push {@code head} from the task's worktree when it isn't already
+     *  on {@code origin}. Skipped when the worktree was reaped (the
+     *  branch is necessarily already pushed) or the ref already exists. */
+    private void ensureBranchPushed(Task task, String head)
+    {
+        if (task == null) {
+            return;
+        }
+        String worktreePath = task.worktreePath();
+        if (worktreePath == null || worktreePath.isBlank()) {
+            return;
+        }
+        Path worktree = Path.of(worktreePath);
+        try {
+            if (git.refExists(worktree, "origin/" + head)) {
+                return;
+            }
+            git.push(worktree);
+        }
+        catch (IOException e) {
+            throw new RuntimeException("git push before open_pr failed: " + e.getMessage(), e);
+        }
+        catch (InterruptedException e) {
+            Thread.currentThread().interrupt();
+            throw new RuntimeException("git push before open_pr interrupted", e);
+        }
     }
 
     private PublishResult doPublishReview(ParkedProposal.PublishReview review, String editedBody)

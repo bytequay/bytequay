@@ -23,6 +23,8 @@ import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.repository.ThreadStore;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
+import org.springframework.boot.context.event.ApplicationReadyEvent;
+import org.springframework.context.event.EventListener;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.event.TransactionPhase;
 import org.springframework.transaction.event.TransactionalEventListener;
@@ -98,6 +100,26 @@ public class TaskQueueScheduler
         this.phaseMachine = requireNonNull(phaseMachine, "phaseMachine is null");
         this.scheduler = requireNonNull(scheduler, "scheduler is null");
         this.notifications = requireNonNull(notifications, "notifications is null");
+    }
+
+    /**
+     * Kick every thread that holds a PENDING queue entry once the app is
+     * up. Work queued before a restart (or while a slot was busy that
+     * has since freed) has no live trigger otherwise — the on-complete
+     * and on-enqueue hooks only fire on new events. This makes a queued
+     * task on an idle thread start after a plain restart.
+     */
+    @EventListener(ApplicationReadyEvent.class)
+    public void startPendingQueuesOnStartup()
+    {
+        for (String threadId : threadStore.threadIdsWithPendingQueue()) {
+            try {
+                startNextIfIdle(threadId, null);
+            }
+            catch (RuntimeException e) {
+                log.warn("startup queue kick for thread {} failed: {}", threadId, e.getMessage());
+            }
+        }
     }
 
     /** A task reaching COMPLETED frees its slot — advance the queue. */

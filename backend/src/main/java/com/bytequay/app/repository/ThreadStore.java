@@ -53,6 +53,14 @@ public interface ThreadStore
     {
     }
 
+    /** Ids of threads that currently hold at least one PENDING queue
+     *  entry — the startup reconciler kicks each so work queued before a
+     *  restart still runs. Empty default for test stores. */
+    default List<String> threadIdsWithPendingQueue()
+    {
+        return List.of();
+    }
+
     /** Permanent removal — drops the thread row plus its child messages
      *  and per-file rollups. Callers must already have stopped any
      *  live session attached to the thread; this method touches only

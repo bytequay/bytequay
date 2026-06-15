@@ -43,4 +43,10 @@ interface ThreadJpaRepository
      *  Workspace Insights uses this to roll up spend / counts over
      *  a 24h / 7d / 30d window without slurping the whole table. */
     List<ThreadEntity> findByUpdatedAtMsGreaterThanEqualOrderByUpdatedAtMsDesc(long sinceMs);
+
+    /** Threads whose queue JSON contains the given fragment — used at
+     *  startup to find threads with a PENDING queue entry to (re)kick.
+     *  The set is small (threads rarely carry a queue), so a substring
+     *  scan is fine. */
+    List<ThreadEntity> findByQueueJsonContaining(String fragment);
 }

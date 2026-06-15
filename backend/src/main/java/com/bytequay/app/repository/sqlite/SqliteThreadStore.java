@@ -414,6 +414,14 @@ class SqliteThreadStore
         });
     }
 
+    @Override
+    public List<String> threadIdsWithPendingQueue()
+    {
+        return threads.findByQueueJsonContaining("\"status\":\"PENDING\"").stream()
+                .map(ThreadEntity::getId)
+                .toList();
+    }
+
     /** Hand-rolled JSON for the queue so the wire shape (shared with the
      *  frontend's {@code GET /threads/{id}} read) is pinned here and
      *  Instant↔epoch-ms conversion is explicit — no reliance on a

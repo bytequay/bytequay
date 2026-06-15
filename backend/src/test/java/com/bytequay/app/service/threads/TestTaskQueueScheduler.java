@@ -168,6 +168,27 @@ class TestTaskQueueScheduler
     }
 
     @Test
+    void startupKickStartsPendingQueuesFromBeforeRestart()
+    {
+        QueuedTask head = QueuedTask.pending(1, "next", BranchBase.MAIN, "go", NOW);
+        Thread thread = threadWith(List.of(head));
+        when(threadStore.threadIdsWithPendingQueue()).thenReturn(List.of(THREAD_ID));
+        when(threadStore.findThreadById(THREAD_ID)).thenReturn(Optional.of(thread));
+        when(taskStore.listTasksByThread(THREAD_ID)).thenReturn(List.of());
+        when(queue.pendingHead(any())).thenReturn(Optional.of(head));
+        when(taskStore.findLatestTaskForThread(THREAD_ID))
+                .thenReturn(Optional.of(task("t1.k0", TaskPhase.COMPLETED, TaskStatus.COMPLETED)));
+        Task materialised = task("t1.k1", TaskPhase.QUEUED, TaskStatus.PENDING, "go");
+        when(materialiser.materialiseHead(any(), eq(head), eq("/clone"))).thenReturn(materialised);
+        when(taskStore.findTaskById("t1.k1")).thenReturn(Optional.of(materialised));
+
+        queueScheduler.startPendingQueuesOnStartup();
+
+        verify(materialiser).materialiseHead(any(), eq(head), eq("/clone"));
+        verify(phaseMachine).transition("t1.k1", TaskPhase.IMPLEMENTING, "slot_opened", Actor.SCHEDULER);
+    }
+
+    @Test
     void startNextIfIdleDoesNothingWhenSlotBusy()
     {
         QueuedTask head = QueuedTask.pending(1, "next", BranchBase.MAIN, null, NOW);

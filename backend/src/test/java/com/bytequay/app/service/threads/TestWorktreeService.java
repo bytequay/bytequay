@@ -160,13 +160,11 @@ class TestWorktreeService
         assertThat(handle).isEmpty();
     }
 
-    /** A real commit inside the worktree must pick up the
-     *  {@code BQ-Task: <task-id>} trailer. The prepare-commit-msg
-     *  hook is the slice's whole point — a green test here is the
-     *  proof that {@code git log --grep "BQ-Task: <id>"} enumerates
-     *  the agent's work. */
+    /** A worktree commit must NOT carry a {@code BQ-Task:} trailer — the
+     *  prepare-commit-msg hook was removed so internal task ids never leak
+     *  into commit messages that land on GitHub. Regression guard. */
     @Test
-    void testCommitInWorktreeAppendsBqTaskTrailer(@TempDir Path tempDir)
+    void testCommitInWorktreeHasNoTaskTrailer(@TempDir Path tempDir)
             throws IOException, InterruptedException
     {
         GitRunner git = new GitRunner();
@@ -177,38 +175,23 @@ class TestWorktreeService
         WorktreeService service = new WorktreeService(git);
 
         String taskId = "ws-bytequay.t260603-3-a1.k2";
-        var handle = service.create(repo, taskId, "Slice 5 hook").orElseThrow();
+        var handle = service.create(repo, taskId, "No trailer hook").orElseThrow();
         Path worktree = handle.worktreePath();
 
-        // Hook file landed where core.hooksPath points at, and is
-        // executable so /bin/sh picks it up directly.
+        // No prepare-commit-msg hook is installed any more.
         Path hookFile = worktree.resolve(".bytequay-hooks").resolve("prepare-commit-msg");
-        assertThat(Files.isRegularFile(hookFile)).isTrue();
-        assertThat(hookFile.toFile().canExecute()).isTrue();
-        assertThat(Files.readString(hookFile, StandardCharsets.UTF_8))
-                .contains("BQ-Task:")
-                .contains(taskId);
-        // Per-worktree config — main repo's core.hooksPath stays unset.
+        assertThat(Files.isRegularFile(hookFile)).isFalse();
+
         runGit(worktree, List.of("git", "config", "user.email", "agent@example.com"));
         runGit(worktree, List.of("git", "config", "user.name", "Agent"));
         Files.writeString(worktree.resolve("hello.txt"), "world", StandardCharsets.UTF_8);
         runGit(worktree, List.of("git", "add", "hello.txt"));
-        runGit(worktree, List.of("git", "commit", "-m", "land hook test"));
+        runGit(worktree, List.of("git", "commit", "-m", "land a commit"));
 
         String body = readLastCommitBody(worktree);
         assertThat(body)
-                .as("commit body should carry BQ-Task trailer for %s", taskId)
-                .contains("BQ-Task: " + taskId);
-
-        // Idempotent: a second commit whose message already carries the
-        // trailer should not gain a duplicate one.
-        Files.writeString(worktree.resolve("hello2.txt"), "again", StandardCharsets.UTF_8);
-        runGit(worktree, List.of("git", "add", "hello2.txt"));
-        runGit(worktree, List.of("git", "commit", "-m",
-                "second\n\nBQ-Task: " + taskId));
-        String second = readLastCommitBody(worktree);
-        long count = second.lines().filter(l -> l.startsWith("BQ-Task: ")).count();
-        assertThat(count).as("trailer must not duplicate when already present").isEqualTo(1);
+                .as("commit body must not carry a BQ-Task trailer")
+                .doesNotContain("BQ-Task");
     }
 
     /** Remove is best-effort and tolerates a worktree path that no

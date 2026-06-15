@@ -71,16 +71,11 @@ public class WorktreeService
      *  human-readable. */
     static final int SLUG_MAX_CHARS = 32;
 
-    /** Per-worktree hook directory, pointed at by {@code core.hooksPath}.
-     *  Kept separate from {@code .git/hooks/} so the main repo's hooks
-     *  remain untouched and the trailer hook is scoped to commits made
-     *  inside the agent's worktree. */
+    /** Per-worktree infra directory ({@code core.hooksPath}-style scope),
+     *  kept separate from {@code .git/hooks/}. No hook is installed here
+     *  any more — the constant remains so the stage-all exclusion and the
+     *  infra-path guard keep skipping it if a stale dir is ever present. */
     static final String HOOK_DIR_REL = ".bytequay-hooks";
-
-    /** Trailer key we stamp onto every commit in the worktree. The
-     *  value is the task id, which lets {@code git log --grep "BQ-Task:
-     *  <id>"} enumerate every commit originated by a given task. */
-    static final String COMMIT_TRAILER_KEY = "BQ-Task";
 
     private final GitRunner git;
 
@@ -123,7 +118,6 @@ public class WorktreeService
             }
             appendToGitInfoExclude(repoRoot);
             git.worktreeAdd(repoRoot, worktreePath, branchName, baseRef);
-            installTaskTrailerHook(worktreePath, taskId);
             log.info("Created worktree at {} on branch {} (from {}) for task {}",
                     worktreePath, branchName, baseRef, taskId);
             return Optional.of(new WorktreeHandle(worktreePath, branchName));
@@ -266,52 +260,6 @@ public class WorktreeService
                 + marker + "\n";
         Files.writeString(excludePath, append, StandardCharsets.UTF_8,
                 StandardOpenOption.CREATE, StandardOpenOption.APPEND);
-    }
-
-    /**
-     * Writes a {@code prepare-commit-msg} hook into the worktree's
-     * hook directory and points {@code core.hooksPath} at it. The
-     * hook appends a {@code BQ-Task: <taskId>} trailer to every
-     * commit message that doesn't already carry one, so
-     * {@code git log --grep "BQ-Task: <id>"} enumerates every commit
-     * originated by the task.
-     *
-     * <p>The hook directory is per-worktree ({@code <worktree>/
-     * .bytequay-hooks/}), and {@code core.hooksPath} is set in the
-     * worktree's own config — the main repo's hooks and config are
-     * left untouched.
-     *
-     * <p>Merge and squash commit sources are skipped: the message
-     * file there already carries the trailers of the commits being
-     * combined, so re-appending would duplicate them.
-     */
-    private void installTaskTrailerHook(Path worktreePath, String taskId)
-            throws IOException, InterruptedException
-    {
-        Path hookDir = worktreePath.resolve(HOOK_DIR_REL);
-        Files.createDirectories(hookDir);
-        Path hookFile = hookDir.resolve("prepare-commit-msg");
-        String script = ""
-                + "#!/bin/sh\n"
-                + "# Installed by ByteQuay when this worktree was created.\n"
-                + "# Stamps the originating task id into every commit so\n"
-                + "# `git log --grep \"" + COMMIT_TRAILER_KEY + ": <id>\"` enumerates the work.\n"
-                + "MSG_FILE=\"$1\"\n"
-                + "COMMIT_SOURCE=\"$2\"\n"
-                + "case \"$COMMIT_SOURCE\" in\n"
-                + "  merge|squash) exit 0 ;;\n"
-                + "esac\n"
-                + "if grep -q '^" + COMMIT_TRAILER_KEY + ": ' \"$MSG_FILE\"; then\n"
-                + "  exit 0\n"
-                + "fi\n"
-                + "printf '\\n" + COMMIT_TRAILER_KEY + ": %s\\n' '" + taskId + "' >> \"$MSG_FILE\"\n";
-        Files.writeString(hookFile, script, StandardCharsets.UTF_8);
-        if (!hookFile.toFile().setExecutable(true, false)) {
-            log.warn("Could not mark {} executable; commits may bypass the trailer hook",
-                    hookFile);
-        }
-        // Per-worktree config — main repo's core.hooksPath stays as-is.
-        git.setConfig(worktreePath, "core.hooksPath", HOOK_DIR_REL);
     }
 
     /** Outcome of a successful {@link #create} call. */

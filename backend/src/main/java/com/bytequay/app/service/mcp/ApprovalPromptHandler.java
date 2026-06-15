@@ -169,6 +169,17 @@ public class ApprovalPromptHandler
         }
         deferred.onTimeout(() -> {
             gate.cancel(callId);
+            // Record the timeout as a denial in the conversation so the
+            // prompt resolves instead of lingering as a forever-pending
+            // card. gate is already cancelled, so decide() only writes the
+            // decision row here (its gate hop is a no-op).
+            try {
+                threads.decide(threadId, callId, PermissionDecision.DENY);
+            }
+            catch (RuntimeException e) {
+                log.warn("Failed to record approval timeout for thread {}: {}",
+                        threadId, e.getMessage());
+            }
             // Actionable, honest failure so the agent doesn't misread an
             // unanswered approval as a network problem and loop retrying.
             // The prompt is surfaced in the thread (trunk) and the task

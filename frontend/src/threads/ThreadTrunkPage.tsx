@@ -25,6 +25,7 @@ import { PermissionCard } from './PermissionCard';
 import { findPendingPermission } from './permissions';
 import type { PendingPermission } from './ConversationPane';
 import { useThreadTasks } from './useThreadTasks';
+import { usePromptHistory } from './usePromptHistory';
 import PromptContextInspector from '../inspector/PromptContextInspector';
 import { useInspectorHotkey } from '../inspector/useInspectorHotkey';
 import { ConfirmDialog } from '../workspace/ConfirmDialog';
@@ -240,6 +241,19 @@ export default function ThreadTrunkPage({ threadId, onBack, onOpenTask }: Props)
         .filter(m => m.role === 'user' && m.type === 'text')
         .map(m => m.seq)),
     [trunkMessages]);
+
+  // Shell-style ↑/↓ recall of prior trunk prompts, newest-first.
+  const priorPrompts = useMemo(
+    () => trunkMessages
+      .filter(m => m.role === 'user' && m.type === 'text')
+      .map(m => {
+        try { return (JSON.parse(m.contentJson) as { text?: string }).text ?? ''; }
+        catch { return ''; }
+      })
+      .filter(t => t.length > 0)
+      .reverse(),
+    [trunkMessages]);
+  const promptHistory = usePromptHistory(priorPrompts, composerInput, setComposerInput);
   const orderedTasksAsc = useMemo(
     () => tasks === null ? [] : [...tasks].sort((a, b) => a.seq - b.seq),
     [tasks]);
@@ -684,8 +698,10 @@ export default function ThreadTrunkPage({ threadId, onBack, onOpenTask }: Props)
               </div>
               <textarea
                 value={composerInput}
-                onChange={e => setComposerInput(e.target.value)}
+                onChange={e => { setComposerInput(e.target.value); promptHistory.reset(); }}
                 onKeyDown={e => {
+                  // ↑/↓ recall prior trunk prompts (shell-style) first.
+                  if (promptHistory.onKeyDown(e)) return;
                   if (e.key !== 'Enter' || e.nativeEvent.isComposing) return;
                   // Shift+Enter: textarea default — a newline.
                   if (e.shiftKey) return;

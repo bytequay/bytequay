@@ -33,6 +33,7 @@ import PromptContextInspector from '../inspector/PromptContextInspector';
 import { useInspectorHotkey } from '../inspector/useInspectorHotkey';
 import { WorkModelPill } from '../workspace/WorkModelPill';
 import { useThreadTasks } from './useThreadTasks';
+import { usePromptHistory } from './usePromptHistory';
 import { useAnimatedNumber } from './useAnimatedNumber';
 
 type Props = {
@@ -442,6 +443,19 @@ export default function TaskDetailPage({
         .map(m => m.seq)),
     [messages]);
 
+  // Shell-style ↑/↓ recall of this task's prior prompts, newest-first.
+  const priorPrompts = useMemo(
+    () => (messages ?? [])
+      .filter(m => m.role === 'user' && m.type === 'text')
+      .map(m => {
+        try { return (JSON.parse(m.contentJson) as { text?: string }).text ?? ''; }
+        catch { return ''; }
+      })
+      .filter(t => t.length > 0)
+      .reverse(),
+    [messages]);
+  const promptHistory = usePromptHistory(priorPrompts, input, setInput);
+
   // Terminal mode takes over the entire shell with a dark theme per
   // docs/mockups/design/tasks/thread-detail-terminal.png. The page
   // background, top bar, altitude band, and composer all switch to
@@ -707,8 +721,11 @@ export default function TaskDetailPage({
                   <textarea
                     ref={composerRef}
                     value={input}
-                    onChange={e => setInput(e.target.value)}
+                    onChange={e => { setInput(e.target.value); promptHistory.reset(); }}
                     onKeyDown={e => {
+                      // ↑/↓ recall prior prompts (shell-style) before any
+                      // newline/send handling claims the key.
+                      if (promptHistory.onKeyDown(e)) return;
                       if (e.key !== 'Enter' || e.nativeEvent.isComposing) return;
                       // Shift+Enter: textarea default — newline.
                       if (e.shiftKey) return;

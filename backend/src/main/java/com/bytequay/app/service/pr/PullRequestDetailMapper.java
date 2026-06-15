@@ -73,7 +73,9 @@ final class PullRequestDetailMapper
                 raw.headRepo(),
                 raw.baseRef(),
                 raw.baseRepo(),
-                stored.mergeQueueState());
+                stored.mergeQueueState(),
+                raw.state(),
+                raw.merged());
     }
 
     /**

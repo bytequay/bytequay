@@ -78,6 +78,14 @@ class PrDetailEntity
     @Column(name = "merge_queue_state")
     private String mergeQueueState;
 
+    /** PR lifecycle state: "open" | "closed". Lets the reconciler detect
+     *  a finished PR regardless of where it was merged/closed. */
+    private String state;
+
+    /** True when the PR landed (merged), as opposed to closed unmerged. */
+    @Column(nullable = false)
+    private boolean merged;
+
     @Column(nullable = false)
     @Convert(converter = InstantToTextConverter.class)
     private Instant syncedAt;
@@ -134,6 +142,12 @@ class PrDetailEntity
 
     String getMergeQueueState() { return mergeQueueState; }
     void setMergeQueueState(String mergeQueueState) { this.mergeQueueState = mergeQueueState; }
+
+    String getState() { return state; }
+    void setState(String state) { this.state = state; }
+
+    boolean isMerged() { return merged; }
+    void setMerged(boolean merged) { this.merged = merged; }
 
     Instant getSyncedAt() { return syncedAt; }
     void setSyncedAt(Instant syncedAt) { this.syncedAt = syncedAt; }

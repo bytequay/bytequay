@@ -27,6 +27,10 @@ import java.util.List;
  * @param baseRef Target branch. Null on legacy rows.
  * @param baseRepo Full {@code owner/repo} name of the target side. Same as
  * the PR's repo for in-repo PRs. Null on legacy rows.
+ * @param state PR lifecycle state ("open" | "closed"). Null on cached rows
+ * written before the terminal-state columns existed, and on the
+ * backward-compat constructor used by callers that don't carry it.
+ * @param merged True when the PR landed (merged) rather than closed unmerged.
  */
 public record PrRawDetail(
         String body,
@@ -43,4 +47,31 @@ public record PrRawDetail(
         String headRef,
         String headRepo,
         String baseRef,
-        String baseRepo) {}
+        String baseRepo,
+        String state,
+        boolean merged)
+{
+    /** Backward-compat constructor for callers (mostly tests) that don't
+     *  carry terminal PR state: defaults to open / not-merged. */
+    public PrRawDetail(
+            String body,
+            List<String> labels,
+            boolean draft,
+            Boolean mergeable,
+            String mergeableState,
+            int additions,
+            int deletions,
+            int changedFiles,
+            int requestedReviewerCount,
+            List<String> requestedReviewers,
+            String headSha,
+            String headRef,
+            String headRepo,
+            String baseRef,
+            String baseRepo)
+    {
+        this(body, labels, draft, mergeable, mergeableState, additions, deletions, changedFiles,
+                requestedReviewerCount, requestedReviewers, headSha, headRef, headRepo, baseRef,
+                baseRepo, null, false);
+    }
+}

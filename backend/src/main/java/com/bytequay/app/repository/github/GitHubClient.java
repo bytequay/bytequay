@@ -258,7 +258,9 @@ public class GitHubClient
                     headRef,
                     headRepo,
                     baseRef,
-                    baseRepo);
+                    baseRepo,
+                    r.state(),
+                    Boolean.TRUE.equals(r.merged()));
         }
         catch (RestClientResponseException e) {
             throw toReadableException(e);

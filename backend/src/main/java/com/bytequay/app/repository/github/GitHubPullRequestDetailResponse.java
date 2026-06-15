@@ -30,7 +30,9 @@ public record GitHubPullRequestDetailResponse(
         Head head,
         Base base,
         Boolean mergeable,
-        @JsonProperty("mergeable_state") String mergeableState)
+        @JsonProperty("mergeable_state") String mergeableState,
+        String state,
+        Boolean merged)
 {
     @JsonIgnoreProperties(ignoreUnknown = true)
     public record Label(String name, String color) {}

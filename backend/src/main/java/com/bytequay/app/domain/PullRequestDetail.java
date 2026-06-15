@@ -59,7 +59,9 @@ public record PullRequestDetail(
         String headRepo,
         String baseRef,
         String baseRepo,
-        String mergeQueueState)
+        String mergeQueueState,
+        String state,
+        boolean merged)
 {
     public enum CiStatus
     {

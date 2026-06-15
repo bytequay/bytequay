@@ -126,6 +126,20 @@ class TestTaskLifecyclePhases
                 .contains(TaskPhase.AWAITING_REMOTE_REVIEW);
     }
 
+    @Test
+    void fromDetail_mergedOrClosed_completesTheTask()
+    {
+        // Merged wins regardless of CI / draft — the PR landed.
+        PullRequestDetail merged = mock(PullRequestDetail.class);
+        when(merged.merged()).thenReturn(true);
+        assertThat(TaskLifecyclePhases.observedPhaseFromDetail(merged)).contains(TaskPhase.COMPLETED);
+
+        // Closed without merging is also terminal (cancelled).
+        PullRequestDetail closed = mock(PullRequestDetail.class);
+        when(closed.state()).thenReturn("closed");
+        assertThat(TaskLifecyclePhases.observedPhaseFromDetail(closed)).contains(TaskPhase.COMPLETED);
+    }
+
     private static PullRequestDetail detail(CiStatus ci, boolean draft)
     {
         PullRequestDetail d = mock(PullRequestDetail.class);

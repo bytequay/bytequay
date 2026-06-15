@@ -57,6 +57,20 @@ class TestTaskLifecycleDriver
     }
 
     @Test
+    void completesTheTaskWhenItsPrHasMerged()
+    {
+        Task task = task("trinodb/trino#29897", TaskPhase.AWAITING_REMOTE_REVIEW);
+        PullRequestDetail merged = mock(PullRequestDetail.class);
+        when(merged.merged()).thenReturn(true);
+        when(pullRequests.getPullRequestDetail("trinodb/trino", 29897)).thenReturn(merged);
+
+        driver.reconcileTask(task);
+
+        // A merged PR drains the task off the remote spine.
+        verify(phaseMachine).observe("t1.k2", TaskPhase.COMPLETED, "pr_state_observed");
+    }
+
+    @Test
     void scansOnlyTheRemoteSpineAndSkipsTasksWithNoLinkedPr()
     {
         // A spine task that never linked a PR has nothing to fetch.

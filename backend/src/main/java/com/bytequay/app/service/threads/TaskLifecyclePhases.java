@@ -79,6 +79,13 @@ final class TaskLifecyclePhases
         if (detail == null) {
             return Optional.empty();
         }
+        // Terminal: merged (success) or closed-unmerged (cancelled). This
+        // is what lets the reconciler drain a task off the remote spine
+        // when its PR finished anywhere — github.com, an agent, the merge
+        // queue — not just via the in-app merge action.
+        if (detail.merged() || "closed".equalsIgnoreCase(detail.state())) {
+            return Optional.of(TaskPhase.COMPLETED);
+        }
         CiStatus ci = detail.ciStatus();
         if (ci == CiStatus.FAILING) {
             return Optional.of(TaskPhase.CI_FIXING);

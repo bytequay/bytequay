@@ -157,7 +157,7 @@ function GithubMark({ size = 18 }: { size?: number }) {
  *  null for repo-style parents (Repository, etc.) so the caller can
  *  fall back to the owner/repo string for those — that's the
  *  established muscle memory. */
-function breadcrumbLabel(back: Nav | undefined): string | null {
+export function breadcrumbLabel(back: Nav | undefined): string | null {
   if (!back) return null;
   switch (back.view) {
     case 'email': return 'Email';
@@ -167,6 +167,10 @@ function breadcrumbLabel(back: Nav | undefined): string | null {
     case 'notifications': return 'Notifications';
     case 'teams': return 'Teams';
     case 'repos': return 'Repos';
+    // A PR opened from a task / trunk / review thread should read its
+    // origin, not the repo it landed on.
+    case 'thread-detail': return back.taskId !== undefined ? 'Task' : 'Thread';
+    case 'review-thread': return 'Review';
     default: return null;
   }
 }

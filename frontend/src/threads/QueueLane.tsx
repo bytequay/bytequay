@@ -148,41 +148,34 @@ function QueueCard(props: {
 
   return (
     <div
-      style={{ ...TK, borderLeft: '3px dashed var(--border-strong)', opacity: dim }}
+      style={{ ...TK, opacity: dim }}
       onMouseEnter={() => setHover(true)}
       onMouseLeave={() => setHover(false)}
     >
-      <span style={MARK}>◻</span>
-      <div style={{ minWidth: 0 }}>
+      <div style={CARD_TOP}>
+        <span style={MARK}>◻</span>
         <div style={TK_TITLE}>{entry.title}</div>
-        <div style={TK_SUB}>
-          <span style={{ color: 'var(--text-muted)' }}>{base}</span>
-          <span style={materialized ? PILL_QUEUED : PILL_PENDING}>
-            {materialized ? 'QUEUED' : 'PENDING'} · pos {entry.position}
-          </span>
+        {materialized && <span style={PINNED}>pinned</span>}
+      </div>
+      <div style={TK_SUB}>
+        <span style={BASE_TAG}>{base}</span>
+        <span style={materialized ? PILL_QUEUED : PILL_PENDING}>
+          {materialized ? 'QUEUED' : 'PENDING'} · pos {entry.position}
+        </span>
+      </div>
+      {!materialized && (
+        <div style={{ ...ACTIONS, opacity: hover ? 1 : 0.45 }}>
+          <button style={ICON_BTN} disabled={busy || isFirstPending} title="Move up" onClick={onUp}>
+            ↑
+          </button>
+          <button style={ICON_BTN} disabled={busy || isLastPending} title="Move down" onClick={onDown}>
+            ↓
+          </button>
+          <span style={ACTIONS_SPACER} />
+          <button style={ICON_BTN} disabled={busy} title="Edit plan" onClick={onEdit}>✎</button>
+          <button style={ICON_BTN_DANGER} disabled={busy} title="Drop" onClick={onDrop}>✕</button>
         </div>
-      </div>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 4, opacity: hover ? 1 : 0.25 }}>
-        {!materialized && (
-          <>
-            <button
-              style={ICON_BTN}
-              disabled={busy || isFirstPending}
-              title="Move up"
-              onClick={onUp}
-            >↑</button>
-            <button
-              style={ICON_BTN}
-              disabled={busy || isLastPending}
-              title="Move down"
-              onClick={onDown}
-            >↓</button>
-            <button style={ICON_BTN} disabled={busy} title="Edit plan" onClick={onEdit}>✎</button>
-            <button style={ICON_BTN} disabled={busy} title="Drop" onClick={onDrop}>✕</button>
-          </>
-        )}
-        {materialized && <span style={{ fontSize: 10, color: 'var(--text-subtle)' }}>pinned</span>}
-      </div>
+      )}
     </div>
   );
 }
@@ -243,23 +236,38 @@ const SEC_R: React.CSSProperties = {
   textTransform: 'none', fontSize: 10,
 };
 const TK: React.CSSProperties = {
-  position: 'relative', display: 'grid', gridTemplateColumns: '18px 1fr auto', gap: 10,
-  alignItems: 'center', padding: '10px 12px 10px 15px', borderRadius: 13,
-  background: 'linear-gradient(157deg, rgba(255,255,255,0.96), rgba(255,255,255,0.62))',
-  border: '1px solid var(--border-soft)', overflow: 'hidden',
+  position: 'relative', display: 'flex', flexDirection: 'column', gap: 7,
+  padding: '9px 11px', borderRadius: 12,
+  background: 'rgba(255,255,255,0.72)',
+  border: '1px solid var(--border-soft)', borderLeft: '3px dashed var(--border-strong)',
+};
+const CARD_TOP: React.CSSProperties = {
+  display: 'flex', alignItems: 'flex-start', gap: 8,
 };
 const MARK: React.CSSProperties = {
-  width: 18, height: 18, display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
-  fontSize: 11, color: '#9ca3af',
+  flexShrink: 0, marginTop: 1, display: 'inline-flex', alignItems: 'center',
+  justifyContent: 'center', fontSize: 12, color: '#9ca3af',
 };
 const TK_TITLE: React.CSSProperties = {
-  fontSize: 12.5, fontWeight: 700, color: 'var(--text-secondary)', letterSpacing: '-0.01em',
-  overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+  flex: 1, minWidth: 0, fontSize: 12.5, fontWeight: 700, color: 'var(--text-secondary)',
+  letterSpacing: '-0.01em', lineHeight: 1.3, wordBreak: 'break-word',
+};
+const PINNED: React.CSSProperties = {
+  flexShrink: 0, fontSize: 9, fontWeight: 700, color: 'var(--text-subtle)',
+  textTransform: 'uppercase', letterSpacing: '.04em', marginTop: 2,
 };
 const TK_SUB: React.CSSProperties = {
-  fontSize: 10, color: 'var(--text-muted)', marginTop: 4, display: 'flex', gap: 6,
-  alignItems: 'center',
+  fontSize: 10, color: 'var(--text-muted)', display: 'flex', gap: 6,
+  alignItems: 'center', flexWrap: 'wrap', paddingLeft: 20,
 };
+const BASE_TAG: React.CSSProperties = {
+  color: 'var(--text-muted)', fontFamily: 'var(--font-mono)', fontSize: 9.5,
+};
+const ACTIONS: React.CSSProperties = {
+  display: 'flex', alignItems: 'center', gap: 5, paddingLeft: 20,
+  transition: 'opacity .12s ease',
+};
+const ACTIONS_SPACER: React.CSSProperties = { flex: 1 };
 const PILL_BASE: React.CSSProperties = {
   fontSize: 9.5, padding: '1px 7px', borderRadius: 999, fontWeight: 700, letterSpacing: '.04em',
 };
@@ -271,8 +279,13 @@ const PILL_PENDING: React.CSSProperties = {
   border: '1px solid var(--border-soft)',
 };
 const ICON_BTN: React.CSSProperties = {
-  border: '1px solid var(--border-soft)', background: 'rgba(255,255,255,0.7)', borderRadius: 6,
-  width: 20, height: 20, fontSize: 11, color: 'var(--text-muted)', cursor: 'pointer', padding: 0,
+  border: '1px solid var(--border-soft)', background: 'rgba(255,255,255,0.8)', borderRadius: 7,
+  width: 22, height: 22, fontSize: 11, color: 'var(--text-secondary)', cursor: 'pointer',
+  padding: 0, lineHeight: 1,
+};
+const ICON_BTN_DANGER: React.CSSProperties = {
+  border: '1px solid rgba(239,68,68,0.28)', background: 'rgba(239,68,68,0.06)', borderRadius: 7,
+  width: 22, height: 22, fontSize: 11, color: '#b91c1c', cursor: 'pointer', padding: 0, lineHeight: 1,
 };
 const LANE_HINT: React.CSSProperties = {
   fontSize: 10, color: 'var(--text-subtle)', padding: '3px 2px 0',

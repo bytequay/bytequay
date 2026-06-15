@@ -527,8 +527,13 @@ const loadOlderBtnStyle: React.CSSProperties = {
 
 const scrollStyle: React.CSSProperties = {
   flex: 1,
+  minWidth: 0,
   minHeight: 0,
   overflowY: 'auto',
+  // Never scroll sideways: a wide child should wrap, not push a
+  // horizontal scrollbar. (overflowY:auto alone would compute
+  // overflowX to auto, which is what let the column scroll left-right.)
+  overflowX: 'hidden',
   padding: '18px 22px',
   display: 'flex',
   flexDirection: 'column',
@@ -699,8 +704,12 @@ const assistantMetaStyle: React.CSSProperties = {
 
 const assistantBlockStyle: React.CSSProperties = {
   maxWidth: '92%',
+  minWidth: 0,
   color: 'var(--text-1)',
   fontSize: 15,
+  // Long unbreakable tokens (paths, URLs) wrap instead of forcing
+  // the column wider.
+  overflowWrap: 'anywhere',
   // line-height comes from .bq-chat-md.
 };
 
@@ -779,6 +788,9 @@ function toolColorFor(toolName: string): string {
 
 const toolDetailStyle: React.CSSProperties = {
   flex: 1,
+  // Allow the flex item to shrink below its content width so the
+  // ellipsis kicks in instead of stretching the row.
+  minWidth: 0,
   fontSize: 12,
   color: 'var(--text-2)',
   fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',

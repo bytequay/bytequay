@@ -25,6 +25,7 @@ import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.boot.context.event.ApplicationReadyEvent;
 import org.springframework.context.event.EventListener;
+import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.event.TransactionPhase;
 import org.springframework.transaction.event.TransactionalEventListener;
@@ -102,22 +103,44 @@ public class TaskQueueScheduler
         this.notifications = requireNonNull(notifications, "notifications is null");
     }
 
+    /** Safety-net sweep interval. The event-driven triggers (on-enqueue,
+     *  on-complete) cover the happy path; this catches what they miss — a
+     *  transient start failure, or a running task that left for
+     *  NEEDS_ATTENTION / ERRORED (freeing the slot with no COMPLETED
+     *  event to advance the queue). */
+    private static final long SWEEP_INTERVAL_MS = 3L * 60 * 1000;
+
     /**
      * Kick every thread that holds a PENDING queue entry once the app is
-     * up. Work queued before a restart (or while a slot was busy that
-     * has since freed) has no live trigger otherwise — the on-complete
-     * and on-enqueue hooks only fire on new events. This makes a queued
-     * task on an idle thread start after a plain restart.
+     * up. Work queued before a restart has no live trigger otherwise —
+     * the on-complete and on-enqueue hooks only fire on new events.
      */
     @EventListener(ApplicationReadyEvent.class)
     public void startPendingQueuesOnStartup()
+    {
+        reconcilePendingQueues();
+    }
+
+    /**
+     * Periodic self-healing sweep — re-kicks any thread left with a
+     * PENDING head on a free slot. Idempotent: a head that already
+     * materialised is MATERIALIZED (not PENDING) so it isn't re-picked,
+     * and a busy slot is a no-op.
+     */
+    @Scheduled(fixedDelay = SWEEP_INTERVAL_MS, initialDelay = SWEEP_INTERVAL_MS)
+    public void reconcilePendingQueuesPeriodically()
+    {
+        reconcilePendingQueues();
+    }
+
+    private void reconcilePendingQueues()
     {
         for (String threadId : threadStore.threadIdsWithPendingQueue()) {
             try {
                 startNextIfIdle(threadId, null);
             }
             catch (RuntimeException e) {
-                log.warn("startup queue kick for thread {} failed: {}", threadId, e.getMessage());
+                log.warn("queue reconcile for thread {} failed: {}", threadId, e.getMessage());
             }
         }
     }
@@ -164,7 +187,7 @@ public class TaskQueueScheduler
      *     completed task's dir, or the create_task caller's repo); falls
      *     back to the thread's latest task's working dir.
      */
-    public Optional<Task> startNextIfIdle(String threadId, String workingDirHint)
+    public synchronized Optional<Task> startNextIfIdle(String threadId, String workingDirHint)
     {
         Thread thread = threadStore.findThreadById(threadId).orElse(null);
         if (thread == null) {

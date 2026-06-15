@@ -102,45 +102,42 @@ function InteractiveQuestions({
   const flat = useMemo<FlatRef[]>(
     () => questions.flatMap((q, qi) => q.options.map((_, oi) => ({ qi, oi }))),
     [questions]);
-  // The single common case — one single-select question — answers on
-  // Enter/click immediately, matching the CLI selector. Anything else
-  // (multiSelect, or multiple questions) accumulates and confirms.
-  const immediate = questions.length === 1 && !questions[0].multi;
   const [cursor, setCursor] = useState(0);
-  // Per-question selected option indices.
+  // Per-question selected option indices. Every option toggles, so the
+  // user can pick several (e.g. "B and C") regardless of multiSelect.
   const [selected, setSelected] = useState<Record<number, Set<number>>>({});
+  // Always-available free-text reply — the "Other" escape the
+  // AskUserQuestion contract guarantees. Selections and typed text are
+  // sent together.
+  const [custom, setCustom] = useState('');
   const rootRef = useRef<HTMLDivElement | null>(null);
 
   // Grab focus so the arrows work the moment the prompt appears.
   useEffect(() => { rootRef.current?.focus(); }, []);
 
-  const choose = (qi: number, oi: number) => {
-    if (immediate) {
-      onAnswer(questions[0].options[oi].label);
-      return;
-    }
+  const toggle = (qi: number, oi: number) => {
     setSelected(prev => {
       const next = { ...prev };
       const set = new Set(next[qi] ?? []);
-      if (questions[qi].multi) {
-        if (set.has(oi)) set.delete(oi); else set.add(oi);
-      } else {
-        set.clear();
-        set.add(oi);
-      }
+      if (set.has(oi)) set.delete(oi); else set.add(oi);
       next[qi] = set;
       return next;
     });
   };
 
-  const everyAnswered = questions.every((_, qi) => (selected[qi]?.size ?? 0) > 0);
+  const hasSelection = questions.some((_, qi) => (selected[qi]?.size ?? 0) > 0);
+  const canSend = custom.trim().length > 0 || hasSelection;
 
-  const confirm = () => {
-    if (!everyAnswered) return;
-    onAnswer(composeAnswer(questions, selected));
+  const send = () => {
+    if (canSend) onAnswer(composeAnswer(questions, selected, custom));
   };
 
   const onKeyDown = (e: React.KeyboardEvent<HTMLDivElement>) => {
+    if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') {
+      e.preventDefault();
+      send();
+      return;
+    }
     if (flat.length === 0) return;
     if (e.key === 'ArrowDown') {
       e.preventDefault();
@@ -148,11 +145,10 @@ function InteractiveQuestions({
     } else if (e.key === 'ArrowUp') {
       e.preventDefault();
       setCursor(c => Math.max(c - 1, 0));
-    } else if (e.key === 'Enter') {
+    } else if (e.key === 'Enter' || e.key === ' ') {
       e.preventDefault();
       const ref = flat[cursor];
-      if (ref) choose(ref.qi, ref.oi);
-      else if (!immediate) confirm();
+      if (ref) toggle(ref.qi, ref.oi);
     }
   };
 
@@ -161,10 +157,11 @@ function InteractiveQuestions({
     <div
       ref={rootRef}
       role="listbox"
+      aria-multiselectable
       tabIndex={0}
       onKeyDown={onKeyDown}
       style={{ ...styles.root, outline: 'none' }}
-      aria-label="Choose an answer"
+      aria-label="Choose one or more answers"
     >
       <CardHeader count={questions.length} styles={styles} />
       {questions.map((q, qi) => (
@@ -182,13 +179,12 @@ function InteractiveQuestions({
                   type="button"
                   role="option"
                   aria-selected={isSelected}
+                  tabIndex={-1}
                   onMouseEnter={(idx => () => setCursor(idx))(flatIndex)}
-                  onClick={() => choose(qi, oi)}
+                  onClick={() => { toggle(qi, oi); rootRef.current?.focus(); }}
                   style={optionStyle(styles, onCursor, isSelected)}
                 >
-                  <span style={optionMarkStyle}>
-                    {q.multi ? (isSelected ? '☑' : '☐') : (isSelected ? '◉' : '○')}
-                  </span>
+                  <span style={optionMarkStyle}>{isSelected ? '☑' : '☐'}</span>
                   <span>
                     <span style={styles.qOptionLabel}>{o.label || `Option ${oi + 1}`}</span>
                     {o.desc && <span style={styles.qOptionDesc}> — {o.desc}</span>}
@@ -197,20 +193,32 @@ function InteractiveQuestions({
               );
             })}
           </div>
-          {q.multi && <div style={styles.qMultiHint}>You may pick more than one.</div>}
         </div>
       ))}
-      {!immediate && (
-        <button
-          type="button"
-          onClick={confirm}
-          disabled={!everyAnswered}
-          style={sendStyle(styles, everyAnswered)}
-        >
-          Send answer{questions.length > 1 ? 's' : ''} →
-        </button>
-      )}
-      <div style={styles.hint}>↑/↓ to move · Enter to {immediate ? 'pick' : 'toggle'} · or click</div>
+      <textarea
+        value={custom}
+        onChange={e => setCustom(e.target.value)}
+        onKeyDown={e => {
+          // Don't let the listbox's arrow/space handler hijack typing.
+          e.stopPropagation();
+          if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') { e.preventDefault(); send(); }
+        }}
+        placeholder="Or write your own reply… (pick several above, or type here)"
+        rows={2}
+        style={customInputStyle(styles)}
+        aria-label="Custom reply"
+      />
+      <button
+        type="button"
+        onClick={send}
+        disabled={!canSend}
+        style={sendStyle(styles, canSend)}
+      >
+        Send →
+      </button>
+      <div style={styles.hint}>
+        ↑/↓ move · Enter/Space toggle · ⌘↵ send · pick several or type your own
+      </div>
     </div>
   );
 }
@@ -224,21 +232,30 @@ function CardHeader({ count, styles }: { count: number; styles: StyleBundle }) {
   );
 }
 
-/** Compose the user-turn text from the selections. One question → just
- *  the chosen label(s); several → "header: choice" lines. */
-function composeAnswer(questions: ParsedQuestion[], selected: Record<number, Set<number>>): string {
+/** Compose the user-turn text from the selections + any free text. One
+ *  question → the chosen label(s) (joined with " — " to a custom note);
+ *  several → "header: choice" lines, with the custom note on its own. */
+function composeAnswer(
+  questions: ParsedQuestion[],
+  selected: Record<number, Set<number>>,
+  custom: string,
+): string {
   const lineFor = (qi: number): string =>
     [...(selected[qi] ?? [])]
       .sort((a, b) => a - b)
       .map(oi => questions[qi].options[oi]?.label ?? '')
       .filter(Boolean)
       .join(', ');
+  const note = custom.trim();
   if (questions.length === 1) {
-    return lineFor(0);
+    return [lineFor(0), note].filter(Boolean).join(' — ');
   }
-  return questions
-    .map((q, qi) => `${q.header || q.text || `Question ${qi + 1}`}: ${lineFor(qi)}`)
-    .join('\n');
+  const lines = questions
+    .map((q, qi) => ({ q, line: lineFor(qi), qi }))
+    .filter(({ line }) => line.length > 0)
+    .map(({ q, line, qi }) => `${q.header || q.text || `Question ${qi + 1}`}: ${line}`);
+  if (note) lines.push(note);
+  return lines.join('\n');
 }
 
 function parseQuestions(input: unknown): ParsedQuestion[] {
@@ -317,6 +334,24 @@ function sendStyle(styles: StyleBundle, enabled: boolean): CSSProperties {
     color: '#fff',
     // referenced so the param isn't flagged unused on the disabled path
     opacity: styles === terminalStyles ? 0.95 : 1,
+  };
+}
+
+function customInputStyle(styles: StyleBundle): CSSProperties {
+  const terminal = styles === terminalStyles;
+  return {
+    width: '100%',
+    boxSizing: 'border-box',
+    resize: 'vertical',
+    marginTop: 2,
+    padding: '6px 8px',
+    borderRadius: 6,
+    fontFamily: 'inherit',
+    fontSize: 12.5,
+    lineHeight: 1.5,
+    border: terminal ? '1px solid var(--term-border)' : '1px solid #FCD34D',
+    background: terminal ? 'var(--term-bg)' : '#fff',
+    color: terminal ? 'var(--term-text-bright)' : '#78350F',
   };
 }
 

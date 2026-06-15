@@ -33,36 +33,57 @@ const SINGLE = {
 };
 
 describe('AskQuestionCard (interactive)', () => {
-  it('answers with the chosen label on click', () => {
-    const onAnswer = vi.fn();
-    render(<AskQuestionCard input={SINGLE} onAnswer={onAnswer} />);
-    fireEvent.click(screen.getByText('Ship on default-base worktree now'));
-    expect(onAnswer).toHaveBeenCalledWith('Ship on default-base worktree now');
-  });
-
-  it('navigates with ArrowDown and picks with Enter', () => {
-    const onAnswer = vi.fn();
-    render(<AskQuestionCard input={SINGLE} onAnswer={onAnswer} />);
-    const box = screen.getByRole('listbox');
-    fireEvent.keyDown(box, { key: 'ArrowDown' }); // cursor 0 → 1
-    fireEvent.keyDown(box, { key: 'Enter' });
-    expect(onAnswer).toHaveBeenCalledWith('Ship on default-base worktree now');
-  });
-
-  it('multiSelect: toggles options and sends the joined labels', () => {
+  it('lets the user pick several options and sends the joined labels', () => {
     const onAnswer = vi.fn();
     const multi = {
       questions: [{
-        question: 'Pick features', multiSelect: true,
+        question: 'Pick features',
         options: [{ label: 'A' }, { label: 'B' }, { label: 'C' }],
       }],
     };
     render(<AskQuestionCard input={multi} onAnswer={onAnswer} />);
-    fireEvent.click(screen.getByText('A'));
+    fireEvent.click(screen.getByText('B'));
     fireEvent.click(screen.getByText('C'));
-    expect(onAnswer).not.toHaveBeenCalled();       // multi waits for confirm
-    fireEvent.click(screen.getByText(/Send answer/));
-    expect(onAnswer).toHaveBeenCalledWith('A, C');
+    expect(onAnswer).not.toHaveBeenCalled();      // waits for an explicit Send
+    fireEvent.click(screen.getByText('Send →'));
+    expect(onAnswer).toHaveBeenCalledWith('B, C');
+  });
+
+  it('toggles with the keyboard (Space) and sends with Cmd/Ctrl+Enter', () => {
+    const onAnswer = vi.fn();
+    render(<AskQuestionCard input={SINGLE} onAnswer={onAnswer} />);
+    const box = screen.getByRole('listbox');
+    fireEvent.keyDown(box, { key: 'ArrowDown' }); // cursor 0 → 1
+    fireEvent.keyDown(box, { key: ' ' });         // toggle option 1
+    fireEvent.keyDown(box, { key: 'Enter', ctrlKey: true });
+    expect(onAnswer).toHaveBeenCalledWith('Ship on default-base worktree now');
+  });
+
+  it('supports a free-text reply with no option selected', () => {
+    const onAnswer = vi.fn();
+    render(<AskQuestionCard input={SINGLE} onAnswer={onAnswer} />);
+    fireEvent.change(screen.getByLabelText('Custom reply'), {
+      target: { value: 'neither — look for a different nit' },
+    });
+    fireEvent.click(screen.getByText('Send →'));
+    expect(onAnswer).toHaveBeenCalledWith('neither — look for a different nit');
+  });
+
+  it('combines a selected option with free text', () => {
+    const onAnswer = vi.fn();
+    const q = { questions: [{ question: 'pick', options: [{ label: 'A' }, { label: 'B' }] }] };
+    render(<AskQuestionCard input={q} onAnswer={onAnswer} />);
+    fireEvent.click(screen.getByText('A'));
+    fireEvent.change(screen.getByLabelText('Custom reply'), { target: { value: 'and watch perf' } });
+    fireEvent.click(screen.getByText('Send →'));
+    expect(onAnswer).toHaveBeenCalledWith('A — and watch perf');
+  });
+
+  it('disables Send until something is chosen or typed', () => {
+    render(<AskQuestionCard input={SINGLE} onAnswer={vi.fn()} />);
+    expect((screen.getByText('Send →') as HTMLButtonElement).disabled).toBe(true);
+    fireEvent.click(screen.getByText('Build the pr.head primitive now'));
+    expect((screen.getByText('Send →') as HTMLButtonElement).disabled).toBe(false);
   });
 
   it('static mode (no onAnswer) points the user at the chat input', () => {

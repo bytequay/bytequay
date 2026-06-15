@@ -18,6 +18,7 @@ import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
 import java.util.List;
+import java.util.Optional;
 
 interface ReviewPassJpaRepository
         extends JpaRepository<ReviewPassEntity, String>
@@ -38,4 +39,16 @@ interface ReviewPassJpaRepository
      *  the whole table. */
     List<ReviewPassEntity> findByRepoFullNameAndPrNumberOrderByCreatedAtMsDesc(
             String repoFullName, int prNumber);
+
+    /** Newest non-terminal THREAD-hosted pass for a PR — the dashboard's
+     *  "is a standalone review open on this PR right now?" lookup. ({@code
+     *  phase} stores the lowercase dbValue; terminal = {@code published}.) */
+    Optional<ReviewPassEntity>
+            findFirstByRepoFullNameAndPrNumberAndHostKindAndPhaseNotOrderByCreatedAtMsDesc(
+                    String repoFullName, int prNumber, String hostKind, String phase);
+
+    /** Newest non-terminal pass hosted by a given host (e.g. the active
+     *  TASK_PHASE pass for a task). */
+    Optional<ReviewPassEntity> findFirstByHostKindAndHostIdAndPhaseNotOrderByCreatedAtMsDesc(
+            String hostKind, String hostId, String phase);
 }

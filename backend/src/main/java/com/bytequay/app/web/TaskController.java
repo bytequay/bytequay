@@ -17,12 +17,14 @@ import com.bytequay.app.beans.workmodel.ResolvedWorkModelResponse;
 import com.bytequay.app.domain.Task;
 import com.bytequay.app.domain.TaskFile;
 import com.bytequay.app.domain.WorkModel;
+import com.bytequay.app.repository.ReviewStore;
 import com.bytequay.app.service.concepts.Concept;
 import com.bytequay.app.service.concepts.ConceptKind;
 import com.bytequay.app.service.inspector.AssembledContext;
 import com.bytequay.app.service.inspector.ContextAssembler;
 import com.bytequay.app.service.threads.TaskService;
 import com.bytequay.app.service.workmodel.WorkModelResolver;
+import com.google.common.collect.ImmutableMap;
 import org.springframework.http.HttpStatusCode;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
@@ -57,15 +59,18 @@ public class TaskController
     private final TaskService taskService;
     private final ContextAssembler contextAssembler;
     private final WorkModelResolver workModelResolver;
+    private final ReviewStore reviewStore;
 
     public TaskController(
             TaskService taskService,
             ContextAssembler contextAssembler,
-            WorkModelResolver workModelResolver)
+            WorkModelResolver workModelResolver,
+            ReviewStore reviewStore)
     {
         this.taskService = requireNonNull(taskService, "taskService is null");
         this.contextAssembler = requireNonNull(contextAssembler, "contextAssembler is null");
         this.workModelResolver = requireNonNull(workModelResolver, "workModelResolver is null");
+        this.reviewStore = requireNonNull(reviewStore, "reviewStore is null");
     }
 
     /** All tasks for the thread, oldest seq first. The UI's left-rail
@@ -91,6 +96,20 @@ public class TaskController
     public Task get(@PathVariable String threadId, @PathVariable String taskId)
     {
         return taskService.requireTask(threadId, taskId);
+    }
+
+    /** The id of the active TASK_PHASE-hosted review pass for this task,
+     *  if one is running (drives the task page's inline review panel).
+     *  {@code {"passId": null}} when none. */
+    @GetMapping("/{taskId}/active-review")
+    public ImmutableMap<String, String> activeReview(
+            @PathVariable String threadId, @PathVariable String taskId)
+    {
+        requireNonNull(threadId, "threadId is null");
+        String passId = reviewStore.findActiveTaskReview(taskId)
+                .map(p -> p.id())
+                .orElse(null);
+        return passId == null ? ImmutableMap.of() : ImmutableMap.of("passId", passId);
     }
 
     /**

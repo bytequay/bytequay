@@ -14,10 +14,13 @@
 package com.bytequay.app.service.threads;
 
 import com.bytequay.app.domain.PullRequest;
+import com.bytequay.app.domain.ReviewPass;
+import com.bytequay.app.domain.ReviewPhase;
 import com.bytequay.app.domain.Task;
 import com.bytequay.app.domain.TaskPhase;
 import com.bytequay.app.domain.TaskStatus;
 import com.bytequay.app.repository.AppSettingsStore;
+import com.bytequay.app.repository.ReviewStore;
 import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.repository.WatchedRepoStore;
 import com.bytequay.app.service.pr.PullRequestService;
@@ -41,8 +44,9 @@ class TestPrTaskLinkService
     private final TaskStore taskStore = mock(TaskStore.class);
     private final AppSettingsStore appSettings = mock(AppSettingsStore.class);
     private final WatchedRepoStore watchedRepos = mock(WatchedRepoStore.class);
+    private final ReviewStore reviewStore = mock(ReviewStore.class);
     private final PrTaskLinkService service =
-            new PrTaskLinkService(pullRequests, taskStore, appSettings, watchedRepos);
+            new PrTaskLinkService(pullRequests, taskStore, appSettings, watchedRepos, reviewStore);
 
     @Test
     void cannotReviewYourOwnPr()
@@ -112,9 +116,31 @@ class TestPrTaskLinkService
         assertThat(linked.linkedCompletedTaskIds()).containsExactly("task-done-1", "task-done-2");
     }
 
+    @Test
+    void linkedTasksSurfacesAnActiveThreadHostedReview()
+    {
+        when(taskStore.findTasksByPrRef("acme/widget#42")).thenReturn(List.of());
+        when(reviewStore.findActivePrReview("acme/widget", 42)).thenReturn(Optional.of(reviewPass()));
+
+        PrTaskLinkService.LinkedTasks linked = service.linkedTasksFor("acme/widget", 42);
+
+        assertThat(linked.linkedActiveReviewRef()).isNotNull();
+        assertThat(linked.linkedActiveReviewRef().passId()).isEqualTo("pass-1");
+        assertThat(linked.linkedActiveReviewRef().phase()).isEqualTo("DEBATE");
+        assertThat(linked.linkedActiveReviewRef().round()).isEqualTo(2);
+    }
+
     private void viewerIs(String login)
     {
         when(appSettings.get(AppSettingsStore.Key.GITHUB_LOGIN)).thenReturn(Optional.of(login));
+    }
+
+    private static ReviewPass reviewPass()
+    {
+        Instant now = Instant.parse("2026-06-15T12:00:00Z");
+        return new ReviewPass(
+                "pass-1", "thread-r", "acme/widget", 42, "sha",
+                ReviewPhase.DEBATE, 2, 3, 500L, 120L, null, now, null);
     }
 
     private static Task taskWithId(String id)

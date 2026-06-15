@@ -55,6 +55,22 @@ public interface ReviewStore
      *  reviews" surfaces on the PR detail page. Newest first. */
     List<ReviewPass> listPassesForPr(String repoFullName, int prNumber);
 
+    /** The active (non-PUBLISHED) THREAD-hosted review pass for a PR, if
+     *  one is open — drives the dashboard / PR-detail "review in progress"
+     *  affordance. Empty default for test stores. */
+    default Optional<ReviewPass> findActivePrReview(String repoFullName, int prNumber)
+    {
+        return Optional.empty();
+    }
+
+    /** The active (non-PUBLISHED) review pass hosted by a task phase, if
+     *  one is running — backs the task page's inline review. Empty default
+     *  for test stores. */
+    default Optional<ReviewPass> findActiveTaskReview(String taskId)
+    {
+        return Optional.empty();
+    }
+
     /** Total review spend (milli-USD) across all passes created at or
      *  after {@code since} — the scheduler's rolling daily cost cap. */
     long sumPassCostSince(Instant since);

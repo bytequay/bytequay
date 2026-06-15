@@ -14,9 +14,11 @@
 package com.bytequay.app.service.threads;
 
 import com.bytequay.app.domain.PullRequest;
+import com.bytequay.app.domain.ReviewPass;
 import com.bytequay.app.domain.Task;
 import com.bytequay.app.domain.TaskPhase;
 import com.bytequay.app.repository.AppSettingsStore;
+import com.bytequay.app.repository.ReviewStore;
 import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.repository.WatchedRepoStore;
 import com.bytequay.app.service.pr.PullRequestService;
@@ -47,17 +49,20 @@ public class PrTaskLinkService
     private final TaskStore taskStore;
     private final AppSettingsStore appSettings;
     private final WatchedRepoStore watchedRepos;
+    private final ReviewStore reviewStore;
 
     public PrTaskLinkService(
             PullRequestService pullRequests,
             TaskStore taskStore,
             AppSettingsStore appSettings,
-            WatchedRepoStore watchedRepos)
+            WatchedRepoStore watchedRepos,
+            ReviewStore reviewStore)
     {
         this.pullRequests = requireNonNull(pullRequests, "pullRequests is null");
         this.taskStore = requireNonNull(taskStore, "taskStore is null");
         this.appSettings = requireNonNull(appSettings, "appSettings is null");
         this.watchedRepos = requireNonNull(watchedRepos, "watchedRepos is null");
+        this.reviewStore = requireNonNull(reviewStore, "reviewStore is null");
     }
 
     /** The connected GitHub user's login, or "" when not connected. */
@@ -141,11 +146,40 @@ public class PrTaskLinkService
                 activeId = task.id();
             }
         }
-        return new LinkedTasks(activeId, List.copyOf(completed));
+        ReviewPassRef activeReview = reviewStore.findActivePrReview(repoFullName, prNumber)
+                .map(PrTaskLinkService::toReviewPassRef)
+                .orElse(null);
+        return new LinkedTasks(activeId, List.copyOf(completed), activeReview);
     }
 
-    /** PR → tasks view: at most one active task, plus completed history. */
-    public record LinkedTasks(String linkedActiveTaskId, List<String> linkedCompletedTaskIds) {}
+    private static ReviewPassRef toReviewPassRef(ReviewPass pass)
+    {
+        return new ReviewPassRef(
+                pass.id(),
+                pass.phase().name(),
+                pass.hostKind().name(),
+                pass.round(),
+                pass.roundCap(),
+                pass.costUsdMilli(),
+                pass.costCapMilli());
+    }
+
+    /** PR → tasks + active review view. {@code linkedActiveReviewRef} is
+     *  populated only for THREAD-hosted (standalone) reviews. */
+    public record LinkedTasks(
+            String linkedActiveTaskId,
+            List<String> linkedCompletedTaskIds,
+            ReviewPassRef linkedActiveReviewRef) {}
+
+    /** Compact view of an active review pass for a PR/task chip. */
+    public record ReviewPassRef(
+            String passId,
+            String phase,
+            String hostKind,
+            int round,
+            int roundCap,
+            long costSpentMilli,
+            long costCapMilli) {}
 
     private String authorOf(String repoFullName, int prNumber)
     {

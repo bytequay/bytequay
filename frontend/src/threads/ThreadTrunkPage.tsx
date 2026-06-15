@@ -26,6 +26,8 @@ import { findPendingPermission } from './permissions';
 import type { PendingPermission } from './ConversationPane';
 import { useThreadTasks } from './useThreadTasks';
 import { usePromptHistory } from './usePromptHistory';
+import { AskQuestionCard } from './AskQuestionCard';
+import { findPendingAskQuestion } from './askQuestion';
 import PromptContextInspector from '../inspector/PromptContextInspector';
 import { useInspectorHotkey } from '../inspector/useInspectorHotkey';
 import { ConfirmDialog } from '../workspace/ConfirmDialog';
@@ -254,6 +256,11 @@ export default function ThreadTrunkPage({ threadId, onBack, onOpenTask }: Props)
       .reverse(),
     [trunkMessages]);
   const promptHistory = usePromptHistory(priorPrompts, composerInput, setComposerInput);
+
+  // The agent's AskUserQuestion in the trunk, if still awaiting a reply.
+  const pendingQuestion = useMemo(
+    () => findPendingAskQuestion(trunkMessages),
+    [trunkMessages]);
   const orderedTasksAsc = useMemo(
     () => tasks === null ? [] : [...tasks].sort((a, b) => a.seq - b.seq),
     [tasks]);
@@ -318,6 +325,18 @@ export default function ThreadTrunkPage({ threadId, onBack, onOpenTask }: Props)
       await window.bridge.decideTaskPermission(threadId, callId, decision, preApprove);
       // Pull the decision row back so the card clears and the unblocked
       // turn's output resumes streaming.
+      await Promise.all([refreshMessages(), loadThread()]);
+    }
+    catch (e) {
+      setSendError(e instanceof Error ? e.message : String(e));
+    }
+  }, [threadId, refreshMessages, loadThread]);
+
+  const answerQuestion = useCallback(async (text: string) => {
+    const trimmed = text.trim();
+    if (trimmed.length === 0) return;
+    try {
+      await window.bridge.sendTrunkMessage(threadId, trimmed);
       await Promise.all([refreshMessages(), loadThread()]);
     }
     catch (e) {
@@ -689,6 +708,16 @@ export default function ThreadTrunkPage({ threadId, onBack, onOpenTask }: Props)
             {pendingPermission !== null && (
               <div style={permissionSlotStyle}>
                 <PermissionCard permission={pendingPermission} onDecide={onDecidePermission} />
+              </div>
+            )}
+
+            {pendingPermission === null && pendingQuestion !== null && (
+              <div style={permissionSlotStyle}>
+                <AskQuestionCard
+                  key={pendingQuestion.callId}
+                  input={pendingQuestion.input}
+                  onAnswer={text => { void answerQuestion(text); }}
+                />
               </div>
             )}
 

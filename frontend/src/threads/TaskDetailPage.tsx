@@ -34,6 +34,8 @@ import { useInspectorHotkey } from '../inspector/useInspectorHotkey';
 import { WorkModelPill } from '../workspace/WorkModelPill';
 import { useThreadTasks } from './useThreadTasks';
 import { usePromptHistory } from './usePromptHistory';
+import { AskQuestionCard } from './AskQuestionCard';
+import { findPendingAskQuestion } from './askQuestion';
 import { useAnimatedNumber } from './useAnimatedNumber';
 
 type Props = {
@@ -456,6 +458,23 @@ export default function TaskDetailPage({
     [messages]);
   const promptHistory = usePromptHistory(priorPrompts, input, setInput);
 
+  // The agent's AskUserQuestion, if it's still waiting on a reply. The
+  // chosen option(s) are sent as the next user turn.
+  const pendingQuestion = useMemo(
+    () => findPendingAskQuestion(messages ?? []),
+    [messages]);
+  const answerQuestion = useCallback(async (text: string) => {
+    const trimmed = text.trim();
+    if (trimmed.length === 0) return;
+    try {
+      await window.bridge.sendTaskMessage(threadId, trimmed);
+      await Promise.all([loadMessages(), loadThread()]);
+    }
+    catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+    }
+  }, [threadId, loadMessages, loadThread]);
+
   // Terminal mode takes over the entire shell with a dark theme per
   // docs/mockups/design/tasks/thread-detail-terminal.png. The page
   // background, top bar, altitude band, and composer all switch to
@@ -708,6 +727,16 @@ export default function TaskDetailPage({
               {pendingPermission !== null && (
                 <div style={permissionSlotStyle}>
                   <PermissionCard permission={pendingPermission} onDecide={onDecide} />
+                </div>
+              )}
+
+              {pendingPermission === null && pendingQuestion !== null && (
+                <div style={permissionSlotStyle}>
+                  <AskQuestionCard
+                    key={pendingQuestion.callId}
+                    input={pendingQuestion.input}
+                    onAnswer={text => { void answerQuestion(text); }}
+                  />
                 </div>
               )}
 

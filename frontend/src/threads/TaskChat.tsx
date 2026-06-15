@@ -13,6 +13,7 @@
  */
 import { useEffect, useMemo, useRef } from 'react';
 import { renderChatMarkdown } from '../markdown';
+import { highlightShell } from './shellHighlight';
 import type { ThreadMessageDto } from '../types';
 
 type Props = {
@@ -301,6 +302,17 @@ function summariseToolCall(
       const path = inObj.path ?? '';
       detail = `${pat} ${path}`.trim();
     }
+    else if (toolName === 'AskUserQuestion') {
+      // Show the question itself, not the raw schema JSON.
+      const qs = inObj.questions;
+      if (Array.isArray(qs) && qs.length > 0) {
+        const first = qs[0];
+        const text = first !== null && typeof first === 'object'
+          ? String((first as Record<string, unknown>).question ?? '')
+          : '';
+        detail = qs.length > 1 ? `${text} (+${qs.length - 1} more)` : text;
+      }
+    }
     else {
       try { detail = JSON.stringify(input).slice(0, 120); }
       catch { detail = ''; }
@@ -412,6 +424,21 @@ function ToolCard({
   isError: boolean;
   isRunning: boolean;
 }) {
+  // Shell commands are multi-line and long; show them as a wrapping,
+  // syntax-highlighted block on their real lines instead of one
+  // truncated row.
+  if ((toolName === 'Bash' || toolName === 'run_shell') && detail.length > 0) {
+    return (
+      <div style={toolShellRowStyle}>
+        <div style={toolShellHeadStyle}>
+          <div style={toolBadgeStyle(toolName, isError)}>{toolName}</div>
+          {isRunning && <span style={runningDotStyle}>● Running</span>}
+          {footer !== null && <div style={toolFooterStyle}>{footer}</div>}
+        </div>
+        <pre style={toolShellCodeStyle}>{highlightShell(detail)}</pre>
+      </div>
+    );
+  }
   return (
     <div style={toolRowStyle}>
       <div style={toolBadgeStyle(toolName, isError)}>{toolName}</div>
@@ -797,6 +824,42 @@ const toolDetailStyle: React.CSSProperties = {
   overflow: 'hidden',
   textOverflow: 'ellipsis',
   whiteSpace: 'nowrap',
+};
+
+// Multi-line shell-command variant: a header row (badge + status) with
+// the full command wrapped below.
+const toolShellRowStyle: React.CSSProperties = {
+  display: 'flex',
+  flexDirection: 'column',
+  gap: 6,
+  marginLeft: 38,
+  paddingLeft: 0,
+  paddingRight: 4,
+  paddingTop: 6,
+  paddingBottom: 6,
+};
+const toolShellHeadStyle: React.CSSProperties = {
+  display: 'flex',
+  alignItems: 'center',
+  gap: 8,
+};
+const toolShellCodeStyle: React.CSSProperties = {
+  margin: 0,
+  padding: '8px 10px',
+  fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace',
+  fontSize: 12,
+  lineHeight: 1.5,
+  color: 'var(--text-1)',
+  background: 'rgba(255, 247, 237, 0.6)',
+  border: '1px solid rgba(234, 88, 12, 0.14)',
+  borderRadius: 10,
+  whiteSpace: 'pre-wrap',
+  overflowWrap: 'anywhere',
+  wordBreak: 'break-word',
+  // Very long commands (huge heredocs) get a cap + scroll rather than
+  // dominating the transcript.
+  maxHeight: 260,
+  overflowY: 'auto',
 };
 
 const runningDotStyle: React.CSSProperties = {

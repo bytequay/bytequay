@@ -16,13 +16,18 @@ package com.bytequay.app.service.threads;
 import com.bytequay.app.domain.BranchBase;
 import com.bytequay.app.domain.QueuedTask;
 import com.bytequay.app.domain.QueuedTaskStatus;
+import com.bytequay.app.domain.Task;
+import com.bytequay.app.domain.TaskPhase;
+import com.bytequay.app.domain.TaskStatus;
 import com.bytequay.app.domain.Thread;
 import com.bytequay.app.domain.ThreadFlow;
 import com.bytequay.app.domain.ThreadKind;
 import com.bytequay.app.domain.ThreadStatus;
+import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.repository.ThreadStore;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.springframework.web.server.ResponseStatusException;
 
 import java.time.Instant;
 import java.util.ArrayList;
@@ -35,6 +40,8 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doAnswer;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
 class TestTaskQueueService
@@ -42,6 +49,7 @@ class TestTaskQueueService
     private static final String THREAD_ID = "t1";
 
     private List<QueuedTask> queueState;
+    private TaskStore taskStore;
     private TaskQueueService service;
 
     @BeforeEach
@@ -55,7 +63,8 @@ class TestTaskQueueService
             queueState = new ArrayList<>(inv.getArgument(1));
             return null;
         }).when(store).updateThreadQueue(eq(THREAD_ID), any());
-        service = new TaskQueueService(store);
+        taskStore = mock(TaskStore.class);
+        service = new TaskQueueService(store, taskStore);
     }
 
     @Test
@@ -169,6 +178,48 @@ class TestTaskQueueService
         Optional<QueuedTask> head = service.pendingHead(threadWith(queueState));
         assertThat(head).isPresent();
         assertThat(head.get().title()).isEqualTo("b");
+    }
+
+    @Test
+    void updateOpeningPromptAppendsWithNewline()
+    {
+        Task queued = taskAt(TaskPhase.QUEUED, "first line");
+        when(taskStore.findTaskById("k1")).thenReturn(Optional.of(queued));
+
+        service.updateOpeningPrompt("k1", "second line", true);
+
+        verify(taskStore).setOpeningPrompt("k1", "first line\nsecond line");
+    }
+
+    @Test
+    void updateOpeningPromptReplaceOverwrites()
+    {
+        Task queued = taskAt(TaskPhase.QUEUED, "old");
+        when(taskStore.findTaskById("k1")).thenReturn(Optional.of(queued));
+
+        service.updateOpeningPrompt("k1", "brand new", false);
+
+        verify(taskStore).setOpeningPrompt("k1", "brand new");
+    }
+
+    @Test
+    void updateOpeningPromptRejectsNonQueuedPhase()
+    {
+        Task running = taskAt(TaskPhase.IMPLEMENTING, null);
+        when(taskStore.findTaskById("k1")).thenReturn(Optional.of(running));
+
+        assertThatThrownBy(() -> service.updateOpeningPrompt("k1", "x", true))
+                .isInstanceOf(ResponseStatusException.class)
+                .hasMessageContaining("QUEUED");
+        verify(taskStore, never()).setOpeningPrompt(any(), any());
+    }
+
+    private static Task taskAt(TaskPhase phase, String openingPrompt)
+    {
+        Instant now = Instant.ofEpochMilli(1_700_000_000_000L);
+        return new Task("k1", THREAD_ID, 1L, TaskStatus.PENDING, "dev/k1", "/wt", "main", "/clone",
+                null, null, null, null, null, "DEVELOP", null, null, 0L, 0L, 0L, null,
+                now, null, null, null, null, null, null, phase, null, 0, null, openingPrompt);
     }
 
     private String titleAt(int position)

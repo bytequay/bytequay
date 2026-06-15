@@ -16,10 +16,15 @@ package com.bytequay.app.service.threads;
 import com.bytequay.app.domain.BranchBase;
 import com.bytequay.app.domain.QueuedTask;
 import com.bytequay.app.domain.QueuedTaskStatus;
+import com.bytequay.app.domain.Task;
+import com.bytequay.app.domain.TaskPhase;
 import com.bytequay.app.domain.Thread;
+import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.repository.ThreadStore;
+import org.springframework.http.HttpStatusCode;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.server.ResponseStatusException;
 
 import java.time.Instant;
 import java.util.ArrayList;
@@ -63,10 +68,39 @@ public class TaskQueueService
     public static final int MAX_TITLE_CHARS = 200;
 
     private final ThreadStore threadStore;
+    private final TaskStore taskStore;
 
-    public TaskQueueService(ThreadStore threadStore)
+    public TaskQueueService(ThreadStore threadStore, TaskStore taskStore)
     {
         this.threadStore = requireNonNull(threadStore, "threadStore is null");
+        this.taskStore = requireNonNull(taskStore, "taskStore is null");
+    }
+
+    /**
+     * Append to (or replace) a QUEUED task's opening-prompt accumulator —
+     * the text the agent reads as its first-turn input when the slot
+     * opens. Editable only while the task is in {@link TaskPhase#QUEUED};
+     * a write to a task in any other phase is rejected (422), since the
+     * plan seals once the task starts.
+     */
+    @Transactional
+    public Task updateOpeningPrompt(String taskId, String text, boolean append)
+    {
+        Task task = taskStore.findTaskById(taskId)
+                .orElseThrow(() -> new ResponseStatusException(
+                        HttpStatusCode.valueOf(404), "no task: " + taskId));
+        if (task.phase() != TaskPhase.QUEUED) {
+            throw new ResponseStatusException(HttpStatusCode.valueOf(422),
+                    "opening prompt is editable only while the task is QUEUED (phase="
+                            + task.phase() + ")");
+        }
+        String incoming = text == null ? "" : text;
+        String existing = task.openingPrompt();
+        String next = append && existing != null && !existing.isBlank()
+                ? existing + "\n" + incoming
+                : incoming;
+        taskStore.setOpeningPrompt(taskId, next);
+        return taskStore.findTaskById(taskId).orElse(task);
     }
 
     /** Append a PENDING entry at {@code max(position) + 1}. */

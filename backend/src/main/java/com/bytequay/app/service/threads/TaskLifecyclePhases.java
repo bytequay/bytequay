@@ -14,6 +14,7 @@
 package com.bytequay.app.service.threads;
 
 import com.bytequay.app.domain.PullRequest;
+import com.bytequay.app.domain.PullRequestDetail;
 import com.bytequay.app.domain.PullRequestDetail.CiStatus;
 import com.bytequay.app.domain.TaskPhase;
 
@@ -63,6 +64,34 @@ final class TaskLifecyclePhases
             return Optional.of(TaskPhase.ADDRESSING_COMMENTS);
         }
         return Optional.of(TaskPhase.AWAITING_REMOTE_REVIEW);
+    }
+
+    /**
+     * Maps a freshly-fetched {@link PullRequestDetail} to the remote-spine
+     * phase. Used by the lifecycle driver's direct per-task fetch, which
+     * works for any linked PR (it doesn't depend on the dashboard sync
+     * having the PR). The detail carries CI + draft state; merge → DONE
+     * stays on the PR-merged event path, so this only places the task on
+     * the CI / ready / review spine.
+     */
+    static Optional<TaskPhase> observedPhaseFromDetail(PullRequestDetail detail)
+    {
+        if (detail == null) {
+            return Optional.empty();
+        }
+        CiStatus ci = detail.ciStatus();
+        if (ci == CiStatus.FAILING) {
+            return Optional.of(TaskPhase.CI_FIXING);
+        }
+        // A check is actively running (or not yet reported) — keep waiting.
+        if (ci == CiStatus.PENDING || ci == null) {
+            return Optional.of(TaskPhase.PUSHED_AWAITING_CI);
+        }
+        // CI green / no CI gate: draft holds for "mark ready", a ready PR
+        // is out for remote review.
+        return Optional.of(detail.draft()
+                ? TaskPhase.AWAITING_READY
+                : TaskPhase.AWAITING_REMOTE_REVIEW);
     }
 
     private static boolean hasChangesRequested(PullRequest pr)

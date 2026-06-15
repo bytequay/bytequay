@@ -14,6 +14,7 @@
 package com.bytequay.app.service.threads;
 
 import com.bytequay.app.domain.PullRequest;
+import com.bytequay.app.domain.PullRequestDetail;
 import com.bytequay.app.domain.PullRequestDetail.CiStatus;
 import com.bytequay.app.domain.TaskPhase;
 import org.junit.jupiter.api.Test;
@@ -23,6 +24,8 @@ import java.util.List;
 import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 
 class TestTaskLifecyclePhases
 {
@@ -89,6 +92,46 @@ class TestTaskLifecyclePhases
         assertThat(TaskLifecyclePhases.observedPhaseFor(
                 pr(CiStatus.NONE, false, "open", null, null)))
                 .contains(TaskPhase.AWAITING_REMOTE_REVIEW);
+    }
+
+    @Test
+    void fromDetail_failingCi_goesToCiFixing()
+    {
+        assertThat(TaskLifecyclePhases.observedPhaseFromDetail(detail(CiStatus.FAILING, false)))
+                .contains(TaskPhase.CI_FIXING);
+    }
+
+    @Test
+    void fromDetail_pendingOrUnknownCi_waitsOnCi()
+    {
+        assertThat(TaskLifecyclePhases.observedPhaseFromDetail(detail(CiStatus.PENDING, false)))
+                .contains(TaskPhase.PUSHED_AWAITING_CI);
+        assertThat(TaskLifecyclePhases.observedPhaseFromDetail(detail(null, false)))
+                .contains(TaskPhase.PUSHED_AWAITING_CI);
+    }
+
+    @Test
+    void fromDetail_greenDraft_awaitsReady()
+    {
+        assertThat(TaskLifecyclePhases.observedPhaseFromDetail(detail(CiStatus.PASSING, true)))
+                .contains(TaskPhase.AWAITING_READY);
+    }
+
+    @Test
+    void fromDetail_greenReady_awaitsRemoteReview()
+    {
+        assertThat(TaskLifecyclePhases.observedPhaseFromDetail(detail(CiStatus.PASSING, false)))
+                .contains(TaskPhase.AWAITING_REMOTE_REVIEW);
+        assertThat(TaskLifecyclePhases.observedPhaseFromDetail(detail(CiStatus.NONE, false)))
+                .contains(TaskPhase.AWAITING_REMOTE_REVIEW);
+    }
+
+    private static PullRequestDetail detail(CiStatus ci, boolean draft)
+    {
+        PullRequestDetail d = mock(PullRequestDetail.class);
+        when(d.ciStatus()).thenReturn(ci);
+        when(d.draft()).thenReturn(draft);
+        return d;
     }
 
     private static PullRequest pr(CiStatus ci, boolean draft, String state, Instant mergedAt,

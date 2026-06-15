@@ -292,6 +292,7 @@ public class PullRequestService
             }
             try {
                 taskStore.linkPullRequest(task.id(), pr.number(), state);
+                taskStore.linkTaskToPr(task.id(), pr.repo() + "#" + pr.number());
             }
             catch (RuntimeException e) {
                 log.warn("auto-linking PR #{} to task {} failed: {}",

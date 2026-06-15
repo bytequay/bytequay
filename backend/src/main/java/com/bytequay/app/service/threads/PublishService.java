@@ -899,6 +899,9 @@ public class PublishService
             try {
                 // Push was already recorded right after ensureBranchPushed.
                 taskStore.linkPullRequest(task.id(), opened.number(), opened.draft() ? "draft" : "open");
+                // Also record the canonical "owner/repo#n" ref so the
+                // lifecycle driver can fetch this PR directly by number.
+                taskStore.linkTaskToPr(task.id(), opened.repo() + "#" + opened.number());
             }
             catch (RuntimeException e) {
                 log.warn("linking PR #{} to task {} failed: {}",

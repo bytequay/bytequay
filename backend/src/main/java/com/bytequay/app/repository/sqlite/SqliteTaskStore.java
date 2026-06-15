@@ -15,6 +15,7 @@ package com.bytequay.app.repository.sqlite;
 
 import com.bytequay.app.domain.Task;
 import com.bytequay.app.domain.TaskFile;
+import com.bytequay.app.domain.TaskPhase;
 import com.bytequay.app.domain.TaskStatus;
 import com.bytequay.app.domain.WorkModel;
 import com.bytequay.app.repository.TaskStore;
@@ -280,7 +281,23 @@ class SqliteTaskStore
                 e.getName(),
                 e.getRoleSkill(),
                 deserialiseWorkModel(e.getWorkModelJson()),
-                e.getPushedAtMs() == null ? null : Instant.ofEpochMilli(e.getPushedAtMs()));
+                e.getPushedAtMs() == null ? null : Instant.ofEpochMilli(e.getPushedAtMs()),
+                parsePhase(e.getPhase()));
+    }
+
+    /** Tolerant parse: an unknown / null phase string falls back to
+     *  IMPLEMENTING rather than breaking the task load. */
+    private static TaskPhase parsePhase(String raw)
+    {
+        if (raw == null || raw.isBlank()) {
+            return TaskPhase.IMPLEMENTING;
+        }
+        try {
+            return TaskPhase.valueOf(raw);
+        }
+        catch (IllegalArgumentException e) {
+            return TaskPhase.IMPLEMENTING;
+        }
     }
 
     private String serialiseWorkModel(WorkModel m)

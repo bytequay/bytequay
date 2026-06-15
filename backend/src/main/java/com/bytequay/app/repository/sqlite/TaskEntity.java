@@ -110,6 +110,21 @@ class TaskEntity
     @Column(name = "pushed_at_ms")
     private Long pushedAtMs;
 
+    // Defaulted so a freshly-inserted task (saveTask deliberately never
+    // maps phase, to avoid clobbering it on a full-row update) satisfies
+    // the NOT NULL column; the phase machine writes it via load-set-save.
+    @Column(name = "phase", nullable = false)
+    private String phase = "IMPLEMENTING";
+
+    @Column(name = "agenda_json")
+    private String agendaJson;
+
+    @Column(name = "consecutive_auto_pushes", nullable = false)
+    private int consecutiveAutoPushes;
+
+    @Column(name = "linked_pr_ref")
+    private String linkedPrRef;
+
     String getId() { return id; }
     void setId(String id) { this.id = id; }
 
@@ -193,4 +208,16 @@ class TaskEntity
 
     Long getPushedAtMs() { return pushedAtMs; }
     void setPushedAtMs(Long pushedAtMs) { this.pushedAtMs = pushedAtMs; }
+
+    String getPhase() { return phase; }
+    void setPhase(String phase) { this.phase = phase; }
+
+    String getAgendaJson() { return agendaJson; }
+    void setAgendaJson(String agendaJson) { this.agendaJson = agendaJson; }
+
+    int getConsecutiveAutoPushes() { return consecutiveAutoPushes; }
+    void setConsecutiveAutoPushes(int consecutiveAutoPushes) { this.consecutiveAutoPushes = consecutiveAutoPushes; }
+
+    String getLinkedPrRef() { return linkedPrRef; }
+    void setLinkedPrRef(String linkedPrRef) { this.linkedPrRef = linkedPrRef; }
 }

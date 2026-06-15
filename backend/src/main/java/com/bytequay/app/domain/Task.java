@@ -107,14 +107,24 @@ public record Task(
          *  stuck. Persisted on its own column (V105) outside {@code
          *  saveTask}, like accept-edits, so a full-row save can't clobber
          *  it. */
-        Instant pushedAt)
+        Instant pushedAt,
+        /** The dev PR-collaboration lifecycle phase (V106). Orthogonal to
+         *  {@link #status}, which stays the agent runtime axis. Populated
+         *  from the {@code phase} column by the store's row mapper;
+         *  written only via the phase machine's {@code updatePhase}
+         *  (load-set-save), never through {@code saveTask}, so a full-row
+         *  save can't clobber it. Fresh in-memory constructions default to
+         *  {@link TaskPhase#IMPLEMENTING}, matching the column default for
+         *  a freshly inserted row. */
+        TaskPhase phase)
 {
     /**
      * Back-compat constructor for the 26-field shape that predates the
-     * {@code pushedAt} column (V105). Defaults {@code pushedAt} to null,
-     * which is correct for every fresh-construction call site — only the
-     * store's row mapper threads the persisted value through the
-     * canonical constructor, and only {@code markPushed} ever writes it.
+     * {@code pushedAt} (V105) and {@code phase} (V106) columns. Defaults
+     * both, which is correct for every fresh-construction call site — only
+     * the store's row mapper threads the persisted values through the
+     * canonical constructor, and only {@code markPushed} / {@code
+     * updatePhase} ever write them.
      */
     public Task(
             String id,
@@ -147,7 +157,7 @@ public record Task(
         this(id, threadId, seq, status, branchName, worktreePath, baseBranch, workingDir,
                 processPid, logPath, prNumber, prState, ciState, taskType, linkedPrNumber,
                 linkedIssueNumber, costUsdMilli, tokensIn, tokensOut, agentSessionId, createdAt,
-                endedAt, errorMessage, name, roleSkill, workModel, null);
+                endedAt, errorMessage, name, roleSkill, workModel, null, TaskPhase.IMPLEMENTING);
     }
 
     /**

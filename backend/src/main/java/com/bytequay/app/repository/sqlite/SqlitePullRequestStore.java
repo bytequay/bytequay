@@ -120,15 +120,6 @@ public class SqlitePullRequestStore
                         if (entity.getHeadRef() == null) {
                             entity.setHeadRef(prev.getHeadRef());
                         }
-                        // CI status comes from the detail-fetch enrichment,
-                        // not the search result (which carries no CI), so a
-                        // plain re-sync must keep the last-known value —
-                        // otherwise every replaceAll wipes ci_status to null
-                        // and a task waiting on CI is stuck at
-                        // PUSHED_AWAITING_CI forever.
-                        if (entity.getCiStatus() == null) {
-                            entity.setCiStatus(prev.getCiStatus());
-                        }
                     }
                     return entity;
                 })

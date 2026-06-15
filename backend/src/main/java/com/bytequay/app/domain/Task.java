@@ -125,7 +125,15 @@ public record Task(
         int consecutiveAutoPushes,
         /** The {@code owner/repo#n} this task is permanently linked to,
          *  or null. Entity-managed via {@code linkTaskToPr}. */
-        String linkedPrRef)
+        String linkedPrRef,
+        /** Opening-prompt accumulator for a task materialised from the
+         *  queue (V110). Seeded from the queue entry's initial prompt;
+         *  the composer appends to it while the task is in
+         *  {@link TaskPhase#QUEUED}; the agent reads it as its first-turn
+         *  input on the QUEUED → IMPLEMENTING promotion. Null on tasks
+         *  not born from the queue. Entity-managed (not mapped by
+         *  {@code saveTask}); the row mapper populates it. */
+        String openingPrompt)
 {
     /**
      * Back-compat constructor for the 26-field shape that predates the
@@ -167,7 +175,54 @@ public record Task(
                 processPid, logPath, prNumber, prState, ciState, taskType, linkedPrNumber,
                 linkedIssueNumber, costUsdMilli, tokensIn, tokensOut, agentSessionId, createdAt,
                 endedAt, errorMessage, name, roleSkill, workModel, null, TaskPhase.IMPLEMENTING,
-                null, 0, null);
+                null, 0, null, null);
+    }
+
+    /**
+     * Back-compat constructor for the 31-field shape that predates the
+     * {@code openingPrompt} column (V110). Defaults it to null — correct
+     * for every task not born from the queue; only the store's row mapper
+     * and the queue-materialise path thread a real value through the
+     * canonical constructor.
+     */
+    public Task(
+            String id,
+            String threadId,
+            long seq,
+            TaskStatus status,
+            String branchName,
+            String worktreePath,
+            String baseBranch,
+            String workingDir,
+            Integer processPid,
+            String logPath,
+            Integer prNumber,
+            String prState,
+            String ciState,
+            String taskType,
+            Integer linkedPrNumber,
+            Integer linkedIssueNumber,
+            long costUsdMilli,
+            long tokensIn,
+            long tokensOut,
+            String agentSessionId,
+            Instant createdAt,
+            Instant endedAt,
+            String errorMessage,
+            String name,
+            String roleSkill,
+            WorkModel workModel,
+            Instant pushedAt,
+            TaskPhase phase,
+            String agendaJson,
+            int consecutiveAutoPushes,
+            String linkedPrRef)
+    {
+        this(id, threadId, seq, status, branchName, worktreePath, baseBranch, workingDir,
+                processPid, logPath, prNumber, prState, ciState, taskType, linkedPrNumber,
+                linkedIssueNumber, costUsdMilli, tokensIn, tokensOut, agentSessionId, createdAt,
+                endedAt, errorMessage, name, roleSkill, workModel, pushedAt, phase, agendaJson,
+                consecutiveAutoPushes, linkedPrRef, null);
     }
 
     /**

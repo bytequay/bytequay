@@ -17,6 +17,7 @@ import com.bytequay.app.service.concepts.Concept;
 import com.bytequay.app.service.concepts.ConceptKind;
 
 import java.time.Instant;
+import java.util.List;
 
 /**
  * Pure projection of one row in the {@code threads} table — the
@@ -99,8 +100,61 @@ public record Thread(
          *  thread; powers the "← from review of PR #N" breadcrumb and
          *  lets the resolver flip the parent pass's findings to
          *  RESOLVED when this thread's work ships. */
-        String parentReviewPassId)
+        String parentReviewPassId,
+        /** The trunk-owned queue of planned future tasks (V110). The
+         *  head materialises into a {@link Task} when the active task
+         *  completes. Empty on most threads. Entity-managed — written
+         *  via {@code ThreadStore.updateThreadQueue}, never through
+         *  {@code saveThread}, so a full-row save can't clobber a
+         *  concurrent queue edit. */
+        List<QueuedTask> queue,
+        /** Concurrent compute slots the thread's tasks may occupy
+         *  (V110). Invariantly 1 in v1 — the field exists so unlocking
+         *  parallelism in v2 is a config flip, not a re-migration. */
+        int parallelSlots)
 {
+    /** Defensive copy + null-safety on the queue so a null persists as
+     *  an empty list and callers can't mutate it underneath the record;
+     *  parallelSlots floors at 1. */
+    public Thread
+    {
+        queue = queue == null ? List.of() : List.copyOf(queue);
+        if (parallelSlots < 1) {
+            parallelSlots = 1;
+        }
+    }
+
+    /** Back-compat constructor for the 19-field shape that predates the
+     *  {@code queue} + {@code parallelSlots} columns (V110). Defaults to
+     *  an empty queue and a single slot — correct for every
+     *  fresh-construction call site; only the store's row mapper threads
+     *  the persisted queue through the canonical constructor. */
+    public Thread(
+            String id,
+            ThreadKind kind,
+            String provider,
+            String agentSessionId,
+            String title,
+            ThreadStatus status,
+            String model,
+            long costUsdMilli,
+            long tokensIn,
+            long tokensOut,
+            Instant createdAt,
+            Instant updatedAt,
+            Instant endedAt,
+            String errorMessage,
+            ThreadFlow flow,
+            String workspaceId,
+            WorkModel workModel,
+            Task activeTask,
+            String parentReviewPassId)
+    {
+        this(id, kind, provider, agentSessionId, title, status, model, costUsdMilli,
+                tokensIn, tokensOut, createdAt, updatedAt, endedAt, errorMessage, flow,
+                workspaceId, workModel, activeTask, parentReviewPassId, List.of(), 1);
+    }
+
     /** Thread with no review-pass parent — the default for every
      *  thread except one spawned from a review pass. Keeps the many
      *  existing construction sites unchanged. */

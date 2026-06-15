@@ -40,7 +40,9 @@ public enum TaskPhaseGroup
                  ADDRESSING_COMMENTS, AGENT_RE_REVIEW -> IN_PROGRESS;
             case AWAITING_PUSH, AWAITING_READY, AWAITING_UPDATE_PUSH,
                  NEEDS_ATTENTION -> AWAITING_YOU;
-            case AWAITING_REMOTE_REVIEW -> IDLE;
+            // QUEUED waits on the scheduler to free a slot; the remote-
+            // review wait is on external humans. Neither needs the user.
+            case QUEUED, AWAITING_REMOTE_REVIEW -> IDLE;
             case COMPLETED -> DONE;
         };
     }

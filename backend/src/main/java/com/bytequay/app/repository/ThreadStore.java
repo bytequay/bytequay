@@ -13,6 +13,7 @@
  */
 package com.bytequay.app.repository;
 
+import com.bytequay.app.domain.QueuedTask;
 import com.bytequay.app.domain.Thread;
 import com.bytequay.app.domain.ThreadFile;
 import com.bytequay.app.domain.ThreadMessage;
@@ -43,6 +44,14 @@ public interface ThreadStore
 
     /** Single-row lookup by id. Empty when no such thread exists. */
     Optional<Thread> findThreadById(String id);
+
+    /** Replace the thread's planned-task queue (V110). Entity-managed:
+     *  written on its own column outside {@link #saveThread} so a
+     *  full-row save can't clobber a concurrent queue edit. No-op
+     *  default for test stores; the SQLite store overrides. */
+    default void updateThreadQueue(String threadId, List<QueuedTask> queue)
+    {
+    }
 
     /** Permanent removal — drops the thread row plus its child messages
      *  and per-file rollups. Callers must already have stopped any

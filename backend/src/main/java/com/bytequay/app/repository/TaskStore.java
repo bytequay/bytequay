@@ -115,6 +115,13 @@ public interface TaskStore
     {
     }
 
+    /** Write the task's {@code opening_prompt} accumulator (V110).
+     *  Load-set-save like {@link #updatePhase} so {@code saveTask} can't
+     *  clobber it. No-op default for test stores. */
+    default void setOpeningPrompt(String taskId, String openingPrompt)
+    {
+    }
+
     /** Append one phase-transition audit row. No-op default for test
      *  stores; the SQLite store inserts into {@code task_phase_event}. */
     default void appendPhaseEvent(

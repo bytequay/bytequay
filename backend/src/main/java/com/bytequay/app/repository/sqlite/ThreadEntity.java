@@ -90,6 +90,18 @@ class ThreadEntity
     @Column(name = "parent_review_pass_id")
     private String parentReviewPassId;
 
+    /** JSON array of the trunk's planned-task queue (V110). NOT NULL
+     *  DEFAULT '[]' at the DB level; the field default keeps a freshly
+     *  {@code new}'d entity consistent before persist. Written only via
+     *  the dedicated queue-update path, never the full-row saveThread,
+     *  so a concurrent queue edit can't be clobbered. */
+    @Column(name = "queue_json", nullable = false)
+    private String queueJson = "[]";
+
+    /** Concurrent compute slots (V110). 1 in v1. */
+    @Column(name = "parallel_slots", nullable = false)
+    private int parallelSlots = 1;
+
     // Dropped in V72 (moved to the tasks table):
     //   working_dir, branch_name, local_branch, worktree_path,
     //   process_pid, log_path, task_type, linked_pr_number,
@@ -151,4 +163,10 @@ class ThreadEntity
 
     String getParentReviewPassId() { return parentReviewPassId; }
     void setParentReviewPassId(String parentReviewPassId) { this.parentReviewPassId = parentReviewPassId; }
+
+    String getQueueJson() { return queueJson; }
+    void setQueueJson(String queueJson) { this.queueJson = queueJson; }
+
+    int getParallelSlots() { return parallelSlots; }
+    void setParallelSlots(int parallelSlots) { this.parallelSlots = parallelSlots; }
 }

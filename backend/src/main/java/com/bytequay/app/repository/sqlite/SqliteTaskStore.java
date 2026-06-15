@@ -181,6 +181,16 @@ class SqliteTaskStore
 
     @Override
     @Transactional
+    public void setOpeningPrompt(String taskId, String openingPrompt)
+    {
+        tasks.findById(taskId).ifPresent(entity -> {
+            entity.setOpeningPrompt(openingPrompt);
+            tasks.save(entity);
+        });
+    }
+
+    @Override
+    @Transactional
     public void appendPhaseEvent(
             String taskId, TaskPhase from, TaskPhase to, Instant at, String reason, Actor actor)
     {
@@ -379,7 +389,8 @@ class SqliteTaskStore
                 parsePhase(e.getPhase()),
                 e.getAgendaJson(),
                 e.getConsecutiveAutoPushes(),
-                e.getLinkedPrRef());
+                e.getLinkedPrRef(),
+                e.getOpeningPrompt());
     }
 
     /** Tolerant parse: an unknown / null phase string falls back to

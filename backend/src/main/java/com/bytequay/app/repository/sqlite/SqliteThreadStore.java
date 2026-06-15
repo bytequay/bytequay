@@ -13,6 +13,9 @@
  */
 package com.bytequay.app.repository.sqlite;
 
+import com.bytequay.app.domain.BranchBase;
+import com.bytequay.app.domain.QueuedTask;
+import com.bytequay.app.domain.QueuedTaskStatus;
 import com.bytequay.app.domain.Task;
 import com.bytequay.app.domain.TaskFile;
 import com.bytequay.app.domain.TaskStatus;
@@ -26,7 +29,10 @@ import com.bytequay.app.domain.WorkModel;
 import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.repository.ThreadStore;
 import com.fasterxml.jackson.core.JsonProcessingException;
+import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.databind.node.ArrayNode;
+import com.fasterxml.jackson.databind.node.ObjectNode;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
@@ -120,6 +126,12 @@ class SqliteThreadStore
         if (existing.isEmpty()) {
             ThreadFlow flow = thread.flow() == null ? ThreadFlow.BUILD : thread.flow();
             entity.setFlow(flow.dbValue());
+            // parallel_slots is structural (v1 invariant 1) — write it on
+            // INSERT only. queue_json is deliberately NOT written here:
+            // it's entity-managed via updateThreadQueue so a full-row
+            // saveThread can't clobber a concurrent queue edit. The column
+            // default '[]' covers a brand-new row.
+            entity.setParallelSlots(thread.parallelSlots() < 1 ? 1 : thread.parallelSlots());
         }
         else if (thread.flow() != null
                 && !thread.flow().dbValue().equals(entity.getFlow())) {
@@ -387,7 +399,79 @@ class SqliteThreadStore
                 e.getWorkspaceId(),
                 deserialiseWorkModel(e.getWorkModelJson()),
                 active,
-                e.getParentReviewPassId());
+                e.getParentReviewPassId(),
+                deserialiseQueue(e.getQueueJson()),
+                e.getParallelSlots());
+    }
+
+    @Override
+    @Transactional
+    public void updateThreadQueue(String threadId, List<QueuedTask> queue)
+    {
+        threads.findById(threadId).ifPresent(entity -> {
+            entity.setQueueJson(serialiseQueue(queue));
+            threads.save(entity);
+        });
+    }
+
+    /** Hand-rolled JSON for the queue so the wire shape (shared with the
+     *  frontend's {@code GET /threads/{id}} read) is pinned here and
+     *  Instant↔epoch-ms conversion is explicit — no reliance on a
+     *  jsr310 module being registered on the ambient ObjectMapper. */
+    private String serialiseQueue(List<QueuedTask> queue)
+    {
+        ArrayNode arr = objectMapper.createArrayNode();
+        if (queue != null) {
+            for (QueuedTask q : queue) {
+                ObjectNode node = objectMapper.createObjectNode();
+                node.put("position", q.position());
+                node.put("title", q.title());
+                node.put("branch_base", q.branchBase().wire());
+                if (q.initialPrompt() != null) {
+                    node.put("initial_prompt", q.initialPrompt());
+                }
+                node.put("status", q.status().name());
+                if (q.materializedTaskId() != null) {
+                    node.put("materialized_task_id", q.materializedTaskId());
+                }
+                node.put("created_at_ms",
+                        q.createdAt() == null ? 0L : q.createdAt().toEpochMilli());
+                arr.add(node);
+            }
+        }
+        return arr.toString();
+    }
+
+    private List<QueuedTask> deserialiseQueue(String json)
+    {
+        if (json == null || json.isBlank()) {
+            return List.of();
+        }
+        try {
+            JsonNode root = objectMapper.readTree(json);
+            if (!root.isArray()) {
+                return List.of();
+            }
+            List<QueuedTask> out = new ArrayList<>(root.size());
+            for (JsonNode node : root) {
+                long createdMs = node.path("created_at_ms").asLong(0L);
+                out.add(new QueuedTask(
+                        node.path("position").asInt(),
+                        node.path("title").asText(""),
+                        BranchBase.fromWire(node.path("branch_base").asText(null)),
+                        node.hasNonNull("initial_prompt") ? node.get("initial_prompt").asText() : null,
+                        QueuedTaskStatus.fromWire(node.path("status").asText(null)),
+                        node.hasNonNull("materialized_task_id")
+                                ? node.get("materialized_task_id").asText() : null,
+                        Instant.ofEpochMilli(createdMs)));
+            }
+            return List.copyOf(out);
+        }
+        catch (JsonProcessingException e) {
+            // A malformed queue row shouldn't break the whole thread
+            // load — treat as an empty queue.
+            return List.of();
+        }
     }
 
     private String serialiseWorkModel(WorkModel m)

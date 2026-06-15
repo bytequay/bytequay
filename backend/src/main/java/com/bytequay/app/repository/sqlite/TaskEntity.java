@@ -125,6 +125,12 @@ class TaskEntity
     @Column(name = "linked_pr_ref")
     private String linkedPrRef;
 
+    /** Opening-prompt accumulator for a queue-born task (V110). Nullable;
+     *  written via the dedicated opening-prompt update path, never the
+     *  full-row saveTask, so it survives a clobber. */
+    @Column(name = "opening_prompt")
+    private String openingPrompt;
+
     String getId() { return id; }
     void setId(String id) { this.id = id; }
 
@@ -220,4 +226,7 @@ class TaskEntity
 
     String getLinkedPrRef() { return linkedPrRef; }
     void setLinkedPrRef(String linkedPrRef) { this.linkedPrRef = linkedPrRef; }
+
+    String getOpeningPrompt() { return openingPrompt; }
+    void setOpeningPrompt(String openingPrompt) { this.openingPrompt = openingPrompt; }
 }

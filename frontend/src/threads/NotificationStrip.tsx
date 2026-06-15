@@ -232,7 +232,7 @@ function titleFor(kind: NotificationKindDto): string {
   switch (kind) {
     case 'AWAITING_REVIEW':  return 'Awaiting review';
     case 'NEEDS_ATTENTION':  return 'Needs attention';
-    case 'AUTO_FIX_DONE':    return 'Shipped';
+    case 'AUTO_FIX_DONE':    return 'Done';
   }
 }
 

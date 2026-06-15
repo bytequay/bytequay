@@ -607,7 +607,7 @@ export default function TaskDetailPage({
               </button>
             )}
             {task !== null && (
-              <span style={bandStatusStyle}>· {task.status.toLowerCase()}</span>
+              <span style={bandStatusStyle}>· {task.status.toLowerCase().replace(/_/g, ' ')}</span>
             )}
             <div style={bandSpacerStyle} />
             {task !== null && (

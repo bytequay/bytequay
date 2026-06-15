@@ -1779,7 +1779,9 @@ export type WorkUnitTaskDto = {
   threadId: string;
   /** 1..N within the thread; sequence in which tasks were created. */
   seq: number;
-  /** PENDING | RUNNING | AWAITING | IDLE | COMPLETED | ERRORED. */
+  /** PENDING | RUNNING | AWAITING | IDLE | AWAITING_REVIEW |
+   *  NEEDS_ATTENTION | IN_REVIEW | COMPLETED | ERRORED. IN_REVIEW =
+   *  shipped (PR open) but not yet merged. */
   status: string;
   branchName: string | null;
   worktreePath: string | null;

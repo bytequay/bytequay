@@ -55,8 +55,14 @@ export function titleFor(n: NotificationDto): string {
     }
     if (resolution === 'recovered') return 'Resolved locally';
     if (resolution === 'failed') return 'Publish failed';
+    // Ship-and-continue audit: branch pushed + PR opened, task now in
+    // review. "PR opened" — not "Shipped" — because the work isn't done
+    // until the PR merges (the task sits at IN_REVIEW until then).
+    if (payload.shippedTaskId !== undefined) {
+      return typeof payload.prNumber === 'number' ? `PR #${payload.prNumber} opened` : 'PR opened';
+    }
   }
-  return 'Shipped';
+  return 'Done';
 }
 
 /** Sub-line copy under the title. AUTO_FIX_DONE rows that carry a

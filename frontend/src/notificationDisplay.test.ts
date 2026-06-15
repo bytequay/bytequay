@@ -16,9 +16,12 @@ import { previewFor, titleFor } from './notificationDisplay';
 import type { NotificationDto } from './types';
 
 describe('notificationDisplay.titleFor', () => {
-  it('uses the legacy "Shipped" copy for ship-and-continue audit rows', () => {
-    expect(titleFor(autoFixDone({ repoFullName: 'acme/widget', prNumber: 42 })))
-        .toBe('Shipped');
+  it('renders "PR #N opened" for ship-and-continue audit rows', () => {
+    // A shipped task opens a PR but isn't done until it merges, so the
+    // audit row says the PR opened rather than the old "Shipped".
+    expect(titleFor(autoFixDone({
+      shippedTaskId: 'task-1', repoFullName: 'acme/widget', prNumber: 42,
+    }))).toBe('PR #42 opened');
   });
 
   it('renders "Pushed" for an approved push audit row', () => {

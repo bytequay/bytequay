@@ -400,6 +400,7 @@ function TaskRow({ task, onClick }: { task: WorkUnitTaskDto; onClick?: () => voi
  *  empty meta keeps the row visually quiet. */
 function describeTaskMeta(t: WorkUnitTaskDto): string | null {
   if (t.status === 'AWAITING') return 'awaiting approval';
+  if (t.status === 'IN_REVIEW') return 'in review';
   if (t.ciState !== null && t.ciState.length > 0) {
     return t.ciState.toLowerCase();
   }
@@ -412,6 +413,7 @@ function describeTaskMeta(t: WorkUnitTaskDto): string | null {
 function taskStatusBoxStyle(status: string): React.CSSProperties {
   const color = status === 'RUNNING' || status === 'COMPLETED' ? '#16a34a'
       : status === 'AWAITING' || status === 'AWAITING_REVIEW' ? '#d97706'
+      : status === 'IN_REVIEW' ? '#7c3aed'
       : status === 'ERRORED' ? '#cf1322'
       : '#a8a3b5';
   return {
@@ -512,6 +514,7 @@ function memoryExcerpt(md: string): MemorySection[] {
 function statusDotStyle(status: string): React.CSSProperties {
   const color = status === 'RUNNING' ? '#16a34a'
       : status === 'AWAITING' || status === 'AWAITING_REVIEW' ? '#d97706'
+      : status === 'IN_REVIEW' ? '#7c3aed'
       : '#7a7388';
   return {
     width: 7,

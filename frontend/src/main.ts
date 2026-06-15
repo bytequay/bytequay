@@ -582,6 +582,21 @@ function registerIpc(): void {
     return res.json();
   });
 
+  // The dev-task / review links for one PR — drives the dashboard row's
+  // authorship-gated affordance (TaskChip / ReviewChip vs the create /
+  // assign buttons).
+  ipcMain.handle('backend:prLinks', async (_event, repo: string, number: number) => {
+    const url = new URL(`${BACKEND_BASE}/prs/linked-tasks`);
+    url.searchParams.set('repo', repo);
+    url.searchParams.set('number', String(number));
+    const res = await fetch(url);
+    if (!res.ok) {
+      const body = await res.text().catch(() => '');
+      throw new Error(`backend /prs/linked-tasks returned ${res.status}: ${body}`);
+    }
+    return res.json();
+  });
+
   // Named filter (urgent, awaiting_me, stale, blocked, mine_open) —
   // the backend resolves through PullRequestFilters, which is the
   // same code path the list_prs agent tool uses. The dashboard's

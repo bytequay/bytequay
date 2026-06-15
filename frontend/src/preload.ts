@@ -44,6 +44,7 @@ import type {
   IssueDetailDto,
   IssueDto,
   PullRequestDetailDto,
+  PrLinksDto,
   PullRequestDto,
   AssembledContextDto,
   ConceptRowDto,
@@ -101,6 +102,8 @@ const bridge: Bridge = {
     ipcRenderer.invoke('backend:listPrsByFilter', name),
   lookupPr: (repo: string, number: number): Promise<PullRequestDto> =>
     ipcRenderer.invoke('backend:lookupPr', repo, number),
+  getPrLinks: (repo: string, number: number): Promise<PrLinksDto> =>
+    ipcRenderer.invoke('backend:prLinks', repo, number),
   listSavedViews: () => ipcRenderer.invoke('backend:listSavedViews'),
   createSavedView: (body: SavedViewBodyDto) =>
     ipcRenderer.invoke('backend:createSavedView', body),

@@ -17,6 +17,7 @@ import com.bytequay.app.domain.PullRequest;
 import com.bytequay.app.domain.ReviewPass;
 import com.bytequay.app.domain.Task;
 import com.bytequay.app.domain.TaskPhase;
+import com.bytequay.app.domain.TaskPhaseGroup;
 import com.bytequay.app.repository.AppSettingsStore;
 import com.bytequay.app.repository.ReviewStore;
 import com.bytequay.app.repository.TaskStore;
@@ -136,20 +137,33 @@ public class PrTaskLinkService
     public LinkedTasks linkedTasksFor(String repoFullName, int prNumber)
     {
         String prRef = repoFullName + "#" + prNumber;
-        String activeId = null;
+        TaskRef active = null;
         List<String> completed = new ArrayList<>();
         for (Task task : taskStore.findTasksByPrRef(prRef)) {
             if (task.phase() == TaskPhase.COMPLETED) {
                 completed.add(task.id());
             }
             else {
-                activeId = task.id();
+                active = new TaskRef(task.id(), taskTitle(task), TaskPhaseGroup.of(task.phase()).name());
             }
         }
         ReviewPassRef activeReview = reviewStore.findActivePrReview(repoFullName, prNumber)
                 .map(PrTaskLinkService::toReviewPassRef)
                 .orElse(null);
-        return new LinkedTasks(activeId, List.copyOf(completed), activeReview);
+        return new LinkedTasks(active, List.copyOf(completed), activeReview);
+    }
+
+    /** Display title for a task chip: the user rename, else the branch,
+     *  else "Task N". */
+    private static String taskTitle(Task task)
+    {
+        if (task.name() != null && !task.name().isBlank()) {
+            return task.name();
+        }
+        if (task.branchName() != null && !task.branchName().isBlank()) {
+            return task.branchName();
+        }
+        return "Task " + task.seq();
     }
 
     private static ReviewPassRef toReviewPassRef(ReviewPass pass)
@@ -167,9 +181,12 @@ public class PrTaskLinkService
     /** PR → tasks + active review view. {@code linkedActiveReviewRef} is
      *  populated only for THREAD-hosted (standalone) reviews. */
     public record LinkedTasks(
-            String linkedActiveTaskId,
+            TaskRef linkedActiveTask,
             List<String> linkedCompletedTaskIds,
             ReviewPassRef linkedActiveReviewRef) {}
+
+    /** Compact view of the active linked task for a PR-row chip. */
+    public record TaskRef(String id, String title, String phaseGroup) {}
 
     /** Compact view of an active review pass for a PR/task chip. */
     public record ReviewPassRef(

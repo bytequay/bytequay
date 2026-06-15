@@ -112,7 +112,9 @@ class TestPrTaskLinkService
 
         PrTaskLinkService.LinkedTasks linked = service.linkedTasksFor("acme/widget", 42);
 
-        assertThat(linked.linkedActiveTaskId()).isEqualTo("task-active");
+        assertThat(linked.linkedActiveTask()).isNotNull();
+        assertThat(linked.linkedActiveTask().id()).isEqualTo("task-active");
+        assertThat(linked.linkedActiveTask().phaseGroup()).isEqualTo("IN_PROGRESS");
         assertThat(linked.linkedCompletedTaskIds()).containsExactly("task-done-1", "task-done-2");
     }
 

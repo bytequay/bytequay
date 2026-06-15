@@ -1794,6 +1794,33 @@ export type TaskPhaseDto =
  *  TaskPhaseGroup). */
 export type TaskPhaseGroupDto = 'IN_PROGRESS' | 'AWAITING_YOU' | 'IDLE' | 'DONE';
 
+/** Compact active-task ref on a PR row (from {@code /prs/linked-tasks}). */
+export type TaskRefDto = {
+  id: string;
+  title: string;
+  phaseGroup: TaskPhaseGroupDto;
+};
+
+/** Compact active-review-pass ref on a PR row. */
+export type ReviewPassRefDto = {
+  passId: string;
+  phase: string;
+  hostKind: 'THREAD' | 'TASK_PHASE';
+  round: number;
+  roundCap: number;
+  costSpentMilli: number;
+  costCapMilli: number;
+};
+
+/** The dev-task + review links for one PR — backs the dashboard row's
+ *  authorship-gated affordance. {@code linkedActiveReviewRef} is set only
+ *  for THREAD-hosted (standalone) reviews. */
+export type PrLinksDto = {
+  linkedActiveTask: TaskRefDto | null;
+  linkedCompletedTaskIds: string[];
+  linkedActiveReviewRef: ReviewPassRefDto | null;
+};
+
 export type WorkUnitTaskDto = {
   id: string;
   threadId: string;
@@ -2416,6 +2443,7 @@ export type Bridge = {
    *  dialog's "type a number / paste a URL" path. Rejects (GitHub 404)
    *  when no such PR exists. */
   lookupPr: (repo: string, number: number) => Promise<PullRequestDto>;
+  getPrLinks: (repo: string, number: number) => Promise<PrLinksDto>;
   /** Saved Views — user-authored concepts (scope=USER) visible
    *  alongside the workspace and APP-scoped seeds. */
   listSavedViews: () => Promise<SavedViewDto[]>;

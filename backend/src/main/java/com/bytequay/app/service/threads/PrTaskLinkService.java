@@ -14,12 +14,20 @@
 package com.bytequay.app.service.threads;
 
 import com.bytequay.app.domain.PullRequest;
+import com.bytequay.app.domain.Task;
+import com.bytequay.app.domain.TaskPhase;
 import com.bytequay.app.repository.AppSettingsStore;
 import com.bytequay.app.repository.TaskStore;
+import com.bytequay.app.repository.WatchedRepoStore;
 import com.bytequay.app.service.pr.PullRequestService;
 import org.springframework.http.HttpStatusCode;
 import org.springframework.stereotype.Service;
 import org.springframework.web.server.ResponseStatusException;
+
+import java.nio.file.Path;
+import java.util.ArrayList;
+import java.util.List;
+import java.util.Optional;
 
 import static java.util.Objects.requireNonNull;
 
@@ -38,15 +46,18 @@ public class PrTaskLinkService
     private final PullRequestService pullRequests;
     private final TaskStore taskStore;
     private final AppSettingsStore appSettings;
+    private final WatchedRepoStore watchedRepos;
 
     public PrTaskLinkService(
             PullRequestService pullRequests,
             TaskStore taskStore,
-            AppSettingsStore appSettings)
+            AppSettingsStore appSettings,
+            WatchedRepoStore watchedRepos)
     {
         this.pullRequests = requireNonNull(pullRequests, "pullRequests is null");
         this.taskStore = requireNonNull(taskStore, "taskStore is null");
         this.appSettings = requireNonNull(appSettings, "appSettings is null");
+        this.watchedRepos = requireNonNull(watchedRepos, "watchedRepos is null");
     }
 
     /** The connected GitHub user's login, or "" when not connected. */
@@ -85,6 +96,56 @@ public class PrTaskLinkService
         });
         return prRef;
     }
+
+    /**
+     * Worktree-driven variant for the task-create path, which knows the
+     * task's {@code workingDir} (clone path) + a linked PR number rather
+     * than a repo full name. Resolves the repo from the worktree; returns
+     * the {@code owner/repo#n} ref to link, or empty when the worktree
+     * doesn't map to a watched repo (nothing to gate or link against).
+     */
+    public Optional<String> assertCanCreateDevTaskForWorktree(String workingDir, int prNumber)
+    {
+        return repoFullNameFor(workingDir)
+                .map(repoFullName -> assertCanCreateDevTask(repoFullName, prNumber));
+    }
+
+    private Optional<String> repoFullNameFor(String workingDir)
+    {
+        if (workingDir == null || workingDir.isBlank()) {
+            return Optional.empty();
+        }
+        Path needle = Path.of(workingDir);
+        return watchedRepos.findAll().stream()
+                .filter(r -> r.localClonePath() != null && !r.localClonePath().isBlank()
+                        && Path.of(r.localClonePath()).equals(needle))
+                .findFirst()
+                .map(r -> r.owner() + "/" + r.repo());
+    }
+
+    /**
+     * The tasks linked to a PR: the single active one (if any) plus the
+     * completed/cancelled audit log. Backs the PR detail page's
+     * linked-task chip + history.
+     */
+    public LinkedTasks linkedTasksFor(String repoFullName, int prNumber)
+    {
+        String prRef = repoFullName + "#" + prNumber;
+        String activeId = null;
+        List<String> completed = new ArrayList<>();
+        for (Task task : taskStore.findTasksByPrRef(prRef)) {
+            if (task.phase() == TaskPhase.COMPLETED) {
+                completed.add(task.id());
+            }
+            else {
+                activeId = task.id();
+            }
+        }
+        return new LinkedTasks(activeId, List.copyOf(completed));
+    }
+
+    /** PR → tasks view: at most one active task, plus completed history. */
+    public record LinkedTasks(String linkedActiveTaskId, List<String> linkedCompletedTaskIds) {}
 
     private String authorOf(String repoFullName, int prNumber)
     {

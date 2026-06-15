@@ -235,6 +235,14 @@ class SqliteTaskStore
         });
     }
 
+    @Override
+    public List<Task> findTasksByPrRef(String prRef)
+    {
+        return tasks.findByLinkedPrRefOrderBySeqAsc(prRef).stream()
+                .map(this::toTask)
+                .toList();
+    }
+
     private static TaskPhaseEvent toPhaseEvent(TaskPhaseEventEntity e)
     {
         return new TaskPhaseEvent(

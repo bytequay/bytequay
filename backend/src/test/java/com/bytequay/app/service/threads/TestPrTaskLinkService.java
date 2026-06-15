@@ -15,9 +15,11 @@ package com.bytequay.app.service.threads;
 
 import com.bytequay.app.domain.PullRequest;
 import com.bytequay.app.domain.Task;
+import com.bytequay.app.domain.TaskPhase;
 import com.bytequay.app.domain.TaskStatus;
 import com.bytequay.app.repository.AppSettingsStore;
 import com.bytequay.app.repository.TaskStore;
+import com.bytequay.app.repository.WatchedRepoStore;
 import com.bytequay.app.service.pr.PullRequestService;
 import org.junit.jupiter.api.Test;
 import org.springframework.web.server.ResponseStatusException;
@@ -38,8 +40,9 @@ class TestPrTaskLinkService
     private final PullRequestService pullRequests = mock(PullRequestService.class);
     private final TaskStore taskStore = mock(TaskStore.class);
     private final AppSettingsStore appSettings = mock(AppSettingsStore.class);
+    private final WatchedRepoStore watchedRepos = mock(WatchedRepoStore.class);
     private final PrTaskLinkService service =
-            new PrTaskLinkService(pullRequests, taskStore, appSettings);
+            new PrTaskLinkService(pullRequests, taskStore, appSettings, watchedRepos);
 
     @Test
     void cannotReviewYourOwnPr()
@@ -95,6 +98,20 @@ class TestPrTaskLinkService
         assertThat(service.assertCanCreateDevTask("acme/widget", 42)).isEqualTo("acme/widget#42");
     }
 
+    @Test
+    void linkedTasksSplitsTheActiveTaskFromTheCompletedAuditLog()
+    {
+        when(taskStore.findTasksByPrRef("acme/widget#42")).thenReturn(List.of(
+                taskWith("task-done-1", TaskPhase.COMPLETED),
+                taskWith("task-active", TaskPhase.ADDRESSING_COMMENTS),
+                taskWith("task-done-2", TaskPhase.COMPLETED)));
+
+        PrTaskLinkService.LinkedTasks linked = service.linkedTasksFor("acme/widget", 42);
+
+        assertThat(linked.linkedActiveTaskId()).isEqualTo("task-active");
+        assertThat(linked.linkedCompletedTaskIds()).containsExactly("task-done-1", "task-done-2");
+    }
+
     private void viewerIs(String login)
     {
         when(appSettings.get(AppSettingsStore.Key.GITHUB_LOGIN)).thenReturn(Optional.of(login));
@@ -102,13 +119,18 @@ class TestPrTaskLinkService
 
     private static Task taskWithId(String id)
     {
+        return taskWith(id, TaskPhase.IMPLEMENTING);
+    }
+
+    private static Task taskWith(String id, TaskPhase phase)
+    {
         Instant now = Instant.parse("2026-06-15T12:00:00Z");
         return new Task(
                 id, "thread-1", 1L, TaskStatus.RUNNING,
                 "dev/x", "/tmp/wt", "main", "/tmp/repo",
                 null, null, null, null, null, "DEVELOP",
                 null, null, 0L, 0L, 0L, null,
-                now, null, null, null, null, null);
+                now, null, null, null, null, null, null, phase);
     }
 
     private static PullRequest prBy(String author)

@@ -28,6 +28,7 @@ import com.bytequay.app.service.pr.MyActivityService;
 import com.bytequay.app.service.pr.PrAnalyticsService;
 import com.bytequay.app.service.pr.PullRequestService;
 import com.bytequay.app.service.pr.filters.PullRequestFilters;
+import com.bytequay.app.service.threads.PrTaskLinkService;
 import com.google.common.collect.ImmutableMap;
 import org.springframework.http.HttpStatusCode;
 import org.springframework.web.bind.annotation.DeleteMapping;
@@ -53,17 +54,20 @@ public class PullRequestController
     private final PrAnalyticsService prAnalyticsService;
     private final MyActivityService myActivityService;
     private final PullRequestFilters prFilters;
+    private final PrTaskLinkService prTaskLink;
 
     public PullRequestController(
             PullRequestService pullRequestService,
             PrAnalyticsService prAnalyticsService,
             MyActivityService myActivityService,
-            PullRequestFilters prFilters)
+            PullRequestFilters prFilters,
+            PrTaskLinkService prTaskLink)
     {
         this.pullRequestService = requireNonNull(pullRequestService, "pullRequestService is null");
         this.prAnalyticsService = requireNonNull(prAnalyticsService, "prAnalyticsService is null");
         this.myActivityService = requireNonNull(myActivityService, "myActivityService is null");
         this.prFilters = requireNonNull(prFilters, "prFilters is null");
+        this.prTaskLink = requireNonNull(prTaskLink, "prTaskLink is null");
     }
 
     /**
@@ -154,6 +158,21 @@ public class PullRequestController
             @RequestParam("number") int number)
     {
         return pullRequestService.getPullRequestDetail(repo, number);
+    }
+
+    /**
+     * GET /prs/linked-tasks — the dev tasks linked to a PR: the single
+     * active task (if any) + the completed/cancelled audit log. The PR
+     * detail page renders the linked-task chip + history from this.
+     * Served as a sibling of {@code /prs/detail} (not folded into the
+     * cached detail payload) so the task links are always read fresh.
+     */
+    @GetMapping("/prs/linked-tasks")
+    public PrTaskLinkService.LinkedTasks linkedTasks(
+            @RequestParam("repo") String repo,
+            @RequestParam("number") int number)
+    {
+        return prTaskLink.linkedTasksFor(repo, number);
     }
 
     /**

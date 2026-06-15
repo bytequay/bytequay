@@ -150,6 +150,14 @@ public interface TaskStore
     {
     }
 
+    /** Every task ever linked to {@code prRef} (the active one plus the
+     *  completed/cancelled audit log), oldest first. Empty default for
+     *  test stores. */
+    default List<Task> findTasksByPrRef(String prRef)
+    {
+        return List.of();
+    }
+
     /** Set the consecutive-auto-push counter (incremented on an auto
      *  push, reset to 0 on a human push). No-op default for test stores. */
     default void setConsecutiveAutoPushes(String taskId, int value)

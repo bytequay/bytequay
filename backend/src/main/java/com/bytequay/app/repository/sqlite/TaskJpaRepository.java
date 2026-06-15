@@ -53,4 +53,8 @@ interface TaskJpaRepository
      *  — the partial unique index guarantees at most one. Enforces the
      *  task ↔ PR 1:1-active rule. */
     Optional<TaskEntity> findFirstByLinkedPrRefAndPhaseNot(String linkedPrRef, String phase);
+
+    /** Every task ever linked to a PR ref (active + completed audit log),
+     *  oldest first — backs the PR's linked-task surface. */
+    List<TaskEntity> findByLinkedPrRefOrderBySeqAsc(String linkedPrRef);
 }

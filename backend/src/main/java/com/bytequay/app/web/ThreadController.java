@@ -26,12 +26,14 @@ import com.bytequay.app.domain.ThreadStatus;
 import com.bytequay.app.domain.ThreadTurn;
 import com.bytequay.app.domain.ThreadTurnEvent;
 import com.bytequay.app.domain.WorkModel;
+import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.repository.ThreadCheckpointStore;
 import com.bytequay.app.service.inspector.AssembledContext;
 import com.bytequay.app.service.inspector.ContextAssembler;
 import com.bytequay.app.service.local.GitRunner;
 import com.bytequay.app.service.threads.CheckpointTrigger;
 import com.bytequay.app.service.threads.ConvIndexService;
+import com.bytequay.app.service.threads.PrTaskLinkService;
 import com.bytequay.app.service.threads.ThreadService;
 import com.bytequay.app.service.workmodel.WorkModelResolver;
 import com.google.common.collect.ImmutableList;
@@ -97,6 +99,8 @@ public class ThreadController
     private final CheckpointTrigger checkpointTrigger;
     private final ContextAssembler contextAssembler;
     private final WorkModelResolver workModelResolver;
+    private final PrTaskLinkService prTaskLink;
+    private final TaskStore taskStore;
 
     public ThreadController(
             ThreadService threads,
@@ -104,7 +108,9 @@ public class ThreadController
             ThreadCheckpointStore checkpoints,
             CheckpointTrigger checkpointTrigger,
             ContextAssembler contextAssembler,
-            WorkModelResolver workModelResolver)
+            WorkModelResolver workModelResolver,
+            PrTaskLinkService prTaskLink,
+            TaskStore taskStore)
     {
         this.threads = requireNonNull(threads, "threads is null");
         this.convIndex = requireNonNull(convIndex, "convIndex is null");
@@ -112,6 +118,8 @@ public class ThreadController
         this.checkpointTrigger = requireNonNull(checkpointTrigger, "checkpointTrigger is null");
         this.contextAssembler = requireNonNull(contextAssembler, "contextAssembler is null");
         this.workModelResolver = requireNonNull(workModelResolver, "workModelResolver is null");
+        this.prTaskLink = requireNonNull(prTaskLink, "prTaskLink is null");
+        this.taskStore = requireNonNull(taskStore, "taskStore is null");
     }
 
     /** GET /api/threads?status=RUNNING&limit=50&groupId=...&workspaceId=... */
@@ -209,7 +217,15 @@ public class ThreadController
         if (body.workingDir() == null || body.workingDir().isBlank()) {
             throw new IllegalArgumentException("workingDir is required");
         }
-        return threads.materialiseTask(id, new ThreadService.NewTaskRequest(
+        // Author + 1:1-active gate when linking to an existing PR: only
+        // your own PR, and only when no active task already owns it.
+        // Throws 422 / 409 before the task is cut. Empty = the worktree
+        // doesn't map to a watched repo, so there's nothing to link.
+        Optional<String> linkPrRef = body.linkedPrNumber() == null
+                ? Optional.empty()
+                : prTaskLink.assertCanCreateDevTaskForWorktree(
+                        body.workingDir(), body.linkedPrNumber());
+        Task created = threads.materialiseTask(id, new ThreadService.NewTaskRequest(
                 body.kind(),
                 body.provider() == null ? "claude-code" : body.provider(),
                 body.model(),
@@ -227,6 +243,10 @@ public class ThreadController
                 // anyway so a future code path picks it up.
                 body.workspaceId(),
                 body.workModel()));
+        // Permanent task→PR link (drives the 1:1-active index + the PR
+        // card's linked-task chip).
+        linkPrRef.ifPresent(ref -> taskStore.linkTaskToPr(created.id(), ref));
+        return created;
     }
 
     /** GET /api/threads/{id} */

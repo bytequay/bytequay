@@ -119,37 +119,57 @@ public class TaskQueueScheduler
     void advance(Task completed)
     {
         String threadId = completed.threadId();
-        Thread thread = threadStore.findThreadById(threadId).orElse(null);
-        if (thread == null) {
-            return;
-        }
         // Flip the completed task's queue entry (if it came from the queue)
         // to COMPLETED so it drops out of advancement.
-        thread.queue().stream()
-                .filter(q -> completed.id().equals(q.materializedTaskId()))
-                .findFirst()
-                .ifPresent(q -> queue.markCompleted(threadId, q.position()));
-        thread = threadStore.findThreadById(threadId).orElse(thread);
+        threadStore.findThreadById(threadId).ifPresent(thread ->
+                thread.queue().stream()
+                        .filter(q -> completed.id().equals(q.materializedTaskId()))
+                        .findFirst()
+                        .ifPresent(q -> queue.markCompleted(threadId, q.position())));
+        startNextIfIdle(threadId, completed.workingDir());
+    }
 
+    /**
+     * Start the queue's head when a slot is free — the single
+     * dequeue-and-run rule, called both when a task completes (a slot
+     * frees) and right after a task is queued or created onto an idle
+     * thread (the slot is already free). Materialises the head into a
+     * QUEUED task, promotes it to IMPLEMENTING, and feeds its opening
+     * prompt as the first turn. No-op when a slot is busy, the queue is
+     * dry, or no working dir is resolvable.
+     *
+     * @param workingDirHint the repo clone to cut from when known (the
+     *     completed task's dir, or the create_task caller's repo); falls
+     *     back to the thread's latest task's working dir.
+     */
+    public Optional<Task> startNextIfIdle(String threadId, String workingDirHint)
+    {
+        Thread thread = threadStore.findThreadById(threadId).orElse(null);
+        if (thread == null) {
+            return Optional.empty();
+        }
         if (occupiedSlots(threadId) >= Math.max(1, thread.parallelSlots())) {
-            return; // a sibling is still running; wait for it to finish.
+            return Optional.empty(); // a task is still running; it'll advance on completion.
         }
         Optional<QueuedTask> headOpt = queue.pendingHead(thread);
         if (headOpt.isEmpty()) {
-            return; // queue ran dry — the trunk can plan more.
+            return Optional.empty(); // queue ran dry — the trunk can plan more.
         }
         QueuedTask head = headOpt.get();
-        String workingDir = completed.workingDir();
+        String workingDir = workingDirHint != null && !workingDirHint.isBlank()
+                ? workingDirHint
+                : taskStore.findLatestTaskForThread(threadId)
+                        .map(Task::workingDir).orElse(null);
         if (workingDir == null || workingDir.isBlank()) {
-            log.warn("Cannot advance queue on thread {}: completed task {} has no working dir",
-                    threadId, completed.id());
-            return;
+            log.warn("Cannot start queued task on thread {}: no working dir resolvable", threadId);
+            return Optional.empty();
         }
         Task next = materialiser.materialiseHead(thread, head, workingDir);
         if (head.branchBase() == BranchBase.STACKED_ON_PREVIOUS) {
             notifyStackedCutOffMain(threadId, next.id(), head.title());
         }
         promote(next);
+        return Optional.of(next);
     }
 
     private void promote(Task task)

@@ -27,6 +27,7 @@ import com.bytequay.app.repository.WatchedRepoStore;
 import com.bytequay.app.service.local.ShellRunner;
 import com.bytequay.app.service.local.TestRunnerDetector;
 import com.bytequay.app.service.threads.TaskQueueMaterialiser;
+import com.bytequay.app.service.threads.TaskQueueScheduler;
 import com.bytequay.app.service.threads.ThreadService;
 import com.bytequay.app.service.workspaces.WorkspaceService;
 import com.fasterxml.jackson.core.JsonProcessingException;
@@ -88,6 +89,7 @@ public class AgentToolHandlers
     private final WatchedRepoStore watchedRepos;
     private final ThreadService threads;
     private final TaskQueueMaterialiser queueMaterialiser;
+    private final TaskQueueScheduler queueScheduler;
     private final ObjectMapper mapper;
 
     public AgentToolHandlers(
@@ -103,6 +105,7 @@ public class AgentToolHandlers
             WatchedRepoStore watchedRepos,
             ThreadService threads,
             TaskQueueMaterialiser queueMaterialiser,
+            TaskQueueScheduler queueScheduler,
             ObjectMapper mapper)
     {
         this.taskStore = requireNonNull(taskStore, "taskStore is null");
@@ -117,6 +120,7 @@ public class AgentToolHandlers
         this.watchedRepos = requireNonNull(watchedRepos, "watchedRepos is null");
         this.threads = requireNonNull(threads, "threads is null");
         this.queueMaterialiser = requireNonNull(queueMaterialiser, "queueMaterialiser is null");
+        this.queueScheduler = requireNonNull(queueScheduler, "queueScheduler is null");
         this.mapper = requireNonNull(mapper, "mapper is null");
     }
 
@@ -641,15 +645,24 @@ public class AgentToolHandlers
             return ToolOutcome.Completed.error(
                     "watched repo " + repo + " has no local clone path — set it under Repos.");
         }
-        // When the trunk has lined up a queue, cutting a task materialises
-        // the head of that queue (its planned title / opening prompt) into
-        // a QUEUED task, rather than a one-off from the caller's args. The
-        // args become a fallback only when the queue is empty.
+        // When the trunk has lined up a queue, cutting a task starts the
+        // head of that queue (its planned title / opening prompt) through
+        // the same dequeue-and-run path the scheduler uses — one execution
+        // rule for queue_task, create_task, and on-completion advancement.
+        // The caller's args are a one-off fallback only when the queue is
+        // empty. create_task is trunk-only (no active task), so the slot is
+        // free and the head starts immediately.
         Optional<QueuedTask> head = queueMaterialiser.pendingHead(thread);
         if (head.isPresent()) {
             try {
-                Task materialised = queueMaterialiser.materialiseHead(
-                        thread, head.get(), watched.localClonePath());
+                Optional<Task> started =
+                        queueScheduler.startNextIfIdle(threadId, watched.localClonePath());
+                if (started.isEmpty()) {
+                    return ToolOutcome.Completed.error(
+                            "create_task: the queued head couldn't start now (slot busy or no "
+                                    + "working dir); it will start when a slot frees.");
+                }
+                Task materialised = started.get();
                 return toolOutcome(new CreatedTaskResult(
                         materialised.id(),
                         materialised.threadId(),

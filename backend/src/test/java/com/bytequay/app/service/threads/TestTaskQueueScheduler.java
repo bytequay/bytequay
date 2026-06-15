@@ -33,6 +33,7 @@ import java.time.Instant;
 import java.util.List;
 import java.util.Optional;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
@@ -140,6 +141,45 @@ class TestTaskQueueScheduler
 
         verify(notifications).notifyAwaitingReview(eq(THREAD_ID), eq("t1.k2"), any());
         verify(phaseMachine).transition("t1.k2", TaskPhase.IMPLEMENTING, "slot_opened", Actor.SCHEDULER);
+    }
+
+    @Test
+    void startNextIfIdleRunsHeadOnIdleThreadUsingLatestTaskWorkingDir()
+    {
+        // The idle-kick path (queue_task on a free slot, no working-dir
+        // hint): resolve the clone from the thread's latest task and start
+        // the head straight away rather than waiting for a completion.
+        QueuedTask head = QueuedTask.pending(1, "next", BranchBase.MAIN, "go", NOW);
+        Thread thread = threadWith(List.of(head));
+        when(threadStore.findThreadById(THREAD_ID)).thenReturn(Optional.of(thread));
+        when(taskStore.listTasksByThread(THREAD_ID)).thenReturn(List.of()); // slot free
+        when(queue.pendingHead(any())).thenReturn(Optional.of(head));
+        when(taskStore.findLatestTaskForThread(THREAD_ID))
+                .thenReturn(Optional.of(task("t1.k0", TaskPhase.COMPLETED, TaskStatus.COMPLETED)));
+        Task materialised = task("t1.k1", TaskPhase.QUEUED, TaskStatus.PENDING, "go");
+        when(materialiser.materialiseHead(any(), eq(head), eq("/clone"))).thenReturn(materialised);
+        when(taskStore.findTaskById("t1.k1")).thenReturn(Optional.of(materialised));
+
+        Optional<Task> started = queueScheduler.startNextIfIdle(THREAD_ID, null);
+
+        assertThat(started).isPresent();
+        verify(materialiser).materialiseHead(any(), eq(head), eq("/clone"));
+        verify(phaseMachine).transition("t1.k1", TaskPhase.IMPLEMENTING, "slot_opened", Actor.SCHEDULER);
+    }
+
+    @Test
+    void startNextIfIdleDoesNothingWhenSlotBusy()
+    {
+        QueuedTask head = QueuedTask.pending(1, "next", BranchBase.MAIN, null, NOW);
+        Thread thread = threadWith(List.of(head));
+        when(threadStore.findThreadById(THREAD_ID)).thenReturn(Optional.of(thread));
+        when(taskStore.listTasksByThread(THREAD_ID))
+                .thenReturn(List.of(task("t1.k9", TaskPhase.IMPLEMENTING, TaskStatus.RUNNING)));
+
+        Optional<Task> started = queueScheduler.startNextIfIdle(THREAD_ID, "/clone");
+
+        assertThat(started).isEmpty();
+        verify(materialiser, never()).materialiseHead(any(), any(), any());
     }
 
     private static QueuedTask materializedEntry(int position, String taskId)

@@ -15,6 +15,7 @@ package com.bytequay.app.service.tools;
 
 import com.bytequay.app.domain.BranchBase;
 import com.bytequay.app.domain.QueuedTask;
+import com.bytequay.app.service.threads.TaskQueueScheduler;
 import com.bytequay.app.service.threads.TaskQueueService;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -39,11 +40,14 @@ import static java.util.Objects.requireNonNull;
 public class TaskQueueToolHandlers
 {
     private final TaskQueueService queue;
+    private final TaskQueueScheduler scheduler;
     private final ObjectMapper mapper;
 
-    public TaskQueueToolHandlers(TaskQueueService queue, ObjectMapper mapper)
+    public TaskQueueToolHandlers(
+            TaskQueueService queue, TaskQueueScheduler scheduler, ObjectMapper mapper)
     {
         this.queue = requireNonNull(queue, "queue is null");
+        this.scheduler = requireNonNull(scheduler, "scheduler is null");
         this.mapper = requireNonNull(mapper, "mapper is null");
     }
 
@@ -75,6 +79,10 @@ public class TaskQueueToolHandlers
             QueuedTask entry = queue.append(
                     call.threadId(), args.title(),
                     BranchBase.fromWire(args.branchBase()), args.initialPrompt());
+            // Serial-execution rule: if the thread's slot is free right now,
+            // start this entry immediately instead of waiting for a running
+            // task to complete (which, on an idle thread, never happens).
+            scheduler.startNextIfIdle(call.threadId(), null);
             return ok(new QueueTaskResult(
                     entry.position(), entry.title(), entry.branchBase().wire(), entry.status().name()));
         }

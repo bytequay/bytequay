@@ -13,12 +13,14 @@
  */
 package com.bytequay.app.service.threads;
 
+import com.bytequay.app.domain.Actor;
 import com.bytequay.app.domain.CreatePullRequestCommand;
 import com.bytequay.app.domain.ListPullRequestsQuery;
 import com.bytequay.app.domain.PullRequest;
 import com.bytequay.app.domain.RepoRef;
 import com.bytequay.app.domain.Task;
 import com.bytequay.app.domain.TaskFile;
+import com.bytequay.app.domain.TaskPhase;
 import com.bytequay.app.domain.TaskStatus;
 import com.bytequay.app.domain.Thread;
 import com.bytequay.app.domain.WatchedRepo;
@@ -80,6 +82,7 @@ public class TaskService
     private final ObjectMapper mapper;
     private final RoleSkillService roleSkillService;
     private final ApplicationEventPublisher eventPublisher;
+    private final TaskPhaseMachine taskPhaseMachine;
 
     public TaskService(
             ThreadStore threadStore,
@@ -94,7 +97,8 @@ public class TaskService
             NotificationService notificationService,
             ObjectMapper mapper,
             RoleSkillService roleSkillService,
-            ApplicationEventPublisher eventPublisher)
+            ApplicationEventPublisher eventPublisher,
+            TaskPhaseMachine taskPhaseMachine)
     {
         this.threadStore = requireNonNull(threadStore, "threadStore is null");
         this.taskStore = requireNonNull(taskStore, "taskStore is null");
@@ -109,6 +113,7 @@ public class TaskService
         this.mapper = requireNonNull(mapper, "mapper is null");
         this.roleSkillService = requireNonNull(roleSkillService, "roleSkillService is null");
         this.eventPublisher = requireNonNull(eventPublisher, "eventPublisher is null");
+        this.taskPhaseMachine = requireNonNull(taskPhaseMachine, "taskPhaseMachine is null");
     }
 
     /** All tasks for a thread, ordered by seq ascending. 404 if the
@@ -599,6 +604,20 @@ public class TaskService
                     continue;
                 }
                 taskStore.completeTask(task.id(), Instant.now());
+                // Drive the dev-lifecycle phase to its terminal COMPLETED
+                // through the machine (not just the runtime status) so the
+                // phase audit + transition event fire — the latter is what
+                // advances the thread's task queue (TaskQueueScheduler).
+                if (task.phase() != TaskPhase.COMPLETED) {
+                    try {
+                        taskPhaseMachine.transition(
+                                task.id(), TaskPhase.COMPLETED, "pr_merged", Actor.WEBHOOK);
+                    }
+                    catch (RuntimeException e) {
+                        log.warn("phase -> COMPLETED for task {} failed: {}",
+                                task.id(), e.getMessage());
+                    }
+                }
             }
         }
         catch (RuntimeException e) {

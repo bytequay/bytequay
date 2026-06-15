@@ -13,10 +13,12 @@
  */
 package com.bytequay.app.service.threads;
 
+import com.bytequay.app.domain.Actor;
 import com.bytequay.app.domain.CreatePullRequestCommand;
 import com.bytequay.app.domain.PullRequest;
 import com.bytequay.app.domain.RepoRef;
 import com.bytequay.app.domain.Task;
+import com.bytequay.app.domain.TaskPhase;
 import com.bytequay.app.domain.TaskStatus;
 import com.bytequay.app.domain.Thread;
 import com.bytequay.app.domain.ThreadFlow;
@@ -86,13 +88,15 @@ class TestTaskServiceShipAndContinue
     private final WorkspaceService workspaces = mock(WorkspaceService.class);
     private final NotificationService notifications = mock(NotificationService.class);
     private final ObjectMapper mapper = new ObjectMapper();
+    private final TaskPhaseMachine taskPhaseMachine = mock(TaskPhaseMachine.class);
 
     private final TaskService service = new TaskService(
             threadStore, taskStore, watchedRepoStore, worktreeService,
             git, pullRequests, patResolver,
             registry, workspaces, notifications, mapper,
             new RoleSkillService(new ConceptRegistry()),
-            NOOP_PUBLISHER);
+            NOOP_PUBLISHER,
+            taskPhaseMachine);
 
     @Test
     void shipAndContinueReapsTheShippedWorktreeAndClearsItsPathOnTheRow()
@@ -211,6 +215,9 @@ class TestTaskServiceShipAndContinue
         service.completeTasksForMergedPr("acme/widget", 42);
 
         verify(taskStore).completeTask(eq("task-1"), any());
+        // The dev-lifecycle phase is also driven to COMPLETED through the
+        // machine — its transition event is what advances the task queue.
+        verify(taskPhaseMachine).transition("task-1", TaskPhase.COMPLETED, "pr_merged", Actor.WEBHOOK);
     }
 
     @Test
@@ -227,6 +234,7 @@ class TestTaskServiceShipAndContinue
         service.completeTasksForMergedPr("other/repo", 42);
 
         verify(taskStore, never()).completeTask(anyString(), any());
+        verify(taskPhaseMachine, never()).transition(anyString(), any(), anyString(), any());
     }
 
     private static Thread thread(String id)

@@ -630,6 +630,21 @@ public class ThreadController
      *  positions. */
     public record QueueReorderBody(List<Integer> positions) {}
 
+    /** PUT /api/threads/{id}/queue/{position} — edit a PENDING entry's
+     *  plan (title / branch base / opening prompt). Distinct from
+     *  {@code /queue/reorder} — Spring routes the literal path first. */
+    @PutMapping("/{id}/queue/{position}")
+    public QueuedTask queueEdit(
+            @PathVariable String id, @PathVariable int position, @RequestBody QueueAddBody body)
+    {
+        String branchBase = body == null ? null : body.branchBase();
+        return taskQueue.editEntry(
+                id, position,
+                body == null ? null : body.title(),
+                BranchBase.fromWire(branchBase),
+                body == null ? null : body.initialPrompt());
+    }
+
     /** DELETE /api/threads/{id}/queue/{position} — drop a PENDING entry. */
     @DeleteMapping("/{id}/queue/{position}")
     public QueuedTask queueDrop(@PathVariable String id, @PathVariable int position)

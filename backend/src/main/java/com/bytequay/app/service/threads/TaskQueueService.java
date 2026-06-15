@@ -180,6 +180,46 @@ public class TaskQueueService
         return out;
     }
 
+    /**
+     * Edit a PENDING entry's plan (title / branch base / opening prompt).
+     * MATERIALIZED (and terminal) entries reject — once a task exists the
+     * plan is sealed. Position and created-at are preserved.
+     */
+    @Transactional
+    public QueuedTask editEntry(String threadId, int position, String title,
+            BranchBase branchBase, String initialPrompt)
+    {
+        Thread thread = requireThread(threadId);
+        List<QueuedTask> queue = new ArrayList<>(thread.queue());
+        for (int i = 0; i < queue.size(); i++) {
+            QueuedTask q = queue.get(i);
+            if (q.position() != position) {
+                continue;
+            }
+            if (q.status() != QueuedTaskStatus.PENDING) {
+                throw new IllegalArgumentException(
+                        "position " + position + " is " + q.status()
+                                + " — only PENDING entries are editable; its plan is sealed");
+            }
+            String trimmed = title == null ? q.title() : title.strip();
+            if (trimmed.isEmpty()) {
+                throw new IllegalArgumentException("title is required");
+            }
+            if (trimmed.length() > MAX_TITLE_CHARS) {
+                throw new IllegalArgumentException("title exceeds " + MAX_TITLE_CHARS + " chars");
+            }
+            QueuedTask edited = new QueuedTask(
+                    position, trimmed,
+                    branchBase == null ? q.branchBase() : branchBase,
+                    blankToNull(initialPrompt),
+                    QueuedTaskStatus.PENDING, null, q.createdAt());
+            queue.set(i, edited);
+            threadStore.updateThreadQueue(threadId, queue);
+            return edited;
+        }
+        throw new IllegalArgumentException("no queue entry at position " + position);
+    }
+
     /** Flip a PENDING entry to DROPPED. MATERIALIZED entries reject —
      *  cancel the materialised Task instead. */
     @Transactional

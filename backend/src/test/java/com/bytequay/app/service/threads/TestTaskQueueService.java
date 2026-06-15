@@ -142,6 +142,32 @@ class TestTaskQueueService
     }
 
     @Test
+    void editUpdatesPendingPlanKeepingPosition()
+    {
+        service.append(THREAD_ID, "old title", BranchBase.MAIN, null);
+
+        QueuedTask edited = service.editEntry(
+                THREAD_ID, 1, "new title", BranchBase.STACKED_ON_PREVIOUS, "prompt");
+
+        assertThat(edited.position()).isEqualTo(1);
+        assertThat(edited.title()).isEqualTo("new title");
+        assertThat(edited.branchBase()).isEqualTo(BranchBase.STACKED_ON_PREVIOUS);
+        assertThat(edited.initialPrompt()).isEqualTo("prompt");
+        assertThat(edited.status()).isEqualTo(QueuedTaskStatus.PENDING);
+    }
+
+    @Test
+    void editRejectsMaterializedEntries()
+    {
+        service.append(THREAD_ID, "a", BranchBase.MAIN, null);
+        queueState.set(0, queueState.get(0).withStatus(QueuedTaskStatus.MATERIALIZED, "t1.k1"));
+
+        assertThatThrownBy(() -> service.editEntry(THREAD_ID, 1, "x", BranchBase.MAIN, null))
+                .isInstanceOf(IllegalArgumentException.class)
+                .hasMessageContaining("only PENDING");
+    }
+
+    @Test
     void dropFlipsPendingToDropped()
     {
         service.append(THREAD_ID, "a", BranchBase.MAIN, null);

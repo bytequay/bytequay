@@ -24,6 +24,7 @@ import com.bytequay.app.domain.PullRequestRef;
 import com.bytequay.app.domain.RepoRef;
 import com.bytequay.app.domain.RequestReviewersCommand;
 import com.bytequay.app.domain.Task;
+import com.bytequay.app.domain.TaskPhase;
 import com.bytequay.app.domain.TaskStatus;
 import com.bytequay.app.domain.UpdatePullRequestCommand;
 import com.bytequay.app.repository.PullRequestRepository;
@@ -89,6 +90,7 @@ public class PublishService
     private final PatResolver patResolver;
     private final ObjectMapper mapper;
     private final ParkedProposalService parkedProposals;
+    private final TaskPhaseMachine phaseMachine;
     /** Lazy because TaskService transitively depends on services that
      *  may in turn need PublishService — using {@code @Lazy} keeps the
      *  bean graph acyclic by deferring the actual lookup to first
@@ -106,7 +108,8 @@ public class PublishService
             ObjectMapper mapper,
             ParkedProposalService parkedProposals,
             @Lazy TaskService taskService,
-            ReviewPassResolver reviewPassResolver)
+            ReviewPassResolver reviewPassResolver,
+            TaskPhaseMachine phaseMachine)
     {
         this.notifications = requireNonNull(notifications, "notifications is null");
         this.taskStore = requireNonNull(taskStore, "taskStore is null");
@@ -117,6 +120,7 @@ public class PublishService
         this.parkedProposals = requireNonNull(parkedProposals, "parkedProposals is null");
         this.taskService = requireNonNull(taskService, "taskService is null");
         this.reviewPassResolver = requireNonNull(reviewPassResolver, "reviewPassResolver is null");
+        this.phaseMachine = requireNonNull(phaseMachine, "phaseMachine is null");
     }
 
     /**
@@ -226,7 +230,40 @@ public class PublishService
         // review pass, resolve any AGREED finding its just-published work
         // references. Best-effort — it never affects the publish outcome.
         reviewPassResolver.onPublishApproved(original.threadId(), action, editedBody);
+        // The approved publish is the real action, so drive the task's
+        // dev-lifecycle phase here (not when the tool merely parked): a
+        // push / opened PR puts the task on the remote spine; a review
+        // request opens the internal review. A merge completes the task
+        // through the PR-merged event, so it isn't repeated here.
+        driveApprovedPhase(proposal, original.taskId());
         return result;
+    }
+
+    /** Advance the task's phase to reflect a just-approved publish. Uses
+     *  the observe path (authoritative action, robust to whatever phase
+     *  the task was in — the agent may have skipped the local steps).
+     *  Best-effort: a bookkeeping failure never fails the publish. */
+    private void driveApprovedPhase(ParkedProposal proposal, String taskId)
+    {
+        if (taskId == null) {
+            return;
+        }
+        TaskPhase target = switch (proposal) {
+            case ParkedProposal.Push ignored -> TaskPhase.PUSHED_AWAITING_CI;
+            case ParkedProposal.OpenPr ignored -> TaskPhase.PUSHED_AWAITING_CI;
+            case ParkedProposal.RequestReview ignored -> TaskPhase.INTERNAL_REVIEW;
+            default -> null;
+        };
+        if (target == null) {
+            return;
+        }
+        try {
+            phaseMachine.observe(taskId, target, "publish_approved");
+        }
+        catch (RuntimeException e) {
+            log.warn("phase drive after approving {} for task {} failed: {}",
+                    proposal.getClass().getSimpleName(), taskId, e.getMessage());
+        }
     }
 
     /** Advance actions push the branch and open a PR as a multi-step

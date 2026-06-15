@@ -22,6 +22,7 @@ import com.bytequay.app.domain.PullRequest;
 import com.bytequay.app.domain.PullRequestRef;
 import com.bytequay.app.domain.RepoRef;
 import com.bytequay.app.domain.Task;
+import com.bytequay.app.domain.TaskPhase;
 import com.bytequay.app.domain.TaskStatus;
 import com.bytequay.app.repository.PullRequestRepository;
 import com.bytequay.app.repository.TaskStore;
@@ -74,6 +75,7 @@ class TestPublishService
     private ObjectMapper mapper;
     private ParkedProposalService parkedProposals;
     private TaskService taskService;
+    private TaskPhaseMachine phaseMachine;
     private PublishService service;
 
     @BeforeEach
@@ -87,9 +89,10 @@ class TestPublishService
         mapper = new ObjectMapper();
         parkedProposals = mock(ParkedProposalService.class);
         taskService = mock(TaskService.class);
+        phaseMachine = mock(TaskPhaseMachine.class);
         service = new PublishService(
                 notifications, taskStore, git, pullRequests, patResolver, mapper, parkedProposals, taskService,
-                mock(ReviewPassResolver.class));
+                mock(ReviewPassResolver.class), phaseMachine);
         when(notifications.claimResolution(anyString())).thenReturn(true);
     }
 
@@ -114,6 +117,8 @@ class TestPublishService
         verify(parkedProposals).finishApproved(parked, false);
         verify(notifications).claimResolution("notif-1");
         assertAuditRowWritten(parked, "approved", "push", "Pushed feature/x");
+        // The approved push advances the task onto the remote spine.
+        verify(phaseMachine).observe("task-1", TaskPhase.PUSHED_AWAITING_CI, "publish_approved");
     }
 
     @Test

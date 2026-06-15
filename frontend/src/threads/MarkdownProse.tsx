@@ -11,7 +11,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import type { CSSProperties } from 'react';
+import type { CSSProperties, ReactNode } from 'react';
 import ReactMarkdown from 'react-markdown';
 import type { Components } from 'react-markdown';
 import remarkGfm from 'remark-gfm';
@@ -43,7 +43,21 @@ const monoFont = '"SF Mono", "JetBrains Mono", Menlo, Consolas, monospace';
 export function MarkdownProse({ text, variant = 'card' }: Props) {
   const styles = variant === 'terminal' ? terminalStyles : cardStyles;
   const components: Components = {
-    p: ({ children }) => <p style={styles.para}>{children}</p>,
+    p: ({ children }) => {
+      // Tooling / process asides ("Note on tooling: …") are noise for the
+      // user reading a task result — collapse them behind a disclosure so
+      // the outcome stays front-and-centre, detail one click away.
+      const note = matchMetaNote(leadingText(children));
+      if (note !== null) {
+        return (
+          <details style={styles.metaDetails}>
+            <summary style={styles.metaSummary}>{note}</summary>
+            <p style={styles.para}>{children}</p>
+          </details>
+        );
+      }
+      return <p style={styles.para}>{children}</p>;
+    },
     h1: ({ children }) => <h1 style={styles.h1}>{children}</h1>,
     h2: ({ children }) => <h2 style={styles.h2}>{children}</h2>,
     h3: ({ children }) => <h3 style={styles.h3}>{children}</h3>,
@@ -53,16 +67,41 @@ export function MarkdownProse({ text, variant = 'card' }: Props) {
     ul: ({ children }) => <ul style={styles.list}>{children}</ul>,
     ol: ({ children }) => <ol style={styles.list}>{children}</ol>,
     li: ({ children }) => <li style={styles.li}>{children}</li>,
-    a: ({ children, href }) => (
-      <a href={href} target="_blank" rel="noopener noreferrer" style={styles.link}>
-        {children}
-      </a>
-    ),
+    a: ({ children, href }) => {
+      // A bare GitHub PR link is the most important artifact a task
+      // produces — render it as a scannable chip rather than a long URL
+      // buried in a sentence.
+      const prNumber = href ? parsePrNumber(href) : null;
+      if (prNumber !== null && href) {
+        return (
+          <a href={href} target="_blank" rel="noopener noreferrer" style={styles.prChip}>
+            <span aria-hidden>⊕</span>
+            PR #{prNumber}
+            <span aria-hidden>→</span>
+          </a>
+        );
+      }
+      return (
+        <a href={href} target="_blank" rel="noopener noreferrer" style={styles.link}>
+          {children}
+        </a>
+      );
+    },
     code: ({ className, children }) => {
       const isBlock = typeof className === 'string' && className.startsWith('language-');
       if (isBlock) {
         // Block code: inherit the pre's styling; don't wrap children.
         return <code className={className} style={styles.codeInBlock}>{children}</code>;
+      }
+      // A short hex run on its own (a commit SHA) reads better as a small
+      // git chip than as a generic inline-code span.
+      if (isCommitSha(plainText(children))) {
+        return (
+          <code style={styles.commitChip}>
+            <span aria-hidden style={{ marginRight: 4, opacity: 0.7 }}>⎇</span>
+            {children}
+          </code>
+        );
       }
       return <code style={styles.inlineCode}>{children}</code>;
     },
@@ -98,6 +137,63 @@ function normalizeForMarkdown(text: string): string {
     .replace(/(?<=[.!?])[ \t]+(?=[-*•]\s)/g, '\n\n');
 }
 
+const PR_URL_RE = /^https?:\/\/github\.com\/[^/\s]+\/[^/\s]+\/pull\/(\d+)(?:[/?#].*)?$/i;
+
+/** PR number for a github.com/owner/repo/pull/N link, else null. */
+export function parsePrNumber(href: string): number | null {
+  const m = PR_URL_RE.exec(href.trim());
+  return m ? Number(m[1]) : null;
+}
+
+const SHA_RE = /^[0-9a-f]{7,40}$/i;
+
+/** True for a lone 7–40 char hex run — i.e. a git object id. */
+export function isCommitSha(text: string): boolean {
+  return SHA_RE.test(text.trim());
+}
+
+// Process / tooling asides the agent appends ("Note on tooling: …").
+// Conservative on purpose — only collapse meta-commentary about how the
+// work was carried out, never substantive "Note:" content.
+const META_NOTE_RE =
+  /^\s*(note on tooling|tooling note|note on the environment|environment note|note on how this (?:was )?(?:run|executed))\b/i;
+
+/** Returns the disclosure label if a paragraph opens with a tooling/meta
+ *  aside, else null. The label is the matched lead phrase, title-cased. */
+export function matchMetaNote(lead: string): string | null {
+  const m = META_NOTE_RE.exec(lead);
+  if (m === null) return null;
+  const phrase = m[1].trim();
+  return phrase.charAt(0).toUpperCase() + phrase.slice(1);
+}
+
+/** First non-empty string chunk of a markdown node's children — used to
+ *  sniff a paragraph's opening words without rendering it first. */
+function leadingText(children: ReactNode): string {
+  if (typeof children === 'string') return children;
+  if (Array.isArray(children)) {
+    for (const c of children) {
+      if (typeof c === 'string') {
+        if (c.trim() === '') continue;
+        return c;
+      }
+      break;
+    }
+  }
+  return '';
+}
+
+/** Flattens an inline-code node's children to a plain string when it is a
+ *  single text run; returns '' for anything richer (so it won't match a
+ *  SHA and stays a normal code span). */
+function plainText(children: ReactNode): string {
+  if (typeof children === 'string') return children;
+  if (Array.isArray(children) && children.length === 1 && typeof children[0] === 'string') {
+    return children[0];
+  }
+  return '';
+}
+
 type StyleBundle = {
   root: CSSProperties;
   para: CSSProperties;
@@ -118,6 +214,10 @@ type StyleBundle = {
   hr: CSSProperties;
   strong: CSSProperties;
   em: CSSProperties;
+  prChip: CSSProperties;
+  commitChip: CSSProperties;
+  metaDetails: CSSProperties;
+  metaSummary: CSSProperties;
 };
 
 const cardStyles: StyleBundle = {
@@ -176,6 +276,25 @@ const cardStyles: StyleBundle = {
   hr: { border: 'none', borderTop: '1px dashed var(--border)', margin: '10px 0' },
   strong: { fontWeight: 700 },
   em: { fontStyle: 'italic' },
+  prChip: {
+    display: 'inline-flex', alignItems: 'center', gap: 5,
+    padding: '1px 9px', margin: '0 1px',
+    border: '1px solid var(--accent)', borderRadius: 999,
+    background: 'var(--bg-elevated)', color: 'var(--accent)',
+    fontSize: '0.9em', fontWeight: 600, lineHeight: 1.5,
+    textDecoration: 'none', whiteSpace: 'nowrap', verticalAlign: 'baseline',
+  },
+  commitChip: {
+    fontFamily: monoFont, fontSize: '0.9em',
+    background: 'var(--bg-elevated)', border: '1px solid var(--border)',
+    padding: '1px 6px', borderRadius: 4,
+    color: 'var(--text-2)', whiteSpace: 'nowrap',
+  },
+  metaDetails: { margin: '4px 0 10px' },
+  metaSummary: {
+    cursor: 'pointer', color: 'var(--text-3)',
+    fontSize: 12.5, fontWeight: 600, padding: '2px 0',
+  },
 };
 
 const terminalStyles: StyleBundle = {
@@ -235,4 +354,23 @@ const terminalStyles: StyleBundle = {
   hr: { border: 'none', borderTop: '1px dashed var(--term-border)', margin: '10px 0' },
   strong: { color: 'var(--term-text-bright)', fontWeight: 700 },
   em: { fontStyle: 'italic' },
+  prChip: {
+    display: 'inline-flex', alignItems: 'center', gap: 5,
+    padding: '1px 9px', margin: '0 1px',
+    border: '1px solid var(--term-user)', borderRadius: 999,
+    background: 'var(--term-kbd-bg)', color: 'var(--term-user)',
+    fontSize: '0.9em', fontWeight: 600, lineHeight: 1.5,
+    textDecoration: 'none', whiteSpace: 'nowrap', verticalAlign: 'baseline',
+  },
+  commitChip: {
+    fontFamily: monoFont, fontSize: '0.9em',
+    background: 'var(--term-kbd-bg)', border: '1px solid var(--term-border)',
+    padding: '1px 6px', borderRadius: 4,
+    color: 'var(--term-text)', whiteSpace: 'nowrap',
+  },
+  metaDetails: { margin: '4px 0 10px' },
+  metaSummary: {
+    cursor: 'pointer', color: 'var(--term-text-dim)',
+    fontSize: 12.5, fontWeight: 600, padding: '2px 0',
+  },
 };

@@ -37,6 +37,7 @@ import { usePromptHistory } from './usePromptHistory';
 import { AskQuestionCard } from './AskQuestionCard';
 import { findPendingAskQuestion } from './askQuestion';
 import { useAnimatedNumber } from './useAnimatedNumber';
+import { QueuedTaskView } from './QueuedTaskView';
 
 type Props = {
   threadId: string;
@@ -482,6 +483,22 @@ export default function TaskDetailPage({
   // existing workspace-language treatment.
   const isTerminal: boolean = mode === 'terminal';
   const isDiff: boolean = mode === 'diff';
+
+  // A QUEUED task hasn't started — render the dedicated pre-stepper page
+  // (opening-prompt preview + amber composer) instead of the running
+  // task shell.
+  if (task !== null && task.phase === 'QUEUED') {
+    return (
+      <QueuedTaskView
+        threadId={threadId}
+        task={task}
+        thread={thread}
+        siblingTasks={tasks ?? []}
+        onBackToTrunk={onBackToTrunk}
+        onChanged={() => { void refreshTasks(); void loadThread(); }}
+      />
+    );
+  }
 
   return (
     <div style={isTerminal ? pageDarkStyle : pageStyle}>

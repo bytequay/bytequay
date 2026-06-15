@@ -847,44 +847,74 @@ export default function TaskDetailPage({
 
               <section style={railSectionStyle}>
                 {(() => {
-                  const isShipped = task?.status === 'COMPLETED';
-                  const isTerminal = isShipped || task?.status === 'ERRORED';
+                  // "Completed" is terminal but does NOT imply shipped — a
+                  // task can finish without ever pushing / opening a PR /
+                  // merging. Only the real signals (merge state, an open
+                  // PR, or a push timestamp) earn the "shipped" / "merged"
+                  // wording; otherwise it's just done.
+                  const isErrored = task?.status === 'ERRORED';
+                  const isCompleted = task?.status === 'COMPLETED';
+                  const isTerminal = isCompleted || isErrored;
+                  const isMerged = (task?.prState ?? '').toLowerCase() === 'merged';
+                  const hasPr = task?.prNumber != null;
+                  const isShipped = !isMerged && (hasPr || task?.pushedAt != null);
+                  const tone = isMerged || isShipped
+                    ? shipShippedDoneStyle
+                    : isTerminal
+                      ? shipShippedStyle
+                      : shipPrimaryStyle;
+                  let label: string;
+                  let glyph: string;
+                  let hint: string;
+                  if (isErrored) {
+                    glyph = '⨯';
+                    label = 'Errored — no ship';
+                    hint = 'Recover or abandon this task from the trunk; '
+                      + 'Ship is disabled while a task is in an errored state.';
+                  }
+                  else if (isMerged) {
+                    glyph = '✓';
+                    label = 'Merged';
+                    hint = 'Merged. Open the trunk to start the next task.';
+                  }
+                  else if (isShipped) {
+                    glyph = '✓';
+                    label = 'Shipped';
+                    hint = hasPr
+                      ? `PR #${task!.prNumber} is open. Open the trunk to start the next task.`
+                      : 'Branch pushed. Open the trunk to start the next task.';
+                  }
+                  else if (isCompleted) {
+                    glyph = '✓';
+                    label = 'Completed';
+                    hint = 'This task finished without shipping. '
+                      + 'Open the trunk to start the next task.';
+                  }
+                  else {
+                    glyph = '☁︎↑';
+                    label = shipping ? 'Shipping…' : 'Ship — finalize & merge';
+                    hint = 'Finalises & merges this task, then takes you back to the '
+                      + 'thread — where the next task starts.';
+                  }
                   return (
                     <>
                       <button
                         type="button"
                         onClick={() => { void onShip(); }}
                         disabled={task === null || shipping || isTerminal}
-                        style={
-                          isShipped
-                            ? shipShippedDoneStyle
-                            : isTerminal
-                              ? shipShippedStyle
-                              : shipPrimaryStyle}
+                        style={tone}
                         title={task === null
                           ? 'No task loaded yet'
-                          : isShipped
-                            ? 'This task has already shipped'
-                            : task.status === 'ERRORED'
-                              ? 'This task ended in an error; recover from the thread trunk'
+                          : isErrored
+                            ? 'This task ended in an error; recover from the thread trunk'
+                            : isTerminal
+                              ? label
                               : `Ship Task ${task.seq} and return to the thread trunk`}
                       >
-                        <span aria-hidden style={{ marginRight: 8 }}>
-                          {isShipped ? '✓' : isTerminal ? '⨯' : '☁︎↑'}
-                        </span>
-                        {isShipped
-                          ? 'Shipped'
-                          : task?.status === 'ERRORED'
-                            ? 'Errored — no ship'
-                            : shipping ? 'Shipping…' : 'Ship — finalize & merge'}
+                        <span aria-hidden style={{ marginRight: 8 }}>{glyph}</span>
+                        {label}
                       </button>
-                      <div style={shipHintStyle}>
-                        {isShipped
-                          ? 'Already merged. Open the trunk to start the next task.'
-                          : task?.status === 'ERRORED'
-                            ? 'Recover or abandon this task from the trunk; Ship is disabled while a task is in an errored state.'
-                            : 'Finalises & merges this task, then takes you back to the thread — where the next task starts.'}
-                      </div>
+                      <div style={shipHintStyle}>{hint}</div>
                     </>
                   );
                 })()}

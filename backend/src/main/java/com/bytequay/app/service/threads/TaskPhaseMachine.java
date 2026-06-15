@@ -126,6 +126,34 @@ public class TaskPhaseMachine
         }
     }
 
+    /**
+     * Fast-forward a task's phase to match authoritative <em>observed</em>
+     * external reality (PR / CI / review state), bypassing the strict
+     * forward graph that governs agent-driven steps. The graph assumes
+     * the agent walks every phase via our tools; when it instead pushes /
+     * opens a PR directly (raw git / the GitHub API), the observed PR
+     * state is ground truth and the phase jumps straight to it. No-op if
+     * already there or already terminal. Records {@link Actor#WEBHOOK}
+     * and fires the same transition event as a normal step (so e.g. a
+     * jump to COMPLETED still advances the queue).
+     */
+    @Transactional
+    public void observe(String taskId, TaskPhase to, String reason)
+    {
+        requireNonNull(to, "to is null");
+        Task task = taskStore.findTaskById(taskId).orElse(null);
+        if (task == null) {
+            return;
+        }
+        TaskPhase from = task.phase();
+        if (from == to || from == TaskPhase.COMPLETED) {
+            return;
+        }
+        taskStore.updatePhase(taskId, to);
+        taskStore.appendPhaseEvent(taskId, from, to, Instant.now(), reason, Actor.WEBHOOK);
+        events.publishEvent(new TaskPhaseTransitionedEvent(taskId, from, to, reason));
+    }
+
     private void applyTransition(Task task, TaskPhase from, TaskPhase to, String reason, Actor actor)
     {
         if (!TaskPhaseTransitions.isLegal(from, to)) {

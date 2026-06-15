@@ -35,7 +35,6 @@ import com.bytequay.app.domain.RequestReviewersCommand;
 import com.bytequay.app.domain.StoredPrDetail;
 import com.bytequay.app.domain.SuggestedReviewer;
 import com.bytequay.app.domain.Task;
-import com.bytequay.app.domain.TaskPhase;
 import com.bytequay.app.domain.UpdatePullRequestCommand;
 import com.bytequay.app.repository.AppSettingsStore;
 import com.bytequay.app.repository.PrDetailStore;
@@ -60,8 +59,6 @@ import org.springframework.web.server.ResponseStatusException;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.time.ZoneOffset;
-import java.util.EnumSet;
-import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
@@ -229,12 +226,6 @@ public class PullRequestService
         List<PullRequest> fresh = fetchRelevant(pat);
         store.replaceAll(fresh);
         linkPrsToTasks(fresh);
-        // PRs whose linked task is mid-lifecycle (waiting on CI / ready /
-        // remote review) must have their detail re-fetched every sync —
-        // a check completing on GitHub doesn't bump the PR's updatedAt, so
-        // the updatedAt-changed gate below would leave ci_status stale and
-        // freeze the task at PUSHED_AWAITING_CI forever.
-        Set<Long> liveLifecyclePrIds = prIdsLinkedToInFlightTasks(fresh);
 
         Set<Long> freshIds = fresh.stream()
                 .map(PullRequest::id)
@@ -253,9 +244,6 @@ public class PullRequestService
                         return true;
                     }
                     if (missingEnrichment.contains(pr.id())) {
-                        return true;
-                    }
-                    if (liveLifecyclePrIds.contains(pr.id())) {
                         return true;
                     }
                     return missingReviewTimestamps.contains(pr.id());
@@ -310,39 +298,6 @@ public class PullRequestService
                         pr.number(), task.id(), e.getMessage());
             }
         }
-    }
-
-    /** Task phases on the remote spine — the linked PR is up and we're
-     *  tracking its CI / ready / review state. While a task sits in one
-     *  of these, its PR detail is force-refreshed each sync (see
-     *  {@link #prIdsLinkedToInFlightTasks}) so check completions land
-     *  even though they don't bump the PR's updatedAt. */
-    private static final Set<TaskPhase> REMOTE_SPINE_PHASES = EnumSet.of(
-            TaskPhase.PUSHED_AWAITING_CI,
-            TaskPhase.AWAITING_READY,
-            TaskPhase.CI_FIXING,
-            TaskPhase.AWAITING_REMOTE_REVIEW,
-            TaskPhase.ADDRESSING_COMMENTS,
-            TaskPhase.AGENT_RE_REVIEW,
-            TaskPhase.AWAITING_UPDATE_PUSH);
-
-    /** Ids of synced PRs whose {@code dev/} head branch maps to a task on
-     *  the remote spine — those need a forced detail re-fetch so CI /
-     *  review state stays live. Bounded to {@code dev/} refs so a busy
-     *  repo doesn't issue a task lookup per unrelated PR. */
-    private Set<Long> prIdsLinkedToInFlightTasks(List<PullRequest> prs)
-    {
-        Set<Long> out = new HashSet<>();
-        for (PullRequest pr : prs) {
-            String head = pr.headRef();
-            if (head == null || !head.startsWith("dev/")) {
-                continue;
-            }
-            taskStore.findTaskByBranch(head)
-                    .filter(t -> t.phase() != null && REMOTE_SPINE_PHASES.contains(t.phase()))
-                    .ifPresent(t -> out.add(pr.id()));
-        }
-        return out;
     }
 
     /** Derive the task-facing PR state from a synced PR. */

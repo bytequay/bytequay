@@ -13,7 +13,7 @@
  */
 import { describe, expect, it } from 'vitest';
 import type { TaskPhaseDto } from '../types';
-import { phaseGroupLabel, phaseGroupOf, phaseLabel } from './taskPhase';
+import { isLoopPhase, phaseGroupLabel, phaseGroupOf, phaseLabel, stepperNodeOf } from './taskPhase';
 
 describe('phaseGroupOf', () => {
   const cases: Array<[TaskPhaseDto, string]> = [
@@ -51,5 +51,35 @@ describe('phaseLabel', () => {
     expect(phaseLabel('AWAITING_PUSH')).toBe('Awaiting push');
     expect(phaseLabel('AGENT_RE_REVIEW')).toBe('Agent re review');
     expect(phaseLabel('IMPLEMENTING')).toBe('Implementing');
+  });
+});
+
+describe('stepperNodeOf', () => {
+  it('maps the linear happy path 0..7', () => {
+    expect(stepperNodeOf('IMPLEMENTING')).toBe(0);
+    expect(stepperNodeOf('VALIDATING')).toBe(1);
+    expect(stepperNodeOf('INTERNAL_REVIEW')).toBe(2);
+    expect(stepperNodeOf('AWAITING_PUSH')).toBe(3);
+    expect(stepperNodeOf('PUSHED_AWAITING_CI')).toBe(4);
+    expect(stepperNodeOf('AWAITING_READY')).toBe(5);
+    expect(stepperNodeOf('AWAITING_REMOTE_REVIEW')).toBe(6);
+    expect(stepperNodeOf('COMPLETED')).toBe(7);
+  });
+
+  it('does not backtrack on loop phases', () => {
+    expect(stepperNodeOf('CI_FIXING')).toBe(4);            // stays at CI
+    expect(stepperNodeOf('ADDRESSING_COMMENTS')).toBe(6);  // stays at Remote review
+    expect(stepperNodeOf('AGENT_RE_REVIEW')).toBe(6);
+    expect(stepperNodeOf('AWAITING_UPDATE_PUSH')).toBe(6);
+  });
+});
+
+describe('isLoopPhase', () => {
+  it('is true only for the three loop phases', () => {
+    expect(isLoopPhase('CI_FIXING')).toBe(true);
+    expect(isLoopPhase('ADDRESSING_COMMENTS')).toBe(true);
+    expect(isLoopPhase('AGENT_RE_REVIEW')).toBe(true);
+    expect(isLoopPhase('IMPLEMENTING')).toBe(false);
+    expect(isLoopPhase('COMPLETED')).toBe(false);
   });
 });

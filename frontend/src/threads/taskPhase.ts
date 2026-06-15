@@ -80,3 +80,42 @@ export function phaseGroupDotColor(group: TaskPhaseGroupDto): string {
 export function phaseLabel(phase: TaskPhaseDto): string {
   return phase.charAt(0) + phase.slice(1).toLowerCase().replace(/_/g, ' ');
 }
+
+/** The 8 nodes of the linear happy-path FlowStepper, in order. */
+export const FLOW_STEPPER_NODES = [
+  'Implement', 'Validate', 'Review', 'Push',
+  'CI', 'Ready', 'Remote review', 'Done',
+] as const;
+
+/**
+ * Which stepper node a phase sits at (0–7). Loop phases do <em>not</em>
+ * backtrack — they report the node of the stage they're looping within
+ * (CI_FIXING stays at CI; the remote-review loops stay at Remote review),
+ * so the stepper never visually rewinds. NEEDS_ATTENTION isn't a node;
+ * callers render it as a parked overlay, so it maps to the implement node
+ * as a harmless default.
+ */
+export function stepperNodeOf(phase: TaskPhaseDto): number {
+  switch (phase) {
+    case 'IMPLEMENTING':            return 0;
+    case 'VALIDATING':              return 1;
+    case 'INTERNAL_REVIEW':         return 2;
+    case 'AWAITING_PUSH':           return 3;
+    case 'PUSHED_AWAITING_CI':
+    case 'CI_FIXING':               return 4;
+    case 'AWAITING_READY':          return 5;
+    case 'AWAITING_REMOTE_REVIEW':
+    case 'ADDRESSING_COMMENTS':
+    case 'AGENT_RE_REVIEW':
+    case 'AWAITING_UPDATE_PUSH':    return 6;
+    case 'COMPLETED':               return 7;
+    case 'NEEDS_ATTENTION':         return 0;
+  }
+}
+
+/** Loop phases that render the inline {@code LoopIndicator}. */
+export function isLoopPhase(phase: TaskPhaseDto): boolean {
+  return phase === 'CI_FIXING'
+      || phase === 'ADDRESSING_COMMENTS'
+      || phase === 'AGENT_RE_REVIEW';
+}

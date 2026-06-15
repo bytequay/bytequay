@@ -17,9 +17,11 @@ import com.bytequay.app.domain.Actor;
 import com.bytequay.app.domain.Task;
 import com.bytequay.app.domain.TaskPhase;
 import com.bytequay.app.repository.TaskStore;
+import com.bytequay.app.service.checks.ValidationPassFinishedEvent;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.context.ApplicationEventPublisher;
+import org.springframework.context.event.EventListener;
 import org.springframework.http.HttpStatusCode;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
@@ -100,6 +102,27 @@ public class TaskPhaseMachine
         if (to == TaskPhase.PUSHED_AWAITING_CI) {
             taskStore.setConsecutiveAutoPushes(taskId,
                     actor.isAuto() ? taskStore.consecutiveAutoPushes(taskId) + 1 : 0);
+        }
+    }
+
+    /**
+     * Validation finishing drives VALIDATING ▶ INTERNAL_REVIEW (clean)
+     * or VALIDATING ▶ NEEDS_ATTENTION (cap-hit failure). Guarded so a
+     * stray event for a task that has since moved on is ignored rather
+     * than throwing an illegal-transition error.
+     */
+    @EventListener
+    public void onValidationFinished(ValidationPassFinishedEvent event)
+    {
+        Task task = taskStore.findTaskById(event.taskId()).orElse(null);
+        if (task == null || task.phase() != TaskPhase.VALIDATING) {
+            return;
+        }
+        if (event.passed()) {
+            transition(event.taskId(), TaskPhase.INTERNAL_REVIEW, "validation_passed", Actor.AGENT);
+        }
+        else {
+            transition(event.taskId(), TaskPhase.NEEDS_ATTENTION, "validation_failed", Actor.AGENT);
         }
     }
 

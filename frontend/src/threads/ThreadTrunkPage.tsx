@@ -21,6 +21,9 @@ import type {
 } from '../types';
 import TrunkChat from './TrunkChat';
 import { ConvIndex } from './ConvIndex';
+import { PermissionCard } from './PermissionCard';
+import { findPendingPermission } from './permissions';
+import type { PendingPermission } from './ConversationPane';
 import { useThreadTasks } from './useThreadTasks';
 import PromptContextInspector from '../inspector/PromptContextInspector';
 import { useInspectorHotkey } from '../inspector/useInspectorHotkey';
@@ -216,6 +219,15 @@ export default function ThreadTrunkPage({ threadId, onBack, onOpenTask }: Props)
   const trunkMessages = useMemo(
     () => messages === null ? [] : messages.filter(m => m.taskId === null),
     [messages]);
+  // A trunk turn can call an approval-gated tool (open_pr, push,
+  // run_shell). The backend blocks on a permission prompt and writes a
+  // trunk-level permission_request row; surface it here so the user can
+  // actually approve it — otherwise the agent loops on an unanswerable
+  // prompt. Scoped to taskId===null so per-task prompts stay in the task
+  // window.
+  const pendingPermission = useMemo<PendingPermission | null>(
+    () => findPendingPermission(trunkMessages),
+    [trunkMessages]);
   // Seqs of the trunk's own planning prompts — scopes the conversation-
   // index rail to prompts that exist in this pane, so it lists planning
   // prompts (all clickable) instead of the thread-wide trunk + per-task
@@ -282,6 +294,22 @@ export default function ThreadTrunkPage({ threadId, onBack, onOpenTask }: Props)
     }
     catch { /* keep last good list */ }
   }, [threadId]);
+
+  const onDecidePermission = useCallback(async (
+    callId: string,
+    decision: 'ALLOW' | 'DENY',
+    preApprove?: { toolName: string; count: number },
+  ) => {
+    try {
+      await window.bridge.decideTaskPermission(threadId, callId, decision, preApprove);
+      // Pull the decision row back so the card clears and the unblocked
+      // turn's output resumes streaming.
+      await Promise.all([refreshMessages(), loadThread()]);
+    }
+    catch (e) {
+      setSendError(e instanceof Error ? e.message : String(e));
+    }
+  }, [threadId, refreshMessages, loadThread]);
 
   const loadOlderMessages = useCallback(async () => {
     if (loadedFromSeq === null || loadingOlder) return;
@@ -643,6 +671,12 @@ export default function ThreadTrunkPage({ threadId, onBack, onOpenTask }: Props)
                 restrictToSeqs={trunkPromptSeqs}
               />
             </div>
+
+            {pendingPermission !== null && (
+              <div style={permissionSlotStyle}>
+                <PermissionCard permission={pendingPermission} onDecide={onDecidePermission} />
+              </div>
+            )}
 
             <div style={composerCardStyle}>
               <div style={composerAnchorStyle}>
@@ -2148,6 +2182,13 @@ const chatCardStyle: React.CSSProperties = {
   // panel mounted as a sibling of TrunkChat — without this it'd
   // anchor to the viewport instead of the chat card.
   position: 'relative',
+};
+
+const permissionSlotStyle: React.CSSProperties = {
+  // Sits between the scrollback and the composer so a trunk-turn
+  // approval prompt is impossible to miss while the agent is parked
+  // waiting on it.
+  padding: '0 2px 8px',
 };
 
 const composerCardStyle: React.CSSProperties = {

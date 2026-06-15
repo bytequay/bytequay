@@ -175,6 +175,18 @@ function readCache(workingDir: string): Resolved | null {
   };
 }
 
+/** Resolve a task/thread {@code workingDir} (repo clone path) to its
+ *  {owner, repo}, or null when no local-repo mapping matches. Reuses the
+ *  same path cache the avatar lookup fills, so callers that need to
+ *  deep-link into the in-app PR page don't duplicate the resolution. */
+export async function resolveRepoRef(
+  workingDir: string | null | undefined,
+): Promise<{ owner: string; repo: string } | null> {
+  if (!workingDir) return null;
+  await ensurePathCache();
+  return pathToRepoCache.get(normalisePath(workingDir)) ?? null;
+}
+
 async function resolveAvatar(workingDir: string): Promise<Resolved> {
   await ensurePathCache();
   const ref = pathToRepoCache.get(normalisePath(workingDir));

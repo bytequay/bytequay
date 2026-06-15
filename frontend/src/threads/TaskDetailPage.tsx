@@ -22,8 +22,9 @@ import type {
   WorkUnitTaskDto,
 } from '../types';
 import { parseUnifiedDiff, type DiffHunk } from '../diffParse';
-import { renderChatMarkdown } from '../markdown';
 import TaskChat from './TaskChat';
+import NotificationStrip from './NotificationStrip';
+import { resolveRepoRef } from './RepoAvatar';
 import { ConvIndex } from './ConvIndex';
 import { PermissionCard } from './PermissionCard';
 import { findPendingPermission } from './permissions';
@@ -44,6 +45,9 @@ type Props = {
    *  parent task drop-down may want to jump siblings — for Phase 3
    *  this is a no-op; Phase 5 wires it through the zoom). */
   onOpenSiblingTask?: (taskId: string) => void;
+  /** Deep-link into the in-app PR detail page for this task's opened
+   *  PR. Resolved owner/repo come from the task's workingDir. */
+  onOpenPr?: (owner: string, repo: string, prNumber: number) => void;
 };
 
 type Mode = 'conversation' | 'terminal' | 'diff';
@@ -89,7 +93,7 @@ function mergeTaskMessages(
 }
 
 export default function TaskDetailPage({
-  threadId, taskId, onBackToTrunk,
+  threadId, taskId, onBackToTrunk, onOpenPr,
 }: Props) {
   const [thread, setThread] = useState<ThreadDto | null>(null);
   const [messages, setMessages] = useState<ThreadMessageDto[] | null>(null);
@@ -360,7 +364,22 @@ export default function TaskDetailPage({
   const taskTitle = task !== null ? taskLabel(task) : 'Loading…';
   const taskBranch = task?.branchName ?? null;
   const taskPr = task?.prNumber ?? null;
+  const taskPrIsDraft = (task?.prState ?? null) === 'draft';
+  const taskOnRemote = (task?.pushedAt ?? null) !== null || taskPr !== null;
   const taskSeq = task?.seq ?? null;
+
+  // Deep-link the task's PR number into the in-app PR detail page.
+  // owner/repo are resolved from the task's workingDir (the local clone
+  // path) via the shared repo-ref cache.
+  const openTaskPr = useCallback(() => {
+    if (taskPr === null || onOpenPr === undefined) return;
+    const workingDir = task?.workingDir ?? null;
+    void resolveRepoRef(workingDir).then(ref => {
+      if (ref !== null) {
+        onOpenPr(ref.owner, ref.repo, taskPr);
+      }
+    });
+  }, [taskPr, onOpenPr, task?.workingDir]);
 
   // Inline rename in the altitude band — pencil opens an input,
   // Enter PATCHes /tasks/{id}/name and refreshes the rail.
@@ -571,8 +590,21 @@ export default function TaskDetailPage({
             {taskBranch !== null && (
               <span style={bandBranchStyle}>↗ {taskBranch}</span>
             )}
+            {taskOnRemote && taskPr === null && (
+              <span style={bandRemoteStyle} title="This task's branch is on the remote">
+                ● on remote
+              </span>
+            )}
             {taskPr !== null && (
-              <span style={bandPrStyle}>⊕ PR #{taskPr}</span>
+              <button
+                type="button"
+                style={bandPrButtonStyle}
+                onClick={openTaskPr}
+                disabled={onOpenPr === undefined}
+                title={`Open PR #${taskPr} in the PR detail page`}
+              >
+                ⊕ PR #{taskPr}{taskPrIsDraft ? ' · draft' : ''} →
+              </button>
             )}
             {task !== null && (
               <span style={bandStatusStyle}>· {task.status.toLowerCase()}</span>
@@ -602,11 +634,15 @@ export default function TaskDetailPage({
           </div>
         )}
 
-        {mode !== 'diff' && (
-          <div style={bodyGridStyle}>
-            <main style={mainStyle}>
+          <div style={isDiff ? diffGridStyle : bodyGridStyle}>
+            <main style={isDiff ? diffMainStyle : mainStyle}>
+              {/* Parked push / PR / comment proposals surface here with
+                  an inline Review → approve / discard pane, so the user
+                  can resolve them without leaving the task window for the
+                  notification center. Self-hides when nothing is parked. */}
+              <NotificationStrip threadId={threadId} />
               <div style={isTerminal ? chatCardDarkStyle : chatCardStyle}>
-                {mode === 'conversation' && (
+                {(mode === 'conversation' || isDiff) && (
                   messages === null ? (
                     <div style={loadingCenterStyle}>Loading conversation…</div>
                   ) : (
@@ -734,6 +770,7 @@ export default function TaskDetailPage({
               </div>
             </main>
 
+            {!isDiff && (
             <aside style={railStyle}>
               <div style={railThreadAnchorStyle}>
                 Thread · {thread?.title ?? '—'}
@@ -853,17 +890,15 @@ export default function TaskDetailPage({
                 })()}
               </section>
             </aside>
+            )}
+            {isDiff && task !== null && (
+              <DiffPanels
+                threadId={threadId}
+                task={task}
+                onClose={() => setMode('conversation')}
+              />
+            )}
           </div>
-        )}
-        {mode === 'diff' && task !== null && (
-          <DiffThreeColumn
-            threadId={threadId}
-            task={task}
-            messages={messages}
-            threadTitle={thread?.title ?? null}
-            onClose={() => setMode('conversation')}
-          />
-        )}
       </div>
 
       {error !== null && (
@@ -1057,49 +1092,16 @@ function ModeToggle({
   );
 }
 
-function ConversationView({
-  messages, threadTitle,
-}: {
-  messages: ThreadMessageDto[] | null;
-  threadTitle: string | null;
-}) {
-  const scrollRef = useRef<HTMLDivElement | null>(null);
-  useEffect(() => {
-    const el = scrollRef.current;
-    if (el !== null) el.scrollTop = el.scrollHeight;
-  }, [messages]);
-
-  if (messages === null) {
-    return <div style={loadingStyle}>Loading conversation…</div>;
-  }
-
-  return (
-    <div ref={scrollRef} style={conversationScrollStyle}>
-      <div style={forkedMarkerStyle}>
-        ⑂ forked from the thread{threadTitle !== null && ` · ${threadTitle}`}
-      </div>
-      {messages.length === 0 ? (
-        <div style={emptyStyle}>
-          No conversation yet on this task. Send a message below to get the agent moving.
-        </div>
-      ) : (
-        <ul style={chatListStyle}>
-          {messages.map(m => (
-            <MessageBubble key={m.id} message={m} />
-          ))}
-        </ul>
-      )}
-    </div>
-  );
-}
-
-function DiffThreeColumn({
-  threadId, task, messages, threadTitle, onClose,
+/** The diff side of the task window: the commit/file navigator + the
+ *  diff column. Rendered to the right of the shared conversation pane
+ *  (the same <main> the conversation mode uses), so the left side stays
+ *  the live task chat with its composer. Returns the two grid items
+ *  (nav, diff) directly — the parent owns the grid. */
+function DiffPanels({
+  threadId, task, onClose,
 }: {
   threadId: string;
   task: WorkUnitTaskDto;
-  messages: ThreadMessageDto[] | null;
-  threadTitle: string | null;
   onClose: () => void;
 }) {
   const [navMode, setNavMode] = useState<NavMode>('commits');
@@ -1250,11 +1252,7 @@ function DiffThreeColumn({
   }, []);
 
   return (
-    <div style={diffGridStyle}>
-      <div style={diffConvColStyle}>
-        <ConversationView messages={messages} threadTitle={threadTitle} />
-      </div>
-
+    <>
       <div style={diffNavColStyle}>
         <div style={navToggleRowStyle}>
           <button
@@ -1341,7 +1339,7 @@ function DiffThreeColumn({
           <div style={pushNoticeStyle}>{pushNotice}</div>
         )}
       </div>
-    </div>
+    </>
   );
 }
 
@@ -1454,70 +1452,6 @@ function DiffHunks({ hunks }: { hunks: DiffHunk[] }) {
       ))}
     </div>
   );
-}
-
-function MessageBubble({ message }: { message: ThreadMessageDto }) {
-  const role = bucketRole(message);
-  if (role === 'system-fold') {
-    return null;
-  }
-  const text = previewBody(message);
-  const isUser = role === 'user';
-  // Render user / assistant prose as markdown so the diff view's
-  // conversation column matches the task window's chat (code fences,
-  // lists, bold). Tool rows stay raw — they're truncated tool output,
-  // not prose.
-  const asMarkdown = role === 'user' || role === 'assistant';
-  return (
-    <li style={bubbleRowStyle(isUser)}>
-      <div style={bubbleHeadStyle(isUser)}>{roleLabel(role)}</div>
-      {asMarkdown ? (
-        <div
-          className="bq-chat-md"
-          style={bubbleStyle(role)}
-          dangerouslySetInnerHTML={{ __html: renderChatMarkdown(text) }}
-        />
-      ) : (
-        <div style={bubbleStyle(role)}>{text}</div>
-      )}
-    </li>
-  );
-}
-
-function bucketRole(m: ThreadMessageDto): 'user' | 'assistant' | 'tool' | 'system' | 'system-fold' {
-  if (m.role === 'user' && m.type === 'text') return 'user';
-  if (m.role === 'assistant' && m.type === 'text') return 'assistant';
-  if (m.role === 'assistant' && m.type === 'thinking') return 'assistant';
-  if (m.role === 'tool') return 'tool';
-  // Lifecycle / live deltas — keep terminal mode rich, but conversation
-  // mode folds these so the chat reads as a chat.
-  return 'system-fold';
-}
-
-function roleLabel(role: 'user' | 'assistant' | 'tool' | 'system'): string {
-  if (role === 'user') return 'You';
-  if (role === 'assistant') return 'Claude';
-  if (role === 'tool') return 'tool';
-  return 'system';
-}
-
-function previewBody(m: ThreadMessageDto): string {
-  try {
-    const parsed = JSON.parse(m.contentJson) as Record<string, unknown>;
-    if (typeof parsed.text === 'string') return parsed.text;
-    if (typeof parsed.summary === 'string') return parsed.summary;
-    if (m.type === 'tool_call' && typeof parsed.toolName === 'string') {
-      return `↪ ${parsed.toolName}`;
-    }
-    if (m.type === 'tool_result') {
-      const out = parsed.output;
-      return typeof out === 'string' ? out.slice(0, 240) : '[tool result]';
-    }
-  }
-  catch {
-    return m.contentJson.slice(0, 240);
-  }
-  return m.contentJson.slice(0, 240);
 }
 
 /**
@@ -1951,6 +1885,27 @@ const bandBranchStyle: React.CSSProperties = {
 
 const bandPrStyle: React.CSSProperties = {
   color: TEAL,
+  fontWeight: 600,
+};
+
+// Clickable PR chip in the altitude band — deep-links into the in-app
+// PR detail page. Borderless so it reads as the band's other inline
+// chips, not a heavy button.
+const bandPrButtonStyle: React.CSSProperties = {
+  color: TEAL,
+  fontWeight: 600,
+  fontSize: 'inherit',
+  fontFamily: 'inherit',
+  border: 'none',
+  background: 'transparent',
+  cursor: 'pointer',
+  padding: 0,
+};
+
+// "on remote" marker shown once the branch is pushed but before a PR
+// exists, so a parked task reads as "published" rather than stuck.
+const bandRemoteStyle: React.CSSProperties = {
+  color: '#0d9488',
   fontWeight: 600,
 };
 
@@ -2718,87 +2673,21 @@ const mainStyle: React.CSSProperties = {
   overflow: 'hidden',
 };
 
-const conversationScrollStyle: React.CSSProperties = {
-  background: 'rgba(255,255,255,0.78)',
-  backdropFilter: 'blur(14px) saturate(125%)',
-  WebkitBackdropFilter: 'blur(14px) saturate(125%)',
-  border: '1px solid rgba(0,0,0,0.06)',
-  borderRadius: 14,
-  padding: 18,
-  boxShadow: '0 4px 18px rgba(0,0,0,0.04)',
-  // Fill the column (which is bounded by the grid's definite height) and
-  // scroll internally, so the conversation card lines up with the nav
-  // and diff cards instead of capping short and leaving dead space.
-  flex: 1,
-  minHeight: 0,
-  overflowY: 'auto',
-};
-
-const forkedMarkerStyle: React.CSSProperties = {
-  display: 'flex',
-  justifyContent: 'center',
-  fontSize: 11,
-  color: 'var(--text-4)',
-  marginBottom: 16,
-  padding: '6px 12px',
-  background: TEAL_BG,
-  borderRadius: 999,
-  width: 'fit-content',
-  margin: '0 auto 16px',
-  border: `1px solid ${TEAL_BORDER}`,
-};
-
-const chatListStyle: React.CSSProperties = {
-  margin: 0,
-  padding: 0,
-  listStyle: 'none',
+// Diff mode: the conversation column is one of three side-by-side
+// panels, so it drops the conversation view's generous <main> padding
+// and sits flush in its grid cell — same top/bottom/left bounds as the
+// nav and diff panels next to it. (The grid owns the inter-column gap.)
+const diffMainStyle: React.CSSProperties = {
   display: 'flex',
   flexDirection: 'column',
   gap: 12,
+  padding: 0,
+  minWidth: 0,
+  minHeight: 0,
+  // Match diffGridStyle's height so the column never outgrows its cell.
+  maxHeight: 'calc(100vh - 144px)',
+  overflow: 'hidden',
 };
-
-function bubbleRowStyle(isUser: boolean): React.CSSProperties {
-  return {
-    display: 'flex',
-    flexDirection: 'column',
-    alignItems: isUser ? 'flex-end' : 'flex-start',
-    gap: 4,
-  };
-}
-
-function bubbleHeadStyle(isUser: boolean): React.CSSProperties {
-  return {
-    fontSize: 10,
-    color: 'var(--text-4)',
-    letterSpacing: '0.04em',
-    textTransform: 'uppercase',
-    fontWeight: 600,
-    paddingLeft: isUser ? 0 : 4,
-    paddingRight: isUser ? 4 : 0,
-  };
-}
-
-function bubbleStyle(role: 'user' | 'assistant' | 'tool' | 'system'): React.CSSProperties {
-  const base: React.CSSProperties = {
-    maxWidth: '80%',
-    padding: '10px 14px',
-    borderRadius: 12,
-    fontSize: 13,
-    lineHeight: 1.55,
-    whiteSpace: 'pre-wrap',
-    overflowWrap: 'anywhere',
-  };
-  if (role === 'user') {
-    return { ...base, background: TEAL, color: '#fff', borderBottomRightRadius: 4 };
-  }
-  if (role === 'assistant') {
-    return { ...base, background: '#fff', border: '1px solid rgba(0,0,0,0.08)', borderBottomLeftRadius: 4 };
-  }
-  if (role === 'tool') {
-    return { ...base, background: 'rgba(0,0,0,0.04)', color: 'var(--text-2)', fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace', fontSize: 12 };
-  }
-  return { ...base, background: 'rgba(0,0,0,0.04)', color: 'var(--text-3)', fontStyle: 'italic' };
-}
 
 /* ── Terminal-mode styles (thread-detail-terminal.png) ─────────── */
 
@@ -3122,24 +3011,24 @@ const diffGridStyle: React.CSSProperties = {
   display: 'grid',
   gridTemplateColumns: '1fr 280px 1.6fr',
   gap: 14,
-  padding: '14px 18px',
-  // A *definite* height (viewport minus the header+band, matching the
-  // conversation view's 116px reserve) is what makes the three columns
-  // share one height and scroll internally. Without it the grid row
-  // sizes to the tallest column's content, so a long conversation grows
-  // the page past the fold and clips the action bar.
-  height: 'calc(100vh - 116px)',
+  // No left/top/bottom padding: all three columns sit flush against the
+  // grid cell so the conversation panel lines up with the nav and diff
+  // panels (its <main> uses diffMainStyle with zero padding in this
+  // mode). Only the right side keeps a margin so the diff column doesn't
+  // jam the viewport edge.
+  padding: '0 18px 0 0',
+  // A *definite* height (viewport minus the header+band) is what makes
+  // the three columns share one height and scroll internally. Without it
+  // the grid row sizes to the tallest column's content, so a long
+  // conversation grows the page past the fold and clips the action bar.
+  // The 144px reserve = the header+band (~116px) plus a ~28px bottom
+  // clearance, so the left composer and the right diff action bar both
+  // sit above the viewport edge instead of being cut off. (In the
+  // conversation view that 28px lived as <main>'s paddingBottom; here
+  // the columns are flush, so the grid owns the clearance.)
+  height: 'calc(100vh - 144px)',
   alignItems: 'stretch',
   minHeight: 0,
-};
-
-const diffConvColStyle: React.CSSProperties = {
-  display: 'flex',
-  flexDirection: 'column',
-  gap: 14,
-  minHeight: 0,
-  height: '100%',
-  overflow: 'hidden',
 };
 
 const diffNavColStyle: React.CSSProperties = {
@@ -3423,12 +3312,6 @@ const pushNoticeStyle: React.CSSProperties = {
   color: TEAL,
   fontSize: 11,
   borderTop: `1px solid ${TEAL_BORDER}`,
-};
-
-const loadingStyle: React.CSSProperties = {
-  padding: 18,
-  color: 'var(--text-3)',
-  fontStyle: 'italic',
 };
 
 const emptyStyle: React.CSSProperties = {

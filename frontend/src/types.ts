@@ -1794,6 +1794,11 @@ export type WorkUnitTaskDto = {
   taskType: string;
   linkedPrNumber: number | null;
   linkedIssueNumber: number | null;
+  /** ISO instant the task's branch first reached the remote, or null if
+   *  it hasn't been pushed yet. Set on a push approval and on the
+   *  implicit push an open_pr approval performs. Drives the "on remote"
+   *  task badge so a parked task no longer looks stuck. */
+  pushedAt: string | null;
   /** Rolled-up cost / token usage for the task. Backend Task record
    *  carries these (mirrored from the StreamEvent.TurnDone rows); the
    *  rail surfaces them in the TASK METRICS card. */

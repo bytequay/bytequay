@@ -716,6 +716,9 @@ function App() {
             onBackToTrunk={() => setNav({
               view: 'thread-detail', threadId: nav.threadId,
             })}
+            onOpenPr={(owner, repo, prNumber) => setNav({
+              view: 'repo', owner, repo, prNumber, back: nav,
+            })}
           />
         )}
         {nav.view === 'notifications' && (

@@ -960,13 +960,17 @@ export default function TaskDetailPage({
                 {(() => {
                   // "Completed" is terminal but does NOT imply shipped — a
                   // task can finish without ever pushing / opening a PR /
-                  // merging. Only the real signals (merge state, an open
-                  // PR, or a push timestamp) earn the "shipped" / "merged"
-                  // wording; otherwise it's just done.
+                  // merging. Only the real signals earn the wording:
+                  //   merged          → "Merged"
+                  //   ready PR / push → "Shipped"
+                  //   draft PR        → pushed for review, NOT shipped
+                  //   nothing pushed  → just "Completed".
+                  const prState = (task?.prState ?? '').toLowerCase();
                   const isErrored = task?.status === 'ERRORED';
                   const isCompleted = task?.status === 'COMPLETED';
                   const isTerminal = isCompleted || isErrored;
-                  const isMerged = (task?.prState ?? '').toLowerCase() === 'merged';
+                  const isMerged = prState === 'merged';
+                  const isDraftPr = prState === 'draft';
                   const hasPr = task?.prNumber != null;
                   const pushed = task?.pushedAt != null;
                   let label: string;
@@ -989,6 +993,14 @@ export default function TaskDetailPage({
                       hint = 'Merged. Open the trunk to start the next task.';
                       tone = shipShippedDoneStyle;
                     }
+                    else if (isDraftPr) {
+                      // A draft PR is pushed for review but not shipped —
+                      // say so rather than claiming it's done-and-shipped.
+                      label = 'Draft PR open';
+                      hint = `Draft PR #${task!.prNumber} is open — mark it ready `
+                        + 'for review when this is good to go.';
+                      tone = shipShippedStyle;
+                    }
                     else if (hasPr || pushed) {
                       label = 'Shipped';
                       hint = hasPr
@@ -1009,11 +1021,14 @@ export default function TaskDetailPage({
                     // done "Shipped" badge.
                     glyph = '☁︎↑';
                     label = shipping ? 'Shipping…' : 'Ship — finalize & merge';
-                    hint = hasPr
-                      ? `PR #${task!.prNumber} is open. Ship finalises this task `
-                        + 'and returns you to the thread.'
-                      : 'Finalises & merges this task, then takes you back to the '
-                        + 'thread — where the next task starts.';
+                    hint = isDraftPr
+                      ? `Draft PR #${task!.prNumber} is open. Ship marks it ready, `
+                        + 'finalises this task, and returns you to the thread.'
+                      : hasPr
+                        ? `PR #${task!.prNumber} is open. Ship finalises this task `
+                          + 'and returns you to the thread.'
+                        : 'Finalises & merges this task, then takes you back to the '
+                          + 'thread — where the next task starts.';
                     tone = shipPrimaryStyle;
                   }
                   return (

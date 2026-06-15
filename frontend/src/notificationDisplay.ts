@@ -11,7 +11,8 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import type { NotificationDto, NotificationKindDto } from './types';
+import type { NotificationDto, NotificationKindDto, PublishGateAction } from './types';
+import { PUBLISH_GATE_ACTIONS } from './types';
 
 /** Icon glyph for a notification row's leading slot. AUTO_FIX_DONE
  *  rows always get the check; the title/preview differentiate
@@ -97,6 +98,26 @@ export function relativeTime(iso: string): string {
   if (deltaSec < 3600) return `${Math.round(deltaSec / 60)}m ago`;
   if (deltaSec < 86400) return `${Math.round(deltaSec / 3600)}h ago`;
   return `${Math.round(deltaSec / 86400)}d ago`;
+}
+
+/** True when the row should show a Review button that expands the
+ *  publish gate pane. The allow-list mirrors PUBLISH_GATE_ACTIONS so
+ *  every action PublishService can resolve gets an entry point; a
+ *  legacy mcp:request_review row without an explicit action field is
+ *  treated as request_review. Shared by the notification center and the
+ *  in-thread strip so both surfaces agree on what's approvable. */
+export function isPublishGateNotification(n: NotificationDto): boolean {
+  if (n.kind !== 'AWAITING_REVIEW') return false;
+  if (n.status !== 'UNREAD' && n.status !== 'READ' && n.status !== 'RESOLVING') return false;
+  const raw = payloadOf(n);
+  if (!raw) return false;
+  if (typeof raw.action === 'string'
+      && (PUBLISH_GATE_ACTIONS as readonly string[]).includes(raw.action as PublishGateAction)) {
+    return true;
+  }
+  return raw.action === undefined
+    && raw.source === 'mcp:request_review'
+    && typeof raw.summary === 'string';
 }
 
 function payloadOf(n: NotificationDto): Record<string, unknown> | null {

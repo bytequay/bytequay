@@ -12,10 +12,15 @@
  * limitations under the License.
  */
 import { useCallback, useEffect, useState } from 'react';
-import { kindIcon, previewFor, relativeTime, titleFor } from './notificationDisplay';
+import {
+  isPublishGateNotification,
+  kindIcon,
+  previewFor,
+  relativeTime,
+  titleFor,
+} from './notificationDisplay';
 import PublishGatePane from './PublishGatePane';
-import { PUBLISH_GATE_ACTIONS } from './types';
-import type { NotificationDto, PublishGateAction } from './types';
+import type { NotificationDto } from './types';
 
 type Props = {
   /** Click-to-thread navigation. The dispatch lives in App.tsx so
@@ -203,30 +208,6 @@ function isScheduledReviewNotification(n: NotificationDto): boolean {
   try {
     const raw = JSON.parse(n.payloadJson) as { source?: unknown };
     return raw.source === 'scheduled-review';
-  }
-  catch {
-    return false;
-  }
-}
-
-/** True when the row should show a Review button that expands the
- *  publish gate pane. The allow-list mirrors PUBLISH_GATE_ACTIONS so
- *  every action PublishService can resolve gets an entry point in the
- *  notification center; a legacy mcp:request_review row without an
- *  explicit action field is treated as request_review. */
-function isPublishGateNotification(n: NotificationDto): boolean {
-  if (n.kind !== 'AWAITING_REVIEW') return false;
-  if (n.status !== 'UNREAD' && n.status !== 'READ' && n.status !== 'RESOLVING') return false;
-  if (!n.payloadJson) return false;
-  try {
-    const raw = JSON.parse(n.payloadJson) as { action?: unknown; source?: unknown; summary?: unknown };
-    if (typeof raw.action === 'string'
-        && (PUBLISH_GATE_ACTIONS as readonly string[]).includes(raw.action as PublishGateAction)) {
-      return true;
-    }
-    return raw.action === undefined
-      && raw.source === 'mcp:request_review'
-      && typeof raw.summary === 'string';
   }
   catch {
     return false;

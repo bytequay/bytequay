@@ -12,6 +12,8 @@
  * limitations under the License.
  */
 import { useCallback, useEffect, useState } from 'react';
+import { isPublishGateNotification } from '../notificationDisplay';
+import PublishGatePane from '../PublishGatePane';
 import type { NotificationDto, NotificationKindDto } from '../types';
 
 type Props = {
@@ -19,13 +21,20 @@ type Props = {
 };
 
 /** Compact strip of unread or interrupted notifications scoped to this
- *  thread, shown above the agent terminal. RESOLVING rows remain visible
- *  until their local cleanup decision is recorded. */
+ *  thread, shown above the agent terminal and in the task window.
+ *  AWAITING_REVIEW rows expand the publish gate inline so the user can
+ *  approve / discard without leaving for the notification center.
+ *  RESOLVING rows remain visible until their local cleanup decision is
+ *  recorded. */
 export default function NotificationStrip({ threadId }: Props) {
   const [items, setItems] = useState<NotificationDto[]>([]);
   /** Transient hint shown when the backend refuses a dismiss (e.g. a
    *  task that still needs attention). Cleared on the next refresh. */
   const [note, setNote] = useState<string | null>(null);
+  /** Id of the AWAITING_REVIEW row whose publish gate is expanded. Only
+   *  one opens at a time — mirrors the notification center so the user
+   *  is never unsure which Approve they're about to click. */
+  const [expandedId, setExpandedId] = useState<string | null>(null);
 
   const refresh = useCallback(async () => {
     try {
@@ -86,55 +95,111 @@ export default function NotificationStrip({ threadId }: Props) {
   if (items.length === 0) return null;
   return (
     <div style={stripStyle}>
-      {items.map(n => (
-        <div
-          key={n.id}
-          style={chipStyle(n.kind)}
-          onClick={() => { void onMarkRead(n); }}
-          role="button"
-          tabIndex={0}
-          title={n.kind === 'AWAITING_REVIEW'
-            ? 'Awaiting your review — approve or discard from the notification center'
-            : 'Click to mark as read'}
-        >
-          <span style={chipIconStyle}>{kindIcon(n.kind)}</span>
-          <span style={chipBodyStyle}>
-            <span style={chipTitleStyle}>{titleFor(n.kind)}</span>
-            <span style={chipMetaStyle}>{previewFor(n)}</span>
-          </span>
-          {/* Two predicates, not one. NEEDS_ATTENTION rows want
-              both — Jump-in to take the lease, Dismiss to clear
-              the bell badge without acting. AWAITING_REVIEW rows
-              still suppress Dismiss to force the approve/discard
-              flow. AUTO_FIX_DONE shows Dismiss only. */}
-          {hasJumpInAffordance(n) && (
-            <button
-              type="button"
-              style={chipJumpInStyle}
-              onClick={e => { void onJumpIn(e); }}
-              title="Interrupt the headless run and take control of the lease"
-              aria-label="Jump in to this thread"
+      {items.map(n => {
+        const reviewable = isPublishGateNotification(n);
+        const expanded = expandedId === n.id;
+        return (
+          <div key={n.id} style={itemWrapStyle(expanded)}>
+            <div
+              style={chipStyle(n.kind)}
+              onClick={() => { void onMarkRead(n); }}
+              role="button"
+              tabIndex={0}
+              title={n.kind === 'AWAITING_REVIEW'
+                ? 'Awaiting your review — open Review to approve or discard'
+                : 'Click to mark as read'}
             >
-              Jump in
-            </button>
-          )}
-          {!isOpenParked(n) && (
-            <button
-              type="button"
-              style={chipDismissStyle}
-              onClick={e => { void onDismiss(n, e); }}
-              title="Dismiss"
-              aria-label="Dismiss notification"
-            >
-              ✕
-            </button>
-          )}
-        </div>
-      ))}
+              {/* Animated dot: a live "this is waiting on you" cue so a
+                  paused task is obvious at a glance, not a static badge. */}
+              {isWaitingKind(n.kind) && (
+                <span style={pulseDotStyle(n.kind)} aria-hidden />
+              )}
+              <span style={chipIconStyle}>{kindIcon(n.kind)}</span>
+              <span style={chipBodyStyle}>
+                <span style={chipTitleStyle}>{titleFor(n.kind)}</span>
+                <span style={chipMetaStyle}>{previewFor(n)}</span>
+              </span>
+              {/* Inline approve/discard: expand the publish gate right
+                  here so a parked push / PR / comment can be resolved
+                  without leaving the task window. */}
+              {reviewable && (
+                <button
+                  type="button"
+                  style={chipReviewStyle(expanded)}
+                  onClick={e => {
+                    e.stopPropagation();
+                    setExpandedId(expanded ? null : n.id);
+                  }}
+                  title={expanded
+                    ? 'Hide the approval pane'
+                    : 'Review, then approve or discard'}
+                >
+                  {expanded ? 'Hide' : 'Review'}
+                </button>
+              )}
+              {/* Two predicates, not one. NEEDS_ATTENTION rows want
+                  both — Jump-in to take the lease, Dismiss to clear
+                  the bell badge without acting. AWAITING_REVIEW rows
+                  still suppress Dismiss to force the approve/discard
+                  flow. AUTO_FIX_DONE shows Dismiss only. */}
+              {hasJumpInAffordance(n) && (
+                <button
+                  type="button"
+                  style={chipJumpInStyle}
+                  onClick={e => { void onJumpIn(e); }}
+                  title="Interrupt the headless run and take control of the lease"
+                  aria-label="Jump in to this thread"
+                >
+                  Jump in
+                </button>
+              )}
+              {!isOpenParked(n) && (
+                <button
+                  type="button"
+                  style={chipDismissStyle}
+                  onClick={e => { void onDismiss(n, e); }}
+                  title="Dismiss"
+                  aria-label="Dismiss notification"
+                >
+                  ✕
+                </button>
+              )}
+            </div>
+            {reviewable && expanded && (
+              <div style={paneWrapStyle} onClick={e => e.stopPropagation()}>
+                <PublishGatePane
+                  notification={n}
+                  onResolved={() => {
+                    setExpandedId(null);
+                    void refresh();
+                  }}
+                />
+              </div>
+            )}
+          </div>
+        );
+      })}
       {note && <div style={noteStyle} role="status">{note}</div>}
+      <style>{pulseKeyframes}</style>
     </div>
   );
 }
+
+const pulseKeyframes = `
+@keyframes bq-status-dot {
+  0%, 100% { opacity: 0.35; transform: scale(0.7); }
+  50%      { opacity: 1;    transform: scale(1); }
+}
+@keyframes bq-await-glow {
+  0%   { box-shadow: 0 0 0 0 rgba(124, 58, 237, 0.40); }
+  70%  { box-shadow: 0 0 0 6px rgba(124, 58, 237, 0); }
+  100% { box-shadow: 0 0 0 0 rgba(124, 58, 237, 0); }
+}
+@keyframes bq-attn-glow {
+  0%   { box-shadow: 0 0 0 0 rgba(220, 38, 38, 0.40); }
+  70%  { box-shadow: 0 0 0 6px rgba(220, 38, 38, 0); }
+  100% { box-shadow: 0 0 0 0 rgba(220, 38, 38, 0); }
+}`;
 
 function isOpenParked(n: NotificationDto): boolean {
   // NEEDS_ATTENTION rows are informational and must be dismissible;
@@ -181,6 +246,13 @@ function previewFor(n: NotificationDto): string {
     return '';
   }
   if (!payload) return '';
+  if (n.kind === 'AWAITING_REVIEW') {
+    // Spell out *why the task isn't progressing*: it's paused on the
+    // user's approval. Name the parked action so the reminder is
+    // concrete ("approve the push", not just "awaiting review").
+    const action = typeof payload.action === 'string' ? payload.action : null;
+    return `Paused — needs your approval to ${actionLabel(action)}`;
+  }
   if (n.kind === 'NEEDS_ATTENTION') {
     const repo = typeof payload.repoFullName === 'string' ? payload.repoFullName : null;
     const pr = typeof payload.prNumber === 'number' ? `#${payload.prNumber}` : null;
@@ -200,6 +272,35 @@ function previewFor(n: NotificationDto): string {
   return '';
 }
 
+/** Human verb for a parked publish-gate action, used in the paused-task
+ *  reminder. Unknown / null actions fall back to a generic phrase. */
+function actionLabel(action: string | null): string {
+  switch (action) {
+    case 'push':                  return 'push the branch';
+    case 'open_pr':               return 'open the PR';
+    case 'ship_task':             return 'ship the task';
+    case 'next_task':             return 'start the next task';
+    case 'post_comment':          return 'post the comment';
+    case 'create_review_comment': return 'post the review comment';
+    case 'reply_review_thread':   return 'reply on the review thread';
+    case 'request_review':        return 'request review';
+    case 'request_reviewer':      return 'request a reviewer';
+    case 'approve_pr':            return 'approve the PR';
+    case 'merge_pr':              return 'merge the PR';
+    case 'update_pr_body':        return 'update the PR description';
+    case 'comment_on_issue':      return 'comment on the issue';
+    case 'set_issue_state':       return 'change the issue state';
+    case 'publish_review':        return 'publish the review';
+    default:                      return 'continue';
+  }
+}
+
+/** Waiting states that explain "no progress" — both pause the task on
+ *  the user, so both get the pulsing reminder treatment. */
+function isWaitingKind(kind: NotificationKindDto): boolean {
+  return kind === 'AWAITING_REVIEW' || kind === 'NEEDS_ATTENTION';
+}
+
 const stripStyle: React.CSSProperties = {
   display: 'flex',
   flexWrap: 'wrap',
@@ -207,6 +308,25 @@ const stripStyle: React.CSSProperties = {
   padding: '8px 12px',
   borderBottom: '1px solid #e5e7eb',
   background: '#fafaff',
+};
+
+// An expanded row claims the full strip width so the publish gate pane
+// has room; collapsed rows keep their natural chip width and flow.
+function itemWrapStyle(expanded: boolean): React.CSSProperties {
+  return {
+    display: 'flex',
+    flexDirection: 'column',
+    gap: 8,
+    flexBasis: expanded ? '100%' : 'auto',
+    minWidth: 0,
+  };
+}
+
+const paneWrapStyle: React.CSSProperties = {
+  // Constrain the reused pane so its textarea-bearing actions wrap
+  // inside the (sometimes narrow) task column instead of overflowing.
+  minWidth: 0,
+  maxWidth: 560,
 };
 
 const noteStyle: React.CSSProperties = {
@@ -219,12 +339,15 @@ function chipStyle(kind: NotificationKindDto): React.CSSProperties {
   const accent = kind === 'NEEDS_ATTENTION' ? '#dc2626'
     : kind === 'AWAITING_REVIEW' ? '#7c3aed'
     : '#047857';
+  const waiting = isWaitingKind(kind);
   return {
     display: 'inline-flex',
     alignItems: 'center',
     gap: 8,
     padding: '6px 8px 6px 10px',
-    background: '#ffffff',
+    // Waiting rows get a faint accent wash so the paused state reads as
+    // "needs you", not just another grey notification.
+    background: waiting ? `${accent}0d` : '#ffffff',
     border: `1px solid ${accent}33`,
     borderLeft: `3px solid ${accent}`,
     borderRadius: 6,
@@ -232,6 +355,24 @@ function chipStyle(kind: NotificationKindDto): React.CSSProperties {
     fontSize: 12,
     color: '#111827',
     maxWidth: 360,
+    // Slow halo pulse so it's noticeable in peripheral vision without
+    // being a distracting strobe. Honours reduced-motion via the dot's
+    // shared keyframe being subtle; the glow is a gentle 2.4s cycle.
+    animation: waiting
+      ? `${kind === 'AWAITING_REVIEW' ? 'bq-await-glow' : 'bq-attn-glow'} 2.4s ease-out infinite`
+      : undefined,
+  };
+}
+
+function pulseDotStyle(kind: NotificationKindDto): React.CSSProperties {
+  const accent = kind === 'NEEDS_ATTENTION' ? '#dc2626' : '#7c3aed';
+  return {
+    width: 8,
+    height: 8,
+    borderRadius: 999,
+    background: accent,
+    flexShrink: 0,
+    animation: 'bq-status-dot 1.4s ease-in-out infinite',
   };
 }
 
@@ -268,6 +409,20 @@ const chipDismissStyle: React.CSSProperties = {
   padding: 2,
   lineHeight: 1,
 };
+
+function chipReviewStyle(expanded: boolean): React.CSSProperties {
+  return {
+    border: '1px solid #7c3aed',
+    background: expanded ? '#7c3aed' : '#ffffff',
+    color: expanded ? '#ffffff' : '#7c3aed',
+    fontSize: 11,
+    fontWeight: 700,
+    padding: '3px 10px',
+    borderRadius: 999,
+    cursor: 'pointer',
+    whiteSpace: 'nowrap',
+  };
+}
 
 const chipJumpInStyle: React.CSSProperties = {
   border: '1px solid #cbd5e1',

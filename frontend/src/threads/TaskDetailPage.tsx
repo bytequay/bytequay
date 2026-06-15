@@ -110,6 +110,8 @@ export default function TaskDetailPage({
   const [input, setInput] = useState('');
   const [sending, setSending] = useState(false);
   const [shipping, setShipping] = useState(false);
+  const [markReady, setMarkReady] = useState<'idle' | 'running' | 'error'>('idle');
+  const [markReadyError, setMarkReadyError] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [acceptEdits, setAcceptEdits] = useState(false);
   const [savingAcceptEdits, setSavingAcceptEdits] = useState(false);
@@ -415,6 +417,33 @@ export default function TaskDetailPage({
   const taskBranch = task?.branchName ?? null;
   const taskPr = task?.prNumber ?? null;
   const taskPrIsDraft = (task?.prState ?? null) === 'draft';
+
+  // Mark the task's draft PR ready-for-review on GitHub, in place — the
+  // same call the PR detail page makes, surfaced here so a task parked at
+  // AWAITING_READY doesn't force a detour to the PR page. The lifecycle
+  // reconciler flips the phase to remote-review on its next sweep.
+  const onMarkReady = useCallback(async () => {
+    if (task === null || taskPr === null || markReady === 'running') return;
+    const workingDir = task.workingDir ?? null;
+    setMarkReady('running');
+    setMarkReadyError(null);
+    try {
+      const ref = await resolveRepoRef(workingDir);
+      if (ref === null) {
+        throw new Error('Could not resolve the repository for this task.');
+      }
+      await window.bridge.setPrDraft(`${ref.owner}/${ref.repo}`, taskPr, false);
+      // Pull the refreshed PR / phase through. The phase node advances on
+      // the reconciler's next sweep; this just clears the draft chip and
+      // any optimistic state sooner.
+      await Promise.all([refreshTasks(), loadThread()]);
+      setMarkReady('idle');
+    }
+    catch (e) {
+      setMarkReadyError(e instanceof Error ? e.message : String(e));
+      setMarkReady('error');
+    }
+  }, [task, taskPr, markReady, refreshTasks, loadThread]);
   const taskOnRemote = (task?.pushedAt ?? null) !== null || taskPr !== null;
   const taskSeq = task?.seq ?? null;
 
@@ -974,6 +1003,32 @@ export default function TaskDetailPage({
                 <CheckpointsListSection checkpoints={checkpoints} />
               </section>
 
+              {task?.phase === 'AWAITING_READY' && taskPr !== null && (
+                <section style={railSectionStyle}>
+                  <div style={railHeadStyle}>
+                    <span>READY FOR REVIEW</span>
+                    <span style={railHeadMutedStyle}>draft PR</span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => { void onMarkReady(); }}
+                    disabled={markReady === 'running'}
+                    style={markReadyBtnStyle}
+                    title={`Mark PR #${taskPr} as ready for review on GitHub`}
+                  >
+                    <span aria-hidden style={{ marginRight: 8 }}>✔</span>
+                    {markReady === 'running' ? 'Marking ready…' : 'Mark as ready'}
+                  </button>
+                  <div style={shipHintStyle}>
+                    Converts draft PR #{taskPr} to ready-for-review on GitHub.
+                    The task advances to remote review on the next sync.
+                  </div>
+                  {markReadyError !== null && (
+                    <div style={markReadyErrorStyle}>{markReadyError}</div>
+                  )}
+                </section>
+              )}
+
               <section style={railSectionStyle}>
                 {(() => {
                   // "Completed" is terminal but does NOT imply shipped — a
@@ -1040,8 +1095,9 @@ export default function TaskDetailPage({
                     glyph = '☁︎↑';
                     label = shipping ? 'Shipping…' : 'Ship — finalize & merge';
                     hint = isDraftPr
-                      ? `Draft PR #${task!.prNumber} is open. Ship marks it ready, `
-                        + 'finalises this task, and returns you to the thread.'
+                      ? `PR #${task!.prNumber} is still a draft — use “Mark as ready” `
+                        + 'above to send it for review. Ship pushes any new work and '
+                        + 'parks the task in review; it does not un-draft the PR.'
                       : hasPr
                         ? `PR #${task!.prNumber} is open. Ship finalises this task `
                           + 'and returns you to the thread.'
@@ -2672,6 +2728,32 @@ const shipPrimaryStyle: React.CSSProperties = {
     '0 6px 18px rgba(13,148,136,0.25),'
     + ' 0 1px 2px rgba(0,0,0,0.04),'
     + ' inset 0 1px 0 rgba(255,255,255,0.2)',
+};
+
+// Mark-ready CTA — GitHub's ready-for-review green so it reads as a
+// distinct, lower-stakes action than the teal Ship gradient below it.
+const markReadyBtnStyle: React.CSSProperties = {
+  width: '100%',
+  padding: '12px 14px',
+  fontSize: 13,
+  border: 'none',
+  background: 'linear-gradient(135deg, #2da44e, #218739)',
+  color: '#fff',
+  borderRadius: 10,
+  fontWeight: 700,
+  letterSpacing: '0.02em',
+  cursor: 'pointer',
+  boxShadow:
+    '0 6px 18px rgba(45,164,78,0.25),'
+    + ' 0 1px 2px rgba(0,0,0,0.04),'
+    + ' inset 0 1px 0 rgba(255,255,255,0.2)',
+};
+
+const markReadyErrorStyle: React.CSSProperties = {
+  marginTop: 8,
+  fontSize: 12,
+  color: '#b91c1c',
+  lineHeight: 1.45,
 };
 
 // Terminal-state Ship: the task already merged (or errored), so the

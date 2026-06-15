@@ -40,10 +40,13 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Instant;
+import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.OptionalInt;
+import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ConcurrentHashMap;
@@ -56,6 +59,8 @@ import java.util.concurrent.atomic.AtomicLong;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.Consumer;
 import java.util.function.Supplier;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
 
 import static java.util.Objects.requireNonNull;
 
@@ -78,6 +83,12 @@ public class ClaudeCodeCliThreadAgent
         implements ThreadAgent
 {
     private static final Logger log = LoggerFactory.getLogger(ClaudeCodeCliThreadAgent.class);
+
+    /** Lifts the {@code callId} out of a permission_* row's content JSON.
+     *  The value is a tool-use id (no quotes), so a simple capture is
+     *  safe — and avoids a full parse on a hot constructor path. */
+    private static final Pattern CALL_ID_PATTERN =
+            Pattern.compile("\"callId\"\\s*:\\s*\"([^\"]*)\"");
 
     /** {@code claude}'s default binary name on PATH. Overridable in
      *  case the user installed it under a different name. */
@@ -324,11 +335,76 @@ public class ClaudeCodeCliThreadAgent
         this.sessionStartedMs = thread.createdAt().toEpochMilli();
         // Seed the seq counter from any existing rows so a restart
         // doesn't collide with prior persisted messages.
-        long highest = store.listMessages(threadId).stream()
+        List<ThreadMessage> existing = store.listMessages(threadId);
+        long highest = existing.stream()
                 .mapToLong(ThreadMessage::seq)
                 .max()
                 .orElse(-1L);
         this.nextSeq.set(highest + 1L);
+        resolveStalePermissions(existing);
+    }
+
+    /**
+     * Resolve approval prompts left unanswered by a prior session. The
+     * permission gate is in-memory, so once that session is gone (a
+     * restart, or an idle reap) any {@code permission_request} without a
+     * matching decision can never be answered — it would otherwise show
+     * as a forever-pending card and pile into a backlog. Building a fresh
+     * agent for the thread is exactly the moment the old gate is known
+     * dead, so we record a denial for each, clearing the backlog. New
+     * prompts raised by this live session aren't affected — they don't
+     * exist yet when the constructor runs.
+     */
+    private void resolveStalePermissions(List<ThreadMessage> messages)
+    {
+        List<String> stale = unresolvedPermissionCallIds(messages);
+        for (String callId : stale) {
+            persistMessage(new StreamEvent.PermissionDecided(
+                    Instant.now(), callId, PermissionDecision.DENY));
+        }
+        if (!stale.isEmpty()) {
+            log.info("Resolved {} stale permission prompt(s) for thread {}", stale.size(), threadId);
+        }
+    }
+
+    /** The callIds of {@code permission_request} rows that never received
+     *  a {@code permission_decision} or {@code permission_auto_allowed} —
+     *  the prompts a dead session left dangling. Each callId is returned
+     *  at most once even if its request row appears twice. */
+    static List<String> unresolvedPermissionCallIds(List<ThreadMessage> messages)
+    {
+        Set<String> resolved = new HashSet<>();
+        for (ThreadMessage m : messages) {
+            if ("permission_decision".equals(m.type()) || "permission_auto_allowed".equals(m.type())) {
+                String callId = extractCallId(m.contentJson());
+                if (callId != null) {
+                    resolved.add(callId);
+                }
+            }
+        }
+        List<String> out = new ArrayList<>();
+        for (ThreadMessage m : messages) {
+            if (!"permission_request".equals(m.type())) {
+                continue;
+            }
+            String callId = extractCallId(m.contentJson());
+            // resolved doubles as a dedupe guard: a callId is emitted once
+            // even if its request row somehow appears twice.
+            if (callId == null || !resolved.add(callId)) {
+                continue;
+            }
+            out.add(callId);
+        }
+        return out;
+    }
+
+    private static String extractCallId(String contentJson)
+    {
+        if (contentJson == null) {
+            return null;
+        }
+        Matcher matcher = CALL_ID_PATTERN.matcher(contentJson);
+        return matcher.find() ? matcher.group(1) : null;
     }
 
     @Override

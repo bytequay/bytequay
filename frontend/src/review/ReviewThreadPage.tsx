@@ -673,7 +673,7 @@ function RosterSection({
       <h2 style={cardTitleStyle}>Panel</h2>
       <ul style={rosterListStyle}>
         {participants.map(p => {
-          const color = p.color ?? rosterFallbackColor(p.kind);
+          const color = seatColor(p);
           return (
             <li key={p.id} style={rosterRowStyle}>
               <span style={{ ...rosterAvatarStyle, background: color }} aria-hidden>
@@ -706,6 +706,34 @@ function rosterRoleLabel(kind: ReviewParticipantDto['kind'], isLead: boolean): s
 
 function rosterFallbackColor(kind: ReviewParticipantDto['kind']): string {
   return kind === 'LEAD' ? '#737373' : kind === 'HUMAN' ? '#16a34a' : '#0066cc';
+}
+
+/** Per-persona avatar gradients so a five-seat panel reads at a glance —
+ *  each named reviewer keeps a stable identity colour across the roster,
+ *  dispatch chips, and @mention chips. Keyed by the persona name
+ *  normalised to lowercase alphanumerics ("GPT-5" → "gpt5"). The DTO's
+ *  own {@code color} still wins when the backend sends one; this is the
+ *  fallback that paints the well-known seats. */
+const PERSONA_GRADIENTS: Record<string, string> = {
+  claude: 'linear-gradient(135deg,#d97706,#92400e)',
+  gpt5: 'linear-gradient(135deg,#10b981,#0d9488)',
+  deepseek: 'linear-gradient(135deg,#2563eb,#1e3a8a)',
+  sonnet: 'linear-gradient(135deg,#a78bfa,#7c3aed)',
+  gemini: 'linear-gradient(135deg,#34d399,#0d9488)',
+};
+
+function personaGradient(personaLabel: string): string | null {
+  const key = personaLabel.toLowerCase().replace(/[^a-z0-9]/g, '');
+  return PERSONA_GRADIENTS[key] ?? null;
+}
+
+/** The avatar background for a roster/dispatch seat: an explicit DTO
+ *  colour first, then the persona gradient for a known seat, then the
+ *  by-kind fallback. */
+function seatColor(participant: ReviewParticipantDto): string {
+  return participant.color
+    ?? personaGradient(participant.personaLabel)
+    ?? rosterFallbackColor(participant.kind);
 }
 
 const PHASE_LABELS: Record<string, string> = {

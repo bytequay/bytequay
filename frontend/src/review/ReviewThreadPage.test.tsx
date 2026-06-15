@@ -11,7 +11,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import ReviewThreadPage from './ReviewThreadPage';
 import type {
@@ -343,6 +343,47 @@ describe('ReviewThreadPage', () => {
     expect(screen.getAllByText('lead').length).toBeGreaterThanOrEqual(1);
     expect(screen.queryByText('Moderator')).toBeNull();
     expect(screen.queryByText('moderator')).toBeNull();
+  });
+
+  it('seats five reviewers with their persona-color avatars', async () => {
+    // jsdom normalises the gradient's hex stops to rgb(), so match on that.
+    const seats = [
+      { label: 'Claude', rgb: 'rgb(217, 119, 6)' },
+      { label: 'GPT-5', rgb: 'rgb(16, 185, 129)' },
+      { label: 'DeepSeek', rgb: 'rgb(37, 99, 235)' },
+      { label: 'Sonnet', rgb: 'rgb(167, 139, 250)' },
+      { label: 'Gemini', rgb: 'rgb(52, 211, 153)' },
+    ];
+    const detail = buildDetail({});
+    detail.participants = [
+      participant({ id: 'p-lead', kind: 'LEAD', personaLabel: 'Lead' }),
+      ...seats.map((s, i) =>
+        participant({ id: `p-${i}`, kind: 'REVIEWER', personaLabel: s.label })),
+      participant({ id: 'p-you', kind: 'HUMAN', personaLabel: 'You' }),
+    ];
+    // The default fixture's messages reference the original participants;
+    // clear them so the roster is the only thing under test.
+    detail.messages = [];
+    installBridge({
+      getReviewPassByThread: vi.fn(async (): Promise<ReviewPassDetailDto | null> => detail),
+    });
+
+    render(<ReviewThreadPage threadId="thread-1" onBack={() => {}} />);
+    await waitFor(() => screen.getByLabelText('Panel roster'));
+
+    const roster = screen.getByLabelText('Panel roster');
+    for (const seat of seats) {
+      const row = within(roster).getByText(seat.label).closest('li');
+      expect(row).not.toBeNull();
+      // The avatar is the row's aria-hidden span; its background carries
+      // the persona gradient (which contains the seat's signature hex).
+      const style = row!.querySelector('[aria-hidden]')?.getAttribute('style') ?? '';
+      expect(style).toContain('linear-gradient');
+      expect(style).toContain(seat.rgb);
+    }
+    // All five seats present — no row dropped / overflowed out of the rail.
+    expect(within(roster).getAllByText(/^(Claude|GPT-5|DeepSeek|Sonnet|Gemini)$/))
+      .toHaveLength(5);
   });
 
   it('toggles the @mention transcript filter on click, clears on re-click, switches on a different chip', async () => {

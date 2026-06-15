@@ -73,9 +73,15 @@ public class CascadingPermissionResolver
         if (threadId == null || threadId.isBlank()) {
             return AgentRole.TRUNK;
         }
-        return taskStore.listTasksByThread(threadId).isEmpty()
-                ? AgentRole.TRUNK
-                : AgentRole.TASK;
+        // Role is determined by whether an *active* (non-terminal) task
+        // exists, not by whether any task ever existed. A thread whose
+        // entire chain has COMPLETED hands control back to the trunk so
+        // it can plan / queue more work. See
+        // workspace-thread-task-design.md §"Trunk re-enters when the
+        // chain runs dry" and §"TaskQueue — planning ahead."
+        return taskStore.findActiveTaskForThread(threadId).isPresent()
+                ? AgentRole.TASK
+                : AgentRole.TRUNK;
     }
 
     @Override

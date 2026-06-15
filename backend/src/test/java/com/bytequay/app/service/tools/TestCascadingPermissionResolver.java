@@ -75,6 +75,29 @@ class TestCascadingPermissionResolver
                 .contains(SecurityType.GIT_PUSH, SecurityType.CODE_WRITE, SecurityType.VCS_PUBLISH);
     }
 
+    /**
+     * Revival pattern: a thread has historic completed tasks but no live
+     * one. The trunk re-enters as the active role so it can plan / queue
+     * more work. See workspace-thread-task-design.md
+     * §"Trunk re-enters when the chain runs dry."
+     */
+    @Test
+    void completedChainThreadResolvesBackToTrunk()
+    {
+        String threadId = "t-revival";
+        when(taskStore.listTasksByThread(threadId))
+                .thenReturn(List.of(task("task-1"), task("task-2")));
+        when(taskStore.findActiveTaskForThread(threadId)).thenReturn(Optional.empty());
+        when(threadStore.findThreadById(threadId)).thenReturn(Optional.of(thread(threadId, "ws-1")));
+        noGrants();
+
+        assertThat(resolver.roleFor(threadId)).isEqualTo(AgentRole.TRUNK);
+        assertThat(resolver.grants(threadId))
+                .isEqualTo(RoleCapabilities.forRole(AgentRole.TRUNK))
+                .contains(SecurityType.TASK_MANAGE, SecurityType.CODE_READ)
+                .doesNotContain(SecurityType.GIT_PUSH);
+    }
+
     @Test
     void workspaceDenyRemovesCapabilityFromTaskThread()
     {

@@ -434,7 +434,11 @@ class TestMcpPublishGate
 
         JsonNode response = invokeRequestReview(threadId, "Already parked.", "");
 
-        assertThat(textOf(response)).contains("no active task");
+        // A parked task (AWAITING_REVIEW) is not an *active* task, so the
+        // thread resolves to the TRUNK role — request_review is TASK-only
+        // and is refused at the role gate before reaching the handler.
+        // Either way it's refused and no notification is parked.
+        assertThat(textOf(response)).contains("not available to the current role");
         assertThat(notifications.listForThread(threadId)).isEmpty();
     }
 

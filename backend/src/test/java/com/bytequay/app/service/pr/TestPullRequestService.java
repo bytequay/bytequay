@@ -47,6 +47,7 @@ import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.Mockito;
 import org.mockito.junit.jupiter.MockitoExtension;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.time.Instant;
@@ -111,6 +112,11 @@ class TestPullRequestService
     @SuppressWarnings("UnusedVariable")
     @Mock
     private Executor executor;
+
+    // Consumed by @InjectMocks via reflection — Error Prone can't see the use.
+    @SuppressWarnings("UnusedVariable")
+    @Mock
+    private ApplicationEventPublisher eventPublisher;
 
     @InjectMocks
     private PullRequestService pullRequestService;

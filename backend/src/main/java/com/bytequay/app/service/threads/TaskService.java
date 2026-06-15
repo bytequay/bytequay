@@ -29,6 +29,7 @@ import com.bytequay.app.repository.ThreadStore;
 import com.bytequay.app.repository.WatchedRepoStore;
 import com.bytequay.app.service.credentials.PatResolver;
 import com.bytequay.app.service.local.GitRunner;
+import com.bytequay.app.service.pr.PullRequestMergedEvent;
 import com.bytequay.app.service.skills.RoleSkillService;
 import com.bytequay.app.service.workspaces.WorkspaceService;
 import com.bytequay.app.service.workspaces.WorkspaceShipEvent;
@@ -37,6 +38,7 @@ import com.fasterxml.jackson.databind.ObjectMapper;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.context.ApplicationEventPublisher;
+import org.springframework.context.event.EventListener;
 import org.springframework.http.HttpStatusCode;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -364,19 +366,24 @@ public class TaskService
                 }
             }
 
-            // 4. Park the current task. SHIP marks it terminal and
-            //    nulls worktreePath ahead of the worktree reap in step 8;
-            //    NEXT keeps the row alive at AWAITING_REVIEW with the
-            //    worktree preserved so jump-back doesn't have to re-cut
-            //    a worktree from origin/<branch> on a wake.
+            // 4. Park the current task. SHIP marks it IN_REVIEW — the
+            //    work is pushed and a PR is open, but the task is only
+            //    COMPLETED once that PR merges (see onPullRequestMerged) —
+            //    and nulls worktreePath ahead of the worktree reap in
+            //    step 8; NEXT keeps the row alive at AWAITING_REVIEW with
+            //    the worktree preserved so jump-back doesn't have to
+            //    re-cut a worktree from origin/<branch> on a wake.
             Instant now = Instant.now();
             TaskStatus parkedStatus = mode == ParkMode.SHIP
-                    ? TaskStatus.COMPLETED
+                    ? TaskStatus.IN_REVIEW
                     : TaskStatus.AWAITING_REVIEW;
             String parkedWorktreePath = mode == ParkMode.SHIP
                     ? null
                     : current.worktreePath();
-            Instant parkedEndedAt = mode == ParkMode.SHIP ? now : null;
+            // endedAt stays null for a shipped task too — it isn't
+            // finished until its PR merges, at which point completion
+            // stamps endedAt.
+            Instant parkedEndedAt = null;
             taskStore.saveTask(new Task(
                     current.id(), current.threadId(), current.seq(), parkedStatus,
                     current.branchName(),
@@ -552,6 +559,69 @@ public class TaskService
                 .orElseThrow(() -> new ResponseStatusException(
                         HttpStatusCode.valueOf(404),
                         "No watched repo found for working dir " + workingDir));
+    }
+
+    /**
+     * Advance a shipped task to COMPLETED once its PR merges. Fired
+     * (in-process) by both merge paths — the dashboard merge button and
+     * an approved {@code merge_pr} proposal. A shipped task sits at
+     * {@link TaskStatus#IN_REVIEW} until this lands; before then nothing
+     * reports it as "done", matching the user's mental model that
+     * completion means merged, not merely "PR opened".
+     *
+     * <p>Best-effort and idempotent: matches the merged PR to tasks by
+     * linked PR number, narrows to the right repo via {@code workingDir},
+     * and only flips rows that are still {@code IN_REVIEW}. A bookkeeping
+     * failure here never propagates back to the merge call.
+     */
+    @EventListener
+    public void onPullRequestMerged(PullRequestMergedEvent event)
+    {
+        completeTasksForMergedPr(event.repoFullName(), event.prNumber());
+    }
+
+    /**
+     * Advance any shipped task that owns {@code prNumber} in {@code
+     * repoFullName} from IN_REVIEW to COMPLETED. Called by the dashboard
+     * merge (via {@link PullRequestMergedEvent}) and directly by an
+     * approved {@code merge_pr} proposal. Best-effort and idempotent:
+     * narrows by repo (PR numbers aren't globally unique) and only flips
+     * rows still at IN_REVIEW; a failure never propagates to the merge.
+     */
+    public void completeTasksForMergedPr(String repoFullName, int prNumber)
+    {
+        try {
+            for (Task task : taskStore.findByLinkedPrNumber(prNumber)) {
+                if (task.status() != TaskStatus.IN_REVIEW) {
+                    continue;
+                }
+                if (!repoMatches(task, repoFullName)) {
+                    continue;
+                }
+                taskStore.completeTask(task.id(), Instant.now());
+            }
+        }
+        catch (RuntimeException e) {
+            log.warn("completing tasks for merged PR {} #{} failed: {}",
+                    repoFullName, prNumber, e.getMessage());
+        }
+    }
+
+    /** True when the task's working dir maps to {@code repoFullName}. A
+     *  task whose repo can't be resolved (clone removed) is treated as a
+     *  non-match rather than throwing. */
+    private boolean repoMatches(Task task, String repoFullName)
+    {
+        if (task.workingDir() == null || task.workingDir().isBlank()) {
+            return false;
+        }
+        try {
+            WatchedRepo repo = resolveRepo(Path.of(task.workingDir()));
+            return (repo.owner() + "/" + repo.repo()).equals(repoFullName);
+        }
+        catch (RuntimeException e) {
+            return false;
+        }
     }
 
     private Thread requireThread(String threadId)

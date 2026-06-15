@@ -49,6 +49,7 @@ import com.google.common.collect.Maps;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Qualifier;
+import org.springframework.context.ApplicationEventPublisher;
 import org.springframework.http.HttpStatusCode;
 import org.springframework.stereotype.Service;
 import org.springframework.web.server.ResponseStatusException;
@@ -107,6 +108,7 @@ public class PullRequestService
     private final Executor executor;
     private final PullRequestDetailFetcher detailFetcher;
     private final PatResolver patResolver;
+    private final ApplicationEventPublisher eventPublisher;
     /** prId → last ETag + the timestamp it was returned by GitHub.
      *  Populated by {@link #refreshPullRequestDetail}'s probe path
      *  and consulted on the next probe to short-circuit unchanged
@@ -133,10 +135,12 @@ public class PullRequestService
             PullRequestDetailInvalidator detailInvalidator,
             RepoListCache repoListCache,
             PatResolver patResolver,
+            ApplicationEventPublisher eventPublisher,
             @Qualifier(APPLICATION_EXECUTOR) Executor executor,
             @Qualifier(IO_EXECUTOR) Executor ioExecutor)
     {
         this.gitHub = requireNonNull(gitHub, "gitHub is null");
+        this.eventPublisher = requireNonNull(eventPublisher, "eventPublisher is null");
         this.store = requireNonNull(store, "store is null");
         this.detailStore = requireNonNull(detailStore, "detailStore is null");
         this.viewStateStore = requireNonNull(viewStateStore, "viewStateStore is null");
@@ -936,6 +940,9 @@ public class PullRequestService
         MergePullRequestCommand command = strategyCommand(strategy);
         MergeResult result = gitHub.mergePullRequest(pat, ref, command);
         viewStateStore.markReviewed(prId, HandledAction.MERGED);
+        // The PR actually landed (not just queued) — let a shipped task
+        // that owns this PR advance from IN_REVIEW to COMPLETED.
+        eventPublisher.publishEvent(new PullRequestMergedEvent(repo, number));
         // Drop the cached detail so the next /prs/detail call re-pulls the
         // timeline and the new "merged" / "closed" events surface
         // immediately, instead of waiting for the next background sync

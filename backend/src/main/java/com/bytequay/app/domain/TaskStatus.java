@@ -81,7 +81,15 @@ public enum TaskStatus
             relatedConcepts = {"task", "awaiting_review"})
     NEEDS_ATTENTION,
 
-    /** Task finished cleanly. */
+    /** Shipped: the task's branch is pushed and a PR is open, but the PR
+     *  hasn't merged yet. A non-terminal "published, in review" state —
+     *  the task only advances to {@link #COMPLETED} once its PR merges.
+     *  Distinct from {@link #AWAITING_REVIEW} (which is "agent finished,
+     *  waiting at the local publish gate"); IN_REVIEW means the work is
+     *  already on the remote under review. */
+    IN_REVIEW,
+
+    /** Task finished cleanly — for a shipped task, this means its PR merged. */
     COMPLETED,
 
     /** Task failed (budget, timeout, exception, killed, crashed). */

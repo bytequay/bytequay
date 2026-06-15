@@ -133,6 +133,25 @@ class SqliteTaskStore
     }
 
     @Override
+    public List<Task> findByLinkedPrNumber(int prNumber)
+    {
+        return tasks.findByLinkedPrNumber(prNumber).stream()
+                .map(this::toTask)
+                .toList();
+    }
+
+    @Override
+    @Transactional
+    public void completeTask(String taskId, Instant endedAt)
+    {
+        tasks.findById(taskId).ifPresent(entity -> {
+            entity.setStatus(TaskStatus.COMPLETED.name());
+            entity.setEndedAtMs(endedAt == null ? null : endedAt.toEpochMilli());
+            tasks.save(entity);
+        });
+    }
+
+    @Override
     @Transactional
     public void deleteTask(String id)
     {

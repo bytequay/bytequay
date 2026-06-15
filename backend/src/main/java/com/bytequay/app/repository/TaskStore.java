@@ -77,6 +77,23 @@ public interface TaskStore
     {
     }
 
+    /** Tasks whose {@code linkedPrNumber} equals {@code prNumber}. Used
+     *  to advance a shipped task to COMPLETED when its PR merges; the
+     *  caller still narrows by repo (PR numbers aren't globally unique).
+     *  Empty default for test stores; the SQLite store overrides. */
+    default List<Task> findByLinkedPrNumber(int prNumber)
+    {
+        return List.of();
+    }
+
+    /** Seal a task as COMPLETED with its end timestamp — used when the
+     *  task's PR merges. Entity-level update (like {@link
+     *  #setAcceptEdits}) so it can't clobber unrelated columns. No-op
+     *  default for test stores; the SQLite store overrides. */
+    default void completeTask(String taskId, Instant endedAt)
+    {
+    }
+
     /** Permanent removal. Drops the row plus its child {@code task_files};
      *  FK cascades handle the join. Callers must already have stopped
      *  any live agent attached to the task. */

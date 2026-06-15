@@ -39,4 +39,8 @@ interface TaskJpaRepository
 
     /** Used by the automation coordinator's CI-fail subscriber. */
     List<TaskEntity> findByLinkedPrNumberIsNotNullOrderByCreatedAtMsDesc(Pageable pageable);
+
+    /** All tasks linked to a PR number (across repos — the caller
+     *  narrows by repo). Drives completion when that PR merges. */
+    List<TaskEntity> findByLinkedPrNumber(Integer linkedPrNumber);
 }

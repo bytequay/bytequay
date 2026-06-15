@@ -688,6 +688,9 @@ public class PublishService
         };
         String pat = patResolver.resolve(pr.owner() + "/" + pr.repo());
         pullRequests.mergePullRequest(pat, toPullRequestRef(pr), command);
+        // Advance a shipped task that owns this PR to COMPLETED — the
+        // dashboard merge does the same via PullRequestMergedEvent.
+        taskService.completeTasksForMergedPr(pr.owner() + "/" + pr.repo(), pr.number());
         return new PublishResult(true, "approved",
                 "Merged " + pr.owner() + "/" + pr.repo() + "#" + pr.number()
                         + " (" + strategy + ").",

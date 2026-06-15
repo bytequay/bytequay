@@ -50,6 +50,7 @@ import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.atLeastOnce;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -138,7 +139,10 @@ class TestTaskServiceShipAndContinue
                 .filter(t -> t.id().equals("task-1"))
                 .findFirst()
                 .orElseThrow(() -> new AssertionError("shipped task was never persisted"));
-        assertThat(shippedAfter.status()).isEqualTo(TaskStatus.COMPLETED);
+        // Shipped, not yet done: the branch is pushed and a PR is open,
+        // so the task parks at IN_REVIEW and only reaches COMPLETED once
+        // its PR merges.
+        assertThat(shippedAfter.status()).isEqualTo(TaskStatus.IN_REVIEW);
         assertThat(shippedAfter.worktreePath()).isNull();
         // Branch + PR number are preserved as historical record — the
         // branch still exists on the remote even though we deleted the
@@ -192,6 +196,37 @@ class TestTaskServiceShipAndContinue
                 .map(Task::status))
                 .containsExactly(TaskStatus.AWAITING_REVIEW);
         assertThat(next.status()).isEqualTo(TaskStatus.PENDING);
+    }
+
+    @Test
+    void mergingTheShippedTasksPrCompletesIt()
+    {
+        String workingDir = "/tmp/acme/widget";
+        Task inReview = task("task-1", "thread-1", 1L, "dev/task-1",
+                /* worktreePath */ null, workingDir, TaskStatus.IN_REVIEW);
+        when(taskStore.findByLinkedPrNumber(42)).thenReturn(List.of(inReview));
+        when(watchedRepoStore.findAll()).thenReturn(List.of(
+                new WatchedRepo(1L, "acme", "widget", 0, workingDir, null, null)));
+
+        service.completeTasksForMergedPr("acme/widget", 42);
+
+        verify(taskStore).completeTask(eq("task-1"), any());
+    }
+
+    @Test
+    void mergingAPrInAnotherRepoLeavesTheTaskUntouched()
+    {
+        // Same PR number, different repo — must not complete the task,
+        // since PR numbers aren't unique across repos.
+        Task inReview = task("task-1", "thread-1", 1L, "dev/task-1",
+                null, "/tmp/acme/widget", TaskStatus.IN_REVIEW);
+        when(taskStore.findByLinkedPrNumber(42)).thenReturn(List.of(inReview));
+        when(watchedRepoStore.findAll()).thenReturn(List.of(
+                new WatchedRepo(1L, "acme", "widget", 0, "/tmp/acme/widget", null, null)));
+
+        service.completeTasksForMergedPr("other/repo", 42);
+
+        verify(taskStore, never()).completeTask(anyString(), any());
     }
 
     private static Thread thread(String id)

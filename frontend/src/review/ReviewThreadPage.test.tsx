@@ -560,6 +560,50 @@ describe('ReviewThreadPage', () => {
     expect(publishReviewPass).not.toHaveBeenCalled();
     expect(spawnBuildFromReview).not.toHaveBeenCalled();
   });
+
+  it('gives the five reviewer seats five mutually-distinct avatar backgrounds', async () => {
+    // Guards the regression where two personas collapse onto the same
+    // gradient — each seat row must carry its own avatar background.
+    const labels = ['Claude', 'GPT-5', 'DeepSeek', 'Sonnet', 'Gemini'];
+    const detail = buildDetail({});
+    detail.participants = [
+      participant({ id: 'p-lead', kind: 'LEAD', personaLabel: 'Lead' }),
+      ...labels.map((label, i) =>
+        participant({ id: `p-${i}`, kind: 'REVIEWER', personaLabel: label })),
+      participant({ id: 'p-you', kind: 'HUMAN', personaLabel: 'You' }),
+    ];
+    detail.messages = [];
+    installBridge({
+      getReviewPassByThread: vi.fn(async (): Promise<ReviewPassDetailDto | null> => detail),
+    });
+
+    render(<ReviewThreadPage threadId="thread-1" onBack={() => {}} />);
+    await waitFor(() => screen.getByLabelText('Panel roster'));
+
+    const roster = screen.getByLabelText('Panel roster');
+    const backgrounds = labels.map(label => {
+      const row = within(roster).getByText(label).closest('li');
+      const style = row!.querySelector('[aria-hidden]')?.getAttribute('style') ?? '';
+      const bg = /background[^:]*:\s*([^;]+)/i.exec(style)?.[1]?.trim() ?? '';
+      expect(bg).not.toBe('');
+      return bg;
+    });
+    // All five gradients are unique — no two seats share an identity.
+    expect(new Set(backgrounds).size).toBe(5);
+  });
+
+  it('shows the consensus empty-state hints when no findings have landed', async () => {
+    // The default fixture carries no findings, so both rail groups fall
+    // back to their italic placeholder copy rather than an empty box.
+    const detail = buildDetail({ findings: [] });
+    installBridge({
+      getReviewPassByThread: vi.fn(async (): Promise<ReviewPassDetailDto | null> => detail),
+    });
+
+    render(<ReviewThreadPage threadId="thread-1" onBack={() => {}} />);
+    await waitFor(() => screen.getByText('Nothing locked in yet.'));
+    expect(screen.getByText('All disagreements resolved or arbitrated.')).toBeTruthy();
+  });
 });
 
 function buildDetail(

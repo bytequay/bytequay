@@ -138,13 +138,15 @@ public class PrTaskLinkService
     {
         String prRef = repoFullName + "#" + prNumber;
         TaskRef active = null;
-        List<String> completed = new ArrayList<>();
+        List<TaskRef> completed = new ArrayList<>();
         for (Task task : taskStore.findTasksByPrRef(prRef)) {
+            TaskRef ref = new TaskRef(
+                    task.id(), task.threadId(), taskTitle(task), TaskPhaseGroup.of(task.phase()).name());
             if (task.phase() == TaskPhase.COMPLETED) {
-                completed.add(task.id());
+                completed.add(ref);
             }
             else {
-                active = new TaskRef(task.id(), taskTitle(task), TaskPhaseGroup.of(task.phase()).name());
+                active = ref;
             }
         }
         ReviewPassRef activeReview = reviewStore.findActivePrReview(repoFullName, prNumber)
@@ -182,11 +184,13 @@ public class PrTaskLinkService
      *  populated only for THREAD-hosted (standalone) reviews. */
     public record LinkedTasks(
             TaskRef linkedActiveTask,
-            List<String> linkedCompletedTaskIds,
+            List<TaskRef> linkedCompletedTasks,
             ReviewPassRef linkedActiveReviewRef) {}
 
-    /** Compact view of the active linked task for a PR-row chip. */
-    public record TaskRef(String id, String title, String phaseGroup) {}
+    /** Compact view of a linked task for a PR-row / PR-detail chip.
+     *  {@code threadId} lets the UI jump to the owning thread without
+     *  parsing it back out of the task id. */
+    public record TaskRef(String id, String threadId, String title, String phaseGroup) {}
 
     /** Compact view of an active review pass for a PR/task chip. */
     public record ReviewPassRef(

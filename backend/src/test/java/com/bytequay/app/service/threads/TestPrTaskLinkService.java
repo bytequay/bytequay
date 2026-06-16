@@ -115,7 +115,9 @@ class TestPrTaskLinkService
         assertThat(linked.linkedActiveTask()).isNotNull();
         assertThat(linked.linkedActiveTask().id()).isEqualTo("task-active");
         assertThat(linked.linkedActiveTask().phaseGroup()).isEqualTo("IN_PROGRESS");
-        assertThat(linked.linkedCompletedTaskIds()).containsExactly("task-done-1", "task-done-2");
+        assertThat(linked.linkedCompletedTasks())
+                .extracting(PrTaskLinkService.TaskRef::id)
+                .containsExactly("task-done-1", "task-done-2");
     }
 
     @Test

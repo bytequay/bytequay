@@ -23,7 +23,7 @@ function pr(origin: 'AUTHORED' | 'REVIEW_REQUESTED'): PullRequestDto {
 }
 
 const noLinks: PrLinksDto = {
-  linkedActiveTask: null, linkedCompletedTaskIds: [], linkedActiveReviewRef: null,
+  linkedActiveTask: null, linkedCompletedTasks: [], linkedActiveReviewRef: null,
 };
 
 function render1(origin: 'AUTHORED' | 'REVIEW_REQUESTED', links: PrLinksDto) {
@@ -46,7 +46,7 @@ describe('PRRowAffordance', () => {
   it('own + linked → TaskChip only', () => {
     render1('AUTHORED', {
       ...noLinks,
-      linkedActiveTask: { id: 't1', title: 'Fix parser', phaseGroup: 'IN_PROGRESS' },
+      linkedActiveTask: { id: 't1', threadId: 'th1', title: 'Fix parser', phaseGroup: 'IN_PROGRESS' },
     });
     expect(screen.getByText('Fix parser')).toBeTruthy();
     expect(screen.queryByText('+ Create dev task')).toBeNull();

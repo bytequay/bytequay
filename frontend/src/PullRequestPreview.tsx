@@ -13,7 +13,7 @@
  */
 import { useEffect, useRef, useState, type ReactNode } from 'react';
 import { renderMarkdown } from './markdown';
-import type { ActivityItemDto, CheckRunDto, MergeConflictPathsDto, PullRequestDetailDto, PullRequestDto, ReviewMessageDto, ReviewThreadDto, ThreadDto, UserProfileDto } from './types';
+import type { ActivityItemDto, CheckRunDto, MergeConflictPathsDto, PullRequestDetailDto, PullRequestDto, ReviewMessageDto, ReviewThreadDto, TaskRefDto, UserProfileDto } from './types';
 import { getCached as getCachedValue } from './dataCache';
 import { EditableMarkdownBody } from './pr/EditableMarkdownBody';
 import Avatar from './Avatar';
@@ -1089,29 +1089,27 @@ function PullRequestPreview({
   // AND whose working directory is rooted in the same repo. Lets
   // the user jump from the PR domain straight back into a thread that
   // owns this PR.
-  const [linkedTasks, setLinkedTasks] = useState<ThreadDto[]>([]);
+  // Tasks that produced this PR — the active one plus the completed
+  // audit log. Sourced from /prs/linked-tasks (authoritative) rather than
+  // scanning live threads by `activeTask.linkedPrNumber`, which missed a
+  // PR whose task already COMPLETED (its thread has no active task) — so
+  // a finished task's PR showed no link back at all.
+  const [linkedTasks, setLinkedTasks] = useState<TaskRefDto[]>([]);
   useEffect(() => {
     let cancelled = false;
-    const repoLower = (repoContext?.repo ?? '').toLowerCase();
-    if (repoLower === '') return;
     (async () => {
       try {
-        const all = await window.bridge.listTasks();
+        const links = await window.bridge.getPrLinks(pr.repo, pr.number);
         if (cancelled) return;
-        const matched = all.filter(t => {
-          if (t.activeTask?.linkedPrNumber !== pr.number) return false;
-          // Repo match via path-segment scan (worktrees live at
-          // `<repo>/.worktrees/<branch>`, so basename-only matching
-          // misses them).
-          const segs = (t.activeTask?.workingDir ?? '').split('/').filter(Boolean).map((s: string) => s.toLowerCase());
-          return segs.includes(repoLower);
-        });
-        setLinkedTasks(matched);
+        const refs = links.linkedActiveTask
+          ? [links.linkedActiveTask, ...links.linkedCompletedTasks]
+          : links.linkedCompletedTasks;
+        setLinkedTasks(refs);
       }
       catch { /* non-fatal — no chip shown */ }
     })();
     return () => { cancelled = true; };
-  }, [pr.number, repoContext?.repo]);
+  }, [pr.number, pr.repo]);
 
   const refreshDetailFromGitHub = async (): Promise<PullRequestDetailDto> => {
     // No maxAgeSeconds → always-probe semantics. Used by the manual
@@ -1607,21 +1605,19 @@ function PullRequestPreview({
                 <span key={l} className="pr-badge pr-badge--label" style={style}>{l}</span>
               );
             })}
-            {/* Linked-thread chips — visible only when an active thread
-                ties itself to this PR via `linkedPrNumber`. Click
-                jumps into the thread detail page so the user can
-                travel back into the thread domain without manually
-                searching. */}
+            {/* Linked-task chips — the dev task(s) that produced this PR,
+                active or completed. Click jumps into the owning thread so
+                the user can travel back into the task domain. */}
             {linkedTasks.map(t => (
               <button
                 key={t.id}
                 type="button"
-                onClick={() => onOpenThread?.(t.id)}
+                onClick={() => onOpenThread?.(t.threadId)}
                 className="pr-badge pr-badge--linked-thread"
-                title={`Open thread: ${t.title}`}
+                title={`Open task: ${t.title}`}
                 disabled={!onOpenThread}
               >
-                ⌘ thread: {truncateThreadTitle(t.title)}
+                ↗ task: {truncateThreadTitle(t.title)}
               </button>
             ))}
           </div>

@@ -1801,6 +1801,49 @@ export type TaskPhaseDto =
  *  TaskPhaseGroup). */
 export type TaskPhaseGroupDto = 'IN_PROGRESS' | 'AWAITING_YOU' | 'IDLE' | 'DONE';
 
+// ── Task lifecycle flow trace (GET /api/tasks/{id}/trace) ──────────────
+
+/** One node of the expanded sequential timeline — a phase-event row plus
+ *  its derived milestone and friendly label. */
+export type TraceEventDto = {
+  n: number;
+  fromPhase: string | null;
+  toPhase: string;
+  fromMilestone: string | null;
+  toMilestone: string;
+  actor: string | null;
+  reason: string | null;
+  transitionedAt: string;
+  label: string;
+};
+
+/** One of the six canonical milestone buckets in the collapsed view. */
+export type MilestoneSummaryDto = {
+  milestone: string;
+  label: string;
+  visits: number;
+  active: boolean;
+  skipped: boolean;
+  position: number;
+};
+
+/** One option on the next-possible line under the stepper. */
+export type NextPossibleDto = {
+  trigger: string;
+  label: string;
+  cond: string;
+};
+
+/** The flow-display read model for a task. */
+export type TaskTraceDto = {
+  taskId: string;
+  currentPhase: TaskPhaseDto | null;
+  currentMilestone: string | null;
+  events: TraceEventDto[];
+  milestoneSummary: MilestoneSummaryDto[];
+  nextPossible: NextPossibleDto[];
+};
+
 /** How a queued task's branch is cut (backend BranchBase). Serialised
  *  by enum name. */
 export type BranchBaseDto = 'MAIN' | 'STACKED_ON_PREVIOUS';
@@ -2560,6 +2603,7 @@ export type Bridge = {
   /** Toggle a PR between draft and ready-for-review. true = convert
    *  to draft, false = mark as ready. Routes through GitHub GraphQL. */
   setPrDraft: (repo: string, number: number, draft: boolean) => Promise<{ result: string }>;
+  getTaskTrace: (taskId: string) => Promise<TaskTraceDto>;
   fetchPrDiffFiles: (repo: string, number: number) => Promise<DiffFileDto[]>;
   fetchPrCommits: (repo: string, number: number) => Promise<PullRequestCommitDto[]>;
   /** Diff scoped to a single commit (DiffFileDto[] same as fetchPrDiffFiles). */

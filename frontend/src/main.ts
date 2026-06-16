@@ -767,6 +767,15 @@ function registerIpc(): void {
     return res.json();
   });
 
+  ipcMain.handle('backend:getTaskTrace', async (_event, taskId: string) => {
+    const res = await fetch(`${BACKEND_BASE}/api/tasks/${encodeURIComponent(taskId)}/trace`);
+    if (!res.ok) {
+      const body = await res.text().catch(() => '');
+      throw new Error(`backend task trace returned ${res.status}: ${body}`);
+    }
+    return res.json();
+  });
+
   // Concept catalog — read-only viewer endpoint behind the
   // Settings page. Returns the full registry minus runtime
   // gating (this is a developer surface).

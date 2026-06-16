@@ -39,7 +39,7 @@ import { findPendingAskQuestion } from './askQuestion';
 import { useAnimatedNumber } from './useAnimatedNumber';
 import { QueuedTaskView } from './QueuedTaskView';
 import { PhaseChip } from './PhaseChip';
-import { FlowStepper } from './FlowStepper';
+import { FlowStepper } from '../tasks/FlowStepper';
 import { isReconcilerDriven } from './taskPhase';
 
 type Props = {
@@ -780,7 +780,7 @@ export default function TaskDetailPage({
 
         {!isTerminal && !isDiff && task !== null && (
           <div style={flowBandStyle}>
-            <FlowStepper currentPhase={task.phase} />
+            <FlowStepper taskId={task.id} />
           </div>
         )}
 

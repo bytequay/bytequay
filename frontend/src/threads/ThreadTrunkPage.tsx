@@ -334,18 +334,6 @@ export default function ThreadTrunkPage({ threadId, onBack, onOpenTask }: Props)
     }
   }, [threadId, refreshMessages, loadThread]);
 
-  const answerQuestion = useCallback(async (text: string) => {
-    const trimmed = text.trim();
-    if (trimmed.length === 0) return;
-    try {
-      await window.bridge.sendTrunkMessage(threadId, trimmed);
-      await Promise.all([refreshMessages(), loadThread()]);
-    }
-    catch (e) {
-      setSendError(e instanceof Error ? e.message : String(e));
-    }
-  }, [threadId, refreshMessages, loadThread]);
-
   const loadOlderMessages = useCallback(async () => {
     if (loadedFromSeq === null || loadingOlder) return;
     setLoadingOlder(true);
@@ -372,6 +360,28 @@ export default function ThreadTrunkPage({ threadId, onBack, onOpenTask }: Props)
     }
     catch { /* keep last good list */ }
   }, [threadId]);
+
+  const answerQuestion = useCallback(async (text: string) => {
+    const trimmed = text.trim();
+    if (trimmed.length === 0 || sending) return;
+    // Answering a question card resumes the agent exactly like sending a
+    // message, so it must look like one: flip the "working…" pulse on
+    // immediately and pull turns/tasks so the tail poll's in-flight check
+    // sees the freshly-resumed turn and starts refreshing. Without this
+    // the answer posts silently and nothing shows the model is now busy.
+    setSending(true);
+    setSendError(null);
+    try {
+      await window.bridge.sendTrunkMessage(threadId, trimmed);
+      await Promise.all([refreshMessages(), refreshTurns(), refreshTasks()]);
+    }
+    catch (e) {
+      setSendError(e instanceof Error ? e.message : String(e));
+    }
+    finally {
+      setSending(false);
+    }
+  }, [threadId, sending, refreshMessages, refreshTurns, refreshTasks]);
 
   // Tail poll while a turn is in flight: the trunk send returns as
   // soon as the row is queued, but the CLI subprocess takes a few

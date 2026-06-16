@@ -554,15 +554,23 @@ export default function TaskDetailPage({
 
   const answerQuestion = useCallback(async (text: string) => {
     const trimmed = text.trim();
-    if (trimmed.length === 0) return;
+    if (trimmed.length === 0 || sending) return;
+    // Answering resumes the agent like a send does — flip the in-flight
+    // pulse on immediately and refresh so the poll keeps it live, rather
+    // than posting the answer silently with no sign the model is working.
+    setSending(true);
+    setError(null);
     try {
       await window.bridge.sendTaskMessage(threadId, trimmed);
-      await Promise.all([loadMessages(), loadThread()]);
+      await Promise.all([loadMessages(), loadThread(), refreshTasks()]);
     }
     catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     }
-  }, [threadId, loadMessages, loadThread]);
+    finally {
+      setSending(false);
+    }
+  }, [threadId, sending, loadMessages, loadThread, refreshTasks]);
 
   // Terminal mode takes over the entire shell with a dark theme per
   // docs/mockups/design/tasks/thread-detail-terminal.png. The page

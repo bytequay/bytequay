@@ -32,6 +32,7 @@ import type { PendingPermission } from './ConversationPane';
 import PromptContextInspector from '../inspector/PromptContextInspector';
 import { useInspectorHotkey } from '../inspector/useInspectorHotkey';
 import { WorkModelPill } from '../workspace/WorkModelPill';
+import { ConfirmDialog } from '../workspace/ConfirmDialog';
 import { useThreadTasks } from './useThreadTasks';
 import { usePromptHistory } from './usePromptHistory';
 import { AskQuestionCard } from './AskQuestionCard';
@@ -112,6 +113,7 @@ export default function TaskDetailPage({
   const [sending, setSending] = useState(false);
   const [shipping, setShipping] = useState(false);
   const [canceling, setCanceling] = useState(false);
+  const [confirmCloseOpen, setConfirmCloseOpen] = useState(false);
   const [markReady, setMarkReady] = useState<'idle' | 'running' | 'error'>('idle');
   const [markReadyError, setMarkReadyError] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -416,16 +418,16 @@ export default function TaskDetailPage({
   }, [task, shipping, threadId, onBackToTrunk]);
 
   // Close the task: stop the agent, mark it CANCELED, reap the worktree +
-  // branch. Destructive (drops unpushed work), so confirm first.
-  const onCancel = useCallback(async () => {
+  // branch. Destructive (drops unpushed work), so confirm via the styled
+  // ConfirmDialog (rendered below) rather than the native window.confirm.
+  const onCancel = useCallback(() => {
     if (task === null || canceling) return;
-    const branchNote = task.branchName !== null
-      ? ` and delete its worktree + branch (${task.branchName})`
-      : '';
-    const ok = window.confirm(
-      `Close Task ${task.seq}? This stops the agent, marks the task canceled,`
-      + `${branchNote}. Any unpushed commits are lost.`);
-    if (!ok) return;
+    setConfirmCloseOpen(true);
+  }, [task, canceling]);
+
+  const doCancel = useCallback(async () => {
+    if (task === null) return;
+    setConfirmCloseOpen(false);
     setCanceling(true);
     setError(null);
     try {
@@ -436,7 +438,7 @@ export default function TaskDetailPage({
       setError(e instanceof Error ? e.message : String(e));
       setCanceling(false);
     }
-  }, [task, canceling, threadId, onBackToTrunk]);
+  }, [task, threadId, onBackToTrunk]);
 
   const taskTitle = task !== null ? taskLabel(task) : 'Loading…';
   const taskBranch = task?.branchName ?? null;
@@ -1241,6 +1243,21 @@ export default function TaskDetailPage({
           threadId={threadId}
           taskId={taskId}
           onClose={() => setInspectorOpen(false)}
+        />
+      )}
+      {confirmCloseOpen && task !== null && (
+        <ConfirmDialog
+          title={`Close “${taskTitle}”?`}
+          body={'This stops the agent, marks the task canceled'
+            + (task.branchName !== null
+              ? `, and deletes its worktree + branch (${task.branchName})`
+              : '')
+            + '. Any unpushed commits are lost.'}
+          confirmLabel="Close task"
+          destructive
+          busy={canceling}
+          onConfirm={() => void doCancel()}
+          onCancel={() => setConfirmCloseOpen(false)}
         />
       )}
     </div>

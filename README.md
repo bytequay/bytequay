@@ -3,36 +3,46 @@
 </p>
 
 <p align="center">
-  A native macOS desktop app for daily developer review work — your PR
-  dashboard, AI review drafts, CI diagnostics, and merge controls in
-  one window, with the embedded GitHub UI a click away for everything
-  else.
+  A native macOS desktop app for daily developer work — a PR dashboard,
+  AI review, CI diagnostics, and merge controls in one window, plus AI
+  agents that pick up tasks and develop them end-to-end in isolated git
+  worktrees. The embedded GitHub UI is a click away for everything else.
 </p>
 
 [![License](https://img.shields.io/badge/license-Apache%202.0-blue.svg)](LICENSE)
 [![CI](https://github.com/chenjian2664/bytequay/actions/workflows/ci.yml/badge.svg)](https://github.com/chenjian2664/bytequay/actions/workflows/ci.yml)
 
-ByteQuay is a single-window desktop client for reviewing GitHub pull
-requests faster than the GitHub web UI lets you. The morning view shows
-the PRs awaiting your review and the PRs you've opened, grouped by repo,
-with inline previews. The diff viewer hosts a native diff and an AI
-review sidebar that drafts per-line comments before you publish a single
+ByteQuay started as a single-window client for reviewing GitHub pull
+requests faster than the web UI lets you, and has grown into a workspace
+for the whole loop around a change. The morning view shows the PRs
+awaiting your review and the PRs you've opened, grouped by repo, with
+inline previews. The diff viewer hosts a native diff and an AI review
+sidebar that drafts per-line comments before you publish a single
 character. The PR detail page handles merge, draft toggle, CI refresh,
 and inline log diagnostics — including a one-click "Ask AI to fix"
-button that sends the failing log to your configured LLM and renders
-the suggested fix inline.
+button that sends the failing log to your configured LLM and renders the
+suggested fix inline.
 
-The long-term goal is to fully replace github.com for daily review work:
-approve, merge, request changes, create PRs, and AI-review without ever
-opening a browser tab.
+Beyond review, ByteQuay runs **AI dev agents**. You cut a task from a
+planning thread; an agent picks it up in its own git worktree and drives
+it through a tracked lifecycle — implement, validate, internal review,
+push, CI, mark-ready, remote review, merge — surfacing the phase live in
+the UI. The agent never touches the remote on its own: pushes, PRs, and
+review requests go through approval-gated tools, so nothing reaches
+GitHub without an explicit click.
+
+The long-term goal is to fully replace github.com for daily work:
+review, approve, merge, create PRs, and delegate development to agents
+without ever opening a browser tab.
 
 ---
 
 ## Status
 
-**Pre-1.0 / actively developed.** Useful day-to-day for the author and a
-small group of testers; the public OSS release is the project's first
-broad-distribution moment. macOS only at runtime.
+**v0.2.0 — pre-1.0, actively developed.** Used day-to-day by the author
+and a small group of testers. The PR-review surface is stable; the AI
+dev-agent and task-lifecycle features are newer and evolving fast —
+expect rough edges there. macOS only at runtime.
 
 ---
 
@@ -94,6 +104,16 @@ detects a missing git on launch and points you to this section.
 
 ## What's in the box
 
+- **AI dev agents** — cut a task from a planning thread and an agent
+  develops it in an isolated git worktree, driven through a tracked
+  lifecycle (implement → validate → internal review → push → CI →
+  ready → remote review → merge). The phase is shown live; a server-side
+  reconciler watches the linked PR and advances it as CI finishes and the
+  PR merges. Publishing runs through approval-gated tools — direct `git
+  push` / `gh` are blocked so nothing reaches GitHub without your click.
+- **Task queue & threads** — a planning "trunk" thread fans out into
+  serial work-unit tasks; queue them up, reorder, and let the scheduler
+  run them within a small resource cap.
 - **PR dashboard** — two-section "Awaiting my review / My PRs" list,
   grouped by repo, with a live preview pane on the right. Optional
   Kanban and Teams views for filtered triage.
@@ -106,9 +126,10 @@ detects a missing git on launch and points you to this section.
 - **Embedded github.com** — anything ByteQuay doesn't natively
   re-implement opens in an embedded `WebContentsView` window that stays
   signed in, so you don't lose context.
-- **Merge controls on the PR detail page** — "Rebase and merge" button
-  (gated by CI status + your push permission), Yes/No confirm dialog,
-  draft / ready-for-review toggle.
+- **Merge controls on the PR detail page** — merge button (gated by CI
+  status + your push permission), draft / ready-for-review toggle, and
+  merge-queue support: enqueue, dequeue, and a clear "removed from the
+  queue — checks failed" state when the queue ejects a PR.
 - **CI diagnostics** — failing-check cards expand to show GitHub's
   actual error message. "Show full log" lazy-loads the Actions log
   inline with `[ERROR]` / `Caused by` markers highlighted, and
@@ -158,7 +179,10 @@ ByteQuay is an Electron app that spawns a Spring Boot JAR as a child
 process. The renderer (React 19 + TypeScript) calls the backend over
 `localhost` IPC; the backend calls GitHub's REST + GraphQL APIs and
 caches PR detail / drafts / view state in a local SQLite database
-managed by Flyway. The embedded github.com surface uses Electron's
+managed by Flyway. Dev-agent tasks run through a scheduler that spawns
+the agent CLI per task in its own git worktree, mediates its tool calls
+through an approval gate, and tracks each task's lifecycle phase. The
+embedded github.com surface uses Electron's
 `WebContentsView` (not the deprecated `<webview>` tag) and shares the
 session cookie store with the rest of the app, so signing in once
 sticks.
@@ -175,6 +199,7 @@ sticks.
 │ Spring Boot sidecar (localhost:53123)      │
 │  ├─ GitHub REST + GraphQL client           │
 │  ├─ AI provider registry (Claude / OpenAI) │
+│  ├─ Agent scheduler + task lifecycle       │
 │  ├─ SQLite + Flyway                        │
 │  └─ macOS Keychain (credentials)           │
 └────────────────────────────────────────────┘
@@ -206,23 +231,6 @@ dev.sh      Spawns backend + frontend together
 - **[NOTICE](NOTICE)** — copyright + attribution.
 - Design docs and UI mockups live under `docs/` (PNGs organised by
   feature area).
-
----
-
-## Comparable projects
-
-If ByteQuay isn't the right shape for you, you might prefer:
-
-- **[GitHub Desktop](https://desktop.github.com/)** — official, focused
-  on commit / branch ops more than review.
-- **[Refined GitHub](https://github.com/refined-github/refined-github)**
-  — browser extension that improves the github.com UI in place.
-- **[Reviewable](https://reviewable.io/)** — web-based, opinionated
-  review UI sitting on top of GitHub.
-
-ByteQuay is a different bet: a native morning-routine app where you
-spend the first ten minutes of your day, with AI drafting + diff +
-merge in one window.
 
 ---
 

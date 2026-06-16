@@ -29,4 +29,12 @@ class TestTrunkToolAllowlist
         assertThat(LogicLoopThreadAgent.TRUNK_TOOL_ALLOWLIST)
                 .contains("create_task", "queue_task", "reorder_queue", "drop_queued_task");
     }
+
+    @Test
+    void trunkCanReadFilesToPlanAgainstSource()
+    {
+        // The trunk reads source to plan, and opens a pasted image handed
+        // to it as a path.
+        assertThat(LogicLoopThreadAgent.TRUNK_TOOL_ALLOWLIST).contains("read_file");
+    }
 }

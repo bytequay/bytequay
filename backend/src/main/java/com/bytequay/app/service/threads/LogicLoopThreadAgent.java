@@ -208,9 +208,9 @@ public class LogicLoopThreadAgent
      *  <p>Tools that intentionally stay <em>off</em> the trunk:
      *  every {@code PublishToolHandlers} mutator (push, merge_pr,
      *  approve_pr, open_pr, post_comment, …), {@code run_shell},
-     *  {@code run_checks}, {@code load_skill}, and the native
-     *  {@code read_file}. Add a name here only after confirming the
-     *  trunk can complete its planning loop without it. */
+     *  {@code run_checks}, and {@code load_skill}. Add a name here only
+     *  after confirming the trunk can complete its planning loop without
+     *  it. */
     // Package-private so the characterization test can pin the contract:
     // the trunk must be able to plan and queue, not just cut one task.
     static final Set<String> TRUNK_TOOL_ALLOWLIST = Set.of(
@@ -223,6 +223,9 @@ public class LogicLoopThreadAgent
             "list_prs",
             "read_pr",
             "read_task",
+            // The trunk reads files so it can plan against real source — and
+            // so a pasted image (saved to a path it's handed) can be opened.
+            "read_file",
             "create_task",
             // Planning the queue is core trunk work — without these the
             // trunk can cut a task but never line one up behind the active

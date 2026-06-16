@@ -122,6 +122,19 @@ export function isBotActor(actor: string | null | undefined): boolean {
   return a.endsWith('[bot]') || a.endsWith('-bot');
 }
 
+/** Display name for an actor — strips GitHub's "[bot]" suffix so it reads
+ *  like the handle ("github-merge-queue"); the "bot" tag is rendered
+ *  separately, matching github.com. */
+export function displayActor(actor: string | null | undefined): string {
+  return (actor ?? '').replace(/\[bot\]$/i, '');
+}
+
+/** Merge-queue add/remove timeline events. Kept visible even though the
+ *  queue posts them as the github-merge-queue bot. */
+export function isMergeQueueEvent(eventType: string): boolean {
+  return eventType === 'added_to_merge_queue' || eventType === 'removed_from_merge_queue';
+}
+
 export function activityVerb(eventType: string): string {
   switch (eventType) {
     case 'committed': return 'pushed a commit';

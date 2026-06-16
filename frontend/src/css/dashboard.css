@@ -1402,6 +1402,38 @@
   border-radius: 4px;
 }
 
+/* Ejected-from-merge-queue banner — sits atop the status rows when the
+   github-merge-queue bot removed the PR for failed checks. Amber/red to
+   read as "needs attention", matching GitHub's tone. */
+.merge-card__eject {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  margin-bottom: 10px;
+  padding: 10px 12px;
+  background: rgba(207, 34, 46, 0.06);
+  border: 1px solid rgba(207, 34, 46, 0.30);
+  border-radius: 6px;
+}
+.merge-card__eject-icon {
+  flex: none;
+  font-size: 14px;
+  line-height: 20px;
+  color: #cf222e;
+}
+.merge-card__eject .merge-card__row-title { color: #cf222e; }
+.merge-card__eject-link {
+  flex: none;
+  align-self: center;
+  margin-left: auto;
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--accent, #0969da);
+  text-decoration: none;
+  white-space: nowrap;
+}
+.merge-card__eject-link:hover { text-decoration: underline; }
+
 .merge-card__row {
   display: flex;
   align-items: center;

@@ -687,6 +687,22 @@ button.prc-branches__ref--clickable:hover {
   text-underline-offset: 2px;
 }
 .prc-event-row b { color: var(--text-1); font-weight: 600; }
+/* GitHub-style "bot" tag next to an automated actor's name. */
+.prc-bot-tag {
+  display: inline-block;
+  margin-left: 4px;
+  padding: 0 5px;
+  font-size: 10px;
+  font-weight: 600;
+  line-height: 16px;
+  text-transform: uppercase;
+  letter-spacing: 0.02em;
+  color: var(--text-2);
+  background: var(--bg-card);
+  border: 1px solid var(--border-hairline);
+  border-radius: 999px;
+  vertical-align: middle;
+}
 .prc-event-row code {
   font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
   font-size: var(--font-size-xs);

@@ -22,9 +22,11 @@ import {
   activityVerb,
   authorAssociationLabel,
   conclusionLabel,
+  displayActor,
   eventMarker,
   isBotActor,
   isCheckFailing,
+  isMergeQueueEvent,
   labelChipStyle,
   relativeDayLabel,
   truncatePath,
@@ -653,6 +655,14 @@ function MergeBar({ pr, detail, mergeState, mergeError, mergeQueuedMessage, onMe
     );
   }
 
+  // The github-merge-queue bot only ejects a PR when the queue's required
+  // checks fail. When that's the latest queue event and the PR hasn't been
+  // re-queued, the normal card would misleadingly show the PR's own
+  // (passing) checks — so call the ejection out explicitly.
+  const lastQueueEvent = (detail.recentActivity ?? []).find(a => isMergeQueueEvent(a.eventType));
+  const ejectedFromQueue = lastQueueEvent?.eventType === 'removed_from_merge_queue'
+    && isBotActor(lastQueueEvent.actor);
+
   return (
     <div className={`merge-card${enabled ? ' merge-card--ready' : ' merge-card--blocked'}`}>
       <div className="merge-card__icon" aria-hidden="true">
@@ -662,6 +672,21 @@ function MergeBar({ pr, detail, mergeState, mergeError, mergeQueuedMessage, onMe
         </svg>
       </div>
       <div className="merge-card__rows">
+        {ejectedFromQueue && (
+          <div className="merge-card__eject" role="alert">
+            <span className="merge-card__eject-icon" aria-hidden="true">⚠</span>
+            <div className="merge-card__row-text">
+              <div className="merge-card__row-title">Removed from the merge queue</div>
+              <div className="merge-card__row-desc">
+                The merge queue ejected this PR because its required status
+                checks failed. Fix the failure, then add it back to the queue.
+              </div>
+            </div>
+            <a className="merge-card__eject-link" href={pr.htmlUrl} target="_blank" rel="noreferrer">
+              View on GitHub
+            </a>
+          </div>
+        )}
         {/* Row 1 — Review status */}
         <div className="merge-card__row">
           <StatusGlyph state={reviewState} />
@@ -1723,7 +1748,12 @@ function PullRequestPreview({
             </div>
 
             {(() => {
-              const visibleActivity = detail.recentActivity.filter(i => !isBotActor(i.actor));
+              // Hide bot noise (labels, github-actions chatter) EXCEPT
+              // merge-queue events: the queue's add/remove is posted by the
+              // github-merge-queue bot, and "removed … due to failed status
+              // checks" is exactly what the user needs to see.
+              const visibleActivity = detail.recentActivity.filter(
+                i => !isBotActor(i.actor) || isMergeQueueEvent(i.eventType));
               const threads = detail.reviewThreads ?? [];
               if (visibleActivity.length === 0 && threads.length === 0) return null;
               return (
@@ -2687,7 +2717,13 @@ function PullRequestPreview({
           <span className={`prc-event-marker prc-event-marker--${item.eventType}`} aria-hidden>{eventMarker(item.eventType)}</span>
           <Avatar login={item.actor} size={20} className="prc-event-avatar" />
           <span>
-            <b>{item.actor}</b> {activityVerb(item.eventType)}
+            <b>{displayActor(item.actor)}</b>
+            {isBotActor(item.actor) && <span className="prc-bot-tag">bot</span>}
+            {' '}{activityVerb(item.eventType)}
+            {/* The github-merge-queue bot only ejects a PR when the queue's
+                required checks fail — surface that reason like GitHub does. */}
+            {item.eventType === 'removed_from_merge_queue' && isBotActor(item.actor)
+              && ' due to failed status checks'}
             {sha && <> · {commitLink(pr.repo, sha)}</>}
           </span>
           {item.timestamp && <RelativeTime className="prc-event-time" timestamp={item.timestamp} />}

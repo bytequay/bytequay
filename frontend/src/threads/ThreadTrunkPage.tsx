@@ -489,6 +489,16 @@ export default function ThreadTrunkPage({ threadId, onBack, onOpenTask }: Props)
 
   const title = thread?.title ?? 'Loading…';
   const taskCount = tasks?.length ?? 0;
+  // The thread status (IDLE = no running turn) is about the trunk's own
+  // agent loop, not its tasks — so "IDLE · 2 tasks" reads as "2 idle
+  // tasks" when they're actually finished. Qualify the count: all done,
+  // or how many of the total are still in flight.
+  const doneTaskCount = (tasks ?? []).filter(t => t.phase === 'COMPLETED').length;
+  const taskCountSuffix = taskCount === 0
+    ? ''
+    : doneTaskCount === taskCount
+      ? ` · ${taskCount} task${taskCount === 1 ? '' : 's'} done`
+      : ` · ${taskCount - doneTaskCount}/${taskCount} active`;
 
   return (
     <div style={pageStyle}>
@@ -504,7 +514,7 @@ export default function ThreadTrunkPage({ threadId, onBack, onOpenTask }: Props)
             <span style={statusPillStyle(thread.status)}>
               <span style={statusDotStyle(thread.status)} aria-hidden />
               {thread.status}
-              {taskCount > 0 && ` · ${taskCount} task${taskCount === 1 ? '' : 's'}`}
+              {taskCountSuffix}
             </span>
           )}
           <WorkModelPill scope={{ kind: 'thread', threadId }} />

@@ -14,6 +14,7 @@
 import { useEffect, useMemo, useRef } from 'react';
 import { renderChatMarkdown } from '../markdown';
 import { highlightShell } from './shellHighlight';
+import { useTypewriter } from './useTypewriter';
 import type { ThreadMessageDto } from '../types';
 
 type Props = {
@@ -424,6 +425,8 @@ function AssistantBlock({
  *  clears {@code liveText} once the assembled message lands, at which
  *  point the normal AssistantBlock takes over. */
 function StreamingAssistantBlock({ text, taskSeq }: { text: string; taskSeq: number | null }) {
+  // Ease the reveal so bursty deltas type in smoothly instead of popping.
+  const shown = useTypewriter(text);
   return (
     <div style={assistantRowStyle}>
       <div style={claudeAvatarStyle}>C</div>
@@ -436,7 +439,7 @@ function StreamingAssistantBlock({ text, taskSeq }: { text: string; taskSeq: num
           <span style={assistantMetaStyle}>· streaming</span>
         </div>
         <div className="bq-chat-md" style={assistantBlockStyle}>
-          <span dangerouslySetInnerHTML={{ __html: renderChatMarkdown(text) }} />
+          <span dangerouslySetInnerHTML={{ __html: renderChatMarkdown(shown) }} />
           <span style={streamingCursorStyle} aria-hidden>▍</span>
         </div>
       </div>

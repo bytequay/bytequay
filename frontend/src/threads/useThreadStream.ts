@@ -33,13 +33,17 @@ const STREAM_REFRESH_DEBOUNCE_MS = 400;
  * thread emits nothing — and stays open across the parent's polls because
  * it re-subscribes only when {@code threadId} or {@code status} changes.
  */
+export type LiveUsage = { tokensIn: number; tokensOut: number };
+
 export function useThreadStream(
   threadId: string,
   status: string | undefined,
   onCanonicalRefresh: () => void | Promise<void>,
-): { liveText: string } {
+): { liveText: string; liveUsage: LiveUsage | null } {
   const [liveText, setLiveText] = useState('');
   const liveTextRef = useRef('');
+  const [liveUsage, setLiveUsage] = useState<LiveUsage | null>(null);
+  const liveUsageRef = useRef<LiveUsage | null>(null);
   // Keep the latest refresh callback in a ref so a new closure each render
   // doesn't tear down and re-open the SSE subscription.
   const refreshRef = useRef(onCanonicalRefresh);
@@ -52,6 +56,8 @@ export function useThreadStream(
     const flush = () => {
       liveTextRef.current = '';
       setLiveText('');
+      liveUsageRef.current = null;
+      setLiveUsage(null);
     };
     const schedulePing = () => {
       if (timer !== null || disposed) return;
@@ -70,9 +76,21 @@ export function useThreadStream(
         setLiveText(liveTextRef.current);
         return;
       }
-      // Usage deltas don't affect the text bubble; the turn-boundary row
-      // carries the durable token counts.
-      if (event.name === 'UsageUpdated') return;
+      if (event.name === 'UsageUpdated') {
+        // Anthropic splits usage across message_start (input-heavy) and
+        // message_delta (growing output); take a running max per field so
+        // a later delta that omits input_tokens doesn't drop the count.
+        const tIn = typeof event.data.tokensIn === 'number' ? event.data.tokensIn : 0;
+        const tOut = typeof event.data.tokensOut === 'number' ? event.data.tokensOut : 0;
+        const prev = liveUsageRef.current;
+        const merged = {
+          tokensIn: Math.max(tIn, prev?.tokensIn ?? 0),
+          tokensOut: Math.max(tOut, prev?.tokensOut ?? 0),
+        };
+        liveUsageRef.current = merged;
+        setLiveUsage(merged);
+        return;
+      }
       schedulePing();
     };
     const unsubscribe = window.bridge.subscribeTaskStream(threadId, onEvent);
@@ -84,5 +102,5 @@ export function useThreadStream(
     };
   }, [threadId, status]);
 
-  return { liveText };
+  return { liveText, liveUsage };
 }

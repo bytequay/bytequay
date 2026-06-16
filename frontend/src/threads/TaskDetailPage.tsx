@@ -201,7 +201,7 @@ export default function TaskDetailPage({
   // off the per-thread SSE channel so the response types in instead of
   // landing all at once on the next poll. loadMessages is the canonical
   // refresh the hook debounces to once a turn boundary lands.
-  const { liveText } = useThreadStream(threadId, thread?.status, loadMessages);
+  const { liveText, liveUsage } = useThreadStream(threadId, thread?.status, loadMessages);
 
   const loadOlderMessages = useCallback(async () => {
     if (loadedFromSeq === null || loadingOlder) return;
@@ -551,6 +551,14 @@ export default function TaskDetailPage({
   const toolCallCount = useMemo(
     () => (messages ?? []).filter(m => m.role === 'tool' && m.type === 'tool_call').length,
     [messages]);
+
+  // Smooth the metric counters so they climb (easeOut) instead of
+  // snapping on each poll / stream burst — the Claude-Code "real time"
+  // feel. tokensIn also takes the live SSE usage so it grows during the
+  // turn, not just at the turn-boundary row.
+  const liveTokensIn = Math.max(task?.tokensIn ?? 0, liveUsage?.tokensIn ?? 0);
+  const animatedTokensIn = useAnimatedNumber(liveTokensIn);
+  const animatedToolCalls = useAnimatedNumber(toolCallCount);
 
   // Seqs of this task's own user prompts — feeds the conversation-index
   // rail so it lists only prompts that exist in this pane (and are thus
@@ -904,12 +912,12 @@ export default function TaskDetailPage({
                     threadTitle={thread?.title ?? null}
                     model={thread?.model ?? null}
                     costUsdMilli={task?.costUsdMilli ?? 0}
-                    tokensIn={task?.tokensIn ?? 0}
+                    tokensIn={animatedTokensIn}
                     runtimeSec={task !== null
                       ? Math.max(0, Math.floor((Date.now() - Date.parse(task.createdAt)) / 1000))
                       : 0}
                     ctxPct={task !== null
-                      ? Math.min(100, Math.round((task.tokensIn / 200_000) * 100))
+                      ? Math.min(100, Math.round((liveTokensIn / 200_000) * 100))
                       : 0}
                   />
                 )}
@@ -1054,7 +1062,7 @@ export default function TaskDetailPage({
                   <span>TASK METRICS</span>
                   <span style={railHeadMutedStyle}>this task</span>
                 </div>
-                <TaskMetricsTable task={task} toolCallCount={toolCallCount} />
+                <TaskMetricsTable task={task} toolCallCount={animatedToolCalls} />
               </section>
 
               {task !== null && (
@@ -1074,8 +1082,8 @@ export default function TaskDetailPage({
                   <span>CONTEXT WINDOW</span>
                 </div>
                 <ContextWindowMeter
-                  tokensIn={task?.tokensIn ?? 0}
-                  tokensOut={task?.tokensOut ?? 0}
+                  tokensIn={animatedTokensIn}
+                  tokensOut={Math.max(task?.tokensOut ?? 0, liveUsage?.tokensOut ?? 0)}
                 />
                 <button
                   type="button"

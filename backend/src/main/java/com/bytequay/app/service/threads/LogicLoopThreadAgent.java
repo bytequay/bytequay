@@ -211,7 +211,9 @@ public class LogicLoopThreadAgent
      *  {@code run_checks}, {@code load_skill}, and the native
      *  {@code read_file}. Add a name here only after confirming the
      *  trunk can complete its planning loop without it. */
-    private static final Set<String> TRUNK_TOOL_ALLOWLIST = Set.of(
+    // Package-private so the characterization test can pin the contract:
+    // the trunk must be able to plan and queue, not just cut one task.
+    static final Set<String> TRUNK_TOOL_ALLOWLIST = Set.of(
             "recall_memory",
             "lookup_memory",
             "read_workspace_memory",
@@ -221,7 +223,13 @@ public class LogicLoopThreadAgent
             "list_prs",
             "read_pr",
             "read_task",
-            "create_task");
+            "create_task",
+            // Planning the queue is core trunk work — without these the
+            // trunk can cut a task but never line one up behind the active
+            // one, reorder the plan, or drop a stale entry.
+            "queue_task",
+            "reorder_queue",
+            "drop_queued_task");
 
     /** Mediator passed into every {@link AgentToolContext} so the
      *  bridged-CLI catalog can route through the permission gate.

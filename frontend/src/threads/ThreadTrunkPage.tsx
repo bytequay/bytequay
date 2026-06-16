@@ -1388,7 +1388,9 @@ function TaskCard({
         <span style={metaChipStyle} title={`Created ${task.createdAt}`}>
           <span style={metaIconStyle}>◷</span>{relativeTime(task.createdAt)}
         </span>
-        <span style={taskStatusPillStyle(task.status)}>{statusLabel(task.status)}</span>
+        <span style={taskStatusPillStyle(displayStatus(task))}>
+          {statusLabel(displayStatus(task))}
+        </span>
       </div>
     </li>
   );
@@ -1507,11 +1509,22 @@ function humanizeBranch(branch: string): string {
   return spaced.charAt(0).toUpperCase() + spaced.slice(1);
 }
 
+/**
+ * The status to *display* for a task. A PR merged on the remote advances
+ * the dev-lifecycle phase to COMPLETED while the runtime status can lag
+ * (only the in-app merge path flips it), so a finished task would
+ * otherwise read "idle". Treat a COMPLETED phase as completed.
+ */
+function displayStatus(task: WorkUnitTaskDto): string {
+  return task.phase === 'COMPLETED' ? 'COMPLETED' : task.status;
+}
+
 function glyphChar(task: WorkUnitTaskDto): string {
-  if (task.status === 'COMPLETED') return '✓';
-  if (task.status === 'ERRORED') return '⨯';
-  if (task.status === 'AWAITING_REVIEW' || task.status === 'NEEDS_ATTENTION') return '⏸';
-  if (task.status === 'RUNNING' || task.status === 'AWAITING') return '●';
+  const status = displayStatus(task);
+  if (status === 'COMPLETED') return '✓';
+  if (status === 'ERRORED') return '⨯';
+  if (status === 'AWAITING_REVIEW' || status === 'NEEDS_ATTENTION') return '⏸';
+  if (status === 'RUNNING' || status === 'AWAITING') return '●';
   return '○';
 }
 
@@ -1900,12 +1913,13 @@ function glyphStyle(task: WorkUnitTaskDto): React.CSSProperties {
   // so the card carries a single accent colour across glyph + pill.
   let color = 'var(--text-4)';
   let bg = 'rgba(100, 116, 139, 0.10)';
-  if (task.status === 'COMPLETED') { color = '#16a34a'; bg = 'rgba(22, 163, 74, 0.12)'; }
-  else if (task.status === 'ERRORED') { color = '#b91c1c'; bg = 'rgba(185, 28, 28, 0.12)'; }
-  else if (task.status === 'AWAITING_REVIEW' || task.status === 'NEEDS_ATTENTION') {
+  const status = displayStatus(task);
+  if (status === 'COMPLETED') { color = '#16a34a'; bg = 'rgba(22, 163, 74, 0.12)'; }
+  else if (status === 'ERRORED') { color = '#b91c1c'; bg = 'rgba(185, 28, 28, 0.12)'; }
+  else if (status === 'AWAITING_REVIEW' || status === 'NEEDS_ATTENTION') {
     color = '#d97706'; bg = 'rgba(217, 119, 6, 0.14)';
   }
-  else if (task.status === 'RUNNING' || task.status === 'AWAITING') {
+  else if (status === 'RUNNING' || status === 'AWAITING') {
     color = '#2563eb'; bg = 'rgba(37, 99, 235, 0.12)';
   }
   return {

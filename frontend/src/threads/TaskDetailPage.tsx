@@ -1040,7 +1040,12 @@ export default function TaskDetailPage({
                   //   nothing pushed  → just "Completed".
                   const prState = (task?.prState ?? '').toLowerCase();
                   const isErrored = task?.status === 'ERRORED';
-                  const isCompleted = task?.status === 'COMPLETED';
+                  // A PR merged on the remote advances the dev-lifecycle
+                  // phase to COMPLETED even when the runtime status lags
+                  // (only the in-app merge path flips status). Treat either
+                  // terminal signal as done, else the button keeps offering
+                  // "Ship — finalize & merge" on an already-finished task.
+                  const isCompleted = task?.status === 'COMPLETED' || task?.phase === 'COMPLETED';
                   const isTerminal = isCompleted || isErrored;
                   const isMerged = prState === 'merged';
                   const isDraftPr = prState === 'draft';

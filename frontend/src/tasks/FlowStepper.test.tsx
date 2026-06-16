@@ -115,7 +115,7 @@ describe('FlowStepper parallel sub-status', () => {
       ...TRACE,
       linkedActivePr: {
         prNumber: 29897, ciStatus: 'PENDING', draft: true, approvalCount: 0,
-        changesRequestedCount: 0, pendingReviewerCount: 1, requestedReviewerCount: 1,
+        changesRequestedCount: 0, pendingReviewerCount: 1, requestedReviewers: ['alice'],
       },
     });
     render(<FlowStepper taskId="t1.k1" />);
@@ -125,6 +125,8 @@ describe('FlowStepper parallel sub-status', () => {
     expect(screen.getByText('draft')).toBeTruthy();
     expect(screen.getByText('1 awaiting')).toBeTruthy();
     expect(screen.getByText('0 approvals')).toBeTruthy();
+    // Reviewers axis shows the requested reviewer name as detail.
+    expect(screen.getByText(/@alice/)).toBeTruthy();
   });
 });
 

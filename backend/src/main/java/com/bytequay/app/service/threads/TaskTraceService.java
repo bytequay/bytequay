@@ -121,7 +121,7 @@ public class TaskTraceService
                     pr.approvalCount(),
                     pr.changesRequestedCount(),
                     pr.pendingReviewerCount(),
-                    pr.requestedReviewers() == null ? 0 : pr.requestedReviewers().size());
+                    pr.requestedReviewers() == null ? List.of() : pr.requestedReviewers());
         }
         catch (RuntimeException e) {
             log.debug("linked PR fetch for trace of task {} failed: {}", task.id(), e.getMessage());

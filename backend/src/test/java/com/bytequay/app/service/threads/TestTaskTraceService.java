@@ -165,7 +165,7 @@ class TestTaskTraceService
         assertThat(active.ciStatus()).isEqualTo("PENDING");
         assertThat(active.draft()).isTrue();
         assertThat(active.pendingReviewerCount()).isEqualTo(1);
-        assertThat(active.requestedReviewerCount()).isEqualTo(1);
+        assertThat(active.requestedReviewers()).containsExactly("alice");
     }
 
     @Test

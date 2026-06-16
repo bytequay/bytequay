@@ -13,13 +13,17 @@
  */
 package com.bytequay.app.beans.trace;
 
+import java.util.List;
+
 /**
  * Live state of the task's linked PR, used to render the parallel
  * sub-status block (CI / Reviewers / PR state / Approvals) under a
  * wait-state bucket or node. Populated only while the phase is a
  * wait-state; null otherwise (and on any PR-fetch failure).
  *
- * @param ciStatus PASSING | FAILING | PENDING | NONE
+ * @param ciStatus           PASSING | FAILING | PENDING | NONE
+ * @param requestedReviewers logins still requested to review, for the
+ *                           reviewers axis detail
  */
 public record LinkedActivePr(
         int prNumber,
@@ -28,6 +32,6 @@ public record LinkedActivePr(
         int approvalCount,
         int changesRequestedCount,
         int pendingReviewerCount,
-        int requestedReviewerCount)
+        List<String> requestedReviewers)
 {
 }

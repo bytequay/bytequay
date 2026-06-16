@@ -39,7 +39,7 @@ export function FlowStepper({ taskId }: { taskId: string }) {
         : <SequentialNodes trace={data} />}
       {data.currentPhase !== null && WAIT_PHASES.has(data.currentPhase)
         && data.linkedActivePr !== null && (
-        <ParallelStatus pr={data.linkedActivePr} />
+        <ParallelStatus pr={data.linkedActivePr} enteredAt={waitEnteredAt(data)} />
       )}
       <NextLine options={data.nextPossible} />
       <ModeToggle mode={mode} hiddenCount={data.events.length} onToggle={toggleMode} />
@@ -222,9 +222,13 @@ function SequentialNodes({ trace }: { trace: TaskTraceDto }) {
 const WAIT_PHASES = new Set(['PUSHED_AWAITING_CI', 'AWAITING_READY', 'AWAITING_REMOTE_REVIEW']);
 
 type AxisTone = 'live' | 'good' | 'warn' | 'muted';
+type AxisModel = { tone: AxisTone; glyph: string; text: string; det?: string };
 
-function ParallelStatus({ pr }: { pr: LinkedActivePrDto }) {
-  const ci = ciAxis(pr.ciStatus);
+function ParallelStatus({ pr, enteredAt }: { pr: LinkedActivePrDto; enteredAt: string | null }) {
+  // Re-render each second so the CI elapsed counter ticks live between
+  // the 3s trace polls.
+  useSecondTick();
+  const ci = ciAxis(pr, enteredAt);
   const reviewers = reviewersAxis(pr);
   return (
     <div style={parStatusStyle} data-testid="parallel-status">
@@ -235,48 +239,93 @@ function ParallelStatus({ pr }: { pr: LinkedActivePrDto }) {
       </div>
       <div style={parPillsStyle}>
         <span style={parLblStyle}>CI</span>
-        <Axis tone={ci.tone} glyph={ci.glyph} text={ci.text} />
+        <Axis axis={ci} />
         <span style={parLblStyle}>Reviewers</span>
-        <Axis tone={reviewers.tone} glyph={reviewers.glyph} text={reviewers.text} />
+        <Axis axis={reviewers} />
         <span style={parLblStyle}>PR state</span>
-        <Axis tone={pr.draft ? 'muted' : 'good'} glyph={pr.draft ? '○' : '✓'}
-          text={pr.draft ? 'draft' : 'ready'} />
+        <Axis axis={{ tone: pr.draft ? 'muted' : 'good', glyph: pr.draft ? '○' : '✓',
+          text: pr.draft ? 'draft' : 'ready' }} />
         <span style={parLblStyle}>Approvals</span>
-        <Axis tone={pr.approvalCount > 0 ? 'good' : 'muted'} glyph={pr.approvalCount > 0 ? '✓' : '○'}
-          text={`${pr.approvalCount} approval${pr.approvalCount === 1 ? '' : 's'}`} />
+        <Axis axis={{
+          tone: pr.approvalCount > 0 ? 'good' : 'muted',
+          glyph: pr.approvalCount > 0 ? '✓' : '○',
+          text: `${pr.approvalCount} approval${pr.approvalCount === 1 ? '' : 's'}`,
+          det: pr.changesRequestedCount > 0
+            ? `${pr.changesRequestedCount} change${pr.changesRequestedCount === 1 ? '' : 's'} requested`
+            : undefined,
+        }} />
       </div>
     </div>
   );
 }
 
-function Axis({ tone, glyph, text }: { tone: AxisTone; glyph: string; text: string }) {
+function Axis({ axis }: { axis: AxisModel }) {
   return (
-    <span style={axisPillStyle(tone)}>
-      <span aria-hidden style={{ lineHeight: 1 }}>{glyph}</span>{text}
+    <span style={axisPillStyle(axis.tone)}>
+      <span aria-hidden style={{ lineHeight: 1 }}>{axis.glyph}</span>
+      {axis.text}
+      {axis.det !== undefined && <span style={axisDetStyle}>· {axis.det}</span>}
     </span>
   );
 }
 
-function ciAxis(status: LinkedActivePrDto['ciStatus']): { tone: AxisTone; glyph: string; text: string } {
-  switch (status) {
+function ciAxis(pr: LinkedActivePrDto, enteredAt: string | null): AxisModel {
+  switch (pr.ciStatus) {
     case 'PASSING': return { tone: 'good', glyph: '✓', text: 'passing' };
     case 'FAILING': return { tone: 'warn', glyph: '✕', text: 'failing' };
-    case 'PENDING': return { tone: 'live', glyph: '⏳', text: 'running' };
+    case 'PENDING':
+      return {
+        tone: 'live', glyph: '⏳', text: 'running',
+        det: enteredAt !== null ? elapsed(enteredAt) : undefined,
+      };
     default: return { tone: 'muted', glyph: '○', text: 'no CI gate' };
   }
 }
 
-function reviewersAxis(pr: LinkedActivePrDto): { tone: AxisTone; glyph: string; text: string } {
+function reviewersAxis(pr: LinkedActivePrDto): AxisModel {
+  const names = pr.requestedReviewers.length > 0
+    ? pr.requestedReviewers.slice(0, 2).map(r => `@${r}`).join(', ')
+      + (pr.requestedReviewers.length > 2 ? ` +${pr.requestedReviewers.length - 2}` : '')
+    : undefined;
   if (pr.changesRequestedCount > 0) {
-    return { tone: 'warn', glyph: '↺', text: 'changes requested' };
+    return { tone: 'warn', glyph: '↺', text: 'changes requested', det: names };
   }
   if (pr.pendingReviewerCount > 0) {
-    return { tone: 'live', glyph: '◷', text: `${pr.pendingReviewerCount} awaiting` };
+    return { tone: 'live', glyph: '◷', text: `${pr.pendingReviewerCount} awaiting`, det: names };
   }
-  if (pr.requestedReviewerCount > 0) {
-    return { tone: 'muted', glyph: '◷', text: 'requested' };
+  if (names !== undefined) {
+    return { tone: 'muted', glyph: '◷', text: 'requested', det: names };
   }
   return { tone: 'muted', glyph: '○', text: 'none requested' };
+}
+
+/** Timestamp the task entered its current phase — the start of the
+ *  current wait, used for the live CI counter. */
+function waitEnteredAt(trace: TaskTraceDto): string | null {
+  for (let i = trace.events.length - 1; i >= 0; i--) {
+    if (trace.events[i].toPhase === trace.currentPhase) {
+      return trace.events[i].transitionedAt;
+    }
+  }
+  return null;
+}
+
+function elapsed(iso: string): string {
+  const then = Date.parse(iso);
+  if (Number.isNaN(then)) return '';
+  const s = Math.max(0, Math.round((Date.now() - then) / 1000));
+  if (s < 60) return `${s}s`;
+  const m = Math.floor(s / 60);
+  if (m < 60) return `${m}m ${s % 60}s`;
+  return `${Math.floor(m / 60)}h ${m % 60}m`;
+}
+
+function useSecondTick(): void {
+  const [, setTick] = useState(0);
+  useEffect(() => {
+    const handle = window.setInterval(() => setTick(t => t + 1), 1000);
+    return () => window.clearInterval(handle);
+  }, []);
 }
 
 // ── next-possible line (shared across both modes) ─────────────────────
@@ -507,6 +556,10 @@ const parPillsStyle: React.CSSProperties = {
 const parLblStyle: React.CSSProperties = {
   fontSize: 10, fontWeight: 800, color: 'var(--text-4)',
   textTransform: 'uppercase', letterSpacing: '0.05em',
+};
+
+const axisDetStyle: React.CSSProperties = {
+  fontSize: 10, opacity: 0.7, fontStyle: 'normal', fontFamily: monoFont,
 };
 
 function axisPillStyle(tone: AxisTone): React.CSSProperties {

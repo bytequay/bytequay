@@ -1842,7 +1842,7 @@ export type LinkedActivePrDto = {
   approvalCount: number;
   changesRequestedCount: number;
   pendingReviewerCount: number;
-  requestedReviewerCount: number;
+  requestedReviewers: string[];
 };
 
 /** The flow-display read model for a task. */
@@ -1881,6 +1881,9 @@ export type QueuedTaskDto = {
 /** Compact active-task ref on a PR row (from {@code /prs/linked-tasks}). */
 export type TaskRefDto = {
   id: string;
+  /** Owning thread id — lets the UI jump to the thread without parsing
+   *  it out of the task id. */
+  threadId: string;
   title: string;
   phaseGroup: TaskPhaseGroupDto;
 };
@@ -1901,7 +1904,7 @@ export type ReviewPassRefDto = {
  *  for THREAD-hosted (standalone) reviews. */
 export type PrLinksDto = {
   linkedActiveTask: TaskRefDto | null;
-  linkedCompletedTaskIds: string[];
+  linkedCompletedTasks: TaskRefDto[];
   linkedActiveReviewRef: ReviewPassRefDto | null;
 };
 

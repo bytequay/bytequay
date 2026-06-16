@@ -48,12 +48,15 @@ describe('QueueLane', () => {
     expect(container.firstChild).toBeNull();
   });
 
-  it('renders pills: QUEUED for the materialized head, PENDING for the rest', () => {
+  it('renders only PENDING entries; a materialized one has left the queue', () => {
     render(
       <QueueLane threadId="t1" queue={queue} parallelSlots={1} slotsInUse={1} onChanged={() => {}} />,
     );
-    expect(screen.getByText('QUEUED · pos 1')).toBeTruthy();
+    // pos 1 materialized into a task, so it no longer shows in the lane.
+    expect(screen.queryByText('head')).toBeNull();
+    expect(screen.queryByText(/· pos 1/)).toBeNull();
     expect(screen.getByText('PENDING · pos 2')).toBeTruthy();
+    expect(screen.getByText('PENDING · pos 3')).toBeTruthy();
     expect(screen.getByText('stacked on previous')).toBeTruthy();
   });
 

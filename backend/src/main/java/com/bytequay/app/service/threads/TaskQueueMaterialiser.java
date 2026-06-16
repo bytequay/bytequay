@@ -66,8 +66,9 @@ public class TaskQueueMaterialiser
 
     /**
      * Materialise {@code head} into a QUEUED task cut from {@code
-     * workingDir} (the repo clone). Sets the opening prompt, flips the
-     * entry to MATERIALIZED with the new task id, and returns the task.
+     * workingDir} (the repo clone). Sets the opening prompt, removes the
+     * queue entry — once it's a task it lives in the task list, not the
+     * queue — and returns the task.
      *
      * <p>The branch is cut from the repo's default branch regardless of
      * {@link com.bytequay.app.domain.BranchBase}: stacked-on-previous is
@@ -100,7 +101,7 @@ public class TaskQueueMaterialiser
         if (head.initialPrompt() != null && !head.initialPrompt().isBlank()) {
             taskStore.setOpeningPrompt(task.id(), head.initialPrompt());
         }
-        queue.markMaterialized(thread.id(), head.position(), task.id());
+        queue.removeMaterialised(thread.id(), head.position());
         return taskStore.findTaskById(task.id()).orElse(task);
     }
 }

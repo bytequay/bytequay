@@ -63,7 +63,7 @@ class TestTaskQueueMaterialiser
         assertThat(result.id()).isEqualTo(NEW_TASK_ID);
         verify(taskStore).updatePhase(NEW_TASK_ID, TaskPhase.QUEUED);
         verify(taskStore).setOpeningPrompt(NEW_TASK_ID, "start here");
-        verify(queue).markMaterialized(THREAD_ID, 1, NEW_TASK_ID);
+        verify(queue).removeMaterialised(THREAD_ID, 1);
     }
 
     @Test
@@ -86,7 +86,7 @@ class TestTaskQueueMaterialiser
 
         verify(taskStore).updatePhase(NEW_TASK_ID, TaskPhase.QUEUED);
         verify(taskStore, never()).setOpeningPrompt(any(), any());
-        verify(queue).markMaterialized(THREAD_ID, 2, NEW_TASK_ID);
+        verify(queue).removeMaterialised(THREAD_ID, 2);
     }
 
     private static Task task(String id, TaskStatus status)

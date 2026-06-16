@@ -246,20 +246,18 @@ public class TaskQueueService
         throw new IllegalArgumentException("no queue entry at position " + position);
     }
 
-    /** Flip a PENDING entry to MATERIALIZED, recording the task id its
-     *  plan was sealed into. Called by the materialiser once the Task row
-     *  exists. No-op when no entry sits at {@code position}. */
+    /** Remove an entry from the queue when it materialises into a task.
+     *  Once a queued plan becomes a real {@link Task} it lives in the task
+     *  list, not the queue — so it leaves the lane on start rather than
+     *  lingering as a pinned row. Called by the materialiser once the Task
+     *  row exists. No-op when no entry sits at {@code position}. */
     @Transactional
-    public void markMaterialized(String threadId, int position, String taskId)
+    public void removeMaterialised(String threadId, int position)
     {
         Thread thread = requireThread(threadId);
         List<QueuedTask> queue = new ArrayList<>(thread.queue());
-        for (int i = 0; i < queue.size(); i++) {
-            if (queue.get(i).position() == position) {
-                queue.set(i, queue.get(i).withStatus(QueuedTaskStatus.MATERIALIZED, taskId));
-                threadStore.updateThreadQueue(threadId, queue);
-                return;
-            }
+        if (queue.removeIf(q -> q.position() == position)) {
+            threadStore.updateThreadQueue(threadId, queue);
         }
     }
 

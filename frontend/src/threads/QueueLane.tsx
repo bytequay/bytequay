@@ -17,10 +17,10 @@ import type { BranchBaseDto, QueuedTaskDto } from '../types';
 /**
  * Trunk queue lane — the planned future tasks the trunk lined up, shown
  * below the "Tasks in this thread" lane. Dashed cards (vs the active
- * tasks' solid border); the head carries an amber QUEUED pill, the rest
- * a gray PENDING pill. PENDING entries can be reordered (↑↓), edited
- * (✎), or dropped (✕); a materialized head is pinned. Mirrors
- * docs/mockups/design/tasks/thread-trunk.png — faithful to layout and
+ * tasks' solid border) with a gray PENDING pill. Entries can be
+ * reordered (↑↓), edited (✎), or dropped (✕). The lane holds only
+ * not-yet-started plans: once an entry materialises into a task it
+ * leaves the queue and lives in the task list. Faithful to layout and
  * hierarchy, not pixel-perfect.
  */
 export function QueueLane(props: {
@@ -35,13 +35,14 @@ export function QueueLane(props: {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  // Only live entries appear in the lane; completed / dropped ones drop
-  // out (they stay in the row for audit but aren't actionable).
+  // Only PENDING entries appear in the lane. Materialised entries have
+  // become tasks and left the queue; completed / dropped ones stay in the
+  // row for audit but aren't actionable here.
   const live = queue
-    .filter((q) => q.status === 'PENDING' || q.status === 'MATERIALIZED')
+    .filter((q) => q.status === 'PENDING')
     .slice()
     .sort((a, b) => a.position - b.position);
-  const pendingPositions = live.filter((q) => q.status === 'PENDING').map((q) => q.position);
+  const pendingPositions = live.map((q) => q.position);
   const pendingCount = pendingPositions.length;
 
   // The trunk plans the queue (queue_task tool); the lane appears only
@@ -65,9 +66,8 @@ export function QueueLane(props: {
     }
   }
 
-  // Move a PENDING entry one slot earlier/later among the PENDING
-  // positions; materialized entries stay pinned. The reorder API takes
-  // the desired order of the current PENDING positions.
+  // Move an entry one slot earlier/later among the PENDING positions.
+  // The reorder API takes the desired order of those positions.
   function move(position: number, delta: -1 | 1): void {
     const order = [...pendingPositions];
     const idx = order.indexOf(position);
@@ -94,11 +94,8 @@ export function QueueLane(props: {
             key={entry.position}
             entry={entry}
             dim={Math.max(0.62, 0.9 - i * 0.06)}
-            isFirstPending={entry.status === 'PENDING' && pendingPositions[0] === entry.position}
-            isLastPending={
-              entry.status === 'PENDING'
-              && pendingPositions[pendingPositions.length - 1] === entry.position
-            }
+            isFirstPending={pendingPositions[0] === entry.position}
+            isLastPending={pendingPositions[pendingPositions.length - 1] === entry.position}
             busy={busy}
             onEdit={() => { setError(null); setEditing(entry.position); }}
             onUp={() => move(entry.position, -1)}
@@ -123,8 +120,8 @@ export function QueueLane(props: {
       {error && <div style={ERR}>{error}</div>}
 
       <div style={LANE_HINT}>
-        ↑↓ reorder · ✎ edit plan · ✕ drop · trunk auto-runs <strong>pos 1</strong> when
-        the current task ships
+        ↑↓ reorder · ✎ edit plan · ✕ drop · the trunk starts the <strong>next plan</strong> when
+        a slot frees
       </div>
     </div>
   );
@@ -143,7 +140,6 @@ function QueueCard(props: {
 }): React.ReactElement {
   const { entry, dim, isFirstPending, isLastPending, busy, onEdit, onUp, onDown, onDrop } = props;
   const [hover, setHover] = useState(false);
-  const materialized = entry.status === 'MATERIALIZED';
   const base = entry.branchBase === 'STACKED_ON_PREVIOUS' ? 'stacked on previous' : 'off main';
 
   return (
@@ -155,27 +151,22 @@ function QueueCard(props: {
       <div style={CARD_TOP}>
         <span style={MARK}>◻</span>
         <div style={TK_TITLE}>{entry.title}</div>
-        {materialized && <span style={PINNED}>pinned</span>}
       </div>
       <div style={TK_SUB}>
         <span style={BASE_TAG}>{base}</span>
-        <span style={materialized ? PILL_QUEUED : PILL_PENDING}>
-          {materialized ? 'QUEUED' : 'PENDING'} · pos {entry.position}
-        </span>
+        <span style={PILL_PENDING}>PENDING · pos {entry.position}</span>
       </div>
-      {!materialized && (
-        <div style={{ ...ACTIONS, opacity: hover ? 1 : 0.45 }}>
-          <button style={ICON_BTN} disabled={busy || isFirstPending} title="Move up" onClick={onUp}>
-            ↑
-          </button>
-          <button style={ICON_BTN} disabled={busy || isLastPending} title="Move down" onClick={onDown}>
-            ↓
-          </button>
-          <span style={ACTIONS_SPACER} />
-          <button style={ICON_BTN} disabled={busy} title="Edit plan" onClick={onEdit}>✎</button>
-          <button style={ICON_BTN_DANGER} disabled={busy} title="Drop" onClick={onDrop}>✕</button>
-        </div>
-      )}
+      <div style={{ ...ACTIONS, opacity: hover ? 1 : 0.45 }}>
+        <button style={ICON_BTN} disabled={busy || isFirstPending} title="Move up" onClick={onUp}>
+          ↑
+        </button>
+        <button style={ICON_BTN} disabled={busy || isLastPending} title="Move down" onClick={onDown}>
+          ↓
+        </button>
+        <span style={ACTIONS_SPACER} />
+        <button style={ICON_BTN} disabled={busy} title="Edit plan" onClick={onEdit}>✎</button>
+        <button style={ICON_BTN_DANGER} disabled={busy} title="Drop" onClick={onDrop}>✕</button>
+      </div>
     </div>
   );
 }
@@ -252,10 +243,6 @@ const TK_TITLE: React.CSSProperties = {
   flex: 1, minWidth: 0, fontSize: 12.5, fontWeight: 700, color: 'var(--text-secondary)',
   letterSpacing: '-0.01em', lineHeight: 1.3, wordBreak: 'break-word',
 };
-const PINNED: React.CSSProperties = {
-  flexShrink: 0, fontSize: 9, fontWeight: 700, color: 'var(--text-subtle)',
-  textTransform: 'uppercase', letterSpacing: '.04em', marginTop: 2,
-};
 const TK_SUB: React.CSSProperties = {
   fontSize: 10, color: 'var(--text-muted)', display: 'flex', gap: 6,
   alignItems: 'center', flexWrap: 'wrap', paddingLeft: 20,
@@ -270,9 +257,6 @@ const ACTIONS: React.CSSProperties = {
 const ACTIONS_SPACER: React.CSSProperties = { flex: 1 };
 const PILL_BASE: React.CSSProperties = {
   fontSize: 9.5, padding: '1px 7px', borderRadius: 999, fontWeight: 700, letterSpacing: '.04em',
-};
-const PILL_QUEUED: React.CSSProperties = {
-  ...PILL_BASE, background: 'rgba(245,158,11,0.10)', color: '#92400e', border: '1px solid #fcd34d',
 };
 const PILL_PENDING: React.CSSProperties = {
   ...PILL_BASE, background: 'var(--surface-soft)', color: 'var(--text-muted)',

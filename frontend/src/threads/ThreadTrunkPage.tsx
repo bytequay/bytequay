@@ -643,7 +643,7 @@ export default function ThreadTrunkPage({ threadId, onBack, onOpenTask }: Props)
             </section>
 
             {thread !== null
-              && thread.queue.some((q) => q.status === 'PENDING' || q.status === 'MATERIALIZED') && (
+              && thread.queue.some((q) => q.status === 'PENDING') && (
               <section style={railSectionStyle}>
                 <QueueLane
                   threadId={threadId}

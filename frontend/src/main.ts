@@ -67,7 +67,7 @@ app.setAsDefaultProtocolClient(APP_PROTOCOL);
 /** Pre-1.0 version surfaced in the About dialog and packaged metadata.
  *  Bump alongside frontend/package.json + backend/pom.xml when we cut
  *  a release. Shown in the About panel as e.g. "ByteQuay 0.1.0". */
-const APP_VERSION = '0.1.0';
+const APP_VERSION = '0.2.0';
 
 // Handle creating/removing shortcuts on Windows when installing/uninstalling.
 if (started) {

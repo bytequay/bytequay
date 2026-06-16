@@ -618,11 +618,32 @@ public class TaskService
                                 task.id(), e.getMessage());
                     }
                 }
+                // The PR landed, so the local worktree + branch are dead
+                // weight — reap them. Best-effort; a task already shipped
+                // (worktree nulled) is skipped.
+                reapTaskWorktree(task);
             }
         }
         catch (RuntimeException e) {
             log.warn("completing tasks for merged PR {} #{} failed: {}",
                     repoFullName, prNumber, e.getMessage());
+        }
+    }
+
+    /** Remove a completed task's worktree and delete its branch. No-op for
+     *  a task that has no worktree (already shipped/reaped) or whose clone
+     *  root is unknown. Best-effort — failures never propagate. */
+    private void reapTaskWorktree(Task task)
+    {
+        if (task.worktreePath() == null || task.workingDir() == null) {
+            return;
+        }
+        try {
+            worktreeService.remove(
+                    Path.of(task.workingDir()), task.worktreePath(), task.branchName());
+        }
+        catch (RuntimeException e) {
+            log.warn("worktree reap for completed task {} failed: {}", task.id(), e.getMessage());
         }
     }
 

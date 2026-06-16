@@ -16,6 +16,7 @@ package com.bytequay.app.service.threads;
 import com.bytequay.app.domain.PullRequestDetail;
 import com.bytequay.app.domain.Task;
 import com.bytequay.app.domain.TaskPhase;
+import com.bytequay.app.domain.TaskStatus;
 import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.service.pr.PullRequestService;
 import org.slf4j.Logger;
@@ -23,6 +24,8 @@ import org.slf4j.LoggerFactory;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
+import java.nio.file.Path;
+import java.time.Instant;
 import java.util.EnumSet;
 import java.util.Optional;
 import java.util.Set;
@@ -70,13 +73,18 @@ public class TaskLifecycleDriver
     private final TaskStore taskStore;
     private final PullRequestService pullRequests;
     private final TaskPhaseMachine phaseMachine;
+    private final WorktreeService worktrees;
 
     public TaskLifecycleDriver(
-            TaskStore taskStore, PullRequestService pullRequests, TaskPhaseMachine phaseMachine)
+            TaskStore taskStore,
+            PullRequestService pullRequests,
+            TaskPhaseMachine phaseMachine,
+            WorktreeService worktrees)
     {
         this.taskStore = requireNonNull(taskStore, "taskStore is null");
         this.pullRequests = requireNonNull(pullRequests, "pullRequests is null");
         this.phaseMachine = requireNonNull(phaseMachine, "phaseMachine is null");
+        this.worktrees = requireNonNull(worktrees, "worktrees is null");
     }
 
     @Scheduled(fixedDelay = 60_000, initialDelay = 90_000)
@@ -115,6 +123,51 @@ public class TaskLifecycleDriver
         }
         PullRequestDetail detail = pullRequests.getPullRequestDetail(repo, number);
         Optional<TaskPhase> target = TaskLifecyclePhases.observedPhaseFromDetail(detail);
-        target.ifPresent(phase -> phaseMachine.observe(task.id(), phase, "pr_state_observed"));
+        if (target.isEmpty()) {
+            return;
+        }
+        TaskPhase phase = target.get();
+        if (phase == TaskPhase.COMPLETED) {
+            // The PR reached a terminal state on the remote (merged or
+            // closed) without our in-app merge action — so
+            // PullRequestMergedEvent never fired and the completion path in
+            // TaskService never ran. observe() alone only advances the
+            // phase axis, leaving the runtime status stuck (e.g. IN_REVIEW)
+            // and the worktree on disk. Finish the job here.
+            completeRemotelyTerminal(task, detail.merged());
+            return;
+        }
+        phaseMachine.observe(task.id(), phase, "pr_state_observed");
+    }
+
+    /** Drive a task to terminal COMPLETED from an observed remote merge /
+     *  close: flip the runtime status (the phase machine owns the phase
+     *  axis) and, on a real merge, reap the now-dead worktree + branch. */
+    private void completeRemotelyTerminal(Task task, boolean merged)
+    {
+        if (task.status() != TaskStatus.COMPLETED) {
+            taskStore.completeTask(task.id(), Instant.now());
+        }
+        phaseMachine.observe(
+                task.id(), TaskPhase.COMPLETED, merged ? "pr_merged_observed" : "pr_closed_observed");
+        // Reap only on a real merge — a closed-unmerged PR may still carry
+        // local commits the user hasn't landed, so deleting its branch
+        // would lose work.
+        if (merged) {
+            reapWorktree(task);
+        }
+    }
+
+    private void reapWorktree(Task task)
+    {
+        if (task.worktreePath() == null || task.workingDir() == null) {
+            return;
+        }
+        try {
+            worktrees.remove(Path.of(task.workingDir()), task.worktreePath(), task.branchName());
+        }
+        catch (RuntimeException e) {
+            log.warn("worktree reap for completed task {} failed: {}", task.id(), e.getMessage());
+        }
     }
 }

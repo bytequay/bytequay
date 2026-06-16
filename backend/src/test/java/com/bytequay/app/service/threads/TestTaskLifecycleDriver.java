@@ -22,6 +22,7 @@ import com.bytequay.app.repository.TaskStore;
 import com.bytequay.app.service.pr.PullRequestService;
 import org.junit.jupiter.api.Test;
 
+import java.nio.file.Path;
 import java.time.Instant;
 import java.util.List;
 
@@ -38,8 +39,9 @@ class TestTaskLifecycleDriver
     private final TaskStore taskStore = mock(TaskStore.class);
     private final PullRequestService pullRequests = mock(PullRequestService.class);
     private final TaskPhaseMachine phaseMachine = mock(TaskPhaseMachine.class);
+    private final WorktreeService worktrees = mock(WorktreeService.class);
     private final TaskLifecycleDriver driver =
-            new TaskLifecycleDriver(taskStore, pullRequests, phaseMachine);
+            new TaskLifecycleDriver(taskStore, pullRequests, phaseMachine, worktrees);
 
     @Test
     void fetchesTheLinkedPrDirectlyAndAdvancesThePhase()
@@ -57,7 +59,7 @@ class TestTaskLifecycleDriver
     }
 
     @Test
-    void completesTheTaskWhenItsPrHasMerged()
+    void completesAndReapsWhenItsPrMergedOnTheRemote()
     {
         Task task = task("trinodb/trino#29897", TaskPhase.AWAITING_REMOTE_REVIEW);
         PullRequestDetail merged = mock(PullRequestDetail.class);
@@ -66,8 +68,31 @@ class TestTaskLifecycleDriver
 
         driver.reconcileTask(task);
 
-        // A merged PR drains the task off the remote spine.
-        verify(phaseMachine).observe("t1.k2", TaskPhase.COMPLETED, "pr_state_observed");
+        // A remote merge fired no in-app merge event, so the driver itself
+        // must finish the task: flip the runtime status, drain the phase
+        // off the spine, and reap the now-dead worktree + branch.
+        verify(taskStore).completeTask(eq("t1.k2"), any());
+        verify(phaseMachine).observe("t1.k2", TaskPhase.COMPLETED, "pr_merged_observed");
+        verify(worktrees).remove(Path.of("/clone"), "/wt", "dev/x");
+    }
+
+    @Test
+    void completesButDoesNotReapAClosedUnmergedPr()
+    {
+        Task task = task("trinodb/trino#29897", TaskPhase.AWAITING_REMOTE_REVIEW);
+        PullRequestDetail closed = mock(PullRequestDetail.class);
+        when(closed.merged()).thenReturn(false);
+        when(closed.state()).thenReturn("closed");
+        when(pullRequests.getPullRequestDetail("trinodb/trino", 29897)).thenReturn(closed);
+
+        driver.reconcileTask(task);
+
+        // A closed-unmerged PR is terminal too — complete the task — but
+        // its branch may still hold unlanded local commits, so leave the
+        // worktree alone rather than delete the work.
+        verify(taskStore).completeTask(eq("t1.k2"), any());
+        verify(phaseMachine).observe("t1.k2", TaskPhase.COMPLETED, "pr_closed_observed");
+        verify(worktrees, never()).remove(any(), any(), any());
     }
 
     @Test

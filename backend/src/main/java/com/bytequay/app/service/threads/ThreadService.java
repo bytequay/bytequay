@@ -87,6 +87,9 @@ public class ThreadService
     private static final int TURN_EVENT_HISTORY_LIMIT = 200;
     /** Active-turn list cap for thread-list and group-page summaries. */
     private static final int ACTIVE_TURN_LIMIT = 500;
+    /** Character cap on a derived task name; longer titles cut at the
+     *  last word boundary so the row and branch slug stay short. */
+    private static final int TASK_NAME_MAX = 60;
 
     private final ThreadStore store;
     private final TaskStore taskStore;
@@ -477,10 +480,15 @@ public class ThreadService
         // materialiseTask calls on the same thread serialised.
         long seq = taskStore.maxSeqForThread(threadId).orElse(0L) + 1L;
         String taskId = idGenerator.newTaskId(threadId, seq);
-        // The new model names the worktree directory after the task id
-        // (one worktree per task), so the on-disk dir matches the row.
+        // The task's own title (the purpose, e.g. from create_task) names
+        // both the row and the branch slug; the thread title is the
+        // fallback for direct-created tasks that carry no title.
+        String taskName = taskDisplayName(request.title(), thread.title());
+        // The worktree directory is still named after the task id (one
+        // worktree per task), so the on-disk dir matches the row; only the
+        // branch is named for the purpose.
         Optional<WorktreeService.WorktreeHandle> handle = worktreeService.create(
-                Path.of(request.workingDir()), taskId, thread.title());
+                Path.of(request.workingDir()), taskId, taskName);
         String branchName = handle
                 .map(WorktreeService.WorktreeHandle::branchName)
                 .orElse(request.branchName());
@@ -499,7 +507,7 @@ public class ThreadService
                 0L, 0L, 0L,
                 /* agentSessionId */ null,
                 now, null, null,
-                /* name */ null,
+                taskName,
                 roleSkillText,
                 /* workModel */ null);
         taskStore.saveTask(task);
@@ -508,6 +516,29 @@ public class ThreadService
             scheduler.enqueueTurn(refreshed, request.initialPrompt());
         }
         return task;
+    }
+
+    /**
+     * The display name for a materialised task: the task's own title
+     * (its purpose) when present, else the thread title. Trimmed and
+     * word-capped so the task row and the branch slug derived from it
+     * stay short. Null only when neither source carries text.
+     */
+    private static String taskDisplayName(String taskTitle, String threadTitle)
+    {
+        String source = taskTitle != null && !taskTitle.isBlank() ? taskTitle : threadTitle;
+        if (source == null || source.isBlank()) {
+            return null;
+        }
+        String trimmed = source.strip();
+        if (trimmed.length() <= TASK_NAME_MAX) {
+            return trimmed;
+        }
+        // Cut at the last word boundary within the cap so the name never
+        // ends mid-word.
+        String head = trimmed.substring(0, TASK_NAME_MAX);
+        int lastSpace = head.lastIndexOf(' ');
+        return (lastSpace > 0 ? head.substring(0, lastSpace) : head).strip();
     }
 
     private static String deriveTitle(String supplied, String firstMessage)

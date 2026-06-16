@@ -47,6 +47,16 @@ class TestWorktreeService
     }
 
     @Test
+    void testSlugifyDropsApostrophesWithoutSplitting()
+    {
+        // "Let's" → "lets", not "let-s"; covers both ASCII and curly forms.
+        assertThat(WorktreeService.slugify("Let's progress my prs"))
+                .isEqualTo("lets-progress-my-prs");
+        assertThat(WorktreeService.slugify("Let’s go"))
+                .isEqualTo("lets-go");
+    }
+
+    @Test
     void testSlugifyTruncatesAtCap()
     {
         String longInput = "a".repeat(100);
@@ -98,7 +108,9 @@ class TestWorktreeService
         // Path mirrors what the design doc promised: one worktree dir
         // per task, named for the task id.
         assertThat(worktreePath.toString()).endsWith("/.worktrees/sess123");
-        assertThat(branchName).isEqualTo("dev/sess123-fix-the-login-redirect-loop");
+        // The branch is named for the task's purpose (the title slug),
+        // not the task id — short and readable.
+        assertThat(branchName).isEqualTo("dev/fix-the-login-redirect-loop");
         assertThat(Files.isDirectory(worktreePath)).isTrue();
         // The branch was created and points somewhere; refExists is
         // the cheapest way to assert that without parsing rev-parse.

@@ -63,13 +63,20 @@ public class WorktreeService
      *  exact path: {@code <repo>/.worktrees/<task-id>/}. */
     static final String WORKTREE_ROOT_REL = ".worktrees";
 
-    /** Branch-name prefix for dev branches; the suffix is task-id + slug
-     *  so the branch name and worktree path are easy to correlate. */
+    /** Branch-name prefix for dev branches. The branch is named for the
+     *  task's purpose ({@code dev/<title-slug>}) — short and readable —
+     *  with a numeric suffix added only on collision. The worktree dir
+     *  still carries the full task id, so the two need not match. */
     static final String DEV_BRANCH_PREFIX = "dev/";
 
     /** Hard cap on slug length so worktree paths and branch names stay
      *  human-readable. */
     static final int SLUG_MAX_CHARS = 32;
+
+    /** Upper bound on the collision-dedupe suffix ({@code -2 … -N}). Far
+     *  beyond any real number of same-title branches; a backstop so a
+     *  pathological repo can't spin the loop forever. */
+    private static final int MAX_BRANCH_DEDUPE = 50;
 
     /** Per-worktree infra directory ({@code core.hooksPath}-style scope),
      *  kept separate from {@code .git/hooks/}. No hook is installed here
@@ -103,13 +110,14 @@ public class WorktreeService
         }
         try {
             String slug = slugify(title);
-            String branchSuffix = taskId + (slug.isEmpty() ? "" : "-" + slug);
             Path worktreePath = repoRoot
                     .resolve(WORKTREE_ROOT_REL)
                     .resolve(taskId)
                     .toAbsolutePath()
                     .normalize();
-            String branchName = DEV_BRANCH_PREFIX + branchSuffix;
+            // Name the branch for the task's purpose, not its id. The id
+            // is the fallback only when the title yields no usable slug.
+            String branchName = uniqueDevBranch(repoRoot, slug.isEmpty() ? taskId : slug);
             String baseRef = resolveBaseRef(repoRoot);
             if (baseRef == null) {
                 log.info("No base ref resolvable in {}; skipping worktree for task {}",
@@ -177,6 +185,26 @@ public class WorktreeService
     }
 
     /**
+     * A {@code dev/<base>} branch name, unsuffixed when free and suffixed
+     * {@code -2 / -3 / …} only when an earlier task already took the bare
+     * name. Keeps the common case short and readable
+     * ({@code dev/fix-login}) while staying unique across threads that
+     * happen to share a title slug. The {@code ^{commit}} probe in
+     * {@link GitRunner#refExists} matches only real branches, so this
+     * never collides with a tag or remote ref.
+     */
+    private String uniqueDevBranch(Path repoRoot, String base)
+            throws IOException, InterruptedException
+    {
+        String head = DEV_BRANCH_PREFIX + base;
+        String candidate = head;
+        for (int n = 2; n <= MAX_BRANCH_DEDUPE && git.refExists(repoRoot, candidate); n++) {
+            candidate = head + "-" + n;
+        }
+        return candidate;
+    }
+
+    /**
      * Normalises a task title into a worktree-safe slug. Lowercase,
      * non-alphanumeric runs collapsed to single dashes, leading/
      * trailing dashes stripped, truncated to {@link #SLUG_MAX_CHARS}.
@@ -196,6 +224,11 @@ public class WorktreeService
             if ((c >= 'a' && c <= 'z') || (c >= '0' && c <= '9')) {
                 out.append(c);
                 lastWasDash = false;
+            }
+            else if (c == '\'' || c == '\u2019') {
+                // Apostrophes vanish rather than splitting a word, so
+                // "let's" -> "lets", not "let-s".
+                continue;
             }
             else if (!lastWasDash && out.length() > 0) {
                 out.append('-');

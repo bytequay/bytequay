@@ -167,6 +167,14 @@ public class TaskController
         return taskService.shipAndContinue(threadId, taskId, request);
     }
 
+    /** Close a task: stop the agent, mark it CANCELED, and reap its
+     *  worktree + branch. The user's explicit "throw this away". */
+    @PostMapping("/{taskId}/cancel")
+    public Task cancel(@PathVariable String threadId, @PathVariable String taskId)
+    {
+        return taskService.cancelTask(threadId, taskId);
+    }
+
     /** Rename a task. Trimmed; an empty / null body clears the
      *  rename and reverts to the humanised branch-derived label. */
     @PatchMapping("/{taskId}/name")

@@ -94,4 +94,10 @@ public enum TaskStatus
 
     /** Task failed (budget, timeout, exception, killed, crashed). */
     ERRORED,
+
+    /** Deliberately stopped by the user before finishing: the agent is
+     *  interrupted, the task is closed, and its worktree + branch are
+     *  reaped. Terminal — distinct from {@link #ERRORED} (a failure) and
+     *  {@link #COMPLETED} (done). */
+    CANCELED,
 }

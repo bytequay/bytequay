@@ -248,6 +248,38 @@ class TestTaskServiceShipAndContinue
                 ThreadFlow.BUILD, "ws-default", null, null);
     }
 
+    @Test
+    void cancelTaskStopsTheAgentSealsCanceledAndReapsTheWorktree()
+    {
+        Task t = task("t1.k1", "t1", 1L, "dev/x", "/wt", "/clone");
+        when(taskStore.findTaskById("t1.k1")).thenReturn(Optional.of(t));
+        ThreadAgent session = mock(ThreadAgent.class);
+        when(registry.find("t1")).thenReturn(Optional.of(session));
+
+        service.cancelTask("t1", "t1.k1");
+
+        verify(session).interrupt();
+        verify(taskStore).cancelTask(eq("t1.k1"), any());
+        // Phase driven terminal so the reconciler stops polling it.
+        verify(taskStore).updatePhase("t1.k1", TaskPhase.COMPLETED);
+        // Worktree + branch reaped.
+        verify(worktreeService).remove(Path.of("/clone"), "/wt", "dev/x");
+    }
+
+    @Test
+    void cancelTaskToleratesNoLiveSession()
+    {
+        Task t = task("t1.k1", "t1", 1L, "dev/x", "/wt", "/clone");
+        when(taskStore.findTaskById("t1.k1")).thenReturn(Optional.of(t));
+        when(registry.find("t1")).thenReturn(Optional.empty());
+
+        service.cancelTask("t1", "t1.k1");
+
+        // No session to interrupt, but the task is still sealed + reaped.
+        verify(taskStore).cancelTask(eq("t1.k1"), any());
+        verify(worktreeService).remove(Path.of("/clone"), "/wt", "dev/x");
+    }
+
     private static Task task(
             String id, String threadId, long seq,
             String branchName, String worktreePath, String workingDir)

@@ -172,6 +172,17 @@ class SqliteTaskStore
 
     @Override
     @Transactional
+    public void cancelTask(String taskId, Instant endedAt)
+    {
+        tasks.findById(taskId).ifPresent(entity -> {
+            entity.setStatus(TaskStatus.CANCELED.name());
+            entity.setEndedAtMs(endedAt == null ? null : endedAt.toEpochMilli());
+            tasks.save(entity);
+        });
+    }
+
+    @Override
+    @Transactional
     public void updatePhase(String taskId, TaskPhase phase)
     {
         tasks.findById(taskId).ifPresent(entity -> {

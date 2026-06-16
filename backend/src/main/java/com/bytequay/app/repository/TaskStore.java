@@ -107,6 +107,13 @@ public interface TaskStore
     {
     }
 
+    /** Seal a task as CANCELED with its end timestamp — used when the user
+     *  closes a task. Terminal, like {@link #completeTask}. No-op default
+     *  for test stores; the SQLite store overrides. */
+    default void cancelTask(String taskId, Instant endedAt)
+    {
+    }
+
     // ── dev-lifecycle phase (V106) ─────────────────────────────────────
 
     /** Write the task's dev-lifecycle {@code phase} column. Load-set-save

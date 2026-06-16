@@ -630,6 +630,28 @@ public class TaskService
         }
     }
 
+    /**
+     * Close a task the user is done with: stop the agent, seal it
+     * CANCELED, and reap its worktree + branch. The explicit "throw this
+     * away" action — distinct from ship (publish) and from a clean
+     * completion. Interrupting first lets the CLI subprocess exit at the
+     * next tool boundary so it stops touching the worktree we then reap.
+     */
+    public Task cancelTask(String threadId, String taskId)
+    {
+        Task task = taskStore.findTaskById(taskId)
+                .orElseThrow(() -> new IllegalArgumentException("no task " + taskId));
+        registry.find(threadId).ifPresent(ThreadAgent::interrupt);
+        taskStore.cancelTask(taskId, Instant.now());
+        // Drive the phase terminal so the lifecycle reconciler stops polling
+        // the task and the queue scheduler frees its slot.
+        if (task.phase() != TaskPhase.COMPLETED) {
+            taskStore.updatePhase(taskId, TaskPhase.COMPLETED);
+        }
+        reapTaskWorktree(task);
+        return taskStore.findTaskById(taskId).orElse(task);
+    }
+
     /** Remove a completed task's worktree and delete its branch. No-op for
      *  a task that has no worktree (already shipped/reaped) or whose clone
      *  root is unknown. Best-effort — failures never propagate. */

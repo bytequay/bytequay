@@ -711,6 +711,8 @@ const bridge: Bridge = {
     opts?: { nextTitle?: string | null; baseMode?: 'MAIN' | 'STACKED' },
   ): Promise<WorkUnitTaskDto> =>
     ipcRenderer.invoke('threads:tasks:ship', { threadId, taskId, opts }),
+  cancelTask: (threadId: string, taskId: string): Promise<WorkUnitTaskDto> =>
+    ipcRenderer.invoke('threads:tasks:cancel', { threadId, taskId }),
   parkAndStartNext: (
     threadId: string,
     taskId: string,

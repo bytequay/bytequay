@@ -3445,6 +3445,10 @@ export type Bridge = {
     taskId: string,
     opts?: { nextTitle?: string | null; baseMode?: 'MAIN' | 'STACKED' },
   ) => Promise<WorkUnitTaskDto>;
+  /** Close a task: interrupt the agent, mark it CANCELED, and reap its
+   *  worktree + branch. Terminal and destructive — the caller confirms
+   *  first. */
+  cancelTask: (threadId: string, taskId: string) => Promise<WorkUnitTaskDto>;
   /** Next → park the current task at AWAITING_REVIEW (worktree
    *  preserved) and start a fresh task cut from main. The trunk
    *  window's Next button calls this; differs from

@@ -1539,9 +1539,14 @@ function humanizeBranch(branch: string): string {
  * The status to *display* for a task. A PR merged on the remote advances
  * the dev-lifecycle phase to COMPLETED while the runtime status can lag
  * (only the in-app merge path flips it), so a finished task would
- * otherwise read "idle". Treat a COMPLETED phase as completed.
+ * otherwise read "idle". Treat a COMPLETED phase as completed — but a
+ * task that's already terminal on the runtime axis (ERRORED / CANCELED)
+ * keeps that status; a COMPLETED phase must not relabel it "completed".
  */
 function displayStatus(task: WorkUnitTaskDto): string {
+  if (task.status === 'ERRORED' || task.status === 'CANCELED') {
+    return task.status;
+  }
   return task.phase === 'COMPLETED' ? 'COMPLETED' : task.status;
 }
 
@@ -1549,6 +1554,7 @@ function glyphChar(task: WorkUnitTaskDto): string {
   const status = displayStatus(task);
   if (status === 'COMPLETED') return '✓';
   if (status === 'ERRORED') return '⨯';
+  if (status === 'CANCELED') return '⊘';
   if (status === 'AWAITING_REVIEW' || status === 'NEEDS_ATTENTION') return '⏸';
   if (status === 'RUNNING' || status === 'AWAITING') return '●';
   return '○';

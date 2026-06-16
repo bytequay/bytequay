@@ -111,6 +111,7 @@ export default function TaskDetailPage({
   const [input, setInput] = useState('');
   const [sending, setSending] = useState(false);
   const [shipping, setShipping] = useState(false);
+  const [canceling, setCanceling] = useState(false);
   const [markReady, setMarkReady] = useState<'idle' | 'running' | 'error'>('idle');
   const [markReadyError, setMarkReadyError] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -414,6 +415,29 @@ export default function TaskDetailPage({
     }
   }, [task, shipping, threadId, onBackToTrunk]);
 
+  // Close the task: stop the agent, mark it CANCELED, reap the worktree +
+  // branch. Destructive (drops unpushed work), so confirm first.
+  const onCancel = useCallback(async () => {
+    if (task === null || canceling) return;
+    const branchNote = task.branchName !== null
+      ? ` and delete its worktree + branch (${task.branchName})`
+      : '';
+    const ok = window.confirm(
+      `Close Task ${task.seq}? This stops the agent, marks the task canceled,`
+      + `${branchNote}. Any unpushed commits are lost.`);
+    if (!ok) return;
+    setCanceling(true);
+    setError(null);
+    try {
+      await window.bridge.cancelTask(threadId, task.id);
+      onBackToTrunk();
+    }
+    catch (e) {
+      setError(e instanceof Error ? e.message : String(e));
+      setCanceling(false);
+    }
+  }, [task, canceling, threadId, onBackToTrunk]);
+
   const taskTitle = task !== null ? taskLabel(task) : 'Loading…';
   const taskBranch = task?.branchName ?? null;
   const taskPr = task?.prNumber ?? null;
@@ -687,6 +711,19 @@ export default function TaskDetailPage({
               <span style={statusDotStyle(thread.status)} aria-hidden />
               {thread.status}
             </span>
+          )}
+          {!isTerminal && task !== null
+            && task.status !== 'COMPLETED' && task.status !== 'ERRORED'
+            && task.status !== 'CANCELED' && task.phase !== 'COMPLETED' && (
+            <button
+              type="button"
+              onClick={() => { void onCancel(); }}
+              disabled={canceling}
+              style={closeTaskBtnStyle}
+              title="Close this task — stop the agent, cancel it, and reap its worktree + branch"
+            >
+              {canceling ? '✕ Closing…' : '✕ Close'}
+            </button>
           )}
           {!isTerminal && (
             <button type="button" style={menuDotsStyle} title="More" aria-label="More">⋯</button>
@@ -2578,6 +2615,18 @@ const menuDotsStyle: React.CSSProperties = {
   color: 'var(--text-3)',
   fontSize: 16,
   cursor: 'pointer',
+};
+
+const closeTaskBtnStyle: React.CSSProperties = {
+  padding: '4px 11px',
+  borderRadius: 7,
+  border: '1px solid rgba(220,38,38,0.28)',
+  background: 'rgba(220,38,38,0.06)',
+  color: '#b91c1c',
+  fontSize: 12,
+  fontWeight: 600,
+  cursor: 'pointer',
+  whiteSpace: 'nowrap',
 };
 
 const bandStatusStyle: React.CSSProperties = {

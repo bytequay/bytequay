@@ -40,6 +40,7 @@ import { useAnimatedNumber } from './useAnimatedNumber';
 import { QueuedTaskView } from './QueuedTaskView';
 import { PhaseChip } from './PhaseChip';
 import { FlowStepper } from '../tasks/FlowStepper';
+import { AgendaList, parseAgenda } from '../tasks/AgendaList';
 import { isReconcilerDriven } from './taskPhase';
 
 type Props = {
@@ -946,6 +947,24 @@ export default function TaskDetailPage({
               <div style={railThreadAnchorStyle}>
                 Thread · {thread?.title ?? '—'}
               </div>
+
+              {(() => {
+                const agenda = parseAgenda(task?.agendaJson ?? null);
+                if (agenda.length === 0) {
+                  return null;
+                }
+                return (
+                  <section style={railSectionStyle}>
+                    <div style={railHeadStyle}>
+                      <span>AGENDA</span>
+                      <span style={railHeadMutedStyle}>
+                        {agenda.length} milestone{agenda.length === 1 ? '' : 's'}
+                      </span>
+                    </div>
+                    <AgendaList agenda={agenda} />
+                  </section>
+                );
+              })()}
 
               <section style={railSectionStyle}>
                 <div style={railHeadStyle}>

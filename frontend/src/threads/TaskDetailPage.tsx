@@ -34,6 +34,7 @@ import { useInspectorHotkey } from '../inspector/useInspectorHotkey';
 import { WorkModelPill } from '../workspace/WorkModelPill';
 import { ConfirmDialog } from '../workspace/ConfirmDialog';
 import { useThreadTasks } from './useThreadTasks';
+import { useThreadStream } from './useThreadStream';
 import { usePromptHistory } from './usePromptHistory';
 import { AskQuestionCard } from './AskQuestionCard';
 import { findPendingAskQuestion } from './askQuestion';
@@ -195,6 +196,12 @@ export default function TaskDetailPage({
       setError(e instanceof Error ? e.message : String(e));
     }
   }, [threadId, taskId]);
+
+  // Live token streaming: accumulate the agent's assistant-text deltas
+  // off the per-thread SSE channel so the response types in instead of
+  // landing all at once on the next poll. loadMessages is the canonical
+  // refresh the hook debounces to once a turn boundary lands.
+  const { liveText } = useThreadStream(threadId, thread?.status, loadMessages);
 
   const loadOlderMessages = useCallback(async () => {
     if (loadedFromSeq === null || loadingOlder) return;
@@ -867,6 +874,7 @@ export default function TaskDetailPage({
                       taskSeq={taskSeq}
                       baseBranch={task?.baseBranch ?? null}
                       userInitials={userInitials}
+                      liveText={liveText}
                       isInFlight={thread?.status === 'RUNNING' || sending}
                       onInterrupt={() => { void onInterrupt(); }}
                       interrupting={interrupting}

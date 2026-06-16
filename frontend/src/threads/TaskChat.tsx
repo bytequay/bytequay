@@ -36,6 +36,11 @@ type Props = {
    *  the user has a visible "the agent is working" cue while the CLI
    *  subprocess spawns + spins up. */
   isInFlight?: boolean;
+  /** Live, not-yet-persisted assistant text streamed off the SSE channel.
+   *  When non-empty it renders as a growing in-flight bubble (token-by-
+   *  token), replacing the "working…" pulse until the durable message
+   *  lands and the parent clears it. */
+  liveText?: string;
   /** Fired from the Stop button in the working… card. Parent owns
    *  the interrupt RPC + optimistic state. */
   onInterrupt?: () => void;
@@ -64,9 +69,10 @@ type Props = {
  */
 export default function TaskChat({
   messages, taskSeq, baseBranch, userInitials, isInFlight = false,
-  onInterrupt, interrupting = false, outerRef,
+  liveText = '', onInterrupt, interrupting = false, outerRef,
   canLoadOlder = false, loadingOlder = false, onLoadOlder,
 }: Props) {
+  const streaming = liveText.length > 0;
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const assignScrollRef = (el: HTMLDivElement | null) => {
     scrollRef.current = el;
@@ -95,9 +101,10 @@ export default function TaskChat({
       beforeLoadRef.current = null;
       return;
     }
-    // Default stream-in behaviour: stick to the bottom.
+    // Default stream-in behaviour: stick to the bottom — also as the
+    // live streaming bubble grows (deltas don't change messages.length).
     el.scrollTop = el.scrollHeight;
-  }, [messages.length]);
+  }, [messages.length, liveText]);
 
   // Pair tool_call rows with their matching tool_result so the
   // renderer can show the result inline on the card.
@@ -163,7 +170,8 @@ export default function TaskChat({
         }
         return <SystemNote key={`sys-${i}`} text={item.text} />;
       })}
-      {isInFlight && (
+      {streaming && <StreamingAssistantBlock text={liveText} taskSeq={taskSeq} />}
+      {isInFlight && !streaming && (
         <div style={thinkingRowStyle}>
           <div style={claudeAvatarStyle}>C</div>
           <div style={assistantColStyle}>
@@ -205,6 +213,11 @@ const thinkingKeyframes = `
 @keyframes bq-thinking-pulse {
   0%, 80%, 100% { transform: scale(0.4); opacity: 0.4; }
   40%           { transform: scale(1);   opacity: 1; }
+}
+@keyframes bq-stream-cursor {
+  0%, 45% { opacity: 1; }
+  50%, 95% { opacity: 0; }
+  100% { opacity: 1; }
 }
 `;
 
@@ -400,6 +413,32 @@ function AssistantBlock({
           style={assistantBlockStyle}
           dangerouslySetInnerHTML={{ __html: renderChatMarkdown(text) }}
         />
+      </div>
+    </div>
+  );
+}
+
+/** The in-flight assistant bubble while text streams in. Mirrors
+ *  {@link AssistantBlock} but reads from the live SSE buffer (no durable
+ *  message / timestamp yet) and trails a blinking cursor. The parent
+ *  clears {@code liveText} once the assembled message lands, at which
+ *  point the normal AssistantBlock takes over. */
+function StreamingAssistantBlock({ text, taskSeq }: { text: string; taskSeq: number | null }) {
+  return (
+    <div style={assistantRowStyle}>
+      <div style={claudeAvatarStyle}>C</div>
+      <div style={assistantColStyle}>
+        <div style={assistantHeaderStyle}>
+          <span style={assistantNameStyle}>Claude</span>
+          {taskSeq !== null && (
+            <span style={assistantMetaStyle}>Task {taskSeq}</span>
+          )}
+          <span style={assistantMetaStyle}>· streaming</span>
+        </div>
+        <div className="bq-chat-md" style={assistantBlockStyle}>
+          <span dangerouslySetInnerHTML={{ __html: renderChatMarkdown(text) }} />
+          <span style={streamingCursorStyle} aria-hidden>▍</span>
+        </div>
       </div>
     </div>
   );
@@ -738,6 +777,13 @@ const assistantBlockStyle: React.CSSProperties = {
   // the column wider.
   overflowWrap: 'anywhere',
   // line-height comes from .bq-chat-md.
+};
+
+const streamingCursorStyle: React.CSSProperties = {
+  display: 'inline-block',
+  marginLeft: 1,
+  color: 'var(--text-3)',
+  animation: 'bq-stream-cursor 1s step-end infinite',
 };
 
 const paragraphStyle: React.CSSProperties = {

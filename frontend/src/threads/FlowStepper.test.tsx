@@ -34,6 +34,17 @@ describe('FlowStepper', () => {
     const nodes = container.querySelectorAll('li[data-state]');
     expect(nodes[4].getAttribute('data-state')).toBe('active');
   });
+
+  it('marks the terminal Done node as done, not active, when completed', () => {
+    const { container } = render(<FlowStepper currentPhase="COMPLETED" />);
+    const nodes = container.querySelectorAll('li[data-state]');
+    // Every node, including the final "Done", reads done (green) — a
+    // finished task must not show its last node mid-progress (amber).
+    expect(nodes[7].getAttribute('data-state')).toBe('done');
+    expect(
+      Array.from(nodes).every(n => n.getAttribute('data-state') === 'done'),
+    ).toBe(true);
+  });
 });
 
 describe('PhaseChip', () => {

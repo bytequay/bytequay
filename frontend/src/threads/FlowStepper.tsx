@@ -25,7 +25,15 @@ export function FlowStepper({ currentPhase }: { currentPhase: TaskPhaseDto }) {
   return (
     <ol style={listStyle} aria-label="task flow">
       {FLOW_STEPPER_NODES.map((label, i) => {
-        const state = i < current ? 'done' : i === current ? 'active' : 'pending';
+        // The terminal "Done" node is only ever current when the task has
+        // COMPLETED, so render it as done (green), not active (amber) — a
+        // finished task shouldn't show its last node mid-progress.
+        const isLast = i === FLOW_STEPPER_NODES.length - 1;
+        const state = i < current
+          ? 'done'
+          : i === current
+            ? (isLast ? 'done' : 'active')
+            : 'pending';
         return (
           <li key={label} style={nodeStyle} data-state={state}>
             <span aria-hidden style={dotStyle(state)} />

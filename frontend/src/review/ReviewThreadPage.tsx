@@ -136,6 +136,8 @@ function ReviewThreadPage({ threadId, onBack }: Props) {
 
   return (
     <section style={pageStyle}>
+      <div style={meshBgStyle} aria-hidden />
+      <div style={noiseBgStyle} aria-hidden />
       <TopBar
         detail={detail}
         onBack={onBack}
@@ -1405,15 +1407,38 @@ function kindLabel(kind: ReviewParticipantDto['kind']): string {
 }
 
 const pageStyle: React.CSSProperties = {
+  position: 'relative',
+  zIndex: 1,
   height: '100%',
   display: 'flex',
   flexDirection: 'column',
   overflow: 'hidden',
   padding: '20px 24px',
-  background: 'var(--bg-base)',
+  background: 'transparent',
   margin: '0 auto',
   maxWidth: 1280,
   boxSizing: 'border-box',
+};
+
+// Atmospheric backdrop: a soft multi-hue mesh + a faint noise overlay
+// behind the glass surfaces, so the panel reads as a polished surface
+// rather than a flat wireframe.
+const meshBgStyle: React.CSSProperties = {
+  position: 'fixed', inset: 0, zIndex: 0, pointerEvents: 'none',
+  background:
+    'radial-gradient(40% 50% at 8% 12%, rgba(124,92,255,0.18), transparent 70%),'
+    + 'radial-gradient(38% 46% at 92% 6%, rgba(56,189,248,0.14), transparent 70%),'
+    + 'radial-gradient(45% 55% at 84% 94%, rgba(244,114,182,0.12), transparent 70%),'
+    + 'radial-gradient(40% 50% at 12% 92%, rgba(52,211,153,0.10), transparent 70%),'
+    + '#fafafe',
+};
+const noiseBgStyle: React.CSSProperties = {
+  position: 'fixed', inset: 0, zIndex: 0, pointerEvents: 'none',
+  opacity: 0.045, mixBlendMode: 'overlay',
+  backgroundImage: "url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg'"
+    + " width='220' height='220'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise'"
+    + " baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect"
+    + " width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E\")",
 };
 
 const spawnSectionStyle: React.CSSProperties = {
@@ -1445,10 +1470,12 @@ const topBarStyle: React.CSSProperties = {
   gap: 12,
   marginBottom: 16,
   padding: '10px 14px',
-  background: 'rgba(255,255,255,0.85)',
-  border: '1px solid var(--border)',
+  background: 'rgba(255,255,255,0.62)',
+  backdropFilter: 'blur(15px) saturate(128%)',
+  WebkitBackdropFilter: 'blur(15px) saturate(128%)',
+  border: '1px solid rgba(255,255,255,0.7)',
   borderRadius: 12,
-  boxShadow: '0 2px 8px rgba(0,0,0,0.04)',
+  boxShadow: '0 1px 2px rgba(15,23,42,0.04), 0 10px 34px rgba(99,102,241,0.07)',
 };
 
 const backBtnStyle: React.CSSProperties = {
@@ -1518,6 +1545,10 @@ const centerColStyle: React.CSSProperties = {
   gap: 10,
   minWidth: 0,
   minHeight: 0,
+  // Soft white surface so the message bubbles sit on it cleanly against
+  // the mesh backdrop.
+  background: 'rgba(255,255,255,0.34)',
+  borderRadius: 12,
 };
 
 const rightRailStyle: React.CSSProperties = {
@@ -1749,9 +1780,12 @@ const metaStyle: React.CSSProperties = {
 const cardStyle: React.CSSProperties = {
   marginBottom: 14,
   padding: 16,
-  background: 'var(--bg-1)',
-  border: '1px solid var(--border)',
-  borderRadius: 8,
+  background: 'rgba(255,255,255,0.6)',
+  backdropFilter: 'blur(14px) saturate(125%)',
+  WebkitBackdropFilter: 'blur(14px) saturate(125%)',
+  border: '1px solid rgba(255,255,255,0.7)',
+  borderRadius: 12,
+  boxShadow: '0 1px 2px rgba(15,23,42,0.04), 0 6px 20px rgba(99,102,241,0.05)',
 };
 
 const cardTitleStyle: React.CSSProperties = {

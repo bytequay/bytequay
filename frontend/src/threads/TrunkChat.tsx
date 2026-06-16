@@ -447,6 +447,10 @@ function TaskLaunchCard({
 }) {
   const branch = task.branchName ?? '—';
   const pr = task.prNumber !== null ? ` · PR #${task.prNumber}` : '';
+  // A COMPLETED dev-lifecycle phase is terminal even when the runtime
+  // status lags (e.g. IDLE after a remote merge), so the launch card
+  // reads "SHIPPED" rather than a stale "RUNNING".
+  const status = task.phase === 'COMPLETED' ? 'COMPLETED' : task.status;
   return (
     <div style={launchRowStyle}>
       <div style={launchCardStyle} onClick={onOpen} role="button" tabIndex={0}
@@ -458,8 +462,8 @@ function TaskLaunchCard({
           </div>
           <div style={launchSubStyle}>{branch}{pr}</div>
         </div>
-        <span style={launchPillStyle(isForeground, task.status)}>
-          {launchLabel(isForeground, task.status)} →
+        <span style={launchPillStyle(isForeground, status)}>
+          {launchLabel(isForeground, status)} →
         </span>
       </div>
     </div>

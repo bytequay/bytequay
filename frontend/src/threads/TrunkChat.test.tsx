@@ -14,7 +14,20 @@
 import { cleanup, render, screen } from '@testing-library/react';
 import { afterEach, describe, expect, it } from 'vitest';
 import TrunkChat from './TrunkChat';
-import type { ThreadMessageDto } from '../types';
+import type { ThreadMessageDto, WorkUnitTaskDto } from '../types';
+
+function launchTask(over: Partial<WorkUnitTaskDto>): WorkUnitTaskDto {
+  return {
+    id: 'k2',
+    seq: 2,
+    branchName: 'dev/ws-test-trino.k2',
+    prNumber: 29897,
+    status: 'IDLE',
+    phase: 'IMPLEMENTING',
+    createdAt: new Date(Date.UTC(2026, 5, 14, 12, 0, 0)).toISOString(),
+    ...over,
+  } as unknown as WorkUnitTaskDto;
+}
 
 let seq = 0;
 function msg(role: string, type: string, content: object): ThreadMessageDto {
@@ -91,5 +104,20 @@ describe('TrunkChat tool-activity badge', () => {
     ]);
 
     expect(screen.queryByText(/tool call/)).toBeNull();
+  });
+
+  it('reads a COMPLETED-phase launch card as SHIPPED even when status lags', () => {
+    render(
+      <TrunkChat
+        messages={[]}
+        tasks={[launchTask({ phase: 'COMPLETED', status: 'IDLE' })]}
+        foregroundTaskId={null}
+        userInitials="CJ"
+        onOpenTask={() => {}}
+      />,
+    );
+    // phase COMPLETED wins over the lagging IDLE status.
+    expect(screen.getByText(/SHIPPED/)).toBeTruthy();
+    expect(screen.queryByText(/IDLE/)).toBeNull();
   });
 });

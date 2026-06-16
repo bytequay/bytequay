@@ -12,7 +12,9 @@
  * limitations under the License.
  */
 import { Fragment, useCallback, useEffect, useState } from 'react';
-import type { MilestoneSummaryDto, NextPossibleDto, TaskTraceDto, TraceEventDto } from '../types';
+import type {
+  LinkedActivePrDto, MilestoneSummaryDto, NextPossibleDto, TaskTraceDto, TraceEventDto,
+} from '../types';
 
 type Mode = 'collapsed' | 'expanded';
 
@@ -35,6 +37,10 @@ export function FlowStepper({ taskId }: { taskId: string }) {
       {mode === 'collapsed'
         ? <MilestoneBuckets summary={data.milestoneSummary} />
         : <SequentialNodes trace={data} />}
+      {data.currentPhase !== null && WAIT_PHASES.has(data.currentPhase)
+        && data.linkedActivePr !== null && (
+        <ParallelStatus pr={data.linkedActivePr} />
+      )}
       <NextLine options={data.nextPossible} />
       <ModeToggle mode={mode} hiddenCount={data.events.length} onToggle={toggleMode} />
       {mode === 'expanded' && <TracePanel events={data.events} />}
@@ -209,6 +215,68 @@ function SequentialNodes({ trace }: { trace: TaskTraceDto }) {
       ))}
     </div>
   );
+}
+
+// ── parallel sub-status block (shared; only in wait-states) ───────────
+
+const WAIT_PHASES = new Set(['PUSHED_AWAITING_CI', 'AWAITING_READY', 'AWAITING_REMOTE_REVIEW']);
+
+type AxisTone = 'live' | 'good' | 'warn' | 'muted';
+
+function ParallelStatus({ pr }: { pr: LinkedActivePrDto }) {
+  const ci = ciAxis(pr.ciStatus);
+  const reviewers = reviewersAxis(pr);
+  return (
+    <div style={parStatusStyle} data-testid="parallel-status">
+      <div style={parHeadStyle}>
+        <span aria-hidden>⊞</span>
+        Wait on PR · parallel statuses
+        <span style={parWhyStyle}>whichever event fires first drives the next transition</span>
+      </div>
+      <div style={parPillsStyle}>
+        <span style={parLblStyle}>CI</span>
+        <Axis tone={ci.tone} glyph={ci.glyph} text={ci.text} />
+        <span style={parLblStyle}>Reviewers</span>
+        <Axis tone={reviewers.tone} glyph={reviewers.glyph} text={reviewers.text} />
+        <span style={parLblStyle}>PR state</span>
+        <Axis tone={pr.draft ? 'muted' : 'good'} glyph={pr.draft ? '○' : '✓'}
+          text={pr.draft ? 'draft' : 'ready'} />
+        <span style={parLblStyle}>Approvals</span>
+        <Axis tone={pr.approvalCount > 0 ? 'good' : 'muted'} glyph={pr.approvalCount > 0 ? '✓' : '○'}
+          text={`${pr.approvalCount} approval${pr.approvalCount === 1 ? '' : 's'}`} />
+      </div>
+    </div>
+  );
+}
+
+function Axis({ tone, glyph, text }: { tone: AxisTone; glyph: string; text: string }) {
+  return (
+    <span style={axisPillStyle(tone)}>
+      <span aria-hidden style={{ lineHeight: 1 }}>{glyph}</span>{text}
+    </span>
+  );
+}
+
+function ciAxis(status: LinkedActivePrDto['ciStatus']): { tone: AxisTone; glyph: string; text: string } {
+  switch (status) {
+    case 'PASSING': return { tone: 'good', glyph: '✓', text: 'passing' };
+    case 'FAILING': return { tone: 'warn', glyph: '✕', text: 'failing' };
+    case 'PENDING': return { tone: 'live', glyph: '⏳', text: 'running' };
+    default: return { tone: 'muted', glyph: '○', text: 'no CI gate' };
+  }
+}
+
+function reviewersAxis(pr: LinkedActivePrDto): { tone: AxisTone; glyph: string; text: string } {
+  if (pr.changesRequestedCount > 0) {
+    return { tone: 'warn', glyph: '↺', text: 'changes requested' };
+  }
+  if (pr.pendingReviewerCount > 0) {
+    return { tone: 'live', glyph: '◷', text: `${pr.pendingReviewerCount} awaiting` };
+  }
+  if (pr.requestedReviewerCount > 0) {
+    return { tone: 'muted', glyph: '◷', text: 'requested' };
+  }
+  return { tone: 'muted', glyph: '○', text: 'none requested' };
 }
 
 // ── next-possible line (shared across both modes) ─────────────────────
@@ -419,6 +487,47 @@ function connectorStyle(state: ConnState): React.CSSProperties {
 }
 
 const monoFont = '"SF Mono", Menlo, Consolas, monospace';
+
+const parStatusStyle: React.CSSProperties = {
+  marginTop: 14, padding: '11px 14px', borderRadius: 13,
+  background: 'rgba(255,255,255,0.5)', border: '1px solid rgba(0,0,0,0.08)',
+};
+const parHeadStyle: React.CSSProperties = {
+  display: 'flex', alignItems: 'center', gap: 9, marginBottom: 9,
+  fontSize: 10.5, fontWeight: 800, color: '#92400e',
+  letterSpacing: '0.04em', textTransform: 'uppercase',
+};
+const parWhyStyle: React.CSSProperties = {
+  marginLeft: 'auto', fontSize: 10, fontWeight: 500, color: 'var(--text-3)',
+  textTransform: 'none', letterSpacing: 0, fontStyle: 'italic',
+};
+const parPillsStyle: React.CSSProperties = {
+  display: 'grid', gridTemplateColumns: '72px 1fr 72px 1fr', gap: 9, alignItems: 'center',
+};
+const parLblStyle: React.CSSProperties = {
+  fontSize: 10, fontWeight: 800, color: 'var(--text-4)',
+  textTransform: 'uppercase', letterSpacing: '0.05em',
+};
+
+function axisPillStyle(tone: AxisTone): React.CSSProperties {
+  const base: React.CSSProperties = {
+    display: 'flex', alignItems: 'center', gap: 7, padding: '6px 11px',
+    borderRadius: 10, fontSize: 11.5, border: '1px solid',
+  };
+  switch (tone) {
+    case 'good':
+      return { ...base, background: 'rgba(16,185,129,0.06)', borderColor: '#86efac', color: '#047857' };
+    case 'warn':
+      return { ...base, background: 'rgba(220,38,38,0.06)', borderColor: '#fca5a5', color: '#b91c1c' };
+    case 'live':
+      return { ...base, background: 'rgba(245,158,11,0.06)', borderColor: '#fcd34d', color: '#92400e' };
+    default:
+      return {
+        ...base, background: 'rgba(0,0,0,0.03)', borderColor: 'rgba(0,0,0,0.08)',
+        color: 'var(--text-3)', fontStyle: 'italic',
+      };
+  }
+}
 
 const nextLineStyle: React.CSSProperties = {
   display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap',

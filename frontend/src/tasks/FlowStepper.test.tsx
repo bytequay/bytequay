@@ -49,6 +49,7 @@ const TRACE: TaskTraceDto = {
     { trigger: 'AWAITING_REMOTE_REVIEW', label: 'Remote review', cond: 'on CI green / ready' },
     { trigger: 'COMPLETED', label: 'Merged', cond: 'PR merged externally' },
   ],
+  linkedActivePr: null,
 };
 
 function stubBridge(trace: TaskTraceDto) {
@@ -98,6 +99,32 @@ describe('FlowStepper collapsed view', () => {
     expect(screen.getByText('Remote review')).toBeTruthy();
     expect(screen.getByText('Merged')).toBeTruthy();
     expect(screen.getByText(/PR merged externally/)).toBeTruthy();
+  });
+});
+
+describe('FlowStepper parallel sub-status', () => {
+  it('hides the sub-status when no linked PR is present', async () => {
+    stubBridge(TRACE); // linkedActivePr null, even though phase is a wait-state
+    render(<FlowStepper taskId="t1.k1" />);
+    await waitFor(() => expect(screen.getByText('Wait on PR')).toBeTruthy());
+    expect(screen.queryByTestId('parallel-status')).toBeNull();
+  });
+
+  it('renders the four wait-state axes when a linked PR is present', async () => {
+    stubBridge({
+      ...TRACE,
+      linkedActivePr: {
+        prNumber: 29897, ciStatus: 'PENDING', draft: true, approvalCount: 0,
+        changesRequestedCount: 0, pendingReviewerCount: 1, requestedReviewerCount: 1,
+      },
+    });
+    render(<FlowStepper taskId="t1.k1" />);
+    await waitFor(() => expect(screen.getByTestId('parallel-status')).toBeTruthy());
+    // CI running, PR draft, 1 reviewer awaiting, 0 approvals.
+    expect(screen.getByText('running')).toBeTruthy();
+    expect(screen.getByText('draft')).toBeTruthy();
+    expect(screen.getByText('1 awaiting')).toBeTruthy();
+    expect(screen.getByText('0 approvals')).toBeTruthy();
   });
 });
 

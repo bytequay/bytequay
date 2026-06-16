@@ -17,11 +17,14 @@ import com.bytequay.app.beans.trace.MilestoneSummary;
 import com.bytequay.app.beans.trace.NextPossible;
 import com.bytequay.app.beans.trace.TaskTraceResponse;
 import com.bytequay.app.domain.Actor;
+import com.bytequay.app.domain.PullRequestDetail;
+import com.bytequay.app.domain.PullRequestDetail.CiStatus;
 import com.bytequay.app.domain.Task;
 import com.bytequay.app.domain.TaskPhase;
 import com.bytequay.app.domain.TaskPhaseEvent;
 import com.bytequay.app.domain.TaskStatus;
 import com.bytequay.app.repository.TaskStore;
+import com.bytequay.app.service.pr.PullRequestService;
 import org.junit.jupiter.api.Test;
 
 import java.time.Instant;
@@ -31,12 +34,14 @@ import java.util.Optional;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 class TestTaskTraceService
 {
     private final TaskStore taskStore = mock(TaskStore.class);
-    private final TaskTraceService service = new TaskTraceService(taskStore);
+    private final PullRequestService pullRequests = mock(PullRequestService.class);
+    private final TaskTraceService service = new TaskTraceService(taskStore, pullRequests);
 
     @Test
     void emptyForAnUnknownTask()
@@ -136,6 +141,44 @@ class TestTaskTraceService
         assertThat(active(trace)).isEqualTo("MERGE");
     }
 
+    @Test
+    void surfacesTheLinkedPrInAWaitState()
+    {
+        when(taskStore.findTaskById("t1.k1")).thenReturn(
+                Optional.of(task(TaskPhase.PUSHED_AWAITING_CI, "trinodb/trino#29897")));
+        when(taskStore.listPhaseEvents("t1.k1")).thenReturn(events(
+                null, TaskPhase.AWAITING_PUSH,
+                TaskPhase.AWAITING_PUSH, TaskPhase.PUSHED_AWAITING_CI));
+        PullRequestDetail pr = mock(PullRequestDetail.class);
+        when(pr.number()).thenReturn(29897);
+        when(pr.ciStatus()).thenReturn(CiStatus.PENDING);
+        when(pr.draft()).thenReturn(true);
+        when(pr.approvalCount()).thenReturn(0);
+        when(pr.changesRequestedCount()).thenReturn(0);
+        when(pr.pendingReviewerCount()).thenReturn(1);
+        when(pr.requestedReviewers()).thenReturn(List.of("alice"));
+        when(pullRequests.getPullRequestDetail("trinodb/trino", 29897)).thenReturn(pr);
+
+        var active = service.trace("t1.k1").orElseThrow().linkedActivePr();
+        assertThat(active).isNotNull();
+        assertThat(active.prNumber()).isEqualTo(29897);
+        assertThat(active.ciStatus()).isEqualTo("PENDING");
+        assertThat(active.draft()).isTrue();
+        assertThat(active.pendingReviewerCount()).isEqualTo(1);
+        assertThat(active.requestedReviewerCount()).isEqualTo(1);
+    }
+
+    @Test
+    void doesNotFetchTheLinkedPrOutsideAWaitState()
+    {
+        when(taskStore.findTaskById("t1.k1")).thenReturn(
+                Optional.of(task(TaskPhase.IMPLEMENTING, "trinodb/trino#29897")));
+        when(taskStore.listPhaseEvents("t1.k1")).thenReturn(events(null, TaskPhase.IMPLEMENTING));
+
+        assertThat(service.trace("t1.k1").orElseThrow().linkedActivePr()).isNull();
+        verifyNoInteractions(pullRequests);
+    }
+
     // ── helpers ──────────────────────────────────────────────────────
 
     private void stub(TaskPhase phase, List<TaskPhaseEvent> log)
@@ -176,9 +219,14 @@ class TestTaskTraceService
 
     private static Task task(TaskPhase phase)
     {
+        return task(phase, null);
+    }
+
+    private static Task task(TaskPhase phase, String linkedPrRef)
+    {
         Instant now = Instant.ofEpochMilli(1_700_000_000_000L);
         return new Task("t1.k1", "t1", 1L, TaskStatus.IN_REVIEW, "dev/x", "/wt", "main", "/clone",
                 null, null, null, null, null, "DEVELOP", null, null, 0L, 0L, 0L, null,
-                now, null, null, null, null, null, null, phase, null, 0, null);
+                now, null, null, null, null, null, null, phase, null, 0, linkedPrRef);
     }
 }

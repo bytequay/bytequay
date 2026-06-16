@@ -13,22 +13,29 @@
  */
 package com.bytequay.app.service.threads;
 
+import com.bytequay.app.beans.trace.LinkedActivePr;
 import com.bytequay.app.beans.trace.MilestoneSummary;
 import com.bytequay.app.beans.trace.NextPossible;
 import com.bytequay.app.beans.trace.TaskTraceResponse;
 import com.bytequay.app.beans.trace.TraceEvent;
+import com.bytequay.app.domain.PullRequestDetail;
 import com.bytequay.app.domain.Task;
 import com.bytequay.app.domain.TaskMilestone;
 import com.bytequay.app.domain.TaskPhase;
 import com.bytequay.app.domain.TaskPhaseEvent;
 import com.bytequay.app.repository.TaskStore;
+import com.bytequay.app.service.pr.PullRequestService;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.stereotype.Service;
 
 import java.util.ArrayList;
 import java.util.EnumMap;
+import java.util.EnumSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
 
 import static java.util.Objects.requireNonNull;
 
@@ -41,11 +48,23 @@ import static java.util.Objects.requireNonNull;
 @Service
 public class TaskTraceService
 {
-    private final TaskStore taskStore;
+    private static final Logger log = LoggerFactory.getLogger(TaskTraceService.class);
 
-    public TaskTraceService(TaskStore taskStore)
+    /** Phases whose active bucket is a wait on the PR — the only phases
+     *  that surface the parallel sub-status block, so the only ones for
+     *  which we fetch the linked PR. */
+    private static final Set<TaskPhase> WAIT_STATES = EnumSet.of(
+            TaskPhase.PUSHED_AWAITING_CI,
+            TaskPhase.AWAITING_READY,
+            TaskPhase.AWAITING_REMOTE_REVIEW);
+
+    private final TaskStore taskStore;
+    private final PullRequestService pullRequests;
+
+    public TaskTraceService(TaskStore taskStore, PullRequestService pullRequests)
     {
         this.taskStore = requireNonNull(taskStore, "taskStore is null");
+        this.pullRequests = requireNonNull(pullRequests, "pullRequests is null");
     }
 
     public Optional<TaskTraceResponse> trace(String taskId)
@@ -65,7 +84,49 @@ public class TaskTraceService
                 currentMilestone == null ? null : currentMilestone.name(),
                 buildEvents(events),
                 buildMilestoneSummary(events, currentMilestone),
-                buildNextPossible(currentPhase)));
+                buildNextPossible(currentPhase),
+                linkedActivePr(task, currentPhase)));
+    }
+
+    /**
+     * Live PR axes — only while the phase is a wait-state and the task has
+     * a linked PR. The PR fetch is ETag/snapshot-cached, so the page's 3s
+     * poll doesn't hammer GitHub. Best-effort: any failure yields null and
+     * the sub-status block simply doesn't render.
+     */
+    private LinkedActivePr linkedActivePr(Task task, TaskPhase currentPhase)
+    {
+        if (currentPhase == null || !WAIT_STATES.contains(currentPhase) || task.linkedPrRef() == null) {
+            return null;
+        }
+        String ref = task.linkedPrRef();
+        int hash = ref.lastIndexOf('#');
+        if (hash <= 0 || hash == ref.length() - 1) {
+            return null;
+        }
+        String repo = ref.substring(0, hash);
+        int number;
+        try {
+            number = Integer.parseInt(ref.substring(hash + 1).trim());
+        }
+        catch (NumberFormatException e) {
+            return null;
+        }
+        try {
+            PullRequestDetail pr = pullRequests.getPullRequestDetail(repo, number);
+            return new LinkedActivePr(
+                    pr.number(),
+                    pr.ciStatus() == null ? "NONE" : pr.ciStatus().name(),
+                    pr.draft(),
+                    pr.approvalCount(),
+                    pr.changesRequestedCount(),
+                    pr.pendingReviewerCount(),
+                    pr.requestedReviewers() == null ? 0 : pr.requestedReviewers().size());
+        }
+        catch (RuntimeException e) {
+            log.debug("linked PR fetch for trace of task {} failed: {}", task.id(), e.getMessage());
+            return null;
+        }
     }
 
     private static List<TraceEvent> buildEvents(List<TaskPhaseEvent> events)

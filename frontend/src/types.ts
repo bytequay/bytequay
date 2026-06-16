@@ -1834,6 +1834,17 @@ export type NextPossibleDto = {
   cond: string;
 };
 
+/** Live PR axes for the wait-state sub-status block. */
+export type LinkedActivePrDto = {
+  prNumber: number;
+  ciStatus: 'PASSING' | 'FAILING' | 'PENDING' | 'NONE';
+  draft: boolean;
+  approvalCount: number;
+  changesRequestedCount: number;
+  pendingReviewerCount: number;
+  requestedReviewerCount: number;
+};
+
 /** The flow-display read model for a task. */
 export type TaskTraceDto = {
   taskId: string;
@@ -1842,6 +1853,7 @@ export type TaskTraceDto = {
   events: TraceEventDto[];
   milestoneSummary: MilestoneSummaryDto[];
   nextPossible: NextPossibleDto[];
+  linkedActivePr: LinkedActivePrDto | null;
 };
 
 /** How a queued task's branch is cut (backend BranchBase). Serialised

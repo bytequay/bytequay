@@ -23,6 +23,7 @@ import java.util.List;
  *
  * @param currentPhase     null only for a task with no phase yet
  * @param currentMilestone milestone the current phase rolls up to, or null
+ * @param linkedActivePr   live PR axes while in a wait-state, else null
  */
 public record TaskTraceResponse(
         String taskId,
@@ -30,6 +31,7 @@ public record TaskTraceResponse(
         String currentMilestone,
         List<TraceEvent> events,
         List<MilestoneSummary> milestoneSummary,
-        List<NextPossible> nextPossible)
+        List<NextPossible> nextPossible,
+        LinkedActivePr linkedActivePr)
 {
 }

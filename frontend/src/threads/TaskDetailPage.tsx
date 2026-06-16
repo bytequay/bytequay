@@ -39,7 +39,7 @@ import { findPendingAskQuestion } from './askQuestion';
 import { useAnimatedNumber } from './useAnimatedNumber';
 import { QueuedTaskView } from './QueuedTaskView';
 import { PhaseChip } from './PhaseChip';
-import { FlowStepper } from '../tasks/FlowStepper';
+import { FlowDetail, PhaseStrip, useLocalStorageMode, useTaskTrace } from '../tasks/FlowStepper';
 import { AgendaList, parseAgenda } from '../tasks/AgendaList';
 import { isReconcilerDriven } from './taskPhase';
 
@@ -419,6 +419,13 @@ export default function TaskDetailPage({
   const taskPr = task?.prNumber ?? null;
   const taskPrIsDraft = (task?.prState ?? null) === 'draft';
 
+  // The phase flow is split across two slots: the compact strip rides in
+  // the header bar (reclaiming its empty centre), and the expanded
+  // timeline detail drops below it on toggle. Both share one trace fetch +
+  // one sticky mode, so the strip and detail never disagree.
+  const flowTrace = useTaskTrace(task?.id ?? '');
+  const [flowMode, toggleFlowMode] = useLocalStorageMode(task?.id ?? '');
+
   // Mark the task's draft PR ready-for-review on GitHub, in place — the
   // same call the PR detail page makes, surfaced here so a task parked at
   // AWAITING_READY doesn't force a detour to the PR page. The lifecycle
@@ -636,7 +643,14 @@ export default function TaskDetailPage({
           {isTerminal && task !== null && (
             <span style={termHeaderStatusStyle}>{task.status.toLowerCase()}</span>
           )}
-          <div style={headerSpacerStyle} />
+          <div style={headerFlowSlotStyle}>
+            {!isTerminal && !isDiff && task !== null && flowTrace.data !== null && (
+              <PhaseStrip
+                trace={flowTrace.data}
+                onExpand={toggleFlowMode}
+                expanded={flowMode === 'expanded'} />
+            )}
+          </div>
           {isTerminal && (
             <span style={termCtxBadgeStyle}>
               {thread?.model ?? 'claude'}
@@ -787,9 +801,13 @@ export default function TaskDetailPage({
           </div>
         )}
 
-        {!isTerminal && !isDiff && task !== null && (
+        {!isTerminal && !isDiff && task !== null && flowMode === 'expanded'
+          && flowTrace.data !== null && (
           <div style={flowBandStyle}>
-            <FlowStepper taskId={task.id} />
+            <FlowDetail
+              trace={flowTrace.data}
+              hiddenCount={flowTrace.data.events.length}
+              onToggle={toggleFlowMode} />
           </div>
         )}
 
@@ -2501,7 +2519,12 @@ const crumbThreadBtnStyle: React.CSSProperties = {
   maxWidth: 280,
 };
 
-const headerSpacerStyle: React.CSSProperties = { flex: 1 };
+// Holds the compact phase strip in the header bar's centre; doubles as
+// the flex spacer that pushes the right-side controls right when the
+// strip isn't shown (loading, diff, terminal mode).
+const headerFlowSlotStyle: React.CSSProperties = {
+  flex: 1, minWidth: 0, display: 'flex', alignItems: 'center', overflow: 'hidden',
+};
 
 function topDiffBtnStyle(active: boolean): React.CSSProperties {
   return {

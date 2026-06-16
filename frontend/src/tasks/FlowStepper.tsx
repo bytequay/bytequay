@@ -37,24 +37,38 @@ export function FlowStepper({ taskId }: { taskId: string }) {
   if (mode === 'collapsed') {
     return <PhaseStrip trace={data} onExpand={toggleMode} />;
   }
+  return <FlowDetail trace={data} hiddenCount={data.events.length} onToggle={toggleMode} />;
+}
+
+/** The expanded detail: sequential timeline + sub-status + next-line +
+ *  trace. Rendered below the strip when the user opens the timeline. */
+export function FlowDetail({ trace, hiddenCount, onToggle }: {
+  trace: TaskTraceDto;
+  hiddenCount: number;
+  onToggle: () => void;
+}) {
   return (
     <div style={flowStyle}>
-      <FlowHead trace={data} />
-      <SequentialNodes trace={data} />
-      {data.currentPhase !== null && WAIT_PHASES.has(data.currentPhase)
-        && data.linkedActivePr !== null && (
-        <ParallelStatus pr={data.linkedActivePr} enteredAt={waitEnteredAt(data)} />
+      <FlowHead trace={trace} />
+      <SequentialNodes trace={trace} />
+      {trace.currentPhase !== null && WAIT_PHASES.has(trace.currentPhase)
+        && trace.linkedActivePr !== null && (
+        <ParallelStatus pr={trace.linkedActivePr} enteredAt={waitEnteredAt(trace)} />
       )}
-      <NextLine options={data.nextPossible} />
-      <ModeToggle mode={mode} hiddenCount={data.events.length} onToggle={toggleMode} />
-      <TracePanel events={data.events} />
+      <NextLine options={trace.nextPossible} />
+      <ModeToggle mode="expanded" hiddenCount={hiddenCount} onToggle={onToggle} />
+      <TracePanel events={trace.events} />
     </div>
   );
 }
 
 // ── collapsed: one compact phase strip ────────────────────────────────
 
-function PhaseStrip({ trace, onExpand }: { trace: TaskTraceDto; onExpand: () => void }) {
+export function PhaseStrip({ trace, onExpand, expanded = false }: {
+  trace: TaskTraceDto;
+  onExpand: () => void;
+  expanded?: boolean;
+}) {
   // A settled task shows its journey as a one-line text trail (the stepper
   // is done), tinted green so a done task reads as done at a glance.
   if (trace.currentPhase === 'COMPLETED') {
@@ -65,7 +79,7 @@ function PhaseStrip({ trace, onExpand }: { trace: TaskTraceDto; onExpand: () => 
         <span style={doneBadgeStyle}>✓ Done</span>
         {trail !== '' && <span style={trailStyle}>{trail}</span>}
         <span style={{ flex: 1, minWidth: 0 }} />
-        <TimelineToggle onExpand={onExpand} />
+        <TimelineToggle onExpand={onExpand} expanded={expanded} />
       </div>
     );
   }
@@ -73,16 +87,16 @@ function PhaseStrip({ trace, onExpand }: { trace: TaskTraceDto; onExpand: () => 
     <div style={stripStyle} data-testid="phase-strip">
       <MilestoneBuckets summary={trace.milestoneSummary} onClick={onExpand} />
       <span style={stripContextStyle}>{phaseContext(trace)}</span>
-      <TimelineToggle onExpand={onExpand} />
+      <TimelineToggle onExpand={onExpand} expanded={expanded} />
     </div>
   );
 }
 
-function TimelineToggle({ onExpand }: { onExpand: () => void }) {
+function TimelineToggle({ onExpand, expanded = false }: { onExpand: () => void; expanded?: boolean }) {
   return (
     <button type="button" style={timelineBtnStyle} onClick={onExpand}
-      title="Expand the full sequential timeline">
-      ▾ Timeline
+      title={expanded ? 'Collapse the timeline' : 'Expand the full sequential timeline'}>
+      {expanded ? '▴' : '▾'} Timeline
     </button>
   );
 }
@@ -135,6 +149,10 @@ export function useTaskTrace(taskId: string): {
   const [error, setError] = useState<string | null>(null);
 
   const load = useCallback(async () => {
+    if (taskId === '') {
+      setData(null);
+      return;
+    }
     try {
       const trace = await window.bridge.getTaskTrace(taskId);
       setData(trace);
@@ -149,12 +167,12 @@ export function useTaskTrace(taskId: string): {
 
   const phase = data?.currentPhase ?? null;
   useEffect(() => {
-    if (phase !== null && TERMINAL_PHASES.has(phase)) {
+    if (taskId === '' || (phase !== null && TERMINAL_PHASES.has(phase))) {
       return;
     }
     const handle = window.setInterval(() => { void load(); }, 3000);
     return () => window.clearInterval(handle);
-  }, [phase, load]);
+  }, [taskId, phase, load]);
 
   return { data, error };
 }

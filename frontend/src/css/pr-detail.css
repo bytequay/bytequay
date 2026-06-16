@@ -143,6 +143,23 @@
   color: var(--text-1);
   background: var(--bg-card);
 }
+/* Linked-task chip on the PR header meta line — jumps back to the dev
+   task that produced this PR. */
+.prc-meta-task {
+  appearance: none;
+  margin-left: 8px;
+  padding: 1px 8px;
+  font-size: var(--font-size-xs);
+  font-weight: 600;
+  color: var(--accent, #0969da);
+  background: rgba(9, 105, 218, 0.08);
+  border: 1px solid rgba(9, 105, 218, 0.25);
+  border-radius: 999px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.prc-meta-task:hover:not(:disabled) { background: rgba(9, 105, 218, 0.15); }
+.prc-meta-task:disabled { opacity: 0.6; cursor: default; }
 /* Status pill in the PR detail header. Default = Open (green); the
    modifier classes below paint Merged purple, Closed red, Draft grey.
    Bigger + solid background than the rest of the meta strip so the

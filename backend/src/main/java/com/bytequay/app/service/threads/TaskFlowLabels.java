@@ -62,4 +62,50 @@ public final class TaskFlowLabels
     {
         return previousEvents.stream().noneMatch(e -> e.toPhase() == phase);
     }
+
+    /**
+     * Context-free node label for a phase — used by the next-possible line
+     * where there is no event history to distinguish a first visit from a
+     * repeat. Always returns the "first-visit" wording.
+     */
+    public static String nodeLabel(TaskPhase phase)
+    {
+        return switch (phase) {
+            case QUEUED -> "Queued";
+            case IMPLEMENTING -> "Implement";
+            case CI_FIXING -> "Fix CI";
+            case ADDRESSING_COMMENTS -> "Address";
+            case VALIDATING -> "Validate";
+            case INTERNAL_REVIEW -> "Review";
+            case AGENT_RE_REVIEW -> "Re-review";
+            case AWAITING_PUSH -> "Push";
+            case AWAITING_UPDATE_PUSH -> "Push update";
+            case PUSHED_AWAITING_CI -> "Wait CI";
+            case AWAITING_READY -> "Mark ready";
+            case AWAITING_REMOTE_REVIEW -> "Remote review";
+            case COMPLETED -> "Merged";
+            case NEEDS_ATTENTION -> "Parked";
+        };
+    }
+
+    /** Synthetic condition shown beside a next-possible node. */
+    public static String conditionFor(TaskPhase to)
+    {
+        return switch (to) {
+            case COMPLETED -> "PR merged externally";
+            case CI_FIXING -> "on CI red";
+            case AWAITING_REMOTE_REVIEW -> "on CI green / ready";
+            case AWAITING_READY -> "on CI green, still draft";
+            case ADDRESSING_COMMENTS -> "on new review comments";
+            case AWAITING_PUSH -> "on review clean";
+            case AWAITING_UPDATE_PUSH -> "on re-review clean";
+            case AGENT_RE_REVIEW -> "after addressing comments";
+            case INTERNAL_REVIEW -> "after validation";
+            case VALIDATING -> "after implementing";
+            case IMPLEMENTING -> "on slot open";
+            case PUSHED_AWAITING_CI -> "on push approved";
+            case NEEDS_ATTENTION -> "if blocked";
+            case QUEUED -> "queued";
+        };
+    }
 }

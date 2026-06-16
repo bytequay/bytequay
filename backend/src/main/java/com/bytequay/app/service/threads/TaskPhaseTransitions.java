@@ -17,6 +17,8 @@ import com.bytequay.app.domain.TaskPhase;
 
 import java.util.EnumMap;
 import java.util.EnumSet;
+import java.util.LinkedHashSet;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 
@@ -88,5 +90,22 @@ final class TaskPhaseTransitions
             return true;
         }
         return FORWARD.getOrDefault(from, Set.of()).contains(to);
+    }
+
+    /**
+     * Phases a non-terminal {@code from} could transition to next, for the
+     * next-possible line: its explicit forward edges, plus the universal
+     * "PR merged externally" escape to {@link TaskPhase#COMPLETED} appended
+     * last. {@link TaskPhase#NEEDS_ATTENTION} is omitted — it's a parked
+     * fallback, not a predicted next step. Empty for a terminal phase.
+     */
+    static List<TaskPhase> nextPhases(TaskPhase from)
+    {
+        if (from == TaskPhase.COMPLETED) {
+            return List.of();
+        }
+        LinkedHashSet<TaskPhase> next = new LinkedHashSet<>(FORWARD.getOrDefault(from, Set.of()));
+        next.add(TaskPhase.COMPLETED);
+        return List.copyOf(next);
     }
 }

@@ -31,21 +31,79 @@ export function FlowStepper({ taskId }: { taskId: string }) {
   if (data === null) {
     return <div style={skeletonStyle}>Loading flow…</div>;
   }
+  // Collapsed (default) is a single compact strip — the conversation is
+  // the primary content, so "where am I" costs one ~50px row. Expanding
+  // opens the full sequential timeline + sub-status + next-line + trace.
+  if (mode === 'collapsed') {
+    return <PhaseStrip trace={data} onExpand={toggleMode} />;
+  }
   return (
     <div style={flowStyle}>
       <FlowHead trace={data} />
-      {mode === 'collapsed'
-        ? <MilestoneBuckets summary={data.milestoneSummary} />
-        : <SequentialNodes trace={data} />}
+      <SequentialNodes trace={data} />
       {data.currentPhase !== null && WAIT_PHASES.has(data.currentPhase)
         && data.linkedActivePr !== null && (
         <ParallelStatus pr={data.linkedActivePr} enteredAt={waitEnteredAt(data)} />
       )}
       <NextLine options={data.nextPossible} />
       <ModeToggle mode={mode} hiddenCount={data.events.length} onToggle={toggleMode} />
-      {mode === 'expanded' && <TracePanel events={data.events} />}
+      <TracePanel events={data.events} />
     </div>
   );
+}
+
+// ── collapsed: one compact phase strip ────────────────────────────────
+
+function PhaseStrip({ trace, onExpand }: { trace: TaskTraceDto; onExpand: () => void }) {
+  // A settled task shows its journey as a one-line text trail (the stepper
+  // is done), tinted green so a done task reads as done at a glance.
+  if (trace.currentPhase === 'COMPLETED') {
+    const trail = trace.milestoneSummary
+      .filter(m => m.visits > 0).map(m => m.label).join(' → ');
+    return (
+      <div style={stripDoneStyle} data-testid="phase-strip">
+        <span style={doneBadgeStyle}>✓ Done</span>
+        {trail !== '' && <span style={trailStyle}>{trail}</span>}
+        <span style={{ flex: 1, minWidth: 0 }} />
+        <TimelineToggle onExpand={onExpand} />
+      </div>
+    );
+  }
+  return (
+    <div style={stripStyle} data-testid="phase-strip">
+      <MilestoneBuckets summary={trace.milestoneSummary} onClick={onExpand} />
+      <span style={stripContextStyle}>{phaseContext(trace)}</span>
+      <TimelineToggle onExpand={onExpand} />
+    </div>
+  );
+}
+
+function TimelineToggle({ onExpand }: { onExpand: () => void }) {
+  return (
+    <button type="button" style={timelineBtnStyle} onClick={onExpand}
+      title="Expand the full sequential timeline">
+      ▾ Timeline
+    </button>
+  );
+}
+
+/** Short "what's happening" line for the compact strip — derived from the
+ *  trace, no new field. Prefers a live wait-state hint, else the latest
+ *  transition's reason, else the active milestone. */
+function phaseContext(trace: TaskTraceDto): string {
+  const pr = trace.linkedActivePr;
+  if (pr !== null && trace.currentPhase !== null && WAIT_PHASES.has(trace.currentPhase)) {
+    if (pr.ciStatus === 'FAILING') return 'CI failing';
+    if (pr.ciStatus === 'PENDING') return 'CI running';
+    if (pr.draft) return 'draft — awaiting mark-ready';
+    if (pr.changesRequestedCount > 0) return 'changes requested';
+    return 'awaiting remote review';
+  }
+  const last = trace.events.length > 0 ? trace.events[trace.events.length - 1] : null;
+  if (last !== null && last.reason !== null && last.reason !== '') {
+    return last.reason;
+  }
+  return trace.milestoneSummary.find(m => m.active)?.label ?? '';
 }
 
 /** Sticky per-task collapsed/expanded preference, persisted in
@@ -126,18 +184,30 @@ function FlowHead({ trace }: { trace: TaskTraceDto }) {
   );
 }
 
-// ── collapsed view: six milestone buckets ─────────────────────────────
+// ── collapsed view: compact six-bucket mini-stepper ───────────────────
 
-function MilestoneBuckets({ summary }: { summary: MilestoneSummaryDto[] }) {
+function MilestoneBuckets({ summary, onClick }: {
+  summary: MilestoneSummaryDto[];
+  onClick?: () => void;
+}) {
   return (
-    <div style={stepperStyle}>
+    <div
+      style={miniStepperStyle}
+      role={onClick !== undefined ? 'button' : undefined}
+      tabIndex={onClick !== undefined ? 0 : undefined}
+      onClick={onClick}
+      onKeyDown={onClick !== undefined
+        ? (e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); onClick(); } }
+        : undefined}
+      title={onClick !== undefined ? 'Expand the full timeline' : undefined}
+    >
       {summary.map((bucket, i) => (
-        <div key={bucket.milestone} style={stepGroupStyle}>
+        <Fragment key={bucket.milestone}>
           <Bucket bucket={bucket} />
           {i < summary.length - 1 && (
-            <span aria-hidden style={connectorStyle(connectorState(bucket, summary[i + 1]))} />
+            <span aria-hidden style={miniConnStyle(connectorState(bucket, summary[i + 1]))} />
           )}
-        </div>
+        </Fragment>
       ))}
     </div>
   );
@@ -156,10 +226,11 @@ function Bucket({ bucket }: { bucket: MilestoneSummaryDto }) {
   const state = bucketState(bucket);
   const terminal = bucket.milestone === 'MERGE' && bucket.visits > 0 && !bucket.active;
   return (
-    <div style={stepStyle} data-milestone={bucket.milestone} data-state={terminal ? 'terminal' : state}>
-      <span style={dotStyle(state, terminal)} aria-hidden>{dotGlyph(state, terminal)}</span>
-      <span style={nameStyle(state)}>{bucket.label}</span>
-      {bucket.visits > 1 && <span style={loopBadgeStyle(state)}>×{bucket.visits}</span>}
+    <div style={miniStepStyle} data-milestone={bucket.milestone}
+      data-state={terminal ? 'terminal' : state}>
+      <span style={miniDotStyle(state, terminal)} aria-hidden />
+      <span style={miniNameStyle(state)}>{bucket.label}</span>
+      {bucket.visits > 1 && <span style={miniBadgeStyle(state)}>×{bucket.visits}</span>}
     </div>
   );
 }
@@ -512,16 +583,6 @@ function nameStyle(state: BucketState): React.CSSProperties {
   }
 }
 
-function loopBadgeStyle(state: BucketState): React.CSSProperties {
-  const skipped = state === 'skipped';
-  return {
-    fontSize: 9, fontWeight: 800, padding: '1px 6px', borderRadius: 999,
-    color: skipped ? '#6b7280' : '#b45309',
-    background: skipped ? 'rgba(228,228,231,0.5)' : 'rgba(245,158,11,0.10)',
-    border: `1px solid ${skipped ? 'rgba(0,0,0,0.08)' : 'rgba(245,158,11,0.32)'}`,
-  };
-}
-
 function connectorStyle(state: ConnState): React.CSSProperties {
   const base: React.CSSProperties = { height: 2, minWidth: 18, flex: 1, marginTop: 10 };
   switch (state) {
@@ -530,6 +591,100 @@ function connectorStyle(state: ConnState): React.CSSProperties {
       return {
         ...base,
         background: 'repeating-linear-gradient(90deg,transparent 0 5px,rgba(0,0,0,0.22) 5px 10px)',
+      };
+    default: return { ...base, background: 'rgba(0,0,0,0.10)' };
+  }
+}
+
+// ── compact strip + mini-stepper styles (collapsed default) ───────────
+
+const stripStyle: React.CSSProperties = {
+  display: 'flex', alignItems: 'center', gap: 14, padding: '7px 4px',
+};
+const stripDoneStyle: React.CSSProperties = {
+  display: 'flex', alignItems: 'center', gap: 12, padding: '8px 12px',
+  borderRadius: 10, background: 'rgba(16,185,129,0.04)',
+  border: '1px solid rgba(16,185,129,0.18)',
+};
+const doneBadgeStyle: React.CSSProperties = {
+  flexShrink: 0, fontSize: 11.5, fontWeight: 800, color: '#047857',
+  letterSpacing: '0.02em',
+};
+const trailStyle: React.CSSProperties = {
+  fontSize: 11, color: 'var(--text-2)', whiteSpace: 'nowrap',
+  overflow: 'hidden', textOverflow: 'ellipsis', minWidth: 0,
+};
+const stripContextStyle: React.CSSProperties = {
+  flex: 1, minWidth: 0, fontSize: 11.5, color: 'var(--text-3)',
+  overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+};
+const timelineBtnStyle: React.CSSProperties = {
+  flexShrink: 0, display: 'inline-flex', alignItems: 'center', gap: 4,
+  padding: '3px 10px', borderRadius: 999, cursor: 'pointer',
+  fontSize: 10.5, fontWeight: 700, color: '#92400e',
+  background: 'rgba(245,158,11,0.06)', border: '1px solid #fcd34d',
+};
+
+const miniStepperStyle: React.CSSProperties = {
+  display: 'flex', alignItems: 'center', gap: 3, flexShrink: 0,
+  overflowX: 'auto', cursor: 'pointer', padding: '2px 0',
+};
+const miniStepStyle: React.CSSProperties = {
+  display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 3, flexShrink: 0,
+};
+
+function miniDotStyle(state: BucketState, terminal: boolean): React.CSSProperties {
+  const size = state === 'active' ? 14 : 11;
+  const base: React.CSSProperties = {
+    width: size, height: size, borderRadius: '50%', border: '2px solid', boxSizing: 'border-box',
+  };
+  if (terminal) {
+    return { ...base, background: 'linear-gradient(135deg,#34d399,#10b981)', borderColor: '#047857' };
+  }
+  switch (state) {
+    case 'reached':
+      return { ...base, background: 'linear-gradient(135deg,#86efac,#22c55e)', borderColor: '#16a34a' };
+    case 'active':
+      return {
+        ...base, background: 'linear-gradient(135deg,#fbbf24,#d97706)', borderColor: '#92400e',
+        boxShadow: '0 0 0 3px rgba(245,158,11,0.18)',
+      };
+    case 'skipped':
+      return { ...base, background: '#fff', border: '2px dashed #d4d4d8' };
+    default:
+      return { ...base, background: '#fff', borderColor: 'rgba(0,0,0,0.20)' };
+  }
+}
+
+function miniNameStyle(state: BucketState): React.CSSProperties {
+  const base: React.CSSProperties = { fontSize: 9, fontWeight: 600, whiteSpace: 'nowrap' };
+  switch (state) {
+    case 'active': return { ...base, color: '#92400e', fontWeight: 800 };
+    case 'reached': return { ...base, color: 'var(--text-2)' };
+    case 'skipped':
+      return { ...base, color: 'var(--text-3)', fontStyle: 'italic', textDecoration: 'line-through' };
+    default: return { ...base, color: 'var(--text-4)' };
+  }
+}
+
+function miniBadgeStyle(state: BucketState): React.CSSProperties {
+  const skipped = state === 'skipped';
+  return {
+    fontSize: 8, fontWeight: 800, padding: '0 4px', borderRadius: 999, lineHeight: 1.5,
+    color: skipped ? '#6b7280' : '#b45309',
+    background: skipped ? 'rgba(228,228,231,0.5)' : 'rgba(245,158,11,0.10)',
+    border: `1px solid ${skipped ? 'rgba(0,0,0,0.08)' : 'rgba(245,158,11,0.32)'}`,
+  };
+}
+
+function miniConnStyle(state: ConnState): React.CSSProperties {
+  const base: React.CSSProperties = { height: 2, width: 12, flexShrink: 0, marginTop: 8 };
+  switch (state) {
+    case 'reached': return { ...base, background: 'linear-gradient(90deg,#22c55e,#16a34a)' };
+    case 'skipped':
+      return {
+        ...base,
+        background: 'repeating-linear-gradient(90deg,transparent 0 4px,rgba(0,0,0,0.22) 4px 8px)',
       };
     default: return { ...base, background: 'rgba(0,0,0,0.10)' };
   }

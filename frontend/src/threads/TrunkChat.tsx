@@ -447,10 +447,14 @@ function TaskLaunchCard({
 }) {
   const branch = task.branchName ?? '—';
   const pr = task.prNumber !== null ? ` · PR #${task.prNumber}` : '';
-  // A COMPLETED dev-lifecycle phase is terminal even when the runtime
-  // status lags (e.g. IDLE after a remote merge), so the launch card
-  // reads "SHIPPED" rather than a stale "RUNNING".
-  const status = task.phase === 'COMPLETED' ? 'COMPLETED' : task.status;
+  // A CANCELED task is terminal too — and its phase is left at COMPLETED,
+  // so it must take precedence or the card would read "SHIPPED" for a task
+  // the user closed. Otherwise a COMPLETED dev-lifecycle phase is terminal
+  // even when the runtime status lags (e.g. IDLE after a remote merge), so
+  // the card reads "SHIPPED" rather than a stale "RUNNING".
+  const status = task.status === 'CANCELED'
+    ? 'CANCELED'
+    : task.phase === 'COMPLETED' ? 'COMPLETED' : task.status;
   return (
     <div style={launchRowStyle}>
       <div style={launchCardStyle} onClick={onOpen} role="button" tabIndex={0}
@@ -478,6 +482,7 @@ function launchLabel(isForeground: boolean, status: string): string {
   if (isForeground) return 'FOREGROUND';
   if (status === 'AWAITING_REVIEW') return 'AWAITING';
   if (status === 'NEEDS_ATTENTION') return 'NEEDS YOU';
+  if (status === 'CANCELED') return 'CANCELED';
   if (status === 'COMPLETED') return 'SHIPPED';
   if (status === 'ERRORED') return 'ERRORED';
   return status;
@@ -749,7 +754,7 @@ function launchPillStyle(isForeground: boolean, status: string): React.CSSProper
     bg = 'rgba(34, 197, 94, 0.18)';
     color = '#166534';
   }
-  else if (status === 'COMPLETED') {
+  else if (status === 'COMPLETED' || status === 'CANCELED') {
     bg = 'rgba(71, 85, 105, 0.12)';
     color = SLATE;
   }

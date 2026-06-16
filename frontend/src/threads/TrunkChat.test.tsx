@@ -120,4 +120,19 @@ describe('TrunkChat tool-activity badge', () => {
     expect(screen.getByText(/SHIPPED/)).toBeTruthy();
     expect(screen.queryByText(/IDLE/)).toBeNull();
   });
+
+  it('reads a CANCELED task as CANCELED, not SHIPPED, despite its terminal phase', () => {
+    render(
+      <TrunkChat
+        messages={[]}
+        tasks={[launchTask({ phase: 'COMPLETED', status: 'CANCELED' })]}
+        foregroundTaskId={null}
+        userInitials="CJ"
+        onOpenTask={() => {}}
+      />,
+    );
+    // A closed task's phase is left at COMPLETED, but CANCELED status wins.
+    expect(screen.getByText(/CANCELED/)).toBeTruthy();
+    expect(screen.queryByText(/SHIPPED/)).toBeNull();
+  });
 });

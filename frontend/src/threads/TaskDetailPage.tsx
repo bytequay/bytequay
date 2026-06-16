@@ -744,7 +744,12 @@ export default function TaskDetailPage({
                 ⊕ PR #{taskPr}{taskPrIsDraft ? ' · draft' : ''} →
               </button>
             )}
-            {task !== null && (
+            {/* The grey runtime status (idle / running / …) answers "is the
+                agent busy", the green phase chip answers "how far along the
+                lifecycle". They're distinct mid-flight, but at the terminal
+                phase both read "completed" — so drop the status text there
+                and let the single Completed chip speak. */}
+            {task !== null && task.phase !== 'COMPLETED' && (
               <span style={bandStatusStyle}>· {task.status.toLowerCase().replace(/_/g, ' ')}</span>
             )}
             {task !== null && <PhaseChip phase={task.phase} />}

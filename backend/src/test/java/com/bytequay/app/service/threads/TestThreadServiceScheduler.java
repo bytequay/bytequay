@@ -48,8 +48,11 @@ import com.bytequay.app.service.local.GitRunner;
 import com.bytequay.app.service.skills.RoleSkillService;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.io.TempDir;
 import org.mockito.Mockito;
 
+import java.io.IOException;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Instant;
 import java.util.ArrayList;
@@ -704,18 +707,24 @@ class TestThreadServiceScheduler
     }
 
     @Test
-    void threadDiffAndCommitViewsUseAgentCwd()
+    void threadDiffAndCommitViewsUseAgentCwd(@TempDir Path tmp)
+            throws IOException
     {
         Thread thread = threadWithWorktree("thread-1");
         InMemoryTaskStore store = new InMemoryTaskStore();
         store.saveThread(thread);
+        // The commit/diff surfaces skip git when the worktree dir is gone
+        // (a merged task's worktree gets reaped), so the seeded agentCwd
+        // must be a real, present directory for this "worktree alive" case.
+        Path worktree = tmp.resolve(".bytequay/worktrees/dev/thread-1");
+        Files.createDirectories(worktree);
         // Per-task fields live on the active task projection; seed
         // one so service.X(threadId) can resolve a real agentCwd.
         Task active = new Task(
                 "task-1", thread.id(), 1L, TaskStatus.IDLE,
                 "dev/thread-1",
-                "/tmp/work/.bytequay/worktrees/dev/thread-1",
-                "main", "/tmp/work",
+                worktree.toString(),
+                "main", tmp.toString(),
                 null, null, null, null, null, "DEVELOP", null, null,
                 0L, 0L, 0L, /* agentSessionId */ null,
                 Instant.parse("2026-05-18T12:00:00Z"), null, null, null, null, null);
@@ -747,6 +756,40 @@ class TestThreadServiceScheduler
         assertThat(git.listCommitsSincePaths).containsExactly(expected);
         assertThat(git.commitFilesPaths).containsExactly(expected);
         assertThat(git.commitDiffPaths).containsExactly(expected);
+    }
+
+    @Test
+    void commitAndDiffViewsReturnEmptyWhenTheWorktreeWasReaped(@TempDir Path tmp)
+    {
+        Thread thread = threadWithWorktree("thread-1");
+        InMemoryTaskStore store = new InMemoryTaskStore();
+        store.saveThread(thread);
+        // A merged task's worktree is deleted by the lifecycle driver, so
+        // its agentCwd no longer exists on disk — the read surfaces must
+        // return nothing rather than 500 on a missing directory.
+        Path reaped = tmp.resolve("reaped/dev/thread-1");
+        Task active = new Task(
+                "task-1", thread.id(), 1L, TaskStatus.COMPLETED,
+                "dev/thread-1",
+                reaped.toString(),
+                "main", tmp.toString(),
+                null, null, null, null, null, "DEVELOP", null, null,
+                0L, 0L, 0L, /* agentSessionId */ null,
+                Instant.parse("2026-05-18T12:00:00Z"), null, null, null, null, null);
+        SingleTaskStore tasks = new SingleTaskStore(active);
+        RecordingGitRunner git = new RecordingGitRunner();
+        ThreadService service = new ThreadService(
+                store, tasks, new EmptyTaskGroupStore(),
+                new InMemoryTaskTurnStore(), new InMemoryTaskTurnEventStore(),
+                new ThrowingRegistry(), new RecordingScheduler(),
+                Mockito.mock(WorktreeLeaseService.class), git, noopWorktreeService(),
+                new RoleSkillService(new ConceptRegistry()), stubIdGenerator());
+
+        assertThat(service.listTaskCommits(thread.id())).isEmpty();
+        assertThat(service.getWorkingDiff(thread.id(), "src/App.java")).isEmpty();
+        // git was never invoked against the missing directory.
+        assertThat(git.listCommitsSincePaths).isEmpty();
+        assertThat(git.workingTreeDiffPaths).isEmpty();
     }
 
     private record WorktreeCreateRequest(Path repoRoot, String sessionId, String title) {}

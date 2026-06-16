@@ -45,6 +45,7 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.web.server.ResponseStatusException;
 
 import java.io.IOException;
+import java.nio.file.Files;
 import java.nio.file.Path;
 import java.time.Instant;
 import java.util.Arrays;
@@ -834,8 +835,12 @@ public class ThreadService
     {
         requireNonNull(path, "path is null");
         Thread thread = requireTask(threadId);
+        Optional<Path> cwd = existingAgentCwd(thread);
+        if (cwd.isEmpty()) {
+            return "";
+        }
         try {
-            return git.workingTreeFileDiff(agentCwd(thread), path, DIFF_MAX_BYTES);
+            return git.workingTreeFileDiff(cwd.get(), path, DIFF_MAX_BYTES);
         }
         catch (IOException e) {
             throw new RuntimeException("Failed to diff " + path + " for " + threadId, e);
@@ -852,8 +857,16 @@ public class ThreadService
     public List<GitRunner.CommitEntry> listTaskCommits(String threadId)
     {
         Thread thread = requireTask(threadId);
+        // A merged task's worktree gets reaped (deleted) by the lifecycle
+        // driver, so the dir can be gone while the task row lives on.
+        // Running git in a missing directory throws — return no commits
+        // instead of 500ing the page.
+        Optional<Path> cwd = existingAgentCwd(thread);
+        if (cwd.isEmpty()) {
+            return List.of();
+        }
         try {
-            return git.listCommitsSince(agentCwd(thread), thread.createdAt(), COMMITS_LIMIT);
+            return git.listCommitsSince(cwd.get(), thread.createdAt(), COMMITS_LIMIT);
         }
         catch (IOException e) {
             throw new RuntimeException("Failed to list commits for " + threadId, e);
@@ -934,6 +947,16 @@ public class ThreadService
                     "thread " + thread.id() + " has no task with a working dir");
         }
         return Path.of(active.agentCwd());
+    }
+
+    /** {@link #agentCwd} narrowed to a directory that still exists. Empty
+     *  when the worktree has been reaped (a merged task's worktree is
+     *  deleted), so read-only commit/diff surfaces can return nothing
+     *  rather than failing on a missing directory. */
+    private Optional<Path> existingAgentCwd(Thread thread)
+    {
+        Path cwd = agentCwd(thread);
+        return Files.isDirectory(cwd) ? Optional.of(cwd) : Optional.empty();
     }
 
     private static List<String> distinctCopy(List<String> values)

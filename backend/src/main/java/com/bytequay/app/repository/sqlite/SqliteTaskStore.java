@@ -296,10 +296,16 @@ class SqliteTaskStore
                 TaskStatus.RUNNING.name(),
                 TaskStatus.AWAITING.name(),
                 TaskStatus.IDLE.name());
+        // Also exclude tasks whose dev-lifecycle phase is terminal even when
+        // the runtime status lags behind it — a remote merge advances phase
+        // to COMPLETED without flipping status off IDLE, and such a task is
+        // done, not active. Reading status alone would let it masquerade as
+        // the thread's active task and pull trunk turns into its lane.
         return tasks.findByThreadIdAndStatusInOrderBySeqDesc(threadId, active)
                 .stream()
-                .findFirst()
-                .map(this::toTask);
+                .map(this::toTask)
+                .filter(t -> t.phase() != TaskPhase.COMPLETED)
+                .findFirst();
     }
 
     @Override

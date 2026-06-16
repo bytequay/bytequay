@@ -14,6 +14,7 @@
 package com.bytequay.app.repository.sqlite;
 
 import com.bytequay.app.domain.Task;
+import com.bytequay.app.domain.TaskPhase;
 import com.bytequay.app.domain.TaskStatus;
 import com.bytequay.app.domain.Thread;
 import com.bytequay.app.domain.ThreadFile;
@@ -290,6 +291,41 @@ class TestSqliteThreadStore
         assertThat(foo.count()).isEqualTo(3);
         assertThat(foo.linesAdded()).isEqualTo(12);
         assertThat(foo.lastTouchedAt()).isEqualTo(second);
+    }
+
+    @Test
+    void findActiveTaskIgnoresTasksWhoseStatusLagsACompletedPhase()
+    {
+        Thread thread = newTask(ThreadKind.LOGIC_LOOP, ThreadStatus.RUNNING);
+        store.saveThread(thread);
+        Instant now = Instant.parse("2026-05-15T12:00:00Z");
+
+        // A genuinely active task — IDLE status, default (non-terminal) phase.
+        String activeId = UUID.randomUUID().toString();
+        taskStore.saveTask(new Task(
+                activeId, thread.id(), 1L, TaskStatus.IDLE, "main", null, "main", "/tmp",
+                null, null, null, null, null, "DEVELOP", null, null,
+                0L, 0L, 0L, null, now, null, null, null, null, null));
+        assertThat(taskStore.findActiveTaskForThread(thread.id()).map(Task::id))
+                .hasValue(activeId);
+
+        // A done task whose runtime status lags: IDLE but phase COMPLETED,
+        // and a higher seq so it would win on status alone.
+        String laggingId = UUID.randomUUID().toString();
+        taskStore.saveTask(new Task(
+                laggingId, thread.id(), 2L, TaskStatus.IDLE, "main", null, "main", "/tmp",
+                null, null, null, null, null, "DEVELOP", null, null,
+                0L, 0L, 0L, null, now, null, null, null, null, null));
+        taskStore.updatePhase(laggingId, TaskPhase.COMPLETED);
+
+        // The lagging done task must not shadow the genuinely active one.
+        assertThat(taskStore.findActiveTaskForThread(thread.id()).map(Task::id))
+                .hasValue(activeId);
+
+        // Once the active task also completes (phase), the thread is idle —
+        // no active task — even if its runtime status never flipped.
+        taskStore.updatePhase(activeId, TaskPhase.COMPLETED);
+        assertThat(taskStore.findActiveTaskForThread(thread.id())).isEmpty();
     }
 
     private static Thread newTask(ThreadKind kind, ThreadStatus status)

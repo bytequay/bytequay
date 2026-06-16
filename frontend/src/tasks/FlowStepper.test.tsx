@@ -11,7 +11,7 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import { cleanup, render, screen, waitFor } from '@testing-library/react';
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { FlowStepper } from './FlowStepper';
 import type { MilestoneSummaryDto, TaskTraceDto } from '../types';
@@ -19,6 +19,7 @@ import type { MilestoneSummaryDto, TaskTraceDto } from '../types';
 afterEach(() => {
   cleanup();
   (window as { bridge?: unknown }).bridge = undefined;
+  localStorage.clear();
   vi.restoreAllMocks();
 });
 
@@ -85,5 +86,32 @@ describe('FlowStepper collapsed view', () => {
     render(<FlowStepper taskId="t1.k1" />);
     await waitFor(() =>
       expect(screen.getByText(/precise: PUSHED_AWAITING_CI/)).toBeTruthy());
+  });
+});
+
+describe('FlowStepper mode toggle', () => {
+  it('expands to the sequential timeline and persists the choice per task', async () => {
+    stubBridge(TRACE);
+    const { unmount } = render(<FlowStepper taskId="t1.k1" />);
+    await waitFor(() => expect(screen.getByText('View full timeline')).toBeTruthy());
+
+    fireEvent.click(screen.getByText('View full timeline'));
+    // Expanded shows the trace panel (reason text) + a collapse affordance.
+    await waitFor(() => expect(screen.getByText('Collapse to milestones')).toBeTruthy());
+    expect(localStorage.getItem('flowStepperMode:t1.k1')).toBe('expanded');
+
+    // Reload (remount) the same task → restores expanded.
+    unmount();
+    stubBridge(TRACE);
+    render(<FlowStepper taskId="t1.k1" />);
+    await waitFor(() => expect(screen.getByText('Collapse to milestones')).toBeTruthy());
+  });
+
+  it('does not leak one task’s mode onto another', async () => {
+    localStorage.setItem('flowStepperMode:t1.k1', 'expanded');
+    stubBridge(TRACE);
+    render(<FlowStepper taskId="t1.k2" />);
+    // Task k2 has no stored choice → defaults collapsed.
+    await waitFor(() => expect(screen.getByText('View full timeline')).toBeTruthy());
   });
 });

@@ -11,8 +11,10 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-import { useCallback, useEffect, useState } from 'react';
-import type { MilestoneSummaryDto, TaskTraceDto } from '../types';
+import { Fragment, useCallback, useEffect, useState } from 'react';
+import type { MilestoneSummaryDto, TaskTraceDto, TraceEventDto } from '../types';
+
+type Mode = 'collapsed' | 'expanded';
 
 /**
  * The task page's lifecycle flow display. Reads the
@@ -23,15 +25,38 @@ import type { MilestoneSummaryDto, TaskTraceDto } from '../types';
  */
 export function FlowStepper({ taskId }: { taskId: string }) {
   const { data } = useTaskTrace(taskId);
+  const [mode, toggleMode] = useLocalStorageMode(taskId);
   if (data === null) {
     return <div style={skeletonStyle}>Loading flow…</div>;
   }
   return (
     <div style={flowStyle}>
       <FlowHead trace={data} />
-      <MilestoneBuckets summary={data.milestoneSummary} />
+      {mode === 'collapsed'
+        ? <MilestoneBuckets summary={data.milestoneSummary} />
+        : <SequentialNodes trace={data} />}
+      <ModeToggle mode={mode} hiddenCount={data.events.length} onToggle={toggleMode} />
+      {mode === 'expanded' && <TracePanel events={data.events} />}
     </div>
   );
+}
+
+/** Sticky per-task collapsed/expanded preference, persisted in
+ *  localStorage keyed by taskId so it survives reloads and never leaks
+ *  across tasks. Returns the mode and a toggle. */
+export function useLocalStorageMode(taskId: string): [Mode, () => void] {
+  const key = `flowStepperMode:${taskId}`;
+  const [mode, setMode] = useState<Mode>(() => readMode(key));
+  // Re-read when the task changes (the component may be reused).
+  useEffect(() => { setMode(readMode(key)); }, [key]);
+  useEffect(() => { localStorage.setItem(key, mode); }, [key, mode]);
+  const toggle = useCallback(
+    () => setMode(m => (m === 'collapsed' ? 'expanded' : 'collapsed')), []);
+  return [mode, toggle];
+}
+
+function readMode(key: string): Mode {
+  return localStorage.getItem(key) === 'expanded' ? 'expanded' : 'collapsed';
 }
 
 const TERMINAL_PHASES = new Set(['COMPLETED']);
@@ -138,6 +163,107 @@ function connectorState(a: MilestoneSummaryDto, b: MilestoneSummaryDto): ConnSta
   if (a.skipped || b.skipped) return 'skipped';
   if (b.visits > 0 || b.active) return 'reached';
   return 'future';
+}
+
+// ── expanded view: one node per phase-event, in order ─────────────────
+
+type SeqNodeModel = { key: string; label: string; state: BucketState; terminal: boolean };
+
+function SequentialNodes({ trace }: { trace: TaskTraceDto }) {
+  const { events, currentPhase, nextPossible } = trace;
+  let activeIdx = events.length - 1;
+  for (let i = events.length - 1; i >= 0; i--) {
+    if (events[i].toPhase === currentPhase) { activeIdx = i; break; }
+  }
+  const terminalReached = currentPhase !== null && TERMINAL_PHASES.has(currentPhase);
+
+  const nodes: SeqNodeModel[] = events.map((e, i) => ({
+    key: `e-${i}`,
+    label: e.label,
+    state: i === activeIdx ? 'active' : 'reached',
+    terminal: e.toPhase === 'COMPLETED',
+  }));
+  // Predicted future nodes (dim) — where the sequence could go next.
+  if (!terminalReached) {
+    for (const n of nextPossible) {
+      nodes.push({ key: `f-${n.trigger}`, label: n.label, state: 'future', terminal: n.trigger === 'COMPLETED' });
+    }
+  }
+
+  return (
+    <div style={stepperStyle}>
+      {nodes.map((node, i) => (
+        <div key={node.key} style={stepGroupStyle}>
+          <div style={stepStyle} data-node={node.label} data-state={node.terminal ? 'terminal' : node.state}>
+            <span style={dotStyle(node.state, node.terminal)} aria-hidden>
+              {dotGlyph(node.state, node.terminal)}
+            </span>
+            <span style={nameStyle(node.state)}>{node.label}</span>
+          </div>
+          {i < nodes.length - 1 && (
+            <span aria-hidden style={connectorStyle(
+              nodes[i + 1].state === 'future' ? 'future' : 'reached')} />
+          )}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+// ── mode toggle (sticky per task) ─────────────────────────────────────
+
+function ModeToggle({ mode, hiddenCount, onToggle }: {
+  mode: Mode;
+  hiddenCount: number;
+  onToggle: () => void;
+}) {
+  return (
+    <button type="button" style={modeToggleStyle} onClick={onToggle}>
+      <span aria-hidden style={modeGlyphStyle}>{mode === 'collapsed' ? '▾' : '▴'}</span>
+      <span style={modeLblStyle}>
+        {mode === 'collapsed' ? 'View full timeline' : 'Collapse to milestones'}
+      </span>
+      <span style={modeCtStyle}>
+        {mode === 'collapsed'
+          ? `${hiddenCount} individual node${hiddenCount === 1 ? '' : 's'} hidden`
+          : 'return to 6-bucket overview'}
+      </span>
+    </button>
+  );
+}
+
+// ── trace panel (expanded only): timestamp · actor · reason ───────────
+
+function TracePanel({ events }: { events: TraceEventDto[] }) {
+  return (
+    <div style={traceStyle}>
+      {events.map((e, i) => (
+        <div key={i} style={traceRowStyle}>
+          <span style={traceNStyle}>{e.n}.</span>
+          <span style={traceTsStyle}>{formatClock(e.transitionedAt)}</span>
+          <span style={traceArrowStyle}>
+            <span style={{ color: 'var(--text-3)' }}>{e.fromPhase ?? 'CREATED'}</span>
+            <span style={{ color: 'var(--text-4)' }}>→</span>
+            <span style={{ color: 'var(--text-1)', fontWeight: 700 }}>{e.toPhase}</span>
+          </span>
+          <span style={actorPillStyle(e.actor)}>{actorLabel(e.actor)}</span>
+          <span style={traceReasonStyle}>{e.reason}</span>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function actorLabel(actor: string | null): string {
+  if (actor === 'HUMAN') return 'you';
+  return (actor ?? '').toLowerCase();
+}
+
+function formatClock(iso: string): string {
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return '';
+  const p = (n: number) => String(n).padStart(2, '0');
+  return `${p(d.getHours())}:${p(d.getMinutes())}:${p(d.getSeconds())}`;
 }
 
 // ── helpers ───────────────────────────────────────────────────────────
@@ -267,5 +393,60 @@ function connectorStyle(state: ConnState): React.CSSProperties {
         background: 'repeating-linear-gradient(90deg,transparent 0 5px,rgba(0,0,0,0.22) 5px 10px)',
       };
     default: return { ...base, background: 'rgba(0,0,0,0.10)' };
+  }
+}
+
+const monoFont = '"SF Mono", Menlo, Consolas, monospace';
+
+const modeToggleStyle: React.CSSProperties = {
+  marginTop: 14, width: '100%', display: 'flex', alignItems: 'center', gap: 8,
+  padding: '9px 14px', borderRadius: 11, cursor: 'pointer', textAlign: 'left',
+  background: 'rgba(245,158,11,0.04)', border: '1px solid #fcd34d',
+  fontSize: 11.5, color: '#92400e',
+};
+const modeGlyphStyle: React.CSSProperties = { fontWeight: 800 };
+const modeLblStyle: React.CSSProperties = { fontWeight: 700 };
+const modeCtStyle: React.CSSProperties = {
+  marginLeft: 'auto', fontFamily: monoFont, fontSize: 10.5, color: 'var(--text-3)',
+};
+
+const traceStyle: React.CSSProperties = {
+  marginTop: 12, background: 'rgba(255,255,255,0.5)',
+  border: '1px solid rgba(0,0,0,0.08)', borderRadius: 13, padding: '4px 0',
+  maxHeight: 320, overflowY: 'auto',
+};
+const traceRowStyle: React.CSSProperties = {
+  display: 'grid', gridTemplateColumns: '28px 70px 1fr 84px 1.05fr', gap: 12,
+  alignItems: 'center', padding: '8px 16px', fontSize: 11.5,
+  borderBottom: '1px solid rgba(0,0,0,0.06)',
+};
+const traceNStyle: React.CSSProperties = {
+  color: 'var(--text-4)', fontFamily: monoFont, fontSize: 10, textAlign: 'right',
+};
+const traceTsStyle: React.CSSProperties = {
+  color: 'var(--text-3)', fontFamily: monoFont, fontSize: 10.5,
+};
+const traceArrowStyle: React.CSSProperties = {
+  display: 'flex', alignItems: 'center', gap: 7, fontFamily: monoFont, fontSize: 11,
+};
+const traceReasonStyle: React.CSSProperties = {
+  color: 'var(--text-2)', fontSize: 11, lineHeight: 1.4,
+};
+
+function actorPillStyle(actor: string | null): React.CSSProperties {
+  const base: React.CSSProperties = {
+    fontSize: 9.5, fontWeight: 800, letterSpacing: '0.04em', padding: '2px 8px',
+    borderRadius: 999, textTransform: 'uppercase', textAlign: 'center',
+    border: '1px solid',
+  };
+  switch (actor) {
+    case 'AGENT':
+      return { ...base, background: 'rgba(124,92,255,0.12)', color: '#5b21b6', borderColor: 'rgba(124,92,255,0.3)' };
+    case 'HUMAN':
+      return { ...base, background: 'rgba(16,185,129,0.12)', color: '#047857', borderColor: '#86efac' };
+    case 'WEBHOOK':
+      return { ...base, background: 'rgba(37,99,235,0.10)', color: '#1d4ed8', borderColor: '#93c5fd' };
+    default:
+      return { ...base, background: 'rgba(0,0,0,0.04)', color: 'var(--text-3)', borderColor: 'rgba(0,0,0,0.08)' };
   }
 }

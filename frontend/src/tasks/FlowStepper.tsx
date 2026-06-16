@@ -12,7 +12,7 @@
  * limitations under the License.
  */
 import { Fragment, useCallback, useEffect, useState } from 'react';
-import type { MilestoneSummaryDto, TaskTraceDto, TraceEventDto } from '../types';
+import type { MilestoneSummaryDto, NextPossibleDto, TaskTraceDto, TraceEventDto } from '../types';
 
 type Mode = 'collapsed' | 'expanded';
 
@@ -35,6 +35,7 @@ export function FlowStepper({ taskId }: { taskId: string }) {
       {mode === 'collapsed'
         ? <MilestoneBuckets summary={data.milestoneSummary} />
         : <SequentialNodes trace={data} />}
+      <NextLine options={data.nextPossible} />
       <ModeToggle mode={mode} hiddenCount={data.events.length} onToggle={toggleMode} />
       {mode === 'expanded' && <TracePanel events={data.events} />}
     </div>
@@ -205,6 +206,27 @@ function SequentialNodes({ trace }: { trace: TaskTraceDto }) {
               nodes[i + 1].state === 'future' ? 'future' : 'reached')} />
           )}
         </div>
+      ))}
+    </div>
+  );
+}
+
+// ── next-possible line (shared across both modes) ─────────────────────
+
+function NextLine({ options }: { options: NextPossibleDto[] }) {
+  if (options.length === 0) {
+    return null;
+  }
+  return (
+    <div style={nextLineStyle}>
+      <span style={nextLineLblStyle}>Next node will be:</span>
+      {options.map((o, i) => (
+        <Fragment key={o.trigger}>
+          {i > 0 && <span style={nextSepStyle}>·</span>}
+          <span style={nextOptStyle}>
+            {o.label}<span style={nextCondStyle}> · {o.cond}</span>
+          </span>
+        </Fragment>
       ))}
     </div>
   );
@@ -397,6 +419,26 @@ function connectorStyle(state: ConnState): React.CSSProperties {
 }
 
 const monoFont = '"SF Mono", Menlo, Consolas, monospace';
+
+const nextLineStyle: React.CSSProperties = {
+  display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap',
+  marginTop: 14, padding: '10px 14px', borderRadius: 11,
+  background: 'rgba(124,92,255,0.04)', border: '1px dashed rgba(124,92,255,0.32)',
+  fontSize: 11.5, color: 'var(--text-2)',
+};
+const nextLineLblStyle: React.CSSProperties = {
+  fontSize: 10, fontWeight: 800, letterSpacing: '0.05em',
+  textTransform: 'uppercase', color: 'var(--text-3)',
+};
+const nextSepStyle: React.CSSProperties = { color: 'var(--text-4)' };
+const nextOptStyle: React.CSSProperties = {
+  padding: '2px 9px', borderRadius: 999, fontSize: 11, fontWeight: 600,
+  background: 'rgba(255,255,255,0.7)', border: '1px solid rgba(124,92,255,0.32)',
+  color: '#5b21b6', whiteSpace: 'nowrap',
+};
+const nextCondStyle: React.CSSProperties = {
+  color: 'var(--text-4)', fontWeight: 500, fontSize: 10.5,
+};
 
 const modeToggleStyle: React.CSSProperties = {
   marginTop: 14, width: '100%', display: 'flex', alignItems: 'center', gap: 8,

@@ -45,7 +45,10 @@ const TRACE: TaskTraceDto = {
     milestone({ milestone: 'WAIT_ON_PR', label: 'Wait on PR', visits: 2, active: true, position: 5 }),
     milestone({ milestone: 'MERGE', label: 'Merge', visits: 0, position: 6 }),
   ],
-  nextPossible: [],
+  nextPossible: [
+    { trigger: 'AWAITING_REMOTE_REVIEW', label: 'Remote review', cond: 'on CI green / ready' },
+    { trigger: 'COMPLETED', label: 'Merged', cond: 'PR merged externally' },
+  ],
 };
 
 function stubBridge(trace: TaskTraceDto) {
@@ -86,6 +89,15 @@ describe('FlowStepper collapsed view', () => {
     render(<FlowStepper taskId="t1.k1" />);
     await waitFor(() =>
       expect(screen.getByText(/precise: PUSHED_AWAITING_CI/)).toBeTruthy());
+  });
+
+  it('renders the next-possible line with friendly labels and conditions', async () => {
+    stubBridge(TRACE);
+    render(<FlowStepper taskId="t1.k1" />);
+    await waitFor(() => expect(screen.getByText('Next node will be:')).toBeTruthy());
+    expect(screen.getByText('Remote review')).toBeTruthy();
+    expect(screen.getByText('Merged')).toBeTruthy();
+    expect(screen.getByText(/PR merged externally/)).toBeTruthy();
   });
 });
 

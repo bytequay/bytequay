@@ -604,7 +604,9 @@ export default function ThreadTrunkPage({ threadId, onBack, onOpenTask }: Props)
                 const noTarget = foreground === null || selectedTaskId === null;
                 const noTargetReason = (tasks?.length ?? 0) === 0
                   ? 'No tasks yet — start one before parking or shipping'
-                  : 'Select a task to park or ship';
+                  : foreground === null
+                    ? 'All tasks are finished — nothing to park or ship'
+                    : 'Select a task to park or ship';
                 return (
                 <>
                   <div style={advanceRowStyle}>
@@ -1308,7 +1310,11 @@ const dangerHintStyle: React.CSSProperties = {
 
 function newestActiveTask(tasks: WorkUnitTaskDto[]): WorkUnitTaskDto | null {
   return tasks
-    .filter(t => ACTIVE_STATUSES.has(t.status))
+    // A COMPLETED dev-lifecycle phase is terminal even when the runtime
+    // status still reads non-terminal (e.g. IDLE after a remote merge).
+    // Excluding it stops Next/Ship from targeting a finished task — which
+    // the backend rejects with a 500.
+    .filter(t => ACTIVE_STATUSES.has(t.status) && t.phase !== 'COMPLETED')
     .reduce<WorkUnitTaskDto | null>(
       (acc, t) => acc === null || t.seq > acc.seq ? t : acc, null);
 }

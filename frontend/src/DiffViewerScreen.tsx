@@ -891,6 +891,22 @@ function ContinuousFilesPane({
   // animation and the scroll would land short of the clicked file
   // (the "moves only ~8 files at a time" bug).
   const suppressActiveSyncUntil = useRef(0);
+  // Per-file fold, GitHub-style: click the header chevron to hide a
+  // file's hunks while keeping its header in the scroll flow. Filenames
+  // in the set are collapsed; expanded is the default.
+  const [collapsedFiles, setCollapsedFiles] = useState<Set<string>>(new Set());
+  const toggleFileCollapsed = (filename: string) => {
+    setCollapsedFiles((prev) => {
+      const next = new Set(prev);
+      if (next.has(filename)) {
+        next.delete(filename);
+      }
+      else {
+        next.add(filename);
+      }
+      return next;
+    });
+  };
 
   // Smoothly scroll to the section when the user picks a file in the rail.
   // We track `lastSyncedFromClick` so the scroll handler doesn't fight the
@@ -955,6 +971,15 @@ function ContinuousFilesPane({
           data-file-anchor={file.filename}
         >
           <header className="diff-file-section__header">
+            <button
+              type="button"
+              className="diff-file-section__fold"
+              aria-expanded={!collapsedFiles.has(file.filename)}
+              onClick={() => toggleFileCollapsed(file.filename)}
+              title={collapsedFiles.has(file.filename) ? 'Expand file' : 'Collapse file'}
+            >
+              {collapsedFiles.has(file.filename) ? '▸' : '▾'}
+            </button>
             <span className="diff-viewer__pane-filename">{file.filename}</span>
             <span className={`diff-viewer__pane-status diff-viewer__pane-status--${file.status}`}>{file.status}</span>
             <span className="diff-file-section__stats">
@@ -962,20 +987,22 @@ function ContinuousFilesPane({
               <span className="diff-file-row__del">−{file.deletions}</span>
             </span>
           </header>
-          <FileDiff
-            file={file}
-            comments={aiComments}
-            draftId={draftId}
-            draftPublished={draftPublished}
-            onDraftUpdated={onDraftUpdated}
-            prId={prId}
-            repo={repo}
-            prNumber={prNumber}
-            headSha={headSha}
-            threads={threads}
-            onThreadReplied={onThreadReplied}
-            prAuthor={prAuthor}
-          />
+          {!collapsedFiles.has(file.filename) && (
+            <FileDiff
+              file={file}
+              comments={aiComments}
+              draftId={draftId}
+              draftPublished={draftPublished}
+              onDraftUpdated={onDraftUpdated}
+              prId={prId}
+              repo={repo}
+              prNumber={prNumber}
+              headSha={headSha}
+              threads={threads}
+              onThreadReplied={onThreadReplied}
+              prAuthor={prAuthor}
+            />
+          )}
         </section>
       ))}
     </div>

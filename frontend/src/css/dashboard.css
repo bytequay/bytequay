@@ -3045,26 +3045,31 @@
    keeps the base `pre` background (theme-agnostic), and the meta / hunk
    rows use opacity + translucent fills rather than hardcoded colours so
    they stay legible on light OR dark surfaces. */
-.bq-chat-md pre.bq-diff {
+/* Styled by class, NOT scoped to .bq-chat-md: the renderDiffBlock output
+   is shared by every renderMarkdown caller (chat, PR/issue comments, …),
+   so the per-line spans must lay out as block rows everywhere. Scoping
+   these to the chat surface left PR-comment diffs collapsed onto one line
+   (the spans defaulted to inline). */
+pre.bq-diff {
   padding: 6px 0;
 }
-.bq-chat-md pre.bq-diff code {
+pre.bq-diff code {
   display: block;
 }
-.bq-chat-md .bq-diff-line {
+.bq-diff-line {
   display: block;
   padding: 0 10px;
   white-space: pre-wrap;
   overflow-wrap: anywhere;
 }
-.bq-chat-md .bq-diff-add { background: rgba(46, 160, 67, 0.20); }
-.bq-chat-md .bq-diff-del { background: rgba(248, 81, 73, 0.20); }
-.bq-chat-md .bq-diff-hunk {
+.bq-diff-add { background: rgba(46, 160, 67, 0.20); }
+.bq-diff-del { background: rgba(248, 81, 73, 0.20); }
+.bq-diff-hunk {
   background: rgba(99, 102, 241, 0.16);
   font-weight: 600;
   opacity: 0.85;
 }
-.bq-chat-md .bq-diff-meta {
+.bq-diff-meta {
   opacity: 0.6;
   font-weight: 600;
 }

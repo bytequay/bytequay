@@ -1698,23 +1698,57 @@
    the whole diff like GitHub's "Files changed" tab. */
 .diff-viewer__pane-scroll--continuous {
   scroll-behavior: smooth;
+  /* Breathing room so each file card floats off the pane edges, the way
+     GitHub's "Files changed" tab insets its file boxes. */
+  padding: var(--space-3);
 }
 .diff-file-section {
   display: flex;
   flex-direction: column;
-  border-bottom: 1px solid var(--border);
+  /* Each changed file is its own bordered card with a gap to the next,
+     matching GitHub rather than running every file together with a hairline. */
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  margin-bottom: var(--space-3);
+  background: var(--bg-card);
 }
-.diff-file-section:last-child { border-bottom: 0; }
+.diff-file-section:last-child { margin-bottom: 0; }
 .diff-file-section__header {
   position: sticky;
   top: 0;
   z-index: 2;
   display: flex;
-  align-items: baseline;
+  align-items: center;
   gap: var(--space-2);
-  padding: var(--space-2) var(--space-4);
+  /* Taller, roomier header to match GitHub's file box title bar. */
+  padding: var(--space-3) var(--space-4);
+  min-height: 48px;
   border-bottom: 1px solid var(--border);
   background: var(--bg-elevated);
+  /* Match the card's rounded top so the sticky header doesn't square off
+     the corners. */
+  border-top-left-radius: var(--radius-md);
+  border-top-right-radius: var(--radius-md);
+}
+.diff-file-section__fold {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  flex-shrink: 0;
+  padding: 0;
+  border: 0;
+  background: none;
+  cursor: pointer;
+  color: var(--text-2);
+  font-size: 11px;
+  line-height: 1;
+  border-radius: 4px;
+}
+.diff-file-section__fold:hover {
+  background: var(--bg-hover, rgba(127, 127, 127, 0.12));
+  color: var(--text-1);
 }
 .diff-file-section__stats {
   margin-left: auto;

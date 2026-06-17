@@ -218,8 +218,11 @@ public class ReviewerSeat
                 form your own judgement, do not assume what other reviewers said unless \
                 the lead quoted them for you. Use the read-only tools (get_pr_diff, \
                 get_file_content, search_code) to check the actual code before making \
-                claims, and record every concrete issue with report_finding. Keep your \
-                final reply concise: what you checked, what you found, where you stand.\
+                claims, and record every concrete issue with report_finding. \
+                BE TERSE: one short line per finding (claim + where), no preamble, no \
+                restating the task, no long explanations or background. Your final reply \
+                is a brief bullet list of findings plus a one-line overall stance — a few \
+                sentences at most, never multiple paragraphs.\
                 """.formatted(seat.displayLabel()));
         return sb.toString();
     }

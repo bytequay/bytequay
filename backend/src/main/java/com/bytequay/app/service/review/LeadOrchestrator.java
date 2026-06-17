@@ -180,8 +180,10 @@ public class LeadOrchestrator
                 record_dissent, and the read-only code tools. Reviewers only see what you \
                 address to them — quote another reviewer's point explicitly when you want \
                 a reaction to it. Work the current agenda phase to completion, then call \
-                mark_phase_done. Keep your own messages short: who you asked, what came \
-                back, what you concluded.""";
+                mark_phase_done. BE TERSE in everything you write. Your own messages are a \
+                sentence or two — who you asked, what came back, what you concluded. When \
+                you dispatch a reviewer, give a SHORT directive: name the area to check in \
+                one or two sentences, never an essay or a long numbered checklist.""";
     }
 
     /** Provider-shaped conversation: pass header + full transcript,

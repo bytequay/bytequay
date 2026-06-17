@@ -612,9 +612,21 @@ function BudgetCard({
       setRaising(false);
     }
   };
+  // The review is actively running whenever the pass isn't in a terminal
+  // phase — so Resume must stay disabled through the whole run (initial or
+  // resumed), not just for the instant the resume request takes.
+  const running = !['TERMINATE', 'ARBITRATE', 'PUBLISHED'].includes(detail.pass.phase);
   const [resuming, setResuming] = useState(false);
+  // Drop the local "resuming" flag once the backend has actually moved the
+  // pass into a running phase; `running` then governs the disabled state,
+  // bridging the gap between the click and the first non-terminal poll.
+  useEffect(() => {
+    if (running) {
+      setResuming(false);
+    }
+  }, [running]);
   const resume = async () => {
-    if (resuming) {
+    if (resuming || running) {
       return;
     }
     setResuming(true);
@@ -623,10 +635,11 @@ function BudgetCard({
       onResumed(next);
     } catch (err) {
       console.error('resume review failed', err);
-    } finally {
-      setResuming(false);
+      setResuming(false);   // re-enable on failure; success holds until `running`
     }
   };
+  const resumeDisabled = resuming || running;
+  const resumeLabel = running ? 'Reviewing…' : resuming ? 'Resuming…' : '▶ Resume review';
   return (
     <section style={cardStyle} aria-label="Budget">
       <h2 style={cardTitleStyle}>Budget</h2>
@@ -678,12 +691,12 @@ function BudgetCard({
       </div>
       <button
         type="button"
-        style={resuming ? { ...resumeBtnStyle, opacity: 0.6 } : resumeBtnStyle}
-        disabled={resuming}
+        style={resumeDisabled ? { ...resumeBtnStyle, opacity: 0.6, cursor: 'default' } : resumeBtnStyle}
+        disabled={resumeDisabled}
         onClick={() => void resume()}
         title="Re-run the panel: reviewers re-review, then cross-review, consensus, debate, and wrap-up"
       >
-        {resuming ? 'Resuming…' : '▶ Resume review'}
+        {resumeLabel}
       </button>
       <p style={budgetHintStyle}>✦ stops early on convergence — raise, then resume to keep reviewing</p>
     </section>

@@ -680,6 +680,26 @@ describe('ReviewThreadPage', () => {
     expect((screen.getByText('$10 max') as HTMLButtonElement).disabled).toBe(true);
   });
 
+  it('disables Resume while the pass is running, enables it when terminal', async () => {
+    const running = buildDetail({});
+    running.pass.phase = 'CONSENSUS';           // a non-terminal (running) phase
+    installBridge({
+      getReviewPassByThread: vi.fn(async (): Promise<ReviewPassDetailDto | null> => running),
+    });
+    render(<ReviewThreadPage threadId="thread-1" onBack={() => {}} />);
+    await waitFor(() => screen.getByText('Reviewing…'));
+    expect((screen.getByText('Reviewing…') as HTMLButtonElement).disabled).toBe(true);
+
+    // A terminal pass shows the clickable Resume affordance instead.
+    const done = buildDetail({});               // default fixture phase is TERMINATE
+    installBridge({
+      getReviewPassByThread: vi.fn(async (): Promise<ReviewPassDetailDto | null> => done),
+    });
+    render(<ReviewThreadPage threadId="thread-2" onBack={() => {}} />);
+    await waitFor(() => screen.getByText('▶ Resume review'));
+    expect((screen.getByText('▶ Resume review') as HTMLButtonElement).disabled).toBe(false);
+  });
+
   it('shows the PR commits (subject only) in the Reviewing card', async () => {
     const detail = buildDetail({});
     installBridge({
